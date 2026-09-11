@@ -11,7 +11,6 @@ import {
 const id = "00000000-0000-4000-8000-000000000001";
 const event = {
   id,
-  ordinal: 42,
   at: "2026-09-10T12:00:00Z",
   kind: "assistant",
   text: "Selected excerpt",
@@ -21,9 +20,8 @@ describe("retained resource wire schemas", () => {
   it("accepts selected event identities but not trusted provenance, sessions, or claimed content hashes", () => {
     const input = { reviewId: id, label: "Selected material", events: [event] };
     expect(
-      HOST_RESOURCE_COMMANDS["trace.ingest"].input.parse(input).events[0]
-        ?.ordinal,
-    ).toBe(42);
+      HOST_RESOURCE_COMMANDS["trace.ingest"].input.parse(input).events[0]?.id,
+    ).toBe(id);
     for (const extra of [
       { provenance: "harness_collected" },
       { sessionId: id },

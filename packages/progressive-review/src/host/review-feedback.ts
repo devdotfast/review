@@ -2,13 +2,17 @@ import { createHash, randomUUID } from "node:crypto";
 
 import {
   HOST_LIMITS,
+  type HostDiagramItem,
   type HostDocumentState,
   type HostFeedbackCommand,
   type HostFeedbackQuery,
   type HostFeedbackTarget,
   type HostMessage,
+  type HostNode,
   type HostPrincipal,
   type HostQuestionContext,
+  HostQuestionContextSchema,
+  type HostQuestionExcerpt,
   type HostQuestionRun,
   type HostSourceQuote,
   type HostThread,
@@ -16,6 +20,7 @@ import {
   type JsonValue,
   canonicalHostJson,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import { proposeDocumentRepin } from "./document-repin";
 import {
@@ -33,22 +38,39 @@ export class ReviewFeedback {
     private readonly store: ReviewHostStore,
     private readonly evidence: EvidenceProvider,
     private readonly source: LocalRepositorySource,
+    private readonly questions?: {
+      capabilities(): Promise<HostQuestionRun["harness"][]>;
+      defaultHarness?(): HostQuestionRun["harness"] | undefined;
+    },
   ) {}
 
   async prepare(
     request: HostFeedbackCommand,
     access: HostAccess,
   ): Promise<() => JsonValue> {
+    const checkState = () => {
+      if (
+        request.type === "question.complete" ||
+        request.type === "attention.update"
+      )
+        this.store.review(request.input.reviewId);
+      else this.mutableReview(request.input.reviewId);
+    };
+    checkState();
+    const commit = await this.prepareCommand(request, access);
+    return () => {
+      checkState();
+      return commit();
+    };
+  }
+
+  private async prepareCommand(
+    request: HostFeedbackCommand,
+    access: HostAccess,
+  ): Promise<() => JsonValue> {
     const input = request.input;
     const reviewId = input.reviewId;
     const now = new Date().toISOString();
-    if (
-      request.type !== "question.complete" &&
-      request.type !== "review.attention" &&
-      request.type !== "draft.delete"
-    )
-      this.mutableReview(reviewId);
-    else this.store.review(reviewId);
     if ("body" in input && input.body !== undefined) checkBody(input.body);
     switch (request.type) {
       case "draft.save": {
@@ -57,7 +79,7 @@ export class ReviewFeedback {
         return () => {
           this.mutableReview(reviewId);
           const before =
-            input.expectedVersion === null
+            input.expectedDraftVersion === null
               ? null
               : this.store.draft(reviewId, input.draftId, access.principal.id);
           const draft = this.store.saveDraft(
@@ -65,14 +87,14 @@ export class ReviewFeedback {
               id: input.draftId,
               reviewId,
               principalId: access.principal.id,
-              version: before ? before.version + 1 : 0,
+              draftVersion: before ? before.draftVersion + 1 : 0,
               target: input.target,
               evidence,
               body: input.body,
               createdAt: before?.createdAt ?? now,
               updatedAt: now,
             },
-            input.expectedVersion,
+            input.expectedDraftVersion,
           );
           this.store.appendEvent(
             reviewId,
@@ -90,7 +112,7 @@ export class ReviewFeedback {
             reviewId,
             input.draftId,
             access.principal.id,
-            input.expectedVersion,
+            input.expectedDraftVersion,
           );
           this.store.appendEvent(
             reviewId,
@@ -118,7 +140,7 @@ export class ReviewFeedback {
         const input = request.input;
         return () =>
           this.appendMessage(reviewId, {
-            id: input.messageId,
+            id: randomUUID(),
             threadId: input.threadId,
             body: input.body,
             author: access.principal,
@@ -127,13 +149,13 @@ export class ReviewFeedback {
             createdAt: now,
           });
       }
-      case "thread.status": {
+      case "thread.set_status": {
         const input = request.input;
         return () => {
           const thread = this.store.setThreadStatus(
             reviewId,
             input.threadId,
-            input.expectedVersion,
+            input.expectedThreadVersion,
             input.status,
           );
           this.store.appendEvent(reviewId, "thread.updated", { thread });
@@ -150,19 +172,7 @@ export class ReviewFeedback {
         if (input.decision === "comment" && !input.drafts.length && !input.body)
           invalid("Comment feedback requires a message or a selected draft.");
         return () => {
-          const review = this.mutableReview(reviewId);
-          const checkpoint = this.store.checkpoint(
-            reviewId,
-            input.checkpointId,
-          );
-          if (
-            input.decision !== "comment" &&
-            checkpoint.id !== review.publishedCheckpointId
-          )
-            throw new HostStoreError(
-              "VERSION_CONFLICT",
-              "This checkpoint has been superseded. Review the current checkpoint before deciding.",
-            );
+          this.store.reviewSnapshot(reviewId, input.reviewVersion);
           const messages: HostMessage[] = [];
           for (const selection of input.drafts) {
             const draft = this.store.draft(
@@ -170,7 +180,7 @@ export class ReviewFeedback {
               selection.draftId,
               access.principal.id,
             );
-            if (draft.version !== selection.expectedVersion)
+            if (draft.draftVersion !== selection.expectedDraftVersion)
               throw new HostStoreError(
                 "VERSION_CONFLICT",
                 "A selected draft changed. Refresh before submitting.",
@@ -189,7 +199,7 @@ export class ReviewFeedback {
               reviewId,
               draft.id,
               access.principal.id,
-              selection.expectedVersion,
+              selection.expectedDraftVersion,
             );
             this.store.appendEvent(
               reviewId,
@@ -204,7 +214,7 @@ export class ReviewFeedback {
                 reviewId,
                 {
                   kind: "document",
-                  documentVersion: checkpoint.documentVersion,
+                  reviewVersion: input.reviewVersion,
                 },
                 null,
                 input.body,
@@ -215,7 +225,7 @@ export class ReviewFeedback {
           const submission = {
             id: randomUUID(),
             reviewId,
-            checkpointId: checkpoint.id,
+            reviewVersion: input.reviewVersion,
             decision: input.decision,
             createdBy: access.principal.id,
             createdAt: now,
@@ -223,21 +233,6 @@ export class ReviewFeedback {
             messageIds: messages.map((message) => message.id),
           };
           this.store.putSubmission(submission);
-          if (input.decision === "request_changes") {
-            const updated = this.store.updateReview(
-              reviewId,
-              review.version,
-              (before) => ({
-                ...before,
-                workflow: "changes_requested",
-                version: before.version + 1,
-                updatedAt: now,
-              }),
-            );
-            this.store.appendEvent(reviewId, "review.updated", {
-              review: updated,
-            });
-          }
           this.store.appendEvent(reviewId, "feedback.submitted", {
             submission,
           });
@@ -246,15 +241,23 @@ export class ReviewFeedback {
       }
       case "question.start": {
         const input = request.input;
+        const harness = await this.resolveHarness(input.harness);
         const evidence = await this.targetEvidence(reviewId, input.target);
         const document = this.store.document(
           reviewId,
-          input.target.documentVersion,
+          input.target.reviewVersion,
         );
+        const threadId = randomUUID();
         const context = this.freezeContext(
           document,
           input.target,
-          evidence,
+          {
+            threadId,
+            reviewVersion: document.reviewVersion,
+            status: "exact",
+            target: input.target,
+            evidence,
+          },
           input.body,
           [],
         );
@@ -266,12 +269,13 @@ export class ReviewFeedback {
             input.body,
             access.principal,
             now,
+            threadId,
           );
           const run = this.createRun(
             created.thread,
             created.message,
             context,
-            input.harness,
+            harness,
             access.principal,
             now,
           );
@@ -280,16 +284,19 @@ export class ReviewFeedback {
       }
       case "question.follow_up": {
         const input = request.input;
+        const harness = await this.resolveHarness(input.harness);
+        const document = this.store.document(reviewId, input.reviewVersion);
+        const mapping = await this.mapping(
+          reviewId,
+          input.threadId,
+          input.reviewVersion,
+        );
         return () => {
           const thread = this.store.thread(reviewId, input.threadId);
-          const document = this.store.document(
-            reviewId,
-            thread.target.documentVersion,
-          );
           const context = this.freezeContext(
             document,
             thread.target,
-            thread.evidence,
+            mapping,
             input.body,
             this.store.messages(reviewId, thread.id),
           );
@@ -306,7 +313,7 @@ export class ReviewFeedback {
             thread,
             message,
             context,
-            input.harness,
+            harness,
             access.principal,
             now,
           );
@@ -347,38 +354,40 @@ export class ReviewFeedback {
             "This credential cannot answer that question run.",
           );
         return () =>
-          this.complete(
-            reviewId,
-            input.runId,
-            input.outputId,
-            input.body,
-            access.principal,
-          );
+          this.complete(reviewId, input.runId, input.body, access.principal);
       }
-      case "review.attention": {
+      case "attention.update": {
         const input = request.input;
         return () => {
           const before = this.store.attention(reviewId, access.principal.id);
+          if (input.lastViewedReviewVersion !== undefined)
+            this.store.reviewSnapshot(reviewId, input.lastViewedReviewVersion);
           if (
-            input.viewedDocumentVersion !== undefined &&
-            input.viewedDocumentVersion !== null
-          )
-            this.store.document(reviewId, input.viewedDocumentVersion);
+            input.lastViewedReviewVersion === undefined &&
+            (input.pinned === undefined || input.pinned === before.pinned)
+          ) {
+            if (input.expectedAttentionVersion !== before.attentionVersion)
+              throw new HostStoreError(
+                "VERSION_CONFLICT",
+                "The attention state changed. Refresh before updating it.",
+              );
+            return before;
+          }
           const attention = this.store.updateAttention(
             {
               ...before,
-              version: before.version + 1,
+              attentionVersion: before.attentionVersion + 1,
               pinned: input.pinned ?? before.pinned,
-              viewedDocumentVersion:
-                input.viewedDocumentVersion === undefined
-                  ? before.viewedDocumentVersion
-                  : input.viewedDocumentVersion,
-              viewedAt:
-                input.viewedDocumentVersion === undefined
-                  ? before.viewedAt
+              lastViewedReviewVersion:
+                input.lastViewedReviewVersion === undefined
+                  ? before.lastViewedReviewVersion
+                  : input.lastViewedReviewVersion,
+              lastViewedAt:
+                input.lastViewedReviewVersion === undefined
+                  ? before.lastViewedAt
                   : now,
             },
-            input.expectedVersion,
+            input.expectedAttentionVersion,
           );
           this.store.appendEvent(
             reviewId,
@@ -400,35 +409,47 @@ export class ReviewFeedback {
     switch (request.type) {
       case "drafts.list":
         return feedbackPage(
-          this.store.drafts(input.reviewId, principal.id),
+          (sequence) =>
+            this.store.drafts(input.reviewId, principal.id, sequence),
           request.input,
           `drafts:${input.reviewId}:${principal.id}`,
+          this.store.feedbackSequence("drafts", input.reviewId, principal.id),
         );
       case "threads.list":
         return feedbackPage(
-          this.store
-            .threads(input.reviewId)
-            .filter(
-              (thread) =>
-                !request.input.status || thread.status === request.input.status,
-            ),
+          (sequence) =>
+            this.store
+              .threads(input.reviewId, sequence)
+              .filter(
+                (thread) =>
+                  !request.input.status ||
+                  thread.status === request.input.status,
+              ),
           request.input,
           `threads:${input.reviewId}:${request.input.status ?? "all"}`,
+          this.store.feedbackSequence("threads", input.reviewId),
         );
       case "thread.get":
         return {
           thread: this.store.thread(input.reviewId, request.input.threadId),
           messages: feedbackPage(
-            this.store.messages(input.reviewId, request.input.threadId),
+            (sequence) =>
+              this.store
+                .messages(input.reviewId, request.input.threadId)
+                .filter((message) => message.ordinal <= sequence),
             request.input,
             `messages:${input.reviewId}:${request.input.threadId}`,
+            this.store.messages(input.reviewId, request.input.threadId).at(-1)
+              ?.ordinal ?? 0,
+            true,
           ),
         };
       case "feedback.list":
         return feedbackPage(
-          this.store.submissions(input.reviewId),
+          (sequence) => this.store.submissions(input.reviewId, sequence),
           request.input,
           `submissions:${input.reviewId}`,
+          this.store.feedbackSequence("submissions", input.reviewId),
         );
       case "feedback.get":
         return this.store.submission(
@@ -443,15 +464,17 @@ export class ReviewFeedback {
       }
       case "questions.list":
         return feedbackPage(
-          this.store
-            .questionRuns(input.reviewId)
-            .filter(
-              (run) =>
-                !request.input.threadId ||
-                run.threadId === request.input.threadId,
-            ),
+          (sequence) =>
+            this.store
+              .questionRuns(input.reviewId, sequence)
+              .filter(
+                (run) =>
+                  !request.input.threadId ||
+                  run.threadId === request.input.threadId,
+              ),
           request.input,
           `questions:${input.reviewId}:${request.input.threadId ?? "all"}`,
+          this.store.feedbackSequence("questions", input.reviewId),
         );
       case "attention.get":
         return this.store.attention(input.reviewId, principal.id);
@@ -461,26 +484,89 @@ export class ReviewFeedback {
   async mapping(
     reviewId: string,
     threadId: string,
-    version: number,
+    reviewVersion: number,
   ): Promise<HostThreadMapping> {
     const thread = this.store.thread(reviewId, threadId);
-    const original = this.store.document(
-      reviewId,
-      thread.target.documentVersion,
-    );
-    const current = this.store.document(reviewId, version);
+    const original = this.store.document(reviewId, thread.target.reviewVersion);
+    const current = this.store.document(reviewId, reviewVersion);
+    const missing = (
+      reason: Extract<HostThreadMapping, { status: "missing" }>["reason"],
+    ) => missingMapping(threadId, reviewVersion, reason);
+    // A selected commit remains a selected-commit comparison. It may be shown
+    // on another version only when that comparison belongs to that version.
+    if (thread.target.kind === "source" && thread.target.comparisonCommit) {
+      const comparisonCommit = thread.target.comparisonCommit;
+      const samePins =
+        original.binding.repositoryId === current.binding.repositoryId &&
+        original.binding.baseCommit === current.binding.baseCommit &&
+        original.binding.headCommit === current.binding.headCommit;
+      if (!samePins) {
+        if (current.binding.baseCommit === current.binding.headCommit)
+          return missing("comparison_not_available");
+        try {
+          const commits = await this.source.commits(current.binding);
+          if (!commits.some((commit) => commit.oid === comparisonCommit))
+            return missing("comparison_not_available");
+        } catch (error) {
+          if (
+            !(error instanceof EvidenceProviderError) &&
+            !(error instanceof HostStoreError)
+          )
+            throw error;
+          return missing("source_unavailable");
+        }
+      }
+      return {
+        threadId,
+        reviewVersion,
+        status: "exact",
+        target: { ...thread.target, reviewVersion },
+        evidence: thread.evidence,
+      };
+    }
     if (thread.target.kind !== "source") {
+      // Selection quotes refer to the observed content. Without a proven text
+      // relocation, do not claim an edited node/document is an exact mapping.
+      const selected = thread.target;
+      if (
+        (selected.kind === "node" || selected.kind === "document") &&
+        selected.selection &&
+        (selected.kind === "document"
+          ? original.contentHash !== current.contentHash
+          : canonicalHostJson(original.nodes[selected.nodeId] ?? null) !==
+            canonicalHostJson(current.nodes[selected.nodeId] ?? null))
+      )
+        return missing("selection_changed");
+      if ("nodeId" in selected) {
+        const before = original.nodes[selected.nodeId];
+        const after = current.nodes[selected.nodeId];
+        if (!after) return missing("target_removed");
+        if (before?.type !== after.type) return missing("identity_mismatch");
+        if (
+          selected.kind === "diagram" &&
+          before.type === "software_map" &&
+          after.type === "software_map"
+        ) {
+          const beforeMap = this.store.mapVersion(
+            reviewId,
+            before.mapVersionId,
+          );
+          const afterMap = this.store.mapVersion(reviewId, after.mapVersionId);
+          if (beforeMap.mapId !== afterMap.mapId)
+            return missing("identity_mismatch");
+        }
+      }
       try {
-        await this.targetEvidence(reviewId, {
+        const evidence = await this.targetEvidence(reviewId, {
           ...thread.target,
-          documentVersion: version,
+          reviewVersion,
         });
         return {
           threadId,
-          documentVersion: version,
+          reviewVersion,
           status: "exact",
-          target: { ...thread.target, documentVersion: version },
-          evidence: thread.evidence,
+          target: { ...thread.target, reviewVersion },
+          evidence,
         };
       } catch (error) {
         if (
@@ -488,13 +574,9 @@ export class ReviewFeedback {
           !(error instanceof EvidenceProviderError)
         )
           throw error;
-        return {
-          threadId,
-          documentVersion: version,
-          status: "missing",
-          target: null,
-          evidence: null,
-        };
+        return missing(
+          error.code === "NOT_FOUND" ? "target_removed" : "source_unavailable",
+        );
       }
     }
     const retained = thread.evidence;
@@ -515,55 +597,57 @@ export class ReviewFeedback {
     )
       return {
         threadId,
-        documentVersion: version,
+        reviewVersion,
         status: "exact",
-        target: { ...thread.target, documentVersion: version },
+        target: { ...thread.target, reviewVersion },
         evidence: retained,
       };
 
-    const proposal = await proposeDocumentRepin({
-      document: {
-        ...original,
-        definitions: {
-          target: {
-            kind: "anchor",
-            title: "Original comment target",
-            source: thread.target.range,
+    try {
+      const proposal = await proposeDocumentRepin({
+        document: {
+          ...original,
+          definitions: {
+            target: {
+              kind: "anchor",
+              title: "Original comment target",
+              source: thread.target.range,
+            },
           },
         },
-      },
-      binding: current.binding,
-      source: this.source,
-    });
-    const mapped = proposal.anchorChanges[0]!;
-    if (!mapped.proposed)
+        binding: current.binding,
+        source: this.source,
+      });
+      const mapped = proposal.anchorChanges[0]!;
+      if (!mapped.proposed || mapped.status === "missing")
+        return missing("selection_changed");
+      const target: HostFeedbackTarget = {
+        kind: "source",
+        reviewVersion,
+        range: mapped.proposed,
+      };
+      const evidence = await this.targetEvidence(reviewId, target);
       return {
         threadId,
-        documentVersion: version,
-        status: "missing",
-        target: null,
-        evidence: null,
+        reviewVersion,
+        status: mapped.status,
+        target,
+        evidence,
       };
-    const target: HostFeedbackTarget = {
-      kind: "source",
-      documentVersion: version,
-      range: mapped.proposed,
-    };
-    const evidence = await this.targetEvidence(reviewId, target);
-    return {
-      threadId,
-      documentVersion: version,
-      status: mapped.status,
-      target,
-      evidence,
-    };
+    } catch (error) {
+      if (
+        !(error instanceof HostStoreError) &&
+        !(error instanceof EvidenceProviderError)
+      )
+        throw error;
+      return missing("source_unavailable");
+    }
   }
 
   /** Called only inside a host command transaction, including executor callbacks. */
   complete(
     reviewId: string,
     runId: string,
-    outputId: string,
     body: string,
     principal: HostPrincipal,
   ) {
@@ -578,7 +662,7 @@ export class ReviewFeedback {
       const message = this.store
         .messages(reviewId, before.threadId)
         .find((item) => item.id === before.answerMessageId);
-      if (!message || message.id !== outputId || message.body !== body)
+      if (!message || message.body !== body)
         throw new HostStoreError(
           "IDEMPOTENCY_CONFLICT",
           "The question already has a different completed answer.",
@@ -593,7 +677,7 @@ export class ReviewFeedback {
     const message = this.appendMessage(
       reviewId,
       {
-        id: outputId,
+        id: randomUUID(),
         threadId: before.threadId,
         author: before.assistant,
         body,
@@ -620,12 +704,13 @@ export class ReviewFeedback {
     body: string,
     author: HostPrincipal,
     now: string,
+    threadId = randomUUID(),
   ) {
     this.mutableReview(reviewId);
     const thread: HostThread = {
-      id: randomUUID(),
+      id: threadId,
       reviewId,
-      version: 0,
+      threadVersion: 0,
       target,
       evidence,
       status: "open",
@@ -706,9 +791,15 @@ export class ReviewFeedback {
     reviewId: string,
     target: HostFeedbackTarget,
   ): Promise<HostSourceQuote | null> {
-    const document = this.store.document(reviewId, target.documentVersion);
+    const document = this.store.document(reviewId, target.reviewVersion);
     if (target.kind === "document") return null;
     if (target.kind === "source") {
+      if (target.comparisonCommit)
+        return this.source.quote(
+          document.binding,
+          target.range,
+          target.comparisonCommit,
+        );
       // Retained document evidence keeps common selections usable offline.
       const match = Object.values(document.evidence).find(
         (quote) =>
@@ -745,101 +836,181 @@ export class ReviewFeedback {
         "The selected node is not in the observed document.",
       );
     if (target.kind === "diagram") {
-      const ids =
-        node.type === "sequence"
-          ? node.messages.map((item) => item.id)
-          : node.type === "call_stack_diff"
-            ? [...node.base, ...node.head].map((item) => item.id)
-            : node.type === "database_lens"
-              ? node.useCases.flatMap((item) => [
-                  item.id,
-                  ...item.operations.map((operation) => operation.id),
-                ])
-              : [];
-      if (!ids.includes(target.itemId))
-        throw new HostStoreError(
-          "NOT_FOUND",
-          "The selected diagram item is not in the observed node.",
-        );
-    } else if (target.kind === "trace") {
-      if (node.type !== "trace_quote" || node.eventId !== target.eventId)
-        throw new HostStoreError(
-          "NOT_FOUND",
-          "The selected trace event is not quoted by this node.",
-        );
-      this.store.trace(reviewId, node.traceId);
+      const anchorId = this.diagramAnchor(reviewId, node, target.item);
+      return anchorId ? (document.evidence[anchorId] ?? null) : null;
     }
-    return null;
+    return node.type === "code_peek"
+      ? (document.evidence[node.anchorId] ?? null)
+      : null;
+  }
+
+  private diagramAnchor(
+    reviewId: string,
+    node: HostNode,
+    item: HostDiagramItem,
+  ): string | null {
+    switch (item.kind) {
+      case "actor":
+        if (
+          node.type === "sequence" &&
+          node.messages.some(
+            (message) =>
+              message.fromActorId === item.actorId ||
+              message.toActorId === item.actorId,
+          )
+        )
+          return null;
+        break;
+      case "message": {
+        const message =
+          node.type === "sequence" &&
+          node.messages.find((message) => message.id === item.messageId);
+        if (message)
+          return message.evidence.kind === "anchor"
+            ? message.evidence.anchorId
+            : null;
+        break;
+      }
+      case "frame": {
+        const frame =
+          node.type === "call_stack_diff" &&
+          node[item.side].find((frame) => frame.id === item.frameId);
+        if (frame) return frame.anchorId;
+        break;
+      }
+      case "use_case":
+        if (
+          node.type === "database_lens" &&
+          node.useCases.some((useCase) => useCase.id === item.useCaseId)
+        )
+          return null;
+        break;
+      case "operation": {
+        const operation =
+          node.type === "database_lens" &&
+          node.useCases
+            .find((useCase) => useCase.id === item.useCaseId)
+            ?.operations.find((operation) => operation.id === item.operationId);
+        if (operation) return operation.anchorId;
+        break;
+      }
+      case "map_element":
+        if (
+          node.type === "software_map" &&
+          Object.hasOwn(
+            this.store.mapVersion(reviewId, node.mapVersionId).elements,
+            item.elementId,
+          )
+        )
+          return null;
+        break;
+      case "map_relationship":
+        if (
+          node.type === "software_map" &&
+          Object.hasOwn(
+            this.store.mapVersion(reviewId, node.mapVersionId).relationships,
+            item.relationshipId,
+          )
+        )
+          return null;
+        break;
+    }
+    throw new HostStoreError(
+      "NOT_FOUND",
+      "The selected diagram item is not in the observed node.",
+    );
   }
 
   private freezeContext(
     document: HostDocumentState,
     target: HostFeedbackTarget,
-    evidence: HostSourceQuote | null,
+    viewedTarget: HostThreadMapping,
     question: string,
     messages: HostMessage[],
   ): HostQuestionContext {
-    const review = this.store.review(document.reviewId);
+    const review = this.store.reviewSnapshot(
+      document.reviewId,
+      document.reviewVersion,
+    );
     // Bounded excerpts are explicitly labelled. The immutable version/target is
     // available through API reads when the fresh agent needs more detail.
+    const viewed = viewedTarget.target;
+    const { evidence, ...mapping } = viewedTarget;
     const selected =
-      "nodeId" in target ? document.nodes[target.nodeId] : document;
-    const material = {
-      review: { id: review.id, title: clipUtf8(review.title, 1000) },
+      viewed && "nodeId" in viewed
+        ? (document.nodes[viewed.nodeId] ?? document)
+        : document;
+    const material: HostQuestionContext["material"] = {
+      schemaVersion: 1,
+      review: { title: excerpt(review.title, 1_000) },
       binding: {
         repositoryId: document.binding.repositoryId,
         baseCommit: document.binding.baseCommit,
         headCommit: document.binding.headCommit,
       },
-      document: {
-        documentId: document.documentId,
-        version: document.version,
-        contentHash: document.contentHash,
-      },
-      target,
+      mapVersions: review.mapVersions,
+      originalTarget: target,
+      viewedTarget: mapping,
       sourceEvidence: evidence
         ? {
             span: evidence.span,
-            textExcerpt: clipUtf8(evidence.text, 4000),
+            text: excerpt(evidence.text, 4_000),
             sha256: evidence.sha256,
           }
         : null,
-      documentJsonExcerpt: clipUtf8(canonicalHostJson(selected!), 8000),
+      documentJson: excerpt(canonicalHostJson(selected), 8_000),
       priorMessages: messages.slice(-8).map((message) => ({
         id: message.id,
         author: message.author,
-        bodyExcerpt: clipUtf8(message.body, 1000),
+        body: excerpt(message.body, 1_000),
       })),
-      excerptNotice:
-        "Context contains bounded excerpts. Read the named immutable document version or hosted thread for complete content. No author transcript is included.",
+      priorMessagesOmitted: Math.max(0, messages.length - 8),
     };
     const context: HostQuestionContext = {
       id: randomUUID(),
       reviewId: document.reviewId,
-      documentVersion: document.version,
+      reviewVersion: document.reviewVersion,
       question,
       material,
     };
     // JSON escaping can expand otherwise bounded text. Leave room for executor instructions.
-    if (Buffer.byteLength(canonicalHostJson(context)) > 56 * 1024)
-      context.material = {
-        ...material,
-        documentJsonExcerpt: "Omitted: use document.get at the named version.",
-        priorMessages: [],
-        sourceEvidence: evidence
-          ? {
-              span: evidence.span,
-              textExcerpt: "Omitted: use document.evidence.",
-              sha256: evidence.sha256,
-            }
-          : null,
-      };
-    return context;
+    const tooLarge = () =>
+      Buffer.byteLength(canonicalHostJson(context)) > 56 * 1024;
+    const omitted = { state: "omitted", reason: "context_limit" } as const;
+    if (tooLarge()) material.documentJson = omitted;
+    if (tooLarge()) {
+      material.priorMessagesOmitted += material.priorMessages.length;
+      material.priorMessages = [];
+    }
+    if (tooLarge() && material.sourceEvidence)
+      material.sourceEvidence.text = omitted;
+    if (tooLarge()) material.review.title = omitted;
+    if (tooLarge())
+      throw new EvidenceProviderError(
+        "RESOURCE_LIMIT",
+        "The question and its required target context exceed 56 KiB.",
+      );
+    return HostQuestionContextSchema.parse(context);
+  }
+
+  private async resolveHarness(
+    requested: HostQuestionRun["harness"] | undefined,
+  ): Promise<HostQuestionRun["harness"]> {
+    if (requested) return requested;
+    const available = [
+      ...new Set((await this.questions?.capabilities()) ?? []),
+    ];
+    const configured = this.questions?.defaultHarness?.();
+    if (configured && available.includes(configured)) return configured;
+    if (available.length === 1) return available[0]!;
+    invalid(
+      "Choose an available question harness explicitly; no default is configured.",
+    );
   }
 
   private mutableReview(reviewId: string) {
     const review = this.store.review(reviewId);
-    if (review.deletedAt !== null || review.workflow === "closed")
+    if (review.deletedAt !== null || review.state === "closed")
       throw new HostStoreError(
         "INVALID_STATE",
         "Closed or trashed reviews do not accept new feedback.",
@@ -859,28 +1030,71 @@ function checkBody(body: string) {
 function invalid(message: string): never {
   throw new EvidenceProviderError("INVALID_REQUEST", message);
 }
-function clipUtf8(value: string, bytes: number) {
-  if (Buffer.byteLength(value) <= bytes) return value;
-  const prefix = Buffer.from(value).subarray(0, Math.max(0, bytes - 32));
-  return `${prefix.toString("utf8").replace(/\ufffd$/, "")}\n[excerpt truncated]`;
+function excerpt(value: string, bytes: number): HostQuestionExcerpt {
+  if (Buffer.byteLength(value) <= bytes)
+    return { state: "complete", text: value };
+  const prefix = Buffer.from(value).subarray(0, bytes);
+  return {
+    state: "truncated",
+    text: prefix.toString("utf8").replace(/\ufffd$/, ""),
+  };
 }
+function missingMapping(
+  threadId: string,
+  reviewVersion: number,
+  reason: Extract<HostThreadMapping, { status: "missing" }>["reason"],
+): HostThreadMapping {
+  return {
+    threadId,
+    reviewVersion,
+    status: "missing",
+    target: null,
+    evidence: null,
+    reason,
+  };
+}
+const feedbackCursorSchema = z.object({
+  scope: z.string(),
+  sequence: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  afterId: z.string(),
+});
+
 function feedbackPage<T extends JsonValue & { id: string }>(
-  items: T[],
+  read: (sequence: number) => T[],
   input: { cursor?: string; limit?: number },
   scope: string,
+  latestSequence: number,
+  messages = false,
 ) {
-  let start = 0;
+  let sequence = latestSequence;
+  let afterId: string | undefined;
   if (input.cursor) {
-    const decoded = Buffer.from(input.cursor, "base64url").toString("utf8");
-    const prefix = `${scope}:`;
-    if (!decoded.startsWith(prefix))
+    try {
+      const cursor = feedbackCursorSchema.parse(
+        JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8")),
+      );
+      if (cursor.scope !== scope || cursor.sequence > latestSequence)
+        throw new Error("Invalid feedback cursor");
+      sequence = cursor.sequence;
+      afterId = cursor.afterId;
+    } catch {
       throw new HostStoreError(
         "CURSOR_EXPIRED",
-        "Cursor belongs to a different query.",
+        "This cursor cannot continue the selected collection. Refresh before continuing.",
       );
-    const index = items.findIndex(
-      (item) => item.id === decoded.slice(prefix.length),
+    }
+  }
+  const items = read(sequence);
+  if (!messages)
+    items.sort(
+      (a, b) =>
+        String("createdAt" in b ? b.createdAt : "").localeCompare(
+          String("createdAt" in a ? a.createdAt : ""),
+        ) || b.id.localeCompare(a.id),
     );
+  let start = 0;
+  if (afterId) {
+    const index = items.findIndex((item) => item.id === afterId);
     if (index < 0)
       throw new HostStoreError(
         "CURSOR_EXPIRED",
@@ -888,13 +1102,15 @@ function feedbackPage<T extends JsonValue & { id: string }>(
       );
     start = index + 1;
   }
-  const selected = items.slice(start, start + (input.limit ?? 50));
+  const selected = items.slice(start, start + (input.limit ?? 100));
   const last = selected.at(-1);
   return {
     items: selected,
     nextCursor:
       last && start + selected.length < items.length
-        ? Buffer.from(`${scope}:${last.id}`).toString("base64url")
+        ? Buffer.from(
+            JSON.stringify({ scope, sequence, afterId: last.id }),
+          ).toString("base64url")
         : null,
   };
 }

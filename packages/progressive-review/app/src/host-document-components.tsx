@@ -1,25 +1,47 @@
 import type {
   HostDefinition,
+  HostDiagramItem,
   HostDocumentState,
+  HostFeedbackTarget,
   HostMapVersion,
   HostNode,
   HostSourceQuote,
+  ThreadTarget,
 } from "@dev.fast/review-protocol";
 import { useEffect, useMemo, useState } from "react";
 
-import type {
-  ActorRef,
-  CallStackEntry,
-  PeekableAnchorRef,
+import {
+  type ActorRef,
+  type CallStackEntry,
+  type PeekableAnchorRef,
+  type StoreInputMap,
+  createReviewDefinitionSession,
 } from "../../src/authoring";
 import { diffCallStacks } from "../../src/call-stack-diff";
 import { CallStackDiffView } from "./call-stack-diff";
-import { SequenceDiagramView, type SequenceRef } from "./diagrams";
+import { validatedCodePeekInputFromRef } from "./CodePeek";
+import { type ParsedUseCase, ResolvedDatabaseLens } from "./database-lens";
+import {
+  ResolvedSequenceDiagram,
+  type SequenceRef,
+  sequenceTargetElements,
+} from "./diagrams";
+import { useReviewPanel } from "./review-panel";
+import type {
+  NormalizedSoftwareElement,
+  NormalizedSoftwareModel,
+} from "./software-map/model";
+import {
+  softwareMapNodeTargetPayload,
+  softwareMapRelationshipTargetPayload,
+} from "./software-map/software-map-paths";
 import type {
   SoftwareMapNodeSnapshot,
   SoftwareMapResolvedSnapshot,
 } from "./software-map/software-map-snapshot";
-import { SoftwareMapCanvas } from "./software-map/SoftwareMap";
+import { SoftwareMap } from "./software-map/SoftwareMap";
+import { buildAnchorTextTarget, buildGraphTarget } from "./target-fingerprint";
+import { TraceQuote } from "./trace-quote";
 
 export interface HostImageResource {
   id: string;
@@ -105,7 +127,179 @@ type NodeProps<Type extends HostNode["type"]> = Omit<
   node: Extract<HostNode, { type: Type }>;
 };
 
-function anchorFor(
+export function projectHostGraphTarget(
+  target: Extract<HostFeedbackTarget, { kind: "diagram" }>,
+  document: HostDocumentState,
+  resources?: HostDocumentResources,
+): ThreadTarget | null {
+  const node = document.nodes[target.nodeId];
+  const selected = target.item;
+  if (
+    node?.type === "sequence" &&
+    (selected.kind === "actor" || selected.kind === "message")
+  ) {
+    return (
+      sequenceTargetElements(hostSequence(node, document)).find(
+        (item) =>
+          item.element.path[0] ===
+            (selected.kind === "actor"
+              ? selected.actorId
+              : selected.messageId) &&
+          item.element.type === (selected.kind === "actor" ? "node" : "edge"),
+      ) ?? null
+    );
+  }
+  if (
+    node?.type === "database_lens" &&
+    (selected.kind === "use_case" || selected.kind === "operation")
+  ) {
+    const useCase = node.useCases.find(
+      (item) => item.id === selected.useCaseId,
+    );
+    if (useCase && selected.kind === "use_case")
+      return buildGraphTarget({
+        diagram: node.id,
+        type: "node",
+        path: [useCase.id],
+        payload: {
+          label: useCase.label,
+          summary: useCase.summary,
+          stores: [
+            ...new Set(
+              useCase.operations.map(
+                (operation) =>
+                  storeFor(document, operation.store.storeId).collections[
+                    operation.store.collectionId
+                  ]!.label,
+              ),
+            ),
+          ],
+        },
+        quote: useCase.label,
+      });
+    const operation =
+      selected.kind === "operation"
+        ? useCase?.operations.find((item) => item.id === selected.operationId)
+        : undefined;
+    if (operation)
+      return buildAnchorTextTarget({
+        anchorId: operation.id,
+        field: "title",
+        text: hostAnchorRef(document, operation.anchorId).title,
+      });
+  }
+  if (node?.type === "call_stack_diff" && selected.kind === "frame") {
+    const frame = node[selected.side].find(
+      (item) => item.id === selected.frameId,
+    );
+    if (frame)
+      return buildAnchorTextTarget({
+        anchorId: frame.id,
+        field: "title",
+        text: frame.label ?? hostAnchorRef(document, frame.anchorId).title,
+      });
+  }
+  if (
+    node?.type === "software_map" &&
+    (selected.kind === "map_element" || selected.kind === "map_relationship")
+  ) {
+    const map = resources?.maps?.[node.mapVersionId];
+    if (!map) return null;
+    const snapshot = hostMapSnapshot(map, null);
+    const element =
+      selected.kind === "map_element"
+        ? snapshot.nodes?.find((item) => item.id === selected.elementId)
+        : undefined;
+    if (element)
+      return buildGraphTarget({
+        diagram: node.id,
+        type: "node",
+        path: [element.id],
+        payload: softwareMapNodeTargetPayload(element),
+        quote: element.label,
+      });
+    const relationship =
+      selected.kind === "map_relationship"
+        ? snapshot.relationships?.find(
+            (item) => item.id === selected.relationshipId,
+          )
+        : undefined;
+    if (relationship)
+      return buildGraphTarget({
+        diagram: node.id,
+        type: "edge",
+        path: [relationship.id!],
+        payload: softwareMapRelationshipTargetPayload(relationship),
+        quote: relationship.label ?? relationship.id!,
+      });
+  }
+  return null;
+}
+
+export function resolveHostGraphTarget(
+  target: Extract<ThreadTarget, { kind: "graph" }>,
+  document: HostDocumentState,
+  resources?: HostDocumentResources,
+): { nodeId: string; item: HostDiagramItem } | null {
+  const node = document.nodes[target.diagram];
+  const itemId = target.element.path[0];
+  if (!node || !itemId) return null;
+  let item: HostDiagramItem | undefined;
+  if (node.type === "sequence")
+    item =
+      target.element.type === "node"
+        ? { kind: "actor", actorId: itemId }
+        : { kind: "message", messageId: itemId };
+  else if (node.type === "software_map")
+    item =
+      target.element.type === "node"
+        ? { kind: "map_element", elementId: itemId }
+        : { kind: "map_relationship", relationshipId: itemId };
+  else if (node.type === "database_lens") {
+    if (
+      target.element.type === "node" &&
+      node.useCases.some((entry) => entry.id === itemId)
+    )
+      item = { kind: "use_case", useCaseId: itemId };
+    else {
+      const matches = node.useCases.flatMap((entry) =>
+        entry.operations
+          .filter((operation) =>
+            target.element.path.length > 1
+              ? entry.id === itemId && operation.id === target.element.path[1]
+              : operation.id === itemId,
+          )
+          .map((operation) => ({
+            kind: "operation" as const,
+            useCaseId: entry.id,
+            operationId: operation.id,
+          })),
+      );
+      if (matches.length === 1) item = matches[0];
+    }
+  } else if (
+    node.type === "call_stack_diff" &&
+    (itemId === "base" || itemId === "head") &&
+    target.element.path[1]
+  ) {
+    item = { kind: "frame", side: itemId, frameId: target.element.path[1] };
+  }
+  if (!item) return null;
+  return projectHostGraphTarget(
+    {
+      kind: "diagram",
+      nodeId: node.id,
+      item,
+      reviewVersion: document.reviewVersion,
+    },
+    document,
+    resources,
+  )
+    ? { nodeId: node.id, item }
+    : null;
+}
+
+export function hostAnchorRef(
   document: HostDocumentState,
   anchorId: string,
 ): PeekableAnchorRef {
@@ -126,9 +320,26 @@ function anchorFor(
         toLine: quote.span.toLine,
         graph: definition.source.side,
       },
-      // Visual-only anchor identity; source display uses SourceQuote directly.
-      // This handle is never passed to the legacy session/source resolver.
-      resolution: null,
+      resolution: {
+        snapshot: {
+          roots: [{ kind: "source", sourceId: anchorId }],
+          resolved: {
+            [anchorId]: {
+              source: {
+                id: anchorId,
+                name: definition.title,
+                kind: "source-range",
+                file: quote.span.file,
+                line: quote.span.fromLine,
+                endLine: quote.span.toLine,
+              },
+              lines: quote.text
+                .split(/\r?\n/)
+                .map((text) => [{ t: text, k: "t" }]),
+            },
+          },
+        },
+      },
     },
   };
 }
@@ -162,7 +373,10 @@ export function hostSequence(
       style: message.style,
       anchor:
         message.evidence.kind === "anchor"
-          ? anchorFor(document, message.evidence.anchorId)
+          ? {
+              ...hostAnchorRef(document, message.evidence.anchorId),
+              id: message.id,
+            }
           : {
               __kind: "db-anchor-ref" as const,
               id: message.id,
@@ -172,10 +386,15 @@ export function hostSequence(
         message.evidence.kind === "illustrative_code"
           ? { language: message.evidence.language, text: message.evidence.text }
           : undefined,
+      explanation:
+        message.evidence.kind === "explanation"
+          ? message.evidence.text
+          : undefined,
     };
   });
   return {
     __kind: "review-sequence-ref",
+    stableItemIds: true,
     id: node.id,
     label: node.title,
     participants: [...participants.values()],
@@ -183,88 +402,20 @@ export function hostSequence(
   };
 }
 
-function HostSequence({
-  node,
-  document,
-  resources,
-  onSourceOpen,
-}: NodeProps<"sequence">) {
+function HostSequence({ node, document }: NodeProps<"sequence">) {
   const sequence = useMemo(
     () => hostSequence(node, document),
     [node, document],
   );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = node.messages.find((message) => message.id === selectedId);
-  return (
-    <>
-      <SequenceDiagramView
-        sequence={sequence}
-        theme={resources?.theme ?? "dark"}
-        stopCount={node.messages.length}
-        activeTourAnchor={selectedId}
-        itemIdentity="message"
-        openTour={(id) => {
-          const message =
-            node.messages.find((item) => item.id === id) ?? node.messages[0];
-          if (!message) return;
-          setSelectedId(message.id);
-          if (message.evidence.kind === "anchor")
-            onSourceOpen?.(message.evidence.anchorId);
-        }}
-      />
-      {selected && (
-        <EvidenceDetail evidence={selected.evidence} document={document} />
-      )}
-    </>
-  );
+  return <ResolvedSequenceDiagram sequence={sequence} />;
 }
 
-function EvidenceDetail({
-  evidence,
-  document,
-}: {
-  evidence: Extract<
-    HostNode,
-    { type: "sequence" }
-  >["messages"][number]["evidence"];
-  document: HostDocumentState;
-}) {
-  if (evidence.kind === "illustrative_code")
-    return (
-      <pre className="host-document-graph-evidence">
-        <code data-language={evidence.language}>{evidence.text}</code>
-      </pre>
-    );
-  const quote = document.evidence[evidence.anchorId];
-  if (!quote)
-    throw new Error(
-      `Stored source evidence is missing for ${evidence.anchorId}.`,
-    );
-  return <SourceDetail quote={quote} />;
-}
-
-function SourceDetail({ quote }: { quote: HostSourceQuote }) {
-  return (
-    <figure className="host-document-graph-evidence">
-      <figcaption>
-        {quote.span.file}:{quote.span.fromLine}–{quote.span.toLine}
-      </figcaption>
-      <pre>
-        <code>{quote.text}</code>
-      </pre>
-    </figure>
-  );
-}
-
-function HostCallStack({
-  node,
-  document,
-  onSourceOpen,
-}: NodeProps<"call_stack_diff">) {
+function HostCallStack({ node, document }: NodeProps<"call_stack_diff">) {
+  const openPeek = useReviewPanel((state) => state.openPeek);
   const frames = [...node.base, ...node.head];
   const sources = new Map<PeekableAnchorRef, string>();
   const adapt = (frame: (typeof frames)[number]): PeekableAnchorRef => {
-    const anchor = anchorFor(document, frame.anchorId);
+    const anchor = hostAnchorRef(document, frame.anchorId);
     const entry = {
       ...anchor,
       id: frame.id,
@@ -314,7 +465,15 @@ function HostCallStack({
       rows={rows}
       onOpen={(entry) => {
         const anchorId = sources.get(entry);
-        if (anchorId) onSourceOpen?.(anchorId);
+        if (anchorId)
+          openPeek({
+            kind: "peek",
+            anchor: entry,
+            content: {
+              kind: "resolved-code",
+              input: validatedCodePeekInputFromRef(entry.peek),
+            },
+          });
       }}
     />
   );
@@ -370,7 +529,7 @@ export function hostDatabaseSnapshot(
     if (ids.has(operation.id))
       throw new Error(`Database operation ${operation.id} is duplicated.`);
     ids.add(operation.id);
-    anchorFor(document, operation.anchorId);
+    hostAnchorRef(document, operation.anchorId);
     const actor = actorFor(document, operation.actorId);
     const store = storeFor(document, operation.store.storeId);
     const collection = store.collections[operation.store.collectionId];
@@ -421,68 +580,104 @@ export function hostDatabaseSnapshot(
   };
 }
 
-function HostDatabaseLens({
-  node,
-  document,
-  resources,
-  onSourceOpen,
-  onError,
-}: NodeProps<"database_lens">) {
-  const [useCaseId, setUseCaseId] = useState(node.useCases[0]?.id);
-  const [selectedOperation, setSelectedOperation] = useState<string | null>(
-    null,
+function HostDatabaseLens({ node, document }: NodeProps<"database_lens">) {
+  const stores = useMemo(
+    () =>
+      createReviewDefinitionSession({
+        softwareMap: null,
+        baseSoftwareMap: null,
+      }).defineStores(hostStoreInputs(document)),
+    [document.definitions],
   );
-  const active =
-    node.useCases.find((item) => item.id === useCaseId) ?? node.useCases[0];
-  const snapshot = useMemo(
-    () => hostDatabaseSnapshot(node, document, active?.id),
-    [node, document, active?.id],
-  );
-  const operation = active?.operations.find(
-    (item) => item.id === selectedOperation,
+  const useCases = useMemo<ParsedUseCase[]>(
+    () =>
+      node.useCases.map((useCase) => ({
+        ...useCase,
+        operations: useCase.operations.map((operation) => {
+          const store = storeFor(document, operation.store.storeId);
+          const collection = store.collections[operation.store.collectionId]!;
+          const actor = actorFor(document, operation.actorId);
+          const target = {
+            __kind: "db-target-ref" as const,
+            storeId: operation.store.storeId,
+            storeKind: store.storage,
+            storeLabel: store.label,
+            collectionKind:
+              store.storage === "relational"
+                ? ("tables" as const)
+                : ("documents" as const),
+            collectionId: operation.store.collectionId,
+            collectionLabel: collection.label,
+            path: operation.store.fieldId ? [operation.store.fieldId] : [],
+          };
+          return {
+            kind: operation.kind,
+            from: operation.kind === "read" ? target : actor,
+            to: operation.kind === "read" ? actor : target,
+            label: operation.label,
+            anchor: {
+              ...hostAnchorRef(document, operation.anchorId),
+              id: operation.id,
+            },
+          };
+        }),
+      })),
+    [node, document],
   );
   return (
-    <figure className="db-lens host-document-graph">
-      <figcaption>
-        <strong>{node.title}</strong>
-        <select
-          aria-label={`${node.title} use case`}
-          value={active?.id ?? ""}
-          onChange={(event) => {
-            setUseCaseId(event.currentTarget.value);
-            setSelectedOperation(null);
-          }}
-        >
-          {node.useCases.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </figcaption>
-      {active?.summary && <p>{active.summary}</p>}
-      <SoftwareMapCanvas
-        snapshot={snapshot}
-        diagram={node.id}
-        viewName={active?.label ?? node.title}
-        expanded={false}
-        interactionMode="inline"
-        theme={resources?.theme ?? "dark"}
-        wasmUrl={resources?.wasmUrl}
-        onOpenRelationship={(id) => {
-          setSelectedOperation(id);
-          const selected = active?.operations.find((item) => item.id === id);
-          if (selected) onSourceOpen?.(selected.anchorId);
-        }}
-        onError={onError}
-      />
-      {operation && (
-        <EvidenceDetail
-          evidence={{ kind: "anchor", anchorId: operation.anchorId }}
-          document={document}
-        />
-      )}
-    </figure>
+    <ResolvedDatabaseLens
+      id={node.id}
+      title={node.title}
+      stores={stores}
+      useCases={useCases}
+    />
+  );
+}
+
+function hostStoreInputs(document: HostDocumentState): StoreInputMap {
+  return Object.fromEntries(
+    Object.entries(document.definitions).flatMap(([id, definition]) =>
+      definition.kind === "store"
+        ? [
+            [
+              id,
+              {
+                kind: definition.storage,
+                label: definition.label,
+                [definition.storage === "relational" ? "tables" : "documents"]:
+                  Object.fromEntries(
+                    Object.entries(definition.collections).map(
+                      ([collectionId, collection]) => [
+                        collectionId,
+                        {
+                          label: collection.label,
+                          schema: Object.fromEntries(
+                            Object.entries(collection.fields).map(
+                              ([fieldId, field]) => [
+                                fieldId,
+                                {
+                                  type: `${field.dataType}${field.nullable ? "?" : ""}`,
+                                  pk: field.primaryKey,
+                                  fk: field.references
+                                    ? [
+                                        field.references.storeId,
+                                        field.references.collectionId,
+                                        field.references.fieldId,
+                                      ].join(".")
+                                    : undefined,
+                                },
+                              ],
+                            ),
+                          ),
+                        },
+                      ],
+                    ),
+                  ),
+              },
+            ],
+          ]
+        : [],
+    ),
   );
 }
 
@@ -595,9 +790,6 @@ function HostSoftwareMap({
 function HostSoftwareMapView({
   node,
   map,
-  resources,
-  onSourceRangeOpen,
-  onError,
 }: {
   node: Extract<HostNode, { type: "software_map" }>;
   map: HostMapVersion;
@@ -605,63 +797,112 @@ function HostSoftwareMapView({
   onSourceRangeOpen?: HostRichNodeProps["onSourceRangeOpen"];
   onError?: (error: Error) => void;
 }) {
-  const [selected, setSelected] = useState<string | null>(
-    node.focusElementId ?? null,
-  );
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  useEffect(
-    () => setSelected(node.focusElementId ?? null),
-    [node.focusElementId],
-  );
-  const snapshot = useMemo(
-    () => hostMapSnapshot(map, selected, collapsed),
-    [map, selected, collapsed],
-  );
+  const model = useMemo(() => hostMapModel(map), [map]);
   return (
-    <figure className="software-map host-document-graph">
-      <figcaption>
-        <strong>Software map</strong>
-        <small>{map.commit.slice(0, 12)}</small>
-      </figcaption>
-      <SoftwareMapCanvas
-        snapshot={snapshot}
-        viewName={map.id}
-        diagram={node.id}
-        expanded={false}
-        interactionMode="inline"
-        theme={resources?.theme ?? "dark"}
-        wasmUrl={resources?.wasmUrl}
-        viewportFocusNodeId={selected}
-        onSelectNode={(item) => setSelected(item.id)}
-        onError={onError}
-        onCollapseNode={(item) =>
-          setCollapsed((current) => new Set([...current, item.id]))
-        }
-        onExpandNode={(item) =>
-          setCollapsed((current) => {
-            const next = new Set(current);
-            next.delete(item.id);
-            return next;
-          })
-        }
-      />
-      {selected && map.elements[selected] && (
-        <figcaption>
-          {map.elements[selected].label}: {map.elements[selected].description}
-          {onSourceRangeOpen &&
-            map.elements[selected].source.map((source, index) => (
-              <button
-                key={index}
-                type="button"
-                className="host-document-source-link"
-                onClick={() => onSourceRangeOpen(source)}
-              >
-                {source.file}:{source.fromLine}–{source.toLine}
-              </button>
-            ))}
-        </figcaption>
-      )}
-    </figure>
+    <SoftwareMap
+      model={model}
+      targetId={node.id}
+      title="Software map"
+      view={node.id}
+      focusRequest={
+        node.focusElementId
+          ? { requestId: 0, elementPath: node.focusElementId }
+          : undefined
+      }
+    />
+  );
+}
+
+/** Keeps the host's exact IDs/hierarchy when adapting to the existing map UI. */
+export function hostMapModel(
+  map: HostMapVersion,
+  nodeId?: string,
+): NormalizedSoftwareModel {
+  const elements: NormalizedSoftwareElement[] = Object.values(map.elements).map(
+    (element) => ({
+      id: element.id,
+      path: element.id,
+      type: mapElementTypes[element.kind],
+      label: element.label,
+      description: element.description,
+      parentPath: element.parentId ?? undefined,
+      children: Object.values(map.elements)
+        .filter((child) => child.parentId === element.id)
+        .map((child) => child.id),
+      sourceRanges: element.source.map((source) => ({
+        file: source.file,
+        fromLine: source.fromLine,
+        toLine: source.toLine,
+      })),
+      coverage: {
+        files: element.source.map((source) => ({
+          path: source.file,
+          ranges: [{ fromLine: source.fromLine, toLine: source.toLine }],
+        })),
+        globs: [],
+      },
+      dataStoreKind: element.store ? "database" : undefined,
+      dataStoreSchema: element.store
+        ? {
+            tables:
+              element.store.storage === "relational"
+                ? hostMapCollections(element.store)
+                : {},
+            documents:
+              element.store.storage === "document"
+                ? hostMapCollections(element.store)
+                : {},
+          }
+        : undefined,
+    }),
+  );
+  return {
+    targetId: nodeId ?? `map:${map.id}`,
+    savedMap: { id: map.id, commit: map.commit },
+    elements,
+    elementsByPath: new Map(elements.map((element) => [element.path, element])),
+    relationships: Object.values(map.relationships).map((relationship) => ({
+      id: relationship.id,
+      from: relationship.fromId,
+      to: relationship.toId,
+      label: relationship.label,
+      ...(relationship.kind === "call"
+        ? { kind: "call" as const, nthCallSite: 1 }
+        : {
+            kind: "semantic" as const,
+            description: relationship.explanation,
+          }),
+    })),
+  };
+}
+
+function hostMapCollections(
+  store: NonNullable<HostMapVersion["elements"][string]["store"]>,
+) {
+  return Object.fromEntries(
+    Object.entries(store.collections).map(([id, collection]) => [
+      id,
+      {
+        id,
+        label: collection.label,
+        schema: Object.fromEntries(
+          Object.entries(collection.fields).map(([fieldId, field]) => [
+            fieldId,
+            {
+              type: `${field.dataType}${field.nullable ? "?" : ""}`,
+              pk: field.primaryKey,
+              fk: field.references
+                ? [
+                    field.references.storeId,
+                    field.references.collectionId,
+                    field.references.fieldId,
+                  ].join(".")
+                : undefined,
+            },
+          ]),
+        ),
+      },
+    ]),
   );
 }
 
@@ -681,20 +922,13 @@ function HostTraceQuote({ node, resources }: NodeProps<"trace_quote">) {
       `Stored trace excerpt ${node.traceId}/${node.eventId} is unavailable or does not contain this quotation.`,
     );
   return (
-    <figure
-      className="trace-quote host-document-trace"
-      data-trace-id={trace.id}
-      data-event-id={event.id}
+    <TraceQuote
+      sessionId={trace.id}
+      trace={trace.id}
+      event={Object.keys(trace.events).indexOf(event.id)}
     >
-      <figcaption>
-        <strong>{trace.label}</strong>
-        {event.role && <span>{event.role}</span>}
-        <small>Provided trace excerpt</small>
-      </figcaption>
-      <blockquote>
-        <pre>{node.text}</pre>
-      </blockquote>
-    </figure>
+      {node.text}
+    </TraceQuote>
   );
 }
 
@@ -729,7 +963,7 @@ function RetainedImage({
   }, [asset]);
   if (failed) throw new Error(`Stored image ${asset.id} could not be decoded.`);
   return (
-    <figure className="host-document-image">
+    <figure className="review-image">
       {url && <img src={url} alt={node.alt} onError={() => setFailed(true)} />}
       {node.caption && <figcaption>{node.caption}</figcaption>}
     </figure>

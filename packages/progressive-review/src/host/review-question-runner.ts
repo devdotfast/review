@@ -47,10 +47,7 @@ export class ReviewQuestionRunner {
     };
     try {
       const context = host.store.questionContext(run.reviewId, run.contextId);
-      const document = host.store.document(
-        run.reviewId,
-        context.documentVersion,
-      );
+      const document = host.store.document(run.reviewId, context.reviewVersion);
       const handle = await executor.start({
         runId: run.id,
         questionId: run.questionId,

@@ -228,9 +228,29 @@ function question(repositoryPath: string) {
     context: {
       id: randomUUID(),
       reviewId: randomUUID(),
-      documentVersion: 1,
+      reviewVersion: 1,
       question: "Explain the retained code.",
-      material: { quote: "const value = 42;" },
+      material: {
+        schemaVersion: 1,
+        review: { title: { state: "complete", text: "Review" } },
+        binding: {
+          repositoryId: randomUUID(),
+          baseCommit: "1".repeat(40),
+          headCommit: "2".repeat(40),
+        },
+        mapVersions: { base: null, head: null },
+        originalTarget: { kind: "document", reviewVersion: 1 },
+        viewedTarget: {
+          threadId: randomUUID(),
+          reviewVersion: 1,
+          status: "exact",
+          target: { kind: "document", reviewVersion: 1 },
+        },
+        sourceEvidence: null,
+        documentJson: { state: "complete", text: "const value = 42;" },
+        priorMessages: [],
+        priorMessagesOmitted: 0,
+      },
     },
     credentials: {
       url: "http://127.0.0.1:4000",

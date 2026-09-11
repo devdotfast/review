@@ -31,7 +31,8 @@ export type ReviewCanvasEditorTarget =
   | { readonly kind: "welcome" }
   | { readonly kind: "settings" }
   | { readonly kind: "source" }
-  | { readonly kind: "host-review"; readonly reviewId?: string; readonly title?: string }
+  | { readonly kind: "host-source"; readonly reviewId: string; readonly reviewVersion: number }
+  | { readonly kind: "host-review"; readonly reviewId?: string; readonly reviewVersion?: number; readonly title?: string }
   | {
       readonly kind: "review";
       readonly reviewUuid: string;
@@ -80,7 +81,8 @@ export class ReviewCanvasEditorInput extends EditorInput {
       path:
         target.kind === "review"
           ? `/${target.reviewUuid}${target.revision ? `/rev/${target.revision}` : ""}`
-          : target.kind === "host-review" ? `/${target.reviewId ?? "list"}` : `/${target.kind}`,
+          : target.kind === "host-review" ? `/${target.reviewId ?? "list"}` : target.kind === "host-source" ? `/${target.reviewId}/${target.reviewVersion}` : `/${target.kind}`,
+      query: target.kind === "host-review" && target.reviewVersion !== undefined ? `reviewVersion=${target.reviewVersion}` : undefined,
     });
     if (target.kind === "source") {
       // The Source tab names the active review's worktree, so its label
@@ -274,6 +276,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
     if (this.target.kind === "home") return "Home";
     if (this.target.kind === "welcome") return "Welcome";
     if (this.target.kind === "settings") return "Settings";
+    if (this.target.kind === "host-source") return "Source";
     if (this.target.kind === "host-review") return this.target.title ?? (this.target.reviewId ? "Review" : "Local reviews");
     if (this.target.kind === "source") {
       const worktreePath =
@@ -302,7 +305,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 
   override getIcon(): ThemeIcon | undefined {
     if (this.target.kind === "home") return Codicon.home;
-    if (this.target.kind === "source") return Codicon.repo;
+    if (this.target.kind === "source" || this.target.kind === "host-source") return Codicon.repo;
     return undefined;
   }
 

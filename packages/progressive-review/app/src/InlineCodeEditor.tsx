@@ -7,6 +7,7 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+import { RenderedCodeBlock } from "./code-block";
 import { useReviewSession } from "./host/review-session";
 import { useReviewFindRegistration } from "./review-find";
 import { emitReviewInteraction } from "./review-interaction-event";
@@ -28,6 +29,7 @@ export function InlineCodeEditor({
   onOpen,
   commentsEnabled = false,
   collapsed = false,
+  fallbackSource,
 }: {
   path: string;
   title: string;
@@ -41,6 +43,7 @@ export function InlineCodeEditor({
   onOpen?: () => void;
   commentsEnabled?: boolean;
   collapsed?: boolean;
+  fallbackSource?: string;
 }) {
   const session = useReviewSession();
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
@@ -243,12 +246,20 @@ export function InlineCodeEditor({
         className="review-inline-editor"
         data-review-inline-editor={path}
         data-review-inline-editor-active={active ? "true" : "false"}
+        hidden={Boolean(error && fallbackSource !== undefined)}
         style={{ height }}
       />
       {error ? (
-        <div className="review-inline-editor-error" title={error}>
-          Inline preview unavailable
-        </div>
+        <>
+          <div className="review-inline-editor-error" title={error}>
+            {fallbackSource === undefined
+              ? "Inline preview unavailable"
+              : "Full source unavailable. Showing the retained excerpt."}
+          </div>
+          {fallbackSource !== undefined && (
+            <RenderedCodeBlock code={fallbackSource} />
+          )}
+        </>
       ) : null}
     </>
   );

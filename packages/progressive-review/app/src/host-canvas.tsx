@@ -1,25 +1,64 @@
 import {
-  type HostCheckpoint,
   type HostDocumentState,
-  type HostReview,
-  type HostSourceQuote,
+  type HostQueryResults,
+  type HostReviewVersionSummary,
+  type HostReviewWithSnapshot,
   type ReviewCanvasContent,
   ReviewClient,
-  type ReviewHostSourceTarget,
+  type ReviewCommitSummary,
 } from "@dev.fast/review-protocol";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { MDXComponents } from "mdx/types";
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
+import { App, type PublishedSoftwareMap } from "./App";
+import {
+  type HostAuthoringActivity,
+  HostAuthoringActivityContext,
+} from "./host-authoring-activity";
 import { useHostResources } from "./host-canvas-resources";
-import { HostDocumentRenderer } from "./host-document-renderer";
-import { HostFeedbackPanel } from "./host-feedback-panel";
-import { HostSourceBrowser } from "./host-source-browser";
-
-import "./host-canvas.css";
+import {
+  hostAnchorRef,
+  hostMapModel,
+  projectHostGraphTarget,
+  resolveHostGraphTarget,
+} from "./host-document-components";
+import {
+  HostDocumentRenderer,
+  type HostDocumentRendererProps,
+  hostDocumentHasTitle,
+} from "./host-document-renderer";
+import { HostReviewHome } from "./host-review-home";
+import { createHostCommentStore } from "./host/host-comment-store";
+import {
+  type HostReviewViewState,
+  createHostReviewSession,
+  refreshHostReviewSession,
+} from "./host/host-review-session";
+import { ReviewSessionProvider } from "./host/review-session";
+import { ReviewCanvasLoading } from "./review-canvas-loading";
+import type { ReadyReviewDocumentEntry } from "./review-documents-runtime";
+import type { ReviewFindHost } from "./review-find";
+import { TutorialProvider } from "./tutorial-context";
 
 type HostCanvasContent = Extract<ReviewCanvasContent, { kind: "host" }>;
 
-/** The native shell supplies only a connection; every review read/write is API-owned. */
-export function HostCanvas({ content }: { content: HostCanvasContent }) {
+/** Supplies API data to the existing Home and review UI, not a second UI. */
+export function HostCanvas({
+  content,
+  findHost,
+}: {
+  content: HostCanvasContent;
+  findHost?: ReviewFindHost;
+}) {
   const [client, setClient] = useState<ReviewClient>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -30,129 +69,24 @@ export function HostCanvas({ content }: { content: HostCanvasContent }) {
       (connected) => {
         if (!abort.signal.aborted) setClient(connected);
       },
-      (cause: unknown) => {
+      (cause) => {
         if (!abort.signal.aborted) setError(message(cause));
       },
     );
     return () => abort.abort();
   }, [content.connection.serverUrl, content.connection.token]);
-  if (error)
-    return (
-      <main className="host-canvas">
-        <p role="alert">{error}</p>
-      </main>
-    );
-  if (!client)
-    return (
-      <main className="host-canvas">
-        <p role="status">Connecting to Review…</p>
-      </main>
-    );
+  if (error) return <CanvasError message={error} />;
+  if (!client) return <ReviewCanvasLoading page note="Connecting to Review…" />;
   return content.reviewId ? (
     <HostReviewCanvas
       key={content.reviewId}
       client={client}
       reviewId={content.reviewId}
       content={content}
+      findHost={findHost}
     />
   ) : (
-    <HostReviewList client={client} content={content} />
-  );
-}
-
-function HostReviewList({
-  client,
-  content,
-}: {
-  client: ReviewClient;
-  content: HostCanvasContent;
-}) {
-  const [reviews, setReviews] = useState<HostReview[]>();
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    const abort = new AbortController();
-    const refresh = async () => {
-      const page = await client.query(
-        "reviews.list",
-        { limit: 200 },
-        abort.signal,
-      );
-      const all = [...page.result.items];
-      let cursor = page.result.nextCursor;
-      while (cursor) {
-        const next = await client.query(
-          "reviews.list",
-          { cursor, limit: 200 },
-          abort.signal,
-        );
-        all.push(...next.result.items);
-        cursor = next.result.nextCursor;
-      }
-      if (!abort.signal.aborted) {
-        setReviews(all);
-        setError(undefined);
-      }
-      return page.eventCursor;
-    };
-    void refresh()
-      .then((after) =>
-        client.subscribe({
-          after,
-          signal: abort.signal,
-          onReset: refresh,
-          onEvent: (event) =>
-            event.type.startsWith("review.") ? refresh() : undefined,
-          onError: (failure) => setError(failure.message),
-        }),
-      )
-      .catch((cause: unknown) => {
-        if (!abort.signal.aborted) setError(message(cause));
-      });
-    return () => abort.abort();
-  }, [client]);
-  return (
-    <main className="host-canvas host-canvas-list">
-      <header className="host-canvas-toolbar">
-        <h1>Local reviews</h1>
-        {content.openWelcome && (
-          <button type="button" onClick={content.openWelcome}>
-            Welcome
-          </button>
-        )}
-        {content.openSettings && (
-          <button type="button" onClick={content.openSettings}>
-            Settings
-          </button>
-        )}
-        {content.openTutorial && (
-          <button type="button" onClick={content.openTutorial}>
-            Tutorial
-          </button>
-        )}
-      </header>
-      <p>Reviews authored through the desktop API.</p>
-      {error && <p role="alert">{error}</p>}
-      {!reviews && <p role="status">Loading reviews…</p>}
-      {reviews?.length === 0 && (
-        <p>No reviews yet. Connect your agent to this desktop to create one.</p>
-      )}
-      <ul>
-        {reviews?.map((review) => (
-          <li key={review.id}>
-            <button
-              type="button"
-              onClick={() => content.openReview(review.id, review.title)}
-            >
-              {review.title}
-            </button>
-            <span>
-              {review.workflow.replaceAll("_", " ")} · version{" "}
-              {review.documentVersion}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </main>
+    <HostReviewHome client={client} content={content} />
   );
 }
 
@@ -160,407 +94,452 @@ function HostReviewCanvas({
   client,
   reviewId,
   content,
+  findHost,
 }: {
   client: ReviewClient;
   reviewId: string;
   content: HostCanvasContent;
+  findHost?: ReviewFindHost;
 }) {
-  const [review, setReview] = useState<HostReview>();
-  const [document, setDocument] = useState<HostDocumentState>();
-  const [checkpoints, setCheckpoints] = useState<HostCheckpoint[]>([]);
-  const [checkpointId, setCheckpointId] = useState("");
+  const [observed, setObserved] = useState<
+    HostReviewWithSnapshot & {
+      document: HostDocumentState;
+      requestedVersion: number | undefined;
+    }
+  >();
+  const document = observed?.document;
+  const review = observed?.review;
+  const [history, setHistory] = useState<HostReviewVersionSummary[]>([]);
+  const [selectedReviewVersion, setSelectedReviewVersion] = useState<
+    number | null
+  >(content.reviewVersion ?? null);
+  const [activity, setActivity] = useState<HostAuthoringActivity>();
   const [error, setError] = useState<string>();
-  const [pending, setPending] = useState(false);
-  const [sourceId, setSourceId] = useState<string>();
-  const [discussionOpen, setDiscussionOpen] = useState(false);
-  const [discussionMounted, setDiscussionMounted] = useState(false);
-  const [sourceBrowserOpen, setSourceBrowserOpen] = useState(false);
-  const [requestedSource, setRequestedSource] =
-    useState<ReviewHostSourceTarget>();
-  const [failures, setFailures] = useState<{
-    version: number;
-    items: Record<string, string>;
-  }>({ version: 0, items: {} });
-  const canvasSessionId = useRef(crypto.randomUUID());
-  const metadataGeneration = useRef(0);
-  const canvas = useRef<HTMLDivElement>(null);
-  const sourceDialog = useRef<HTMLDialogElement>(null);
-  const checkpoint = checkpoints.find((item) => item.id === checkpointId);
-  const published = checkpoints.find(
-    (item) => item.id === review?.publishedCheckpointId,
-  );
-  const {
-    resources,
-    errors: resourceErrors,
-    retry: retryResources,
-  } = useHostResources(client, document, content.wasmUrl);
-
-  const refreshMetadata = useCallback(
+  const generation = useRef(0);
+  const refreshHistory = useCallback(
     async (signal?: AbortSignal) => {
-      const generation = ++metadataGeneration.current;
-      const [metadata, history] = await Promise.all([
-        client.query("review.get", { reviewId }, signal),
-        client.query("checkpoints.list", { reviewId, limit: 200 }, signal),
-      ]);
+      const request = ++generation.current;
+      const history = await client.query(
+        "review.history",
+        { reviewId, limit: 200 },
+        signal,
+      );
       const all = [...history.result.items];
       let cursor = history.result.nextCursor;
       while (cursor) {
         const page = await client.query(
-          "checkpoints.list",
+          "review.history",
           { reviewId, cursor, limit: 200 },
           signal,
         );
         all.push(...page.result.items);
         cursor = page.result.nextCursor;
       }
-      if (!signal?.aborted && generation === metadataGeneration.current) {
-        setReview(metadata.result.review);
-        setCheckpoints(all);
+      if (!signal?.aborted && request === generation.current) {
+        setHistory(all);
       }
     },
     [client, reviewId],
   );
-
   useEffect(() => {
-    if (review) content.setTitle?.(review.title);
-  }, [review?.title, content.setTitle]);
-
+    if (observed) content.setTitle?.(observed.snapshot.title);
+  }, [observed?.snapshot.title, content.setTitle]);
   useEffect(() => {
-    const subscription = content.source?.onDidRequestComment?.((target) => {
-      if (target.reviewId !== reviewId) return;
-      setRequestedSource(target);
-      setDiscussionMounted(true);
-      setDiscussionOpen(true);
-    });
-    return () => subscription?.dispose();
-  }, [content.source, reviewId]);
-
+    if (!review?.deletedAt || !content.closeReview) return;
+    content.showHome();
+    void content
+      .closeReview(reviewId)
+      .catch((cause) => setError(message(cause)));
+  }, [review?.deletedAt, reviewId, content.closeReview, content.showHome]);
   useEffect(() => {
     const abort = new AbortController();
-    void refreshMetadata(abort.signal).catch((cause: unknown) => {
+    void refreshHistory(abort.signal).catch((cause) => {
       if (!abort.signal.aborted) setError(message(cause));
     });
     return () => abort.abort();
-  }, [refreshMetadata]);
-
+  }, [refreshHistory]);
   useEffect(() => {
     const abort = new AbortController();
-    setDocument(undefined);
-    setSourceId(undefined);
+    const requestedVersion = selectedReviewVersion ?? undefined;
+    setObserved(undefined);
     setError(undefined);
-    // A checkpoint identifies an immutable version; it never receives working
-    // document events. Returning to Live obtains a fresh snapshot and cursor.
-    void client
-      .watchDocument({
+    setActivity(undefined);
+    void (async () => {
+      const activityEnabled =
+        requestedVersion === undefined &&
+        (await client
+          .query("capabilities", {}, abort.signal)
+          .then(({ result }) => result.queries.includes("authoring.get"))
+          .catch(() => false));
+      if (abort.signal.aborted) return;
+      return client.watchReview({
         reviewId,
-        version: checkpoint?.documentVersion,
+        reviewVersion: requestedVersion,
         signal: abort.signal,
-        onDocument: (next) => {
-          setDocument(next);
+        onActivity: activityEnabled
+          ? (next) => {
+              if (!abort.signal.aborted) setActivity(next ?? "unknown");
+            }
+          : undefined,
+        onReview: (next) => {
+          if (abort.signal.aborted) return;
+          setObserved({ ...next, requestedVersion });
           setError(undefined);
         },
         onEvent: (event) => {
           if (
-            event.type.startsWith("review.") ||
-            event.type === "checkpoint.created"
+            event.type === "review.committed" ||
+            event.type === "review.resync_required"
           )
-            void refreshMetadata(abort.signal).catch((cause: unknown) => {
+            void refreshHistory(abort.signal).catch((cause) => {
               if (!abort.signal.aborted) setError(message(cause));
             });
         },
-        onError: (failure) => setError(failure.message),
-      })
-      .catch((cause: unknown) => {
-        if (!abort.signal.aborted) setError(message(cause));
+        onError: (failure) => {
+          if (!abort.signal.aborted) setError(failure.message);
+        },
       });
+    })().catch((cause) => {
+      if (!abort.signal.aborted) setError(message(cause));
+    });
     return () => abort.abort();
-  }, [client, reviewId, checkpoint?.documentVersion, refreshMetadata]);
-
-  const reportError = useCallback(
-    (nodeId: string, failure: Error) => {
-      if (!document) return;
-      setFailures((prior) => {
-        const items =
-          prior.version === document.version ? { ...prior.items } : {};
-        items[nodeId] = failure.message;
-        return { version: document.version, items };
-      });
-    },
-    [document?.version],
-  );
-
-  useEffect(() => {
-    if (!document || checkpointId || resources.pending?.size) return;
-    const abort = new AbortController();
-    const timer = setTimeout(() => {
-      const items = failures.version === document.version ? failures.items : {};
-      const visibleNodeIds = Array.from(
-        canvas.current?.querySelectorAll<HTMLElement>("[data-node-id]") ?? [],
-      )
-        .filter((element) => element.getClientRects().length > 0)
-        .map((element) => element.dataset.nodeId!);
-      void client
-        .command(
-          "canvas.report",
-          {
-            reviewId,
-            canvasSessionId: canvasSessionId.current,
-            documentVersion: document.version,
-            status: Object.keys(items).length ? "failed" : "rendered",
-            visibleNodeIds,
-            failures: Object.entries(items).map(([nodeId, failure]) => ({
-              nodeId,
-              code: "RENDER_FAILED",
-              message: failure,
-            })),
-          },
-          { signal: abort.signal },
-        )
-        .catch((cause: unknown) => {
-          if (!abort.signal.aborted) setError(message(cause));
-        });
-    }, 100);
-    return () => {
-      clearTimeout(timer);
-      abort.abort();
-    };
-  }, [client, reviewId, document, failures, checkpointId, resources.pending]);
-
-  useEffect(() => {
-    if (sourceId) sourceDialog.current?.showModal();
-    else sourceDialog.current?.close();
-  }, [sourceId]);
-
-  const publish = async () => {
-    if (!review || !document) return;
-    setPending(true);
-    setError(undefined);
-    try {
-      await client.command("review.publish", {
-        reviewId,
-        expectedDocumentVersion: document.version,
-        expectedReviewVersion: review.version,
-        mapVersions: { base: null, head: null },
-      });
-      await refreshMetadata();
-    } catch (failure) {
-      setError(message(failure));
-    } finally {
-      setPending(false);
-    }
-  };
-  const reopen = async () => {
-    if (!review) return;
-    setPending(true);
-    setError(undefined);
-    try {
-      await client.command("review.reopen", {
-        reviewId,
-        expectedVersion: review.version,
-      });
-      await refreshMetadata();
-    } catch (failure) {
-      setError(message(failure));
-    } finally {
-      setPending(false);
-    }
-  };
-  const source = sourceId ? document?.evidence[sourceId] : undefined;
-  const openSource = (anchorId: string) => {
-    const anchor = document?.definitions[anchorId];
-    if (!content.source || !document || anchor?.kind !== "anchor") {
-      setSourceId(anchorId);
-      return;
-    }
-    void content.source
-      .open({
-        reviewId,
-        documentVersion: document.version,
-        range: anchor.source,
-      })
-      .catch((cause: unknown) => setError(message(cause)));
-  };
-  const openSourceRange =
-    content.source && document
-      ? (span: HostSourceQuote["span"]) => {
-          const side =
-            span.commit === document.binding.headCommit
-              ? "head"
-              : span.commit === document.binding.baseCommit
-                ? "base"
-                : null;
-          if (!side || span.repositoryId !== document.binding.repositoryId) {
-            setError(
-              "This retained source is outside the displayed document's binding.",
-            );
-            return;
-          }
-          void content
-            .source!.open({
-              reviewId,
-              documentVersion: document.version,
-              range: {
-                side,
-                file: span.file,
-                fromLine: span.fromLine,
-                toLine: span.toLine,
-              },
-            })
-            .catch((cause: unknown) => setError(message(cause)));
-        }
-      : undefined;
+  }, [client, reviewId, selectedReviewVersion, refreshHistory]);
+  // Selection changes render before the old watch's effect is cleaned up.
+  // Never pair its document with a newly selected checkpoint/live mode.
+  if (
+    !document ||
+    !review ||
+    observed?.requestedVersion !== (selectedReviewVersion ?? undefined)
+  )
+    return error ? (
+      <CanvasError message={error} />
+    ) : (
+      <ReviewCanvasLoading page note="Still loading this review…" />
+    );
   return (
-    <main className="host-canvas">
-      <header className="host-canvas-toolbar">
-        <div>
-          <h1>{checkpoint?.title ?? review?.title ?? "Review"}</h1>
-          <span>
-            {checkpoint ? `Checkpoint ${checkpoint.ordinal}` : "Live"} · version{" "}
-            {document?.version ?? "…"}
-          </span>
-          {!checkpoint && (
-            <span className="host-canvas-publication" role="status">
-              {published
-                ? document?.version === published.documentVersion
-                  ? `Published checkpoint ${published.ordinal}`
-                  : `Changes since checkpoint ${published.ordinal}`
-                : "Not published"}
-            </span>
-          )}
-        </div>
-        <label>
-          Version{" "}
-          <select
-            aria-label="Review version"
-            value={checkpointId}
-            onChange={(event) => setCheckpointId(event.target.value)}
-          >
-            <option value="">Live document</option>
-            {checkpoints.map((item) => (
-              <option key={item.id} value={item.id}>
-                Checkpoint {item.ordinal} · version {item.documentVersion}
-              </option>
-            ))}
-          </select>
-        </label>
-        {review?.workflow === "closed" ? (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => void reopen()}
-          >
-            Reopen review
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={pending || !document || !!checkpointId}
-            onClick={() => void publish()}
-          >
-            Publish checkpoint
-          </button>
-        )}
-        <button
-          type="button"
-          aria-expanded={sourceBrowserOpen}
-          onClick={() => setSourceBrowserOpen((value) => !value)}
-        >
-          Source
-        </button>
-        <button
-          type="button"
-          aria-expanded={discussionOpen}
-          onClick={() => {
-            setDiscussionMounted(true);
-            setDiscussionOpen((value) => !value);
-          }}
-        >
-          Discussion
-        </button>
-        <button type="button" onClick={content.showHome}>
-          Home
-        </button>
-      </header>
-      {error && (
-        <p role="alert" className="host-canvas-error">
-          {error}
-        </p>
-      )}
-      {!document && <p role="status">Loading review…</p>}
-      {resourceErrors.size > 0 && (
-        <p role="alert">
-          Some retained resources could not be loaded.{" "}
-          <button
-            type="button"
-            onClick={() => {
-              setFailures({ version: document?.version ?? 0, items: {} });
-              retryResources();
-            }}
-          >
-            Retry resources
-          </button>
-        </p>
-      )}
-      {document && sourceBrowserOpen && (
-        <HostSourceBrowser
-          client={client}
-          document={document}
-          source={content.source}
-        />
-      )}
-      <div ref={canvas}>
-        {document && (
-          <HostDocumentRenderer
-            document={document}
-            resources={resources}
-            source={content.source}
-            onSourceOpen={openSource}
-            onSourceRangeOpen={openSourceRange}
-            onError={reportError}
-          />
-        )}
-      </div>
-      {document && discussionMounted && (
-        <div hidden={!discussionOpen}>
-          <HostFeedbackPanel
-            client={client}
-            document={document}
-            checkpoint={checkpoint ?? published}
-            requestedSource={requestedSource}
-          />
-        </div>
-      )}
-      <dialog
-        ref={sourceDialog}
-        className="host-canvas-source"
-        onClose={() => setSourceId(undefined)}
-      >
-        <header>
-          <h2>{source?.span.file ?? "Retained source"}</h2>
-          <button type="button" onClick={() => setSourceId(undefined)}>
-            Close
-          </button>
-        </header>
-        {source ? (
-          <>
-            <p>
-              Lines {source.span.fromLine}–{source.span.toLine} ·{" "}
-              {source.span.commit.slice(0, 12)}
-            </p>
-            <pre>
-              <code>{source.text}</code>
-            </pre>
-          </>
-        ) : (
-          <p>
-            This document does not contain retained evidence for this reference.
-          </p>
-        )}
-      </dialog>
-    </main>
+    <HostAuthoringActivityContext.Provider
+      value={selectedReviewVersion !== null ? undefined : activity}
+    >
+      <ReviewView
+        key={`${selectedReviewVersion ?? "live"}:${document.binding.id}`}
+        client={client}
+        content={content}
+        state={{
+          document,
+          review,
+          snapshot: observed.snapshot,
+          history,
+          selectedReviewVersion,
+        }}
+        findHost={findHost}
+        openRevision={setSelectedReviewVersion}
+        error={error}
+      />
+    </HostAuthoringActivityContext.Provider>
   );
 }
 
+const DocumentBodyContext = createContext<
+  (HostDocumentRendererProps & { title: string }) | null
+>(null);
+// Stable identity preserves the original document boundary, panels and selection during live updates.
+function JsonDocumentBody({ components }: { components?: MDXComponents }) {
+  const body = useContext(DocumentBodyContext);
+  if (!body) throw new Error("The review document is not loaded.");
+  const hasTitle = hostDocumentHasTitle(body.document);
+  return (
+    <>
+      {!hasTitle && createElement(components?.h1 ?? "h1", null, body.title)}
+      <HostDocumentRenderer {...body} components={components} />
+    </>
+  );
+}
+
+function ReviewView({
+  client,
+  content,
+  state,
+  findHost,
+  openRevision,
+  error,
+}: {
+  client: ReviewClient;
+  content: HostCanvasContent;
+  state: HostReviewViewState;
+  findHost?: ReviewFindHost;
+  openRevision(id: number | null): void;
+  error?: string;
+}) {
+  const { document, review, snapshot, selectedReviewVersion } = state;
+  const latest = useRef(state);
+  latest.current = state;
+  const [viewError, setViewError] = useState<string>();
+  const appSessionId = useRef(crypto.randomUUID());
+  const [commits, setCommits] = useState<ReviewCommitSummary[]>([]);
+  const [softwareMap, setSoftwareMap] = useState<PublishedSoftwareMap | null>(
+    null,
+  );
+  const canvas = useRef<HTMLDivElement>(null);
+  const {
+    resources,
+    errors: resourceErrors,
+    retry,
+  } = useHostResources(client, document, content.wasmUrl);
+  const availableMapVersions = Object.keys(resources.maps ?? {})
+    .sort()
+    .join(",");
+  const resourcesRef = useRef(resources);
+  resourcesRef.current = resources;
+  const comments = useMemo(
+    () =>
+      createHostCommentStore({
+        client,
+        reviewId: review.id,
+        getDocument: () => latest.current.document,
+        onError: (failure) => setViewError(failure.message),
+        resolveGraphTarget: (target, doc) =>
+          resolveHostGraphTarget(target, doc, resourcesRef.current),
+        projectGraphTarget: (target, doc) =>
+          projectHostGraphTarget(target, doc, resourcesRef.current),
+      }),
+    [client, review.id],
+  );
+  const sessionCore = useMemo(
+    () =>
+      createHostReviewSession({
+        appSessionId: appSessionId.current,
+        client,
+        content,
+        comments,
+        getState: () => latest.current,
+        openRevision,
+      }),
+    [client, content, comments, openRevision],
+  );
+  const session = useMemo(
+    () => refreshHostReviewSession(sessionCore),
+    [sessionCore, review.state, document.createdAt],
+  );
+  useEffect(() => () => sessionCore.dispose(), [sessionCore]);
+  content.source?.setDocumentVersion?.(document.reviewVersion);
+  useEffect(() => {
+    void comments.start().catch((cause) => setViewError(message(cause)));
+    return () => comments.dispose();
+  }, [comments]);
+  useEffect(() => {
+    void comments.refresh().catch((cause) => setViewError(message(cause)));
+  }, [comments, document.reviewVersion, availableMapVersions]);
+  useEffect(() => {
+    session.signalReady();
+  }, [session]);
+  useEffect(() => {
+    const abort = new AbortController();
+    setSoftwareMap(null);
+    const versions = snapshot.mapVersions;
+    if (versions?.base && versions.head) {
+      void Promise.all([
+        client.query(
+          "map.get",
+          { reviewId: review.id, mapVersionId: versions.base },
+          abort.signal,
+        ),
+        client.query(
+          "map.get",
+          { reviewId: review.id, mapVersionId: versions.head },
+          abort.signal,
+        ),
+      ])
+        .then(([base, head]) => {
+          const mapNode = Object.values(latest.current.document.nodes).find(
+            (node) =>
+              node.type === "software_map" &&
+              node.mapVersionId === head.result.id,
+          );
+          if (!abort.signal.aborted)
+            setSoftwareMap({
+              base: hostMapModel(base.result, mapNode?.id),
+              head: hostMapModel(head.result, mapNode?.id),
+            });
+        })
+        .catch((cause) => {
+          if (!abort.signal.aborted) setViewError(message(cause));
+        });
+    }
+    return () => abort.abort();
+  }, [client, review.id, snapshot.mapVersions.base, snapshot.mapVersions.head]);
+  useEffect(() => {
+    const abort = new AbortController();
+    void loadCommitSummaries(client, document, abort.signal)
+      .then((items) => {
+        if (!abort.signal.aborted) setCommits(items);
+      })
+      .catch((cause) => {
+        if (!abort.signal.aborted) setViewError(message(cause));
+      });
+    return () => abort.abort();
+  }, [client, review.id, document.binding.id]);
+  const entry = useMemo<ReadyReviewDocumentEntry>(
+    () => ({
+      slug: review.id,
+      routePath: `/reviews/${review.id}`,
+      filePath: `review:${review.id}:${selectedReviewVersion ?? "live"}`,
+      title: snapshot.title,
+      documentSoftwareModels: Object.values(resources.maps ?? {}).map((map) =>
+        hostMapModel(
+          map,
+          Object.values(document.nodes).find(
+            (node) =>
+              node.type === "software_map" && node.mapVersionId === map.id,
+          )?.id,
+        ),
+      ),
+      anchors: new Map(
+        Object.entries(document.definitions)
+          .filter(([, def]) => def.kind === "anchor")
+          .map(([id]) => [id, hostAnchorRef(document, id)]),
+      ),
+      anchorContents: new Map(
+        Object.entries(document.evidence).map(([id, quote]) => [
+          id,
+          quote.text,
+        ]),
+      ),
+      Component: JsonDocumentBody,
+      isDefault: true,
+    }),
+    [document, snapshot.title, selectedReviewVersion, resources.maps],
+  );
+  const reportError = useCallback((nodeId: string, failure: Error) => {
+    console.error(`Review component ${nodeId} failed`, failure);
+  }, []);
+  const body = useMemo(
+    () => ({
+      document,
+      resources,
+      source: content.source,
+      onError: reportError,
+      title: entry.title,
+    }),
+    [document, resources, content.source, reportError, entry.title],
+  );
+  useEffect(() => {
+    const abort = new AbortController();
+    void (async () => {
+      const { result } = await client.query(
+        "attention.get",
+        { reviewId: review.id },
+        abort.signal,
+      );
+      await client.command(
+        "attention.update",
+        {
+          reviewId: review.id,
+          expectedAttentionVersion: result.attentionVersion,
+          lastViewedReviewVersion: document.reviewVersion,
+        },
+        { signal: abort.signal },
+      );
+    })().catch((cause) => {
+      if (!abort.signal.aborted) setViewError(message(cause));
+    });
+    return () => abort.abort();
+  }, [client, review.id, document.reviewVersion]);
+  return (
+    <ReviewSessionProvider session={session}>
+      <div className="review-session-content" ref={canvas}>
+        {(error || viewError) && <p role="alert">{error ?? viewError}</p>}
+        {resourceErrors.size > 0 && (
+          <p role="alert">
+            Some retained resources could not be loaded.{" "}
+            <button type="button" onClick={retry}>
+              Retry resources
+            </button>
+          </p>
+        )}
+        <TutorialProvider>
+          <DocumentBodyContext.Provider value={body}>
+            <App
+              document={entry}
+              softwareMap={softwareMap}
+              softwareMapEnabled={content.softwareMapEnabled ?? true}
+              range={{
+                baseRef: document.binding.baseCommit,
+                headRef: document.binding.headCommit,
+                baseCommit: document.binding.baseCommit,
+                headCommit: document.binding.headCommit,
+              }}
+              commits={commits}
+              findHost={findHost}
+            />
+          </DocumentBodyContext.Provider>
+        </TutorialProvider>
+      </div>
+    </ReviewSessionProvider>
+  );
+}
+
+async function loadCommitSummaries(
+  client: ReviewClient,
+  document: HostDocumentState,
+  signal: AbortSignal,
+): Promise<ReviewCommitSummary[]> {
+  const source = {
+    reviewId: document.reviewId,
+    reviewVersion: document.reviewVersion,
+  };
+  const commits = [];
+  let cursor: string | undefined;
+  do {
+    const page = await client.query(
+      "source.commits",
+      { ...source, cursor, limit: 200 },
+      signal,
+    );
+    commits.push(...page.result.items);
+    cursor = page.result.nextCursor ?? undefined;
+  } while (cursor);
+  const summaries: ReviewCommitSummary[] = [];
+  for (const commit of commits) {
+    let fileCount = 0,
+      additions = 0,
+      deletions = 0;
+    cursor = undefined;
+    do {
+      const page: { result: HostQueryResults["source.diff"] } =
+        await client.query(
+          "source.diff",
+          { ...source, comparisonCommit: commit.oid, cursor, limit: 200 },
+          signal,
+        );
+      for (const file of page.result.items) {
+        fileCount++;
+        additions += file.additions;
+        deletions += file.deletions;
+      }
+      cursor = page.result.nextCursor ?? undefined;
+    } while (cursor);
+    summaries.push({
+      commit: commit.oid,
+      parentCommit:
+        commit.parents[0] ?? "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+      subject: commit.subject,
+      author: commit.author,
+      authoredAt: commit.at,
+      fileCount,
+      additions,
+      deletions,
+    });
+  }
+  return summaries;
+}
+function CanvasError({ message }: { message: string }) {
+  return (
+    <main className="review-canvas-shell">
+      <h1>Review unavailable</h1>
+      <p role="alert">{message}</p>
+    </main>
+  );
+}
 function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }

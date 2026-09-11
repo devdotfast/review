@@ -250,7 +250,11 @@ describe("safe Markdown and GFM", () => {
       }),
     ).rejects.toMatchObject({
       code: "VALIDATION_FAILED",
-      diagnostics: [expect.objectContaining({ path: "/nodes/Text/markdown" })],
+      diagnostics: [
+        expect.objectContaining({
+          path: "/candidate/document/nodes/Text/markdown",
+        }),
+      ],
     });
   });
 });
@@ -562,9 +566,8 @@ function state(
 ): HostDocumentState {
   return {
     ...document,
-    documentId: "00000000-0000-4000-8000-000000000007",
     reviewId: "00000000-0000-4000-8000-000000000008",
-    version: 1,
+    reviewVersion: 1,
     binding,
     contentHash: "e".repeat(64),
     createdAt: at,
@@ -579,7 +582,7 @@ function map(): HostMapVersion {
     mapId: "00000000-0000-4000-8000-000000000009",
     repositoryId,
     commit: headCommit,
-    revision: 1,
+    mapVersion: 1,
     contentHash: "e".repeat(64),
     createdAt: at,
     elements: {

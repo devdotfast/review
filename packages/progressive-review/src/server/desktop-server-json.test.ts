@@ -270,7 +270,11 @@ function request(
 ) {
   return fetch(`${server.url}${route}`, {
     method,
-    headers: { "x-review-token": token, "content-type": "application/json" },
+    headers: {
+      "x-review-token": token,
+      "content-type": "application/json",
+      "x-review-client-id": "b7b1ceae-bdbe-43f8-ac4b-04fc2bf07c56",
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
@@ -279,8 +283,8 @@ async function hostClient(server: ReturnType<typeof createGlobalReviewServer>) {
   const connection = await (await request(server, "/v1/connection")).json();
   const envelope = {
     apiVersion: 1,
-    hostId: String(connection.hostId),
-    workspaceId: String(connection.workspaceId),
+    hostId: String(connection.data.hostId),
+    workspaceId: String(connection.data.workspaceId),
     clientId: randomUUID(),
   };
   return {
@@ -292,7 +296,7 @@ async function hostClient(server: ReturnType<typeof createGlobalReviewServer>) {
         server,
         `/v1/workspaces/${envelope.workspaceId}/commands`,
         "POST",
-        { ...envelope, commandId: randomUUID(), type, input },
+        { commandId: randomUUID(), type, input },
       );
       const parsed = hostCommandResponseSchema(type).parse(
         await response.json(),
@@ -306,7 +310,7 @@ async function hostClient(server: ReturnType<typeof createGlobalReviewServer>) {
         server,
         `/v1/workspaces/${envelope.workspaceId}/queries`,
         "POST",
-        { ...envelope, type, input },
+        { type, input },
       );
       const parsed = hostQueryResponseSchema(type).parse(await response.json());
       if (!parsed.ok)
@@ -417,14 +421,19 @@ describe("JSON Desktop profile keeps old reviews inactive", () => {
     expect(existsSync(path.join(f.reviewsRoot, created.review.id))).toBe(false);
     const listed = await client.query("reviews.list", {});
     expect(listed).toMatchObject({
-      items: [{ id: created.review.id, title: "New host review" }],
+      items: [
+        {
+          review: { id: created.review.id },
+          snapshot: { title: "New host review" },
+        },
+      ],
     });
     await expect(
       client.query("review.get", { reviewId: f.oldId }),
     ).rejects.toThrow("NOT_FOUND");
     await client.command("document.mutate", {
       reviewId: created.review.id,
-      expectedDocumentVersion: 0,
+      expectedReviewVersion: 0,
       operations: [
         {
           op: "node.insert",
@@ -433,22 +442,22 @@ describe("JSON Desktop profile keeps old reviews inactive", () => {
             type: "markdown",
             markdown: "Authored through the host.",
           },
-          placement: { parentId: null, afterId: null },
+          placement: { parentId: null, position: { kind: "start" } },
         },
       ],
     });
     expect(
       await client.query("document.get", {
         reviewId: created.review.id,
-        version: 1,
+        reviewVersion: 1,
       }),
-    ).toMatchObject({ version: 1, roots: ["hello"] });
+    ).toMatchObject({ reviewVersion: 1, roots: ["hello"] });
     expect(f.handlers).toEqual([]);
     await server.close();
     f.unchanged();
   });
 
-  it("clears obsolete canvas diagnostics on restart without changing accepted documents", async () => {
+  it("preserves accepted review versions across restart", async () => {
     const f = fixture();
     const server = await f.start();
     const client = await hostClient(server);
@@ -462,31 +471,17 @@ describe("JSON Desktop profile keeps old reviews inactive", () => {
       change: { kind: "snapshot", ref: "HEAD" },
     });
     if (!("review" in created)) throw new Error("Expected review result");
-    await client.command("canvas.report", {
-      reviewId: created.review.id,
-      canvasSessionId: randomUUID(),
-      documentVersion: 0,
-      status: "rendered",
-      visibleNodeIds: [],
-      failures: [],
-    });
-    expect(
-      await client.query("canvas.reports", { reviewId: created.review.id }),
-    ).toHaveLength(1);
     const original = await client.query("document.get", {
       reviewId: created.review.id,
-      version: 0,
+      reviewVersion: 0,
     });
     await server.close();
     const restarted = await f.start();
     const after = await hostClient(restarted);
     expect(
-      await after.query("canvas.reports", { reviewId: created.review.id }),
-    ).toEqual([]);
-    expect(
       await after.query("document.get", {
         reviewId: created.review.id,
-        version: 0,
+        reviewVersion: 0,
       }),
     ).toEqual(original);
     await restarted.close();

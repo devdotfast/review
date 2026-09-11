@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { fileURLToPath } from "node:url";
+
 import type {
   HostDocumentState,
   HostMapVersion,
@@ -11,13 +13,37 @@ import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ReviewDebugSettingsProvider } from "./debug-settings";
 import {
   type HostDocumentResources,
   hostDatabaseSnapshot,
   hostMapSnapshot,
   hostSequence,
 } from "./host-document-components";
-import { HostDocumentRenderer } from "./host-document-renderer";
+import {
+  HostDocumentRenderer,
+  hostDocumentHasTitle,
+} from "./host-document-renderer";
+import { ReviewSessionProvider } from "./host/review-session";
+import { type ReviewSession } from "./host/review-session";
+import { ReviewProvider } from "./review-context";
+import { ReviewPanelProvider, useReviewPanel } from "./review-panel";
+import {
+  ReviewContainerProvider,
+  ReviewRootsProvider,
+} from "./review-root-context";
+import { testReviewSession } from "./review-session-test-utils";
+let session: ReviewSession;
+let currentState: HostDocumentState;
+let currentSource: ReviewHostSourceBridge | undefined;
+function PeekState() {
+  const active = useReviewPanel((state) => state.active);
+  return (
+    <output data-peek>
+      {active?.kind === "peek" ? active.anchor?.id : ""}
+    </output>
+  );
+}
 
 const hash = "a".repeat(64);
 const commit = "b".repeat(40);
@@ -59,9 +85,8 @@ function nativePeekBridge() {
 function documentState(nodes: HostNode[]): HostDocumentState {
   return {
     schemaVersion: 1,
-    documentId: "document-one",
     reviewId: "review-one",
-    version: 1,
+    reviewVersion: 1,
     roots: nodes.map((node) => node.id),
     nodes: Object.fromEntries(nodes.map((node) => [node.id, node])),
     definitions: {
@@ -98,6 +123,19 @@ function documentState(nodes: HostNode[]): HostDocumentState {
   };
 }
 
+it.each([
+  ["# Review title", true],
+  ["Review title\n============", true],
+  ["## Section title", false],
+  ["```md\n# Example heading\n```", false],
+])("detects the rendered document title in %s", (markdown, expected) => {
+  expect(
+    hostDocumentHasTitle(
+      documentState([{ id: "prose", type: "markdown", markdown }]),
+    ),
+  ).toBe(expected);
+});
+
 function render(
   document: HostDocumentState,
   props: {
@@ -107,8 +145,38 @@ function render(
     source?: ReviewHostSourceBridge;
   } = {},
 ) {
+  document = {
+    ...document,
+    definitions: structuredClone(document.definitions),
+    evidence: structuredClone(document.evidence),
+  };
+  currentState = document;
+  currentSource = props.source;
+  session.config.sessionId = document.binding.id;
   act(() =>
-    root.render(<HostDocumentRenderer document={document} {...props} />),
+    root.render(
+      <ReviewSessionProvider session={session}>
+        <ReviewContainerProvider container={container}>
+          <ReviewDebugSettingsProvider>
+            <ReviewRootsProvider
+              roots={{
+                appRef: { current: container },
+                shellRef: { current: container },
+                scrollRegionRef: { current: container },
+                articleRef: { current: container },
+              }}
+            >
+              <ReviewPanelProvider>
+                <ReviewProvider>
+                  <HostDocumentRenderer document={document} {...props} />
+                  <PeekState />
+                </ReviewProvider>
+              </ReviewPanelProvider>
+            </ReviewRootsProvider>
+          </ReviewDebugSettingsProvider>
+        </ReviewContainerProvider>
+      </ReviewSessionProvider>,
+    ),
   );
 }
 
@@ -119,6 +187,63 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
+  localStorage.clear();
+  session = testReviewSession(
+    {},
+    {
+      request: async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            session: { baseRef: commit, headRef: commit },
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      inlineEditors: {
+        async find() {
+          return { matchCount: 0 };
+        },
+        create(spec) {
+          if (currentSource)
+            return currentSource.createPeek({
+              container: spec.container,
+              title: spec.title,
+              target: {
+                reviewId: currentState.reviewId,
+                reviewVersion: currentState.reviewVersion,
+                range: {
+                  side: spec.side,
+                  file: spec.path,
+                  fromLine: spec.ranges[0]!.startLine,
+                  toLine: spec.ranges[0]!.endLine,
+                },
+              },
+              onDidOpen: spec.onDidOpen ?? (() => {}),
+            });
+          const quote = Object.values(currentState.evidence).find(
+            (item) => item.span.file === spec.path,
+          );
+          const pre = document.createElement("pre");
+          pre.textContent = quote?.text ?? "";
+          spec.container.append(pre);
+          return {
+            height: 160,
+            dispose() {
+              pre.remove();
+            },
+            setActive() {},
+            setCollapsed() {},
+            onDidChangeHeight: () => ({ dispose() {} }),
+            onDidError: () => ({ dispose() {} }),
+            setFindQuery: async () => ({ matchCount: 0 }),
+            revealFindMatch() {},
+            clearActiveFindMatch() {},
+            clearFind() {},
+          };
+        },
+      },
+    },
+  );
 });
 
 function richDocument(nodes: HostNode[]): HostDocumentState {
@@ -147,6 +272,87 @@ function richDocument(nodes: HostNode[]): HostDocumentState {
 }
 
 describe("host rich nodes", () => {
+  it("expands a saved map inside its own canvas and offers no legacy file refresh", async () => {
+    const map: HostMapVersion = {
+      schemaVersion: 1,
+      id: "saved-map-version",
+      mapId: "saved-map",
+      repositoryId: "repository-one",
+      commit,
+      mapVersion: 1,
+      contentHash: hash,
+      createdAt: "2026-09-10T00:00:00Z",
+      elements: {
+        worker: {
+          id: "worker",
+          kind: "component",
+          parentId: null,
+          label: "Worker",
+          description: "Saved topology",
+          source: [],
+        },
+      },
+      relationships: {},
+    };
+    container.className = "review-canvas-root";
+    container.style.overflow = "auto";
+    vi.spyOn(session, "wasmUrl").mockReturnValue(
+      fileURLToPath(
+        new URL("./libavoid.wasm", import.meta.resolve("libavoid-js")),
+      ),
+    );
+    const otherCanvas = document.createElement("div");
+    otherCanvas.className = "review-view-region--review";
+    otherCanvas.style.overflow = "scroll";
+    document.body.prepend(otherCanvas);
+    const request = vi.spyOn(session, "fetch");
+    try {
+      render(
+        documentState([
+          { id: "map-node", type: "software_map", mapVersionId: map.id },
+        ]),
+        { resources: { maps: { [map.id]: map } } },
+      );
+      const expand = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Expand software map"]',
+      )!;
+      expect(expand.textContent).toContain("Fullscreen");
+      expect(
+        container.querySelector('[aria-label="Refresh software map"]'),
+      ).toBeNull();
+
+      await act(async () => expand.click());
+      const dialog = document.querySelector('[role="dialog"]')!;
+      expect(dialog.closest(".review-canvas-root")).toBe(container);
+      expect(dialog.textContent).toContain("Software map");
+      expect(container.style.overflow).toBe("hidden");
+      expect(otherCanvas.style.overflow).toBe("scroll");
+      expect(
+        dialog.querySelector('[aria-label="Refresh software map"]'),
+      ).toBeNull();
+      expect(
+        request.mock.calls.some(([endpoint]) =>
+          endpoint.includes("artifacts/refresh"),
+        ),
+      ).toBe(false);
+
+      await act(async () =>
+        dialog
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="Close expanded software map"]',
+          )!
+          .click(),
+      );
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(container.style.overflow).toBe("auto");
+      expect(
+        container.querySelector('[data-host-node-id="map-node"]'),
+      ).not.toBeNull();
+    } finally {
+      otherCanvas.remove();
+    }
+  });
+
   it("keeps repeated sequence labels and reused evidence distinct by message ID", () => {
     const node: Extract<HostNode, { type: "sequence" }> = {
       id: "sequence",
@@ -178,8 +384,8 @@ describe("host rich nodes", () => {
       "second",
     ]);
     expect(sequence.messages.map((message) => message.anchor.id)).toEqual([
-      "source",
-      "source",
+      "first",
+      "second",
     ]);
     expect(sequence.participants).toHaveLength(2);
     expect(sequence.messages[1]?.style).toBe("return");
@@ -191,7 +397,7 @@ describe("host rich nodes", () => {
     ).toThrow("duplicated");
   });
 
-  it("mounts the existing sequence visual without a legacy review session", () => {
+  it("mounts the original sequence tour with repeated labels through the API-backed session", () => {
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -236,10 +442,7 @@ describe("host rich nodes", () => {
         .querySelector<HTMLButtonElement>(".diagram-tour-button")
         ?.click(),
     );
-    expect(onSourceOpen).toHaveBeenCalledWith("source");
-    expect(
-      container.querySelector(".host-document-graph-evidence pre")?.textContent,
-    ).toContain("return 42");
+    expect(container.querySelector(".diagram-tour-overlay")).not.toBeNull();
   });
 
   it("uses operation identity, retains read/write direction, and permits repeated use-case labels", () => {
@@ -345,7 +548,7 @@ describe("host rich nodes", () => {
     act(() =>
       container.querySelector<HTMLButtonElement>(".call-stack-row")?.click(),
     );
-    expect(onSourceOpen).toHaveBeenCalledWith("source");
+    expect(container.querySelector("[data-peek]")?.textContent).toBe("second");
   });
 
   it("preserves exact map identity and projects nested endpoints when a group is collapsed", () => {
@@ -354,7 +557,7 @@ describe("host rich nodes", () => {
       mapId: "map",
       repositoryId: "repository-one",
       commit,
-      revision: 1,
+      mapVersion: 1,
       contentHash: hash,
       createdAt: "2026-09-10T00:00:00Z",
       schemaVersion: 1,
@@ -442,12 +645,11 @@ describe("host rich nodes", () => {
         },
       },
     });
-    expect(container.querySelectorAll(".host-document-trace")).toHaveLength(1);
-    expect(
-      container.querySelector(".host-document-trace pre")?.textContent,
-    ).toBe("Look at the source");
+    expect(container.querySelectorAll(".review-trace-quote")).toHaveLength(1);
+    expect(container.querySelector(".review-trace-quote")?.textContent).toBe(
+      "Look at the source",
+    );
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
-    expect(container.textContent).toContain("Provided trace excerpt");
   });
 
   it.each([
@@ -479,9 +681,9 @@ describe("host rich nodes", () => {
           },
         },
       });
-      expect(
-        container.querySelector(".host-document-trace pre")?.textContent,
-      ).toBe(quotation);
+      expect(container.querySelector(".review-trace-quote")?.textContent).toBe(
+        quotation,
+      );
       expect(container.querySelector('[role="alert"]')).toBeNull();
       expect(onError).not.toHaveBeenCalled();
     },
@@ -516,7 +718,7 @@ describe("host rich nodes", () => {
     );
     expect(onError).not.toHaveBeenCalled();
     const toggle = container.querySelector<HTMLButtonElement>(
-      ".host-document-section button",
+      ".review-section-toggle",
     )!;
     act(() => toggle.click());
     render(state, {
@@ -534,14 +736,12 @@ describe("host rich nodes", () => {
       },
       onError,
     });
-    expect(container.querySelector(".host-document-section button")).toBe(
-      toggle,
-    );
+    expect(container.querySelector(".review-section-toggle")).toBe(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(container.querySelector('[role="status"]')).toBeNull();
-    expect(
-      container.querySelector(".host-document-trace pre")?.textContent,
-    ).toBe("Retained quotation");
+    expect(container.querySelector(".review-trace-quote")?.textContent).toBe(
+      "Retained quotation",
+    );
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -582,7 +782,7 @@ describe("host rich nodes", () => {
     );
     expect(container.querySelector("img")?.getAttribute("alt")).toBe("Diagram");
     expect(create).toHaveBeenCalledWith(expect.any(Blob));
-    render({ ...state, version: 2, roots: [], nodes: {} });
+    render({ ...state, reviewVersion: 2, roots: [], nodes: {} });
     expect(revoke).toHaveBeenCalledExactlyOnceWith("blob:owned-image");
   });
 });
@@ -608,15 +808,16 @@ describe("host document renderer", () => {
     render(state, { source: native.bridge });
     const editor = container.querySelector("textarea")!;
     editor.setSelectionRange(2, 7);
-    render({ ...state, version: 2 }, { source: native.bridge });
+    render({ ...state, reviewVersion: 2 }, { source: native.bridge });
     expect(native.createPeek).toHaveBeenCalledTimes(1);
-    expect(native.createPeek.mock.calls[0][0].target.documentVersion).toBe(1);
+    expect(native.createPeek.mock.calls[0][0].target.reviewVersion).toBe(1);
     expect(container.querySelector("textarea")).toBe(editor);
     expect(editor.selectionStart).toBe(2);
     expect(container.textContent).toContain("Explanation");
     const next = structuredClone(state);
-    next.version = 3;
+    next.reviewVersion = 3;
     next.evidence.source.sha256 = "d".repeat(64);
+    next.binding.id = "new-pinned-binding";
     render(next, { source: native.bridge });
     expect(native.createPeek).toHaveBeenCalledTimes(2);
     expect(native.dispose).toHaveBeenCalledOnce();
@@ -629,7 +830,7 @@ describe("host document renderer", () => {
     ]);
     render(state, { source: native.bridge });
     const next = structuredClone(state);
-    next.version = 2;
+    next.reviewVersion = 2;
     const anchor = next.definitions.source;
     if (anchor.kind !== "anchor") throw new Error("Expected source anchor");
     anchor.source.file = "src/identical-copy.ts";
@@ -638,38 +839,32 @@ describe("host document renderer", () => {
     expect(native.createPeek).toHaveBeenCalledTimes(2);
     expect(native.createPeek.mock.lastCall?.[0].target).toEqual({
       reviewId: next.reviewId,
-      documentVersion: 2,
+      reviewVersion: 2,
       range: anchor.source,
     });
 
     anchor.source.side = "base";
-    next.version = 3;
+    next.reviewVersion = 3;
     render(next, { source: native.bridge });
     expect(native.createPeek).toHaveBeenCalledTimes(3);
     expect(native.createPeek.mock.lastCall?.[0].target.range.side).toBe("base");
-    anchor.title = "Updated source label";
-    next.version = 4;
-    render(next, { source: native.bridge });
-    expect(native.createPeek).toHaveBeenCalledTimes(4);
-    expect(native.createPeek.mock.lastCall?.[0].title).toBe(
-      "Updated source label",
-    );
-    render({ ...next, version: 5 }, { source: native.bridge });
-    expect(native.createPeek).toHaveBeenCalledTimes(4);
-    expect(native.dispose).toHaveBeenCalledTimes(3);
+    const editor = container.querySelector("textarea");
+    render({ ...next, reviewVersion: 4 }, { source: native.bridge });
+    expect(container.querySelector("textarea")).toBe(editor);
   });
 
-  it("keeps retained source readable if the native API-backed editor fails", () => {
+  it("shows the original inline editor error if its API-backed source fails", () => {
     const native = nativePeekBridge();
     const state = documentState([
       { id: "peek", type: "code_peek", anchorId: "source" },
     ]);
     render(state, { source: native.bridge });
     act(() => native.errors[0]("Repository unavailable"));
-    expect(container.textContent).toContain("Showing the retained excerpt");
-    expect(container.querySelector("pre")?.textContent).toContain("return 42");
-    expect(container.querySelectorAll("#review-source-peek")).toHaveLength(1);
-    expect(native.dispose).toHaveBeenCalledOnce();
+    expect(
+      container
+        .querySelector(".review-inline-editor-error")
+        ?.getAttribute("title"),
+    ).toBe("Repository unavailable");
   });
   it("renders GFM without executing HTML, custom protocols, or image requests", () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
@@ -721,6 +916,56 @@ describe("host document renderer", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("keeps tight task-list text beside its checkbox, including nested lists", () => {
+    render(
+      documentState([
+        {
+          id: "tasks",
+          type: "markdown",
+          markdown:
+            "- [x] Completed\n- [ ] Planned\n  - [ ] Nested\n- Ordinary",
+        },
+      ]),
+    );
+    const list = container.querySelector("ul")!;
+    const first = list.querySelector(":scope > li")!;
+    expect(first.querySelector("input")?.parentElement).toBe(first);
+    expect(first.textContent?.trim()).toBe("Completed");
+    expect(first.querySelector<HTMLInputElement>("input")?.checked).toBe(true);
+    expect(list.querySelectorAll("p")).toHaveLength(0);
+    const nested = list.querySelector("li ul li")!;
+    expect(nested.querySelector("input")?.parentElement).toBe(nested);
+    expect(nested.textContent?.trim()).toBe("Nested");
+    expect(list.className).toBe("contains-task-list");
+    expect(first.className).toBe("task-list-item");
+  });
+
+  it("retains loose-list paragraphs while a nested tight list stays inline", () => {
+    render(
+      documentState([
+        {
+          id: "tasks",
+          type: "markdown",
+          markdown:
+            "- [ ] First paragraph\n\n  Another paragraph\n\n- [x] Second item\n  - [ ] Nested tight",
+        },
+      ]),
+    );
+    const list = container.querySelector("ul")!;
+    const items = list.querySelectorAll(":scope > li");
+    expect(items[0]?.querySelectorAll(":scope > p")).toHaveLength(2);
+    expect(items[0]?.querySelector("input")?.parentElement?.tagName).toBe("P");
+    expect(items[0]?.querySelector("p")?.textContent?.trim()).toBe(
+      "First paragraph",
+    );
+    expect(items[1]?.querySelector(":scope > p")?.textContent?.trim()).toBe(
+      "Second item",
+    );
+    const nested = items[1]!.querySelector("ul li")!;
+    expect(nested.querySelector("input")?.parentElement).toBe(nested);
+    expect(nested.querySelector("p")).toBeNull();
+  });
+
   it("renders retained source with no repository access and opens typed source links", () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     vi.stubGlobal("fetch", fetch);
@@ -765,14 +1010,14 @@ describe("host document renderer", () => {
       { onSourceOpen },
     );
 
-    expect(
-      container.querySelector(".host-document-code-peek pre")?.textContent,
-    ).toBe("export function answer() {\n  return 42;\n}");
-    expect(container.textContent).toContain("src/main.ts:40–42");
+    expect(container.querySelector(".code-peek pre")?.textContent).toBe(
+      "export function answer() {\n  return 42;\n}",
+    );
+    expect(container.querySelector(".code-peek")).not.toBeNull();
     expect(container.textContent).toContain("Pinned evidence");
     expect(container.querySelector("hr")).not.toBeNull();
-    act(() => container.querySelector<HTMLButtonElement>("p button")?.click());
-    expect(onSourceOpen).toHaveBeenCalledExactlyOnceWith("source");
+    act(() => container.querySelector<HTMLAnchorElement>("p a")?.click());
+    expect(container.querySelector("[data-peek]")?.textContent).toBe("source");
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -797,13 +1042,15 @@ describe("host document renderer", () => {
       content: [{ type: "text", text: "Hidden detail" }],
     };
     render(state);
-    const button = container.querySelector<HTMLButtonElement>("h2 button")!;
+    const button = container.querySelector<HTMLButtonElement>(
+      ".review-section-toggle",
+    )!;
     const stable = container.querySelector('[data-node-id="stable"] p')!;
     expect(button.getAttribute("aria-expanded")).toBe("false");
     act(() => button.click());
 
     const next = structuredClone(state);
-    next.version++;
+    next.reviewVersion++;
     next.nodes.section = {
       ...(next.nodes.section as Extract<HostNode, { type: "section" }>),
       title: "Updated details",
@@ -816,9 +1063,9 @@ describe("host document renderer", () => {
     next.roots.reverse();
     render(next);
     expect(container.querySelector('[data-node-id="stable"] p')).toBe(stable);
-    expect(container.querySelector("h2 button")).toBe(button);
+    expect(container.querySelector(".review-section-toggle")).toBe(button);
     expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelector("#review-section-section")).toHaveProperty(
+    expect(container.querySelector(".review-section-body")).toHaveProperty(
       "hidden",
       false,
     );
@@ -827,7 +1074,7 @@ describe("host document renderer", () => {
     // Reparenting changes React ancestry, but document-scoped UI state follows
     // stable node identity rather than a display title or array position.
     const moved = structuredClone(next);
-    moved.version++;
+    moved.reviewVersion++;
     moved.nodes.callout = {
       id: "callout",
       type: "callout",
@@ -838,7 +1085,9 @@ describe("host document renderer", () => {
     moved.roots = ["stable", "callout"];
     render(moved);
     expect(
-      container.querySelector("h2 button")?.getAttribute("aria-expanded"),
+      container
+        .querySelector(".review-section-toggle")
+        ?.getAttribute("aria-expanded"),
     ).toBe("true");
   });
 
@@ -859,7 +1108,10 @@ describe("host document renderer", () => {
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
     expect(container.textContent).toContain("Still readable");
     expect(onError).toHaveBeenCalledWith("broken", expect.any(Error));
-    render({ ...state, version: 2, evidence: { source: quote } }, { onError });
+    render(
+      { ...state, reviewVersion: 2, evidence: { source: quote } },
+      { onError },
+    );
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.querySelector("pre")?.textContent).toBe(quote.text);
   });
@@ -879,17 +1131,17 @@ describe("host document renderer", () => {
     ]);
     render(state);
     const first = container.querySelector<HTMLElement>(
-      '[data-node-id="first"] > .host-document-node-content',
+      '[data-node-id="first"] p',
     )!;
     const second = container.querySelector<HTMLElement>(
-      '[data-node-id="second"] > .host-document-node-content',
+      '[data-node-id="second"] p',
     )!;
     const animateFirst = vi.fn<HTMLElement["animate"]>();
     const animateSecond = vi.fn<HTMLElement["animate"]>();
     first.animate = animateFirst;
     second.animate = animateSecond;
     const next = structuredClone(state);
-    next.version++;
+    next.reviewVersion++;
     next.nodes.first = {
       id: "first",
       type: "paragraph",
@@ -906,7 +1158,7 @@ describe("host document renderer", () => {
     animateFirst.mockClear();
     render({
       ...next,
-      version: 3,
+      reviewVersion: 3,
       nodes: { ...next.nodes, first: state.nodes.first! },
     });
     expect(animateFirst).not.toHaveBeenCalled();

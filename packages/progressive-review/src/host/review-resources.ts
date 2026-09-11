@@ -6,12 +6,15 @@ import {
   HOST_RESOURCE_LIMITS,
   HOST_RESOURCE_QUERIES,
   HostAssetSchema,
+  type HostAuthoredMap,
+  type HostAuthoredMapOperation,
+  HostAuthoredMapSchema,
   type HostBinding,
-  type HostCheckpoint,
   type HostDiagnostic,
   HostDocumentValidationError,
   type HostMap,
-  type HostMapOperation,
+  type HostMapAnalysisInput,
+  HostMapAnalysisInputSchema,
   HostMapSchema,
   type HostResourceCommand,
   type HostResourceQuery,
@@ -29,6 +32,8 @@ import {
   type EvidenceProvider,
   EvidenceProviderError,
 } from "./evidence-provider";
+import type { LocalRepositorySource } from "./local-repository";
+import { analyzeMapChanges } from "./map-analysis";
 import {
   type HostPreparedMap,
   HostStoreError,
@@ -47,8 +52,13 @@ export class ReviewResources {
     this.mutableReview(reviewId);
     switch (request.type) {
       case "map.create": {
-        const { input } = request;
-        const document = this.store.document(reviewId, input.documentVersion);
+        const input = HOST_RESOURCE_COMMANDS["map.create"].input.parse(
+          request.input,
+        );
+        const document = this.store.reviewSnapshot(
+          reviewId,
+          input.reviewVersion,
+        );
         const commit =
           input.side === "base"
             ? document.binding.baseCommit
@@ -60,21 +70,21 @@ export class ReviewResources {
           {},
         );
         return () => {
+          this.mutableReview(reviewId);
           const version = this.store.createMap(reviewId, prepared);
-          this.store.appendEvent(reviewId, "map.committed", {
-            mapId: version.mapId,
-            mapVersionId: version.id,
-          });
           return version;
         };
       }
       case "map.mutate": {
-        const { input } = request;
+        const input = HOST_RESOURCE_COMMANDS["map.mutate"].input.parse(
+          request.input,
+        );
         const before = this.store.currentMap(reviewId, input.mapId);
-        if (before.revision !== input.expectedVersion)
+        if (before.mapVersion !== input.expectedMapVersion)
           throw new HostStoreError(
             "VERSION_CONFLICT",
             "Map changed. Read its current revision and retry.",
+            before.mapVersion,
           );
         const map = applyMapOperations(before, input.operations);
         const prepared = await this.prepareMap(
@@ -84,31 +94,25 @@ export class ReviewResources {
           this.store.mapEvidence(reviewId, before.id),
         );
         return () => {
+          this.mutableReview(reviewId);
           const after = this.store.commitMap(
             reviewId,
             before.mapId,
-            input.expectedVersion,
+            input.expectedMapVersion,
             prepared,
           );
-          if (after.id !== before.id)
-            this.store.appendEvent(reviewId, "map.committed", {
-              mapId: after.mapId,
-              mapVersionId: after.id,
-            });
           return after;
         };
       }
       case "trace.ingest": {
-        const { input } = request;
-        if (input.parentTraceId)
-          this.store.trace(reviewId, input.parentTraceId);
+        const input = HOST_RESOURCE_COMMANDS["trace.ingest"].input.parse(
+          request.input,
+        );
         const ids = new Set<string>();
-        const ordinals = new Set<number>();
         for (const event of input.events) {
-          if (ids.has(event.id) || ordinals.has(event.ordinal))
-            invalid("Trace event IDs and ordinals must be unique.", "/events");
+          if (ids.has(event.id))
+            invalid("Trace event IDs must be unique.", "/input/events");
           ids.add(event.id);
-          ordinals.add(event.ordinal);
           boundedText(
             event.text,
             HOST_RESOURCE_LIMITS.traceEventBytes,
@@ -124,26 +128,18 @@ export class ReviewResources {
         const retained = HostRetainedTraceSchema.parse({
           trace: {
             id: traceId,
-            sessionId: null,
-            parentTraceId: input.parentTraceId ?? null,
             label: input.label,
-            version: 0,
             createdAt: new Date().toISOString(),
             provenance: "client_supplied",
           },
-          events: [...input.events]
-            .sort((a, b) => a.ordinal - b.ordinal)
-            .map((event) => {
-              const value = { ...event, traceId };
-              return { ...value, contentHash: hash(value) };
-            }),
+          events: input.events.map((event, ordinal) => {
+            const value = { ...event, at: event.at ?? null, ordinal, traceId };
+            return { ...value, contentHash: hash(value) };
+          }),
         });
         return () => {
+          this.mutableReview(reviewId);
           this.store.putTrace(reviewId, retained);
-          this.store.appendEvent(reviewId, "trace.ingested", {
-            traceId,
-            version: 0,
-          });
           return retained.trace;
         };
       }
@@ -153,7 +149,7 @@ export class ReviewResources {
         );
         const bytes = Buffer.from(assetInput.base64, "base64");
         if (bytes.toString("base64") !== assetInput.base64)
-          invalid("Image content must use canonical base64.", "/base64");
+          invalid("Image content must use canonical base64.", "/input/base64");
         if (bytes.length > HOST_LIMITS.assetBytes)
           limit("Image exceeds the maximum retained byte size.");
         const format = imageFormat(bytes);
@@ -163,7 +159,7 @@ export class ReviewResources {
         )
           invalid(
             "Image bytes must match the declared PNG, JPEG or WebP format.",
-            "/mimeType",
+            "/input/mimeType",
           );
         let width: number;
         let height: number;
@@ -182,7 +178,7 @@ export class ReviewResources {
           )
             invalid(
               "Only a single complete raster image may be retained.",
-              "/base64",
+              "/input/base64",
             );
           width = metadata.width;
           height = metadata.height;
@@ -200,7 +196,10 @@ export class ReviewResources {
             error instanceof EvidenceProviderError
           )
             throw error;
-          invalid("Image content could not be decoded safely.", "/base64");
+          invalid(
+            "Image content could not be decoded safely.",
+            "/input/base64",
+          );
         }
         const asset = HostAssetSchema.parse({
           id: randomUUID(),
@@ -212,17 +211,17 @@ export class ReviewResources {
           createdAt: new Date().toISOString(),
         });
         return () => {
+          this.mutableReview(reviewId);
           this.store.putAsset(reviewId, asset, bytes);
-          this.store.appendEvent(reviewId, "asset.uploaded", {
-            assetId: asset.id,
-          });
           return asset;
         };
       }
     }
   }
 
-  query(request: HostResourceQuery): JsonValue {
+  query(
+    request: Exclude<HostResourceQuery, { type: "map.analyze" }>,
+  ): JsonValue {
     const { reviewId } = request.input;
     switch (request.type) {
       case "map.get":
@@ -244,6 +243,36 @@ export class ReviewResources {
     }
   }
 
+  async analyze(input: HostMapAnalysisInput, source: LocalRepositorySource) {
+    const request = HostMapAnalysisInputSchema.parse(input);
+    const snapshot = this.store.reviewSnapshot(
+      request.reviewId,
+      request.reviewVersion,
+    );
+    const selection = request.mapVersions ?? snapshot.mapVersions;
+    this.validateSelectedMaps(request.reviewId, snapshot.binding, selection);
+    const maps = {
+      base:
+        selection.base === null
+          ? null
+          : this.store.mapVersion(request.reviewId, selection.base),
+      head:
+        selection.head === null
+          ? null
+          : this.store.mapVersion(request.reviewId, selection.head),
+    };
+    const patch =
+      maps.base === null && maps.head === null
+        ? ""
+        : await source.analysisPatch(snapshot.binding);
+    return analyzeMapChanges({
+      request,
+      binding: snapshot.binding,
+      maps,
+      patch,
+    });
+  }
+
   lookups(reviewId: string): HostDocumentEvidenceResources {
     return {
       mapVersion: (id) =>
@@ -259,10 +288,10 @@ export class ReviewResources {
     };
   }
 
-  validatePublication(
+  validateSelectedMaps(
     reviewId: string,
     binding: HostBinding,
-    mapVersions: HostCheckpoint["mapVersions"],
+    mapVersions: { base: string | null; head: string | null },
   ): void {
     for (const side of ["base", "head"] as const) {
       const id = mapVersions[side];
@@ -271,15 +300,15 @@ export class ReviewResources {
       const commit = side === "base" ? binding.baseCommit : binding.headCommit;
       if (map.repositoryId !== binding.repositoryId || map.commit !== commit)
         invalid(
-          "Published maps must match the selected review side's exact repository and commit.",
-          `/mapVersions/${side}`,
+          "Selected maps must match the review side's exact repository and commit.",
+          `/input/mapVersions/${side}`,
         );
     }
   }
 
   private mutableReview(reviewId: string) {
     const review = this.store.review(reviewId);
-    if (review.deletedAt !== null || review.workflow === "closed")
+    if (review.deletedAt !== null || review.state === "closed")
       throw new HostStoreError(
         "INVALID_STATE",
         "Closed or trashed reviews cannot be authored.",
@@ -287,20 +316,14 @@ export class ReviewResources {
   }
 
   private async prepareMap(
-    map: HostMap,
+    map: HostAuthoredMap,
     repositoryId: string,
     commit: string,
     previous: Record<string, HostSourceQuote>,
   ): Promise<HostPreparedMap> {
-    const parsed = HostMapSchema.parse(map);
-    bounded(parsed, HOST_RESOURCE_LIMITS.mapBytes, "Map");
-    validateMap(parsed);
-    const spans = new Map<string, HostSourceSpan>();
-    for (const element of Object.values(parsed.elements))
-      for (const span of element.source) spans.set(hash(span), span);
-    for (const relationship of Object.values(parsed.relationships))
-      if (relationship.kind === "call")
-        spans.set(hash(relationship.evidence), relationship.evidence);
+    const authored = HostAuthoredMapSchema.parse(map);
+    bounded(authored, HOST_RESOURCE_LIMITS.mapBytes, "Map");
+    validateMap(authored);
     const binding: HostBinding = {
       id: randomUUID(),
       repositoryId,
@@ -309,54 +332,112 @@ export class ReviewResources {
       headCommit: commit,
       createdAt: new Date().toISOString(),
     };
+    const retained = new Map(
+      Object.values(previous)
+        .filter(
+          (quote) =>
+            quote.span.repositoryId === repositoryId &&
+            quote.span.commit === commit,
+        )
+        .map((quote) => [locatorKey(quote.span), quote]),
+    );
     const evidence: Record<string, HostSourceQuote> = {};
-    for (const [key, span] of spans) {
-      if (span.repositoryId !== repositoryId || span.commit !== commit)
-        invalid(
-          "Map source must belong to its exact pinned repository and commit.",
-          "/elements",
-        );
-      const retained = previous[key];
-      if (retained) evidence[key] = retained;
-      else {
-        const quote = HostSourceQuoteSchema.parse(
-          await this.evidence.resolve(binding, {
-            side: "head",
-            file: span.file,
-            fromLine: span.fromLine,
-            toLine: span.toLine,
-          }),
+    const resolve = async (locator: {
+      file: string;
+      fromLine: number;
+      toLine: number;
+    }) => {
+      const key = locatorKey(locator);
+      let quote = retained.get(key);
+      if (!quote) {
+        quote = HostSourceQuoteSchema.parse(
+          await this.evidence.resolve(binding, { side: "head", ...locator }),
         );
         if (
-          canonicalHostJson(quote.span) !== canonicalHostJson(span) ||
+          quote.span.repositoryId !== repositoryId ||
+          quote.span.commit !== commit ||
+          locatorKey(quote.span) !== key ||
           createHash("sha256").update(quote.text).digest("hex") !== quote.sha256
         )
           invalid(
-            "Map source does not match the verified repository blob and range.",
-            "/elements",
+            "Map evidence does not match its exact source locator.",
+            "/candidate/map",
           );
-        evidence[key] = quote;
+        retained.set(key, quote);
       }
+      evidence[hash(quote.span)] = quote;
+      return quote.span;
+    };
+    const elements: HostMap["elements"] = {};
+    for (const [id, element] of Object.entries(authored.elements)) {
+      const source: HostSourceSpan[] = [];
+      for (const locator of element.source) source.push(await resolve(locator));
+      elements[id] = { ...element, source };
     }
+    const relationships: HostMap["relationships"] = {};
+    for (const [id, relationship] of Object.entries(authored.relationships))
+      relationships[id] =
+        relationship.kind === "call"
+          ? { ...relationship, evidence: await resolve(relationship.evidence) }
+          : relationship;
+    const resolved = HostMapSchema.parse({
+      schemaVersion: 1,
+      elements,
+      relationships,
+    });
+    bounded(resolved, HOST_RESOURCE_LIMITS.mapBytes, "Resolved map");
     bounded(
       evidence,
       HOST_RESOURCE_LIMITS.mapEvidenceBytes,
       "Retained map evidence",
     );
-    return { repositoryId, commit, map: parsed, evidence };
+    return { repositoryId, commit, map: resolved, evidence };
   }
 }
 
 function applyMapOperations(
   before: HostMap,
-  operations: HostMapOperation[],
-): HostMap {
-  const map: HostMap = {
+  operations: HostAuthoredMapOperation[],
+): HostAuthoredMap {
+  const locator = ({ file, fromLine, toLine }: HostSourceSpan) => ({
+    file,
+    fromLine,
+    toLine,
+  });
+  const map: HostAuthoredMap = {
     schemaVersion: 1,
-    elements: structuredClone(before.elements),
-    relationships: structuredClone(before.relationships),
+    elements: Object.fromEntries(
+      Object.entries(before.elements).map(([id, element]) => [
+        id,
+        { ...structuredClone(element), source: element.source.map(locator) },
+      ]),
+    ),
+    relationships: Object.fromEntries(
+      Object.entries(before.relationships).map(([id, relationship]) => [
+        id,
+        relationship.kind === "call"
+          ? {
+              ...structuredClone(relationship),
+              evidence: locator(relationship.evidence),
+            }
+          : structuredClone(relationship),
+      ]),
+    ),
   };
+  const writes = new Set<string>();
   for (const operation of operations) {
+    const identity =
+      operation.op === "element.put"
+        ? `element:${operation.element.id}`
+        : operation.op === "relationship.put"
+          ? `relationship:${operation.relationship.id}`
+          : `${operation.op.startsWith("element") ? "element" : "relationship"}:${operation.id}`;
+    if (writes.has(identity))
+      invalid(
+        "A map transaction cannot write the same identity twice.",
+        "/input/operations",
+      );
+    writes.add(identity);
     switch (operation.op) {
       case "element.put":
         map.elements[operation.element.id] = structuredClone(operation.element);
@@ -368,17 +449,17 @@ function applyMapOperations(
         break;
       case "element.remove":
         if (!Object.hasOwn(map.elements, operation.id))
-          invalid(
+          throw new HostStoreError(
+            "NOT_FOUND",
             "Cannot remove a missing map element.",
-            `/elements/${operation.id}`,
           );
         delete map.elements[operation.id];
         break;
       case "relationship.remove":
         if (!Object.hasOwn(map.relationships, operation.id))
-          invalid(
+          throw new HostStoreError(
+            "NOT_FOUND",
             "Cannot remove a missing map relationship.",
-            `/relationships/${operation.id}`,
           );
         delete map.relationships[operation.id];
         break;
@@ -387,7 +468,19 @@ function applyMapOperations(
   return map;
 }
 
-function validateMap(map: HostMap): void {
+function locatorKey(locator: {
+  file: string;
+  fromLine: number;
+  toLine: number;
+}) {
+  return canonicalHostJson({
+    file: locator.file,
+    fromLine: locator.fromLine,
+    toLine: locator.toLine,
+  });
+}
+
+function validateMap(map: HostAuthoredMap): void {
   const diagnostics: HostDiagnostic[] = [];
   const issue = (path: string, message: string) => {
     if (diagnostics.length < 100)
@@ -395,7 +488,7 @@ function validateMap(map: HostMap): void {
         severity: "error",
         code: "INVALID_MAP",
         message,
-        path,
+        path: `/candidate/map${path}`,
       });
   };
   for (const [id, element] of Object.entries(map.elements)) {
@@ -411,6 +504,26 @@ function validateMap(map: HostMap): void {
         `/elements/${id}/store`,
         "Only store elements may define collections.",
       );
+    for (const [collectionId, collection] of Object.entries(
+      element.store?.collections ?? {},
+    )) {
+      for (const [fieldId, field] of Object.entries(collection.fields)) {
+        if (!field.references) continue;
+        const target = field.references;
+        const store = map.elements[target.storeId];
+        if (
+          store?.kind !== "store" ||
+          !Object.hasOwn(
+            store.store?.collections[target.collectionId]?.fields ?? {},
+            target.fieldId,
+          )
+        )
+          issue(
+            `/elements/${id}/store/collections/${collectionId}/fields/${fieldId}/references`,
+            "Field references must name an existing store, collection and field.",
+          );
+      }
+    }
     const ancestors = new Set([id]);
     let parent = element.parentId;
     while (parent !== null && Object.hasOwn(map.elements, parent)) {

@@ -434,11 +434,7 @@ export function softwareMapOverlayClassName({
 }) {
   return [
     "software-map-overlay",
-    // The overlay portals to document.body, outside the canvas root that
-    // carries the dark token definitions — so it must bring the token scope
-    // along itself.
-    "review-canvas-root",
-    "review-app",
+    // Carry theme modifiers, not .review-app's relative page layout.
     `review-app--theme-${theme}`,
     `review-app--tint-${nodeTint}`,
   ].join(" ");

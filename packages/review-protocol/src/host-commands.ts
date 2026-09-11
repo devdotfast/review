@@ -1,19 +1,25 @@
 import { z } from "zod";
 
 import {
-  HostCheckpointSchema,
+  HOST_ACTIVITY_COMMANDS,
+  HOST_ACTIVITY_QUERIES,
+} from "./host-activity.js";
+import {
+  HOST_SUPPORT_LIMITS,
   HostRepositorySchema,
-  HostReviewSchema,
+  HostReviewCommitSchema,
+  HostReviewStateSchema,
+  HostReviewVersionHeaderSchema,
+  HostReviewVersionSummarySchema,
+  HostReviewWithSnapshotSchema,
 } from "./host-api.js";
 import {
   HOST_LIMITS,
   HostChangeSelectorSchema,
   HostDiagnosticSchema,
-  HostDocumentCommitSchema,
   HostDocumentOperationSchema,
   HostDocumentSchema,
   HostDocumentStateSchema,
-  HostHashSchema,
   HostIdSchema,
   HostKeySchema,
   HostLabelSchema,
@@ -29,9 +35,15 @@ import {
 } from "./host-feedback.js";
 import {
   HOST_RESOURCE_COMMANDS,
+  HOST_RESOURCE_LIMITS,
   HOST_RESOURCE_QUERIES,
 } from "./host-resources.js";
-import { HOST_BINDING_COMMANDS, HOST_SOURCE_QUERIES } from "./host-source.js";
+import {
+  HOST_SOURCE_COMMITS,
+  HOST_SOURCE_FILE_BYTES,
+  HOST_SOURCE_QUERIES,
+  HOST_SOURCE_QUOTE_BYTES,
+} from "./host-source.js";
 
 export const HostCursorSchema = z.string().min(1).max(2_048);
 const pageFields = {
@@ -46,43 +58,19 @@ function page<T extends z.ZodType>(item: T) {
 }
 const reviewVersion = z.strictObject({
   reviewId: HostIdSchema,
-  expectedVersion: HostVersionSchema,
+  expectedStateVersion: HostVersionSchema,
 });
 const documentMutation = z.strictObject({
   reviewId: HostIdSchema,
-  expectedDocumentVersion: HostVersionSchema,
+  expectedReviewVersion: HostVersionSchema,
   operations: z
     .array(HostDocumentOperationSchema)
     .min(1)
     .max(HOST_LIMITS.operations),
 });
-export const HostCanvasReportSchema = z.strictObject({
-  reviewId: HostIdSchema,
-  canvasSessionId: HostIdSchema,
-  documentVersion: HostVersionSchema,
-  status: z.enum(["rendered", "failed"]),
-  visibleNodeIds: z.array(HostKeySchema).max(HOST_LIMITS.nodes),
-  failures: z
-    .array(
-      z.strictObject({
-        nodeId: HostKeySchema,
-        code: HostLabelSchema,
-        message: HostTextSchema,
-      }),
-    )
-    .max(HOST_LIMITS.nodes),
-});
-export type HostCanvasReport = z.infer<typeof HostCanvasReportSchema>;
-export const HostCanvasObservationSchema = HostCanvasReportSchema.extend({
-  principalId: HostIdSchema,
-  receivedAt: HostTimeSchema,
-});
-export type HostCanvasObservation = z.infer<typeof HostCanvasObservationSchema>;
-
 export const HostPermissionSchema = z.enum([
   "read",
   "author",
-  "publish",
   "human",
   "answer",
   "register_repository",
@@ -96,7 +84,7 @@ interface HostOperationDefinition {
 
 /** These paired schemas are the single definition of each operation's contract. */
 export const HOST_COMMAND_DEFINITIONS = {
-  ...HOST_BINDING_COMMANDS,
+  ...HOST_ACTIVITY_COMMANDS,
   ...HOST_RESOURCE_COMMANDS,
   ...HOST_FEEDBACK_COMMANDS,
   "repository.register": {
@@ -117,83 +105,97 @@ export const HOST_COMMAND_DEFINITIONS = {
       change: HostChangeSelectorSchema,
       title: HostLabelSchema,
       description: HostTextSchema.optional(),
+      labels: HostReviewVersionHeaderSchema.shape.labels.optional(),
     }),
-    result: z.strictObject({
-      review: HostReviewSchema,
+    result: HostReviewWithSnapshotSchema.extend({
       document: HostDocumentStateSchema,
     }),
   },
   "review.update": {
     permission: "author",
-    input: reviewVersion.extend({
-      title: HostLabelSchema,
-      description: HostTextSchema,
-      labels: HostReviewSchema.shape.labels,
-    }),
-    result: HostReviewSchema,
+    input: z
+      .strictObject({
+        reviewId: HostIdSchema,
+        expectedReviewVersion: HostVersionSchema,
+        title: HostLabelSchema.optional(),
+        description: HostTextSchema.optional(),
+        labels: HostReviewVersionHeaderSchema.shape.labels.optional(),
+        mapVersions: z
+          .strictObject({
+            base: HostIdSchema.nullable().optional(),
+            head: HostIdSchema.nullable().optional(),
+          })
+          .refine(
+            (value) => Object.keys(value).length > 0,
+            "Supply at least one map side.",
+          )
+          .optional(),
+      })
+      .refine(
+        (value) =>
+          Object.keys(value).some(
+            (key) => key !== "reviewId" && key !== "expectedReviewVersion",
+          ),
+        "Supply at least one editable field.",
+      ),
+    result: HostReviewCommitSchema,
   },
   "review.close": {
     permission: "human",
     input: reviewVersion,
-    result: HostReviewSchema,
+    result: HostReviewStateSchema,
   },
   "review.reopen": {
     permission: "human",
     input: reviewVersion,
-    result: HostReviewSchema,
+    result: HostReviewStateSchema,
   },
   "review.trash": {
     permission: "human",
     input: reviewVersion,
-    result: HostReviewSchema,
+    result: HostReviewStateSchema,
   },
-  "review.restore": {
+  "review.untrash": {
     permission: "human",
     input: reviewVersion,
-    result: HostReviewSchema,
+    result: HostReviewStateSchema,
   },
   "document.mutate": {
     permission: "author",
     input: documentMutation,
-    result: HostDocumentCommitSchema,
+    result: HostReviewCommitSchema,
   },
   "document.replace": {
     permission: "author",
     input: z.strictObject({
       reviewId: HostIdSchema,
-      expectedDocumentVersion: HostVersionSchema,
+      expectedReviewVersion: HostVersionSchema,
       document: HostDocumentSchema,
     }),
-    result: HostDocumentCommitSchema,
+    result: HostReviewCommitSchema,
   },
-  "document.restore": {
+  "review.version.restore": {
     permission: "author",
     input: z.strictObject({
       reviewId: HostIdSchema,
-      expectedDocumentVersion: HostVersionSchema,
-      fromVersion: HostVersionSchema,
+      expectedReviewVersion: HostVersionSchema,
+      fromReviewVersion: HostVersionSchema,
     }),
-    result: HostDocumentCommitSchema,
+    result: HostReviewCommitSchema,
   },
-  "review.publish": {
-    permission: "publish",
+  "review.revision.create": {
+    permission: "author",
     input: z.strictObject({
       reviewId: HostIdSchema,
-      expectedDocumentVersion: HostVersionSchema,
       expectedReviewVersion: HostVersionSchema,
-      mapVersions: HostCheckpointSchema.shape.mapVersions,
+      change: HostChangeSelectorSchema,
     }),
-    result: HostCheckpointSchema,
-  },
-  "canvas.report": {
-    permission: "read",
-    input: HostCanvasReportSchema,
-    result: z.strictObject({ accepted: z.literal(true) }),
+    result: HostReviewCommitSchema,
   },
 } satisfies Record<string, HostOperationDefinition>;
 export type HostCommandName = keyof typeof HOST_COMMAND_DEFINITIONS;
 export type HostCommandInputs = {
-  [K in HostCommandName]: z.infer<
+  [K in HostCommandName]: z.input<
     (typeof HOST_COMMAND_DEFINITIONS)[K]["input"]
   >;
 };
@@ -210,13 +212,54 @@ const operationName = z
   .string()
   .max(100)
   .regex(/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$/);
+export const HOST_CAPABILITY_LIMITS = Object.freeze({
+  ...HOST_LIMITS,
+  ...HOST_RESOURCE_LIMITS,
+  documentReplaceRequestBytes: 5 * 1024 * 1024,
+  nativeOpenRequestBytes: 1024 * 1024,
+  sourceFileBytes: HOST_SOURCE_FILE_BYTES,
+  sourceQuoteBytes: HOST_SOURCE_QUOTE_BYTES,
+  sourceCommits: HOST_SOURCE_COMMITS,
+  mapSourceRangesPerElement: HOST_LIMITS.diagramItems,
+  storeCollections: HOST_LIMITS.definitions,
+  storeFieldsPerCollection: HOST_LIMITS.definitions,
+  feedbackDrafts: 200,
+  feedbackResultIds: 201,
+  listEntriesMin: 1,
+  listEntriesMax: 200,
+  listEntriesDefault: 100,
+  cursorCharacters: 2_048,
+  selectedNodeIds: HOST_LIMITS.nodes,
+  selectedAnchorIds: HOST_LIMITS.definitions,
+  labelCharacters: 2_048,
+  authoredTextCharacters: HOST_LIMITS.nodeBytes,
+  selectionQuoteCharacters: 32_768,
+  selectionPrefixCharacters: 256,
+  selectionSuffixCharacters: 256,
+  questionContextBytes: 56 * 1024,
+  questionContextMessages: 8,
+  questionContextMessageBytes: 1_000,
+  questionContextTitleBytes: 1_000,
+  questionContextSourceBytes: 4_000,
+  questionContextCanvasBytes: 8_000,
+  eventFrameBytes: 1024 * 1024,
+  eventPatchBytes: 256 * 1024,
+  eventHeartbeatMs: 15_000,
+  activityLeaseMs: 60_000,
+  activityIdentities: 512,
+  activityRoutineReceipts: 16_384,
+  activityReservedEndReceipts: 512,
+  supportRequestBytes: HOST_SUPPORT_LIMITS.requestBytes,
+  supportDescriptionBytes: HOST_SUPPORT_LIMITS.descriptionBytes,
+  supportScreenshotBytes: HOST_SUPPORT_LIMITS.screenshotBytes,
+});
 export const HostCapabilitiesSchema = z.strictObject({
   apiVersions: z.array(z.number().int().positive()).max(10),
   documentSchemaVersions: z.array(z.number().int().positive()).max(10),
   nodeTypes: z.array(HostNodeTypeSchema).max(100),
   limits: z.strictObject(
     Object.fromEntries(
-      Object.keys(HOST_LIMITS).map((key) => [
+      Object.keys(HOST_CAPABILITY_LIMITS).map((key) => [
         key,
         z.number().int().nonnegative(),
       ]),
@@ -224,27 +267,19 @@ export const HostCapabilitiesSchema = z.strictObject({
   ),
   commands: z.array(operationName).max(500),
   queries: z.array(operationName).max(500),
-  rendererVersion: z.string().min(1).max(100),
-  source: z.strictObject({ read: z.boolean(), navigation: z.boolean() }),
   ask: z.strictObject({
-    available: z.boolean(),
-    supportedHarnesses: z
-      .array(z.enum(["claude-code", "codex", "opencode", "pi"]))
-      .max(4),
+    supportedHarnesses: z.array(z.enum(["claude-code", "codex", "pi"])).max(3),
+    defaultHarness: z.enum(["claude-code", "codex", "pi"]).nullable(),
     isolation: z.literal("trusted_local"),
   }),
 });
 export type HostCapabilities = z.infer<typeof HostCapabilitiesSchema>;
 
 export const HOST_QUERY_DEFINITIONS = {
+  ...HOST_ACTIVITY_QUERIES,
   ...HOST_SOURCE_QUERIES,
   ...HOST_RESOURCE_QUERIES,
   ...HOST_FEEDBACK_QUERIES,
-  "canvas.reports": {
-    permission: "read",
-    input: z.strictObject({ reviewId: HostIdSchema }),
-    result: z.array(HostCanvasObservationSchema).max(20),
-  },
   capabilities: {
     permission: "read",
     input: z.strictObject({}),
@@ -260,21 +295,24 @@ export const HOST_QUERY_DEFINITIONS = {
     input: z.strictObject({
       ...pageFields,
       repositoryId: HostIdSchema.optional(),
-      workflow: HostReviewSchema.shape.workflow.optional(),
+      state: HostReviewStateSchema.shape.state.optional(),
       includeTrash: z.boolean().optional(),
     }),
-    result: page(HostReviewSchema),
+    result: page(HostReviewWithSnapshotSchema),
   },
   "review.get": {
     permission: "read",
-    input: z.strictObject({ reviewId: HostIdSchema }),
-    result: z.strictObject({ review: HostReviewSchema }),
+    input: z.strictObject({
+      reviewId: HostIdSchema,
+      reviewVersion: HostVersionSchema.optional(),
+    }),
+    result: HostReviewWithSnapshotSchema,
   },
   "document.get": {
     permission: "read",
     input: z.strictObject({
       reviewId: HostIdSchema,
-      version: HostVersionSchema.optional(),
+      reviewVersion: HostVersionSchema.optional(),
     }),
     result: HostDocumentStateSchema,
   },
@@ -282,11 +320,17 @@ export const HOST_QUERY_DEFINITIONS = {
     permission: "read",
     input: z.strictObject({
       reviewId: HostIdSchema,
-      version: HostVersionSchema,
-      ids: z.array(HostKeySchema).max(HOST_LIMITS.nodes),
+      reviewVersion: HostVersionSchema,
+      ids: z
+        .array(HostKeySchema)
+        .max(HOST_LIMITS.nodes)
+        .refine(
+          (ids) => new Set(ids).size === ids.length,
+          "Node IDs must be unique.",
+        ),
     }),
     result: z.strictObject({
-      version: HostVersionSchema,
+      reviewVersion: HostVersionSchema,
       nodes: z.array(HostNodeSchema).max(HOST_LIMITS.nodes),
     }),
   },
@@ -294,50 +338,34 @@ export const HOST_QUERY_DEFINITIONS = {
     permission: "read",
     input: z.strictObject({
       reviewId: HostIdSchema,
-      version: HostVersionSchema,
-      anchorIds: z.array(HostKeySchema).max(HOST_LIMITS.definitions),
+      reviewVersion: HostVersionSchema,
+      anchorIds: z
+        .array(HostKeySchema)
+        .max(HOST_LIMITS.definitions)
+        .refine(
+          (ids) => new Set(ids).size === ids.length,
+          "Anchor IDs must be unique.",
+        ),
     }),
     result: z.strictObject({
-      version: HostVersionSchema,
+      reviewVersion: HostVersionSchema,
       evidence: HostDocumentStateSchema.shape.evidence,
     }),
   },
-  "document.history": {
+  "review.history": {
     permission: "read",
     input: z.strictObject({ ...pageFields, reviewId: HostIdSchema }),
-    result: page(
-      z.strictObject({
-        version: HostVersionSchema,
-        contentHash: HostHashSchema,
-        createdAt: HostTimeSchema,
-      }),
-    ),
+    result: page(HostReviewVersionSummarySchema),
   },
   "document.validate": {
     permission: "read",
     input: documentMutation,
     result: HostValidationReportSchema,
   },
-  "checkpoints.list": {
-    permission: "read",
-    input: z.strictObject({ ...pageFields, reviewId: HostIdSchema }),
-    result: page(HostCheckpointSchema),
-  },
-  "checkpoint.get": {
-    permission: "read",
-    input: z.strictObject({
-      reviewId: HostIdSchema,
-      checkpointId: HostIdSchema,
-    }),
-    result: z.strictObject({
-      checkpoint: HostCheckpointSchema,
-      document: HostDocumentStateSchema,
-    }),
-  },
 } satisfies Record<string, HostOperationDefinition>;
 export type HostQueryName = keyof typeof HOST_QUERY_DEFINITIONS;
 export type HostQueryInputs = {
-  [K in HostQueryName]: z.infer<(typeof HOST_QUERY_DEFINITIONS)[K]["input"]>;
+  [K in HostQueryName]: z.input<(typeof HOST_QUERY_DEFINITIONS)[K]["input"]>;
 };
 export type HostQueryResults = {
   [K in HostQueryName]: z.infer<(typeof HOST_QUERY_DEFINITIONS)[K]["result"]>;
@@ -395,6 +423,49 @@ export const HostQuerySchema = z.discriminatedUnion("type", [
   ...otherQueries,
 ]) as z.ZodType<HostQuery>;
 
+// Network bodies carry domain intent only. The HTTP adapter supplies the
+// authenticated connection context used by the internal command/query types.
+export type HostCommandBody = {
+  [K in HostCommandName]: Pick<HostCommand<K>, "commandId" | "type" | "input">;
+}[HostCommandName];
+export type HostQueryBody = {
+  [K in HostQueryName]: Pick<HostQuery<K>, "type" | "input">;
+}[HostQueryName];
+// SAFETY: Omitting only connection fields preserves each registry operation's literal key/input pairing.
+export const HostCommandBodySchema = z.discriminatedUnion("type", [
+  firstCommand.omit({
+    apiVersion: true,
+    hostId: true,
+    workspaceId: true,
+    clientId: true,
+  }),
+  ...otherCommands.map((schema) =>
+    schema.omit({
+      apiVersion: true,
+      hostId: true,
+      workspaceId: true,
+      clientId: true,
+    }),
+  ),
+]) as z.ZodType<HostCommandBody>;
+// SAFETY: These variants preserve the same operation/input pairing as the internal query union.
+export const HostQueryBodySchema = z.discriminatedUnion("type", [
+  firstQuery.omit({
+    apiVersion: true,
+    hostId: true,
+    workspaceId: true,
+    clientId: true,
+  }),
+  ...otherQueries.map((schema) =>
+    schema.omit({
+      apiVersion: true,
+      hostId: true,
+      workspaceId: true,
+      clientId: true,
+    }),
+  ),
+]) as z.ZodType<HostQueryBody>;
+
 export const HostApiErrorSchema = z.strictObject({
   code: z.enum([
     "INVALID_REQUEST",
@@ -405,7 +476,6 @@ export const HostApiErrorSchema = z.strictObject({
     "IDEMPOTENCY_CONFLICT",
     "VALIDATION_FAILED",
     "DEPENDENCY_UNAVAILABLE",
-    "UNSUPPORTED_VERSION",
     "INVALID_STATE",
     "RATE_LIMITED",
     "RESOURCE_LIMIT",

@@ -207,12 +207,7 @@ async function fixture(
     if (!storeClosed) store.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  const envelope = {
-    apiVersion: 1,
-    hostId: store.hostId,
-    workspaceId: store.workspaceId,
-    clientId: randomUUID(),
-  };
+  const clientId = randomUUID();
   const post = (
     category: "commands" | "queries",
     request: JsonValue,
@@ -220,7 +215,11 @@ async function fixture(
   ) =>
     fetch(`${baseUrl}/v1/workspaces/${store.workspaceId}/${category}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-review-token": token },
+      headers: {
+        "content-type": "application/json",
+        "x-review-token": token,
+        "x-review-client-id": clientId,
+      },
       body: JSON.stringify(request),
     });
   const command = async <K extends HostCommandName>(
@@ -229,11 +228,7 @@ async function fixture(
     token = desktopToken,
     commandId = randomUUID(),
   ) => {
-    const response = await post(
-      "commands",
-      { ...envelope, type, input, commandId },
-      token,
-    );
+    const response = await post("commands", { type, input, commandId }, token);
     const parsed = hostCommandResponseSchema(type).parse(await response.json());
     if (!parsed.ok)
       throw new Error(`${parsed.error.code}: ${parsed.error.message}`);
@@ -244,7 +239,7 @@ async function fixture(
     input: HostQueryInputs[K],
     token = desktopToken,
   ) => {
-    const response = await post("queries", { ...envelope, type, input }, token);
+    const response = await post("queries", { type, input }, token);
     const parsed = hostQueryResponseSchema(type).parse(await response.json());
     if (!parsed.ok)
       throw new Error(`${parsed.error.code}: ${parsed.error.message}`);
@@ -270,7 +265,7 @@ async function fixture(
       "question.start",
       {
         reviewId: review.id,
-        target: { kind: "document", documentVersion: 0 },
+        target: { kind: "document", reviewVersion: 0 },
         body,
         harness: "codex",
       },
@@ -293,7 +288,6 @@ async function fixture(
     agent,
     launches,
     baseUrl,
-    envelope,
     post,
     command,
     query,
@@ -343,10 +337,10 @@ describe("host-owned question runner", () => {
     expect(
       await f.query(
         "document.get",
-        { reviewId: f.review.id, version: 0 },
+        { reviewId: f.review.id, reviewVersion: 0 },
         token,
       ),
-    ).toMatchObject({ reviewId: f.review.id, version: 0 });
+    ).toMatchObject({ reviewId: f.review.id, reviewVersion: 0 });
     const other = await f.createReview("Unrelated private review");
     await expect(
       f.query("review.get", { reviewId: other.id }, token),
@@ -356,7 +350,7 @@ describe("host-owned question runner", () => {
         "document.mutate",
         {
           reviewId: f.review.id,
-          expectedDocumentVersion: 0,
+          expectedReviewVersion: 0,
           operations: [
             {
               op: "node.insert",
@@ -365,7 +359,7 @@ describe("host-owned question runner", () => {
                 type: "markdown",
                 markdown: "Bad edit",
               },
-              placement: { parentId: null, afterId: null },
+              placement: { parentId: null, position: { kind: "start" } },
             },
           ],
         },
@@ -375,7 +369,7 @@ describe("host-owned question runner", () => {
     await expect(
       f.command(
         "review.close",
-        { reviewId: f.review.id, expectedVersion: 0 },
+        { reviewId: f.review.id, expectedStateVersion: 0 },
         token,
       ),
     ).rejects.toThrow("FORBIDDEN");
@@ -385,7 +379,6 @@ describe("host-owned question runner", () => {
         {
           reviewId: f.review.id,
           runId: randomUUID(),
-          outputId: randomUUID(),
           body: "Wrong run",
         },
         token,
@@ -425,7 +418,11 @@ describe("host-owned question runner", () => {
       "completed",
     );
     await expect(
-      f.query("document.get", { reviewId: f.review.id, version: 0 }, token),
+      f.query(
+        "document.get",
+        { reviewId: f.review.id, reviewVersion: 0 },
+        token,
+      ),
     ).rejects.toThrow("UNAUTHORIZED");
   });
 
@@ -477,7 +474,7 @@ describe("host-owned question runner", () => {
     const session = await running(f, question.run);
     await f.command("review.close", {
       reviewId: f.review.id,
-      expectedVersion: f.store.review(f.review.id).version,
+      expectedStateVersion: f.store.review(f.review.id).stateVersion,
     });
     f.agent.finish(session, "The accepted question is still answered.");
     await vi.waitFor(() =>
@@ -488,7 +485,7 @@ describe("host-owned question runner", () => {
     expect(f.store.messages(f.review.id, question.thread.id).at(-1)?.body).toBe(
       "The accepted question is still answered.",
     );
-    expect(f.store.review(f.review.id).workflow).toBe("closed");
+    expect(f.store.review(f.review.id).state).toBe("closed");
   });
 
   it("allows the scoped API to persist its answer and ignores a duplicate native final", async () => {
@@ -501,7 +498,6 @@ describe("host-owned question runner", () => {
       {
         reviewId: f.review.id,
         runId: question.run.id,
-        outputId: randomUUID(),
         body: "Saved by the scoped tool.",
       },
       token,
@@ -640,7 +636,7 @@ describe("host-owned question runner", () => {
       })();
       await f.command("review.update", {
         reviewId: f.review.id,
-        expectedVersion: f.store.review(f.review.id).version,
+        expectedReviewVersion: f.store.review(f.review.id).latestReviewVersion,
         title: "Private later update",
         description: "",
         labels: [],

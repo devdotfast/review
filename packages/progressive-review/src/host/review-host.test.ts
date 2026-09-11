@@ -14,18 +14,20 @@ import { DatabaseSync } from "node:sqlite";
 import {
   HOST_COMMAND_DEFINITIONS,
   HOST_QUERY_DEFINITIONS,
+  type HostCommandInputs,
   type HostCommandName,
   HostCommandSchema,
-  HostDocumentCommitSchema,
   type HostDocumentOperation,
   HostDocumentStateSchema,
   type HostPermission,
+  type HostQueryInputs,
   type HostQueryName,
   HostQuerySchema,
   HostRepositorySchema,
+  HostReviewCommitSchema,
   type JsonValue,
 } from "@dev.fast/review-protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LocalEvidenceProvider } from "./evidence-provider";
 import { type HostAccess, ReviewHost, documentInput } from "./review-host";
@@ -114,11 +116,10 @@ async function fixture() {
   const human = access("human", [
     "read",
     "author",
-    "publish",
     "human",
     "register_repository",
   ]);
-  const author = access("agent", ["read", "author", "publish"]);
+  const author = access("agent", ["read", "author"]);
   const clientId = randomUUID();
   const envelope = {
     apiVersion: 1,
@@ -128,11 +129,13 @@ async function fixture() {
   };
   const command = (
     type: HostCommandName,
-    input: JsonValue,
+    input: HostCommandInputs[HostCommandName] | JsonValue,
     commandId: string = randomUUID(),
   ) => HostCommandSchema.parse({ ...envelope, commandId, type, input });
-  const query = (type: HostQueryName, input: JsonValue = {}) =>
-    HostQuerySchema.parse({ ...envelope, type, input });
+  const query = (
+    type: HostQueryName,
+    input: HostQueryInputs[HostQueryName] | JsonValue = {},
+  ) => HostQuerySchema.parse({ ...envelope, type, input });
   const registered = await host.command(
     human,
     command("repository.register", { path: repositoryPath }),
@@ -155,26 +158,25 @@ async function fixture() {
     };
   };
   const created = await create();
-  const mutation = (version: number, operations: HostDocumentOperation[]) =>
+  const mutation = (
+    reviewVersion: number,
+    operations: HostDocumentOperation[],
+  ) =>
     command("document.mutate", {
       reviewId: created.review.id,
-      expectedDocumentVersion: version,
+      expectedReviewVersion: reviewVersion,
       operations,
     });
   const mutate = async (
-    version: number,
+    reviewVersion: number,
     operations: HostDocumentOperation[],
   ) => {
-    const response = await host.command(author, mutation(version, operations));
-    return HostDocumentCommitSchema.parse(response.result);
+    const response = await host.command(
+      author,
+      mutation(reviewVersion, operations),
+    );
+    return HostReviewCommitSchema.parse(response.result);
   };
-  const publish = (documentVersion: number, reviewVersion: number) =>
-    command("review.publish", {
-      reviewId: created.review.id,
-      expectedDocumentVersion: documentVersion,
-      expectedReviewVersion: reviewVersion,
-      mapVersions: { base: null, head: null },
-    });
   return {
     directory,
     repositoryPath,
@@ -192,7 +194,6 @@ async function fixture() {
     query,
     mutation,
     mutate,
-    publish,
   };
 }
 
@@ -204,7 +205,13 @@ function prose(
   return {
     op: "node.insert",
     node: { id, type: "markdown", markdown },
-    placement: { parentId: null, afterId },
+    placement: {
+      parentId: null,
+      position:
+        afterId === null
+          ? { kind: "start" }
+          : { kind: "after", nodeId: afterId },
+    },
   };
 }
 
@@ -227,7 +234,7 @@ function anchor(id = "source", fromLine = 1): HostDocumentOperation[] {
     {
       op: "node.insert",
       node: { id: `${id}_peek`, type: "code_peek", anchorId: id },
-      placement: { parentId: null, afterId: null },
+      placement: { parentId: null, position: { kind: "start" } },
     },
   ];
 }
@@ -254,7 +261,7 @@ describe("ReviewHost authorization and portable records", () => {
     const f = await fixture();
     expect(f.created.review.createdBy).toBe(f.author.principal.id);
     expect(f.created.review.createdBy).not.toBe(f.clientId);
-    expect(f.created.review.authorSessionId).toBeNull();
+    expect(f.created.snapshot.createdBy).toBe(f.author.principal.id);
     expect(f.created.document.binding).toMatchObject({
       repositoryId: f.repository.id,
       baseCommit: f.pins.base,
@@ -276,10 +283,8 @@ describe("ReviewHost authorization and portable records", () => {
       }),
     ).toThrow(/createdBy/);
 
-    const checkpoint = HOST_COMMAND_DEFINITIONS["review.publish"].result.parse(
-      (await f.host.command(f.author, f.publish(0, 0))).result,
-    );
-    expect(checkpoint.createdBy).toBe(f.author.principal.id);
+    const changed = await f.mutate(0, [prose()]);
+    expect(changed.snapshot.createdBy).toBe(f.author.principal.id);
   });
 
   it("advertises only available capabilities and operations granted to the caller", async () => {
@@ -288,9 +293,8 @@ describe("ReviewHost authorization and portable records", () => {
     const result = HOST_QUERY_DEFINITIONS.capabilities.result.parse(
       (await f.host.query(readOnly, f.query("capabilities"))).result,
     );
-    expect(result.source).toEqual({ read: true, navigation: false });
     expect(result.ask).toEqual({
-      available: false,
+      defaultHarness: null,
       supportedHarnesses: [],
       isolation: "trusted_local",
     });
@@ -308,16 +312,14 @@ describe("ReviewHost authorization and portable records", () => {
     await expect(
       f.host.command(ask, f.mutation(0, [prose()])),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(f.host.command(ask, f.publish(0, 0))).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
+
     await expect(
       f.host.query(ask, f.query("document.get", { reviewId: other.review.id })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     const listed = HOST_QUERY_DEFINITIONS["reviews.list"].result.parse(
       (await f.host.query(ask, f.query("reviews.list"))).result,
     );
-    expect(listed.items.map((review) => review.id)).toEqual([
+    expect(listed.items.map((entry) => entry.review.id)).toEqual([
       f.created.review.id,
     ]);
     const filtered = HOST_QUERY_DEFINITIONS["reviews.list"].result.parse(
@@ -328,7 +330,7 @@ describe("ReviewHost authorization and portable records", () => {
         )
       ).result,
     );
-    expect(filtered.items.map((review) => review.id)).toEqual([
+    expect(filtered.items.map((entry) => entry.review.id)).toEqual([
       f.created.review.id,
     ]);
     expect(() =>
@@ -373,7 +375,7 @@ describe("ReviewHost authorization and portable records", () => {
     const f = await fixture();
     const close = f.command("review.close", {
       reviewId: f.created.review.id,
-      expectedVersion: 0,
+      expectedStateVersion: 0,
     });
     await expect(f.host.command(f.author, close)).rejects.toMatchObject({
       code: "FORBIDDEN",
@@ -394,32 +396,34 @@ describe("ReviewHost authorization and portable records", () => {
     await expect(
       f.host.command(f.author, f.mutation(0, [prose()])),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
-    await expect(
-      f.host.command(f.author, f.publish(0, 1)),
-    ).rejects.toMatchObject({ code: "INVALID_STATE" });
+    expect(f.store.review(f.created.review.id)).toMatchObject({
+      state: "closed",
+      stateVersion: 1,
+      latestReviewVersion: 0,
+    });
     await f.host.command(
       f.human,
       f.command("review.reopen", {
         reviewId: f.created.review.id,
-        expectedVersion: 1,
+        expectedStateVersion: 1,
       }),
     );
-    expect((await f.mutate(0, [prose()])).version).toBe(1);
+    expect((await f.mutate(0, [prose()])).reviewVersion).toBe(1);
     await f.host.command(
       f.human,
       f.command("review.trash", {
         reviewId: f.created.review.id,
-        expectedVersion: 2,
+        expectedStateVersion: 2,
       }),
     );
     await expect(
-      f.host.command(f.author, f.publish(1, 3)),
+      f.host.command(f.author, f.mutation(1, [prose("blocked")])),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
     await f.host.command(
       f.human,
-      f.command("review.restore", {
+      f.command("review.untrash", {
         reviewId: f.created.review.id,
-        expectedVersion: 3,
+        expectedStateVersion: 3,
       }),
     );
     expect(f.store.review(f.created.review.id).deletedAt).toBeNull();
@@ -506,7 +510,7 @@ describe("ReviewHost document transactions", () => {
     const restarted = new ReviewHost(openStore(f.databasePath));
     expect(await restarted.command(f.author, request)).toEqual(first);
     expect(counts(f.databasePath)).toEqual(baseline);
-    expect(restarted.store.document(f.created.review.id).version).toBe(2);
+    expect(restarted.store.document(f.created.review.id).reviewVersion).toBe(2);
   });
 
   it("detects payload reuse before source access and keeps command IDs principal/client scoped", async () => {
@@ -518,7 +522,7 @@ describe("ReviewHost document transactions", () => {
       "document.mutate",
       {
         reviewId: f.created.review.id,
-        expectedDocumentVersion: 1,
+        expectedReviewVersion: 1,
         operations: [prose()],
       },
       request.commandId,
@@ -531,25 +535,71 @@ describe("ReviewHost document transactions", () => {
       clientId: randomUUID(),
     });
     expect(
-      HostDocumentCommitSchema.parse(
+      HostReviewCommitSchema.parse(
         (await f.host.command(f.author, differentClient)).result,
-      ).version,
+      ).reviewVersion,
     ).toBe(2);
     const differentPrincipal = access("agent", ["author"]);
     const newPrincipalCommand = f.command(
       "document.mutate",
       {
         reviewId: f.created.review.id,
-        expectedDocumentVersion: 2,
+        expectedReviewVersion: 2,
         operations: [prose("second")],
       },
       request.commandId,
     );
     expect(
-      HostDocumentCommitSchema.parse(
+      HostReviewCommitSchema.parse(
         (await f.host.command(differentPrincipal, newPrincipalCommand)).result,
-      ).version,
+      ).reviewVersion,
     ).toBe(3);
+  });
+
+  it("does not rebase a stale write when another connection commits between the version guard and canvas read", async () => {
+    const f = await fixture();
+    const other = openStore(f.databasePath);
+    const reviewId = f.created.review.id;
+    const original = f.store.document(reviewId);
+    const snapshot = f.store.reviewSnapshot(reviewId);
+    const readDocument = f.store.document.bind(f.store);
+    const interleaved = vi
+      .spyOn(f.store, "document")
+      .mockImplementationOnce((id, version) => {
+        other.command(
+          { clientId: "other-writer", commandId: randomUUID(), request: {} },
+          () =>
+            other.commitDocument(
+              reviewId,
+              0,
+              {
+                document: documentInput(original),
+                binding: original.binding,
+                evidence: original.evidence,
+              },
+              {
+                metadata: {
+                  title: "Concurrent title",
+                  description: snapshot.description,
+                  labels: snapshot.labels,
+                  mapVersions: snapshot.mapVersions,
+                },
+              },
+            ),
+        );
+        return readDocument(id, version);
+      });
+    try {
+      await expect(f.mutate(0, [prose()])).rejects.toMatchObject({
+        code: "VERSION_CONFLICT",
+        currentVersion: 1,
+      });
+      expect(f.store.document(reviewId).nodes).toEqual({});
+      expect(f.store.reviewSnapshot(reviewId).title).toBe("Concurrent title");
+      expect(f.store.review(reviewId).latestReviewVersion).toBe(1);
+    } finally {
+      interleaved.mockRestore();
+    }
   });
 
   it("rechecks CAS after asynchronous real-source validation across separate connections", async () => {
@@ -609,62 +659,112 @@ describe("ReviewHost document transactions", () => {
       "document.mutate",
       {
         reviewId: f.created.review.id,
-        expectedDocumentVersion: 0,
+        expectedReviewVersion: 0,
         operations: [prose()],
       },
       failed.commandId,
     );
     expect(
-      HostDocumentCommitSchema.parse(
+      HostReviewCommitSchema.parse(
         (await f.host.command(f.author, corrected)).result,
-      ).version,
+      ).reviewVersion,
     ).toBe(1);
   });
 
-  it("keeps metadata and document version checks independent and returns sparse, re-applicable commits", async () => {
+  it.each(["document.mutate", "document.replace"] as const)(
+    "rejects broken references in %s without saving any part of the candidate",
+    async (type) => {
+      const f = await fixture();
+      await f.mutate(0, anchor());
+      const reviewId = f.created.review.id;
+      const before = f.store.document(reviewId);
+      const baseline = counts(f.databasePath);
+      const request = f.command(type, {
+        reviewId,
+        expectedReviewVersion: 1,
+        ...(type === "document.mutate"
+          ? {
+              operations: [
+                prose("intro", "New explanation", "source_peek"),
+                { op: "definition.remove", id: "source" },
+              ],
+            }
+          : {
+              document: {
+                ...documentInput(before),
+                roots: [...before.roots, "intro"],
+                nodes: {
+                  ...before.nodes,
+                  intro: {
+                    id: "intro",
+                    type: "markdown",
+                    markdown: "New explanation",
+                  },
+                },
+                definitions: {},
+              },
+            }),
+      });
+      await expect(f.host.command(f.author, request)).rejects.toMatchObject({
+        code: "VALIDATION_FAILED",
+        diagnostics: [
+          expect.objectContaining({
+            path: "/candidate/document/nodes/source_peek/anchorId",
+          }),
+        ],
+      });
+      expect(f.store.document(reviewId)).toEqual(before);
+      expect(counts(f.databasePath)).toEqual(baseline);
+    },
+  );
+
+  it("guards metadata and canvas with one version and returns sparse re-applicable deltas", async () => {
     const f = await fixture();
     await f.mutate(0, [prose(), ...anchor()]);
-    const before = f.store.document(f.created.review.id);
     await f.host.command(
       f.author,
       f.command("review.update", {
         reviewId: f.created.review.id,
-        expectedVersion: 0,
+        expectedReviewVersion: 1,
         title: "New title",
         description: "New description",
         labels: ["storage"],
       }),
     );
-    expect(f.store.document(f.created.review.id)).toEqual(before);
-    const commit = await f.mutate(1, [
+    const before = f.store.document(f.created.review.id);
+    await expect(
+      f.mutate(1, [
+        { op: "node.update", nodeId: "intro", changes: { markdown: "stale" } },
+      ]),
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+    const commit = await f.mutate(2, [
       {
-        op: "node.replace",
-        node: {
-          id: "intro",
-          type: "markdown",
-          markdown: "Updated explanation",
-        },
+        op: "node.update",
+        nodeId: "intro",
+        changes: { markdown: "Updated explanation" },
       },
     ]);
-    expect(Object.keys(commit.changedNodes)).toEqual(["intro"]);
-    expect(commit.changedDefinitions).toEqual({});
-    expect(commit.changedEvidence).toEqual({});
-    expect(commit.previousVersion).toBe(1);
-    expect(commit.version).toBe(2);
-    const reconstructed = {
+    const delta = commit.documentDelta!;
+    expect(Object.keys(delta.changedNodes)).toEqual(["intro"]);
+    expect(delta.changedDefinitions).toEqual({});
+    expect(delta.changedEvidence).toEqual({});
+    expect(commit).toMatchObject({
+      previousReviewVersion: 2,
+      reviewVersion: 3,
+      snapshot: { title: "New title" },
+    });
+    expect({
       ...before,
-      nodes: { ...before.nodes, ...commit.changedNodes },
-      version: commit.version,
-      contentHash: commit.contentHash,
-      createdAt: commit.createdAt,
-      roots: commit.roots,
-      binding: commit.binding,
-    };
-    expect(reconstructed).toEqual(f.store.document(f.created.review.id));
+      nodes: { ...before.nodes, ...delta.changedNodes },
+      reviewVersion: commit.reviewVersion,
+      contentHash: delta.contentHash,
+      createdAt: delta.createdAt,
+      roots: delta.roots,
+      binding: delta.binding,
+    }).toEqual(f.store.document(f.created.review.id));
     expect(f.store.review(f.created.review.id)).toMatchObject({
-      version: 1,
-      documentVersion: 2,
-      title: "New title",
+      stateVersion: 0,
+      latestReviewVersion: 3,
     });
   });
 
@@ -679,25 +779,23 @@ describe("ReviewHost document transactions", () => {
       },
     ]);
     expect(noop).toMatchObject({
-      previousVersion: 1,
-      version: 1,
-      changedNodes: {},
-      changedDefinitions: {},
-      changedEvidence: {},
+      previousReviewVersion: 1,
+      reviewVersion: 1,
+      documentDelta: null,
     });
     expect(f.store.cursor()).toBe(beforeNoop);
     const removed = await f.mutate(1, [
-      { op: "node.remove", nodeId: "source_peek", subtree: false },
+      { op: "node.remove", nodeId: "source_peek", recursive: false },
       { op: "definition.remove", id: "source" },
     ]);
-    expect(removed.removedNodeIds).toEqual(["source_peek"]);
-    expect(removed.removedDefinitionIds).toEqual(["source"]);
-    expect(removed.removedEvidenceIds).toEqual(["source"]);
+    expect(removed.documentDelta!.removedNodeIds).toEqual(["source_peek"]);
+    expect(removed.documentDelta!.removedDefinitionIds).toEqual(["source"]);
+    expect(removed.documentDelta!.removedEvidenceIds).toEqual(["source"]);
     const old = await f.host.query(
       f.author,
       f.query("document.evidence", {
         reviewId: f.created.review.id,
-        version: 1,
+        reviewVersion: 1,
         anchorIds: ["source"],
       }),
     );
@@ -710,7 +808,7 @@ describe("ReviewHost document transactions", () => {
         f.author,
         f.query("document.evidence", {
           reviewId: f.created.review.id,
-          version: 2,
+          reviewVersion: 2,
           anchorIds: ["source"],
         }),
       ),
@@ -724,7 +822,10 @@ describe("ReviewHost document transactions", () => {
       prose("first", "a".repeat(140_000)),
       prose("second", "b".repeat(140_000), "first"),
     ]);
-    expect(Object.keys(commit.changedNodes)).toEqual(["first", "second"]);
+    expect(Object.keys(commit.documentDelta!.changedNodes)).toEqual([
+      "first",
+      "second",
+    ]);
     const events = f.host.events(
       f.author,
       f.store.workspaceId,
@@ -733,8 +834,8 @@ describe("ReviewHost document transactions", () => {
     );
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
-      type: "document.resync_required",
-      payload: { reviewId: f.created.review.id, version: 1 },
+      type: "review.resync_required",
+      payload: { reviewId: f.created.review.id, reviewVersion: 1 },
     });
     expect(JSON.stringify(events[0]).length).toBeLessThan(1_024);
     const snapshot = HostDocumentStateSchema.parse(
@@ -745,7 +846,70 @@ describe("ReviewHost document transactions", () => {
         )
       ).result,
     );
-    expect(snapshot.nodes).toEqual(commit.changedNodes);
+    expect(snapshot.nodes).toEqual(commit.documentDelta!.changedNodes);
+  });
+
+  it("keeps edits committed during asynchronous dry-run validation replayable from its captured cursor", async () => {
+    const f = await fixture();
+    const secondStore = openStore(f.databasePath);
+    const writer = new ReviewHost(secondStore);
+    const provider = new LocalEvidenceProvider((id) =>
+      f.store.repositoryPath(id),
+    );
+    const entered = gate(),
+      release = gate();
+    const validating = new ReviewHost(f.store, {
+      evidence: {
+        async resolve(...args: Parameters<LocalEvidenceProvider["resolve"]>) {
+          const quote = await provider.resolve(...args);
+          entered.resolve();
+          await release.promise;
+          return quote;
+        },
+      },
+    });
+    const cursor = f.store.cursor();
+    const pending = validating.query(
+      f.author,
+      f.query("document.validate", {
+        reviewId: f.created.review.id,
+        expectedReviewVersion: 0,
+        operations: anchor(),
+      }),
+    );
+    await entered.promise;
+    await writer.command(
+      f.author,
+      f.command("review.update", {
+        reviewId: f.created.review.id,
+        expectedReviewVersion: 0,
+        title: "Concurrent title",
+      }),
+    );
+    release.resolve();
+    const response = await pending;
+    expect(response.result).toMatchObject({
+      valid: true,
+      basedOnReviewVersion: 0,
+    });
+    expect(response.eventCursor).toBe(cursor);
+    expect(
+      validating.events(
+        f.author,
+        f.store.workspaceId,
+        response.eventCursor,
+        f.created.review.id,
+      ),
+    ).toMatchObject([
+      {
+        type: "review.committed",
+        payload: { previousReviewVersion: 0, reviewVersion: 1 },
+      },
+    ]);
+    expect(f.store.document(f.created.review.id).nodes).toEqual({});
+    await expect(
+      validating.command(f.author, f.mutation(0, anchor())),
+    ).rejects.toMatchObject({ code: "VERSION_CONFLICT", currentVersion: 1 });
   });
 
   it("validates proposed edits without committing and reports errors against their exact source version", async () => {
@@ -756,7 +920,7 @@ describe("ReviewHost document transactions", () => {
         f.author,
         f.query("document.validate", {
           reviewId: f.created.review.id,
-          expectedDocumentVersion: 0,
+          expectedReviewVersion: 0,
           operations,
         }),
       );
@@ -765,7 +929,7 @@ describe("ReviewHost document transactions", () => {
     );
     expect(valid).toMatchObject({
       valid: true,
-      basedOnVersion: 0,
+      basedOnReviewVersion: 0,
       diagnostics: [],
       affectedNodeIds: ["source_peek"],
     });
@@ -777,242 +941,540 @@ describe("ReviewHost document transactions", () => {
       ).result,
     );
     expect(invalid.valid).toBe(false);
-    expect(invalid.basedOnVersion).toBe(0);
+    expect(invalid.basedOnReviewVersion).toBe(0);
     expect(invalid.diagnostics.length).toBeGreaterThan(0);
+    const brokenReference = HOST_QUERY_DEFINITIONS[
+      "document.validate"
+    ].result.parse(
+      (
+        await validate(
+          anchor().filter((operation) => operation.op === "node.insert"),
+        )
+      ).result,
+    );
+    expect(brokenReference).toMatchObject({
+      valid: false,
+      basedOnReviewVersion: 0,
+      diagnostics: [
+        expect.objectContaining({
+          path: "/candidate/document/nodes/source_peek/anchorId",
+        }),
+      ],
+    });
     expect(counts(f.databasePath)).toEqual(baseline);
   });
 });
 
-describe("ReviewHost immutable publication and queries", () => {
-  it("reports rejected publications without changing errors or successful receipts", async () => {
+describe("ReviewHost immutable saved versions and queries", () => {
+  it("restores removed content without rewinding resolved conversations, exact-version approvals or personal attention", async () => {
     const f = await fixture();
-    let rejections = 0;
-    const host = new ReviewHost(f.store, {
-      onPublishRejected: () => {
-        rejections += 1;
-        throw new Error("Telemetry unavailable");
-      },
+    const reviewId = f.created.review.id;
+    await f.mutate(0, [prose()]);
+    const created = HOST_COMMAND_DEFINITIONS["thread.create"].result.parse(
+      (
+        await f.host.command(
+          f.human,
+          f.command("thread.create", {
+            reviewId,
+            target: { kind: "node", reviewVersion: 1, nodeId: "intro" },
+            body: "Please explain this section.",
+          }),
+        )
+      ).result,
+    );
+    await f.host.command(
+      f.author,
+      f.command("thread.reply", {
+        reviewId,
+        threadId: created.thread.id,
+        body: "The explanation is complete.",
+      }),
+    );
+    await f.host.command(
+      f.author,
+      f.command("thread.set_status", {
+        reviewId,
+        threadId: created.thread.id,
+        expectedThreadVersion: 0,
+        status: "resolved",
+      }),
+    );
+    await f.host.command(
+      f.human,
+      f.command("attention.update", {
+        reviewId,
+        expectedAttentionVersion: 0,
+        lastViewedReviewVersion: 1,
+        pinned: true,
+      }),
+    );
+    const approval = HOST_COMMAND_DEFINITIONS["feedback.submit"].result.parse(
+      (
+        await f.host.command(
+          f.human,
+          f.command("feedback.submit", {
+            reviewId,
+            reviewVersion: 1,
+            decision: "approve",
+            drafts: [],
+          }),
+        )
+      ).result,
+    );
+    const thread = f.store.thread(reviewId, created.thread.id);
+    const messages = f.store.messages(reviewId, created.thread.id);
+    const attention = f.store.attention(reviewId, f.human.principal.id);
+    await f.mutate(1, [{ op: "node.remove", nodeId: "intro" }]);
+    await f.host.command(
+      f.author,
+      f.command("review.version.restore", {
+        reviewId,
+        expectedReviewVersion: 2,
+        fromReviewVersion: 1,
+      }),
+    );
+    expect(f.store.thread(reviewId, created.thread.id)).toEqual(thread);
+    expect(thread).toMatchObject({
+      status: "resolved",
+      target: { reviewVersion: 1 },
     });
-    await expect(
-      host.command(f.author, f.publish(99, 0)),
-    ).rejects.toMatchObject({
-      code: "VERSION_CONFLICT",
+    expect(f.store.messages(reviewId, created.thread.id)).toEqual(messages);
+    expect(f.store.submission(reviewId, approval.id)).toEqual(approval);
+    expect(approval).toMatchObject({ decision: "approve", reviewVersion: 1 });
+    expect(f.store.attention(reviewId, f.human.principal.id)).toEqual(
+      attention,
+    );
+    expect(f.store.review(reviewId)).toMatchObject({
+      latestReviewVersion: 3,
+      stateVersion: 0,
+      state: "open",
     });
-    expect(rejections).toBe(1);
-    const request = f.publish(0, 0);
-    const accepted = await host.command(f.author, request);
-    expect(await host.command(f.author, request)).toEqual(accepted);
-    expect(rejections).toBe(1);
+    const mapping = await f.host.query(
+      f.human,
+      f.query("thread.mapping", {
+        reviewId,
+        threadId: thread.id,
+        reviewVersion: 3,
+      }),
+    );
+    expect(mapping.result).toMatchObject({
+      status: "exact",
+      target: { kind: "node", nodeId: "intro", reviewVersion: 3 },
+    });
   });
 
-  it("keeps checkpoints, titles, and source evidence immutable after updates and restore without the source checkout", async () => {
-    const f = await fixture();
+  it("restores metadata, canvas, code and selected maps while retaining historical versions", async () => {
+    const f = await fixture(),
+      reviewId = f.created.review.id;
     await f.mutate(0, [prose(), ...anchor()]);
-    const historical = f.store.document(f.created.review.id);
-    const checkpoint1 = HOST_COMMAND_DEFINITIONS["review.publish"].result.parse(
-      (await f.host.command(f.author, f.publish(1, 0))).result,
-    );
-    await f.host.command(
-      f.author,
-      f.command("review.update", {
-        reviewId: f.created.review.id,
-        expectedVersion: 1,
-        title: "Revised title",
-        description: "Revised description",
-        labels: [],
-      }),
-    );
-    const empty = { schemaVersion: 1, roots: [], nodes: {}, definitions: {} };
-    await f.host.command(
-      f.author,
-      f.command("document.replace", {
-        reviewId: f.created.review.id,
-        expectedDocumentVersion: 1,
-        document: empty,
-      }),
-    );
-    const checkpoint2 = HOST_COMMAND_DEFINITIONS["review.publish"].result.parse(
-      (await f.host.command(f.author, f.publish(2, 2))).result,
-    );
-    renameSync(f.repositoryPath, path.join(f.directory, "offline-repository"));
-    const restored = HostDocumentCommitSchema.parse(
+    const map = HOST_COMMAND_DEFINITIONS["map.create"].result.parse(
       (
         await f.host.command(
           f.author,
-          f.command("document.restore", {
-            reviewId: f.created.review.id,
-            expectedDocumentVersion: 2,
-            fromVersion: 1,
+          f.command("map.create", {
+            reviewId,
+            reviewVersion: 1,
+            side: "head",
+            map: {
+              schemaVersion: 1,
+              elements: {
+                api: {
+                  id: "api",
+                  parentId: null,
+                  label: "API",
+                  kind: "component",
+                  source: [],
+                },
+              },
+              relationships: {},
+            },
           }),
         )
       ).result,
     );
-    expect(restored).toMatchObject({
-      previousVersion: 2,
-      version: 3,
-      contentHash: historical.contentHash,
-      changedEvidence: historical.evidence,
+    expect(f.store.review(reviewId).latestReviewVersion).toBe(1);
+    await f.host.command(
+      f.author,
+      f.command("review.update", {
+        reviewId,
+        expectedReviewVersion: 1,
+        mapVersions: { head: map.id },
+      }),
+    );
+    const historical = f.store.document(reviewId),
+      initial = f.store.reviewSnapshot(reviewId);
+    const newer = HOST_COMMAND_DEFINITIONS["map.mutate"].result.parse(
+      (
+        await f.host.command(
+          f.author,
+          f.command("map.mutate", {
+            reviewId,
+            mapId: map.mapId,
+            expectedMapVersion: 0,
+            operations: [
+              {
+                op: "element.put",
+                element: {
+                  id: "api",
+                  parentId: null,
+                  label: "New API",
+                  kind: "component",
+                  source: [],
+                },
+              },
+            ],
+          }),
+        )
+      ).result,
+    );
+    expect(f.store.reviewSnapshot(reviewId).mapVersions.head).toBe(map.id);
+    await f.host.command(
+      f.author,
+      f.command("review.update", {
+        reviewId,
+        expectedReviewVersion: 2,
+        title: "Revised title",
+        labels: ["revised"],
+        mapVersions: { head: newer.id },
+      }),
+    );
+    await f.host.command(
+      f.author,
+      f.command("document.replace", {
+        reviewId,
+        expectedReviewVersion: 3,
+        document: { schemaVersion: 1, roots: [], nodes: {}, definitions: {} },
+      }),
+    );
+    renameSync(f.repositoryPath, path.join(f.directory, "offline-repository"));
+    const request = f.command("review.version.restore", {
+      reviewId,
+      expectedReviewVersion: 4,
+      fromReviewVersion: 2,
     });
-    expect(documentInput(f.store.document(f.created.review.id))).toEqual(
+    const response = await f.host.command(f.author, request),
+      restored = HostReviewCommitSchema.parse(response.result);
+    expect(restored).toMatchObject({
+      previousReviewVersion: 4,
+      reviewVersion: 5,
+      snapshot: {
+        title: initial.title,
+        labels: initial.labels,
+        mapVersions: { head: map.id },
+        restoredFromReviewVersion: 2,
+      },
+      documentDelta: { contentHash: historical.contentHash },
+    });
+    expect(documentInput(f.store.document(reviewId))).toEqual(
       documentInput(historical),
     );
-    expect(f.store.document(f.created.review.id).binding).toEqual(
-      historical.binding,
-    );
-    expect(f.store.review(f.created.review.id)).toMatchObject({
+    expect(f.store.document(reviewId, 2)).toEqual(historical);
+    expect(f.store.reviewSnapshot(reviewId, 3)).toMatchObject({
       title: "Revised title",
-      version: 3,
-      documentVersion: 3,
-      publishedCheckpointId: checkpoint2.id,
+      mapVersions: { head: newer.id },
     });
-    const original = HOST_QUERY_DEFINITIONS["checkpoint.get"].result.parse(
-      (
-        await f.host.query(
-          f.author,
-          f.query("checkpoint.get", {
-            reviewId: f.created.review.id,
-            checkpointId: checkpoint1.id,
-          }),
-        )
-      ).result,
+    expect(await f.host.command(f.author, request)).toEqual(response);
+    const same = await f.host.command(
+      f.author,
+      f.command("review.version.restore", {
+        reviewId,
+        expectedReviewVersion: 5,
+        fromReviewVersion: 2,
+      }),
     );
-    expect(original.checkpoint).toEqual(checkpoint1);
-    expect(original.document).toEqual(historical);
-    expect(checkpoint1.title).toBe("Shared review database");
-    expect(checkpoint2).toMatchObject({
-      title: "Revised title",
-      ordinal: 2,
-      documentVersion: 2,
+    expect(HostReviewCommitSchema.parse(same.result)).toMatchObject({
+      reviewVersion: 6,
+      documentDelta: null,
     });
-    expect(f.store.checkpoint(f.created.review.id, checkpoint2.id)).toEqual(
-      checkpoint2,
-    );
     closeStore(f.store);
     const restarted = openStore(f.databasePath);
-    expect(restarted.checkpoint(f.created.review.id, checkpoint1.id)).toEqual(
-      checkpoint1,
+    expect(restarted.document(reviewId, 2)).toEqual(historical);
+    expect(restarted.reviewSnapshot(reviewId).restoredFromReviewVersion).toBe(
+      2,
     );
-    expect(
-      restarted.document(f.created.review.id, checkpoint1.documentVersion),
-    ).toEqual(historical);
   });
 
-  it("rejects stale publication atomically and scopes checkpoint IDs to their review", async () => {
-    const f = await fixture();
-    const other = await f.create("Other review");
-    await f.mutate(0, [prose()]);
-    const baseline = counts(f.databasePath);
+  it("starts new code with a blank canvas and rejects accidental same-code clearing", async () => {
+    const f = await fixture(),
+      reviewId = f.created.review.id;
+    await f.mutate(0, [prose(), ...anchor()]);
     await expect(
-      f.host.command(f.author, f.publish(0, 0)),
-    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
-    await expect(
-      f.host.command(f.author, f.publish(1, 1)),
-    ).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
-    expect(counts(f.databasePath)).toEqual(baseline);
-    const published = HOST_COMMAND_DEFINITIONS["review.publish"].result.parse(
-      (await f.host.command(f.author, f.publish(1, 0))).result,
-    );
-    await expect(
-      f.host.query(
+      f.host.command(
         f.author,
-        f.query("checkpoint.get", {
-          reviewId: other.review.id,
-          checkpointId: published.id,
+        f.command("review.revision.create", {
+          reviewId,
+          expectedReviewVersion: 1,
+          change: { kind: "range", baseRef: f.pins.base, headRef: f.pins.head },
         }),
       ),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    ).rejects.toMatchObject({ code: "INVALID_STATE" });
+    writeFileSync(
+      path.join(f.repositoryPath, "src/database.ts"),
+      "export const shared = 3;\\n",
+    );
+    git(f.repositoryPath, "add", ".");
+    git(f.repositoryPath, "commit", "-m", "New source revision");
+    const head = git(f.repositoryPath, "rev-parse", "HEAD");
+    const response = await f.host.command(
+      f.author,
+      f.command("review.revision.create", {
+        reviewId,
+        expectedReviewVersion: 1,
+        change: { kind: "range", baseRef: f.pins.base, headRef: head },
+      }),
+    );
+    expect(HostReviewCommitSchema.parse(response.result)).toMatchObject({
+      reviewVersion: 2,
+      snapshot: {
+        title: f.created.snapshot.title,
+        binding: { headCommit: head },
+        mapVersions: { base: null, head: null },
+      },
+    });
+    expect(f.store.document(reviewId)).toMatchObject({
+      roots: [],
+      nodes: {},
+      definitions: {},
+      evidence: {},
+    });
+    expect(f.store.document(reviewId, 1).nodes.intro).toBeDefined();
+    await expect(f.mutate(2, [prose()])).rejects.toBeDefined();
+    await f.mutate(2, [prose("fresh_intro")]);
+    await f.host.command(
+      f.author,
+      f.command("review.version.restore", {
+        reviewId,
+        expectedReviewVersion: 3,
+        fromReviewVersion: 1,
+      }),
+    );
+    expect(f.store.document(reviewId).binding.headCommit).toBe(f.pins.head);
+    expect(f.store.document(reviewId).nodes.intro).toBeDefined();
   });
 
   it("rejects retired IDs in replacements while permitting explicit historical restoration", async () => {
     const f = await fixture();
     await f.mutate(0, [prose()]);
     const old = documentInput(f.store.document(f.created.review.id));
-    await f.mutate(1, [{ op: "node.remove", nodeId: "intro", subtree: false }]);
+    await f.mutate(1, [
+      { op: "node.remove", nodeId: "intro", recursive: false },
+    ]);
     await expect(
       f.host.command(
         f.author,
         f.command("document.replace", {
           reviewId: f.created.review.id,
-          expectedDocumentVersion: 2,
+          expectedReviewVersion: 2,
           document: old,
         }),
       ),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
     await f.host.command(
       f.author,
-      f.command("document.restore", {
+      f.command("review.version.restore", {
         reviewId: f.created.review.id,
-        expectedDocumentVersion: 2,
-        fromVersion: 1,
+        expectedReviewVersion: 2,
+        fromReviewVersion: 1,
       }),
     );
     expect(documentInput(f.store.document(f.created.review.id))).toEqual(old);
   });
 
-  it("pages immutable history/checkpoints without offsets and rejects a cursor for a different query", async () => {
+  it("rejects deleted sequence-step identities in mutations, replacements and dry-runs, but restores their original history", async () => {
+    const f = await fixture();
+    const reviewId = f.created.review.id;
+    const message = {
+      id: "step",
+      fromActorId: "actor",
+      toActorId: "actor",
+      label: "Explain the operation",
+      evidence: { kind: "explanation" as const },
+      style: "call" as const,
+    };
+    await f.mutate(0, [
+      {
+        op: "definition.put",
+        id: "actor",
+        value: { kind: "actor", label: "Worker" },
+      },
+      {
+        op: "node.insert",
+        node: {
+          id: "sequence",
+          type: "sequence",
+          title: "Flow",
+          messages: [message],
+        },
+        placement: { parentId: null, position: { kind: "end" } },
+      },
+    ]);
+    const historical = documentInput(f.store.document(reviewId));
+    await f.mutate(1, [
+      { op: "node.update", nodeId: "sequence", changes: { messages: [] } },
+    ]);
+    const operations: HostDocumentOperation[] = [
+      {
+        op: "node.update",
+        nodeId: "sequence",
+        changes: { messages: [message] },
+      },
+    ];
+    const validation = await f.host.query(
+      f.author,
+      f.query("document.validate", {
+        reviewId,
+        expectedReviewVersion: 2,
+        operations,
+      }),
+    );
+    expect(validation.result).toMatchObject({
+      valid: false,
+      basedOnReviewVersion: 2,
+      diagnostics: [
+        {
+          code: "RETIRED_ID",
+          nodeId: "sequence",
+          path: "/candidate/document/nodes/sequence/messages/0/id",
+        },
+      ],
+    });
+    await expect(f.mutate(2, operations)).rejects.toMatchObject({
+      diagnostics: [{ code: "RETIRED_ID" }],
+    });
+    await expect(
+      f.host.command(
+        f.author,
+        f.command("document.replace", {
+          reviewId,
+          expectedReviewVersion: 2,
+          document: historical,
+        }),
+      ),
+    ).rejects.toMatchObject({ diagnostics: [{ code: "RETIRED_ID" }] });
+    expect(f.store.review(reviewId).latestReviewVersion).toBe(2);
+    await f.mutate(2, [
+      {
+        op: "node.update",
+        nodeId: "sequence",
+        changes: { messages: [{ ...message, id: "fresh_step" }] },
+      },
+    ]);
+    await f.host.command(
+      f.author,
+      f.command("review.version.restore", {
+        reviewId,
+        expectedReviewVersion: 3,
+        fromReviewVersion: 1,
+      }),
+    );
+    expect(documentInput(f.store.document(reviewId))).toEqual(historical);
+    await f.mutate(4, [
+      {
+        op: "node.update",
+        nodeId: "sequence",
+        changes: { messages: [{ ...message, label: "Edited original step" }] },
+      },
+    ]);
+    expect(f.store.review(reviewId).latestReviewVersion).toBe(5);
+  });
+
+  it("orders review listings by creation time and excludes later inserts from review and repository traversals", async () => {
+    const f = await fixture();
+    const latest = await f.create("Newest review");
+    const readReviews = async (cursor?: string) =>
+      HOST_QUERY_DEFINITIONS["reviews.list"].result.parse(
+        (
+          await f.host.query(
+            f.human,
+            f.query("reviews.list", { limit: 1, cursor }),
+          )
+        ).result,
+      );
+    const first = await readReviews();
+    expect(first.items[0]!.review.id).toBe(latest.review.id);
+    const old = {
+      ...f.created.review,
+      id: randomUUID(),
+      createdAt: "2000-01-01T00:00:00Z",
+    };
+    const document = f.store.document(f.created.review.id);
+    f.store.command(
+      { clientId: "late-insert", commandId: randomUUID(), request: {} },
+      () =>
+        f.store.createReview(
+          old,
+          {
+            document: documentInput(document),
+            binding: document.binding,
+            evidence: document.evidence,
+          },
+          {
+            title: "Later insert with earlier clock",
+            description: "",
+            labels: [],
+            mapVersions: { base: null, head: null },
+          },
+        ),
+    );
+    const second = await readReviews(first.nextCursor!);
+    expect(second.items.map((item) => item.review.id)).toEqual([
+      f.created.review.id,
+    ]);
+    expect(second.nextCursor).toBeNull();
+    const register = (id: string) =>
+      f.store.command(
+        { clientId: "late-insert", commandId: randomUUID(), request: {} },
+        () => {
+          f.store.registerRepository({
+            id,
+            localPath: path.join(f.directory, id),
+            displayName: id,
+            vcs: "git",
+          });
+          return null;
+        },
+      );
+    register("00000000-0000-4000-8000-000000000001");
+    const readRepositories = async (cursor?: string) =>
+      HOST_QUERY_DEFINITIONS["repositories.list"].result.parse(
+        (
+          await f.host.query(
+            f.human,
+            f.query("repositories.list", { limit: 1, cursor }),
+          )
+        ).result,
+      );
+    const repositories = await readRepositories();
+    register("ffffffff-ffff-4fff-8fff-ffffffffffff");
+    const remaining = await readRepositories(repositories.nextCursor!);
+    expect(remaining.items.map((item) => item.id)).toEqual([f.repository.id]);
+    expect(remaining.nextCursor).toBeNull();
+  });
+
+  it("pages immutable review history and rejects a cursor for another review", async () => {
     const f = await fixture();
     await f.mutate(0, [prose()]);
-    await f.host.command(f.author, f.publish(1, 0));
     await f.mutate(1, [prose("second")]);
-    await f.host.command(f.author, f.publish(2, 1));
     const readHistory = async (input: JsonValue) =>
-      HOST_QUERY_DEFINITIONS["document.history"].result.parse(
-        (await f.host.query(f.author, f.query("document.history", input)))
-          .result,
+      HOST_QUERY_DEFINITIONS["review.history"].result.parse(
+        (await f.host.query(f.author, f.query("review.history", input))).result,
       );
     const first = await readHistory({
       reviewId: f.created.review.id,
       limit: 1,
     });
-    expect(first.items.map((version) => version.version)).toEqual([2]);
-    expect(first.nextCursor).not.toBeNull();
+    expect(first.items.map((item) => item.reviewVersion)).toEqual([2]);
     await f.mutate(2, [prose("third")]);
-    const second = await readHistory({
+    const next = await readHistory({
       reviewId: f.created.review.id,
       limit: 2,
       cursor: first.nextCursor,
     });
-    expect(second.items.map((version) => version.version)).toEqual([1, 0]);
-    expect(second.nextCursor).toBeNull();
-    const other = await f.create("Other review");
+    expect(next.items.map((item) => item.reviewVersion)).toEqual([1, 0]);
+    const other = await f.create("Other");
     await expect(
       readHistory({ reviewId: other.review.id, cursor: first.nextCursor }),
     ).rejects.toMatchObject({ code: "CURSOR_EXPIRED" });
-    await expect(
-      f.host.query(
-        f.author,
-        f.query("checkpoints.list", {
-          reviewId: f.created.review.id,
-          cursor: first.nextCursor,
-        }),
-      ),
-    ).rejects.toMatchObject({ code: "CURSOR_EXPIRED" });
-    const checkpoints = HOST_QUERY_DEFINITIONS["checkpoints.list"].result.parse(
-      (
-        await f.host.query(
-          f.author,
-          f.query("checkpoints.list", {
-            reviewId: f.created.review.id,
-            limit: 1,
-          }),
-        )
-      ).result,
-    );
-    expect(checkpoints.items.map((checkpoint) => checkpoint.ordinal)).toEqual([
-      2,
-    ]);
-    const next = HOST_QUERY_DEFINITIONS["checkpoints.list"].result.parse(
-      (
-        await f.host.query(
-          f.author,
-          f.query("checkpoints.list", {
-            reviewId: f.created.review.id,
-            cursor: checkpoints.nextCursor,
-          }),
-        )
-      ).result,
-    );
-    expect(next.items.map((checkpoint) => checkpoint.ordinal)).toEqual([1]);
   });
 
   it("returns a document snapshot cursor that lets clients catch up and filters private events", async () => {
@@ -1022,7 +1484,7 @@ describe("ReviewHost immutable publication and queries", () => {
       f.query("document.get", { reviewId: f.created.review.id }),
     );
     const first = HostDocumentStateSchema.parse(snapshot.result);
-    expect(first.version).toBe(0);
+    expect(first.reviewVersion).toBe(0);
     await f.mutate(0, [prose()]);
     const append = (payload: JsonValue, principalId: string) =>
       f.store.command(
@@ -1044,18 +1506,19 @@ describe("ReviewHost immutable publication and queries", () => {
       f.created.review.id,
     );
     expect(events.map((event) => event.type)).toEqual([
-      "document.committed",
+      "review.committed",
       "private.feedback",
     ]);
     expect(events[0]?.payload).toMatchObject({
-      commit: { previousVersion: first.version, version: 1 },
+      previousReviewVersion: first.reviewVersion,
+      reviewVersion: 1,
     });
     expect(events[1]?.payload).toEqual({ text: "Author's private draft" });
     const current = await f.host.query(
       f.author,
       f.query("document.get", { reviewId: f.created.review.id }),
     );
-    expect(HostDocumentStateSchema.parse(current.result).version).toBe(1);
+    expect(HostDocumentStateSchema.parse(current.result).reviewVersion).toBe(1);
     expect(
       f.host.events(
         f.author,

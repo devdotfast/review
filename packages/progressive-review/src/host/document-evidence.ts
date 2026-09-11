@@ -63,6 +63,8 @@ export async function validateHostDocumentEvidence(
   affectedNodeIds: string[];
 }> {
   const { document, binding, previous } = input;
+  // One structural gate for operation candidates, replacements and restores,
+  // before resolving evidence or committing any document state.
   const issues = validateHostDocument(document);
   if (issues.length) throw new HostDocumentValidationError(issues);
   const samePins =

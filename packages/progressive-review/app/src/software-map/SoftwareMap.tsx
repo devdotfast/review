@@ -41,6 +41,7 @@ import {
   useReviewActions,
 } from "../review-context";
 import { useReviewInitialData } from "../review-initial-data-context";
+import { useReviewContainer, useReviewRoots } from "../review-root-context";
 import { useRightPanelResize } from "../side-panel-resizer";
 import { buildGraphTarget, targetKey } from "../target-fingerprint";
 import { useRegisterLiveDiagram } from "../thread-target-model";
@@ -170,6 +171,7 @@ const MAX_CODE_INSPECTOR_WIDTH = 760;
 const MIN_SOFTWARE_MAP_CANVAS_WIDTH = 420;
 
 interface SoftwareMapProps {
+  targetId?: string;
   model?: NormalizedSoftwareModel;
   title?: string;
   view?: string;
@@ -187,6 +189,7 @@ interface SoftwareMapProps {
 }
 
 interface SoftwareMapFrameProps {
+  targetId?: string;
   snapshot: SoftwareMapResolvedSnapshot;
   hasResolvedSnapshot: boolean;
   title: string;
@@ -288,10 +291,16 @@ export function SoftwareMap(props: SoftwareMapProps) {
       />
     );
   }
-  return <SoftwareMapWithModel {...props} />;
+  return (
+    <SoftwareMapWithModel
+      {...props}
+      targetId={props.targetId ?? props.model?.targetId}
+    />
+  );
 }
 
 function SoftwareMapWithModel({
+  targetId,
   model,
   title,
   view,
@@ -308,6 +317,8 @@ function SoftwareMapWithModel({
   registerTargets = true,
 }: SoftwareMapProps) {
   const session = useReviewSession();
+  const portalTarget = useReviewContainer();
+  const reviewRoots = useReviewRoots();
   const debugSettings = useReviewDebugSettings();
   const { showModifiedOnly, showRemovedNodes } = debugSettings;
   const modelKey = useMemo(
@@ -417,7 +428,15 @@ function SoftwareMapWithModel({
     const targetPath = focusRequest.elementPath;
     setExpandedNodeIds((current) => {
       const next = new Set(current);
-      for (const ancestorPath of softwareMapAncestorPaths(targetPath)) {
+      const ancestors: string[] = [];
+      let parent = model?.elementsByPath.get(targetPath)?.parentPath;
+      while (parent && !ancestors.includes(parent)) {
+        ancestors.push(parent);
+        parent = model?.elementsByPath.get(parent)?.parentPath;
+      }
+      for (const ancestorPath of model
+        ? ancestors
+        : softwareMapAncestorPaths(targetPath)) {
         next.add(ancestorPath);
       }
       return next;
@@ -427,7 +446,7 @@ function SoftwareMapWithModel({
       nodeId: targetPath,
       requireExpanded: false,
     });
-  }, [focusRequest]);
+  }, [focusRequest, model]);
 
   useEffect(() => {
     rememberSoftwareMapNavigationState(session, navigationKey, {
@@ -578,6 +597,7 @@ function SoftwareMapWithModel({
   );
   const shouldApplyModifiedOnly = shouldApplySoftwareMapModifiedOnly({
     showModifiedOnly,
+    hasSourceComparison: resolvedDataState.hasSourceComparison,
     resolvedDataReady,
     resolvedDataInput: softwareMapResolvedDataInput,
   });
@@ -629,8 +649,10 @@ function SoftwareMapWithModel({
     snapshot ?? resolvedSnapshot ?? activeModelSnapshot ?? null;
   const hasResolvedSnapshot = Boolean(providedSnapshot);
   const mapSnapshot = useMemo(() => {
-    const base =
-      providedSnapshot ?? createPlaceholderSnapshot(placeholderLabel, view);
+    const base = stableTargetSnapshot(
+      providedSnapshot ?? createPlaceholderSnapshot(placeholderLabel, view),
+      targetId,
+    );
     const selectedForView = selectedSoftwareMapNodeIdForNodes({
       nodes: base.nodes ?? [],
       selectedNodeId,
@@ -638,7 +660,7 @@ function SoftwareMapWithModel({
     return selectedForView
       ? { ...base, selectedNodeId: selectedForView }
       : base;
-  }, [view, placeholderLabel, providedSnapshot, selectedNodeId]);
+  }, [view, placeholderLabel, providedSnapshot, selectedNodeId, targetId]);
   const inspectedNodeDiffPeeks = useMemo(() => {
     if (!inspectedNode) return [];
     if (projectionModel && inspectedNode.path) {
@@ -686,8 +708,13 @@ function SoftwareMapWithModel({
   const frameTitle = title ?? mapSnapshot.title ?? placeholderLabel;
   const frameView = mapSnapshot.view ?? view ?? "inline-c4";
   const liveDiagram = useMemo(
-    () => softwareMapLiveDiagram(frameTitle, frameView, targetModelSnapshot),
-    [frameTitle, frameView, targetModelSnapshot],
+    () =>
+      softwareMapLiveDiagram(
+        targetId ?? frameTitle,
+        frameView,
+        stableTargetSnapshot(targetModelSnapshot, targetId),
+      ),
+    [frameTitle, frameView, targetModelSnapshot, targetId],
   );
   useRegisterLiveDiagram(registerTargets ? liveDiagram : null);
   const statusMessage =
@@ -799,7 +826,9 @@ function SoftwareMapWithModel({
       requireExpanded: false,
     });
     setSelectedNodeId(node.id);
-    setExpandedNodeIds((current) => collapseInlineC4Node(current, node.path!));
+    setExpandedNodeIds((current) =>
+      collapseInlineC4Node(current, node.path!, model),
+    );
   };
   const handleToggleNodeExpansion = (node: SoftwareMapNodeSnapshot) => {
     if (!node.path || !node.expandable) return;
@@ -816,22 +845,25 @@ function SoftwareMapWithModel({
   const handleCloseCodeInspector = () => setInspectedNode(null);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || !portalTarget) return;
     // Lock the canvas scroller (not document.body: the canvas composes into
     // the host DOM, so the element that actually scrolls the review is the
     // view region).
-    const scroller = document.querySelector<HTMLElement>(
-      ".review-view-region--review",
-    );
+    const scroller = reviewRoots?.scrollRegionRef.current;
     const originalOverflow = scroller?.style.overflow ?? "";
     if (scroller) scroller.style.overflow = "hidden";
     return () => {
       if (scroller) scroller.style.overflow = originalOverflow;
     };
-  }, [expanded]);
+  }, [expanded, portalTarget, reviewRoots]);
+
+  // Saved maps are immutable resources; the legacy artifact refresh would
+  // regenerate files and is neither meaningful nor supported for these maps.
+  const onRefresh = model?.savedMap ? undefined : handleRefreshSoftwareMap;
 
   const frame = (
     <SoftwareMapFrame
+      targetId={targetId}
       snapshot={mapSnapshot}
       hasResolvedSnapshot={hasResolvedSnapshot}
       title={frameTitle}
@@ -844,7 +876,7 @@ function SoftwareMapWithModel({
       showChrome={showChrome}
       showFloatingActions={showFloatingActions}
       interactionMode={showChrome ? "inline" : "standalone"}
-      onRefresh={handleRefreshSoftwareMap}
+      onRefresh={onRefresh}
       onExpand={() => setExpanded(true)}
       onCloseCodeInspector={handleCloseCodeInspector}
       inspectedNode={inspectedNode}
@@ -875,7 +907,7 @@ function SoftwareMapWithModel({
       {/* The desktop build wraps every canvas rule in
           @scope (.review-canvas-root), so the overlay must portal INSIDE the
           canvas root or it renders unstyled. */}
-      {expanded && typeof document !== "undefined"
+      {expanded && portalTarget
         ? createPortal(
             <div
               className={overlayClassName}
@@ -884,6 +916,7 @@ function SoftwareMapWithModel({
               aria-label={`${frameTitle} expanded`}
             >
               <SoftwareMapFrame
+                targetId={targetId}
                 snapshot={mapSnapshot}
                 hasResolvedSnapshot={hasResolvedSnapshot}
                 title={frameTitle}
@@ -895,7 +928,7 @@ function SoftwareMapWithModel({
                 showChrome
                 showFloatingActions={showFloatingActions}
                 interactionMode="standalone"
-                onRefresh={handleRefreshSoftwareMap}
+                onRefresh={onRefresh}
                 onClose={() => setExpanded(false)}
                 onCloseCodeInspector={handleCloseCodeInspector}
                 inspectedNode={inspectedNode}
@@ -917,7 +950,7 @@ function SoftwareMapWithModel({
                 }}
               />
             </div>,
-            document.body,
+            portalTarget,
           )
         : null}
     </section>
@@ -950,6 +983,7 @@ async function fetchSoftwareMapResolvedDataUncached(
 }
 
 export function SoftwareMapFrame({
+  targetId,
   snapshot,
   hasResolvedSnapshot,
   title,
@@ -1000,7 +1034,7 @@ export function SoftwareMapFrame({
 
   const viewType = snapshot.viewType ?? "inlineC4";
   const viewTarget = buildGraphTarget({
-    diagram: title,
+    diagram: targetId ?? title,
     type: "node",
     path: [title],
     payload: { title, viewName, viewType },
@@ -1086,35 +1120,42 @@ export function SoftwareMapFrame({
                 type="button"
                 className={[
                   "software-map-icon-button",
+                  "software-map-action-button",
                   "software-map-icon-button--visible",
                   refreshing ? "software-map-refresh-button--active" : "",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 onClick={onRefresh}
+                disabled={refreshing}
                 aria-label="Refresh software map"
                 title="Refresh software map"
               >
                 <RefreshIcon />
+                <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
               </button>
             ) : null}
             {expanded ? (
               <button
                 type="button"
-                className="software-map-icon-button software-map-icon-button--visible"
+                className="software-map-icon-button software-map-action-button software-map-icon-button--visible"
                 onClick={onClose}
                 aria-label="Close expanded software map"
+                title="Close expanded software map"
               >
                 <CloseIcon />
+                <span>Close</span>
               </button>
             ) : (
               <button
                 type="button"
-                className="software-map-icon-button software-map-expand-button"
+                className="software-map-icon-button software-map-action-button software-map-icon-button--visible"
                 onClick={onExpand}
                 aria-label="Expand software map"
+                title="Expand software map"
               >
                 <span className="software-map-expand-icon" aria-hidden="true" />
+                <span>Fullscreen</span>
               </button>
             )}
           </div>
@@ -1126,16 +1167,19 @@ export function SoftwareMapFrame({
             type="button"
             className={[
               "software-map-icon-button",
+              "software-map-action-button",
               "software-map-icon-button--visible",
               refreshing ? "software-map-refresh-button--active" : "",
             ]
               .filter(Boolean)
               .join(" ")}
             onClick={onRefresh}
+            disabled={refreshing}
             aria-label="Refresh software map"
             title="Refresh software map"
           >
             <RefreshIcon />
+            <span>{refreshing ? "Refreshing…" : "Refresh"}</span>
           </button>
         </div>
       ) : null}
@@ -1164,7 +1208,7 @@ export function SoftwareMapFrame({
           <C4MapCanvas
             snapshot={snapshot}
             viewName={viewName}
-            diagram={title}
+            diagram={targetId ?? title}
             expanded={expanded}
             interactionMode={interactionMode}
             onSelectNode={selectNodeWithTelemetry}
@@ -2750,5 +2794,25 @@ function createPlaceholderSnapshot(
         kind: "call",
       },
     ],
+  };
+}
+
+/** Stable API node IDs do not depend on human-readable diagram labels. */
+function stableTargetSnapshot(
+  snapshot: SoftwareMapResolvedSnapshot,
+  targetId?: string,
+): SoftwareMapResolvedSnapshot {
+  if (!targetId) return snapshot;
+  return {
+    ...snapshot,
+    nodes: snapshot.nodes?.map((node) => ({ ...node, targetPath: [node.id] })),
+    relationships: snapshot.relationships?.map((relationship) => ({
+      ...relationship,
+      targetPath: [
+        relationship.sourceRelationshipIds?.length === 1
+          ? relationship.sourceRelationshipIds[0]!
+          : (relationship.id ?? `${relationship.from}→${relationship.to}`),
+      ],
+    })),
   };
 }

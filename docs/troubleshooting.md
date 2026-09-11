@@ -61,10 +61,10 @@ registered, then `review.create`. Opening uses
 Old file-based reviews are not imported into the JSON host. Their data is left
 untouched; do not delete or rewrite it to make it appear in Home.
 
-## A mutation or publication fails
+## A mutation fails
 
 Read the returned error code and diagnostics. Rejected commands leave the
-previous document and checkpoints intact. Common causes include invalid node
+previous saved versions intact. Common causes include invalid node
 shapes, duplicate or missing IDs, invalid source evidence, stale resource
 references, and version conflicts. There is no MDX compile or per-review
 `npm test` step.
@@ -74,30 +74,30 @@ to recover its receipt. After a genuine version conflict, refetch the current
 state, reconcile your changes and use a new command ID. Do not blindly replace
 other clients' work.
 
-Accepted mutations are live changes. Publishing requires the current document
-and review metadata versions and exact selected map-version IDs. Query
-`checkpoints.list` to confirm a publication; a historical canvas intentionally
-does not follow later live changes.
+Accepted material changes save a new `reviewVersion`; no publish/ready call is
+needed. Use `review.history` to inspect saved versions. A historical canvas
+intentionally does not follow later live changes.
 
 ## The branch moved or source is unavailable
 
 Bindings use exact commits and do not silently follow a moving branch.
-`review.repin.plan` proposes a new binding and conservative anchor relocations;
-inspect it before `review.repin.apply`. Ambiguous or deleted ranges must be
-resolved explicitly. Revalidate the affected document and select maps for the
-new pins before publishing another checkpoint.
+Use `review.revision.create` to select new commits and start a blank canvas
+without selected maps. Earlier versions and discussions remain available.
+To recover complete earlier material instead, use `review.version.restore`;
+this copies its canvas, metadata, commits and selected maps into a new version.
 
-Source queries are bound to the observed document version. Retained quotations
+Source queries are bound to the observed `reviewVersion`. Retained quotations
 remain readable even if the local repository is unavailable, but opening other
 source requires the corresponding local Git objects. Never substitute today's
 working-tree contents for a pinned file.
 
 ## A map or image does not render
 
-Read `canvas.reports` and the node's error. Resources are review-scoped and
+Read the visible node error and Desktop logs. Resources are review-scoped and
 referenced by exact IDs. Upload image bytes through `asset.upload`; do not use
 external URLs or local file paths. Maps must match the document's exact binding.
-Repinning does not make an old map a map of the new commits.
+Selecting new commits does not make an old map a map of that code. There is no
+canvas-report API or rendering gate on accepted changes.
 
 ## Ask is unavailable or failed
 
@@ -140,6 +140,10 @@ reproducing the problem. Logs can contain paths and extension output; inspect
 and redact them before sharing.
 
 Review's **Report bug** dialog shows its optional attachments before sending.
+Review, maps and diff have separate consent controls. Attachments use the exact
+saved version being viewed; missing or oversized attachments produce warnings.
+If an upload could not be confirmed, it may have reached support already:
+check before submitting again. Reports are never automatically retried.
 Read [Privacy](privacy.md#user-initiated-bug-reports), especially the distinction
 between JSON reviews and legacy source/author-session attachments.
 

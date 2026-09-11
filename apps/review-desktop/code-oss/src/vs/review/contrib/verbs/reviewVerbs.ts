@@ -677,7 +677,7 @@ export class ReviewVerbsService
       const range = reviewSelectionRange(selected.getStartPosition(), selected.getEndPosition());
       const modal = this.editorGroupsService.activeModalEditorPart;
       if (modal && !(await modal.close())) return;
-      await this.tabsService.openHostReview(request.reviewId, true);
+      await this.tabsService.openHostReview(request.reviewId, true, undefined, request.reviewVersion);
       await this.hostSource.requestComment(uri, range);
       this._onDidRequestCanvasFocus.fire();
       return;

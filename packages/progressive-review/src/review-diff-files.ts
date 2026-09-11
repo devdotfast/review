@@ -66,11 +66,17 @@ export async function resolveReviewDiffFiles(input: {
   return {
     baseRef,
     headRef,
-    files: splitGitDiffSections(stdout)
-      .map(parseReviewDiffFile)
-      .filter((file): file is ReviewDiffFile => file !== null)
-      .filter((file) => matchesDiffPath(file, paths)),
+    files: reviewDiffFilesFromPatch(stdout).filter((file) =>
+      matchesDiffPath(file, paths),
+    ),
   };
+}
+
+/** Pure formatting adapter for exact host-owned diffs as well as legacy reads. */
+export function reviewDiffFilesFromPatch(patch: string): ReviewDiffFile[] {
+  return splitGitDiffSections(patch)
+    .map(parseReviewDiffFile)
+    .filter((file): file is ReviewDiffFile => file !== null);
 }
 
 export async function resolveReviewFileContent(input: {

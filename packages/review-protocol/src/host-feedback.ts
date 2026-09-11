@@ -3,52 +3,89 @@ import { z } from "zod";
 import { HostPrincipalSchema } from "./host-api.js";
 import {
   HOST_LIMITS,
+  HostHashSchema,
   HostIdSchema,
   HostKeySchema,
+  HostOidSchema,
   HostSourceQuoteSchema,
   HostSourceRangeSchema,
+  HostSourceSpanSchema,
   HostTimeSchema,
   HostVersionSchema,
 } from "./host-document.js";
 
 // Targets describe what the reader actually saw. Repinning never overwrites them.
-const feedbackObserved = { documentVersion: HostVersionSchema };
+const feedbackObserved = { reviewVersion: HostVersionSchema };
+// Portable reader selection metadata, not executable markup or source evidence.
+// Keeping the quote preserves the annotation when a canvas is reopened.
+const feedbackSelection = z.strictObject({
+  quote: z.string().min(1).max(HOST_LIMITS.commentBytes),
+  prefix: z.string().max(256).optional(),
+  suffix: z.string().max(256).optional(),
+});
+export const HostDiagramItemSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("actor"), actorId: HostKeySchema }),
+  z.strictObject({ kind: z.literal("message"), messageId: HostKeySchema }),
+  z.strictObject({
+    kind: z.literal("frame"),
+    side: z.enum(["base", "head"]),
+    frameId: HostKeySchema,
+  }),
+  z.strictObject({ kind: z.literal("use_case"), useCaseId: HostKeySchema }),
+  z.strictObject({
+    kind: z.literal("operation"),
+    useCaseId: HostKeySchema,
+    operationId: HostKeySchema,
+  }),
+  z.strictObject({ kind: z.literal("map_element"), elementId: HostKeySchema }),
+  z.strictObject({
+    kind: z.literal("map_relationship"),
+    relationshipId: HostKeySchema,
+  }),
+]);
+export type HostDiagramItem = z.infer<typeof HostDiagramItemSchema>;
 export const HostFeedbackTargetSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ ...feedbackObserved, kind: z.literal("document") }),
+  z.strictObject({
+    ...feedbackObserved,
+    kind: z.literal("document"),
+    selection: feedbackSelection.optional(),
+  }),
   z.strictObject({
     ...feedbackObserved,
     kind: z.literal("node"),
     nodeId: HostKeySchema,
+    selection: feedbackSelection.optional(),
   }),
   z.strictObject({
     ...feedbackObserved,
     kind: z.literal("source"),
     range: HostSourceRangeSchema,
+    comparisonCommit: HostOidSchema.optional(),
   }),
   z.strictObject({
     ...feedbackObserved,
     kind: z.literal("diagram"),
     nodeId: HostKeySchema,
-    itemId: HostKeySchema,
-  }),
-  z.strictObject({
-    ...feedbackObserved,
-    kind: z.literal("trace"),
-    nodeId: HostKeySchema,
-    eventId: HostIdSchema,
+    item: HostDiagramItemSchema,
   }),
 ]);
 export type HostFeedbackTarget = z.infer<typeof HostFeedbackTargetSchema>;
 export const HostMessageBodySchema = z
   .string()
   .min(1)
-  .max(HOST_LIMITS.commentBytes);
+  .max(HOST_LIMITS.commentBytes)
+  .refine((body) => Boolean(body.trim()), "A message must contain text.")
+  .refine(
+    (body) =>
+      new TextEncoder().encode(body).byteLength <= HOST_LIMITS.commentBytes,
+    "Messages may not exceed 32 KiB of UTF-8 text.",
+  );
 
 export const HostDraftSchema = z.strictObject({
   id: HostIdSchema,
   reviewId: HostIdSchema,
   principalId: HostIdSchema,
-  version: HostVersionSchema,
+  draftVersion: HostVersionSchema,
   target: HostFeedbackTargetSchema,
   evidence: HostSourceQuoteSchema.nullable(),
   body: HostMessageBodySchema,
@@ -60,7 +97,7 @@ export type HostDraft = z.infer<typeof HostDraftSchema>;
 export const HostThreadSchema = z.strictObject({
   id: HostIdSchema,
   reviewId: HostIdSchema,
-  version: HostVersionSchema,
+  threadVersion: HostVersionSchema,
   target: HostFeedbackTargetSchema,
   evidence: HostSourceQuoteSchema.nullable(),
   status: z.enum(["open", "resolved"]),
@@ -84,32 +121,100 @@ export type HostMessage = z.infer<typeof HostMessageSchema>;
 export const HostFeedbackSubmissionSchema = z.strictObject({
   id: HostIdSchema,
   reviewId: HostIdSchema,
-  checkpointId: HostIdSchema,
+  reviewVersion: HostVersionSchema,
   decision: z.enum(["comment", "request_changes", "approve"]),
   createdBy: HostIdSchema,
   createdAt: HostTimeSchema,
-  messageIds: z.array(HostIdSchema).max(200),
-  threadIds: z.array(HostIdSchema).max(200),
+  messageIds: z.array(HostIdSchema).max(201),
+  threadIds: z.array(HostIdSchema).max(201),
 });
 export type HostFeedbackSubmission = z.infer<
   typeof HostFeedbackSubmissionSchema
 >;
 
-export const HostThreadMappingSchema = z.strictObject({
+const feedbackMappingIdentity = {
   threadId: HostIdSchema,
-  documentVersion: HostVersionSchema,
-  status: z.enum(["exact", "relocated", "missing"]),
-  target: HostFeedbackTargetSchema.nullable(),
-  evidence: HostSourceQuoteSchema.nullable(),
-});
+  reviewVersion: HostVersionSchema,
+};
+export const HostThreadMappingSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    ...feedbackMappingIdentity,
+    status: z.enum(["exact", "relocated"]),
+    target: HostFeedbackTargetSchema,
+    evidence: HostSourceQuoteSchema.nullable(),
+  }),
+  z.strictObject({
+    ...feedbackMappingIdentity,
+    status: z.literal("missing"),
+    target: z.null(),
+    evidence: z.null(),
+    reason: z.enum([
+      "target_removed",
+      "selection_ambiguous",
+      "selection_changed",
+      "identity_mismatch",
+      "source_unavailable",
+      "comparison_not_available",
+    ]),
+  }),
+]);
 export type HostThreadMapping = z.infer<typeof HostThreadMappingSchema>;
 
+// Saved Ask context retains source text only in its bounded sourceEvidence.
+export const HostQuestionTargetMappingSchema = z.discriminatedUnion("status", [
+  HostThreadMappingSchema.options[0].omit({ evidence: true }),
+  HostThreadMappingSchema.options[1].omit({ evidence: true }),
+]);
+
+export const HostQuestionExcerptSchema = z.discriminatedUnion("state", [
+  z.strictObject({
+    state: z.enum(["complete", "truncated"]),
+    text: z.string().max(8_000),
+  }),
+  z.strictObject({
+    state: z.literal("omitted"),
+    reason: z.literal("context_limit"),
+  }),
+]);
+export type HostQuestionExcerpt = z.infer<typeof HostQuestionExcerptSchema>;
 export const HostQuestionContextSchema = z.strictObject({
   id: HostIdSchema,
   reviewId: HostIdSchema,
-  documentVersion: HostVersionSchema,
+  reviewVersion: HostVersionSchema,
   question: HostMessageBodySchema,
-  material: z.json(),
+  material: z.strictObject({
+    schemaVersion: z.literal(1),
+    review: z.strictObject({ title: HostQuestionExcerptSchema }),
+    binding: z.strictObject({
+      repositoryId: HostIdSchema,
+      baseCommit: HostOidSchema,
+      headCommit: HostOidSchema,
+    }),
+    mapVersions: z.strictObject({
+      base: HostIdSchema.nullable(),
+      head: HostIdSchema.nullable(),
+    }),
+    originalTarget: HostFeedbackTargetSchema,
+    viewedTarget: HostQuestionTargetMappingSchema,
+    sourceEvidence: z
+      .strictObject({
+        span: HostSourceSpanSchema,
+        sha256: HostHashSchema,
+        text: HostQuestionExcerptSchema,
+      })
+      .nullable(),
+    documentJson: HostQuestionExcerptSchema,
+    priorMessages: z
+      .array(
+        z.strictObject({
+          id: HostIdSchema,
+          author: HostPrincipalSchema,
+          body: HostQuestionExcerptSchema,
+        }),
+      )
+      .max(8),
+    priorMessagesOmitted: z.number().int().nonnegative(),
+  }),
 });
 export type HostQuestionContext = z.infer<typeof HostQuestionContextSchema>;
 export const HostQuestionHarnessSchema = z.enum(["codex", "claude-code", "pi"]);
@@ -134,9 +239,9 @@ export type HostQuestionRun = z.infer<typeof HostQuestionRunSchema>;
 export const HostAttentionSchema = z.strictObject({
   reviewId: HostIdSchema,
   principalId: HostIdSchema,
-  version: HostVersionSchema,
-  viewedDocumentVersion: HostVersionSchema.nullable(),
-  viewedAt: HostTimeSchema.nullable(),
+  attentionVersion: HostVersionSchema,
+  lastViewedReviewVersion: HostVersionSchema.nullable(),
+  lastViewedAt: HostTimeSchema.nullable(),
   pinned: z.boolean(),
 });
 export type HostAttention = z.infer<typeof HostAttentionSchema>;
@@ -167,7 +272,7 @@ export const HOST_FEEDBACK_COMMANDS = {
     input: z.strictObject({
       ...feedbackReview,
       draftId: HostIdSchema,
-      expectedVersion: HostVersionSchema.nullable(),
+      expectedDraftVersion: HostVersionSchema.nullable(),
       target: HostFeedbackTargetSchema,
       body: HostMessageBodySchema,
     }),
@@ -178,7 +283,7 @@ export const HOST_FEEDBACK_COMMANDS = {
     input: z.strictObject({
       ...feedbackReview,
       draftId: HostIdSchema,
-      expectedVersion: HostVersionSchema,
+      expectedDraftVersion: HostVersionSchema,
     }),
     result: z.strictObject({ deleted: z.literal(true) }),
   },
@@ -195,17 +300,16 @@ export const HOST_FEEDBACK_COMMANDS = {
     permission: "author" as const,
     input: z.strictObject({
       ...feedbackThread,
-      messageId: HostIdSchema,
       replyToMessageId: HostIdSchema.optional(),
       body: HostMessageBodySchema,
     }),
     result: HostMessageSchema,
   },
-  "thread.status": {
+  "thread.set_status": {
     permission: "author" as const,
     input: z.strictObject({
       ...feedbackThread,
-      expectedVersion: HostVersionSchema,
+      expectedThreadVersion: HostVersionSchema,
       status: HostThreadSchema.shape.status,
     }),
     result: HostThreadSchema,
@@ -214,13 +318,13 @@ export const HOST_FEEDBACK_COMMANDS = {
     permission: "human" as const,
     input: z.strictObject({
       ...feedbackReview,
-      checkpointId: HostIdSchema,
+      reviewVersion: HostVersionSchema,
       decision: HostFeedbackSubmissionSchema.shape.decision,
       drafts: z
         .array(
           z.strictObject({
             draftId: HostIdSchema,
-            expectedVersion: HostVersionSchema,
+            expectedDraftVersion: HostVersionSchema,
           }),
         )
         .max(200),
@@ -234,7 +338,7 @@ export const HOST_FEEDBACK_COMMANDS = {
       ...feedbackReview,
       target: HostFeedbackTargetSchema,
       body: HostMessageBodySchema,
-      harness: HostQuestionHarnessSchema,
+      harness: HostQuestionHarnessSchema.optional(),
     }),
     result: feedbackQuestionResult,
   },
@@ -242,8 +346,9 @@ export const HOST_FEEDBACK_COMMANDS = {
     permission: "human" as const,
     input: z.strictObject({
       ...feedbackThread,
+      reviewVersion: HostVersionSchema,
       body: HostMessageBodySchema,
-      harness: HostQuestionHarnessSchema,
+      harness: HostQuestionHarnessSchema.optional(),
     }),
     result: feedbackQuestionResult,
   },
@@ -257,7 +362,6 @@ export const HOST_FEEDBACK_COMMANDS = {
     input: z.strictObject({
       ...feedbackReview,
       runId: HostIdSchema,
-      outputId: HostIdSchema,
       body: HostMessageBodySchema,
     }),
     result: z.strictObject({
@@ -265,14 +369,21 @@ export const HOST_FEEDBACK_COMMANDS = {
       message: HostMessageSchema,
     }),
   },
-  "review.attention": {
+  "attention.update": {
     permission: "human" as const,
-    input: z.strictObject({
-      ...feedbackReview,
-      expectedVersion: HostVersionSchema,
-      viewedDocumentVersion: HostVersionSchema.nullable().optional(),
-      pinned: z.boolean().optional(),
-    }),
+    input: z
+      .strictObject({
+        ...feedbackReview,
+        expectedAttentionVersion: HostVersionSchema,
+        lastViewedReviewVersion: HostVersionSchema.optional(),
+        pinned: z.boolean().optional(),
+      })
+      .refine(
+        (input) =>
+          input.lastViewedReviewVersion !== undefined ||
+          input.pinned !== undefined,
+        "An attention update must include a viewed version or pin preference.",
+      ),
     result: HostAttentionSchema,
   },
 };
@@ -310,7 +421,7 @@ export const HOST_FEEDBACK_QUERIES = {
     permission: "read" as const,
     input: z.strictObject({
       ...feedbackThread,
-      documentVersion: HostVersionSchema,
+      reviewVersion: HostVersionSchema,
     }),
     result: HostThreadMappingSchema,
   },

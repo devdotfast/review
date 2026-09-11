@@ -1,32 +1,36 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  HOST_CAPABILITY_LIMITS,
   HOST_COMMAND_DEFINITIONS,
-  HOST_LIMITS,
   HOST_QUERY_DEFINITIONS,
+  type HostActivitySnapshot,
   type HostBinding,
   type HostCommand,
   type HostDocument,
+  HostDocumentSchema,
   type HostDocumentState,
   HostDocumentValidationError,
+  HostNodeSchema,
   type HostPermission,
   type HostPrincipal,
   type HostQuery,
   type HostQuestionRun,
-  type HostRepinPlan,
-  type HostReview,
+  type HostReviewCommit,
+  type HostReviewState,
   type JsonValue,
   affectedHostNodeIds,
   applyHostDocumentOperations,
   canonicalHostJson,
+  parseJsonText,
 } from "@dev.fast/review-protocol";
+import { z } from "zod";
 
 import { documentCommit } from "./document-commit";
 import {
   type HostDocumentEvidenceResources,
   validateHostDocumentEvidence,
 } from "./document-evidence";
-import { proposeDocumentRepin } from "./document-repin";
 import {
   type EvidenceProvider,
   LocalEvidenceProvider,
@@ -36,9 +40,11 @@ import {
   resolveBinding,
   resolveRepository,
 } from "./local-repository";
+import { ReviewActivity } from "./review-activity";
 import { ReviewFeedback } from "./review-feedback";
 import {
   type HostPreparedDocument,
+  type HostReviewCommitOptions,
   HostStoreError,
   type HostStoredResponse,
   ReviewHostStore,
@@ -65,12 +71,13 @@ export class HostAccessError extends Error {
 }
 
 interface HostDependencies {
+  authoringActivity?: boolean;
   evidence?: EvidenceProvider;
   resources?: (reviewId: string) => HostDocumentEvidenceResources;
-  onPublishRejected?: () => void | Promise<void>;
   questions?: {
     capabilities(): Promise<HostQuestionRun["harness"][]>;
     start(run: HostQuestionRun): Promise<void>;
+    defaultHarness?(): HostQuestionRun["harness"] | undefined;
   };
 }
 
@@ -81,6 +88,7 @@ export class ReviewHost {
   private readonly source: LocalRepositorySource;
   private readonly resources: ReviewResources;
   private readonly feedback: ReviewFeedback;
+  private readonly activity: ReviewActivity | undefined;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -92,28 +100,20 @@ export class ReviewHost {
       dependencies.evidence ?? new LocalEvidenceProvider(repositoryPath);
     this.source = new LocalRepositorySource(repositoryPath);
     this.resources = new ReviewResources(store, this.evidence);
-    this.feedback = new ReviewFeedback(store, this.evidence, this.source);
+    this.feedback = new ReviewFeedback(
+      store,
+      this.evidence,
+      this.source,
+      dependencies.questions,
+    );
+    if (
+      dependencies.authoringActivity ??
+      process.env.DEV_REVIEW_AUTHORING_ACTIVITY === "1"
+    )
+      this.activity = new ReviewActivity();
   }
 
   async command(
-    access: HostAccess,
-    request: HostCommand,
-  ): Promise<HostStoredResponse> {
-    try {
-      return await this.executeCommand(access, request);
-    } catch (error) {
-      if (request.type === "review.publish") {
-        try {
-          await this.dependencies.onPublishRejected?.();
-        } catch {
-          // Telemetry must never replace the actionable publication error.
-        }
-      }
-      throw error;
-    }
-  }
-
-  private async executeCommand(
     access: HostAccess,
     request: HostCommand,
   ): Promise<HostStoredResponse> {
@@ -122,10 +122,29 @@ export class ReviewHost {
       request,
       HOST_COMMAND_DEFINITIONS[request.type].permission,
     );
+    return this.executeCommand(access, request);
+  }
+
+  private async executeCommand(
+    access: HostAccess,
+    request: HostCommand,
+  ): Promise<HostStoredResponse> {
+    if (
+      request.type === "authoring.begin" ||
+      request.type === "authoring.renew" ||
+      request.type === "authoring.end"
+    ) {
+      const activity = this.requireActivity();
+      this.store.review(request.input.reviewId);
+      return {
+        result: activity.command(access.principal.id, request),
+        eventCursor: this.store.cursor(),
+      };
+    }
     const identity = {
       clientId: `${access.principal.id}:${request.clientId}`,
       commandId: request.commandId,
-      request,
+      request: parseJsonText(JSON.stringify(request)),
     };
     const replay = this.store.receipt(identity);
     if (replay) return replay;
@@ -138,13 +157,13 @@ export class ReviewHost {
       case "draft.delete":
       case "thread.create":
       case "thread.reply":
-      case "thread.status":
+      case "thread.set_status":
       case "feedback.submit":
       case "question.start":
       case "question.follow_up":
       case "question.retry":
       case "question.complete":
-      case "review.attention":
+      case "attention.update":
         commit = await this.feedback.prepare(request, access);
         break;
       case "map.create":
@@ -183,198 +202,208 @@ export class ReviewHost {
           input.change,
         );
         const now = new Date().toISOString();
-        const review: HostReview = {
+        const review: HostReviewState = {
           id: randomUUID(),
           repositoryId: input.repositoryId,
-          version: 0,
-          title: input.title,
-          description: input.description ?? "",
-          labels: [],
-          workflow: "draft",
-          documentId: randomUUID(),
-          documentVersion: 0,
-          publishedCheckpointId: null,
-          authorSessionId: null,
+          latestReviewVersion: 0,
+          stateVersion: 0,
+          state: "open",
           createdBy: access.principal.id,
           createdAt: now,
-          updatedAt: now,
           deletedAt: null,
         };
         commit = () => {
-          const document = this.store.createReview(review, {
-            binding,
-            document: {
-              schemaVersion: 1,
-              roots: [],
-              nodes: {},
-              definitions: {},
+          const document = this.store.createReview(
+            review,
+            {
+              binding,
+              document: {
+                schemaVersion: 1,
+                roots: [],
+                nodes: {},
+                definitions: {},
+              },
+              evidence: {},
             },
-            evidence: {},
+            {
+              title: input.title,
+              description: input.description ?? "",
+              labels: input.labels ?? [],
+              mapVersions: { base: null, head: null },
+            },
+          );
+          const snapshot = this.store.reviewSnapshot(review.id);
+          this.store.appendEvent(review.id, "review.created", {
+            review,
+            snapshot,
           });
-          this.store.appendEvent(review.id, "review.created", { review });
-          return { review, document };
+          return { review, snapshot, document };
         };
         break;
       }
-      case "review.repin.plan": {
-        const input = request.input;
-        const document = this.currentDocument(
-          input.reviewId,
-          input.expectedDocumentVersion,
-        );
-        const binding = await resolveBinding(
-          document.binding.repositoryId,
-          this.store.repositoryPath(document.binding.repositoryId),
-          input.change,
-        );
-        const proposal = await proposeDocumentRepin({
-          document,
-          binding,
-          source: this.source,
-        });
-        const plan: HostRepinPlan = {
-          ...proposal,
-          id: randomUUID(),
-          reviewId: input.reviewId,
-          createdAt: new Date().toISOString(),
-        };
-        commit = () => {
-          this.store.saveRepinPlan(plan);
-          return plan;
-        };
-        break;
-      }
-      case "review.repin.apply": {
+      case "review.update": {
         const input = request.input;
         const before = this.currentDocument(
           input.reviewId,
-          input.expectedDocumentVersion,
+          input.expectedReviewVersion,
         );
-        const plan = this.store.repinPlan(input.reviewId, input.planId);
-        if (plan.basedOnDocumentVersion !== before.version)
-          throw new HostStoreError(
-            "VERSION_CONFLICT",
-            "Repin plan describes an older document. Make a new plan.",
-          );
-        const corrected = new Set(
-          input.operations.flatMap((operation) =>
-            operation.op === "definition.put" ||
-            operation.op === "definition.remove"
-              ? [operation.id]
-              : [],
-          ),
-        );
-        const unresolved = plan.anchorChanges.filter(
-          (anchor) => anchor.status === "missing" && !corrected.has(anchor.id),
-        );
-        if (unresolved.length)
-          throw new HostDocumentValidationError(
-            plan.diagnostics.filter((diagnostic) =>
-              unresolved.some(
-                (anchor) => anchor.id === diagnostic.definitionId,
-              ),
-            ),
-          );
-        const proposed = {
-          ...documentInput(before),
-          definitions: { ...before.definitions, ...plan.proposedDefinitions },
-        };
-        const document = input.operations.length
-          ? applyHostDocumentOperations(
-              proposed,
-              input.operations,
-              this.store.retiredIds(input.reviewId),
-            )
-          : proposed;
-        const prepared = await this.prepare(
+        const prior = this.store.reviewSnapshot(
           input.reviewId,
-          document,
-          before,
-          plan.binding,
+          before.reviewVersion,
         );
-        commit = () => this.commitPrepared(input.reviewId, before, prepared);
+        const metadata = {
+          title: input.title ?? prior.title,
+          description: input.description ?? prior.description,
+          labels: input.labels ?? prior.labels,
+          mapVersions: { ...prior.mapVersions, ...input.mapVersions },
+        };
+        this.resources.validateSelectedMaps(
+          input.reviewId,
+          before.binding,
+          metadata.mapVersions,
+        );
+        commit = () => {
+          this.resources.validateSelectedMaps(
+            input.reviewId,
+            before.binding,
+            metadata.mapVersions,
+          );
+          return this.commitPrepared(
+            input.reviewId,
+            before,
+            {
+              document: documentInput(before),
+              binding: before.binding,
+              evidence: before.evidence,
+            },
+            { metadata, principalId: access.principal.id, reason: "metadata" },
+          );
+        };
         break;
       }
-      case "review.update":
       case "review.close":
       case "review.reopen":
       case "review.trash":
-      case "review.restore": {
+      case "review.untrash": {
+        const input = request.input;
         commit = () => {
-          const input = request.input;
-          const review = this.store.updateReview(
+          const prior = this.store.review(input.reviewId);
+          const review = this.store.updateReviewState(
             input.reviewId,
-            input.expectedVersion,
+            input.expectedStateVersion,
             (before) => {
-              const after = {
-                ...before,
-                version: before.version + 1,
-                updatedAt: new Date().toISOString(),
-              };
-              if (request.type === "review.restore") {
-                if (before.deletedAt === null)
-                  throw new HostStoreError(
-                    "INVALID_STATE",
-                    "Review is not in trash.",
-                  );
-                after.deletedAt = null;
-              } else if (before.deletedAt !== null) {
+              if (request.type === "review.untrash")
+                return { ...before, deletedAt: null };
+              if (request.type === "review.trash")
+                return {
+                  ...before,
+                  deletedAt: before.deletedAt ?? new Date().toISOString(),
+                };
+              if (before.deletedAt !== null)
                 throw new HostStoreError(
                   "INVALID_STATE",
-                  "Restore this review before changing it.",
+                  "Untrash this review before changing its lifecycle.",
                 );
-              } else if (request.type === "review.update") {
-                after.title = request.input.title;
-                after.description = request.input.description;
-                after.labels = request.input.labels;
-              } else if (request.type === "review.trash") {
-                after.deletedAt = after.updatedAt;
-              } else if (request.type === "review.close") {
-                if (before.workflow === "closed")
-                  throw new HostStoreError(
-                    "INVALID_STATE",
-                    "Review is already closed.",
-                  );
-                after.workflow = "closed";
-              } else {
-                if (before.workflow !== "closed")
-                  throw new HostStoreError(
-                    "INVALID_STATE",
-                    "Review is not closed.",
-                  );
-                after.workflow = before.publishedCheckpointId
-                  ? "in_review"
-                  : "draft";
-              }
-              return after;
+              return {
+                ...before,
+                state: request.type === "review.close" ? "closed" : "open",
+              };
             },
           );
-          this.store.appendEvent(review.id, "review.updated", { review });
+          if (review.stateVersion !== prior.stateVersion)
+            this.store.appendEvent(review.id, "review.state_changed", {
+              review,
+            });
           return review;
         };
         break;
       }
-      case "document.mutate":
-      case "document.replace":
-      case "document.restore": {
+      case "review.revision.create": {
         const input = request.input;
         const before = this.currentDocument(
           input.reviewId,
-          input.expectedDocumentVersion,
+          input.expectedReviewVersion,
+        );
+        const prior = this.store.reviewSnapshot(
+          input.reviewId,
+          before.reviewVersion,
+        );
+        const binding = await resolveBinding(
+          before.binding.repositoryId,
+          this.store.repositoryPath(before.binding.repositoryId),
+          input.change,
+        );
+        if (
+          binding.baseCommit === before.binding.baseCommit &&
+          binding.headCommit === before.binding.headCommit
+        )
+          throw new HostStoreError(
+            "INVALID_STATE",
+            "The selected code commits have not changed.",
+          );
+        const prepared = {
+          binding,
+          document: {
+            schemaVersion: 1 as const,
+            roots: [],
+            nodes: {},
+            definitions: {},
+          },
+          evidence: {},
+        };
+        commit = () =>
+          this.commitPrepared(input.reviewId, before, prepared, {
+            principalId: access.principal.id,
+            reason: "source",
+            metadata: {
+              title: prior.title,
+              description: prior.description,
+              labels: prior.labels,
+              mapVersions: { base: null, head: null },
+            },
+          });
+        break;
+      }
+      case "document.mutate":
+      case "document.replace":
+      case "review.version.restore": {
+        const input = request.input;
+        const before = this.currentDocument(
+          input.reviewId,
+          input.expectedReviewVersion,
         );
         let prepared: HostPreparedDocument;
-        if (request.type === "document.restore") {
+        let options: HostReviewCommitOptions = {
+          principalId: access.principal.id,
+          reason: "document",
+        };
+        if (request.type === "review.version.restore") {
           const historical = this.store.document(
             input.reviewId,
-            request.input.fromVersion,
+            request.input.fromReviewVersion,
           );
-          // Historical evidence is already immutable and verified. Restoring it
-          // must work even when the local source checkout is no longer present.
-          prepared = await this.prepare(
+          const snapshot = this.store.reviewSnapshot(
             input.reviewId,
-            documentInput(historical),
-            historical,
+            request.input.fromReviewVersion,
           );
+          // Retained source and resource identities make historical restore independent of Git availability.
+          prepared = {
+            document: documentInput(historical),
+            binding: historical.binding,
+            evidence: historical.evidence,
+          };
+          options = {
+            ...options,
+            reason: "restore",
+            force: true,
+            restoredFromReviewVersion: request.input.fromReviewVersion,
+            metadata: {
+              title: snapshot.title,
+              description: snapshot.description,
+              labels: snapshot.labels,
+              mapVersions: snapshot.mapVersions,
+            },
+          };
         } else {
           const document =
             request.type === "document.mutate"
@@ -383,58 +412,14 @@ export class ReviewHost {
                   request.input.operations,
                   this.store.retiredIds(input.reviewId),
                 )
-              : request.input.document;
+              : HostDocumentSchema.parse(request.input.document);
           if (request.type === "document.replace")
             this.checkRetiredIds(input.reviewId, document);
+          this.checkRetiredItemIds(input.reviewId, document);
           prepared = await this.prepare(input.reviewId, document, before);
         }
-        commit = () => this.commitPrepared(input.reviewId, before, prepared);
-        break;
-      }
-      case "review.publish": {
-        const input = request.input;
-        commit = () => {
-          this.resources.validatePublication(
-            input.reviewId,
-            this.currentDocument(input.reviewId, input.expectedDocumentVersion)
-              .binding,
-            input.mapVersions,
-          );
-          const checkpoint = this.store.publish({
-            ...input,
-            principalId: access.principal.id,
-          });
-          this.store.appendEvent(input.reviewId, "checkpoint.created", {
-            checkpoint,
-          });
-          this.store.appendEvent(input.reviewId, "review.updated", {
-            review: this.store.review(input.reviewId),
-          });
-          return checkpoint;
-        };
-        break;
-      }
-      case "canvas.report": {
-        const report = request.input;
-        const document = this.store.document(
-          report.reviewId,
-          report.documentVersion,
-        );
-        if (
-          [
-            ...report.visibleNodeIds,
-            ...report.failures.map((failure) => failure.nodeId),
-          ].some((id) => !Object.hasOwn(document.nodes, id))
-        )
-          throw new HostStoreError(
-            "NOT_FOUND",
-            "Canvas report names a node outside its observed version.",
-          );
-        // Reports are bounded observations, not publication or canonical state.
-        commit = () => {
-          this.store.recordCanvasReport(report, access.principal.id);
-          return { accepted: true };
-        };
+        commit = () =>
+          this.commitPrepared(input.reviewId, before, prepared, options);
         break;
       }
     }
@@ -511,7 +496,7 @@ export class ReviewHost {
       const current = this.store.questionRun(run.reviewId, run.id);
       // A scoped output command may already have saved the final answer.
       if (current.state === "completed") return;
-      this.feedback.complete(run.reviewId, run.id, run.id, body, run.assistant);
+      this.feedback.complete(run.reviewId, run.id, body, run.assistant);
     });
   }
 
@@ -562,6 +547,37 @@ export class ReviewHost {
     return () => this.listeners.delete(listener);
   }
 
+  activitySnapshot(
+    access: HostAccess,
+    workspaceId: string,
+    reviewId: string,
+  ): HostActivitySnapshot {
+    this.checkWorkspace(this.store.hostId, workspaceId);
+    this.requirePermission(access, "read");
+    this.checkReview(access, reviewId);
+    this.store.review(reviewId);
+    return this.requireActivity().snapshot(reviewId);
+  }
+
+  subscribeActivity(reviewId: string, listener: () => void): () => void {
+    return this.requireActivity().subscribe((changed) => {
+      if (changed === reviewId) listener();
+    });
+  }
+
+  closeAuthoringActivity(): void {
+    this.activity?.close();
+  }
+
+  private requireActivity(): ReviewActivity {
+    if (!this.activity)
+      throw new HostAccessError(
+        "NOT_FOUND",
+        "Authoring activity prototype is not enabled.",
+      );
+    return this.activity;
+  }
+
   async query(
     access: HostAccess,
     request: HostQuery,
@@ -581,7 +597,7 @@ export class ReviewHost {
         return {
           ...result,
           ask: {
-            available: supportedHarnesses.length > 0,
+            defaultHarness: this.effectiveDefaultHarness(supportedHarnesses),
             supportedHarnesses,
             isolation: "trusted_local",
           },
@@ -592,34 +608,26 @@ export class ReviewHost {
       const result = await this.feedback.mapping(
         request.input.reviewId,
         request.input.threadId,
-        request.input.documentVersion,
+        request.input.reviewVersion,
       );
       return this.store.snapshot(() => result);
     }
     if (
       request.type === "source.read" ||
-      request.type === "source.file" ||
       request.type === "source.tree" ||
       request.type === "source.commits" ||
-      request.type === "source.diff"
+      request.type === "source.diff" ||
+      request.type === "map.analyze"
     ) {
       const document = this.store.document(
         request.input.reviewId,
-        request.input.documentVersion,
+        request.input.reviewVersion,
       );
       let result: JsonValue;
-      const scope = `${request.type}:${document.reviewId}:${document.version}`;
+      const scope = `${request.type}:${document.reviewId}:${document.reviewVersion}`;
       if (request.type === "source.read")
         result = HOST_QUERY_DEFINITIONS[request.type].result.parse(
-          await this.source.read(document.binding, request.input.range),
-        );
-      else if (request.type === "source.file")
-        result = HOST_QUERY_DEFINITIONS[request.type].result.parse(
-          await this.source.file(
-            document.binding,
-            request.input.side,
-            request.input.file,
-          ),
+          await this.source.read(document.binding, request.input),
         );
       else if (request.type === "source.tree")
         result = HOST_QUERY_DEFINITIONS[request.type].result.parse(
@@ -629,10 +637,11 @@ export class ReviewHost {
                 document.binding,
                 request.input.side,
                 request.input.directory,
+                request.input.comparisonCommit,
               )
             ).map((entry) => ({ ...entry })),
             request.input,
-            `${scope}:${request.input.side}:${request.input.directory ?? ""}`,
+            `${scope}:${request.input.side}:${request.input.directory ?? ""}:${request.input.comparisonCommit ?? "full"}`,
             (entry) => entry.path,
           ),
         );
@@ -647,43 +656,72 @@ export class ReviewHost {
             (entry) => entry.oid,
           ),
         );
+      else if (request.type === "map.analyze")
+        result = HOST_QUERY_DEFINITIONS[request.type].result.parse(
+          await this.resources.analyze(request.input, this.source),
+        );
       else
         result = HOST_QUERY_DEFINITIONS[request.type].result.parse(
           page(
-            (await this.source.diffFiles(document.binding)).map((entry) => ({
+            (
+              await this.source.diffFiles(
+                document.binding,
+                request.input.comparisonCommit,
+              )
+            ).map((entry) => ({
               ...entry,
             })),
             request.input,
-            scope,
+            `${scope}:${request.input.comparisonCommit ?? "full"}`,
             (entry) => entry.path,
           ),
         );
       return this.store.snapshot(() => result);
     }
     if (request.type === "document.validate") {
-      const { reviewId, expectedDocumentVersion, operations } = request.input;
-      const previous = this.currentDocument(reviewId, expectedDocumentVersion);
+      const { reviewId, expectedReviewVersion, operations } = request.input;
+      // Capture the candidate and cursor together before any asynchronous source
+      // work. Later edits must remain replayable from this validation response.
+      const captured = this.store.snapshot(() => {
+        const previous = this.currentDocument(reviewId, expectedReviewVersion);
+        try {
+          const document = applyHostDocumentOperations(
+            documentInput(previous),
+            operations,
+            this.store.retiredIds(reviewId),
+          );
+          this.checkRetiredItemIds(reviewId, document);
+          return { previous, document, diagnostics: [] };
+        } catch (error) {
+          if (!(error instanceof HostDocumentValidationError)) throw error;
+          return { previous, document: null, diagnostics: error.diagnostics };
+        }
+      });
+      const { previous, document, diagnostics } = captured.result;
+      const invalid = (errors: typeof diagnostics): HostStoredResponse => ({
+        result: HOST_QUERY_DEFINITIONS["document.validate"].result.parse({
+          valid: false,
+          basedOnReviewVersion: previous.reviewVersion,
+          diagnostics: errors,
+          affectedNodeIds: [],
+        }),
+        eventCursor: captured.eventCursor,
+      });
+      if (!document) return invalid(diagnostics);
       try {
-        const document = applyHostDocumentOperations(
-          documentInput(previous),
-          operations,
-          this.store.retiredIds(reviewId),
-        );
         const validated = await this.prepare(reviewId, document, previous);
-        return this.store.snapshot(() => ({
-          valid: true,
-          basedOnVersion: previous.version,
-          diagnostics: [],
-          affectedNodeIds: affectedHostNodeIds(previous, validated.document),
-        }));
+        return {
+          result: HOST_QUERY_DEFINITIONS["document.validate"].result.parse({
+            valid: true,
+            basedOnReviewVersion: previous.reviewVersion,
+            diagnostics: [],
+            affectedNodeIds: affectedHostNodeIds(previous, validated.document),
+          }),
+          eventCursor: captured.eventCursor,
+        };
       } catch (error) {
         if (!(error instanceof HostDocumentValidationError)) throw error;
-        return this.store.snapshot(() => ({
-          valid: false,
-          basedOnVersion: previous.version,
-          diagnostics: error.diagnostics,
-          affectedNodeIds: [],
-        }));
+        return invalid(error.diagnostics);
       }
     }
     return this.store.snapshot(() => {
@@ -721,17 +759,18 @@ export class ReviewHost {
         type:
           | "document.validate"
           | "source.read"
-          | "source.file"
           | "thread.mapping"
           | "source.tree"
           | "source.commits"
+          | "map.analyze"
           | "source.diff";
       }
     >,
   ): JsonValue {
     switch (request.type) {
-      case "canvas.reports":
-        return this.store.canvasReports(request.input.reviewId);
+      case "authoring.get":
+        this.store.review(request.input.reviewId);
+        return this.requireActivity().snapshot(request.input.reviewId);
       case "drafts.list":
       case "threads.list":
       case "thread.get":
@@ -751,38 +790,37 @@ export class ReviewHost {
         return {
           apiVersions: [1],
           documentSchemaVersions: [1],
-          nodeTypes: [
-            "markdown",
-            "heading",
-            "paragraph",
-            "code",
-            "divider",
-            "section",
-            "callout",
-            "code_peek",
-            "sequence",
-            "call_stack_diff",
-            "database_lens",
-            "trace_quote",
-            "image",
-            "software_map",
-          ],
-          limits: HOST_LIMITS,
+          nodeTypes: HostNodeSchema.options.map(
+            (node) => node.shape.type.value,
+          ),
+          limits: HOST_CAPABILITY_LIMITS,
           commands: Object.entries(HOST_COMMAND_DEFINITIONS)
-            .filter(([, value]) => access.permissions.has(value.permission))
+            .filter(
+              ([name, value]) =>
+                access.permissions.has(value.permission) &&
+                (this.activity || !name.startsWith("authoring.")),
+            )
             .map(([name]) => name),
           queries: Object.entries(HOST_QUERY_DEFINITIONS)
-            .filter(([, value]) => access.permissions.has(value.permission))
+            .filter(
+              ([name, value]) =>
+                access.permissions.has(value.permission) &&
+                (this.activity || !name.startsWith("authoring.")),
+            )
             .map(([name]) => name),
-          rendererVersion: "json-1",
-          source: { read: true, navigation: false },
           ask: {
-            available: false,
+            defaultHarness: null,
             supportedHarnesses: [],
             isolation: "trusted_local",
           },
         };
       case "repositories.list": {
+        const scope = `repositories:${this.store.hostId}:${access.principal.id}`;
+        const upper = collectionPageBoundary(
+          request.input,
+          scope,
+          this.store.collectionBoundary("repositories"),
+        );
         const permitted = access.reviewIds
           ? new Set(
               this.store
@@ -793,50 +831,62 @@ export class ReviewHost {
           : null;
         return page(
           this.store
-            .repositories()
+            .repositories(upper)
             .filter((repository) => !permitted || permitted.has(repository.id)),
           request.input,
-          "repositories",
+          scope,
           (repository) => repository.id,
+          upper,
         );
       }
       case "reviews.list": {
         const input = request.input;
+        const scope = `reviews:${this.store.hostId}:${access.principal.id}:${input.repositoryId ?? ""}:${input.state ?? ""}:${input.includeTrash ?? false}`;
+        const upper = collectionPageBoundary(
+          input,
+          scope,
+          this.store.collectionBoundary("reviews"),
+        );
         const reviews = this.store
-          .reviews(input.includeTrash)
+          .reviews(input.includeTrash, upper)
           .filter(
             (review) =>
               (!access.reviewIds || access.reviewIds.has(review.id)) &&
               (!input.repositoryId ||
                 review.repositoryId === input.repositoryId) &&
-              (!input.workflow || review.workflow === input.workflow),
+              (!input.state || review.state === input.state),
           );
         return page(
-          reviews,
+          reviews.map((review) => ({
+            review,
+            snapshot: this.store.reviewSnapshot(review.id),
+          })),
           input,
-          `reviews:${input.repositoryId ?? ""}:${input.workflow ?? ""}:${input.includeTrash ?? false}`,
-          (review) => review.id,
+          scope,
+          (entry) => entry.review.id,
+          upper,
         );
       }
       case "review.get":
-        return { review: this.store.review(request.input.reviewId) };
-      case "repin_plan.get":
-        return this.store.repinPlan(
-          request.input.reviewId,
-          request.input.planId,
-        );
+        return {
+          review: this.store.review(request.input.reviewId),
+          snapshot: this.store.reviewSnapshot(
+            request.input.reviewId,
+            request.input.reviewVersion,
+          ),
+        };
       case "document.get":
         return this.store.document(
           request.input.reviewId,
-          request.input.version,
+          request.input.reviewVersion,
         );
       case "document.nodes": {
         const document = this.store.document(
           request.input.reviewId,
-          request.input.version,
+          request.input.reviewVersion,
         );
         return {
-          version: document.version,
+          reviewVersion: document.reviewVersion,
           nodes: request.input.ids.map((id) => {
             const node = document.nodes[id];
             if (!node)
@@ -851,10 +901,10 @@ export class ReviewHost {
       case "document.evidence": {
         const document = this.store.document(
           request.input.reviewId,
-          request.input.version,
+          request.input.reviewVersion,
         );
         return {
-          version: document.version,
+          reviewVersion: document.reviewVersion,
           evidence: Object.fromEntries(
             request.input.anchorIds.map((id) => {
               const evidence = document.evidence[id];
@@ -868,33 +918,13 @@ export class ReviewHost {
           ),
         };
       }
-      case "document.history":
+      case "review.history":
         return page(
-          this.store.documentHistory(request.input.reviewId),
+          this.store.reviewHistory(request.input.reviewId),
           request.input,
           `history:${request.input.reviewId}`,
-          (version) => String(version.version),
+          (item) => String(item.reviewVersion),
         );
-      case "checkpoints.list":
-        return page(
-          this.store.checkpoints(request.input.reviewId),
-          request.input,
-          `checkpoints:${request.input.reviewId}`,
-          (checkpoint) => checkpoint.id,
-        );
-      case "checkpoint.get": {
-        const checkpoint = this.store.checkpoint(
-          request.input.reviewId,
-          request.input.checkpointId,
-        );
-        return {
-          checkpoint,
-          document: this.store.document(
-            checkpoint.reviewId,
-            checkpoint.documentVersion,
-          ),
-        };
-      }
     }
   }
 
@@ -939,17 +969,18 @@ export class ReviewHost {
   }
   private currentDocument(reviewId: string, expectedVersion: number) {
     const review = this.store.review(reviewId);
-    if (review.documentVersion !== expectedVersion)
+    if (review.latestReviewVersion !== expectedVersion)
       throw new HostStoreError(
         "VERSION_CONFLICT",
         "Document changed. Read the current version and retry.",
+        review.latestReviewVersion,
       );
-    if (review.deletedAt !== null || review.workflow === "closed")
+    if (review.deletedAt !== null || review.state === "closed")
       throw new HostStoreError(
         "INVALID_STATE",
         "Closed or trashed reviews cannot be authored.",
       );
-    return this.store.document(reviewId);
+    return this.store.document(reviewId, expectedVersion);
   }
   private async prepare(
     reviewId: string,
@@ -974,21 +1005,47 @@ export class ReviewHost {
     reviewId: string,
     before: HostDocumentState,
     prepared: HostPreparedDocument,
-  ) {
-    const after = this.store.commitDocument(reviewId, before.version, prepared);
-    const result = documentCommit(before, after);
-    if (after.version !== before.version) {
-      const event = { reviewId, commit: result };
+    options: HostReviewCommitOptions = {},
+  ): HostReviewCommit {
+    const after = this.store.commitDocument(
+      reviewId,
+      before.reviewVersion,
+      prepared,
+      options,
+    );
+    const changedDocument = after.contentHash !== before.contentHash;
+    const result: HostReviewCommit = {
+      reviewId,
+      previousReviewVersion: before.reviewVersion,
+      reviewVersion: after.reviewVersion,
+      snapshot: this.store.reviewSnapshot(reviewId, after.reviewVersion),
+      documentDelta: changedDocument ? documentCommit(before, after) : null,
+      diagnostics: [],
+    };
+    if (after.reviewVersion !== before.reviewVersion) {
+      const event = result;
       if (Buffer.byteLength(canonicalHostJson(event)) <= 256 * 1024)
-        this.store.appendEvent(reviewId, "document.committed", event);
+        this.store.appendEvent(reviewId, "review.committed", event);
       else
-        this.store.appendEvent(reviewId, "document.resync_required", {
+        this.store.appendEvent(reviewId, "review.resync_required", {
           reviewId,
-          version: after.version,
+          reviewVersion: after.reviewVersion,
         });
     }
     return result;
   }
+
+  private effectiveDefaultHarness(
+    supported: HostQuestionRun["harness"][],
+  ): HostQuestionRun["harness"] | null {
+    const configured = this.dependencies.questions?.defaultHarness?.();
+    return configured && supported.includes(configured)
+      ? configured
+      : supported.length === 1
+        ? supported[0]!
+        : null;
+  }
+
   private checkRetiredIds(reviewId: string, document: HostDocument) {
     const retired = this.store.retiredIds(reviewId);
     if (
@@ -999,7 +1056,22 @@ export class ReviewHost {
     )
       throw new HostStoreError(
         "INVALID_STATE",
-        "Removed IDs cannot be reused. Use document.restore to restore historical content.",
+        "Removed IDs cannot be reused. Use review.version.restore to restore historical content.",
+      );
+  }
+
+  private checkRetiredItemIds(reviewId: string, document: HostDocument): void {
+    const reused = this.store.reusedDocumentItems(reviewId, document);
+    if (reused.length)
+      throw new HostDocumentValidationError(
+        reused.map((item) => ({
+          severity: "error",
+          code: "RETIRED_ID",
+          path: `/candidate/document${item.path}`,
+          nodeId: item.nodeId,
+          message:
+            "Removed diagram item IDs cannot be reused. Restore the historical review version or use fresh IDs.",
+        })),
       );
   }
 }
@@ -1013,25 +1085,56 @@ export function documentInput(state: HostDocumentState): HostDocument {
   };
 }
 
-/** Stable-key pagination: later inserts do not shift the next page by an offset. */
+const PageCursorSchema = z.strictObject({
+  scope: z.string(),
+  after: z.string(),
+  upper: z.number().int().nonnegative().nullable(),
+});
+function readPageCursor(cursor: string, scope: string) {
+  try {
+    const parsed = PageCursorSchema.parse(
+      parseJsonText(Buffer.from(cursor, "base64url").toString("utf8")),
+    );
+    if (parsed.scope === scope) return parsed;
+  } catch {
+    /* Malformed and differently scoped cursors both require a fresh traversal. */
+  }
+  throw new HostStoreError(
+    "CURSOR_EXPIRED",
+    "Page cursor belongs to a different query or is invalid.",
+  );
+}
+function collectionPageBoundary(
+  input: { cursor?: string },
+  scope: string,
+  current: number,
+): number {
+  if (!input.cursor) return current;
+  const { upper } = readPageCursor(input.cursor, scope);
+  if (upper !== null && upper <= current) return upper;
+  throw new HostStoreError(
+    "CURSOR_EXPIRED",
+    "Page insertion boundary is no longer available.",
+  );
+}
+
+/** Stable-key pagination, with a retained insertion bound for mutable collections. */
 function page<T extends JsonValue>(
   items: T[],
   input: { cursor?: string; limit?: number },
   scope: string,
   key: (item: T) => string,
+  upper: number | null = null,
 ) {
   let start = 0;
   if (input.cursor) {
-    const prefix = `${scope}:`;
-    const decoded = Buffer.from(input.cursor, "base64url").toString("utf8");
-    if (!decoded.startsWith(prefix))
+    const decoded = readPageCursor(input.cursor, scope);
+    if (decoded.upper !== upper)
       throw new HostStoreError(
         "CURSOR_EXPIRED",
-        "Page cursor belongs to a different query.",
+        "Page cursor has a different insertion boundary.",
       );
-    const index = items.findIndex(
-      (item) => key(item) === decoded.slice(prefix.length),
-    );
+    const index = items.findIndex((item) => key(item) === decoded.after);
     if (index < 0)
       throw new HostStoreError(
         "CURSOR_EXPIRED",
@@ -1045,7 +1148,9 @@ function page<T extends JsonValue>(
     items: selected,
     nextCursor:
       start + selected.length < items.length
-        ? Buffer.from(`${scope}:${key(selected.at(-1)!)}`).toString("base64url")
+        ? Buffer.from(
+            canonicalHostJson({ scope, after: key(selected.at(-1)!), upper }),
+          ).toString("base64url")
         : null,
   };
 }

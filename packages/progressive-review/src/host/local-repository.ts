@@ -9,6 +9,7 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 import {
+  HOST_RESOURCE_LIMITS,
   type HostBinding,
   type HostChangeSelector,
   HostChangeSelectorSchema,
@@ -16,6 +17,7 @@ import {
   HostOidSchema,
   HostRelativePathSchema,
   type HostSourceRange,
+  type HostSourceRead,
 } from "@dev.fast/review-protocol";
 
 import { resolvePullRequestReviewSubject } from "../runtime";
@@ -180,22 +182,120 @@ export class LocalRepositorySource {
     this.evidence = new LocalEvidenceProvider(repositoryPath);
   }
 
-  read(binding: HostBinding, range: HostSourceRange) {
-    return this.evidence.resolve(binding, range);
+  async quote(binding: HostBinding, range: HostSourceRange, commit?: string) {
+    return this.evidence.resolve(
+      await this.bindingForSide(binding, range.side, commit),
+      range,
+    );
   }
 
-  file(binding: HostBinding, side: "base" | "head", file: string) {
-    return this.evidence.readFile(binding, side, file);
+  async read(
+    binding: HostBinding,
+    input: {
+      side: "base" | "head";
+      file: string;
+      range?: { fromLine: number; toLine: number };
+      comparisonCommit?: string;
+    },
+  ): Promise<HostSourceRead> {
+    if (input.range) {
+      const quote = await this.quote(
+        binding,
+        {
+          side: input.side,
+          file: input.file,
+          ...input.range,
+        },
+        input.comparisonCommit,
+      );
+      const { fromLine, toLine, ...identity } = quote.span;
+      return {
+        ...identity,
+        range: { fromLine, toLine },
+        text: quote.text,
+        sha256: quote.sha256,
+      };
+    }
+    return {
+      ...(await this.file(
+        binding,
+        input.side,
+        input.file,
+        input.comparisonCommit,
+      )),
+      range: null,
+    };
+  }
+
+  async file(
+    binding: HostBinding,
+    side: "base" | "head",
+    file: string,
+    commit?: string,
+  ) {
+    return this.evidence.readFile(
+      await this.bindingForSide(binding, side, commit),
+      side,
+      file,
+    );
+  }
+
+  private async comparison(
+    binding: HostBinding,
+    commit?: string,
+  ): Promise<{ baseCommit: string | null; headCommit: string }> {
+    validatePins(binding);
+    if (!commit) return binding;
+    if (!HostOidSchema.safeParse(commit).success)
+      invalid("Commit comparisons require a full immutable commit ID.");
+    const selected = (await this.commits(binding)).find(
+      (entry) => entry.oid === commit,
+    );
+    if (!selected) notFound("The commit is not part of this pinned review.");
+    // Like the existing commit view, merges compare against their first parent.
+    return {
+      baseCommit: selected.parents[0] ?? null,
+      headCommit: selected.oid,
+    };
+  }
+
+  private async bindingForSide(
+    binding: HostBinding,
+    side: "base" | "head",
+    commit?: string,
+  ): Promise<HostBinding> {
+    if (!commit) return binding;
+    const comparison = await this.comparison(binding, commit);
+    if (side === "base" && comparison.baseCommit === null)
+      notFound("A root commit has no base-side source file.");
+    // The empty side of a root commit is represented by an absent editor, not
+    // fabricated bytes or a synthetic source commit.
+    const selected =
+      side === "base" ? comparison.baseCommit! : comparison.headCommit;
+    return { ...binding, baseCommit: selected, headCommit: selected };
   }
 
   async tree(
     binding: HostBinding,
     side: "base" | "head",
     directory = "",
+    commitScope?: string,
   ): Promise<LocalSourceEntry[]> {
     if (directory !== "") validatePath(directory);
+    binding = await this.bindingForSide(binding, side, commitScope);
     const commit = pinnedCommit(binding, side);
     const root = await this.root(binding);
+    if (directory) {
+      const entry = (
+        await readGit(root, ["ls-tree", "-z", commit, "--", directory])
+      )
+        .split("\0")
+        .find((value) => value.slice(value.indexOf("\t") + 1) === directory);
+      if (!entry)
+        notFound("The source directory is absent from the pinned commit.");
+      if (!entry.startsWith("040000 "))
+        invalid("The selected source path is not a directory.");
+    }
     const output = await readGit(root, [
       "ls-tree",
       "-z",
@@ -234,7 +334,10 @@ export class LocalRepositorySource {
           result.byteLength = size;
         }
         return result;
-      });
+      })
+      .sort((left, right) =>
+        left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+      );
   }
 
   async commits(binding: HostBinding): Promise<LocalSourceCommit[]> {
@@ -289,17 +392,26 @@ export class LocalRepositorySource {
     return commits;
   }
 
-  async diffFiles(binding: HostBinding): Promise<LocalSourceDiffFile[]> {
-    validatePins(binding);
+  async diffFiles(
+    binding: HostBinding,
+    commit?: string,
+  ): Promise<LocalSourceDiffFile[]> {
+    const comparison = await this.comparison(binding, commit);
     const root = await this.root(binding);
     const prefix = [
-      "diff",
+      ...(comparison.baseCommit === null
+        ? ["diff-tree", "--root", "--no-commit-id", "-r"]
+        : ["diff"]),
       "--no-ext-diff",
       "--no-textconv",
       "--no-color",
       "-M",
     ];
-    const refs = [binding.baseCommit, binding.headCommit, "--"];
+    const refs = [
+      ...(comparison.baseCommit === null ? [] : [comparison.baseCommit]),
+      comparison.headCommit,
+      "--",
+    ];
     const [names, stats] = await Promise.all([
       readGit(root, [...prefix, "--name-status", "-z", ...refs]),
       readGit(root, [...prefix, "--numstat", "-z", ...refs]),
@@ -354,7 +466,31 @@ export class LocalRepositorySource {
       if (status.startsWith("R")) file.previousPath = oldPath;
       result.push(file);
     }
-    return result;
+    return result.sort((left, right) =>
+      left.path < right.path ? -1 : left.path > right.path ? 1 : 0,
+    );
+  }
+
+  async analysisPatch(binding: HostBinding): Promise<string> {
+    validatePins(binding);
+    const root = await this.root(binding);
+    return readGit(
+      root,
+      [
+        "-c",
+        "core.quotepath=false",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--unified=0",
+        "-M",
+        binding.baseCommit,
+        binding.headCommit,
+        "--",
+      ],
+      HOST_RESOURCE_LIMITS.analysisDiffBytes,
+    );
   }
 
   async diffHunks(
@@ -459,11 +595,20 @@ function validatePath(file: string): void {
     invalid("Source paths must be normalized repository-relative paths.");
 }
 
-async function readGit(root: string, args: string[]): Promise<string> {
+async function readGit(
+  root: string,
+  args: string[],
+  maxBytes = 4 * 1024 * 1024,
+): Promise<string> {
   return repositoryOperation(async () => {
     const gitDir = await gitCommonDir(root);
     if (!gitDir) unavailable("The source repository is unavailable.");
-    return run("git", ["--no-replace-objects", "--git-dir", gitDir, ...args]);
+    return run(
+      "git",
+      ["--no-replace-objects", "--git-dir", gitDir, ...args],
+      undefined,
+      maxBytes,
+    );
   });
 }
 
@@ -471,6 +616,7 @@ function run(
   command: "git" | "jj",
   args: string[],
   cwd?: string,
+  maxBytes = 4 * 1024 * 1024,
 ): Promise<string> {
   const env = {
     ...Object.fromEntries(
@@ -492,15 +638,19 @@ function run(
         cwd,
         env,
         encoding: "utf8",
-        maxBuffer: 4 * 1024 * 1024,
+        maxBuffer: maxBytes,
         timeout: 10_000,
       },
       (error, stdout) =>
         error
           ? reject(
               new EvidenceProviderError(
-                "DEPENDENCY_UNAVAILABLE",
-                "The source repository operation is unavailable.",
+                error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+                  ? "RESOURCE_LIMIT"
+                  : "DEPENDENCY_UNAVAILABLE",
+                error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+                  ? "The source output exceeds its byte limit."
+                  : "The source repository operation is unavailable.",
               ),
             )
           : resolve(stdout),

@@ -158,7 +158,13 @@ function ReviewCanvas({
   findHost: ReviewFindHost;
 }) {
   if (content.kind === "host")
-    return <HostCanvas key={content.reviewId ?? "list"} content={content} />;
+    return (
+      <HostCanvas
+        key={content.reviewId ?? "list"}
+        content={content}
+        findHost={findHost}
+      />
+    );
   if (content.kind === "session") {
     return (
       <DesktopReviewApp
@@ -370,7 +376,11 @@ export function mountReviewCanvas(
       container.focus();
     },
     showFind(seed) {
-      return content.kind === "session" && findHost.showFind(seed);
+      return (
+        (content.kind === "session" ||
+          (content.kind === "host" && !!content.reviewId)) &&
+        findHost.showFind(seed)
+      );
     },
     dispose() {
       if (disposed) return;

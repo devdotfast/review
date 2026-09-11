@@ -2,36 +2,39 @@ import type {
   HostDocumentState,
   HostInline,
   HostNode,
-  HostSourceQuote,
-  HostSourceRange,
   ReviewHostSourceBridge,
 } from "@dev.fast/review-protocol";
 import type { Definition, Nodes } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
+import type { MDXComponents } from "mdx/types";
 import { gfm } from "micromark-extension-gfm";
 import {
   Component,
   Fragment,
   type ReactNode,
   createElement,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 
+import { MarkdownCodeBlock } from "./code-block";
+import { ReviewCodePeek } from "./CodePeek";
 import {
   type HostDocumentResources,
   HostRichNode,
   type HostRichNodeProps,
+  hostAnchorRef,
 } from "./host-document-components";
+import { AnchorLink, ReviewSection } from "./review-components";
 
 import "./host-document.css";
 
 export interface HostDocumentRendererProps {
   document: HostDocumentState;
+  components?: MDXComponents;
   onSourceOpen?: (anchorId: string) => void;
   onSourceRangeOpen?: HostRichNodeProps["onSourceRangeOpen"];
   onError?: (nodeId: string, error: Error) => void;
@@ -39,32 +42,33 @@ export interface HostDocumentRendererProps {
   source?: ReviewHostSourceBridge;
 }
 
-interface RenderContext extends HostDocumentRendererProps {
-  collapsed: Map<string, boolean>;
-}
+type RenderContext = HostDocumentRendererProps;
 
 /** Renders host-owned JSON and retained evidence, without loading authored code. */
 export function HostDocumentRenderer(props: HostDocumentRendererProps) {
-  return <DocumentTree key={props.document.documentId} {...props} />;
+  return <DocumentTree key={props.document.reviewId} {...props} />;
 }
 
 function DocumentTree(props: HostDocumentRendererProps) {
-  const collapsed = useRef(new Map<string, boolean>()).current;
-  useEffect(() => {
-    for (const id of collapsed.keys()) {
-      if (!(id in props.document.nodes)) collapsed.delete(id);
-    }
-  }, [collapsed, props.document.nodes]);
-  const context: RenderContext = { ...props, collapsed };
-  return (
-    <article
-      className="host-document"
-      data-document-id={props.document.documentId}
-      data-document-version={props.document.version}
-    >
-      {renderChildren(props.document.roots, context)}
-    </article>
+  return <>{renderChildren(props.document.roots, props)}</>;
+}
+
+export function hostDocumentHasTitle(document: HostDocumentState): boolean {
+  const hasTitle = (node: Nodes): boolean =>
+    (node.type === "heading" && node.depth === 1) ||
+    ("children" in node && node.children.some(hasTitle));
+  return Object.values(document.nodes).some(
+    (node) =>
+      (node.type === "heading" && node.level === 1) ||
+      (node.type === "markdown" && hasTitle(parseMarkdown(node.markdown))),
   );
+}
+
+function parseMarkdown(source: string) {
+  return fromMarkdown(source, {
+    extensions: [gfm()],
+    mdastExtensions: [gfmFromMarkdown()],
+  });
 }
 
 function renderChildren(ids: string[], context: RenderContext): ReactNode {
@@ -85,7 +89,7 @@ function renderChildren(ids: string[], context: RenderContext): ReactNode {
       <NodeActivity key={id} id={id} revision={revision}>
         <NodeBoundary
           nodeId={id}
-          revision={`${context.document.version}:${revision}`}
+          revision={`${context.document.reviewVersion}:${revision}`}
           resources={context.resources}
           onError={context.onError}
         >
@@ -101,37 +105,54 @@ function NodeContent({ id, context }: { id: string; context: RenderContext }) {
   if (!node) throw new Error(`The document is missing node ${id}.`);
   switch (node.type) {
     case "markdown":
-      return <SafeMarkdown source={node.markdown} />;
+      return (
+        <SafeMarkdown source={node.markdown} components={context.components} />
+      );
     case "paragraph":
       return <p>{renderInline(node.content, context)}</p>;
     case "heading":
       return createElement(
-        `h${node.level}`,
+        context.components?.[`h${node.level}`] ?? `h${node.level}`,
         { id: `review-heading-${node.id}` },
         renderInline(node.content, context),
       );
     case "code":
       return (
-        <figure className="host-document-code">
-          <pre>
-            <code data-language={node.language}>{node.text}</code>
-          </pre>
-          {node.caption && <figcaption>{node.caption}</figcaption>}
-        </figure>
+        <>
+          <MarkdownCodeBlock>
+            <code
+              className={
+                node.language ? `language-${node.language}` : undefined
+              }
+            >
+              {node.text}
+            </code>
+          </MarkdownCodeBlock>
+          {node.caption && <p>{node.caption}</p>}
+        </>
       );
     case "divider":
       return <hr />;
     case "section":
-      return <CollapsibleSection node={node} context={context} />;
+      return (
+        <ReviewSection
+          stateKey={node.id}
+          title={node.title}
+          defaultCollapsed={node.defaultCollapsed}
+        >
+          <h2 id={`review-heading-${node.id}`}>{node.title}</h2>
+          {renderChildren(node.children, context)}
+        </ReviewSection>
+      );
     case "callout":
       return (
-        <aside className="host-document-callout" data-tone={node.tone}>
+        <blockquote data-tone={node.tone}>
           {node.title && <strong>{node.title}</strong>}
           {renderChildren(node.children, context)}
-        </aside>
+        </blockquote>
       );
     case "code_peek":
-      return <RetainedCodePeek node={node} context={context} />;
+      return <HostCodePeek node={node} document={context.document} />;
     default:
       return (
         <HostRichNode
@@ -146,180 +167,25 @@ function NodeContent({ id, context }: { id: string; context: RenderContext }) {
   }
 }
 
-function CollapsibleSection({
+function HostCodePeek({
   node,
-  context,
-}: {
-  node: Extract<HostNode, { type: "section" }>;
-  context: RenderContext;
-}) {
-  const [collapsed, setCollapsed] = useState(
-    () => context.collapsed.get(node.id) ?? node.defaultCollapsed,
-  );
-  const bodyId = `review-section-${node.id}`;
-  return (
-    <section className="host-document-section">
-      <h2>
-        <button
-          type="button"
-          aria-expanded={!collapsed}
-          aria-controls={bodyId}
-          onClick={() => {
-            const next = !collapsed;
-            context.collapsed.set(node.id, next);
-            setCollapsed(next);
-          }}
-        >
-          <span aria-hidden="true">{collapsed ? "▸" : "▾"}</span> {node.title}
-        </button>
-      </h2>
-      <div id={bodyId} hidden={collapsed}>
-        {renderChildren(node.children, context)}
-      </div>
-    </section>
-  );
-}
-
-function RetainedCodePeek({
-  node,
-  context,
+  document,
 }: {
   node: Extract<HostNode, { type: "code_peek" }>;
-  context: RenderContext;
-}) {
-  const anchor = context.document.definitions[node.anchorId];
-  const quote = context.document.evidence[node.anchorId];
-  if (anchor?.kind !== "anchor" || !quote) {
-    throw new Error(`Stored source evidence is missing for ${node.anchorId}.`);
-  }
-  const retained = (
-    <figure
-      id={`review-source-${node.id}`}
-      className="host-document-code host-document-code-peek"
-      data-anchor-id={node.anchorId}
-    >
-      <figcaption>
-        <strong>{anchor.title}</strong>
-        <SourceLink anchorId={node.anchorId} context={context}>
-          {quote.span.file}:{quote.span.fromLine}–{quote.span.toLine}
-        </SourceLink>
-        <small title={quote.span.commit}>
-          {quote.span.commit.slice(0, 12)}
-        </small>
-      </figcaption>
-      <pre>
-        <code>{quote.text}</code>
-      </pre>
-      {node.caption && <figcaption>{node.caption}</figcaption>}
-    </figure>
-  );
-  return context.source ? (
-    <NativeCodePeek
-      key={node.id}
-      bridge={context.source}
-      document={context.document}
-      nodeId={node.id}
-      anchorId={node.anchorId}
-      title={anchor.title}
-      range={anchor.source}
-      quote={quote}
-      caption={node.caption}
-      onOpen={() => context.onSourceOpen?.(node.anchorId)}
-      fallback={retained}
-    />
-  ) : (
-    retained
-  );
-}
-
-function NativeCodePeek({
-  bridge,
-  document,
-  nodeId,
-  anchorId,
-  title,
-  range,
-  quote,
-  caption,
-  onOpen,
-  fallback,
-}: {
-  bridge: ReviewHostSourceBridge;
   document: HostDocumentState;
-  nodeId: string;
-  anchorId: string;
-  title: string;
-  range: HostSourceRange;
-  quote: HostSourceQuote;
-  caption?: string;
-  onOpen(): void;
-  fallback: ReactNode;
 }) {
-  const container = useRef<HTMLDivElement>(null);
-  const open = useRef(onOpen);
-  open.current = onOpen;
-  const [height, setHeight] = useState(150);
-  const [unavailable, setUnavailable] = useState(false);
-  const identity = JSON.stringify([
-    document.reviewId,
-    anchorId,
-    quote.span.repositoryId,
-    quote.span.commit,
-    quote.span.blob,
-    quote.sha256,
-    range.side,
-    range.file,
-    range.fromLine,
-    range.toLine,
-    title,
-  ]);
-  useEffect(() => {
-    if (!container.current) return;
-    setUnavailable(false);
-    try {
-      const handle = bridge.createPeek({
-        container: container.current,
-        title,
-        target: {
-          reviewId: document.reviewId,
-          documentVersion: document.version,
-          range,
-        },
-        onDidOpen: () => open.current(),
-      });
-      setHeight(handle.height);
-      const heightSubscription = handle.onDidChangeHeight(setHeight);
-      const errorSubscription = handle.onDidError(() => {
-        setUnavailable(true);
-        handle.dispose();
-      });
-      return () => {
-        heightSubscription.dispose();
-        errorSubscription.dispose();
-        handle.dispose();
-      };
-    } catch {
-      setUnavailable(true);
-    }
-    // The source identity, not the working document version, owns this editor.
-    // Unrelated edits keep its selection, fold and scroll state intact.
-  }, [bridge, identity]);
+  const anchor = useMemo(
+    () => hostAnchorRef(document, node.anchorId),
+    [
+      node.anchorId,
+      document.definitions[node.anchorId],
+      document.evidence[node.anchorId],
+    ],
+  );
   return (
     <>
-      <figure
-        hidden={unavailable}
-        id={unavailable ? undefined : `review-source-${nodeId}`}
-        data-anchor-id={anchorId}
-      >
-        <div ref={container} style={{ height }} />
-        {caption && <figcaption>{caption}</figcaption>}
-      </figure>
-      {unavailable && (
-        <>
-          <p>Full source unavailable. Showing the retained excerpt.</p>
-          {fallback}
-        </>
-      )}
+      <ReviewCodePeek anchor={anchor} />
+      {node.caption && <p>{node.caption}</p>}
     </>
   );
 }
@@ -333,19 +199,10 @@ function SourceLink({
   context: RenderContext;
   children: ReactNode;
 }) {
-  if (context.document.definitions[anchorId]?.kind !== "anchor") {
-    throw new Error(`The document is missing source anchor ${anchorId}.`);
-  }
-  return context.onSourceOpen ? (
-    <button
-      type="button"
-      className="host-document-source-link"
-      onClick={() => context.onSourceOpen?.(anchorId)}
-    >
+  return (
+    <AnchorLink anchor={hostAnchorRef(context.document, anchorId)}>
       {children}
-    </button>
-  ) : (
-    <span className="host-document-source-label">{children}</span>
+    </AnchorLink>
   );
 }
 
@@ -395,38 +252,100 @@ function renderInline(
 }
 
 /** Raw HTML is text; images require an explicit host-managed image node. */
-function SafeMarkdown({ source }: { source: string }) {
-  const tree = useMemo(
-    () =>
-      fromMarkdown(source, {
-        extensions: [gfm()],
-        mdastExtensions: [gfmFromMarkdown()],
-      }),
-    [source],
-  );
+function SafeMarkdown({
+  source,
+  components,
+}: {
+  source: string;
+  components?: MDXComponents;
+}) {
+  const tree = useMemo(() => parseMarkdown(source), [source]);
   const definitions = new Map(
     tree.children.flatMap((node) =>
       node.type === "definition" ? [[node.identifier, node] as const] : [],
     ),
   );
-  return <>{markdownChildren(tree.children, definitions)}</>;
+  return <>{markdownChildren(tree.children, definitions, components)}</>;
 }
 
 function markdownChildren(
   nodes: Nodes[],
   definitions: Map<string, Definition>,
+  components?: MDXComponents,
+  listLoose?: boolean,
 ): ReactNode {
   return nodes.map((node, index) => (
-    <Fragment key={index}>{markdownNode(node, definitions)}</Fragment>
+    <Fragment key={index}>
+      {markdownNode(node, definitions, components, listLoose)}
+    </Fragment>
   ));
 }
 
 function markdownNode(
   node: Nodes,
   definitions: Map<string, Definition>,
+  components?: MDXComponents,
+  listLoose?: boolean,
 ): ReactNode {
+  if (node.type === "list") {
+    const loose = Boolean(
+      node.spread || node.children.some((item) => item.spread),
+    );
+    const className = node.children.some(
+      (item) => item.checked !== null && item.checked !== undefined,
+    )
+      ? "contains-task-list"
+      : undefined;
+    const items = markdownChildren(
+      node.children,
+      definitions,
+      components,
+      loose,
+    );
+    return node.ordered ? (
+      <ol start={node.start ?? undefined} className={className}>
+        {items}
+      </ol>
+    ) : (
+      <ul className={className}>{items}</ul>
+    );
+  }
+  if (node.type === "listItem") {
+    const checked = node.checked;
+    const checkbox =
+      checked !== null && checked !== undefined ? (
+        <>
+          <input type="checkbox" checked={checked} disabled />{" "}
+        </>
+      ) : null;
+    return (
+      <li className={checkbox ? "task-list-item" : undefined}>
+        {node.children.map((child, index) => {
+          if (child.type !== "paragraph")
+            return (
+              <Fragment key={index}>
+                {markdownNode(child, definitions, components)}
+              </Fragment>
+            );
+          const text = (
+            <>
+              {index === 0 && checkbox}
+              {markdownChildren(child.children, definitions, components)}
+            </>
+          );
+          return (listLoose ?? node.spread) ? (
+            <p key={index}>{text}</p>
+          ) : (
+            <Fragment key={index}>{text}</Fragment>
+          );
+        })}
+      </li>
+    );
+  }
   const children =
-    "children" in node ? markdownChildren(node.children, definitions) : null;
+    "children" in node
+      ? markdownChildren(node.children, definitions, components)
+      : null;
   switch (node.type) {
     case "root":
       return children;
@@ -436,7 +355,11 @@ function markdownNode(
     case "paragraph":
       return <p>{children}</p>;
     case "heading":
-      return createElement(`h${node.depth}`, null, children);
+      return createElement(
+        components?.[`h${node.depth}`] ?? `h${node.depth}`,
+        null,
+        children,
+      );
     case "strong":
       return <strong>{children}</strong>;
     case "emphasis":
@@ -447,9 +370,11 @@ function markdownNode(
       return <code>{node.value}</code>;
     case "code":
       return (
-        <pre>
-          <code data-language={node.lang ?? undefined}>{node.value}</code>
-        </pre>
+        <MarkdownCodeBlock>
+          <code className={node.lang ? `language-${node.lang}` : undefined}>
+            {node.value}
+          </code>
+        </MarkdownCodeBlock>
       );
     case "break":
       return <br />;
@@ -457,21 +382,6 @@ function markdownNode(
       return <hr />;
     case "blockquote":
       return <blockquote>{children}</blockquote>;
-    case "list":
-      return node.ordered ? (
-        <ol start={node.start ?? undefined}>{children}</ol>
-      ) : (
-        <ul>{children}</ul>
-      );
-    case "listItem":
-      return (
-        <li>
-          {node.checked !== null && node.checked !== undefined && (
-            <input type="checkbox" checked={node.checked} disabled />
-          )}
-          {children}
-        </li>
-      );
     case "link":
       return <SafeLink href={node.url}>{children}</SafeLink>;
     case "linkReference":
@@ -589,7 +499,7 @@ class NodeBoundary extends Component<
   }
   render() {
     return this.state.error ? (
-      <div className="host-document-node-error" role="alert">
+      <div className="review-status" role="alert">
         <strong>This part of the review could not be displayed.</strong>
         <p>{this.state.error.message}</p>
       </div>
@@ -616,25 +526,29 @@ function NodeActivity({
     const reduced = element?.ownerDocument.defaultView?.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
     ).matches;
-    const animation = reduced
-      ? undefined
-      : element?.animate?.([{ opacity: 0.35 }, { opacity: 1 }], {
-          duration: 320,
-          easing: "ease-out",
-        });
+    // The identity wrappers are display:contents; animate the existing
+    // component's actual boxes, without adding a gutter or changing layout.
+    const animations = reduced
+      ? []
+      : [...(element?.children ?? [])].map((child) =>
+          child.animate?.([{ opacity: 0.35 }, { opacity: 1 }], {
+            duration: 320,
+            easing: "ease-out",
+          }),
+        );
     const timeout = setTimeout(() => setActive(false), 1400);
     return () => {
       clearTimeout(timeout);
-      animation?.cancel();
+      for (const animation of animations) animation?.cancel();
     };
   }, [revision]);
   return (
     <div
       className="host-document-node"
       data-node-id={id}
+      data-host-node-id={id}
       data-authoring={active || undefined}
     >
-      <span className="host-document-node-activity" aria-hidden="true" />
       <div ref={content} className="host-document-node-content">
         {children}
       </div>

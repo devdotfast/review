@@ -5,6 +5,7 @@ import {
   type HostDocument,
   type HostMapVersion,
   applyHostDocumentOperations,
+  assertHostDocument,
 } from "@dev.fast/review-protocol";
 import { describe, expect, it } from "vitest";
 
@@ -52,7 +53,7 @@ const map: HostMapVersion = {
   mapId: "00000000-0000-4000-8000-000000000007",
   repositoryId,
   commit: binding.headCommit,
-  revision: 0,
+  mapVersion: 0,
   contentHash: "c".repeat(64),
   createdAt: binding.createdAt,
   elements: {
@@ -106,8 +107,10 @@ describe("real-desktop validation fixture preparation", () => {
       nodes: {},
       definitions: {},
     };
-    for (const step of fixtureSteps(desired))
+    for (const step of fixtureSteps(desired)) {
       document = applyHostDocumentOperations(document, step.operations);
+      assertHostDocument(document);
+    }
     expect(document).toEqual(desired);
     expect(document.nodes.section).toMatchObject({
       children: ["section_text"],

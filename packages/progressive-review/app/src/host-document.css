@@ -1,141 +1,34 @@
-.host-document {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 24px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.host-document-node {
-  display: grid;
-  grid-template-columns: 3px minmax(0, 1fr);
-  column-gap: 9px;
-  margin-block: 8px;
-}
-
-.host-document-node-activity {
-  border-radius: 2px;
-  background: transparent;
-}
-
-.host-document-node[data-authoring] > .host-document-node-activity {
-  background: var(--vscode-focusBorder, #60a5fa);
-}
-
+/* Stable JSON identities do not introduce a second document layout. */
+.host-document-node,
 .host-document-node-content {
-  min-width: 0;
+  display: contents;
 }
 
-.host-document-code {
-  margin: 0;
-  border: 1px solid var(--vscode-panel-border, #8885);
-  border-radius: 6px;
-  overflow: hidden;
+/* Match the existing prose column through the stable-node wrappers. */
+.review-document
+  .host-document-node-content
+  > :is(
+    p,
+    h2,
+    h3,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    .code-peek,
+    .review-trace-quote-container,
+    .review-image
+  ) {
+  width: min(100%, var(--review-prose-max-width));
+  max-width: calc(
+    100cqi - var(--review-document-padding-inline) -
+      var(--review-document-padding-inline)
+  );
+  margin-inline: auto;
 }
 
-.host-document pre {
-  white-space: pre;
-  overflow-x: auto;
-  padding: 12px;
-  margin-block: 0;
-  background: var(--vscode-textCodeBlock-background, #8881);
-}
-
-.host-document figcaption {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 8px 12px;
-}
-
-.host-document-section > h2 {
-  margin-block: 0;
-}
-
-.host-document-section > h2 > button,
-.host-document-source-link {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: 0;
-  padding: 0;
-  text-align: left;
-  cursor: pointer;
-}
-
-.host-document-source-link,
-.host-document a {
-  color: var(--vscode-textLink-foreground, #60a5fa);
-  text-decoration: underline;
-}
-
-.host-document-callout,
-.host-document-node-error {
-  padding: 12px;
-  border: 1px solid var(--vscode-panel-border, #8885);
-  border-left: 3px solid var(--vscode-focusBorder, #60a5fa);
-  border-radius: 4px;
-}
-
-.host-document-callout[data-tone="warning"] {
-  border-left-color: var(--vscode-editorWarning-foreground, #eab308);
-}
-
-.host-document-callout[data-tone="danger"],
-.host-document-node-error {
-  border-left-color: var(--vscode-editorError-foreground, #ef4444);
-}
-
-.host-document-callout[data-tone="success"] {
-  border-left-color: var(--vscode-testing-iconPassed, #22c55e);
-}
-
-.host-document table {
-  border-collapse: collapse;
-}
-
-.host-document th,
-.host-document td {
-  padding: 6px 12px;
-  border: 1px solid var(--vscode-panel-border, #8885);
-}
-
-.host-document-graph {
-  margin: 0;
-  border: 1px solid var(--vscode-panel-border, #8885);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.host-document-graph > .software-map-c4-canvas {
-  height: 520px;
-}
-
-.host-document-graph-evidence {
-  margin: 8px 0 0;
-  border-top: 1px solid var(--vscode-panel-border, #8885);
-}
-
-.host-document-image {
-  margin: 0;
-}
-
-.host-document-image img {
+.review-image img {
   display: block;
   max-width: 100%;
   height: auto;
-}
-
-.host-document-trace {
-  margin: 0;
-  border-left: 3px solid var(--vscode-panel-border, #8885);
-}
-
-.host-document-trace blockquote {
-  margin: 0;
-}
-
-.host-document-trace pre {
-  white-space: pre-wrap;
 }

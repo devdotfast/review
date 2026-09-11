@@ -421,8 +421,6 @@ export function createGlobalReviewServer(
   let jsonQuestionRunner: ReviewQuestionRunner | undefined;
   const jsonHost = jsonStore
     ? new ReviewHost(jsonStore, {
-        onPublishRejected: () =>
-          telemetry.capturePublishGateRejected({ gate: "publish_ready" }),
         questions: {
           capabilities: async () => jsonQuestionRunner?.capabilities() ?? [],
           start: async (run) => {
@@ -437,17 +435,6 @@ export function createGlobalReviewServer(
     ? new HostCredentials(jsonStore, token)
     : null;
   if (jsonHost && jsonCredentials) {
-    jsonHost.store.command(
-      {
-        clientId: "host-canvas-startup",
-        commandId: crypto.randomUUID(),
-        request: {},
-      },
-      () => {
-        jsonHost.store.clearCanvasReports();
-        return null;
-      },
-    );
     jsonHost.interruptQuestionRuns();
     jsonQuestionRunner = new ReviewQuestionRunner({
       host: jsonHost,
@@ -485,10 +472,12 @@ export function createGlobalReviewServer(
           host: jsonHost,
           credentials: jsonCredentials,
           baseUrl: urlForBoundPort,
-          openReview: async (reviewId) => {
+          openReview: async (reviewId, reviewVersion) => {
+            const args: JsonObject = { reviewId };
+            if (reviewVersion !== undefined) args.reviewVersion = reviewVersion;
             const result = await relay.dispatch("host", {
               name: "openHostReview",
-              args: { reviewId },
+              args,
             });
             if (!result.ok)
               throw new EvidenceProviderError(

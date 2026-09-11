@@ -15,6 +15,7 @@ export function softwareMapNodeLabelPath(
   node: SoftwareMapNodeSnapshot,
   nodesById: ReadonlyMap<string, SoftwareMapNodeSnapshot>,
 ): string[] {
+  if (node.targetPath) return node.targetPath;
   const path: string[] = [];
   const visited = new Set<string>();
   let current: SoftwareMapNodeSnapshot | undefined = node;
@@ -38,7 +39,11 @@ export function softwareMapLiveDiagram(
 ): LiveDiagramTarget {
   const nodes = snapshot.nodes ?? [];
   const relationships = snapshot.relationships ?? [];
-  validateSoftwareMapTargetPaths(label, nodes, relationships);
+  if (
+    !nodes.every((node) => node.targetPath) ||
+    !relationships.every((relationship) => relationship.targetPath)
+  )
+    validateSoftwareMapTargetPaths(label, nodes, relationships);
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const viewType = snapshot.viewType ?? "inlineC4";
   const elements: LiveDiagramTarget["elements"] = [
@@ -205,6 +210,7 @@ export function softwareMapRelationshipLabelPath(
   relationships: readonly SoftwareMapRelationshipSnapshot[],
   nodesById: ReadonlyMap<string, SoftwareMapNodeSnapshot>,
 ): string[] {
+  if (relationship.targetPath) return relationship.targetPath;
   const endpointLabel = (nodeId: string) =>
     nodesById.get(nodeId)?.label ?? nodeId;
   const segmentFor = (candidate: { from: string; to: string }) =>

@@ -60,6 +60,7 @@ import {
 	REVIEW_CANVAS_RESUME_EVENT,
 	REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
 	REVIEW_TUTORIAL_STEP_IDS,
+	ReviewClient,
 } from "../../../common/reviewProtocol.js";
 import {
 	canRestoreReviewCanvasScrollSnapshot,
@@ -99,6 +100,7 @@ import {
 import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
 import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
 import { IReviewHostSourceService } from "../../../services/reviewHostSourceService.js";
+import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { IReviewHostQuestionTerminalService } from "../../../services/reviewHostQuestionTerminalService.js";
 import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
 import { IReviewDiffService } from "../../../services/reviewDiffService.js";
@@ -240,6 +242,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		private readonly sessionModelService: IReviewSessionModelService,
 		@IReviewDiffService private readonly diffService: IReviewDiffService,
 		@IReviewHostSourceService private readonly hostSource: IReviewHostSourceService,
+		@IReviewExplorerPartsService private readonly explorerParts: IReviewExplorerPartsService,
 		@IReviewHostQuestionTerminalService private readonly questionTerminals: IReviewHostQuestionTerminalService,
 		@IReviewVerbsService private readonly verbs: IReviewVerbsService,
 		@IReviewCanvasEditorTabsService
@@ -350,7 +353,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				return { ok: true };
 			}
 			if (request.name === "openHostReview") {
-				await this.tabsService.openHostReview(request.args.reviewId, true);
+				await this.tabsService.openHostReview(request.args.reviewId, true, undefined, request.args.reviewVersion);
 				await this.hostService.focus(this.targetDocument?.defaultView ?? window, { mode: FocusMode.Force });
 				return { ok: true };
 			}
@@ -431,6 +434,25 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			this.restoreDetachedScrollSnapshot(input, warmModel, generation);
 			return;
 		}
+		if (input.target.kind === "host-source") {
+			this.renderedInput = input;
+			this.renderedModel = null;
+			this.readyInput = undefined;
+			this.sessionModelService.setActiveModel(null);
+			this.inlineEditors.reset();
+			this.diffViews.reset();
+			this.modelSubscription.clear();
+			this.setSessionState("home");
+			try {
+				const root = await this.hostSource.sourceRoot(input.target.reviewId, input.target.reviewVersion);
+				if (generation !== this.loadGeneration) return;
+				this.explorerParts.showSource(root);
+				await this.render({ kind: "source" }, generation);
+			} catch (error) {
+				await this.render({ kind: "source", error: error instanceof Error ? error.message : String(error) }, generation);
+			}
+			return;
+		}
 		if (input.target.kind === "source") {
 			this.renderedInput = input;
 			this.renderedModel = null;
@@ -492,19 +514,46 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			this.setSessionState("home");
 			const connection = await this.sessionService.getConnection();
 			const assets = await this.loadAssets();
+			const install = reviewId ? undefined : await this.resolveInstallContent();
+			const requestedReviewVersion = input.target.kind === "host-review" ? input.target.reviewVersion : undefined;
+			let reviewVersion = requestedReviewVersion ?? 0;
+			const nativeSource = reviewId ? this.hostSource.createCanvasSource(reviewId, () => reviewVersion, this.inlineEditors) : undefined;
+			this.diffViews.setSource(nativeSource?.diffViewSource);
 			await this.render({
-				kind: "host", connection, reviewId,
+				kind: "host", connection, reviewId, reviewVersion: requestedReviewVersion,
 				wasmUrl: assets.reviewWasmUrl,
+				runtime: { docRuntimeUrl: assets.reviewDocRuntimeUrl, appVersion: this.productService.reviewVersion ?? this.productService.version, theme: this.colorScheme() },
+				softwareMapEnabled: this.currentSoftwareMapEnabled(),
+				post: (request) => this.verbs.dispatch("review-desktop", request),
+				onDidChangeTheme: (listener) => this.themeEvents.event(listener),
+				ready: () => {
+					if (generation === this.loadGeneration && this.targetDocument) this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
+				},
+				install,
+				setup: install ? { status: install.status, open: () => { void this.tabsService.openWelcome(true); } } : undefined,
+				onboarding: install ? this.resolveOnboarding(install.status) : undefined,
 				source: {
+					setDocumentVersion: (version) => { reviewVersion = version; },
+					inlineEditors: nativeSource?.inlineEditors,
+					diffView: nativeSource ? this.diffViews : undefined,
+					openTree: async () => { if (reviewId) await this.tabsService.openHostSource(reviewId, reviewVersion); },
 					open: (target) => this.hostSource.openSource(target),
-					onDidRequestComment: (listener) => this.hostSource.subscribeComments(reviewId ?? '', listener),
+					onDidRequestComment: (listener) => this.hostSource.subscribeComments(reviewId ?? '', listener, () => reviewVersion),
 					createPeek: (spec) => this.inlineEditors.create({
 						container: spec.container, path: spec.target.range.file, title: spec.title,
 						side: spec.target.range.side, ranges: [{ startLine: spec.target.range.fromLine, endLine: spec.target.range.toLine }],
 						heightMode: "content", active: false, commentsEnabled: false, onDidOpen: spec.onDidOpen,
 					}, () => this.hostSource.acquireSnippet(spec.target)),
 				},
-				openReview: (reviewId, title) => { void this.tabsService.openHostReview(reviewId, true, title); },
+				openReview: (reviewId, title, version) => { void this.tabsService.openHostReview(reviewId, true, title, version); },
+				closeReview: (id) => this.tabsService.closeReview(id),
+				openSourceTree: (id) => {
+					void ReviewClient.connect(connection).then(client => client.query("review.get", { reviewId: id })).then(({ result }) => this.tabsService.openHostSource(id, result.snapshot.reviewVersion)).catch(error => this.logService.error(error));
+				},
+				openQuestion: async (runId) => {
+					if (!reviewId) throw new Error("Open a review before resuming a question.");
+					await this.questionTerminals.reveal(reviewId, runId);
+				},
 				showHome: () => { void this.tabsService.openHome(true); },
 				openWelcome: () => { void this.tabsService.openWelcome(true); },
 				openSettings: () => { void this.tabsService.openSettings(true); },
@@ -1653,6 +1702,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.inlineEditors.reset();
 		this.diffViews.reset();
 		await this.verbs.resetSession();
+		this.diffViews.setSource(undefined);
 		return generation === this.loadGeneration;
 	}
 

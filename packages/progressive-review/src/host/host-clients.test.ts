@@ -19,7 +19,7 @@ import {
   HostAssetSchema,
   HostDocumentStateSchema,
   HostRepositorySchema,
-  HostReviewSchema,
+  HostReviewStateSchema,
   isObjectValue,
 } from "@dev.fast/review-protocol";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -93,7 +93,13 @@ describe("thin local host discovery", () => {
         const connection = z
           .record(z.string(), z.json())
           .parse(await response.json());
-        return Response.json({ ...connection, hostId: randomUUID() });
+        return Response.json({
+          ...connection,
+          data: {
+            ...z.record(z.string(), z.json()).parse(connection.data),
+            hostId: randomUUID(),
+          },
+        });
       }
       return response;
     };
@@ -265,7 +271,7 @@ describe("checkout CLI host entry", () => {
       }),
     ]);
     const created = z
-      .object({ review: HostReviewSchema })
+      .object({ review: HostReviewStateSchema })
       .parse(responseData(creation.stdout).result);
     const mutation = await cli(
       test.env,
@@ -280,7 +286,7 @@ describe("checkout CLI host entry", () => {
       ],
       JSON.stringify({
         reviewId: created.review.id,
-        expectedDocumentVersion: 0,
+        expectedReviewVersion: 0,
         operations: [
           {
             op: "node.insert",
@@ -289,7 +295,7 @@ describe("checkout CLI host entry", () => {
               type: "markdown",
               markdown: "Written by the CLI",
             },
-            placement: { parentId: null, afterId: null },
+            placement: { parentId: null, position: { kind: "start" } },
           },
         ],
       }),
@@ -315,7 +321,7 @@ describe("checkout CLI host entry", () => {
       created.review.id,
     ]);
     expect(opened.code).toBe(0);
-    expect(test.openReview).toHaveBeenCalledWith(created.review.id);
+    expect(test.openReview).toHaveBeenCalledWith(created.review.id, undefined);
     expect(registration.stdout + creation.stdout + read.stdout).not.toContain(
       test.discovery.token,
     );
@@ -341,6 +347,17 @@ describe("checkout CLI host entry", () => {
     ]);
     expect(invalidJson.code).toBe(1);
     expect(invalidJson.stderr).toContain("valid JSON");
+    const invalidVersion = await cli(test.env, [
+      "host",
+      "query",
+      "document.get",
+      "--input",
+      JSON.stringify({ reviewId: randomUUID(), reviewVersion: -1 }),
+    ]);
+    expect(invalidVersion.code).toBe(1);
+    expect(JSON.parse(invalidVersion.stderr).error.diagnostics).toContainEqual(
+      expect.objectContaining({ path: "/input/reviewVersion" }),
+    );
     const oversized = await cli(
       test.env,
       ["host", "query", "reviews.list", "--input", "-"],
@@ -478,17 +495,17 @@ describe("checkout MCP stdio adapter", () => {
       },
     });
     const created = z
-      .object({ review: HostReviewSchema })
+      .object({ review: HostReviewStateSchema })
       .parse(creation.structuredContent);
     const args = {
       reviewId: created.review.id,
-      expectedDocumentVersion: 0,
+      expectedReviewVersion: 0,
       commandId: randomUUID(),
       operations: [
         {
           op: "node.insert",
           node: { id: "intro", type: "markdown", markdown: "Live MCP content" },
-          placement: { parentId: null, afterId: null },
+          placement: { parentId: null, position: { kind: "start" } },
         },
       ],
     };
@@ -503,7 +520,7 @@ describe("checkout MCP stdio adapter", () => {
         arguments: args,
       }),
     ).toEqual(mutation);
-    expect(test.store.document(created.review.id).version).toBe(1);
+    expect(test.store.document(created.review.id).reviewVersion).toBe(1);
     expect(test.store.document(created.review.id).nodes.intro).toMatchObject({
       markdown: "Live MCP content",
     });
@@ -517,17 +534,11 @@ describe("checkout MCP stdio adapter", () => {
       arguments: { reviewId: created.review.id },
     });
     expect(opened.structuredContent).toEqual({ opened: true });
-    const observations = await client.callTool({
-      name: "review_canvas_reports",
-      arguments: { reviewId: created.review.id },
-    });
-    expect(observations.isError).not.toBe(true);
-    expect(observations.structuredContent).toEqual({ result: [] });
     await expect(
       client.callTool({
         name: "review_document_replace",
         arguments: {
-          filler: "x".repeat(HOST_LIMITS.commandBytes + 1),
+          filler: "x".repeat(5 * 1024 * 1024 + 1),
           commandId: randomUUID(),
         },
       }),

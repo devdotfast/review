@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { type HostReviewCommit } from "./host-api.js";
 import {
-  HOST_COMMAND_DEFINITIONS,
-  HOST_QUERY_DEFINITIONS,
+  HOST_CAPABILITY_LIMITS,
   HostCapabilitiesSchema,
   type HostCommand,
   HostCommandSchema,
@@ -33,7 +33,7 @@ const mutation: HostCommand<"document.mutate"> = {
   type: "document.mutate",
   input: {
     reviewId: id,
-    expectedDocumentVersion: 3,
+    expectedReviewVersion: 3,
     operations: [
       {
         op: "definition.put",
@@ -52,15 +52,15 @@ const mutation: HostCommand<"document.mutate"> = {
       {
         op: "node.insert",
         node: { id: "peek", type: "code_peek", anchorId: "database" },
-        placement: { parentId: null, afterId: null },
+        placement: { parentId: null, position: { kind: "start" } },
       },
     ],
   },
 };
-const commit: HostDocumentCommit = {
-  documentId: id,
-  previousVersion: 3,
-  version: 4,
+const documentDelta: HostDocumentCommit = {
+  reviewId: id,
+  previousReviewVersion: 3,
+  reviewVersion: 4,
   contentHash: "a".repeat(64),
   createdAt,
   changedNodes: {
@@ -101,6 +101,25 @@ const commit: HostDocumentCommit = {
   },
   diagnostics: [],
 };
+const commit: HostReviewCommit = {
+  reviewId: id,
+  previousReviewVersion: 3,
+  reviewVersion: 4,
+  snapshot: {
+    reviewId: id,
+    reviewVersion: 4,
+    title: "Review",
+    description: "",
+    labels: [],
+    binding: documentDelta.binding,
+    mapVersions: { base: null, head: null },
+    createdAt,
+    createdBy: id,
+    restoredFromReviewVersion: null,
+  },
+  documentDelta,
+  diagnostics: [],
+};
 
 describe("typed host command and query envelopes", () => {
   it("accepts an atomic definition and node insertion with version and retry identity", () => {
@@ -108,7 +127,7 @@ describe("typed host command and query envelopes", () => {
     expect(parsed).toEqual(mutation);
     if (parsed.type !== "document.mutate")
       throw new Error("unexpected command");
-    expect(parsed.input.expectedDocumentVersion).toBe(3);
+    expect(parsed.input.expectedReviewVersion).toBe(3);
   });
 
   it("accepts dry-run validation through the query contract without a command ID", () => {
@@ -174,30 +193,6 @@ describe("typed host command and query envelopes", () => {
     ).toBe(false);
   });
 
-  it("requires independent review and document versions for publication", () => {
-    const input = {
-      reviewId: id,
-      expectedDocumentVersion: 3,
-      expectedReviewVersion: 1,
-      mapVersions: { base: null, head: null },
-    };
-    expect(
-      HostCommandSchema.parse({
-        ...address,
-        commandId: id,
-        type: "review.publish",
-        input,
-      }).input,
-    ).toEqual(input);
-    expect(
-      HOST_COMMAND_DEFINITIONS["review.publish"].input.safeParse({
-        reviewId: id,
-        expectedDocumentVersion: 3,
-        mapVersions: { base: null, head: null },
-      }).success,
-    ).toBe(false);
-  });
-
   it("requires an exact observed version for selected nodes and evidence", () => {
     expect(
       HostQuerySchema.safeParse({
@@ -206,7 +201,7 @@ describe("typed host command and query envelopes", () => {
         input: { reviewId: id, ids: ["peek"] },
       }).success,
     ).toBe(false);
-    const input = { reviewId: id, version: 3, anchorIds: ["database"] };
+    const input = { reviewId: id, reviewVersion: 3, anchorIds: ["database"] };
     expect(
       HostQuerySchema.parse({ ...address, type: "document.evidence", input })
         .input,
@@ -217,7 +212,7 @@ describe("typed host command and query envelopes", () => {
     expect(
       HostCommandSchema.safeParse({
         ...mutation,
-        input: { ...mutation.input, expectedDocumentVersion: "3" },
+        input: { ...mutation.input, expectedReviewVersion: "3" },
       }).success,
     ).toBe(false);
     expect(
@@ -266,21 +261,6 @@ describe("typed host command and query envelopes", () => {
       ).toBe(false);
     }
   });
-
-  it("separates trusted registration, human lifecycle, authoring and publication permissions", () => {
-    expect(HOST_COMMAND_DEFINITIONS["repository.register"].permission).toBe(
-      "register_repository",
-    );
-    expect(HOST_COMMAND_DEFINITIONS["document.mutate"].permission).toBe(
-      "author",
-    );
-    expect(HOST_COMMAND_DEFINITIONS["review.create"].permission).toBe("author");
-    expect(HOST_COMMAND_DEFINITIONS["review.publish"].permission).toBe(
-      "publish",
-    );
-    expect(HOST_COMMAND_DEFINITIONS["review.trash"].permission).toBe("human");
-    expect(HOST_QUERY_DEFINITIONS["document.validate"].permission).toBe("read");
-  });
 });
 
 describe("host results", () => {
@@ -301,16 +281,25 @@ describe("host results", () => {
         ...response,
         data: {
           ...response.data,
-          result: { ...commit, nodes: commit.changedNodes },
+          result: {
+            ...commit,
+            documentDelta: {
+              ...documentDelta,
+              nodes: documentDelta.changedNodes,
+            },
+          },
         },
       }).success,
     ).toBe(false);
-    const withoutTime = { ...commit };
+    const withoutTime = { ...documentDelta };
     Reflect.deleteProperty(withoutTime, "createdAt");
     expect(
       hostCommandResponseSchema("document.mutate").safeParse({
         ...response,
-        data: { ...response.data, result: withoutTime },
+        data: {
+          ...response.data,
+          result: { ...commit, documentDelta: withoutTime },
+        },
       }).success,
     ).toBe(false);
   });
@@ -356,18 +345,16 @@ describe("host results", () => {
     ).toBe(false);
   });
 
-  it("reports unavailable source navigation and Ask explicitly", () => {
+  it("reports unavailable Ask without claiming a supported default", () => {
     const capabilities = {
       apiVersions: [1],
       documentSchemaVersions: [1],
       nodeTypes: ["markdown", "code_peek"],
-      limits: HOST_LIMITS,
+      limits: HOST_CAPABILITY_LIMITS,
       commands: ["document.mutate"],
       queries: ["document.get"],
-      rendererVersion: "json-1",
-      source: { read: false, navigation: false },
       ask: {
-        available: false,
+        defaultHarness: null,
         supportedHarnesses: [],
         isolation: "trusted_local",
       },

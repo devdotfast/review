@@ -46,6 +46,7 @@ import {
   REVIEW_PEEK_LINE_HEIGHT,
   REVIEW_PEEK_MAX_VISIBLE_LINES,
   reviewPeekCappedHeight,
+  reviewPeekDiffWindowsRenderedHeights,
   reviewPeekHiddenAreas,
   reviewPeekMultiDiffBodyHeightLimit,
   reviewPeekWindowsLineCount,
@@ -90,6 +91,7 @@ const CONTENT_HEIGHT_EPSILON = 0.5;
 const reviewInlineEditors = new WeakSet<ICodeEditor>();
 
 interface InlineDiffModel {
+  readonly status: ReviewCodeDiffTarget["diffFile"]["status"];
   readonly original: ITextModel;
   readonly modified: ITextModel;
   readonly originalWindows: readonly ReviewPeekWindow[];
@@ -249,7 +251,7 @@ export class ReviewInlineEditorService
     this.overflowWidgetsDomNode = node;
   }
 
-  create(spec: ReviewInlineEditorSpec, loadModel?: () => Promise<ReviewCodeModelReference>): ReviewInlineEditorHandle {
+  create(spec: ReviewInlineEditorSpec, loadModel?: () => Promise<ReviewCodeModelReference>, loadDiff?: () => Promise<ReviewCodeDiffTarget | undefined>): ReviewInlineEditorHandle {
     const handle = new InlineEditorHandle(
       spec,
       this.instantiationService,
@@ -282,6 +284,7 @@ export class ReviewInlineEditorService
       },
       (control) => this.handlesByEditor.set(control, handle),
       loadModel,
+      loadDiff,
     );
     this.handles.add(handle);
     this.updateMetrics(spec.container.ownerDocument);
@@ -291,9 +294,11 @@ export class ReviewInlineEditorService
   async find(
     spec: ReviewInlineFindSpec,
     query: ReviewFindQuery,
+    loadModel?: () => Promise<ReviewCodeModelReference>,
+    loadDiff?: () => Promise<ReviewCodeDiffTarget | undefined>,
   ): Promise<ReviewInlineFindResult> {
     if (!query.text) return { matchCount: 0 };
-    if (spec.commentsEnabled) {
+    if (!loadModel && spec.commentsEnabled) {
       const unified = await this.resources.acquireUnifiedDiff(
         spec.path,
         spec.side,
@@ -313,7 +318,7 @@ export class ReviewInlineEditorService
         }
       }
     }
-    const diff = await this.resources.resolveDiff(
+    const diff = loadDiff ? await loadDiff() : loadModel ? undefined : await this.resources.resolveDiff(
       spec.path,
       spec.side,
       spec.ranges,
@@ -341,7 +346,7 @@ export class ReviewInlineEditorService
         modified.dispose();
       }
     }
-    const snippet = await this.resources.acquireSnippet(
+    const snippet = loadModel ? await loadModel() : await this.resources.acquireSnippet(
       spec.path,
       spec.side,
       spec.ranges,
@@ -480,6 +485,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     private readonly onDidBlurControl: () => void,
     private readonly onDidBindControl: (control: ICodeEditor) => void,
     private readonly loadModel?: () => Promise<ReviewCodeModelReference>,
+    private readonly loadDiff?: () => Promise<ReviewCodeDiffTarget | undefined>,
   ) {
     super();
     if (spec.ranges.length === 0) {
@@ -660,7 +666,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
           return;
         }
       }
-      const diffTarget = this.loadModel ? undefined : await this.resources.resolveDiff(
+      const diffTarget = this.loadDiff ? await this.loadDiff() : this.loadModel ? undefined : await this.resources.resolveDiff(
         this.spec.path,
         this.spec.side,
         this.spec.ranges,
@@ -856,6 +862,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       document.modified.getLineCount(),
     );
     this.diffModel = {
+      status: target.diffFile.status,
       original: document.original,
       modified: document.modified,
       originalWindows: windows.original,
@@ -1082,6 +1089,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
           heightMode,
           diffModel.originalWindows,
           diffModel.modifiedWindows,
+          diffModel.status,
         )
       : cap;
     const measured = multiDiffEditor.getContentHeight();
@@ -1101,13 +1109,12 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     const diffEditor = this.multiDiffEditor?.getActiveControl();
     const diffModel = this.diffModel;
     if (!diffEditor || !diffModel) return undefined;
-    const original = reviewPeekWindowsRenderedHeight(
+    const { original, modified } = reviewPeekDiffWindowsRenderedHeights(
       diffEditor.getOriginalEditor(),
-      diffModel.originalWindows,
-    );
-    const modified = reviewPeekWindowsRenderedHeight(
       diffEditor.getModifiedEditor(),
+      diffModel.originalWindows,
       diffModel.modifiedWindows,
+      diffModel.status,
     );
     if (original === undefined && modified === undefined) return undefined;
     return Math.max(original ?? 0, modified ?? 0);
@@ -1119,13 +1126,12 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     if (!diffEditor || !diffModel) return undefined;
     const originalEditor = diffEditor.getOriginalEditor();
     const modifiedEditor = diffEditor.getModifiedEditor();
-    const original = reviewPeekWindowsRenderedHeight(
+    const { original, modified } = reviewPeekDiffWindowsRenderedHeights(
       originalEditor,
-      diffModel.originalWindows,
-    );
-    const modified = reviewPeekWindowsRenderedHeight(
       modifiedEditor,
+      diffModel.originalWindows,
       diffModel.modifiedWindows,
+      diffModel.status,
     );
     if (original === undefined && modified === undefined) return undefined;
     return Math.max(

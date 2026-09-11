@@ -9,8 +9,9 @@ One desktop window owns one embedded global server. The app opens on Home with
 no repository. The default JSON host owns reviews in
 `${DEV_REVIEW_HOME:-~/.dev}/review-host.db`; Home, native source editors, the
 canvas, CLI and MCP all use its authenticated API. Document mutations validate
-and commit atomically, then stream to the canvas. Publication freezes a
-checkpoint; it does not compile or mount authored MDX.
+and commit atomically, then stream to the canvas. Every material edit saves
+one version of the canvas, metadata, code and selected maps. No publication
+gate or authored MDX compilation is involved.
 
 The trusted bundled tutorial retains a separate legacy rendering path on the
 same listener. Ordinary legacy review files are not scanned, restored or
@@ -83,9 +84,11 @@ pnpm --filter @dev.fast/review exec tsx src/cli.ts host capabilities
 pnpm --filter @dev.fast/review exec tsx src/cli.ts host query reviews.list --input '{}'
 ```
 
-Use `host command review.create`, `host command document.mutate` and `host
-command review.publish` to author, then `host open --review <uuid>` to open the
-canvas. These calls do not launch Desktop. See the
+Use `host command review.create` and `host command document.mutate` to author,
+then `host open --review <uuid>` to open the canvas. `review.revision.create`
+starts blank against new code; `review.version.restore` copies an earlier
+complete snapshot into a new version. Neither erases discussions or history.
+These calls do not launch Desktop. See the
 [CLI and API reference](../../docs/cli-reference.md) for complete inputs.
 
 ## Packaging and releases

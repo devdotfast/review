@@ -1,4 +1,5 @@
 import {
+  type HostQuestionRun,
   type JsonValue,
   type ReviewCanvasRange,
   type ReviewCommitSummary,
@@ -34,6 +35,7 @@ import {
   observeDocumentSelection,
   selectionCommentTarget,
 } from "./document-selection";
+import { HostAuthoringActivityBadge } from "./host-authoring-activity";
 import { useReviewSession } from "./host/review-session";
 import {
   CommentIcon,
@@ -539,6 +541,7 @@ function ReviewLayoutContent({
               >
                 Open source tree ↗
               </button>
+              <HostAuthoringActivityBadge />
             </div>
             <div className="review-topbar-actions">
               <ReviewHistoryControl />
@@ -553,7 +556,10 @@ function ReviewLayoutContent({
                 Discord ↗
               </button>
               <BugReportControl />
-              <ReviewBatonChip outcome={review.submissionOutcome} />
+              <ReviewBatonChip
+                outcome={review.submissionOutcome}
+                decision={review.reviewDecision ?? null}
+              />
               <div
                 className={
                   threadsPanelOpen || askPanelOpen
@@ -591,6 +597,7 @@ function ReviewLayoutContent({
                 </button>
                 {!review.historicalRevision &&
                   review.submissionOutcome !== "approved" &&
+                  review.submissionOutcome !== "closed" &&
                   review.submissionOutcome !== "dismissed" && (
                     <button
                       type="button"
@@ -784,22 +791,35 @@ function CommitDiffScopeBar({
  */
 function ReviewBatonChip({
   outcome,
+  decision,
 }: {
   outcome: ReviewSubmissionOutcome | null;
+  decision: {
+    reviewVersion: number;
+    decision: "approve" | "request_changes";
+  } | null;
 }): ReactElement | null {
-  if (!outcome) return null;
+  if (!outcome && !decision) return null;
+  const feedbackLabel = decision
+    ? `${decision.decision === "approve" ? "approved" : "changes requested"} · v${decision.reviewVersion}`
+    : null;
   const label =
-    outcome === "changes-requested"
-      ? "agent is updating"
-      : outcome === "approved"
-        ? "approved"
-        : "dismissed";
+    outcome === "closed"
+      ? `closed${feedbackLabel ? ` · ${feedbackLabel}` : ""}`
+      : (feedbackLabel ??
+        (outcome === "changes-requested"
+          ? "agent is updating"
+          : outcome === "approved"
+            ? "approved"
+            : "dismissed"));
   return (
-    <span className={`review-baton-chip review-baton-chip--${outcome}`}>
+    <span
+      className={`review-baton-chip review-baton-chip--${outcome ?? (decision?.decision === "approve" ? "approved" : "changes-requested")}`}
+    >
       {outcome === "changes-requested" && (
         <span className="review-baton-dot" aria-hidden="true" />
       )}
-      {outcome === "approved" && (
+      {(outcome === "approved" || decision?.decision === "approve") && (
         <svg
           className="review-baton-glyph"
           viewBox="0 0 12 12"
@@ -850,7 +870,11 @@ function FloatingDraftHost(): ReactElement | null {
   );
   if (!draftTarget) return null;
   const draftQuote = draftTarget.title ?? targetQuote(draftTarget.target);
-  const submitDraft = (askAgent: boolean, body: string) => {
+  const submitDraft = (
+    askAgent: boolean,
+    body: string,
+    harness?: HostQuestionRun["harness"],
+  ) => {
     const {
       draftSurface: _draftSurface,
       placement: _placement,
@@ -860,11 +884,14 @@ function FloatingDraftHost(): ReactElement | null {
       ...input
     } = draftTarget;
     if (askAgent) {
-      void review.askAgent({
-        ...input,
-        messageId: draftTarget.messageId,
-        body,
-      });
+      void review.askAgent(
+        {
+          ...input,
+          messageId: draftTarget.messageId,
+          body,
+        },
+        harness,
+      );
       review.closeCommentDraft();
       return;
     }
@@ -885,7 +912,7 @@ function FloatingDraftHost(): ReactElement | null {
         variant="popover"
         intent={draftTarget.intent}
         onSubmitComment={(body) => submitDraft(false, body)}
-        onAskAgent={(body) => submitDraft(true, body)}
+        onAskAgent={(body, harness) => submitDraft(true, body, harness)}
         onCancel={() => review.closeCommentDraft()}
       />
     </div>

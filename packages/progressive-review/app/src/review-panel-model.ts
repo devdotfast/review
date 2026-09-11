@@ -9,6 +9,7 @@ import type { ValidatedCodePeekInput } from "./CodePeek";
 export type ReviewPeekContent =
   | { kind: "resolved-code"; input: ValidatedCodePeekInput }
   | { kind: "inline-code"; language?: string; text: string }
+  | { kind: "explanation"; text?: string }
   | {
       kind: "trace-quote";
       sessionId: string;

@@ -301,13 +301,22 @@ describe("fresh local question execution", () => {
     await expect(
       executor.start({
         ...request,
-        context: { ...request.context, material: "x".repeat(65 * 1024) },
+        context: { ...request.context, question: "\u0001".repeat(32 * 1024) },
       }),
     ).rejects.toMatchObject({ code: "RESOURCE_LIMIT" });
     await expect(
       executor.start({
         ...request,
-        context: { ...request.context, material: request.credentials.token },
+        context: {
+          ...request.context,
+          material: {
+            ...request.context.material,
+            documentJson: {
+              state: "complete",
+              text: request.credentials.token,
+            },
+          },
+        },
       }),
     ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
     expect(agent.inputs).toHaveLength(0);
@@ -336,9 +345,29 @@ function input(harness: ReviewAgentHarness): LocalQuestionStart {
     context: {
       id: randomUUID(),
       reviewId: randomUUID(),
-      documentVersion: 3,
+      reviewVersion: 3,
       question: "What does this code do?",
-      material: { quote: "Retained source quote", permittedMessages: [] },
+      material: {
+        schemaVersion: 1,
+        review: { title: { state: "complete", text: "Review" } },
+        binding: {
+          repositoryId: randomUUID(),
+          baseCommit: "1".repeat(40),
+          headCommit: "2".repeat(40),
+        },
+        mapVersions: { base: null, head: null },
+        originalTarget: { kind: "document", reviewVersion: 3 },
+        viewedTarget: {
+          threadId: randomUUID(),
+          reviewVersion: 3,
+          status: "exact",
+          target: { kind: "document", reviewVersion: 3 },
+        },
+        sourceEvidence: null,
+        documentJson: { state: "complete", text: "Retained source quote" },
+        priorMessages: [],
+        priorMessagesOmitted: 0,
+      },
     },
     credentials: {
       url: "http://127.0.0.1:4000",

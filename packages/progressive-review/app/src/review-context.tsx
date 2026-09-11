@@ -1,6 +1,8 @@
 import {
+  type HostQuestionRun,
   type JsonValue,
   type ReviewCommentAgentActivity,
+  type ReviewCommentStoreSnapshot,
   type ReviewCommentThreadRecord,
   ReviewDocumentVersionSchema,
   type ReviewDocumentVersionWire,
@@ -51,6 +53,7 @@ export interface CommentThreadView extends ReviewCommentThreadRecord {
 export type ReviewSubmissionOutcome =
   | "approved"
   | "changes-requested"
+  | "closed"
   | "dismissed";
 
 export interface CommentDraftPlacement {
@@ -150,7 +153,10 @@ export interface ReviewActionsValue {
   dismissReview: () => Promise<void>;
   openCommentDraft: (target: OpenCommentDraftTarget) => void;
   closeCommentDraft: () => void;
-  askAgent: (input: CreateReviewCommentInput) => Promise<void>;
+  askAgent: (
+    input: CreateReviewCommentInput,
+    harness?: HostQuestionRun["harness"],
+  ) => Promise<void>;
   openSoftwareMapElement: (elementPath: string) => void;
   openTraceSession?: (input: {
     sessionId: string;
@@ -185,6 +191,9 @@ export interface ReviewStateValue {
   draftTarget: CommentDraftTarget | null;
   softwareMapFocusRequest: SoftwareMapFocusRequest | null;
   submissionOutcome: ReviewSubmissionOutcome | null;
+  reviewDecision?: NonNullable<
+    ReviewCommentStoreSnapshot["reviewDecision"]
+  > | null;
   commentsForTarget: (target: ThreadTarget) => CommentThreadView[];
   commentsForAnchor: (anchor: AnchorRef) => CommentThreadView[];
   lineCommentsForAnchor: (anchor: AnchorRef) => SourceLineComment[];
@@ -246,8 +255,13 @@ function ReviewCoordinator({
   children: ReactNode;
 }) {
   const session = useReviewSession();
+  const hostReview = session.config.sessionId?.startsWith("host:") === true;
   const reviewFetch = session.fetch;
   const [commentStore, commentSnapshot] = useComments();
+  const reviewDecision =
+    commentSnapshot.reviewDecision?.reviewVersion === session.reviewVersion?.()
+      ? (commentSnapshot.reviewDecision ?? null)
+      : null;
   const resolvedBaseRef = useResolvedBaseRef();
   const resolvedHeadRef = useResolvedHeadRef();
   const [draftTarget, setDraftTarget] = useState<CommentDraftTarget | null>(
@@ -261,9 +275,8 @@ function ReviewCoordinator({
   // Resolved threads are hidden from the canvas by default; this toggles them
   // back into view (greyed, with an unresolve action) so a reviewer can inspect
   // the context of already-addressed comments.
-  // Set once the review has been submitted and the one-shot server has torn
-  // itself down, so the canvas can show a terminal completed state instead of
-  // a live-looking but dead document. The containing host owns its own window.
+  // Legacy submissions hand off the one-shot review session. Host feedback is
+  // a saved batch, not a lifecycle transition or an instruction to an agent.
   const [submissionOutcome, setSubmissionOutcome] =
     useState<ReviewSubmissionOutcome | null>(null);
   const [historicalRevision, setHistoricalRevision] = useState<string | null>(
@@ -415,6 +428,7 @@ function ReviewCoordinator({
       captureUiEvent(session, "thread_draft_opened", {
         intent: target.intent ?? "comment",
       });
+      commentStore.observeTarget?.(target.target);
       setDraftTarget({
         ...target,
         draftSurface: target.draftSurface ?? "document",
@@ -423,9 +437,35 @@ function ReviewCoordinator({
         placement: target.placement ?? commentDraftPlacementFromActiveElement(),
       });
     },
-    [session],
+    [commentStore, session],
   );
   const closeCommentDraft = useCallback(() => setDraftTarget(null), []);
+  useEffect(() => {
+    const subscription = session.surface.subscribe((event) => {
+      if (event.event !== "commentRequested" || historicalRevisionRef.current)
+        return;
+      if (!event.target && (!resolvedBaseRef || !resolvedHeadRef)) return;
+      const target =
+        event.target ??
+        buildCodeTarget({
+          path: event.path,
+          side: event.sideContext,
+          baseCommit: resolvedBaseRef!,
+          headCommit: resolvedHeadRef!,
+          span: {
+            startLine: event.range.fromLine,
+            endLine: event.range.toLine,
+          },
+        });
+      openCommentDraft({
+        target,
+        title: `${event.path}:L${event.range.fromLine}–L${event.range.toLine}`,
+        body: "",
+        draftSurface: "document",
+      });
+    });
+    return subscription;
+  }, [openCommentDraft, resolvedBaseRef, resolvedHeadRef, session]);
   const deleteLocalComment = useCallback(
     (threadId: string) => commentStore.deleteLocalComment(threadId),
     [commentStore],
@@ -454,10 +494,13 @@ function ReviewCoordinator({
   );
 
   const askAgent = useCallback(
-    async (input: CreateReviewCommentInput) => {
+    async (
+      input: CreateReviewCommentInput,
+      harness?: HostQuestionRun["harness"],
+    ) => {
       if (!input.body.trim()) return;
       captureUiEvent(session, "agent_run_started");
-      await commentStore.askAgent(input);
+      await commentStore.askAgent(input, harness);
     },
     [commentStore, session],
   );
@@ -512,7 +555,11 @@ function ReviewCoordinator({
         commentStore.completeHumanReviewRound();
         pendingSubmissionRef.current = null;
         setSubmissionOutcome(
-          decision === "approve" ? "approved" : "changes-requested",
+          hostReview
+            ? null
+            : decision === "approve"
+              ? "approved"
+              : "changes-requested",
         );
       } catch (error) {
         commentStore.resetPendingComments();
@@ -520,7 +567,7 @@ function ReviewCoordinator({
         throw error;
       }
     },
-    [commentStore, documentRoute, reviewFetch, session],
+    [commentStore, documentRoute, hostReview, reviewFetch, session],
   );
 
   const createAnchorCommentTarget = useCallback(
@@ -588,10 +635,14 @@ function ReviewCoordinator({
           jsonString(reviewSession?.historicalRevision) ?? null,
         );
         const reviewStatus = jsonString(reviewSession?.reviewStatus);
-        if (reviewStatus === "accepted") {
+        if (hostReview && reviewStatus === "closed") {
+          setSubmissionOutcome("closed");
+        } else if (reviewStatus === "accepted") {
           setSubmissionOutcome("approved");
         } else if (reviewStatus === "awaiting-agent-updates") {
           setSubmissionOutcome("changes-requested");
+        } else if (hostReview && reviewStatus === "awaiting-review") {
+          setSubmissionOutcome(null);
         }
       })
       .catch((cause: unknown) => {
@@ -600,7 +651,7 @@ function ReviewCoordinator({
     return () => {
       disposed = true;
     };
-  }, [documentRoute, reviewFetch, session]);
+  }, [documentRoute, hostReview, reviewFetch, session]);
 
   const actions = useMemo<ReviewActionsValue>(
     () => ({
@@ -662,6 +713,7 @@ function ReviewCoordinator({
       draftTarget,
       softwareMapFocusRequest,
       submissionOutcome,
+      reviewDecision,
       commentsForTarget,
       commentsForAnchor,
       lineCommentsForAnchor,
@@ -684,6 +736,7 @@ function ReviewCoordinator({
       resolvedHeadRef,
       softwareMapFocusRequest,
       submissionOutcome,
+      reviewDecision,
       threadFocusRequest,
     ],
   );

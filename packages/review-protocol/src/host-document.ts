@@ -76,6 +76,7 @@ function keyedRecord<T extends z.ZodType>(
     .meta({ maxProperties });
   const jsonSchema = z.toJSONSchema(record, { io: "input" });
   delete jsonSchema.$schema;
+  // SAFETY: The preprocessor only rejects forbidden keys; the typed record schema parses every accepted value.
   return z
     .preprocess((value, context) => {
       if (
@@ -91,7 +92,10 @@ function keyedRecord<T extends z.ZodType>(
       }
       return value;
     }, record)
-    .meta(jsonSchema);
+    .meta(jsonSchema) as z.ZodType<
+    Record<string, z.output<T>>,
+    Record<string, z.input<T>>
+  >;
 }
 
 export const HostSourceRangeSchema = z
@@ -165,8 +169,8 @@ export type HostBinding = z.infer<typeof HostBindingSchema>;
 export const HostFieldSchema = z.strictObject({
   label,
   dataType: label,
-  nullable: z.boolean(),
-  primaryKey: z.boolean(),
+  nullable: z.boolean().optional(),
+  primaryKey: z.boolean().optional(),
   references: z
     .strictObject({
       storeId: HostKeySchema,
@@ -210,7 +214,15 @@ export type HostDefinition = z.infer<typeof HostDefinitionSchema>;
 
 export const HostEvidenceSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("anchor"), anchorId: HostKeySchema }),
-  z.strictObject({ kind: z.literal("illustrative_code"), language, text }),
+  z.strictObject({
+    kind: z.literal("illustrative_code"),
+    language: language.default("text"),
+    text,
+  }),
+  z.strictObject({
+    kind: z.literal("explanation"),
+    text: text.regex(/\S/, "must not be blank").optional(),
+  }),
 ]);
 export const HostInlineSchema = z.discriminatedUnion("type", [
   z.strictObject({
@@ -229,6 +241,14 @@ export const HostInlineSchema = z.discriminatedUnion("type", [
         ]),
       )
       .max(7)
+      .refine(
+        (marks) => new Set(marks).size === marks.length,
+        "Marks must not repeat",
+      )
+      .refine(
+        (marks) => !(marks.includes("sub") && marks.includes("sup")),
+        "Subscript and superscript cannot be combined",
+      )
       .optional(),
   }),
   z.strictObject({ type: z.literal("code"), text }),
@@ -247,7 +267,7 @@ export const HostSequenceMessageSchema = z.strictObject({
   toActorId: HostKeySchema,
   label,
   evidence: HostEvidenceSchema,
-  style: z.enum(["call", "return", "async"]),
+  style: z.enum(["call", "return", "async"]).default("call"),
 });
 export const HostStackFrameSchema = z.strictObject({
   id: HostKeySchema,
@@ -304,7 +324,7 @@ export const HostNodeSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...nodeIdentity,
     type: z.literal("code"),
-    language,
+    language: language.default("text"),
     text,
     caption: text.optional(),
   }),
@@ -313,13 +333,13 @@ export const HostNodeSchema = z.discriminatedUnion("type", [
     ...nodeIdentity,
     type: z.literal("section"),
     title: label,
-    defaultCollapsed: z.boolean(),
+    defaultCollapsed: z.boolean().default(false),
     children: z.array(HostKeySchema).max(HOST_LIMITS.nodes),
   }),
   z.strictObject({
     ...nodeIdentity,
     type: z.literal("callout"),
-    tone: z.enum(["info", "warning", "danger", "success"]),
+    tone: z.enum(["info", "warning", "danger", "success"]).default("info"),
     title: label.optional(),
     children: z.array(HostKeySchema).max(HOST_LIMITS.nodes),
   }),
@@ -388,9 +408,8 @@ export const HostDocumentManifestSchema = z.strictObject({
 });
 export type HostDocumentManifest = z.infer<typeof HostDocumentManifestSchema>;
 export const HostDocumentStateSchema = HostDocumentSchema.extend({
-  documentId: HostIdSchema,
   reviewId: HostIdSchema,
-  version: HostVersionSchema,
+  reviewVersion: HostVersionSchema,
   binding: HostBindingSchema,
   contentHash: HostHashSchema,
   createdAt: HostTimeSchema,
@@ -399,16 +418,128 @@ export const HostDocumentStateSchema = HostDocumentSchema.extend({
 export type HostDocumentState = z.infer<typeof HostDocumentStateSchema>;
 export const HostPlacementSchema = z.strictObject({
   parentId: HostKeySchema.nullable(),
-  afterId: HostKeySchema.nullable(),
+  position: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("start") }),
+    z.strictObject({ kind: z.literal("end") }),
+    z.strictObject({ kind: z.literal("after"), nodeId: HostKeySchema }),
+  ]),
 });
 export type HostPlacement = z.infer<typeof HostPlacementSchema>;
+const [
+  markdownNode,
+  paragraphNode,
+  headingNode,
+  codeNode,
+  dividerNode,
+  sectionNode,
+  calloutNode,
+  peekNode,
+  sequenceNode,
+  stackNode,
+  databaseNode,
+  traceNode,
+  imageNode,
+  mapNode,
+] = HostNodeSchema.options;
+// Only container child ownership differs from a full node. Derive the fields
+// from the original schemas so JSON schemas and TypeScript stay in agreement.
+export const HostNewNodeSchema = z.discriminatedUnion("type", [
+  markdownNode,
+  paragraphNode,
+  headingNode,
+  codeNode,
+  dividerNode,
+  sectionNode.extend({ children: z.tuple([]).default([]) }),
+  calloutNode.extend({ children: z.tuple([]).default([]) }),
+  peekNode,
+  sequenceNode,
+  stackNode,
+  databaseNode,
+  traceNode,
+  imageNode,
+  mapNode,
+]);
+export const HostNodeReplacementSchema = z.discriminatedUnion("type", [
+  markdownNode,
+  paragraphNode,
+  headingNode,
+  codeNode,
+  dividerNode,
+  sectionNode.omit({ children: true }),
+  calloutNode.omit({ children: true }),
+  peekNode,
+  sequenceNode,
+  stackNode,
+  databaseNode,
+  traceNode,
+  imageNode,
+  mapNode,
+]);
+
+const immutableNodeFields = { id: true, type: true } as const;
+const containerFields = { ...immutableNodeFields, children: true } as const;
+// Defaults apply to new/replaced values, never to omitted patch fields. Null
+// clears only optional fields; nested values retain their normal input defaults.
+export const HostNodePatchSchemas = {
+  markdown: markdownNode.omit(immutableNodeFields).partial(),
+  paragraph: paragraphNode.omit(immutableNodeFields).partial(),
+  heading: headingNode.omit(immutableNodeFields).partial(),
+  code: codeNode
+    .omit(immutableNodeFields)
+    .extend({ language, caption: text.nullable().optional() })
+    .partial(),
+  divider: z.never(),
+  section: sectionNode
+    .omit(containerFields)
+    .extend({ defaultCollapsed: z.boolean() })
+    .partial(),
+  callout: calloutNode
+    .omit(containerFields)
+    .extend({
+      tone: calloutNode.shape.tone.unwrap(),
+      title: label.nullable().optional(),
+    })
+    .partial(),
+  code_peek: peekNode
+    .omit(immutableNodeFields)
+    .extend({ caption: text.nullable().optional() })
+    .partial(),
+  sequence: sequenceNode.omit(immutableNodeFields).partial(),
+  call_stack_diff: stackNode.omit(immutableNodeFields).partial(),
+  database_lens: databaseNode.omit(immutableNodeFields).partial(),
+  trace_quote: traceNode.omit(immutableNodeFields).partial(),
+  image: imageNode
+    .omit(immutableNodeFields)
+    .extend({ caption: text.nullable().optional() })
+    .partial(),
+  software_map: mapNode
+    .omit(immutableNodeFields)
+    .extend({ focusElementId: HostKeySchema.nullable().optional() })
+    .partial(),
+};
+export const HostNodePatchSchema = z
+  .union(Object.values(HostNodePatchSchemas))
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "A node update must change at least one field",
+  );
+export type HostNodePatch = z.output<typeof HostNodePatchSchema>;
+export type HostNodePatchInput = z.input<typeof HostNodePatchSchema>;
 export const HostDocumentOperationSchema = z.discriminatedUnion("op", [
   z.strictObject({
     op: z.literal("node.insert"),
-    node: HostNodeSchema,
+    node: HostNewNodeSchema,
     placement: HostPlacementSchema,
   }),
-  z.strictObject({ op: z.literal("node.replace"), node: HostNodeSchema }),
+  z.strictObject({
+    op: z.literal("node.update"),
+    nodeId: HostKeySchema,
+    changes: HostNodePatchSchema,
+  }),
+  z.strictObject({
+    op: z.literal("node.replace"),
+    node: HostNodeReplacementSchema,
+  }),
   z.strictObject({
     op: z.literal("node.move"),
     nodeId: HostKeySchema,
@@ -417,7 +548,7 @@ export const HostDocumentOperationSchema = z.discriminatedUnion("op", [
   z.strictObject({
     op: z.literal("node.remove"),
     nodeId: HostKeySchema,
-    subtree: z.boolean(),
+    recursive: z.boolean().default(false),
   }),
   z.strictObject({
     op: z.literal("definition.put"),
@@ -426,13 +557,13 @@ export const HostDocumentOperationSchema = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("definition.remove"), id: HostKeySchema }),
 ]);
-export type HostDocumentOperation = z.infer<typeof HostDocumentOperationSchema>;
+export type HostDocumentOperation = z.input<typeof HostDocumentOperationSchema>;
 
 export const HostMapElementSchema = z.strictObject({
   id: HostKeySchema,
   parentId: HostKeySchema.nullable(),
   label,
-  description: text,
+  description: text.default(""),
   kind: z.enum(["person", "system", "container", "component", "code", "store"]),
   source: z.array(HostSourceSpanSchema).max(HOST_LIMITS.diagramItems),
   store: z.strictObject(storeFields).optional(),
@@ -469,7 +600,7 @@ export const HostMapVersionSchema = HostMapSchema.extend({
   mapId: HostIdSchema,
   repositoryId: HostIdSchema,
   commit: HostOidSchema,
-  revision: HostVersionSchema,
+  mapVersion: HostVersionSchema,
   contentHash: HostHashSchema,
   createdAt: HostTimeSchema,
 });
@@ -506,15 +637,15 @@ export const HostDiagnosticSchema = z.strictObject({
 export type HostDiagnostic = z.infer<typeof HostDiagnosticSchema>;
 export const HostValidationReportSchema = z.strictObject({
   valid: z.boolean(),
-  basedOnVersion: HostVersionSchema,
+  basedOnReviewVersion: HostVersionSchema,
   diagnostics: z.array(HostDiagnosticSchema).max(HOST_LIMITS.definitions),
   affectedNodeIds: z.array(HostKeySchema).max(HOST_LIMITS.nodes),
 });
 export type HostValidationReport = z.infer<typeof HostValidationReportSchema>;
 export const HostDocumentCommitSchema = z.strictObject({
-  documentId: HostIdSchema,
-  previousVersion: HostVersionSchema,
-  version: HostVersionSchema,
+  reviewId: HostIdSchema,
+  previousReviewVersion: HostVersionSchema,
+  reviewVersion: HostVersionSchema,
   contentHash: HostHashSchema,
   createdAt: HostTimeSchema,
   changedNodes: keyedRecord(HostNodeSchema, HOST_LIMITS.nodes),

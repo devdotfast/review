@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { HostActivitySnapshot } from "./host-activity.js";
+import type { HostReviewCommit, HostReviewWithSnapshot } from "./host-api.js";
 import { ReviewClient, applyHostDocumentCommit } from "./host-client.js";
-import { type HostQuery, HostQuerySchema } from "./host-commands.js";
+import { type HostQuery, HostQueryBodySchema } from "./host-commands.js";
 import type { HostDocumentCommit, HostDocumentState } from "./host-document.js";
 
 const reviewId = "27768987-4d4d-4c6f-885c-4bf783f44c27";
@@ -18,9 +20,8 @@ const binding = {
 function snapshot(version = 1): HostDocumentState {
   return {
     schemaVersion: 1,
-    documentId: reviewId,
     reviewId,
-    version,
+    reviewVersion: version,
     roots: ["intro"],
     nodes: {
       intro: { id: "intro", type: "markdown", markdown: `Version ${version}` },
@@ -34,9 +35,9 @@ function snapshot(version = 1): HostDocumentState {
 }
 function patch(version = 2): HostDocumentCommit {
   return {
-    documentId: reviewId,
-    previousVersion: version - 1,
-    version,
+    reviewId,
+    previousReviewVersion: version - 1,
+    reviewVersion: version,
     changedNodes: snapshot(version).nodes,
     removedNodeIds: [],
     changedDefinitions: {},
@@ -50,12 +51,48 @@ function patch(version = 2): HostDocumentCommit {
     diagnostics: [],
   };
 }
+function review(document = snapshot()): HostReviewWithSnapshot {
+  return {
+    review: {
+      id: reviewId,
+      repositoryId: reviewId,
+      latestReviewVersion: document.reviewVersion,
+      stateVersion: 0,
+      state: "open",
+      deletedAt: null,
+      createdAt,
+      createdBy: reviewId,
+    },
+    snapshot: {
+      reviewId,
+      reviewVersion: document.reviewVersion,
+      title: `Review ${document.reviewVersion}`,
+      description: "",
+      labels: [],
+      binding,
+      mapVersions: { base: null, head: null },
+      createdAt,
+      createdBy: reviewId,
+      restoredFromReviewVersion: null,
+    },
+  };
+}
 function event(version: number, cursor = `cursor-${version}`) {
   return {
     cursor,
     reviewId,
-    type: "document.committed",
-    payload: { reviewId, commit: patch(version) },
+    type: "review.committed",
+    payload: reviewCommit(version),
+  };
+}
+function reviewCommit(version: number): HostReviewCommit {
+  return {
+    reviewId,
+    previousReviewVersion: version - 1,
+    reviewVersion: version,
+    snapshot: review(snapshot(version)).snapshot,
+    documentDelta: patch(version),
+    diagnostics: [],
   };
 }
 
@@ -65,7 +102,7 @@ function server() {
     controller: ReadableStreamDefaultController<Uint8Array>;
     signal: AbortSignal;
   }[] = [];
-  const queries: HostQuery[] = [];
+  const queries: { type: string; input: unknown }[] = [];
   let current = snapshot();
   const request = vi.fn<typeof fetch>(async (input, init) => {
     const url = new URL(String(input));
@@ -73,17 +110,25 @@ function server() {
     expect(url.searchParams.has("token")).toBe(false);
     if (url.pathname === "/v1/connection")
       return Response.json({
-        apiVersion: 1,
-        hostId: reviewId,
-        workspaceId: otherId,
-        principal: { id: reviewId, kind: "human", displayName: "You" },
+        ok: true,
+        data: {
+          apiVersion: 1,
+          hostId: reviewId,
+          workspaceId: otherId,
+          principal: { id: reviewId, kind: "human", displayName: "You" },
+        },
       });
     if (url.pathname.endsWith("/queries")) {
-      const envelope = HostQuerySchema.parse(JSON.parse(String(init?.body)));
+      const envelope = HostQueryBodySchema.parse(
+        JSON.parse(String(init?.body)),
+      );
       queries.push(envelope);
       return Response.json({
         ok: true,
-        data: { result: current, eventCursor: `cursor-${current.version}` },
+        data: {
+          result: envelope.type === "review.get" ? review(current) : current,
+          eventCursor: `cursor-${current.reviewVersion}`,
+        },
       });
     }
     if (!init?.signal) throw new Error("A stream requires cancellation.");
@@ -136,6 +181,213 @@ function server() {
 }
 
 describe("canonical Review client", () => {
+  it("delivers metadata-only and canvas edits as complete matching review versions", async () => {
+    const host = server();
+    const client = await host.client();
+    const abort = new AbortController();
+    const received: {
+      version: number;
+      documentVersion: number;
+      title: string;
+      text: unknown;
+    }[] = [];
+    const watching = client.watchReview({
+      reviewId,
+      signal: abort.signal,
+      onReview(value) {
+        received.push({
+          version: value.snapshot.reviewVersion,
+          documentVersion: value.document.reviewVersion,
+          title: value.snapshot.title,
+          text: value.document.nodes.intro,
+        });
+      },
+    });
+    try {
+      await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+      const metadata = event(2);
+      metadata.payload.documentDelta = null;
+      host.send(0, metadata);
+      await vi.waitFor(() => expect(received).toHaveLength(2));
+      expect(received[1]).toMatchObject({
+        version: 2,
+        documentVersion: 2,
+        title: "Review 2",
+        text: { markdown: "Version 1" },
+      });
+      host.send(0, event(3));
+      await vi.waitFor(() => expect(received).toHaveLength(3));
+      expect(received[2]).toMatchObject({
+        version: 3,
+        documentVersion: 3,
+        title: "Review 3",
+        text: { markdown: "Version 3" },
+      });
+      expect(host.queries).toEqual([
+        { type: "review.get", input: { reviewId } },
+        { type: "document.get", input: { reviewId, reviewVersion: 1 } },
+      ]);
+    } finally {
+      abort.abort();
+      await watching;
+    }
+  });
+
+  it.each([false, true])(
+    "rejects oversized multibyte event frames before processing them (terminated: %s)",
+    async (terminated) => {
+      const host = server();
+      const client = await host.client();
+      const abort = new AbortController();
+      const onError = vi.fn<(error: Error) => void>(() => abort.abort());
+      const onEvent = vi.fn<() => void>();
+      const watching = client.subscribe({
+        after: "cursor-1",
+        reviewId,
+        signal: abort.signal,
+        onEvent,
+        onReset: async () => "cursor-1",
+        onError,
+      });
+      try {
+        await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+        // This is below the limit in characters, but above it in UTF-8 bytes.
+        const bytes = new TextEncoder().encode(
+          `: ${"é".repeat(600_000)}${terminated ? "\r\n\r\n" : ""}`,
+        );
+        host.streams[0]!.controller.enqueue(bytes.slice(0, 3));
+        host.streams[0]!.controller.enqueue(bytes.slice(3));
+        await vi.waitFor(() =>
+          expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({
+              message: "An event frame exceeds the client size limit.",
+            }),
+          ),
+        );
+        expect(onEvent).not.toHaveBeenCalled();
+      } finally {
+        abort.abort();
+        await watching;
+      }
+    },
+  );
+
+  it("marks activity unknown after 45 seconds without a complete frame, with heartbeats extending that deadline", async () => {
+    vi.useFakeTimers();
+    const abort = new AbortController();
+    let watching: Promise<void> | undefined;
+    try {
+      const host = server();
+      const client = await host.client();
+      const activity =
+        vi.fn<(activity: HostActivitySnapshot | undefined) => void>();
+      const onError = vi.fn<(error: Error) => void>(() => abort.abort());
+      watching = client.watchDocument({
+        reviewId,
+        signal: abort.signal,
+        onDocument() {},
+        onActivity: activity,
+        onError,
+      });
+      await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(44_000);
+      host.streams[0]!.controller.enqueue(
+        new TextEncoder().encode(": heartbeat\n\n"),
+      );
+      await vi.advanceTimersByTimeAsync(44_000);
+      expect(onError).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await watching;
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "The Review event stream stopped responding.",
+        }),
+      );
+      expect(activity).toHaveBeenLastCalledWith(undefined);
+    } finally {
+      abort.abort();
+      await watching;
+      vi.useRealTimers();
+    }
+  });
+
+  it("receives transient activity without moving the document cursor, and refreshes it after reconnect", async () => {
+    const host = server();
+    const client = await host.client();
+    const abort = new AbortController();
+    const activity = vi.fn<(value: HostActivitySnapshot | undefined) => void>();
+    const versions: number[] = [];
+    const watching = client.watchDocument({
+      reviewId,
+      signal: abort.signal,
+      onDocument: (document) => versions.push(document.reviewVersion),
+      onActivity: activity,
+    });
+    try {
+      await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+      expect(host.streams[0]!.url.searchParams.get("activity")).toBe("1");
+      const active = {
+        reviewId,
+        workingCount: 1,
+        unknownCount: 0,
+      };
+      host.streams[0]!.controller.enqueue(
+        new TextEncoder().encode(
+          `event: authoring.activity\ndata: ${JSON.stringify(active)}\n\n`,
+        ),
+      );
+      await vi.waitFor(() => expect(activity).toHaveBeenLastCalledWith(active));
+      expect(versions).toEqual([1]);
+      host.send(0, event(2));
+      await vi.waitFor(() => expect(versions).toEqual([1, 2]));
+      host.streams[0]!.controller.close();
+      await vi.waitFor(() => expect(host.streams).toHaveLength(2));
+      expect(activity).toHaveBeenLastCalledWith(undefined);
+      expect(host.streams[1]!.url.searchParams.get("after")).toBe("cursor-2");
+      const ended = { ...active, workingCount: 0 };
+      host.streams[1]!.controller.enqueue(
+        new TextEncoder().encode(
+          `event: authoring.activity\ndata: ${JSON.stringify(ended)}\n\n`,
+        ),
+      );
+      await vi.waitFor(() => expect(activity).toHaveBeenLastCalledWith(ended));
+      expect(versions).toEqual([1, 2]);
+    } finally {
+      abort.abort();
+      await watching;
+    }
+  });
+
+  it("does not deliver activity for another review", async () => {
+    const host = server();
+    const client = await host.client();
+    const abort = new AbortController();
+    const activity = vi.fn<(value: HostActivitySnapshot | undefined) => void>();
+    const onError = vi.fn<(error: Error) => void>(() => abort.abort());
+    const watching = client.watchDocument({
+      reviewId,
+      signal: abort.signal,
+      onDocument() {},
+      onActivity: activity,
+      onError,
+    });
+    await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+    host.streams[0]!.controller.enqueue(
+      new TextEncoder().encode(
+        `event: authoring.activity\ndata: ${JSON.stringify({ reviewId: otherId, workingCount: 1, unknownCount: 0 })}\n\n`,
+      ),
+    );
+    await watching;
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "The activity belongs to a different review.",
+      }),
+    );
+    expect(activity.mock.calls.every(([value]) => value === undefined)).toBe(
+      true,
+    );
+  });
+
   it("applies definitions, evidence, tree order and removal as one validated state", () => {
     const before = snapshot();
     const commit = patch();
@@ -173,7 +425,7 @@ describe("canonical Review client", () => {
     expect(() =>
       applyHostDocumentCommit(before, { ...commit, roots: ["missing"] }),
     ).toThrow("Node missing does not exist");
-    expect(before.version).toBe(1);
+    expect(before.reviewVersion).toBe(1);
   });
 
   it("keeps two streams independent, parses fragmented SSE, deduplicates replay and cancels separately", async () => {
@@ -186,12 +438,12 @@ describe("canonical Review client", () => {
     const one = client.watchDocument({
       reviewId,
       signal: first.signal,
-      onDocument: (document) => firstVersions.push(document.version),
+      onDocument: (document) => firstVersions.push(document.reviewVersion),
     });
     const two = client.watchDocument({
       reviewId,
       signal: second.signal,
-      onDocument: (document) => secondVersions.push(document.version),
+      onDocument: (document) => secondVersions.push(document.reviewVersion),
     });
     await vi.waitFor(() => expect(host.streams).toHaveLength(2));
     host.send(0, event(2), true);
@@ -214,7 +466,7 @@ describe("canonical Review client", () => {
     const watching = client.watchDocument({
       reviewId,
       signal: abort.signal,
-      onDocument: (document) => versions.push(document.version),
+      onDocument: (document) => versions.push(document.reviewVersion),
     });
     await vi.waitFor(() => expect(host.streams).toHaveLength(1));
     host.send(0, event(2));
@@ -228,29 +480,112 @@ describe("canonical Review client", () => {
     await vi.waitFor(() => expect(versions).toEqual([1, 2, 5]));
     await vi.waitFor(() => expect(host.streams).toHaveLength(3));
     expect(host.streams[2]!.url.searchParams.get("after")).toBe("cursor-5");
-    expect(host.queries).toHaveLength(2);
+    expect(host.queries).toHaveLength(4);
     abort.abort();
     await watching;
   });
 
-  it("loads historical documents without opening a working-document subscription", async () => {
+  it("keeps historical material fixed while following the latest-version pointer", async () => {
     const host = server();
     const client = await host.client();
     const received: number[] = [];
-    await client.watchDocument({
+    const abort = new AbortController();
+    const watching = client.watchDocument({
       reviewId,
-      version: 1,
-      signal: new AbortController().signal,
-      onDocument: (document) => received.push(document.version),
+      reviewVersion: 1,
+      signal: abort.signal,
+      onDocument: (document) => received.push(document.reviewVersion),
     });
-    expect(received).toEqual([1]);
-    expect(host.streams).toHaveLength(0);
+    await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+    host.send(0, event(2));
+    await vi.waitFor(() => expect(received).toEqual([1, 1]));
     expect(host.queries).toEqual([
       expect.objectContaining({
+        type: "review.get",
+        input: { reviewId, reviewVersion: 1 },
+      }),
+      expect.objectContaining({
         type: "document.get",
-        input: { reviewId, version: 1 },
+        input: { reviewId, reviewVersion: 1 },
       }),
     ]);
+    abort.abort();
+    await watching;
+  });
+
+  it.each(["future.material_changed", "constructor", "toString"])(
+    "refreshes authoritative state for an unknown event named %s",
+    async (type) => {
+      const host = server();
+      const client = await host.client();
+      const abort = new AbortController();
+      const versions: number[] = [];
+      const errors: Error[] = [];
+      const watching = client.watchDocument({
+        reviewId,
+        signal: abort.signal,
+        onDocument: (document) => versions.push(document.reviewVersion),
+        onError: (error) => errors.push(error),
+      });
+      try {
+        await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+        host.setSnapshot(snapshot(5));
+        host.send(0, { ...event(2), type });
+        await vi.waitFor(() => expect(versions).toEqual([1, 5]));
+        expect(errors).toEqual([]);
+        await vi.waitFor(() => expect(host.streams).toHaveLength(2));
+        expect(host.streams[1]!.url.searchParams.get("after")).toBe("cursor-5");
+      } finally {
+        abort.abort();
+        await watching;
+      }
+    },
+  );
+
+  it("retries a transient snapshot reset failure after cursor expiry instead of losing the subscription", async () => {
+    const host = server();
+    let resets = 0;
+    const errors: Error[] = [];
+    const client = await host.client(async (input, init) => {
+      if (String(input).includes("/events") && resets < 2)
+        return Response.json(
+          {
+            ok: false,
+            error: {
+              code: "CURSOR_EXPIRED",
+              message: "Refresh",
+              retryable: false,
+              diagnostics: [],
+            },
+          },
+          { status: 409 },
+        );
+      return host.request(input, init);
+    });
+    const abort = new AbortController();
+    const watching = client.subscribe({
+      after: "cursor-old",
+      reviewId,
+      signal: abort.signal,
+      onEvent() {},
+      async onReset() {
+        resets++;
+        if (resets === 1) throw new Error("Temporary snapshot network failure");
+        return "cursor-new";
+      },
+      onError: (error) => errors.push(error),
+    });
+    try {
+      await vi.waitFor(() => expect(host.streams).toHaveLength(1));
+      expect(resets).toBe(2);
+      expect(errors.map((error) => error.message)).toEqual([
+        "Temporary snapshot network failure",
+      ]);
+      expect(host.streams[0]!.url.searchParams.get("after")).toBe("cursor-new");
+    } finally {
+      abort.abort();
+      await watching;
+    }
   });
 
   it("recovers an expired cursor with a new atomic snapshot before reconnecting", async () => {
@@ -280,7 +615,7 @@ describe("canonical Review client", () => {
     const watching = client.watchDocument({
       reviewId,
       signal: abort.signal,
-      onDocument: (document) => versions.push(document.version),
+      onDocument: (document) => versions.push(document.reviewVersion),
     });
     await vi.waitFor(() => expect(host.streams).toHaveLength(1));
     expect(versions).toEqual([1, 4]);

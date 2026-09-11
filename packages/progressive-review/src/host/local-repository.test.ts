@@ -138,6 +138,50 @@ describe("host-controlled local repositories", () => {
 });
 
 describe("immutable local source queries", () => {
+  it("keeps whole-file support beyond 1000 lines and enforces separate excerpt limits", async () => {
+    const root = fixture();
+    const text = "line\n".repeat(1001);
+    writeFileSync(path.join(root, "many.ts"), text);
+    writeFileSync(path.join(root, "empty.ts"), "");
+    writeFileSync(path.join(root, "wide.ts"), "é".repeat(140_000));
+    const binding = await resolveBinding(repositoryId, root, {
+      kind: "snapshot",
+      ref: commit(root),
+    });
+    const source = new LocalRepositorySource(() => root);
+    expect(
+      await source.read(binding, { side: "head", file: "many.ts" }),
+    ).toMatchObject({ text, range: null });
+    await expect(
+      source.read(binding, {
+        side: "head",
+        file: "many.ts",
+        range: { fromLine: 1, toLine: 1001 },
+      }),
+    ).rejects.toMatchObject({ code: "RESOURCE_LIMIT" });
+    expect(
+      await source.read(binding, { side: "head", file: "empty.ts" }),
+    ).toMatchObject({ text: "", range: null });
+    await expect(
+      source.read(binding, {
+        side: "head",
+        file: "empty.ts",
+        range: { fromLine: 1, toLine: 1 },
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    expect(
+      (await source.read(binding, { side: "head", file: "wide.ts" })).text
+        .length,
+    ).toBe(140_000);
+    await expect(
+      source.read(binding, {
+        side: "head",
+        file: "wide.ts",
+        range: { fromLine: 1, toLine: 1 },
+      }),
+    ).rejects.toMatchObject({ code: "RESOURCE_LIMIT" });
+  });
+
   it("returns the complete exact pinned file, including newline bytes, without reading the working copy", async () => {
     const root = fixture();
     const original = "first\r\nsecond\r\n";
@@ -149,11 +193,14 @@ describe("immutable local source queries", () => {
     });
     const source = new LocalRepositorySource(() => root);
     writeFileSync(path.join(root, "full.ts"), "uncommitted replacement");
-    await expect(source.file(binding, "head", "full.ts")).resolves.toEqual({
+    await expect(
+      source.read(binding, { side: "head", file: "full.ts" }),
+    ).resolves.toEqual({
       repositoryId,
       commit: oid,
       blob: git(root, ["rev-parse", `${oid}:full.ts`]),
       file: "full.ts",
+      range: null,
       text: original,
       sha256: createHash("sha256").update(original).digest("hex"),
     });
@@ -161,10 +208,12 @@ describe("immutable local source queries", () => {
       source.read(binding, {
         side: "head",
         file: "full.ts",
-        fromLine: 1,
-        toLine: 2,
+        range: { fromLine: 1, toLine: 2 },
       }),
-    ).resolves.toMatchObject({ text: "first\nsecond" });
+    ).resolves.toMatchObject({
+      range: { fromLine: 1, toLine: 2 },
+      text: "first\nsecond",
+    });
   });
 
   it("rejects unsafe full-file editor reads before exposing bytes", async () => {
@@ -212,8 +261,7 @@ describe("immutable local source queries", () => {
       source.read(binding, {
         side: "head",
         file: "file.ts",
-        fromLine: 1,
-        toLine: 1,
+        range: { fromLine: 1, toLine: 1 },
       }),
     ).resolves.toMatchObject({ text: "header" });
     await expect(
@@ -245,6 +293,12 @@ describe("immutable local source queries", () => {
         byteLength: 5,
       }),
     ]);
+    await expect(source.tree(binding, "head", "missing")).rejects.toMatchObject(
+      { code: "NOT_FOUND" },
+    );
+    await expect(source.tree(binding, "head", "file.ts")).rejects.toMatchObject(
+      { code: "INVALID_REQUEST" },
+    );
   });
 
   it("reports renamed files and changed lines in each side's coordinates", async () => {
@@ -287,6 +341,99 @@ describe("immutable local source queries", () => {
         subject: "fixture",
       }),
     ]);
+  });
+
+  it("scopes commit files and source to the selected commit and first parent, never the working tree", async () => {
+    const root = fixture();
+    const base = git(root, ["rev-parse", "HEAD"]);
+    writeFileSync(path.join(root, "added.ts"), "first commit\n");
+    const first = commit(root);
+    writeFileSync(path.join(root, "added.ts"), "later commit\n");
+    renameSync(path.join(root, "file.ts"), path.join(root, "renamed.ts"));
+    const head = commit(root);
+    writeFileSync(path.join(root, "added.ts"), "uncommitted\n");
+    const binding = await resolveBinding(repositoryId, root, {
+      kind: "range",
+      baseRef: base,
+      headRef: head,
+    });
+    const source = new LocalRepositorySource(() => root);
+    expect(await source.diffFiles(binding, first)).toEqual([
+      {
+        path: "added.ts",
+        status: "added",
+        binary: false,
+        additions: 1,
+        deletions: 0,
+      },
+    ]);
+    await expect(
+      source.file(binding, "head", "added.ts", first),
+    ).resolves.toMatchObject({ commit: first, text: "first commit\n" });
+    await expect(
+      source.file(binding, "base", "added.ts", head),
+    ).resolves.toMatchObject({ commit: first, text: "first commit\n" });
+    await expect(
+      source.file(binding, "head", "added.ts", head),
+    ).resolves.toMatchObject({ commit: head, text: "later commit\n" });
+    await expect(
+      source.read(binding, {
+        side: "base",
+        file: "added.ts",
+        range: { fromLine: 1, toLine: 1 },
+        comparisonCommit: head,
+      }),
+    ).resolves.toMatchObject({ commit: first, text: "first commit" });
+    expect(
+      (await source.tree(binding, "head", "", first)).map(
+        (entry) => entry.path,
+      ),
+    ).toContain("file.ts");
+    expect(
+      (await source.diffFiles(binding, head)).find(
+        (file) => file.path === "renamed.ts",
+      ),
+    ).toMatchObject({ previousPath: "file.ts", status: "renamed" });
+    await expect(source.diffFiles(binding, base)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "The commit is not part of this pinned review.",
+    });
+    await expect(
+      source.file(binding, "head", "file.ts", base),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(source.diffFiles(binding, "HEAD")).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+    });
+  });
+
+  it("represents a selected root commit as additions without inventing a base-side source", async () => {
+    const root = fixture();
+    const base = git(root, ["rev-parse", "HEAD"]);
+    git(root, ["checkout", "--orphan", "independent"]);
+    writeFileSync(path.join(root, "file.ts"), "independent root\n");
+    const head = commit(root);
+    const binding = await resolveBinding(repositoryId, root, {
+      kind: "range",
+      baseRef: base,
+      headRef: head,
+    });
+    const source = new LocalRepositorySource(() => root);
+    expect(await source.diffFiles(binding, head)).toEqual([
+      expect.objectContaining({
+        path: "file.ts",
+        status: "added",
+        deletions: 0,
+      }),
+    ]);
+    await expect(
+      source.file(binding, "head", "file.ts", head),
+    ).resolves.toMatchObject({ commit: head });
+    await expect(
+      source.file(binding, "base", "file.ts", head),
+    ).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: "A root commit has no base-side source file.",
+    });
   });
 
   it("does not invoke repository-configured diff/textconv commands", async () => {

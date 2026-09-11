@@ -1,5 +1,5 @@
-/** Real Desktop acceptance runner. It never starts an app, writes a review file,
- * sends synthetic canvas reports, or substitutes a headless renderer.
+/** Desktop API acceptance runner. It never starts an app or writes a review file.
+ * Timings end at server acceptance; verify actual frontend rendering separately.
  *
  * Run with this checkout's Node/tsx after starting its isolated Desktop build:
  *   node --import tsx scripts/benchmark-json-host.ts --help
@@ -15,13 +15,11 @@ import { parseArgs } from "node:util";
 
 import {
   HOST_LIMITS,
-  type HostCanvasObservation,
+  type HostAuthoredMap,
   type HostDocument,
   type HostDocumentOperation,
-  type HostMap,
   type HostNode,
   type HostSourceRange,
-  type HostSourceSpan,
   type JsonValue,
   ReviewClient,
   ReviewClientError,
@@ -42,13 +40,9 @@ type FixtureReferences = {
 type Measurement = {
   operation: string;
   reviewId: string;
-  documentVersion: number;
+  reviewVersion: number;
   nodeCount: number;
   acceptMs: number;
-  frontendObservedMs: number;
-  acceptedToObservedMs: number;
-  canvasSessionId: string;
-  canvasReceivedAt: string;
 };
 type Options = {
   home: string;
@@ -60,7 +54,6 @@ type Options = {
   sizes: number[];
   samples: number;
   liveDelayMs: number;
-  reportTimeoutMs: number;
   reviewId?: string;
   expectedHash?: string;
   previousInstanceId?: string;
@@ -152,7 +145,7 @@ export function fixtureDocument(
       id: "code",
       type: "code",
       language: "typescript",
-      text: 'await review.command("document.mutate", {\n  reviewId, expectedDocumentVersion, operations\n});',
+      text: 'await review.command("document.mutate", {\n  reviewId, expectedReviewVersion, operations\n});',
       caption: "Illustrative client code, not a source quotation",
     },
     { id: "divider", type: "divider" },
@@ -173,7 +166,7 @@ export function fixtureDocument(
       id: "callout",
       type: "callout",
       tone: "info",
-      title: "Real frontend observation",
+      title: "API acceptance measurement",
       children: ["callout_text"],
     },
     {
@@ -182,7 +175,7 @@ export function fixtureDocument(
       content: [
         {
           type: "text",
-          text: "Timings include the frontend's 100 ms report debounce and polling. They are not paint or animation-completion measurements.",
+          text: "Timings end when the server accepts each update. They do not measure frontend rendering, paint, or animation completion.",
         },
       ],
     },
@@ -412,10 +405,22 @@ export function fixtureSteps(
   ): HostDocumentOperation[] => {
     const node = document.nodes[nodeId]!;
     const children = "children" in node ? node.children : [];
-    const inserted: HostNode =
-      "children" in node ? { ...node, children: [] } : node;
+    const inserted: Extract<
+      HostDocumentOperation,
+      { op: "node.insert" }
+    >["node"] = "children" in node ? { ...node, children: [] } : node;
     const operations: HostDocumentOperation[] = [
-      { op: "node.insert", node: inserted, placement: { parentId, afterId } },
+      {
+        op: "node.insert",
+        node: inserted,
+        placement: {
+          parentId,
+          position:
+            afterId === null
+              ? { kind: "start" }
+              : { kind: "after", nodeId: afterId },
+        },
+      },
     ];
     let prior: string | null = null;
     for (const child of children) {
@@ -458,7 +463,7 @@ function selectRange(
   };
 }
 
-function fixtureMap(span: HostSourceSpan): HostMap {
+function fixtureMap(range: HostSourceRange): HostAuthoredMap {
   return {
     schemaVersion: 1,
     elements: {
@@ -476,7 +481,9 @@ function fixtureMap(span: HostSourceSpan): HostMap {
         label: "Review Host",
         description: "Pinned command implementation",
         kind: "component",
-        source: [span],
+        source: [
+          { file: range.file, fromLine: range.fromLine, toLine: range.toLine },
+        ],
       },
     },
     relationships: {
@@ -509,15 +516,15 @@ async function createFixture(
   ).result;
   const reviewId = created.review.id;
   const [baseFile, headFile] = await Promise.all([
-    client.query("source.file", {
+    client.query("source.read", {
       reviewId,
-      documentVersion: 0,
+      reviewVersion: 0,
       side: "base",
       file: options.sourceFile,
     }),
-    client.query("source.file", {
+    client.query("source.read", {
       reviewId,
-      documentVersion: 0,
+      reviewVersion: 0,
       side: "head",
       file: options.sourceFile,
     }),
@@ -532,13 +539,6 @@ async function createFixture(
     options.sourceFile,
     "head",
   );
-  const span = (
-    await client.query("source.read", {
-      reviewId,
-      documentVersion: 0,
-      range: headRange,
-    })
-  ).result.span;
   const eventId = randomUUID();
   const image = await sharp({
     create: {
@@ -553,9 +553,9 @@ async function createFixture(
   const [map, trace, asset] = await Promise.all([
     client.command("map.create", {
       reviewId,
-      documentVersion: 0,
+      reviewVersion: 0,
       side: "head",
-      map: fixtureMap(span),
+      map: fixtureMap(headRange),
     }),
     client.command("trace.ingest", {
       reviewId,
@@ -563,7 +563,6 @@ async function createFixture(
       events: [
         {
           id: eventId,
-          ordinal: 0,
           at: new Date().toISOString(),
           kind: "assistant",
           text: traceText,
@@ -598,71 +597,21 @@ async function createFixture(
   return { reviewId, refs };
 }
 
-async function observed(
-  client: ReviewClient,
-  reviewId: string,
-  version: number,
-  expectedIds: string[],
-  timeoutMs: number,
-  receivedAfter = 0,
-): Promise<HostCanvasObservation> {
-  const deadline = performance.now() + timeoutMs;
-  let last: HostCanvasObservation[] = [];
-  while (performance.now() < deadline) {
-    last = (await client.query("canvas.reports", { reviewId })).result;
-    const current = last.filter(
-      (report) =>
-        report.documentVersion === version &&
-        Date.parse(report.receivedAt) >= receivedAfter &&
-        report.principalId !== client.connection.principal.id,
-    );
-    const failed = current.find((report) => report.status === "failed");
-    if (failed)
-      throw new Error(
-        `Real canvas rejected version ${version}: ${JSON.stringify(failed.failures)}`,
-      );
-    const ready = current.find(
-      (report) =>
-        report.status === "rendered" &&
-        expectedIds.every((id) => report.visibleNodeIds.includes(id)),
-    );
-    if (ready) return ready;
-    await delay(40);
-  }
-  throw new Error(
-    `No real frontend acknowledgment for review ${reviewId}, version ${version}, within ${timeoutMs} ms. Open its live canvas with sections expanded. Last observations: ${JSON.stringify(last.map((report) => ({ version: report.documentVersion, status: report.status, nodes: report.visibleNodeIds.length })))}`,
-  );
-}
-
 async function measured(
-  client: ReviewClient,
-  options: Options,
   reviewId: string,
   label: string,
   expectedIds: string[],
-  commit: () => Promise<{ result: { version: number } }>,
+  commit: () => Promise<{ result: { reviewVersion: number } }>,
 ): Promise<Measurement> {
   const started = performance.now();
   const response = await commit();
   const accepted = performance.now();
-  const report = await observed(
-    client,
-    reviewId,
-    response.result.version,
-    expectedIds,
-    options.reportTimeoutMs,
-  );
-  const finished = performance.now();
   const measurement: Measurement = {
     operation: label,
     reviewId,
-    documentVersion: response.result.version,
+    reviewVersion: response.result.reviewVersion,
     nodeCount: expectedIds.length,
     acceptMs: rounded(accepted - started),
-    frontendObservedMs: rounded(finished - started),
-    acceptedToObservedMs: rounded(finished - accepted),
-    canvasSessionId: report.canvasSessionId,
-    canvasReceivedAt: report.receivedAt,
   };
   emit({ kind: "measurement", ...measurement });
   return measurement;
@@ -678,7 +627,7 @@ async function checkRejected(
   try {
     await client.command("document.mutate", {
       reviewId,
-      expectedDocumentVersion: version,
+      expectedReviewVersion: version,
       operations,
     });
   } catch (error) {
@@ -691,16 +640,12 @@ async function checkRejected(
   );
 }
 
-async function checkAuthoringRaces(
-  client: ReviewClient,
-  options: Options,
-  reviewId: string,
-) {
+async function checkAuthoringRaces(client: ReviewClient, reviewId: string) {
   const before = (await client.query("document.get", { reviewId })).result;
   await checkRejected(
     client,
     reviewId,
-    before.version,
+    before.reviewVersion,
     [
       {
         op: "node.insert",
@@ -709,7 +654,7 @@ async function checkAuthoringRaces(
           type: "code_peek",
           anchorId: "missing_evidence",
         },
-        placement: { parentId: null, afterId: null },
+        placement: { parentId: null, position: { kind: "start" } },
       },
     ],
     "VALIDATION_FAILED",
@@ -718,12 +663,12 @@ async function checkAuthoringRaces(
     .result;
   if (
     afterInvalid.contentHash !== before.contentHash ||
-    afterInvalid.version !== before.version
+    afterInvalid.reviewVersion !== before.reviewVersion
   )
     throw new Error("Rejected mutation changed the canonical document.");
   const input = {
     reviewId,
-    expectedDocumentVersion: before.version,
+    expectedReviewVersion: before.reviewVersion,
     operations: [
       {
         op: "node.replace" as const,
@@ -753,20 +698,13 @@ async function checkAuthoringRaces(
   await checkRejected(
     client,
     reviewId,
-    before.version,
+    before.reviewVersion,
     input.operations,
     "VERSION_CONFLICT",
   );
   const after = (await client.query("document.get", { reviewId })).result;
-  if (after.version !== before.version + 1)
+  if (after.reviewVersion !== before.reviewVersion + 1)
     throw new Error("Concurrent receipt retry committed more than once.");
-  await observed(
-    client,
-    reviewId,
-    after.version,
-    Object.keys(after.nodes),
-    options.reportTimeoutMs,
-  );
   emit({
     kind: "authoring_checks",
     reviewId,
@@ -796,7 +734,6 @@ async function gallery(
     "Every JSON node · real Desktop validation",
   );
   await local.open(reviewId);
-  await observed(client, reviewId, 0, [], options.reportTimeoutMs);
   const document = fixtureDocument(refs);
   const measurements: Measurement[] = [];
   const visible: string[] = [];
@@ -805,37 +742,32 @@ async function gallery(
     for (const operation of step.operations)
       if (operation.op === "node.insert") visible.push(operation.node.id);
     const measurement = await measured(
-      client,
-      options,
       reviewId,
       `insert.${step.label}`,
       [...visible],
       () =>
         client.command("document.mutate", {
           reviewId,
-          expectedDocumentVersion: version,
+          expectedReviewVersion: version,
           operations: step.operations,
         }),
     );
-    version = measurement.documentVersion;
+    version = measurement.reviewVersion;
     measurements.push(measurement);
     if (options.liveDelayMs > 0) await delay(options.liveDelayMs);
   }
-  const after = await checkAuthoringRaces(client, options, reviewId);
-  const review = (await client.query("review.get", { reviewId })).result.review;
-  const checkpoint = (
-    await client.command("review.publish", {
+  const after = await checkAuthoringRaces(client, reviewId);
+  const saved = (
+    await client.command("review.update", {
       reviewId,
-      expectedDocumentVersion: after.version,
-      expectedReviewVersion: review.version,
+      expectedReviewVersion: after.reviewVersion,
       mapVersions: { base: null, head: refs.mapVersionId },
     })
   ).result;
   emit({
     kind: "gallery_complete",
     reviewId,
-    checkpointId: checkpoint.id,
-    documentVersion: after.version,
+    reviewVersion: saved.reviewVersion,
     contentHash: after.contentHash,
     nodeTypes: [
       ...new Set(Object.values(document.nodes).map((node) => node.type)),
@@ -864,23 +796,20 @@ async function benchmark(
       `Real Desktop benchmark · ${count} mixed nodes`,
     );
     await local.open(reviewId);
-    await observed(client, reviewId, 0, [], options.reportTimeoutMs);
     const document = fixtureDocument(refs, count);
     const ids = Object.keys(document.nodes);
     const setup = await measured(
-      client,
-      options,
       reviewId,
       "document.replace.initial",
       ids,
       () =>
         client.command("document.replace", {
           reviewId,
-          expectedDocumentVersion: 0,
+          expectedReviewVersion: 0,
           document,
         }),
     );
-    let version = setup.documentVersion;
+    let version = setup.reviewVersion;
     const samples: Measurement[] = [];
     for (let sample = 0; sample < options.samples; sample++) {
       const operations: HostDocumentOperation[] = [
@@ -893,20 +822,14 @@ async function benchmark(
           },
         },
       ];
-      const result = await measured(
-        client,
-        options,
-        reviewId,
-        "node.replace.warm",
-        ids,
-        () =>
-          client.command("document.mutate", {
-            reviewId,
-            expectedDocumentVersion: version,
-            operations,
-          }),
+      const result = await measured(reviewId, "node.replace.warm", ids, () =>
+        client.command("document.mutate", {
+          reviewId,
+          expectedReviewVersion: version,
+          operations,
+        }),
       );
-      version = result.documentVersion;
+      version = result.reviewVersion;
       samples.push(result);
     }
     const dependencySamples: Measurement[] = [];
@@ -915,15 +838,13 @@ async function benchmark(
       if (!anchor || anchor.kind !== "anchor")
         throw new Error("Fixture source definition is missing.");
       const result = await measured(
-        client,
-        options,
         reviewId,
         "definition.label.warm",
         ids,
         () =>
           client.command("document.mutate", {
             reviewId,
-            expectedDocumentVersion: version,
+            expectedReviewVersion: version,
             operations: [
               {
                 op: "definition.put",
@@ -936,7 +857,7 @@ async function benchmark(
             ],
           }),
       );
-      version = result.documentVersion;
+      version = result.reviewVersion;
       dependencySamples.push(result);
     }
     emit({
@@ -955,7 +876,7 @@ async function benchmark(
       initialDocument: setup,
       nodeUpdates: summaries(samples),
       sharedDefinitionUpdates: summaries(dependencySamples),
-      note: "API timings exclude discovery and resource setup. Frontend observations include 100 ms report debounce plus 40 ms polling, and are not paint/animation-complete timings.",
+      note: "API acceptance timings exclude discovery and resource setup. This runner does not measure frontend rendering, paint, or animation completion.",
     });
   }
 }
@@ -1000,33 +921,39 @@ async function verify(
       resources.add(node.mapVersionId);
     }
   }
-  const checkpoints = (
-    await client.query("checkpoints.list", { reviewId: document.reviewId })
-  ).result.items;
-  for (const checkpoint of checkpoints)
-    await client.query("checkpoint.get", {
-      reviewId: document.reviewId,
-      checkpointId: checkpoint.id,
-    });
+  let historyCount = 0;
+  let cursor: string | undefined;
+  do {
+    const history = (
+      await client.query("review.history", {
+        reviewId: document.reviewId,
+        limit: 200,
+        cursor,
+      })
+    ).result;
+    for (const version of history.items) {
+      await client.query("review.get", {
+        reviewId: document.reviewId,
+        reviewVersion: version.reviewVersion,
+      });
+      await client.query("document.get", {
+        reviewId: document.reviewId,
+        reviewVersion: version.reviewVersion,
+      });
+      ++historyCount;
+    }
+    cursor = history.nextCursor ?? undefined;
+  } while (cursor);
   await local.open(document.reviewId);
-  // Startup clears observations and main() requires a different host instance.
-  // An already-restored canvas need not emit again just because it is focused.
-  const report = await observed(
-    client,
-    document.reviewId,
-    document.version,
-    Object.keys(document.nodes),
-    options.reportTimeoutMs,
-  );
   emit({
     kind: "restart_verified",
     reviewId: document.reviewId,
-    documentVersion: document.version,
+    reviewVersion: document.reviewVersion,
     contentHash: document.contentHash,
     retainedEvidence: Object.keys(document.evidence).length,
     retainedResources: resources.size,
-    checkpoints: checkpoints.length,
-    canvasSessionId: report.canvasSessionId,
+    savedVersions: historyCount,
+    note: "Retained state and resources verified through APIs; frontend rendering was not measured.",
   });
 }
 
@@ -1034,12 +961,6 @@ function summaries(samples: Measurement[]) {
   return {
     samples: samples.length,
     apiAcceptMs: statistics(samples.map((sample) => sample.acceptMs)),
-    frontendObservedMs: statistics(
-      samples.map((sample) => sample.frontendObservedMs),
-    ),
-    acceptedToObservedMs: statistics(
-      samples.map((sample) => sample.acceptedToObservedMs),
-    ),
   };
 }
 function statistics(values: number[]) {
@@ -1084,7 +1005,6 @@ function parseOptions(argv: string[]): Options | null {
       sizes: { type: "string", default: "20,200,1000" },
       samples: { type: "string", default: "5" },
       "live-delay-ms": { type: "string", default: "0" },
-      "report-timeout-ms": { type: "string", default: "60000" },
       "review-id": { type: "string" },
       "expected-hash": { type: "string" },
       "previous-instance-id": { type: "string" },
@@ -1093,7 +1013,7 @@ function parseOptions(argv: string[]): Options | null {
   });
   if (values.help) {
     process.stdout.write(
-      "Usage: node --import tsx scripts/benchmark-json-host.ts --home /absolute/isolated/review-home --repo-root /absolute/review-checkout --confirm-checkout-desktop [--mode gallery|benchmark|all|verify] [--live-delay-ms 1000] [--sizes 20,200,1000] [--samples 5] [--base HEAD] [--head HEAD]\n\nStart this checkout's real Desktop separately. This runner never launches an app. Both commits default to exact HEAD (snapshot). --source-file selects a committed file available at both pins. To verify after a manually performed restart, use --mode verify --review-id ID --expected-hash HASH --previous-instance-id INSTANCE from the earlier output. Verification requires a fresh canvas report after opening; switch away/back in Desktop if the view was already open. Every measured version requires a distinct frontend-session report; there is no headless fallback. Output is NDJSON.\n",
+      "Usage: node --import tsx scripts/benchmark-json-host.ts --home /absolute/isolated/review-home --repo-root /absolute/review-checkout --confirm-checkout-desktop [--mode gallery|benchmark|all|verify] [--live-delay-ms 1000] [--sizes 20,200,1000] [--samples 5] [--base HEAD] [--head HEAD]\n\nStart this checkout's real Desktop separately. This runner never launches an app. Both commits default to exact HEAD (snapshot). --source-file selects a committed file available at both pins. To verify retained state after a manually performed restart, use --mode verify --review-id ID --expected-hash HASH --previous-instance-id INSTANCE from the earlier output. Timings measure server API acceptance only, not frontend rendering, paint, or animation completion. Inspect the opened canvas separately. Output is NDJSON.\n",
     );
     return null;
   }
@@ -1138,7 +1058,6 @@ function parseOptions(argv: string[]): Options | null {
     sizes: values.sizes.split(",").map((value) => bounded(value, 16, 1000)),
     samples: bounded(values.samples, 1, 30),
     liveDelayMs: bounded(values["live-delay-ms"], 0, 5000),
-    reportTimeoutMs: bounded(values["report-timeout-ms"], 1000, 120000),
     reviewId: values["review-id"],
     expectedHash: values["expected-hash"],
     previousInstanceId: values["previous-instance-id"],
@@ -1163,11 +1082,6 @@ async function main() {
     throw new Error(
       "Desktop identity changed while connecting; retry explicitly.",
     );
-  const capabilities = (await client.query("capabilities", {})).result;
-  if (!capabilities.queries.includes("canvas.reports"))
-    throw new Error(
-      "This host cannot report real frontend observations; no benchmark was run.",
-    );
   emit({
     kind: "environment",
     hostId: connection.hostId,
@@ -1179,9 +1093,7 @@ async function main() {
     architecture: process.arch,
     cpus: os.cpus().length,
     memoryBytes: os.totalmem(),
-    renderer: capabilities.rendererVersion,
-    frontendReportDebounceMs: 100,
-    observationPollMs: 40,
+    measurement: "server_api_acceptance",
     mode: options.mode,
   });
   if (options.mode === "verify") {

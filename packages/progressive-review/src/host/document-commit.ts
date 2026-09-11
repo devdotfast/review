@@ -30,9 +30,9 @@ export function documentCommit(
   const definitions = changes(before.definitions, after.definitions);
   const evidence = changes(before.evidence, after.evidence);
   return {
-    documentId: after.documentId,
-    previousVersion: before.version,
-    version: after.version,
+    reviewId: after.reviewId,
+    previousReviewVersion: before.reviewVersion,
+    reviewVersion: after.reviewVersion,
     contentHash: after.contentHash,
     createdAt: after.createdAt,
     changedNodes: nodes.changed,

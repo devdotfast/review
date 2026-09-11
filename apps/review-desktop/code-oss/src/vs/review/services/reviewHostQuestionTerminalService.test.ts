@@ -20,6 +20,7 @@ test("host questions reuse one group beside their canvas, deduplicate replay, an
   t.after(() => disposed.dispose());
   const created: Parameters<ITerminalService["createTerminal"]>[0][] = [];
   const opened: number[] = [];
+  const notices: string[] = [];
   let focused = 0;
   const terminal = { onDisposed: disposed.event, focusWhenReady: async () => { focused++; } };
   const reviewGroup = { id: 41, editors: [{ resource: URI.from({ scheme: "devfast-review-canvas", authority: "host-review", path: `/${input.reviewId}` }) }] };
@@ -44,6 +45,7 @@ test("host questions reuse one group beside their canvas, deduplicate replay, an
     { createTerminal: async (options: typeof created[number]) => { created.push(options); return terminal; }, setActiveInstance: (instance: typeof terminal) => assert.equal(instance, terminal) } as never,
     { openEditor: async (instance: typeof terminal, options: { viewColumn: number }) => { assert.equal(instance, terminal); opened.push(options.viewColumn); } } as never,
     editorGroups as never,
+    { error: (message: string) => notices.push(message) } as never,
   );
   t.after(() => service.dispose());
   await Promise.all([service.open(input), service.open(input)]);
@@ -57,6 +59,11 @@ test("host questions reuse one group beside their canvas, deduplicate replay, an
   assert.equal(config.executable, "codex");
   assert.deepEqual(config.args, ["resume", "session-one"]);
   assert.equal(config.env?.REVIEW_RUN_ID, "run-one");
+  await service.reveal(input.reviewId, input.runId);
+  assert.equal(created.length, 1);
+  assert.equal(focused, 3);
+  await assert.rejects(service.reveal("different-review", input.runId), /no longer open/);
+  assert.match(notices.at(-1)!, /Start a new Ask/);
   activeGroup = groups[1];
   await service.open({ ...input, runId: "481427b2-36bc-4d40-a043-915860ca46d0", questionId: "581427b2-36bc-4d40-a043-915860ca46d0", session: { harness: "claude-code", sessionId: "session-two" } });
   assert.equal(created.length, 2);
@@ -67,6 +74,8 @@ test("host questions reuse one group beside their canvas, deduplicate replay, an
 
   groups.splice(groups.findIndex(group => group.id === 101), 1);
   disposed.fire();
+  await assert.rejects(service.reveal(input.reviewId, input.runId), /no longer open/);
+  assert.equal(created.length, 2);
   activeGroup = otherGroup;
   await service.open(input);
   assert.equal(created.length, 3);

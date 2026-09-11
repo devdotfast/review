@@ -1,92 +1,73 @@
 import { z } from "zod";
 
 import {
-  HOST_LIMITS,
-  HostBindingSchema,
-  HostChangeSelectorSchema,
-  HostDiagnosticSchema,
-  HostDocumentCommitSchema,
-  HostDocumentOperationSchema,
-  HostDocumentSchema,
   HostHashSchema,
   HostIdSchema,
-  HostKeySchema,
   HostLabelSchema,
   HostOidSchema,
   HostRelativePathSchema,
   HostSideSchema,
-  HostSourceQuoteSchema,
-  HostSourceRangeSchema,
   HostTimeSchema,
   HostVersionSchema,
 } from "./host-document.js";
 
-export const HostRepinPlanSchema = z.strictObject({
-  id: HostIdSchema,
-  reviewId: HostIdSchema,
-  basedOnDocumentVersion: HostVersionSchema,
-  binding: HostBindingSchema,
-  anchorChanges: z
-    .array(
-      z.strictObject({
-        id: HostKeySchema,
-        before: HostSourceRangeSchema,
-        proposed: HostSourceRangeSchema.nullable(),
-        status: z.enum(["exact", "relocated", "missing"]),
-      }),
-    )
-    .max(HOST_LIMITS.definitions),
-  proposedDefinitions: HostDocumentSchema.shape.definitions,
-  diagnostics: z.array(HostDiagnosticSchema).max(HOST_LIMITS.definitions),
-  createdAt: HostTimeSchema,
-});
-export type HostRepinPlan = z.infer<typeof HostRepinPlanSchema>;
-
 export const HOST_SOURCE_FILE_BYTES = 1024 * 1024;
-export const HostSourceFileSchema = z.strictObject({
+export const HOST_SOURCE_QUOTE_BYTES = 256 * 1024;
+export const HOST_SOURCE_COMMITS = 500;
+export const HostLineRangeSchema = z
+  .strictObject({
+    fromLine: z.number().int().positive(),
+    toLine: z.number().int().positive(),
+  })
+  .refine(
+    (range) => range.toLine >= range.fromLine,
+    "Source range must be ordered.",
+  )
+  .refine(
+    (range) => range.toLine - range.fromLine + 1 <= 1_000,
+    "Source ranges may not exceed 1,000 lines.",
+  );
+
+const sourceIdentity = {
   repositoryId: HostIdSchema,
   commit: HostOidSchema,
   blob: HostOidSchema,
   file: HostRelativePathSchema,
-  text: z
-    .string()
-    .max(HOST_SOURCE_FILE_BYTES)
-    .refine(
-      (text) =>
-        new TextEncoder().encode(text).byteLength <= HOST_SOURCE_FILE_BYTES,
-      "Source files may not exceed 1 MiB.",
-    ),
+};
+const sourceText = z
+  .string()
+  .max(HOST_SOURCE_FILE_BYTES)
+  .refine(
+    (text) =>
+      new TextEncoder().encode(text).byteLength <= HOST_SOURCE_FILE_BYTES,
+    "Source files may not exceed 1 MiB.",
+  );
+/** Internal whole-file value; the public API is the optional-range source.read. */
+export const HostSourceFileSchema = z.strictObject({
+  ...sourceIdentity,
+  text: sourceText,
   sha256: HostHashSchema,
 });
 export type HostSourceFile = z.infer<typeof HostSourceFileSchema>;
-
-export const HOST_BINDING_COMMANDS = {
-  "review.repin.plan": {
-    permission: "author" as const,
-    input: z.strictObject({
-      reviewId: HostIdSchema,
-      expectedDocumentVersion: HostVersionSchema,
-      change: HostChangeSelectorSchema,
-    }),
-    result: HostRepinPlanSchema,
-  },
-  "review.repin.apply": {
-    permission: "author" as const,
-    input: z.strictObject({
-      reviewId: HostIdSchema,
-      planId: HostIdSchema,
-      expectedDocumentVersion: HostVersionSchema,
-      operations: z
-        .array(HostDocumentOperationSchema)
-        .max(HOST_LIMITS.operations),
-    }),
-    result: HostDocumentCommitSchema,
-  },
-};
+export const HostSourceReadSchema = z
+  .strictObject({
+    ...sourceIdentity,
+    range: HostLineRangeSchema.nullable(),
+    text: sourceText,
+    sha256: HostHashSchema,
+  })
+  .refine(
+    (value) =>
+      value.range === null ||
+      new TextEncoder().encode(value.text).byteLength <=
+        HOST_SOURCE_QUOTE_BYTES,
+    "Source quotations may not exceed 256 KiB.",
+  );
+export type HostSourceRead = z.infer<typeof HostSourceReadSchema>;
 
 const sourceVersion = {
   reviewId: HostIdSchema,
-  documentVersion: HostVersionSchema,
+  reviewVersion: HostVersionSchema,
 };
 const sourcePageFields = {
   cursor: z.string().min(1).max(2_048).optional(),
@@ -121,19 +102,16 @@ export const HostSourceDiffFileSchema = z.strictObject({
 });
 
 export const HOST_SOURCE_QUERIES = {
-  "source.file": {
+  "source.read": {
     permission: "read" as const,
     input: z.strictObject({
       ...sourceVersion,
       side: HostSideSchema,
       file: HostRelativePathSchema,
+      range: HostLineRangeSchema.optional(),
+      comparisonCommit: HostOidSchema.optional(),
     }),
-    result: HostSourceFileSchema,
-  },
-  "source.read": {
-    permission: "read" as const,
-    input: z.strictObject({ ...sourceVersion, range: HostSourceRangeSchema }),
-    result: HostSourceQuoteSchema,
+    result: HostSourceReadSchema,
   },
   "source.tree": {
     permission: "read" as const,
@@ -142,6 +120,7 @@ export const HOST_SOURCE_QUERIES = {
       ...sourcePageFields,
       side: HostSideSchema,
       directory: HostRelativePathSchema.optional(),
+      comparisonCommit: HostOidSchema.optional(),
     }),
     result: sourcePage(HostSourceEntrySchema),
   },
@@ -152,12 +131,11 @@ export const HOST_SOURCE_QUERIES = {
   },
   "source.diff": {
     permission: "read" as const,
-    input: z.strictObject({ ...sourceVersion, ...sourcePageFields }),
+    input: z.strictObject({
+      ...sourceVersion,
+      ...sourcePageFields,
+      comparisonCommit: HostOidSchema.optional(),
+    }),
     result: sourcePage(HostSourceDiffFileSchema),
-  },
-  "repin_plan.get": {
-    permission: "read" as const,
-    input: z.strictObject({ reviewId: HostIdSchema, planId: HostIdSchema }),
-    result: HostRepinPlanSchema,
   },
 };

@@ -87,7 +87,7 @@ export type FieldLeaf = SoftwareDataStoreFieldLeaf;
 export type FieldSchema = SoftwareDataStoreFieldSchema;
 export type ForeignKeyRef = SoftwareDataStoreForeignKeyRef;
 
-interface ParsedUseCase {
+export interface ParsedUseCase {
   id: string;
   label: string;
   summary?: string;
@@ -187,35 +187,67 @@ export function DbWrite(props: DbWriteProps) {
 }
 
 export function DatabaseLens(props: DatabaseLensProps) {
-  const session = useReviewSession();
   const {
     title,
     stores,
     height = 560,
     children,
   } = databaseLensPropsSchema.parse(props);
-  const { openCommentDraft } = useReviewActions();
-  const locatorScope = `db:${slugPart(title ?? "database")}`;
-  const lensId = locatorScope;
-  const validatedInput = useMemo(
-    () =>
-      validateDatabaseLensProps({
-        title,
-        stores,
-        height,
-        children,
-      }),
+  const { useCases } = useMemo(
+    () => validateDatabaseLensProps({ title, stores, height, children }),
     [children, height, stores, title],
   );
-  const { peekInputs, useCases } = validatedInput;
-  const diagramLabel = title ?? "Database lens";
+  return (
+    <ResolvedDatabaseLens
+      title={title}
+      stores={stores}
+      height={height}
+      useCases={useCases}
+    />
+  );
+}
+
+/** The original lens/tour UI over already validated host or MDX data. */
+export function ResolvedDatabaseLens({
+  title,
+  stores,
+  height = 560,
+  useCases,
+  id,
+}: {
+  title?: string;
+  stores: Record<string, StoreRef>;
+  height?: number;
+  useCases: ParsedUseCase[];
+  id?: string;
+}) {
+  const session = useReviewSession();
+  const { openCommentDraft } = useReviewActions();
+  const locatorScope = id ?? `db:${slugPart(title ?? "database")}`;
+  const lensId = locatorScope;
+  const peekInputs = useMemo(
+    () =>
+      new Map(
+        useCases.flatMap((useCase) =>
+          useCase.operations.map(
+            (operation) =>
+              [
+                operation.anchor.id,
+                validatedCodePeekInputFromRef(operation.anchor.peek),
+              ] as const,
+          ),
+        ),
+      ),
+    [useCases],
+  );
+  const diagramLabel = id ?? title ?? "Database lens";
   useRegisterLiveDiagram({
     label: diagramLabel,
     elements: useCases.map((useCase) =>
       buildGraphTarget({
         diagram: diagramLabel,
         type: "node",
-        path: [useCase.label],
+        path: [id ? useCase.id : useCase.label],
         payload: {
           label: useCase.label,
           summary: useCase.summary,
@@ -291,7 +323,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
     ? buildGraphTarget({
         diagram: diagramLabel,
         type: "node",
-        path: [activeUseCase.label],
+        path: [id ? activeUseCase.id : activeUseCase.label],
         payload: {
           label: activeUseCase.label,
           summary: activeUseCase.summary,

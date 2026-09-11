@@ -1,7 +1,19 @@
 import { z } from "zod";
 
-import { HostPrincipalSchema } from "./host-api.js";
 import {
+  type HostActivitySnapshot,
+  HostActivitySnapshotSchema,
+} from "./host-activity.js";
+import {
+  HostPrincipalSchema,
+  HostRepositorySchema,
+  HostReviewCommitSchema,
+  HostReviewStateSchema,
+  type HostReviewWithSnapshot,
+  HostReviewWithSnapshotSchema,
+} from "./host-api.js";
+import {
+  HOST_CAPABILITY_LIMITS,
   HOST_COMMAND_DEFINITIONS,
   HOST_QUERY_DEFINITIONS,
   type HostApiError,
@@ -24,6 +36,14 @@ import {
   HostDocumentStateSchema,
   HostIdSchema,
 } from "./host-document.js";
+import {
+  HostAttentionSchema,
+  HostDraftSchema,
+  HostFeedbackSubmissionSchema,
+  HostMessageSchema,
+  HostQuestionRunSchema,
+  HostThreadSchema,
+} from "./host-feedback.js";
 import { type JsonValue, parseJsonText } from "./json.js";
 
 export const HostConnectionSchema = z.strictObject({
@@ -34,12 +54,44 @@ export const HostConnectionSchema = z.strictObject({
 });
 export type HostConnection = z.infer<typeof HostConnectionSchema>;
 
-export const HostEventSchema = z.strictObject({
-  cursor: HostCursorSchema,
-  reviewId: HostIdSchema.nullable(),
-  type: z.string().min(1).max(100),
-  payload: z.json(),
-});
+const eventPayloads = {
+  "repository.registered": HostRepositorySchema,
+  "review.created": HostReviewWithSnapshotSchema,
+  "review.committed": HostReviewCommitSchema,
+  "review.resync_required": z.strictObject({
+    reviewId: HostIdSchema,
+    reviewVersion: z.number().int().nonnegative(),
+  }),
+  "review.state_changed": z.strictObject({ review: HostReviewStateSchema }),
+  "draft.saved": z.strictObject({ draft: HostDraftSchema }),
+  "draft.deleted": z.strictObject({ draftId: HostIdSchema }),
+  "thread.created": z.strictObject({ thread: HostThreadSchema }),
+  "thread.updated": z.strictObject({ thread: HostThreadSchema }),
+  "message.appended": z.strictObject({ message: HostMessageSchema }),
+  "feedback.submitted": z.strictObject({
+    submission: HostFeedbackSubmissionSchema,
+  }),
+  "question.updated": z.strictObject({ run: HostQuestionRunSchema }),
+  "attention.updated": z.strictObject({ attention: HostAttentionSchema }),
+};
+function isKnownHostEvent(type: string): type is keyof typeof eventPayloads {
+  return Object.hasOwn(eventPayloads, type);
+}
+export const HostEventSchema = z
+  .strictObject({
+    cursor: HostCursorSchema,
+    reviewId: HostIdSchema.nullable(),
+    type: z.string().min(1).max(100),
+    payload: z.json(),
+  })
+  .superRefine((event, context) => {
+    if (!isKnownHostEvent(event.type)) return; // Unknown future events trigger a snapshot refresh.
+    const schema = eventPayloads[event.type];
+    const parsed = schema.safeParse(event.payload);
+    if (!parsed.success)
+      for (const issue of parsed.error.issues)
+        context.addIssue({ ...issue, path: ["payload", ...issue.path] });
+  });
 export type HostEvent = z.infer<typeof HostEventSchema>;
 
 export class ReviewClientError extends Error {
@@ -66,6 +118,8 @@ export interface HostEventSubscription {
   onEvent(event: HostEvent): Promise<string | void> | string | void;
   onReset(): Promise<string>;
   onError?(error: Error): void;
+  /** Transient snapshots do not advance the durable event cursor. Undefined means disconnected. */
+  onActivity?(activity: HostActivitySnapshot | undefined): void;
 }
 
 /** Authenticated HTTP transport; contains no local repository or disk access. */
@@ -90,7 +144,10 @@ export class ReviewClient {
     );
     const value = parseJsonText(await response.text());
     if (!response.ok) throw hostClientResponseError(value);
-    return new ReviewClient(options, HostConnectionSchema.parse(value));
+    const result = z
+      .strictObject({ ok: z.literal(true), data: HostConnectionSchema })
+      .parse(value);
+    return new ReviewClient(options, result.data);
   }
 
   async query<K extends HostQueryName>(
@@ -101,7 +158,6 @@ export class ReviewClient {
     const value = await this.post(
       "queries",
       JSON.stringify({
-        ...this.envelope(),
         type,
         input: HOST_QUERY_DEFINITIONS[type].input.parse(input),
       }),
@@ -126,7 +182,6 @@ export class ReviewClient {
     const value = await this.post(
       "commands",
       JSON.stringify({
-        ...this.envelope(),
         commandId,
         type,
         input: HOST_COMMAND_DEFINITIONS[type].input.parse(input),
@@ -147,13 +202,38 @@ export class ReviewClient {
   async subscribe(options: HostEventSubscription): Promise<void> {
     let cursor = options.after;
     let delay = this.options.reconnectDelayMs ?? 500;
+    let reconnecting = false;
     const seen = new Set<string>();
     while (!options.signal.aborted) {
+      let retryAfterMs = 0;
       try {
+        if (reconnecting) {
+          const verified = await ReviewClient.connect(
+            this.options,
+            options.signal,
+          );
+          if (
+            verified.connection.hostId !== this.connection.hostId ||
+            verified.connection.workspaceId !== this.connection.workspaceId ||
+            verified.connection.principal.id !== this.connection.principal.id ||
+            verified.connection.principal.kind !==
+              this.connection.principal.kind
+          )
+            throw new ReviewClientError({
+              code: "FORBIDDEN",
+              message:
+                "The Review connection identity changed. Reconnect explicitly.",
+              retryable: false,
+              diagnostics: [],
+            });
+        }
+        reconnecting = true;
         const url = new URL(this.url("events"));
         url.searchParams.set("after", cursor);
         if (options.reviewId)
           url.searchParams.set("reviewId", options.reviewId);
+        if (options.reviewId && options.onActivity)
+          url.searchParams.set("activity", "1");
         const response = await this.request(url, {
           headers: {
             "x-review-token": this.options.token,
@@ -161,15 +241,34 @@ export class ReviewClient {
           },
           signal: options.signal,
         });
-        if (!response.ok)
+        if (!response.ok) {
+          const retryAfter = response.headers.get("retry-after");
+          if (retryAfter)
+            retryAfterMs = /^\d+$/.test(retryAfter)
+              ? Number(retryAfter) * 1000
+              : Math.max(0, Date.parse(retryAfter) - Date.now());
           throw hostClientResponseError(parseJsonText(await response.text()));
+        }
         if (
           !response.body ||
           !response.headers.get("content-type")?.startsWith("text/event-stream")
         )
           throw new Error("The host did not return an event stream.");
-        for await (const frame of hostClientFrames(response.body)) {
+        for await (const frame of hostClientFrames(
+          response.body,
+          options.signal,
+        )) {
           if (options.signal.aborted) return;
+          if (!frame.data) continue; // Heartbeats keep the connection alive without changing its cursor.
+          if (frame.event === "authoring.activity") {
+            const activity = HostActivitySnapshotSchema.parse(
+              parseJsonText(frame.data),
+            );
+            if (!options.reviewId || activity.reviewId !== options.reviewId)
+              throw new Error("The activity belongs to a different review.");
+            options.onActivity?.(activity);
+            continue;
+          }
           const event = HostEventSchema.parse(parseJsonText(frame.data));
           if (frame.id !== event.cursor)
             throw new Error("The event cursor does not match its frame.");
@@ -188,105 +287,174 @@ export class ReviewClient {
         }
       } catch (error) {
         if (options.signal.aborted) return;
-        const failure =
-          error instanceof Error ? error : new Error(String(error));
+        options.onActivity?.(undefined);
+        let failure = error instanceof Error ? error : new Error(String(error));
         if (
           failure instanceof ReviewClientError &&
           failure.detail.code === "CURSOR_EXPIRED"
         ) {
-          cursor = await options.onReset();
-          seen.clear();
-          continue;
+          try {
+            cursor = await options.onReset();
+            seen.clear();
+            continue;
+          } catch (resetError) {
+            if (options.signal.aborted) return;
+            failure =
+              resetError instanceof Error
+                ? resetError
+                : new Error(String(resetError));
+          }
         }
         options.onError?.(failure);
         if (failure instanceof ReviewClientError && !failure.detail.retryable)
           throw failure;
       }
-      await hostClientDelay(delay, options.signal);
+      if (!options.signal.aborted) options.onActivity?.(undefined);
+      await hostClientDelay(
+        Math.max(delay, Number.isFinite(retryAfterMs) ? retryAfterMs : 0),
+        options.signal,
+      );
       delay = Math.min(delay * 2, 15_000);
     }
   }
 
-  /** Snapshot + atomic patches; historical documents intentionally never subscribe. */
-  async watchDocument(options: {
+  /** Metadata, source selection and canvas are delivered as one saved version. */
+  async watchReview(options: {
     reviewId: string;
-    version?: number;
+    reviewVersion?: number;
     signal: AbortSignal;
-    onDocument(document: HostDocumentState): void;
+    onReview(
+      review: HostReviewWithSnapshot & { document: HostDocumentState },
+    ): void;
     onEvent?(event: HostEvent): void;
     onError?(error: Error): void;
+    onActivity?(activity: HostActivitySnapshot | undefined): void;
   }): Promise<void> {
-    let current: HostDocumentState;
+    let current: HostReviewWithSnapshot & { document: HostDocumentState };
     const reset = async () => {
-      const input: HostQueryInputs["document.get"] = {
-        reviewId: options.reviewId,
-      };
-      if (options.version !== undefined) input.version = options.version;
-      const snapshot = await this.query("document.get", input, options.signal);
+      const snapshot = await this.query(
+        "review.get",
+        {
+          reviewId: options.reviewId,
+          reviewVersion: options.reviewVersion,
+        },
+        options.signal,
+      );
+      const document = await this.query(
+        "document.get",
+        {
+          reviewId: options.reviewId,
+          reviewVersion: snapshot.result.snapshot.reviewVersion,
+        },
+        options.signal,
+      );
       if (!options.signal.aborted) {
-        current = snapshot.result;
-        options.onDocument(current);
+        current = { ...snapshot.result, document: document.result };
+        options.onReview(current);
       }
       return snapshot.eventCursor;
     };
     const after = await reset();
-    if (options.version !== undefined || options.signal.aborted) return;
+    if (options.signal.aborted) return;
     await this.subscribe({
       after,
       reviewId: options.reviewId,
       signal: options.signal,
       onReset: reset,
       onError: options.onError,
+      onActivity: options.onActivity,
       onEvent: async (event) => {
         options.onEvent?.(event);
-        if (event.type === "document.resync_required") return reset();
-        if (event.type !== "document.committed") return undefined;
-        const { reviewId, commit } = z
-          .strictObject({
-            reviewId: HostIdSchema,
-            commit: HostDocumentCommitSchema,
-          })
-          .parse(event.payload);
-        if (reviewId !== options.reviewId)
+        if (!isKnownHostEvent(event.type)) return reset();
+        if (event.type === "review.state_changed") {
+          const { review } = z
+            .strictObject({ review: HostReviewStateSchema })
+            .parse(event.payload);
+          if (review.id !== options.reviewId)
+            throw new Error("The review state belongs to a different review.");
+          if (review.stateVersion >= current.review.stateVersion) {
+            current = { ...current, review };
+            options.onReview(current);
+          }
+          return;
+        }
+        // Historical material stays fixed; its latest-version pointer and lifecycle remain live.
+        if (options.reviewVersion !== undefined) {
+          if (
+            event.type === "review.committed" ||
+            event.type === "review.resync_required"
+          ) {
+            const nextVersion =
+              event.type === "review.committed"
+                ? HostReviewCommitSchema.parse(event.payload).reviewVersion
+                : z.object({ reviewVersion: z.number() }).parse(event.payload)
+                    .reviewVersion;
+            if (nextVersion > current.review.latestReviewVersion) {
+              current = {
+                ...current,
+                review: { ...current.review, latestReviewVersion: nextVersion },
+              };
+              options.onReview(current);
+            }
+          }
+          return;
+        }
+        if (event.type === "review.resync_required") return reset();
+        if (event.type !== "review.committed") return;
+        const commit = HostReviewCommitSchema.parse(event.payload);
+        if (
+          commit.reviewId !== options.reviewId ||
+          commit.snapshot.reviewId !== options.reviewId
+        )
           throw new Error("The document event belongs to a different review.");
+        if (commit.reviewVersion <= current.snapshot.reviewVersion) return;
         if (
-          commit.documentId === current.documentId &&
-          commit.version < current.version
-        )
-          return undefined;
-        if (
-          commit.documentId === current.documentId &&
-          commit.version === current.version
-        )
-          return commit.contentHash === current.contentHash
-            ? undefined
-            : reset();
-        if (
-          commit.documentId !== current.documentId ||
-          commit.previousVersion !== current.version
+          commit.previousReviewVersion !== current.snapshot.reviewVersion ||
+          commit.reviewVersion !== commit.previousReviewVersion + 1 ||
+          commit.snapshot.reviewVersion !== commit.reviewVersion
         )
           return reset();
         try {
-          current = applyHostDocumentCommit(current, commit);
+          const document = commit.documentDelta
+            ? applyHostDocumentCommit(current.document, commit.documentDelta)
+            : {
+                ...current.document,
+                reviewVersion: commit.reviewVersion,
+                createdAt: commit.snapshot.createdAt,
+              };
+          current = {
+            review: {
+              ...current.review,
+              latestReviewVersion: commit.reviewVersion,
+            },
+            snapshot: commit.snapshot,
+            document,
+          };
         } catch (error) {
           options.onError?.(
             error instanceof Error ? error : new Error(String(error)),
           );
           return reset();
         }
-        options.onDocument(current);
+        options.onReview(current);
         return undefined;
       },
     });
   }
 
-  private envelope() {
-    return {
-      apiVersion: 1 as const,
-      hostId: this.connection.hostId,
-      workspaceId: this.connection.workspaceId,
-      clientId: this.clientId,
-    };
+  async watchDocument(options: {
+    reviewId: string;
+    reviewVersion?: number;
+    signal: AbortSignal;
+    onDocument(document: HostDocumentState): void;
+    onEvent?(event: HostEvent): void;
+    onError?(error: Error): void;
+    onActivity?(activity: HostActivitySnapshot | undefined): void;
+  }): Promise<void> {
+    return this.watchReview({
+      ...options,
+      onReview: (value) => options.onDocument(value.document),
+    });
   }
 
   private url(kind: string) {
@@ -298,12 +466,14 @@ export class ReviewClient {
     body: string,
     signal?: AbortSignal,
   ): Promise<JsonValue> {
+    const headers = new Headers({
+      "x-review-token": this.options.token,
+      "content-type": "application/json",
+    });
+    if (kind === "commands") headers.set("x-review-client-id", this.clientId);
     const response = await this.request(this.url(kind), {
       method: "POST",
-      headers: {
-        "x-review-token": this.options.token,
-        "content-type": "application/json",
-      },
+      headers,
       body,
       signal,
     });
@@ -319,9 +489,9 @@ export function applyHostDocumentCommit(
   commit: HostDocumentCommit,
 ): HostDocumentState {
   if (
-    commit.documentId !== before.documentId ||
-    commit.previousVersion !== before.version ||
-    commit.version !== before.version + 1
+    commit.reviewId !== before.reviewId ||
+    commit.previousReviewVersion !== before.reviewVersion ||
+    commit.reviewVersion !== before.reviewVersion + 1
   )
     throw new Error("The document patch is not the next version.");
   const merge = <T>(
@@ -335,7 +505,7 @@ export function applyHostDocumentCommit(
   };
   const next = HostDocumentStateSchema.parse({
     ...before,
-    version: commit.version,
+    reviewVersion: commit.reviewVersion,
     contentHash: commit.contentHash,
     createdAt: commit.createdAt,
     binding: commit.binding,
@@ -371,36 +541,66 @@ function hostClientResponseError(value: JsonValue): Error {
     : new Error("The host returned an invalid response.");
 }
 
-async function* hostClientFrames(body: ReadableStream<Uint8Array>) {
+async function* hostClientFrames(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
   let buffer = "";
+  let deadline = Date.now() + 45_000;
+  const cancel = () => {
+    void reader.cancel().catch(() => undefined);
+  };
+  signal.addEventListener("abort", cancel, { once: true });
   try {
     while (true) {
-      const chunk = await reader.read();
+      if (signal.aborted) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(new Error("The Review event stream stopped responding.")),
+            Math.max(0, deadline - Date.now()),
+          );
+        }),
+      ]).finally(() => clearTimeout(timer));
       if (chunk.done) return;
-      buffer = (
-        buffer + decoder.decode(chunk.value, { stream: true })
-      ).replaceAll("\r\n", "\n");
-      let boundary: number;
-      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
-        if (boundary > 1_048_576)
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let separator: RegExpExecArray | null;
+      while ((separator = /\r?\n\r?\n/.exec(buffer)) !== null) {
+        const boundary = separator.index + separator[0].length;
+        const serializedFrame = buffer.slice(0, boundary);
+        if (
+          encoder.encode(serializedFrame).byteLength >
+          HOST_CAPABILITY_LIMITS.eventFrameBytes
+        )
           throw new Error("An event frame exceeds the client size limit.");
-        const frame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
+        const frame = buffer.slice(0, separator.index).replaceAll("\r\n", "\n");
+        buffer = buffer.slice(boundary);
+        deadline = Date.now() + 45_000;
         let id = "";
+        let event = "";
         const data: string[] = [];
         for (const line of frame.split("\n")) {
           if (line.startsWith("id:")) id = line.slice(3).trimStart();
+          if (line.startsWith("event:")) event = line.slice(6).trimStart();
           if (line.startsWith("data:"))
             data.push(line.slice(5).replace(/^ /, ""));
         }
-        if (data.length) yield { id, data: data.join("\n") };
+        yield { id, event, data: data.join("\n") };
       }
-      if (buffer.length > 1_048_576)
+      if (
+        encoder.encode(buffer).byteLength >
+        HOST_CAPABILITY_LIMITS.eventFrameBytes
+      )
         throw new Error("An event frame exceeds the client size limit.");
     }
   } finally {
+    signal.removeEventListener("abort", cancel);
     await reader.cancel();
     reader.releaseLock();
   }

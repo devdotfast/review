@@ -30,7 +30,7 @@ Use the dev-review skill to review my current branch against up-to-date main.
 Author the review through the running Desktop's JSON host API and open it.
 ```
 
-The agent registers the repository if needed, creates a review with exact pins, and adds JSON nodes/definitions through commands. You can watch accepted changes appear live. Publishing creates a frozen checkpoint; it does not compile a document file.
+The agent registers the repository if needed, creates a review with exact pins, and adds JSON nodes/definitions through commands. You can watch accepted changes appear live. Each material edit is a saved version; there is no publish step or document-file compilation.
 
 A review can explain an existing architecture too: use a snapshot binding at one commit instead of a change range.
 
@@ -40,7 +40,7 @@ Optional user guidance lives at `$DEV_REVIEW_HOME/DEV-REVIEW.md` (default `~/.de
 
 ## 4. Read and respond
 
-Use **Source** to explore the exact pinned files, commits and changes. Use the version selector to distinguish the live document from published checkpoints.
+Use the source views to explore exact pinned files, commits and changes. The version selector distinguishes the live canvas from read-only saved versions.
 
 Open **Discussion** or select code in the native source editor and choose **Add Review Comment**:
 
@@ -50,6 +50,8 @@ Open **Discussion** or select code in the native source editor and choose **Add 
 - **Submit review** shares selected saved drafts with Comment, Request changes or Approve.
 
 Save draft edits before submitting. Posted messages cannot be edited; add a follow-up instead. Questions and final answers remain in the review. A request-changes submission is available to an authorized authoring agent through the API; it does not automatically resume the original author.
+
+Selecting new code starts a blank canvas and keeps earlier versions. Restoring an earlier version instead copies its entire canvas, metadata, code and maps into a new saved version; discussions and decisions remain unchanged.
 
 ## Next steps
 

@@ -13,7 +13,7 @@ directory as a reference.
 - [Quickstart](quickstart.md) — install Review, add authoring guidance, and
   complete a first review.
 - [How Review works](how-review-works.md) — understand live documents, pinned
-  evidence, maps, conversations, and checkpoints.
+  evidence, maps, conversations, and saved versions.
 - [Coding agents](agents.md) — connect Claude Code, Codex, and other coding
   agents.
 

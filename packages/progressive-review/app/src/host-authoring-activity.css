@@ -1,0 +1,34 @@
+.host-authoring-activity {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin-inline: 10px;
+  color: var(--ink-soft);
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+.host-authoring-activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.host-authoring-activity[data-active] .host-authoring-activity-dot {
+  background: var(--accent);
+  animation: host-authoring-pulse 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes host-authoring-pulse {
+  to {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .host-authoring-activity[data-active] .host-authoring-activity-dot {
+    animation: none;
+  }
+}

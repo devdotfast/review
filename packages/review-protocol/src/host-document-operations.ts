@@ -7,6 +7,8 @@ import {
   HostDocumentOperationSchema,
   HostDocumentSchema,
   type HostNode,
+  HostNodePatchSchemas,
+  HostNodeSchema,
   type HostPlacement,
 } from "./host-document.js";
 import type { JsonValue } from "./json.js";
@@ -22,6 +24,15 @@ export class HostDocumentValidationError extends Error {
 
   constructor(readonly diagnostics: HostDiagnostic[]) {
     super(diagnostics[0]?.message ?? "Invalid review document.");
+    this.diagnostics = diagnostics.map((item) => ({
+      ...item,
+      path:
+        item.path.startsWith("/input") || item.path.startsWith("/candidate")
+          ? item.path
+          : item.path.startsWith("/operations")
+            ? `/input${item.path}`
+            : `/candidate/document${item.path}`,
+    }));
     this.name = "HostDocumentValidationError";
   }
 }
@@ -74,7 +85,7 @@ export function hostNodeChildren(node: HostNode): string[] | null {
     : null;
 }
 
-/** Cheap whole-document checks. Repository/trace/layout checks live in the host. */
+/** Whole-document checks; retained source/resource checks live in the host. */
 export function validateHostDocument(value: JsonValue): HostDiagnostic[] {
   const parsed = HostDocumentSchema.safeParse(value);
   if (!parsed.success) {
@@ -257,6 +268,11 @@ export function validateHostDocument(value: JsonValue): HostDiagnostic[] {
         for (const side of ["base", "head"] as const) {
           uniqueIds(node[side], `${path}/${side}`);
           node[side].forEach((frame, index) => {
+            if (index === 0 && frame.via)
+              add(
+                `${path}/${side}/${index}/via`,
+                "The first frame has no incoming transition.",
+              );
             const anchor = requireDefinition(
               frame.anchorId,
               "anchor",
@@ -286,8 +302,8 @@ export function validateHostDocument(value: JsonValue): HostDiagnostic[] {
         );
         if (operations.length > HOST_LIMITS.diagramItems)
           add(`${path}/useCases`, "Database lens exceeds the operation limit.");
-        const operationIds = new Set<string>();
         node.useCases.forEach((useCase, caseIndex) => {
+          const operationIds = new Set<string>();
           useCase.operations.forEach((operation, index) => {
             const prefix = `${path}/useCases/${caseIndex}/operations/${index}`;
             if (operationIds.has(operation.id))
@@ -327,6 +343,7 @@ export function assertHostDocument(value: HostDocument): void {
 function placementList(
   document: HostDocument,
   parentId: string | null,
+  path: string,
 ): string[] {
   if (parentId === null) return document.roots;
   const parent = Object.hasOwn(document.nodes, parentId)
@@ -335,7 +352,7 @@ function placementList(
   const list = parent ? hostNodeChildren(parent) : null;
   if (!list)
     fail(
-      "/placement/parentId",
+      `${path}/parentId`,
       `Parent ${parentId} must be an existing container.`,
     );
   return list;
@@ -359,16 +376,20 @@ function placeNode(
   document: HostDocument,
   id: string,
   placement: HostPlacement,
+  path: string,
 ): void {
-  if (id === placement.parentId || id === placement.afterId)
-    fail("/placement", "A node cannot be placed relative to itself.");
+  if (
+    id === placement.parentId ||
+    (placement.position.kind === "after" && id === placement.position.nodeId)
+  )
+    fail(path, "A node cannot be placed relative to itself.");
   const descendants = [...(hostNodeChildren(document.nodes[id]!) ?? [])];
   const seen = new Set<string>();
   while (descendants.length) {
     const child = descendants.pop()!;
     if (child === placement.parentId)
       fail(
-        "/placement/parentId",
+        `${path}/parentId`,
         "A node cannot be placed beneath its descendant.",
       );
     if (seen.has(child)) continue;
@@ -376,18 +397,26 @@ function placeNode(
     if (Object.hasOwn(document.nodes, child))
       descendants.push(...(hostNodeChildren(document.nodes[child]!) ?? []));
   }
-  const list = placementList(document, placement.parentId);
+  const list = placementList(document, placement.parentId, path);
+  const position = placement.position;
   const previous =
-    placement.afterId === null ? -1 : list.indexOf(placement.afterId);
-  if (placement.afterId !== null && previous < 0)
+    position.kind === "start"
+      ? -1
+      : position.kind === "end"
+        ? list.length - 1
+        : list.indexOf(position.nodeId);
+  if (position.kind === "after" && previous < 0)
     fail(
-      "/placement/afterId",
+      `${path}/position/nodeId`,
       "Previous sibling must belong to the selected parent.",
     );
   list.splice(previous + 1, 0, id);
 }
 
-/** Apply in isolation; references are checked only after all operations. */
+/**
+ * Build an isolated candidate, enforcing operation-specific rules only.
+ * The host must validate the complete candidate before accepting it.
+ */
 export function applyHostDocumentOperations(
   current: HostDocument,
   input: readonly HostDocumentOperation[],
@@ -396,14 +425,13 @@ export function applyHostDocumentOperations(
     definitionIds?: ReadonlySet<string>;
   } = {},
 ): HostDocument {
-  if (input.length > HOST_LIMITS.operations)
+  if (!input.length || input.length > HOST_LIMITS.operations)
     fail(
       "/operations",
-      `At most ${HOST_LIMITS.operations} operations are allowed.`,
+      `Between 1 and ${HOST_LIMITS.operations} operations are required.`,
     );
-  assertHostDocument(current);
   const document = HostDocumentSchema.parse(current);
-  const writes = new Set<string>();
+  const writes = new Map<string, Set<string>>();
   input.forEach((raw, index) => {
     const parsed = HostDocumentOperationSchema.safeParse(raw);
     if (!parsed.success)
@@ -424,9 +452,18 @@ export function applyHostDocumentOperations(
           : operation.id;
     const namespace = operation.op.startsWith("node.") ? "node" : "definition";
     const key = `${namespace}:${id}`;
-    if (writes.has(key))
+    const priorWrites = writes.get(key) ?? new Set<string>();
+    const isEdit = (op: string) =>
+      op === "node.update" || op === "node.replace";
+    const editAndMove =
+      Object.hasOwn(current.nodes, id) &&
+      priorWrites.size === 1 &&
+      ((operation.op === "node.move" && [...priorWrites].some(isEdit)) ||
+        (isEdit(operation.op) && priorWrites.has("node.move")));
+    if (priorWrites.size && !editAndMove)
       fail(pointer("operations", index), `Conflicting operations for ${key}.`);
-    writes.add(key);
+    priorWrites.add(operation.op);
+    writes.set(key, priorWrites);
     const existing = Object.hasOwn(document.nodes, id)
       ? document.nodes[id]
       : undefined;
@@ -438,38 +475,82 @@ export function applyHostDocumentOperations(
             `Node ID ${id} already exists or is retired.`,
           );
         document.nodes[id] = operation.node;
-        placeNode(document, id, operation.placement);
+        placeNode(
+          document,
+          id,
+          operation.placement,
+          pointer("operations", index, "placement"),
+        );
         break;
       case "node.replace": {
         if (!existing)
           fail(pointer("operations", index), `Node ${id} does not exist.`);
         const beforeChildren = hostNodeChildren(existing);
-        const afterChildren = hostNodeChildren(operation.node);
-        if (
-          (beforeChildren === null) !== (afterChildren === null) ||
-          canonicalHostJson(beforeChildren) !== canonicalHostJson(afterChildren)
-        ) {
+        const isContainer =
+          operation.node.type === "section" ||
+          operation.node.type === "callout";
+        if ((beforeChildren !== null) !== isContainer) {
           fail(
             pointer("operations", index),
             "Replacing a node cannot change its child placement or container category.",
           );
         }
-        document.nodes[id] = operation.node;
+        document.nodes[id] = HostNodeSchema.parse(
+          beforeChildren === null
+            ? operation.node
+            : { ...operation.node, children: beforeChildren },
+        );
+        break;
+      }
+      case "node.update": {
+        if (!existing)
+          fail(pointer("operations", index), `Node ${id} does not exist.`);
+        const patch = HostNodePatchSchemas[existing.type]!.safeParse(
+          operation.changes,
+        );
+        if (!patch.success)
+          throw new HostDocumentValidationError(
+            patch.error.issues.map((issue) =>
+              diagnostic(
+                pointer(
+                  "operations",
+                  index,
+                  "changes",
+                  ...issue.path.map(String),
+                ),
+                issue.message,
+              ),
+            ),
+          );
+        const candidate = Object.fromEntries(
+          Object.entries({ ...existing, ...patch.data }).filter(
+            ([, value]) => value !== null,
+          ),
+        );
+        document.nodes[id] = HostNodeSchema.parse(candidate);
         break;
       }
       case "node.move":
         if (!existing)
           fail(pointer("operations", index), `Node ${id} does not exist.`);
         detach(document, id);
-        placeNode(document, id, operation.placement);
+        placeNode(
+          document,
+          id,
+          operation.placement,
+          pointer("operations", index, "placement"),
+        );
         break;
       case "node.remove": {
         if (!existing)
           fail(pointer("operations", index), `Node ${id} does not exist.`);
-        if (!operation.subtree && (hostNodeChildren(existing)?.length ?? 0) > 0)
+        if (
+          !operation.recursive &&
+          (hostNodeChildren(existing)?.length ?? 0) > 0
+        )
           fail(
             pointer("operations", index),
-            "Removing a nonempty container requires subtree: true.",
+            "Removing a nonempty container requires recursive: true.",
           );
         const removed = new Set<string>();
         const remove = (nodeId: string) => {
@@ -479,6 +560,15 @@ export function applyHostDocumentOperations(
               "Cannot remove a cyclic or multiply placed subtree.",
             );
           removed.add(nodeId);
+          if (nodeId !== id) {
+            const childKey = `node:${nodeId}`;
+            if (writes.has(childKey))
+              fail(
+                pointer("operations", index),
+                `Recursive removal conflicts with another edit to ${nodeId}.`,
+              );
+            writes.set(childKey, new Set(["node.remove"]));
+          }
           const node = document.nodes[nodeId]!;
           for (const child of hostNodeChildren(node) ?? []) remove(child);
           delete document.nodes[nodeId];
@@ -505,7 +595,6 @@ export function applyHostDocumentOperations(
         break;
     }
   });
-  assertHostDocument(document);
   return document;
 }
 

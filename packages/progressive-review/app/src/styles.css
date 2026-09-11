@@ -5351,6 +5351,18 @@ button {
   justify-content: flex-end;
 }
 
+.thread-compose-harness {
+  min-width: 0;
+  max-width: 150px;
+  margin-right: auto;
+  padding: 3px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  font: inherit;
+}
+
 .thread-compose-verb {
   position: relative;
   display: inline-flex;

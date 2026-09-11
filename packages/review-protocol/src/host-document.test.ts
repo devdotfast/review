@@ -3,10 +3,10 @@ import { z } from "zod";
 
 import {
   HostAddressSchema,
-  HostCheckpointSchema,
   HostPrincipalSchema,
   HostRepositorySchema,
-  HostReviewSchema,
+  HostReviewStateSchema,
+  HostReviewVersionHeaderSchema,
 } from "./host-api.js";
 import {
   HOST_LIMITS,
@@ -182,7 +182,6 @@ const nodes = [
       {
         id: "write",
         anchorId: "database",
-        via: { kind: "rpc", reason: "Desktop owns storage" },
       },
     ],
   },
@@ -265,9 +264,8 @@ describe("JSON document authoring contracts", () => {
     }
     const state = {
       ...document(),
-      documentId: uuid,
       reviewId: otherUuid,
-      version: 5,
+      reviewVersion: 5,
       binding,
       contentHash: hash,
       createdAt,
@@ -286,7 +284,7 @@ describe("JSON document authoring contracts", () => {
     {
       op: "node.insert",
       node: { id: "new", type: "divider" },
-      placement: { parentId: null, afterId: null },
+      placement: { parentId: null, position: { kind: "start" } },
     },
     {
       op: "node.replace",
@@ -295,9 +293,9 @@ describe("JSON document authoring contracts", () => {
     {
       op: "node.move",
       nodeId: "prose",
-      placement: { parentId: "section", afterId: null },
+      placement: { parentId: "section", position: { kind: "start" } },
     },
-    { op: "node.remove", nodeId: "section", subtree: true },
+    { op: "node.remove", nodeId: "section", recursive: true },
     { op: "definition.put", id: "database", value: definitions.database },
     { op: "definition.remove", id: "database" },
   ])("parses $op without accepting extra transport fields", (operation) => {
@@ -595,7 +593,7 @@ describe("versioned map contracts", () => {
       mapId: otherUuid,
       repositoryId: uuid,
       commit,
-      revision: 1,
+      mapVersion: 1,
       contentHash: hash,
       createdAt,
     };
@@ -719,39 +717,31 @@ describe("host metadata contracts", () => {
     ).toBe("agent");
   });
 
-  it("represents reviews and immutable checkpoints without an author session", () => {
+  it("separates lifecycle state from saved review material without an author session", () => {
     const review = {
       id: uuid,
       repositoryId: otherUuid,
-      version: 1,
-      title: "Review",
-      description: "Local review",
-      labels: [],
-      workflow: "draft",
-      documentId: otherUuid,
-      documentVersion: 0,
-      publishedCheckpointId: null,
-      authorSessionId: null,
+      stateVersion: 1,
+      state: "open",
+      latestReviewVersion: 0,
       createdBy: uuid,
       createdAt,
-      updatedAt: createdAt,
       deletedAt: null,
     };
-    expect(HostReviewSchema.parse(review)).toEqual(review);
-    const checkpoint = {
-      id: uuid,
+    expect(HostReviewStateSchema.parse(review)).toEqual(review);
+    const snapshot = {
       reviewId: uuid,
-      ordinal: 1,
-      documentVersion: 1,
-      bindingId: otherUuid,
-      title: "Published review",
+      reviewVersion: 1,
+      binding,
+      title: "Saved review",
       description: "Frozen metadata",
+      labels: [],
       mapVersions: { base: null, head: null },
-      authorSessionId: null,
+      restoredFromReviewVersion: null,
       createdBy: uuid,
       createdAt,
     };
-    expect(HostCheckpointSchema.parse(checkpoint)).toEqual(checkpoint);
+    expect(HostReviewVersionHeaderSchema.parse(snapshot)).toEqual(snapshot);
   });
 
   it("stores manifest hashes without treating embedded mutable node values as references", () => {

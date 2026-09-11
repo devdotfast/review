@@ -23,26 +23,21 @@ A review binds to exact repository commits. Source paths are relative to that re
 
 The Source browser reads pinned files, changed-file summaries and commits through the host API. The native editor is read-only and version-bound. Full language-server hover/go-to-definition support is not implied by basic source navigation.
 
-Repinning is explicit: the host proposes range mappings, the author corrects changed/missing ranges, then applies the new binding atomically. The conservative remapper follows surviving contiguous lines and renames; it does not rewrite diagram meaning. Original comment targets remain stored separately from their current mappings.
+New code is explicit: `review.revision.create` selects new commits and starts a blank canvas with no selected maps. Earlier material stays in history. Comment mapping can follow surviving contiguous lines and renames conservatively; ambiguous or deleted content remains attached to its original target rather than being guessed into a new location.
 
-## Live versus published
+## Saved versions and lifecycle
 
-Accepted mutations update the **Live** document. Publishing creates an immutable checkpoint of the document, metadata, binding and selected map versions. Historical checkpoint views ignore later live updates.
+Every accepted material change creates one immutable `reviewVersion` containing canvas, metadata, code commits and selected maps. The live canvas follows the latest version; historical views remain fixed. No separate publish/readiness step exists.
 
-Maps are independently versioned host resources, not Git notes. A document may publish without maps; include exact map-version IDs in a later checkpoint when ready.
+Maps are independently versioned host resources, not Git notes. Saving or editing a map does not change a review's selection. Select an exact map version explicitly, or embed it in a canvas node.
 
-| Workflow | Meaning |
-| --- | --- |
-| `draft` | Not published |
-| `in_review` | Published for the reader |
-| `changes_requested` | Submitted feedback requests changes |
-| `closed` | Closed; a human may explicitly reopen |
+`review.version.restore` copies an earlier complete snapshot into a new version, including its code and maps. It does not erase later history or discussions, reopen the review, or transfer approval. Open/closed and trash state are separate from saved material and feedback decisions.
 
 ## Comments and questions
 
 - **Add to review** saves a private editable draft. It does not launch an agent.
 - **Post comment** creates a visible thread immediately.
-- **Submit review** atomically shares selected saved drafts and a decision tied to a checkpoint. Submission does not depend on an online author.
+- **Submit review** atomically shares selected saved drafts and a decision tied to the exact viewed version. Submission does not depend on an online author.
 - **Ask now** saves a question, then opens a fresh supported local agent alongside the review. Its context is the observed document/evidence and saved conversation, not a fork of the original author.
 
 Posted questions and replies are immutable; corrections are follow-ups. Completed answers are saved in the host even if the terminal is later closed. Launch failures remain visible. After restart an unfinished run may be marked interrupted and retried explicitly; automatic resumption, partial-answer streaming and a Stop button are not provided.

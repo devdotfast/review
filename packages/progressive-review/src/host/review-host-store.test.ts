@@ -5,7 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import {
-  type HostReview,
+  type HostReviewState,
   type HostSourceRange,
   type JsonValue,
 } from "@dev.fast/review-protocol";
@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   type HostCommandIdentity,
   type HostPreparedDocument,
+  type HostPreparedMap,
   ReviewHostStore,
 } from "./review-host-store.js";
 
@@ -133,23 +134,21 @@ function preparedDocument(
   };
 }
 
-function newReview(repositoryId: string): HostReview {
-  const now = "2026-09-10T12:00:00Z";
+const metadata = {
+  title: "Local review",
+  description: "",
+  labels: [],
+  mapVersions: { base: null, head: null },
+};
+function newReview(repositoryId: string): HostReviewState {
   return {
     id: randomUUID(),
     repositoryId,
-    version: 0,
-    title: "Local review",
-    description: "",
-    labels: [],
-    workflow: "draft",
-    documentId: randomUUID(),
-    documentVersion: 0,
-    publishedCheckpointId: null,
-    authorSessionId: null,
+    latestReviewVersion: 0,
+    stateVersion: 0,
+    state: "open",
     createdBy: randomUUID(),
-    createdAt: now,
-    updatedAt: now,
+    createdAt: "2026-09-10T12:00:00Z",
     deletedAt: null,
   };
 }
@@ -173,10 +172,10 @@ function fixture() {
   const created = store.command(
     commandIdentity({ type: "review.create", reviewId: review.id }),
     () => {
-      const document = store.createReview(review, prepared);
+      const document = store.createReview(review, prepared, metadata);
       store.appendEvent(review.id, "review.created", {
         reviewId: review.id,
-        version: document.version,
+        reviewVersion: document.reviewVersion,
       });
       return document;
     },
@@ -215,10 +214,10 @@ function commit(
 ) {
   return store.command(identity, () => {
     const document = store.commitDocument(reviewId, expectedVersion, prepared);
-    if (document.version !== expectedVersion)
-      store.appendEvent(reviewId, "document.committed", {
+    if (document.reviewVersion !== expectedVersion)
+      store.appendEvent(reviewId, "review.committed", {
         reviewId,
-        version: document.version,
+        reviewVersion: document.reviewVersion,
       });
     return document;
   });
@@ -248,7 +247,7 @@ describe("ReviewHostStore transactions and history", () => {
     expect(restarted.workspaceId).toBe(workspaceId);
     expect(restarted.review(review.id)).toMatchObject({
       id: review.id,
-      documentVersion: 1,
+      latestReviewVersion: 1,
     });
     expect(restarted.document(review.id)).toEqual(saved);
     expect(restarted.receipt(identity)).toEqual(response);
@@ -256,8 +255,243 @@ describe("ReviewHostStore transactions and history", () => {
       { id: repositoryId, displayName: "Review", vcs: "git" },
     ]);
     expect(
-      restarted.documentHistory(review.id).map((version) => version.version),
+      restarted
+        .reviewHistory(review.id)
+        .map((version) => version.reviewVersion),
     ).toEqual([1, 0]);
+  });
+
+  it("retains typed diagram item identities across restart and rebuilds them from historical versions", () => {
+    const { store, databasePath, review, prepared } = fixture();
+    const message = {
+      id: "step",
+      fromActorId: "actor",
+      toActorId: "actor",
+      label: "Work",
+      evidence: { kind: "explanation" as const },
+      style: "call" as const,
+    };
+    const frame = { id: "frame", anchorId: "database" };
+    const operation = {
+      id: "operation",
+      kind: "read" as const,
+      store: { storeId: "storage", collectionId: "reviews" },
+      actorId: "actor",
+      label: "Read",
+      anchorId: "database",
+    };
+    const sequence = {
+      id: "sequence",
+      type: "sequence" as const,
+      title: "Flow",
+      messages: [message],
+    };
+    const stacks = {
+      id: "stacks",
+      type: "call_stack_diff" as const,
+      title: "Stack",
+      base: [frame],
+      head: [frame],
+    };
+    const database = {
+      id: "lens",
+      type: "database_lens" as const,
+      title: "Database",
+      storeIds: ["storage"],
+      useCases: [
+        { id: "first", label: "First", operations: [operation] },
+        { id: "second", label: "Second", operations: [operation] },
+      ],
+    };
+    const saved: HostPreparedDocument = {
+      ...prepared,
+      document: {
+        ...prepared.document,
+        roots: [...prepared.document.roots, "sequence", "stacks", "lens"],
+        nodes: { ...prepared.document.nodes, sequence, stacks, lens: database },
+        definitions: {
+          ...prepared.document.definitions,
+          actor: { kind: "actor", label: "Worker" },
+          storage: {
+            kind: "store",
+            label: "Storage",
+            storage: "relational",
+            collections: { reviews: { label: "Reviews", fields: {} } },
+          },
+        },
+      },
+    };
+    commit(store, review.id, 0, saved);
+    const removed: HostPreparedDocument = {
+      ...saved,
+      document: {
+        ...saved.document,
+        nodes: {
+          ...saved.document.nodes,
+          sequence: { ...sequence, messages: [] },
+          stacks: { ...stacks, base: [] },
+          lens: {
+            ...database,
+            useCases: [
+              { ...database.useCases[0]!, operations: [] },
+              database.useCases[1]!,
+            ],
+          },
+        },
+      },
+    };
+    commit(store, review.id, 1, removed);
+    closeStore(store);
+    // Simulate opening a retained database from before the item-index addition.
+    changeDatabase(databasePath, (db) =>
+      db.exec(
+        "DELETE FROM host_document_item_ids; DELETE FROM host_meta WHERE key='diagram_item_ids_indexed'",
+      ),
+    );
+    const restarted = openStore(databasePath);
+    expect(
+      restarted
+        .reusedDocumentItems(review.id, saved.document)
+        .map((item) => item.path)
+        .sort(),
+    ).toEqual([
+      "/nodes/lens/useCases/0/operations/0/id",
+      "/nodes/sequence/messages/0/id",
+      "/nodes/stacks/base/0/id",
+    ]);
+    expect(() => commit(restarted, review.id, 2, saved)).toThrow(
+      expect.objectContaining({ code: "INVALID_STATE" }),
+    );
+    // The same local names in a different diagram, frame side or use case are independent.
+    const independent: HostPreparedDocument = {
+      ...removed,
+      document: {
+        ...removed.document,
+        roots: [...removed.document.roots, "other_sequence"],
+        nodes: {
+          ...removed.document.nodes,
+          other_sequence: { ...sequence, id: "other_sequence" },
+          lens: {
+            ...database,
+            useCases: [
+              { ...database.useCases[0]!, operations: [] },
+              database.useCases[1]!,
+              { id: "third", label: "Third", operations: [operation] },
+            ],
+          },
+        },
+      },
+    };
+    commit(restarted, review.id, 2, independent);
+    const noFirst: HostPreparedDocument = {
+      ...independent,
+      document: {
+        ...independent.document,
+        nodes: {
+          ...independent.document.nodes,
+          lens: { ...database, useCases: [database.useCases[1]!] },
+        },
+      },
+    };
+    commit(restarted, review.id, 3, noFirst);
+    expect(
+      restarted
+        .reusedDocumentItems(review.id, independent.document)
+        .map((item) => item.path),
+    ).toContain("/nodes/lens/useCases/0/id");
+    expect(() => commit(restarted, review.id, 4, independent)).toThrow(
+      expect.objectContaining({ code: "INVALID_STATE" }),
+    );
+  });
+
+  it("keeps removed map IDs retired within their lineage without changing review versions", () => {
+    const { store, databasePath, review, repositoryId } = fixture();
+    const app = {
+      id: "app",
+      parentId: null,
+      kind: "component" as const,
+      label: "App",
+      description: "",
+      source: [],
+    };
+    const target = { ...app, id: "target", label: "Target" };
+    const link = {
+      id: "link",
+      kind: "semantic" as const,
+      fromId: "app",
+      toId: "target",
+      label: "Uses",
+      explanation: "Conceptual connection",
+    };
+    const original: HostPreparedMap = {
+      repositoryId,
+      commit: "2".repeat(40),
+      evidence: {},
+      map: {
+        schemaVersion: 1,
+        elements: { app, target },
+        relationships: { link },
+      },
+    };
+    const created = store.command(commandIdentity(), () =>
+      store.createMap(review.id, original),
+    );
+    const first = store.maps(review.id, {}).items[0]!;
+    const remaining: HostPreparedMap = {
+      ...original,
+      map: { ...original.map, elements: { app }, relationships: {} },
+    };
+    store.command(commandIdentity(), () =>
+      store.commitMap(review.id, first.mapId, 0, remaining),
+    );
+    closeStore(store);
+    changeDatabase(databasePath, (db) =>
+      db.exec(
+        "DELETE FROM host_map_item_ids; DELETE FROM host_meta WHERE key='map_item_ids_indexed'",
+      ),
+    );
+    const restarted = openStore(databasePath);
+    const restoreElement: HostPreparedMap = {
+      ...remaining,
+      map: { ...remaining.map, elements: { app, target } },
+    };
+    const restoreRelationship: HostPreparedMap = {
+      ...remaining,
+      map: {
+        ...remaining.map,
+        relationships: { link: { ...link, toId: "app" } },
+      },
+    };
+    expect(() =>
+      restarted.command(commandIdentity(), () =>
+        restarted.commitMap(review.id, first.mapId, 1, restoreElement),
+      ),
+    ).toThrow(/Removed map element ID target/);
+    expect(() =>
+      restarted.command(commandIdentity(), () =>
+        restarted.commitMap(review.id, first.mapId, 1, restoreRelationship),
+      ),
+    ).toThrow(/Removed map relationship ID link/);
+    const freshIds: HostPreparedMap = {
+      ...remaining,
+      map: {
+        ...remaining.map,
+        elements: { app, replacement: { ...target, id: "replacement" } },
+        relationships: { app: { ...link, id: "app", toId: "replacement" } },
+      },
+    };
+    restarted.command(commandIdentity(), () =>
+      restarted.commitMap(review.id, first.mapId, 1, freshIds),
+    );
+    const independent = restarted.command(commandIdentity(), () =>
+      restarted.createMap(review.id, original),
+    );
+    expect(independent.result).not.toEqual(created.result);
+    expect(restarted.mapVersion(review.id, first.id).elements.target).toEqual(
+      target,
+    );
+    expect(restarted.currentMap(review.id, first.mapId).mapVersion).toBe(2);
+    expect(restarted.review(review.id).latestReviewVersion).toBe(0);
   });
 
   it("preserves old document versions while deduplicating unchanged content objects", () => {
@@ -278,37 +512,34 @@ describe("ReviewHostStore transactions and history", () => {
     expect(store.document(review.id).evidence).toEqual(original.evidence);
   });
 
-  it("keeps authoring independent of other reviews and metadata versions", () => {
+  it("isolates reviews while metadata changes conflict with stale document edits", () => {
     const { store, repositoryId, review, prepared } = fixture();
-    const other = newReview(repositoryId);
-    const otherPrepared = preparedDocument(repositoryId, "Other review");
+    const other = newReview(repositoryId),
+      otherPrepared = preparedDocument(repositoryId, "Other review");
     store.command(commandIdentity(), () =>
-      store.createReview(other, otherPrepared),
+      store.createReview(other, otherPrepared, metadata),
     );
     store.command(commandIdentity(), () =>
-      store.updateReview(review.id, 0, (before) => ({
-        ...before,
-        version: 1,
-        title: "Renamed",
-      })),
+      store.commitDocument(review.id, 0, prepared, {
+        metadata: { ...metadata, title: "Renamed" },
+        reason: "metadata",
+      }),
     );
     commit(store, other.id, 0, edit(otherPrepared, "Other review changed"));
-    commit(store, review.id, 0, edit(prepared, "This review changed"));
-
-    expect(store.document(review.id).nodes.intro).toMatchObject({
-      markdown: "This review changed",
-    });
-    expect(store.document(other.id).nodes.intro).toMatchObject({
-      markdown: "Other review changed",
-    });
-    expect(store.review(review.id)).toMatchObject({
+    expect(() =>
+      commit(store, review.id, 0, edit(prepared, "Stale write")),
+    ).toThrow(expect.objectContaining({ code: "VERSION_CONFLICT" }));
+    commit(store, review.id, 1, edit(prepared, "This review changed"));
+    expect(store.reviewSnapshot(review.id)).toMatchObject({
       title: "Renamed",
-      version: 1,
-      documentVersion: 1,
+      reviewVersion: 2,
     });
     expect(store.review(other.id)).toMatchObject({
-      version: 0,
-      documentVersion: 1,
+      stateVersion: 0,
+      latestReviewVersion: 1,
+    });
+    expect(store.document(review.id).nodes.intro).toMatchObject({
+      markdown: "This review changed",
     });
   });
 
@@ -325,7 +556,7 @@ describe("ReviewHostStore transactions and history", () => {
     expect(() =>
       store.command(identity, () => {
         store.commitDocument(review.id, 0, proposed);
-        store.appendEvent(review.id, "document.committed", {
+        store.appendEvent(review.id, "review.committed", {
           secret: "must not escape rollback",
         });
         throw new Error("simulated failure before commit");
@@ -340,7 +571,7 @@ describe("ReviewHostStore transactions and history", () => {
     expect(
       commit(store, review.id, 0, edit(prepared, "A later write succeeds"))
         .result,
-    ).toMatchObject({ version: 1 });
+    ).toMatchObject({ reviewVersion: 1 });
   });
 
   it("rolls back earlier writes when a relationship rejects review creation", () => {
@@ -354,6 +585,7 @@ describe("ReviewHostStore transactions and history", () => {
         return store.createReview(
           orphan,
           preparedDocument(orphan.repositoryId),
+          metadata,
         );
       }),
     ).toThrow("FOREIGN KEY constraint failed");
@@ -365,8 +597,8 @@ describe("ReviewHostStore transactions and history", () => {
   it("rejects a stale writer using an independent SQLite connection", () => {
     const { store, databasePath, review, prepared } = fixture();
     const other = openStore(databasePath);
-    const versionA = store.document(review.id).version;
-    const versionB = other.document(review.id).version;
+    const versionA = store.document(review.id).reviewVersion;
+    const versionB = other.document(review.id).reviewVersion;
     commit(store, review.id, versionA, edit(prepared, "Writer A"));
     const counts = persistenceCounts(databasePath);
     const identity = commandIdentity();
@@ -390,7 +622,7 @@ describe("ReviewHostStore transactions and history", () => {
     expect(commit(store, review.id, 0, prepared, identity).result).toEqual(
       before,
     );
-    expect(store.documentHistory(review.id)).toHaveLength(1);
+    expect(store.reviewHistory(review.id)).toHaveLength(1);
     expect(store.cursor()).toBe(cursor);
     expect(persistenceCounts(databasePath)).toEqual({
       ...counts,
@@ -450,8 +682,8 @@ describe("ReviewHostStore idempotency", () => {
     });
 
     expect(replay).toEqual(first);
-    expect(replay.result).toMatchObject({ version: 1 });
-    expect(store.document(review.id)).toMatchObject({ version: 2 });
+    expect(replay.result).toMatchObject({ reviewVersion: 1 });
+    expect(store.document(review.id)).toMatchObject({ reviewVersion: 2 });
     expect(persistenceCounts(databasePath)).toEqual(counts);
   });
 
@@ -497,7 +729,7 @@ describe("ReviewHostStore idempotency", () => {
         throw new Error("stale expectedVersion must not be applied again");
       }),
     ).toEqual(committed);
-    expect(restarted.documentHistory(review.id)).toHaveLength(2);
+    expect(restarted.reviewHistory(review.id)).toHaveLength(2);
   });
 });
 
@@ -521,8 +753,8 @@ describe("ReviewHostStore snapshot and event delivery", () => {
     expect(replay).toHaveLength(1);
     expect(replay[0]).toMatchObject({
       reviewId: review.id,
-      type: "document.committed",
-      payload: { version: 1 },
+      type: "review.committed",
+      payload: { reviewVersion: 1 },
     });
     expect(store.document(review.id).nodes.intro).toMatchObject({
       markdown: "Committed during snapshot",
@@ -533,7 +765,7 @@ describe("ReviewHostStore snapshot and event delivery", () => {
     const { store, repositoryId, review } = fixture();
     const otherReview = newReview(repositoryId);
     store.command(commandIdentity(), () =>
-      store.createReview(otherReview, preparedDocument(repositoryId)),
+      store.createReview(otherReview, preparedDocument(repositoryId), metadata),
     );
     const after = store.cursor();
     const otherPrincipal = randomUUID();
@@ -593,13 +825,172 @@ describe("ReviewHostStore snapshot and event delivery", () => {
 });
 
 describe("ReviewHostStore lifecycle and integrity", () => {
+  it("upgrades distinct checkpoint decisions without erasing original records or conversations", () => {
+    const { store, databasePath, review, prepared } = fixture();
+    closeStore(store);
+    const checkpointId = randomUUID(),
+      submissionId = randomUUID(),
+      threadId = randomUUID();
+    const legacy = {
+      ...review,
+      version: 0,
+      title: "Current title",
+      description: "Current description",
+      labels: ["current"],
+      workflow: "in_review",
+      documentId: randomUUID(),
+      documentVersion: 0,
+      publishedCheckpointId: checkpointId,
+      authorSessionId: null,
+      updatedAt: review.createdAt,
+    };
+    const checkpoint = {
+      id: checkpointId,
+      reviewId: review.id,
+      ordinal: 1,
+      documentVersion: 0,
+      bindingId: prepared.binding.id,
+      title: "Approved title",
+      description: "Approved description",
+      mapVersions: { base: null, head: null },
+      authorSessionId: null,
+      createdBy: review.createdBy,
+      createdAt: review.createdAt,
+    };
+    changeDatabase(databasePath, (db) => {
+      db.exec(
+        "DELETE FROM host_review_versions; DELETE FROM host_review_states;",
+      );
+      db.prepare(
+        "UPDATE host_meta SET value='1' WHERE key='schema_version'",
+      ).run();
+      db.prepare("UPDATE host_reviews SET record_json=? WHERE id=?").run(
+        JSON.stringify(legacy),
+        review.id,
+      );
+      db.prepare("INSERT INTO host_checkpoints VALUES (?,?,?,?,?)").run(
+        checkpointId,
+        review.id,
+        1,
+        0,
+        JSON.stringify(checkpoint),
+      );
+      db.prepare("INSERT INTO host_feedback_submissions VALUES (?,?,?,?)").run(
+        submissionId,
+        review.id,
+        checkpointId,
+        JSON.stringify({
+          id: submissionId,
+          reviewId: review.id,
+          checkpointId,
+          decision: "approve",
+          createdBy: review.createdBy,
+          createdAt: review.createdAt,
+          messageIds: [],
+          threadIds: [],
+        }),
+      );
+      db.prepare("INSERT INTO host_threads VALUES (?,?,?,?)").run(
+        threadId,
+        review.id,
+        0,
+        JSON.stringify({
+          id: threadId,
+          reviewId: review.id,
+          version: 1,
+          target: { kind: "node", documentVersion: 0, nodeId: "intro" },
+          evidence: null,
+          status: "resolved",
+          createdBy: review.createdBy,
+          createdAt: review.createdAt,
+          updatedAt: review.createdAt,
+        }),
+      );
+    });
+    const upgraded = openStore(databasePath);
+    const decision = upgraded.submission(review.id, submissionId);
+    expect(
+      upgraded.reviewSnapshot(review.id, decision.reviewVersion),
+    ).toMatchObject({
+      title: "Approved title",
+      description: "Approved description",
+    });
+    expect(upgraded.reviewSnapshot(review.id)).toMatchObject({
+      title: "Current title",
+      labels: ["current"],
+    });
+    expect(upgraded.thread(review.id, threadId)).toMatchObject({
+      status: "resolved",
+      threadVersion: 1,
+      target: { kind: "node", reviewVersion: 0, nodeId: "intro" },
+    });
+    expect(upgraded.document(review.id, 0).nodes).toEqual(
+      prepared.document.nodes,
+    );
+    expect(
+      inspect(
+        databasePath,
+        (db) =>
+          db
+            .prepare("SELECT record_json FROM host_checkpoints WHERE id=?")
+            .get(checkpointId)?.record_json,
+      ),
+    ).toBe(JSON.stringify(checkpoint));
+    expect(
+      inspect(
+        databasePath,
+        (db) =>
+          db
+            .prepare(
+              "SELECT record_json FROM host_legacy_records WHERE table_name='host_reviews' AND record_id=?",
+            )
+            .get(review.id)?.record_json,
+      ),
+    ).toBe(JSON.stringify(legacy));
+    closeStore(upgraded);
+    expect(openStore(databasePath).submission(review.id, submissionId)).toEqual(
+      decision,
+    );
+  });
+
+  it("uses non-reused listing sequences when the newest private draft is deleted", () => {
+    const { store, review } = fixture(),
+      principalId = randomUUID();
+    const draft = (id: string) => ({
+      id,
+      reviewId: review.id,
+      principalId,
+      draftVersion: 0,
+      target: { kind: "document" as const, reviewVersion: 0 },
+      evidence: null,
+      body: "Saved feedback",
+      createdAt: review.createdAt,
+      updatedAt: review.createdAt,
+    });
+    const first = randomUUID(),
+      second = randomUUID();
+    store.command(commandIdentity(), () => store.saveDraft(draft(first), null));
+    const boundary = store.feedbackSequence("drafts", review.id, principalId);
+    store.command(commandIdentity(), () => {
+      store.deleteDraft(review.id, first, principalId, 0);
+      return null;
+    });
+    store.command(commandIdentity(), () =>
+      store.saveDraft(draft(second), null),
+    );
+    expect(store.drafts(review.id, principalId, boundary)).toEqual([]);
+    expect(
+      store.feedbackSequence("drafts", review.id, principalId),
+    ).toBeGreaterThan(boundary);
+  });
+
   it.each(["closed", "trashed"])("does not author a %s review", (state) => {
     const { store, databasePath, review, prepared } = fixture();
     store.command(commandIdentity(), () =>
-      store.updateReview(review.id, 0, (before) => ({
+      store.updateReviewState(review.id, 0, (before) => ({
         ...before,
-        version: before.version + 1,
-        workflow: state === "closed" ? "closed" : before.workflow,
+        stateVersion: before.stateVersion + 1,
+        state: state === "closed" ? "closed" : before.state,
         deletedAt: state === "trashed" ? "2026-09-10T13:00:00Z" : null,
       })),
     );
@@ -619,26 +1010,20 @@ describe("ReviewHostStore lifecycle and integrity", () => {
     expect(persistenceCounts(databasePath)).toEqual(counts);
   });
 
-  it("refuses metadata updates that redirect document/repository identity", () => {
+  it("refuses lifecycle updates that redirect material or repository identity", () => {
     const { store, review } = fixture();
-    expect(() =>
-      store.command(commandIdentity(), () =>
-        store.updateReview(review.id, 0, (before) => ({
-          ...before,
-          version: 1,
-          documentId: randomUUID(),
-        })),
-      ),
-    ).toThrow(expect.objectContaining({ code: "INVALID_STATE" }));
-    expect(() =>
-      store.command(commandIdentity(), () =>
-        store.updateReview(review.id, 0, (before) => ({
-          ...before,
-          version: 1,
-          documentVersion: 100,
-        })),
-      ),
-    ).toThrow(expect.objectContaining({ code: "INVALID_STATE" }));
+    for (const changed of [
+      { repositoryId: randomUUID() },
+      { latestReviewVersion: 100 },
+    ])
+      expect(() =>
+        store.command(commandIdentity(), () =>
+          store.updateReviewState(review.id, 0, (before) => ({
+            ...before,
+            ...changed,
+          })),
+        ),
+      ).toThrow(expect.objectContaining({ code: "INVALID_STATE" }));
     expect(store.review(review.id)).toEqual(review);
   });
 
@@ -757,12 +1142,16 @@ describe("ReviewHostStore lifecycle and integrity", () => {
           vcs: "git",
           localPath: "/not-used",
         }),
-      () => store.createReview(otherReview, preparedDocument(repositoryId)),
       () =>
-        store.updateReview(review.id, 0, (before) => ({
+        store.createReview(
+          otherReview,
+          preparedDocument(repositoryId),
+          metadata,
+        ),
+      () =>
+        store.updateReviewState(review.id, 0, (before) => ({
           ...before,
-          version: 1,
-          title: "Not saved",
+          state: "closed",
         })),
       () => store.commitDocument(review.id, 0, edit(prepared, "Not saved")),
       () => store.appendEvent(review.id, "not.saved", null),

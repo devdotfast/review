@@ -72,6 +72,94 @@ describe("BugReportControl", () => {
     expect(sendButton().disabled).toBe(false);
   });
 
+  it("uses separate review and map consent for snapshot reports and offers no author-transcript upload", async () => {
+    session = { ...session, supportReport: "snapshot" };
+    request.mockImplementation(async (url) =>
+      url.includes("/telemetry/bug-report")
+        ? jsonResponse({
+            ok: true,
+            data: {
+              reportId: "00000000-0000-4000-8000-000000000000",
+              shortId: "123456789012",
+              warnings: [],
+            },
+          })
+        : jsonResponse({ ok: true }),
+    );
+    await renderAndOpen();
+    expect(container.textContent).not.toContain("Agent session trace");
+    expect(checkbox("Software maps").checked).toBe(true);
+    await act(async () => checkbox("Review").click());
+    await act(async () => checkbox("Review code diff").click());
+    await act(async () => sendButton().click());
+    expect(reportBody()).toMatchObject({
+      include_review: false,
+      include_map: true,
+      include_diff: false,
+    });
+    expect(reportBody()).not.toHaveProperty("include_trace");
+    expect(container.textContent).toContain("Bug report was sent.");
+  });
+
+  it("shows omitted-attachment warnings after a successful snapshot report", async () => {
+    session = { ...session, supportReport: "snapshot" };
+    request.mockImplementation(async (url) =>
+      url.includes("/telemetry/bug-report")
+        ? jsonResponse({
+            ok: true,
+            data: {
+              reportId: "00000000-0000-4000-8000-000000000000",
+              shortId: "123456789012",
+              warnings: [
+                {
+                  attachment: "diff",
+                  code: "unavailable",
+                  message:
+                    "The diff attachment was unavailable for this saved review version.",
+                },
+              ],
+            },
+          })
+        : jsonResponse({ ok: true }),
+    );
+    await renderAndOpen();
+    await act(async () => sendButton().click());
+    expect(container.textContent).toContain(
+      "Bug report was sent. The diff attachment was unavailable",
+    );
+  });
+
+  it("shows an uncertain upload result without sending it again", async () => {
+    session = { ...session, supportReport: "snapshot" };
+    request.mockImplementation(async (url) =>
+      url.includes("/telemetry/bug-report")
+        ? jsonResponse(
+            {
+              ok: false,
+              error: {
+                code: "DEPENDENCY_UNAVAILABLE",
+                message:
+                  "Upload could not be confirmed; check before submitting again.",
+                retryable: false,
+                diagnostics: [],
+              },
+            },
+            503,
+          )
+        : jsonResponse({ ok: true }),
+    );
+    await renderAndOpen();
+    await act(async () => sendButton().click());
+    expect(container.textContent).toContain(
+      "Upload could not be confirmed; check before submitting again.",
+    );
+    expect(
+      request.mock.calls.filter(([url]) =>
+        url.includes("/telemetry/bug-report"),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("disables Send when the description exceeds the byte limit", async () => {
     await renderAndOpen();
 

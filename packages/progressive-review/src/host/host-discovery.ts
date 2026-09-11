@@ -12,6 +12,7 @@ import {
   HostIdSchema,
   type HostQueryInputs,
   type HostQueryName,
+  HostVersionSchema,
   ReviewClient,
   ReviewClientError,
 } from "@dev.fast/review-protocol";
@@ -181,8 +182,9 @@ export class LocalHostClient {
     );
   }
 
-  open(reviewId: string, signal?: AbortSignal) {
+  open(reviewId: string, reviewVersion?: number, signal?: AbortSignal) {
     HostIdSchema.parse(reviewId);
+    HostVersionSchema.optional().parse(reviewVersion);
     return this.perform(async (_client, discovery, request) => {
       const response = await request(
         `${discovery.url.replace(/\/$/, "")}/v1/app/open`,
@@ -193,12 +195,15 @@ export class LocalHostClient {
             "x-review-token": discovery.token,
             "content-type": "application/json",
           },
-          body: JSON.stringify({ reviewId }),
+          body: JSON.stringify({ reviewId, reviewVersion }),
         },
       );
       const result = z
         .discriminatedUnion("ok", [
-          z.strictObject({ ok: z.literal(true) }),
+          z.strictObject({
+            ok: z.literal(true),
+            data: z.strictObject({ opened: z.literal(true) }),
+          }),
           z.strictObject({ ok: z.literal(false), error: HostApiErrorSchema }),
         ])
         .parse(await response.json());
@@ -352,7 +357,7 @@ export function describeHostClientError(error: Error): HostApiError {
         severity: "error",
         code: issue.code,
         message: issue.message,
-        path: `/${issue.path.map((part) => String(part).replaceAll("~", "~0").replaceAll("/", "~1")).join("/")}`,
+        path: `/input${issue.path.map((part) => `/${String(part).replaceAll("~", "~0").replaceAll("/", "~1")}`).join("")}`,
       })),
     };
   return clientError(

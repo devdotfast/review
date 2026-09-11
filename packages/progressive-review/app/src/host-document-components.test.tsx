@@ -7,9 +7,15 @@ import { expect, it } from "vitest";
 
 import {
   hostDatabaseSnapshot,
+  hostMapModel,
   hostMapSnapshot,
+  projectHostGraphTarget,
 } from "./host-document-components";
 import { runInlineC4Layout } from "./software-map/c4-layout-geometry";
+import {
+  collapseInlineC4Node,
+  projectInlineC4,
+} from "./software-map/c4-projection";
 
 const commit = "a".repeat(40);
 const hash = "b".repeat(64);
@@ -48,9 +54,8 @@ it("lays out real C4 database edges with repeated labels and shared source evide
   };
   const document: HostDocumentState = {
     schemaVersion: 1,
-    documentId: "document",
     reviewId: "review",
-    version: 1,
+    reviewVersion: 1,
     contentHash: hash,
     createdAt: timestamp,
     roots: [node.id],
@@ -105,6 +110,25 @@ it("lays out real C4 database edges with repeated labels and shared source evide
     },
   };
   const snapshot = hostDatabaseSnapshot(node, document);
+  expect(
+    projectHostGraphTarget(
+      {
+        kind: "diagram",
+        reviewVersion: document.reviewVersion,
+        nodeId: node.id,
+        item: { kind: "operation", useCaseId: "case", operationId: "read" },
+      },
+      document,
+    ),
+  ).toMatchObject({
+    kind: "text",
+    surface: {
+      type: "anchor",
+      anchorId: "read",
+      part: { type: "text", field: "title" },
+    },
+    selection: { quote: "Source" },
+  });
   const { layout } = await runInlineC4Layout(
     snapshot.nodes!,
     snapshot.relationships!,
@@ -135,7 +159,7 @@ it("lays out an exact nested map and maintains its routing after collapsing the 
     commit,
     contentHash: hash,
     createdAt: timestamp,
-    revision: 1,
+    mapVersion: 1,
     elements: {
       service: {
         id: "service",
@@ -173,6 +197,29 @@ it("lays out an exact nested map and maintains its routing after collapsing the 
       },
     },
   };
+  const projected = projectInlineC4({
+    model: hostMapModel(map, "canvas-map"),
+    expandedNodeIds: new Set(["service"]),
+  });
+  expect(projected.nodes.find((node) => node.id === "worker")?.parentPath).toBe(
+    "service",
+  );
+  expect(
+    projected.relationships.find((edge) =>
+      edge.sourceRelationshipIds.includes("writes"),
+    ),
+  ).toMatchObject({
+    from: "worker",
+    to: "database",
+    label: "Writes",
+  });
+  expect([
+    ...collapseInlineC4Node(
+      new Set(["service", "worker", "database"]),
+      "service",
+      hostMapModel(map),
+    ),
+  ]).toEqual(["database"]);
   const expanded = hostMapSnapshot(map, "worker");
   const first = await runInlineC4Layout(
     expanded.nodes!,

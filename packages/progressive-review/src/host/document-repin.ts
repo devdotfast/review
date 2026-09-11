@@ -44,7 +44,7 @@ export async function proposeDocumentRepin(input: {
     );
   }
   const proposal: HostDocumentRepinProposal = {
-    basedOnDocumentVersion: document.version,
+    basedOnDocumentVersion: document.reviewVersion,
     binding: structuredClone(binding),
     anchorChanges: [],
     proposedDefinitions: {},

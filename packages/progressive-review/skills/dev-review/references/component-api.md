@@ -39,7 +39,7 @@ Put definitions with `definition.put({id,value})` in the same mutation as nodes 
 }
 ```
 
-Anchor `detail` is optional. Actors may reference an exact map element using `mapElement:{mapVersionId,elementId}`. Store `storage` is `relational` or `document`; field `references` identifies `{storeId,collectionId,fieldId}`.
+Anchor `detail` is optional. Actors may reference an exact map element using `mapElement:{mapVersionId,elementId}`. Store `storage` is `relational` or `document`; field `references` identifies `{storeId,collectionId,fieldId}`. Field `nullable?` and `primaryKey?` may be omitted when unknown; omission does not mean false.
 
 ## Text and containers
 
@@ -48,10 +48,10 @@ Anchor `detail` is optional. Actors may reference an exact map element using `ma
 | `markdown` | `markdown:string` (safe Markdown/GFM) | — |
 | `paragraph` | `content:Inline[]` | — |
 | `heading` | `level:1..6, content:Inline[]` | — |
-| `code` | `language:string, text:string` | `caption` |
+| `code` | `text:string` | `language` (default `text`), `caption` |
 | `divider` | — | — |
-| `section` | `title, defaultCollapsed:boolean, children:nodeId[]` | — |
-| `callout` | `tone:"info"|"warning"|"danger"|"success", children:nodeId[]` | `title` |
+| `section` | `title, children:nodeId[]` | `defaultCollapsed` (default false) |
+| `callout` | `children:nodeId[]` | `title`, `tone:"info"|"warning"|"danger"|"success"` (default `info`) |
 
 Inline values are `{type:"text",text,marks?}`, `{type:"code",text}`, `{type:"break"}`, `{type:"link",href,text}`, or `{type:"anchor_link",anchorId,text}`. Marks: `strong,emphasis,strike,underline,sub,sup,highlight`. External links accept HTTP(S)/mailto, not executable schemes. Raw HTML is not executed. Use typed `anchor_link` for source references and `image` for assets; do not embed remote images in Markdown.
 
@@ -74,14 +74,14 @@ The host retains the anchor's code. The viewer can show it even when deeper sour
     "id": "publish-request",
     "fromActorId": "agent",
     "toActorId": "desktop",
-    "label": "Publish checkpoint",
+    "label": "Save version",
     "style": "call",
     "evidence": { "kind": "anchor", "anchorId": "publish" }
   }]
 }
 ```
 
-Message styles are `call`, `return` or `async`. Every message needs evidence: an anchor or explicitly illustrative `{kind:"illustrative_code",language,text}`. Each message has its own ID even when labels or anchors repeat.
+Message styles are `call` (default), `return` or `async`. Evidence is `{kind:"anchor",anchorId}`, `{kind:"illustrative_code",language?,text}` (language defaults to `text`), or `{kind:"explanation",text?}` for a step without code evidence. Explanation text is optional nonblank detail beyond the required label. Each message has its own ID even when labels or anchors repeat.
 
 ## Call-stack diff
 
@@ -95,7 +95,7 @@ Message styles are `call`, `return` or `async`. Every message needs evidence: an
 }
 ```
 
-Frames have `id,anchorId`, optional `label`, and optional `via:{kind:"call"|"queue"|"callback"|"rpc",reason}`. Array order is the linear flow.
+Frames have `id,anchorId`, optional `label`, and optional `via:{kind:"call"|"queue"|"callback"|"rpc",reason}`. `via` describes arrival into a non-first frame; it is invalid on the first. Array order is the linear flow.
 
 Frame identity is `id`, not the evidence anchor. Base frames use base-side anchors; head frames use head-side anchors, even for a shared frame ID. Shared IDs remain shared even if moved; reordering is not a claim that source was added/deleted. A base-only frame must anchor deleted base lines; a head-only frame must anchor added head lines. Do not put unchanged code on one side just for contrast. The host checks these claims against the pinned diff.
 
@@ -122,7 +122,7 @@ Frame identity is `id`, not the evidence anchor. Base frames use base-side ancho
 }
 ```
 
-Use-case `summary` and endpoint `fieldId` are optional. Operation `kind` is `read` (store → actor) or `write` (actor → store). Use actual evidence for the operation; the example anchor is only structural. Use-case and operation IDs must be distinct within the node.
+Use-case `summary` and endpoint `fieldId` are optional. Operation `kind` is `read` (store → actor) or `write` (actor → store). Use actual evidence for the operation; the example anchor is only structural. Use-case IDs are unique within the node; operation IDs are unique within their containing use case.
 
 ## Trace quote, image and software map
 
@@ -146,11 +146,12 @@ Upload PNG/JPEG/WebP bytes through `asset.upload({reviewId,mimeType,base64})` fi
 
 ## Mutation operations
 
-- `{op:"node.insert",node,placement:{parentId,afterId}}`: `parentId:null` means roots; `afterId:null` means first.
-- `{op:"node.replace",node}`: same node ID; replace its typed content.
+- `{op:"node.insert",node,placement:{parentId,position}}`: null parent means roots; position is `{kind:"start"}`, `{kind:"end"}` or `{kind:"after",nodeId}`. New containers have empty or omitted children.
+- `{op:"node.update",nodeId,changes}`: nonempty typed patch, never id/type/children. Omitted fields stay unchanged; null clears an optional field.
+- `{op:"node.replace",node}`: replace typed content using the same ID; omit container children to preserve them. Cannot convert between a container and leaf.
 - `{op:"node.move",nodeId,placement}`: preserve identity while moving.
-- `{op:"node.remove",nodeId,subtree:boolean}`: removal is explicit.
+- `{op:"node.remove",nodeId,recursive?:boolean}`: default false; deleting nonempty containers requires true.
 - `{op:"definition.put",id,value}`
 - `{op:"definition.remove",id}`
 
-Validate the proposed final tree, including dependent references. Do not remove a definition while leaving nodes that reference it. Retrieve current limits through `capabilities` rather than assuming an unbounded document.
+The host validates the complete candidate before saving. Up to 100 ordered operations are atomic. One edit and one move of an existing node can share a request; other repeated writes conflict. Removed IDs cannot be reused for new content. Do not remove a definition while leaving references. `document.replace` accepts the full tree for bulk authoring. Retrieve limits through `capabilities`.

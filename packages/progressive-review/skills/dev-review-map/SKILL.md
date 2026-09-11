@@ -11,11 +11,11 @@ metadata:
 
 Use the running Review Host's MCP tools or `review host` commands. Map state is versioned JSON in the host, not Git notes, TypeScript scratch files or generated source-branch files.
 
-Obtain the review ID, observed document version and exact binding from the parent or `document.get`. Author the base structure first, then the head structure. If asked directly and no review exists, ask for/select the intended review before creating map state; do not invent repository bindings.
+Obtain the review ID, observed `reviewVersion` and exact binding from the parent or `document.get`. Author the base structure first, then the head structure. If asked directly and no review exists, ask for/select the intended review before creating map state; do not invent repository bindings.
 
 ## Model
 
-`map.create({reviewId,documentVersion,side,map})` accepts:
+`map.create({reviewId,reviewVersion,side,map})` accepts:
 
 ```json
 {
@@ -36,11 +36,11 @@ Obtain the review ID, observed document version and exact binding from the paren
 
 Element kinds: `person,system,container,component,code,store`. Use stable letter-led keys containing letters, numbers, underscores or hyphens, not dot paths. Define hierarchy using `parentId`.
 
-Source spans name `repositoryId,commit,blob,file,fromLine,toLine`. Obtain them from host source reads at the selected side; the host verifies them. Store elements can carry the typed collection/field model exposed in the MCP schema.
+Source locators name `file,fromLine,toLine`. Verify them through host source reads at the selected side; the host supplies repository/commit/blob identity and retains evidence. Store elements can carry the typed collection/field model exposed in the MCP schema.
 
 Relationships have `id,fromId,toId,label` and either:
 
-- `kind:"call", evidence:<verified source span>`; or
+- `kind:"call", evidence:<source locator>`; or
 - `kind:"semantic", explanation:<why the relation exists>`.
 
 Do not fabricate a source-backed call to represent a conceptual relationship.
@@ -53,8 +53,8 @@ Do not fabricate a source-backed call to represent a conceptual relationship.
 4. Read both exact versions through `map.get({reviewId,mapVersionId})`.
 5. Return the base/head map-version IDs, commits and any limitations.
 
-To revise a map, use `map.mutate({reviewId,mapId,expectedVersion,operations})`. Operations are `element.put/remove` and `relationship.put/remove`; inspect the advertised schema for exact fields. The result is a new immutable map version.
+To revise a map, use `map.mutate({reviewId,mapId,expectedMapVersion,operations})`. Operations are `element.put/remove` and `relationship.put/remove`; inspect the advertised schema for exact fields. The result is a new immutable map version. `map.analyze({reviewId,reviewVersion,mapVersions:{base,head},includeDiff?})` compares saved maps without resending graphs; null selects no map for that side.
 
 Every command needs a UUID `commandId`; reuse it with identical input after an uncertain response. Resolve actual version conflicts before sending a new command.
 
-The main author owns document mutations and `review.publish`, including selected map-version IDs. Do not publish or alter document nodes as a map-only worker. A missing optional map need not block a useful document checkpoint. Do not run repository tests merely to produce a map.
+The main author owns document mutations and map selection through `review.update`. Do not alter document nodes or selected maps as a map-only worker. There is no publication step. A missing optional map need not block useful content. Do not run repository tests merely to produce a map.

@@ -1,5 +1,6 @@
 import { Disposable } from "../../base/common/lifecycle.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
+import { INotificationService } from "../../platform/notification/common/notification.js";
 import { ITerminalEditorService, ITerminalService, type ITerminalInstance } from "../../workbench/contrib/terminal/browser/terminal.js";
 import { editorGroupToColumn } from "../../workbench/services/editor/common/editorGroupColumn.js";
 import { GroupDirection, IEditorGroupsService, type IEditorGroup } from "../../workbench/services/editor/common/editorGroupsService.js";
@@ -10,18 +11,21 @@ export const IReviewHostQuestionTerminalService = createDecorator<IReviewHostQue
 export interface IReviewHostQuestionTerminalService {
   readonly _serviceBrand: undefined;
   open(input: HostQuestionTerminalRequest): Promise<void>;
+  reveal(reviewId: string, runId: string): Promise<void>;
 }
 
 /** Launches host-prepared commands without depending on a legacy review session. */
 export class ReviewHostQuestionTerminalService extends Disposable implements IReviewHostQuestionTerminalService {
   declare readonly _serviceBrand: undefined;
   private readonly runs = new Map<string, Promise<ITerminalInstance>>();
+  private readonly reviewIds = new Map<string, string>();
   private questionGroupId: number | undefined;
 
   constructor(
     @ITerminalService private readonly terminals: ITerminalService,
     @ITerminalEditorService private readonly editors: ITerminalEditorService,
     @IEditorGroupsService private readonly editorGroups: IEditorGroupsService,
+    @INotificationService private readonly notifications: INotificationService,
   ) { super(); }
 
   private questionGroup(reviewId: string): IEditorGroup {
@@ -51,14 +55,30 @@ export class ReviewHostQuestionTerminalService extends Disposable implements IRe
         location: { viewColumn: editorGroupToColumn(this.editorGroups, group) },
       });
       this.runs.set(input.runId, pending);
+      this.reviewIds.set(input.runId, input.reviewId);
       const created = pending;
       void created.then(instance => {
-        this._register(instance.onDisposed(() => { if (this.runs.get(input.runId) === created) this.runs.delete(input.runId); }));
-      }, () => { if (this.runs.get(input.runId) === created) this.runs.delete(input.runId); });
+        this._register(instance.onDisposed(() => { if (this.runs.get(input.runId) === created) { this.runs.delete(input.runId); this.reviewIds.delete(input.runId); } }));
+      }, () => { if (this.runs.get(input.runId) === created) { this.runs.delete(input.runId); this.reviewIds.delete(input.runId); } });
     }
     const instance = await pending;
     await this.editors.openEditor(instance, { viewColumn: this.questionGroup(input.reviewId).id });
     this.terminals.setActiveInstance(instance);
     await instance.focusWhenReady(true);
+  }
+
+  /** Reveals a live host-started terminal; never reconstructs launch commands in the client. */
+  async reveal(reviewId: string, runId: string): Promise<void> {
+    try {
+      const pending = this.reviewIds.get(runId) === reviewId ? this.runs.get(runId) : undefined;
+      const instance = pending ? await pending : undefined;
+      if (!instance || instance.isDisposed) throw new Error("This question's terminal is no longer open. Start a new Ask to continue the discussion.");
+      await this.editors.openEditor(instance, { viewColumn: this.questionGroup(reviewId).id });
+      this.terminals.setActiveInstance(instance);
+      await instance.focusWhenReady(true);
+    } catch (error) {
+      this.notifications.error(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
   }
 }

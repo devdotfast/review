@@ -4,14 +4,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
 
 import {
   HOST_LIMITS,
-  type HostCommand,
+  HostBugReportResponseSchema,
   type HostCommandInputs,
   type HostCommandName,
   type HostPrincipal,
-  HostQuerySchema,
+  HostQueryBodySchema,
+  type JsonValue,
   hostCommandResponseSchema,
   hostQueryResponseSchema,
   isObjectValue,
@@ -34,7 +36,10 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 
-async function fixture() {
+async function fixture(
+  bugReportFetch?: typeof fetch,
+  authoringActivity = false,
+) {
   const directory = mkdtempSync(path.join(tmpdir(), "json-review-http-"));
   const repository = path.join(directory, "source");
   mkdirSync(repository);
@@ -54,7 +59,7 @@ async function fixture() {
   git(["add", "."]);
   git(["commit", "-m", "fixture"]);
   const store = new ReviewHostStore(path.join(directory, "review.db"));
-  const host = new ReviewHost(store);
+  const host = new ReviewHost(store, { authoringActivity });
   const desktopToken = "private-desktop-test-token";
   const credentials = new HostCredentials(store, desktopToken);
   const openReview = vi.fn<(reviewId: string) => Promise<void>>(async () => {});
@@ -64,6 +69,7 @@ async function fixture() {
     credentials,
     baseUrl: () => baseUrl,
     openReview,
+    bugReportFetch,
   });
   const app = new Hono<ReviewHonoEnv>();
   app.route("/v1", router.app);
@@ -82,17 +88,13 @@ async function fixture() {
     rmSync(directory, { recursive: true, force: true });
   });
   const clientId = randomUUID();
-  const envelope = {
-    apiVersion: 1 as const,
-    hostId: store.hostId,
-    workspaceId: store.workspaceId,
-    clientId,
-  };
+  const envelope = {};
   const commandsUrl = `${baseUrl}/v1/workspaces/${store.workspaceId}/commands`;
   const queriesUrl = `${baseUrl}/v1/workspaces/${store.workspaceId}/queries`;
   const headers = {
     "x-review-token": credentials.agentToken,
     "content-type": "application/json",
+    "x-review-client-id": clientId,
   };
   const command = async <K extends HostCommandName>(
     type: K,
@@ -143,6 +145,239 @@ async function createReview(test: Awaited<ReturnType<typeof fixture>>) {
 }
 
 describe("JSON host HTTP boundary", () => {
+  it("identifies invalid request fields consistently across native and domain inputs", async () => {
+    const test = await fixture();
+    const input = { reviewId: randomUUID(), reviewVersion: -1 };
+    for (const [url, body] of [
+      [`${test.baseUrl}/v1/app/open`, input],
+      [test.queriesUrl, { type: "document.get", input }],
+    ] as const) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: test.headers,
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect((await response.json()).error.diagnostics).toContainEqual(
+        expect.objectContaining({ path: "/input/reviewVersion" }),
+      );
+    }
+    const unauthenticated = await fetch(`${test.baseUrl}/v1/connection`);
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get("cache-control")).toBe("no-store");
+    expect(test.openReview).not.toHaveBeenCalled();
+  });
+
+  it("keeps authoring activity opt-in and out of persistent review state", async () => {
+    const disabled = await fixture();
+    const disabledReview = await createReview(disabled);
+    const read = async (
+      test: Awaited<ReturnType<typeof fixture>>,
+      type: string,
+      input = {},
+    ) => {
+      const response = await fetch(test.queriesUrl, {
+        method: "POST",
+        headers: test.headers,
+        body: JSON.stringify({ ...test.envelope, type, input }),
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const capabilities = await read(disabled, "capabilities");
+    expect(capabilities.body.data.result.commands).not.toContain(
+      "authoring.begin",
+    );
+    expect(capabilities.body.data.result.queries).not.toContain(
+      "authoring.get",
+    );
+    expect(
+      (await read(disabled, "authoring.get", { reviewId: disabledReview.id }))
+        .status,
+    ).toBe(404);
+    await expect(
+      disabled.command("authoring.begin", {
+        reviewId: disabledReview.id,
+        activityId: randomUUID(),
+      }),
+    ).rejects.toThrow(/not enabled/);
+
+    const test = await fixture(undefined, true);
+    const review = await createReview(test);
+    const before = {
+      cursor: test.store.cursor(),
+      review: test.store.review(review.id),
+      history: test.store.reviewHistory(review.id),
+    };
+    const activityId = randomUUID();
+    await test.command("authoring.begin", { reviewId: review.id, activityId });
+    expect(
+      (await read(test, "authoring.get", { reviewId: review.id })).body.data
+        .result,
+    ).toMatchObject({ workingCount: 1, unknownCount: 0 });
+    await test.command("authoring.renew", { reviewId: review.id, activityId });
+    await test.command("authoring.end", { reviewId: review.id, activityId });
+    expect({
+      cursor: test.store.cursor(),
+      review: test.store.review(review.id),
+      history: test.store.reviewHistory(review.id),
+    }).toEqual(before);
+  });
+
+  it("streams opt-in activity independently of durable cursors and checks review access", async () => {
+    const test = await fixture(undefined, true);
+    const review = await createReview(test);
+    const other = await createReview(test);
+    const cursor = test.store.cursor();
+    const base = `${test.baseUrl}/v1/workspaces/${test.store.workspaceId}/events?after=${encodeURIComponent(cursor)}`;
+    const controller = new AbortController();
+    const response = await fetch(`${base}&reviewId=${review.id}&activity=1`, {
+      headers: test.headers,
+      signal: controller.signal,
+    });
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    let buffered = "";
+    async function frameContaining(text: string) {
+      while (true) {
+        const end = buffered.indexOf("\n\n");
+        if (end >= 0) {
+          const frame = buffered.slice(0, end);
+          buffered = buffered.slice(end + 2);
+          if (frame.includes(text)) return frame;
+        } else {
+          const chunk = await reader.read();
+          if (chunk.done) throw new Error("Stream ended before activity frame");
+          buffered += new TextDecoder().decode(chunk.value);
+        }
+      }
+    }
+    const initial = await frameContaining("authoring.activity");
+    expect(initial).toContain('"workingCount":0');
+    expect(initial).not.toMatch(/^id:/m);
+    const activityId = randomUUID();
+    await test.command("authoring.begin", { reviewId: review.id, activityId });
+    expect(await frameContaining("authoring.activity")).toContain(
+      '"workingCount":1',
+    );
+    await test.command("authoring.end", { reviewId: review.id, activityId });
+    expect(await frameContaining("authoring.activity")).toContain(
+      '"workingCount":0',
+    );
+    expect(test.store.cursor()).toBe(cursor);
+    controller.abort();
+    await reader.cancel().catch(() => undefined);
+    expect(
+      (await fetch(`${base}&activity=1`, { headers: test.headers })).status,
+    ).toBe(400);
+    const access = test.credentials.authenticate(test.credentials.agentToken)!;
+    test.credentials.add("scoped-activity", {
+      ...access,
+      permissions: new Set(["read"]),
+      reviewIds: new Set([review.id]),
+    });
+    expect(
+      (
+        await fetch(`${base}&reviewId=${other.id}&activity=1`, {
+          headers: { ...test.headers, "x-review-token": "scoped-activity" },
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  it("reports only the human-selected JSON version and consented attachments", async () => {
+    let uploaded: unknown;
+    const upload = vi.fn<typeof fetch>(async (_url, init) => {
+      if (!(init?.body instanceof FormData))
+        throw new Error("Expected compressed multipart report");
+      const payload = init.body.get("payload");
+      if (!(payload instanceof Blob)) throw new Error("Expected payload blob");
+      uploaded = JSON.parse(
+        gunzipSync(Buffer.from(await payload.arrayBuffer())).toString("utf8"),
+      );
+      return Response.json({
+        ok: true,
+        report_id: "00000000-0000-4000-8000-000000000000",
+        short_id: "123456789012",
+      });
+    });
+    const test = await fixture(upload);
+    const review = await createReview(test);
+    await test.command("document.mutate", {
+      reviewId: review.id,
+      expectedReviewVersion: review.latestReviewVersion,
+      operations: [
+        {
+          op: "node.insert",
+          node: {
+            id: "new",
+            type: "markdown",
+            markdown: "A later edit must not enter the earlier report",
+          },
+          placement: { parentId: null, position: { kind: "end" } },
+        },
+      ],
+    });
+    const url = `${test.baseUrl}/v1/workspaces/${test.store.workspaceId}/reviews/${review.id}/bug-report`;
+    const report = {
+      description: "The selected review has a layout bug",
+      include_review: true,
+      include_map: false,
+      include_diff: false,
+      app_session_id: "desktop-bug-report-test",
+      app_version: "development",
+    };
+    const submit = (token: string, body: JsonValue = report) =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "x-review-token": token,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          reviewVersion: review.latestReviewVersion,
+          report: body,
+        }),
+      });
+    const denied = await submit(test.credentials.agentToken);
+    expect(denied.status).toBe(403);
+    expect(
+      HostBugReportResponseSchema.parse(await denied.json()),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "FORBIDDEN", retryable: false },
+    });
+    expect(uploaded).toBeUndefined();
+    const response = await submit(test.desktopToken);
+    expect(response.status).toBe(200);
+    expect(
+      HostBugReportResponseSchema.parse(await response.json()),
+    ).toMatchObject({
+      ok: true,
+      data: { shortId: "123456789012", warnings: [] },
+    });
+    expect(uploaded).toMatchObject({
+      review: { "document.json": expect.any(String) },
+      description: report.description,
+    });
+    expect(JSON.stringify(uploaded)).not.toContain("A later edit");
+    expect(uploaded).not.toHaveProperty("map");
+    expect(uploaded).not.toHaveProperty("diff");
+    expect(uploaded).not.toHaveProperty("trace");
+    uploaded = undefined;
+    expect(
+      (await submit(test.desktopToken, { ...report, include_review: false }))
+        .status,
+    ).toBe(200);
+    expect(uploaded).not.toHaveProperty("review");
+    uploaded = undefined;
+    expect(
+      (await submit(test.desktopToken, { ...report, include_trace: true }))
+        .status,
+    ).toBe(400);
+    expect(uploaded).toBeUndefined();
+  });
+
   it("counts actual bytes and reserves the larger request bound for image uploads", async () => {
     const test = await fixture();
     const review = await createReview(test);
@@ -165,13 +400,13 @@ describe("JSON host HTTP boundary", () => {
       });
     const rejected = await post("review.update", {
       reviewId: review.id,
-      expectedVersion: 0,
+      expectedReviewVersion: 0,
       title: "Padded request",
       description: "",
       labels: [],
     });
     expect(rejected.status).toBe(413);
-    expect(test.store.review(review.id).title).toBe("HTTP review");
+    expect(test.store.reviewSnapshot(review.id).title).toBe("HTTP review");
     const png = await sharp({
       create: { width: 1, height: 1, channels: 4, background: "#aabbcc" },
     })
@@ -192,18 +427,18 @@ describe("JSON host HTTP boundary", () => {
   it("creates and mutates through the authenticated command contract and retains a retry receipt", async () => {
     const test = await fixture();
     const review = await createReview(test);
-    const request: HostCommand<"document.mutate"> = {
+    const request = {
       ...test.envelope,
       type: "document.mutate",
       commandId: randomUUID(),
       input: {
         reviewId: review.id,
-        expectedDocumentVersion: 0,
+        expectedReviewVersion: 0,
         operations: [
           {
             op: "node.insert",
             node: { id: "intro", type: "markdown", markdown: "Live content" },
-            placement: { parentId: null, afterId: null },
+            placement: { parentId: null, position: { kind: "start" } },
           },
         ],
       },
@@ -222,8 +457,8 @@ describe("JSON host HTTP boundary", () => {
     );
     expect(accepted.ok).toBe(true);
     expect(duplicate).toEqual(accepted);
-    expect(test.store.document(review.id).version).toBe(1);
-    expect(test.store.documentHistory(review.id)).toHaveLength(2);
+    expect(test.store.document(review.id).reviewVersion).toBe(1);
+    expect(test.store.reviewHistory(review.id)).toHaveLength(2);
   });
 
   it("rejects missing credentials, query-string tokens, hostile Host and Origin", async () => {
@@ -272,14 +507,17 @@ describe("JSON host HTTP boundary", () => {
       test.credentials.authenticate(test.desktopToken)!.principal.id,
     );
     await expect(
-      test.command("review.close", { reviewId: review.id, expectedVersion: 0 }),
+      test.command("review.close", {
+        reviewId: review.id,
+        expectedStateVersion: 0,
+      }),
     ).rejects.toThrow("FORBIDDEN");
     await test.command(
       "review.close",
-      { reviewId: review.id, expectedVersion: 0 },
+      { reviewId: review.id, expectedStateVersion: 0 },
       test.desktopToken,
     );
-    expect(test.store.review(review.id).workflow).toBe("closed");
+    expect(test.store.review(review.id).state).toBe("closed");
     const response = await fetch(test.commandsUrl, {
       method: "POST",
       headers: test.headers,
@@ -302,16 +540,19 @@ describe("JSON host HTTP boundary", () => {
   it("rejects cross-workspace requests before touching state and does not report validation rejection as HTTP success", async () => {
     const test = await fixture();
     const review = await createReview(test);
-    const query = HostQuerySchema.parse({
+    const query = HostQueryBodySchema.parse({
       ...test.envelope,
       type: "document.get",
       input: { reviewId: review.id },
     });
-    const wrongWorkspace = await fetch(test.queriesUrl, {
-      method: "POST",
-      headers: test.headers,
-      body: JSON.stringify({ ...query, workspaceId: randomUUID() }),
-    });
+    const wrongWorkspace = await fetch(
+      `${test.baseUrl}/v1/workspaces/${randomUUID()}/queries`,
+      {
+        method: "POST",
+        headers: test.headers,
+        body: JSON.stringify(query),
+      },
+    );
     expect(wrongWorkspace.status).toBe(404);
     const response = await fetch(test.commandsUrl, {
       method: "POST",
@@ -322,7 +563,7 @@ describe("JSON host HTTP boundary", () => {
         type: "document.mutate",
         input: {
           reviewId: review.id,
-          expectedDocumentVersion: 0,
+          expectedReviewVersion: 0,
           operations: [
             {
               op: "node.insert",
@@ -331,14 +572,14 @@ describe("JSON host HTTP boundary", () => {
                 type: "markdown",
                 markdown: "<script>unsafe</script>",
               },
-              placement: { parentId: null, afterId: null },
+              placement: { parentId: null, position: { kind: "start" } },
             },
           ],
         },
       }),
     });
     expect(response.status).toBe(422);
-    expect(test.store.document(review.id).version).toBe(0);
+    expect(test.store.document(review.id).reviewVersion).toBe(0);
   });
 
   it("replays events between snapshot and subscription, filters reviews, and rejects stale cursors before streaming", async () => {
@@ -359,24 +600,24 @@ describe("JSON host HTTP boundary", () => {
     if (!snapshot.ok) throw new Error(snapshot.error.message);
     await test.command("document.mutate", {
       reviewId: review.id,
-      expectedDocumentVersion: 0,
+      expectedReviewVersion: 0,
       operations: [
         {
           op: "node.insert",
           node: { id: "between", type: "divider" },
-          placement: { parentId: null, afterId: null },
+          placement: { parentId: null, position: { kind: "start" } },
         },
       ],
     });
     const other = await createReview(test);
     await test.command("document.mutate", {
       reviewId: other.id,
-      expectedDocumentVersion: 0,
+      expectedReviewVersion: 0,
       operations: [
         {
           op: "node.insert",
           node: { id: "unrelated", type: "divider" },
-          placement: { parentId: null, afterId: null },
+          placement: { parentId: null, position: { kind: "start" } },
         },
       ],
     });
@@ -389,7 +630,7 @@ describe("JSON host HTTP boundary", () => {
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     const reader = response.body!.getReader();
     const first = new TextDecoder().decode((await reader.read()).value);
-    expect(first).toContain('"type":"document.committed"');
+    expect(first).toContain('"type":"review.committed"');
     expect(first).toContain('"between"');
     expect(first).not.toContain('"unrelated"');
     controller.abort();
@@ -449,6 +690,6 @@ describe("JSON host HTTP boundary", () => {
         })
       ).status,
     ).toBe(200);
-    expect(test.openReview).toHaveBeenCalledWith(review.id);
+    expect(test.openReview).toHaveBeenCalledWith(review.id, undefined);
   });
 });

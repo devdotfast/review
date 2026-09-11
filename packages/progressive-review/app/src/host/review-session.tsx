@@ -17,6 +17,8 @@ import {
 import { type ReviewSurface, createReviewSurface } from "./review-host";
 
 export interface ReviewSession {
+  reviewVersion?(): number;
+  supportReport?: "snapshot";
   appSessionId: string;
   bridge: ReviewCanvasBridge;
   config: ReviewRuntimeConfig;

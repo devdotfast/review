@@ -229,9 +229,8 @@ function document(
 ): HostDocumentState {
   return {
     schemaVersion: 1,
-    documentId: "00000000-0000-4000-8000-000000000010",
     reviewId: "00000000-0000-4000-8000-000000000020",
-    version: 7,
+    reviewVersion: 7,
     binding,
     contentHash: "0".repeat(64),
     createdAt: binding.createdAt,

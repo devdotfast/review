@@ -65,7 +65,7 @@ it("loads exact map, trace and image identities through review-scoped authentica
     commit: oid,
     contentHash: hash,
     createdAt: at,
-    revision: 1,
+    mapVersion: 1,
     elements: {
       worker: {
         id: "worker",
@@ -81,10 +81,7 @@ it("loads exact map, trace and image identities through review-scoped authentica
   const trace: HostRetainedTrace = {
     trace: {
       id,
-      sessionId: null,
-      parentTraceId: null,
       label: "Authoring note",
-      version: 0,
       createdAt: at,
       provenance: "client_supplied",
     },
@@ -105,12 +102,21 @@ it("loads exact map, trace and image identities through review-scoped authentica
     expect(new Headers(init?.headers).get("x-review-token")).toBe("credential");
     if (String(input).endsWith("/connection"))
       return Response.json({
-        apiVersion: 1,
-        hostId: id,
-        workspaceId: id,
-        principal: { id, kind: "human", displayName: "You" },
+        ok: true,
+        data: {
+          apiVersion: 1,
+          hostId: id,
+          workspaceId: id,
+          principal: { id, kind: "human", displayName: "You" },
+        },
       });
-    const query = HostQuerySchema.parse(JSON.parse(String(init?.body)));
+    const query = HostQuerySchema.parse({
+      ...JSON.parse(String(init?.body)),
+      apiVersion: 1,
+      hostId: id,
+      workspaceId: id,
+      clientId: id,
+    });
     calls.push(query);
     const result = (() => {
       switch (query.type) {

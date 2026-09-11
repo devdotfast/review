@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
 
 import {
-  type HostCheckpoint,
+  HOST_CAPABILITY_LIMITS,
+  type HostActivitySnapshot,
   type HostCommand,
   type HostCommandResults,
   HostCommandSchema,
   type HostDocumentCommit,
   type HostDocumentState,
+  type HostFeedbackSubmission,
   type HostQuery,
   type HostQueryResults,
   HostQuerySchema,
-  type HostReview,
+  type HostReviewCommit,
+  type HostReviewState,
+  type HostReviewVersionHeader,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
@@ -32,9 +36,8 @@ const binding = {
 function documentState(version = 1): HostDocumentState {
   return {
     schemaVersion: 1,
-    documentId: reviewId,
     reviewId,
-    version,
+    reviewVersion: version,
     roots: ["intro"],
     nodes: {
       intro: {
@@ -50,43 +53,38 @@ function documentState(version = 1): HostDocumentState {
     createdAt,
   };
 }
-const checkpoint: HostCheckpoint = {
-  id: checkpointId,
+const checkpoint: HostReviewVersionHeader = {
   reviewId,
-  ordinal: 1,
-  documentVersion: 1,
-  bindingId: reviewId,
-  title: "First checkpoint",
+  reviewVersion: 1,
+  binding,
+  title: "API-owned review",
   description: "",
   mapVersions: { base: null, head: null },
-  authorSessionId: null,
+  labels: [],
+  restoredFromReviewVersion: null,
   createdBy: reviewId,
   createdAt,
 };
 function fixture(
-  workflow: HostReview["workflow"] = "draft",
+  state: HostReviewState["state"] = "open",
   initialDocument = documentState(),
+  activityEnabled = false,
+  feedback: HostFeedbackSubmission[] = [],
 ) {
-  let review: HostReview = {
+  let review: HostReviewState = {
     id: reviewId,
     repositoryId: reviewId,
-    version: 1,
-    title: "API-owned review",
-    description: "",
-    labels: [],
-    workflow,
-    documentId: reviewId,
-    documentVersion: 1,
-    publishedCheckpointId: null,
-    authorSessionId: null,
+    stateVersion: 0,
+    state,
+    latestReviewVersion: initialDocument.reviewVersion,
     createdBy: reviewId,
     createdAt,
-    updatedAt: createdAt,
     deletedAt: null,
   };
   let working = initialDocument;
   const calls: (HostCommand | HostQuery)[] = [];
   const streams: {
+    activity: boolean;
     controller: ReadableStreamDefaultController<Uint8Array>;
     signal: AbortSignal;
   }[] = [];
@@ -97,17 +95,24 @@ function fixture(
       expect(new Headers(init?.headers).get("x-review-token")).toBe("secret");
       if (url.pathname === "/v1/connection")
         return Response.json({
-          apiVersion: 1,
-          hostId: reviewId,
-          workspaceId: reviewId,
-          principal: { id: reviewId, kind: "human", displayName: "You" },
+          ok: true,
+          data: {
+            apiVersion: 1,
+            hostId: reviewId,
+            workspaceId: reviewId,
+            principal: { id: reviewId, kind: "human", displayName: "You" },
+          },
         });
       if (url.pathname.endsWith("/events")) {
         const signal = init!.signal!;
         return new Response(
           new ReadableStream<Uint8Array>({
             start(controller) {
-              streams.push({ controller, signal });
+              streams.push({
+                controller,
+                signal,
+                activity: url.searchParams.get("activity") === "1",
+              });
               signal.addEventListener(
                 "abort",
                 () => {
@@ -124,64 +129,125 @@ function fixture(
           { headers: { "content-type": "text/event-stream" } },
         );
       }
+      if (url.pathname.startsWith("/telemetry/"))
+        return Response.json({ ok: true });
+      const envelope = {
+        ...JSON.parse(String(init?.body)),
+        apiVersion: 1,
+        hostId: reviewId,
+        workspaceId: reviewId,
+        clientId: reviewId,
+      };
       const request = url.pathname.endsWith("/commands")
-        ? HostCommandSchema.parse(JSON.parse(String(init?.body)))
-        : HostQuerySchema.parse(JSON.parse(String(init?.body)));
+        ? HostCommandSchema.parse(envelope)
+        : HostQuerySchema.parse(envelope);
       calls.push(request);
       let result:
-        | HostQueryResults[
-            | "review.get"
-            | "reviews.list"
-            | "checkpoints.list"
-            | "trace.get"
-            | "document.get"]
-        | HostCommandResults[
-            | "review.reopen"
-            | "review.publish"
-            | "canvas.report"];
+        | HostQueryResults[keyof HostQueryResults]
+        | HostCommandResults[keyof HostCommandResults];
       switch (request.type) {
+        case "capabilities":
+          result = {
+            apiVersions: [1],
+            documentSchemaVersions: [1],
+            nodeTypes: ["markdown"],
+            limits: HOST_CAPABILITY_LIMITS,
+            commands: [],
+            queries: activityEnabled ? ["authoring.get"] : [],
+            ask: {
+              defaultHarness: null,
+              supportedHarnesses: [],
+              isolation: "trusted_local",
+            },
+          };
+          break;
+        case "repositories.list":
+          result = {
+            items: [{ id: reviewId, vcs: "git", displayName: "Example" }],
+            nextCursor: null,
+          };
+          break;
+        case "attention.get":
+          result = {
+            reviewId,
+            principalId: reviewId,
+            lastViewedAt: null,
+            lastViewedReviewVersion: null,
+            pinned: false,
+            attentionVersion: 1,
+          };
+          break;
+        case "attention.update":
+          result = {
+            reviewId,
+            principalId: reviewId,
+            attentionVersion: request.input.expectedAttentionVersion + 1,
+            lastViewedReviewVersion:
+              request.input.lastViewedReviewVersion ?? null,
+            lastViewedAt: createdAt,
+            pinned: request.input.pinned ?? false,
+          };
+          break;
+        case "drafts.list":
+        case "threads.list":
+        case "questions.list":
+        case "source.commits":
+        case "source.diff":
+          result = { items: [], nextCursor: null };
+          break;
+        case "feedback.list":
+          result = { items: feedback, nextCursor: null };
+          break;
         case "review.get":
-          result = { review };
+          result = {
+            review,
+            snapshot: {
+              ...checkpoint,
+              reviewVersion:
+                request.input.reviewVersion ?? working.reviewVersion,
+            },
+          };
           break;
         case "reviews.list":
-          result = { items: [review], nextCursor: null };
+          result = {
+            items: [
+              {
+                review,
+                snapshot: {
+                  ...checkpoint,
+                  reviewVersion: working.reviewVersion,
+                },
+              },
+            ],
+            nextCursor: null,
+          };
           break;
-        case "checkpoints.list":
-          result = { items: [checkpoint], nextCursor: null };
+        case "review.history":
+          result = {
+            items: [{ ...checkpoint, reason: "document" }],
+            nextCursor: null,
+          };
           break;
         case "document.get":
-          result = request.input.version
-            ? documentState(request.input.version)
-            : working;
-          break;
-        case "review.publish":
-          review = {
-            ...review,
-            workflow: "in_review",
-            version: review.version + 1,
-            publishedCheckpointId: checkpoint.id,
-          };
-          result = checkpoint;
+          result =
+            request.input.reviewVersion !== undefined &&
+            request.input.reviewVersion !== working.reviewVersion
+              ? documentState(request.input.reviewVersion)
+              : working;
           break;
         case "review.reopen":
           review = {
             ...review,
-            workflow: "draft",
-            version: review.version + 1,
+            state: "open",
+            stateVersion: review.stateVersion + 1,
           };
           result = review;
-          break;
-        case "canvas.report":
-          result = { accepted: true };
           break;
         case "trace.get":
           result = {
             trace: {
               id: reviewId,
-              sessionId: null,
-              parentTraceId: null,
               label: "Authoring note",
-              version: 0,
               createdAt,
               provenance: "client_supplied",
             },
@@ -201,7 +267,7 @@ function fixture(
         default:
           throw new Error(`Unexpected API operation: ${request.type}`);
       }
-      const data = { result, eventCursor: `cursor-${working.version}` };
+      const data = { result, eventCursor: `cursor-${working.reviewVersion}` };
       if ("commandId" in request)
         return Response.json({
           ok: true,
@@ -211,19 +277,48 @@ function fixture(
     }),
   );
   return {
+    activity(snapshot: HostActivitySnapshot) {
+      for (const stream of streams)
+        if (!stream.signal.aborted && stream.activity)
+          stream.controller.enqueue(
+            new TextEncoder().encode(
+              `event: authoring.activity\ndata: ${JSON.stringify(snapshot)}\n\n`,
+            ),
+          );
+    },
     calls,
     streams,
+    trash() {
+      review = {
+        ...review,
+        stateVersion: review.stateVersion + 1,
+        deletedAt: createdAt,
+      };
+      const event = {
+        cursor: `trash-${review.stateVersion}`,
+        reviewId,
+        type: "review.state_changed",
+        payload: { review },
+      };
+      for (const stream of streams)
+        if (!stream.signal.aborted)
+          stream.controller.enqueue(
+            new TextEncoder().encode(
+              `id: ${event.cursor}\ndata: ${JSON.stringify(event)}\n\n`,
+            ),
+          );
+    },
     advance(version: number) {
       const before = working;
       working = {
         ...working,
-        version,
+        reviewVersion: version,
         nodes: { ...working.nodes, ...documentState(version).nodes },
       };
       const commit: HostDocumentCommit = {
-        documentId: reviewId,
-        previousVersion: before.version,
-        version,
+        reviewId,
+        previousReviewVersion: before.reviewVersion,
+        reviewVersion: version,
         contentHash: working.contentHash,
         createdAt,
         changedNodes: working.nodes,
@@ -236,11 +331,20 @@ function fixture(
         binding,
         diagnostics: [],
       };
+      review = { ...review, latestReviewVersion: version };
+      const reviewCommit: HostReviewCommit = {
+        reviewId,
+        previousReviewVersion: before.reviewVersion,
+        reviewVersion: version,
+        snapshot: { ...checkpoint, reviewVersion: version },
+        documentDelta: commit,
+        diagnostics: [],
+      };
       const event = {
         cursor: `cursor-${version}`,
         reviewId,
-        type: "document.committed",
-        payload: { reviewId, commit },
+        type: "review.committed",
+        payload: reviewCommit,
       };
       for (const stream of streams)
         if (!stream.signal.aborted)
@@ -259,6 +363,30 @@ beforeEach(() => {
   (
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }),
+  });
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -277,7 +405,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function render(review = true) {
+async function render(
+  review = true,
+  setDocumentVersion?: (version: number) => void,
+  closeReview?: (reviewId: string) => Promise<void>,
+) {
   const openReview = vi.fn<(reviewId: string, title?: string) => void>();
   await act(async () => {
     root.render(
@@ -287,7 +419,27 @@ async function render(review = true) {
           connection: { serverUrl: "http://localhost:4000", token: "secret" },
           reviewId: review ? reviewId : undefined,
           openReview,
+          closeReview,
           showHome() {},
+          source: {
+            setDocumentVersion,
+            open: async () => {},
+            createPeek: () => {
+              throw new Error("Unused peek");
+            },
+            inlineEditors: {
+              create: () => {
+                throw new Error("Unused source editor");
+              },
+              find: async () => ({ matchCount: 0 }),
+            },
+            diffView: {
+              create: () => {
+                throw new Error("Unused diff view");
+              },
+              files: async () => [],
+            },
+          },
         }}
       />,
     );
@@ -308,36 +460,100 @@ async function settle() {
 }
 
 describe("native JSON canvas API integration", () => {
-  it("keeps Welcome, Settings and Tutorial reachable from the API-owned home", async () => {
-    const host = fixture();
-    const openWelcome = vi.fn<() => void>();
-    const openSettings = vi.fn<() => void>();
-    const openTutorial = vi.fn<() => void>();
-    await act(async () =>
-      root.render(
-        <HostCanvas
-          content={{
-            kind: "host",
-            connection: { serverUrl: "http://localhost:4000", token: "secret" },
-            openReview() {},
-            showHome() {},
-            openWelcome,
-            openSettings,
-            openTutorial,
-          }}
-        />,
-      ),
+  it("shows closed rather than approved when closing has no approval decision", async () => {
+    fixture("closed");
+    await render();
+    await settle();
+    expect(container.querySelector(".review-baton-chip")?.textContent).toBe(
+      "closed",
     );
-    await act(async () => {
-      button("Welcome").click();
-      button("Settings").click();
-      button("Tutorial").click();
-    });
-    expect(openWelcome).toHaveBeenCalledOnce();
-    expect(openSettings).toHaveBeenCalledOnce();
-    expect(openTutorial).toHaveBeenCalledOnce();
-    expect(host.calls.some((call) => call.type === "reviews.list")).toBe(true);
+    expect(container.querySelector(".topbar-new-ask-button")).toBeNull();
+    expect(container.querySelector(".review-corner-action")).toBeNull();
   });
+
+  it("shows an exact-version approval without ending review, and removes it when a newer version arrives", async () => {
+    const host = fixture("open", documentState(), false, [
+      {
+        id: crypto.randomUUID(),
+        reviewId,
+        reviewVersion: 1,
+        decision: "approve",
+        createdBy: reviewId,
+        createdAt,
+        messageIds: [],
+        threadIds: [],
+      },
+    ]);
+    await render();
+    await settle();
+    expect(container.querySelector(".review-baton-chip")?.textContent).toBe(
+      "approved · v1",
+    );
+    expect(container.querySelector(".topbar-new-ask-button")).not.toBeNull();
+    await act(async () => host.advance(2));
+    await settle();
+    expect(container.querySelector(".review-baton-chip")).toBeNull();
+  });
+
+  it("does not display an old approval on restored identical canvas content", async () => {
+    fixture("open", { ...documentState(1), reviewVersion: 3 }, false, [
+      {
+        id: crypto.randomUUID(),
+        reviewId,
+        reviewVersion: 1,
+        decision: "approve",
+        createdBy: reviewId,
+        createdAt,
+        messageIds: [],
+        threadIds: [],
+      },
+    ]);
+    await render();
+    await settle();
+    expect(container.textContent).toContain("Body version 1");
+    expect(container.querySelector(".review-baton-chip")).toBeNull();
+  });
+  it("shows host activity without changing content, and hides it on historical checkpoints", async () => {
+    const host = fixture("open", documentState(), true);
+    await render();
+    const active = {
+      reviewId,
+      workingCount: 1,
+      unknownCount: 0,
+    };
+    await act(async () => host.activity(active));
+    expect(container.textContent).toContain("Agent working…");
+    expect(container.textContent).toContain("Body version 1");
+    await act(async () => host.activity({ ...active, workingCount: 0 }));
+    expect(container.textContent).not.toContain("Agent working…");
+    await act(async () => host.activity(active));
+    await act(async () => host.advance(2));
+    expect(container.textContent).toContain("Agent working…");
+    expect(container.textContent).toContain("Body version 2");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Version history"]')!
+        .click(),
+    );
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click(),
+    );
+    expect(container.textContent).toContain("older version");
+    expect(container.textContent).not.toContain("Agent working…");
+    await act(async () => host.activity(active));
+    expect(container.textContent).not.toContain("Agent working…");
+  });
+
+  it("closes the matching native review tabs after another client moves the review to trash", async () => {
+    const host = fixture();
+    const closeReview = vi.fn<(id: string) => Promise<void>>(async () => {});
+    await render(true, undefined, closeReview);
+    expect(closeReview).not.toHaveBeenCalled();
+    await act(async () => host.trash());
+    await settle();
+    expect(closeReview).toHaveBeenCalledExactlyOnceWith(reviewId);
+  });
+
   it("fetches shared retained resources once and preserves collapsed sections through unrelated live changes", async () => {
     const initial = documentState();
     initial.nodes.section = {
@@ -359,22 +575,24 @@ describe("native JSON canvas API integration", () => {
       id: "secondQuote",
     };
     initial.roots = ["section", "firstQuote", "secondQuote"];
-    const host = fixture("draft", initial);
+    const host = fixture("open", initial);
     await render();
-    expect(container.querySelectorAll(".host-document-trace")).toHaveLength(2);
+    expect(
+      container.querySelectorAll(".review-trace-quote-container"),
+    ).toHaveLength(2);
     expect(host.calls.filter((call) => call.type === "trace.get")).toHaveLength(
       1,
     );
     const toggle = container.querySelector<HTMLButtonElement>(
-      ".host-document-section button",
+      ".review-section-toggle",
     )!;
     act(() => toggle.click());
     await act(async () => host.advance(2));
-    expect(container.querySelector(".host-document-section button")).toBe(
-      toggle,
-    );
+    expect(container.querySelector(".review-section-toggle")).toBe(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(container.querySelectorAll(".host-document-trace")).toHaveLength(2);
+    expect(
+      container.querySelectorAll(".review-trace-quote-container"),
+    ).toHaveLength(2);
     expect(host.calls.filter((call) => call.type === "trace.get")).toHaveLength(
       1,
     );
@@ -384,57 +602,47 @@ describe("native JSON canvas API integration", () => {
     fixture();
     const openReview = await render(false);
     expect(container.textContent).toContain("API-owned review");
-    act(() => button("API-owned review").click());
+    act(() =>
+      container.querySelector<HTMLButtonElement>(".review-home-card")!.click(),
+    );
     expect(openReview).toHaveBeenCalledWith(reviewId, "API-owned review");
   });
 
   it("renders atomic live updates, freezes a checkpoint, then returns to the latest live version", async () => {
     const host = fixture();
-    await render();
+    const observeSourceVersion = vi.fn<(version: number) => void>();
+    await render(true, observeSourceVersion);
     expect(container.textContent).toContain("Body version 1");
     await act(async () => host.advance(2));
     expect(container.textContent).toContain("Body version 2");
-    const select = container.querySelector("select")!;
+    const history = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Version history"]',
+    )!;
+    await act(async () => history.click());
+    observeSourceVersion.mockClear();
     await act(async () => {
-      select.value = checkpointId;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      container.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click();
     });
     expect(container.textContent).toContain("Body version 1");
-    expect(button("Publish checkpoint").disabled).toBe(true);
-    expect(host.streams.every((stream) => stream.signal.aborted)).toBe(true);
+    expect(container.textContent).toContain("older version");
+    // A transient render with the live document would point native sources
+    // and comment targets at version 2 under the historical checkpoint.
+    expect(
+      observeSourceVersion.mock.calls.map(([version]) => version),
+    ).not.toContain(2);
+    expect(observeSourceVersion).toHaveBeenCalledWith(1);
+
     await act(async () => host.advance(3));
     expect(container.textContent).not.toContain("Body version 3");
+    observeSourceVersion.mockClear();
     await act(async () => {
-      select.value = "";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      button("Back to latest").click();
     });
     expect(container.textContent).toContain("Body version 3");
-  });
-
-  it("sends reopen and publication commands with current optimistic versions", async () => {
-    const host = fixture("closed");
-    await render();
-    await act(async () => button("Reopen review").click());
-    await settle();
-    expect(host.calls).toContainEqual(
-      expect.objectContaining({
-        type: "review.reopen",
-        input: { reviewId, expectedVersion: 1 },
-      }),
-    );
-    await act(async () => button("Publish checkpoint").click());
-    await settle();
-    expect(host.calls).toContainEqual(
-      expect.objectContaining({
-        type: "review.publish",
-        input: {
-          reviewId,
-          expectedDocumentVersion: 1,
-          expectedReviewVersion: 2,
-          mapVersions: { base: null, head: null },
-        },
-      }),
-    );
-    expect(container.textContent).toContain("Published checkpoint 1");
+    expect(
+      observeSourceVersion.mock.calls.map(([version]) => version),
+    ).not.toContain(1);
+    expect(observeSourceVersion).toHaveBeenCalledWith(3);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 });

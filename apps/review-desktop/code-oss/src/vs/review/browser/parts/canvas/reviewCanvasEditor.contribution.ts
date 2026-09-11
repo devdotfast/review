@@ -135,7 +135,10 @@ class ReviewCanvasEditorContribution
     }
     for (const reviewUuid of stored.open) {
       if (reviewUuid.startsWith("host:")) {
-        await this.tabsService.openHostReview(reviewUuid.slice(5), reviewUuid === stored.active);
+        const [reviewId, savedVersion] = reviewUuid.slice(5).split("@");
+        const reviewVersion = savedVersion === undefined ? undefined : Number(savedVersion);
+        if (reviewVersion !== undefined && (!/^\d+$/.test(savedVersion!) || !Number.isSafeInteger(reviewVersion))) continue;
+        await this.tabsService.openHostReview(reviewId, reviewUuid === stored.active, undefined, reviewVersion);
         continue;
       }
       // Ordinary legacy tabs are deliberately not acquired or migrated.
@@ -187,14 +190,14 @@ class ReviewCanvasEditorContribution
     const open = group.editors.flatMap((editor) =>
       editor instanceof ReviewCanvasEditorInput
         ? editor.target.kind === "review" ? [editor.target.reviewUuid]
-          : editor.target.kind === "host-review" && editor.target.reviewId ? [`host:${editor.target.reviewId}`] : []
+          : editor.target.kind === "host-review" && editor.target.reviewId ? [`host:${editor.target.reviewId}${editor.target.reviewVersion === undefined ? "" : `@${editor.target.reviewVersion}`}`] : []
         : [],
     );
     const activeEditor = group.activeEditor;
     const active =
       activeEditor instanceof ReviewCanvasEditorInput
         ? activeEditor.target.kind === "review" ? activeEditor.target.reviewUuid
-          : activeEditor.target.kind === "host-review" && activeEditor.target.reviewId ? `host:${activeEditor.target.reviewId}` : undefined
+          : activeEditor.target.kind === "host-review" && activeEditor.target.reviewId ? `host:${activeEditor.target.reviewId}${activeEditor.target.reviewVersion === undefined ? "" : `@${activeEditor.target.reviewVersion}`}` : undefined
         : undefined;
     this.storageService.store(
       OPEN_REVIEW_TABS_STORAGE_KEY,

@@ -4,14 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
-  type HostCanvasReport,
   type HostDraft,
   type HostFeedbackSubmission,
   type HostMessage,
   type HostPrincipal,
   type HostQuestionContext,
   type HostQuestionRun,
-  type HostReview,
+  type HostReviewState,
   type HostThread,
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
@@ -129,24 +128,24 @@ function fixture() {
     }),
   );
   const createReview = () => {
-    const review: HostReview = {
+    const review: HostReviewState = {
       id: randomUUID(),
       repositoryId,
-      version: 0,
-      title: "Feedback",
-      description: "",
-      labels: [],
-      workflow: "draft",
-      documentId: randomUUID(),
-      documentVersion: 0,
-      publishedCheckpointId: null,
-      authorSessionId: null,
+      stateVersion: 0,
+      state: "open",
+      latestReviewVersion: 0,
       createdBy: human.id,
       createdAt: at,
-      updatedAt: at,
       deletedAt: null,
     };
-    write(store, () => store.createReview(review, prepared));
+    write(store, () =>
+      store.createReview(review, prepared, {
+        title: "Feedback",
+        description: "",
+        labels: [],
+        mapVersions: { base: null, head: null },
+      }),
+    );
     return review;
   };
   const review = createReview();
@@ -154,8 +153,8 @@ function fixture() {
     id: randomUUID(),
     reviewId: review.id,
     principalId,
-    version: 0,
-    target: { kind: "node", documentVersion: 0, nodeId: "source" },
+    draftVersion: 0,
+    target: { kind: "node", reviewVersion: 0, nodeId: "source" },
     evidence: prepared.evidence.source!,
     body: "Could this race?",
     createdAt: at,
@@ -164,8 +163,8 @@ function fixture() {
   const thread = (): HostThread => ({
     id: randomUUID(),
     reviewId: review.id,
-    version: 0,
-    target: { kind: "node", documentVersion: 0, nodeId: "source" },
+    threadVersion: 0,
+    target: { kind: "node", reviewVersion: 0, nodeId: "source" },
     evidence: prepared.evidence.source!,
     status: "open",
     createdBy: human.id,
@@ -188,9 +187,35 @@ function fixture() {
       const context: HostQuestionContext = {
         id: randomUUID(),
         reviewId: review.id,
-        documentVersion: 0,
+        reviewVersion: 0,
         question: asked.body,
-        material: { quote: prepared.evidence.source!.text },
+        material: {
+          schemaVersion: 1,
+          review: { title: { state: "complete", text: "Feedback" } },
+          binding: {
+            repositoryId,
+            baseCommit: prepared.binding.baseCommit,
+            headCommit: prepared.binding.headCommit,
+          },
+          mapVersions: { base: null, head: null },
+          originalTarget: targetThread.target,
+          viewedTarget: {
+            threadId: targetThread.id,
+            reviewVersion: 0,
+            status: "exact",
+            target: targetThread.target,
+          },
+          sourceEvidence: {
+            ...prepared.evidence.source!,
+            text: { state: "complete", text: prepared.evidence.source!.text },
+          },
+          documentJson: {
+            state: "complete",
+            text: JSON.stringify(prepared.document),
+          },
+          priorMessages: [],
+          priorMessagesOmitted: 0,
+        },
       };
       store.putQuestionContext(context);
       const run: HostQuestionRun = {
@@ -212,29 +237,6 @@ function fixture() {
       store.createQuestionRun(run);
       return { thread: targetThread, asked, context, run };
     });
-  const publish = () =>
-    write(store, () =>
-      store.publish({
-        reviewId: review.id,
-        expectedDocumentVersion: store.review(review.id).documentVersion,
-        expectedReviewVersion: store.review(review.id).version,
-        mapVersions: {
-          base: store.createMap(review.id, {
-            repositoryId,
-            commit: prepared.binding.baseCommit,
-            map: { schemaVersion: 1, elements: {}, relationships: {} },
-            evidence: {},
-          }).id,
-          head: store.createMap(review.id, {
-            repositoryId,
-            commit: prepared.binding.headCommit,
-            map: { schemaVersion: 1, elements: {}, relationships: {} },
-            evidence: {},
-          }).id,
-        },
-        principalId: human.id,
-      }),
-    );
   return {
     get store() {
       return store;
@@ -249,7 +251,6 @@ function fixture() {
     thread,
     message,
     question,
-    publish,
     createReview,
     restart() {
       store.close();
@@ -258,15 +259,13 @@ function fixture() {
     },
     closeReview(trashed = false) {
       write(store, () =>
-        store.updateReview(
+        store.updateReviewState(
           review.id,
-          store.review(review.id).version,
+          store.review(review.id).stateVersion,
           (before) => ({
             ...before,
-            version: before.version + 1,
-            workflow: trashed ? before.workflow : "closed",
+            state: trashed ? before.state : "closed",
             deletedAt: trashed ? later : null,
-            updatedAt: later,
           }),
         ),
       );
@@ -314,14 +313,14 @@ describe("feedback persistence", () => {
     const stale = peer.draft(f.review.id, initial.id, f.human.id);
     const next = {
       ...initial,
-      version: 1,
+      draftVersion: 1,
       body: "Updated concern",
       updatedAt: later,
     };
     write(f.store, () => f.store.saveDraft(next, 0));
     expect(() =>
       write(peer, () =>
-        peer.saveDraft({ ...stale, version: 1, body: "Lost edit" }, 0),
+        peer.saveDraft({ ...stale, draftVersion: 1, body: "Lost edit" }, 0),
       ),
     ).toThrow("Draft changed");
     expect(() =>
@@ -331,7 +330,7 @@ describe("feedback persistence", () => {
     ).toThrow("Draft changed");
     expect(() =>
       write(peer, () =>
-        peer.saveDraft({ ...next, version: 2, createdAt: later }, 1),
+        peer.saveDraft({ ...next, draftVersion: 2, createdAt: later }, 1),
       ),
     ).toThrow("creation time");
     expect(peer.draft(f.review.id, initial.id, f.human.id)).toEqual(next);
@@ -364,7 +363,7 @@ describe("feedback persistence", () => {
       f.store.setThreadStatus(f.review.id, original.id, 0, "resolved"),
     );
     expect(resolved).toMatchObject({
-      version: 1,
+      threadVersion: 1,
       status: "resolved",
       target: original.target,
       evidence: original.evidence,
@@ -384,7 +383,7 @@ describe("feedback persistence", () => {
     expect(f.store.document(f.review.id, 0).evidence.source).toEqual(
       original.evidence,
     );
-    expect(f.store.document(f.review.id).version).toBe(1);
+    expect(f.store.document(f.review.id).reviewVersion).toBe(1);
   });
 
   it("orders immutable messages and deduplicates retries despite a new generated timestamp", () => {
@@ -449,14 +448,13 @@ describe("feedback persistence", () => {
 
   it("rolls draft consumption, threads, messages, submissions, and events back together", () => {
     const f = fixture();
-    const checkpoint = f.publish();
     const draft = write(f.store, () => f.store.saveDraft(f.draft(), null));
     const target = f.thread();
     const message = f.message(target.id);
     const submission: HostFeedbackSubmission = {
       id: randomUUID(),
       reviewId: f.review.id,
-      checkpointId: checkpoint.id,
+      reviewVersion: 0,
       decision: "request_changes",
       createdBy: f.human.id,
       createdAt: at,
@@ -499,7 +497,6 @@ describe("feedback persistence", () => {
 
   it("rejects submission references to another review or the wrong thread", () => {
     const f = fixture();
-    const checkpoint = f.publish();
     const target = write(f.store, () => f.store.createThread(f.thread()));
     const message = write(f.store, () =>
       f.store.appendMessage(f.review.id, f.message(target.id)),
@@ -508,7 +505,7 @@ describe("feedback persistence", () => {
     const input: HostFeedbackSubmission = {
       id: randomUUID(),
       reviewId: f.review.id,
-      checkpointId: checkpoint.id,
+      reviewVersion: 0,
       decision: "comment",
       createdBy: f.human.id,
       createdAt: at,
@@ -526,7 +523,7 @@ describe("feedback persistence", () => {
           threadIds: [target.id],
         }),
       ),
-    ).toThrow("Checkpoint not found");
+    ).toThrow("Message not found");
     expect(f.store.submissions(f.review.id)).toEqual([]);
   });
 });
@@ -548,7 +545,7 @@ describe("question attempts", () => {
         f.store.putQuestionContext({
           ...context,
           id: randomUUID(),
-          material: { oversized: "x".repeat(64 * 1024) },
+          question: "\u0001".repeat(32 * 1024),
         }),
       ),
     ).toThrow("size limit");
@@ -727,12 +724,16 @@ describe("question attempts", () => {
           answerMessageId: answer.id,
           updatedAt: later,
         });
-        f.store.deleteDraft(f.review.id, draft.id, f.human.id, 0);
       });
+      expect(() =>
+        write(f.store, () =>
+          f.store.deleteDraft(f.review.id, draft.id, f.human.id, 0),
+        ),
+      ).toThrow("Closed or trashed");
       f.restart();
       expect(f.store.questionRun(f.review.id, run.id).state).toBe("completed");
       expect(f.store.messages(f.review.id, thread.id)).toHaveLength(2);
-      expect(f.store.drafts(f.review.id, f.human.id)).toEqual([]);
+      expect(f.store.drafts(f.review.id, f.human.id)).toEqual([draft]);
     },
   );
 
@@ -782,17 +783,17 @@ describe("question attempts", () => {
   });
 });
 
-describe("reader-local state and canvas observations", () => {
+describe("reader-local state", () => {
   it("keeps attention independent and versioned without changing review or document versions", () => {
     const f = fixture();
     const before = f.store.review(f.review.id);
     const defaultAttention = f.store.attention(f.review.id, f.human.id);
     const next = {
       ...defaultAttention,
-      version: 1,
+      attentionVersion: 1,
       pinned: true,
-      viewedDocumentVersion: 0,
-      viewedAt: later,
+      lastViewedReviewVersion: 0,
+      lastViewedAt: later,
     };
     write(f.store, () => f.store.updateAttention(next, 0));
     const peer = open(f.databasePath);
@@ -801,69 +802,22 @@ describe("reader-local state and canvas observations", () => {
     ).toThrow("Attention changed");
     expect(f.store.attention(f.review.id, f.other.id).pinned).toBe(false);
     expect(
-      f.store.attention(f.createReview().id, f.human.id).viewedAt,
+      f.store.attention(f.createReview().id, f.human.id).lastViewedAt,
     ).toBeNull();
     expect(f.store.review(f.review.id)).toEqual(before);
     f.closeReview();
     write(f.store, () =>
-      f.store.updateAttention({ ...next, version: 2, pinned: false }, 1),
+      f.store.updateAttention(
+        { ...next, attentionVersion: 2, pinned: false },
+        1,
+      ),
     );
     f.restart();
     expect(f.store.attention(f.review.id, f.human.id)).toMatchObject({
-      version: 2,
+      attentionVersion: 2,
       pinned: false,
-      viewedDocumentVersion: 0,
+      lastViewedReviewVersion: 0,
     });
-  });
-
-  it("retains only the latest twenty canvas sessions per review and refreshes an existing session", () => {
-    const f = fixture();
-    const otherReview = f.createReview();
-    const before = f.store.review(f.review.id);
-    const cursor = f.store.cursor();
-    const report = (reviewId = f.review.id): HostCanvasReport => ({
-      reviewId,
-      canvasSessionId: randomUUID(),
-      documentVersion: 0,
-      status: "rendered",
-      visibleNodeIds: ["source"],
-      failures: [],
-    });
-    const oldest = report();
-    const another = report(otherReview.id);
-    write(f.store, () => {
-      f.store.recordCanvasReport(another, f.other.id);
-      f.store.recordCanvasReport(oldest, f.human.id);
-      for (let i = 0; i < 19; i++)
-        f.store.recordCanvasReport(report(), f.human.id);
-      f.store.recordCanvasReport(
-        {
-          ...oldest,
-          status: "failed",
-          failures: [
-            { nodeId: "source", code: "renderer", message: "Mount failed" },
-          ],
-        },
-        f.human.id,
-      );
-      f.store.recordCanvasReport(report(), f.human.id);
-    });
-    const reports = f.store.canvasReports(f.review.id);
-    expect(reports).toHaveLength(20);
-    expect(reports[1]).toMatchObject({
-      canvasSessionId: oldest.canvasSessionId,
-      status: "failed",
-      principalId: f.human.id,
-    });
-    expect(Number.isFinite(Date.parse(reports[1]!.receivedAt))).toBe(true);
-    expect(f.store.canvasReports(otherReview.id)).toHaveLength(1);
-    expect(() =>
-      write(f.store, () => f.store.recordCanvasReport(oldest, f.other.id)),
-    ).toThrow("Canvas session not found");
-    expect(f.store.review(f.review.id)).toEqual(before);
-    expect(f.store.cursor()).toBe(cursor);
-    f.restart();
-    expect(f.store.canvasReports(f.review.id)).toEqual(reports);
   });
 
   it("rejects feedback writes outside the command transaction", () => {
@@ -877,22 +831,13 @@ describe("reader-local state and canvas observations", () => {
       () => f.store.appendMessage(f.review.id, f.message(randomUUID())),
       () =>
         f.store.updateAttention(
-          { ...f.store.attention(f.review.id, f.human.id), version: 1 },
+          {
+            ...f.store.attention(f.review.id, f.human.id),
+            attentionVersion: 1,
+          },
           0,
         ),
       () => f.store.interruptOutstandingQuestionRuns(),
-      () =>
-        f.store.recordCanvasReport(
-          {
-            reviewId: f.review.id,
-            canvasSessionId: randomUUID(),
-            documentVersion: 0,
-            status: "rendered",
-            visibleNodeIds: [],
-            failures: [],
-          },
-          f.human.id,
-        ),
     ])
       expect(action).toThrow("command transaction");
   });

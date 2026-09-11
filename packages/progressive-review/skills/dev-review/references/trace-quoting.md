@@ -14,7 +14,6 @@ Call `trace.ingest` with a review ID, descriptive label and bounded events:
   "label": "Requirements discussion",
   "events": [{
     "id": "<event UUID>",
-    "ordinal": 0,
     "at": "2026-09-10T12:00:00Z",
     "kind": "user",
     "text": "Keep the document available when source is offline."
@@ -34,6 +33,6 @@ Use the returned trace ID in a `trace_quote` node:
 }
 ```
 
-The quote must match retained text from that event. Preserve wording; place explanations and corrections in separate prose. Every event is marked `client_supplied`: validating a quote against uploaded material does not independently authenticate its origin.
+Array order determines event order; the host assigns consecutive ordinals. `at` is optional and should be supplied only when the original time is known. Quotes must match within an event after whitespace normalization. Preserve wording; put explanations and corrections in separate prose. Every event is marked `client_supplied`: validation does not independently authenticate its origin.
 
 The host stores the events and serves them through `trace.get`. A viewer does not need the original transcript file, a session export tool, or access to the author's machine. Existing optional trace capture/search utilities are separate features, not prerequisites for JSON authoring.

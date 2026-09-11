@@ -170,6 +170,79 @@ describe("ReviewProvider comment message deletion", () => {
     expect(requireReview().submissionOutcome).toBe("approved");
   });
 
+  it.each(["approve", "request-changes"] as const)(
+    "keeps a Host review live after %s feedback and accepts another batch",
+    async (decision) => {
+      const fetchMock = stubReviewFetch({});
+      await renderProvider(
+        testReviewSession({ sessionId: "host:review:binding" }),
+      );
+
+      await act(async () => {
+        await requireReview().saveComment({
+          threadId: "first-thread",
+          messageId: "first-message",
+          target,
+          body: "First batch",
+        });
+        await requireReview().submitPendingComments(decision);
+      });
+
+      expect(requireReview().submissionOutcome).toBeNull();
+      expect(requireReview().pendingCommentCount).toBe(0);
+
+      await act(async () => {
+        await requireReview().saveComment({
+          threadId: "second-thread",
+          messageId: "second-message",
+          target,
+          body: "Another observation",
+        });
+      });
+      expect(requireReview().pendingCommentCount).toBe(1);
+
+      await act(async () => {
+        await requireReview().submitPendingComments("request-changes");
+      });
+      expect(requireReview().submissionOutcome).toBeNull();
+      expect(requireReview().pendingCommentCount).toBe(0);
+      const submissions = fetchMock.mock.calls
+        .filter(
+          ([url, init]) =>
+            new URL(String(url)).pathname.endsWith("/submissions") &&
+            init?.method === "POST",
+        )
+        .map(([, init]) => JSON.parse(String(init?.body)));
+      expect(submissions).toHaveLength(2);
+      expect(submissions[0]).toMatchObject({
+        decision,
+        comments: [{ body: "First batch" }],
+      });
+      expect(submissions[1]).toMatchObject({
+        decision: "request-changes",
+        comments: [{ body: "Another observation" }],
+      });
+      expect(submissions[0].submissionId).not.toBe(submissions[1].submissionId);
+    },
+  );
+
+  it.each([
+    ["approve", "approved"],
+    ["request-changes", "changes-requested"],
+  ] as const)(
+    "preserves legacy %s handoff behavior",
+    async (decision, outcome) => {
+      stubReviewFetch({});
+      await renderProvider();
+
+      await act(async () => {
+        await requireReview().submitPendingComments(decision);
+      });
+
+      expect(requireReview().submissionOutcome).toBe(outcome);
+    },
+  );
+
   it("shares pending comments across providers in one Review session", async () => {
     stubReviewFetch({});
     await renderProvider();

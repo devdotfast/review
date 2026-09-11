@@ -80,6 +80,7 @@ export class BugReportUpstreamError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly retryAfter?: string,
   ) {
     super(message);
     this.name = "BugReportUpstreamError";
@@ -202,9 +203,24 @@ export async function submitReviewBugReport(input: {
     payload.diagnostics.attachment_errors = attachmentErrors.sort(byAttachment);
   }
 
+  return submitBugReportPayload({
+    payload,
+    traceAttachment,
+    fetchImpl: input.fetchImpl,
+  });
+}
+
+/** Shared upload path: attachment acquisition belongs to the review owner. */
+export async function submitBugReportPayload(input: {
+  payload: BugReportPayload;
+  traceAttachment?: AuthoringTraceAttachment;
+  fetchImpl?: typeof fetch;
+}) {
+  const { payload, traceAttachment } = input;
+  const cliVersion = payload.diagnostics.cli_version;
   try {
     const request = await buildBugReportRequest(payload, traceAttachment, {
-      appVersion: input.report.app_version,
+      appVersion: payload.diagnostics.app_version,
       cliVersion,
     });
 
@@ -231,6 +247,7 @@ export async function submitReviewBugReport(input: {
           : response.status === 413
             ? "Bug report is too large."
             : "Bug report service failed.",
+        response.headers.get("retry-after") ?? undefined,
       );
     }
     const result = parseReviewBugReportResponse(responseBody);

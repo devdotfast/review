@@ -201,6 +201,10 @@ export type NormalizedSoftwareRelationship =
   | NormalizedSemanticRelationship;
 
 export interface NormalizedSoftwareModel {
+  /** Internal host-view identity; absent for legacy authored models. */
+  targetId?: string;
+  /** Immutable host resource used for analysis, not a second authored graph. */
+  savedMap?: { id: string; commit: string };
   elements: NormalizedSoftwareElement[];
   elementsByPath: ReadonlyMap<string, NormalizedSoftwareElement>;
   relationships: NormalizedSoftwareRelationship[];

@@ -430,6 +430,17 @@ export function CodePeekCard({
         : undefined,
     [resolution?.diff, subject],
   );
+  const fallbackSource = subject
+    ? Object.values(resolution?.snapshot.resolved ?? {})
+        .find(
+          (item) =>
+            item.source.file === subject.file &&
+            item.source.line === subject.line &&
+            item.source.endLine === subject.endLine,
+        )
+        ?.lines.map((line) => line.map((token) => token.t).join(""))
+        .join("\n")
+    : undefined;
   return (
     <section className="code-peek" data-code-rendering="inline-editor">
       {status ? (
@@ -445,6 +456,7 @@ export function CodePeekCard({
       ) : null}
       {subject && commentAnchor ? (
         <AuthoredCodePeekEditor
+          fallbackSource={fallbackSource}
           input={input}
           subject={subject}
           heightMode={heightMode}
@@ -454,6 +466,7 @@ export function CodePeekCard({
         />
       ) : subject ? (
         <InlineCodeEditor
+          fallbackSource={fallbackSource}
           path={subject.file}
           title={subject.title}
           side={input.props.graph ?? "head"}
@@ -476,6 +489,7 @@ export function CodePeekCard({
 }
 
 function AuthoredCodePeekEditor({
+  fallbackSource,
   input,
   subject,
   heightMode,
@@ -483,6 +497,7 @@ function AuthoredCodePeekEditor({
   active,
   onNativeFocus,
 }: {
+  fallbackSource?: string;
   input: ValidatedCodePeekInput;
   subject: CodePeekSubject;
   heightMode: ReviewInlineEditorHeightMode;
@@ -496,6 +511,7 @@ function AuthoredCodePeekEditor({
   return (
     <div>
       <InlineCodeEditor
+        fallbackSource={fallbackSource}
         path={subject.file}
         title={subject.title}
         side={graph}

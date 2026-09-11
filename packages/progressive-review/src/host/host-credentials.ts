@@ -13,7 +13,6 @@ import type { ReviewHostStore } from "./review-host-store";
 const AUTHOR_PERMISSIONS: HostPermission[] = [
   "read",
   "author",
-  "publish",
   "register_repository",
 ];
 

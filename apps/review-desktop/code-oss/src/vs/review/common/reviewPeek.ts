@@ -126,12 +126,15 @@ export function reviewPeekMultiDiffBodyHeightLimit(
   heightMode: ReviewPeekHeightMode,
   originalWindows: readonly ReviewPeekWindow[],
   modifiedWindows: readonly ReviewPeekWindow[],
+  status?: ReviewDiffFileWire["status"],
 ): number {
   if (heightMode !== "content") {
     return REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT;
   }
   return (
-    (reviewPeekWindowsLineCount(originalWindows) +
+    ((reviewPeekSideAvailable(status, "base")
+      ? reviewPeekWindowsLineCount(originalWindows)
+      : 0) +
       reviewPeekWindowsLineCount(modifiedWindows)) *
     REVIEW_PEEK_LINE_HEIGHT
   );
@@ -176,6 +179,26 @@ export function reviewPeekWindowsRenderedHeight(
     height += bottom - top;
   }
   return height;
+}
+
+/**
+ * An added file's empty original side carries full-file alignment filler.
+ * Keep the modified side for deletions: unified diff renders deleted code
+ * there as view zones, so its height still represents visible content.
+ */
+export function reviewPeekDiffWindowsRenderedHeights(
+  originalEditor: ReviewPeekRenderedEditor,
+  modifiedEditor: ReviewPeekRenderedEditor,
+  originalWindows: readonly ReviewPeekWindow[],
+  modifiedWindows: readonly ReviewPeekWindow[],
+  status: ReviewDiffFileWire["status"],
+): { original: number | undefined; modified: number | undefined } {
+  return {
+    original: reviewPeekSideAvailable(status, "base")
+      ? reviewPeekWindowsRenderedHeight(originalEditor, originalWindows)
+      : undefined,
+    modified: reviewPeekWindowsRenderedHeight(modifiedEditor, modifiedWindows),
+  };
 }
 export function reviewPeekHiddenAreas(
   totalLines: number,

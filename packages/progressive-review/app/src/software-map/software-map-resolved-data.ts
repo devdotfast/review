@@ -4,6 +4,7 @@ import type { SoftwareMapCoverageClaim } from "./software-map-snapshot";
 const SOFTWARE_MAP_RESOLVED_DATA_VERSION = "resolved-data:v2";
 
 export interface SoftwareMapResolvedDataInput {
+  savedMap?: { id: string; commit: string };
   codeElements: ReturnType<typeof createSoftwareMapCodeElements>;
   coverageClaims: SoftwareMapCoverageClaim[];
 }
@@ -74,6 +75,11 @@ export function softwareMapResolvedDataInputKey(
 ) {
   const signature = createSoftwareMapSignature();
   signature.add(SOFTWARE_MAP_RESOLVED_DATA_VERSION);
+  if (input.savedMap) {
+    signature.add(input.savedMap.id);
+    signature.add(input.savedMap.commit);
+    return signature.value("saved-map", 1);
+  }
   signature.add("code-elements");
   for (const codeElement of input.codeElements) {
     signature.add(codeElement.path);
@@ -116,13 +122,19 @@ function addSoftwareMapCoverageClaimSignature(
 export function softwareMapResolvedDataInputHasWork(
   input: SoftwareMapResolvedDataInput,
 ) {
-  return input.codeElements.length > 0 || input.coverageClaims.length > 0;
+  return (
+    Boolean(input.savedMap) ||
+    input.codeElements.length > 0 ||
+    input.coverageClaims.length > 0
+  );
 }
 
 export function softwareMapResolvedDataInputForModel(
   model: NormalizedSoftwareModel,
   _options: { expandedElementPaths?: ReadonlySet<string> } = {},
 ): SoftwareMapResolvedDataInput {
+  if (model.savedMap)
+    return { savedMap: model.savedMap, codeElements: [], coverageClaims: [] };
   return {
     codeElements: createSoftwareMapCodeElements(model),
     coverageClaims: createSoftwareMapCoverageClaims(model),
@@ -133,13 +145,16 @@ export function shouldApplySoftwareMapModifiedOnly({
   showModifiedOnly,
   resolvedDataReady,
   resolvedDataInput,
+  hasSourceComparison,
 }: {
   showModifiedOnly: boolean;
   resolvedDataReady: boolean;
   resolvedDataInput: SoftwareMapResolvedDataInput | null;
+  hasSourceComparison?: boolean;
 }) {
   return (
     showModifiedOnly &&
+    hasSourceComparison !== false &&
     resolvedDataReady &&
     Boolean(
       resolvedDataInput &&

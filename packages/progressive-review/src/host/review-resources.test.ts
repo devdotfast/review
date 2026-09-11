@@ -16,13 +16,13 @@ import {
   HOST_LIMITS,
   HOST_QUERY_DEFINITIONS,
   HostAssetSchema,
+  type HostAuthoredMap,
   type HostCommandName,
   HostCommandSchema,
-  type HostMap,
   HostMapVersionSchema,
   type HostQueryName,
   HostQuerySchema,
-  type HostSourceSpan,
+  type JsonObject,
   type JsonValue,
 } from "@dev.fast/review-protocol";
 import sharp from "sharp";
@@ -94,7 +94,7 @@ async function fixture() {
   const host = new ReviewHost(store);
   const author: HostAccess = {
     principal: { id: randomUUID(), kind: "agent", displayName: "Author" },
-    permissions: new Set(["author", "read", "publish"]),
+    permissions: new Set(["author", "read"]),
   };
   const human: HostAccess = {
     principal: { id: randomUUID(), kind: "human", displayName: "Reviewer" },
@@ -137,15 +137,12 @@ async function fixture() {
       ).result,
     ).review;
   const review = await createReview();
-  const span: HostSourceSpan = {
-    repositoryId: repository.id,
-    commit: head,
-    blob: git(repositoryPath, "rev-parse", `${head}:src/code.ts`),
+  const span = {
     file: "src/code.ts",
     fromLine: 1,
     toLine: 1,
   };
-  const map: HostMap = {
+  const map: HostAuthoredMap = {
     schemaVersion: 1,
     elements: {
       app: {
@@ -180,20 +177,19 @@ async function fixture() {
       },
     },
   };
-  const mapRequest = (value: HostMap = map) =>
+  const mapRequest = (value: HostAuthoredMap = map) =>
     command("map.create", {
       reviewId: review.id,
-      documentVersion: 0,
+      reviewVersion: 0,
       side: "head",
       map: value,
     });
-  const createMap = async (value: HostMap = map) =>
+  const createMap = async (value: HostAuthoredMap = map) =>
     HostMapVersionSchema.parse(
       (await host.command(author, mapRequest(value))).result,
     );
   const event = {
     id: randomUUID(),
-    ordinal: 5,
     at: "2026-09-10T12:00:00Z",
     kind: "assistant" as const,
     text: "The shared database removes per-review files.",
@@ -214,6 +210,8 @@ async function fixture() {
     human,
     review,
     repository,
+    base,
+    head,
     createReview,
     command,
     query,
@@ -253,13 +251,135 @@ async function imageBytes(format: "png" | "jpeg" | "webp" = "png") {
 }
 
 describe("retained software map authority", () => {
+  it("analyzes the saved snapshot selection, with explicit scoped alternatives and no implicit latest map", async () => {
+    const f = await fixture();
+    const head = await f.createMap();
+    const input = { reviewId: f.review.id, reviewVersion: 0 };
+    const analyze = async (
+      selection?: { base: string | null; head: string | null },
+      reviewVersion = 0,
+    ) => {
+      const queryInput: JsonObject = { ...input, reviewVersion };
+      if (selection) queryInput.mapVersions = selection;
+      return HOST_QUERY_DEFINITIONS["map.analyze"].result.parse(
+        (await f.host.query(f.author, f.query("map.analyze", queryInput)))
+          .result,
+      );
+    };
+    expect((await analyze()).items).toEqual([]);
+    const single = await analyze({ base: null, head: head.id });
+    expect(single.items.find((item) => item.elementId === "app")).toMatchObject(
+      { additions: 1, deletions: 1, changeStatus: "modified" },
+    );
+    const base = HostMapVersionSchema.parse(
+      (
+        await f.host.command(
+          f.author,
+          f.command("map.create", {
+            ...input,
+            side: "base",
+            map: f.map,
+          }),
+        )
+      ).result,
+    );
+    await f.host.command(
+      f.author,
+      f.command("review.update", {
+        reviewId: f.review.id,
+        expectedReviewVersion: 0,
+        mapVersions: { base: base.id, head: head.id },
+      }),
+    );
+    expect((await analyze(undefined, 1)).mapVersions).toEqual({
+      base: base.id,
+      head: head.id,
+    });
+    expect((await analyze()).items).toEqual([]);
+    const later = HostMapVersionSchema.parse(
+      (
+        await f.host.command(
+          f.author,
+          f.command("map.mutate", {
+            reviewId: f.review.id,
+            mapId: head.mapId,
+            expectedMapVersion: 0,
+            operations: [
+              {
+                op: "element.put",
+                element: { ...f.map.elements.app!, label: "Later label" },
+              },
+            ],
+          }),
+        )
+      ).result,
+    );
+    expect(later.id).not.toBe(head.id);
+    expect((await analyze(undefined, 1)).mapVersions.head).toBe(head.id);
+    await expect(analyze({ base: head.id, head: null })).rejects.toMatchObject({
+      name: "HostDocumentValidationError",
+    });
+    const other = await f.createReview();
+    await expect(
+      f.host.query(
+        f.author,
+        f.query("map.analyze", {
+          reviewId: other.id,
+          reviewVersion: 0,
+          mapVersions: { base: null, head: head.id },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("treats map upserts as full replacements, requires explicit dependency removal and preserves no-op versions", async () => {
+    const f = await fixture();
+    const first = await f.createMap();
+    const mutate = (operations: JsonValue) =>
+      f.host.command(
+        f.author,
+        f.command("map.mutate", {
+          reviewId: f.review.id,
+          mapId: first.mapId,
+          expectedMapVersion: 0,
+          operations,
+        }),
+      );
+    await expect(
+      mutate([{ op: "element.remove", id: "missing" }]),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      mutate([{ op: "element.remove", id: "database" }]),
+    ).rejects.toMatchObject({ name: "HostDocumentValidationError" });
+    await expect(
+      mutate([
+        { op: "element.put", element: f.map.elements.app! },
+        { op: "element.remove", id: "app" },
+      ]),
+    ).rejects.toMatchObject({ name: "HostDocumentValidationError" });
+    const { description: _description, ...app } = f.map.elements.app!;
+    const after = HostMapVersionSchema.parse(
+      (
+        await mutate([
+          { op: "relationship.remove", id: "query" },
+          { op: "element.remove", id: "database" },
+          { op: "element.put", element: app },
+        ])
+      ).result,
+    );
+    expect(after.mapVersion).toBe(1);
+    expect(after.elements.app!.description).toBe("");
+    expect(Object.keys(after.elements)).toEqual(["app"]);
+    expect(after.relationships).toEqual({});
+  });
+
   it("verifies source blobs once, keeps immutable versions, and can relabel a map offline without touching the document", async () => {
     const f = await fixture();
     const first = await f.createMap();
     expect(first).toMatchObject({
-      revision: 0,
+      mapVersion: 0,
       repositoryId: f.repository.id,
-      commit: f.span.commit,
+      commit: f.head,
     });
     const evidence = Object.values(f.store.mapEvidence(f.review.id, first.id));
     expect(evidence).toHaveLength(1);
@@ -272,12 +392,12 @@ describe("retained software map authority", () => {
           f.command("map.mutate", {
             reviewId: f.review.id,
             mapId: first.mapId,
-            expectedVersion: 0,
+            expectedMapVersion: 0,
             operations: [
               {
                 op: "element.put",
                 element: {
-                  ...first.elements.app!,
+                  ...f.map.elements.app!,
                   label: "Renamed application",
                 },
               },
@@ -286,10 +406,10 @@ describe("retained software map authority", () => {
         )
       ).result,
     );
-    expect(second).toMatchObject({ mapId: first.mapId, revision: 1 });
+    expect(second).toMatchObject({ mapId: first.mapId, mapVersion: 1 });
     expect(second.contentHash).not.toBe(first.contentHash);
     expect(f.store.mapVersion(f.review.id, first.id)).toEqual(first);
-    expect(f.store.document(f.review.id).version).toBe(0);
+    expect(f.store.document(f.review.id).reviewVersion).toBe(0);
     closeStore(f.store);
     const restarted = openStore(f.databasePath);
     expect(restarted.currentMap(f.review.id, first.mapId)).toEqual(second);
@@ -299,42 +419,54 @@ describe("retained software map authority", () => {
     ).toEqual(evidence);
   });
 
-  it.each(["repository", "commit", "blob"] as const)(
-    "rejects an unverified source %s claim without retaining a partial map",
+  it.each(["repositoryId", "commit", "blob"] as const)(
+    "accepts source locators but rejects a client-authored %s identity",
     async (field) => {
       const f = await fixture();
       const bad = structuredClone(f.map);
-      bad.elements.app!.source[0]![
-        field === "repository" ? "repositoryId" : field
-      ] = field === "repository" ? randomUUID() : "f".repeat(40);
-      const baseline = counts(f.databasePath);
-      await expect(f.createMap(bad)).rejects.toMatchObject({
-        name: "HostDocumentValidationError",
+      Object.assign(bad.elements.app!.source[0]!, {
+        [field]: field === "repositoryId" ? randomUUID() : "f".repeat(40),
       });
+      const baseline = counts(f.databasePath);
+      expect(() => f.mapRequest(bad)).toThrow(/Unrecognized key/);
       expect(counts(f.databasePath)).toEqual(baseline);
     },
   );
 
-  it.each(["cycle", "parent", "endpoint", "identity", "store"])(
-    "rejects a map with an invalid %s",
-    async (problem) => {
-      const f = await fixture();
-      const bad = structuredClone(f.map);
-      if (problem === "cycle") {
-        bad.elements.app!.parentId = "database";
-        bad.elements.database!.parentId = "app";
-      }
-      if (problem === "parent") bad.elements.app!.parentId = "missing";
-      if (problem === "endpoint") bad.relationships.query!.toId = "missing";
-      if (problem === "identity") bad.elements.app!.id = "other";
-      if (problem === "store") bad.elements.database!.kind = "component";
-      const baseline = counts(f.databasePath);
-      await expect(f.createMap(bad)).rejects.toMatchObject({
-        name: "HostDocumentValidationError",
-      });
-      expect(counts(f.databasePath)).toEqual(baseline);
-    },
-  );
+  it.each([
+    "cycle",
+    "parent",
+    "endpoint",
+    "identity",
+    "store",
+    "field reference",
+  ])("rejects a map with an invalid %s", async (problem) => {
+    const f = await fixture();
+    const bad = structuredClone(f.map);
+    if (problem === "cycle") {
+      bad.elements.app!.parentId = "database";
+      bad.elements.database!.parentId = "app";
+    }
+    if (problem === "parent") bad.elements.app!.parentId = "missing";
+    if (problem === "endpoint") bad.relationships.query!.toId = "missing";
+    if (problem === "identity") bad.elements.app!.id = "other";
+    if (problem === "store") bad.elements.database!.kind = "component";
+    if (problem === "field reference")
+      bad.elements.database!.store!.collections.reviews!.fields.invalid = {
+        label: "Missing reference",
+        dataType: "text",
+        references: {
+          storeId: "database",
+          collectionId: "reviews",
+          fieldId: "missing",
+        },
+      };
+    const baseline = counts(f.databasePath);
+    await expect(f.createMap(bad)).rejects.toMatchObject({
+      name: "HostDocumentValidationError",
+    });
+    expect(counts(f.databasePath)).toEqual(baseline);
+  });
 
   it("makes equivalent mutations no-ops and bounds list pages to their original watermark and filters", async () => {
     const f = await fixture();
@@ -347,8 +479,8 @@ describe("retained software map authority", () => {
           f.command("map.mutate", {
             reviewId: f.review.id,
             mapId: first.mapId,
-            expectedVersion: 0,
-            operations: [{ op: "element.put", element: first.elements.app! }],
+            expectedMapVersion: 0,
+            operations: [{ op: "element.put", element: f.map.elements.app! }],
           }),
         )
       ).result,
@@ -397,12 +529,12 @@ describe("retained software map authority", () => {
       f.command("map.mutate", {
         reviewId: f.review.id,
         mapId: first.mapId,
-        expectedVersion: 0,
+        expectedMapVersion: 0,
         operations: [
           {
             op: "element.put",
             element: {
-              ...first.elements.app!,
+              ...f.map.elements.app!,
               source: [f.span, { ...f.span, fromLine: 2, toLine: 2 }],
             },
           },
@@ -415,11 +547,11 @@ describe("retained software map authority", () => {
       f.command("map.mutate", {
         reviewId: f.review.id,
         mapId: first.mapId,
-        expectedVersion: 0,
+        expectedMapVersion: 0,
         operations: [
           {
             op: "element.put",
-            element: { ...first.elements.app!, label: "Concurrent" },
+            element: { ...f.map.elements.app!, label: "Concurrent" },
           },
         ],
       }),
@@ -435,14 +567,14 @@ describe("retained software map authority", () => {
 });
 
 describe("retained trace and image evidence", () => {
-  it("retains selected trace event IDs/ordinals with client-supplied provenance and publishes no excerpt text in events", async () => {
+  it("retains input array order and unknown event times with client-supplied provenance and no resource events", async () => {
     const f = await fixture();
     const before = f.store.cursor();
     const request = f.command("trace.ingest", {
       reviewId: f.review.id,
       label: "Selected events",
       events: [
-        { ...f.event, id: randomUUID(), ordinal: 10, text: "Later event" },
+        { id: randomUUID(), kind: "assistant", text: "First event" },
         f.event,
       ],
     });
@@ -452,8 +584,6 @@ describe("retained trace and image evidence", () => {
     );
     expect(trace).toMatchObject({
       provenance: "client_supplied",
-      sessionId: null,
-      version: 0,
     });
     const retained = HOST_QUERY_DEFINITIONS["trace.get"].result.parse(
       (
@@ -463,62 +593,54 @@ describe("retained trace and image evidence", () => {
         )
       ).result,
     );
-    expect(retained.events.map((event) => event.ordinal)).toEqual([5, 10]);
-    expect(retained.events[0]).toMatchObject({
+    expect(retained.events.map((event) => event.ordinal)).toEqual([0, 1]);
+    expect(retained.events[0]).toMatchObject({ text: "First event", at: null });
+    expect(retained.events[1]).toMatchObject({
       id: f.event.id,
       text: f.event.text,
       traceId: trace.id,
     });
-    expect(
-      JSON.stringify(f.host.events(f.author, f.store.workspaceId, before)),
-    ).not.toContain(f.event.text);
+    expect(f.store.cursor()).toBe(before);
     closeStore(f.store);
     const restarted = new ReviewHost(openStore(f.databasePath));
     expect(await restarted.command(f.author, request)).toEqual(response);
     expect(restarted.store.trace(f.review.id, trace.id)).toEqual(retained);
   });
 
-  it("rejects duplicate trace identities, oversized UTF-8 text and cross-review parents", async () => {
+  it("rejects duplicate trace identities, blank or oversized UTF-8 text and non-tool tool names", async () => {
     const f = await fixture();
     const baseline = counts(f.databasePath);
-    for (const events of [
-      [f.event, { ...f.event, ordinal: 9 }],
-      [f.event, { ...f.event, id: randomUUID() }],
-    ])
-      await expect(
-        f.host.command(
-          f.author,
-          f.command("trace.ingest", {
-            reviewId: f.review.id,
-            label: "Duplicate",
-            events,
-          }),
-        ),
-      ).rejects.toMatchObject({ name: "HostDocumentValidationError" });
     await expect(
       f.host.command(
         f.author,
         f.command("trace.ingest", {
           reviewId: f.review.id,
-          label: "Large",
-          events: [{ ...f.event, text: "é".repeat(100_000) }],
+          label: "Duplicate",
+          events: [f.event, f.event],
         }),
       ),
-    ).rejects.toMatchObject({ code: "RESOURCE_LIMIT" });
+    ).rejects.toMatchObject({ name: "HostDocumentValidationError" });
+    for (const event of [
+      { ...f.event, text: "é".repeat(100_000) },
+      { ...f.event, text: " \n " },
+      { ...f.event, toolName: "shell" },
+    ])
+      expect(() =>
+        f.command("trace.ingest", {
+          reviewId: f.review.id,
+          label: "Invalid",
+          events: [event],
+        }),
+      ).toThrow(/input/);
     expect(counts(f.databasePath)).toEqual(baseline);
     const trace = HOST_COMMAND_DEFINITIONS["trace.ingest"].result.parse(
       (await f.host.command(f.author, f.traceRequest())).result,
     );
     const other = await f.createReview();
     await expect(
-      f.host.command(
+      f.host.query(
         f.author,
-        f.command("trace.ingest", {
-          reviewId: other.id,
-          parentTraceId: trace.id,
-          label: "Unrelated",
-          events: [f.event],
-        }),
+        f.query("trace.get", { reviewId: other.id, traceId: trace.id }),
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
@@ -655,7 +777,7 @@ describe("retained trace and image evidence", () => {
 });
 
 describe("resource ownership, document dependencies and atomicity", () => {
-  it("retains rich document dependencies across publication, later resource revisions, source loss and restart", async () => {
+  it("retains rich snapshot dependencies across later resource versions, source loss and restart", async () => {
     const f = await fixture();
     const map = await f.createMap();
     const trace = HOST_COMMAND_DEFINITIONS["trace.ingest"].result.parse(
@@ -677,7 +799,7 @@ describe("resource ownership, document dependencies and atomicity", () => {
       f.author,
       f.command("document.mutate", {
         reviewId: f.review.id,
-        expectedDocumentVersion: 0,
+        expectedReviewVersion: 0,
         operations: [
           {
             op: "node.insert",
@@ -687,7 +809,7 @@ describe("resource ownership, document dependencies and atomicity", () => {
               mapVersionId: map.id,
               focusElementId: "app",
             },
-            placement: { parentId: null, afterId: null },
+            placement: { parentId: null, position: { kind: "end" } },
           },
           {
             op: "node.insert",
@@ -698,7 +820,10 @@ describe("resource ownership, document dependencies and atomicity", () => {
               eventId: f.event.id,
               text: "removes per-review files",
             },
-            placement: { parentId: null, afterId: "map" },
+            placement: {
+              parentId: null,
+              position: { kind: "after", nodeId: "map" },
+            },
           },
           {
             op: "node.insert",
@@ -708,19 +833,21 @@ describe("resource ownership, document dependencies and atomicity", () => {
               assetId: asset.id,
               alt: "Storage diagram",
             },
-            placement: { parentId: null, afterId: "trace" },
+            placement: {
+              parentId: null,
+              position: { kind: "after", nodeId: "trace" },
+            },
           },
         ],
       }),
     );
-    const checkpoint = HOST_COMMAND_DEFINITIONS["review.publish"].result.parse(
+    const selected = HOST_COMMAND_DEFINITIONS["review.update"].result.parse(
       (
         await f.host.command(
           f.author,
-          f.command("review.publish", {
+          f.command("review.update", {
             reviewId: f.review.id,
-            expectedDocumentVersion: 1,
-            expectedReviewVersion: 0,
+            expectedReviewVersion: 1,
             mapVersions: { base: null, head: map.id },
           }),
         )
@@ -731,11 +858,11 @@ describe("resource ownership, document dependencies and atomicity", () => {
       f.command("map.mutate", {
         reviewId: f.review.id,
         mapId: map.mapId,
-        expectedVersion: 0,
+        expectedMapVersion: 0,
         operations: [
           {
             op: "element.put",
-            element: { ...map.elements.app!, label: "Changed later" },
+            element: { ...f.map.elements.app!, label: "Changed later" },
           },
         ],
       }),
@@ -744,9 +871,10 @@ describe("resource ownership, document dependencies and atomicity", () => {
     closeStore(f.store);
     const store = openStore(f.databasePath);
     const host = new ReviewHost(store);
-    expect(store.checkpoint(f.review.id, checkpoint.id).mapVersions.head).toBe(
-      map.id,
-    );
+    expect(
+      store.reviewSnapshot(f.review.id, selected.reviewVersion).mapVersions
+        .head,
+    ).toBe(map.id);
     expect(store.mapVersion(f.review.id, map.id)).toEqual(map);
     expect(store.trace(f.review.id, trace.id).events[0]?.text).toBe(
       f.event.text,
@@ -758,7 +886,7 @@ describe("resource ownership, document dependencies and atomicity", () => {
           f.author,
           f.query("document.validate", {
             reviewId: f.review.id,
-            expectedDocumentVersion: 1,
+            expectedReviewVersion: 2,
             operations: [
               {
                 op: "node.replace",
@@ -777,7 +905,7 @@ describe("resource ownership, document dependencies and atomicity", () => {
     expect(validated.valid).toBe(true);
   });
 
-  it("rejects cross-review resource references, fake quotations and maps on the wrong published side", async () => {
+  it("rejects cross-review resource references, fake quotations and maps on the wrong snapshot side", async () => {
     const f = await fixture();
     const map = await f.createMap();
     const trace = HOST_COMMAND_DEFINITIONS["trace.ingest"].result.parse(
@@ -795,12 +923,12 @@ describe("resource ownership, document dependencies and atomicity", () => {
         f.author,
         f.command("document.mutate", {
           reviewId: other.id,
-          expectedDocumentVersion: 0,
+          expectedReviewVersion: 0,
           operations: [
             {
               op: "node.insert",
               node: { id: "map", type: "software_map", mapVersionId: map.id },
-              placement: { parentId: null, afterId: null },
+              placement: { parentId: null, position: { kind: "end" } },
             },
           ],
         }),
@@ -811,7 +939,7 @@ describe("resource ownership, document dependencies and atomicity", () => {
         f.author,
         f.command("document.mutate", {
           reviewId: f.review.id,
-          expectedDocumentVersion: 0,
+          expectedReviewVersion: 0,
           operations: [
             {
               op: "node.insert",
@@ -822,7 +950,7 @@ describe("resource ownership, document dependencies and atomicity", () => {
                 eventId: f.event.id,
                 text: "a quotation the agent never said",
               },
-              placement: { parentId: null, afterId: null },
+              placement: { parentId: null, position: { kind: "end" } },
             },
           ],
         }),
@@ -831,15 +959,17 @@ describe("resource ownership, document dependencies and atomicity", () => {
     await expect(
       f.host.command(
         f.author,
-        f.command("review.publish", {
+        f.command("review.update", {
           reviewId: f.review.id,
-          expectedDocumentVersion: 0,
           expectedReviewVersion: 0,
           mapVersions: { base: map.id, head: null },
         }),
       ),
     ).rejects.toMatchObject({ name: "HostDocumentValidationError" });
-    expect(f.store.checkpoints(f.review.id)).toEqual([]);
+    expect(f.store.reviewSnapshot(f.review.id).mapVersions).toEqual({
+      base: null,
+      head: null,
+    });
   });
 
   it("rolls back resource versions, retained bytes, events and receipts as one transaction", async () => {
@@ -853,7 +983,7 @@ describe("resource ownership, document dependencies and atomicity", () => {
         type: "map.create",
         input: {
           reviewId: f.review.id,
-          documentVersion: 0,
+          reviewVersion: 0,
           side: "head",
           map: f.map,
         },

@@ -25,7 +25,7 @@ The document is JSON:
 }
 ```
 
-The host adds the document/review IDs, version, exact binding, content hash and retained evidence to query results. Do not send those state fields as authored document input.
+The host adds `reviewId`, `reviewVersion`, exact binding, content hash and retained evidence to query results. Do not send those state fields as authored document input.
 
 `document.mutate` applies an ordered operation list atomically. Stable IDs identify nodes; titles and labels may repeat. Section/callout children are node IDs, not nested JSX. A node has exactly one place in the tree. Use `node.move` to reorder it; keep its ID so the viewer can preserve local state.
 
@@ -34,7 +34,7 @@ Add an anchor and its peek together:
 ```json
 {
   "reviewId": "<review UUID>",
-  "expectedDocumentVersion": 0,
+  "expectedReviewVersion": 0,
   "operations": [
     {
       "op": "definition.put",
@@ -48,7 +48,7 @@ Add an anchor and its peek together:
     {
       "op": "node.insert",
       "node": { "id": "publish-peek", "type": "code_peek", "anchorId": "publish" },
-      "placement": { "parentId": null, "afterId": null }
+      "placement": { "parentId": null, "position": { "kind": "end" } }
     }
   ]
 }
@@ -58,8 +58,8 @@ Replace the illustrative path/range with source verified at the returned binding
 
 ## Source and validation
 
-Read exact source through `source.read({reviewId,documentVersion,range})`. Paths are repository-relative; `side` chooses the version's pinned base or head. The host rejects missing/out-of-bounds, binary, symlink and oversized source. It retains accepted quotations with commit/blob IDs. A later unavailable checkout must not invalidate saved evidence.
+Read exact source through `source.read({reviewId,reviewVersion,side,file,range?:{fromLine,toLine},comparisonCommit?})`. Omit range to read the whole file. Paths are repository-relative; `side` chooses the version's pinned base or head. The host rejects missing/out-of-bounds, binary, symlink and oversized source. It retains accepted quotations with commit/blob IDs. A later unavailable checkout must not invalidate saved evidence.
 
 Every mutation checks shape, limits, tree integrity and references. Changed nodes and affected dependents receive semantic/evidence validation. Failures leave the prior version intact. Optional `document.validate` previews the same proposed operations without committing. Neither operation compiles MDX or TypeScript.
 
-Read [Component API](component-api.md) for node shapes, [Source availability](prepared-worktrees.md) when source cannot be read, and [Lifecycle and storage](lifecycle-and-storage.md) before repinning or publishing.
+Read [Component API](component-api.md) for node shapes, [Source availability](prepared-worktrees.md) when source cannot be read, and [Lifecycle and storage](lifecycle-and-storage.md) before selecting new code or restoring history.

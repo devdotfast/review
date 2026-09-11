@@ -1,4 +1,5 @@
 import {
+  type HostQuestionRun,
   type JsonValue,
   isJsonObject,
   jsonString,
@@ -229,16 +230,23 @@ interface ReviewSectionSummary {
  * Collapse state persists per document+section in localStorage; sections
  * marked `[collapsed]` in the MDX start collapsed for first-time readers.
  */
-export function ReviewSection(props: ReviewSectionProps) {
+export function ReviewSection({
+  stateKey,
+  ...props
+}: ReviewSectionProps & { stateKey?: string }) {
   const {
     title,
     defaultCollapsed = false,
     children,
   } = reviewSectionPropsSchema.parse(props);
-  const [collapsed, setCollapsed] = useReviewUiState(title, defaultCollapsed, {
-    scope: "session",
-    namespace: "section",
-  });
+  const [collapsed, setCollapsed] = useReviewUiState(
+    stateKey ?? title,
+    defaultCollapsed,
+    {
+      scope: "session",
+      namespace: "section",
+    },
+  );
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [summary, setSummary] = useState<ReviewSectionSummary | null>(null);
   const { heading, body } = reviewSectionContent(title, children);
@@ -914,7 +922,7 @@ function CodeReviewPeekPanel({
   anchor: AnchorRef;
   content: Extract<
     ReviewPeekContent,
-    { kind: "resolved-code" | "inline-code" }
+    { kind: "resolved-code" | "inline-code" | "explanation" }
   >;
   onClose: () => void;
 }) {
@@ -1433,6 +1441,9 @@ export function ReviewPeekContentView({
   active?: boolean;
   onNativeFocus?: () => void;
 }) {
+  if (content.kind === "explanation") {
+    return content.text ? <p>{content.text}</p> : null;
+  }
   if (content.kind === "resolved-code") {
     return (
       <CodePeekCard
@@ -1509,15 +1520,18 @@ function ThreadPanelInner({
         (Date.parse(right.latestAt) || 0) - (Date.parse(left.latestAt) || 0),
     );
 
-  const askNow = async (body: string) => {
+  const askNow = async (body: string, harness?: HostQuestionRun["harness"]) => {
     const destination = commentThread ?? target;
     if (!destination) return;
-    await review.askAgent({
-      threadId: destination.threadId,
-      messageId: createClientId(),
-      target: destination.target,
-      body,
-    });
+    await review.askAgent(
+      {
+        threadId: destination.threadId,
+        messageId: createClientId(),
+        target: destination.target,
+        body,
+      },
+      harness,
+    );
     // The native terminal may already have closed Threads by the time the
     // ask resolves; only move within the panel if it is still open.
     if (panel.page.kind === "new-ask") {
@@ -1593,22 +1607,25 @@ function ThreadPanelInner({
           ) : undefined
         ) : thread && !review.historicalRevision ? (
           <>
-            <button
-              type="button"
-              className={`thread-resolve-toggle${
-                thread.resolved ? " thread-resolve-toggle--resolved" : ""
-              }`}
-              aria-pressed={thread.resolved}
-              onClick={() =>
-                void review.setCommentResolved(
-                  thread.threadId,
-                  !thread.resolved,
-                )
-              }
-            >
-              {thread.resolved ? <RefreshIcon /> : <ResolveIcon />}
-              <span>{thread.resolved ? "Unresolve" : "Resolve"}</span>
-            </button>
+            {(!session.bridge.comments.postedMessagesImmutable ||
+              thread.clientStatus !== "draft") && (
+              <button
+                type="button"
+                className={`thread-resolve-toggle${
+                  thread.resolved ? " thread-resolve-toggle--resolved" : ""
+                }`}
+                aria-pressed={thread.resolved}
+                onClick={() =>
+                  void review.setCommentResolved(
+                    thread.threadId,
+                    !thread.resolved,
+                  )
+                }
+              >
+                {thread.resolved ? <RefreshIcon /> : <ResolveIcon />}
+                <span>{thread.resolved ? "Unresolve" : "Resolve"}</span>
+              </button>
+            )}
             {thread.clientStatus === "draft" && (
               <button
                 type="button"
@@ -1702,9 +1719,14 @@ function ThreadChat({
   quote: string;
   newAsk: boolean;
   readOnly: boolean;
-  onAskNow: (body: string) => Promise<void>;
+  onAskNow: (
+    body: string,
+    harness?: HostQuestionRun["harness"],
+  ) => Promise<void>;
   onAddToReview: (body: string) => Promise<void>;
 }) {
+  const repliesReopen =
+    useReviewSession().bridge.comments.repliesReopenResolvedThreads !== false;
   return (
     <div className="thread-chat">
       <div className="thread-chat-context">
@@ -1751,10 +1773,10 @@ function ThreadChat({
             onAddToReview={onAddToReview}
           />
           {thread?.resolved && (
-            // A reply on a resolved thread reopens it (the comment store
-            // resets the status on append); say so before the reviewer types.
             <p className="thread-chat-reopen-hint">
-              Submitting reopens this thread.
+              {repliesReopen
+                ? "Submitting reopens this thread."
+                : "This thread stays resolved unless you reopen it."}
             </p>
           )}
         </div>

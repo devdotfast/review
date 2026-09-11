@@ -1,11 +1,16 @@
 import {
   HOST_LIMITS,
   HOST_RESOURCE_LIMITS,
+  HOST_SUPPORT_LIMITS,
   type HostApiError,
+  HostBugReportInputSchema,
+  HostCommandBodySchema,
   HostCommandSchema,
   HostDocumentValidationError,
   HostIdSchema,
+  HostQueryBodySchema,
   HostQuerySchema,
+  HostVersionSchema,
   isJsonObject,
 } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
@@ -13,13 +18,16 @@ import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
+import { BugReportUpstreamError } from "../server/bug-report";
 import {
   type ReviewHonoEnv,
   readBoundedRequestJson,
 } from "../server/hono-http";
 import { HttpJsonError } from "../server/http-json";
 import { EvidenceProviderError } from "./evidence-provider";
+import { submitHostBugReport } from "./host-bug-report";
 import { HostCredentials } from "./host-credentials";
+import { ReviewActivityError } from "./review-activity";
 import { type HostAccess, HostAccessError, ReviewHost } from "./review-host";
 import { HostStoreError } from "./review-host-store";
 
@@ -29,7 +37,8 @@ export interface HostHttpOptions {
   host: ReviewHost;
   credentials: HostCredentials;
   baseUrl: () => string;
-  openReview: (reviewId: string) => Promise<void>;
+  openReview: (reviewId: string, reviewVersion?: number) => Promise<void>;
+  bugReportFetch?: typeof fetch;
 }
 
 /** Mounted on the existing desktop listener, before its legacy token middleware. */
@@ -40,6 +49,7 @@ export function createHostHttp(options: HostHttpOptions) {
   let closing = false;
 
   app.use("*", async (context, next) => {
+    context.header("cache-control", "no-store");
     const expected = new URL(options.baseUrl());
     const request = context.req.raw;
     const origin = request.headers.get("origin");
@@ -67,7 +77,6 @@ export function createHostHttp(options: HostHttpOptions) {
         503,
       );
     context.set("hostAccess", access);
-    context.header("cache-control", "no-store");
     await next();
   });
 
@@ -75,35 +84,56 @@ export function createHostHttp(options: HostHttpOptions) {
     const apiError = hostApiError(error);
     return context.json(
       { ok: false, error: apiError },
-      errorStatus(apiError.code),
+      // SAFETY: HttpJsonError is constructed only with supported 4xx body/MIME statuses.
+      error instanceof HttpJsonError
+        ? (error.statusCode as ContentfulStatusCode)
+        : errorStatus(apiError.code),
     );
   });
 
   app.get("/connection", (context) =>
     context.json({
-      apiVersion: 1,
-      hostId: host.store.hostId,
-      workspaceId: host.store.workspaceId,
-      principal: context.get("hostAccess").principal,
+      ok: true,
+      data: {
+        apiVersion: 1,
+        hostId: host.store.hostId,
+        workspaceId: host.store.workspaceId,
+        principal: context.get("hostAccess").principal,
+      },
     }),
   );
 
   app.post("/workspaces/:workspaceId/commands", async (context) => {
-    const request = HostCommandSchema.parse(
+    if (context.req.param("workspaceId") !== host.store.workspaceId)
+      throw new HostAccessError("NOT_FOUND", "Workspace not found.");
+    const clientId = HostIdSchema.parse(
+      context.req.header("x-review-client-id"),
+    );
+    const body = HostCommandBodySchema.parse(
       await readBoundedRequestJson(
         context.req.raw,
         HOST_RESOURCE_LIMITS.assetUploadRequestBytes,
         undefined,
         {
           maxBytesForValue: (value) =>
-            isJsonObject(value) && value.type === "asset.upload"
-              ? HOST_RESOURCE_LIMITS.assetUploadRequestBytes
-              : HOST_LIMITS.commandBytes,
+            isJsonObject(value) &&
+            (value.type === "asset.upload" ||
+              value.type === "map.create" ||
+              value.type === "map.mutate")
+              ? 8 * 1024 * 1024
+              : isJsonObject(value) && value.type === "document.replace"
+                ? 5 * 1024 * 1024
+                : HOST_LIMITS.commandBytes,
         },
       ),
     );
-    if (context.req.param("workspaceId") !== request.workspaceId)
-      throw new HostAccessError("NOT_FOUND", "Workspace not found.");
+    const request = HostCommandSchema.parse({
+      ...body,
+      apiVersion: 1,
+      hostId: host.store.hostId,
+      workspaceId: host.store.workspaceId,
+      clientId,
+    });
     const response = await host.command(context.get("hostAccess"), request);
     return context.json({
       ok: true,
@@ -112,14 +142,74 @@ export function createHostHttp(options: HostHttpOptions) {
   });
 
   app.post("/workspaces/:workspaceId/queries", async (context) => {
-    const request = HostQuerySchema.parse(
+    if (context.req.param("workspaceId") !== host.store.workspaceId)
+      throw new HostAccessError("NOT_FOUND", "Workspace not found.");
+    const body = HostQueryBodySchema.parse(
       await readBoundedRequestJson(context.req.raw, HOST_LIMITS.commandBytes),
     );
-    if (context.req.param("workspaceId") !== request.workspaceId)
-      throw new HostAccessError("NOT_FOUND", "Workspace not found.");
+    const request = HostQuerySchema.parse({
+      ...body,
+      apiVersion: 1,
+      hostId: host.store.hostId,
+      workspaceId: host.store.workspaceId,
+      clientId: context.get("hostAccess").principal.id,
+    });
     const response = await host.query(context.get("hostAccess"), request);
     return context.json({ ok: true, data: response });
   });
+
+  app.post(
+    "/workspaces/:workspaceId/reviews/:reviewId/bug-report",
+    async (context) => {
+      try {
+        const result = await submitHostBugReport({
+          host,
+          access: context.get("hostAccess"),
+          workspaceId: context.req.param("workspaceId"),
+          reviewId: HostIdSchema.parse(context.req.param("reviewId")),
+          body: HostBugReportInputSchema.parse(
+            await readBoundedRequestJson(
+              context.req.raw,
+              HOST_SUPPORT_LIMITS.requestBytes,
+            ),
+          ),
+          fetchImpl: options.bugReportFetch,
+        });
+        return context.json({ ok: true, data: result });
+      } catch (error) {
+        const cause =
+          error instanceof Error ? error : new Error("Bug report failed.");
+        const apiError: HostApiError =
+          error instanceof BugReportUpstreamError
+            ? {
+                code:
+                  error.status === 429
+                    ? "RATE_LIMITED"
+                    : error.status === 413
+                      ? "RESOURCE_LIMIT"
+                      : "DEPENDENCY_UNAVAILABLE",
+                message:
+                  error.status === 429 || error.status === 413
+                    ? error.message
+                    : "The support upload could not be confirmed. It may have been received; check before submitting again.",
+                retryable: false,
+                diagnostics: [],
+              }
+            : hostApiError(cause);
+        const status =
+          error instanceof HttpJsonError
+            ? error.statusCode
+            : errorStatus(apiError.code);
+        if (error instanceof BugReportUpstreamError && error.retryAfter)
+          context.header("retry-after", error.retryAfter);
+        // SAFETY: HTTP input validation and errorStatus provide concrete JSON response statuses.
+        return context.json(
+          { ok: false, error: apiError },
+          status as ContentfulStatusCode,
+        );
+      }
+    },
+  );
 
   app.get("/workspaces/:workspaceId/events", (context) => {
     const after = z.string().min(1).max(2048).parse(context.req.query("after"));
@@ -128,8 +218,19 @@ export function createHostHttp(options: HostHttpOptions) {
     );
     const access = context.get("hostAccess");
     const workspaceId = context.req.param("workspaceId");
+    const includeActivity =
+      z.enum(["0", "1"]).optional().parse(context.req.query("activity")) ===
+      "1";
     // Authorize and validate the cursor before returning HTTP 200/SSE headers.
     host.events(access, workspaceId, after, reviewId);
+    if (includeActivity) {
+      if (!reviewId)
+        throw new HttpJsonError(
+          "Authoring activity requires a review ID.",
+          400,
+        );
+      host.activitySnapshot(access, workspaceId, reviewId);
+    }
     return streamSSE(context, async (output) => {
       let cursor = after;
       let stopped = false;
@@ -143,6 +244,14 @@ export function createHostHttp(options: HostHttpOptions) {
       streams.add(stop);
       output.onAbort(stop);
       const unsubscribe = host.subscribe(() => wake?.());
+      let activityChanged = includeActivity;
+      const unsubscribeActivity =
+        includeActivity && reviewId
+          ? host.subscribeActivity(reviewId, () => {
+              activityChanged = true;
+              wake?.();
+            })
+          : undefined;
       const unwatchCredential = credentials.onRevoked(
         context.req.header("x-review-token"),
         stop,
@@ -156,6 +265,15 @@ export function createHostHttp(options: HostHttpOptions) {
           const changed = new Promise<void>((resolve) => {
             wake = resolve;
           });
+          if (activityChanged && reviewId) {
+            activityChanged = false;
+            await output.writeSSE({
+              event: "authoring.activity",
+              data: JSON.stringify(
+                host.activitySnapshot(access, workspaceId, reviewId),
+              ),
+            });
+          }
           const events = host.events(access, workspaceId, cursor, reviewId);
           for (const event of events) {
             if (stopped) break;
@@ -165,12 +283,13 @@ export function createHostHttp(options: HostHttpOptions) {
             });
             cursor = event.cursor;
           }
-          if (events.length > 0) continue;
+          if (events.length > 0 || activityChanged) continue;
           await output.write(": ready\n\n");
           await changed;
         }
       } finally {
         unsubscribe();
+        unsubscribeActivity?.();
         unwatchCredential();
         clearInterval(heartbeat);
         streams.delete(stop);
@@ -181,8 +300,11 @@ export function createHostHttp(options: HostHttpOptions) {
   // This is a native-shell operation, deliberately outside the domain maps.
   app.post("/app/open", async (context) => {
     const access = context.get("hostAccess");
-    const { reviewId } = z
-      .strictObject({ reviewId: HostIdSchema })
+    const { reviewId, reviewVersion } = z
+      .strictObject({
+        reviewId: HostIdSchema,
+        reviewVersion: HostVersionSchema.optional(),
+      })
       .parse(await readBoundedRequestJson(context.req.raw));
     if (!access.permissions.has("author") && access.principal.kind !== "human")
       throw new HostAccessError(
@@ -192,8 +314,10 @@ export function createHostHttp(options: HostHttpOptions) {
     if (access.reviewIds && !access.reviewIds.has(reviewId))
       throw new HostAccessError("NOT_FOUND", "Review not found.");
     host.store.review(reviewId);
-    await options.openReview(reviewId);
-    return context.json({ ok: true });
+    if (reviewVersion !== undefined)
+      host.store.reviewSnapshot(reviewId, reviewVersion);
+    await options.openReview(reviewId, reviewVersion);
+    return context.json({ ok: true, data: { opened: true } });
   });
 
   return {
@@ -201,6 +325,7 @@ export function createHostHttp(options: HostHttpOptions) {
     close() {
       closing = true;
       for (const stop of streams) stop();
+      host.closeAuthoringActivity();
     },
   };
 }
@@ -234,11 +359,12 @@ export function hostApiError(error: Error): HostApiError {
         severity: "error",
         code: issue.code,
         message: issue.message,
-        path: `/${issue.path.map((part) => String(part).replaceAll("~", "~0").replaceAll("/", "~1")).join("/")}`,
+        path: `/${(issue.path[0] === "input" ? issue.path : ["input", ...issue.path]).map((part) => String(part).replaceAll("~", "~0").replaceAll("/", "~1")).join("/")}`,
       })),
     };
   if (
     error instanceof HostStoreError ||
+    error instanceof ReviewActivityError ||
     error instanceof HostAccessError ||
     error instanceof EvidenceProviderError
   )
@@ -247,6 +373,10 @@ export function hostApiError(error: Error): HostApiError {
       message: error.message,
       retryable: error.code === "DEPENDENCY_UNAVAILABLE",
       diagnostics: [],
+      currentVersion:
+        error instanceof HostStoreError && error.code === "VERSION_CONFLICT"
+          ? error.currentVersion
+          : undefined,
     };
   if (error instanceof HttpJsonError)
     return {

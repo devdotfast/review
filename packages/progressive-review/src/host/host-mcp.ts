@@ -20,6 +20,7 @@ import {
 import { z } from "zod";
 
 import {
+  hostCommandRequestLimit,
   isHostCommandName,
   isHostQueryName,
   parseHostClientFlags,
@@ -64,13 +65,16 @@ async function serveHostMcp(options: HostMcpOptions): Promise<number> {
     {
       capabilities: { tools: {} },
       instructions:
-        "Author Review through these host operations. Commands require a fresh commandId UUID; reuse that same ID and input if the response is lost. Queries expose canonical state. Never read or write Review files or SQL. Publication is explicit. Review Desktop must already be running.",
+        "Author Review through these host operations. Commands require a fresh commandId UUID; reuse that same ID and input if the response is lost. Accepted edits are validated and saved immediately. Queries expose canonical state. Never read or write Review files or SQL. Review Desktop must already be running.",
     },
   );
   const transport = new StdioServerTransport(options.stdin, options.stdout, {
     maxBufferSize: HOST_RESOURCE_LIMITS.assetUploadRequestBytes + 64 * 1024,
   });
-  const openInput = z.strictObject({ reviewId: HostIdSchema });
+  const openInput = z.strictObject({
+    reviewId: HostIdSchema,
+    reviewVersion: z.number().int().nonnegative().optional(),
+  });
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     try {
       const capabilities = (await client.query("capabilities", {})).result;
@@ -88,7 +92,7 @@ async function serveHostMcp(options: HostMcpOptions): Promise<number> {
                 name: tool.name,
                 inputSchema: tool.inputSchema,
                 // MCP requires an object root even when the domain query
-                // legitimately returns an array (for example canvas reports).
+                // legitimately returns an array.
                 outputSchema:
                   tool.outputSchema.type === "object"
                     ? tool.outputSchema
@@ -103,7 +107,7 @@ async function serveHostMcp(options: HostMcpOptions): Promise<number> {
               }),
             ),
           ...(capabilities.commands.includes("review.create") ||
-          capabilities.commands.includes("review.attention")
+          capabilities.commands.includes("attention.update")
             ? [
                 ToolSchema.parse({
                   name: "review_open",
@@ -144,7 +148,11 @@ async function serveHostMcp(options: HostMcpOptions): Promise<number> {
     try {
       if (request.params.name === "review_open") {
         const input = openInput.parse(request.params.arguments);
-        const result = await client.open(input.reviewId, extra.signal);
+        const result = await client.open(
+          input.reviewId,
+          input.reviewVersion,
+          extra.signal,
+        );
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result) }],
           structuredContent: result,
@@ -155,8 +163,8 @@ async function serveHostMcp(options: HostMcpOptions): Promise<number> {
         throw new McpError(ErrorCode.InvalidParams, "Unknown Review tool.");
       const args = request.params.arguments ?? {};
       const limit =
-        tool.operation === "asset.upload"
-          ? HOST_RESOURCE_LIMITS.assetUploadRequestBytes
+        tool.kind === "command" && isHostCommandName(tool.operation)
+          ? hostCommandRequestLimit(tool.operation)
           : HOST_LIMITS.commandBytes;
       if (Buffer.byteLength(JSON.stringify(args)) > limit)
         throw new McpError(

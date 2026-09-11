@@ -14,6 +14,13 @@ class StubResizeObserver implements ResizeObserver {
 }
 globalThis.ResizeObserver ??= StubResizeObserver;
 
+import type { HostQuestionRun } from "@dev.fast/review-protocol";
+
+import {
+  type ReviewSession,
+  ReviewSessionProvider,
+} from "./host/review-session";
+import { testReviewSession } from "./review-session-test-utils";
 import type { ThreadView } from "./review-threads";
 import { writeReviewUiState } from "./review-ui-state";
 import {
@@ -40,6 +47,55 @@ describe("ThreadComposer", () => {
     });
     document.body.replaceChildren();
     window.sessionStorage.clear();
+  });
+
+  it("requires an explicit agent choice for Ask without blocking Add to review", async () => {
+    const session = testReviewSession();
+    session.bridge.comments.askOptions = async () => ({
+      supportedHarnesses: ["codex", "claude-code"],
+      defaultHarness: null,
+    });
+    const onAskNow =
+      vi.fn<(body: string, harness?: HostQuestionRun["harness"]) => void>();
+    const onAddToReview = vi.fn<(body: string) => void>();
+    const { container } = await renderComposer(
+      { initialDraft: "Why?", onAskNow, onAddToReview },
+      session,
+    );
+    expect(
+      container.querySelector<HTMLButtonElement>(".thread-compose-verb-primary")
+        ?.disabled,
+    ).toBe(true);
+    await chooseVerb(container, "Add to review");
+    expect(onAddToReview).toHaveBeenCalledWith("Why?");
+    expect(onAskNow).not.toHaveBeenCalled();
+  });
+
+  it("passes the selected local agent with the question", async () => {
+    const session = testReviewSession();
+    session.bridge.comments.askOptions = async () => ({
+      supportedHarnesses: ["codex", "claude-code"],
+      defaultHarness: null,
+    });
+    const onAskNow =
+      vi.fn<(body: string, harness?: HostQuestionRun["harness"]) => void>();
+    const { container } = await renderComposer(
+      { initialDraft: "Why?", onAskNow },
+      session,
+    );
+    const select = container.querySelector<HTMLSelectElement>(
+      '[aria-label="Answering agent"]',
+    )!;
+    await act(async () => {
+      select.value = "claude-code";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".thread-compose-verb-primary")!
+        .click(),
+    );
+    expect(onAskNow).toHaveBeenCalledWith("Why?", "claude-code");
   });
 
   it("defaults the primary verb to Ask now, ignoring any stored preference", async () => {
@@ -357,16 +413,20 @@ describe("ThreadCard message actions", () => {
 async function renderComposer(
   overrides: {
     initialDraft?: string;
-    onAskNow?: (body: string) => void | boolean | Promise<void | boolean>;
+    onAskNow?: (
+      body: string,
+      harness?: HostQuestionRun["harness"],
+    ) => void | boolean | Promise<void | boolean>;
     onAddToReview?: (body: string) => void | boolean | Promise<void | boolean>;
   } = {},
+  session?: ReviewSession,
 ) {
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
   roots.push(root);
   await act(async () => {
-    root.render(
+    const composer = (
       <ThreadComposer
         kind="new-thread"
         placeholder="Ask about this..."
@@ -374,7 +434,16 @@ async function renderComposer(
         initialDraft={overrides.initialDraft}
         onAskNow={overrides.onAskNow ?? (() => {})}
         onAddToReview={overrides.onAddToReview ?? (() => {})}
-      />,
+      />
+    );
+    root.render(
+      session ? (
+        <ReviewSessionProvider session={session}>
+          {composer}
+        </ReviewSessionProvider>
+      ) : (
+        composer
+      ),
     );
   });
   return { container, root };

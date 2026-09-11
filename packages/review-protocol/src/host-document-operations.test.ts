@@ -4,6 +4,7 @@ import {
   HostDocumentValidationError,
   affectedHostNodeIds,
   applyHostDocumentOperations,
+  assertHostDocument,
   canonicalHostJson,
   validateHostDocument,
 } from "./host-document-operations.js";
@@ -31,17 +32,40 @@ const insert = (
 ): HostDocumentOperation => ({
   op: "node.insert",
   node: { id, type: "markdown", markdown: id },
-  placement: { parentId, afterId },
+  placement: {
+    parentId,
+    position:
+      afterId === null ? { kind: "start" } : { kind: "after", nodeId: afterId },
+  },
 });
 
 describe("atomic JSON document edits", () => {
+  it("identifies the offending placement without changing the saved document", () => {
+    const current = empty();
+    expect(() =>
+      applyHostDocumentOperations(current, [
+        insert("first"),
+        insert("second", null, "missing"),
+      ]),
+    ).toThrow(
+      expect.objectContaining({
+        diagnostics: [
+          expect.objectContaining({
+            path: "/input/operations/1/placement/parentId",
+          }),
+        ],
+      }),
+    );
+    expect(current).toEqual(empty());
+  });
+
   it("accepts a node before its anchor in the same transaction without mutating the input", () => {
     const current = empty();
     const result = applyHostDocumentOperations(current, [
       {
         op: "node.insert",
         node: { id: "peek", type: "code_peek", anchorId: "handler" },
-        placement: { parentId: null, afterId: null },
+        placement: { parentId: null, position: { kind: "start" } },
       },
       { op: "definition.put", id: "handler", value: anchor },
     ]);
@@ -50,18 +74,23 @@ describe("atomic JSON document edits", () => {
     expect(current).toEqual(empty());
   });
 
-  it("rejects an incomplete transaction without leaking earlier operations", () => {
+  it("keeps an invalid candidate isolated from the original document", () => {
     const current = applyHostDocumentOperations(empty(), [insert("intro")]);
     const before = canonicalHostJson(current);
     expect(() =>
-      applyHostDocumentOperations(current, [
-        insert("next", "intro"),
-        {
-          op: "node.insert",
-          node: { id: "peek", type: "code_peek", anchorId: "missing" },
-          placement: { parentId: null, afterId: "next" },
-        },
-      ]),
+      assertHostDocument(
+        applyHostDocumentOperations(current, [
+          insert("next", "intro"),
+          {
+            op: "node.insert",
+            node: { id: "peek", type: "code_peek", anchorId: "missing" },
+            placement: {
+              parentId: null,
+              position: { kind: "after", nodeId: "next" },
+            },
+          },
+        ]),
+      ),
     ).toThrow(HostDocumentValidationError);
     expect(canonicalHostJson(current)).toBe(before);
   });
@@ -77,7 +106,7 @@ describe("atomic JSON document edits", () => {
           defaultCollapsed: true,
           children: [],
         },
-        placement: { parentId: null, afterId: null },
+        placement: { parentId: null, position: { kind: "start" } },
       },
       insert("first", null, "section"),
       insert("second", "first", "section"),
@@ -87,7 +116,10 @@ describe("atomic JSON document edits", () => {
       {
         op: "node.move",
         nodeId: "first",
-        placement: { parentId: null, afterId: "outside" },
+        placement: {
+          parentId: null,
+          position: { kind: "after", nodeId: "outside" },
+        },
       },
     ]);
     expect(moved.roots).toEqual(["section", "outside", "first"]);
@@ -122,7 +154,7 @@ describe("atomic JSON document edits", () => {
     const move: HostDocumentOperation = {
       op: "node.move",
       nodeId: "outer",
-      placement: { parentId: "inner", afterId: null },
+      placement: { parentId: "inner", position: { kind: "start" } },
     };
     expect(() => applyHostDocumentOperations(document, [move])).toThrow(
       HostDocumentValidationError,
@@ -130,12 +162,12 @@ describe("atomic JSON document edits", () => {
     expect(() =>
       applyHostDocumentOperations(document, [
         move,
-        { op: "node.remove", nodeId: "inner", subtree: true },
+        { op: "node.remove", nodeId: "inner", recursive: true },
       ]),
     ).toThrow(HostDocumentValidationError);
   });
 
-  it("requires explicit subtree removal and removes all descendants together", () => {
+  it("requires explicit recursive removal and removes all descendants together", () => {
     const document: HostDocument = {
       ...empty(),
       roots: ["group"],
@@ -151,12 +183,12 @@ describe("atomic JSON document edits", () => {
     };
     expect(() =>
       applyHostDocumentOperations(document, [
-        { op: "node.remove", nodeId: "group", subtree: false },
+        { op: "node.remove", nodeId: "group", recursive: false },
       ]),
-    ).toThrow("subtree");
+    ).toThrow("recursive");
     expect(
       applyHostDocumentOperations(document, [
-        { op: "node.remove", nodeId: "group", subtree: true },
+        { op: "node.remove", nodeId: "group", recursive: true },
       ]),
     ).toEqual(empty());
   });
@@ -172,7 +204,6 @@ describe("atomic JSON document edits", () => {
             type: "section",
             title: "New",
             defaultCollapsed: false,
-            children: [],
           },
         },
       ]),
@@ -187,13 +218,15 @@ describe("atomic JSON document edits", () => {
       definitions: { handler: anchor },
     };
     expect(() =>
-      applyHostDocumentOperations(document, [
-        { op: "definition.remove", id: "handler" },
-      ]),
+      assertHostDocument(
+        applyHostDocumentOperations(document, [
+          { op: "definition.remove", id: "handler" },
+        ]),
+      ),
     ).toThrow("anchor definition handler");
     const result = applyHostDocumentOperations(document, [
       { op: "definition.remove", id: "handler" },
-      { op: "node.remove", nodeId: "peek", subtree: false },
+      { op: "node.remove", nodeId: "peek", recursive: false },
     ]);
     expect(result).toEqual(empty());
   });
@@ -220,6 +253,193 @@ describe("atomic JSON document edits", () => {
         { definitionIds: new Set(["handler"]) },
       ),
     ).toThrow("retired");
+  });
+
+  it("renames a section and moves it to the end atomically, retaining its children", () => {
+    const original: HostDocument = {
+      ...empty(),
+      roots: ["group", "tail"],
+      nodes: {
+        group: {
+          id: "group",
+          type: "section",
+          title: "Old",
+          defaultCollapsed: true,
+          children: ["child"],
+        },
+        child: { id: "child", type: "markdown", markdown: "Retained" },
+        tail: { id: "tail", type: "divider" },
+      },
+    };
+    const result = applyHostDocumentOperations(original, [
+      { op: "node.update", nodeId: "group", changes: { title: "New" } },
+      {
+        op: "node.move",
+        nodeId: "group",
+        placement: { parentId: null, position: { kind: "end" } },
+      },
+    ]);
+    assertHostDocument(result);
+    expect(result.roots).toEqual(["tail", "group"]);
+    expect(result.nodes.group).toEqual({
+      ...original.nodes.group,
+      title: "New",
+    });
+    expect(result.nodes.child).toEqual(original.nodes.child);
+    expect(original.nodes.group).toMatchObject({ title: "Old" });
+  });
+
+  it("can replace a container's presentation without resending its children", () => {
+    const original: HostDocument = {
+      ...empty(),
+      roots: ["group"],
+      nodes: {
+        group: {
+          id: "group",
+          type: "section",
+          title: "Old",
+          defaultCollapsed: true,
+          children: ["child"],
+        },
+        child: { id: "child", type: "markdown", markdown: "Keep" },
+      },
+    };
+    const result = applyHostDocumentOperations(original, [
+      {
+        op: "node.replace",
+        node: {
+          id: "group",
+          type: "callout",
+          title: "Warning",
+          tone: "warning",
+        },
+      },
+    ]);
+    assertHostDocument(result);
+    expect(result.nodes.group).toEqual({
+      id: "group",
+      type: "callout",
+      title: "Warning",
+      tone: "warning",
+      children: ["child"],
+    });
+  });
+
+  it("keeps omitted defaults unchanged during updates and clears optional fields", () => {
+    const original: HostDocument = {
+      ...empty(),
+      roots: ["code"],
+      nodes: {
+        code: {
+          id: "code",
+          type: "code",
+          language: "typescript",
+          text: "old",
+          caption: "Caption",
+        },
+      },
+    };
+    const result = applyHostDocumentOperations(original, [
+      {
+        op: "node.update",
+        nodeId: "code",
+        changes: { text: "new", caption: null },
+      },
+    ]);
+    expect(result.nodes.code).toEqual({
+      id: "code",
+      type: "code",
+      language: "typescript",
+      text: "new",
+    });
+    expect(() =>
+      applyHostDocumentOperations(original, [
+        {
+          op: "node.update",
+          nodeId: "code",
+          changes: { title: "Wrong node kind" },
+        },
+      ]),
+    ).toThrow(HostDocumentValidationError);
+  });
+
+  it("rejects recursive deletion overlapping a descendant edit in either order", () => {
+    const original: HostDocument = {
+      ...empty(),
+      roots: ["group"],
+      nodes: {
+        group: {
+          id: "group",
+          type: "section",
+          title: "Group",
+          defaultCollapsed: false,
+          children: ["child"],
+        },
+        child: { id: "child", type: "markdown", markdown: "Keep" },
+      },
+    };
+    const edit: HostDocumentOperation = {
+      op: "node.update",
+      nodeId: "child",
+      changes: { markdown: "Changed" },
+    };
+    const remove: HostDocumentOperation = {
+      op: "node.remove",
+      nodeId: "group",
+      recursive: true,
+    };
+    for (const operations of [
+      [edit, remove],
+      [remove, edit],
+    ]) {
+      expect(() => applyHostDocumentOperations(original, operations)).toThrow(
+        HostDocumentValidationError,
+      );
+      expect(original.nodes.child).toMatchObject({ markdown: "Keep" });
+    }
+  });
+
+  it("normalizes authoring defaults and accepts explanatory sequence steps", () => {
+    const result = applyHostDocumentOperations(empty(), [
+      {
+        op: "definition.put",
+        id: "client",
+        value: { kind: "actor", label: "Client" },
+      },
+      {
+        op: "definition.put",
+        id: "server",
+        value: { kind: "actor", label: "Server" },
+      },
+      {
+        op: "node.insert",
+        node: {
+          id: "sequence",
+          type: "sequence",
+          title: "Flow",
+          messages: [
+            {
+              id: "request",
+              fromActorId: "client",
+              toActorId: "server",
+              label: "Request",
+              evidence: { kind: "explanation" },
+            },
+          ],
+        },
+        placement: { parentId: null, position: { kind: "end" } },
+      },
+      {
+        op: "node.insert",
+        node: { id: "code", type: "code", text: "Example" },
+        placement: { parentId: null, position: { kind: "end" } },
+      },
+    ]);
+    assertHostDocument(result);
+    expect(result.nodes.sequence).toMatchObject({
+      messages: [{ style: "call", evidence: { kind: "explanation" } }],
+    });
+    expect(result.nodes.code).toMatchObject({ language: "text" });
   });
 });
 

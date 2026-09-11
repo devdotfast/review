@@ -10,10 +10,6 @@ import {
   HostAttentionSchema,
   type HostBinding,
   HostBindingSchema,
-  type HostCanvasReport,
-  HostCanvasReportSchema,
-  type HostCheckpoint,
-  HostCheckpointSchema,
   HostDefinitionSchema,
   type HostDocument,
   type HostDocumentManifest,
@@ -24,6 +20,8 @@ import {
   HostDraftSchema,
   type HostFeedbackSubmission,
   HostFeedbackSubmissionSchema,
+  type HostFeedbackTarget,
+  HostFeedbackTargetSchema,
   HostHashSchema,
   type HostMap,
   HostMapSummarySchema,
@@ -38,12 +36,14 @@ import {
   HostQuestionContextSchema,
   type HostQuestionRun,
   HostQuestionRunSchema,
-  type HostRepinPlan,
-  HostRepinPlanSchema,
   type HostRetainedTrace,
   HostRetainedTraceSchema,
-  type HostReview,
-  HostReviewSchema,
+  type HostReviewState,
+  HostReviewStateSchema,
+  type HostReviewVersionHeader,
+  HostReviewVersionHeaderSchema,
+  type HostReviewVersionSummary,
+  HostReviewVersionSummarySchema,
   type HostSourceQuote,
   HostSourceQuoteSchema,
   type HostThread,
@@ -56,7 +56,18 @@ import { z } from "zod";
 
 // This store is internal to the authoritative host. Transports receive no SQL
 // connection or filesystem paths, and every mutation requires a command txn.
-export type HostStoredReview = HostReview;
+export type HostStoredReview = HostReviewState;
+export type HostReviewMetadata = Pick<
+  HostReviewVersionHeader,
+  "title" | "description" | "labels" | "mapVersions"
+>;
+export interface HostReviewCommitOptions {
+  metadata?: HostReviewMetadata;
+  principalId?: string;
+  reason?: HostReviewVersionSummary["reason"];
+  restoredFromReviewVersion?: number;
+  force?: boolean;
+}
 
 export class HostStoreError extends Error {
   constructor(
@@ -68,14 +79,15 @@ export class HostStoreError extends Error {
       | "CURSOR_EXPIRED"
       | "INTEGRITY_ERROR",
     message: string,
+    readonly currentVersion?: number,
   ) {
     super(message);
     this.name = "HostStoreError";
   }
 }
 
-export interface HostStoredResponse {
-  result: JsonValue;
+export interface HostStoredResponse<TResult extends JsonValue = JsonValue> {
+  result: TResult;
   eventCursor: string;
 }
 export interface HostCommandIdentity {
@@ -106,7 +118,81 @@ export interface HostRetiredIds {
   definitionIds: Set<string>;
 }
 
+interface HostDocumentItemIdentity {
+  key: string;
+  nodeId: string;
+  path: string;
+}
+
+const LegacyFeedbackTargetSchema = z
+  .object({
+    kind: z.string(),
+    documentVersion: z.number(),
+    nodeId: z.string().optional(),
+    itemId: z.string().optional(),
+    commit: z.string().optional(),
+  })
+  .passthrough();
+type LegacyFeedbackTarget = z.infer<typeof LegacyFeedbackTargetSchema>;
+
+/** Stable item identities include their owning diagram and typed sub-scope. */
+function documentItemIdentities(
+  document: HostDocument,
+): HostDocumentItemIdentity[] {
+  const items: HostDocumentItemIdentity[] = [];
+  for (const node of Object.values(document.nodes)) {
+    const root = `/nodes/${node.id.replaceAll("~", "~0").replaceAll("/", "~1")}`;
+    const add = (scope: string[], path: string) =>
+      items.push({
+        key: JSON.stringify([node.id, ...scope]),
+        nodeId: node.id,
+        path: `${root}${path}`,
+      });
+    if (node.type === "sequence")
+      node.messages.forEach((item, index) =>
+        add(["message", item.id], `/messages/${index}/id`),
+      );
+    else if (node.type === "call_stack_diff")
+      for (const side of ["base", "head"] as const)
+        node[side].forEach((item, index) =>
+          add(["frame", side, item.id], `/${side}/${index}/id`),
+        );
+    else if (node.type === "database_lens")
+      node.useCases.forEach((useCase, index) => {
+        add(["use_case", useCase.id], `/useCases/${index}/id`);
+        useCase.operations.forEach((item, operationIndex) =>
+          add(
+            ["operation", useCase.id, item.id],
+            `/useCases/${index}/operations/${operationIndex}/id`,
+          ),
+        );
+      });
+  }
+  return items;
+}
+
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS host_review_states (
+  review_id TEXT PRIMARY KEY REFERENCES host_reviews(id), record_json TEXT NOT NULL CHECK(json_valid(record_json))
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_review_versions (
+  review_id TEXT NOT NULL, version INTEGER NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  PRIMARY KEY(review_id,version),
+  FOREIGN KEY(review_id,version) REFERENCES host_document_versions(review_id,version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_feedback_submissions_v2 (
+  id TEXT PRIMARY KEY, review_id TEXT NOT NULL, review_version INTEGER NOT NULL, record_json TEXT NOT NULL CHECK(json_valid(record_json)),
+  FOREIGN KEY(review_id,review_version) REFERENCES host_document_versions(review_id,version)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_feedback_sequences (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, record_id TEXT NOT NULL,
+  review_id TEXT NOT NULL, principal_id TEXT, UNIQUE(kind,record_id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_legacy_records (
+  table_name TEXT NOT NULL, record_id TEXT NOT NULL, record_json TEXT NOT NULL,
+  PRIMARY KEY(table_name,record_id)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS host_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS host_principals (
   id TEXT PRIMARY KEY, identity_key TEXT NOT NULL UNIQUE,
@@ -142,6 +228,10 @@ CREATE TABLE IF NOT EXISTS host_document_ids (
   review_id TEXT NOT NULL REFERENCES host_reviews(id), namespace TEXT NOT NULL CHECK(namespace IN ('node','definition')),
   local_id TEXT NOT NULL, PRIMARY KEY(review_id,namespace,local_id)
 ) STRICT;
+CREATE TABLE IF NOT EXISTS host_document_item_ids (
+  review_id TEXT NOT NULL REFERENCES host_reviews(id), item_key TEXT NOT NULL,
+  PRIMARY KEY(review_id,item_key)
+) STRICT;
 CREATE TABLE IF NOT EXISTS host_checkpoints (
   id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
   ordinal INTEGER NOT NULL CHECK(ordinal > 0), document_version INTEGER NOT NULL,
@@ -165,6 +255,10 @@ CREATE TABLE IF NOT EXISTS host_map_versions (
   content_hash TEXT NOT NULL, created_at TEXT NOT NULL,
   record_json TEXT NOT NULL CHECK(json_valid(record_json)),
   evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)), UNIQUE(map_id,revision)
+) STRICT;
+CREATE TABLE IF NOT EXISTS host_map_item_ids (
+  map_id TEXT NOT NULL REFERENCES host_maps(id), namespace TEXT NOT NULL CHECK(namespace IN ('element','relationship')),
+  local_id TEXT NOT NULL, PRIMARY KEY(map_id,namespace,local_id)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS host_traces (
   id TEXT PRIMARY KEY, review_id TEXT NOT NULL REFERENCES host_reviews(id),
@@ -214,12 +308,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS host_question_active_attempt ON host_question_
 CREATE TABLE IF NOT EXISTS host_attention (
   review_id TEXT NOT NULL REFERENCES host_reviews(id), principal_id TEXT NOT NULL,
   record_json TEXT NOT NULL CHECK(json_valid(record_json)), PRIMARY KEY(review_id,principal_id)
-) STRICT;
-CREATE TABLE IF NOT EXISTS host_canvas_reports (
-  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-  review_id TEXT NOT NULL REFERENCES host_reviews(id), canvas_session_id TEXT NOT NULL,
-  principal_id TEXT NOT NULL, received_at TEXT NOT NULL,
-  report_json TEXT NOT NULL CHECK(json_valid(report_json)), UNIQUE(review_id,canvas_session_id)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS host_command_receipts (
   client_id TEXT NOT NULL, command_id TEXT NOT NULL, request_hash TEXT NOT NULL,
@@ -287,7 +375,7 @@ function preflightDatabase(databasePath: string): void {
     const version = db
       .prepare("SELECT value FROM host_meta WHERE key='schema_version'")
       .get();
-    if (version?.value !== "1")
+    if (version?.value !== "1" && version?.value !== "2")
       throw new HostStoreError(
         "INVALID_STATE",
         "This review database requires a different application version.",
@@ -320,7 +408,7 @@ export class ReviewHostStore {
       const version = this.db
         .prepare("SELECT value FROM host_meta WHERE key='schema_version'")
         .get();
-      if (version && version.value !== "1")
+      if (version && version.value !== "1" && version.value !== "2")
         throw new HostStoreError(
           "INVALID_STATE",
           "This review database requires a different application version.",
@@ -328,7 +416,15 @@ export class ReviewHostStore {
       const put = this.db.prepare(
         "INSERT OR IGNORE INTO host_meta(key,value) VALUES (?,?)",
       );
-      put.run("schema_version", "1");
+      put.run("schema_version", "2");
+      this.migrateReviewVersions();
+      if (version?.value === "1") this.migrateLegacyRecords();
+      this.migrateDocumentItemIds();
+      this.migrateMapItemIds();
+      this.migrateFeedbackSequences();
+      this.db
+        .prepare("UPDATE host_meta SET value='2' WHERE key='schema_version'")
+        .run();
       put.run("host_id", randomUUID());
       put.run("workspace_id", randomUUID());
       this.hostId = rowText(
@@ -355,8 +451,526 @@ export class ReviewHostStore {
     }
   }
 
+  /** Additive upgrade: old records and tables remain available for recovery. */
+  private migrateReviewVersions(): void {
+    const legacySchema = z.object({
+      id: z.string(),
+      repositoryId: z.string(),
+      documentVersion: z.number(),
+      version: z.number(),
+      title: z.string(),
+      description: z.string(),
+      labels: z.array(z.string()),
+      workflow: z.string(),
+      createdBy: z.string(),
+      createdAt: z.string(),
+      deletedAt: z.string().nullable(),
+      publishedCheckpointId: z.string().nullable(),
+    });
+    const checkpointSchema = z.object({
+      id: z.string(),
+      documentVersion: z.number(),
+      title: z.string(),
+      description: z.string(),
+      createdAt: z.string(),
+      createdBy: z.string(),
+      mapVersions: z.object({
+        base: z.string().nullable(),
+        head: z.string().nullable(),
+      }),
+    });
+    for (const row of this.db
+      .prepare("SELECT id,record_json FROM host_reviews ORDER BY id")
+      .all()) {
+      const reviewId = rowText(row, "id");
+      if (
+        this.db
+          .prepare("SELECT 1 FROM host_review_states WHERE review_id=?")
+          .get(reviewId)
+      )
+        continue;
+      const raw = rowText(row, "record_json"),
+        legacy = legacySchema.parse(parseJsonText(raw));
+      this.db
+        .prepare(
+          "INSERT OR IGNORE INTO host_legacy_records VALUES ('host_reviews',?,?)",
+        )
+        .run(reviewId, raw);
+      const state: HostReviewState = {
+        id: legacy.id,
+        repositoryId: legacy.repositoryId,
+        latestReviewVersion: legacy.documentVersion,
+        stateVersion: legacy.version,
+        state: legacy.workflow === "closed" ? "closed" : "open",
+        deletedAt: legacy.deletedAt,
+        createdAt: legacy.createdAt,
+        createdBy: legacy.createdBy,
+      };
+      this.db
+        .prepare("INSERT INTO host_review_states VALUES (?,?)")
+        .run(reviewId, canonicalHostJson(state));
+      const checkpoints = this.db
+        .prepare(
+          "SELECT record_json FROM host_checkpoints WHERE review_id=? ORDER BY ordinal",
+        )
+        .all(reviewId)
+        .map((item) =>
+          checkpointSchema.parse(parseJsonText(rowText(item, "record_json"))),
+        );
+      const historicalRecords = this.db
+        .prepare(
+          "SELECT created_at,payload_json FROM host_events WHERE review_id=? AND type IN ('review.created','review.updated') ORDER BY sequence",
+        )
+        .all(reviewId)
+        .flatMap((item) => {
+          const parsed = z
+            .object({ review: legacySchema })
+            .safeParse(parseJsonText(rowText(item, "payload_json")));
+          return parsed.success
+            ? [{ at: rowText(item, "created_at"), review: parsed.data.review }]
+            : [];
+        });
+      const latestDocument = this.document(reviewId, legacy.documentVersion);
+      const latestCheckpoint = checkpoints.find(
+        (item) => item.id === legacy.publishedCheckpointId,
+      );
+      const checkpointBinding = latestCheckpoint
+        ? this.document(reviewId, latestCheckpoint.documentVersion).binding
+        : null;
+      const selectedMaps =
+        latestCheckpoint &&
+        checkpointBinding?.baseCommit === latestDocument.binding.baseCommit &&
+        checkpointBinding.headCommit === latestDocument.binding.headCommit
+          ? latestCheckpoint.mapVersions
+          : { base: null, head: null };
+      const currentMetadata: HostReviewMetadata = {
+        title: legacy.title,
+        description: legacy.description,
+        labels: legacy.labels,
+        mapVersions: selectedMaps,
+      };
+      let nextVersion = legacy.documentVersion;
+      for (const item of this.db
+        .prepare(
+          "SELECT version,created_at FROM host_document_versions WHERE review_id=? ORDER BY version",
+        )
+        .all(reviewId)) {
+        const version = z.number().parse(item.version),
+          at = rowText(item, "created_at");
+        const historical =
+          historicalRecords
+            .filter(
+              (record) =>
+                record.at <= at && record.review.documentVersion <= version,
+            )
+            .at(-1)?.review ??
+          historicalRecords[0]?.review ??
+          legacy;
+        const metadata =
+          version === legacy.documentVersion
+            ? currentMetadata
+            : {
+                title: historical.title,
+                description: historical.description,
+                labels: historical.labels,
+                mapVersions: { base: null, head: null },
+              };
+        this.writeReviewHeader(
+          state,
+          this.document(reviewId, version),
+          metadata,
+          version === 0 ? "create" : "document",
+          historical.createdBy,
+        );
+      }
+      // Publication could change metadata/maps without changing the old document
+      // counter. Preserve every distinct checkpoint as its own exact snapshot.
+      const checkpointVersions = new Map<string, number>();
+      for (const checkpoint of checkpoints) {
+        const original = this.document(reviewId, checkpoint.documentVersion);
+        const historical =
+          historicalRecords
+            .filter((record) => record.at <= checkpoint.createdAt)
+            .at(-1)?.review ?? legacy;
+        const metadata = {
+          title: checkpoint.title,
+          description: checkpoint.description,
+          labels: historical.labels,
+          mapVersions: checkpoint.mapVersions,
+        };
+        const existing = this.reviewSnapshot(
+          reviewId,
+          checkpoint.documentVersion,
+        );
+        const same =
+          canonicalHostJson(metadata) ===
+          canonicalHostJson({
+            title: existing.title,
+            description: existing.description,
+            labels: existing.labels,
+            mapVersions: existing.mapVersions,
+          });
+        if (same) {
+          checkpointVersions.set(checkpoint.id, checkpoint.documentVersion);
+          continue;
+        }
+        const document = this.writeDocumentVersion(
+          state,
+          {
+            document: {
+              schemaVersion: original.schemaVersion,
+              roots: original.roots,
+              nodes: original.nodes,
+              definitions: original.definitions,
+            },
+            binding: original.binding,
+            evidence: original.evidence,
+          },
+          ++nextVersion,
+          checkpoint.createdAt,
+        );
+        this.writeReviewHeader(
+          state,
+          document,
+          metadata,
+          "metadata",
+          checkpoint.createdBy,
+        );
+        checkpointVersions.set(checkpoint.id, nextVersion);
+      }
+      if (nextVersion !== legacy.documentVersion) {
+        const document = this.writeDocumentVersion(
+          state,
+          {
+            document: {
+              schemaVersion: latestDocument.schemaVersion,
+              roots: latestDocument.roots,
+              nodes: latestDocument.nodes,
+              definitions: latestDocument.definitions,
+            },
+            binding: latestDocument.binding,
+            evidence: latestDocument.evidence,
+          },
+          ++nextVersion,
+          new Date().toISOString(),
+        );
+        this.writeReviewHeader(
+          state,
+          document,
+          currentMetadata,
+          "metadata",
+          legacy.createdBy,
+        );
+        this.db
+          .prepare("UPDATE host_reviews SET document_version=? WHERE id=?")
+          .run(nextVersion, reviewId);
+        this.db
+          .prepare(
+            "UPDATE host_review_states SET record_json=? WHERE review_id=?",
+          )
+          .run(
+            canonicalHostJson({ ...state, latestReviewVersion: nextVersion }),
+            reviewId,
+          );
+      }
+      for (const item of this.db
+        .prepare(
+          "SELECT id,record_json FROM host_feedback_submissions WHERE review_id=?",
+        )
+        .all(reviewId)) {
+        const old = z
+          .object({ checkpointId: z.string() })
+          .passthrough()
+          .parse(parseJsonText(rowText(item, "record_json")));
+        const version = checkpointVersions.get(old.checkpointId);
+        if (version === undefined)
+          throw new HostStoreError(
+            "INTEGRITY_ERROR",
+            "A retained decision has no checkpoint.",
+          );
+        const { checkpointId: _checkpointId, ...fields } = old;
+        const upgraded = HostFeedbackSubmissionSchema.parse({
+          ...fields,
+          reviewVersion: version,
+        });
+        this.db
+          .prepare(
+            "INSERT OR IGNORE INTO host_feedback_submissions_v2 VALUES (?,?,?,?)",
+          )
+          .run(
+            upgraded.id,
+            reviewId,
+            upgraded.reviewVersion,
+            canonicalHostJson(upgraded),
+          );
+      }
+    }
+  }
+
   close(): void {
     this.db.close();
+  }
+
+  private upgradeLegacyTarget(
+    old: LegacyFeedbackTarget,
+    reviewId: string,
+  ): HostFeedbackTarget {
+    const { documentVersion, commit, itemId, ...fields } = old;
+    if (old.kind === "trace")
+      return HostFeedbackTargetSchema.parse({
+        kind: "node",
+        reviewVersion: documentVersion,
+        nodeId: old.nodeId,
+      });
+    if (old.kind !== "diagram") {
+      const candidate = {
+        ...fields,
+        reviewVersion: documentVersion,
+      };
+      if (commit)
+        return HostFeedbackTargetSchema.parse({
+          ...candidate,
+          comparisonCommit: commit,
+        });
+      return HostFeedbackTargetSchema.parse(candidate);
+    }
+    const node = this.document(reviewId, documentVersion).nodes[old.nodeId!];
+    const items: JsonValue[] = [];
+    if (node?.type === "sequence") {
+      if (node.messages.some((item) => item.id === itemId))
+        items.push({ kind: "message", messageId: itemId! });
+      if (
+        node.messages.some(
+          (item) => item.fromActorId === itemId || item.toActorId === itemId,
+        )
+      )
+        items.push({ kind: "actor", actorId: itemId! });
+    } else if (node?.type === "call_stack_diff") {
+      for (const side of ["base", "head"] as const)
+        if (node[side].some((item) => item.id === itemId))
+          items.push({ kind: "frame", side, frameId: itemId! });
+    } else if (node?.type === "database_lens") {
+      for (const useCase of node.useCases) {
+        if (useCase.id === itemId)
+          items.push({ kind: "use_case", useCaseId: itemId! });
+        if (useCase.operations.some((item) => item.id === itemId))
+          items.push({
+            kind: "operation",
+            useCaseId: useCase.id,
+            operationId: itemId!,
+          });
+      }
+    } else if (node?.type === "software_map") {
+      const row = this.db
+        .prepare("SELECT record_json FROM host_map_versions WHERE id=?")
+        .get(node.mapVersionId);
+      const map = z
+        .object({
+          elements: z.record(z.string(), z.unknown()),
+          relationships: z.record(z.string(), z.unknown()),
+        })
+        .parse(parseJsonText(rowText(row!, "record_json")));
+      if (Object.hasOwn(map.elements, itemId!))
+        items.push({ kind: "map_element", elementId: itemId! });
+      if (Object.hasOwn(map.relationships, itemId!))
+        items.push({ kind: "map_relationship", relationshipId: itemId! });
+    }
+    if (items.length !== 1)
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "A historical diagram comment has an ambiguous item identity. Its original database is unchanged; resolve its item kind/side before upgrading.",
+      );
+    return HostFeedbackTargetSchema.parse({
+      kind: "diagram",
+      reviewVersion: documentVersion,
+      nodeId: old.nodeId,
+      item: items[0],
+    });
+  }
+
+  private migrateLegacyRecords(): void {
+    const recordSchema = z.record(z.string(), z.unknown());
+    const backup = (table: string, id: string, raw: string) =>
+      this.db
+        .prepare("INSERT OR IGNORE INTO host_legacy_records VALUES (?,?,?)")
+        .run(table, id, raw);
+    for (const [table, counter] of [
+      ["host_drafts", "draftVersion"],
+      ["host_threads", "threadVersion"],
+    ] as const) {
+      for (const row of this.db
+        .prepare(`SELECT id,review_id,record_json FROM ${table}`)
+        .all()) {
+        const raw = rowText(row, "record_json"),
+          old = recordSchema.parse(parseJsonText(raw));
+        if (old[counter] !== undefined) continue;
+        const { version, target, ...fields } = old;
+        const upgraded = {
+          ...fields,
+          [counter]: version,
+          target: this.upgradeLegacyTarget(
+            LegacyFeedbackTargetSchema.parse(target),
+            rowText(row, "review_id"),
+          ),
+        };
+        const parsed =
+          table === "host_drafts"
+            ? HostDraftSchema.parse(upgraded)
+            : HostThreadSchema.parse(upgraded);
+        backup(table, rowText(row, "id"), raw);
+        this.db
+          .prepare(`UPDATE ${table} SET record_json=? WHERE id=?`)
+          .run(canonicalHostJson(parsed), rowText(row, "id"));
+      }
+    }
+    for (const row of this.db
+      .prepare("SELECT review_id,principal_id,record_json FROM host_attention")
+      .all()) {
+      const raw = rowText(row, "record_json"),
+        old = recordSchema.parse(parseJsonText(raw));
+      if (old.attentionVersion !== undefined) continue;
+      const { version, viewedDocumentVersion, viewedAt, ...fields } = old;
+      const parsed = HostAttentionSchema.parse({
+        ...fields,
+        attentionVersion: version,
+        lastViewedReviewVersion: viewedDocumentVersion,
+        lastViewedAt: viewedAt,
+      });
+      backup("host_attention", `${parsed.reviewId}:${parsed.principalId}`, raw);
+      this.db
+        .prepare(
+          "UPDATE host_attention SET record_json=? WHERE review_id=? AND principal_id=?",
+        )
+        .run(canonicalHostJson(parsed), parsed.reviewId, parsed.principalId);
+    }
+    for (const row of this.db
+      .prepare("SELECT id,record_json FROM host_map_versions")
+      .all()) {
+      const raw = rowText(row, "record_json"),
+        old = recordSchema.parse(parseJsonText(raw));
+      if (old.mapVersion !== undefined) continue;
+      const { revision, ...fields } = old,
+        parsed = HostMapVersionSchema.parse({
+          ...fields,
+          mapVersion: revision,
+        });
+      backup("host_map_versions", parsed.id, raw);
+      this.db
+        .prepare("UPDATE host_map_versions SET record_json=? WHERE id=?")
+        .run(canonicalHostJson(parsed), parsed.id);
+    }
+    for (const row of this.db
+      .prepare("SELECT id,record_json FROM host_traces")
+      .all()) {
+      const raw = rowText(row, "record_json"),
+        old = z
+          .object({ trace: recordSchema, events: z.array(recordSchema) })
+          .parse(parseJsonText(raw));
+      const {
+        parentTraceId: _parent,
+        sessionId: _session,
+        version: _version,
+        ...trace
+      } = old.trace;
+      const parsed = HostRetainedTraceSchema.parse({
+        trace,
+        events: old.events.map((event, index) => ({
+          ...event,
+          ordinal: index,
+          at: event.at ?? null,
+        })),
+      });
+      backup("host_traces", rowText(row, "id"), raw);
+      this.db
+        .prepare(
+          "UPDATE host_traces SET record_json=?,content_hash=? WHERE id=?",
+        )
+        .run(
+          canonicalHostJson(parsed),
+          contentHash(parsed),
+          rowText(row, "id"),
+        );
+    }
+    for (const row of this.db
+      .prepare("SELECT id,review_id,record_json FROM host_question_contexts")
+      .all()) {
+      const raw = rowText(row, "record_json"),
+        old = recordSchema.parse(parseJsonText(raw));
+      if (old.reviewVersion !== undefined) continue;
+      const reviewId = rowText(row, "review_id"),
+        material = recordSchema.parse(old.material);
+      const target = this.upgradeLegacyTarget(
+        LegacyFeedbackTargetSchema.parse(material.target),
+        reviewId,
+      );
+      const run = this.db
+        .prepare(
+          "SELECT thread_id,question_id FROM host_question_runs WHERE context_id=? ORDER BY rowid LIMIT 1",
+        )
+        .get(rowText(row, "id"));
+      if (!run)
+        throw new HostStoreError(
+          "INTEGRITY_ERROR",
+          "A saved question context has no run.",
+        );
+      const excerpt = (text: string) => ({
+        state: "truncated" as const,
+        text,
+      });
+      const prior = z.array(recordSchema).parse(material.priorMessages ?? []);
+      const question = this.db
+        .prepare("SELECT ordinal FROM host_messages WHERE id=?")
+        .get(rowText(run, "question_id"));
+      const selected =
+        material.sourceEvidence === null
+          ? null
+          : recordSchema.parse(material.sourceEvidence);
+      const { documentVersion, ...fields } = old;
+      const parsed = HostQuestionContextSchema.parse({
+        ...fields,
+        reviewVersion: documentVersion,
+        material: {
+          schemaVersion: 1,
+          review: {
+            title: excerpt(
+              z.string().parse(recordSchema.parse(material.review).title),
+            ),
+          },
+          binding: material.binding,
+          mapVersions: this.reviewSnapshot(reviewId, target.reviewVersion)
+            .mapVersions,
+          originalTarget: target,
+          viewedTarget: {
+            threadId: rowText(run, "thread_id"),
+            reviewVersion: target.reviewVersion,
+            status: "exact",
+            target,
+            evidence: null,
+          },
+          sourceEvidence: selected
+            ? {
+                span: selected.span,
+                sha256: selected.sha256,
+                text: excerpt(z.string().parse(selected.textExcerpt)),
+              }
+            : null,
+          documentJson: excerpt(z.string().parse(material.documentJsonExcerpt)),
+          priorMessages: prior.map((item) => ({
+            id: item.id,
+            author: item.author,
+            body: excerpt(z.string().parse(item.bodyExcerpt)),
+          })),
+          priorMessagesOmitted: Math.max(
+            0,
+            z.number().parse(question!.ordinal) - 1 - prior.length,
+          ),
+        },
+      });
+      backup("host_question_contexts", parsed.id, raw);
+      this.db
+        .prepare("UPDATE host_question_contexts SET record_json=? WHERE id=?")
+        .run(canonicalHostJson(parsed), parsed.id);
+    }
   }
 
   /** Receipt lookup is deliberately available before any version/evidence work. */
@@ -414,7 +1028,9 @@ export class ReviewHostStore {
     }
   }
 
-  snapshot(read: () => JsonValue): HostStoredResponse {
+  snapshot<TResult extends JsonValue>(
+    read: () => TResult,
+  ): HostStoredResponse<TResult> {
     if (this.writing)
       throw new Error("Snapshot cannot run inside a write transaction.");
     this.db.exec("BEGIN");
@@ -473,10 +1089,14 @@ export class ReviewHostStore {
     return row ? rowText(row, "id") : null;
   }
 
-  repositories(): { id: string; displayName: string; vcs: "git" | "jj" }[] {
+  repositories(
+    createdThrough = Number.MAX_SAFE_INTEGER,
+  ): { id: string; displayName: string; vcs: "git" | "jj" }[] {
     return this.db
-      .prepare("SELECT id,display_name,vcs FROM host_repositories ORDER BY id")
-      .all()
+      .prepare(
+        "SELECT id,display_name,vcs FROM host_repositories WHERE rowid<=? ORDER BY id",
+      )
+      .all(createdThrough)
       .map((row) => ({
         id: rowText(row, "id"),
         displayName: rowText(row, "display_name"),
@@ -495,75 +1115,149 @@ export class ReviewHostStore {
   createReview(
     review: HostStoredReview,
     prepared: HostPreparedDocument,
+    metadata: HostReviewMetadata,
   ): HostDocumentState {
     this.requireWrite();
     if (
-      review.documentVersion !== 0 ||
-      review.version !== 0 ||
+      review.latestReviewVersion !== 0 ||
+      review.stateVersion !== 0 ||
       review.repositoryId !== prepared.binding.repositoryId
     )
       throw new HostStoreError(
         "INVALID_STATE",
         "New reviews require version zero and their registered repository.",
       );
+    const state = HostReviewStateSchema.parse(review);
     this.db
       .prepare(
         "INSERT INTO host_reviews(id,repository_id,document_version,record_json) VALUES (?,?,0,?)",
       )
-      .run(
-        review.id,
-        review.repositoryId,
-        canonicalHostJson(HostReviewSchema.parse(review)),
-      );
-    return this.writeDocumentVersion(review, prepared, 0, review.createdAt);
+      .run(review.id, review.repositoryId, canonicalHostJson(state));
+    this.db
+      .prepare(
+        "INSERT INTO host_review_states(review_id,record_json) VALUES (?,?)",
+      )
+      .run(review.id, canonicalHostJson(state));
+    const document = this.writeDocumentVersion(
+      state,
+      prepared,
+      0,
+      review.createdAt,
+    );
+    this.writeReviewHeader(
+      state,
+      document,
+      metadata,
+      "create",
+      review.createdBy,
+    );
+    return document;
   }
 
   review(reviewId: string): HostStoredReview {
     const row = this.db
-      .prepare("SELECT record_json FROM host_reviews WHERE id=?")
+      .prepare("SELECT record_json FROM host_review_states WHERE review_id=?")
       .get(reviewId);
     if (!row) throw new HostStoreError("NOT_FOUND", "Review not found.");
-    return HostReviewSchema.parse(parseJsonText(rowText(row, "record_json")));
+    return HostReviewStateSchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
   }
 
-  reviews(includeTrashed = false): HostStoredReview[] {
+  reviewSnapshot(
+    reviewId: string,
+    reviewVersion?: number,
+  ): HostReviewVersionHeader {
+    const current = this.review(reviewId);
+    const row = this.db
+      .prepare(
+        "SELECT record_json FROM host_review_versions WHERE review_id=? AND version=?",
+      )
+      .get(reviewId, reviewVersion ?? current.latestReviewVersion);
+    if (!row)
+      throw new HostStoreError("NOT_FOUND", "Review version not found.");
+    const { reason: _reason, ...header } = HostReviewVersionSummarySchema.parse(
+      parseJsonText(rowText(row, "record_json")),
+    );
+    return HostReviewVersionHeaderSchema.parse(header);
+  }
+
+  reviewHistory(reviewId: string): HostReviewVersionSummary[] {
+    this.review(reviewId);
     return this.db
-      .prepare("SELECT record_json FROM host_reviews ORDER BY id")
-      .all()
+      .prepare(
+        "SELECT record_json FROM host_review_versions WHERE review_id=? ORDER BY version DESC",
+      )
+      .all(reviewId)
       .map((row) =>
-        HostReviewSchema.parse(parseJsonText(rowText(row, "record_json"))),
+        HostReviewVersionSummarySchema.parse(
+          parseJsonText(rowText(row, "record_json")),
+        ),
+      );
+  }
+
+  /** These identity tables are never deleted or replaced; trash changes only state. */
+  collectionBoundary(kind: "reviews" | "repositories"): number {
+    const table = kind === "reviews" ? "host_reviews" : "host_repositories";
+    return z
+      .number()
+      .int()
+      .nonnegative()
+      .parse(
+        this.db
+          .prepare(`SELECT COALESCE(MAX(rowid),0) AS boundary FROM ${table}`)
+          .get()!.boundary,
+      );
+  }
+
+  reviews(
+    includeTrashed = false,
+    createdThrough = Number.MAX_SAFE_INTEGER,
+  ): HostStoredReview[] {
+    return this.db
+      .prepare(
+        "SELECT s.record_json FROM host_review_states s JOIN host_reviews r ON r.id=s.review_id WHERE r.rowid<=? ORDER BY json_extract(s.record_json,'$.createdAt') DESC,s.review_id DESC",
+      )
+      .all(createdThrough)
+      .map((row) =>
+        HostReviewStateSchema.parse(parseJsonText(rowText(row, "record_json"))),
       )
       .filter((review) => includeTrashed || review.deletedAt === null);
   }
 
-  updateReview(
+  updateReviewState(
     reviewId: string,
-    expectedVersion: number,
+    expectedStateVersion: number,
     update: (review: HostStoredReview) => HostStoredReview,
   ): HostStoredReview {
     this.requireWrite();
     const before = this.review(reviewId);
-    if (before.version !== expectedVersion)
+    if (before.stateVersion !== expectedStateVersion)
       throw new HostStoreError(
         "VERSION_CONFLICT",
-        "Review metadata changed. Read the current version and retry.",
+        "Review state changed. Read its current version.",
+        before.stateVersion,
       );
-    const after = HostReviewSchema.parse(update(before));
+    const proposed = HostReviewStateSchema.parse(update(before));
     if (
-      after.id !== before.id ||
-      after.repositoryId !== before.repositoryId ||
-      after.documentId !== before.documentId ||
-      after.documentVersion !== before.documentVersion ||
-      after.createdAt !== before.createdAt ||
-      after.createdBy !== before.createdBy ||
-      after.version !== before.version + 1
+      proposed.id !== before.id ||
+      proposed.repositoryId !== before.repositoryId ||
+      proposed.latestReviewVersion !== before.latestReviewVersion ||
+      proposed.createdAt !== before.createdAt ||
+      proposed.createdBy !== before.createdBy
     )
       throw new HostStoreError(
         "INVALID_STATE",
-        "Metadata changes cannot alter review identity or document state.",
+        "Lifecycle changes cannot alter review identity or material.",
       );
+    if (
+      proposed.state === before.state &&
+      proposed.deletedAt === before.deletedAt
+    )
+      return before;
+    const after = { ...proposed, stateVersion: before.stateVersion + 1 };
     this.db
-      .prepare("UPDATE host_reviews SET record_json=? WHERE id=?")
+      .prepare("UPDATE host_review_states SET record_json=? WHERE review_id=?")
       .run(canonicalHostJson(after), reviewId);
     return after;
   }
@@ -574,7 +1268,7 @@ export class ReviewHostStore {
       .prepare(
         "SELECT * FROM host_document_versions WHERE review_id=? AND version=?",
       )
-      .get(reviewId, version ?? review.documentVersion);
+      .get(reviewId, version ?? review.latestReviewVersion);
     if (!row)
       throw new HostStoreError("NOT_FOUND", "Document version not found.");
     const manifest = HostDocumentManifestSchema.parse(
@@ -588,7 +1282,7 @@ export class ReviewHostStore {
         .prepare(
           "SELECT object.hash,object.kind,object.value_json FROM host_document_object_refs ref JOIN host_content_objects object ON object.hash=ref.hash WHERE ref.review_id=? AND ref.version=?",
         )
-        .all(reviewId, version ?? review.documentVersion)
+        .all(reviewId, version ?? review.latestReviewVersion)
         .map((item) => [rowText(item, "hash"), item]),
     );
     const readObject = (hash: string, kind: string): JsonValue => {
@@ -608,9 +1302,8 @@ export class ReviewHostStore {
     };
     const state = HostDocumentStateSchema.parse({
       schemaVersion: 1,
-      documentId: review.documentId,
       reviewId,
-      version: row.version,
+      reviewVersion: row.version,
       binding,
       roots: manifest.roots,
       nodes: Object.fromEntries(
@@ -646,198 +1339,104 @@ export class ReviewHostStore {
 
   commitDocument(
     reviewId: string,
-    expectedVersion: number,
+    expectedReviewVersion: number,
     prepared: HostPreparedDocument,
+    options: HostReviewCommitOptions = {},
   ): HostDocumentState {
     this.requireWrite();
-    const review = this.review(reviewId);
-    if (review.documentVersion !== expectedVersion)
+    const review = this.mutableResourceReview(reviewId);
+    if (review.latestReviewVersion !== expectedReviewVersion)
       throw new HostStoreError(
         "VERSION_CONFLICT",
-        "Document changed. Read the current version and retry.",
-      );
-    if (review.deletedAt !== null || review.workflow === "closed")
-      throw new HostStoreError(
-        "INVALID_STATE",
-        "Closed or trashed reviews cannot be authored.",
+        "Review material changed. Read its current version.",
+        review.latestReviewVersion,
       );
     if (review.repositoryId !== prepared.binding.repositoryId)
       throw new HostStoreError(
         "INVALID_STATE",
-        "A document cannot change repositories.",
+        "A review cannot change repositories.",
       );
     const previous = this.document(reviewId);
-    const sameDocument =
-      canonicalHostJson({
-        schemaVersion: previous.schemaVersion,
-        roots: previous.roots,
-        nodes: previous.nodes,
-        definitions: previous.definitions,
-      }) === canonicalHostJson(prepared.document);
     if (
-      sameDocument &&
-      canonicalHostJson(previous.binding) ===
-        canonicalHostJson(prepared.binding) &&
-      canonicalHostJson(previous.evidence) ===
-        canonicalHostJson(prepared.evidence)
+      options.restoredFromReviewVersion === undefined &&
+      this.reusedDocumentItems(reviewId, prepared.document).length
     )
-      return previous;
-    const now = new Date().toISOString();
+      throw new HostStoreError(
+        "INVALID_STATE",
+        "Removed diagram item IDs cannot be reused. Restore the historical review version or use fresh IDs.",
+      );
+    const priorHeader = this.reviewSnapshot(reviewId);
+    const metadata = options.metadata ?? {
+      title: priorHeader.title,
+      description: priorHeader.description,
+      labels: priorHeader.labels,
+      mapVersions: priorHeader.mapVersions,
+    };
+    const same =
+      canonicalHostJson({
+        document: {
+          schemaVersion: previous.schemaVersion,
+          roots: previous.roots,
+          nodes: previous.nodes,
+          definitions: previous.definitions,
+        },
+        binding: previous.binding,
+        evidence: previous.evidence,
+        metadata: {
+          title: priorHeader.title,
+          description: priorHeader.description,
+          labels: priorHeader.labels,
+          mapVersions: priorHeader.mapVersions,
+        },
+      }) === canonicalHostJson({ ...prepared, metadata });
+    if (same && !options.force) return previous;
     const result = this.writeDocumentVersion(
       review,
       prepared,
-      expectedVersion + 1,
-      now,
+      expectedReviewVersion + 1,
+      new Date().toISOString(),
     );
+    this.writeReviewHeader(
+      review,
+      result,
+      metadata,
+      options.reason ?? "document",
+      options.principalId ?? review.createdBy,
+      options.restoredFromReviewVersion,
+    );
+    const after = { ...review, latestReviewVersion: result.reviewVersion };
     this.db
-      .prepare(
-        "UPDATE host_reviews SET document_version=?,record_json=? WHERE id=?",
-      )
-      .run(
-        result.version,
-        canonicalHostJson({ ...review, documentVersion: result.version }),
-        reviewId,
-      );
+      .prepare("UPDATE host_reviews SET document_version=? WHERE id=?")
+      .run(result.reviewVersion, reviewId);
+    this.db
+      .prepare("UPDATE host_review_states SET record_json=? WHERE review_id=?")
+      .run(canonicalHostJson(after), reviewId);
     return result;
   }
 
-  documentHistory(
-    reviewId: string,
-  ): { version: number; contentHash: string; createdAt: string }[] {
-    this.review(reviewId);
-    return this.db
-      .prepare(
-        "SELECT version,content_hash,created_at FROM host_document_versions WHERE review_id=? ORDER BY version DESC",
-      )
-      .all(reviewId)
-      .map((row) => ({
-        version: z.number().int().parse(row.version),
-        contentHash: rowText(row, "content_hash"),
-        createdAt: rowText(row, "created_at"),
-      }));
-  }
-
-  publish(input: {
-    reviewId: string;
-    expectedDocumentVersion: number;
-    expectedReviewVersion: number;
-    mapVersions: HostCheckpoint["mapVersions"];
-    principalId: string;
-  }): HostCheckpoint {
-    this.requireWrite();
-    const review = this.review(input.reviewId);
-    if (
-      review.documentVersion !== input.expectedDocumentVersion ||
-      review.version !== input.expectedReviewVersion
-    )
-      throw new HostStoreError(
-        "VERSION_CONFLICT",
-        "Review or document changed. Read the current versions and retry.",
-      );
-    if (review.deletedAt !== null || review.workflow === "closed")
-      throw new HostStoreError(
-        "INVALID_STATE",
-        "Closed or trashed reviews cannot be published.",
-      );
-    const document = this.document(review.id);
-    const latest = this.db
-      .prepare(
-        "SELECT COALESCE(MAX(ordinal),0) AS ordinal FROM host_checkpoints WHERE review_id=?",
-      )
-      .get(review.id)!;
-    const checkpoint = HostCheckpointSchema.parse({
-      id: randomUUID(),
+  private writeReviewHeader(
+    review: HostStoredReview,
+    document: HostDocumentState,
+    metadata: HostReviewMetadata,
+    reason: HostReviewVersionSummary["reason"],
+    principalId: string,
+    restoredFromReviewVersion?: number,
+  ): void {
+    const header = HostReviewVersionSummarySchema.parse({
       reviewId: review.id,
-      ordinal: z.number().int().parse(latest.ordinal) + 1,
-      documentVersion: document.version,
-      bindingId: document.binding.id,
-      title: review.title,
-      description: review.description,
-      mapVersions: input.mapVersions,
-      authorSessionId: review.authorSessionId,
-      createdBy: input.principalId,
-      createdAt: new Date().toISOString(),
+      reviewVersion: document.reviewVersion,
+      ...metadata,
+      binding: document.binding,
+      createdAt: document.createdAt,
+      createdBy: principalId,
+      restoredFromReviewVersion: restoredFromReviewVersion ?? null,
+      reason,
     });
     this.db
       .prepare(
-        "INSERT INTO host_checkpoints(id,review_id,ordinal,document_version,record_json) VALUES (?,?,?,?,?)",
+        "INSERT INTO host_review_versions(review_id,version,record_json) VALUES (?,?,?)",
       )
-      .run(
-        checkpoint.id,
-        review.id,
-        checkpoint.ordinal,
-        checkpoint.documentVersion,
-        canonicalHostJson(checkpoint),
-      );
-    this.updateReview(review.id, review.version, (before) => ({
-      ...before,
-      version: before.version + 1,
-      workflow: "in_review",
-      publishedCheckpointId: checkpoint.id,
-      updatedAt: checkpoint.createdAt,
-    }));
-    return checkpoint;
-  }
-
-  checkpoints(reviewId: string): HostCheckpoint[] {
-    this.review(reviewId);
-    return this.db
-      .prepare(
-        "SELECT record_json FROM host_checkpoints WHERE review_id=? ORDER BY ordinal DESC",
-      )
-      .all(reviewId)
-      .map((row) =>
-        HostCheckpointSchema.parse(parseJsonText(rowText(row, "record_json"))),
-      );
-  }
-
-  saveRepinPlan(plan: HostRepinPlan): void {
-    this.requireWrite();
-    const review = this.review(plan.reviewId);
-    if (review.documentVersion !== plan.basedOnDocumentVersion)
-      throw new HostStoreError(
-        "VERSION_CONFLICT",
-        "Document changed while planning the repin. Make a new plan.",
-      );
-    if (review.deletedAt !== null || review.workflow === "closed")
-      throw new HostStoreError(
-        "INVALID_STATE",
-        "Closed or trashed reviews cannot be repinned.",
-      );
-    this.db
-      .prepare(
-        "INSERT INTO host_repin_plans(id,review_id,document_version,record_json) VALUES (?,?,?,?)",
-      )
-      .run(
-        plan.id,
-        plan.reviewId,
-        plan.basedOnDocumentVersion,
-        canonicalHostJson(HostRepinPlanSchema.parse(plan)),
-      );
-  }
-
-  repinPlan(reviewId: string, planId: string): HostRepinPlan {
-    const row = this.db
-      .prepare(
-        "SELECT record_json FROM host_repin_plans WHERE id=? AND review_id=?",
-      )
-      .get(planId, reviewId);
-    if (!row) throw new HostStoreError("NOT_FOUND", "Repin plan not found.");
-    return HostRepinPlanSchema.parse(
-      parseJsonText(rowText(row, "record_json")),
-    );
-  }
-
-  checkpoint(reviewId: string, checkpointId: string): HostCheckpoint {
-    const row = this.db
-      .prepare(
-        "SELECT record_json FROM host_checkpoints WHERE review_id=? AND id=?",
-      )
-      .get(reviewId, checkpointId);
-    if (!row) throw new HostStoreError("NOT_FOUND", "Checkpoint not found.");
-    return HostCheckpointSchema.parse(
-      parseJsonText(rowText(row, "record_json")),
-    );
+      .run(review.id, document.reviewVersion, canonicalHostJson(header));
   }
 
   createMap(reviewId: string, prepared: HostPreparedMap): HostMapVersion {
@@ -866,10 +1465,11 @@ export class ReviewHostStore {
     this.requireWrite();
     this.mutableResourceReview(reviewId);
     const before = this.currentMap(reviewId, mapId);
-    if (before.revision !== expectedVersion)
+    if (before.mapVersion !== expectedVersion)
       throw new HostStoreError(
         "VERSION_CONFLICT",
         "Map changed. Read its current revision and retry.",
+        before.mapVersion,
       );
     if (
       before.repositoryId !== prepared.repositoryId ||
@@ -879,11 +1479,28 @@ export class ReviewHostStore {
         "INVALID_STATE",
         "A map's pinned repository and commit cannot change.",
       );
+    for (const row of this.db
+      .prepare(
+        "SELECT namespace,local_id FROM host_map_item_ids WHERE map_id=?",
+      )
+      .all(mapId)) {
+      const id = rowText(row, "local_id");
+      const namespace =
+        row.namespace === "element" ? "elements" : "relationships";
+      if (
+        !Object.hasOwn(before[namespace], id) &&
+        Object.hasOwn(prepared.map[namespace], id)
+      )
+        throw new HostStoreError(
+          "INVALID_STATE",
+          `Removed map ${row.namespace} ID ${id} cannot be reused. Use a fresh ID.`,
+        );
+    }
     if (before.contentHash === contentHash({ ...prepared })) return before;
     const after = this.writeMapVersion(mapId, expectedVersion + 1, prepared);
     this.db
       .prepare("UPDATE host_maps SET current_revision=? WHERE id=?")
-      .run(after.revision, mapId);
+      .run(after.mapVersion, mapId);
     return after;
   }
 
@@ -972,7 +1589,7 @@ export class ReviewHostStore {
           mapId: row.map_id,
           repositoryId: row.repository_id,
           commit: row.commit_oid,
-          revision: row.revision,
+          mapVersion: row.revision,
           contentHash: row.content_hash,
           createdAt: row.created_at,
         }),
@@ -996,8 +1613,6 @@ export class ReviewHostStore {
     this.requireWrite();
     this.mutableResourceReview(reviewId);
     const parsed = HostRetainedTraceSchema.parse(retained);
-    if (parsed.trace.parentTraceId !== null)
-      this.trace(reviewId, parsed.trace.parentTraceId);
     this.db
       .prepare(
         "INSERT INTO host_traces(id,review_id,content_hash,record_json) VALUES (?,?,?,?)",
@@ -1088,7 +1703,7 @@ export class ReviewHostStore {
 
   private writeMapVersion(
     mapId: string,
-    revision: number,
+    mapVersion: number,
     prepared: HostPreparedMap,
   ): HostMapVersion {
     const version = HostMapVersionSchema.parse({
@@ -1097,7 +1712,7 @@ export class ReviewHostStore {
       mapId,
       repositoryId: prepared.repositoryId,
       commit: prepared.commit,
-      revision,
+      mapVersion,
       contentHash: contentHash({ ...prepared }),
       createdAt: new Date().toISOString(),
     });
@@ -1108,13 +1723,49 @@ export class ReviewHostStore {
       .run(
         version.id,
         mapId,
-        revision,
+        mapVersion,
         version.contentHash,
         version.createdAt,
         canonicalHostJson(version),
         canonicalHostJson(prepared.evidence),
       );
+    this.rememberMapItemIds(mapId, prepared.map);
     return version;
+  }
+
+  private rememberMapItemIds(mapId: string, map: HostMap): void {
+    const insert = this.db.prepare(
+      "INSERT OR IGNORE INTO host_map_item_ids(map_id,namespace,local_id) VALUES (?,?,?)",
+    );
+    for (const id of Object.keys(map.elements))
+      insert.run(mapId, "element", id);
+    for (const id of Object.keys(map.relationships))
+      insert.run(mapId, "relationship", id);
+  }
+
+  private migrateMapItemIds(): void {
+    if (
+      this.db
+        .prepare("SELECT value FROM host_meta WHERE key='map_item_ids_indexed'")
+        .get()
+    )
+      return;
+    for (const row of this.db
+      .prepare(
+        "SELECT m.review_id,v.id FROM host_map_versions v JOIN host_maps m ON m.id=v.map_id ORDER BY v.sequence",
+      )
+      .all()) {
+      const version = this.mapVersion(
+        rowText(row, "review_id"),
+        rowText(row, "id"),
+      );
+      this.rememberMapItemIds(version.mapId, version);
+    }
+    this.db
+      .prepare(
+        "INSERT INTO host_meta(key,value) VALUES ('map_item_ids_indexed','1')",
+      )
+      .run();
   }
 
   private readMapVersion(reviewId: string, mapVersionId: string) {
@@ -1143,7 +1794,7 @@ export class ReviewHostStore {
     if (
       version.id !== mapVersionId ||
       version.mapId !== row.map_id ||
-      version.revision !== row.revision ||
+      version.mapVersion !== row.revision ||
       version.repositoryId !== row.repository_id ||
       version.commit !== row.commit_oid ||
       version.createdAt !== row.created_at ||
@@ -1159,7 +1810,7 @@ export class ReviewHostStore {
 
   private mutableResourceReview(reviewId: string) {
     const review = this.review(reviewId);
-    if (review.deletedAt !== null || review.workflow === "closed")
+    if (review.deletedAt !== null || review.state === "closed")
       throw new HostStoreError(
         "INVALID_STATE",
         "Closed or trashed reviews cannot be authored.",
@@ -1167,11 +1818,52 @@ export class ReviewHostStore {
     return review;
   }
 
+  private migrateFeedbackSequences(): void {
+    for (const [kind, table] of Object.entries({
+      drafts: "host_drafts",
+      threads: "host_threads",
+      submissions: "host_feedback_submissions_v2",
+      questions: "host_question_runs",
+    })) {
+      const principal = kind === "drafts" ? "principal_id" : "NULL";
+      this.db.exec(
+        `INSERT OR IGNORE INTO host_feedback_sequences(kind,record_id,review_id,principal_id) SELECT '${kind}',id,review_id,${principal} FROM ${table} ORDER BY rowid`,
+      );
+    }
+  }
+
+  private recordFeedbackSequence(
+    kind: string,
+    recordId: string,
+    reviewId: string,
+    principalId: string | null = null,
+  ): void {
+    this.db
+      .prepare(
+        "INSERT INTO host_feedback_sequences(kind,record_id,review_id,principal_id) VALUES (?,?,?,?) ON CONFLICT(kind,record_id) DO UPDATE SET sequence=excluded.sequence,review_id=excluded.review_id,principal_id=excluded.principal_id",
+      )
+      .run(kind, recordId, reviewId, principalId);
+  }
+
+  feedbackSequence(
+    kind: "drafts" | "threads" | "submissions" | "questions",
+    reviewId: string,
+    principalId?: string,
+  ): number {
+    this.review(reviewId);
+    const row = this.db
+      .prepare(
+        "SELECT COALESCE(MAX(sequence),0) AS sequence FROM host_feedback_sequences WHERE kind=? AND review_id=? AND (? IS NULL OR principal_id=?)",
+      )
+      .get(kind, reviewId, principalId ?? null, principalId ?? null);
+    return z.number().int().parse(row!.sequence);
+  }
+
   saveDraft(record: HostDraft, expectedVersion: number | null): HostDraft {
     this.requireWrite();
     const draft = HostDraftSchema.parse(record);
     this.mutableResourceReview(draft.reviewId);
-    this.document(draft.reviewId, draft.target.documentVersion);
+    this.document(draft.reviewId, draft.target.reviewVersion);
     if (expectedVersion === null) {
       const existing = this.db
         .prepare("SELECT review_id,principal_id FROM host_drafts WHERE id=?")
@@ -1187,7 +1879,7 @@ export class ReviewHostStore {
           "Draft already exists. Read its current version.",
         );
       }
-      if (draft.version !== 0)
+      if (draft.draftVersion !== 0)
         throw new HostStoreError(
           "INVALID_STATE",
           "New drafts must start at version zero.",
@@ -1200,19 +1892,25 @@ export class ReviewHostStore {
           draft.id,
           draft.reviewId,
           draft.principalId,
-          draft.version,
-          draft.target.documentVersion,
+          draft.draftVersion,
+          draft.target.reviewVersion,
           canonicalHostJson(draft),
         );
+      this.recordFeedbackSequence(
+        "drafts",
+        draft.id,
+        draft.reviewId,
+        draft.principalId,
+      );
     } else {
       const before = this.draft(draft.reviewId, draft.id, draft.principalId);
-      if (before.version !== expectedVersion)
+      if (before.draftVersion !== expectedVersion)
         throw new HostStoreError(
           "VERSION_CONFLICT",
           "Draft changed. Refresh before saving.",
         );
       if (
-        draft.version !== before.version + 1 ||
+        draft.draftVersion !== before.draftVersion + 1 ||
         draft.createdAt !== before.createdAt
       )
         throw new HostStoreError(
@@ -1224,8 +1922,8 @@ export class ReviewHostStore {
           "UPDATE host_drafts SET version=?,document_version=?,record_json=? WHERE id=?",
         )
         .run(
-          draft.version,
-          draft.target.documentVersion,
+          draft.draftVersion,
+          draft.target.reviewVersion,
           canonicalHostJson(draft),
           draft.id,
         );
@@ -1243,13 +1941,17 @@ export class ReviewHostStore {
     return HostDraftSchema.parse(parseJsonText(rowText(row, "record_json")));
   }
 
-  drafts(reviewId: string, principalId: string): HostDraft[] {
+  drafts(
+    reviewId: string,
+    principalId: string,
+    maxSequence = Number.MAX_SAFE_INTEGER,
+  ): HostDraft[] {
     this.review(reviewId);
     return this.db
       .prepare(
-        "SELECT record_json FROM host_drafts WHERE review_id=? AND principal_id=? ORDER BY rowid DESC",
+        "SELECT records.record_json FROM host_drafts records JOIN host_feedback_sequences seq ON seq.kind='drafts' AND seq.record_id=records.id WHERE records.review_id=? AND records.principal_id=? AND seq.sequence<=? ORDER BY seq.sequence DESC",
       )
-      .all(reviewId, principalId)
+      .all(reviewId, principalId, maxSequence)
       .map((row) =>
         HostDraftSchema.parse(parseJsonText(rowText(row, "record_json"))),
       );
@@ -1262,8 +1964,9 @@ export class ReviewHostStore {
     expectedVersion: number,
   ): void {
     this.requireWrite();
+    this.mutableResourceReview(reviewId);
     const before = this.draft(reviewId, id, principalId);
-    if (before.version !== expectedVersion)
+    if (before.draftVersion !== expectedVersion)
       throw new HostStoreError(
         "VERSION_CONFLICT",
         "Draft changed. Refresh before deleting.",
@@ -1275,8 +1978,8 @@ export class ReviewHostStore {
     this.requireWrite();
     const thread = HostThreadSchema.parse(record);
     this.mutableResourceReview(thread.reviewId);
-    this.document(thread.reviewId, thread.target.documentVersion);
-    if (thread.version !== 0)
+    this.document(thread.reviewId, thread.target.reviewVersion);
+    if (thread.threadVersion !== 0)
       throw new HostStoreError(
         "INVALID_STATE",
         "New threads must start at version zero.",
@@ -1288,9 +1991,10 @@ export class ReviewHostStore {
       .run(
         thread.id,
         thread.reviewId,
-        thread.target.documentVersion,
+        thread.target.reviewVersion,
         canonicalHostJson(thread),
       );
+    this.recordFeedbackSequence("threads", thread.id, thread.reviewId);
     return thread;
   }
 
@@ -1304,13 +2008,16 @@ export class ReviewHostStore {
     return HostThreadSchema.parse(parseJsonText(rowText(row, "record_json")));
   }
 
-  threads(reviewId: string): HostThread[] {
+  threads(
+    reviewId: string,
+    maxSequence = Number.MAX_SAFE_INTEGER,
+  ): HostThread[] {
     this.review(reviewId);
     return this.db
       .prepare(
-        "SELECT record_json FROM host_threads WHERE review_id=? ORDER BY rowid DESC",
+        "SELECT records.record_json FROM host_threads records JOIN host_feedback_sequences seq ON seq.kind='threads' AND seq.record_id=records.id WHERE records.review_id=? AND seq.sequence<=? ORDER BY seq.sequence DESC",
       )
-      .all(reviewId)
+      .all(reviewId, maxSequence)
       .map((row) =>
         HostThreadSchema.parse(parseJsonText(rowText(row, "record_json"))),
       );
@@ -1325,7 +2032,7 @@ export class ReviewHostStore {
     this.requireWrite();
     this.mutableResourceReview(reviewId);
     const before = this.thread(reviewId, id);
-    if (before.version !== expectedVersion)
+    if (before.threadVersion !== expectedVersion)
       throw new HostStoreError(
         "VERSION_CONFLICT",
         "Thread changed. Refresh before changing its status.",
@@ -1334,7 +2041,7 @@ export class ReviewHostStore {
     const after = HostThreadSchema.parse({
       ...before,
       status,
-      version: before.version + 1,
+      threadVersion: before.threadVersion + 1,
       updatedAt: new Date().toISOString(),
     });
     this.db
@@ -1432,7 +2139,7 @@ export class ReviewHostStore {
     this.requireWrite();
     const submission = HostFeedbackSubmissionSchema.parse(record);
     this.mutableResourceReview(submission.reviewId);
-    this.checkpoint(submission.reviewId, submission.checkpointId);
+    this.document(submission.reviewId, submission.reviewVersion);
     if (
       submission.threadIds.length !== submission.messageIds.length ||
       new Set(submission.messageIds).size !== submission.messageIds.length
@@ -1451,21 +2158,26 @@ export class ReviewHostStore {
     });
     this.db
       .prepare(
-        "INSERT INTO host_feedback_submissions(id,review_id,checkpoint_id,record_json) VALUES (?,?,?,?)",
+        "INSERT INTO host_feedback_submissions_v2(id,review_id,review_version,record_json) VALUES (?,?,?,?)",
       )
       .run(
         submission.id,
         submission.reviewId,
-        submission.checkpointId,
+        submission.reviewVersion,
         canonicalHostJson(submission),
       );
+    this.recordFeedbackSequence(
+      "submissions",
+      submission.id,
+      submission.reviewId,
+    );
     return submission;
   }
 
   submission(reviewId: string, id: string): HostFeedbackSubmission {
     const row = this.db
       .prepare(
-        "SELECT record_json FROM host_feedback_submissions WHERE review_id=? AND id=?",
+        "SELECT record_json FROM host_feedback_submissions_v2 WHERE review_id=? AND id=?",
       )
       .get(reviewId, id);
     if (!row)
@@ -1475,13 +2187,16 @@ export class ReviewHostStore {
     );
   }
 
-  submissions(reviewId: string): HostFeedbackSubmission[] {
+  submissions(
+    reviewId: string,
+    maxSequence = Number.MAX_SAFE_INTEGER,
+  ): HostFeedbackSubmission[] {
     this.review(reviewId);
     return this.db
       .prepare(
-        "SELECT record_json FROM host_feedback_submissions WHERE review_id=? ORDER BY rowid DESC",
+        "SELECT records.record_json FROM host_feedback_submissions_v2 records JOIN host_feedback_sequences seq ON seq.kind='submissions' AND seq.record_id=records.id WHERE records.review_id=? AND seq.sequence<=? ORDER BY seq.sequence DESC",
       )
-      .all(reviewId)
+      .all(reviewId, maxSequence)
       .map((row) =>
         HostFeedbackSubmissionSchema.parse(
           parseJsonText(rowText(row, "record_json")),
@@ -1493,8 +2208,8 @@ export class ReviewHostStore {
     this.requireWrite();
     const context = HostQuestionContextSchema.parse(record);
     this.mutableResourceReview(context.reviewId);
-    this.document(context.reviewId, context.documentVersion);
-    if (Buffer.byteLength(canonicalHostJson(context)) > 64 * 1024)
+    this.document(context.reviewId, context.reviewVersion);
+    if (Buffer.byteLength(canonicalHostJson(context)) > 56 * 1024)
       throw new HostStoreError(
         "INVALID_STATE",
         "Question context exceeds its retained size limit.",
@@ -1506,7 +2221,7 @@ export class ReviewHostStore {
       .run(
         context.id,
         context.reviewId,
-        context.documentVersion,
+        context.reviewVersion,
         canonicalHostJson(context),
       );
     return context;
@@ -1540,7 +2255,7 @@ export class ReviewHostStore {
       run.assistant.kind !== "agent" ||
       question.threadId !== thread.id ||
       context.question !== question.body ||
-      context.documentVersion !== thread.target.documentVersion
+      context.material.viewedTarget.threadId !== thread.id
     )
       throw new HostStoreError(
         "INVALID_STATE",
@@ -1571,6 +2286,7 @@ export class ReviewHostStore {
         run.answerMessageId,
         canonicalHostJson(run),
       );
+    this.recordFeedbackSequence("questions", run.id, run.reviewId);
     return run;
   }
 
@@ -1586,13 +2302,16 @@ export class ReviewHostStore {
     );
   }
 
-  questionRuns(reviewId: string): HostQuestionRun[] {
+  questionRuns(
+    reviewId: string,
+    maxSequence = Number.MAX_SAFE_INTEGER,
+  ): HostQuestionRun[] {
     this.review(reviewId);
     return this.db
       .prepare(
-        "SELECT record_json FROM host_question_runs WHERE review_id=? ORDER BY rowid DESC",
+        "SELECT records.record_json FROM host_question_runs records JOIN host_feedback_sequences seq ON seq.kind='questions' AND seq.record_id=records.id WHERE records.review_id=? AND seq.sequence<=? ORDER BY seq.sequence DESC",
       )
-      .all(reviewId)
+      .all(reviewId, maxSequence)
       .map((row) =>
         HostQuestionRunSchema.parse(parseJsonText(rowText(row, "record_json"))),
       );
@@ -1686,9 +2405,9 @@ export class ReviewHostStore {
       : {
           reviewId,
           principalId,
-          version: 0,
-          viewedDocumentVersion: null,
-          viewedAt: null,
+          attentionVersion: 0,
+          lastViewedReviewVersion: null,
+          lastViewedAt: null,
           pinned: false,
         };
   }
@@ -1700,18 +2419,18 @@ export class ReviewHostStore {
     this.requireWrite();
     const attention = HostAttentionSchema.parse(record);
     const before = this.attention(attention.reviewId, attention.principalId);
-    if (before.version !== expectedVersion)
+    if (before.attentionVersion !== expectedVersion)
       throw new HostStoreError(
         "VERSION_CONFLICT",
         "Attention changed. Read its current version and retry.",
       );
-    if (attention.version !== before.version + 1)
+    if (attention.attentionVersion !== before.attentionVersion + 1)
       throw new HostStoreError(
         "INVALID_STATE",
         "Attention must advance exactly one version.",
       );
-    if (attention.viewedDocumentVersion !== null)
-      this.document(attention.reviewId, attention.viewedDocumentVersion);
+    if (attention.lastViewedReviewVersion !== null)
+      this.document(attention.reviewId, attention.lastViewedReviewVersion);
     this.db
       .prepare(
         "INSERT INTO host_attention(review_id,principal_id,record_json) VALUES (?,?,?) ON CONFLICT(review_id,principal_id) DO UPDATE SET record_json=excluded.record_json",
@@ -1732,56 +2451,6 @@ export class ReviewHostStore {
       .get(reviewId, id);
     if (!row) throw new HostStoreError("NOT_FOUND", "Message not found.");
     return HostMessageSchema.parse(parseJsonText(rowText(row, "record_json")));
-  }
-
-  clearCanvasReports(): void {
-    this.requireWrite();
-    this.db.exec("DELETE FROM host_canvas_reports");
-  }
-
-  recordCanvasReport(input: HostCanvasReport, principalId: string): void {
-    this.requireWrite();
-    const report = HostCanvasReportSchema.parse(input);
-    this.document(report.reviewId, report.documentVersion);
-    const existing = this.db
-      .prepare(
-        "SELECT principal_id FROM host_canvas_reports WHERE review_id=? AND canvas_session_id=?",
-      )
-      .get(report.reviewId, report.canvasSessionId);
-    if (existing && existing.principal_id !== principalId)
-      throw new HostStoreError("NOT_FOUND", "Canvas session not found.");
-    this.db
-      .prepare(
-        "INSERT OR REPLACE INTO host_canvas_reports(review_id,canvas_session_id,principal_id,received_at,report_json) VALUES (?,?,?,?,?)",
-      )
-      .run(
-        report.reviewId,
-        report.canvasSessionId,
-        principalId,
-        new Date().toISOString(),
-        canonicalHostJson(report),
-      );
-    this.db
-      .prepare(
-        "DELETE FROM host_canvas_reports WHERE sequence IN (SELECT sequence FROM host_canvas_reports WHERE review_id=? ORDER BY sequence DESC LIMIT -1 OFFSET 20)",
-      )
-      .run(report.reviewId);
-  }
-
-  canvasReports(reviewId: string) {
-    this.review(reviewId);
-    return this.db
-      .prepare(
-        "SELECT principal_id,received_at,report_json FROM host_canvas_reports WHERE review_id=? ORDER BY sequence DESC",
-      )
-      .all(reviewId)
-      .map((row) => ({
-        ...HostCanvasReportSchema.parse(
-          parseJsonText(rowText(row, "report_json")),
-        ),
-        principalId: rowText(row, "principal_id"),
-        receivedAt: rowText(row, "received_at"),
-      }));
   }
 
   retiredIds(reviewId: string): HostRetiredIds {
@@ -1805,6 +2474,64 @@ export class ReviewHostStore {
         result.definitionIds.add(id);
     }
     return result;
+  }
+
+  reusedDocumentItems(
+    reviewId: string,
+    candidate: HostDocument,
+  ): HostDocumentItemIdentity[] {
+    const current = new Set(
+      documentItemIdentities(this.document(reviewId)).map((item) => item.key),
+    );
+    const retained = new Set(
+      this.db
+        .prepare(
+          "SELECT item_key FROM host_document_item_ids WHERE review_id=?",
+        )
+        .all(reviewId)
+        .map((row) => rowText(row, "item_key")),
+    );
+    return documentItemIdentities(candidate).filter(
+      (item) => !current.has(item.key) && retained.has(item.key),
+    );
+  }
+
+  private rememberDocumentItemIds(
+    reviewId: string,
+    document: HostDocument,
+  ): void {
+    const insert = this.db.prepare(
+      "INSERT OR IGNORE INTO host_document_item_ids(review_id,item_key) VALUES (?,?)",
+    );
+    for (const item of documentItemIdentities(document))
+      insert.run(reviewId, item.key);
+  }
+
+  private migrateDocumentItemIds(): void {
+    if (
+      this.db
+        .prepare(
+          "SELECT value FROM host_meta WHERE key='diagram_item_ids_indexed'",
+        )
+        .get()
+    )
+      return;
+    for (const row of this.db
+      .prepare(
+        "SELECT review_id,version FROM host_document_versions ORDER BY review_id,version",
+      )
+      .all()) {
+      const reviewId = rowText(row, "review_id");
+      this.rememberDocumentItemIds(
+        reviewId,
+        this.document(reviewId, Number(row.version)),
+      );
+    }
+    this.db
+      .prepare(
+        "INSERT INTO host_meta(key,value) VALUES ('diagram_item_ids_indexed','1')",
+      )
+      .run();
   }
 
   appendEvent(
@@ -1948,11 +2675,11 @@ export class ReviewHostStore {
             "INSERT OR IGNORE INTO host_document_ids(review_id,namespace,local_id) VALUES (?,?,?)",
           )
           .run(review.id, namespace, id);
+    this.rememberDocumentItemIds(review.id, prepared.document);
     return {
       ...prepared.document,
-      documentId: review.documentId,
       reviewId: review.id,
-      version,
+      reviewVersion: version,
       binding: prepared.binding,
       evidence: prepared.evidence,
       contentHash: hash,

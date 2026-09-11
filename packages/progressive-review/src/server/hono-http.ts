@@ -61,7 +61,7 @@ export function applyCorsHeaders(
   }
   response.headers.set(
     "access-control-allow-headers",
-    `content-type, x-review-token, ${REVIEW_APP_SESSION_ID_HEADER}`,
+    `content-type, x-review-token, x-review-client-id, ${REVIEW_APP_SESSION_ID_HEADER}`,
   );
   response.headers.set(
     "access-control-allow-methods",

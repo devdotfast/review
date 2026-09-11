@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { HostQueryInputs } from "./host-commands.js";
+import type { HostQuestionRun } from "./host-feedback.js";
 import { type JsonValue, isJsonObject } from "./json.js";
 
 export const sessionIdSchema = z
@@ -405,6 +406,12 @@ function rotateLeft(value: number, bits: number): number {
 export const CodeThreadTargetSchema = z
   .strictObject({
     kind: z.literal("code"),
+    // Host-backed source views retain the exact observed version/comparison.
+    documentVersion: z.number().int().nonnegative().optional(),
+    commit: z
+      .string()
+      .regex(/^[0-9a-f]{40,64}$/)
+      .optional(),
     original_position: GitLabDiffPositionSchema,
     position: GitLabDiffPositionSchema,
     change_position: GitLabDiffPositionSchema.optional(),
@@ -691,6 +698,11 @@ export type ReviewCommentAgentActivity =
     };
 
 export interface ReviewCommentStoreSnapshot {
+  /** Latest formal feedback for the selected immutable host review version. */
+  reviewDecision?: {
+    reviewVersion: number;
+    decision: "approve" | "request_changes";
+  } | null;
   commentThreads: ReadonlyMap<string, ReviewCommentThreadRecord>;
   localComments: ReadonlyMap<string, ReviewLocalCommentThread>;
   agentActivities: ReadonlyMap<string, ReviewCommentAgentActivity>;
@@ -703,6 +715,18 @@ export interface ReviewCommentStoreChange {
 }
 
 export interface ReviewCommentStoreBridge {
+  /** Local agents available for Ask; legacy sessions choose their authoring agent. */
+  askOptions?(): Promise<{
+    supportedHarnesses: HostQuestionRun["harness"][];
+    defaultHarness: HostQuestionRun["harness"] | null;
+  }>;
+  /** Posted host messages are immutable; private drafts remain editable. */
+  readonly postedMessagesImmutable?: boolean;
+  /** Whether appending a reply automatically reopens a resolved thread. */
+  readonly repliesReopenResolvedThreads?: boolean;
+  /** Freeze the observed host target before the reader starts composing. */
+  observeTarget?(target: ThreadTarget): void;
+  observeDraft?(threadId: string): void;
   terminalOpened(threadId: string): void;
   terminalClosed(threadId: string, messageId: string | null): Promise<void>;
   applyAgentStatus(
@@ -713,7 +737,10 @@ export interface ReviewCommentStoreBridge {
   subscribe(listener: (change: ReviewCommentStoreChange) => void): () => void;
   getSnapshot(): ReviewCommentStoreSnapshot;
   saveComment(input: CreateReviewCommentInput): Promise<void>;
-  askAgent(input: CreateReviewCommentInput): Promise<void>;
+  askAgent(
+    input: CreateReviewCommentInput,
+    harness?: HostQuestionRun["harness"],
+  ): Promise<void>;
   deleteLocalComment(threadId: string): Promise<void>;
   updateComment(
     threadId: string,
@@ -795,9 +822,24 @@ export interface ReviewInlineEditorFactory {
   ): Promise<ReviewInlineFindResult>;
 }
 
-export type ReviewHostSourceTarget = HostQueryInputs["source.read"];
+/** Native editor selections always name a range; API source.read also permits full files. */
+export type ReviewHostSourceTarget = Pick<
+  HostQueryInputs["source.read"],
+  "reviewId" | "reviewVersion" | "comparisonCommit"
+> & {
+  range: {
+    side: "base" | "head";
+    file: string;
+    fromLine: number;
+    toLine: number;
+  };
+};
 export interface ReviewHostSourceBridge {
   open(target: ReviewHostSourceTarget): Promise<void>;
+  setDocumentVersion?(version: number): void;
+  openTree?(): Promise<void>;
+  inlineEditors?: ReviewInlineEditorFactory;
+  diffView?: ReviewDiffViewFactory;
   onDidRequestComment?(
     listener: (target: ReviewHostSourceTarget) => void,
   ): ReviewDisposable;
@@ -1006,13 +1048,34 @@ export type ReviewCanvasContent =
       kind: "host";
       connection: { serverUrl: string; token: string };
       reviewId?: string;
+      reviewVersion?: number;
       wasmUrl?: string;
       source?: ReviewHostSourceBridge;
-      openReview(reviewId: string, title?: string): void;
+      runtime?: Pick<
+        ReviewRuntimeConfig,
+        "docRuntimeUrl" | "appVersion" | "theme"
+      >;
+      softwareMapEnabled?: boolean;
+      post?(request: ReviewVerbRequest): Promise<ReviewVerbResponse>;
+      onDidChangeTheme?(
+        listener: (theme: ReviewTheme) => void,
+      ): ReviewDisposable;
+      ready?(): void;
+      openReview(
+        reviewId: string,
+        title?: string,
+        reviewVersion?: number,
+      ): void;
+      closeReview?(reviewId: string): Promise<void>;
       showHome(): void;
       openWelcome?(): void;
       openSettings?(): void;
       openTutorial?(): void;
+      openSourceTree?(reviewId: string): void;
+      openQuestion?(runId: string): Promise<void>;
+      setup?: ReviewCanvasHomeSetup;
+      install?: ReviewCanvasInstallContent;
+      onboarding?: ReviewCanvasOnboarding;
       setTitle?(title: string): void;
     }
   | {
@@ -1282,8 +1345,16 @@ export type ReviewSessionDescriptor = z.infer<
   typeof ReviewSessionDescriptorSchema
 >;
 
+const reviewRevisionSchema = z.union([
+  z.uuid(),
+  z.string().regex(/^[0-9a-f]{40}$/),
+  z
+    .string()
+    .regex(/^(0|[1-9][0-9]*)$/)
+    .refine((value) => Number.isSafeInteger(Number(value))),
+]);
 export const ReviewDocumentVersionSchema = z.strictObject({
-  revision: z.string().regex(/^[0-9a-f]{40}$/),
+  revision: reviewRevisionSchema,
   /** Unix milliseconds when the version was sealed. */
   sealedAt: positiveInteger,
   isCurrent: z.boolean(),
@@ -1980,16 +2051,16 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openReviewRevision"),
     args: z.strictObject({
-      revision: z
-        .string()
-        .regex(/^[0-9a-f]{40}$/)
-        .optional(),
+      revision: reviewRevisionSchema.optional(),
       sealedAt: positiveInteger.optional(),
     }),
   }),
   z.strictObject({
     name: z.literal("openHostReview"),
-    args: z.strictObject({ reviewId: z.uuid() }),
+    args: z.strictObject({
+      reviewId: z.uuid(),
+      reviewVersion: nonNegativeInteger.optional(),
+    }),
   }),
   // Trusted host-to-native relay, never a public document command.
   z.strictObject({
@@ -2085,6 +2156,7 @@ export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
     path: requiredString,
     range: ReviewRangeSchema,
     sideContext: reviewDiffSideSchema,
+    target: ThreadTargetSchema.optional(),
   }),
   z.strictObject({
     event: z.literal("threadDecorationClicked"),

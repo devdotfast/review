@@ -14,7 +14,12 @@ import {
 
 import { LocalHostClient, describeHostClientError } from "./host-discovery";
 
-type HostClientFlag = "input" | "command-id" | "client-id" | "review";
+type HostClientFlag =
+  | "input"
+  | "command-id"
+  | "client-id"
+  | "review"
+  | "review-version";
 type HostClientFlags = Partial<Record<HostClientFlag, string>>;
 
 const help = `Review JSON host client (Desktop must already be running)
@@ -23,7 +28,7 @@ review host capabilities
 review host connection
 review host query <operation> --input '<json>'
 review host command <operation> --command-id <uuid> --input '<json>'
-review host open --review <uuid>
+review host open --review <uuid> [--review-version <number>]
 review mcp [--client-id <uuid>]
 
 Use --input - to read bounded JSON from stdin. Commands require a caller-chosen
@@ -52,6 +57,7 @@ export async function runHostCli(options: {
       "command-id",
       "client-id",
       "review",
+      "review-version",
     ]);
     commandId = flags["command-id"];
     const client = new LocalHostClient({
@@ -66,9 +72,19 @@ export async function runHostCli(options: {
       requireFlags(flags, ["client-id"]);
       result = await client.query("capabilities", {});
     } else if (action === "open") {
-      requireFlags(flags, ["review", "client-id"]);
+      requireFlags(flags, ["review", "review-version", "client-id"]);
       if (!flags.review) invalid("Opening a review requires --review <uuid>.");
-      result = await client.open(flags.review);
+      if (
+        flags["review-version"] !== undefined &&
+        !/^(0|[1-9]\d*)$/.test(flags["review-version"])
+      )
+        invalid("--review-version must be a nonnegative integer.");
+      result = await client.open(
+        flags.review,
+        flags["review-version"] === undefined
+          ? undefined
+          : Number(flags["review-version"]),
+      );
     } else if (action === "command") {
       requireFlags(flags, ["input", "command-id", "client-id"]);
       if (!operation || !isHostCommandName(operation))
@@ -83,9 +99,7 @@ export async function runHostCli(options: {
         await readInput(
           flags.input,
           options.stdin,
-          operation === "asset.upload"
-            ? HOST_RESOURCE_LIMITS.assetUploadRequestBytes
-            : HOST_LIMITS.commandBytes,
+          hostCommandRequestLimit(operation),
         ),
       );
       result = await client.command(operation, input, { commandId });
@@ -117,6 +131,17 @@ export async function runHostCli(options: {
     );
     return 1;
   }
+}
+
+export function hostCommandRequestLimit(operation: string): number {
+  if (
+    operation === "asset.upload" ||
+    operation === "map.create" ||
+    operation === "map.mutate"
+  )
+    return HOST_RESOURCE_LIMITS.assetUploadRequestBytes;
+  if (operation === "document.replace") return 5 * 1024 * 1024;
+  return HOST_LIMITS.commandBytes;
 }
 
 export function parseHostClientFlags(

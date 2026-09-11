@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -490,6 +490,79 @@ describe("createReviewSessionHandler", () => {
         ok: true,
         hook: { configured: true },
       });
+    } finally {
+      await handler.close();
+    }
+  });
+
+  it("resolves the live source target once per session and again when a checkout root disappears", async () => {
+    const rootPath = await tempDir("review-live-source-target-");
+    const reviewPath = path.join(rootPath, "review.mdx");
+    await writeFile(reviewPath, "# Review");
+    // Two stand-in "pinned checkouts". The fake resolver hands out the next
+    // one on every call, so a re-resolution is observable both by count and
+    // by which root served the peek.
+    const roots = [path.join(rootPath, "head-1"), path.join(rootPath, "head-2")];
+    for (const root of roots) {
+      await mkdir(root);
+      await writeFile(path.join(root, "src.ts"), "line 1\nline 2\nline 3\n");
+    }
+    let resolutions = 0;
+    const handler = await createReviewSessionHandler({
+      ...unusedAgentServices,
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      routePath: "/",
+      token: "secret",
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      resolveSourceTarget: async () => {
+        const sourceRootPath = roots[resolutions]!;
+        resolutions += 1;
+        return { repoRoot: rootPath, sourceRootPath, diffRootPath: rootPath };
+      },
+      session: {
+        rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
+        reviewPath,
+        startedAt: Date.now(),
+      },
+    });
+    const resolvePeek = () =>
+      handler.handle(
+        new Request(
+          "http://127.0.0.1:5570/__progressive-review/code-peek/resolve",
+          {
+            method: "POST",
+            headers: {
+              "x-review-token": "secret",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              root: { kind: "range", file: "src.ts", fromLine: 1, toLine: 2 },
+              graph: "head",
+              includeDiff: false,
+              includeDiffSummary: false,
+            }),
+          },
+        ),
+      );
+    try {
+      const responses = await Promise.all(
+        Array.from({ length: 5 }, () => resolvePeek()),
+      );
+      for (const response of responses) {
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ ok: true });
+      }
+      expect(resolutions).toBe(1);
+
+      await rm(roots[0]!, { recursive: true, force: true });
+      const afterRemoval = await resolvePeek();
+      expect(afterRemoval.status).toBe(200);
+      expect(await afterRemoval.json()).toMatchObject({ ok: true });
+      expect(resolutions).toBe(2);
     } finally {
       await handler.close();
     }

@@ -25,8 +25,10 @@ import { FoldingRangeKind, type FoldingRangeProvider } from "../../editor/common
 import { IReviewSessionModelService } from "./reviewSessionModelService.js";
 import { reviewDiffFilesUrl } from "../common/reviewReveal.js";
 import {
+  assertFoldRangesNest,
   structuralFilePath,
   structuralFoldRanges,
+  structuralLabelPlan,
   structuralInitialCounts,
   structuralVisibleCounts,
   structuralRows,
@@ -129,6 +131,10 @@ export async function prepareStructuralReview(
     if (lifetime.isDisposed) throw new CancellationError();
     if (diff.type === "text") {
       structuralInitialCounts(diff);
+      // A range set Monaco would reject silently disables folding for the whole file; fail the file instead.
+      for (const source of [diff.lhs, diff.rhs]) {
+        assertFoldRangesNest(structuralFoldRanges(source?.regions).map((entry) => entry.range));
+      }
       files.set(path, diff);
       for (const [side, source] of [[0, diff.lhs], [1, diff.rhs]] as const) {
         for (const { region } of structuralFoldRanges(source?.regions)) {
@@ -458,32 +464,29 @@ class StructuralLabels {
     this.shown = next;
     const decorations: IModelDeltaDecoration[] = [];
     const model = this.editor.getModel();
+    const plan = structuralLabelPlan(entries);
     this.editor.changeViewZones((accessor) => {
       for (const id of this.zones.values()) accessor.removeZone(id);
       this.zones.clear();
       if (!model) return;
-      for (const { region, range } of entries) {
-        const label = next.get(region.id);
-        if (!label) continue;
-        const lines = label.split("\n");
-        if (lines.length === 1) {
-          const column = model.getLineMaxColumn(range.start);
-          decorations.push({
-            range: { startLineNumber: range.start, startColumn: column, endLineNumber: range.start, endColumn: column },
-            options: {
-              description: "review-structural-label",
-              after: { content: ` ${label}`, inlineClassName: "review-structural-label-inline" },
-            },
-          });
-          continue;
-        }
-        const domNode = document.createElement("div");
+      for (const inline of plan.inline) {
+        const column = model.getLineMaxColumn(inline.line);
+        decorations.push({
+          range: { startLineNumber: inline.line, startColumn: column, endLineNumber: inline.line, endColumn: column },
+          options: {
+            description: "review-structural-label",
+            after: { content: inline.text, inlineClassName: "review-structural-label-inline" },
+          },
+        });
+      }
+      for (const planned of plan.zones) {
+        const domNode = this.editor.getDomNode()?.ownerDocument.createElement("div") ?? document.createElement("div");
         domNode.className = "review-structural-label-zone";
-        const pre = document.createElement("pre");
-        pre.textContent = label;
+        const pre = domNode.ownerDocument.createElement("pre");
+        pre.textContent = planned.text;
         domNode.append(pre);
-        const zone: IViewZone = { afterLineNumber: range.start, heightInLines: lines.length, domNode };
-        this.zones.set(region.id, accessor.addZone(zone));
+        const zone: IViewZone = { afterLineNumber: planned.afterLineNumber, heightInLines: planned.heightInLines, domNode };
+        this.zones.set(planned.id, accessor.addZone(zone));
       }
     });
     this.decorations.set(decorations);

@@ -145,7 +145,8 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
             undefined,
             undefined,
             reviewMultiDiffLabelUris(entry.file),
-            structural ? { ...REVIEW_FILES_DIFF_EDITOR_OPTIONS, hideUnchangedRegions: { enabled: true }, folding: true, lineDecorationsWidth: 40, experimentalDiffFolding: true, showFoldingControls: "always", experimental: { useTrueInlineView: false } } : REVIEW_FILES_DIFF_EDITOR_OPTIONS,
+            // Every hidden line comes from the one fold model: diffr's regions, never the diff editor's own unchanged-region hiding.
+            structural ? { ...REVIEW_FILES_DIFF_EDITOR_OPTIONS, hideUnchangedRegions: { enabled: false }, folding: true, foldingMaximumRegions: 65000, lineDecorationsWidth: 40, experimentalDiffFolding: true, showFoldingControls: "always", experimental: { useTrueInlineView: false } } : REVIEW_FILES_DIFF_EDITOR_OPTIONS,
           ),
       );
     const changes = new Emitter<void>();

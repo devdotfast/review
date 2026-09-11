@@ -181,36 +181,116 @@ export function structuralRows(diff: StructuralTextDiff): [number | null, number
 }
 
 /**
- * Native folding keeps its start line visible and hides the lines after it.
+ * Native folding keeps its start line visible and hides the lines after it,
+ * and Monaco only accepts ranges that nest: a range may sit inside another
+ * or after it, never straddle one, and no two may start on the same line.
+ *
  * A fold's header is its own first line (the signature). A collapsed leaf has
- * no header of its own, so the line above it serves, and the fold hides
- * exactly the leaf's lines; at the top of the file, or right under a fold's
- * header line (where Monaco would merge the two ranges), the leaf's first
- * line stays visible instead.
+ * no header of its own, so `structuralFoldRanges` picks one: the line above
+ * the leaf when that line is free, so the fold hides exactly the leaf's
+ * lines; otherwise the first line of the leaf that is free, so the fold hides
+ * the rest. A line is free when it is not a fold's header, not hidden by
+ * another collapsed leaf, and not inside a fold that is not one of the leaf's
+ * ancestors.
  */
 export function nativeFoldRange(
   region: StructuralRegion,
-  foldHeaderLines: ReadonlySet<number> = new Set(),
+  headerLine?: number,
 ): { start: number; end: number } | undefined {
   const lines = regionLines(region);
-  const end = lines.end;
-  let start = lines.start + 1;
-  if (region.kind === "leaf" && lines.start > 0 && !foldHeaderLines.has(lines.start - 1)) start = lines.start;
-  return end > start ? { start, end } : undefined;
+  const header = headerLine ?? lines.start;
+  const start = header + 1;
+  return lines.end > start ? { start, end: lines.end } : undefined;
 }
 
-/** Every folding region of one side with its native range, keyed for the editor bindings. */
+/** Every folding region of one side with its native range, in order, nesting guaranteed. */
 export function structuralFoldRanges(
   regions: readonly StructuralRegion[] | undefined,
 ): { region: StructuralRegion; range: { start: number; end: number } }[] {
-  const foldable = structuralFoldingRegions(regions);
-  const headers = new Set(foldable.filter((region) => region.kind === "fold").map((region) => regionLines(region).start));
-  const result = [];
+  const foldable = new Set(structuralFoldingRegions(regions));
+  const foldHeaderLines = new Set<number>();
+  /** The innermost fold covering each line. */
+  const lineOwner = new Map<number, StructuralRegion>();
+  const walkOwners = (region: StructuralRegion) => {
+    if (region.kind !== "fold") return;
+    const lines = regionLines(region);
+    foldHeaderLines.add(lines.start);
+    for (let line = lines.start; line < lines.end; line++) lineOwner.set(line, region);
+    for (const child of region.children) walkOwners(child);
+  };
+  for (const region of regions ?? []) walkOwners(region);
+  const hiddenLines = new Set<number>();
   for (const region of foldable) {
-    const range = nativeFoldRange(region, headers);
-    if (range) result.push({ region, range });
+    if (region.kind !== "leaf") continue;
+    const lines = regionLines(region);
+    for (let line = lines.start; line < lines.end; line++) hiddenLines.add(line);
   }
+  const result: { region: StructuralRegion; range: { start: number; end: number } }[] = [];
+  // Monaco keeps one range per start line. A fold that begins on its parent's
+  // first line (a group wrapping the bodies it names) yields to the parent,
+  // whose collapse hides it anyway; regions are visited outermost first.
+  const starts = new Set<number>();
+  const walk = (
+    region: StructuralRegion,
+    ancestors: readonly StructuralRegion[],
+    enclosing: { start: number; end: number } | undefined,
+  ) => {
+    let emitted = enclosing;
+    if (foldable.has(region)) {
+      let range: { start: number; end: number } | undefined;
+      if (region.kind === "fold") range = nativeFoldRange(region);
+      else {
+        const lines = regionLines(region);
+        const parent = ancestors[ancestors.length - 1];
+        const free = (line: number) => {
+          if (line < 0 || foldHeaderLines.has(line)) return false;
+          // The header must sit inside the parent fold, below the parent's own header line.
+          if (parent && line <= regionLines(parent).start) return false;
+          if (line < lines.start && hiddenLines.has(line)) return false;
+          const owner = lineOwner.get(line);
+          return owner === undefined || ancestors.includes(owner);
+        };
+        for (let header = lines.start - 1; header < lines.end - 1; header++) {
+          if (!free(header)) continue;
+          range = nativeFoldRange(region, header);
+          break;
+        }
+      }
+      // A child whose range runs past its parent's would make Monaco drop folding for
+      // the whole file, so it is clamped to the parent; an emptied child is dropped.
+      if (range && enclosing && range.end > enclosing.end) range = { start: range.start, end: enclosing.end };
+      if (range && range.end > range.start && !starts.has(range.start)) {
+        starts.add(range.start);
+        result.push({ region, range });
+        emitted = range;
+      }
+    }
+    if (region.kind === "fold") for (const child of region.children) walk(child, [...ancestors, region], emitted);
+  };
+  for (const region of regions ?? []) walk(region, [], undefined);
   return result;
+}
+
+/**
+ * Throws unless the ranges nest the way Monaco's folding model requires.
+ * Used by tests and by the reader in development to catch a bad projection
+ * before it silently disables folding for a whole file.
+ */
+export function assertFoldRangesNest(ranges: readonly { start: number; end: number }[]): void {
+  const open: { start: number; end: number }[] = [];
+  let previousStart = -1;
+  for (const range of ranges) {
+    if (range.start >= range.end) throw new Error(`fold range ${range.start}..${range.end} is empty`);
+    if (range.start === previousStart) throw new Error(`two fold ranges start on line ${range.start}`);
+    if (range.start < previousStart) throw new Error(`fold ranges are out of order at line ${range.start}`);
+    previousStart = range.start;
+    while (open.length && range.start > open[open.length - 1].end) open.pop();
+    const parent = open[open.length - 1];
+    if (parent && range.end > parent.end) {
+      throw new Error(`fold range ${range.start}..${range.end} straddles ${parent.start}..${parent.end}`);
+    }
+    open.push(range);
+  }
 }
 
 export function utf16Column(text: string, byteColumn: number): number {
@@ -315,4 +395,28 @@ export function structuralCountsTooltip(counts: StructuralFileCounts): string {
   const rows = [row("visible", counts.visible), row("textual", counts.textual)];
   if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
   return rows.join("\n");
+}
+
+/**
+ * What a collapsed region shows. The header line keeps Monaco's inline `⋯`;
+ * a one-line label follows it as injected text, and a multi-line label
+ * (pseudocode) hangs under the header as a view zone sized to its lines.
+ */
+export interface StructuralLabelPlan {
+  inline: { line: number; text: string }[];
+  zones: { id: number; afterLineNumber: number; heightInLines: number; text: string }[];
+}
+
+export function structuralLabelPlan(
+  collapsed: readonly { region: StructuralRegion; range: { start: number; end: number } }[],
+): StructuralLabelPlan {
+  const plan: StructuralLabelPlan = { inline: [], zones: [] };
+  for (const { region, range } of collapsed) {
+    const label = region.visibility?.label;
+    if (!label) continue;
+    const lines = label.split("\n");
+    if (lines.length === 1) plan.inline.push({ line: range.start, text: ` ${label}` });
+    else plan.zones.push({ id: region.id, afterLineNumber: range.start, heightInLines: lines.length, text: label });
+  }
+  return plan;
 }

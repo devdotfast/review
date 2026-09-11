@@ -71,6 +71,11 @@ export async function structuralDiff(input: {
     AbortSignal.timeout(120_000),
     ...(input.signal ? [input.signal] : []),
   ]);
+  // The host inherits its own environment and runs from the repository, so
+  // diffr reads the user's config and keys exactly as it would from a shell.
+  console.info(
+    `[Review] structural diff: ${diffrExecutable()} ${args.join(" ")}`,
+  );
   const child = spawn(diffrExecutable(), args, {
     cwd: input.rootPath,
     stdio: ["ignore", "pipe", "pipe"],

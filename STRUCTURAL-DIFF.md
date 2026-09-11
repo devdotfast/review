@@ -91,6 +91,12 @@ aborted run; diffr configuration reads and writes against a stand-in CLI.
 
 ## Limits
 
+- Monaco keeps one folding range per start line and needs ranges to nest, so
+  a fold that begins on its parent's header line yields to the parent, a
+  collapsed gap folds under the nearest free line above it, and a child fold
+  the wire lets run past its parent is clamped to the parent. A range set that
+  still fails to nest fails that file rather than silently disabling folding.
+
 - Native folding is a whole-line approximation: inline folds are not rendered.
 - Fold state is not yet persisted across unmounting the Files view.
 - Moves render one-sided; the wire expresses them, the view does not link them yet.

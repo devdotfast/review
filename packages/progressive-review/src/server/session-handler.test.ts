@@ -31,6 +31,7 @@ import { unusedAgentServices } from "./session-handler-test-utils";
 it("serves live previews without changing sealed bundles and keeps in-flight hash URLs valid", async () => {
   const rootPath = await tempDir("review-live-session-");
   const reviewPath = path.join(rootPath, "review.mdx");
+
   const bundle = (title: string) =>
     bundleReviewDocument({
       format: "review-document/1",
@@ -42,9 +43,11 @@ it("serves live previews without changing sealed bundles and keeps in-flight has
       anchorContents: {},
       softwareModels: [],
     });
+
   const sealed = bundle("Sealed");
   await writeReviewDocumentBundle(rootPath, sealed);
   let live = bundle("First preview");
+
   const input = {
     ...unusedAgentServices,
     rootPath,
@@ -60,21 +63,26 @@ it("serves live previews without changing sealed bundles and keeps in-flight has
       startedAt: Date.now(),
     },
   };
+
   const handler = await createReviewSessionHandler({
     ...input,
     getLiveBundle: async () => live,
   });
+
   const historical = await createReviewSessionHandler(input);
+
   const get = (target: typeof handler, pathname: string) =>
     target.handle(
       new Request(`http://localhost${pathname}`, {
         headers: { "x-review-token": "secret" },
       }),
     );
+
   try {
     const first = ReviewDocumentResponseSchema.parse(
       await (await get(handler, "/__progressive-review/document")).json(),
     );
+
     expect(first).toMatchObject({ ok: true, contentHash: live.contentHash });
     const firstHash = live.contentHash;
     live = bundle("Second preview");
@@ -120,6 +128,7 @@ describe("createReviewSessionHandler", () => {
     const rootPath = await tempDir("review-missing-repair-");
     const reviewPath = path.join(rootPath, "review.mdx");
     const reviewUuid = "11111111-1111-4111-8111-111111111111";
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -140,6 +149,7 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     try {
       for (const artifact of ["document", "software-map"]) {
         const response = await handler.handle(
@@ -148,6 +158,7 @@ describe("createReviewSessionHandler", () => {
             { headers: { "x-review-token": "secret" } },
           ),
         );
+
         expect(response.status).toBe(409);
         const payload = await response.json();
         expect(payload).toMatchObject({
@@ -174,6 +185,7 @@ describe("createReviewSessionHandler", () => {
       }),
     );
     let promoted = false;
+
     for (const mode of [
       {
         kind: "repairValidation",
@@ -200,6 +212,7 @@ describe("createReviewSessionHandler", () => {
           startedAt: Date.now(),
         },
       });
+
       const request = (route: string, method = "GET") =>
         handler.handle(
           new Request(`http://127.0.0.1:5570/__progressive-review/${route}`, {
@@ -207,6 +220,7 @@ describe("createReviewSessionHandler", () => {
             headers: { "x-review-token": "secret" },
           }),
         );
+
       try {
         const doc = await request("document");
         expect(doc.status).toBe(409);
@@ -228,6 +242,7 @@ describe("createReviewSessionHandler", () => {
             ReviewDocumentResponseSchema.safeParse(docPayload).success,
         ).toBe(true);
         expect((await request("software-map")).status).toBe(200);
+
         for (const route of [
           "code-peek/resolve",
           "software-map/resolved-data",
@@ -238,7 +253,9 @@ describe("createReviewSessionHandler", () => {
         ]) {
           expect((await request(route, "POST")).status).not.toBe(409);
         }
+
         expect((await request("telemetry/unknown", "POST")).status).toBe(404);
+
         for (const [route, method] of [
           ["thread-commands", "POST"],
           ["agent-runs", "POST"],
@@ -248,6 +265,7 @@ describe("createReviewSessionHandler", () => {
         ]) {
           expect((await request(route!, method)).status).toBe(409);
         }
+
         const dismissed = await request("dismiss", "POST");
         expect(dismissed.status).toBe(409);
         expect(await dismissed.json()).toMatchObject({
@@ -270,6 +288,7 @@ describe("createReviewSessionHandler", () => {
     const rootPath = await tempDir("review-historical-artifact-");
     const reviewPath = path.join(rootPath, "review.mdx");
     const reviewUuid = readOnlyRecord.uuid;
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -292,12 +311,14 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     try {
       const response = await handler.handle(
         new Request("http://127.0.0.1:5570/__progressive-review/document", {
           headers: { "x-review-token": "secret" },
         }),
       );
+
       const payload = await response.json();
       expect(response.status).toBe(409);
       expect(ReviewDocumentResponseSchema.parse(payload)).toEqual({
@@ -317,18 +338,21 @@ describe("createReviewSessionHandler", () => {
     const sessionUrl = `http://127.0.0.1:5570/sessions/${sessionId}`;
     const token = "session-secret";
     const events: PostHogCaptureInput[] = [];
+
     const captureClient: ProgressiveReviewTelemetryCaptureClient = {
       enabled: true,
       capture: async (event) => {
         events.push(event);
       },
     };
+
     const telemetry = new ProgressiveReviewTelemetry({
       captureClient,
       env: {},
       installConfigPath: path.join(rootPath, "telemetry.json"),
       idFactory: () => "install-123",
     });
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -347,6 +371,7 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     const capture = (name: string, properties?: JsonObject) =>
       handler.handle(
         new Request(
@@ -406,6 +431,7 @@ describe("createReviewSessionHandler", () => {
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -426,6 +452,7 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     try {
       const write = await handler.handle(
         new Request(
@@ -440,16 +467,19 @@ describe("createReviewSessionHandler", () => {
           },
         ),
       );
+
       expect(write.status).toBe(409);
       await expect(write.json()).resolves.toMatchObject({
         ok: false,
         code: "historical_revision",
       });
+
       const read = await handler.handle(
         new Request(new URL("/__progressive-review/comments", sessionUrl), {
           headers: { "x-review-token": token },
         }),
       );
+
       expect(read.status).toBe(400);
       expect(await read.json()).toMatchObject({
         error: "The review thread database is unavailable.",
@@ -465,6 +495,7 @@ describe("createReviewSessionHandler", () => {
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
     let reviewStatus: "awaiting-review" | "accepted" = "awaiting-review";
+
     const handler = await createReviewSessionHandler(
       {
         ...unusedAgentServices,
@@ -512,6 +543,7 @@ describe("createReviewSessionHandler", () => {
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
     await writeFile(reviewPath, "# Test review\n");
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,

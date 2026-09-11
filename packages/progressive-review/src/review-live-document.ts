@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ReviewServerError } from "./server/http-json";
 
 const marker = "review-live/";
+
 const nodeSchema = z.strictObject({
   id: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,79}$/),
   source: z
@@ -15,6 +16,7 @@ const nodeSchema = z.strictObject({
       message: "MDX fragments cannot contain reserved review-live markers.",
     }),
 });
+
 const nodesSchema = z
   .array(nodeSchema)
   .max(1000)
@@ -22,6 +24,7 @@ const nodesSchema = z
     (nodes) => new Set(nodes.map((node) => node.id)).size === nodes.length,
     { message: "Node IDs must be unique." },
   );
+
 const headerSchema = z.strictObject({
   revision: z.number().int().positive(),
   mutationId: z.uuid(),
@@ -53,7 +56,9 @@ export const ReviewLiveMutationSchema = z.strictObject({
 });
 
 export type ReviewLiveMutation = z.infer<typeof ReviewLiveMutationSchema>;
+
 type LiveNode = z.infer<typeof nodeSchema>;
+
 interface LiveDocument extends z.infer<typeof headerSchema> {
   nodes: LiveNode[];
 }
@@ -61,6 +66,7 @@ interface LiveDocument extends z.infer<typeof headerSchema> {
 /** Ordinary MDX, compiled by the same native compiler as a sealed document. */
 export function serializeLiveDocument(document: LiveDocument): string {
   const { nodes, ...header } = document;
+
   return [
     `{/* review-live/1 ${JSON.stringify(header)} */}`,
     'import * as data from "./data.ts";',
@@ -75,18 +81,23 @@ export function serializeLiveDocument(document: LiveDocument): string {
 export function parseLiveDocument(source: string | null): LiveDocument | null {
   if (!source?.startsWith("{/* review-live/1 ")) return null;
   const header = /^\{\/\* review-live\/1 (.+) \*\/\}/.exec(source);
+
   if (!header) throw conflict("Invalid live document header.");
   const metadata = headerSchema.parse(parseJsonText(header[1]!));
+
   const nodes = [
     ...source.matchAll(
       /\{\/\* review-live\/node ([\w-]+) \*\/\}\n<section id="review-node-\1" className="review-live-[a-f0-9]+">\n\n([\s\S]*?)\n\n<\/section>\n\{\/\* review-live\/end \*\/\}/g,
     ),
   ].map((match) => ({ id: match[1]!, source: match[2]! }));
+
   const document = { ...metadata, nodes: nodesSchema.parse(nodes) };
+
   if (serializeLiveDocument(document) !== source)
     throw conflict(
       "Live document structure changed outside the node API. Replace the document explicitly to recover.",
     );
+
   return document;
 }
 
@@ -97,35 +108,45 @@ export function planLiveMutation(
 ): string {
   // An explicit replacement can also recover a manually damaged live document.
   let document: LiveDocument | null;
+
   try {
     document = parseLiveDocument(current.source);
   } catch (error) {
     if (request.operation.type !== "replace") throw error;
     document = null;
   }
+
   const requestHash = createHash("sha256")
     .update(JSON.stringify(request))
     .digest("hex");
+
   if (document?.mutationId === request.mutationId) {
     if (document.requestHash !== requestHash)
       throw conflict("Mutation ID was already used for a different edit.");
+
     return current.source!;
   }
+
   if (current.sourceHash !== request.expectedSourceHash)
     throw conflict(
       "Document source changed. Read the live document before retrying.",
     );
   const operation = request.operation;
+
   if (!document && operation.type !== "replace")
     throw conflict(
       "Use replace to explicitly start live authoring of this document.",
     );
   const nodes = [...(document?.nodes ?? [])];
+
   const indexOf = (id: string) => {
     const index = nodes.findIndex((node) => node.id === id);
+
     if (index < 0) throw conflict(`Unknown live node: ${id}`);
+
     return index;
   };
+
   switch (operation.type) {
     case "replace":
       nodes.splice(0, nodes.length, ...operation.nodes);
@@ -157,6 +178,7 @@ export function planLiveMutation(
       break;
     }
   }
+
   return serializeLiveDocument({
     revision: (document?.revision ?? 0) + 1,
     mutationId: request.mutationId,

@@ -41,24 +41,31 @@ export async function stageReviewDocumentPublication(input: {
   const stagingDir = await mkdtemp(
     path.join(path.dirname(input.review.dir), ".review-publish-"),
   );
+
   try {
     const fingerprint = await copyAuthoringTree(input.review.dir, stagingDir);
+
     if (fingerprint !== (await fingerprintAuthoring(input.review.dir)))
       throw authoringChanged();
+
     if (input.source !== undefined)
       await writeFile(path.join(stagingDir, "review.mdx"), input.source);
+
     const sourceFingerprint =
       input.source === undefined
         ? fingerprint
         : await fingerprintAuthoring(stagingDir);
+
     const dependencies = path.join(input.review.dir, "node_modules");
     let hasDependencies = true;
+
     try {
       await lstat(dependencies);
     } catch (error) {
       if (!isMissingFileError(error)) throw error;
       hasDependencies = false;
     }
+
     if (hasDependencies) {
       await symlink(
         dependencies,
@@ -66,13 +73,16 @@ export async function stageReviewDocumentPublication(input: {
         process.platform === "win32" ? "junction" : "dir",
       );
     }
+
     await writeFile(
       path.join(stagingDir, "review.json"),
       JSON.stringify(input.review.review),
     );
+
     const prepared = await prepareReviewDocumentBundle({
       review: { ...input.review, dir: stagingDir },
     });
+
     return {
       bundle: prepared.bundle,
       warnings: prepared.warnings,
@@ -90,6 +100,7 @@ export async function stageReviewDocumentPublication(input: {
         error.warnings,
       );
     }
+
     throw error;
   } finally {
     await rm(stagingDir, { recursive: true, force: true });
@@ -102,6 +113,7 @@ export async function sealReviewDocumentPublication(input: {
 }): Promise<string> {
   return withReviewMutationLock(input.review.dir, async () => {
     await assertReviewUnchanged(input.review.dir, input.review.review);
+
     if (
       input.document.fingerprint !==
       (await fingerprintAuthoring(input.review.dir))
@@ -110,6 +122,7 @@ export async function sealReviewDocumentPublication(input: {
     requireClosedThreadsForRepublish(input.review);
     requireCompletedAgentResponsesForRepublish(input.review);
     await writeReviewDocumentBundle(input.review.dir, input.document.bundle);
+
     return sealReviewCandidate(
       input.review.dir,
       REVIEW_PUBLISH_CANDIDATE_MESSAGE,

@@ -23,6 +23,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { testReviewSession } from "./review-session-test-utils";
 
 let request: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
+
 let session: ReviewSession;
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
@@ -158,9 +159,11 @@ function clientErrorReports(): JsonObject[] {
     .filter(([url]) => url.includes("/telemetry/event"))
     .map(([, init]) => {
       const body = parseJsonText(String(init?.body));
+
       if (!isJsonObject(body)) {
         throw new Error("Telemetry event body is not an object");
       }
+
       return body;
     });
 }

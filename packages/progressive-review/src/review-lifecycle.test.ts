@@ -57,12 +57,14 @@ async function fixture() {
 it("authors rich live nodes through the desktop API and rejects competing edits", async () => {
   const review = await fixture();
   const reviewUuid = review.review.uuid;
+
   const initial = ReviewDocumentFileResponseSchema.parse(
     await requestReviewLifecycle("/lifecycle/document/read", {
       reviewUuid,
       name: "review.mdx",
     }),
   );
+
   const request = {
     reviewUuid,
     mutationId: randomUUID(),
@@ -72,10 +74,12 @@ it("authors rich live nodes through the desktop API and rejects competing edits"
       nodes: [{ id: "title", source: "# API authored" }],
     },
   };
+
   const accepted = await requestReviewLifecycle(
     "/lifecycle/document/mutate",
     request,
   );
+
   expect(accepted).toMatchObject({ revision: 1, mode: "incremental" });
   expect(
     await requestReviewLifecycle("/lifecycle/document/mutate", request),

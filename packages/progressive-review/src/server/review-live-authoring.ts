@@ -37,6 +37,7 @@ const projectionSchema = z.object({
 export async function readLiveSnapshot(review: StoredReview) {
   const current = await readReviewDocumentFile(review, "review.mdx");
   const live = parseLiveDocument(current.source);
+
   return {
     reviewUuid: review.review.uuid,
     mode: live ? "incremental" : "compiled",
@@ -55,6 +56,7 @@ export async function mutateLiveDocument(
   const source = planLiveMutation(current, request);
   const staged = await stageReviewDocumentPublication({ review, source });
   await assertReviewUnchanged(review.dir, review.review);
+
   if (staged.fingerprint !== (await fingerprintAuthoring(review.dir)))
     throw new ReviewServerError(
       "Authoring inputs changed while compiling. Read the document and retry.",
@@ -66,23 +68,29 @@ export async function mutateLiveDocument(
     expectedSourceHash: current.sourceHash,
   });
   await saveProjection(review, staged.bundle.json, staged.sourceFingerprint);
+
   return readLiveSnapshot(review);
 }
 
 /** Live projections never replace the sealed bundle or historical revisions. */
 export async function readLiveBundle(review: StoredReview) {
   const source = await readReviewDocumentFile(review, "review.mdx");
+
   if (!parseLiveDocument(source.source)) return null;
   const db = openReviewStateDb(reviewHomeForDir(review.dir));
+
   const row = db
     .prepare(
       "SELECT projection_json FROM documents WHERE review_id = ? AND route_path = '/'",
     )
     .get(review.review.uuid);
+
   const cached = z.string().safeParse(row?.projection_json);
+
   const projection = cached.success
     ? projectionSchema.safeParse(parseJsonText(cached.data))
     : null;
+
   if (
     projection?.success &&
     projection.data.recordFingerprint ===
@@ -94,12 +102,14 @@ export async function readLiveBundle(review: StoredReview) {
   // or rebuild after data.ts changes. Never serve a projection for different pins.
   const staged = await stageReviewDocumentPublication({ review });
   await assertReviewUnchanged(review.dir, review.review);
+
   if (staged.fingerprint !== (await fingerprintAuthoring(review.dir)))
     throw new ReviewServerError(
       "Authoring inputs changed while compiling the live document.",
       409,
     );
   await saveProjection(review, staged.bundle.json, staged.fingerprint);
+
   return staged.bundle;
 }
 

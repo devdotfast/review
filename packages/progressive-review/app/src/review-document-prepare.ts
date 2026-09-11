@@ -66,6 +66,7 @@ export function prepareReviewDocument(
     }
 
     session.documents.set(load.contentHash, cached);
+
     // A live authoring session can produce thousands of native revisions.
     if (session.documents.size > 16)
       session.documents.delete(session.documents.keys().next().value!);

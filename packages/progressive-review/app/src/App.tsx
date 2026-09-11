@@ -108,10 +108,15 @@ import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
 
 const DEFAULT_SIDE_PEEK_WIDTH = 560;
+
 const MIN_SIDE_PEEK_WIDTH = 360;
+
 const MAX_SIDE_PEEK_WIDTH = 920;
+
 const MIN_DOCUMENT_WIDTH = 560;
+
 const EMPTY_ANCHORS = new Map<string, AnchorRef>();
+
 const EMPTY_ANCHOR_CONTENTS = new Map<string, string>();
 
 export function App({
@@ -131,6 +136,7 @@ export function App({
 }): ReactElement {
   useWindowErrorTelemetry();
   const resolved = useResolvedReviewDocument(documentState);
+
   return (
     <ReviewDiffFilesProvider documentKey={resolved.diffDocumentKey}>
       <ReviewLayout
@@ -192,11 +198,14 @@ function useResolvedReviewDocument(
   documentState: ReviewDocumentAppState,
 ): ResolvedReviewDocument {
   const session = useReviewSession();
+
   return useMemo(() => {
     const document =
       documentState.state === "ready" ? documentState.document : null;
+
     const routePath = document?.routePath ?? session.config.routePath ?? "/";
     const filePath = document?.filePath ?? routePath;
+
     return {
       document,
       routePath,
@@ -213,7 +222,9 @@ function useWindowErrorTelemetry(): void {
     const handleError = (event: ErrorEvent) => {
       captureClientError(session, "window", event.error);
     };
+
     window.addEventListener("error", handleError);
+
     return () => window.removeEventListener("error", handleError);
   }, [session]);
 }
@@ -240,19 +251,24 @@ function ReviewLayout({
     routePath: documentRoute,
     revision: documentRevision,
   } = resolved;
+
   const softwareMap =
     softwareMapState.state === "ready" ? softwareMapState.softwareMap : null;
+
   const articleRef = useRef<HTMLElement | null>(null);
   const appRef = useRef<HTMLDivElement | null>(null);
   const shellRef = useRef<HTMLElement | null>(null);
   const scrollRegionRef = useRef<HTMLElement | null>(null);
+
   const [traceSelection, setTraceSelection] = useState<
     TraceSelection | undefined
   >(undefined);
+
   const roots = useMemo(
     () => ({ appRef, shellRef, scrollRegionRef, articleRef }),
     [],
   );
+
   return (
     <ReviewRootsProvider roots={roots}>
       <ReviewFindProvider
@@ -346,14 +362,18 @@ function ReviewLayoutContent({
   useSuppressPanelMotionOnCanvasResume(appRef);
   const activePanel = useReviewPanel((state) => state.active);
   const panelMotion = useReviewPanel((state) => state.motion);
+
   const closeForDocumentChange = useReviewPanel(
     (state) => state.closeForDocumentChange,
   );
+
   const closeForAgentTerminal = useReviewPanel(
     (state) => state.closeForAgentTerminal,
   );
+
   const openThreads = useReviewPanel((state) => state.openThreads);
   const debugSettings = useReviewDebugSettings();
+
   const sidePeekResize = useRightPanelResize({
     stateKey: "side-peek-width",
     defaultWidth: DEFAULT_SIDE_PEEK_WIDTH,
@@ -364,8 +384,10 @@ function ReviewLayoutContent({
     label: "Resize side peek",
     containerRef: appRef,
   });
+
   const viewStateSync = useReviewViewStateSync({ scrollRegionRef, panelStore });
   const hasChangeRange = range.baseCommit !== range.headCommit;
+
   const [activeView, setActiveView] = useState<ReviewView>(() =>
     normalizeReviewView(
       viewStateSync.initialActiveView ?? "review",
@@ -373,6 +395,7 @@ function ReviewLayoutContent({
       hasChangeRange,
     ),
   );
+
   const [diffScope, setDiffScope] = useState<ReviewCommitSummary | null>(null);
   const reviewFind = useReviewFindRegistration();
   useEffect(() => {
@@ -387,44 +410,55 @@ function ReviewLayoutContent({
       .then(async (res) => {
         if (!res.ok) return;
         const data: JsonValue = await res.json();
+
         const sessions =
           isJsonObject(data) && data.ok === true
             ? jsonArray(data.sessions)
             : undefined;
+
         if (sessions !== undefined && sessions.length > 0) {
           setHasTraceSessions(true);
         }
       })
       .catch(() => {});
+
     return () => controller.abort();
   }, [session]);
   const diffFiles = useReviewDiffFiles();
+
   const filesTabFileCount = diffScope
     ? diffScope.fileCount
     : diffFiles.status === "loaded"
       ? diffFiles.files.length
       : (initialDiffStats?.files?.length ?? null);
+
   const reviewViews: readonly ReviewView[] = [
     "review",
     ...(hasChangeRange ? (["commits", "diff"] as const) : []),
     ...(softwareMapEnabled ? (["map"] as const) : []),
     ...(hasTraceSessions ? (["trace"] as const) : []),
   ];
+
   const reviewViewsRef = useRef(reviewViews);
   reviewViewsRef.current = reviewViews;
+
   const applyReviewView = (view: ReviewView) => {
     const normalizedView = normalizeReviewView(
       view,
       softwareMapEnabled,
       hasChangeRange,
     );
+
     if (normalizedView !== "diff") setDiffScope(null);
+
     if (shouldCloseSidePeekForReviewView(normalizedView)) {
       closeForDocumentChange();
     }
+
     setActiveView(normalizedView);
     viewStateSync.persistActiveView(normalizedView);
   };
+
   useEffect(() => {
     if (
       normalizeReviewView(activeView, softwareMapEnabled, hasChangeRange) !==
@@ -435,14 +469,18 @@ function ReviewLayoutContent({
   }, [activeView, hasChangeRange, softwareMapEnabled]);
   useReviewTabTelemetry(activeView);
   const threadCount = review.allCommentThreads().length;
+
   const askPanelOpen =
     activePanel?.kind === "threads" && activePanel.page.kind === "new-ask";
+
   /* An open review batch means the next thing you write most likely joins it,
      so every entry point says "Comment" rather than "Ask". */
   const askOrCommentLabel =
     review.pendingCommentCount > 0 ? "New comment" : "New ask";
+
   const threadsPanelOpen =
     activePanel?.kind === "threads" && activePanel.page.kind !== "new-ask";
+
   useEffect(
     () =>
       session.surface.subscribe((event) => {
@@ -479,6 +517,7 @@ function ReviewLayoutContent({
       }
     });
   }, [session.surface]);
+
   const activeSoftwareMapSource = useMemo(
     () =>
       selectActiveSoftwareMapModel({
@@ -487,6 +526,7 @@ function ReviewLayoutContent({
       }),
     [review.softwareMapFocusRequest?.elementPath, softwareModels],
   );
+
   const activeSoftwareMap = useMemo(
     () =>
       applySoftwareMapTopologyStatuses(
@@ -495,8 +535,10 @@ function ReviewLayoutContent({
       ),
     [activeSoftwareMapSource, softwareMapTopologyDiff],
   );
+
   const rightPanelOpen = activePanel !== null;
   const mapOverlayOpen = useMapOverlayOpen(appRef);
+
   // SAFETY: `--side-peek-width` is a CSS custom property, which React forwards
   // to style.setProperty; the CSSProperties typings only omit custom names.
   const appStyle = rightPanelOpen
@@ -504,6 +546,7 @@ function ReviewLayoutContent({
         "--side-peek-width": `${sidePeekResize.width}px`,
       } as CSSProperties)
     : undefined;
+
   const appClassName = [
     "review-app",
     `review-app--theme-${debugSettings.theme}`,
@@ -894,6 +937,7 @@ function OpenCurrentReview({
   reviewUuid: string;
 }): ReactElement {
   const session = useReviewSession();
+
   return (
     <button
       type="button"
@@ -940,12 +984,14 @@ function ReviewBatonChip({
   outcome: ReviewSubmissionOutcome | null;
 }): ReactElement | null {
   if (!outcome) return null;
+
   const label =
     outcome === "changes-requested"
       ? "agent is updating"
       : outcome === "approved"
         ? "approved"
         : "dismissed";
+
   return (
     <span className={`review-baton-chip review-baton-chip--${outcome}`}>
       {outcome === "changes-requested" && (
@@ -983,25 +1029,33 @@ function useMapOverlayOpen(appRef: RefObject<HTMLDivElement | null>): boolean {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const app = appRef.current;
+
     if (!app) return;
+
     const update = () =>
       setOpen(Boolean(app.querySelector(".software-map-overlay")));
+
     update();
     const observer = new MutationObserver(update);
     observer.observe(app, { childList: true, subtree: true });
+
     return () => observer.disconnect();
   }, [appRef]);
+
   return open;
 }
 
 function FloatingDraftHost(): ReactElement | null {
   const review = useReview();
+
   const draftTarget = commentDraftTargetForSurface(
     review.draftTarget,
     "document",
   );
+
   if (!draftTarget) return null;
   const draftQuote = draftTarget.title ?? targetQuote(draftTarget.target);
+
   const submitDraft = (askAgent: boolean, body: string) => {
     const {
       draftSurface: _draftSurface,
@@ -1011,6 +1065,7 @@ function FloatingDraftHost(): ReactElement | null {
       messageId: _messageId,
       ...input
     } = draftTarget;
+
     if (askAgent) {
       void review.askAgent({
         ...input,
@@ -1018,8 +1073,10 @@ function FloatingDraftHost(): ReactElement | null {
         body,
       });
       review.closeCommentDraft();
+
       return;
     }
+
     void review
       .saveComment({
         ...input,
@@ -1030,6 +1087,7 @@ function FloatingDraftHost(): ReactElement | null {
         review.closeCommentDraft();
       });
   };
+
   return (
     <div className="review-floating-draft">
       <ThreadDraftCard
@@ -1058,22 +1116,28 @@ function MapSettingsControl(): ReactElement {
     nodeTint,
     setNodeTint,
   } = useReviewDebugSettings();
+
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
+
     const closeOnOutsidePointerDown = (event: PointerEvent) => {
       const target = event.target;
+
       if (target instanceof Node && controlRef.current?.contains(target))
         return;
       setIsOpen(false);
     };
+
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setIsOpen(false);
     };
+
     document.addEventListener("pointerdown", closeOnOutsidePointerDown, true);
     document.addEventListener("keydown", closeOnEscape);
+
     return () => {
       document.removeEventListener(
         "pointerdown",
@@ -1170,6 +1234,7 @@ function DebugSwitch({
 
 function nodeTintLabel(tint: ReviewNodeTint) {
   if (tint === "none") return "None";
+
   return tint === "slate" ? "Slate" : "Mineral";
 }
 
@@ -1178,12 +1243,15 @@ export function applySoftwareMapTopologyStatuses(
   diff: SoftwareMapTopologyDiff | null,
 ): NormalizedSoftwareModel | undefined {
   if (!model || !diff) return model;
+
   const elements = model.elements.map((element): NormalizedSoftwareElement => {
     const topologyStatus = diff.elementStatusByPath[element.path];
+
     return topologyStatus
       ? { ...element, changeStatus: topologyStatus }
       : element;
   });
+
   return {
     ...model,
     elements,
@@ -1199,7 +1267,9 @@ function SelectionCommentButton({
   clearTarget: () => void;
 }) {
   const review = useReview();
+
   if (!target || review.historicalRevision) return null;
+
   return (
     <div
       className="selection-action-buttons selection-action-buttons--anchored"
@@ -1235,11 +1305,15 @@ function ReviewDocumentSelectionSurface({
 }) {
   const [selectionTarget, setSelectionTarget] =
     useState<SelectionTarget | null>(null);
+
   useEffect(() => {
     const article = articleRef.current;
+
     if (!article) return;
+
     return observeDocumentSelection(article, setSelectionTarget);
   }, [articleRef]);
+
   return (
     <article ref={articleRef} className="review-document">
       {children}

@@ -1131,9 +1131,12 @@ export function createGlobalReviewServer(
     const request = z
       .strictObject({ reviewUuid: z.uuid() })
       .parse(await readBoundedRequestJson(context.req.raw));
+
     return withReviewLock(request.reviewUuid, async () => {
       const review = await findReview(request.reviewUuid);
+
       if (!review) throw new ReviewServerError("Review not found.", 404);
+
       return globalJson(200, await readLiveSnapshot(review));
     });
   });
@@ -1141,11 +1144,15 @@ export function createGlobalReviewServer(
     const request = ReviewLiveMutationSchema.parse(
       await readBoundedRequestJson(context.req.raw),
     );
+
     const snapshot = await withReviewLock(request.reviewUuid, async () => {
       const review = await findReview(request.reviewUuid);
+
       if (!review) throw new ReviewServerError("Review not found.", 404);
+
       return mutateLiveDocument(review, request);
     });
+
     for (const session of sessions.values()) {
       if (
         session.review.review.uuid !== request.reviewUuid ||
@@ -1160,6 +1167,7 @@ export function createGlobalReviewServer(
         documentChanged: true,
       });
     }
+
     return globalJson(200, snapshot);
   });
   app.post("/lifecycle/metadata", async (context) => {
@@ -2656,14 +2664,17 @@ export function createGlobalReviewServer(
         : async () => {
             // Candidate mount validation may run while publication owns the lock.
             if (!active.promoted) return null;
+
             return withReviewLock(registration.review.review.uuid, async () => {
               const latest = await findReview(registration.review.review.uuid);
+
               if (
                 latest?.review.baseCommit !== active.review.review.baseCommit ||
                 latest?.review.sourceCommit !==
                   active.review.review.sourceCommit
               )
                 return null;
+
               return latest ? readLiveBundle(latest) : null;
             });
           },

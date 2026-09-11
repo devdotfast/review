@@ -181,6 +181,7 @@ it("keeps available peeks visible and retries incomplete preparation on a later 
 it("bounds live revision hydration while retaining the newest revision for retry", async () => {
   const session = testReviewSession();
   const first = await prepareReviewDocument(load, session, { resolveCodePeek });
+
   for (let revision = 1; revision < 16; revision++) {
     await prepareReviewDocument(
       { ...load, contentHash: `live-${revision}` },
@@ -188,11 +189,14 @@ it("bounds live revision hydration while retaining the newest revision for retry
       { resolveCodePeek },
     );
   }
+
   const newest = { ...load, contentHash: "live-16" };
   resolveCodePeek.mockRejectedValueOnce(new Error("peek unavailable"));
+
   const partial = await prepareReviewDocument(newest, session, {
     resolveCodePeek,
   });
+
   expect(partial.anchors.get("create-order")?.peek?.resolution).toBeNull();
   expect(
     await prepareReviewDocument(newest, session, { resolveCodePeek }),

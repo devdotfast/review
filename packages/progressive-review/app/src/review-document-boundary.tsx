@@ -63,6 +63,7 @@ export class ReviewDocumentBoundary extends Component<
         />
       );
     }
+
     return this.props.children;
   }
 }

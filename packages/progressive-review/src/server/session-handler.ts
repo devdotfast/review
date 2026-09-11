@@ -201,14 +201,19 @@ export async function createReviewSessionHandler(
     : undefined;
 
   const liveBundles = new Map<string, ReviewDocumentBundle>();
+
   const getBundle = async (): Promise<ReviewDocumentBundle | null> => {
     const live = await input.getLiveBundle?.();
+
     if (live) {
       liveBundles.set(`${live.contentHash}.json`, live);
+
       if (liveBundles.size > 16)
         liveBundles.delete(liveBundles.keys().next().value!);
+
       return live;
     }
+
     if (currentBundle) return currentBundle;
     bundlePromise ??= readReviewDocumentBundle(renderDir, input.routePath);
 

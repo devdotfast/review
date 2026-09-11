@@ -23,6 +23,7 @@ describe("publish range evaluation", () => {
     const reviewDir = fixtureDir("review");
     const head = sourceFixture("head line");
     const base = sourceFixture("base line");
+
     const prepareEvidence = vi.fn<() => Promise<ReviewPublishEvidenceTargets>>(
       async () => ({
         head: { sourceRootPath: head },
@@ -69,11 +70,13 @@ describe("publish range evaluation", () => {
       }),
     ).rejects.toThrow("no runtime import");
     expect(fs.existsSync(path.join(reviewDir, ".build"))).toBe(false);
+
     const valid = await evaluateReviewDocumentBundleForPublish({
       reviewDir,
       bundleCode: bundleWithAnchors(""),
       prepareEvidence: async () => ({ head: { sourceRootPath: reviewDir } }),
     });
+
     expect(valid.errors).toEqual([]);
   });
 
@@ -101,6 +104,7 @@ describe("publish range evaluation", () => {
   it("does not prepare a worktree when the document has no peeks", async () => {
     const prepareEvidence =
       vi.fn<() => Promise<ReviewPublishEvidenceTargets>>();
+
     const result = await evaluateReviewDocumentBundleForPublish({
       reviewDir: fixtureDir("review"),
       bundleCode: bundleWithAnchors('summary: "Summary",'),
@@ -120,6 +124,7 @@ describe("publish range evaluation", () => {
         const anchors = session.defineAnchors({ shown: { title: "Shown", peek: { file: "x.ts", fromLine: 1, toLine: 1 } }, unused: { title: "Unused", peek: { file: "x.ts", fromLine: 2, toLine: 2 } } });
         export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, Component: ({ components }) => jsx(components.AnchorLink, { anchor: anchors.shown, children: "Shown" }), isDefault: true });`,
     });
+
     expect(result.errors).toEqual([]);
     expect(Object.keys(result.document!.anchors).sort()).toEqual([
       "shown",
@@ -136,6 +141,7 @@ const base = defineSoftwareModel({ systems: { service: { label: "Base" } } });
 defineSoftwareModel({ systems: { inline: { label: "Inline" } } });
 export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: head, baseSoftwareMap: base, Component: () => jsx("p", { children: "Legacy" }) });`,
     });
+
     expect(result.errors).toEqual([]);
     expect(result.legacySoftwareMap?.head.elements[0].label).toBe("Head");
     expect(result.legacySoftwareMap?.base.elements[0].label).toBe("Base");
@@ -159,6 +165,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
 const head = defineSoftwareModel({ systems: { service: { label: "Head" } } });
 export default createActiveReviewDocument({ title: "Legacy", routePath: "/", filePath: "review.mdx", modelNames: [], models: {}, repoSoftwareMap: ${head}, baseSoftwareMap: ${base}, Component: () => jsx("p", { children: "Legacy" }) });`,
       });
+
       expect(result.document).toBeNull();
       expect(result.legacySoftwareMap).toBeUndefined();
       expect(result.errors).toEqual([
@@ -170,6 +177,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
   it("materializes document metadata, nodes, anchors, and ordered software models", async () => {
     const reviewDir = fixtureDir("review");
     const head = sourceFixture("one line");
+
     const result = await evaluateReviewDocumentBundleForPublish({
       reviewDir,
       bundleCode: `
@@ -251,6 +259,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         `React.createElement(components.CodePeek, {})`,
       ),
     });
+
     expect(auditFailure.errors.length).toBeGreaterThan(0);
     expect(auditFailure.document).toBeNull();
 
@@ -262,6 +271,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         ),
       },
     );
+
     expect(documentLocalComponent.errors).toContain(
       "Document-local components are not supported; use the Review components.",
     );
@@ -271,6 +281,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       reviewDir: fixtureDir("review"),
       bundleCode: bundleWithDocumentBody(`React.createElement("video")`),
     });
+
     expect(schemaFailure.errors.length).toBeGreaterThan(0);
     expect(schemaFailure.document).toBeNull();
   });
@@ -335,6 +346,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
 
     it("passes when quote text matches trace", async () => {
       const reviewDir = fixtureDir("review");
+
       const result = await evaluateReviewDocumentBundleForPublish({
         reviewDir,
         bundleCode: `
@@ -370,6 +382,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
 
     it("fails when quote text is not found in trace", async () => {
       const reviewDir = fixtureDir("review");
+
       const result = await evaluateReviewDocumentBundleForPublish({
         reviewDir,
         bundleCode: `
@@ -406,6 +419,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
 
     it("emits warning when event hint is stale", async () => {
       const reviewDir = fixtureDir("review");
+
       const result = await evaluateReviewDocumentBundleForPublish({
         reviewDir,
         bundleCode: `
@@ -446,6 +460,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     const reviewDir = fixtureDir("review");
     const events: string[] = [];
     vi.stubGlobal("__reviewEvaluationEvents", events);
+
     const slow = `
       globalThis.__reviewEvaluationEvents.push("first:enter");
       ${bundleWithAnchors("")
@@ -456,11 +471,13 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         )}
       globalThis.__reviewEvaluationEvents.push("first:exit");
     `;
+
     const fast = `
       globalThis.__reviewEvaluationEvents.push("second:enter");
       ${bundleWithAnchors("").replace('title: "Fixture"', 'title: "Second"')}
       globalThis.__reviewEvaluationEvents.push("second:exit");
     `;
+
     try {
       const [first, second] = await Promise.all([
         evaluateReviewDocumentBundleForPublish({
@@ -474,6 +491,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
           ranges: "skip",
         }),
       ]);
+
       const firstName = events[0]?.split(":")[0];
       const secondName = firstName === "first" ? "second" : "first";
       expect(events).toEqual([
@@ -495,11 +513,13 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     const reviewDir = fixtureDir("review");
     const invalidReviewDir = path.join(reviewDir, "not-a-directory");
     fs.writeFileSync(invalidReviewDir, "occupied");
+
     const failed = evaluateReviewDocumentBundleForPublish({
       reviewDir: invalidReviewDir,
       bundleCode: bundleWithAnchors(""),
       ranges: "skip",
     });
+
     const next = evaluateReviewDocumentBundleForPublish({
       reviewDir,
       bundleCode: bundleWithAnchors(""),
@@ -517,6 +537,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     const reviewDir = fixtureDir("review");
     const previous = { marker: "existing runtime" };
     vi.stubGlobal("__devFastReviewPublishRuntime", previous);
+
     try {
       const [failed, healthy] = await Promise.all([
         evaluateReviewDocumentBundleForPublish({
@@ -533,13 +554,16 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
           ),
         }),
       ]);
+
       expect(failed.errors.join(" ")).toContain("evaluation failed");
       expect(healthy.errors).toEqual([]);
       expect(healthy.document?.title).toBe("Healthy");
+
       // SAFETY: this test installs and restores the private runtime slot.
       const holder = globalThis as typeof globalThis & {
         __devFastReviewPublishRuntime?: typeof previous;
       };
+
       expect(holder.__devFastReviewPublishRuntime).toBe(previous);
       expect(fs.readdirSync(path.join(reviewDir, ".build"))).toEqual([]);
     } finally {
@@ -551,12 +575,14 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
     const root = fixtureDir("source");
     fs.mkdirSync(path.join(root, "src"));
     fs.writeFileSync(path.join(root, "src", "example.ts"), source);
+
     return root;
   }
 
   function fixtureDir(label: string): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), `${label}-`));
     roots.push(root);
+
     return root;
   }
 });

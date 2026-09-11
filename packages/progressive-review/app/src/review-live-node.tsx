@@ -15,21 +15,26 @@ export function ReviewLiveNode({
   useLayoutEffect(() => {
     setActive(true);
     const element = content.current;
+
     const reduced = element?.ownerDocument.defaultView?.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
     ).matches;
+
     const animation = reduced
       ? undefined
       : element?.animate?.([{ opacity: 0.35 }, { opacity: 1 }], {
           duration: 320,
           easing: "ease-out",
         });
+
     const timer = setTimeout(() => setActive(false), 1400);
+
     return () => {
       clearTimeout(timer);
       animation?.cancel();
     };
   }, [revision]);
+
   return (
     <section
       id={id}

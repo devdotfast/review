@@ -160,7 +160,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       const store = this._register(new DisposableStore());
       const structural = structuralEnabled
         ? await prepareStructuralReview(this.instantiationService, entries, this.spec.scope, store)
-        : { instantiation: this.instantiationService, entries, enabled: false, load: undefined };
+        : { instantiation: this.instantiationService, entries, enabled: false, load: undefined, onDidChangeCounts: undefined };
       if (this.disposed) return;
       // The input owns the text-model references its view model resolves, so
       // this handle disposes it alongside the view.
@@ -189,6 +189,9 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       if (this.disposed) return;
       this.bindActiveControl(view);
       if (structural.load) {
+        store.add(structural.onDidChangeCounts(({ path, counts }) => {
+          if (!this.disposed) view.fileCounts(path, counts);
+        }));
         void structural.load(
           (path, outcome) => {
             if (!this.disposed) view.fileLoaded(path, outcome.error, outcome.stats);

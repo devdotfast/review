@@ -27,11 +27,13 @@ import { reviewDiffFilesUrl } from "../common/reviewReveal.js";
 import {
   structuralFilePath,
   structuralFoldRanges,
+  structuralVisibleCounts,
   structuralRows,
   structuralHighlights,
   STRUCTURAL_WIRE_VERSION,
   type StructuralEvent,
   type StructuralFileChange,
+  type StructuralFileCounts,
   type StructuralLineCounts,
   type StructuralRegion,
   type StructuralSource,
@@ -60,6 +62,8 @@ export async function prepareStructuralReview(
     onFile: (path: string, outcome: StructuralFileOutcome) => void,
     onManifest: (files: readonly StructuralFileChange[]) => void,
   ): Promise<void>;
+  /** Fires when a file's visible counts change: on arrival and on every fold toggle. */
+  onDidChangeCounts: Event<{ path: string; counts: StructuralFileCounts }>;
 }> {
   const sessionModel = instantiation.invokeFunction((a) =>
     a.get(IReviewSessionModelService),
@@ -69,6 +73,18 @@ export async function prepareStructuralReview(
   const files = new Map<string, StructuralTextDiff>();
   const binary = new Set<string>();
   const changed = lifetime.add(new Emitter<void>());
+  /** Collapse state by `${path}:${side}:${region id}`, seeded from the wire's initial visibility. */
+  const collapsed = new Map<string, boolean>();
+  const collapseKey = (path: string, side: 0 | 1, id: number) => `${path}:${side}:${id}`;
+  const countsChanged = lifetime.add(new Emitter<{ path: string; counts: StructuralFileCounts }>());
+  const emitCounts = (path: string) => {
+    const diff = files.get(path);
+    if (!diff) return;
+    countsChanged.fire({
+      path,
+      counts: structuralVisibleCounts(diff, (side, id) => collapsed.get(collapseKey(path, side, id)) === true),
+    });
+  };
   // Use pinned checkout resources so native language providers see real project files.
   // Revision-only resources retain their virtual snapshot identity.
   const modelService = instantiation.invokeFunction((a) => a.get(IModelService));
@@ -107,9 +123,17 @@ export async function prepareStructuralReview(
       }
     }
     if (lifetime.isDisposed) throw new CancellationError();
-    if (diff.type === "text") files.set(path, diff);
-    else binary.add(path);
+    if (diff.type === "text") {
+      files.set(path, diff);
+      for (const [side, source] of [[0, diff.lhs], [1, diff.rhs]] as const) {
+        for (const { region } of structuralFoldRanges(source?.regions)) {
+          const key = collapseKey(path, side, region.id);
+          if (!collapsed.has(key)) collapsed.set(key, region.visibility?.collapsed === true);
+        }
+      }
+    } else binary.add(path);
     changed.fire();
+    emitCounts(path);
     return { path, stats: diff.type === "text" ? diff.stats.textual : undefined };
   }
   async function load(
@@ -244,8 +268,14 @@ export async function prepareStructuralReview(
   const child = lifetime.add(
     instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
   );
-  attachStructuralEditors(instantiation, entries, files, lifetime, changed.event);
-  return { instantiation: child, enabled: true, entries, load };
+  attachStructuralEditors(instantiation, entries, files, lifetime, changed.event, {
+    get: (path, side, id) => collapsed.get(collapseKey(path, side, id)),
+    set: (path, side, id, value) => {
+      collapsed.set(collapseKey(path, side, id), value);
+      emitCounts(path);
+    },
+  });
+  return { instantiation: child, enabled: true, entries, load, onDidChangeCounts: countsChanged.event };
 }
 
 /** The folding regions of one side, indexed for the editor bindings. */
@@ -264,12 +294,18 @@ function sideFolds(source: StructuralSource | undefined): SideFolds {
   };
 }
 
+interface CollapseState {
+  get(path: string, side: 0 | 1, id: number): boolean | undefined;
+  set(path: string, side: 0 | 1, id: number, value: boolean): void;
+}
+
 function attachStructuralEditors(
   instantiation: IInstantiationService,
   entries: readonly ReviewFilesEditorEntry[],
   files: Map<string, StructuralTextDiff>,
   lifetime: DisposableStore,
   onDidLoad: Event<void>,
+  collapsed: CollapseState,
 ): void {
   const features = instantiation.invokeFunction((a) => a.get(ILanguageFeaturesService));
   const editors = instantiation.invokeFunction((a) => a.get(ICodeEditorService));
@@ -310,9 +346,6 @@ function attachStructuralEditors(
     ),
   );
   const models = new Map<string, Set<FoldingModel>>();
-  /** Collapse state by `${pair}:${region id}`; seeded from the wire's initial visibility. */
-  const collapsed = new Map<string, boolean>();
-  const keyFor = (pair: string, region: StructuralRegion) => `${pair}:${region.id}`;
   let synchronizing = false;
   function watch(editor: ICodeEditor) {
     const store = lifetime.add(new DisposableStore());
@@ -338,19 +371,15 @@ function attachStructuralEditors(
       members.add(folding);
       models.set(modelKey, members);
       binding.add(toDisposable(() => members.delete(folding)));
-      for (const { region } of folds.entries) {
-        const key = keyFor(source.pair, region);
-        if (!collapsed.has(key)) collapsed.set(key, region.visibility?.collapsed === true);
-      }
-      const shownLabels = () =>
-        folds.entries.filter(({ region }) => collapsed.get(keyFor(source.pair, region)) === true);
+      const isCollapsed = (region: StructuralRegion) => collapsed.get(source.pair, source.side, region.id) === true;
+      const shownLabels = () => folds.entries.filter(({ region }) => isCollapsed(region));
       const restore = () => {
         const toggle = [];
         for (const { region, range } of folds.entries) {
           const native = folding.getRegionAtLine(range.start);
           if (native?.startLineNumber !== range.start || native.endLineNumber !== range.end)
             continue;
-          if (native.isCollapsed !== (collapsed.get(keyFor(source.pair, region)) ?? false)) toggle.push(native);
+          if (native.isCollapsed !== isCollapsed(region)) toggle.push(native);
         }
         if (toggle.length) folding.toggleCollapseState(toggle);
         labels.sync(shownLabels());
@@ -363,10 +392,12 @@ function attachStructuralEditors(
             for (const native of event.collapseStateChanged ?? []) {
               const region = folds.byRange.get(`${native.startLineNumber}:${native.endLineNumber}`);
               if (!region) continue;
-              collapsed.set(keyFor(source.pair, region), native.isCollapsed);
-              const oppositeRange = foldsFor(source.pair, source.side === 0 ? 1 : 0)?.rangeById.get(region.id);
+              collapsed.set(source.pair, source.side, region.id, native.isCollapsed);
+              const oppositeSide = source.side === 0 ? 1 : 0;
+              const oppositeRange = foldsFor(source.pair, oppositeSide)?.rangeById.get(region.id);
               if (!oppositeRange) continue;
-              for (const other of models.get(`${source.pair}:${1 - source.side}`) ?? []) {
+              collapsed.set(source.pair, oppositeSide, region.id, native.isCollapsed);
+              for (const other of models.get(`${source.pair}:${oppositeSide}`) ?? []) {
                 const target = other.getRegionAtLine(oppositeRange.start);
                 if (
                   target?.startLineNumber === oppositeRange.start &&

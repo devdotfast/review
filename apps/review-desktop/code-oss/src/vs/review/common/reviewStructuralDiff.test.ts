@@ -8,8 +8,10 @@ import test from "node:test";
 import { projectSourceAlignment } from "../../editor/common/diff/sourceLineAlignment.js";
 import {
   nativeFoldRange,
+  structuralCountsTooltip,
   structuralFoldRanges,
   structuralFoldingRegions,
+  structuralVisibleCounts,
   structuralHighlights,
   structuralRows,
   utf16Column,
@@ -157,4 +159,27 @@ test("a collapsed leaf folds under the line above it and hides exactly its lines
 test("Tree-sitter byte offsets convert to Monaco UTF-16 columns", () => {
   assert.equal(utf16Column("a😀éz", 7), 5);
   assert.throws(() => utf16Column("a😀éz", 2), /UTF-8 boundary/);
+});
+
+test("header counts follow what is visible: collapsed regions hide their changed lines", () => {
+  const span = (line: number) => ({ line, start_column: 0, end_column: 1 });
+  const body = fold(3, [leaf(4, 2, 3), leaf(5, 3, 5, { changed: [span(3), span(4)] }), leaf(6, 5, 6)]);
+  const diff: StructuralTextDiff = {
+    type: "text",
+    stats: { textual: { added: 3, removed: 1 }, structural: { added: 3, removed: 0 } },
+    lhs: text(["a", "b", "c", "d", "e", "f"], [leaf(1, 0, 1, { changed: [span(0)] }), leaf(2, 1, 2), body]),
+    rhs: text(["a", "x", "c", "d", "e", "f"], [leaf(1, 0, 1, { changed: [span(0)] }), leaf(2, 1, 2), body]),
+  };
+  const open = structuralVisibleCounts(diff, () => false);
+  assert.deepEqual(open.visible, { added: 3, removed: 3 });
+  const folded = structuralVisibleCounts(diff, (side, id) => side === 1 && id === 3);
+  assert.deepEqual(folded.visible, { added: 1, removed: 3 });
+  assert.equal(
+    structuralCountsTooltip(folded),
+    "visible +1 −3\nstructural +3 −0\ntextual +3 −1",
+  );
+  assert.equal(
+    structuralCountsTooltip({ ...folded, structural: undefined }).split("\n")[1],
+    "structural line diff",
+  );
 });

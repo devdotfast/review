@@ -1780,6 +1780,48 @@ body
 }
 
 .review-files-editor-diffs { position: relative; }
+.review-files-editor-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-sideBar-border, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-files-editor-summary[hidden] {
+  display: none;
+}
+
+.review-files-editor-summary-added {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.review-files-editor-summary-removed {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.review-files-editor-summary-bar {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.review-files-editor-summary-block {
+  width: 8px;
+  height: 8px;
+  background: var(--vscode-editorWidget-border);
+}
+
+.review-files-editor-summary-block.added {
+  background: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.review-files-editor-summary-block.removed {
+  background: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
 .review-multidiff-note {
   padding: 0 6px;
   color: var(--vscode-descriptionForeground);

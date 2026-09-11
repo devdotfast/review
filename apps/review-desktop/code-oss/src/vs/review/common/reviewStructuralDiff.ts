@@ -257,3 +257,53 @@ export function structuralHighlights(diff: StructuralTextDiff) {
     modifiedLines: modified.lines,
   };
 }
+
+/** One file's counts: what is on screen now, what diffr found structurally, and what git counts. */
+export interface StructuralFileCounts {
+  visible: StructuralLineCounts;
+  textual: StructuralLineCounts;
+  structural?: StructuralLineCounts;
+}
+
+function visibleChangedLines(
+  source: StructuralSource | undefined,
+  isCollapsed: (id: number) => boolean,
+): number {
+  if (!source) return 0;
+  const changed = new Set<number>();
+  for (const leaf of structuralLeaves(source.regions)) {
+    if (leaf.kind !== "leaf") continue;
+    for (const span of leaf.changed ?? []) changed.add(span.line);
+  }
+  for (const { region, range } of structuralFoldRanges(source.regions)) {
+    if (!isCollapsed(region.id)) continue;
+    // Monaco hides the lines after the fold's start line through its end line.
+    for (let line = range.start; line < range.end; line++) changed.delete(line);
+  }
+  return changed.size;
+}
+
+/**
+ * Changed lines that are not hidden inside a collapsed region, per side, so
+ * a header count says what the reader can see rather than what git counted.
+ * `isCollapsed` answers for the region id on the given side.
+ */
+export function structuralVisibleCounts(
+  diff: StructuralTextDiff,
+  isCollapsed: (side: 0 | 1, id: number) => boolean,
+): StructuralFileCounts {
+  return {
+    visible: {
+      added: visibleChangedLines(diff.rhs, (id) => isCollapsed(1, id)),
+      removed: visibleChangedLines(diff.lhs, (id) => isCollapsed(0, id)),
+    },
+    textual: diff.stats.textual,
+    structural: diff.stats.structural,
+  };
+}
+
+export function structuralCountsTooltip(counts: StructuralFileCounts): string {
+  const row = (label: string, value: StructuralLineCounts | undefined) =>
+    value ? `${label} +${value.added} −${value.removed}` : `${label} line diff`;
+  return [row("visible", counts.visible), row("structural", counts.structural), row("textual", counts.textual)].join("\n");
+}

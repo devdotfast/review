@@ -21,7 +21,6 @@ import {
   useReviewSession,
 } from "./host/review-session";
 import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
-import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { prepareReviewDocument } from "./review-document-prepare";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome } from "./review-home-view";
@@ -335,7 +334,7 @@ function ReviewCanvas({
       </CanvasShell>
     );
   }
-  return <ReviewCanvasLoading page />;
+  return null;
 }
 
 function Home({

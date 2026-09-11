@@ -1,0 +1,584 @@
+import path from "node:path";
+
+import { extractTraceEventText } from "./agent-trace-parser";
+import {
+  type CallStackDiffProps,
+  type CodePeekProps,
+  type CodePeekResolution,
+  type CodePeekResolutionContext,
+  type ReviewDefinitionSession,
+  callStackEntryAnchor,
+  calls,
+  createReviewDefinitionSession,
+} from "./authoring";
+import {
+  type CallStackChangedLines,
+  type CallStackSide,
+  callStackEvidenceErrors,
+  diffCallStacks,
+} from "./call-stack-diff";
+import { errorMessage } from "./error-message";
+import { loadReviewAgentTrace } from "./review-agent-traces";
+import {
+  REVIEW_DOCUMENT_FORMAT,
+  type ReviewDocumentData,
+  reviewDocumentDataSchema,
+  toReviewDocumentJson,
+} from "./review-document-data";
+import {
+  type CollectedReviewAnchors,
+  type MaterializedReviewNode,
+  type ReviewDocumentExport,
+  type ReviewDocumentModuleExports,
+  collectDocumentSoftwareModels,
+  collectReviewAnchors,
+  materializeReviewDocument,
+} from "./review-document-materialize";
+import {
+  type PublishAuditTraceQuote,
+  type ReviewDocumentPublishAudit,
+  auditReviewDocumentComponent,
+  createPublishValidationReact,
+  isPublishAuditComponent,
+} from "./review-publish-element-audit";
+import {
+  type NormalizedSoftwareModel,
+  type SoftwareModelData,
+  defineSoftwareMap,
+  isNormalizedSoftwareModel,
+  softwareModelData,
+  softwareModelDataSchema,
+} from "./software-map-model";
+import { resolveReviewSourceRange } from "./source-range-resolver";
+import { span, startSpan } from "./startup-trace";
+
+export interface ReviewPublishSourceTarget {
+  sourceRootPath: string;
+}
+
+export interface ReviewPublishEvidenceTargets {
+  head: ReviewPublishSourceTarget;
+  base?: ReviewPublishSourceTarget;
+}
+
+export interface ReviewPublishRangePeek extends CodePeekProps {
+  anchorId?: string;
+}
+
+export interface ReviewPublishEvaluationResult {
+  document: ReviewDocumentData | null;
+  legacySoftwareMap?: {
+    head: NormalizedSoftwareModel;
+    base: NormalizedSoftwareModel;
+  };
+  // Number of code peeks the document resolved. Zero means source preparation
+  // never ran.
+  peekCount: number;
+  rangePeeks: ReviewPublishRangePeek[];
+  errors: string[];
+  warnings: string[];
+}
+
+export type PublishValidationRuntime = ReturnType<
+  typeof validationRuntimeExports
+>;
+
+export interface ReviewPublishEvaluationInput {
+  prepareEvidence?: () => Promise<ReviewPublishEvidenceTargets>;
+  // Changed lines between the pinned commits, for CallStackDiff evidence:
+  // a "-" frame must anchor deleted lines and a "+" frame added lines.
+  resolveChangedLines?: (
+    file: string,
+    side: CallStackSide,
+  ) => Promise<CallStackChangedLines | null>;
+  ranges?: "validate" | "skip";
+}
+
+/** Shared evidence and JSON audit. The caller owns the module loader's
+ * lifetime; sealed legacy loading and native authoring use this same gate. */
+export async function evaluateReviewDocumentForPublish(
+  input: ReviewPublishEvaluationInput,
+  load: (runtime: PublishValidationRuntime) => Promise<string | null>,
+): Promise<ReviewPublishEvaluationResult> {
+  const ranges = input.ranges ?? "validate";
+  const failures: string[] = [];
+  const rangePeeks: ReviewPublishRangePeek[] = [];
+  const callStackProps: CallStackDiffProps[] = [];
+  const traceQuotes: PublishAuditTraceQuote[] = [];
+  let peekCount = 0;
+  let evidencePromise: Promise<ReviewPublishEvidenceTargets> | null = null;
+  const sessions: ReviewDefinitionSession[] = [];
+  const definedModels: ReviewDocumentModuleExports = {};
+
+  const documentCapture: PublishDocumentCapture = {
+    input: null,
+    audit: null,
+  };
+
+  // Evidence prepares once, on the first peek. A document without code
+  // references publishes without touching a pinned worktree.
+  const evidence = () => {
+    if (!input.prepareEvidence) {
+      throw new Error("Review source preparation is unavailable.");
+    }
+
+    return (evidencePromise ??= input.prepareEvidence());
+  };
+
+  const resolveCodePeek = async (
+    props: CodePeekProps,
+    context?: CodePeekResolutionContext,
+  ): Promise<CodePeekResolution> => {
+    peekCount += 1;
+    rangePeeks.push({ ...props, anchorId: context?.anchorId });
+
+    if (ranges === "skip") {
+      const sourceId = `source-range:${props.file}:${props.fromLine}-${props.toLine}`;
+
+      return {
+        snapshot: {
+          roots: [{ kind: "source", sourceId }],
+          resolved: {
+            [sourceId]: {
+              source: {
+                id: sourceId,
+                name: props.file,
+                kind: "source-range",
+                file: props.file,
+                line: props.fromLine,
+                endLine: props.toLine,
+              },
+              lines: [[{ t: props.file, k: "t" }]],
+            },
+          },
+        },
+      };
+    }
+
+    const peekSpan = startSpan("evaluate: code peek", {
+      detail: `${props.graph ?? "head"} ${props.file}:${props.fromLine}-${props.toLine}`,
+    });
+
+    try {
+      const targets = await evidence();
+      const primary = props.graph === "base" ? targets.base : targets.head;
+
+      if (!primary) {
+        throw new Error("The pinned base worktree is unavailable.");
+      }
+
+      const snapshot = await resolveReviewSourceRange({
+        rootPath: primary.sourceRootPath,
+        root: {
+          kind: "range",
+          file: props.file,
+          fromLine: props.fromLine,
+          toLine: props.toLine,
+        },
+      });
+
+      peekSpan.end();
+
+      return { snapshot };
+    } catch (error) {
+      peekSpan.fail();
+      const message = `Code peek range ${props.file}:${props.fromLine}-${props.toLine}: ${errorMessage(error)}`;
+
+      if (!failures.includes(message)) failures.push(message);
+      throw error;
+    }
+  };
+
+  const runtimeExports = validationRuntimeExports({
+    captureDefinition: (value) => {
+      definedModels[`definition-${Object.keys(definedModels).length}`] = value;
+    },
+    createSession: (session) => {
+      sessions.push(session);
+    },
+    resolveCodePeek,
+    reportAuditError: (message) => {
+      if (!failures.includes(message)) failures.push(message);
+    },
+    collectCallStackDiff: (props) => {
+      callStackProps.push(props);
+    },
+    collectTraceQuote: (quote) => {
+      traceQuotes.push(quote);
+    },
+    documentCapture,
+  });
+
+  const importErrorMessage = await load(runtimeExports);
+
+  if (ranges === "validate") {
+    failures.push(
+      ...(await span("evaluate: call stack diffs", () =>
+        validateCallStackEvidence({
+          props: callStackProps,
+          resolveChangedLines: input.resolveChangedLines,
+        }),
+      )),
+    );
+  }
+
+  const traceQuoteWarnings: string[] = [];
+
+  if (ranges === "validate" && traceQuotes.length > 0) {
+    const quoted = await span("evaluate: trace quotes", async () =>
+      validateTraceQuotes({
+        quotes: traceQuotes,
+        cwd: input.prepareEvidence
+          ? (await evidence()).head.sourceRootPath
+          : undefined,
+      }),
+    );
+
+    failures.push(...quoted.errors);
+    traceQuoteWarnings.push(...quoted.warnings);
+  }
+
+  let legacySoftwareMap: ReviewPublishEvaluationResult["legacySoftwareMap"];
+  const headMap = documentCapture.input?.repoSoftwareMap;
+  const baseMap = documentCapture.input?.baseSoftwareMap;
+
+  if (headMap != null || baseMap != null) {
+    const asJson = (map: NormalizedSoftwareModel) =>
+      softwareModelDataSchema.safeParse(
+        JSON.parse(JSON.stringify(softwareModelData(map))),
+      ).success;
+
+    if (
+      isNormalizedSoftwareModel(headMap) &&
+      isNormalizedSoftwareModel(baseMap) &&
+      asJson(headMap) &&
+      asJson(baseMap)
+    ) {
+      legacySoftwareMap = { head: headMap, base: baseMap };
+    } else {
+      failures.push(
+        "The embedded software map must contain valid head and base models.",
+      );
+    }
+  }
+
+  let document: ReviewDocumentData | null = null;
+
+  if (
+    importErrorMessage === null &&
+    failures.length === 0 &&
+    documentCapture.audit &&
+    documentCapture.input
+  ) {
+    const materialized = materializeReviewDocument(documentCapture.audit);
+    failures.push(...materialized.errors);
+
+    const moduleExports: ReviewDocumentModuleExports = {
+      ...documentCapture.input.models,
+      ...definedModels,
+    };
+
+    let anchors: ReturnType<typeof collectReviewAnchors> | null = null;
+
+    try {
+      anchors = collectReviewAnchors(moduleExports);
+    } catch (error) {
+      failures.push(errorMessage(error));
+    }
+
+    if (failures.length === 0 && anchors) {
+      try {
+        const softwareModels = collectDocumentSoftwareModels(
+          moduleExports,
+          documentCapture.input.modelNames,
+        ).map((model) => softwareModelData(model));
+
+        const assembled = assembleReviewDocument({
+          document: documentCapture.input,
+          body: materialized.body,
+          anchors,
+          softwareModels,
+        });
+
+        if ("document" in assembled) {
+          document = assembled.document;
+        } else {
+          failures.push(...assembled.errors);
+        }
+      } catch (error) {
+        failures.push(`Review document data: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  const errors =
+    failures.length > 0
+      ? failures
+      : importErrorMessage !== null
+        ? [importErrorMessage]
+        : [];
+
+  const warnings = [
+    ...sessions.flatMap((session) =>
+      session.diagnostics.map((diagnostic) => diagnostic.message),
+    ),
+    ...traceQuoteWarnings,
+  ];
+
+  const result: ReviewPublishEvaluationResult = {
+    document,
+    peekCount,
+    rangePeeks,
+    errors,
+    warnings: [...new Set(warnings)],
+  };
+
+  if (document && legacySoftwareMap)
+    result.legacySoftwareMap = legacySoftwareMap;
+
+  return result;
+}
+
+async function validateCallStackEvidence(input: {
+  props: readonly CallStackDiffProps[];
+  resolveChangedLines?: (
+    file: string,
+    side: CallStackSide,
+  ) => Promise<CallStackChangedLines | null>;
+}): Promise<string[]> {
+  const failures: string[] = [];
+
+  if (input.props.length === 0) return failures;
+
+  if (!input.resolveChangedLines) {
+    return [
+      "Document uses CallStackDiff but changed-line resolution is unavailable.",
+    ];
+  }
+
+  const changedLines = new Map<string, CallStackChangedLines | null>();
+
+  for (const props of input.props) {
+    const rows = diffCallStacks(props.base, props.head);
+
+    for (const row of rows) {
+      if (row.change === "unchanged") continue;
+      const side: CallStackSide = row.change === "removed" ? "base" : "head";
+      const file = callStackEntryAnchor(row.entry).peek.props.file;
+      const key = `${side}\0${file}`;
+
+      if (!changedLines.has(key)) {
+        changedLines.set(key, await input.resolveChangedLines(file, side));
+      }
+    }
+
+    const label = props.title
+      ? `<CallStackDiff "${props.title}">`
+      : "<CallStackDiff>";
+
+    for (const message of callStackEvidenceErrors(
+      rows,
+      (file, side) => changedLines.get(`${side}\0${file}`) ?? null,
+    )) {
+      const entry = `${label} ${message}`;
+
+      if (!failures.includes(entry)) failures.push(entry);
+    }
+  }
+
+  return failures;
+}
+
+async function validateTraceQuotes(input: {
+  quotes: readonly PublishAuditTraceQuote[];
+  cwd?: string;
+}): Promise<{ errors: string[]; warnings: string[] }> {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  for (const quote of input.quotes) {
+    const cleanQuote = quote.text.trim();
+
+    if (!cleanQuote) {
+      errors.push(
+        `<TraceQuote> in session ${quote.sessionId} has empty quote text.`,
+      );
+      continue;
+    }
+
+    const loaded = await loadReviewAgentTrace({
+      sessionId: quote.sessionId,
+      trace: quote.trace,
+      cwd: input.cwd,
+    });
+
+    if (!loaded) {
+      errors.push(
+        `<TraceQuote> session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""} has no normalized transcript.`,
+      );
+      continue;
+    }
+
+    const normQuote = cleanQuote.replace(/\s+/g, " ");
+    const matchingIndices: number[] = [];
+
+    for (let i = 0; i < loaded.trace.events.length; i++) {
+      const event = loaded.trace.events[i];
+      const text = extractTraceEventText(event).replace(/\s+/g, " ");
+
+      if (text.includes(normQuote)) matchingIndices.push(i);
+    }
+
+    const quoteLabel =
+      cleanQuote.length > 40 ? `${cleanQuote.slice(0, 39)}…` : cleanQuote;
+
+    if (matchingIndices.length === 0) {
+      errors.push(
+        `<TraceQuote> text "${quoteLabel}" not found in session ${quote.sessionId}${quote.trace ? ` (trace ${quote.trace})` : ""}.`,
+      );
+    } else if (quote.event !== undefined) {
+      if (!matchingIndices.includes(quote.event)) {
+        if (matchingIndices.length === 1) {
+          warnings.push(
+            `<TraceQuote> text "${quoteLabel}" hint event={${quote.event}} is stale; matched event ${matchingIndices[0]}.`,
+          );
+        } else {
+          warnings.push(
+            `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Update hint to event={${matchingIndices[0]}} to disambiguate.`,
+          );
+        }
+      }
+    } else if (matchingIndices.length > 1) {
+      warnings.push(
+        `<TraceQuote> text "${quoteLabel}" matched multiple events (${matchingIndices.join(", ")}). Add event={${matchingIndices[0]}} to disambiguate.`,
+      );
+    }
+  }
+
+  return { errors, warnings };
+}
+
+function assembleReviewDocument(input: {
+  document: PublishDocumentInput;
+  body: MaterializedReviewNode[];
+  anchors: CollectedReviewAnchors;
+  softwareModels: SoftwareModelData[];
+}): { document: ReviewDocumentData } | { errors: string[] } {
+  const parsed = reviewDocumentDataSchema.safeParse(
+    toReviewDocumentJson({
+      format: REVIEW_DOCUMENT_FORMAT,
+      title: input.document.title,
+      routePath: input.document.routePath,
+      sourcePath: path.basename(input.document.filePath),
+      body: input.body,
+      anchors: input.anchors.anchors,
+      anchorContents: input.anchors.anchorContents,
+      softwareModels: input.softwareModels,
+    }),
+  );
+
+  return parsed.success
+    ? { document: parsed.data }
+    : {
+        errors: parsed.error.issues.map(
+          (issue) =>
+            `Review document data: ${issue.path.join(".") || "document"}: ${issue.message}`,
+        ),
+      };
+}
+
+interface PublishDocumentInput {
+  title: string;
+  routePath: string;
+  filePath: string;
+  modelNames: string[];
+  models: ReviewDocumentModuleExports;
+  repoSoftwareMap?: NormalizedSoftwareModel | null;
+  baseSoftwareMap?: NormalizedSoftwareModel | null;
+  Component?: unknown;
+}
+
+interface PublishDocumentCapture {
+  input: PublishDocumentInput | null;
+  audit: ReviewDocumentPublishAudit | null;
+}
+
+function validationRuntimeExports(input: {
+  captureDefinition: (value: ReviewDocumentExport) => void;
+  createSession: (session: ReviewDefinitionSession) => void;
+  resolveCodePeek: (
+    props: CodePeekProps,
+    context?: CodePeekResolutionContext,
+  ) => Promise<CodePeekResolution>;
+  reportAuditError: (message: string) => void;
+  collectCallStackDiff: (props: CallStackDiffProps) => void;
+  collectTraceQuote: (quote: PublishAuditTraceQuote) => void;
+  documentCapture: PublishDocumentCapture;
+}) {
+  const noop = () => undefined;
+  // The React substitute is not inert: `jsx` builds element records so the
+  // audit below can parse every authored element's props at publish time.
+  const react = createPublishValidationReact();
+
+  return {
+    ...react,
+    calls,
+    defineSoftwareModel: (...args: Parameters<typeof defineSoftwareMap>) => {
+      const model = defineSoftwareMap(...args);
+      input.captureDefinition(model);
+
+      return model;
+    },
+    setReviewRequestContext: noop,
+    createBrowserReviewDefinitionSession: (sessionInput: {
+      softwareMap?: Parameters<
+        typeof createReviewDefinitionSession
+      >[0]["softwareMap"];
+      baseSoftwareMap?: Parameters<
+        typeof createReviewDefinitionSession
+      >[0]["baseSoftwareMap"];
+      mapDependentComponents?: readonly string[];
+    }) => {
+      const session = createReviewDefinitionSession({
+        softwareMap: sessionInput.softwareMap ?? null,
+        baseSoftwareMap: sessionInput.baseSoftwareMap ?? null,
+        mapDependentComponents: sessionInput.mapDependentComponents,
+        resolveCodePeek: input.resolveCodePeek,
+      });
+
+      input.createSession(session);
+
+      // Older sealed bundles omitted imported data.ts exports from `models`.
+      // Capture definitions while that exact bundle executes, including unused
+      // anchors, without reading or recompiling editable authoring sources.
+      return {
+        ...session,
+        defineAnchors: (
+          anchors: Parameters<ReviewDefinitionSession["defineAnchors"]>[0],
+        ) => {
+          const defined = session.defineAnchors(anchors);
+          input.captureDefinition(defined);
+
+          return defined;
+        },
+      };
+    },
+    createActiveReviewDocument: (document: PublishDocumentInput) => {
+      if (!isPublishAuditComponent(document.Component)) {
+        throw new Error("Review document has no component export.");
+      }
+
+      const audit = auditReviewDocumentComponent({
+        Component: document.Component,
+        reportError: input.reportAuditError,
+        collectCallStackDiff: input.collectCallStackDiff,
+        collectTraceQuote: input.collectTraceQuote,
+      });
+
+      input.documentCapture.input = document;
+      input.documentCapture.audit = audit;
+
+      return document;
+    },
+  };
+}

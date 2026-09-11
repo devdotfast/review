@@ -16,6 +16,7 @@ describe("hydratePublishedSoftwareMap", () => {
       label: "Orders",
       children: [],
     };
+
     const baseElement: SoftwareModelData["elements"][number] = {
       type: "container",
       id: "api",
@@ -24,6 +25,7 @@ describe("hydratePublishedSoftwareMap", () => {
       label: "API",
       children: [],
     };
+
     const bundle = bundleReviewSoftwareMap({
       head: hydrateSoftwareModel({
         elements: [headElement],
@@ -36,6 +38,7 @@ describe("hydratePublishedSoftwareMap", () => {
       headCommit: "a".repeat(40),
       baseCommit: "b".repeat(40),
     });
+
     const maps = hydratePublishedSoftwareMap({
       head: JSON.parse(bundle.headJson),
       base: JSON.parse(bundle.baseJson),
@@ -45,5 +48,12 @@ describe("hydratePublishedSoftwareMap", () => {
     expect(maps.base.elementsByPath).toBeInstanceOf(Map);
     expect(maps.head.elementsByPath.get("orders")).toEqual(headElement);
     expect(maps.base.elementsByPath.get("orders.api")).toEqual(baseElement);
+  });
+
+  it("rejects an unsupported published map format", () => {
+    const data = { format: "software-map/2", elements: [], relationships: [] };
+    expect(() =>
+      hydratePublishedSoftwareMap({ head: data, base: data }),
+    ).toThrow(/software-map\/1/);
   });
 });

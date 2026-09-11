@@ -2,7 +2,10 @@ import {
   resolveCodePeekRequest,
   runWithCodePeekResolutionSlot,
 } from "./code-peek-resolution";
-import type { ReviewSession } from "./host/review-session";
+import type {
+  ReviewDocumentCacheEntry,
+  ReviewSession,
+} from "./host/review-session";
 import {
   type HydratedReviewDocument,
   type ReadyReviewDocumentLoad,
@@ -18,12 +21,14 @@ export async function resolveReviewDocumentPeeks(
   document: HydratedReviewDocument,
   session: ReviewSession,
   options: ResolveReviewDocumentPeeksOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   const resolveCodePeek = options.resolveCodePeek ?? resolveCodePeekRequest;
   const uniqueAnchors = new Set(document.anchors.values());
-  await Promise.all(
+
+  const results = await Promise.allSettled(
     [...uniqueAnchors].flatMap((anchor) => {
       if (!anchor.peek || anchor.peek.resolution) return [];
+
       return [
         runWithCodePeekResolutionSlot(async () => {
           anchor.peek!.resolution = await resolveCodePeek(
@@ -35,36 +40,59 @@ export async function resolveReviewDocumentPeeks(
       ];
     }),
   );
+
+  // A missing source must fail only its peek card, not the whole document.
+  return results.every((result) => result.status === "fulfilled");
 }
 
 /**
  * One hydration per content hash for the life of a session: the canvas
  * remounts the document on every view change, and peek resolution must not
- * re-run for a document the session already prepared.
+ * re-run for a document the session already prepared. Failed peeks retry on
+ * the same hydrated document, preserving successful resolutions and refs.
  */
 export function prepareReviewDocument(
   load: ReadyReviewDocumentLoad,
   session: ReviewSession,
   options: ResolveReviewDocumentPeeksOptions = {},
 ): Promise<HydratedReviewDocument> {
-  const cached = session.documents.get(load.contentHash);
-  if (cached) return cached;
-  const prepared = hydrateAndResolve(load, session, options);
-  session.documents.set(load.contentHash, prepared);
-  void prepared.catch(() => {
-    if (session.documents.get(load.contentHash) === prepared) {
-      session.documents.delete(load.contentHash);
+  let cached = session.documents.get(load.contentHash);
+
+  if (!cached) {
+    try {
+      cached = { document: hydrateReviewDocument(load), complete: false };
+    } catch (error) {
+      // Invalid hydration must never occupy the content hash's cache entry.
+      return Promise.reject(error);
     }
-  });
-  return prepared;
+
+    session.documents.set(load.contentHash, cached);
+  }
+
+  if (cached.preparation) return cached.preparation;
+
+  if (cached.complete) return Promise.resolve(cached.document);
+
+  return prepareCachedDocument(cached, session, options);
 }
 
-async function hydrateAndResolve(
-  load: ReadyReviewDocumentLoad,
+function prepareCachedDocument(
+  cached: ReviewDocumentCacheEntry,
   session: ReviewSession,
   options: ResolveReviewDocumentPeeksOptions,
 ): Promise<HydratedReviewDocument> {
-  const document = hydrateReviewDocument(load);
-  await resolveReviewDocumentPeeks(document, session, options);
-  return document;
+  // Publish the shared attempt before invoking any resolver, including a
+  // resolver that synchronously prepares another view of the same document.
+  cached.preparation = Promise.resolve()
+    .then(() => resolveReviewDocumentPeeks(cached.document, session, options))
+    .then((complete) => {
+      cached.complete = complete;
+
+      return cached.document;
+    })
+    .finally(() => {
+      cached.preparation = undefined;
+    });
+
+  return cached.preparation;
 }

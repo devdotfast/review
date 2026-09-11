@@ -16,12 +16,16 @@ export { defineSoftwareMap as defineSoftwareModel } from "./software-map-model";
 const nonEmptyStringSchema = z
   .string()
   .refine((value) => value.trim().length > 0, "Must not be empty");
+
 const optionalNonEmptyStringSchema = nonEmptyStringSchema.optional();
+
 const noChildrenSchema = z.never().optional();
+
 const reactNodeSchema = z.custom<ReactNode>(
   (value) => value !== undefined && value !== null,
   "Must contain children",
 );
+
 const softwareDataStoreKindSchema = z.enum([
   "database",
   "objectStore",
@@ -57,12 +61,14 @@ export const actorInputSchema = z.strictObject({
   label: nonEmptyStringSchema,
   softwareMapPath: optionalNonEmptyStringSchema,
 });
+
 export type ActorInput = z.infer<typeof actorInputSchema>;
 
 export const actorInputMapSchema = z.record(
   nonEmptyStringSchema,
   actorInputSchema,
 );
+
 export type ActorInputMap = z.infer<typeof actorInputMapSchema>;
 
 export const actorRefSchema = z.strictObject({
@@ -71,16 +77,19 @@ export const actorRefSchema = z.strictObject({
   label: nonEmptyStringSchema,
   softwareMapPath: optionalNonEmptyStringSchema,
 });
+
 export type ActorRef = z.infer<typeof actorRefSchema>;
 
 const inlineSequenceActorSchema = z.strictObject({
   id: optionalNonEmptyStringSchema,
   label: nonEmptyStringSchema,
 });
+
 export const sequenceActorInputSchema = z.union([
   actorRefSchema,
   inlineSequenceActorSchema,
 ]);
+
 export type SequenceActorInput = z.infer<typeof sequenceActorInputSchema>;
 
 export const sequenceMessageCodeInputSchema = z.union([
@@ -90,6 +99,7 @@ export const sequenceMessageCodeInputSchema = z.union([
     text: nonEmptyStringSchema,
   }),
 ]);
+
 export type SequenceMessageCodeInput = z.infer<
   typeof sequenceMessageCodeInputSchema
 >;
@@ -111,10 +121,13 @@ export const codePeekRangeInputSchema = z
     path: ["toLine"],
     message: "Must be greater than or equal to fromLine",
   });
+
 export type CodePeekRangeInput = z.infer<typeof codePeekRangeInputSchema>;
 
 export const codePeekPropsSchema = codePeekRangeInputSchema;
+
 export type CodePeekRoot = CodePeekRangeInput;
+
 export type CodePeekProps = z.infer<typeof codePeekPropsSchema>;
 
 export interface CodePeekDiffFile {
@@ -143,6 +156,7 @@ export const codePeekRefSchema = z.strictObject({
   props: codePeekPropsSchema,
   resolution: z.custom<CodePeekResolution>().nullable(),
 });
+
 export type CodePeekRef = z.infer<typeof codePeekRefSchema>;
 
 export const anchorInputSchema = z.strictObject({
@@ -151,12 +165,14 @@ export const anchorInputSchema = z.strictObject({
   detail: optionalNonEmptyStringSchema,
   softwareMapPath: optionalNonEmptyStringSchema,
 });
+
 export type AnchorInput = z.infer<typeof anchorInputSchema>;
 
 export const anchorInputMapSchema = z.record(
   nonEmptyStringSchema,
   z.union([nonEmptyStringSchema, anchorInputSchema]),
 );
+
 export type AnchorInputMap = z.infer<typeof anchorInputMapSchema>;
 
 // The `key: "Title"` shorthand becomes `{ title }` at the parse boundary, so
@@ -177,11 +193,13 @@ export const anchorRefSchema = z.strictObject({
   peek: codePeekRefSchema.optional(),
   softwareMapPath: optionalNonEmptyStringSchema,
 });
+
 export type AnchorRef = z.infer<typeof anchorRefSchema>;
 
 export const peekableAnchorRefSchema = anchorRefSchema.extend({
   peek: codePeekRefSchema,
 });
+
 export type PeekableAnchorRef = z.infer<typeof peekableAnchorRefSchema>;
 
 const sequenceMessageBaseSchema = {
@@ -189,6 +207,7 @@ const sequenceMessageBaseSchema = {
   to: sequenceActorInputSchema,
   label: nonEmptyStringSchema,
 };
+
 export const sequenceMessageInputSchema = z.union([
   z.strictObject({
     ...sequenceMessageBaseSchema,
@@ -201,6 +220,7 @@ export const sequenceMessageInputSchema = z.union([
     code: sequenceMessageCodeInputSchema,
   }),
 ]);
+
 export type SequenceMessageInput = z.infer<typeof sequenceMessageInputSchema>;
 
 export const sequenceDiagramPropsSchema = z.strictObject({
@@ -208,6 +228,7 @@ export const sequenceDiagramPropsSchema = z.strictObject({
   messages: z.array(sequenceMessageInputSchema).min(1),
   children: noChildrenSchema,
 });
+
 export type SequenceDiagramProps = z.infer<typeof sequenceDiagramPropsSchema>;
 
 export function isAnchorRef(value: unknown): value is AnchorRef {
@@ -229,12 +250,14 @@ export const reviewCodePeekPropsSchema = z.strictObject({
   anchor: peekableAnchorRefSchema,
   children: noChildrenSchema,
 });
+
 export type ReviewCodePeekProps = z.infer<typeof reviewCodePeekPropsSchema>;
 
 export const anchorLinkPropsSchema = z.strictObject({
   anchor: peekableAnchorRefSchema,
   children: reactNodeSchema,
 });
+
 export type AnchorLinkProps = z.infer<typeof anchorLinkPropsSchema>;
 
 export const reviewSectionPropsSchema = z.strictObject({
@@ -242,6 +265,7 @@ export const reviewSectionPropsSchema = z.strictObject({
   defaultCollapsed: z.boolean().optional(),
   children: reactNodeSchema,
 });
+
 export type ReviewSectionProps = z.infer<typeof reviewSectionPropsSchema>;
 
 export const dbUseCasePropsSchema = z.strictObject({
@@ -250,11 +274,15 @@ export const dbUseCasePropsSchema = z.strictObject({
   summary: optionalNonEmptyStringSchema,
   children: reactNodeSchema,
 });
+
 export type DbUseCaseProps = z.infer<typeof dbUseCasePropsSchema>;
 
 export const storeKindSchema = z.enum(["relational", "document"]);
+
 export type StoreKind = z.infer<typeof storeKindSchema>;
+
 export const collectionKindSchema = z.enum(["tables", "documents"]);
+
 export type CollectionKind = z.infer<typeof collectionKindSchema>;
 
 const resolvedTargetRefSchema = z.strictObject({
@@ -270,6 +298,7 @@ const resolvedTargetRefSchema = z.strictObject({
   collectionKey: optionalNonEmptyStringSchema,
   path: z.array(nonEmptyStringSchema),
 });
+
 export interface TargetRef {
   __kind: "db-target-ref";
   storeId: string;
@@ -285,6 +314,7 @@ export interface TargetRef {
 }
 
 const authoredTargetRefKey: unique symbol = Symbol("authored-target-ref");
+
 const collectionSchemaKey: unique symbol = Symbol("collection-schema");
 
 export interface AuthoredTargetRef {
@@ -308,7 +338,9 @@ export function resolveTargetRef(
   value: AuthoredTargetRef | TargetRef | ActorRef | undefined,
 ): TargetRef | null {
   if (value === undefined) return null;
+
   if (authoredTargetRefKey in value) return value[authoredTargetRefKey];
+
   return value.__kind === "db-target-ref" ? value : null;
 }
 
@@ -326,6 +358,7 @@ export const dbReadPropsSchema = z.strictObject({
   to: actorRefSchema,
   ...dbOperationCommonSchema,
 });
+
 export type DbReadProps = Omit<z.input<typeof dbReadPropsSchema>, "from"> & {
   from: AuthoredTargetRef;
 };
@@ -335,6 +368,7 @@ export const dbWritePropsSchema = z.strictObject({
   to: targetRefSchema,
   ...dbOperationCommonSchema,
 });
+
 export type DbWriteProps = Omit<z.input<typeof dbWritePropsSchema>, "to"> & {
   to: AuthoredTargetRef;
 };
@@ -343,6 +377,7 @@ export const dbOperationPropsSchema = z.union([
   dbReadPropsSchema,
   dbWritePropsSchema,
 ]);
+
 export type DbOperationProps = z.infer<typeof dbOperationPropsSchema>;
 
 // Only the identifying fields are parsed: `z.custom` keeps the store handle's
@@ -365,6 +400,7 @@ export const databaseLensPropsSchema = z.strictObject({
   height: z.number().positive().optional(),
   children: reactNodeSchema,
 });
+
 export type DatabaseLensProps = z.infer<typeof databaseLensPropsSchema>;
 
 // The model is the normalized structure defineSoftwareMap returns; `z.custom`
@@ -391,11 +427,13 @@ export const softwareMapPropsSchema = z.strictObject({
   showFloatingActions: z.boolean().optional(),
   children: noChildrenSchema,
 });
+
 export type SoftwareMapProps = z.infer<typeof softwareMapPropsSchema>;
 
 export const tutorialKeymapPickerPropsSchema = z.strictObject({
   children: noChildrenSchema,
 });
+
 export type TutorialKeymapPickerProps = z.infer<
   typeof tutorialKeymapPickerPropsSchema
 >;
@@ -412,6 +450,7 @@ export const tutorialAuthoringConversationSchema = z.strictObject({
     )
     .min(2),
 });
+
 export type TutorialAuthoringConversation = z.infer<
   typeof tutorialAuthoringConversationSchema
 >;
@@ -420,6 +459,7 @@ export const tutorialAuthoringConversationPropsSchema = z.strictObject({
   conversation: tutorialAuthoringConversationSchema,
   children: noChildrenSchema,
 });
+
 export type TutorialAuthoringConversationProps = z.infer<
   typeof tutorialAuthoringConversationPropsSchema
 >;
@@ -428,12 +468,14 @@ export const tutorialFeaturePropsSchema = z.strictObject({
   feature: z.literal("softwareMap"),
   children: reactNodeSchema,
 });
+
 export type TutorialFeatureProps = z.infer<typeof tutorialFeaturePropsSchema>;
 
 export const tutorialViewButtonPropsSchema = z.strictObject({
   view: z.enum(["review", "commits", "diff", "map"]),
   children: reactNodeSchema,
 });
+
 export type TutorialViewButtonProps = z.infer<
   typeof tutorialViewButtonPropsSchema
 >;
@@ -444,6 +486,7 @@ export const traceQuotePropsSchema = z.strictObject({
   event: z.number().int().nonnegative().optional(),
   children: reactNodeSchema.optional(),
 });
+
 export type TraceQuoteProps = z.infer<typeof traceQuotePropsSchema>;
 
 export const callsAssertionSchema = z.strictObject({
@@ -452,6 +495,7 @@ export const callsAssertionSchema = z.strictObject({
   child: peekableAnchorRefSchema,
   reason: optionalNonEmptyStringSchema,
 });
+
 export type CallsAssertion = z.infer<typeof callsAssertionSchema>;
 
 // An annotated hop in a call stack, for calls the reader cannot follow by
@@ -466,9 +510,12 @@ export function calls(
   // because peek resolution completes asynchronously on the originals.
   peekableAnchorRefSchema.parse(parent);
   peekableAnchorRefSchema.parse(child);
+
   if (reason !== undefined) nonEmptyStringSchema.parse(reason);
   const assertion: CallsAssertion = { __kind: "call-assertion", parent, child };
+
   if (reason !== undefined) assertion.reason = reason;
+
   return Object.freeze(assertion);
 }
 
@@ -476,6 +523,7 @@ export const callStackEntrySchema = z.union([
   peekableAnchorRefSchema,
   callsAssertionSchema,
 ]);
+
 export type CallStackEntry = z.infer<typeof callStackEntrySchema>;
 
 export function isCallsAssertion(
@@ -512,13 +560,17 @@ export const callStackDiffPropsSchema = z
         path: ["head"],
         message: "Must list at least one frame on base or head",
       });
+
       return;
     }
+
     const headIds = new Set(
       value.head.map((entry) => callStackEntryAnchor(entry).id),
     );
+
     value.head.forEach((entry, index) => {
       const anchor = callStackEntryAnchor(entry);
+
       if (anchor.peek.props.graph === "base") {
         context.addIssue({
           code: "custom",
@@ -529,6 +581,7 @@ export const callStackDiffPropsSchema = z
     });
     value.base.forEach((entry, index) => {
       const anchor = callStackEntryAnchor(entry);
+
       if (anchor.peek.props.graph !== "base" && !headIds.has(anchor.id)) {
         context.addIssue({
           code: "custom",
@@ -538,6 +591,7 @@ export const callStackDiffPropsSchema = z
       }
     });
   });
+
 export type CallStackDiffProps = z.infer<typeof callStackDiffPropsSchema>;
 
 export interface ReviewAuthoringComponentRegistry {
@@ -593,6 +647,7 @@ const softwareDataStoreForeignKeyRefSchema = z.union([
     onUpdate: optionalNonEmptyStringSchema,
   }),
 ]);
+
 const softwareDataStoreFieldSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
   z.lazy(() =>
     z.record(
@@ -609,6 +664,7 @@ const softwareDataStoreFieldSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
       ]),
     ),
   );
+
 const softwareDataStoreFieldDataSchema: z.ZodType<SoftwareDataStoreFieldSchema> =
   z.lazy(() =>
     z.record(
@@ -625,15 +681,18 @@ const softwareDataStoreFieldDataSchema: z.ZodType<SoftwareDataStoreFieldSchema> 
       ]),
     ),
   );
+
 export const softwareDataStoreCollectionInputSchema = z.strictObject({
   label: optionalNonEmptyStringSchema,
   key: optionalNonEmptyStringSchema,
   schema: softwareDataStoreFieldSchema,
 });
+
 const softwareDataStoreCollectionMapSchema = z.record(
   nonEmptyStringSchema,
   softwareDataStoreCollectionInputSchema,
 );
+
 export const storeInputSchema = z.strictObject({
   kind: storeKindSchema,
   label: nonEmptyStringSchema,
@@ -642,12 +701,14 @@ export const storeInputSchema = z.strictObject({
   tables: softwareDataStoreCollectionMapSchema.optional(),
   documents: softwareDataStoreCollectionMapSchema.optional(),
 });
+
 export type StoreInput = z.infer<typeof storeInputSchema>;
 
 export const storeInputMapSchema = z.record(
   nonEmptyStringSchema,
   storeInputSchema,
 );
+
 export type StoreInputMap = z.infer<typeof storeInputMapSchema>;
 
 export interface StoreRef {
@@ -661,7 +722,8 @@ export interface StoreRef {
   documents?: Record<string, CollectionRef>;
 }
 
-type CollectionHandle = AuthoredTargetRef & {
+type CollectionHandle = {
+  readonly [authoredTargetRefKey]: TargetRef;
   readonly [collectionSchemaKey]: SoftwareDataStoreFieldSchema;
 };
 
@@ -722,10 +784,15 @@ export function storeRefData(store: StoreRefDataSource): StoreRefData {
     kind: store.kind,
     label: store.label,
   };
+
   if (store.dataStoreKind) data.dataStoreKind = store.dataStoreKind;
+
   if (store.softwareMapPath) data.softwareMapPath = store.softwareMapPath;
+
   if (store.tables) data.tables = collections(store.tables);
+
   if (store.documents) data.documents = collections(store.documents);
+
   return data;
 }
 
@@ -747,10 +814,15 @@ export function hydrateStoreRef(data: StoreRefData): StoreRef {
     kind: data.kind,
     label: data.label,
   };
+
   if (data.dataStoreKind) store.dataStoreKind = data.dataStoreKind;
+
   if (data.softwareMapPath) store.softwareMapPath = data.softwareMapPath;
+
   if (data.tables) store.tables = collections(data.tables);
+
   if (data.documents) store.documents = collections(data.documents);
+
   return Object.freeze(store);
 }
 
@@ -777,9 +849,11 @@ export const storeRefDataSchema: z.ZodType<StoreRefData> = z.strictObject({
 export const documentCodePeekRefSchema = codePeekRefSchema.extend({
   resolution: z.null(),
 });
+
 export const documentAnchorRefSchema = anchorRefSchema.extend({
   peek: documentCodePeekRefSchema.optional(),
 });
+
 export const documentPeekableAnchorRefSchema = anchorRefSchema.extend({
   peek: documentCodePeekRefSchema,
 });
@@ -799,6 +873,7 @@ const documentSequenceMessageFields = {
   to: sequenceActorInputSchema,
   label: nonEmptyStringSchema,
 };
+
 const documentSequenceMessageSchema = z.union([
   z.strictObject({
     ...documentSequenceMessageFields,
@@ -920,12 +995,14 @@ const softwareActorObjectInputSchema = z.strictObject({
   path: nonEmptyStringSchema,
   label: optionalNonEmptyStringSchema,
 });
+
 type SoftwareActorDefinition = z.infer<typeof softwareActorObjectInputSchema>;
 
 export const softwareActorInputSchema = z.union([
   nonEmptyStringSchema,
   softwareActorObjectInputSchema,
 ]);
+
 export type SoftwareActorInput = z.infer<typeof softwareActorInputSchema>;
 
 // The `id: "path"` shorthand becomes `{ path }` at the parse boundary.
@@ -948,12 +1025,14 @@ export const softwareStoreInputSchema = z.strictObject({
   tables: softwareDataStoreCollectionMapSchema.optional(),
   documents: softwareDataStoreCollectionMapSchema.optional(),
 });
+
 export type SoftwareStoreInput = z.infer<typeof softwareStoreInputSchema>;
 
 export const softwareStoreInputMapSchema = z.record(
   nonEmptyStringSchema,
   softwareStoreInputSchema,
 );
+
 export type SoftwareStoreInputMap = z.infer<typeof softwareStoreInputMapSchema>;
 
 export interface ReviewDefinitionSession {
@@ -982,6 +1061,7 @@ export function createReviewDefinitionSession(
 ): ReviewDefinitionSession {
   let pending: Promise<void>[] = [];
   const diagnostics: ReviewDefinitionDiagnostic[] = [];
+
   const reportMissingSoftwareMap = (
     context: { component: "SoftwareMap" } | { path: readonly PropertyKey[] },
   ): void => {
@@ -997,6 +1077,7 @@ export function createReviewDefinitionSession(
         ? { component: context.component }
         : { path: context.path.map(String) }),
     } satisfies ReviewDefinitionDiagnostic);
+
     if (
       diagnostics.some(
         (existing) => JSON.stringify(existing) === JSON.stringify(diagnostic),
@@ -1004,14 +1085,17 @@ export function createReviewDefinitionSession(
     ) {
       return;
     }
+
     diagnostics.push(diagnostic);
   };
+
   if (
     !environment.softwareMap &&
     environment.mapDependentComponents?.includes("SoftwareMap")
   ) {
     reportMissingSoftwareMap({ component: "SoftwareMap" });
   }
+
   return {
     diagnostics,
     begin() {
@@ -1037,6 +1121,7 @@ function defineActors<T extends ActorInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: ActorRef } {
   actorInputMapSchema.parse(input);
+
   // SAFETY: the entries are built from every key of `input`, so the result
   // has exactly the keys of T.
   return Object.fromEntries(
@@ -1047,6 +1132,7 @@ function defineActors<T extends ActorInputMap>(
         [id, "softwareMapPath"],
         reportMissingSoftwareMap,
       );
+
       return [
         id,
         Object.freeze({
@@ -1067,6 +1153,7 @@ function defineAnchors<T extends AnchorInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: AnchorRefFor<T[K]> } {
   const anchors = anchorDefinitionMapSchema.parse(input);
+
   // SAFETY: the entries are built from every key of `input`, so the result
   // has exactly the keys of T.
   return Object.fromEntries(
@@ -1078,6 +1165,7 @@ function defineAnchors<T extends AnchorInputMap>(
         reportMissingSoftwareMap,
       );
       let peek: CodePeekRef | undefined;
+
       if (anchor.peek) {
         const props = validateCodePeekProps(anchor.peek);
         peek = {
@@ -1086,6 +1174,7 @@ function defineAnchors<T extends AnchorInputMap>(
           resolution: null,
         };
         const resolveCodePeek = environment.resolveCodePeek;
+
         if (resolveCodePeek) {
           const resolution = resolveCodePeek(props, { anchorId: id }).then(
             (resolved) => {
@@ -1095,6 +1184,7 @@ function defineAnchors<T extends AnchorInputMap>(
                   "Code reference resolved without source",
                 );
               }
+
               peek!.resolution = resolved;
               Object.freeze(peek);
             },
@@ -1105,6 +1195,7 @@ function defineAnchors<T extends AnchorInputMap>(
               );
             },
           );
+
           // Module evaluation registers all anchors before the generated
           // readiness barrier awaits them. A fast rejection in that gap must
           // remain observable by ready() without becoming a process-level
@@ -1113,6 +1204,7 @@ function defineAnchors<T extends AnchorInputMap>(
           pending.push(resolution);
         }
       }
+
       return [
         id,
         Object.freeze({
@@ -1129,6 +1221,7 @@ function defineAnchors<T extends AnchorInputMap>(
 function codePeekResolutionHasSource(resolution: CodePeekResolution): boolean {
   return resolution.snapshot.roots.some((root) => {
     const source = resolution.snapshot.resolved[root.sourceId];
+
     return source?.lines.some((line) =>
       line.some((token) => token.t.trim().length > 0),
     );
@@ -1141,6 +1234,7 @@ function defineStores<T extends StoreInputMap>(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): { [K in keyof T]: StoreRefFor<T[K]> } {
   storeInputMapSchema.parse(input);
+
   // SAFETY: the entries are built from every key of `input`, so the result
   // has exactly the keys of T.
   return Object.fromEntries(
@@ -1151,6 +1245,7 @@ function defineStores<T extends StoreInputMap>(
         [id, "softwareMapPath"],
         reportMissingSoftwareMap,
       );
+
       const base: StoreRef = {
         __kind: "db-store-ref",
         id,
@@ -1159,9 +1254,11 @@ function defineStores<T extends StoreInputMap>(
         dataStoreKind: store.dataStoreKind,
         softwareMapPath: store.softwareMapPath,
       };
+
       if (store.tables) {
         base.tables = defineCollections(id, store, "tables", store.tables);
       }
+
       if (store.documents) {
         base.documents = defineCollections(
           id,
@@ -1170,6 +1267,7 @@ function defineStores<T extends StoreInputMap>(
           store.documents,
         );
       }
+
       return [id, Object.freeze(base)];
     }),
   ) as { [K in keyof T]: StoreRefFor<T[K]> };
@@ -1184,11 +1282,13 @@ function defineSoftwareActors<T extends Record<string, SoftwareActorInput>>(
   input: T,
 ): { [K in keyof T]: ActorRef } {
   const actors = softwareActorDefinitionMapSchema.parse(input);
+
   // SAFETY: the entries are built from every key of `input`, so the result
   // has exactly the keys of T.
   return Object.fromEntries(
     Object.entries(actors).map(([id, actor]) => {
       const element = softwareElementForPath(model, actor.path, [id, "path"]);
+
       return [
         id,
         Object.freeze({
@@ -1207,17 +1307,20 @@ function defineSoftwareStores<T extends SoftwareStoreInputMap>(
   input: T,
 ): { [K in keyof T]: SoftwareStoreRefFor<T[K]> } {
   softwareStoreInputMapSchema.parse(input);
+
   // SAFETY: every entry pairs a key of `input` with a store input derived
   // from its validated SoftwareStoreInput and a dataStore element.
   const stores = Object.fromEntries(
     Object.entries(input).map(([id, store]) => {
       const element = softwareElementForPath(model, store.path, [id, "path"]);
+
       if (element.type !== "dataStore") {
         throwAuthoringIssue(
           [id, "path"],
           `Software map element "${store.path}" must be a dataStore to back a DatabaseLens store`,
         );
       }
+
       return [
         id,
         {
@@ -1235,6 +1338,7 @@ function defineSoftwareStores<T extends SoftwareStoreInputMap>(
       ];
     }),
   ) as StoreInputMap;
+
   // SAFETY: `stores` has exactly the keys of T and defineStores keeps them, so
   // each key's ref is SoftwareStoreRefFor<T[K]>.
   return defineStores(
@@ -1256,6 +1360,7 @@ function authoredCollections(
     | undefined,
 ): Record<string, SoftwareDataStoreCollectionInput> | undefined {
   if (!collections) return undefined;
+
   return Object.fromEntries(
     Object.entries(collections).map(([key, { id: _id, ...collection }]) => [
       key,
@@ -1273,6 +1378,7 @@ function defineCollections(
   return Object.fromEntries(
     Object.entries(collections).map(([collectionId, collection]) => {
       const collectionLabel = collection.label ?? collectionId;
+
       const target: TargetRef = {
         __kind: "db-target-ref",
         storeId,
@@ -1286,6 +1392,7 @@ function defineCollections(
         collectionKey: collection.key,
         path: [],
       };
+
       return [collectionId, collectionRefFromTarget(target, collection.schema)];
     }),
   );
@@ -1303,6 +1410,7 @@ function collectionRefFromTarget(
     [authoredTargetRefKey]: { value: Object.freeze(target) },
     [collectionSchemaKey]: { value: schema },
   });
+
   return Object.freeze(authored);
 }
 
@@ -1314,6 +1422,7 @@ function defineFieldTargets(
   return Object.fromEntries(
     Object.entries(schema).map(([field, value]) => {
       const path = [...prefix, field];
+
       const target: TargetRef = {
         __kind: "db-target-ref",
         storeId: collection.storeId,
@@ -1327,16 +1436,20 @@ function defineFieldTargets(
         collectionKey: collection.collectionKey,
         path,
       };
+
       const nestedSchema = isNestedSchema(value) ? value : value.schema;
+
       // SAFETY: the symbol-keyed target is defined on the next statement,
       // before the field ref escapes.
       const authored = Object.assign(
         {},
         nestedSchema ? defineFieldTargets(collection, nestedSchema, path) : {},
       ) as AuthoredTargetRef & Record<string, AuthoredTargetRef>;
+
       Object.defineProperty(authored, authoredTargetRefKey, {
         value: Object.freeze(target),
       });
+
       return [field, Object.freeze(authored)];
     }),
   );
@@ -1356,12 +1469,14 @@ function softwareElementForPath(
   propertyPath: PropertyKey[],
 ) {
   const element = model.elementsByPath.get(path);
+
   if (!element) {
     throwAuthoringIssue(
       propertyPath,
       "Must reference an existing software-map path",
     );
   }
+
   return element;
 }
 
@@ -1372,10 +1487,13 @@ function requireDefinedSoftwareMapPath(
   reportMissingSoftwareMap: (context: { path: readonly PropertyKey[] }) => void,
 ): void {
   if (path === undefined) return;
+
   if (!environment.softwareMap) {
     reportMissingSoftwareMap({ path: propertyPath });
+
     return;
   }
+
   softwareElementForPath(environment.softwareMap, path, propertyPath);
 }
 
@@ -1402,5 +1520,6 @@ export function throwAuthoringIssue(
 
 function errorMessage(cause: unknown): string {
   if (cause instanceof Error && cause.message.trim()) return cause.message;
+
   return String(cause);
 }

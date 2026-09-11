@@ -13,6 +13,7 @@ export function rehypeReviewTargets() {
         element.properties["data-review-block-tag"] = element.tagName;
         blockIndex += 1;
       }
+
       if (element.tagName === "table") {
         stampTableCells(element, tableIndex);
         tableIndex += 1;
@@ -26,6 +27,7 @@ function stampTableCells(table: Element, tableIndex: number): void {
   walk(table, (element) => {
     if (element.tagName !== "tr") return;
     let column = 0;
+
     for (const child of element.children) {
       if (
         child.type !== "element" ||
@@ -33,17 +35,21 @@ function stampTableCells(table: Element, tableIndex: number): void {
       ) {
         continue;
       }
+
       child.properties["data-review-table"] = tableIndex;
       child.properties["data-review-row"] = row;
       child.properties["data-review-column"] = column;
       column += 1;
     }
+
     row += 1;
   });
 }
 
 function walk(node: Nodes, visit: (element: Element) => void): void {
   if (node.type === "element") visit(node);
+
   if (!("children" in node)) return;
+
   for (const child of node.children) walk(child, visit);
 }

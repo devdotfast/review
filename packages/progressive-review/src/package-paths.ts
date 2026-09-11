@@ -18,12 +18,16 @@ export function findProgressiveReviewPackageRoot(
 ): string {
   const currentDir = path.dirname(fileURLToPath(moduleUrl));
   let candidate = currentDir;
+
   while (true) {
     const directoryName = path.basename(candidate);
+
     if (directoryName === "src" || directoryName === "dist") {
       return path.dirname(candidate);
     }
+
     const parent = path.dirname(candidate);
+
     if (parent === candidate) return currentDir;
     candidate = parent;
   }
@@ -41,13 +45,17 @@ export function progressiveReviewAppSourcePath(
   return path.join(findProgressiveReviewPackageRoot(moduleUrl), "app", "src");
 }
 
-export function progressiveReviewAuthoringSourcePath(
+export function progressiveReviewAuthoringTypesPath(
   moduleUrl: string = import.meta.url,
 ): string {
+  // Source execution must see edits immediately; installed execution uses the
+  // generated declaration closure instead of checking implementation modules.
+  const sourceMode = fileURLToPath(moduleUrl).endsWith(".ts");
+
   return path.join(
     findProgressiveReviewPackageRoot(moduleUrl),
-    "src",
-    "authoring.ts",
+    sourceMode ? "src" : "dist",
+    sourceMode ? "authoring.ts" : "authoring.d.ts",
   );
 }
 
@@ -66,6 +74,7 @@ export function readProgressiveReviewPackageVersion(
         ),
       ),
     );
+
     return jsonString(packageJson?.version) ?? "unknown";
   } catch {
     return "unknown";
@@ -83,10 +92,12 @@ export function progressiveReviewModelModulePath(
   }
 
   const distFileName = modelFileName.replace(/\.ts$/, ".js");
+
   const candidates = [
     path.join(packageRoot, "dist", distFileName),
     path.join(packageRoot, "src", modelFileName),
   ];
+
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
@@ -100,5 +111,6 @@ export function relativeImportPath(
 
   const relative = path.relative(path.dirname(fromFilePath), targetFilePath);
   const normalized = relative.split(path.sep).join("/");
+
   return normalized.startsWith(".") ? normalized : `./${normalized}`;
 }

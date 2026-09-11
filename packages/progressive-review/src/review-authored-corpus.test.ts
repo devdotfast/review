@@ -10,6 +10,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { hydrateReviewDocument } from "../app/src/review-document-hydrate";
 import { reviewAuthoringPropsSchemas } from "./authoring";
 import { patchChangedLines } from "./call-stack-diff";
+import { buildReviewDocument } from "./document/build";
 import {
   type AuthoredReviewCase,
   authoredReviewCases,
@@ -31,22 +32,26 @@ import {
   walkReviewNodes,
 } from "./review-document-data";
 import { createReviewDir } from "./review-home";
-import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
-import { compileReviewDocumentBundle } from "./server/doc-bundler";
 
 const exec = promisify(execFile);
+
 const packageRoot = path.resolve(import.meta.dirname, "..");
+
 const roots: string[] = [];
+
 const exercisedComponents = new Set<string>();
+
 afterAll(() => {
   const missing = Object.keys(reviewAuthoringPropsSchemas).filter(
     (name) => !exercisedComponents.has(name),
   );
+
   if (missing.length > 0)
     throw new Error(
       `Authored MDX corpus does not exercise: ${missing.join(", ")}`,
     );
 });
+
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -74,10 +79,12 @@ async function git(cwd: string, args: string[]) {
 async function prepare(input: AuthoredReviewCase) {
   const home = await mkdtemp(path.join(os.tmpdir(), "authored-review-corpus-"));
   roots.push(home);
+
   const evidence = {
     base: { sourceRootPath: path.join(home, "base") },
     head: { sourceRootPath: path.join(home, "head") },
   };
+
   let expected: ReviewDocumentData | undefined;
   let authoringDirectory: string;
   let files: Array<[source: string, destination: string]>;
@@ -89,6 +96,7 @@ async function prepare(input: AuthoredReviewCase) {
     const extracted = await extractLegacyReviewFixture(
       input.source.legacyFixture,
     );
+
     roots.push(extracted.home);
     const { metadata } = extracted;
     authoringDirectory = extracted.dir;
@@ -102,17 +110,20 @@ async function prepare(input: AuthoredReviewCase) {
       ["review.mdx", "review.mdx"],
       ["data.ts", "data.ts"],
     ];
+
     if (metadata.sourceRepository === "tutorial-sample")
       files.push([
         "authoring-conversation.json",
         "authoring-conversation.json",
       ]);
+
     for (const [graph, commit] of [
       ["base", baseCommit],
       ["head", headCommit],
     ] as const) {
       const sourceRoot = evidence[graph].sourceRootPath;
       await mkdir(sourceRoot, { recursive: true });
+
       if (metadata.sourceRepository === "tutorial-sample") {
         // The public archive contains authored files, not its source repo.
         // Validate its unchanged anchors against the shipped sample service.
@@ -129,6 +140,7 @@ async function prepare(input: AuthoredReviewCase) {
               : [],
           ),
         );
+
         for (const file of referenced) {
           const content = await git(repository, ["show", `${commit}:${file}`]);
           const target = path.join(sourceRoot, file);
@@ -156,6 +168,7 @@ async function prepare(input: AuthoredReviewCase) {
     await git(repository, ["add", "."]);
     await git(repository, ["commit", "-qm", "Base", "--allow-empty"]);
     baseCommit = (await git(repository, ["rev-parse", "HEAD"])).trim();
+
     // Head directories are complete snapshots, including deleted base files.
     for (const name of (await git(repository, ["ls-files", "-z"]))
       .split("\0")
@@ -168,6 +181,7 @@ async function prepare(input: AuthoredReviewCase) {
     await git(repository, ["commit", "-qm", "Head", "--allow-empty"]);
     headCommit = (await git(repository, ["rev-parse", "HEAD"])).trim();
   }
+
   const fresh = await createReviewDir({
     reviewsHomePath: path.join(home, "reviews"),
     worktreePath: evidence.head.sourceRootPath,
@@ -176,6 +190,7 @@ async function prepare(input: AuthoredReviewCase) {
     sourceCommit: headCommit,
     sourceIdentity: { kind: "git-branch", name: "corpus" },
   });
+
   for (const [source, destination] of files) {
     const target = path.join(fresh.dir, destination);
     await mkdir(path.dirname(target), { recursive: true });
@@ -183,6 +198,7 @@ async function prepare(input: AuthoredReviewCase) {
       recursive: true,
     });
   }
+
   return {
     dir: fresh.dir,
     evidence,
@@ -199,18 +215,10 @@ async function prepare(input: AuthoredReviewCase) {
 describe.each(authoredReviewCases)("authored corpus $name", (input) => {
   it("preserves the document through compilation, storage, hydration and repeated evaluation", async () => {
     const fixture = await prepare(input);
+
     async function evaluate() {
-      const compiled = await compileReviewDocumentBundle({
+      const evaluated = await buildReviewDocument({
         reviewPath: path.join(fixture.dir, "review.mdx"),
-        reviewDocumentsDir: path.join(fixture.dir, ".review-documents"),
-        reviewRootPath: fixture.dir,
-        routePath: "/",
-      });
-      expect(compiled.diagnostics).toEqual([]);
-      if (!compiled.bundle) throw new Error("Corpus MDX did not compile");
-      const evaluated = await evaluateReviewDocumentBundleForPublish({
-        bundleCode: compiled.bundle.code,
-        reviewDir: fixture.dir,
         prepareEvidence: async () => fixture.evidence,
         resolveChangedLines: async (file) =>
           patchChangedLines(
@@ -223,51 +231,59 @@ describe.each(authoredReviewCases)("authored corpus $name", (input) => {
             ]),
           ),
       });
+
+      expect(evaluated.diagnostics).toEqual([]);
       expect(evaluated.errors).toEqual([]);
+
       if (!evaluated.document)
         throw new Error("Corpus MDX did not materialize");
+
       return evaluated.document;
     }
+
     const document = await evaluate();
     expect(fixture.expected ? document : undefined).toEqual(fixture.expected);
     const nodes: ReviewNode[] = [];
     walkReviewNodes(document.body, (node) => {
       nodes.push(node);
+
       if (node.type === "component") exercisedComponents.add(node.name);
     });
     expect(
       [
         ...new Set(
-          nodes
-            .filter((node) => node.type === "component")
-            .map((node) => node.name),
+          nodes.flatMap((node) =>
+            node.type === "component" ? [node.name] : [],
+          ),
         ),
       ].sort(),
     ).toEqual([...input.components].sort());
     expect(
       [
         ...new Set(
-          nodes
-            .filter((node) => node.type === "element")
-            .map((node) => node.tag),
+          nodes.flatMap((node) => (node.type === "element" ? [node.tag] : [])),
         ),
       ].sort(),
     ).toEqual(expect.arrayContaining([...(input.proseTags ?? [])]));
+
     const text = nodes
-      .filter((node) => node.type === "text")
-      .map((node) => node.value)
+      .flatMap((node) => (node.type === "text" ? [node.value] : []))
       .join("");
+
     for (const fragment of input.text ?? []) expect(text).toContain(fragment);
     const bundle = bundleReviewDocument(document);
     await writeReviewDocumentBundle(fixture.dir, bundle);
     const stored = await readReviewDocumentBundle(fixture.dir, "/");
     expect(stored).toEqual(bundle);
+
     if (!stored) throw new Error("Corpus JSON was not stored");
+
     const hydrated = hydrateReviewDocument({
       state: "ready",
       contentHash: stored.contentHash,
       data: parseJsonText(JSON.stringify(reviewDocumentBundleData(stored))),
     });
+
     expect(hydrated.body).toHaveLength(document.body.length);
     expect(bundleReviewDocument(await evaluate()).contentHash).toBe(
       bundle.contentHash,

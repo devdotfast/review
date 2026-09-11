@@ -8,9 +8,12 @@ Serialization tag: code-oss-upstream-8a7abeba
 
 Review applies these focused VS Code changes without changing the source pin:
 
-- Electron 42.9.3 and its authentication type update:
-  `eff5556afcf7a77abefa5d5b83dc26ac895ff8bf`,
-  `28cf0a82a08a5f8e9288d19b4218ec1eb5ee46a6`.
+- Electron 42.10.0 and its authentication type update:
+  `ce168782e1cb844c18ebcbf4ba5d66f098f0e6b2`,
+  `28cf0a82a08a5f8e9288d19b4218ec1eb5ee46a6`. Review previously pinned 42.9.3
+  (`eff5556afcf7a77abefa5d5b83dc26ac895ff8bf`), which upstream reverted two
+  days later before settling on 42.10.0. The checksum file is upstream's,
+  verified line for line against the official `v42.10.0` `SHASUMS256.txt`.
 - Applicable security hardening from
   `06a2bc84d0555f4c7ebd176809673e61fa49c6ff`. Review includes environment
   sanitization, owned transfer buffers, production extension-development

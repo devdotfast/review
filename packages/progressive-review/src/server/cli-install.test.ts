@@ -96,6 +96,65 @@ describe("trace capture installation", () => {
     );
   });
 
+  it("writes a version-2 profile for a machine with no legacy files", async () => {
+    const homeDir = await temporaryHome("review-fresh-trace-");
+    const env: NodeJS.ProcessEnv = {
+      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      TRACE_R2_MODE: "mock",
+    };
+    const applied = await applyCliInstall({
+      packageRoot,
+      targets: [],
+      homeDir,
+      env,
+      trace: {
+        endpoint: "mock://endpoint",
+        bucket: "fresh-bucket",
+        key: "fresh-key-id",
+        secret: "fresh-secret-value",
+      },
+    });
+    expect(applied.code).toBe(0);
+    const configPath = path.join(homeDir, ".dev", "trace", "config.json");
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
+      version: 2,
+      "current-store": "s3",
+      stores: {
+        s3: {
+          bucket: "fresh-bucket",
+          accessKeyId: "fresh-key-id",
+          capture: { enabled: true, autoActivateRepositories: true },
+        },
+      },
+    });
+    expect(
+      await readFile(path.join(homeDir, ".config", "dev-trace", "env"), "utf8")
+        .then(() => true)
+        .catch(() => false),
+    ).toBe(false);
+    const status = await resolveCliInstallStatus({ packageRoot, homeDir, env });
+    expect(status.trace).toMatchObject({
+      enabled: true,
+      configured: true,
+      bucket: "fresh-bucket",
+      credentialsSource: "profile",
+      captureSource: "profile",
+      storageMode: "s3",
+    });
+    expect(JSON.stringify(status)).not.toContain("fresh-secret-value");
+
+    await removeCliInstall({ targets: [], trace: true, homeDir, env });
+    const disabled = await resolveCliInstallStatus({
+      packageRoot,
+      homeDir,
+      env,
+    });
+    expect(disabled.trace).toMatchObject({ enabled: false, configured: true });
+    expect(
+      JSON.parse(await readFile(configPath, "utf8")).stores.s3.secretAccessKey,
+    ).toBe("fresh-secret-value");
+  });
+
   it("uses the shared installer and keeps credentials when disabled", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "review-trace-install-"));
     temporaryDirectories.push(homeDir);

@@ -1500,6 +1500,13 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     accessKeyIdPrefix: requiredString.optional(),
     verifiedAt: requiredString.optional(),
     error: requiredString.optional(),
+    // Trace storage selection (version-2 config); absent from older CLIs.
+    configPath: requiredString.optional(),
+    storageMode: z.enum(["s3", "hosted", "none"]).optional(),
+    credentialsSource: z
+      .enum(["profile", "legacy-file", "process-env", "none"])
+      .optional(),
+    captureSource: z.enum(["profile", "settings"]).optional(),
   }),
   // Null when the serving package has no built CLI (a source-run dev server).
   cli: z
@@ -2158,10 +2165,22 @@ export type ReviewAgentTraceSession = z.infer<
   typeof ReviewAgentTraceSessionSchema
 >;
 
+export const ReviewTraceStorageKindSchema = z.enum(["s3", "hosted"]);
+export type ReviewTraceStorageKind = z.infer<
+  typeof ReviewTraceStorageKindSchema
+>;
+
 export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),
     configured: z.boolean().default(true),
+    // The store these sessions came from, and every store the machine can
+    // read; absent from older CLIs.
+    storage: z.enum(["s3", "hosted", "none"]).optional(),
+    sources: z.array(ReviewTraceStorageKindSchema).optional(),
+    // Why the selected store answered nothing: a refusal, a missing login
+    // for a requested source, or a malformed config. Absent from older CLIs.
+    storageError: requiredString.optional(),
     sessions: z.array(ReviewAgentTraceSessionSchema),
   }),
   ReviewErrorResponseSchema,
@@ -2176,6 +2195,8 @@ export const ReviewAgentTraceResponseSchema = z.discriminatedUnion("ok", [
     parserVersion: requiredString,
     session: ReviewAgentTraceSessionSchema,
     trace: stringAllowEmpty.nullable().optional(),
+    // Whether the store confirmed this copy; absent from older CLIs.
+    cacheStatus: z.enum(["current", "offline", "stale"]).optional(),
     subagents: z.array(requiredString).default([]),
     title: z.string().nullable(),
     startedAt: z.string().nullable(),

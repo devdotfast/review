@@ -27,6 +27,9 @@ export default defineConfig({
       "@dev.fast/local-vcs": fileURLToPath(
         new URL("../local-vcs/src/index.ts", import.meta.url),
       ),
+      "@dev.fast/trace-shared": fileURLToPath(
+        new URL("../trace-shared/src/index.ts", import.meta.url),
+      ),
       "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
     },
   },
@@ -36,6 +39,10 @@ export default defineConfig({
         os.tmpdir(),
         `progressive-review-tests-${process.pid}`,
       ),
+      // GitHub Actions exports the repository slug, which the trace code
+      // honors over a checkout's remote; scratch repositories in tests must
+      // resolve to their own remotes.
+      GITHUB_REPOSITORY: "",
     },
     // The repository gate already runs two package lanes on a two-core host.
     // Keep Review on one worker so it does not starve the other lane. Shared

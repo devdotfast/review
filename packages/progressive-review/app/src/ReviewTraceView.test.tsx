@@ -116,6 +116,121 @@ describe("ReviewTraceView", () => {
     expect(container.textContent).not.toContain("Loading trace…");
   });
 
+  it("offers a source control when two stores are readable and labels offline copies", async () => {
+    const requested: string[] = [];
+    const requestMock = vi
+      .fn<ReviewCanvasBridge["request"]>()
+      .mockImplementation((url) => {
+        requested.push(url);
+        if (url.includes("/agent-traces/session-1")) {
+          const detail = {
+            ...mockTraceDetail,
+            cacheStatus: url.includes("storage=hosted") ? "offline" : "current",
+          };
+          return Promise.resolve(
+            new Response(JSON.stringify(detail), { status: 200 }),
+          );
+        }
+        if (url.includes("/agent-traces")) {
+          const list = {
+            ...mockListResponse,
+            storage: url.includes("storage=hosted") ? "hosted" : "s3",
+            sources: ["s3", "hosted"],
+          };
+          return Promise.resolve(
+            new Response(JSON.stringify(list), { status: 200 }),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+    const session = testReviewSession({}, { request: requestMock });
+
+    await act(async () => {
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <ReviewTraceView />
+        </ReviewSessionProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Trace source"]',
+    );
+    expect(select).not.toBeNull();
+    expect(select?.value).toBe("s3");
+    expect(container.textContent).not.toContain("Showing a saved copy");
+
+    await act(async () => {
+      if (!select) throw new Error("missing select");
+      // React tracks the value; only the prototype setter leaves it unaware
+      // of the new value, so the change event is delivered.
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(select, "hosted");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(
+      requested.some((url) => url.includes("/agent-traces?storage=hosted")),
+    ).toBe(true);
+    expect(
+      requested.some(
+        (url) =>
+          url.includes("/agent-traces/session-1?") &&
+          url.includes("storage=hosted"),
+      ),
+    ).toBe(true);
+    expect(container.textContent).toContain(
+      "Showing a saved copy; the trace store did not answer.",
+    );
+  });
+
+  it("shows the storage error instead of the unconfigured hint", async () => {
+    const requestMock = vi
+      .fn<ReviewCanvasBridge["request"]>()
+      .mockImplementation((url) => {
+        if (url.includes("/agent-traces")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ...mockListResponse,
+                configured: false,
+                sessions: [],
+                storageError: "Set current-store in config.json.",
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+    const session = testReviewSession({}, { request: requestMock });
+    await act(async () => {
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <ReviewTraceView />
+        </ReviewSessionProvider>,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(container.textContent).toContain(
+      "Set current-store in config.json.",
+    );
+    expect(container.textContent).not.toContain(
+      "Agent traces are not configured.",
+    );
+  });
+
   it("shows unconfigured state when list returns configured: false", async () => {
     const unconfiguredList: Extract<
       ReviewAgentTraceListResponse,

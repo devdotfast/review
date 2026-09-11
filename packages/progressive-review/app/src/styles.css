@@ -10519,3 +10519,19 @@ button.review-stack-row:disabled .review-stack-relation {
 .review-trace-peek-open-full:hover {
   background: var(--accent-wash);
 }
+
+.review-trace-source {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.review-trace-source select {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--review-border, currentColor);
+  border-radius: 4px;
+  padding: 0.15rem 0.4rem;
+}

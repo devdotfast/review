@@ -27,6 +27,7 @@ import { type StoredReview, findReview, listReviews } from "./review-home";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
+import { writeHostedTraceStatus } from "./trace-hosted-cli";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
   disableTraceRepository,
@@ -34,6 +35,31 @@ import {
   repairTraceRepository,
   traceRepositoryStatus,
 } from "./trace-repository-hooks";
+import { describeSelection } from "./trace-storage-cli";
+import {
+  selectTraceStorage,
+  traceStorageExpectation,
+} from "./trace-storage/resolve";
+import { resolveTraceStorage } from "./trace-storage/resolve";
+import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
+import {
+  clearTraceSyncFailure,
+  listTraceSyncFailures,
+  recordTraceSyncFailure,
+} from "./trace-sync-status";
+
+/**
+ * The store a read command uses: the explicit `--storage` override for this
+ * one operation, or the machine's selection when none is given. An override
+ * never changes the selection, capture settings, or consent.
+ */
+async function readStorage(
+  override: TraceStorageKind | undefined,
+  cwd: string,
+): Promise<TraceStorage | null | undefined> {
+  if (!override) return undefined;
+  return resolveTraceStorage({ cwd, override });
+}
 
 export { runReviewTraceGitHook, runReviewTraceHook };
 
@@ -44,12 +70,40 @@ export async function runReviewTraceStatus(input: {
 }): Promise<number> {
   const machine = await traceMachineStatus();
   const repository = await traceRepositoryStatus(input.cwd);
+  const selection = selectTraceStorage();
   input.stdout.write(
     `Trace capture: ${machine.enabled ? "enabled" : "disabled"}\n`,
   );
   input.stdout.write(`Repository: ${repository.message}\n`);
+  input.stdout.write(`Storage: ${describeSelection(selection)}\n`);
+  input.stdout.write(
+    `Config: ${selection.config.path} (${
+      selection.config.source === "absent"
+        ? "not present"
+        : `version ${selection.config.source === "v1" ? "1, consent only" : "2"}`
+    })\n`,
+  );
+  if (selection.error) {
+    input.stderr.write(`trace status: ${selection.error}\n`);
+    return 1;
+  }
+  if (selection.mode === "hosted") {
+    await writeHostedTraceStatus({
+      cwd: input.cwd,
+      origin: selection.hosted?.origin ?? "",
+      stdout: input.stdout,
+    });
+    return 0;
+  }
   const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
   input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
+  for (const failure of await listTraceSyncFailures()) {
+    input.stdout.write(
+      `Failed background sync: session ${failure.session}${
+        failure.repository ? ` of ${failure.repository}` : ""
+      } at ${failure.at}: ${failure.error} Retry with \`${failure.retry}\`.\n`,
+    );
+  }
 
   if (!doctor.ok && !doctor.config) {
     input.stderr.write(
@@ -124,7 +178,10 @@ export async function runReviewTraceRepair(input: {
 
 export const runReviewTraceDoctor = runReviewTraceStatus;
 
-async function listSessionsForReview(review: StoredReview) {
+async function listSessionsForReview(
+  review: StoredReview,
+  storage?: TraceStorage | null,
+) {
   const repoRootPath = resolveReviewRepoRootFromStore(review.dir);
   const record = review.review;
   const headCommit = record.sourceCommit ?? record.baseCommit;
@@ -132,6 +189,7 @@ async function listSessionsForReview(review: StoredReview) {
     rootPath: repoRootPath,
     baseCommit: record.baseCommit,
     headCommit,
+    storage,
   });
 }
 
@@ -139,9 +197,11 @@ export async function runReviewTraceList(input: {
   cwd: string;
   reviewUuid?: string;
   commitSha?: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
 }): Promise<number> {
+  const storage = await readStorage(input.storage, input.cwd);
   let scope: { review: string } | { commit: string };
   let sessions: ReviewTraceSessionDescriptor[];
   let emptyExitCode = 0;
@@ -149,21 +209,25 @@ export async function runReviewTraceList(input: {
     const resolution = await lookupReviewTraceCommit({
       cwd: input.cwd,
       sha: input.commitSha,
+      storage,
     });
     scope = { commit: resolution.commit };
     sessions = await Promise.all(
       resolution.sessions.map((sessionId) =>
-        describeTraceSession({
-          sessionId,
-          commits: [{ sha: resolution.commit, subject: "" }],
-        }),
+        describeTraceSession(
+          {
+            sessionId,
+            commits: [{ sha: resolution.commit, subject: "" }],
+          },
+          storage,
+        ),
       ),
     );
     emptyExitCode = 1;
   } else {
     const review = await resolveTraceReview(input.cwd, input.reviewUuid);
     scope = { review: review.review.uuid };
-    sessions = await listSessionsForReview(review);
+    sessions = await listSessionsForReview(review, storage);
   }
 
   const publicSessions = sessions.map((session) => ({
@@ -209,6 +273,7 @@ export async function runReviewTraceShow(input: {
   trace?: string;
   eventIndex?: number;
   kind?: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
@@ -218,6 +283,7 @@ export async function runReviewTraceShow(input: {
     sessionId: input.sessionId,
     trace: traceName,
     cwd: input.cwd,
+    storage: await readStorage(input.storage, input.cwd),
   });
   if (!loaded) {
     throw new Error(
@@ -264,6 +330,7 @@ export async function runReviewTraceShow(input: {
         trace: traceName ?? "main",
         harness: trace.harness,
         title: trace.title,
+        cache: loaded.cacheStatus,
         events: rows.map(({ event, index }) => ({
           event: index,
           kind: event.kind,
@@ -276,7 +343,9 @@ export async function runReviewTraceShow(input: {
   input.stdout.write(
     `# session ${input.sessionId}${traceName ? ` (trace ${traceName})` : ""} (${trace.harness}) — ${
       trace.title ?? "untitled"
-    }\n# ${trace.events.length} events${input.kind ? ` (${rows.length} shown, kind=${input.kind})` : ""}\n`,
+    }\n# ${trace.events.length} events${input.kind ? ` (${rows.length} shown, kind=${input.kind})` : ""}${
+      loaded.cacheStatus === "current" ? "" : ` (${loaded.cacheStatus} copy)`
+    }\n`,
   );
   for (const { event, index } of rows) {
     input.stdout.write(
@@ -300,11 +369,13 @@ export async function runReviewTracePull(input: {
   commitSha?: string;
   session?: string;
   mainOnly?: boolean;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
 }): Promise<number> {
   try {
+    const storage = await readStorage(input.storage, input.cwd);
     let scope: TracePullScope;
     let sessions: Array<{ id: string; traces?: string[] }>;
     let repoRoot = input.cwd;
@@ -312,7 +383,7 @@ export async function runReviewTracePull(input: {
     if (input.reviewUuid) {
       const review = await resolveTraceReview(input.cwd, input.reviewUuid);
       repoRoot = resolveReviewRepoRootFromStore(review.dir);
-      const refs = await listSessionsForReview(review);
+      const refs = await listSessionsForReview(review, storage);
       scope = { review: review.review.uuid };
       sessions = refs.map((ref) => ({
         id: ref.sessionId,
@@ -322,6 +393,7 @@ export async function runReviewTracePull(input: {
       const resolution = await lookupReviewTraceCommit({
         cwd: input.cwd,
         sha: input.commitSha,
+        storage,
       });
       scope = { commit: resolution.commit };
       sessions = resolution.sessions.map((id) => ({ id }));
@@ -342,6 +414,8 @@ export async function runReviewTracePull(input: {
       repo,
       sessions,
       mainOnly: input.mainOnly,
+      cwd: repoRoot,
+      storage,
     });
     const output = {
       scope,
@@ -384,12 +458,14 @@ export async function runReviewTracePull(input: {
 export async function runReviewTraceLookupCommit(input: {
   cwd: string;
   sha: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
 }): Promise<number> {
   const result = await lookupReviewTraceCommit({
     cwd: input.cwd,
     sha: input.sha,
+    storage: await readStorage(input.storage, input.cwd),
   });
 
   if (input.json) {
@@ -406,6 +482,7 @@ export async function runReviewTraceBlame(input: {
   file: string;
   lines?: string;
   history?: boolean;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
@@ -417,6 +494,7 @@ export async function runReviewTraceBlame(input: {
       file: input.file,
       lines: input.lines,
       history: input.history,
+      storage: await readStorage(input.storage, input.cwd),
     });
   } catch (err: unknown) {
     input.stderr.write(
@@ -451,11 +529,13 @@ export const runReviewTraceLookupBlame = runReviewTraceBlame;
 export async function runReviewTraceLookupSession(input: {
   cwd: string;
   sessionId: string;
+  storage?: TraceStorageKind;
   json?: boolean;
   stdout: Writable;
 }): Promise<number> {
   const result = await lookupReviewTraceSession({
     sessionId: input.sessionId,
+    storage: await readStorage(input.storage, input.cwd),
   });
 
   if (input.json) {
@@ -519,13 +599,45 @@ export async function runReviewTraceSync(input: {
   sessionId: string;
   repo?: string;
   json?: boolean;
+  /**
+   * The destination this attempt was started for. A detached sync passes
+   * it so a selection change since then stops the attempt instead of
+   * publishing to a store the user no longer selected.
+   */
+  expectStorage?: string;
   stdout: Writable;
+  stderr?: Writable;
 }): Promise<number> {
-  const result = await syncReviewTrace({
-    sessionId: input.sessionId,
-    cwd: input.cwd,
-    repo: input.repo,
-  });
+  let result: Awaited<ReturnType<typeof syncReviewTrace>>;
+  try {
+    if (input.expectStorage !== undefined) {
+      const current = traceStorageExpectation();
+      if (current !== input.expectStorage) {
+        throw new Error(
+          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`review trace sync ${input.sessionId}\` to publish to the current selection.`,
+        );
+      }
+    }
+    result = await syncReviewTrace({
+      sessionId: input.sessionId,
+      cwd: input.cwd,
+      repo: input.repo,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // The SessionEnd hook runs this command detached. The record is what
+    // `review trace status` shows, so the failure is not lost.
+    await recordTraceSyncFailure({
+      sessionId: input.sessionId.trim(),
+      repository: await inferRepoFromGit(input.cwd)
+        .then((repo) => `${repo.owner}/${repo.repo}`)
+        .catch(() => null),
+      error: message,
+    }).catch(() => undefined);
+    throw error;
+  }
+  // A successful sync clears its own failure record in every store.
+  await clearTraceSyncFailure(input.sessionId.trim()).catch(() => undefined);
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result)}\n`);
@@ -536,6 +648,24 @@ export async function runReviewTraceSync(input: {
     input.stdout.write(
       `${upload.blob}  ${upload.bytes_stored} bytes  ${upload.status}\n`,
     );
+  }
+  if (result.hosted) {
+    for (const name of result.hosted.omitted.subagents) {
+      input.stdout.write(
+        `${name}  omitted (over the object limit or not a store name)\n`,
+      );
+    }
+    if (result.hosted.omitted.commits > 0) {
+      input.stdout.write(
+        `${result.hosted.omitted.commits} commit link(s) omitted (over the commit limit).\n`,
+      );
+    }
+    input.stdout.write(
+      result.hosted.complete
+        ? `Published session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`
+        : `Published part of session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`,
+    );
+    return 0;
   }
   input.stdout.write(
     `Updated meta for session ${result.session} in ${result.repo}.\n`,

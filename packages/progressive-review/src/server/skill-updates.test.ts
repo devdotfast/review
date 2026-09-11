@@ -287,8 +287,14 @@ describe("packaged skill updates", () => {
       },
     });
     expect(installed).toMatchObject({ code: 0 });
-    const settingsPath = (await resolveCliInstallStatus(f.input)).trace
-      .settingsPath;
+    // A fresh machine keeps its capture settings in the trace config
+    // profile; a legacy one in settings.json. Either way the skill update
+    // must leave that file alone.
+    const traceStatus = (await resolveCliInstallStatus(f.input)).trace;
+    const settingsPath =
+      traceStatus.captureSource === "profile" && traceStatus.configPath
+        ? traceStatus.configPath
+        : traceStatus.settingsPath;
     const traceBefore = await readFile(settingsPath, "utf8");
     await f.stampVersion("2.0.0");
     expect((await f.launch())?.code).toBe(0);

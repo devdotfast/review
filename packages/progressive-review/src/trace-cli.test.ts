@@ -1,11 +1,18 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { collectingWritable } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import {
   runReviewTraceDoctor,
@@ -13,9 +20,14 @@ import {
   runReviewTraceLookupBlame,
   runReviewTraceLookupCommit,
   runReviewTraceLookupSession,
+  runReviewTraceShow,
   runReviewTraceSync,
 } from "./trace-cli";
 import { configureTraceMachine } from "./trace-machine-setup";
+import {
+  listTraceSyncFailures,
+  recordTraceSyncFailure,
+} from "./trace-sync-status";
 
 describe("trace-cli", () => {
   let tempDir: string;
@@ -329,6 +341,133 @@ describe("trace-cli", () => {
     expect(textOut).toContain("trace.jsonl");
     expect(textOut).toContain("bytes  unchanged");
     expect(textOut).not.toContain("indexed");
+  });
+
+  it("reads through an explicit --storage override without changing the selection", async () => {
+    const sessionId = "11111111-aaaa-bbbb-cccc-000000000010";
+    const key = path.join(mockR2Dir, "by-session", sessionId);
+    mkdirSync(key, { recursive: true });
+    writeFileSync(
+      path.join(key, "trace.jsonl"),
+      `${JSON.stringify({ type: "session", id: sessionId, cwd: "/repo", timestamp: "2026-09-02T12:00:00Z" })}\n`,
+    );
+    writeFileSync(
+      path.join(key, "meta.json"),
+      JSON.stringify({
+        session: sessionId,
+        repo: "acme/widgets",
+        branch: null,
+        pr: null,
+        commits: [],
+        author: null,
+        ts: "2026-09-02T12:00:00Z",
+      }),
+    );
+    const searchDir = path.join(tempDir, "trace-search");
+    process.env.REVIEW_TEST_TRACE_SEARCH_DIR = searchDir;
+    process.env.DEV_REVIEW_HOME = path.join(tempDir, "dev-home");
+    try {
+      const out: string[] = [];
+      const code = await runReviewTraceShow({
+        cwd: tempDir,
+        sessionId,
+        storage: "s3",
+        json: true,
+        stdout: collectingWritable(out),
+        stderr: collectingWritable([]),
+      });
+      expect(code).toBe(0);
+      expect(JSON.parse(out.join("").trim())).toMatchObject({
+        session: sessionId,
+        cache: "current",
+      });
+
+      // Hosted is not configured on this machine: the override is an error,
+      // not a silent fall back to the bucket.
+      await expect(
+        runReviewTraceShow({
+          cwd: tempDir,
+          sessionId,
+          storage: "hosted",
+          stdout: collectingWritable([]),
+          stderr: collectingWritable([]),
+        }),
+      ).rejects.toThrow(/Hosted trace storage is not configured/);
+    } finally {
+      delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
+      delete process.env.DEV_REVIEW_HOME;
+    }
+  });
+
+  it("shows failed background syncs for the s3 store and clears them on success", async () => {
+    const sessionId = "11111111-aaaa-bbbb-cccc-000000000011";
+    const devHome = path.join(tempDir, "dev-home");
+    process.env.DEV_REVIEW_HOME = devHome;
+    try {
+      await recordTraceSyncFailure({
+        sessionId,
+        repository: "acme/widgets",
+        error: "upload failed earlier",
+      });
+      const status: string[] = [];
+      await runReviewTraceDoctor({
+        cwd: tempDir,
+        stdout: collectingWritable(status),
+        stderr: collectingWritable([]),
+      });
+      expect(status.join("")).toContain(
+        `Failed background sync: session ${sessionId} of acme/widgets`,
+      );
+
+      writeFileSync(
+        path.join(localTraceRoot, `${sessionId}.jsonl`),
+        JSON.stringify({ type: "session", id: sessionId }) + "\n",
+      );
+      const code = await runReviewTraceSync({
+        cwd: tempDir,
+        sessionId,
+        repo: "acme/widgets",
+        json: true,
+        stdout: collectingWritable([]),
+      });
+      expect(code).toBe(0);
+      expect(await listTraceSyncFailures(devHome)).toEqual([]);
+    } finally {
+      delete process.env.DEV_REVIEW_HOME;
+    }
+  });
+
+  it("refuses a detached sync whose storage selection changed and records the failure", async () => {
+    const sessionId = "11111111-aaaa-bbbb-cccc-000000000009";
+    writeFileSync(
+      path.join(localTraceRoot, `${sessionId}.jsonl`),
+      JSON.stringify({ type: "session", id: sessionId }) + "\n",
+    );
+    const devHome = path.join(tempDir, "dev-home");
+    process.env.DEV_REVIEW_HOME = devHome;
+    try {
+      await expect(
+        runReviewTraceSync({
+          cwd: tempDir,
+          sessionId,
+          repo: "acme/widgets",
+          expectStorage: "hosted:https://app.dev.fast",
+          stdout: new PassThrough() as any,
+        }),
+      ).rejects.toThrow(/storage selection changed/);
+      expect(existsSync(path.join(mockR2Dir, "by-session", sessionId))).toBe(
+        false,
+      );
+      const failures = await listTraceSyncFailures(devHome);
+      expect(failures).toEqual([
+        expect.objectContaining({
+          session: sessionId,
+          retry: `review trace sync ${sessionId}`,
+        }),
+      ]);
+    } finally {
+      delete process.env.DEV_REVIEW_HOME;
+    }
   });
 
   it("runs blame lookup and formats JSON and text outputs", async () => {

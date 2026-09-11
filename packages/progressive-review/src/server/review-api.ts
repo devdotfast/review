@@ -80,6 +80,17 @@ import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
 import { ProgressiveReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
+import { TraceConfigurationError } from "../trace-storage/config";
+import {
+  resolveTraceStorage,
+  selectTraceStorage,
+} from "../trace-storage/resolve";
+import { isS3MockMode } from "../trace-storage/s3-config";
+import {
+  type TraceStorage,
+  TraceStorageDeniedError,
+  type TraceStorageKind,
+} from "../trace-storage/types";
 import type { CreateReviewCommentInput, ReviewSubmissionEvent } from "../types";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
@@ -462,22 +473,117 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     reviewApiJsonResponse(404, { ok: false, error: "not found" }),
   );
 
-  async function resolveTraceSessionDescriptors() {
+  type TraceStorageOverride =
+    | { kind: "none" }
+    | { kind: "invalid" }
+    | { kind: "override"; storage: TraceStorageKind };
+
+  /** The `?storage=` read override; invalid names never fall back silently. */
+  function traceStorageOverride(
+    context: Context<ReviewHonoEnv>,
+  ): TraceStorageOverride {
+    const value = new URL(context.req.url).searchParams.get("storage");
+    if (value === null) return { kind: "none" };
+    if (value === "s3" || value === "hosted") {
+      return { kind: "override", storage: value };
+    }
+    return { kind: "invalid" };
+  }
+
+  type TraceStorageResolution =
+    | { storage: TraceStorage | null | undefined; error: null }
+    | { storage: null; error: string };
+
+  /**
+   * The store a trace request reads from: the override when one is named,
+   * otherwise the machine's selection (undefined lets shared code resolve
+   * it). A refusal, a missing login for a requested source, or a malformed
+   * config is returned as a message instead of thrown.
+   */
+  async function resolveTraceStorageFor(
+    override: TraceStorageOverride,
+    cwd: string,
+  ): Promise<TraceStorageResolution> {
+    const selection = selectTraceStorage();
+    if (selection.error) return { storage: null, error: selection.error };
+    try {
+      if (override.kind !== "override") {
+        const storage = await resolveTraceStorage({ cwd });
+        return { storage, error: null };
+      }
+      const storage = await resolveTraceStorage({
+        cwd,
+        override: override.storage,
+      });
+      if (!storage && override.storage === "hosted") {
+        return {
+          storage: null,
+          error:
+            "The hosted trace store has no login on this machine. Run `review login` and open the review again.",
+        };
+      }
+      return { storage, error: null };
+    } catch (error) {
+      if (
+        error instanceof TraceStorageDeniedError ||
+        error instanceof TraceConfigurationError
+      ) {
+        return { storage: null, error: error.message };
+      }
+      throw error;
+    }
+  }
+
+  const invalidStorageResponse = () =>
+    reviewApiJsonResponse(400, {
+      ok: false,
+      error: "storage must be s3 or hosted.",
+    });
+
+  async function agentTraces(
+    context: Context<ReviewHonoEnv>,
+  ): Promise<Response> {
+    const override = traceStorageOverride(context);
+    if (override.kind === "invalid") return invalidStorageResponse();
     const review = readOnlyReview ?? readReviewStoreRecord(reviewRootPath);
     const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath, review);
     const headCommit = review.sourceCommit ?? review.baseCommit;
-    return listReviewTraceSessions({
-      rootPath: repoRootPath,
-      baseCommit: review.baseCommit,
-      headCommit,
-    });
-  }
-
-  async function agentTraces(): Promise<Response> {
-    const sessions = await resolveTraceSessionDescriptors();
+    const selection = selectTraceStorage();
+    const sources: TraceStorageKind[] = [];
+    if (selection.s3?.credentials || isS3MockMode()) {
+      sources.push("s3");
+    }
+    if (selection.hosted) sources.push("hosted");
+    const storage =
+      override.kind === "override" ? override.storage : selection.mode;
+    const answerNothing = (storageError: string) =>
+      reviewApiJsonResponse(200, {
+        ok: true,
+        configured: isTraceR2Configured(),
+        storage,
+        sources,
+        storageError,
+        sessions: [],
+      });
+    const resolved = await resolveTraceStorageFor(override, repoRootPath);
+    if (resolved.error !== null) return answerNothing(resolved.error);
+    let sessions: Awaited<ReturnType<typeof listReviewTraceSessions>>;
+    try {
+      sessions = await listReviewTraceSessions({
+        rootPath: repoRootPath,
+        baseCommit: review.baseCommit,
+        headCommit,
+        storage: resolved.storage,
+      });
+    } catch (error) {
+      if (!(error instanceof TraceStorageDeniedError)) throw error;
+      return answerNothing(error.message);
+    }
     return reviewApiJsonResponse(200, {
       ok: true,
       configured: isTraceR2Configured(),
+      storage,
+      sources,
       sessions,
     });
   }
@@ -492,14 +598,27 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         error: "Session is required.",
       });
     }
+    const override = traceStorageOverride(context);
+    if (override.kind === "invalid") return invalidStorageResponse();
     const trace =
       new URL(context.req.url).searchParams.get("trace") ?? undefined;
     const repoRootPath = resolveReviewRepoRootFromStore(reviewRootPath);
-    const loaded = await loadReviewAgentTrace({
-      sessionId,
-      trace,
-      cwd: repoRootPath,
-    });
+    const resolved = await resolveTraceStorageFor(override, repoRootPath);
+    if (resolved.error !== null) {
+      return reviewApiJsonResponse(404, { ok: false, error: resolved.error });
+    }
+    let loaded: Awaited<ReturnType<typeof loadReviewAgentTrace>>;
+    try {
+      loaded = await loadReviewAgentTrace({
+        sessionId,
+        trace,
+        cwd: repoRootPath,
+        storage: resolved.storage,
+      });
+    } catch (error) {
+      if (!(error instanceof TraceStorageDeniedError)) throw error;
+      return reviewApiJsonResponse(404, { ok: false, error: error.message });
+    }
     if (!loaded) {
       return reviewApiJsonResponse(404, {
         ok: false,
@@ -518,6 +637,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       parserVersion,
       session: descriptor,
       trace: traceName,
+      cacheStatus: loaded.cacheStatus,
       subagents,
       title: parsedTrace.title,
       startedAt: parsedTrace.startedAt,

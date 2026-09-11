@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -8,10 +8,15 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { writeStoreAuth } from "./store-auth";
 import { TRACE_SESSION_TTL_MS } from "./trace-agent-sessions";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { configureTraceMachine } from "./trace-machine-setup";
+import { traceTargetKey } from "./trace-repository-target";
+import { readTraceSessionProvenance } from "./trace-session-provenance";
+import { traceConfigPath } from "./trace-storage/config";
+import { allowTraceRepository } from "./trace-user-config";
 
 const execFilePromise = promisify(execFile);
 const tempRoots: string[] = [];
@@ -227,6 +232,8 @@ describe("runReviewTraceHook", () => {
       hook: "prepare-commit-msg",
       args: [messagePath],
       stderr: process.stderr,
+      homeDir: repo,
+      env: { TRACE_R2_MODE: "mock" },
     });
 
     expect(await readFile(messagePath, "utf8")).toBe("Test commit\n");
@@ -245,6 +252,8 @@ describe("runReviewTraceHook", () => {
       hook: "prepare-commit-msg",
       args: [messagePath],
       stderr: process.stderr,
+      homeDir: repo,
+      env: { TRACE_R2_MODE: "mock" },
     });
     expect(await readFile(messagePath, "utf8")).toContain(
       `Agent-Session: ${sessionId}`,
@@ -327,3 +336,140 @@ async function commandAvailable(command: string): Promise<boolean> {
     .then(() => true)
     .catch(() => false);
 }
+
+describe("runReviewTraceHook with hosted storage", () => {
+  const origin = "https://app.dev.fast";
+
+  async function hostedRepo(input: {
+    remote: string;
+    allow: boolean;
+    selectHosted?: boolean;
+  }): Promise<{ repo: string; env: NodeJS.ProcessEnv; devHome: string }> {
+    const repo = await mkdtemp(
+      path.join(os.tmpdir(), "trace-hook-hosted-test-"),
+    );
+    tempRoots.push(repo);
+    await runGit(repo, ["init", "-b", "main"]);
+    await runGit(repo, ["config", "user.name", "Test User"]);
+    await runGit(repo, ["config", "user.email", "test@example.com"]);
+    await runGit(repo, ["remote", "add", "origin", input.remote]);
+    await writeFile(path.join(repo, "README.md"), "# Test\n");
+    await runGit(repo, ["add", "README.md"]);
+    await runGit(repo, ["commit", "-m", "initial"]);
+    const devHome = path.join(repo, ".dev");
+    const env: NodeJS.ProcessEnv = { DEV_REVIEW_HOME: devHome };
+    const configPath = traceConfigPath({ devHome });
+    await mkdir(path.dirname(configPath), { recursive: true });
+    const config =
+      input.selectHosted === false
+        ? { version: 2 }
+        : { version: 2, "current-store": "hosted" };
+    await writeFile(configPath, JSON.stringify(config));
+    if (input.allow) {
+      await allowTraceRepository(
+        { repositoryId: 1, name: "acme/hook-test", origin },
+        devHome,
+      );
+    }
+    return { repo, env, devHome };
+  }
+
+  it("ignores a repository with no consent entry but still records provenance", async () => {
+    const { repo, env, devHome } = await hostedRepo({
+      remote: "git@github.com:acme/other.git",
+      allow: false,
+    });
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec9";
+    const code = await runReviewTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      homeDir: repo,
+      env,
+    });
+    expect(code).toBe(0);
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
+    // The session still leaves a mark, so a publication elsewhere can see it
+    // ran here.
+    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
+      expect.objectContaining({
+        identity: "unallowed:acme/other",
+        allowed: false,
+      }),
+    ]);
+  });
+
+  it("records the allowed target only when the login names the selected store", async () => {
+    const { repo, env, devHome } = await hostedRepo({
+      remote: "git@github.com:acme/hook-test.git",
+      allow: true,
+    });
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    await runReviewTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      homeDir: repo,
+      env,
+    });
+    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
+      expect.objectContaining({
+        identity: "unallowed:acme/hook-test",
+        allowed: false,
+      }),
+    ]);
+    // Consent alone stamps the session; publication needs the login too.
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(true);
+
+    await writeStoreAuth(
+      {
+        origin,
+        token: "t",
+        login: "dev",
+        savedAt: "2026-09-02T00:00:00Z",
+      },
+      env,
+    );
+    const other = "02b015e4-0477-7055-a0fd-21a0f72a4ec7";
+    await runReviewTraceHook({
+      cwd: repo,
+      event: "UserPromptSubmit",
+      sessionId: other,
+      homeDir: repo,
+      env,
+    });
+    expect(await readTraceSessionProvenance(other, devHome)).toEqual([
+      expect.objectContaining({
+        identity: traceTargetKey({ origin, repositoryId: 1 }),
+        allowed: true,
+      }),
+    ]);
+  });
+
+  it("captures with consent alone when no bucket is configured", async () => {
+    // A hosted-only machine needs nothing beyond the consent list: the
+    // hosted store at the default origin is inferred.
+    const { repo, env, devHome } = await hostedRepo({
+      remote: "git@github.com:acme/hook-test.git",
+      allow: true,
+      selectHosted: false,
+    });
+    await writeStoreAuth(
+      { origin, token: "t", login: "dev", savedAt: "2026-09-02T00:00:00Z" },
+      env,
+    );
+    const sessionId = "03c015e4-0477-7055-a0fd-21a0f72a4ec8";
+    const code = await runReviewTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      homeDir: repo,
+      env,
+    });
+    expect(code).toBe(0);
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(true);
+    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
+      expect.objectContaining({ allowed: true }),
+    ]);
+  });
+});

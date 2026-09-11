@@ -71,6 +71,12 @@ import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
+  DEFAULT_STORE_ORIGIN,
+  runReviewLogin,
+  runReviewLogout,
+  runReviewWhoami,
+} from "./store-auth";
+import {
   runReviewThreadsGet,
   runReviewThreadsList,
   runReviewThreadsReply,
@@ -89,6 +95,15 @@ import {
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
+import {
+  runReviewTraceAllow,
+  runReviewTraceDeny,
+  runReviewTraceOnboard,
+} from "./trace-hosted-cli";
+import {
+  runReviewTraceConfigMigrate,
+  runReviewTraceStorageUse,
+} from "./trace-storage-cli";
 
 interface ProgressiveReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
@@ -127,6 +142,14 @@ interface ProgressiveReviewCliRuntime {
   runReviewTraceHook: typeof runReviewTraceHook;
   runReviewTraceGitHook: typeof runReviewTraceGitHook;
   runReviewTraceSync: typeof runReviewTraceSync;
+  runReviewTraceStorageUse: typeof runReviewTraceStorageUse;
+  runReviewTraceConfigMigrate: typeof runReviewTraceConfigMigrate;
+  runReviewTraceOnboard: typeof runReviewTraceOnboard;
+  runReviewTraceAllow: typeof runReviewTraceAllow;
+  runReviewTraceDeny: typeof runReviewTraceDeny;
+  runReviewLogin: typeof runReviewLogin;
+  runReviewLogout: typeof runReviewLogout;
+  runReviewWhoami: typeof runReviewWhoami;
   listReviews: typeof listReviews;
   sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
@@ -236,6 +259,13 @@ export async function runProgressiveReviewCli(
     configureOutput(command, surface).addOption(
       new Option("--json", "print machine-readable JSON events on stdout"),
     );
+  // A read-only source override for trace reads. It never changes the
+  // persisted selection, capture settings, or consent.
+  const storageOption = () =>
+    new Option(
+      "--storage <mode>",
+      "read from the s3 or hosted store instead of the selected one",
+    ).choices(["s3", "hosted"]);
   const viewOption = () =>
     new Option("--view <view>", "view to show after opening").choices([
       "review",
@@ -832,6 +862,50 @@ export async function runProgressiveReviewCli(
     state.exitCode = 0;
   });
 
+  // Hosted trace store login. Logging in authenticates a user; it selects
+  // no storage by itself.
+  configureJsonOutput(
+    program
+      .command("login")
+      .description("Log in to the hosted trace store with GitHub"),
+    "plain",
+  )
+    .option("--origin <url>", "Store origin", DEFAULT_STORE_ORIGIN)
+    .option("--no-browser", "Print the URL instead of opening a browser")
+    .action(
+      async (options: {
+        origin?: string;
+        browser?: boolean;
+        json?: boolean;
+      }) => {
+        state.exitCode = await runtime.runReviewLogin({
+          origin: options.origin,
+          noBrowser: !options.browser,
+          json: options.json,
+          stdout: input.stdout,
+          stderr: input.stderr,
+        });
+      },
+    );
+
+  program
+    .command("logout")
+    .description("Forget the hosted trace store login")
+    .action(async () => {
+      state.exitCode = await runtime.runReviewLogout({ stdout: input.stdout });
+    });
+
+  configureJsonOutput(
+    program.command("whoami").description("Show the hosted trace store login"),
+    "plain",
+  ).action(async (options: { json?: boolean }) => {
+    state.exitCode = await runtime.runReviewWhoami({
+      json: options.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
+  });
+
   // The trace surface: inspect storage, manage one repository, or read events.
   const trace = configureOutput(
     program.command("trace").description("Manage agent traces"),
@@ -849,6 +923,150 @@ export async function runProgressiveReviewCli(
       stderr: input.stderr,
     });
   });
+
+  // Storage selection and configuration migration write only the shared
+  // trace config; legacy files and remote objects are never touched.
+  const traceStorage = configureOutput(
+    trace.command("storage").description("Select the trace store"),
+    "plain",
+  );
+  configureJsonOutput(
+    traceStorage
+      .command("use <mode>")
+      .description("Select the s3 (S3/R2 bucket) or hosted trace store")
+      .option("--origin <url>", "hosted store origin")
+      .option("--endpoint <url>", "S3/R2 endpoint URL (s3)")
+      .option("--bucket <name>", "S3/R2 bucket name (s3)")
+      .option("--key <id>", "S3/R2 access key ID (s3)")
+      .option("--secret <key>", "S3/R2 secret access key (s3)")
+      .option("--region <region>", "S3/R2 signing region (s3)"),
+    "plain",
+  ).action(
+    async (
+      mode: string,
+      options: {
+        origin?: string;
+        endpoint?: string;
+        bucket?: string;
+        key?: string;
+        secret?: string;
+        region?: string;
+        json?: boolean;
+      },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceStorageUse({
+        cwd,
+        mode,
+        origin: options.origin,
+        endpoint: options.endpoint,
+        bucket: options.bucket,
+        key: options.key,
+        secret: options.secret,
+        region: options.region,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("onboard [path]")
+      .description("Create the hosted trace store for one repository"),
+    "plain",
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      state.exitCode = await runtime.runReviewTraceOnboard({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("allow [path]")
+      .description("Allow one repository to publish traces to the hosted store")
+      .option(
+        "--no-harness-hooks",
+        "skip the Claude, Codex, OpenCode, and pi hook installers",
+      ),
+    "plain",
+  ).action(
+    async (
+      repoPath: string | undefined,
+      options: { json?: boolean; harnessHooks?: boolean },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceAllow({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        harnessHooks: options.harnessHooks,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("deny [path]")
+      .description(
+        "Stop publishing traces from one repository to the hosted store",
+      )
+      .option(
+        "--delete-store",
+        "also delete the hosted store; needs repository admin access",
+      ),
+    "plain",
+  ).action(
+    async (
+      repoPath: string | undefined,
+      options: { json?: boolean; deleteStore?: boolean },
+    ) => {
+      state.exitCode = await runtime.runReviewTraceDeny({
+        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        json: options.json,
+        deleteStore: options.deleteStore,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  const traceConfig = configureOutput(
+    trace.command("config").description("Manage trace storage configuration"),
+    "plain",
+  );
+  configureJsonOutput(
+    traceConfig
+      .command("migrate")
+      .description(
+        "Copy the legacy S3/R2 setup into $DEV_REVIEW_HOME/trace/config.json",
+      )
+      .option("--dry-run", "preview without writing")
+      .option(
+        "--keep-legacy",
+        "leave the legacy env and settings files in place instead of renaming them to legacy_*",
+      ),
+    "plain",
+  ).action(
+    async (options: {
+      dryRun?: boolean;
+      keepLegacy?: boolean;
+      json?: boolean;
+    }) => {
+      state.exitCode = await runtime.runReviewTraceConfigMigrate({
+        dryRun: options.dryRun,
+        keepLegacy: options.keepLegacy,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   configureOutput(
     trace
@@ -893,10 +1111,16 @@ export async function runProgressiveReviewCli(
       .command("list")
       .description("List agent sessions for a Review or commit")
       .option("--review <uuid>", "review UUID")
-      .option("--commit <sha>", "commit or revision"),
+      .option("--commit <sha>", "commit or revision")
+      .addOption(storageOption()),
     "plain",
   ).action(
-    async (options: { review?: string; commit?: string; json?: boolean }) => {
+    async (options: {
+      review?: string;
+      commit?: string;
+      storage?: "s3" | "hosted";
+      json?: boolean;
+    }) => {
       if (options.review && options.commit) {
         throw new Error("Use either --review or --commit, not both.");
       }
@@ -904,6 +1128,7 @@ export async function runProgressiveReviewCli(
         cwd,
         reviewUuid: options.review,
         commitSha: options.commit,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
       });
@@ -920,7 +1145,8 @@ export async function runProgressiveReviewCli(
         "print the complete text of one event",
         (value: string) => Number.parseInt(value, 10),
       )
-      .option("--kind <kind>", "only list user|assistant|tool|separator rows"),
+      .option("--kind <kind>", "only list user|assistant|tool|separator rows")
+      .addOption(storageOption()),
     "plain",
   ).action(
     async (
@@ -929,6 +1155,7 @@ export async function runProgressiveReviewCli(
         trace?: string;
         event?: number;
         kind?: string;
+        storage?: "s3" | "hosted";
         json?: boolean;
       },
     ) => {
@@ -938,6 +1165,7 @@ export async function runProgressiveReviewCli(
         trace: options.trace,
         eventIndex: options.event,
         kind: options.kind,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -953,7 +1181,8 @@ export async function runProgressiveReviewCli(
       .option("--review <uuid>", "pull sessions for one Review")
       .option("--commit <sha>", "pull sessions for one commit or revision")
       .option("--session <id>", "pull one session")
-      .option("--main-only", "exclude subagent traces"),
+      .option("--main-only", "exclude subagent traces")
+      .addOption(storageOption()),
     "plain",
   ).action(
     async (options: {
@@ -962,6 +1191,7 @@ export async function runProgressiveReviewCli(
       commit?: string;
       session?: string;
       mainOnly?: boolean;
+      storage?: "s3" | "hosted";
       json?: boolean;
     }) => {
       const selectors = [
@@ -979,6 +1209,7 @@ export async function runProgressiveReviewCli(
         commitSha: options.commit,
         session: options.session,
         mainOnly: options.mainOnly,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -994,7 +1225,8 @@ export async function runProgressiveReviewCli(
       .option(
         "--history",
         "use git log -L to include every commit that shaped the lines",
-      ),
+      )
+      .addOption(storageOption()),
     "plain",
   ).action(
     async (
@@ -1002,6 +1234,7 @@ export async function runProgressiveReviewCli(
       options: {
         lines?: string;
         history?: boolean;
+        storage?: "s3" | "hosted";
         json?: boolean;
       },
     ) => {
@@ -1010,6 +1243,7 @@ export async function runProgressiveReviewCli(
         file,
         lines: options.lines,
         history: options.history,
+        storage: options.storage,
         json: options.json,
         stdout: input.stdout,
         stderr: input.stderr,
@@ -1021,7 +1255,13 @@ export async function runProgressiveReviewCli(
     trace
       .command("sync <session-id>")
       .description("Upload a local session trace and its metadata")
-      .option("--repo <repo>", "GitHub owner/repo"),
+      .option("--repo <repo>", "GitHub owner/repo")
+      .addOption(
+        new Option(
+          "--expect-storage <selection>",
+          "abort when the storage selection changed since capture",
+        ).hideHelp(),
+      ),
     "plain",
   ).action(
     async (
@@ -1029,6 +1269,7 @@ export async function runProgressiveReviewCli(
       options: {
         repo?: string;
         json?: boolean;
+        expectStorage?: string;
       },
     ) => {
       state.exitCode = await runtime.runReviewTraceSync({
@@ -1036,7 +1277,9 @@ export async function runProgressiveReviewCli(
         sessionId,
         repo: options.repo,
         json: options.json,
+        expectStorage: options.expectStorage,
         stdout: input.stdout,
+        stderr: input.stderr,
       });
     },
   );
@@ -1307,6 +1550,14 @@ function progressiveReviewCliRuntime(
     runReviewTraceHook,
     runReviewTraceGitHook,
     runReviewTraceSync,
+    runReviewTraceStorageUse,
+    runReviewTraceConfigMigrate,
+    runReviewTraceOnboard,
+    runReviewTraceAllow,
+    runReviewTraceDeny,
+    runReviewLogin,
+    runReviewLogout,
+    runReviewWhoami,
     listReviews,
     sealReviewCandidate,
     prepareReviewPinnedCheckout,
@@ -1600,6 +1851,14 @@ function telemetryCommandPath(
       : "invalid";
   }
   if (parent === "migrate" && name === "apply") return "migrate.apply";
+  if (parent === "trace") {
+    if (name === "onboard" || name === "allow" || name === "deny") {
+      return `trace.${name}`;
+    }
+  }
+  if (parent === "storage" && name === "use") return "trace.storage.use";
+  if (parent === "config" && name === "migrate") return "trace.config.migrate";
+  if (name === "login" || name === "logout" || name === "whoami") return name;
   if (parent === "app" && (name === "launch" || name === "pick")) {
     return `app.${name}`;
   }

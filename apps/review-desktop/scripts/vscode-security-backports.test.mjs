@@ -15,12 +15,12 @@ test("pins the hardened Electron runtime", async () => {
   const manifest = await source("cgmanifest.json");
   const checksums = await source("build/checksums/electron.txt");
 
-  assert.match(npmrc, /^target="42\.9\.3"$/m);
-  assert.match(npmrc, /^ms_build_id="15072006"$/m);
-  assert.equal(packageJson.devDependencies.electron, "42.9.3");
-  assert.equal(lock.packages["node_modules/electron"].version, "42.9.3");
-  assert.match(manifest, /"tag": "42\.9\.3"/);
-  assert.match(checksums, /electron-v42\.9\.3-darwin-arm64\.zip/);
+  assert.match(npmrc, /^target="42\.10\.0"$/m);
+  assert.match(npmrc, /^ms_build_id="15109253"$/m);
+  assert.equal(packageJson.devDependencies.electron, "42.10.0");
+  assert.equal(lock.packages["node_modules/electron"].version, "42.10.0");
+  assert.match(manifest, /"tag": "42\.10\.0"/);
+  assert.match(checksums, /electron-v42\.10\.0-darwin-arm64\.zip/);
   assert.doesNotMatch(checksums, /42\.6\.0/);
 });
 

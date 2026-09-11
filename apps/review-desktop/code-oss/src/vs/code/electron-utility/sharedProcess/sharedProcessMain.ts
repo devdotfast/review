@@ -129,8 +129,6 @@ import { DefaultExtensionsInitializer } from './contrib/defaultExtensionsInitial
 import { AllowedExtensionsService } from '../../../platform/extensionManagement/common/allowedExtensionsService.js';
 import { IExtensionGalleryManifestService } from '../../../platform/extensionManagement/common/extensionGalleryManifest.js';
 import { ExtensionGalleryManifestIPCService } from '../../../platform/extensionManagement/common/extensionGalleryManifestServiceIpc.js';
-import { ISharedWebContentExtractorService } from '../../../platform/webContentExtractor/common/webContentExtractor.js';
-import { SharedWebContentExtractorService } from '../../../platform/webContentExtractor/node/sharedWebContentExtractorService.js';
 import { McpManagementService } from '../../../platform/mcp/node/mcpManagementService.js';
 import { IAllowedMcpServersService, IMcpGalleryService, IMcpManagementService } from '../../../platform/mcp/common/mcpManagement.js';
 import { IMcpResourceScannerService, McpResourceScannerService } from '../../../platform/mcp/common/mcpResourceScannerService.js';
@@ -141,8 +139,6 @@ import { IMcpGalleryManifestService } from '../../../platform/mcp/common/mcpGall
 import { McpGalleryManifestIPCService } from '../../../platform/mcp/common/mcpGalleryManifestServiceIpc.js';
 import { IMeteredConnectionService } from '../../../platform/meteredConnection/common/meteredConnection.js';
 import { MeteredConnectionChannelClient, METERED_CONNECTION_CHANNEL } from '../../../platform/meteredConnection/common/meteredConnectionIpc.js';
-import { PlaywrightChannel } from '../../../platform/browserView/node/playwrightChannel.js';
-import { AgentNetworkFilterService } from '../../../platform/networkFilter/common/networkFilterService.js';
 import { ILocalGitService } from '../../../platform/git/common/localGitService.js';
 import { LocalGitService } from '../../../platform/git/node/localGitService.js';
 
@@ -412,9 +408,6 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		// Remote Tunnel
 		services.set(IRemoteTunnelService, new SyncDescriptor(RemoteTunnelService));
 
-		// Web Content Extractor
-		services.set(ISharedWebContentExtractorService, new SyncDescriptor(SharedWebContentExtractorService));
-
 		// Local Git
 		services.set(ILocalGitService, new SyncDescriptor(LocalGitService, undefined, false /* proxied to other processes */));
 
@@ -492,15 +485,6 @@ class SharedProcessMain extends Disposable implements IClientConnectionFilter {
 		// Remote Tunnel
 		const remoteTunnelChannel = ProxyChannel.fromService(accessor.get(IRemoteTunnelService), this._store);
 		this.server.registerChannel('remoteTunnel', remoteTunnelChannel);
-
-		// Web Content Extractor
-		const webContentExtractorChannel = ProxyChannel.fromService(accessor.get(ISharedWebContentExtractorService), this._store);
-		this.server.registerChannel('sharedWebContentExtractor', webContentExtractorChannel);
-
-		// Playwright
-		const agentNetworkFilterService = this._register(new AgentNetworkFilterService(accessor.get(IConfigurationService)));
-		const playwrightChannel = this._register(new PlaywrightChannel(this.server, accessor.get(IMainProcessService), accessor.get(ILogService), agentNetworkFilterService, accessor.get(ITelemetryService)));
-		this.server.registerChannel('playwright', playwrightChannel);
 
 		// Local Git
 		const localGitChannel = ProxyChannel.fromService(accessor.get(ILocalGitService), this._store);

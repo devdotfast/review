@@ -58,3 +58,51 @@ test("postinstall does not install unused remote and upstream test packages", ()
 
   assert.deepEqual(unusedTargets, []);
 });
+
+test("does not register the unreachable browser automation surface", async () => {
+  const codeOss = new URL("../code-oss/", import.meta.url);
+  const app = await readFile(
+    new URL("src/vs/code/electron-main/app.ts", codeOss),
+    "utf8",
+  );
+  const sharedProcess = await readFile(
+    new URL(
+      "src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts",
+      codeOss,
+    ),
+    "utf8",
+  );
+  const moduleIgnore = await readFile(
+    new URL("build/.moduleignore", codeOss),
+    "utf8",
+  );
+
+  // No Review surface drives the agent network filter, the web content
+  // extractor, or the Playwright browser view. Registering their channels
+  // would expose services with no consumer. See UPSTREAM.
+  for (const channel of [
+    "webContentExtractor",
+    "sharedWebContentExtractor",
+    "playwright",
+  ]) {
+    assert.doesNotMatch(app, new RegExp(`registerChannel\\('${channel}'`));
+    assert.doesNotMatch(
+      sharedProcess,
+      new RegExp(`registerChannel\\('${channel}'`),
+    );
+  }
+
+  for (const service of [
+    "IAgentNetworkFilterService",
+    "IWebContentExtractorService",
+    "ISharedWebContentExtractorService",
+  ]) {
+    assert.doesNotMatch(app, new RegExp(`services\\.set\\(${service},`));
+    assert.doesNotMatch(
+      sharedProcess,
+      new RegExp(`services\\.set\\(${service},`),
+    );
+  }
+
+  assert.match(moduleIgnore, /^playwright-core\/\*\*$/m);
+});

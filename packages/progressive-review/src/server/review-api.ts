@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -68,6 +68,7 @@ import {
 } from "../review-thread-store-backend";
 import { ReviewThreadsService } from "../review-threads-service";
 import {
+  type ReviewSourceTarget,
   readReviewStoreRecord,
   resolveReviewRepoRootFromStore,
   resolveReviewSessionBaseCommit,
@@ -203,7 +204,7 @@ export async function captureSanitizedUiTelemetry(
   }
 }
 
-interface ReviewApiOptions {
+export interface ReviewApiOptions {
   mode: ReviewSessionMode;
   readOnlyThreadsPath?: string;
   sourceUnavailable?: string;
@@ -224,6 +225,11 @@ interface ReviewApiOptions {
     error?: string,
   ) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  /** Resolves the pinned head/base worktrees for a live session. Tests
+   * inject a stub; production uses `resolveReviewSourceTarget`. */
+  resolveSourceTarget?: (input: {
+    reviewRootPath: string;
+  }) => Promise<ReviewSourceTarget>;
   reviewToken: string;
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
@@ -1132,8 +1138,30 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     };
   }
 
-  async function requestSourceTarget() {
-    if (!readOnlyReview) return resolveRequestSourceTarget({ reviewRootPath });
+  const resolveSourceTarget =
+    options.resolveSourceTarget ?? resolveReviewSourceTarget;
+  // Resolving the pinned checkouts costs several git subprocesses. A session
+  // serves one revision, so one resolution serves every request until a
+  // checkout root disappears from disk; the desktop host applies the same
+  // existence test to its own checkout-root cache.
+  let liveSourceTarget: Promise<ReviewSourceTarget> | null = null;
+  const sourceTargetRootsExist = (target: ReviewSourceTarget): boolean =>
+    existsSync(target.sourceRootPath) &&
+    (!target.preparedBase || existsSync(target.preparedBase.sourceRootPath));
+
+  async function requestSourceTarget(): Promise<ReviewSourceTarget> {
+    if (!readOnlyReview) {
+      const cached = liveSourceTarget;
+      if (cached) {
+        const target = await cached.catch(() => null);
+        if (target && sourceTargetRootsExist(target)) return target;
+        // Another request already replaced a failed or stale entry.
+        if (liveSourceTarget !== cached) return requestSourceTarget();
+      }
+      const pending = resolveSourceTarget({ reviewRootPath });
+      liveSourceTarget = pending;
+      return pending;
+    }
     if (options.sourceUnavailable) throw new Error(options.sourceUnavailable);
     if (!session.headRootPath || !session.baseRootPath)
       throw new Error("The pinned source worktrees are unavailable.");
@@ -1534,12 +1562,6 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
   return { status: "rematerialized", headCommit, artifactPath };
 }
 
-async function resolveRequestSourceTarget(input: { reviewRootPath: string }) {
-  return resolveReviewSourceTarget({
-    reviewRootPath: input.reviewRootPath,
-  });
-}
-
 interface CodePeekDiffResponse {
   baseRef?: string;
   headRef?: string;
@@ -1558,7 +1580,7 @@ interface CodePeekDiffFile {
 
 async function resolveCodePeekDiff(input: {
   snapshot: SourceSnapshot;
-  sourceTarget: Awaited<ReturnType<typeof resolveRequestSourceTarget>>;
+  sourceTarget: ReviewSourceTarget;
   graph: "head" | "base";
   includePatch: boolean;
 }): Promise<CodePeekDiffResponse | undefined> {
@@ -1644,7 +1666,7 @@ function codePeekDiffRangeFiles(
 }
 
 async function buildSoftwareMapResolvedData(input: {
-  sourceTarget: Awaited<ReturnType<typeof resolveRequestSourceTarget>>;
+  sourceTarget: ReviewSourceTarget;
   codeElements: ReturnType<typeof parseSoftwareMapCodeElements>;
   coverageClaims: ReturnType<typeof parseSoftwareMapCoverageClaims>;
 }): Promise<SoftwareMapResolvedDataResponse> {

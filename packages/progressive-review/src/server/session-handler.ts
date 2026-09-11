@@ -40,7 +40,11 @@ import {
   isAuthorizedRequest,
   jsonResponse,
 } from "./hono-http";
-import { type ReviewApi, createReviewApi } from "./review-api";
+import {
+  type ReviewApi,
+  type ReviewApiOptions,
+  createReviewApi,
+} from "./review-api";
 import {
   LIVE_REVIEW_SESSION_MODE,
   type ReviewSessionArtifacts,
@@ -92,6 +96,8 @@ export interface ReviewSessionHandlerInput {
     error?: string,
   ) => void;
   runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
+  /** Test seam for live-session worktree resolution; see `ReviewApiOptions`. */
+  resolveSourceTarget?: ReviewApiOptions["resolveSourceTarget"];
   agentServer: (harness: ReviewAgentHarness) => AgentServer;
   openNativeAgentTerminal: (
     input: Extract<
@@ -449,6 +455,7 @@ export async function createReviewSessionHandler(
       input.onReviewThreadsCommit?.(commit);
     },
     runReviewThreadMutation: input.runReviewThreadMutation,
+    resolveSourceTarget: input.resolveSourceTarget,
     reviewToken: token,
     agentServer: input.agentServer,
     openNativeAgentTerminal: input.openNativeAgentTerminal,

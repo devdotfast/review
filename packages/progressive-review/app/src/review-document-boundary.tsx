@@ -1,7 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import type { ReviewSession } from "./host/review-session";
-import { ReviewCanvasLoading } from "./review-canvas-loading";
+import { ReviewUnavailable } from "./review-empty-state";
 import { captureClientError } from "./ui-telemetry";
 
 interface ReviewDocumentBoundaryProps {
@@ -36,10 +36,12 @@ export class ReviewDocumentBoundary extends Component<
   render(): ReactNode {
     if (this.state.hasError) {
       return (
-        <ReviewCanvasLoading
-          message="Your coding agent is writing the canvas now…"
-          note={
+        <ReviewUnavailable
+          role="status"
+          message={
             <>
+              Your coding agent is writing the canvas now…
+              <br />
               Your agent is debugging the canvas candidate from{" "}
               <code>review publish</code>.
             </>

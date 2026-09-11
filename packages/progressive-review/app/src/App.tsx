@@ -44,7 +44,6 @@ import {
   ThreadsIcon,
 } from "./icons";
 import { repairInstruction } from "./repair-instruction";
-import { ReviewCanvasLoading } from "./review-canvas-loading";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -817,10 +816,10 @@ function ReviewDocumentLoadState({
   state,
 }: {
   state: Exclude<ReviewDocumentAppState, { state: "ready" }>;
-}): ReactElement {
+}): ReactElement | null {
   switch (state.state) {
     case "loading":
-      return <ReviewCanvasLoading />;
+      return null;
     case "needs-republish":
       return (
         <ReviewUnavailable
@@ -856,10 +855,10 @@ function ReviewSoftwareMapLoadState({
     ReviewSoftwareMapAppState,
     { state: "ready" } | { state: "absent" }
   >;
-}): ReactElement {
+}): ReactElement | null {
   switch (state.state) {
     case "loading":
-      return <ReviewCanvasLoading />;
+      return null;
     case "needs-republish":
       return (
         <ReviewUnavailable

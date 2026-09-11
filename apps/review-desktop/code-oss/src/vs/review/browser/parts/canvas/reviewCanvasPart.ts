@@ -29,6 +29,7 @@ import {
 } from "../../../../platform/editor/common/editor.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
 import { IProductService } from "../../../../platform/product/common/productService.js";
+import { IEditorProgressService, LongRunningOperation } from "../../../../platform/progress/common/progress.js";
 import {
 	IStorageService,
 	StorageScope,
@@ -214,6 +215,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private canvasMount: HTMLElement | null = null;
 	private targetDocument: Document | null = null;
 	private loadGeneration = 0;
+	private openingGeneration: number | undefined;
+	private readonly refreshProgress: LongRunningOperation;
 	private renderedInput: ReviewCanvasEditorInput | undefined;
 	private renderedModel: ReviewSessionModel | null = null;
 	private readyInput: ReviewCanvasEditorInput | undefined;
@@ -254,6 +257,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IReviewTelemetryService
 		private readonly reviewTelemetryService: IReviewTelemetryService,
 		@ILogService private readonly logService: ILogService,
+		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
 		super(
 			ReviewCanvasEditorPane.ID,
@@ -265,6 +269,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.inlineEditors = this._register(
 			reviewInstantiationService.createInstance(ReviewInlineEditorService),
 		);
+		this.refreshProgress = this._register(new LongRunningOperation(editorProgressService));
 		this.diffViews = this._register(
 			reviewInstantiationService.createInstance(
 				ReviewDiffViewService,
@@ -383,6 +388,24 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		token: CancellationToken,
 	): Promise<void> {
 		const generation = ++this.loadGeneration;
+		this.refreshProgress.stop();
+		this.openingGeneration = generation;
+		try {
+			await this.setReviewInput(input, options, context, token, generation);
+		} finally {
+			if (this.openingGeneration === generation) {
+				this.openingGeneration = undefined;
+			}
+		}
+	}
+
+	private async setReviewInput(
+		input: ReviewCanvasEditorInput,
+		options: IEditorOptions | undefined,
+		context: IEditorOpenContext,
+		token: CancellationToken,
+		generation: number,
+	): Promise<void> {
 		await super.setInput(input, options, context, token);
 		this.restoreEmbeddedSelection(options);
 		try {
@@ -634,6 +657,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	override async clearInput(): Promise<void> {
+		this.refreshProgress.stop();
 		if (this.detachedScrollRestoreFrame !== null) {
 			cancelAnimationFrame(this.detachedScrollRestoreFrame);
 			this.detachedScrollRestoreFrame = null;
@@ -651,6 +675,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					)
 				: undefined;
 		await super.clearInput();
+	}
+
+	protected override setEditorVisible(visible: boolean): void {
+		super.setEditorVisible(visible);
+		if (!visible) this.refreshProgress.stop();
 	}
 
 	override focus(): void {
@@ -1300,16 +1329,26 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		model: ReviewSessionModel,
 	): Promise<void> {
 		const generation = ++this.loadGeneration;
-		if (
-			model.state !== "active" &&
-			!(await this.resetSessionForGeneration(generation))
-		) {
-			return;
+		// Opening already owns native editor progress through setInput().
+		// Only refreshes of the visible input need a separate operation.
+		const operation = this.isVisible() && this.input === input && this.openingGeneration === undefined
+			? this.refreshProgress.start(800)
+			: undefined;
+		try {
+			if (
+				model.state !== "active" &&
+				!(await this.resetSessionForGeneration(generation))
+			) {
+				return;
+			}
+			await this.renderModel(input, model, generation);
+		} finally {
+			operation?.stop();
 		}
-		await this.renderModel(input, model, generation);
 	}
 
 	private async renderFailure(error: Error): Promise<void> {
+		this.refreshProgress.stop();
 		const generation = ++this.loadGeneration;
 		if (await this.resetSessionForGeneration(generation)) {
 			await this.renderError(error, generation);

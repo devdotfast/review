@@ -47,6 +47,7 @@ packages/code-graph/canvas/public/snapshot*.json
 .dev/software-maps/
 
 # Local agent/context files
+/tasks/
 .claude/
 .pi-subagents/
 .claude-context

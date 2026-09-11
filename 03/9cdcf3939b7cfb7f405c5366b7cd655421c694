@@ -76,6 +76,8 @@ export default defineSoftwareMap({
     traceStorage: { label: "Configured S3-compatible trace storage", external: true, dataStores: { objects: { label: "Trace and commit-index objects", kind: "objectStore" } } },
   },
   relationships: [
+    { kind: "semantic", from: "review.distribution", to: "review.desktop", label: "Packages and releases the workbench" },
+    { kind: "semantic", from: "review.desktop.chrome", to: "review.desktop.session", label: "Provides navigation and application commands" },
     { kind: "semantic", from: "review.backend.agents.codexLaunch", to: "review.backend.agents.codexTransport", label: "Configures threads and starts Ask turns" },
     { kind: "semantic", from: "review.backend.agents", to: "review.cli.commands", label: "Provides attached-thread environment for comment context" },
     { kind: "semantic", from: "review.backend.server", to: "review.backend.installation", label: "Installs CLI and managed agent skills" },

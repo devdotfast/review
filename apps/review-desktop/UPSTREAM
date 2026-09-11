@@ -28,6 +28,81 @@ Review applies these focused VS Code changes without changing the source pin:
 - Destroyed Electron frame guards: `1058ac0ced09b96d5745c379cdfd50f855f57036`.
 - Retry after failed Oniguruma loads: `5c7bf1f5abd4b51d290f4d9861d5d00ecdcb2de0`.
 
+### September 2026 advisories (all fixed upstream in 1.136.2)
+
+Microsoft published ten advisories on 2026-09-08. Each GitHub advisory cites its
+fix commit, so these are cherry-picked by reference like the entries above.
+Review applies four of them, covering four CVEs:
+
+- Restricted Mode and Workspace Trust bypass via nested configuration objects
+  (CVE-2026-81376, critical; CVE-2026-70334, high):
+  `0684cb5905a3f23156f45a28135326e09310ff4d`. Applied verbatim. Leaf
+  configuration properties now route through a recursive `filterProperty`
+  helper that validates nested objects against the registry by dotted path.
+- Webview resource path containment bypass (CVE-2026-81383, high):
+  `461bd99584a70d51f079dda93353b4b880c9d56d`. Applied verbatim.
+  `containsResource` normalizes backslashes for non-`file` schemes before the
+  containment check.
+- MCP gallery metadata path traversal (CVE-2026-81377, moderate):
+  `6a88486bf4f0033dfc5c7ff1e305d34ed200aed4`. Applied verbatim. `getLocation`
+  rejects resolved paths that escape the MCP storage directory, and `uninstall`
+  refuses a server whose recorded location does not match its derived one.
+- Remote image fetch in agent-generated markdown (CVE-2026-81380, moderate):
+  `88e44fa0e00b08f7758b4f6d05632e4fd5e4df6f`. Media sources are validated
+  during DOM sanitization through the new `mediaSourceIsAllowed` hook, rather
+  than after the `src` attribute has already been attached. Review adds the
+  `isUNC` import by hand because the surrounding import block predates
+  upstream's `isPortableLinkTarget`; the rest is verbatim.
+
+`scripts/vscode-security-backports.test.mjs` asserts each of these hunks is
+still present.
+
+#### Not applicable at this pin
+
+- Azure DevOps access token disclosure (CVE-2026-81381, moderate):
+  `f94e10bbe33d0fa05ed03e1c25397b0625a93ce2` touches only
+  `extensions/copilot/`, excluded at vendor time.
+- Remote code execution through workspace-configured remote agent host
+  connections (CVE-2026-78462, high):
+  `4321a67576d0d63e46d94af88d554b6cbe0193e4` patches
+  `src/vs/workbench/services/agentHost/common/agentHostResourceService.ts` and
+  `src/vs/sessions/contrib/providers/remoteAgentHost/`, neither of which exists
+  here, and `readWebSocketRemoteAgentHostEntries`, which this pin predates.
+  `RemoteAgentHostsSettingId` and `AgentHostLocalFilePermissionsSettingId` are
+  declared but have no read sites in this tree, so there is no path that reads a
+  remote agent host address or a persisted file-permission grant from workspace
+  configuration.
+
+#### Not remediated, by decision
+
+The three Agent Network Filter bypasses — CVE-2026-81378, CVE-2026-81357, and
+CVE-2026-81379 (all high), fixed upstream in
+`256500f4e96be525a26814260a5e815a137c1eff`,
+`8a19bab00bd06be92dbdcf470d24e369496ae1d1`, and
+`d804f2b57392655df446901dd9bdab2685ed5ad4` — are not backported. They harden
+`src/vs/platform/networkFilter/common/`, a control that is inert in Review:
+
+- `AgentNetworkFilterService.isUriAllowed` returns `true` unconditionally unless
+  `chat.agent.networkFilter` is enabled. That setting defaults to `false`, and
+  Review neither sets it nor ships a settings editor that could.
+- Its enforcement points are the chat fetch-page tool, the browser-view tools,
+  and the agent-host sandbox terminal. Review registers no chat, browser-view,
+  or agent contributions; `IChatWidgetService` is bound to an inert stub in
+  `src/vs/review/review.common.main.ts`. The extension-host `browser` API is
+  gated on the `browser` proposed API, and `product.json` declares no
+  `extensionEnabledApiProposals`.
+- Upstream rewrote this module after the vendored commit. Its fixes target
+  `normalizeDomainPattern`, `normalizeBareIpv6`, and `normalizeUriAuthority`,
+  none of which exist here; our copy is byte-identical to the vendor pin.
+  Backporting would mean carrying a large, permanent divergence in a file that
+  currently has none.
+
+Review instead stops registering the services and IPC channels that would reach
+this code at all; see the `app.ts`, `sharedProcessMain.ts`, and
+`build/.moduleignore` entries below. Should a future Review surface ever drive
+agent network requests, re-sync `src/vs/platform/networkFilter/common/` from
+upstream wholesale rather than porting these three commits individually.
+
 Review also keeps `@anthropic-ai/sdk` as a development-only type dependency.
 It must not appear in the packaged production dependency set.
 

@@ -48,6 +48,9 @@ export * from "./bug-report.js";
 export * from "./json.js";
 export * from "./runtime-value.js";
 export * from "./contracts.js";
+export * from "./host-document.js";
+export * from "./host-document-operations.js";
+export * from "./host-api.js";
 
 export function parseReviewDesktopDiscovery(
   value: JsonValue,

@@ -232,6 +232,9 @@ export async function prepareStructuralReview(
             );
           }
           const rows = structuralRows(diff);
+          // Changed-ness comes from the wire: a one-sided row, or a paired row whose line carries a changed span.
+          const highlights = structuralHighlights(diff);
+          const changedLeft = new Set(highlights.originalLines), changedRight = new Set(highlights.modifiedLines);
           const changes: DetailedLineRangeMapping[] = [];
           let l = 0,
             r = 0;
@@ -247,10 +250,8 @@ export async function prepareStructuralReview(
               );
             start = undefined;
           };
-          const ls = left.split("\n"),
-            rs = right.split("\n");
           for (const [a, b] of rows) {
-            const changed = a === null || b === null || ls[a] !== rs[b];
+            const changed = a === null || b === null || changedLeft.has(a + 1) || changedRight.has(b + 1);
             if (changed) start ??= [l, r];
             else flush();
             if (a !== null) l = a + 1;
@@ -269,7 +270,7 @@ export async function prepareStructuralReview(
               (side, id) => collapsed.get(collapseKey(path!, side, id)) === true,
               (side, id) => collapsed.get(collapseKey(path!, side, id)),
             ),
-            changeHighlights: structuralHighlights(diff),
+            changeHighlights: highlights,
           };
         },
       };

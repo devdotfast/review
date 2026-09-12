@@ -97,18 +97,39 @@
 .monaco-editor .diff-hidden-lines .detail {
 	background: var(--vscode-diffEditor-unchangedRegionBackground);
 	color: var(--vscode-diffEditor-unchangedRegionForeground);
-	padding: 4px 0;
+	padding: 4px 0 8px 0;
 	overflow: hidden;
 }
 
+/* A band over lines that exist on one side only takes that side's change tint, so it reads as added or removed code. */
+.monaco-editor .diff-hidden-lines.kind-inserted .center,
+.monaco-editor .diff-hidden-lines.kind-inserted .detail {
+	background: var(--vscode-diffEditor-insertedLineBackground);
+}
+
+.monaco-editor .diff-hidden-lines.kind-removed .center,
+.monaco-editor .diff-hidden-lines.kind-removed .detail {
+	background: var(--vscode-diffEditor-removedLineBackground);
+}
+
+/* Pseudocode reads as a comment: the theme's comment colour, italic, one step smaller than code, with a thin rule. */
 .monaco-editor .diff-hidden-lines .detail pre.diff-hidden-lines-detail {
 	margin: 0;
+	padding-left: 10px;
+	border-left: 2px solid;
+	border-left-color: inherit;
 	font-family: var(--monaco-monospace-font);
-	font-size: inherit;
-	line-height: var(--vscode-editor-line-height, 18px);
+	font-style: italic;
 	white-space: pre;
-	opacity: 0.85;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-right: 16px;
 }
+
+.monaco-editor .diff-hidden-lines .detail pre.diff-hidden-lines-detail {
+	border-left-color: color-mix(in srgb, currentColor 50%, transparent);
+}
+
 
 .monaco-editor .diff-hidden-lines .center span.codicon {
 	vertical-align: middle;

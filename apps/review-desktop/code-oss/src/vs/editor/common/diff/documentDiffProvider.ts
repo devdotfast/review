@@ -66,6 +66,11 @@ export interface IDocumentContextGap {
 	readonly originalCount: number;
 	readonly modifiedCount: number;
 	readonly label?: string;
+	/**
+	 * What the hidden lines are: unchanged context, lines that exist only on
+	 * the modified side, or only on the original side. Drives the band's tint.
+	 */
+	readonly kind?: 'unchanged' | 'inserted' | 'removed';
 }
 
 export interface IDocumentDiff {

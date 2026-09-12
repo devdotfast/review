@@ -536,6 +536,8 @@ export class UnchangedRegion {
 
 	/** A provider-supplied name for the region; undefined means "N hidden lines". */
 	public get label(): string | undefined { return undefined; }
+	/** What the hidden lines are; supplied gaps say, computed regions are unchanged context. */
+	public get kind(): 'unchanged' | 'inserted' | 'removed' { return 'unchanged'; }
 
 	constructor(
 		public readonly originalLineNumber: number,
@@ -671,6 +673,7 @@ class SuppliedContextGap extends UnchangedRegion {
 		super(gap.originalStart, gap.modifiedStart, Math.max(gap.originalCount, gap.modifiedCount), 0, 0);
 	}
 	override get label(): string | undefined { return this.gap.label; }
+	override get kind(): 'unchanged' | 'inserted' | 'removed' { return this.gap.kind ?? 'unchanged'; }
 	override get originalUnchangedRange(): LineRange { return LineRange.ofLength(this.gap.originalStart, this.gap.originalCount); }
 	override get modifiedUnchangedRange(): LineRange { return LineRange.ofLength(this.gap.modifiedStart, this.gap.modifiedCount); }
 	private hidden(start: number, count: number, reader: IReader | undefined): LineRange {

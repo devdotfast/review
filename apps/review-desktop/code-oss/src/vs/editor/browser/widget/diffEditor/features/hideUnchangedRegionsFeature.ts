@@ -13,6 +13,8 @@ import { ThemeIcon } from '../../../../../base/common/themables.js';
 import { isDefined } from '../../../../../base/common/types.js';
 import { localize } from '../../../../../nls.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
+import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
+import { diffUnchangedRegionForeground } from '../../../../../platform/theme/common/colors/editorColors.js';
 import { EditorOption } from '../../../../common/config/editorOptions.js';
 import { LineRange } from '../../../../common/core/ranges/lineRange.js';
 import { Position } from '../../../../common/core/position.js';
@@ -63,6 +65,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 		private readonly _diffModel: IObservable<DiffEditorViewModel | undefined>,
 		private readonly _options: DiffEditorOptions,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
+		@IThemeService private readonly _themeService: IThemeService,
 	) {
 		super();
 
@@ -156,6 +159,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
+							this._themeService,
 						));
 					}
 					{
@@ -171,6 +175,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
+							this._themeService,
 						));
 					}
 				}
@@ -302,10 +307,23 @@ class CompactCollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 	}
 }
 
-/** The band is 24px for its title, plus one editor line for each further label line. */
+/**
+ * The text shown under a band's title. A supplied label may begin with a
+ * `<comment> pseudocode` marker meant for terminals; it is dropped here.
+ */
+export function bandDetailText(label: string | undefined): string {
+	if (!label) { return ''; }
+	const lines = label.split('\n');
+	if (lines.length < 2) { return ''; }
+	const body = /^(\/\/|#|--|;|%)\s*pseudocode$/.test(lines[0].trim()) ? lines.slice(1) : lines;
+	return body.join('\n');
+}
+
+/** The band is 24px for its controls, plus one line of detail text per detail line. */
 export function bandHeightPx(label: string | undefined, lineHeight: number): number {
-	const extra = label ? label.split('\n').length - 1 : 0;
-	return 24 + (extra > 0 ? extra * lineHeight + 8 : 0);
+	const detail = bandDetailText(label);
+	const lines = detail ? detail.split('\n').length : 0;
+	return 24 + (lines > 0 ? lines * lineHeight + 12 : 0);
 }
 
 class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
@@ -331,10 +349,12 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 		private readonly _modifiedOutlineSource: IDiffEditorBreadcrumbsSource,
 		private readonly _revealModifiedHiddenLine: (lineNumber: number) => void,
 		private readonly _options: DiffEditorOptions,
+		private readonly _themeService: IThemeService,
 	) {
 		const root = h('div.diff-hidden-lines-widget');
 		super(_editor, _viewZone, root.root);
 		root.root.appendChild(this._nodes.root);
+		this._nodes.root.classList.add(`kind-${_unchangedRegion.kind}`);
 
 		if (!this._hide) {
 			this._register(applyStyle(this._nodes.first, { width: observableCodeEditor(this._editor).layoutInfoContentLeft }));
@@ -457,17 +477,31 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 
 			const children: HTMLElement[] = [];
 			const label = _unchangedRegion.label;
-			const [title, ...detailLines] = label ? label.split('\n') : [];
-			if (label && detailLines.length > 0 && !this._hide) {
-				const detail = $('pre.diff-hidden-lines-detail', undefined, detailLines.join('\n'));
-				detail.style.paddingLeft = `${observableCodeEditor(this._editor).layoutInfoContentLeft.read(reader)}px`;
-				reset(this._nodes.detail, detail);
+			const detailText = bandDetailText(label);
+			const lineCount = Math.max(_unchangedRegion.getHiddenModifiedRange(reader).length, _unchangedRegion.getHiddenOriginalRange(reader).length);
+			if (detailText && !this._hide) {
+				const theme = this._themeService.getColorTheme();
+				const language = this._editor.getModel()?.getLanguageId() ?? 'plaintext';
+				const commentStyle = theme.getTokenStyleMetadata('comment', [], language);
+				const commentColor = commentStyle?.foreground !== undefined ? theme.tokenColorMap[commentStyle.foreground] : undefined;
+				const color = commentColor ?? theme.getColor(diffUnchangedRegionForeground)?.toString() ?? '';
+				const fontSize = Math.max(11, this._editor.getOption(EditorOption.fontSize) - 1);
+				// One indent level under the header line, in the editor's own space width.
+				const indent = observableCodeEditor(this._editor).layoutInfoContentLeft.read(reader) + this._editor.getOption(EditorOption.fontInfo).spaceWidth * 4;
+				const pre = $('pre.diff-hidden-lines-detail', undefined, detailText);
+				pre.style.color = color;
+				pre.style.borderLeftColor = color;
+				pre.style.fontSize = `${fontSize}px`;
+				pre.style.lineHeight = `${this._editor.getOption(EditorOption.lineHeight)}px`;
+				pre.style.marginLeft = `${indent}px`;
+				reset(this._nodes.detail, pre);
 			} else {
 				reset(this._nodes.detail);
 			}
 			if (!this._hide) {
-				const lineCount = _unchangedRegion.getHiddenModifiedRange(reader).length;
-				const linesHiddenText = label ? title : localize('hiddenLines', '{0} hidden lines', lineCount);
+				const [title] = label ? label.split('\n') : [];
+				// A band with detail keeps Monaco's own count; the detail is a comment attached to it.
+				const linesHiddenText = detailText || !label ? localize('hiddenLines', '{0} hidden lines', lineCount) : title;
 				const span = $('span', { title: localize('diff.hiddenLines.expandAll', 'Double click to unfold') }, linesHiddenText);
 				span.addEventListener('dblclick', e => {
 					if (e.button !== 0) { return; }

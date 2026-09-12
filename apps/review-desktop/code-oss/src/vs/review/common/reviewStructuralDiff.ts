@@ -216,8 +216,22 @@ export interface StructuralGap {
   originalCount: number;
   modifiedCount: number;
   label: string;
+  /** What the band hides: unchanged context, or lines that exist on one side only. */
+  kind: "unchanged" | "inserted" | "removed";
   /** The region ids this band hides, per side. */
   ids: { lhs?: number; rhs?: number };
+}
+
+/**
+ * The text a band shows under its title. diffr prepends a `<comment> pseudocode`
+ * line to a summary for terminals; the app has its own caption, so that line
+ * is dropped here. A one-line label has no detail.
+ */
+export function bandDetail(label: string): string {
+  const lines = label.split("\n");
+  if (lines.length < 2) return "";
+  const body = /^(\/\/|#|--|;|%)\s*pseudocode$/.test(lines[0].trim()) ? lines.slice(1) : lines;
+  return body.join("\n");
 }
 
 /**
@@ -285,6 +299,7 @@ export function structuralContextGaps(
         originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
         modifiedStart: right.start + 1, modifiedCount: right.end - right.start,
         label: partner.visibility?.label || left.visibility?.label || "",
+        kind: "unchanged",
         ids: { lhs: left.id, rhs: partner.id },
       });
       continue;
@@ -293,7 +308,7 @@ export function structuralContextGaps(
     gaps.push({
       originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
       modifiedStart: nextOpposite(row, 0) + 1, modifiedCount: 0,
-      label: left.visibility?.label || "", ids: { lhs: left.id },
+      label: left.visibility?.label || "", kind: "removed", ids: { lhs: left.id },
     });
   }
   for (const right of rhs) {
@@ -303,7 +318,7 @@ export function structuralContextGaps(
     gaps.push({
       originalStart: nextOpposite(row, 1) + 1, originalCount: 0,
       modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
-      label: right.visibility?.label || "", ids: { rhs: right.id },
+      label: right.visibility?.label || "", kind: "inserted", ids: { rhs: right.id },
     });
   }
   gaps.sort((a, b) => (a.modifiedStart - b.modifiedStart) || (a.originalStart - b.originalStart));

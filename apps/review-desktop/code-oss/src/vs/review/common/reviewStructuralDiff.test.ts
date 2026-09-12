@@ -11,7 +11,6 @@ import {
   hiddenLinesOf,
   structuralContextGaps,
   bandDetail,
-  structuralRefoldMarkers,
   structuralCountsTooltip,
   structuralInitialCounts,
   structuralVisibleCounts,
@@ -205,19 +204,4 @@ test("a band's detail drops diffr's pseudocode marker line and keeps one-line la
   assert.equal(bandDetail("# pseudocode\nreturn x"), "return x");
   assert.equal(bandDetail("first\nsecond"), "first\nsecond");
   assert.equal(bandDetail("19 lines removed"), "");
-});
-
-test("an expanded region that started collapsed gets a re-fold marker on its first line", () => {
-  const gap = leaf(1, 0, 40, { tags: ["unchanged"], visibility: { collapsed: true, label: "40 unchanged lines" } });
-  const added = fold(5, [leaf(6, 40, 41), leaf(7, 41, 70)], ["body", "function"]);
-  added.visibility = { collapsed: true, label: "// pseudocode\nreturn x" };
-  const plain = fold(8, [leaf(9, 70, 71), leaf(10, 71, 80)], ["body"]);
-  const regions = [gap, added, plain];
-  // Everything still collapsed: nothing to re-fold.
-  assert.deepEqual(structuralRefoldMarkers(regions, () => true), []);
-  // The reader opened both bands; the plain fold never started collapsed, so it has no marker.
-  assert.deepEqual(structuralRefoldMarkers(regions, (id) => (id === 1 || id === 5 ? false : undefined)), [
-    { id: 1, line: 1, label: "40 unchanged lines", hiddenLines: 40 },
-    { id: 5, line: 41, label: "// pseudocode", hiddenLines: 29 },
-  ]);
 });

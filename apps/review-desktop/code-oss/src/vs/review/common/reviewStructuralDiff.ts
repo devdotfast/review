@@ -363,48 +363,6 @@ export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFil
  * recomputed locally once the reader toggles folds. `isCollapsed` answers for
  * the region id on the given side.
  */
-/** An expanded region that can be folded back into a band, on one side. */
-export interface StructuralRefoldMarker {
-  id: number;
-  /** One-based line the marker sits on: the region's first line. */
-  line: number;
-  /** The band's label, or a hidden-line count when it has none. */
-  label: string;
-  hiddenLines: number;
-}
-
-/**
- * Regions on one side that can start collapsed but are open now, outermost
- * first. A region that never starts collapsed and was never collapsed is not
- * foldable here: only what the wire or a reader folded can be folded again.
- */
-export function structuralRefoldMarkers(
-  regions: readonly StructuralRegion[] | undefined,
-  state: (id: number) => boolean | undefined,
-): StructuralRefoldMarker[] {
-  const markers: StructuralRefoldMarker[] = [];
-  const walk = (region: StructuralRegion) => {
-    const known = state(region.id);
-    if (known === true) return;
-    if (known === false && region.visibility?.collapsed === true) {
-      const hidden = hiddenLinesOf(region);
-      if (hidden.end > hidden.start) {
-        const label = region.visibility?.label ?? "";
-        const first = bandDetail(label) ? label.split("\n")[0] : label;
-        markers.push({
-          id: region.id,
-          line: regionLines(region).start + 1,
-          label: first || `${hidden.end - hidden.start} hidden lines`,
-          hiddenLines: hidden.end - hidden.start,
-        });
-      }
-    }
-    if (region.kind === "fold") for (const child of region.children) walk(child);
-  };
-  for (const region of regions ?? []) walk(region);
-  return markers;
-}
-
 export function structuralVisibleCounts(
   diff: StructuralTextDiff,
   isCollapsed: (side: 0 | 1, id: number) => boolean,

@@ -218,6 +218,8 @@ export interface StructuralGap {
   label: string;
   /** What the band hides: unchanged context, or lines that exist on one side only. */
   kind: "unchanged" | "inserted" | "removed";
+  /** False for a region the reader revealed: it stays a band the editor can fold again. */
+  collapsed: boolean;
   /** The region ids this band hides, per side. */
   ids: { lhs?: number; rhs?: number };
 }
@@ -248,12 +250,27 @@ export function collapsedRegions(
   regions: readonly StructuralRegion[] | undefined,
   isCollapsed: (id: number) => boolean,
 ): StructuralRegion[] {
-  const result: StructuralRegion[] = [];
+  return knownRegions(regions, (id) => (isCollapsed(id) ? true : undefined)).map((r) => r.region);
+}
+
+/**
+ * Regions of one side the state knows about, outermost first: collapsed ones
+ * and ones a reader revealed. A collapsed region subsumes its descendants; a
+ * revealed one still lists them, since a child may be collapsed on its own.
+ */
+export function knownRegions(
+  regions: readonly StructuralRegion[] | undefined,
+  state: (id: number) => boolean | undefined,
+): { region: StructuralRegion; collapsed: boolean }[] {
+  const result: { region: StructuralRegion; collapsed: boolean }[] = [];
   const walk = (region: StructuralRegion) => {
-    if (isCollapsed(region.id)) {
-      if (hiddenLinesOf(region).end > hiddenLinesOf(region).start) result.push(region);
+    const known = state(region.id);
+    const hides = hiddenLinesOf(region).end > hiddenLinesOf(region).start;
+    if (known === true) {
+      if (hides) result.push({ region, collapsed: true });
       return;
     }
+    if (known === false && hides) result.push({ region, collapsed: false });
     if (region.kind === "fold") for (const child of region.children) walk(child);
   };
   for (const region of regions ?? []) walk(region);
@@ -269,6 +286,7 @@ export function collapsedRegions(
 export function structuralContextGaps(
   diff: StructuralTextDiff,
   isCollapsed: (side: 0 | 1, id: number) => boolean,
+  state: (side: 0 | 1, id: number) => boolean | undefined = (side, id) => (isCollapsed(side, id) ? true : undefined),
 ): StructuralGap[] {
   const rows = structuralRows(diff);
   // First row index for each source line per side, and the opposite line at or after it.
@@ -284,23 +302,24 @@ export function structuralContextGaps(
     }
     return side === 0 ? monacoLineCount(diff.rhs) : monacoLineCount(diff.lhs);
   };
-  const lhs = collapsedRegions(diff.lhs?.regions, (id) => isCollapsed(0, id));
-  const rhs = collapsedRegions(diff.rhs?.regions, (id) => isCollapsed(1, id));
-  const rhsById = new Map(rhs.map((region) => [region.id, region]));
+  const lhs = knownRegions(diff.lhs?.regions, (id) => state(0, id));
+  const rhs = knownRegions(diff.rhs?.regions, (id) => state(1, id));
+  const rhsById = new Map(rhs.map((entry) => [entry.region.id, entry]));
   const usedRhs = new Set<number>();
   const gaps: StructuralGap[] = [];
-  for (const left of lhs) {
+  for (const { region: left, collapsed } of lhs) {
     const hidden = hiddenLinesOf(left);
     const partner = rhsById.get(left.id);
     if (partner) {
       usedRhs.add(left.id);
-      const right = hiddenLinesOf(partner);
+      const right = hiddenLinesOf(partner.region);
       gaps.push({
         originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
         modifiedStart: right.start + 1, modifiedCount: right.end - right.start,
-        label: partner.visibility?.label || left.visibility?.label || "",
+        label: partner.region.visibility?.label || left.visibility?.label || "",
         kind: "unchanged",
-        ids: { lhs: left.id, rhs: partner.id },
+        collapsed: collapsed && partner.collapsed,
+        ids: { lhs: left.id, rhs: partner.region.id },
       });
       continue;
     }
@@ -308,17 +327,17 @@ export function structuralContextGaps(
     gaps.push({
       originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
       modifiedStart: nextOpposite(row, 0) + 1, modifiedCount: 0,
-      label: left.visibility?.label || "", kind: "removed", ids: { lhs: left.id },
+      label: left.visibility?.label || "", kind: "removed", collapsed, ids: { lhs: left.id },
     });
   }
-  for (const right of rhs) {
+  for (const { region: right, collapsed } of rhs) {
     if (usedRhs.has(right.id)) continue;
     const hidden = hiddenLinesOf(right);
     const row = rowOfRight.get(hidden.start) ?? rows.length;
     gaps.push({
       originalStart: nextOpposite(row, 1) + 1, originalCount: 0,
       modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
-      label: right.visibility?.label || "", kind: "inserted", ids: { rhs: right.id },
+      label: right.visibility?.label || "", kind: "inserted", collapsed, ids: { rhs: right.id },
     });
   }
   gaps.sort((a, b) => (a.modifiedStart - b.modifiedStart) || (a.originalStart - b.originalStart));

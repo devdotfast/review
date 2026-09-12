@@ -71,6 +71,12 @@ export interface IDocumentContextGap {
 	 * the modified side, or only on the original side. Drives the band's tint.
 	 */
 	readonly kind?: 'unchanged' | 'inserted' | 'removed';
+	/**
+	 * Whether the region starts hidden. `false` supplies a region that is
+	 * fully shown, so the editor keeps its fold control on the region's
+	 * first line. Default `true`.
+	 */
+	readonly collapsed?: boolean;
 }
 
 export interface IDocumentDiff {

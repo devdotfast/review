@@ -156,7 +156,11 @@ export class DiffEditorViewModel extends Disposable implements IDiffEditorViewMo
 				const regions = result.contextGaps.map(gap => {
 					const region = new SuppliedContextGap(gap);
 					const old = previous?.regions.find(r => r.originalLineNumber === gap.originalStart && r.modifiedLineNumber === gap.modifiedStart && r.lineCount === region.lineCount && r.label === gap.label);
-					if (old) region.setState(old.visibleLineCountTop.get(), old.visibleLineCountBottom.get(), tx);
+					if (old) {
+						region.setState(old.visibleLineCountTop.get(), old.visibleLineCountBottom.get(), tx);
+					} else if (gap.collapsed === false) {
+						region.showAll(tx);
+					}
 					return region;
 				});
 				model.original.deltaDecorations(previous?.originalDecorationIds ?? [], []);

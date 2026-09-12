@@ -264,7 +264,11 @@ export async function prepareStructuralReview(
             quitEarly: false,
             sourceLineAlignment: rows,
             // Every collapsed region is a hidden-region band, labelled by the wire.
-            contextGaps: structuralContextGaps(diff, (side, id) => collapsed.get(collapseKey(path!, side, id)) === true),
+            contextGaps: structuralContextGaps(
+              diff,
+              (side, id) => collapsed.get(collapseKey(path!, side, id)) === true,
+              (side, id) => collapsed.get(collapseKey(path!, side, id)),
+            ),
             changeHighlights: structuralHighlights(diff),
           };
         },
@@ -312,7 +316,7 @@ function attachStructuralEditors(
         const path = model && pairs.get(model.original.uri.toString() + "\n" + model.modified.uri.toString());
         const regions = widget.unchangedRegions!.read(reader);
         if (!path || !files.has(path)) return;
-        const gaps = structuralContextGaps(files.get(path)!, (side, id) => collapsed.get(path, side, id) === true);
+        const gaps = structuralContextGaps(files.get(path)!, (side, id) => collapsed.get(path, side, id) === true, (side, id) => collapsed.get(path, side, id));
         const next = new Set<UnchangedRegion>();
         const gapOf = (region: UnchangedRegion) =>
           gaps.find((g) => g.originalStart === region.originalLineNumber && g.modifiedStart === region.modifiedLineNumber && g.label === region.label);

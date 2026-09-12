@@ -202,7 +202,8 @@ export class HideUnchangedRegionsFeature extends Disposable {
 			/** @description decorations */
 			// A region that exists on the other side only has no lines here: no decoration, no control.
 			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => !r.originalUnchangedRange.isEmpty);
-			const result = curUnchangedRegions.map<IModelDeltaDecoration>(r => ({
+			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
+			const result = curUnchangedRegions.filter(r => r.kind === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.originalUnchangedRange.toInclusiveRange()!,
 				options: unchangedLinesDecoration,
 			}));
@@ -220,7 +221,8 @@ export class HideUnchangedRegionsFeature extends Disposable {
 		this._register(applyObservableDecorations(this._editors.modified, derived(this, reader => {
 			/** @description decorations */
 			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => !r.modifiedUnchangedRange.isEmpty);
-			const result = curUnchangedRegions.map<IModelDeltaDecoration>(r => ({
+			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
+			const result = curUnchangedRegions.filter(r => r.kind === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.modifiedUnchangedRange.toInclusiveRange()!,
 				options: unchangedLinesDecoration,
 			}));

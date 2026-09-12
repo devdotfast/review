@@ -185,14 +185,16 @@ test("every collapsed region becomes a labelled band: paired by id, or one-sided
   };
   const gaps = structuralContextGaps(diff, (_side, id) => id === 1 || id === 2 || id === 5);
   assert.deepEqual(gaps, [
-    { originalStart: 1, originalCount: 40, modifiedStart: 1, modifiedCount: 40, label: "40 unchanged lines", kind: "unchanged", ids: { lhs: 1, rhs: 1 } },
+    { originalStart: 1, originalCount: 40, modifiedStart: 1, modifiedCount: 40, label: "40 unchanged lines", kind: "unchanged", collapsed: true, ids: { lhs: 1, rhs: 1 } },
     // The removed body hides lines 42..60 on the left; its rows precede the added body's, so it anchors before them on the right.
-    { originalStart: 42, originalCount: 19, modifiedStart: 41, modifiedCount: 0, label: "19 lines removed", kind: "removed", ids: { lhs: 2 } },
-    { originalStart: 61, originalCount: 0, modifiedStart: 42, modifiedCount: 29, label: pseudocode, kind: "inserted", ids: { rhs: 5 } },
+    { originalStart: 42, originalCount: 19, modifiedStart: 41, modifiedCount: 0, label: "19 lines removed", kind: "removed", collapsed: true, ids: { lhs: 2 } },
+    { originalStart: 61, originalCount: 0, modifiedStart: 42, modifiedCount: 29, label: pseudocode, kind: "inserted", collapsed: true, ids: { rhs: 5 } },
   ]);
-  // Revealing the gap on one side drops it from the band list; the other regions are untouched.
-  const revealed = structuralContextGaps(diff, (_side, id) => id === 2 || id === 5);
-  assert.deepEqual(revealed.map((g) => g.ids), [{ lhs: 2 }, { rhs: 5 }]);
+  // A region the reader revealed stays a band, marked open, so the editor keeps a fold control on it.
+  const revealed = structuralContextGaps(diff, (_side, id) => id === 2 || id === 5, (_side, id) => (id === 1 ? false : id === 2 || id === 5 ? true : undefined));
+  assert.deepEqual(revealed.map((g) => [g.ids, g.collapsed]), [[{ lhs: 1, rhs: 1 }, false], [{ lhs: 2 }, true], [{ rhs: 5 }, true]]);
+  // A region the state never knew is not a band at all.
+  assert.deepEqual(structuralContextGaps(diff, (_side, id) => id === 2 || id === 5).map((g) => g.ids), [{ lhs: 2 }, { rhs: 5 }]);
   // A collapsed region without a label is named by its line count.
   const unlabeled = leaf(9, 0, 3, { visibility: { collapsed: true, label: "" } });
   const small: StructuralTextDiff = { type: "text", stats, lhs: text(lines(3), [unlabeled]), rhs: text(lines(3), [unlabeled]) };

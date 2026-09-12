@@ -270,7 +270,8 @@ export function knownRegions(
       if (hides) result.push({ region, collapsed: true });
       return;
     }
-    if (known === false && hides) result.push({ region, collapsed: false });
+    // Open, but a band by the wire's default: a reader revealed it, and the editor can fold it again.
+    if (known === false && hides && region.visibility?.collapsed === true) result.push({ region, collapsed: false });
     if (region.kind === "fold") for (const child of region.children) walk(child);
   };
   for (const region of regions ?? []) walk(region);

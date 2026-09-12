@@ -193,8 +193,9 @@ test("every collapsed region becomes a labelled band: paired by id, or one-sided
   // A region the reader revealed stays a band, marked open, so the editor keeps a fold control on it.
   const revealed = structuralContextGaps(diff, (_side, id) => id === 2 || id === 5, (_side, id) => (id === 1 ? false : id === 2 || id === 5 ? true : undefined));
   assert.deepEqual(revealed.map((g) => [g.ids, g.collapsed]), [[{ lhs: 1, rhs: 1 }, false], [{ lhs: 2 }, true], [{ rhs: 5 }, true]]);
-  // A region the state never knew is not a band at all.
+  // A region the state never knew is not a band at all, and neither is one that never starts collapsed.
   assert.deepEqual(structuralContextGaps(diff, (_side, id) => id === 2 || id === 5).map((g) => g.ids), [{ lhs: 2 }, { rhs: 5 }]);
+  assert.deepEqual(structuralContextGaps(diff, () => false, (_side, id) => (id === 8 ? false : id === 2 ? true : undefined)).map((g) => g.ids), [{ lhs: 2 }]);
   // A collapsed region without a label is named by its line count.
   const unlabeled = leaf(9, 0, 3, { visibility: { collapsed: true, label: "" } });
   const small: StructuralTextDiff = { type: "text", stats, lhs: text(lines(3), [unlabeled]), rhs: text(lines(3), [unlabeled]) };

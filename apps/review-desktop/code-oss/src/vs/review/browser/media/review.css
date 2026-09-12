@@ -1875,3 +1875,18 @@ body
 @media (prefers-reduced-motion: reduce) {
   .review-structural-stream-status.loading::before { animation: none; }
 }
+
+/* Re-fold marker: an always-visible fold glyph on the first line of an expanded structural region. */
+.monaco-editor .margin-view-overlays .review-structural-refold {
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--vscode-editorGutter-foldingControlForeground, var(--vscode-diffEditor-unchangedRegionForeground));
+	opacity: 0.85;
+}
+
+.monaco-editor .margin-view-overlays .review-structural-refold:hover {
+	opacity: 1;
+	color: var(--vscode-editorLink-activeForeground);
+}

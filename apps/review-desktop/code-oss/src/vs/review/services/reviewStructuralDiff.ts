@@ -14,7 +14,12 @@ import { IInstantiationService } from "../../platform/instantiation/common/insta
 import { ServiceCollection } from "../../platform/instantiation/common/serviceCollection.js";
 import { IDiffProviderFactoryService } from "../../editor/browser/widget/diffEditor/diffProviderFactoryService.js";
 import { ICodeEditorService } from "../../editor/browser/services/codeEditorService.js";
-import type { IDiffEditor } from "../../editor/browser/editorBrowser.js";
+import { MouseTargetType, type ICodeEditor, type IDiffEditor } from "../../editor/browser/editorBrowser.js";
+import { EditorAction, registerEditorAction, type ServicesAccessor } from "../../editor/browser/editorExtensions.js";
+import { EditorContextKeys } from "../../editor/common/editorContextKeys.js";
+import { KeyChord, KeyCode, KeyMod } from "../../base/common/keyCodes.js";
+import { KeybindingWeight } from "../../platform/keybinding/common/keybindingsRegistry.js";
+import { localize } from "../../nls.js";
 import { LineRange } from "../../editor/common/core/ranges/lineRange.js";
 import { DetailedLineRangeMapping } from "../../editor/common/diff/rangeMapping.js";
 import { autorun, type IObservable } from "../../base/common/observable.js";
@@ -23,6 +28,7 @@ import { IReviewSessionModelService } from "./reviewSessionModelService.js";
 import { reviewDiffFilesUrl } from "../common/reviewReveal.js";
 import {
   structuralContextGaps,
+  structuralRefoldMarkers,
   structuralFilePath,
   structuralInitialCounts,
   structuralVisibleCounts,
@@ -274,6 +280,7 @@ export async function prepareStructuralReview(
   const child = lifetime.add(
     instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
   );
+  const collapseChanged = lifetime.add(new Emitter<void>());
   attachStructuralEditors(instantiation, entries, files, lifetime, {
     get: (path, side, id) => collapsed.get(collapseKey(path, side, id)),
     set: (path, side, id, value) => {
@@ -281,7 +288,9 @@ export async function prepareStructuralReview(
       collapsed.set(collapseKey(path, side, id), value);
       emitCounts(path);
       providerChanged.fire();
+      collapseChanged.fire();
     },
+    onDidChange: collapseChanged.event,
   });
   return { instantiation: child, enabled: true, entries, load, onDidChangeCounts: countsChanged.event };
 }
@@ -306,6 +315,49 @@ function attachStructuralEditors(
     const widget = editor as unknown as { unchangedRegions?: IObservable<readonly UnchangedRegion[]> };
     if (!widget.unchangedRegions) return;
     let revealed = new Set<UnchangedRegion>();
+    // A re-fold marker on the first line of every expanded region, on the side the region exists.
+    for (const [side, codeEditor] of [[0, editor.getOriginalEditor()], [1, editor.getModifiedEditor()]] as const) {
+      const decorations = codeEditor.createDecorationsCollection();
+      store.add(toDisposable(() => decorations.clear()));
+      const current = () => {
+        const model = editor.getModel();
+        const path = model && pairs.get(model.original.uri.toString() + "\n" + model.modified.uri.toString());
+        const diff = path ? files.get(path) : undefined;
+        if (!path || !diff) return undefined;
+        const source = side === 0 ? diff.lhs : diff.rhs;
+        return { path, markers: structuralRefoldMarkers(source?.regions, (id) => collapsed.get(path, side, id)) };
+      };
+      const render = () => {
+        const state = current();
+        if (!state) { decorations.clear(); refoldTargets.delete(codeEditor); return; }
+        refoldTargets.set(codeEditor, {
+          path: state.path, side,
+          refold: (id) => refold(collapsed, files, state.path, side, id),
+          markers: () => current()?.markers ?? [],
+        });
+        decorations.set(state.markers.map((m) => ({
+          range: { startLineNumber: m.line, startColumn: 1, endLineNumber: m.line, endColumn: 1 },
+          options: {
+            description: "review-structural-refold",
+            glyphMarginClassName: "review-structural-refold codicon codicon-fold",
+            glyphMarginHoverMessage: { value: localize("review.structural.refold", "Fold: {0}", m.label) },
+            stickiness: 1,
+          },
+        })));
+      };
+      store.add(codeEditor.onMouseDown((e) => {
+        if (e.target.type !== MouseTargetType.GUTTER_GLYPH_MARGIN || !e.target.element?.classList.contains("review-structural-refold")) return;
+        const state = current();
+        const hit = state?.markers.find((m) => m.line === e.target.position?.lineNumber);
+        if (!state || !hit) return;
+        e.event.preventDefault();
+        refold(collapsed, files, state.path, side, hit.id);
+      }));
+      store.add(collapsed.onDidChange(render));
+      store.add(editor.onDidUpdateDiff(render));
+      store.add(codeEditor.onDidChangeModel(render));
+      render();
+    }
     store.add(
       autorun((reader) => {
         const model = editor.getModel();
@@ -335,4 +387,45 @@ function attachStructuralEditors(
 interface CollapseState {
   get(path: string, side: 0 | 1, id: number): boolean | undefined;
   set(path: string, side: 0 | 1, id: number, value: boolean): void;
+  /** Fires after any set. */
+  onDidChange: Event<void>;
 }
+
+/** Re-fold a region: collapse it on the side it was clicked and on its pair, if any. */
+function refold(collapsed: CollapseState, files: Map<string, StructuralTextDiff>, path: string, side: 0 | 1, id: number): void {
+  const diff = files.get(path);
+  if (!diff) return;
+  collapsed.set(path, side, id, true);
+  const other = side === 0 ? diff.rhs : diff.lhs;
+  if (other && collapsed.get(path, side === 0 ? 1 : 0, id) !== undefined) collapsed.set(path, side === 0 ? 1 : 0, id, true);
+}
+
+/** Every open structural editor by side, so the fold action can find the region under the cursor. */
+const refoldTargets = new WeakMap<ICodeEditor, { path: string; side: 0 | 1; refold: (id: number) => void; markers: () => ReturnType<typeof structuralRefoldMarkers> }>();
+
+class RefoldStructuralRegionAction extends EditorAction {
+  constructor() {
+    super({
+      id: "review.structural.fold",
+      label: localize("review.structural.fold", "Fold Region"),
+      alias: "Fold Region",
+      precondition: undefined,
+      kbOpts: {
+        kbExpr: EditorContextKeys.editorTextFocus,
+        primary: KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.BracketLeft,
+        mac: { primary: KeyMod.CtrlCmd | KeyMod.Alt | KeyCode.BracketLeft },
+        weight: KeybindingWeight.EditorContrib + 1,
+      },
+    });
+  }
+  run(_accessor: ServicesAccessor, editor: ICodeEditor): void {
+    const target = refoldTargets.get(editor);
+    const line = editor.getPosition()?.lineNumber;
+    if (!target || line === undefined) return;
+    // The innermost expanded region containing the cursor: markers come outermost first, so take the last hit.
+    const hit = target.markers().filter((m) => m.line <= line && line <= m.line + m.hiddenLines).at(-1);
+    if (hit) target.refold(hit.id);
+  }
+}
+registerEditorAction(RefoldStructuralRegionAction);
+void KeyChord;

@@ -105,25 +105,6 @@ export function structuralLeaves(regions: readonly StructuralRegion[] | undefine
   return leaves;
 }
 
-/**
- * Every region that can hide lines, in order: folds, and leaves that start
- * collapsed (context gaps). One fold model serves both; the editor never
- * distinguishes a syntax fold from a gap.
- */
-export function structuralFoldingRegions(regions: readonly StructuralRegion[] | undefined): StructuralRegion[] {
-  const result: StructuralRegion[] = [];
-  const walk = (region: StructuralRegion) => {
-    if (region.kind === "fold") {
-      result.push(region);
-      for (const child of region.children) walk(child);
-    } else if (region.visibility?.collapsed) {
-      result.push(region);
-    }
-  };
-  for (const region of regions ?? []) walk(region);
-  return result;
-}
-
 /** Monaco keeps a final empty line after a newline; the wire need not mention it. */
 function monacoLineCount(source: StructuralSource | undefined): number {
   return source ? source.text.split("\n").length : 0;
@@ -180,110 +161,6 @@ export function structuralRows(diff: StructuralTextDiff): [number | null, number
   return rows;
 }
 
-/**
- * Native folding keeps its start line visible and hides the lines after it,
- * and Monaco only accepts ranges that nest: a range may sit inside another
- * or after it, never straddle one, and no two may start on the same line.
- *
- * A fold's header is its own first line (the signature). A collapsed leaf has
- * no header of its own, so `structuralFoldRanges` picks one: the line above
- * the leaf when that line is free, so the fold hides exactly the leaf's
- * lines; otherwise the first line of the leaf that is free, so the fold hides
- * the rest. A line is free when it is not a fold's header, not hidden by
- * another collapsed leaf, and not inside a fold that is not one of the leaf's
- * ancestors.
- */
-export function nativeFoldRange(
-  region: StructuralRegion,
-  headerLine?: number,
-): { start: number; end: number } | undefined {
-  const lines = regionLines(region);
-  const header = headerLine ?? lines.start;
-  const start = header + 1;
-  return lines.end > start ? { start, end: lines.end } : undefined;
-}
-
-/** Every folding region of one side with its native range, in order, nesting guaranteed. */
-export function structuralFoldRanges(
-  regions: readonly StructuralRegion[] | undefined,
-): { region: StructuralRegion; range: { start: number; end: number } }[] {
-  const foldable = new Set(structuralFoldingRegions(regions));
-  const foldHeaderLines = new Set<number>();
-  /** The innermost fold covering each line. */
-  const lineOwner = new Map<number, StructuralRegion>();
-  const walkOwners = (region: StructuralRegion) => {
-    if (region.kind !== "fold") return;
-    const lines = regionLines(region);
-    foldHeaderLines.add(lines.start);
-    for (let line = lines.start; line < lines.end; line++) lineOwner.set(line, region);
-    for (const child of region.children) walkOwners(child);
-  };
-  for (const region of regions ?? []) walkOwners(region);
-  const hiddenLines = new Set<number>();
-  for (const region of foldable) {
-    if (region.kind !== "leaf") continue;
-    const lines = regionLines(region);
-    for (let line = lines.start; line < lines.end; line++) hiddenLines.add(line);
-  }
-  const result: { region: StructuralRegion; range: { start: number; end: number } }[] = [];
-  // Monaco keeps one range per start line. A fold that begins on its parent's
-  // first line (a group wrapping the bodies it names) yields to the parent,
-  // whose collapse hides it anyway; regions are visited outermost first.
-  const starts = new Set<number>();
-  const walk = (region: StructuralRegion, ancestors: readonly StructuralRegion[]) => {
-    if (foldable.has(region)) {
-      let range: { start: number; end: number } | undefined;
-      if (region.kind === "fold") range = nativeFoldRange(region);
-      else {
-        const lines = regionLines(region);
-        const parent = ancestors[ancestors.length - 1];
-        const free = (line: number) => {
-          if (line < 0 || foldHeaderLines.has(line)) return false;
-          // The header must sit inside the parent fold, below the parent's own header line.
-          if (parent && line <= regionLines(parent).start) return false;
-          if (line < lines.start && hiddenLines.has(line)) return false;
-          const owner = lineOwner.get(line);
-          return owner === undefined || ancestors.includes(owner);
-        };
-        for (let header = lines.start - 1; header < lines.end - 1; header++) {
-          if (!free(header)) continue;
-          range = nativeFoldRange(region, header);
-          break;
-        }
-      }
-      if (range && !starts.has(range.start)) {
-        starts.add(range.start);
-        result.push({ region, range });
-      }
-    }
-    if (region.kind === "fold") for (const child of region.children) walk(child, [...ancestors, region]);
-  };
-  for (const region of regions ?? []) walk(region, []);
-  return result;
-}
-
-/**
- * Throws unless the ranges nest the way Monaco's folding model requires.
- * Used by tests and by the reader in development to catch a bad projection
- * before it silently disables folding for a whole file.
- */
-export function assertFoldRangesNest(ranges: readonly { start: number; end: number }[]): void {
-  const open: { start: number; end: number }[] = [];
-  let previousStart = -1;
-  for (const range of ranges) {
-    if (range.start >= range.end) throw new Error(`fold range ${range.start}..${range.end} is empty`);
-    if (range.start === previousStart) throw new Error(`two fold ranges start on line ${range.start}`);
-    if (range.start < previousStart) throw new Error(`fold ranges are out of order at line ${range.start}`);
-    previousStart = range.start;
-    while (open.length && range.start > open[open.length - 1].end) open.pop();
-    const parent = open[open.length - 1];
-    if (parent && range.end > parent.end) {
-      throw new Error(`fold range ${range.start}..${range.end} straddles ${parent.start}..${parent.end}`);
-    }
-    open.push(range);
-  }
-}
-
 export function utf16Column(text: string, byteColumn: number): number {
   let bytes = 0,
     units = 0;
@@ -332,6 +209,111 @@ export function structuralHighlights(diff: StructuralTextDiff) {
 }
 
 /** One file's counts: what is on screen now, what diffr found structurally, and what git counts. */
+/** A hidden band on one or both sides, one-based like Monaco's diff editor. */
+export interface StructuralGap {
+  originalStart: number;
+  modifiedStart: number;
+  originalCount: number;
+  modifiedCount: number;
+  label: string;
+  /** The region ids this band hides, per side. */
+  ids: { lhs?: number; rhs?: number };
+}
+
+/**
+ * The lines a collapsed region hides on its side, zero-based half-open. A
+ * fold keeps its first line (the signature) visible; a leaf hides every line.
+ */
+export function hiddenLinesOf(region: StructuralRegion): { start: number; end: number } {
+  const lines = regionLines(region);
+  return region.kind === "fold" ? { start: lines.start + 1, end: lines.end } : lines;
+}
+
+/** Collapsed regions of one side, outermost first; a collapsed descendant of a collapsed region is subsumed. */
+export function collapsedRegions(
+  regions: readonly StructuralRegion[] | undefined,
+  isCollapsed: (id: number) => boolean,
+): StructuralRegion[] {
+  const result: StructuralRegion[] = [];
+  const walk = (region: StructuralRegion) => {
+    if (isCollapsed(region.id)) {
+      if (hiddenLinesOf(region).end > hiddenLinesOf(region).start) result.push(region);
+      return;
+    }
+    if (region.kind === "fold") for (const child of region.children) walk(child);
+  };
+  for (const region of regions ?? []) walk(region);
+  return result;
+}
+
+/**
+ * Every collapsed region as a diff-editor band. Regions collapsed on both
+ * sides under one id become one band; a region collapsed on one side only
+ * becomes a band with a zero count on the other side, anchored where the row
+ * table puts its first hidden line.
+ */
+export function structuralContextGaps(
+  diff: StructuralTextDiff,
+  isCollapsed: (side: 0 | 1, id: number) => boolean,
+): StructuralGap[] {
+  const rows = structuralRows(diff);
+  // First row index for each source line per side, and the opposite line at or after it.
+  const rowOfLeft = new Map<number, number>(), rowOfRight = new Map<number, number>();
+  rows.forEach(([l, r], index) => {
+    if (l !== null && !rowOfLeft.has(l)) rowOfLeft.set(l, index);
+    if (r !== null && !rowOfRight.has(r)) rowOfRight.set(r, index);
+  });
+  const nextOpposite = (fromRow: number, side: 0 | 1): number => {
+    for (let index = fromRow; index < rows.length; index++) {
+      const value = rows[index][side === 0 ? 1 : 0];
+      if (value !== null) return value;
+    }
+    return side === 0 ? monacoLineCount(diff.rhs) : monacoLineCount(diff.lhs);
+  };
+  const lhs = collapsedRegions(diff.lhs?.regions, (id) => isCollapsed(0, id));
+  const rhs = collapsedRegions(diff.rhs?.regions, (id) => isCollapsed(1, id));
+  const rhsById = new Map(rhs.map((region) => [region.id, region]));
+  const usedRhs = new Set<number>();
+  const gaps: StructuralGap[] = [];
+  for (const left of lhs) {
+    const hidden = hiddenLinesOf(left);
+    const partner = rhsById.get(left.id);
+    if (partner) {
+      usedRhs.add(left.id);
+      const right = hiddenLinesOf(partner);
+      gaps.push({
+        originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
+        modifiedStart: right.start + 1, modifiedCount: right.end - right.start,
+        label: partner.visibility?.label || left.visibility?.label || "",
+        ids: { lhs: left.id, rhs: partner.id },
+      });
+      continue;
+    }
+    const row = rowOfLeft.get(hidden.start) ?? rows.length;
+    gaps.push({
+      originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
+      modifiedStart: nextOpposite(row, 0) + 1, modifiedCount: 0,
+      label: left.visibility?.label || "", ids: { lhs: left.id },
+    });
+  }
+  for (const right of rhs) {
+    if (usedRhs.has(right.id)) continue;
+    const hidden = hiddenLinesOf(right);
+    const row = rowOfRight.get(hidden.start) ?? rows.length;
+    gaps.push({
+      originalStart: nextOpposite(row, 1) + 1, originalCount: 0,
+      modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
+      label: right.visibility?.label || "", ids: { rhs: right.id },
+    });
+  }
+  gaps.sort((a, b) => (a.modifiedStart - b.modifiedStart) || (a.originalStart - b.originalStart));
+  for (const gap of gaps) if (!gap.label) {
+    const count = Math.max(gap.originalCount, gap.modifiedCount);
+    gap.label = `${count} hidden line${count === 1 ? "" : "s"}`;
+  }
+  return gaps;
+}
+
 export interface StructuralFileCounts {
   visible: StructuralLineCounts;
   textual: StructuralLineCounts;
@@ -348,10 +330,9 @@ function visibleChangedLines(
     if (leaf.kind !== "leaf") continue;
     for (const span of leaf.changed ?? []) changed.add(span.line);
   }
-  for (const { region, range } of structuralFoldRanges(source.regions)) {
-    if (!isCollapsed(region.id)) continue;
-    // Monaco hides the lines after the fold's start line through its end line.
-    for (let line = range.start; line < range.end; line++) changed.delete(line);
+  for (const region of collapsedRegions(source.regions, isCollapsed)) {
+    const hidden = hiddenLinesOf(region);
+    for (let line = hidden.start; line < hidden.end; line++) changed.delete(line);
   }
   return changed.size;
 }
@@ -386,28 +367,4 @@ export function structuralCountsTooltip(counts: StructuralFileCounts): string {
   const rows = [row("visible", counts.visible), row("textual", counts.textual)];
   if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
   return rows.join("\n");
-}
-
-/**
- * What a collapsed region shows. The header line keeps Monaco's inline `⋯`;
- * a one-line label follows it as injected text, and a multi-line label
- * (pseudocode) hangs under the header as a view zone sized to its lines.
- */
-export interface StructuralLabelPlan {
-  inline: { line: number; text: string }[];
-  zones: { id: number; afterLineNumber: number; heightInLines: number; text: string }[];
-}
-
-export function structuralLabelPlan(
-  collapsed: readonly { region: StructuralRegion; range: { start: number; end: number } }[],
-): StructuralLabelPlan {
-  const plan: StructuralLabelPlan = { inline: [], zones: [] };
-  for (const { region, range } of collapsed) {
-    const label = region.visibility?.label;
-    if (!label) continue;
-    const lines = label.split("\n");
-    if (lines.length === 1) plan.inline.push({ line: range.start, text: ` ${label}` });
-    else plan.zones.push({ id: region.id, afterLineNumber: range.start, heightInLines: lines.length, text: label });
-  }
-  return plan;
 }

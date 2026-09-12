@@ -14,21 +14,16 @@ import { IInstantiationService } from "../../platform/instantiation/common/insta
 import { ServiceCollection } from "../../platform/instantiation/common/serviceCollection.js";
 import { IDiffProviderFactoryService } from "../../editor/browser/widget/diffEditor/diffProviderFactoryService.js";
 import { ICodeEditorService } from "../../editor/browser/services/codeEditorService.js";
-import type { ICodeEditor, IViewZone } from "../../editor/browser/editorBrowser.js";
-import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
+import type { IDiffEditor } from "../../editor/browser/editorBrowser.js";
 import { LineRange } from "../../editor/common/core/ranges/lineRange.js";
-import type { IModelDeltaDecoration } from "../../editor/common/model.js";
 import { DetailedLineRangeMapping } from "../../editor/common/diff/rangeMapping.js";
-import { FoldingController } from "../../editor/contrib/folding/browser/folding.js";
-import type { FoldingModel } from "../../editor/contrib/folding/browser/foldingModel.js";
-import { FoldingRangeKind, type FoldingRangeProvider } from "../../editor/common/languages.js";
+import { autorun, type IObservable } from "../../base/common/observable.js";
+import type { UnchangedRegion } from "../../editor/browser/widget/diffEditor/diffEditorViewModel.js";
 import { IReviewSessionModelService } from "./reviewSessionModelService.js";
 import { reviewDiffFilesUrl } from "../common/reviewReveal.js";
 import {
-  assertFoldRangesNest,
+  structuralContextGaps,
   structuralFilePath,
-  structuralFoldRanges,
-  structuralLabelPlan,
   structuralInitialCounts,
   structuralVisibleCounts,
   structuralRows,
@@ -131,16 +126,14 @@ export async function prepareStructuralReview(
     if (lifetime.isDisposed) throw new CancellationError();
     if (diff.type === "text") {
       structuralInitialCounts(diff);
-      // A range set Monaco would reject silently disables folding for the whole file; fail the file instead.
-      for (const source of [diff.lhs, diff.rhs]) {
-        assertFoldRangesNest(structuralFoldRanges(source?.regions).map((entry) => entry.range));
-      }
       files.set(path, diff);
       for (const [side, source] of [[0, diff.lhs], [1, diff.rhs]] as const) {
-        for (const { region } of structuralFoldRanges(source?.regions)) {
+        const seed = (region: StructuralRegion) => {
           const key = collapseKey(path, side, region.id);
           if (!collapsed.has(key)) collapsed.set(key, region.visibility?.collapsed === true);
-        }
+          if (region.kind === "fold") region.children.forEach(seed);
+        };
+        (source?.regions ?? []).forEach(seed);
       }
     } else binary.add(path);
     changed.fire();
@@ -213,11 +206,13 @@ export async function prepareStructuralReview(
       abort.abort();
     }
   }
+  /** Fires when collapse state changes, so every diff editor recomputes its bands. */
+  const providerChanged = lifetime.add(new Emitter<void>());
   const factory: IDiffProviderFactoryService = {
     _serviceBrand: undefined,
     createDiffProvider() {
       return {
-        onDidChange: Event.None,
+        onDidChange: providerChanged.event,
         async computeDiff(original, modified, _options, token) {
           if (token.isCancellationRequested) throw new CancellationError();
           const path = pairs.get(original.uri.toString() + "\n" + modified.uri.toString());
@@ -268,8 +263,8 @@ export async function prepareStructuralReview(
             identical: left === right,
             quitEarly: false,
             sourceLineAlignment: rows,
-            // Context gaps are collapsed regions in the one fold model below.
-            contextGaps: [],
+            // Every collapsed region is a hidden-region band, labelled by the wire.
+            contextGaps: structuralContextGaps(diff, (side, id) => collapsed.get(collapseKey(path!, side, id)) === true),
             changeHighlights: structuralHighlights(diff),
           };
         },
@@ -279,231 +274,65 @@ export async function prepareStructuralReview(
   const child = lifetime.add(
     instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
   );
-  attachStructuralEditors(instantiation, entries, files, lifetime, changed.event, {
+  attachStructuralEditors(instantiation, entries, files, lifetime, {
     get: (path, side, id) => collapsed.get(collapseKey(path, side, id)),
     set: (path, side, id, value) => {
+      if (collapsed.get(collapseKey(path, side, id)) === value) return;
       collapsed.set(collapseKey(path, side, id), value);
       emitCounts(path);
+      providerChanged.fire();
     },
   });
   return { instantiation: child, enabled: true, entries, load, onDidChangeCounts: countsChanged.event };
 }
 
-/** The folding regions of one side, indexed for the editor bindings. */
-interface SideFolds {
-  entries: { region: StructuralRegion; range: { start: number; end: number } }[];
-  rangeById: Map<number, { start: number; end: number }>;
-  byRange: Map<string, StructuralRegion>;
-}
-
-function sideFolds(source: StructuralSource | undefined): SideFolds {
-  const entries = structuralFoldRanges(source?.regions);
-  return {
-    entries,
-    rangeById: new Map(entries.map(({ region, range }) => [region.id, range])),
-    byRange: new Map(entries.map(({ region, range }) => [`${range.start}:${range.end}`, region])),
-  };
-}
-
-interface CollapseState {
-  get(path: string, side: 0 | 1, id: number): boolean | undefined;
-  set(path: string, side: 0 | 1, id: number, value: boolean): void;
-}
-
+/**
+ * Keeps each structural diff editor's bands in step with the collapse state:
+ * a band a reader reveals (its arrows, or double-click) marks its region open
+ * on both sides, and the file's visible counts follow.
+ */
 function attachStructuralEditors(
   instantiation: IInstantiationService,
   entries: readonly ReviewFilesEditorEntry[],
   files: Map<string, StructuralTextDiff>,
   lifetime: DisposableStore,
-  onDidLoad: Event<void>,
   collapsed: CollapseState,
 ): void {
-  const features = instantiation.invokeFunction((a) => a.get(ILanguageFeaturesService));
   const editors = instantiation.invokeFunction((a) => a.get(ICodeEditorService));
-  const sources = new Map<string, { side: 0 | 1; pair: string }>();
-  for (const entry of entries) {
-    sources.set(entry.original.toString(), { side: 0, pair: entry.file.path });
-    sources.set(entry.modified.toString(), { side: 1, pair: entry.file.path });
-  }
-  const foldsFor = (pair: string, side: 0 | 1): SideFolds | undefined => {
-    const diff = files.get(pair);
-    return diff && sideFolds(side === 0 ? diff.lhs : diff.rhs);
-  };
-  // One fold model for every region: syntax folds and context gaps alike.
-  // Paired regions share collapse state through their id.
-  const provider: FoldingRangeProvider = {
-    id: "review-diffr",
-    onDidChange: Event.map(onDidLoad, () => provider),
-    provideFoldingRanges(model) {
-      const source = sources.get(model.uri.toString());
-      const folds = source && foldsFor(source.pair, source.side);
-      if (!source || !folds) return null;
-      return folds.entries.map(({ region, range }) => ({
-        ...range,
-        kind: region.tags?.includes("import") ? FoldingRangeKind.Imports : FoldingRangeKind.Region,
-      }));
-    },
-  };
-  lifetime.add(
-    features.foldingRangeProvider.register(
-      entries
-        .flatMap((entry) => [entry.original, entry.modified])
-        .map((uri) => ({
-          scheme: uri.scheme,
-          pattern: uri.path.replace(/[\[\]*?{}]/g, (character) => `[${character}]`),
-          exclusive: true,
-        })),
-      provider,
-    ),
-  );
-  const models = new Map<string, Set<FoldingModel>>();
-  let synchronizing = false;
-  function watch(editor: ICodeEditor) {
+  const pairs = new Map(entries.map((e) => [e.original.toString() + "\n" + e.modified.toString(), e.file.path]));
+  function watch(editor: IDiffEditor) {
     const store = lifetime.add(new DisposableStore());
-    const binding = store.add(new DisposableStore());
-    const labels = new StructuralLabels(editor);
-    store.add(labels);
-    let generation = 0;
-    const bind = async () => {
-      const current = ++generation;
-      await Promise.resolve();
-      if (store.isDisposed || current !== generation) return;
-      binding.clear();
-      labels.clear();
-      const model = editor.getModel();
-      const source = model && sources.get(model.uri.toString());
-      const folds = source && foldsFor(source.pair, source.side);
-      if (!model || !source || !folds) return;
-      const folding = await FoldingController.get(editor)?.getFoldingModel();
-      if (!folding || binding.isDisposed || current !== generation || editor.getModel() !== model)
-        return;
-      const modelKey = `${source.pair}:${source.side}`;
-      const members = models.get(modelKey) ?? new Set<FoldingModel>();
-      members.add(folding);
-      models.set(modelKey, members);
-      binding.add(toDisposable(() => members.delete(folding)));
-      const isCollapsed = (region: StructuralRegion) => collapsed.get(source.pair, source.side, region.id) === true;
-      const shownLabels = () => folds.entries.filter(({ region }) => isCollapsed(region));
-      const restore = () => {
-        const toggle = [];
-        for (const { region, range } of folds.entries) {
-          const native = folding.getRegionAtLine(range.start);
-          if (native?.startLineNumber !== range.start || native.endLineNumber !== range.end)
-            continue;
-          if (native.isCollapsed !== isCollapsed(region)) toggle.push(native);
-        }
-        if (toggle.length) folding.toggleCollapseState(toggle);
-        labels.sync(shownLabels());
-      };
-      binding.add(
-        folding.onDidChange((event) => {
-          if (synchronizing) return;
-          synchronizing = true;
-          try {
-            for (const native of event.collapseStateChanged ?? []) {
-              const region = folds.byRange.get(`${native.startLineNumber}:${native.endLineNumber}`);
-              if (!region) continue;
-              collapsed.set(source.pair, source.side, region.id, native.isCollapsed);
-              const oppositeSide = source.side === 0 ? 1 : 0;
-              const oppositeRange = foldsFor(source.pair, oppositeSide)?.rangeById.get(region.id);
-              if (!oppositeRange) continue;
-              collapsed.set(source.pair, oppositeSide, region.id, native.isCollapsed);
-              for (const other of models.get(`${source.pair}:${oppositeSide}`) ?? []) {
-                const target = other.getRegionAtLine(oppositeRange.start);
-                if (
-                  target?.startLineNumber === oppositeRange.start &&
-                  target.endLineNumber === oppositeRange.end &&
-                  target.isCollapsed !== native.isCollapsed
-                )
-                  other.toggleCollapseState([target]);
-              }
-            }
-            if (!event.collapseStateChanged) restore();
-            else labels.sync(shownLabels());
-          } finally {
-            synchronizing = false;
-          }
-        }),
-      );
-      restore();
-    };
-    const update = () => {
-      void bind().catch((error) => console.error("Structural editor binding failed", error));
-    };
-    store.add(onDidLoad(update));
-    store.add(editor.onDidChangeModel(update));
-    store.add(editor.onDidChangeConfiguration(update));
     store.add(editor.onDidDispose(() => store.dispose()));
-    update();
+    const widget = editor as unknown as { unchangedRegions?: IObservable<readonly UnchangedRegion[]> };
+    if (!widget.unchangedRegions) return;
+    let revealed = new Set<UnchangedRegion>();
+    store.add(
+      autorun((reader) => {
+        const model = editor.getModel();
+        const path = model && pairs.get(model.original.uri.toString() + "\n" + model.modified.uri.toString());
+        const regions = widget.unchangedRegions!.read(reader);
+        if (!path || !files.has(path)) return;
+        const gaps = structuralContextGaps(files.get(path)!, (side, id) => collapsed.get(path, side, id) === true);
+        const next = new Set<UnchangedRegion>();
+        for (const region of regions) {
+          const fullyShown = region.visibleLineCountTop.read(reader) + region.visibleLineCountBottom.read(reader) >= region.lineCount;
+          if (!fullyShown) continue;
+          next.add(region);
+          if (revealed.has(region)) continue;
+          const gap = gaps.find((g) => g.originalStart === region.originalLineNumber && g.modifiedStart === region.modifiedLineNumber && g.label === region.label);
+          if (!gap) continue;
+          if (gap.ids.lhs !== undefined) collapsed.set(path, 0, gap.ids.lhs, false);
+          if (gap.ids.rhs !== undefined) collapsed.set(path, 1, gap.ids.rhs, false);
+        }
+        revealed = next;
+      }),
+    );
   }
-  lifetime.add(editors.onCodeEditorAdd(watch));
-  for (const editor of editors.listCodeEditors()) watch(editor);
+  lifetime.add(editors.onDiffEditorAdd(watch));
+  for (const editor of editors.listDiffEditors()) watch(editor);
 }
 
-/**
- * The text a collapsed region shows. The header line keeps Monaco's inline
- * `⋯`; a one-line label follows it as injected text, and a multi-line label
- * (pseudocode) hangs under the header as a view zone in the fold tint.
- */
-class StructuralLabels {
-  private readonly decorations;
-  private readonly zones = new Map<number, string>();
-  private shown = new Map<number, string>();
-
-  constructor(private readonly editor: ICodeEditor) {
-    this.decorations = editor.createDecorationsCollection();
-  }
-
-  sync(entries: readonly { region: StructuralRegion; range: { start: number; end: number } }[]): void {
-    const next = new Map<number, string>();
-    for (const { region } of entries) {
-      const label = region.visibility?.label;
-      if (label) next.set(region.id, label);
-    }
-    if (sameLabels(this.shown, next)) return;
-    this.shown = next;
-    const decorations: IModelDeltaDecoration[] = [];
-    const model = this.editor.getModel();
-    const plan = structuralLabelPlan(entries);
-    this.editor.changeViewZones((accessor) => {
-      for (const id of this.zones.values()) accessor.removeZone(id);
-      this.zones.clear();
-      if (!model) return;
-      for (const inline of plan.inline) {
-        const column = model.getLineMaxColumn(inline.line);
-        decorations.push({
-          range: { startLineNumber: inline.line, startColumn: column, endLineNumber: inline.line, endColumn: column },
-          options: {
-            description: "review-structural-label",
-            after: { content: inline.text, inlineClassName: "review-structural-label-inline" },
-          },
-        });
-      }
-      for (const planned of plan.zones) {
-        const domNode = this.editor.getDomNode()?.ownerDocument.createElement("div") ?? document.createElement("div");
-        domNode.className = "review-structural-label-zone";
-        const pre = domNode.ownerDocument.createElement("pre");
-        pre.textContent = planned.text;
-        domNode.append(pre);
-        const zone: IViewZone = { afterLineNumber: planned.afterLineNumber, heightInLines: planned.heightInLines, domNode };
-        this.zones.set(planned.id, accessor.addZone(zone));
-      }
-    });
-    this.decorations.set(decorations);
-  }
-
-  clear(): void {
-    this.sync([]);
-  }
-
-  dispose(): void {
-    this.clear();
-    this.decorations.clear();
-  }
-}
-
-function sameLabels(left: Map<number, string>, right: Map<number, string>): boolean {
-  if (left.size !== right.size) return false;
-  for (const [id, label] of left) if (right.get(id) !== label) return false;
-  return true;
+interface CollapseState {
+  get(path: string, side: 0 | 1, id: number): boolean | undefined;
+  set(path: string, side: 0 | 1, id: number, value: boolean): void;
 }

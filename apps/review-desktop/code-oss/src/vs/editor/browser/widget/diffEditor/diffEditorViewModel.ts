@@ -155,7 +155,7 @@ export class DiffEditorViewModel extends Disposable implements IDiffEditorViewMo
 				const previous = this._unchangedRegions.get();
 				const regions = result.contextGaps.map(gap => {
 					const region = new SuppliedContextGap(gap);
-					const old = previous?.regions.find(r => r.originalLineNumber === gap.originalStart && r.modifiedLineNumber === gap.modifiedStart && r.lineCount === region.lineCount);
+					const old = previous?.regions.find(r => r.originalLineNumber === gap.originalStart && r.modifiedLineNumber === gap.modifiedStart && r.lineCount === region.lineCount && r.label === gap.label);
 					if (old) region.setState(old.visibleLineCountTop.get(), old.visibleLineCountBottom.get(), tx);
 					return region;
 				});
@@ -534,6 +534,9 @@ export class UnchangedRegion {
 
 	public readonly isDragged = observableValue<undefined | 'bottom' | 'top'>(this, undefined);
 
+	/** A provider-supplied name for the region; undefined means "N hidden lines". */
+	public get label(): string | undefined { return undefined; }
+
 	constructor(
 		public readonly originalLineNumber: number,
 		public readonly modifiedLineNumber: number,
@@ -667,6 +670,7 @@ class SuppliedContextGap extends UnchangedRegion {
 	constructor(private readonly gap: NonNullable<IDocumentDiff['contextGaps']>[number]) {
 		super(gap.originalStart, gap.modifiedStart, Math.max(gap.originalCount, gap.modifiedCount), 0, 0);
 	}
+	override get label(): string | undefined { return this.gap.label; }
 	override get originalUnchangedRange(): LineRange { return LineRange.ofLength(this.gap.originalStart, this.gap.originalCount); }
 	override get modifiedUnchangedRange(): LineRange { return LineRange.ofLength(this.gap.modifiedStart, this.gap.modifiedCount); }
 	private hidden(start: number, count: number, reader: IReader | undefined): LineRange {

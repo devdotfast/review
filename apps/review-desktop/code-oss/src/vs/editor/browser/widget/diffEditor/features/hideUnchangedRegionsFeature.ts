@@ -141,16 +141,18 @@ export class HideUnchangedRegionsFeature extends Disposable {
 						));
 					}
 				} else {
+					const height = bandHeightPx(r.label, this._editors.modified.getOption(EditorOption.lineHeight));
 					{
 						const d = derived(this, reader => /** @description hiddenOriginalRangeStart */ r.getHiddenOriginalRange(reader).startLineNumber - 1);
-						const origVz = new PlaceholderViewZone(d, 24);
+						const origVz = new PlaceholderViewZone(d, height);
 						origViewZones.push(origVz);
 						reader.store.add(new CollapsedCodeOverlayWidget(
 							this._editors.original,
 							origVz,
 							r,
 							r.originalUnchangedRange,
-							!sideBySide,
+							// A region supplied for the other side only keeps the zone for alignment and shows nothing here.
+							!sideBySide || r.originalUnchangedRange.isEmpty,
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
@@ -158,14 +160,14 @@ export class HideUnchangedRegionsFeature extends Disposable {
 					}
 					{
 						const d = derived(this, reader => /** @description hiddenModifiedRangeStart */ r.getHiddenModifiedRange(reader).startLineNumber - 1);
-						const modViewZone = new PlaceholderViewZone(d, 24);
+						const modViewZone = new PlaceholderViewZone(d, height);
 						modViewZones.push(modViewZone);
 						reader.store.add(new CollapsedCodeOverlayWidget(
 							this._editors.modified,
 							modViewZone,
 							r,
 							r.modifiedUnchangedRange,
-							false,
+							r.modifiedUnchangedRange.isEmpty,
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
@@ -300,6 +302,12 @@ class CompactCollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 	}
 }
 
+/** The band is 24px for its title, plus one editor line for each further label line. */
+export function bandHeightPx(label: string | undefined, lineHeight: number): number {
+	const extra = label ? label.split('\n').length - 1 : 0;
+	return 24 + (extra > 0 ? extra * lineHeight + 8 : 0);
+}
+
 class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 	private readonly _nodes = h('div.diff-hidden-lines', [
 		h('div.top@top', { title: localize('diff.hiddenLines.top', 'Click or drag to show more above') }),
@@ -310,6 +318,7 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			),
 			h('div@others', { style: { display: 'flex', justifyContent: 'center', alignItems: 'center' } }),
 		]),
+		h('div.detail@detail', []),
 		h('div.bottom@bottom', { title: localize('diff.bottom', 'Click or drag to show more below'), role: 'button' }),
 	]);
 
@@ -331,6 +340,7 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			this._register(applyStyle(this._nodes.first, { width: observableCodeEditor(this._editor).layoutInfoContentLeft }));
 		} else {
 			reset(this._nodes.first);
+			this._nodes.root.classList.add('empty-side');
 		}
 
 		this._register(autorun(reader => {
@@ -446,9 +456,18 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			/** @description update labels */
 
 			const children: HTMLElement[] = [];
+			const label = _unchangedRegion.label;
+			const [title, ...detailLines] = label ? label.split('\n') : [];
+			if (label && detailLines.length > 0 && !this._hide) {
+				const detail = $('pre.diff-hidden-lines-detail', undefined, detailLines.join('\n'));
+				detail.style.paddingLeft = `${observableCodeEditor(this._editor).layoutInfoContentLeft.read(reader)}px`;
+				reset(this._nodes.detail, detail);
+			} else {
+				reset(this._nodes.detail);
+			}
 			if (!this._hide) {
 				const lineCount = _unchangedRegion.getHiddenModifiedRange(reader).length;
-				const linesHiddenText = localize('hiddenLines', '{0} hidden lines', lineCount);
+				const linesHiddenText = label ? title : localize('hiddenLines', '{0} hidden lines', lineCount);
 				const span = $('span', { title: localize('diff.hiddenLines.expandAll', 'Double click to unfold') }, linesHiddenText);
 				span.addEventListener('dblclick', e => {
 					if (e.button !== 0) { return; }

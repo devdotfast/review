@@ -58,14 +58,19 @@ The reader is `common/reviewStructuralDiff.ts`; the host side is
   partner already went by is a move, shown one-sided for now. Folding hides
   source rows; wrapping and external editor view zones contribute height; only
   unequal segments create alignment spacers. The diff is not recomputed on folding.
-- One fold model serves every region that can hide lines: syntax folds and
-  collapsed leaves (context gaps) alike become native folding ranges, seeded
-  from the wire's initial visibility, keyed by region id so paired ranges share
-  collapse state across sides. Unified view filters folded original lines out
-  of its deleted code view zones, and restores them on expansion.
-- A collapsed region keeps VS Code's inline `⋯` on its header line. A one-line
-  label follows it as injected text; a multi-line label (pseudocode) hangs
-  under the header as a view zone in the fold tint.
+- Every region the wire marks collapsed is a diff-editor hidden-region band,
+  the same full-width `⌃ … ⌄` control the diff editor draws for unchanged
+  code, supplied to the diff model as labelled context gaps instead of
+  computed by Monaco. A fold keeps its first line (the signature) visible and
+  hides the rest; a leaf hides every line. Regions collapsed under one id on
+  both sides are one band; a region collapsed on one side only is a band there
+  and an alignment spacer on the other. Native folding is off in the
+  structural editor, so bands are the only thing hiding lines.
+- The band's title is the region's label ("142 unchanged lines", "test
+  module", "5 test bodies", "59 lines removed"). A multi-line label, the
+  pseudocode summary, opens the band to show the whole text under its first
+  line in monospace. Revealing a band with its arrows or by double-click marks
+  the region open on both sides and the visible counts follow.
 - Review's native language tokenization and theme color the source rows. Change
   paint uses each leaf's `changed` spans: any line with a span gets the light
   whole-line background, and the spans get the darker token highlight in both

@@ -54,6 +54,20 @@ export interface IDocumentDiffProviderOptions {
  * Represents a diff between two text models.
  * @internal
  */
+/**
+ * A hidden region supplied by the diff provider, one-based and per side. A side
+ * with a zero count is absent there. `label` names the region (a gap, a folded
+ * body, a summary); a multi-line label is shown in full under its first line.
+ * @internal
+ */
+export interface IDocumentContextGap {
+	readonly originalStart: number;
+	readonly modifiedStart: number;
+	readonly originalCount: number;
+	readonly modifiedCount: number;
+	readonly label?: string;
+}
+
 export interface IDocumentDiff {
 	/** Authoritative change paint, independent of replacement ranges used for layout.
 	 * When present (even empty), replaces inferred line and character highlighting. */
@@ -65,7 +79,7 @@ export interface IDocumentDiff {
 		readonly modifiedLines?: readonly number[];
 	};
 	/** Optional authoritative zero-based source row correspondence. Null denotes padding. */
-	readonly contextGaps?: readonly { originalStart: number; modifiedStart: number; originalCount: number; modifiedCount: number }[];
+	readonly contextGaps?: readonly IDocumentContextGap[];
 	readonly sourceLineAlignment?: readonly (readonly [number | null, number | null])[];
 	/**
 	 * If true, both text models are identical (byte-wise).

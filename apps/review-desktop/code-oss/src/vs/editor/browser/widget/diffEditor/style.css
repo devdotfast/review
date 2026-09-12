@@ -84,6 +84,32 @@
 	box-shadow: inset 0 -5px 5px -7px var(--vscode-diffEditor-unchangedRegionShadow), inset 0 5px 5px -7px var(--vscode-diffEditor-unchangedRegionShadow);
 }
 
+.monaco-editor .diff-hidden-lines.empty-side .center,
+.monaco-editor .diff-hidden-lines.empty-side .top,
+.monaco-editor .diff-hidden-lines.empty-side .bottom {
+	visibility: hidden;
+}
+
+.monaco-editor .diff-hidden-lines .detail:empty {
+	display: none;
+}
+
+.monaco-editor .diff-hidden-lines .detail {
+	background: var(--vscode-diffEditor-unchangedRegionBackground);
+	color: var(--vscode-diffEditor-unchangedRegionForeground);
+	padding: 4px 0;
+	overflow: hidden;
+}
+
+.monaco-editor .diff-hidden-lines .detail pre.diff-hidden-lines-detail {
+	margin: 0;
+	font-family: var(--monaco-monospace-font);
+	font-size: inherit;
+	line-height: var(--vscode-editor-line-height, 18px);
+	white-space: pre;
+	opacity: 0.85;
+}
+
 .monaco-editor .diff-hidden-lines .center span.codicon {
 	vertical-align: middle;
 }

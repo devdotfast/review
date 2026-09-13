@@ -1,7 +1,9 @@
 import { TRACE_STORE_API_PREFIX } from "./store-api.js";
 
 export const DEVICE_CODE_PATH = "/api/auth/device/code" as const;
+
 export const DEVICE_TOKEN_PATH = "/api/auth/device/token" as const;
+
 export const SESSION_PATH = "/api/auth/get-session" as const;
 
 export const storeRoutes = {

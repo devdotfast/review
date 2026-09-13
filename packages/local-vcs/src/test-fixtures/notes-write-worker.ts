@@ -5,6 +5,7 @@ import { writeNote } from "../notes";
 
 const [rootPath, ref, commit, content, barrierPath, readyPath] =
   process.argv.slice(2);
+
 if (!rootPath || !ref || !commit || !content || !barrierPath || !readyPath) {
   throw new Error(
     "Usage: notes-write-worker <root> <ref> <commit> <content> <barrier> <ready>",
@@ -12,6 +13,7 @@ if (!rootPath || !ref || !commit || !content || !barrierPath || !readyPath) {
 }
 
 writeFileSync(readyPath, "ready");
+
 while (!existsSync(barrierPath)) {
   await sleep(10);
 }

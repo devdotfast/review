@@ -42,21 +42,26 @@ export function useReviewUiState<T>(
 ): [T, Dispatch<SetStateAction<T>>] {
   const session = useReviewSession();
   const key = reviewUiStateKey(session.config, scope, namespace, name);
+
   const [value, setValue] = useState<T>(
     () => readReviewUiState<T>(scope, key) ?? fallback,
   );
+
   // Only state somebody actually changed is written back. Persisting on mount
   // instead would store the caller's fallback for every panel and section a
   // reader merely looked at, which then shadows a later change to that
   // fallback — an authored `[collapsed]` section could never take effect again.
   const changed = useRef(false);
+
   const setStoredValue = useCallback<Dispatch<SetStateAction<T>>>((next) => {
     changed.current = true;
     setValue(next);
   }, []);
+
   useEffect(() => {
     if (changed.current) writeReviewUiState(scope, key, value);
   }, [key, scope, value]);
+
   return [value, setStoredValue];
 }
 
@@ -77,6 +82,7 @@ export function readReviewUiState<T>(
 ): T | null {
   try {
     const raw = reviewUiStorage(scope)?.getItem(key);
+
     // SAFETY: the caller owns `key` and wrote it through writeReviewUiState
     // with this same T; readers of foreign or versioned formats ask for
     // JsonValue and parse further.
@@ -114,9 +120,12 @@ export function forgetReviewUiState(
 ): void {
   try {
     const storage = reviewUiStorage(scope);
+
     if (!storage) return;
+
     for (let index = storage.length - 1; index >= 0; index -= 1) {
       const key = storage.key(index);
+
       if (key && matches(key)) storage.removeItem(key);
     }
   } catch {
@@ -126,5 +135,6 @@ export function forgetReviewUiState(
 
 function reviewUiStorage(scope: ReviewUiScope): Storage | null {
   if (typeof window === "undefined") return null;
+
   return scope === "window" ? window.sessionStorage : window.localStorage;
 }

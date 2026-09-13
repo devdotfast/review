@@ -19,12 +19,15 @@ describe("document selection comments", () => {
       '<p data-review-block-index="0" data-review-block-tag="p">Comment here.</p>' +
         '<div class="selection-action-buttons"><button type="button"></button></div>',
     );
+
     const text = article.querySelector("p")!.firstChild!;
     select(text, 0, text, 7);
     const targets: Array<SelectionTarget | null> = [];
+
     const stop = observeDocumentSelection(article, (target) =>
       targets.push(target),
     );
+
     document.dispatchEvent(new Event("selectionchange"));
 
     article
@@ -41,7 +44,9 @@ describe("document selection comments", () => {
         '<code><span class="shj-syn-kwd">const</span> session = ' +
         '<span class="shj-syn-func">createAgentSession</span>();</code></pre>',
     );
+
     const functionName = article.querySelector(".shj-syn-func")!.firstChild!;
+
     const selection = select(
       functionName,
       0,
@@ -65,15 +70,18 @@ describe("document selection comments", () => {
         "<code><span>  const first = true;</span>\n" +
         "<span>    return first;</span></code></pre>",
     );
+
     const lines = article.querySelectorAll("code span");
     const firstLine = lines[0]!.firstChild!;
     const secondLine = lines[1]!.firstChild!;
+
     const selection = select(
       firstLine,
       0,
       secondLine,
       secondLine.textContent!.length,
     );
+
     const quote = "  const first = true;\n    return first;";
 
     expect(documentSelectionTarget(selection, article)).toMatchObject({
@@ -90,7 +98,9 @@ describe("document selection comments", () => {
       '<p data-review-block-index="0" data-review-block-tag="p">First paragraph.</p>' +
         '<p data-review-block-index="1" data-review-block-tag="p">Next paragraph.</p>',
     );
+
     const paragraphs = article.querySelectorAll("p");
+
     const selection = select(
       paragraphs[0]!.firstChild!,
       0,
@@ -112,7 +122,9 @@ describe("document selection comments", () => {
       '<p data-review-block-index="0" data-review-block-tag="p">First paragraph.</p>' +
         '<p data-review-block-index="1" data-review-block-tag="p">Next paragraph.</p>',
     );
+
     const paragraphs = article.querySelectorAll("p");
+
     const selection = select(
       paragraphs[0]!.firstChild!,
       6,
@@ -134,6 +146,7 @@ describe("document selection comments", () => {
       '<p data-review-block-index="0" data-review-block-tag="p">First paragraph.</p>' +
         '<p data-review-block-index="1" data-review-block-tag="p">Next paragraph.</p>',
     );
+
     const range = document.createRange();
     range.setStart(article, 0);
     range.setEnd(article, 1);
@@ -152,9 +165,11 @@ describe("document selection comments", () => {
     const article = reviewArticle(
       '<p data-review-block-index="0" data-review-block-tag="p">Drag this paragraph.</p>',
     );
+
     const text = article.querySelector("p")!.firstChild!;
     select(text, 0, text, 9);
     const targets: Array<SelectionTarget | null> = [];
+
     const stop = observeDocumentSelection(article, (target) =>
       targets.push(target),
     );
@@ -169,12 +184,15 @@ describe("document selection comments", () => {
     const article = reviewArticle(
       '<p data-review-block-index="0" data-review-block-tag="p">Clear this selection.</p>',
     );
+
     const text = article.querySelector("p")!.firstChild!;
     const selection = select(text, 0, text, 10);
     const targets: Array<SelectionTarget | null> = [];
+
     const stop = observeDocumentSelection(article, (target) =>
       targets.push(target),
     );
+
     document.dispatchEvent(new Event("selectionchange"));
 
     selection.removeAllRanges();
@@ -193,6 +211,7 @@ function reviewArticle(contents: string): HTMLElement {
   article.className = "review-document";
   article.innerHTML = contents;
   document.body.append(article);
+
   return article;
 }
 
@@ -205,6 +224,7 @@ function select(
   const range = document.createRange();
   range.setStart(startNode, startOffset);
   range.setEnd(endNode, endOffset);
+
   return installSelection(range);
 }
 
@@ -215,5 +235,6 @@ function installSelection(range: Range): Selection {
   const selection = window.getSelection()!;
   selection.removeAllRanges();
   selection.addRange(range);
+
   return selection;
 }

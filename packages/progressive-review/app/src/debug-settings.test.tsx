@@ -21,9 +21,13 @@ import {
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: ReturnType<typeof createRoot> | undefined;
+
 let theme = "dark" as ReviewTheme;
+
 let themeListener: ((theme: ReviewTheme) => void) | undefined;
+
 let surfaceListener: ((event: ReviewSurfaceEvent) => void) | undefined;
+
 let session: ReviewSession;
 
 beforeEach(() => {
@@ -121,6 +125,7 @@ describe("ReviewDebugSettingsProvider theme", () => {
           "progressive-review:debug-settings:theme-test:/review.mdx",
         ) ?? "{}",
       );
+
       if (!isJsonObject(persisted)) throw new Error("expected settings object");
       expect(persisted.settingsVersion).toBe(3);
       expect(persisted).not.toHaveProperty("theme");
@@ -153,6 +158,7 @@ describe("ReviewDebugSettingsProvider theme", () => {
 
 function ThemeProbe() {
   const settings = useReviewDebugSettings();
+
   return (
     <div
       className={`review-app--theme-${settings.theme}`}
@@ -196,11 +202,13 @@ function createTestSession(): ReviewSession {
       post: async () => ({ ok: true }),
       subscribe: (listener) => {
         surfaceListener = listener;
+
         return { dispose: () => (surfaceListener = undefined) };
       },
       currentTheme: () => theme,
       onDidChangeTheme: (listener) => {
         themeListener = listener;
+
         return { dispose: () => (themeListener = undefined) };
       },
       currentDiffLayout: () => "split",

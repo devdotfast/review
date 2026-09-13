@@ -59,15 +59,19 @@ export async function readReopenMarker(
   cwd: string,
 ): Promise<ReopenMarker | null> {
   let raw: string;
+
   try {
     raw = await readFile(reopenMarkerPath(cwd), "utf8");
   } catch {
     return null;
   }
+
   try {
     const parsed = jsonObject(parseJsonText(raw));
     const submittedAt = jsonString(parsed?.submittedAt);
+
     if (parsed === undefined || submittedAt === undefined) return null;
+
     return { submittedAt, nudged: parsed.nudged === true };
   } catch {
     return null;
@@ -85,12 +89,14 @@ export async function markReopenNudged(
   // with ENOENT and we treat the nudge as already resolved. Truncate first so
   // the shorter `"nudged": true` fully overwrites the previous contents.
   let handle: Awaited<ReturnType<typeof open>>;
+
   try {
     handle = await open(reopenMarkerPath(cwd), "r+");
   } catch (error) {
     if (isMissingFileError(error)) return;
     throw error;
   }
+
   try {
     await handle.truncate(0);
     await handle.write(content, 0, "utf8");
@@ -115,6 +121,8 @@ export interface StopHookDecision {
  */
 export function decideStopHook(marker: ReopenMarker | null): StopHookDecision {
   if (!marker) return { block: false, markNudged: false };
+
   if (marker.nudged) return { block: false, markNudged: false };
+
   return { block: true, reason: REOPEN_STOP_HOOK_REASON, markNudged: true };
 }

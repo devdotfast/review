@@ -55,6 +55,7 @@ export class LoopbackIngress {
             response.end(JSON.stringify({ ok: false, error: String(cause) }));
           });
       });
+
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => {
         // SAFETY: a TCP listener bound to a port reports an AddressInfo, never a pipe path.
@@ -62,6 +63,7 @@ export class LoopbackIngress {
         resolve({ server, url: `http://127.0.0.1:${port}` });
       });
     });
+
     return this.#listener;
   }
 
@@ -71,14 +73,19 @@ export class LoopbackIngress {
     if (request.method !== "POST") {
       return { status: 405, body: { ok: false, error: "POST only." } };
     }
+
     if (request.headers["x-review-token"] !== this.token) {
       return { status: 401, body: { ok: false, error: "Unauthorized" } };
     }
+
     const match = /^\/([^/]+)\/([^/]+)$/u.exec(request.url ?? "");
+
     if (!match || match[1] !== this.#input.scope) {
       return { status: 404, body: { ok: false, error: "Unknown session." } };
     }
+
     const payload = await readJsonBody(request);
+
     try {
       this.#input.onPost(decodeURIComponent(match[2]!), payload);
     } catch (error) {
@@ -90,6 +97,7 @@ export class LoopbackIngress {
         },
       };
     }
+
     return { status: 200, body: { ok: true } };
   }
 }
@@ -97,14 +105,19 @@ export class LoopbackIngress {
 async function readJsonBody(request: IncomingMessage): Promise<JsonValue> {
   const chunks: Buffer[] = [];
   let size = 0;
+
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
+
     if (size > MAX_BODY_BYTES) {
       throw new Error("Native agent payload is too large.");
     }
+
     chunks.push(buffer);
   }
+
   const text = Buffer.concat(chunks).toString("utf8");
+
   return text ? parseJsonText(text) : {};
 }

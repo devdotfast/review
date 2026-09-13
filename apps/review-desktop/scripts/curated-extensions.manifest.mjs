@@ -331,6 +331,7 @@ export const defaultDisabledIds = Object.freeze(
 export function openVsxUrl({ namespace, name, version, target }) {
   const scoped = target ? `/${target}` : "";
   const suffix = target ? `@${target}` : "";
+
   return `https://open-vsx.org/api/${namespace}/${name}${scoped}/${version}/file/${namespace}.${name}-${version}${suffix}.vsix`;
 }
 
@@ -342,30 +343,39 @@ export function targetKeyFor(extension, target) {
   if (extension.targets.universal) {
     return "universal";
   }
+
   return extension.targets[target] ? target : undefined;
 }
 
 /** Parses a DEV_REVIEW_EXTENSIONS value into the set of groups to materialize. */
 export function parseGroupSelection(raw) {
   const value = (raw ?? "all").trim();
+
   if (value === "" || value === "all") {
     return new Set(bundledGroups);
   }
+
   if (value === "none") {
     return new Set();
   }
+
   const selected = new Set();
+
   for (const token of value.split(",")) {
     const group = token.trim();
+
     if (group === "") {
       continue;
     }
+
     if (!curatedGroups.includes(group)) {
       throw new Error(
         `unknown extension group "${group}"; expected all, none, or a comma-separated subset of ${curatedGroups.join(", ")}`,
       );
     }
+
     selected.add(group);
   }
+
   return selected;
 }

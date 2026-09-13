@@ -17,6 +17,7 @@ describe("agent-trace-parser", () => {
         type: "session_meta",
         payload: { id: "123" },
       });
+
       expect(sniffAgentTraceHarness(chunk)).toBe("codex");
     });
 

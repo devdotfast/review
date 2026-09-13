@@ -13,8 +13,11 @@ import {
  * `unknown`-valued dictionary past the boundary.
  */
 export type JsonPrimitive = string | number | boolean | null;
+
 export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
+
 export type JsonArray = JsonValue[];
+
 export type JsonObject = { [key: string]: JsonValue };
 
 /** The zod counterpart of `JsonValue`; the one definition in the monorepo. */

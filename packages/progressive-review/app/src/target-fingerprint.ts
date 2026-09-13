@@ -15,6 +15,7 @@ export function buildDocumentTextTarget(input: {
   length: number;
 }): Extract<ThreadTarget, { kind: "text" }> {
   const text = input.text;
+
   return {
     kind: "text",
     surface: { type: "document", documentHash: stableHash(text) },
@@ -30,6 +31,7 @@ export function buildBlockTarget(input: {
   length: number;
 }): Extract<ThreadTarget, { kind: "text" }> {
   const text = input.text;
+
   return {
     kind: "text",
     surface: {
@@ -51,6 +53,7 @@ export function buildTableCellTarget(input: {
   length: number;
 }): Extract<ThreadTarget, { kind: "text" }> {
   const text = input.text;
+
   return {
     kind: "text",
     surface: {
@@ -73,6 +76,7 @@ export function buildAnchorTextTarget(input: {
   const text = input.text;
   const start = input.start ?? 0;
   const length = input.length ?? text.length;
+
   return {
     kind: "text",
     surface: {
@@ -92,9 +96,11 @@ export function buildCodeTarget(input: {
   span: { startLine: number; endLine: number };
 }): Extract<ThreadTarget, { kind: "code" }> {
   if (!input.path) throw new Error("Code target path must not be empty.");
+
   if (!input.baseCommit || !input.headCommit) {
     throw new Error("Code target commits must not be empty.");
   }
+
   if (
     !Number.isInteger(input.span.startLine) ||
     !Number.isInteger(input.span.endLine) ||
@@ -103,10 +109,12 @@ export function buildCodeTarget(input: {
   ) {
     throw new Error("Code target must contain a valid inclusive line span.");
   }
+
   const row = (line: number) => ({
     old_line: input.side === "base" ? line : null,
     new_line: input.side === "head" ? line : null,
   });
+
   const position = createGitLabTextDiffPosition({
     base_sha: input.baseCommit,
     start_sha: input.baseCommit,
@@ -116,6 +124,7 @@ export function buildCodeTarget(input: {
     start: row(input.span.startLine),
     end: row(input.span.endLine),
   });
+
   return { kind: "code", original_position: position, position };
 }
 
@@ -124,13 +133,17 @@ export function codeTargetResource(
   side: "base" | "head",
 ): { path: string; commit: string } | null {
   const rows = gitLabDiffPositionRows(target.position);
+
   if (!rows || !positionUsesSide(rows.start, rows.end, side)) return null;
+
   const path =
     side === "base" ? target.position.old_path : target.position.new_path;
+
   const commit =
     side === "base"
       ? (target.position.base_sha ?? target.position.start_sha)
       : target.position.head_sha;
+
   return path && commit ? { path, commit } : null;
 }
 
@@ -139,17 +152,24 @@ export function codeTargetProjectionSides(
   defaultSide: "base" | "head" = "head",
 ): Array<"base" | "head"> {
   const rows = gitLabDiffPositionRows(target.position);
+
   if (!rows) return [];
   const endpoints = [rows.start, rows.end];
+
   const hasOldOnly = endpoints.some(
     (row) => row.old_line !== null && row.new_line === null,
   );
+
   const hasNewOnly = endpoints.some(
     (row) => row.old_line === null && row.new_line !== null,
   );
+
   if (hasOldOnly && hasNewOnly) return ["base", "head"];
+
   if (hasOldOnly) return ["base"];
+
   if (hasNewOnly) return ["head"];
+
   return codeTargetResource(target, defaultSide) ? [defaultSide] : [];
 }
 
@@ -164,9 +184,11 @@ export function projectCodeTarget(
 } | null {
   const resource = codeTargetResource(target, side);
   const rows = gitLabDiffPositionRows(target.position);
+
   if (!resource || !rows) return null;
   const startLine = lineForSide(rows.start, side);
   const endLine = lineForSide(rows.end, side);
+
   if (startLine !== null && endLine !== null) {
     return {
       ...resource,
@@ -176,7 +198,9 @@ export function projectCodeTarget(
       },
     };
   }
+
   if (!patch) return null;
+
   const span = projectPositionRowsThroughPatch(
     resource.path,
     patch,
@@ -184,6 +208,7 @@ export function projectCodeTarget(
     rows.end,
     side,
   );
+
   return span ? { ...resource, span } : null;
 }
 
@@ -194,6 +219,7 @@ export function projectCodeTarget(
 export type GraphTargetPayload = {
   readonly [key: string]: GraphTargetPayloadValue;
 };
+
 type GraphTargetPayloadValue =
   | string
   | number
@@ -230,13 +256,17 @@ export function buildSelection(
   if (!Number.isInteger(start) || start < 0) {
     throw new Error("Selection start must be a non-negative integer.");
   }
+
   if (!Number.isInteger(length) || length < 1) {
     throw new Error("Selection length must be a positive integer.");
   }
+
   const quote = surfaceText.slice(start, start + length);
+
   if (quote.length !== length) {
     throw new Error("Selection must be contained in the target surface.");
   }
+
   return { start, length, hash: stableHash(quote), quote };
 }
 
@@ -250,12 +280,15 @@ export function resolvedCodeSurface(
   resolution: CodePeekResolution,
 ): ResolvedCodeSurface {
   const root = resolution.snapshot.roots[0];
+
   const resolved = root
     ? resolution.snapshot.resolved[root.sourceId]
     : undefined;
+
   if (!resolved) {
     throw new Error("CodePeek resolution contains no resolved root source.");
   }
+
   return {
     text: normalizeLineEndings(
       resolved.lines
@@ -285,10 +318,12 @@ export function normalizeLineEndings(value: string): string {
 
 export function stableHash(value: string): string {
   let hash = 2166136261;
+
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
+
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
@@ -318,22 +353,28 @@ function projectPositionRowsThroughPatch(
     const startIndex = hunk.lines.findIndex((line) =>
       diffLineMatchesPosition(line, start),
     );
+
     const endIndex = hunk.lines.findIndex((line) =>
       diffLineMatchesPosition(line, end),
     );
+
     if (startIndex < 0 || endIndex < 0) continue;
     const first = Math.min(startIndex, endIndex);
     const last = Math.max(startIndex, endIndex);
+
     const lines = hunk.lines
       .slice(first, last + 1)
       .map((line) => (side === "base" ? line.oldLine : line.newLine))
       .filter((line): line is number => line !== null);
+
     if (lines.length === 0) return null;
+
     return {
       startLine: Math.min(...lines),
       endLine: Math.max(...lines),
     };
   }
+
   return null;
 }
 
@@ -348,14 +389,19 @@ function stableSerialize(value: GraphTargetPayloadValue): string {
   if (Array.isArray(value)) {
     return `[${value.map(stableSerialize).join(",")}]`;
   }
+
   if (!isGraphTargetPayloadRecord(value)) {
     const serialized = JSON.stringify(value);
+
     if (serialized === undefined) {
       throw new Error("Target fingerprint payload is not serializable.");
     }
+
     return serialized;
   }
+
   const fields = Object.entries(value);
+
   return `{${fields
     .filter(([, field]) => field !== undefined)
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))

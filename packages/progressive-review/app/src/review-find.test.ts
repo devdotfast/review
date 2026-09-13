@@ -17,7 +17,9 @@ function compile(overrides: Partial<ReviewFindQuery> = {}): RegExp {
     isRegex: false,
     ...overrides,
   });
+
   if ("error" in result) throw new Error(result.error);
+
   return result.expression;
 }
 

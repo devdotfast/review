@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TraceDocument } from "./trace-document";
 
 let root: Root | null = null;
+
 let container: HTMLDivElement;
 
 describe("TraceDocument", () => {
@@ -27,6 +28,7 @@ describe("TraceDocument", () => {
       await act(async () => root?.unmount());
       root = null;
     }
+
     document.body.replaceChildren();
   });
 
@@ -195,6 +197,7 @@ describe("TraceDocument", () => {
     const gapButton = container.querySelector(
       ".review-trace-lens-gap",
     ) as HTMLButtonElement;
+
     await act(async () => {
       gapButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -203,6 +206,7 @@ describe("TraceDocument", () => {
     const collapseRows = container.querySelectorAll(
       ".review-trace-lens-collapse",
     );
+
     expect(collapseRows.length).toBe(2);
     expect(collapseRows[0].textContent).toContain("collapse 5 events");
     expect(collapseRows[1].textContent).toContain("collapse 5 events");
@@ -241,6 +245,7 @@ describe("TraceDocument", () => {
     const chipButton = container.querySelector(
       ".review-trace-lens-chip",
     ) as HTMLButtonElement;
+
     expect(chipButton).not.toBeNull();
     expect(
       container.querySelector(".review-trace-quote-mark")?.textContent,

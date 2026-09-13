@@ -31,6 +31,7 @@ import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
@@ -41,10 +42,12 @@ afterEach(async () => {
 
 it("prepares outside the live lock while preserving viewed and comment updates", async () => {
   const { review, home } = await fixture();
+
   const dependency = path.join(
     home,
     "reviews/node_modules/review-staging-dependency",
   );
+
   await mkdir(dependency, { recursive: true });
   await writeFile(
     path.join(dependency, "package.json"),
@@ -72,6 +75,7 @@ it("prepares outside the live lock while preserving viewed and comment updates",
   const updatesComplete = Promise.withResolvers<void>();
   const releaseHolder = Promise.withResolvers<void>();
   let holderReleased = false;
+
   const holder = withReviewMutationLock(review.dir, async () => {
     holderReady.resolve();
     await beginUpdates.promise;
@@ -87,9 +91,11 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     await releaseHolder.promise;
     holderReleased = true;
   });
+
   let staging: ReturnType<typeof stageReviewDocumentPublication> | undefined;
   let document!: Awaited<ReturnType<typeof stageReviewDocumentPublication>>;
   let stagingDir!: string;
+
   try {
     await Promise.race([holderReady.promise, holder]);
     staging = stageReviewDocumentPublication({ review });
@@ -101,9 +107,11 @@ it("prepares outside the live lock while preserving viewed and comment updates",
   } finally {
     beginUpdates.resolve();
     releaseHolder.resolve();
+
     if (staging) await Promise.allSettled([staging]);
     await holder;
   }
+
   expect(existsSync(stagingDir)).toBe(false);
   expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
   expect(JSON.stringify(reviewDocumentBundleData(document.bundle))).toContain(
@@ -121,6 +129,7 @@ it("prepares outside the live lock while preserving viewed and comment updates",
       .messages,
   ).toHaveLength(1);
   const materializedBundle = await readReviewDocumentBundle(materialized, "/");
+
   if (!materializedBundle) throw new Error("Missing materialized bundle");
   expect(reviewDocumentBundleData(materializedBundle)).toEqual(
     reviewDocumentBundleData(document.bundle),
@@ -132,24 +141,29 @@ async function waitForStagingCopy(reviewsDir: string): Promise<string> {
   for (let attempt = 0; attempt < 600; attempt++) {
     for (const name of await readdir(reviewsDir)) {
       const candidate = path.join(reviewsDir, name);
+
       if (
         name.startsWith(".review-publish-") &&
         existsSync(path.join(candidate, "review.mdx"))
       )
         return candidate;
     }
+
     await setTimeout(10);
   }
+
   throw new Error("Publication staging never copied the review.");
 }
 
 it("resolves Review-local pnpm dependencies without copying their symlinks", async () => {
   const { review } = await fixture();
   const modules = path.join(review.dir, "node_modules");
+
   const dependency = path.join(
     modules,
     ".pnpm/review-local@1.0.0/node_modules/review-local",
   );
+
   await mkdir(dependency, { recursive: true });
   await writeFile(
     path.join(dependency, "package.json"),
@@ -193,18 +207,23 @@ it("takes the mutation lock around document write and seal", async () => {
   const document = await stageReviewDocumentPublication({ review });
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+
   const holding = withReviewMutationLock(review.dir, async () => {
     entered.resolve();
     await release.promise;
   });
+
   await entered.promise;
   let finished = false;
+
   const sealing = sealReviewDocumentPublication({ review, document }).then(
     (revision) => {
       finished = true;
+
       return revision;
     },
   );
+
   for (let attempt = 0; attempt < 30; attempt++) await setImmediate();
   const bypassed = finished;
   release.resolve();
@@ -254,6 +273,7 @@ it.each([
 
 it("rechecks new open threads before sealing a prepared republication", async () => {
   const fixtureValue = await fixture();
+
   const review = {
     ...fixtureValue.review,
     review: {
@@ -261,6 +281,7 @@ it("rechecks new open threads before sealing a prepared republication", async ()
       presentedDocumentRevision: "a".repeat(40),
     },
   };
+
   await writeFile(
     path.join(review.dir, "review.json"),
     JSON.stringify(review.review),
@@ -300,12 +321,15 @@ async function fixture() {
   const home = await mkdtemp(
     path.join(tmpdir(), "review-publication-staging-"),
   );
+
   roots.push(home);
   vi.stubEnv("DEV_REVIEW_HOME", home);
   const root = path.join(home, "source");
   await mkdir(root);
+
   const git = (args: string[]) =>
     execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.email", "review@example.test"]);
   git(["config", "user.name", "Review Test"]);
@@ -313,6 +337,7 @@ async function fixture() {
   git(["add", "."]);
   git(["commit", "-qm", "source"]);
   const commit = git(["rev-parse", "HEAD"]);
+
   const review = await createReviewDir({
     worktreePath: root,
     baseRef: "main",
@@ -320,6 +345,7 @@ async function fixture() {
     sourceCommit: commit,
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   await writeFile(
     path.join(review.dir, "review.mdx"),
     'import { label } from "./data";\n\n# Staged document\n\n{label}\n',
@@ -328,5 +354,6 @@ async function fixture() {
     path.join(review.dir, "data.ts"),
     'export const label = "original";',
   );
+
   return { home, review };
 }

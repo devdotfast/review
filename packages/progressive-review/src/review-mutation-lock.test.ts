@@ -15,6 +15,7 @@ import {
 } from "./review-mutation-lock";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -24,6 +25,7 @@ afterEach(async () => {
 async function guardedFixture() {
   const root = await mkdtemp(path.join(tmpdir(), "review-guarded-fields-"));
   roots.push(root);
+
   const record = parseStoredReviewRecord({
     schemaVersion: 5,
     uuid: "11111111-1111-4111-8111-111111111111",
@@ -41,13 +43,16 @@ async function guardedFixture() {
     createdAt: "created",
     lastPublishedAt: "published",
   });
+
   await writeFile(path.join(root, "review.json"), JSON.stringify(record));
+
   return { root, record };
 }
 
 it("accepts an unchanged record and rejects any guarded field change", async () => {
   const { root, record } = await guardedFixture();
   await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
+
   for (const field of GUARDED_REVIEW_FIELDS) {
     await writeFile(
       path.join(root, "review.json"),
@@ -95,11 +100,14 @@ it("reports retryable contention and succeeds after the holder releases", async 
   roots.push(root);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+
   const holding = withReviewMutationLock(root, async () => {
     entered.resolve();
     await release.promise;
   });
+
   await entered.promise;
+
   try {
     await expect(
       withReviewMutationLock(root, async () => "overlap", { timeoutMs: 20 }),
@@ -116,6 +124,7 @@ it("reports retryable contention and succeeds after the holder releases", async 
     release.resolve();
     await holding;
   }
+
   await expect(
     withReviewMutationLock(root, async () => "retried"),
   ).resolves.toBe("retried");
@@ -139,10 +148,13 @@ process.stdin.resume();
 process.stdin.once("data", async () => { await rm(lockPath, { recursive: true }); process.exit(0); });
 `,
   );
+
   const child = spawn(process.execPath, [script, lockPath], {
     stdio: ["pipe", "pipe", "pipe"],
   });
+
   const exited = once(child, "exit");
+
   try {
     await once(child.stdout, "data");
     await expect(
@@ -155,6 +167,7 @@ process.stdin.once("data", async () => { await rm(lockPath, { recursive: true })
     child.stdin.end("release");
     await exited;
   }
+
   await expect(
     withReviewMutationLock(root, async () => "retried"),
   ).resolves.toBe("retried");

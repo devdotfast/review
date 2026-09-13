@@ -62,14 +62,18 @@ function defaultWarning(message: string): void {
 function storeReadWarning(error: Error): string | null {
   if (error instanceof StoreApiError) {
     if (error.code === "not_found") return null;
+
     if (error.code === "unauthorized") {
       return "Trace store request failed: unauthorized. Run `review login`.";
     }
+
     if (error.code === "forbidden") {
       return `Trace store request failed: forbidden. ${error.message}`;
     }
+
     return `Trace store request failed: ${error.message}`;
   }
+
   return `Trace store request failed: ${error.message}`;
 }
 
@@ -108,12 +112,14 @@ export function traceObjectName(traceName: string): TraceObjectName {
   if (traceName === "main") return "main.jsonl.gz";
   const base = path.basename(traceName);
   const fileName = base.endsWith(".jsonl") ? base : `${base}.jsonl`;
+
   return `subagents/${fileName}.gz`;
 }
 
 /** The trace name behind one store object name. */
 function traceNameFromObject(name: string): string {
   if (name === "main.jsonl.gz") return "main";
+
   return name.slice("subagents/".length, -".jsonl.gz".length);
 }
 
@@ -165,8 +171,10 @@ export class HostedTraceStorage implements TraceStorage {
       // A publication goes to the selected origin only. A login for another
       // origin is not a client for this one.
       let client = input.client;
+
       if (!client) {
         const auth = await readStoreAuth(env);
+
         if (!auth || auth.origin !== origin) {
           throw new Error(
             auth
@@ -174,8 +182,10 @@ export class HostedTraceStorage implements TraceStorage {
               : `The trace store login is missing. Run \`review login --origin ${origin}\`.`,
           );
         }
+
         client = new StoreClient({ origin, token: auth.token });
       }
+
       const { target } = await resolveTraceRepositoryTarget({
         cwd: input.cwd,
         origin,
@@ -183,6 +193,7 @@ export class HostedTraceStorage implements TraceStorage {
         write: true,
         devHome,
       });
+
       return new HostedTraceStorage({
         target,
         transport: input.transport ?? createHttpTraceStoreTransport(client),
@@ -192,11 +203,13 @@ export class HostedTraceStorage implements TraceStorage {
     }
 
     const auth = await readStoreAuth(env);
+
     const client =
       input.client ??
       (auth && auth.origin === origin
         ? new StoreClient({ origin, token: auth.token })
         : undefined);
+
     if (!client) {
       // No usable login. The saved target still names the copies this
       // checkout may read while it is offline; the transport is never asked.
@@ -205,12 +218,15 @@ export class HostedTraceStorage implements TraceStorage {
           `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`review login --origin ${origin}\`; using saved copies until then.`,
         );
       }
+
       const cached = await readCachedTraceRepositoryTarget({
         cwd: input.cwd,
         origin,
         devHome,
       }).catch(() => null);
+
       if (!cached) return null;
+
       return new HostedTraceStorage({
         target: cached,
         transport:
@@ -230,11 +246,13 @@ export class HostedTraceStorage implements TraceStorage {
         write: false,
         devHome,
       });
+
       if (offline) {
         report(
           "The trace store did not answer. Using the saved copies of this repository.",
         );
       }
+
       return new HostedTraceStorage({
         target,
         transport: input.transport ?? createHttpTraceStoreTransport(client),
@@ -244,6 +262,7 @@ export class HostedTraceStorage implements TraceStorage {
       });
     } catch (error) {
       const cause = error instanceof Error ? error : new Error(String(error));
+
       if (
         cause instanceof StoreApiError &&
         (cause.code === "unauthorized" ||
@@ -253,12 +272,15 @@ export class HostedTraceStorage implements TraceStorage {
         // The store answered and refused. Nothing saved may pass as current.
         throw new TraceStorageDeniedError(cause.message);
       }
+
       // A missing store is a setup problem the user can fix, so it is named.
       const message =
         cause instanceof StoreApiError && cause.code === "not_found"
           ? cause.message
           : storeReadWarning(cause);
+
       if (message) report(message);
+
       return null;
     }
   }
@@ -271,6 +293,7 @@ export class HostedTraceStorage implements TraceStorage {
     const [originKey, repositoryKey] = traceTargetKey(
       this.repositoryTarget,
     ).split("/");
+
     return { owner: originKey, repo: repositoryKey };
   }
 
@@ -282,6 +305,7 @@ export class HostedTraceStorage implements TraceStorage {
           "The trace store did not answer. Saved copies are served offline.",
       };
     }
+
     return { ready: true };
   }
 
@@ -290,11 +314,15 @@ export class HostedTraceStorage implements TraceStorage {
     traceName: string,
   ): Promise<TraceObjectInfo | null> {
     const stored = await this.requireSession(sessionId);
+
     if (!stored) return null;
+
     const object = stored.objects.find(
       (entry) => entry.name === traceObjectName(traceName),
     );
+
     if (!object) return null;
+
     return { size: object.size, contentId: contentId(stored, object.sha256) };
   }
 
@@ -304,19 +332,25 @@ export class HostedTraceStorage implements TraceStorage {
     destinationPath: string,
   ): Promise<TraceObjectInfo | null> {
     const stored = await this.requireSession(sessionId);
+
     if (!stored) return null;
+
     const object = stored.objects.find(
       (entry) => entry.name === traceObjectName(traceName),
     );
+
     if (!object) return null;
     // The transport verifies size and checksum before the file appears.
     await this.transport.getObject(object, destinationPath);
+
     return { size: object.size, contentId: contentId(stored, object.sha256) };
   }
 
   async listSubagents(sessionId: string): Promise<string[]> {
     const lookup = await this.lookupSession(sessionId);
+
     if (lookup.status !== "found") return [];
+
     return lookup.session.objects
       .filter((object) => object.name !== "main.jsonl.gz")
       .map((object) => traceNameFromObject(object.name))
@@ -330,7 +364,9 @@ export class HostedTraceStorage implements TraceStorage {
    */
   async sessionMeta(sessionId: string): Promise<SessionMeta | null> {
     const stored = await reachableSession(() => this.requireSession(sessionId));
+
     if (!stored) return null;
+
     return {
       session: stored.sessionId,
       repo: this.repositoryTarget.name,
@@ -344,25 +380,32 @@ export class HostedTraceStorage implements TraceStorage {
 
   async sessionsForCommit(commit: string): Promise<TraceCommitSessions | null> {
     if (this.offline) return null;
+
     if (!commitShaSchema.safeParse(commit).success) return null;
+
     try {
       const sessions: string[] = [];
       let cursor: string | undefined;
+
       // A bounded walk: ten pages of the server's default size.
       for (let page = 0; page < MAX_COMMIT_LISTING_PAGES; page += 1) {
         const response = await this.transport.listSessions(
           this.repositoryTarget.repositoryId,
           cursor === undefined ? { commit } : { commit, cursor },
         );
+
         sessions.push(...response.sessions.map((session) => session.sessionId));
+
         if (!response.nextCursor) break;
         cursor = response.nextCursor;
       }
+
       return sessions.length > 0 ? { sessions, pr: null, branch: null } : null;
     } catch (error) {
       this.reportFailure(
         error instanceof Error ? error : new Error(String(error)),
       );
+
       return null;
     }
   }
@@ -375,11 +418,13 @@ export class HostedTraceStorage implements TraceStorage {
   async publish(input: TracePublishInput): Promise<TracePublishResult> {
     const target = this.repositoryTarget;
     const expected = traceRepoName(input.repo);
+
     if (expected.toLowerCase() !== target.name.toLowerCase()) {
       throw new Error(
         `This checkout is ${target.name}, not ${expected}. A session is published only to its own repository's store.`,
       );
     }
+
     await requireTraceConsent(target, this.devHome);
     await requireTraceSessionProvenance(input.sessionId, target, this.devHome);
 
@@ -388,8 +433,10 @@ export class HostedTraceStorage implements TraceStorage {
     // stays on the machine and is reported as omitted.
     const files: Array<{ name: TraceObjectName; path: string }> = [];
     const omittedSubagents: string[] = [];
+
     for (const file of input.files) {
       const name = traceObjectName(file.name);
+
       if (
         file.name !== "main" &&
         (files.length >= MAX_TRACE_OBJECTS ||
@@ -398,6 +445,7 @@ export class HostedTraceStorage implements TraceStorage {
         omittedSubagents.push(file.name.replace(/\.jsonl$/, ""));
         continue;
       }
+
       files.push({ name, path: file.path });
     }
 
@@ -408,6 +456,7 @@ export class HostedTraceStorage implements TraceStorage {
       path: string;
       cleanup: () => Promise<void>;
     }> = [];
+
     try {
       // One gzip pass per file fixes the bytes this attempt uploads. The
       // manifest below describes exactly those bytes.
@@ -415,11 +464,13 @@ export class HostedTraceStorage implements TraceStorage {
         const gzipped = await gzipToTemp(file.path);
         compressed.push({ name: file.name, ...gzipped });
       }
+
       const manifest = compressed.map((object) => ({
         name: object.name,
         size: object.size,
         sha256: object.sha256,
       }));
+
       const allCommits = [
         ...new Set(
           input.commits?.filter(
@@ -427,11 +478,14 @@ export class HostedTraceStorage implements TraceStorage {
           ) ?? (await commitsForTraceSession(input.cwd, input.sessionId)),
         ),
       ];
+
       const commits = allCommits.slice(0, MAX_TRACE_COMMITS);
+
       const omitted = {
         subagents: omittedSubagents,
         commits: allCommits.length - commits.length,
       };
+
       const labels = { branch: input.branch, author: input.author };
 
       // The published upload already holds these exact bytes: link any new
@@ -439,6 +493,7 @@ export class HostedTraceStorage implements TraceStorage {
       // is additive for commits and returns its receipt.
       this.lookups.delete(input.sessionId);
       const current = await this.lookupSession(input.sessionId);
+
       if (
         current.status === "found" &&
         sameObjects(manifest, current.session.objects)
@@ -449,10 +504,12 @@ export class HostedTraceStorage implements TraceStorage {
           commits,
           labels,
         );
+
         this.lookups.delete(input.sessionId);
         await clearTraceSyncFailure(input.sessionId, this.devHome).catch(
           () => undefined,
         );
+
         return publishResult(
           compressed,
           "unchanged",
@@ -467,15 +524,20 @@ export class HostedTraceStorage implements TraceStorage {
         input.sessionId,
         { harness: input.harness, objects: manifest },
       );
+
       if (begun.storeId !== target.storeId) {
         throw new Error(
           "The trace store changed while this session was being resolved. Run `review trace allow .` again.",
         );
       }
+
       const mismatch = uploadManifestMismatch(manifest, begun.uploads);
+
       if (mismatch) throw new Error(mismatch);
+
       for (const upload of begun.uploads) {
         const object = compressed.find((entry) => entry.name === upload.name);
+
         if (!object) throw new Error(`The store offered ${upload.name} twice.`);
         await this.transport.putObject(upload, object.path);
       }
@@ -486,10 +548,12 @@ export class HostedTraceStorage implements TraceStorage {
         commits,
         labels,
       );
+
       this.lookups.delete(input.sessionId);
       await clearTraceSyncFailure(input.sessionId, this.devHome).catch(
         () => undefined,
       );
+
       return publishResult(compressed, "uploaded", target, completed, omitted);
     } finally {
       for (const object of compressed) {
@@ -509,24 +573,29 @@ export class HostedTraceStorage implements TraceStorage {
     sessionId: string,
   ): Promise<TraceStoreSession | null> {
     const lookup = await this.lookupSession(sessionId);
+
     if (lookup.status === "unreachable") {
       throw new TraceStorageUnavailableError(
         lookup.error?.message ?? "The trace store did not answer.",
       );
     }
+
     // The store answered. Its answer decides; a saved copy is never served
     // as if the store had confirmed it, and a refusal is not "nothing here".
     if (lookup.status === "denied") {
       throw new TraceStorageDeniedError(lookup.error.message);
     }
+
     return lookup.status === "found" ? lookup.session : null;
   }
 
   private lookupSession(sessionId: string): Promise<StoreSessionLookup> {
     const pending = this.lookups.get(sessionId);
+
     if (pending) return pending;
     const lookup = this.lookupSessionLive(sessionId);
     this.lookups.set(sessionId, lookup);
+
     return lookup;
   }
 
@@ -534,24 +603,30 @@ export class HostedTraceStorage implements TraceStorage {
     sessionId: string,
   ): Promise<StoreSessionLookup> {
     if (this.offline) return { status: "unreachable", error: null };
+
     try {
       const response = await this.transport.listSessions(
         this.repositoryTarget.repositoryId,
         { session: sessionId },
       );
+
       const session = response.sessions.find(
         (candidate) => candidate.sessionId === sessionId,
       );
+
       return session ? { status: "found", session } : { status: "absent" };
     } catch (error) {
       const cause = error instanceof Error ? error : new Error(String(error));
       this.reportFailure(cause);
+
       if (isStoreUnreachable(cause)) {
         return { status: "unreachable", error: cause };
       }
+
       if (cause instanceof StoreApiError && cause.code === "not_found") {
         return { status: "absent" };
       }
+
       return { status: "denied", error: cause };
     }
   }
@@ -575,11 +650,13 @@ export class HostedTraceStorage implements TraceStorage {
         uploadId,
         { commits, branch: labels.branch, author: labels.author },
       );
+
     try {
       return await complete();
     } catch (error) {
       if (error instanceof StoreApiError)
         throw syncStoreError(error, sessionId);
+
       try {
         return await complete();
       } catch (retryError) {
@@ -592,6 +669,7 @@ export class HostedTraceStorage implements TraceStorage {
 
   private reportFailure(cause: Error): void {
     const message = storeReadWarning(cause);
+
     if (message) this.warn(message);
   }
 }
@@ -609,6 +687,7 @@ async function reachableSession<T>(
     ) {
       return null;
     }
+
     throw error;
   }
 }
@@ -628,6 +707,7 @@ function sameObjects(
   stored: ReadonlyArray<{ name: string; size: number; sha256: string }>,
 ): boolean {
   if (manifest.length !== stored.length) return false;
+
   return manifest.every((object) =>
     stored.some(
       (candidate) =>
@@ -673,6 +753,7 @@ function syncStoreError(error: StoreApiError, sessionId: string): Error {
       `Another upload of this session finished first. Run \`review trace sync ${sessionId}\` again to publish the newer transcript.`,
     );
   }
+
   return error;
 }
 
@@ -693,15 +774,21 @@ async function commitsForTraceSession(
     ],
     { allowFailure: true },
   );
+
   if (!result.ok) return [];
   const commits: string[] = [];
+
   for (const line of result.stdout.split("\n")) {
     const [sha, ...trailers] = line.trim().split(FIELD_SEPARATOR);
+
     if (!commitShaSchema.safeParse(sha).success) continue;
+
     const named = trailers
       .flatMap((value) => value.split("\n"))
       .some((value) => value.trim() === sessionId);
+
     if (named && !commits.includes(sha)) commits.push(sha);
   }
+
   return commits;
 }

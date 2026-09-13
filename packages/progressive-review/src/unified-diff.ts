@@ -30,6 +30,7 @@ export function parseUnifiedPatch(
 
   for (const row of patch.split(/\r?\n/)) {
     const header = HUNK_HEADER.exec(row);
+
     if (header?.groups) {
       current = {
         file,
@@ -50,6 +51,7 @@ export function parseUnifiedPatch(
     const marker = row[0];
     const text = row.slice(1);
     let line: DiffHunkLine | null = null;
+
     if (marker === " ") {
       line = { kind: "context", oldLine, newLine, text };
       oldLine += 1;
@@ -61,6 +63,7 @@ export function parseUnifiedPatch(
       line = { kind: "remove", oldLine, newLine: null, text };
       oldLine += 1;
     }
+
     if (line) current.lines.push(line);
   }
 

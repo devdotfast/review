@@ -22,6 +22,7 @@ export function makeAgentTraceKey(
   storage?: AgentTraceStorage | null,
 ): string {
   const base = trace ? `${sessionId}:${trace}` : sessionId;
+
   return storage ? `${base}@${storage}` : base;
 }
 
@@ -33,9 +34,12 @@ export function makeAgentTraceUrl(
   storage?: AgentTraceStorage | null,
 ): `/${string}` {
   const params = new URLSearchParams();
+
   if (trace) params.set("trace", trace);
+
   if (storage) params.set("storage", storage);
   const query = params.size > 0 ? `?${params.toString()}` : "";
+
   return `/agent-traces/${encodeURIComponent(sessionId)}${query}`;
 }
 
@@ -53,6 +57,7 @@ export function useAgentTrace(
     traceState: AgentTraceState;
   }>(() => {
     if (!key) return { key: null, traceState: { status: "idle" } };
+
     return { key, traceState: { status: "loading" } };
   });
 
@@ -66,6 +71,7 @@ export function useAgentTrace(
   useEffect(() => {
     if (!key || !sessionId) {
       setState({ key: null, traceState: { status: "idle" } });
+
       return;
     }
 
@@ -77,9 +83,11 @@ export function useAgentTrace(
       .then(async (response) => {
         const json = await response.json();
         const result = parseReviewAgentTraceResponse(json);
+
         if (!response.ok || !result.ok) {
           throw new Error(result.ok ? "Unable to load trace." : result.error);
         }
+
         if (!controller.signal.aborted) {
           setState({ key, traceState: { status: "loaded", trace: result } });
         }

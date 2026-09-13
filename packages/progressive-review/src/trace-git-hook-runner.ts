@@ -33,13 +33,17 @@ export async function runReviewTraceGitHook(input: {
   if (process.env.TRACE_DISABLE === "1") return 0;
   // The machine switch owns every capture path, including the git hooks.
   const scope = { homeDir: input.homeDir, env: input.env };
+
   if (!(await traceMachineEnabled(scope))) return 0;
+
   try {
     if (input.hook === "prepare-commit-msg") {
       return runPrepareCommitMessage(input.cwd, input.args[0]);
     }
+
     if (input.hook === "pre-push") {
       await runPrePush(input);
+
       return 0;
     }
   } catch (cause) {
@@ -47,6 +51,7 @@ export async function runReviewTraceGitHook(input: {
       `trace-sync: warning: ${cause instanceof Error ? cause.message : String(cause)}\n`,
     );
   }
+
   return 0;
 }
 
@@ -56,6 +61,7 @@ async function runPrepareCommitMessage(
 ): Promise<number> {
   if (!messagePath) return 0;
   const sessions = await activeSessions(cwd);
+
   for (const session of sessions) {
     await git(
       cwd,
@@ -71,12 +77,15 @@ async function runPrepareCommitMessage(
       { allowFailure: true },
     );
   }
+
   return 0;
 }
 
 async function activeSessions(cwd: string): Promise<string[]> {
   const fromEnv = (process.env.AGENT_SESSION_ID ?? "").trim();
+
   if (sessionIdSchema.safeParse(fromEnv).success) return [fromEnv];
+
   const fileResult = await git(
     cwd,
     ["rev-parse", "--git-path", "agent-session"],
@@ -84,11 +93,14 @@ async function activeSessions(cwd: string): Promise<string[]> {
       allowFailure: true,
     },
   );
+
   if (!fileResult.ok) return [];
   const filePath = fileResult.stdout.trim();
+
   if (!filePath) return [];
   const sessions = await readActiveTraceSessions(filePath);
   await writeTraceSessions(filePath, sessions).catch(() => undefined);
+
   return [...sessions.keys()];
 }
 
@@ -100,12 +112,15 @@ async function runPrePush(input: {
   env?: NodeJS.ProcessEnv;
 }): Promise<void> {
   const raw = await readStdin(input.stdin);
+
   const commits = new Map<
     string,
     { branch: string | null; sessions: string[] }
   >();
+
   for (const line of raw.split("\n")) {
     const [localRef, localSha, remoteRef, remoteSha] = line.trim().split(/\s+/);
+
     if (
       !localRef ||
       !localSha ||
@@ -114,27 +129,35 @@ async function runPrePush(input: {
       ZERO_OID.test(localSha)
     )
       continue;
+
     const branch = remoteRef.startsWith("refs/heads/")
       ? remoteRef.slice("refs/heads/".length)
       : null;
+
     const revisionArgs = await revisionRange(input.cwd, localSha, remoteSha);
+
     const listed = await git(
       input.cwd,
       ["rev-list", "--max-count=500", ...revisionArgs],
       { allowFailure: true },
     );
+
     if (!listed.ok) continue;
+
     for (const commit of listed.stdout
       .split("\n")
       .map((value) => value.trim())
       .filter(Boolean)) {
       const sessions = await readTrailerSessions(input.cwd, commit);
+
       if (sessions.length > 0) commits.set(commit, { branch, sessions });
     }
   }
+
   if (commits.size === 0) return;
 
   const sessionCommits = new Map<string, string[]>();
+
   for (const [commit, value] of commits) {
     await writeReviewTraceCommitMapping({
       cwd: input.cwd,
@@ -142,6 +165,7 @@ async function runPrePush(input: {
       sessions: value.sessions,
       branch: value.branch,
     }).catch((cause) => warn(input.stderr, cause));
+
     for (const session of value.sessions) {
       sessionCommits.set(session, [
         ...(sessionCommits.get(session) ?? []),
@@ -149,8 +173,10 @@ async function runPrePush(input: {
       ]);
     }
   }
+
   const scope = { homeDir: input.homeDir, env: input.env };
   const selection = selectTraceStorage(scope);
+
   for (const [sessionId, values] of sessionCommits) {
     if (selection.mode === "hosted") {
       // A hosted publish may take minutes; a push never waits for it. The
@@ -162,6 +188,7 @@ async function runPrePush(input: {
       });
       continue;
     }
+
     await syncReviewTrace({ sessionId, cwd: input.cwd, commits: values }).catch(
       (cause) => warn(input.stderr, cause),
     );
@@ -174,9 +201,11 @@ async function revisionRange(
   remoteSha: string,
 ): Promise<string[]> {
   if (ZERO_OID.test(remoteSha)) return [localSha, "--not", "--remotes"];
+
   const remoteExists = await git(cwd, ["cat-file", "-e", remoteSha], {
     allowFailure: true,
   });
+
   return remoteExists.ok
     ? [`${remoteSha}..${localSha}`]
     : [localSha, "--not", "--remotes"];
@@ -187,9 +216,11 @@ async function readStdin(
 ): Promise<string> {
   if (!stdin) return "";
   const chunks: Buffer[] = [];
+
   for await (const chunk of stdin) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
+
   return Buffer.concat(chunks).toString("utf8");
 }
 

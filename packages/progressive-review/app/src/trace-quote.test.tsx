@@ -33,6 +33,7 @@ describe("TraceQuote", () => {
       await act(async () => root?.unmount());
       root = null;
     }
+
     document.body.replaceChildren();
     vi.restoreAllMocks();
   });
@@ -64,8 +65,10 @@ describe("TraceQuote", () => {
 
   it("replaces the Threads panel when opened", async () => {
     const storeRef: PanelStoreRef = { current: null };
+
     function TestConsumer() {
       storeRef.current = useReviewPanelStore();
+
       return <TraceQuote sessionId="session-1">Inspect this trace</TraceQuote>;
     }
 
@@ -110,8 +113,10 @@ describe("TraceQuote", () => {
     document.body.append(targetTurn);
 
     let storeRef: ReturnType<typeof useReviewPanelStore> | null = null;
+
     function TestConsumer() {
       storeRef = useReviewPanelStore();
+
       return (
         <TraceQuote sessionId="session-1">Optimize database queries</TraceQuote>
       );

@@ -320,6 +320,7 @@ describe("projectInlineC4", () => {
       model,
       expandedNodeIds: new Set(["product"]),
     }).nodes.find((node) => node.path === "product.graphDb");
+
     const expanded = projectInlineC4({
       model,
       expandedNodeIds: new Set(["product", "product.graphDb"]),
@@ -432,6 +433,7 @@ describe("projectInlineC4", () => {
       model,
       expandedNodeIds: new Set(["product", "product.emitter"]),
     });
+
     expect(collapsed.relationships).toContainEqual(
       expect.objectContaining({
         from: "product.emitter.writer",
@@ -560,6 +562,7 @@ describe("projectInlineC4", () => {
       model,
       expandedNodeIds: new Set(["product", "product.web"]),
     });
+
     expect(
       oneSideProjection.relationships.find(
         (relationship) => relationship.kind === "call",
@@ -580,6 +583,7 @@ describe("projectInlineC4", () => {
         "product.api.handler",
       ]),
     });
+
     expect(
       bothSidesProjection.relationships.find(
         (relationship) => relationship.kind === "call",
@@ -608,6 +612,7 @@ describe("projectInlineC4", () => {
     const renderNode = projection.nodes.find(
       (node) => node.path === "product.web.ui.render",
     );
+
     expect(renderNode).toMatchObject({
       isExpandable: false,
       isExpanded: false,
@@ -1113,6 +1118,7 @@ describe("projectInlineC4", () => {
       expandedNodeIds: new Set(["product"]),
       modifiedOnly: true,
     });
+
     expect(
       collapsed.relationships.map((r) => ({ from: r.from, to: r.to })),
     ).toEqual([{ from: "product.emitter", to: "product.graphDb" }]);
@@ -1122,6 +1128,7 @@ describe("projectInlineC4", () => {
       expandedNodeIds: new Set(["product", "product.graphDb"]),
       modifiedOnly: true,
     });
+
     expect(
       expanded.relationships.map((r) => ({ from: r.from, to: r.to })),
     ).toEqual([

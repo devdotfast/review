@@ -7,10 +7,13 @@ import { useOptionalReviewPanel } from "./review-panel";
 
 function extractText(node: ReactNode): string {
   if (isReactTextNode(node)) return String(node);
+
   if (Array.isArray(node)) return node.map(extractText).join("");
+
   if (isValidElement<{ children?: ReactNode }>(node)) {
     return extractText(node.props.children);
   }
+
   return "";
 }
 
@@ -22,9 +25,11 @@ export function TraceQuote({
 }: TraceQuoteProps) {
   const quote = extractText(children);
   const openPeek = useOptionalReviewPanel((state) => state.openPeek);
+
   const isOpen =
     useOptionalReviewPanel((state) => {
       const active = state.active;
+
       return (
         active?.kind === "peek" &&
         active.content.kind === "trace-quote" &&
@@ -63,9 +68,11 @@ export function TraceQuote({
           const targetTurn = document.getElementById(
             "review-trace-target-event",
           );
+
           const quoteMark = targetTurn?.querySelector(
             ".review-trace-quote-mark",
           );
+
           const el = quoteMark ?? targetTurn;
           // jsdom has no scrollIntoView, so the call stays optional.
           el?.scrollIntoView?.({ block: "center", behavior: "auto" });

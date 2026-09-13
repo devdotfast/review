@@ -56,8 +56,11 @@ interface ReviewCodeTargetContext {
  */
 function isLegacyCodeTarget(target: ThreadTarget | JsonObject): boolean {
   if (!isJsonObject(target) || target.kind !== "text") return false;
+
   if (!isJsonObject(target.surface)) return false;
+
   if (target.surface.type === "native") return true;
+
   return (
     target.surface.type === "anchor" &&
     isJsonObject(target.surface.part) &&
@@ -71,8 +74,10 @@ function validatePositionAtStoredCommits(
 ): boolean {
   if (!context) return false;
   const rows = gitLabDiffPositionRows(position);
+
   if (!rows) return false;
   const baseCommit = position.base_sha ?? position.start_sha;
+
   const checks = [
     {
       commit: baseCommit,
@@ -85,22 +90,30 @@ function validatePositionAtStoredCommits(
       lines: [rows.start.new_line, rows.end.new_line],
     },
   ];
+
   for (const check of checks) {
     const lines = check.lines.filter((line): line is number => line !== null);
+
     if (lines.length === 0) continue;
+
     if (!check.commit || !check.path) return false;
+
     const file = readFileAtRevisionSync({
       rootPath: context.rootPath,
       ref: check.commit,
       relativePath: check.path,
     });
+
     if (!file || file.commit !== check.commit) return false;
     const normalized = file.source.replace(/\r\n?/g, "\n");
+
     const lineCount = normalized
       ? normalized.split("\n").length - (normalized.endsWith("\n") ? 1 : 0)
       : 0;
+
     if (Math.max(...lines) > lineCount) return false;
   }
+
   return true;
 }
 
@@ -108,11 +121,14 @@ function readReviewCodeTargetContext(
   reviewMdxPath: string,
 ): ReviewCodeTargetContext | null {
   const recordPath = path.join(reviewStateDir(reviewMdxPath), "review.json");
+
   try {
     const parsed = ReviewRecordSchema.safeParse(
       JSON.parse(readFileSync(recordPath, "utf8")),
     );
+
     if (!parsed.success) return null;
+
     return {
       rootPath: parsed.data.worktreePath,
       baseCommit: parsed.data.baseCommit,
@@ -131,9 +147,11 @@ function requireValidCodeTarget(
   if (isLegacyCodeTarget(target)) {
     throw new Error("Legacy code targets cannot be persisted.");
   }
+
   if (target.kind !== "code") return;
   const parsed = CodeThreadTargetSchema.safeParse(target);
   const context = readReviewCodeTargetContext(reviewMdxPath);
+
   if (
     !parsed.success ||
     !context?.headCommit ||
@@ -155,11 +173,14 @@ function requireValidStoredCodeThreads(
   threads: Iterable<ReviewCommentThreadRecord>,
 ): void {
   let context: ReviewCodeTargetContext | null | undefined;
+
   for (const thread of threads) {
     const target = thread.target;
+
     if (target.kind !== "code") continue;
     context ??= readReviewCodeTargetContext(reviewMdxPath);
     const activePosition = target.change_position ?? target.position;
+
     if (
       !context?.headCommit ||
       activePosition.base_sha !== context.baseCommit ||
@@ -180,6 +201,7 @@ export function readReviewComments(
 ): ReviewCommentThreadMap {
   const comments = reviewThreadStoreBackend(reviewMdxPath).readComments();
   requireValidStoredCodeThreads(reviewMdxPath, Object.values(comments));
+
   return comments;
 }
 
@@ -202,14 +224,18 @@ export function appendReviewComment(
   if (!input.threadId.trim()) {
     throw new Error("Comment threadId is required.");
   }
+
   if (!input.messageId.trim()) {
     throw new Error("Comment messageId is required.");
   }
+
   if (!input.target?.kind) {
     throw new Error("Comment target is required.");
   }
+
   const comments = readReviewComments(reviewMdxPath);
   const existing = comments[input.threadId];
+
   if (existing) {
     // A reply inherits the thread's target, and that target may be outdated.
     // Matching the stored thread is the whole requirement; re-checking it
@@ -222,9 +248,11 @@ export function appendReviewComment(
   } else {
     requireValidCodeTarget(reviewMdxPath, input.target);
   }
+
   if (existing?.messages.some((message) => message.id === input.messageId)) {
     return { threadId: input.threadId, thread: existing };
   }
+
   const message = {
     id: input.messageId,
     by: input.author,
@@ -232,6 +260,7 @@ export function appendReviewComment(
     body: input.body,
     agentInput: input.agentInput ?? false,
   };
+
   const thread: ReviewCommentThreadRecord = existing
     ? {
         ...existing,
@@ -243,8 +272,10 @@ export function appendReviewComment(
         status: "open",
         messages: [message],
       };
+
   comments[input.threadId] = thread;
   writeReviewComments(reviewMdxPath, comments);
+
   return { threadId: input.threadId, thread };
 }
 
@@ -256,6 +287,7 @@ export function readReviewCommentDrafts(
     reviewMdxPath,
     Object.values(drafts).map((draft) => draft.thread),
   );
+
   return drafts;
 }
 
@@ -280,14 +312,17 @@ export function appendReviewCommentDraft(
   const persisted = readReviewComments(reviewMdxPath)[input.threadId];
   const existing = drafts[input.threadId];
   const current = existing?.thread ?? persisted;
+
   if (current && !isDeepStrictEqual(current.target, input.target)) {
     throw new Error(
       `Comment thread ${input.threadId} already targets different content.`,
     );
   }
+
   if (!current) {
     requireValidCodeTarget(reviewMdxPath, input.target);
   }
+
   if (
     existing?.inputs.some(
       (candidate) => candidate.messageId === input.messageId,
@@ -295,6 +330,7 @@ export function appendReviewCommentDraft(
   ) {
     return { threadId: input.threadId, draft: existing };
   }
+
   const message = {
     id: input.messageId,
     by: author,
@@ -302,6 +338,7 @@ export function appendReviewCommentDraft(
     body: input.body,
     agentInput: input.agentInput ?? false,
   };
+
   const thread: ReviewCommentThreadRecord = current
     ? {
         ...current,
@@ -314,12 +351,15 @@ export function appendReviewCommentDraft(
         status: "open",
         messages: [message],
       };
+
   const draft = {
     thread,
     inputs: [...(existing?.inputs ?? []), draftInput],
   } satisfies ReviewCommentDraftThread;
+
   drafts[input.threadId] = draft;
   writeReviewCommentDrafts(reviewMdxPath, drafts);
+
   return { threadId: input.threadId, draft };
 }
 
@@ -330,27 +370,34 @@ export function updateReviewCommentDraft(
 ): ReviewCommentDraftThread | null {
   const drafts = readReviewCommentDrafts(reviewMdxPath);
   const draft = drafts[threadId];
+
   if (!draft) return null;
+
   const messageIndex =
     input.messageId !== undefined
       ? draft.thread.messages.findIndex(
           (message) => message.id === input.messageId,
         )
       : draft.thread.messages.length - 1;
+
   if (messageIndex < 0) {
     throw new Error(
       `Comment message ${input.messageId ?? "in thread"} does not exist in thread ${threadId}.`,
     );
   }
+
   const body = input.body?.trim();
   const messageId = draft.thread.messages[messageIndex]?.id;
   const thread = { ...draft.thread };
+
   if (input.status) thread.status = input.status;
+
   if (body) {
     thread.messages = draft.thread.messages.map((message, index) =>
       index === messageIndex ? { ...message, body } : message,
     );
   }
+
   const next = {
     thread,
     inputs:
@@ -362,8 +409,10 @@ export function updateReviewCommentDraft(
           )
         : draft.inputs,
   } satisfies ReviewCommentDraftThread;
+
   drafts[threadId] = next;
   writeReviewCommentDrafts(reviewMdxPath, drafts);
+
   return next;
 }
 
@@ -372,9 +421,11 @@ export function deleteReviewCommentDraft(
   threadId: string,
 ): boolean {
   const drafts = readReviewCommentDrafts(reviewMdxPath);
+
   if (!drafts[threadId]) return false;
   delete drafts[threadId];
   writeReviewCommentDrafts(reviewMdxPath, drafts);
+
   return true;
 }
 
@@ -385,18 +436,24 @@ export function deleteReviewCommentDraftMessage(
 ): ReviewCommentDraftThread | false | null {
   const drafts = readReviewCommentDrafts(reviewMdxPath);
   const draft = drafts[threadId];
+
   if (!draft) return false;
+
   if (!draft.thread.messages.some((message) => message.id === messageId)) {
     throw new Error(
       `Comment message ${messageId} does not exist in thread ${threadId}.`,
     );
   }
+
   const inputs = draft.inputs.filter((input) => input.messageId !== messageId);
+
   if (inputs.length === 0) {
     delete drafts[threadId];
     writeReviewCommentDrafts(reviewMdxPath, drafts);
+
     return null;
   }
+
   const next = {
     ...draft,
     thread: {
@@ -407,8 +464,10 @@ export function deleteReviewCommentDraftMessage(
     },
     inputs,
   } satisfies ReviewCommentDraftThread;
+
   drafts[threadId] = next;
   writeReviewCommentDrafts(reviewMdxPath, drafts);
+
   return next;
 }
 
@@ -425,9 +484,11 @@ export function submitReviewCommentDrafts(
   const comments = backend.readComments();
   const drafts = backend.readCommentDrafts();
   const actualInputs = Object.values(drafts).flatMap((draft) => draft.inputs);
+
   const expectedByMessage = new Map(
     expectedInputs.map((input) => [input.messageId, input]),
   );
+
   if (
     actualInputs.length !== expectedInputs.length ||
     expectedByMessage.size !== expectedInputs.length ||
@@ -438,14 +499,18 @@ export function submitReviewCommentDrafts(
   ) {
     throw new Error("Submitted comments do not match the durable drafts.");
   }
+
   if (actualInputs.length === 0) {
     return { threads: [], deletedDraftThreadIds: [] };
   }
+
   const threads = Object.values(drafts).map((draft) => draft.thread);
   requireValidStoredCodeThreads(reviewMdxPath, threads);
+
   for (const thread of threads) comments[thread.threadId] = thread;
   const deletedDraftThreadIds = Object.keys(drafts);
   backend.writeCommentState(comments, {});
+
   return { threads, deletedDraftThreadIds };
 }
 
@@ -460,34 +525,43 @@ export function appendReviewAgentMessage(
   const message = normalizeReviewCommentMessage(messageInput);
   const drafts = readReviewCommentDrafts(reviewMdxPath);
   const draft = drafts[threadId];
+
   if (draft) {
     if (
       draft.thread.messages.some((candidate) => candidate.id === message.id)
     ) {
       return { location: "draft", draft };
     }
+
     const thread = {
       ...draft.thread,
       messages: [...draft.thread.messages, message],
     } satisfies ReviewCommentThreadRecord;
+
     const nextDraft = { ...draft, thread };
     drafts[threadId] = nextDraft;
     writeReviewCommentDrafts(reviewMdxPath, drafts);
+
     return { location: "draft", draft: nextDraft };
   }
 
   const comments = readReviewComments(reviewMdxPath);
   const comment = comments[threadId];
+
   if (!comment) return null;
+
   if (comment.messages.some((candidate) => candidate.id === message.id)) {
     return { location: "comment", thread: comment };
   }
+
   const thread = {
     ...comment,
     messages: [...comment.messages, message],
   } satisfies ReviewCommentThreadRecord;
+
   comments[threadId] = thread;
   writeReviewComments(reviewMdxPath, comments);
+
   return { location: "comment", thread };
 }
 
@@ -510,26 +584,34 @@ export function upsertReviewAgentSessionMessage(
   const message = normalizeReviewCommentMessage(messageInput);
   const drafts = readReviewCommentDrafts(reviewMdxPath);
   const draft = drafts[threadId];
+
   if (draft) {
     const updated = upsertThreadMessage(draft.thread, message);
+
     if (!updated.changed) {
       return { location: "draft", draft, changed: false };
     }
+
     const nextDraft = { ...draft, thread: updated.thread };
     drafts[threadId] = nextDraft;
     writeReviewCommentDrafts(reviewMdxPath, drafts);
+
     return { location: "draft", draft: nextDraft, changed: true };
   }
 
   const comments = readReviewComments(reviewMdxPath);
   const comment = comments[threadId];
+
   if (!comment) return null;
   const updated = upsertThreadMessage(comment, message);
+
   if (!updated.changed) {
     return { location: "comment", thread: comment, changed: false };
   }
+
   comments[threadId] = updated.thread;
   writeReviewComments(reviewMdxPath, comments);
+
   return { location: "comment", thread: updated.thread, changed: true };
 }
 
@@ -550,16 +632,20 @@ function upsertThreadMessage(
   const index = thread.messages.findIndex(
     (candidate) => candidate.id === message.id,
   );
+
   if (index < 0) {
     return {
       thread: { ...thread, messages: [...thread.messages, message] },
       changed: true,
     };
   }
+
   const existing = thread.messages[index];
+
   if (existing && isDeepStrictEqual(existing, message)) {
     return { thread, changed: false };
   }
+
   return {
     thread: {
       ...thread,
@@ -581,25 +667,32 @@ export function setReviewCommentAgentSession(
   | null {
   const drafts = readReviewCommentDrafts(reviewMdxPath);
   const draft = drafts[threadId];
+
   if (draft) {
     const nextDraft = {
       ...draft,
       thread: { ...draft.thread, agentSession },
     } satisfies ReviewCommentDraftThread;
+
     drafts[threadId] = nextDraft;
     writeReviewCommentDrafts(reviewMdxPath, drafts);
+
     return { location: "draft", draft: nextDraft };
   }
 
   const comments = readReviewComments(reviewMdxPath);
   const thread = comments[threadId];
+
   if (!thread) return null;
+
   const nextThread = {
     ...thread,
     agentSession,
   } satisfies ReviewCommentThreadRecord;
+
   comments[threadId] = nextThread;
   writeReviewComments(reviewMdxPath, comments);
+
   return { location: "comment", thread: nextThread };
 }
 
@@ -610,26 +703,34 @@ export function updateReviewComment(
 ): boolean {
   const comments = readReviewComments(reviewMdxPath);
   const thread = comments[threadId];
+
   if (!thread) return false;
+
   const messageIndex =
     input.messageId !== undefined
       ? thread.messages.findIndex((message) => message.id === input.messageId)
       : thread.messages.length - 1;
+
   if (input.messageId !== undefined && messageIndex < 0) {
     throw new Error(
       `Comment message ${input.messageId} does not exist in thread ${threadId}.`,
     );
   }
+
   const body = input.body?.trim();
   const updated = { ...thread };
+
   if (input.status) updated.status = input.status;
+
   if (body) {
     updated.messages = thread.messages.map((message, index) =>
       index === messageIndex ? { ...message, body } : message,
     );
   }
+
   comments[threadId] = updated;
   writeReviewComments(reviewMdxPath, comments);
+
   return true;
 }
 
@@ -638,9 +739,11 @@ export function deleteReviewComment(
   threadId: string,
 ): boolean {
   const comments = readReviewComments(reviewMdxPath);
+
   if (!comments[threadId]) return false;
   delete comments[threadId];
   writeReviewComments(reviewMdxPath, comments);
+
   return true;
 }
 
@@ -651,15 +754,19 @@ export function deleteReviewCommentMessage(
 ): boolean {
   const comments = readReviewComments(reviewMdxPath);
   const thread = comments[threadId];
+
   if (!thread) return false;
+
   const messageIndex = thread.messages.findIndex(
     (message) => message.id === messageId,
   );
+
   if (messageIndex < 0) {
     throw new Error(
       `Comment message ${messageId} does not exist in thread ${threadId}.`,
     );
   }
+
   if (thread.messages.length === 1) {
     delete comments[threadId];
   } else {
@@ -668,7 +775,9 @@ export function deleteReviewCommentMessage(
       messages: thread.messages.filter((_, index) => index !== messageIndex),
     };
   }
+
   writeReviewComments(reviewMdxPath, comments);
+
   return true;
 }
 
@@ -695,17 +804,21 @@ export function reviewHistorySubmissionsDir(reviewMdxPath: string): string {
 // Highest existing NNN.mdx snapshot + 1 (1 when none exist).
 function nextDocHistoryVersion(dir: string): number {
   let max = 0;
+
   try {
     for (const entry of readdirSync(dir)) {
       const match = /^(\d+)\.mdx$/.exec(entry);
+
       if (match) {
         const num = Number.parseInt(match[1], 10);
+
         if (num > max) max = num;
       }
     }
   } catch {
     return 1;
   }
+
   return max + 1;
 }
 
@@ -726,11 +839,13 @@ export function saveReviewDocHistory(
 ): SaveReviewDocHistoryResult {
   const dir = reviewHistoryDocDir(reviewMdxPath);
   const nextVersion = nextDocHistoryVersion(dir);
+
   if (nextVersion > 1) {
     const latestPath = path.join(
       dir,
       `${String(nextVersion - 1).padStart(3, "0")}.mdx`,
     );
+
     try {
       if (readFileSync(latestPath, "utf8") === content) {
         return { version: nextVersion - 1, path: latestPath, isNew: false };
@@ -739,11 +854,14 @@ export function saveReviewDocHistory(
       // Latest snapshot unreadable — fall through and write a fresh one.
     }
   }
+
   const filePath = path.join(
     dir,
     `${String(nextVersion).padStart(3, "0")}.mdx`,
   );
+
   writeFileAtomic(filePath, content, "utf8");
+
   return { version: nextVersion, path: filePath, isNew: true };
 }
 
@@ -758,10 +876,13 @@ export function saveReviewSubmissionAudit(
 ): string {
   const createdAtSlug = event.createdAt.replace(/[:.]/g, "-");
   const idSlug = event.id.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80);
+
   const filePath = path.join(
     reviewHistorySubmissionsDir(reviewMdxPath),
     `${createdAtSlug}-${idSlug}.json`,
   );
+
   writeFileAtomic(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+
   return filePath;
 }

@@ -17,10 +17,15 @@ import { withFileLock } from "./with-file-lock";
 // must never block review.
 
 const PREPARE_LOCK_RETRY_MS = 250;
+
 const PREPARE_LOCK_STALE_MS = 30 * 60_000;
+
 const PREPARE_LOCK_TIMEOUT_MS = 30 * 60_000;
+
 const PREPARE_LOCK_UNOWNED_GRACE_MS = 1_000;
+
 const PREPARE_OUTPUT_TAIL_LINES = 20;
+
 const PREPARE_OUTPUT_BUFFER_BYTES = 256 * 1024;
 
 export interface PrepareCommandResult {
@@ -77,9 +82,11 @@ export async function prepareReviewPinnedCheckout(
   if (input.commands.length === 0) return { prepared: false };
   const markerPath = reviewPrepareMarkerPath(input.checkoutPath);
   const expectedHash = reviewPrepareCommandsHash(input.commands);
+
   if (await markerMatches(markerPath, expectedHash)) {
     return { prepared: true };
   }
+
   const outcome = await withFileLock(
     `${input.checkoutPath}.prepare-lock`,
     {
@@ -92,10 +99,12 @@ export async function prepareReviewPinnedCheckout(
       if (await markerMatches(markerPath, expectedHash)) {
         return { prepared: true };
       }
+
       // A stale marker from an older command list must not survive a failed
       // re-prepare: remove it before the first command runs.
       await rm(markerPath, { force: true });
       const runCommand = input.runCommand ?? runPrepareShellCommand;
+
       for (const command of input.commands) {
         const result = await runCommand(command, input.checkoutPath).catch(
           (cause: unknown) => ({
@@ -103,17 +112,20 @@ export async function prepareReviewPinnedCheckout(
             output: cause instanceof Error ? cause.message : String(cause),
           }),
         );
+
         if (result.exitCode !== 0) {
           const exit =
             result.exitCode === null
               ? "no exit code"
               : `exit ${result.exitCode}`;
+
           // The log is written whether or not anyone listens for warnings:
           // it is the durable diagnostic for a failure the caller soft-skips.
           const logNote = await writePrepareFailureLog(
             input.checkoutPath,
             result.output,
           );
+
           input.warning?.(
             formatPrepareFailure({
               commit: input.commit,
@@ -123,24 +135,30 @@ export async function prepareReviewPinnedCheckout(
               logNote,
             }),
           );
+
           return { prepared: false };
         }
       }
+
       await rm(reviewPrepareLogPath(input.checkoutPath), { force: true });
       await writeFile(
         markerPath,
         JSON.stringify({ commandsHash: expectedHash, preparedAt: Date.now() }),
         "utf8",
       );
+
       return { prepared: true };
     },
   );
+
   if (!outcome.acquired) {
     input.warning?.(
       `devfast.prepare skipped for commit ${input.commit.slice(0, 12)}: another process holds the prepare lock. Review indexes the unprepared tree.`,
     );
+
     return { prepared: false };
   }
+
   return outcome.result;
 }
 
@@ -149,8 +167,10 @@ async function writePrepareFailureLog(
   output: string | undefined,
 ): Promise<string> {
   const trimmed = output?.trimEnd();
+
   if (!trimmed) return "";
   const logPath = reviewPrepareLogPath(checkoutPath);
+
   return writeFile(logPath, `${trimmed}\n`, "utf8")
     .then(() => ` Full output: ${logPath}.`)
     .catch(() => "");
@@ -165,10 +185,12 @@ function formatPrepareFailure(input: {
 }): string {
   const base = `devfast.prepare failed for commit ${input.commit.slice(0, 12)} (${input.exit}): ${input.command}. Review indexes the unprepared tree.`;
   const output = input.output?.trimEnd();
+
   if (!output) return base;
   const lines = output.split("\n");
   const tail = lines.slice(-PREPARE_OUTPUT_TAIL_LINES).join("\n");
   const elided = lines.length > PREPARE_OUTPUT_TAIL_LINES ? "…\n" : "";
+
   return `${base} Last output:\n${elided}${tail}${input.logNote}`;
 }
 
@@ -198,11 +220,13 @@ export function resolveReviewPrepareCliEntryPath(
     input.cliEntryPath ??
     input.env?.DEV_FAST_REVIEW_CLI_ENTRY_PATH ??
     process.env.DEV_FAST_REVIEW_CLI_ENTRY_PATH;
+
   if (configuredEntry) return configuredEntry;
 
   const serverEntry =
     input.env?.DEV_FAST_REVIEW_SERVER_ENTRY ??
     process.env.DEV_FAST_REVIEW_SERVER_ENTRY;
+
   if (serverEntry) {
     return path.resolve(path.dirname(serverEntry), "..", "cli.js");
   }
@@ -214,6 +238,7 @@ export function spawnReviewPrepareBackground(
   input: SpawnReviewPrepareBackgroundInput,
 ): void {
   const cliEntryPath = resolveReviewPrepareCliEntryPath(input);
+
   if (!cliEntryPath) return;
 
   try {
@@ -237,6 +262,7 @@ export function spawnReviewPrepareBackground(
         stdio: "ignore",
       },
     );
+
     child.unref();
   } catch {
     // Background preparation must never crash the caller.
@@ -254,15 +280,19 @@ function runPrepareShellCommand(
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
     // Keep only the most recent output so a chatty install cannot grow
     // memory without bound; the tail is what a failure warning needs.
     let output = "";
+
     const append = (chunk: Buffer) => {
       output += chunk.toString("utf8");
+
       if (output.length > PREPARE_OUTPUT_BUFFER_BYTES) {
         output = output.slice(-PREPARE_OUTPUT_BUFFER_BYTES);
       }
     };
+
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
     child.on("error", reject);

@@ -14,14 +14,17 @@ import { resolvePublishReview } from "./server/publish-preparation";
 const DEFAULT_TIMEOUT_SECONDS = 3600;
 
 type ReviewStatus = StoredReview["review"]["status"];
+
 type ReviewStatusChange = Extract<
   ReviewDesktopGlobalEvent,
   { event: "review-status-changed" }
 >;
+
 type ReviewDeleted = Extract<
   ReviewDesktopGlobalEvent,
   { event: "review-deleted" }
 >;
+
 /* Dismissal ends the reader's involvement, so a waiting agent must stop. It
    replaced the old "rejected" close, which the desktop no longer writes. */
 type ReviewAttentionChanged = Extract<
@@ -110,7 +113,9 @@ export async function runReviewWait(
     },
     dependencies,
   );
+
   writeWaitResult(input.stdout, result);
+
   return result.event === "timeout" ? 1 : 0;
 }
 
@@ -122,14 +127,18 @@ export async function validateReviewWait(
   dependencies: ReviewWaitDependencies = defaultReviewWaitDependencies,
 ): Promise<StoredReview> {
   const discovery = await requireReviewDesktop(dependencies);
+
   const response = await dependencies.fetch(`${discovery.url}/events`, {
     headers: { "x-review-token": discovery.token },
   });
+
   if (!response.ok || !response.body) {
     throw new Error(`Review Desktop returned ${response.status} for events.`);
   }
+
   await response.body.cancel();
   const reviewRoot = await dependencies.resolveReviewRoot(input.cwd);
+
   return await dependencies.resolvePublishReview(reviewRoot, input.reviewUuid, {
     includeTerminal: true,
   });
@@ -147,25 +156,30 @@ export async function waitForReviewAction(
 ): Promise<ReviewWaitResult> {
   const timeoutSeconds = input.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
   const discovery = await requireReviewDesktop(dependencies);
+
   const response = await dependencies.fetch(`${discovery.url}/events`, {
     headers: { "x-review-token": discovery.token },
   });
+
   if (!response.ok || !response.body) {
     throw new Error(`Review Desktop returned ${response.status} for events.`);
   }
 
   const reviewRoot = await dependencies.resolveReviewRoot(input.cwd);
+
   const review = await dependencies.resolvePublishReview(
     reviewRoot,
     input.reviewUuid,
     { includeTerminal: true },
   );
+
   if (
     input.requiresAgent
       ? reviewWaitRequiresAgentStatus(review.review.status)
       : review.review.status !== "awaiting-review"
   ) {
     await response.body.cancel();
+
     return {
       event: "review-status",
       uuid: review.review.uuid,
@@ -185,6 +199,7 @@ export async function waitForReviewAction(
   // so a terminal `status` still wins.
   if (review.review.dismissedAt) {
     await response.body.cancel();
+
     return {
       event: "review-dismissed",
       uuid: review.review.uuid,
@@ -199,9 +214,11 @@ export async function waitForReviewAction(
     timeoutSeconds,
     input.requiresAgent ? reviewWaitRequiresAgentResult : () => true,
   );
+
   if (result.event === "timeout") {
     return { ...result, occurredAtMs: dependencies.now(), review };
   }
+
   if (result.event === "review-deleted") {
     // The review directory is gone; do not read thread state from it.
     return {
@@ -211,6 +228,7 @@ export async function waitForReviewAction(
       review,
     };
   }
+
   if (result.event === "review-attention-changed") {
     return {
       event: "review-dismissed",
@@ -228,7 +246,9 @@ export async function waitForReviewAction(
     occurredAtMs: dependencies.now(),
     review,
   };
+
   if (result.decision) status.decision = result.decision;
+
   return status;
 }
 
@@ -263,8 +283,10 @@ function writeWaitResult(stdout: Writable, result: ReviewWaitResult): void {
         timeoutSeconds: result.timeoutSeconds,
       })}\n`,
     );
+
     return;
   }
+
   if (
     result.event === "review-deleted" ||
     result.event === "review-dismissed"
@@ -275,8 +297,10 @@ function writeWaitResult(stdout: Writable, result: ReviewWaitResult): void {
         uuid: result.uuid,
       })}\n`,
     );
+
     return;
   }
+
   // JSON.stringify omits an undefined decision; the key order is the CLI's
   // documented output shape.
   const output: ReviewWaitJsonOutput = {
@@ -286,16 +310,19 @@ function writeWaitResult(stdout: Writable, result: ReviewWaitResult): void {
     decision: result.decision,
     openThreads: result.openThreads,
   };
+
   stdout.write(`${JSON.stringify(output)}\n`);
 }
 
 async function requireReviewDesktop(dependencies: ReviewWaitDependencies) {
   const discovery = await dependencies.readDesktopDiscovery();
+
   if (!discovery) {
     throw new Error(
       "Review Desktop is not running. Run `review app launch`, then retry `review wait`.",
     );
   }
+
   return discovery;
 }
 
@@ -308,8 +335,10 @@ async function waitForReviewStatusChange(
   ReviewWaitEvent | { event: "timeout"; uuid: string; timeoutSeconds: number }
 > {
   const reader = body.getReader();
+
   return new Promise((resolve, reject) => {
     let settled = false;
+
     const finish = (
       result:
         | ReviewWaitEvent
@@ -321,10 +350,12 @@ async function waitForReviewStatusChange(
       void reader.cancel();
       resolve(result);
     };
+
     const timeout = setTimeout(
       () => finish({ event: "timeout", uuid, timeoutSeconds }),
       timeoutSeconds * 1000,
     );
+
     consumeSse(reader, (event) => {
       if (
         (event.event === "review-status-changed" ||
@@ -361,6 +392,7 @@ async function consumeSse(
   const decoder = new TextDecoder();
   let buffer = "";
   let data: string[] = [];
+
   const consumeLine = (line: string) => {
     if (!line) {
       if (data.length > 0) {
@@ -369,9 +401,12 @@ async function consumeSse(
         );
         data = [];
       }
+
       return;
     }
+
     if (line.startsWith(":")) return;
+
     if (line.startsWith("data:")) {
       data.push(line.slice("data:".length).replace(/^ /, ""));
     }
@@ -381,14 +416,18 @@ async function consumeSse(
     const { done, value } = await reader.read();
     buffer += decoder.decode(value, { stream: !done });
     let newline = buffer.indexOf("\n");
+
     while (newline >= 0) {
       consumeLine(buffer.slice(0, newline).replace(/\r$/, ""));
       buffer = buffer.slice(newline + 1);
       newline = buffer.indexOf("\n");
     }
+
     if (done) break;
   }
+
   if (buffer) consumeLine(buffer.replace(/\r$/, ""));
+
   if (data.length > 0) {
     consume(ReviewDesktopGlobalEventSchema.parse(JSON.parse(data.join("\n"))));
   }

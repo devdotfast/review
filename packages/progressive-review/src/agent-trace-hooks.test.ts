@@ -17,6 +17,7 @@ const tempRoots: string[] = [];
 afterEach(async () => {
   while (tempRoots.length > 0) {
     const dir = tempRoots.pop();
+
     if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
@@ -24,6 +25,7 @@ afterEach(async () => {
 async function makeTempHome(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-trace-hooks-test-"));
   tempRoots.push(dir);
+
   return dir;
 }
 

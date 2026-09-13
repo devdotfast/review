@@ -29,20 +29,27 @@ async function fixture(
   const reviewPath = join(directory, "review.mdx");
   const queue = new AsyncQueue<SessionUpdate>();
   let markStarted = () => {};
+
   const started = new Promise<void>((resolve) => {
     markStarted = resolve;
   });
+
   let releaseLaunch = () => {};
+
   const released = new Promise<void>((resolve) => {
     releaseLaunch = resolve;
   });
+
   let terminalCount = 0;
   let interrupted = false;
+
   const server: AgentServer = {
     harness: "claude-code",
     async launch(input) {
       markStarted();
+
       if (options.pauseLaunch) await released;
+
       if (input.prompt) {
         const user: SessionUpdate = {
           type: "message.updated",
@@ -53,6 +60,7 @@ async function fixture(
             createdAt: "2026-09-09T00:00:00Z",
           },
         };
+
         const reply: SessionUpdate = {
           type: "message.updated",
           message: {
@@ -62,6 +70,7 @@ async function fixture(
             createdAt: "2026-09-09T00:00:01Z",
           },
         };
+
         queue.push(user);
         queue.push(reply);
         queue.push(reply);
@@ -85,6 +94,7 @@ async function fixture(
           },
         });
       }
+
       return {
         sessionId: "conversation",
         command: { executable: "claude", args: [], env: {}, cwd: directory },
@@ -101,6 +111,7 @@ async function fixture(
       queue.close();
     },
   };
+
   if (options.restoreSession) {
     const stored = new ReviewThreadsService({ reviewPath, author: "Reviewer" });
     stored.dispatch({
@@ -119,6 +130,7 @@ async function fixture(
       agentSession: { harness: "claude-code", sessionId: "conversation" },
     });
   }
+
   const api = createReviewApi({
     mode: { kind: "live" },
     reviewPath,
@@ -140,28 +152,34 @@ async function fixture(
       terminalCount += 1;
     },
   });
+
   const post = (path: string, body: JsonValue) =>
     api.app.request(path, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+
   const comment = (id: string): CreateReviewCommentInput => ({
     threadId: "thread",
     messageId: id,
     target: { kind: "document" },
     body: `Question ${id}`,
   });
+
   const draft = async (id: string) => {
     const response = await post("/thread-commands", {
       command: "comment-draft.create",
       mutationId: `save-${id}`,
       input: comment(id),
     });
+
     expect(response.status).toBe(200);
   };
+
   const snapshot = () =>
     new ReviewThreadsService({ reviewPath, author: "Reviewer" }).snapshot();
+
   return {
     post,
     directory,
@@ -184,6 +202,7 @@ async function fixture(
 
 it("keeps captured replies in the draft exactly once across a resumed follow-up", async () => {
   const test = await fixture();
+
   try {
     await test.draft("ask");
     expect((await test.post("/agent-runs", test.comment("ask"))).status).toBe(
@@ -232,6 +251,7 @@ it("keeps captured replies in the draft exactly once across a resumed follow-up"
 
 it("captures TUI replies when manually reopening a stored session with no active observer", async () => {
   const test = await fixture({ restoreSession: true });
+
   try {
     expect(
       (await test.post("/comments/thread/agent-terminal", {})).status,
@@ -255,6 +275,7 @@ it("captures TUI replies when manually reopening a stored session with no active
 
 it("cancels a pending launch without opening a terminal or deleting the draft", async () => {
   const test = await fixture({ pauseLaunch: true });
+
   try {
     await test.draft("ask");
     const request = test.post("/agent-runs", test.comment("ask"));
@@ -287,6 +308,7 @@ it("lets the CLI read an authenticated draft before its native session is bound"
   const home = await mkdtemp(join(tmpdir(), "review-thread-lookup-"));
   vi.stubEnv("DEV_REVIEW_HOME", home);
   const packageRoot = fileURLToPath(new URL("../..", import.meta.url));
+
   const desktop = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -306,25 +328,30 @@ it("lets the CLI read an authenticated draft before its native session is bound"
       close: async () => {},
     }),
   });
+
   try {
     await test.draft("ask");
     expect(test.snapshot().drafts.thread?.thread.agentSession).toBeUndefined();
     await desktop.listen();
+
     const opened = await fetch(`${desktop.url}/tutorial/open`, {
       method: "POST",
       headers: { "x-review-token": "lookup-token" },
     });
+
     expect(opened.status).toBe(200);
     expect((await fetch(`${desktop.url}/agent-threads/thread`)).status).toBe(
       401,
     );
     let output = "";
+
     const stdout = new Writable({
       write(chunk, _encoding, callback) {
         output += chunk;
         callback();
       },
     });
+
     await runReviewThreadsGet({
       cwd: test.directory,
       threadId: "thread",

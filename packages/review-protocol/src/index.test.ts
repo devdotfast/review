@@ -49,6 +49,7 @@ describe("review protocol parsers", () => {
       routePath: "/",
       startedAt: 10,
     };
+
     const review = {
       uuid: descriptor.reviewUuid,
       title: "Protocol rewrite",
@@ -61,6 +62,7 @@ describe("review protocol parsers", () => {
       lastPublishedAt: null,
       available: true,
     };
+
     expect(
       parseReviewListResponse({
         reviews: [review],

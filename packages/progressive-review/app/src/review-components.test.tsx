@@ -13,6 +13,7 @@ import {
 import { readReviewUiState, reviewUiStateKey } from "./review-ui-state";
 
 let root: Root | null = null;
+
 const session = testReviewSession();
 
 function renderWithSession(node: React.ReactNode) {
@@ -74,6 +75,7 @@ describe("ReviewSection", () => {
     const toggle = container.querySelector<HTMLButtonElement>(
       ".review-section-toggle",
     );
+
     expect(toggle?.getAttribute("aria-label")).toBe("Expand Testing");
     act(() => toggle?.click());
     expect(body).toHaveProperty("hidden", false);

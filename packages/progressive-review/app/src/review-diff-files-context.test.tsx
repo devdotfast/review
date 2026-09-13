@@ -13,6 +13,7 @@ import {
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: ReturnType<typeof createRoot> | undefined;
+
 const session = testReviewSession();
 
 afterEach(async () => {
@@ -34,6 +35,7 @@ describe("ReviewDiffFilesProvider", () => {
         patch: "diff --git a/src/prefetched.ts b/src/prefetched.ts",
       },
     ]);
+
     const nativeSession = testReviewSession(
       {},
       {
@@ -45,6 +47,7 @@ describe("ReviewDiffFilesProvider", () => {
         },
       },
     );
+
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetchMock);
     const container = document.createElement("div");
@@ -53,6 +56,7 @@ describe("ReviewDiffFilesProvider", () => {
 
     function Probe() {
       const state = useReviewDiffFiles();
+
       return (
         <span>
           {state.status === "loaded" ? state.files[0]?.path : state.status}
@@ -78,13 +82,17 @@ describe("ReviewDiffFilesProvider", () => {
   it("starts one patch-free request after commit and shares it with every consumer", async () => {
     let committed = false;
     let resolveRequest!: (response: Response) => void;
+
     const pendingResponse = new Promise<Response>((resolve) => {
       resolveRequest = resolve;
     });
+
     const fetchMock = vi.fn<typeof fetch>(() => {
       expect(committed).toBe(true);
+
       return pendingResponse;
     });
+
     vi.stubGlobal("fetch", fetchMock);
     const container = document.createElement("div");
     document.body.append(container);
@@ -95,6 +103,7 @@ describe("ReviewDiffFilesProvider", () => {
       useLayoutEffect(() => {
         committed = true;
       }, []);
+
       return (
         <span>
           {label}:{state.status}
@@ -145,9 +154,11 @@ describe("ReviewDiffFilesProvider", () => {
 
   it("never exposes or restores files from a previous document key", async () => {
     let resolveSecondDocument!: (value: JsonValue) => void;
+
     const secondDocument = new Promise<JsonValue>((resolve) => {
       resolveSecondDocument = resolve;
     });
+
     const responses = [
       responseWithJson({
         ok: true,
@@ -173,6 +184,7 @@ describe("ReviewDiffFilesProvider", () => {
         ],
       }),
     ];
+
     const fetchMock = vi.fn<typeof fetch>(async () => responses.shift()!);
     vi.stubGlobal("fetch", fetchMock);
     const container = document.createElement("div");
@@ -182,13 +194,16 @@ describe("ReviewDiffFilesProvider", () => {
 
     function Probe() {
       const state = useReviewDiffFiles();
+
       const label =
         state.status === "loaded"
           ? `loaded:${state.files[0]?.path}`
           : state.status;
+
       useLayoutEffect(() => {
         committedStates.push(label);
       });
+
       return <span>{label}</span>;
     }
 

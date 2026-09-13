@@ -33,14 +33,19 @@ export interface TraceSpanRecord {
 }
 
 export const TRACE_FILE_ENV = "DEV_FAST_REVIEW_TRACE";
+
 export const TRACE_DIR_ENV = "DEV_FAST_REVIEW_TRACE_DIR";
 
 const traceFile = resolveTraceFile(process.env);
+
 export const traceEnabled = Boolean(traceFile);
 
 const spans: TraceSpanRecord[] = [];
+
 const attributes: Record<string, string | number | boolean> = {};
+
 let nextId = 1;
+
 const context = new AsyncLocalStorage<number>();
 
 export interface SpanHandle {
@@ -59,6 +64,7 @@ export function startSpan(
   options: { parentId?: number | null; detail?: string } = {},
 ): SpanHandle {
   if (!traceEnabled) return NOOP_HANDLE;
+
   const record: TraceSpanRecord = {
     id: nextId++,
     parentId:
@@ -70,16 +76,20 @@ export function startSpan(
     start: performance.now(),
     end: null,
   };
+
   spans.push(record);
+
   return {
     id: record.id,
     end: (detail) => {
       if (record.end === null) record.end = performance.now();
+
       if (detail) record.detail = detail;
     },
     fail: (detail) => {
       if (record.end === null) record.end = performance.now();
       record.ok = false;
+
       if (detail) record.detail = detail;
     },
   };
@@ -94,9 +104,11 @@ export async function span<T>(
 ): Promise<T> {
   if (!traceEnabled) return fn();
   const handle = startSpan(name, { detail });
+
   try {
     const result = await context.run(handle.id, fn);
     handle.end();
+
     return result;
   } catch (error) {
     handle.fail(errorMessage(error));
@@ -107,9 +119,11 @@ export async function span<T>(
 export function spanSync<T>(name: string, fn: () => T, detail?: string): T {
   if (!traceEnabled) return fn();
   const handle = startSpan(name, { detail });
+
   try {
     const result = context.run(handle.id, fn);
     handle.end();
+
     return result;
   } catch (error) {
     handle.fail(errorMessage(error));
@@ -188,6 +202,7 @@ export function setTraceAttribute(
 export function flushTrace(): void {
   if (!traceEnabled || !traceFile) return;
   const now = performance.now();
+
   try {
     mkdirSync(path.dirname(traceFile), { recursive: true });
     writeFileSync(
@@ -224,14 +239,18 @@ function commandDetail(
   cwd: string | undefined,
 ): string {
   const line = [file, ...args].join(" ");
+
   return cwd ? `${line}\n(cwd ${cwd})` : line;
 }
 
 function resolveTraceFile(env: NodeJS.ProcessEnv): string | undefined {
   const file = env[TRACE_FILE_ENV]?.trim();
+
   if (file) return file;
   const dir = env[TRACE_DIR_ENV]?.trim();
+
   if (!dir) return undefined;
+
   const argvSlug = process.argv
     .slice(2)
     .filter((arg) => !arg.startsWith("-"))
@@ -239,7 +258,9 @@ function resolveTraceFile(env: NodeJS.ProcessEnv): string | undefined {
     .join("-")
     .replace(/[^A-Za-z0-9_.-]+/g, "_")
     .slice(0, 60);
+
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+
   return path.join(
     dir,
     `${stamp}-${process.pid}${argvSlug ? `-${argvSlug}` : ""}.json`,
@@ -255,6 +276,7 @@ if (traceEnabled) {
       const handle = startSpan(commandSpanName(file, args), {
         detail: commandDetail(file, args, cwd),
       });
+
       return ({ ok }) => (ok ? handle.end() : handle.fail());
     },
   });

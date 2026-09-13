@@ -39,6 +39,7 @@ export async function withFileLock<T>(
 ): Promise<T> {
   const acquired = await acquireFileLock(options);
   let outcome: CallbackOutcome<T>;
+
   try {
     outcome = { value: await callback() };
   } catch (thrown) {
@@ -46,6 +47,7 @@ export async function withFileLock<T>(
   }
 
   let releaseError: unknown;
+
   try {
     await acquired.release();
   } catch (error) {
@@ -54,8 +56,11 @@ export async function withFileLock<T>(
 
   if ("thrown" in outcome) throw outcome.thrown;
   const compromisedError = acquired.compromisedError();
+
   if (compromisedError) throw compromisedError;
+
   if (releaseError !== undefined) throw releaseError;
+
   return outcome.value;
 }
 
@@ -65,6 +70,7 @@ export function withFileLockSync<T>(
 ): T {
   const acquired = acquireFileLockSync(options);
   let outcome: CallbackOutcome<T>;
+
   try {
     outcome = { value: callback() };
   } catch (thrown) {
@@ -72,6 +78,7 @@ export function withFileLockSync<T>(
   }
 
   let releaseError: unknown;
+
   try {
     acquired.release();
   } catch (error) {
@@ -80,8 +87,11 @@ export function withFileLockSync<T>(
 
   if ("thrown" in outcome) throw outcome.thrown;
   const compromisedError = acquired.compromisedError();
+
   if (compromisedError) throw compromisedError;
+
   if (releaseError !== undefined) throw releaseError;
+
   return outcome.value;
 }
 
@@ -93,6 +103,7 @@ async function acquireFileLock(input: FileLockOptions): Promise<AcquiredLock> {
   while (true) {
     await repairStaleMalformedLock(options.lockPath, options.staleMs);
     let compromisedError: Error | null = null;
+
     try {
       const release = await properLockfile.lock(options.lockPath, {
         lockfilePath: options.lockPath,
@@ -104,15 +115,18 @@ async function acquireFileLock(input: FileLockOptions): Promise<AcquiredLock> {
         stale: options.staleMs,
         update: options.updateMs,
       });
+
       return {
         compromisedError: () => compromisedError,
         release,
       };
     } catch (error) {
       if (!isLockContentionError(error)) throw error;
+
       if (Date.now() >= deadline) {
         throw createTimeoutError(options, Date.now() - startedAt);
       }
+
       await sleep(Math.min(options.pollMs, Math.max(1, deadline - Date.now())));
     }
   }
@@ -126,6 +140,7 @@ function acquireFileLockSync(input: FileLockOptions): AcquiredLockSync {
   while (true) {
     repairStaleMalformedLockSync(options.lockPath, options.staleMs);
     let compromisedError: Error | null = null;
+
     try {
       const release = properLockfile.lockSync(options.lockPath, {
         lockfilePath: options.lockPath,
@@ -137,15 +152,18 @@ function acquireFileLockSync(input: FileLockOptions): AcquiredLockSync {
         stale: options.staleMs,
         update: options.updateMs,
       });
+
       return {
         compromisedError: () => compromisedError,
         release,
       };
     } catch (error) {
       if (!isLockContentionError(error)) throw error;
+
       if (Date.now() >= deadline) {
         throw createTimeoutError(options, Date.now() - startedAt);
       }
+
       waitSync(Math.min(options.pollMs, Math.max(1, deadline - Date.now())));
     }
   }
@@ -158,6 +176,7 @@ function normalizeOptions(
   const lockPath = path.resolve(options.lockPath);
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   const staleMs = Math.max(2_000, options.staleMs);
+
   return {
     ...options,
     lockPath,
@@ -182,20 +201,26 @@ async function repairStaleMalformedLock(
   staleMs: number,
 ): Promise<void> {
   const first = await fs.promises.lstat(lockPath).catch(() => null);
+
   if (!first || !(await isMalformedLock(lockPath, first))) return;
+
   if (Date.now() - first.mtimeMs <= staleMs) return;
 
   const confirmed = await fs.promises.lstat(lockPath).catch(() => null);
+
   if (!confirmed || confirmed.mtimeMs !== first.mtimeMs) return;
   await fs.promises.rm(lockPath, { force: true, recursive: true });
 }
 
 function repairStaleMalformedLockSync(lockPath: string, staleMs: number): void {
   const first = lstatSyncOrNull(lockPath);
+
   if (!first || !isMalformedLockSync(lockPath, first)) return;
+
   if (Date.now() - first.mtimeMs <= staleMs) return;
 
   const confirmed = lstatSyncOrNull(lockPath);
+
   if (!confirmed || confirmed.mtimeMs !== first.mtimeMs) return;
   fs.rmSync(lockPath, { force: true, recursive: true });
 }
@@ -206,11 +231,13 @@ async function isMalformedLock(
 ): Promise<boolean> {
   if (!stats.isDirectory()) return true;
   const entries = await fs.promises.readdir(lockPath).catch(() => []);
+
   return entries.length > 0;
 }
 
 function isMalformedLockSync(lockPath: string, stats: fs.Stats): boolean {
   if (!stats.isDirectory()) return true;
+
   try {
     return fs.readdirSync(lockPath).length > 0;
   } catch {
@@ -229,6 +256,7 @@ function lstatSyncOrNull(lockPath: string): fs.Stats | null {
 function isLockContentionError(cause: unknown): boolean {
   const code =
     cause instanceof Error && "code" in cause ? cause.code : undefined;
+
   return (
     code === "EEXIST" ||
     code === "ELOCKED" ||

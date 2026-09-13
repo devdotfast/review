@@ -24,6 +24,7 @@ import { materializePublishRevision } from "./publish-stage";
 import { createReviewSessionHandler } from "./session-handler";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   closeAllReviewThreadStores();
   vi.unstubAllEnvs();
@@ -41,6 +42,7 @@ async function fixture(options: Partial<GlobalReviewServerInput> = {}) {
   await reviewVcs.init(source);
   await writeFile(path.join(source, "one.ts"), "export const one = 1;\n");
   const commit = await reviewVcs.seal(source, "Source");
+
   const review = await createReviewDir({
     worktreePath: source,
     baseRef: "main",
@@ -48,6 +50,7 @@ async function fixture(options: Partial<GlobalReviewServerInput> = {}) {
     sourceCommit: commit,
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   await writeReviewDocumentBundle(
     review.dir,
     bundleReviewDocument({
@@ -71,10 +74,12 @@ async function fixture(options: Partial<GlobalReviewServerInput> = {}) {
       lastPublishedAt: new Date().toISOString(),
     }),
   );
+
   const packageRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../..",
   );
+
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -84,7 +89,9 @@ async function fixture(options: Partial<GlobalReviewServerInput> = {}) {
     discoveryPath: path.join(root, "desktop.json"),
     ...options,
   });
+
   await server.listen();
+
   const request = (route: string, body?: JsonObject) =>
     fetch(`${server.url}${route}`, {
       method: body ? "POST" : "GET",
@@ -94,6 +101,7 @@ async function fixture(options: Partial<GlobalReviewServerInput> = {}) {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+
   return {
     server,
     review,
@@ -106,6 +114,7 @@ async function fixture(options: Partial<GlobalReviewServerInput> = {}) {
 
 async function within<T>(promise: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+
   try {
     return await Promise.race([
       promise,
@@ -125,16 +134,21 @@ async function within<T>(promise: Promise<T>): Promise<T> {
 it("allows another process and a server mutation to acquire the review lock during slow checkout preparation", async () => {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+
   const setup = await fixture({
     pinnedCheckoutFactory: async (input) => {
       entered.resolve();
       await release.promise;
+
       return ensureReviewPinnedCheckout(input);
     },
   });
+
   const opening = setup.open();
+
   try {
     await within(entered.promise);
+
     // Acquire the same atomic directory lock from another process.
     const acquired = execFileSync(
       process.execPath,
@@ -146,6 +160,7 @@ it("allows another process and a server mutation to acquire the review lock duri
       ],
       { encoding: "utf8" },
     );
+
     expect(acquired).toBe("acquired");
     expect(
       (
@@ -168,12 +183,15 @@ it.each(["stale", "duplicate", "closing"] as const)(
     let closed = 0;
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
+
     const setup = await fixture({
       sessionHandlerFactory: async (input) => {
         const handler = await createReviewSessionHandler(input);
         created += 1;
+
         if (created === (scenario === "duplicate" ? 2 : 1)) entered.resolve();
         await release.promise;
+
         return {
           ...handler,
           close: async () => {
@@ -183,11 +201,15 @@ it.each(["stale", "duplicate", "closing"] as const)(
         };
       },
     });
+
     const requests = [setup.open()];
+
     if (scenario === "duplicate") requests.push(setup.open());
     let shutdown: Promise<void> | undefined;
+
     try {
       await within(entered.promise);
+
       if (scenario === "stale")
         await withReviewMutationLock(setup.review.dir, async () => {
           const recordPath = path.join(setup.review.dir, "review.json");
@@ -197,12 +219,15 @@ it.each(["stale", "duplicate", "closing"] as const)(
             JSON.stringify({ ...record, baseRef: "changed" }),
           );
         });
+
       if (scenario === "closing") shutdown = setup.server.close();
       release.resolve();
       const responses = await Promise.all(requests);
+
       const bodies = await Promise.all(
         responses.map((response) => response.json()),
       );
+
       expect(closed).toBe(1);
       expect(responses.map((response) => response.status)).toEqual(
         scenario === "duplicate" ? [201, 201] : [409],
@@ -218,10 +243,12 @@ it.each(["stale", "duplicate", "closing"] as const)(
           ? [undefined, undefined]
           : [scenario === "stale" ? "review_changed" : "server_closing"],
       );
+
       const installed =
         scenario === "closing"
           ? []
           : (await (await setup.request("/sessions")).json()).items;
+
       expect(installed).toHaveLength(scenario === "duplicate" ? 1 : 0);
     } finally {
       release.resolve();
@@ -233,32 +260,39 @@ it.each(["stale", "duplicate", "closing"] as const)(
 
 it("reopens an unavailable revision after materialization recovers without a poisoned cache", async () => {
   let fail = true;
+
   const setup = await fixture({
     publishRuntime: {
       materializePublishRevision: (input) => {
         if (fail)
           return Promise.reject(new Error("temporary object read failure"));
+
         return materializePublishRevision(input);
       },
     },
   });
+
   try {
     const first = await setup.open();
     expect(first.status).toBe(201);
     const firstSession = await first.json();
+
     const document = await setup.request(
       `/sessions/${firstSession.sessionId}/__progressive-review/document`,
     );
+
     expect(document.status).toBe(409);
     await expect(
       readFile(
         path.join(setup.review.dir, ".build", setup.revision, "review.json"),
       ),
     ).rejects.toMatchObject({ code: "ENOENT" });
+
     const closed = await fetch(
       `${setup.server.url}/sessions/${firstSession.sessionId}?terminal=false`,
       { method: "DELETE", headers: { "x-review-token": "test-secret" } },
     );
+
     expect(closed.status).toBe(200);
     fail = false;
     const reopened = await setup.open();

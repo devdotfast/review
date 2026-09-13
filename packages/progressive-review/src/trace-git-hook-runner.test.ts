@@ -19,6 +19,7 @@ async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", cwd, ...args], {
     encoding: "utf8",
   });
+
   return stdout.trim();
 }
 
@@ -26,6 +27,7 @@ describe("runReviewTraceGitHook", () => {
   let repo: string;
   let devHome: string;
   let stderrText: string;
+
   const stderr = new Writable({
     write(chunk, _encoding, callback) {
       stderrText += String(chunk);
@@ -97,9 +99,11 @@ describe("runReviewTraceGitHook", () => {
 
   it("detaches the hosted publish instead of uploading inside the push", async () => {
     await selectHosted();
+
     const spawned = vi
       .spyOn(hookRunner, "spawnDetachedTraceSync")
       .mockImplementation(() => undefined);
+
     expect(await prePush()).toBe(0);
     expect(spawned).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({

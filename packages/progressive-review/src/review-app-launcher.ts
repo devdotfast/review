@@ -12,8 +12,11 @@ import {
 } from "./desktop-discovery";
 
 const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
+
 const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000;
+
 const POLL_INTERVAL_MS = 250;
+
 const EARLY_EXIT_GRACE_MS = 5_000;
 
 interface DesktopLaunchProcess {
@@ -73,6 +76,7 @@ export async function runReviewAppLaunch(
   overrides: Partial<ReviewAppLauncherRuntime> = {},
 ): Promise<ReviewAppLaunchEvent> {
   const fetch = overrides.fetch ?? globalThis.fetch;
+
   const runtime: ReviewAppLauncherRuntime = {
     readReviewDesktopDiscovery,
     fetch,
@@ -83,22 +87,32 @@ export async function runReviewAppLaunch(
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
     ...overrides,
   };
+
   const running = await readLaunchHealthyDesktop(runtime);
+
   if (running) {
     await runtime.focusDesktop(running);
+
     return launchEvent("running", running.instanceId);
   }
 
   const attempt = runtime.launchDesktop();
+
   let completion: Promise<DesktopLaunchCompletion> | undefined =
     observedCompletion(attempt);
+
   void completion.catch(() => undefined);
+
   const deadline =
     runtime.now() + (input.timeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS);
+
   let unexpectedSuccessfulExitAt: number | undefined;
+
   while (runtime.now() < deadline) {
     const ready = await readLaunchHealthyDesktop(runtime);
+
     if (ready) return launchEvent("launched", ready.instanceId);
+
     if (
       unexpectedSuccessfulExitAt !== undefined &&
       runtime.now() - unexpectedSuccessfulExitAt >= EARLY_EXIT_GRACE_MS
@@ -110,6 +124,7 @@ export async function runReviewAppLaunch(
     }
 
     const remaining = Math.max(0, deadline - runtime.now());
+
     const outcome = completion
       ? await Promise.race([
           completion.then((result) => ({ completion: result })),
@@ -120,11 +135,14 @@ export async function runReviewAppLaunch(
       : await runtime
           .wait(Math.min(POLL_INTERVAL_MS, remaining))
           .then(() => ({ completion: null }));
+
     if (outcome.completion) {
       assertSuccessfulLaunchCompletion(attempt.method, outcome.completion);
+
       if (!attempt.successfulExitIsExpected) {
         unexpectedSuccessfulExitAt = runtime.now();
       }
+
       completion = undefined;
     }
   }
@@ -150,7 +168,9 @@ async function focusReviewDesktop(
     headers: { "x-review-token": discovery.token },
     signal: AbortSignal.timeout(5_000),
   });
+
   const result = parseReviewVerbResponse(await response.json());
+
   if (!response.ok || !result.ok) {
     throw new Error(
       result.ok
@@ -164,6 +184,7 @@ export function launchDesktopApplication(
   input: LaunchDesktopApplicationInput = {},
 ): DesktopLaunchAttempt {
   const platform = input.platform ?? process.platform;
+
   if (platform !== "darwin" && platform !== "linux") {
     return {
       method: `the ${platform} application launcher`,
@@ -177,7 +198,9 @@ export function launchDesktopApplication(
   const electron = input.electron ?? Boolean(process.versions.electron);
   const env = { ...(input.env ?? process.env) };
   const directLaunch = electron || platform === "linux";
+
   if (directLaunch) delete env.ELECTRON_RUN_AS_NODE;
+
   if (platform === "linux") {
     delete env.VSCODE_DEV;
     delete env.VSCODE_CLI;
@@ -186,15 +209,19 @@ export function launchDesktopApplication(
   let command = "/usr/bin/open";
   let method = `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
   let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+
   if (directLaunch) {
     command = "/usr/bin/review-desktop";
     method = `the installed Linux launcher at "${command}"`;
+
     if (electron) {
       command = input.execPath ?? process.execPath;
       method = `the Desktop-managed bundle at "${command}"`;
     }
+
     args = [];
     const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
+
     if (stateRoot) {
       args = [
         `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
@@ -205,18 +232,23 @@ export function launchDesktopApplication(
 
   let resolveCompletion: (result: DesktopLaunchCompletion) => void = () =>
     undefined;
+
   let rejectCompletion: (error: Error) => void = () => undefined;
+
   const completion = new Promise<DesktopLaunchCompletion>((resolve, reject) => {
     resolveCompletion = resolve;
     rejectCompletion = reject;
   });
+
   try {
     const spawnProcess = input.spawn ?? spawn;
+
     const child = spawnProcess(command, args, {
       detached: true,
       env,
       stdio: "ignore",
     });
+
     child.once("error", (error) => rejectCompletion(error));
     child.once("exit", (code, signal) => {
       resolveCompletion({ code, signal });
@@ -225,6 +257,7 @@ export function launchDesktopApplication(
   } catch (error) {
     rejectCompletion(error instanceof Error ? error : new Error(String(error)));
   }
+
   return {
     method,
     successfulExitIsExpected: !directLaunch,

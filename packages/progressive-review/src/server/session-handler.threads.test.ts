@@ -19,8 +19,10 @@ describe("createReviewSessionHandler", () => {
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
+
     const onReviewThreadsCommit =
       vi.fn<(commit: ReviewThreadsCommit) => void>();
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -45,10 +47,12 @@ describe("createReviewSessionHandler", () => {
     ) => {
       const headers = new Headers({ "x-review-token": token });
       const init: RequestInit = { method, headers };
+
       if (body) {
         headers.set("content-type", "application/json");
         init.body = JSON.stringify(body);
       }
+
       return handler.handle(
         new Request(new URL(`/__progressive-review${path}`, sessionUrl), init),
       );
@@ -75,6 +79,7 @@ describe("createReviewSessionHandler", () => {
         },
         body: "A fresh external comment",
       });
+
       expect(comment.status).toBe(200);
       await expect(comment.json()).resolves.toMatchObject({
         ok: true,
@@ -96,12 +101,15 @@ describe("createReviewSessionHandler", () => {
     const token = "session-secret";
     let enterMutation!: () => void;
     let releaseMutation!: () => void;
+
     const mutationEntered = new Promise<void>((resolve) => {
       enterMutation = resolve;
     });
+
     const mutationReleased = new Promise<void>((resolve) => {
       releaseMutation = resolve;
     });
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -112,6 +120,7 @@ describe("createReviewSessionHandler", () => {
       runReviewThreadMutation: async (operation) => {
         enterMutation();
         await mutationReleased;
+
         return operation();
       },
       session: {
@@ -160,6 +169,7 @@ describe("createReviewSessionHandler", () => {
           },
         ),
       );
+
       await mutationEntered;
       expect(readReviewComments(reviewPath)).toEqual({});
 

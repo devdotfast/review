@@ -56,6 +56,7 @@ export function buildIndexedTraceTurns(
   events: ReviewAgentTraceEvent[],
 ): IndexedTraceTurnGroup[] {
   const turns: IndexedTraceTurnGroup[] = [];
+
   let current: {
     user: IndexedTraceUserItem | null;
     items: IndexedTraceTurnEvent[];
@@ -64,14 +65,18 @@ export function buildIndexedTraceTurns(
   const finish = () => {
     if (!current) return;
     let splitIndex = current.items.length;
+
     while (splitIndex > 0) {
       const event = current.items[splitIndex - 1].event;
+
       if (event.kind !== "assistant" || event.thinking) break;
       splitIndex -= 1;
     }
+
     const allItems = current.user
       ? [current.user.event, ...current.items.map((i) => i.event)]
       : current.items.map((i) => i.event);
+
     turns.push({
       user: current.user,
       work: current.items.slice(0, splitIndex),
@@ -83,16 +88,21 @@ export function buildIndexedTraceTurns(
 
   for (let i = 0; i < events.length; i++) {
     const event = events[i];
+
     if (event.kind === "separator") continue;
+
     if (event.kind === "user") {
       finish();
       current = { user: { event, index: i }, items: [] };
       continue;
     }
+
     current ??= { user: null, items: [] };
     current.items.push({ event, index: i });
   }
+
   finish();
+
   return turns;
 }
 
@@ -111,16 +121,21 @@ function activeSpanMs(events: TraceTurnEvent[]): number | null {
   let total = 0;
   let previous: number | null = null;
   let sawTimestamp = false;
+
   for (const event of events) {
     if (!event.at) continue;
     const at = Date.parse(event.at);
+
     if (!Number.isFinite(at)) continue;
     sawTimestamp = true;
+
     if (previous !== null && at > previous) {
       total += Math.min(at - previous, TURN_ACTIVE_GAP_LIMIT_MS);
     }
+
     previous = at;
   }
+
   return sawTimestamp ? total : null;
 }
 
@@ -134,21 +149,27 @@ export function groupIndexedWorkEvents(
 ): Array<IndexedTraceTurnEvent | IndexedTraceToolItem[]> {
   const items: Array<IndexedTraceTurnEvent | IndexedTraceToolItem[]> = [];
   let run: IndexedTraceToolItem[] = [];
+
   const flush = () => {
     if (run.length === 0) return;
+
     if (run.length === 1) items.push(run[0]);
     else items.push(run);
     run = [];
   };
+
   for (const item of work) {
     if (item.event.kind === "tool") {
       run.push({ event: item.event, index: item.index });
       continue;
     }
+
     flush();
     items.push(item);
   }
+
   flush();
+
   return items;
 }
 
@@ -156,8 +177,10 @@ export function toolGroupLabel(
   events: Array<Extract<ReviewAgentTraceEvent, { kind: "tool" }>>,
 ): string {
   const categories = new Map<string, number>();
+
   for (const event of events) {
     const verb = event.verb;
+
     const key =
       verb === "Edited" || verb === "Wrote" || verb === "Added"
         ? "edited"
@@ -172,25 +195,37 @@ export function toolGroupLabel(
                 : verb.startsWith("Searched")
                   ? "searched"
                   : "called";
+
     categories.set(key, (categories.get(key) ?? 0) + 1);
   }
+
   const phrase = (key: string, count: number): string => {
     const plural = count !== 1;
+
     if (key === "edited") return `edited ${count} ${plural ? "files" : "file"}`;
+
     if (key === "deleted")
       return `deleted ${count} ${plural ? "files" : "file"}`;
+
     if (key === "ran") return `ran ${count} ${plural ? "commands" : "command"}`;
+
     if (key === "read") return `read ${count} ${plural ? "files" : "file"}`;
+
     if (key === "agents") return `ran ${count} ${plural ? "agents" : "agent"}`;
+
     if (key === "searched")
       return `searched ${count} ${plural ? "times" : "time"}`;
+
     return `called ${count} ${plural ? "tools" : "tool"}`;
   };
+
   const parts = [...categories.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([key, count]) => phrase(key, count));
+
   const label = parts.join(", ");
+
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
@@ -206,7 +241,9 @@ export function TraceToolGroup({
   const hasTarget =
     targetEventIndex !== undefined &&
     items.some((item) => item.index === targetEventIndex);
+
   const events = items.map((i) => i.event);
+
   return (
     <details
       className="review-trace-toolgroup"
@@ -299,6 +336,7 @@ export function TraceEvent({
       </AgentChatUserMessage>
     );
   }
+
   if (event.kind === "assistant") {
     if (event.thinking) {
       return (
@@ -333,6 +371,7 @@ export function TraceEvent({
         </details>
       );
     }
+
     return (
       <div className="review-trace-prose">
         <AgentMarkdown
@@ -342,6 +381,7 @@ export function TraceEvent({
       </div>
     );
   }
+
   return <TraceToolRow event={event} />;
 }
 
@@ -351,6 +391,7 @@ export function TraceToolRow({
   event: Extract<ReviewAgentTraceEvent, { kind: "tool" }>;
 }) {
   const expandable = Boolean(event.command || event.input || event.output);
+
   const row = (
     <span className="review-trace-tool-row">
       <span className="review-trace-tool-icon">{toolIcon(event.verb)}</span>
@@ -380,9 +421,11 @@ export function TraceToolRow({
       )}
     </span>
   );
+
   if (!expandable) {
     return <div className="review-trace-tool">{row}</div>;
   }
+
   return (
     <details className="review-trace-tool review-trace-tool--expandable">
       <summary>{row}</summary>
@@ -408,7 +451,9 @@ export function TraceToolRow({
 
 export function timeLabel(at: string): string {
   const value = new Date(at);
+
   if (Number.isNaN(value.getTime())) return "";
+
   return value.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
@@ -418,12 +463,15 @@ export function timeLabel(at: string): string {
 export function formatDuration(durationMs: number): string {
   if (!Number.isFinite(durationMs) || durationMs < 0) return "";
   const totalSeconds = Math.round(durationMs / 1000);
+
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
+
   if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
+
   return rest ? `${hours}h ${rest}m` : `${hours}h`;
 }
 
@@ -506,9 +554,11 @@ export function applyLensPicks(
   lens: { picks: LensPick[] },
 ): Map<number, string[] | null> {
   const included = new Map<number, string[] | null>();
+
   for (const pick of lens.picks) {
     if ("events" in pick) {
       const [from, to] = pick.events;
+
       for (
         let index = Math.max(0, from);
         index <= Math.min(eventCount - 1, to);
@@ -518,6 +568,7 @@ export function applyLensPicks(
       }
     } else if (pick.event >= 0 && pick.event < eventCount) {
       const existing = included.get(pick.event);
+
       if (existing === null) continue;
       included.set(
         pick.event,
@@ -525,6 +576,7 @@ export function applyLensPicks(
       );
     }
   }
+
   return included;
 }
 
@@ -534,6 +586,7 @@ export function buildLensDisplay(
 ): LensDisplayItem[] {
   const items: LensDisplayItem[] = [];
   let cursor = 0;
+
   while (cursor < eventCount) {
     if (included.has(cursor)) {
       items.push({
@@ -544,11 +597,14 @@ export function buildLensDisplay(
       cursor += 1;
       continue;
     }
+
     let end = cursor;
+
     while (end < eventCount && !included.has(end)) end += 1;
     items.push({ type: "gap", from: cursor, count: end - cursor });
     cursor = end;
   }
+
   return items;
 }
 
@@ -564,18 +620,24 @@ export function elideByKeep(
   const segments: ElidedSegment[] = [];
   let cursor = 0;
   let matched = 0;
+
   for (const snippet of keep) {
     const span = findWhitespaceNormalizedSpan(text.slice(cursor), snippet);
+
     if (!span) continue;
     matched += 1;
     const start = cursor + span.start;
     const end = cursor + span.end;
+
     if (start > cursor) segments.push({ kind: "chip" });
     segments.push({ kind: "kept", text: text.slice(start, end) });
     cursor = end;
   }
+
   if (matched === 0) return null;
+
   if (cursor < text.trimEnd().length) segments.push({ kind: "chip" });
+
   return segments;
 }
 
@@ -583,14 +645,19 @@ export function extractEventText(
   event: ReviewAgentTraceEvent | undefined,
 ): string {
   if (!event) return "";
+
   if (event.kind === "user") return event.text;
+
   if (event.kind === "assistant") return event.markdown;
+
   if (event.kind === "tool") {
     return [event.title, event.command, event.input, event.output]
       .filter(Boolean)
       .join(" ");
   }
+
   if (event.kind === "separator") return event.label;
+
   return "";
 }
 
@@ -607,7 +674,9 @@ export function ElidedMessage({
 }) {
   const text = event.kind === "user" ? event.text : event.markdown;
   const segments = elideByKeep(text, keep);
+
   if (!segments) return <TraceEvent event={event} highlightQuote={quote} />;
+
   const body = (
     <span className="review-trace-lens-elided">
       {segments.map((segment, index) =>
@@ -629,6 +698,7 @@ export function ElidedMessage({
       )}
     </span>
   );
+
   if (event.kind === "user") {
     return (
       <AgentChatUserMessage
@@ -639,6 +709,7 @@ export function ElidedMessage({
       </AgentChatUserMessage>
     );
   }
+
   if (event.thinking) {
     return (
       <details className="review-trace-tool review-trace-tool--expandable" open>
@@ -668,6 +739,7 @@ export function ElidedMessage({
       </details>
     );
   }
+
   return (
     <div className="review-trace-prose review-trace-prose--elided">{body}</div>
   );
@@ -765,9 +837,11 @@ export function TraceTurn({
   turnCoalesce: boolean;
 }) {
   const steps = turn.work.length;
+
   const isTargetInWork =
     targetEventIndex !== undefined &&
     turn.work.some((w) => w.index === targetEventIndex);
+
   const isTargetTurn =
     targetEventIndex !== undefined &&
     (turn.user?.index === targetEventIndex ||
@@ -783,10 +857,12 @@ export function TraceTurn({
     const isTarget = item.index === targetEventIndex;
     const quote = isTarget || isTargetTurn ? highlightQuote : undefined;
     const keep = effectiveIncluded?.get(item.index);
+
     const elidable =
       item.event.kind === "user" || item.event.kind === "assistant"
         ? item.event
         : null;
+
     const elided =
       keep !== undefined &&
       keep !== null &&
@@ -821,7 +897,9 @@ export function TraceTurn({
   const collapseRowFor = (index: number, edge: "top" | "bottom"): ReactNode => {
     const span =
       edge === "top" ? collapseStarts?.get(index) : collapseEnds?.get(index);
+
     if (!span || !onCollapseGap) return null;
+
     return (
       <TraceCollapseRow
         key={`collapse-${edge}-${span.from}`}
@@ -848,6 +926,7 @@ export function TraceTurn({
           ),
         );
       }
+
       return turn.work.map((item) => renderTurnEvent(item));
     }
 
@@ -857,6 +936,7 @@ export function TraceTurn({
 
     const flushToolRun = () => {
       if (toolRun.length === 0) return;
+
       if (turnCoalesce && toolRun.length >= 2) {
         const items = [...toolRun];
         elements.push(
@@ -872,6 +952,7 @@ export function TraceTurn({
           elements.push(renderTurnEvent(item));
         }
       }
+
       toolRun = [];
     };
 
@@ -891,34 +972,42 @@ export function TraceTurn({
 
     for (const item of turn.work) {
       const isIncluded = effectiveIncluded.has(item.index);
+
       if (!isIncluded) {
         flushToolRun();
+
         if (!gapRun) {
           gapRun = { from: item.index, count: 1 };
         } else {
           gapRun.count += 1;
         }
+
         continue;
       }
 
       flushGapRun();
       const topRow = collapseRowFor(item.index, "top");
+
       if (topRow) {
         flushToolRun();
         elements.push(topRow);
       }
+
       if (turnCoalesce && item.event.kind === "tool") {
         toolRun.push({ event: item.event, index: item.index });
       } else {
         flushToolRun();
         elements.push(renderTurnEvent(item));
       }
+
       const bottomRow = collapseRowFor(item.index, "bottom");
+
       if (bottomRow) {
         flushToolRun();
         elements.push(bottomRow);
       }
     }
+
     flushToolRun();
     flushGapRun();
 
@@ -957,17 +1046,22 @@ export function TraceTurn({
       } else {
         flushGapRun();
         const topRow = collapseRowFor(item.index, "top");
+
         if (topRow) elements.push(topRow);
         elements.push(renderTurnEvent(item));
         const bottomRow = collapseRowFor(item.index, "bottom");
+
         if (bottomRow) elements.push(bottomRow);
       }
     }
+
     flushGapRun();
+
     return elements;
   };
 
   let userElement: ReactNode = null;
+
   if (turn.user) {
     if (effectiveIncluded === null || effectiveIncluded.has(turn.user.index)) {
       const topRow = collapseRowFor(turn.user.index, "top");
@@ -998,6 +1092,7 @@ export function TraceTurn({
   }
 
   let workElement: ReactNode = null;
+
   if (turn.work.length > 0) {
     const includedWorkCount =
       effectiveIncluded === null
@@ -1016,6 +1111,7 @@ export function TraceTurn({
     } else {
       const openWorked =
         isTargetInWork || (effectiveIncluded !== null && includedWorkCount > 0);
+
       workElement = (
         <details className="review-trace-worked" open={openWorked}>
           <summary>
@@ -1072,27 +1168,34 @@ export function TraceDocument({
   const [expandedGaps, setExpandedGaps] = useState<ReadonlySet<number>>(
     () => new Set(),
   );
+
   const [expandedEvents, setExpandedEvents] = useState<ReadonlySet<number>>(
     () => new Set(),
   );
 
   const baseIncluded = useMemo(() => {
     if (!picks) return null;
+
     if (picks instanceof Map) return picks;
+
     if ("picks" in picks) return applyLensPicks(events.length, picks);
+
     return applyLensPicks(events.length, { picks });
   }, [events.length, picks]);
 
   const effectiveIncluded = useMemo(() => {
     if (!baseIncluded) return null;
     const map = new Map(baseIncluded);
+
     for (const from of expandedGaps) {
       let cursor = from;
+
       while (cursor < events.length && !baseIncluded.has(cursor)) {
         map.set(cursor, null);
         cursor++;
       }
     }
+
     return map;
   }, [baseIncluded, expandedGaps, events.length]);
 
@@ -1102,6 +1205,7 @@ export function TraceDocument({
   // so the reader's position never moves; the revealed content lands above
   // or below, in reach by scrolling.
   const rootRef = useRef<HTMLDivElement | null>(null);
+
   const pendingAnchorRef = useRef<{
     anchor: TraceScrollAnchor;
     fallbackGap?: number;
@@ -1110,6 +1214,7 @@ export function TraceDocument({
   const captureAnchor = (fallbackGap?: number) => {
     const root = rootRef.current;
     const container = root ? findScrollContainer(root) : null;
+
     if (!container) return;
     const anchor = captureTraceScrollAnchor(container);
     pendingAnchorRef.current = anchor
@@ -1121,10 +1226,12 @@ export function TraceDocument({
 
   useLayoutEffect(() => {
     const pending = pendingAnchorRef.current;
+
     if (!pending) return;
     pendingAnchorRef.current = null;
     const root = rootRef.current;
     const container = root ? findScrollContainer(root) : null;
+
     if (!container) return;
     restoreTraceScrollAnchor(container, pending.anchor, pending.fallbackGap);
   }, [expandedGaps, expandedEvents]);
@@ -1139,6 +1246,7 @@ export function TraceDocument({
     setExpandedGaps((prev) => {
       const next = new Set(prev);
       next.delete(from);
+
       return next;
     });
   };
@@ -1149,15 +1257,19 @@ export function TraceDocument({
     if (!baseIncluded) return null;
     const starts = new Map<number, TraceCollapseSpan>();
     const ends = new Map<number, TraceCollapseSpan>();
+
     for (const from of expandedGaps) {
       let cursor = from;
+
       while (cursor < events.length && !baseIncluded.has(cursor)) cursor++;
       const count = cursor - from;
+
       if (count <= 0) continue;
       const span = { from, count };
       starts.set(from, span);
       ends.set(cursor - 1, span);
     }
+
     return { starts, ends };
   }, [baseIncluded, expandedGaps, events.length]);
 
@@ -1198,14 +1310,17 @@ export function TraceDocument({
       if (hiddenTurns.length === 0) return;
       const firstTurn = hiddenTurns[0];
       const lastTurn = hiddenTurns[hiddenTurns.length - 1];
+
       const from =
         firstTurn.user?.index ??
         firstTurn.work[0]?.index ??
         firstTurn.final[0]?.index;
+
       const to =
         lastTurn.final[lastTurn.final.length - 1]?.index ??
         lastTurn.work[lastTurn.work.length - 1]?.index ??
         lastTurn.user?.index;
+
       if (from !== undefined && to !== undefined) {
         const count = to - from + 1;
         elements.push(
@@ -1217,20 +1332,25 @@ export function TraceDocument({
           />,
         );
       }
+
       hiddenTurns = [];
     };
 
     for (let i = 0; i < turns.length; i++) {
       const turn = turns[i];
+
       const isUserIncluded = turn.user
         ? effectiveIncluded.has(turn.user.index)
         : false;
+
       const includedWorkCount = turn.work.filter((w) =>
         effectiveIncluded.has(w.index),
       ).length;
+
       const includedFinalCount = turn.final.filter((f) =>
         effectiveIncluded.has(f.index),
       ).length;
+
       const hasAnyIncluded =
         isUserIncluded || includedWorkCount > 0 || includedFinalCount > 0;
 
@@ -1262,7 +1382,9 @@ export function TraceDocument({
         />,
       );
     }
+
     flushHiddenTurns();
+
     return elements;
   }, [
     turns,

@@ -16,6 +16,7 @@ import type { AgentServerOptions } from "./native-session";
 import { OpencodeAgentServer } from "./opencode";
 
 const temporaryDirectories: string[] = [];
+
 const servers: Server[] = [];
 
 afterEach(async () => {
@@ -23,6 +24,7 @@ afterEach(async () => {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
+
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -33,6 +35,7 @@ afterEach(async () => {
 async function options(): Promise<AgentServerOptions> {
   const directory = await mkdtemp(path.join(tmpdir(), "review-opencode-"));
   temporaryDirectories.push(directory);
+
   return {
     runtimeDirectory: directory,
     desktopEndpoint: { baseUrl: "http://127.0.0.1:4000", token: "s" },
@@ -43,13 +46,17 @@ const user = (id: string, text: string, created = 1_000) => ({
   info: { id, sessionID: "ses_1", role: "user", time: { created } },
   parts: [{ id: `${id}-p`, type: "text", text }],
 });
+
 const assistant = (id: string, text: string, completed?: number) => {
   const time: JsonObject = { created: 1_500 };
+
   if (completed !== undefined) time.completed = completed;
+
   const message: JsonObject = {
     info: { id, sessionID: "ses_1", role: "assistant", time },
     parts: [{ id: `${id}-p`, type: "text", text }],
   };
+
   return message;
 };
 
@@ -61,8 +68,10 @@ async function fakeOpencode() {
     directory: string | null;
     body: JsonValue;
   }> = [];
+
   const messages: JsonValue[] = [];
   const listeners = new Set<ServerResponse>();
+
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     let raw = "";
@@ -75,13 +84,16 @@ async function fakeOpencode() {
         directory: url.searchParams.get("directory"),
         body,
       });
+
       if (
         request.headers.authorization !==
         `Basic ${Buffer.from("opencode:pw").toString("base64")}`
       ) {
         response.writeHead(401).end();
+
         return;
       }
+
       if (url.pathname === "/global/event") {
         response.writeHead(200, { "content-type": "text/event-stream" });
         response.write(
@@ -89,23 +101,28 @@ async function fakeOpencode() {
         );
         listeners.add(response);
         response.on("close", () => listeners.delete(response));
+
         return;
       }
+
       const reply = (value: JsonValue) => {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify(value));
       };
+
       if (url.pathname === "/session" && request.method === "POST")
         return reply({
           id: "ses_new",
           directory: url.searchParams.get("directory"),
         });
+
       // Sessions live in a project; a lookup only finds them in that directory.
       if (url.pathname === "/project")
         return reply([
           { id: "p-other", worktree: "/repo/other" },
           { id: "p-source", worktree: "/repo/source" },
         ]);
+
       if (
         (url.pathname === "/session/ses_src" ||
           url.pathname === "/session/ses_1") &&
@@ -113,37 +130,50 @@ async function fakeOpencode() {
       ) {
         if (url.searchParams.get("directory") !== "/repo/source") {
           response.writeHead(404).end();
+
           return;
         }
+
         return reply({ id: url.pathname.slice(9), directory: "/repo/source" });
       }
+
       if (url.pathname === "/session/ses_src/fork")
         return reply({ id: "ses_1", directory: "/repo/source" });
+
       if (url.pathname === "/session/ses_1/prompt_async") {
         const id = String(jsonObject(body)?.messageID);
         const message = user(id, "question");
         messages.push(message);
+
         for (const listener of listeners)
           listener.write(
             `data: ${JSON.stringify({ payload: { type: "message.updated", properties: { sessionID: "ses_1", info: message.info } } })}\n\n`,
           );
+
         return reply({});
       }
+
       if (url.pathname === "/session/ses_1/abort") return reply(true);
+
       if (url.pathname.startsWith("/session/ses_1/message/")) {
         const id = url.pathname.split("/").at(-1);
+
         const message = messages.find(
           (message) => jsonObject(jsonObject(message)?.info)?.id === id,
         );
+
         if (message) return reply(message);
       }
+
       if (url.pathname === "/session/ses_1/message") return reply(messages);
       response.writeHead(404).end();
     });
   });
+
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
+
   return {
     requests,
     messages,
@@ -188,9 +218,11 @@ describe("OpenCode live capture", () => {
       message: { id: "answer", body: "done" },
     });
     let stopped = false;
+
     const stopping = server.interrupt("ses_1").then(() => {
       stopped = true;
     });
+
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(stopped).toBe(false);
     oc.emit({

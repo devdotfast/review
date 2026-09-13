@@ -24,11 +24,13 @@ export const ReviewBugReportRequestSchema = z.strictObject({
     .regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/),
   app_version: requiredString.max(100),
 });
+
 export type ReviewBugReportRequest = z.infer<
   typeof ReviewBugReportRequestSchema
 >;
 
 const compressedPartBytes = z.number().int().positive().max(100_000_000);
+
 const compressedSha256 = z.string().regex(/^[a-f0-9]{64}$/);
 
 export const ReviewBugReportPartSchema = z.discriminatedUnion("field", [
@@ -46,6 +48,7 @@ export const ReviewBugReportPartSchema = z.discriminatedUnion("field", [
     session_id: requiredString.max(128),
   }),
 ]);
+
 export type ReviewBugReportPart = z.infer<typeof ReviewBugReportPartSchema>;
 
 export const ReviewBugReportMetaV2Schema = z
@@ -105,16 +108,20 @@ export const ReviewBugReportMetaV2Schema = z
         message: "must match the description UTF-8 byte length",
       });
     }
+
     const [first, ...traces] = meta.parts;
+
     const validOrder =
       first?.field === "payload" &&
       traces.every(
         (part, index) =>
           part.field === "trace" && part.filename === `trace-${index}.jsonl.gz`,
       );
+
     const sessionIds = traces.map((part) =>
       part.field === "trace" ? part.session_id : "",
     );
+
     if (!validOrder || new Set(sessionIds).size !== sessionIds.length) {
       context.addIssue({
         code: "custom",
@@ -122,6 +129,7 @@ export const ReviewBugReportMetaV2Schema = z
         message: "must list the payload then trace-<n> parts in order",
       });
     }
+
     if (meta.has_trace !== traces.length > 0) {
       context.addIssue({
         code: "custom",
@@ -129,6 +137,7 @@ export const ReviewBugReportMetaV2Schema = z
         message: "must match the presence of trace parts",
       });
     }
+
     if (meta.has_trace !== (meta.trace_harness !== undefined)) {
       context.addIssue({
         code: "custom",
@@ -136,6 +145,7 @@ export const ReviewBugReportMetaV2Schema = z
         message: "must be present only when the report has a trace",
       });
     }
+
     if (!meta.has_trace && meta.truncated_trace) {
       context.addIssue({
         code: "custom",
@@ -143,6 +153,7 @@ export const ReviewBugReportMetaV2Schema = z
         message: "must be false when the report has no trace",
       });
     }
+
     if (meta.parts[0]?.bytes !== meta.payload_bytes) {
       context.addIssue({
         code: "custom",
@@ -151,6 +162,7 @@ export const ReviewBugReportMetaV2Schema = z
       });
     }
   });
+
 export type ReviewBugReportMetaV2 = z.infer<typeof ReviewBugReportMetaV2Schema>;
 
 export const ReviewBugReportResponseSchema = z.discriminatedUnion("ok", [
@@ -164,6 +176,7 @@ export const ReviewBugReportResponseSchema = z.discriminatedUnion("ok", [
     error: requiredString,
   }),
 ]);
+
 export type ReviewBugReportResponse = z.infer<
   typeof ReviewBugReportResponseSchema
 >;

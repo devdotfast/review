@@ -29,16 +29,20 @@ export interface TraceAnchorCandidate {
 /** Nearest ancestor whose computed overflow scrolls. */
 export function findScrollContainer(element: HTMLElement): HTMLElement | null {
   let parent = element.parentElement;
+
   while (parent) {
     const style = window.getComputedStyle(parent);
+
     if (
       /(auto|scroll)/.test(style.overflowY) ||
       /(auto|scroll)/.test(style.overflow)
     ) {
       return parent;
     }
+
     parent = parent.parentElement;
   }
+
   return null;
 }
 
@@ -54,6 +58,7 @@ export function chooseTraceAnchor(
   if (rows.length === 0) return null;
   const visible = rows.find((row) => row.top >= viewportTop - 0.5);
   const chosen = visible ?? rows[rows.length - 1];
+
   return { index: chosen.index, offset: chosen.top - viewportTop };
 }
 
@@ -68,13 +73,16 @@ export function traceScrollAdjustment(
 
 function measureRows(container: HTMLElement): TraceAnchorCandidate[] {
   const rows: TraceAnchorCandidate[] = [];
+
   for (const element of container.querySelectorAll<HTMLElement>(
     "[data-trace-event]",
   )) {
     const index = Number(element.dataset.traceEvent);
+
     if (!Number.isFinite(index)) continue;
     rows.push({ index, top: element.getBoundingClientRect().top });
   }
+
   return rows;
 }
 
@@ -108,12 +116,16 @@ export function restoreTraceScrollAnchor(
       : container.querySelector<HTMLElement>(
           `[data-trace-gap="${fallbackGap}"]`,
         ));
+
   if (!row) return null;
+
   const delta = traceScrollAdjustment(
     anchor,
     row.getBoundingClientRect().top,
     container.getBoundingClientRect().top,
   );
+
   if (delta !== 0) container.scrollTop += delta;
+
   return delta;
 }

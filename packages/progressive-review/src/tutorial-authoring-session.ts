@@ -39,6 +39,7 @@ export async function createTutorialAuthoringSession(input: {
 }): Promise<SessionRef> {
   const runCommand = input.runCommand ?? runTutorialAuthoringCommand;
   const prompt = tutorialAuthoringPrompt();
+
   switch (input.harness) {
     case "claude-code": {
       const sessionId = randomUUID();
@@ -64,8 +65,10 @@ export async function createTutorialAuthoringSession(input: {
         },
         signal: input.signal,
       });
+
       return { harness: input.harness, sessionId };
     }
+
     case "codex": {
       const result = await runCommand({
         executable: "codex",
@@ -80,11 +83,13 @@ export async function createTutorialAuthoringSession(input: {
         cwd: input.rootPath,
         signal: input.signal,
       });
+
       return {
         harness: input.harness,
         sessionId: codexThreadId(result.stdout),
       };
     }
+
     case "opencode": {
       return {
         harness: input.harness,
@@ -96,6 +101,7 @@ export async function createTutorialAuthoringSession(input: {
         }),
       };
     }
+
     case "pi": {
       const sessionId = randomUUID();
       await runCommand({
@@ -118,6 +124,7 @@ export async function createTutorialAuthoringSession(input: {
         cwd: input.rootPath,
         signal: input.signal,
       });
+
       return { harness: input.harness, sessionId };
     }
   }
@@ -127,15 +134,19 @@ function codexThreadId(output: string): string {
   for (const line of output.split("\n")) {
     if (!line.trim()) continue;
     let record: JsonObject | undefined;
+
     try {
       record = jsonObject(parseJsonText(line));
     } catch {
       continue;
     }
+
     if (record?.type !== "thread.started") continue;
     const threadId = jsonString(record.thread_id);
+
     if (threadId) return threadId;
   }
+
   throw new Error("Codex did not report the tutorial source thread ID.");
 }
 
@@ -149,17 +160,21 @@ function runTutorialAuthoringCommand(input: {
   return new Promise((resolve, reject) => {
     if (input.signal?.aborted) {
       reject(new Error("Tutorial authoring session creation was canceled."));
+
       return;
     }
+
     const child = spawn(input.executable, input.args, {
       cwd: input.cwd,
       env: input.env ?? process.env,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     });
+
     let stdout = "";
     let stderr = "";
     let settled = false;
+
     const settle = (operation: () => void) => {
       if (settled) return;
       settled = true;
@@ -167,12 +182,14 @@ function runTutorialAuthoringCommand(input: {
       input.signal?.removeEventListener("abort", onAbort);
       operation();
     };
+
     const onAbort = () => {
       child.kill("SIGKILL");
       settle(() =>
         reject(new Error("Tutorial authoring session creation was canceled.")),
       );
     };
+
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       settle(() =>
@@ -183,6 +200,7 @@ function runTutorialAuthoringCommand(input: {
         ),
       );
     }, TUTORIAL_AUTHORING_TIMEOUT_MS);
+
     input.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -197,8 +215,10 @@ function runTutorialAuthoringCommand(input: {
       settle(() => {
         if (code === 0) {
           resolve({ stdout, stderr });
+
           return;
         }
+
         const detail = stderr.trim();
         reject(
           new Error(

@@ -131,20 +131,26 @@ function ReviewPanelFrame({
 }) {
   const appRef = useReviewRoots()?.appRef;
   const panelMotion = useReviewPanel((state) => state.motion);
+
   const sheet = useBottomSheetResize({
     stateKey: "bottomSheetFraction",
     label: "Resize panel height",
     containerRef: appRef,
   });
+
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const app = appRef?.current;
+
       if (!app) return;
+
       // A comment draft popover stacked above the panel wins the Escape.
       if (app.querySelector(".thread-popover")) return;
+
       const panelDraftOpen =
         app.querySelector(".side-panel .thread-card--draft") !== null;
+
       const action = panelEscapeAction({
         menuOpen:
           app.querySelector('.side-panel .thread-card [role="menu"]') !== null,
@@ -152,11 +158,14 @@ function ReviewPanelFrame({
         threadExpanded:
           app.querySelector(".side-panel .panel-thread-active-card") !== null,
       });
+
       if (action !== "close-panel") return;
       event.preventDefault();
       onClose();
     };
+
     document.addEventListener("keydown", closeOnEscape);
+
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [appRef, onClose]);
 
@@ -166,6 +175,7 @@ function ReviewPanelFrame({
   const panelStyle = {
     "--side-panel-bottom-fraction": sheet.fraction,
   } as CSSProperties;
+
   return (
     <aside
       className={[
@@ -235,10 +245,12 @@ export function ReviewSection(props: ReviewSectionProps) {
     defaultCollapsed = false,
     children,
   } = reviewSectionPropsSchema.parse(props);
+
   const [collapsed, setCollapsed] = useReviewUiState(title, defaultCollapsed, {
     scope: "session",
     namespace: "section",
   });
+
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [summary, setSummary] = useState<ReviewSectionSummary | null>(null);
   const { heading, body } = reviewSectionContent(title, children);
@@ -255,6 +267,7 @@ export function ReviewSection(props: ReviewSectionProps) {
 
   useLayoutEffect(() => {
     const bodyElement = bodyRef.current;
+
     if (!bodyElement) return;
     setSummary({
       diagrams: bodyElement.querySelectorAll(
@@ -272,9 +285,11 @@ export function ReviewSection(props: ReviewSectionProps) {
   useEffect(() => {
     const bodyElement = bodyRef.current;
     const sectionElement = bodyElement?.parentElement;
+
     if (!sectionElement) return;
     const expand = () => setCollapsed(false);
     sectionElement.addEventListener("review-section-expand", expand);
+
     return () => {
       sectionElement.removeEventListener("review-section-expand", expand);
     };
@@ -323,9 +338,11 @@ export function ReviewSection(props: ReviewSectionProps) {
 function reviewSectionContent(title: string, children: ReactNode) {
   const childNodes = Children.toArray(children);
   const [firstChild, ...remainingChildren] = childNodes;
+
   if (isReviewSectionHeading(firstChild)) {
     return { heading: firstChild, body: remainingChildren };
   }
+
   return { heading: <h2>{title}</h2>, body: childNodes };
 }
 
@@ -336,22 +353,27 @@ interface ReviewBlockTagProps {
 
 function isReviewSectionHeading(child: ReactNode): child is ReactElement {
   if (!isValidElement<ReviewBlockTagProps>(child)) return false;
+
   if (child.type === "h2") return true;
+
   return child.props["data-review-block-tag"] === "h2";
 }
 
 function reviewSectionSummaryLabel(summary: ReviewSectionSummary): string {
   const parts: string[] = [];
+
   if (summary.diagrams > 0) {
     parts.push(
       summary.diagrams === 1 ? "1 diagram" : `${summary.diagrams} diagrams`,
     );
   }
+
   if (summary.codeRefs > 0) {
     parts.push(
       summary.codeRefs === 1 ? "1 code ref" : `${summary.codeRefs} code refs`,
     );
   }
+
   if (parts.length === 0 && summary.paragraphs > 0) {
     parts.push(
       summary.paragraphs === 1
@@ -359,6 +381,7 @@ function reviewSectionSummaryLabel(summary: ReviewSectionSummary): string {
         : `${summary.paragraphs} paragraphs`,
     );
   }
+
   return parts.join(" · ");
 }
 
@@ -405,13 +428,17 @@ export function ProsePeekAnchor({
       data-review-locator={locator}
       onClick={(event) => {
         event.preventDefault();
+
         if (isOpen && onAlreadyOpen) {
           onAlreadyOpen();
+
           return;
         }
+
         if (session) {
           captureUiEvent(session, "peek_opened", { via: "prose_link" });
         }
+
         onOpen();
         keepAnchorLinkVisible(event.currentTarget);
       }}
@@ -425,15 +452,18 @@ export function AnchorLink(props: AnchorLinkProps) {
   const { anchor, children } = anchorLinkPropsSchema.parse(props);
   const input = validatedCodePeekInputFromRef(anchor.peek);
   const openPeek = useReviewPanel((state) => state.openPeek);
+
   const peekOpen = useReviewPanel(
     (state) =>
       state.active?.kind === "peek" && state.active.anchor?.id === anchor.id,
   );
+
   const target = buildAnchorTextTarget({
     anchorId: anchor.id,
     field: "title",
     text: anchor.title,
   });
+
   return (
     <ProsePeekAnchor
       href={`#review-anchor-${anchor.id}`}
@@ -461,6 +491,7 @@ export function a({
   ...props
 }: ComponentPropsWithoutRef<"a">) {
   const linkProps = newTabLinkProps(href, { ...props, target, rel });
+
   return (
     <a href={href} target={target} rel={rel} {...props} {...linkProps}>
       {children}
@@ -476,11 +507,13 @@ export function a({
 export function keepAnchorLinkVisible(link: HTMLElement) {
   window.setTimeout(() => {
     const rect = link.getBoundingClientRect();
+
     const visible =
       rect.top >= 0 &&
       rect.bottom <= window.innerHeight &&
       rect.left >= 0 &&
       rect.right <= window.innerWidth;
+
     if (!visible) {
       link.scrollIntoView({ block: "center", behavior: "instant" });
     }
@@ -538,53 +571,74 @@ function handlePanelSelectionMouseUp(
   setTarget: (target: PanelSelectionTarget | null) => void,
 ): void {
   const selection = window.getSelection();
+
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
     setTarget(null);
+
     return;
   }
+
   const range = selection.getRangeAt(0);
+
   const startSurface = panelSelectionSurface(
     range.startContainer,
     event.currentTarget,
   );
+
   const endSurface = panelSelectionSurface(
     range.endContainer,
     event.currentTarget,
   );
+
   if (!startSurface || startSurface !== endSurface) {
     setTarget(null);
+
     return;
   }
+
   const anchorId = startSurface.dataset.panelSelectionAnchor;
   const field = startSurface.dataset.panelSelectionField;
+
   if (!anchorId || !isPanelSelectionField(field)) {
     setTarget(null);
+
     return;
   }
+
   if (field === "code") {
     setTarget(null);
+
     return;
   }
+
   const source = sources.get(`${anchorId}:${field}`);
+
   if (!source) {
     setTarget(null);
+
     return;
   }
+
   const selectedText = selection.toString();
+
   if (!selectedText) {
     setTarget(null);
+
     return;
   }
+
   const prefix = document.createRange();
   prefix.selectNodeContents(startSurface);
   prefix.setEnd(range.startContainer, range.startOffset);
   const mappedStart = prefix.toString().length;
   const start = source.text.indexOf(selectedText, Math.max(0, mappedStart - 1));
+
   if (start < 0) {
     throw new Error(
       "Unable to map the panel selection into its stamped surface.",
     );
   }
+
   const target = buildAnchorTextTarget({
     anchorId,
     field,
@@ -592,17 +646,20 @@ function handlePanelSelectionMouseUp(
     start,
     length: selectedText.length,
   });
+
   const rect = range.getBoundingClientRect();
   /* The chip stays fixed, so it is placed in the coordinate space of
      `.review-canvas-root` — that box sets `contain: layout` and is therefore
      the containing block for fixed descendants. Raw viewport coords land the
      chip on the highlight. */
   const root = event.currentTarget.closest<HTMLElement>(".review-canvas-root");
+
   const rootRect = root?.getBoundingClientRect() ?? {
     left: 0,
     top: 0,
     width: event.currentTarget.ownerDocument.documentElement.clientWidth,
   };
+
   setTarget({
     ...chipPositionClearOf(rect, rootRect),
     target,
@@ -615,9 +672,11 @@ function panelSelectionSurface(
   panel: HTMLElement,
 ): HTMLElement | null {
   const element = node instanceof HTMLElement ? node : node.parentElement;
+
   const surface = element?.closest<HTMLElement>(
     "[data-panel-selection-anchor][data-panel-selection-field]",
   );
+
   return surface && panel.contains(surface) ? surface : null;
 }
 
@@ -629,7 +688,9 @@ function PanelSelectionCommentButton({
   clearTarget: () => void;
 }): ReactNode {
   const review = useReview();
+
   if (!target) return null;
+
   return (
     <div
       className="selection-action-buttons panel-selection-action"
@@ -668,9 +729,11 @@ function PanelSelectionCommentButton({
 export function ReviewPanelHost() {
   const activePanel = useReviewPanel((state) => state.active);
   const close = useReviewPanel((state) => state.close);
+
   const activateTourAnchor = useReviewPanel(
     (state) => state.activateTourAnchor,
   );
+
   if (!activePanel) return null;
 
   return (
@@ -750,32 +813,40 @@ function TraceQuotePeekPanel({
 
   const targetEventIndex = useMemo(() => {
     if (!traceEvents) return -1;
+
     if (event !== undefined && event >= 0 && event < traceEvents.length) {
       const e = traceEvents[event];
       const text = extractEventText(e);
+
       if (findWhitespaceNormalizedSpan(text, quote)) {
         return event;
       }
     }
+
     for (let i = 0; i < traceEvents.length; i++) {
       const text = extractEventText(traceEvents[i]);
+
       if (findWhitespaceNormalizedSpan(text, quote)) {
         return i;
       }
     }
+
     return -1;
   }, [traceEvents, event, quote]);
 
   const picks = useMemo(() => {
     if (!traceEvents || targetEventIndex === -1) return undefined;
     let turnStart = 0;
+
     for (let index = targetEventIndex; index >= 0; index -= 1) {
       if (traceEvents[index].kind === "user") {
         turnStart = index;
         break;
       }
     }
+
     let nextUserIndex = -1;
+
     for (
       let index = targetEventIndex + 1;
       index < traceEvents.length;
@@ -786,9 +857,12 @@ function TraceQuotePeekPanel({
         break;
       }
     }
+
     const turnEnd =
       nextUserIndex === -1 ? traceEvents.length - 1 : nextUserIndex - 1;
+
     const events: [number, number] = [turnStart, turnEnd];
+
     return [{ events }];
   }, [traceEvents, targetEventIndex]);
 
@@ -900,7 +974,9 @@ export function ReviewPeekPanel({
       />
     );
   }
+
   if (!anchor) return null;
+
   return (
     <CodeReviewPeekPanel anchor={anchor} content={content} onClose={onClose} />
   );
@@ -924,18 +1000,22 @@ function CodeReviewPeekPanel({
     openCommentDraft,
     createAnchorCommentTarget,
   } = useReviewActions();
+
   const titleThreadController = usePanelThreadController({
     anchor,
     threadHost: "title",
   });
+
   const [selectionTarget, setSelectionTarget] =
     useState<PanelSelectionTarget | null>(null);
+
   const selectionSources = panelSelectionSources([
     { anchor, field: "title", text: anchor.title },
     ...(content.kind === "inline-code"
       ? [{ anchor, field: "code" as const, text: content.text }]
       : []),
   ]);
+
   return (
     <ReviewPanelFrame
       className="side-peek"
@@ -1016,9 +1096,11 @@ export function GuidedTourPanel({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const handledRevealRequestRef = useRef(0);
+
   const activeIndex = tour.stops.findIndex(
     (stop) => stop.anchor.id === activeAnchor,
   );
+
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
   const previousActiveIndexRef = useRef(activeIndex);
@@ -1026,8 +1108,10 @@ export function GuidedTourPanel({
   const tailRef = useRef<HTMLDivElement | null>(null);
   const [tailHeight, setTailHeight] = useState(0);
   const [hasScrolled, setHasScrolled] = useState(false);
+
   const [selectionTarget, setSelectionTarget] =
     useState<PanelSelectionTarget | null>(null);
+
   const selectionSources = panelSelectionSources(
     tour.stops.flatMap((stop) => [
       ...(stop.label === stop.anchor.title
@@ -1069,6 +1153,7 @@ export function GuidedTourPanel({
   useEffect(() => {
     const previousIndex = previousActiveIndexRef.current;
     previousActiveIndexRef.current = activeIndex;
+
     if (activeIndex <= previousIndex || activeIndex < 0) return;
     captureUiEvent(session, "tour_step_advanced", {
       step: activeIndex + 1,
@@ -1078,12 +1163,15 @@ export function GuidedTourPanel({
 
   useEffect(() => {
     let armed = false;
+
     const timer = window.setTimeout(() => {
       armed = true;
     }, 0);
+
     return () => {
       window.clearTimeout(timer);
       const index = activeIndexRef.current;
+
       if (
         !armed ||
         tour.stops.length === 0 ||
@@ -1092,6 +1180,7 @@ export function GuidedTourPanel({
       ) {
         return;
       }
+
       captureUiEvent(session, "tour_abandoned", {
         step: Math.max(0, index) + 1,
         steps: tour.stops.length,
@@ -1105,17 +1194,23 @@ export function GuidedTourPanel({
   // the scroller's height from inside auto-height feed content.
   useEffect(() => {
     const scroller = scrollerRef.current;
+
     if (!scroller) return;
     const lastStop = tour.stops[tour.stops.length - 1];
+
     if (!lastStop) return;
+
     const measure = () => {
       const section = sectionRefs.current.get(lastStop.anchor.id);
       const tail = tailRef.current;
+
       if (!section || !tail) return;
+
       const lastTopInContent =
         section.getBoundingClientRect().top -
         scroller.getBoundingClientRect().top +
         scroller.scrollTop;
+
       const contentSansTail = scroller.scrollHeight - tail.offsetHeight;
       setTailHeight(
         Math.max(
@@ -1129,12 +1224,16 @@ export function GuidedTourPanel({
         ),
       );
     };
+
     measure();
+
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(scroller);
     const content = scroller.firstElementChild;
+
     if (content) observer.observe(content);
+
     return () => observer.disconnect();
   }, [tour]);
 
@@ -1146,6 +1245,7 @@ export function GuidedTourPanel({
     ) {
       return;
     }
+
     completedTourIdRef.current = tour.id;
     captureUiEvent(session, "tour_completed", { steps: tour.stops.length });
   }, [activeIndex, session, tour]);
@@ -1155,7 +1255,9 @@ export function GuidedTourPanel({
     handledRevealRequestRef.current = revealRequest;
     const scroller = scrollerRef.current;
     const section = sectionRefs.current.get(activeAnchor);
+
     if (!section || !scroller) return;
+
     const frame = requestAnimationFrame(() => {
       const scrollerTop = scroller.getBoundingClientRect().top;
       const sectionTop = section.getBoundingClientRect().top;
@@ -1163,18 +1265,23 @@ export function GuidedTourPanel({
         top: scroller.scrollTop + sectionTop - scrollerTop,
       });
     });
+
     return () => cancelAnimationFrame(frame);
   }, [activeAnchor, revealRequest]);
 
   const displayIndex = Math.max(0, activeIndex);
   const lastIndex = tour.stops.length - 1;
+
   const stepTo = (index: number) => {
     const stop = tour.stops[index];
+
     if (!stop) return;
     onActiveAnchorChange(stop.anchor.id, { reveal: true });
   };
+
   const showIntroPill =
     !hasScrolled && displayIndex === 0 && tour.stops.length > 1;
+
   // Docusaurus's TOC rule: the first stop whose top is still below the
   // scroller's top edge is the candidate. Once it reaches the top half of
   // the viewport it takes the highlight; until then the previous stop keeps
@@ -1185,15 +1292,19 @@ export function GuidedTourPanel({
     setHasScrolled(true);
     const scroller = scrollerRef.current;
     const lastStop = tour.stops[tour.stops.length - 1];
+
     if (!scroller || !lastStop) return;
     const scrollerRect = scroller.getBoundingClientRect();
     const halfLine = scrollerRect.top + scrollerRect.height / 2;
     let nextAnchor = lastStop.anchor.id;
+
     for (let index = 0; index < tour.stops.length; index += 1) {
       const stop = tour.stops[index]!;
       const section = sectionRefs.current.get(stop.anchor.id);
+
       if (!section) continue;
       const top = section.getBoundingClientRect().top;
+
       if (top < scrollerRect.top) continue;
       nextAnchor =
         top <= halfLine
@@ -1201,6 +1312,7 @@ export function GuidedTourPanel({
           : (tour.stops[index - 1] ?? stop).anchor.id;
       break;
     }
+
     if (nextAnchor === activeAnchor) return;
     onActiveAnchorChange(nextAnchor, { reveal: false });
   };
@@ -1271,6 +1383,7 @@ export function GuidedTourPanel({
         <div className="side-peek-body tour-feed">
           {tour.stops.map((stop, index) => {
             const isActive = stop.anchor.id === activeAnchor;
+
             return (
               <section
                 key={stop.anchor.id}
@@ -1341,10 +1454,12 @@ function GuidedTourStopMain({
     softwareMapEnabled,
     openSoftwareMapElement,
   } = useReviewActions();
+
   const titleThreadController = usePanelThreadController({
     anchor: stop.anchor,
     threadHost: "title",
   });
+
   return (
     <div className="tour-stop-main">
       <header className="tour-stop-header">
@@ -1444,8 +1559,10 @@ export function ReviewPeekContentView({
       />
     );
   }
+
   if (content.kind === "inline-code") {
     if (!anchor) return null;
+
     return (
       <PanelAuthoredCodeSurface
         anchor={anchor}
@@ -1458,6 +1575,7 @@ export function ReviewPeekContentView({
       />
     );
   }
+
   return null;
 }
 
@@ -1476,6 +1594,7 @@ function ThreadPanelInner({
   const session = useReviewSession();
   const openThreads = useReviewPanel((state) => state.openThreads);
   const setThreadsPage = useReviewPanel((state) => state.setThreadsPage);
+
   const newAskTargetRef = useRef<{
     threadId: string;
     target: ThreadTarget;
@@ -1485,15 +1604,20 @@ function ThreadPanelInner({
     target: { kind: "document" },
     title: "Entire document",
   });
+
   const commentThreadId =
     panel.page.kind === "comment" ? panel.page.threadId : null;
+
   const target = panel.page.kind === "new-ask" ? newAskTargetRef.current : null;
+
   const commentThread = commentThreadId
     ? ([...review.allCommentThreads(), ...review.resolvedCommentThreads()].find(
         (candidate) => candidate.threadId === commentThreadId,
       ) ?? null)
     : null;
+
   const thread = commentThread ? commentThreadView(commentThread) : null;
+
   const listThreads = review
     .allCommentThreads()
     .map(commentThreadView)
@@ -1501,6 +1625,7 @@ function ThreadPanelInner({
       (left, right) =>
         (Date.parse(right.latestAt) || 0) - (Date.parse(left.latestAt) || 0),
     );
+
   const resolvedThreads = review
     .resolvedCommentThreads()
     .map(commentThreadView)
@@ -1511,6 +1636,7 @@ function ThreadPanelInner({
 
   const askNow = async (body: string) => {
     const destination = commentThread ?? target;
+
     if (!destination) return;
     await review.askAgent({
       threadId: destination.threadId,
@@ -1518,20 +1644,24 @@ function ThreadPanelInner({
       target: destination.target,
       body,
     });
+
     // The native terminal may already have closed Threads by the time the
     // ask resolves; only move within the panel if it is still open.
     if (panel.page.kind === "new-ask") {
       setThreadsPage({ kind: "comment", threadId: destination.threadId });
     }
   };
+
   const resumeInTerminal = (item: ThreadView) => {
     return session.surface.post({
       name: "resumeAgentTerminal",
       args: { threadId: item.threadId },
     });
   };
+
   const addToReview = async (body: string) => {
     const destination = commentThread ?? target;
+
     if (!destination) return;
     await review.saveComment({
       threadId: destination.threadId,
@@ -1545,6 +1675,7 @@ function ThreadPanelInner({
         : { kind: "comment", threadId: destination.threadId },
     );
   };
+
   const selectListThread = (item: ThreadView) => {
     // Scroll to and highlight the anchor, but keep the detail here in the
     // sidebar (highlight-only focus, no inline surface).
@@ -1714,11 +1845,13 @@ function ThreadChat({
       <div className="thread-chat-transcript">
         {thread?.messages.map((message) => {
           const caption = `${message.by} · ${threadRelativeTimeLabel(message.at)}`;
+
           const body = message.agentMarkdown ? (
             <AgentMarkdown source={message.body} />
           ) : (
             message.body
           );
+
           // A running agent turn renders as a transcript status row, the
           // same register as the trace document's worked separator.
           if (message.running) {
@@ -1728,6 +1861,7 @@ function ThreadChat({
               </AgentChatStatusRow>
             );
           }
+
           return message.userAuthored ? (
             <AgentChatUserMessage key={message.id} caption={caption}>
               {body}
@@ -1791,6 +1925,7 @@ function ThreadPanelList({
       </div>
     );
   }
+
   return (
     <div className="question-sidebar-list">
       {threads.map((thread) => (
@@ -1822,6 +1957,7 @@ function ThreadPanelListRow({
 }) {
   const targetState = useThreadTargetState(thread.target);
   const status = threadListStatus(thread);
+
   return (
     <div
       className={[

@@ -72,6 +72,7 @@ describe("review home", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
       lastPublishedAt: null,
     };
+
     expect(
       parseAnyStoredReviewRecord({
         ...base,
@@ -159,6 +160,7 @@ describe("review home", () => {
     const root = await gitRepository();
     await reviewHome();
     const commit = await git(root, ["rev-parse", "HEAD"]);
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
@@ -191,6 +193,7 @@ describe("review home", () => {
     const root = await gitRepository();
     await reviewHome();
     const commit = await git(root, ["rev-parse", "HEAD"]);
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
@@ -199,18 +202,21 @@ describe("review home", () => {
       sourceIdentity: { kind: "git-branch", name: "main" },
       sourceSession: "codex:creator",
     });
+
     const first = await touchReviewAgentSession(
       created,
       "codex:creator",
       "publisher",
       "2026-08-12T10:00:00.000Z",
     );
+
     const second = await touchReviewAgentSession(
       first,
       "codex:creator",
       "publisher",
       "2026-08-12T11:00:00.000Z",
     );
+
     expect(second.review.sourceSession).toBe("codex:creator");
     expect(second.review.agentSessions?.["codex:creator"]).toMatchObject({
       roles: ["author", "publisher"],
@@ -277,9 +283,11 @@ describe("review home", () => {
       baseRef: "main",
       baseCommit: await git(root, ["rev-parse", "HEAD"]),
     });
+
     const record = JSON.parse(
       await readFile(path.join(created.dir, "review.json"), "utf8"),
     );
+
     await writeFile(
       path.join(created.dir, "review.json"),
       JSON.stringify({
@@ -351,6 +359,7 @@ describe("review home", () => {
     await git(root, ["add", "."]);
     await git(root, ["commit", "-m", "add feature"]);
     const sourceCommit = await git(root, ["rev-parse", "HEAD"]);
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: baseCommit,
@@ -360,6 +369,7 @@ describe("review home", () => {
       pullRequestNumber: 673,
       pullRequestUrl: "https://github.com/Fix-Fast/dev/pull/673",
     });
+
     appendReviewComment(path.join(created.dir, "review.mdx"), {
       threadId: "thread-1",
       messageId: "message-1",
@@ -367,6 +377,7 @@ describe("review home", () => {
       body: "Review this.",
       author: "reviewer",
     });
+
     const documentUpdatedAt = (
       await stat(path.join(created.dir, "review.mdx"))
     ).mtime.toISOString();
@@ -396,12 +407,14 @@ describe("review home", () => {
     const root = await gitRepository();
     await reviewHome();
     const baseCommit = await git(root, ["rev-parse", "HEAD"]);
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: baseCommit,
       baseCommit,
       sourceCommit: baseCommit,
     });
+
     await rm(reviewThreadDbPath(path.join(created.dir, "review.mdx")));
     await expect(
       reviewDescriptor(created, { threads: "read-only" }),
@@ -479,6 +492,7 @@ describe("review home", () => {
     await git(root, ["add", "."]);
     await git(root, ["commit", "-m", "add example"]);
     const originalCommit = await git(root, ["rev-parse", "HEAD"]);
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
@@ -486,7 +500,9 @@ describe("review home", () => {
       sourceCommit: originalCommit,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
+
     const reviewPath = path.join(created.dir, "review.mdx");
+
     const originalPosition = createGitLabTextDiffPosition({
       base_sha: originalCommit,
       start_sha: originalCommit,
@@ -496,11 +512,13 @@ describe("review home", () => {
       start: { old_line: null, new_line: 8 },
       end: { old_line: null, new_line: 9 },
     });
+
     const originalTarget = {
       kind: "code" as const,
       original_position: originalPosition,
       position: originalPosition,
     };
+
     appendReviewComment(reviewPath, {
       threadId: "thread-1",
       messageId: "message-1",
@@ -517,6 +535,7 @@ describe("review home", () => {
     await git(root, ["add", "."]);
     await git(root, ["commit", "-m", "insert lines"]);
     const movedCommit = await git(root, ["rev-parse", "HEAD"]);
+
     const movedReview = await updateReviewPins(created, {
       baseRef: "main",
       baseCommit: originalCommit,
@@ -524,7 +543,9 @@ describe("review home", () => {
       sourceIdentity: { kind: "git-branch", name: "main" },
       sourceSession: created.review.sourceSession,
     });
+
     const moved = readReviewComments(reviewPath)["thread-1"]!;
+
     if (moved.target.kind !== "code") throw new Error("Expected code target.");
     expect(moved.target.original_position).toEqual(originalPosition);
     expect(moved.target.position).toMatchObject({
@@ -543,6 +564,7 @@ describe("review home", () => {
     await git(root, ["add", "."]);
     await git(root, ["commit", "-m", "change selected line"]);
     const changedCommit = await git(root, ["rev-parse", "HEAD"]);
+
     const outdatedReview = await updateReviewPins(movedReview, {
       baseRef: "main",
       baseCommit: originalCommit,
@@ -550,10 +572,13 @@ describe("review home", () => {
       sourceIdentity: { kind: "git-branch", name: "main" },
       sourceSession: movedReview.review.sourceSession,
     });
+
     const outdated = readReviewComments(reviewPath)["thread-1"]!;
+
     if (outdated.target.kind !== "code") {
       throw new Error("Expected code target.");
     }
+
     expect(outdated.target.position).toEqual(moved.target.position);
     expect(outdated.target.change_position).toMatchObject({
       head_sha: changedCommit,
@@ -575,9 +600,11 @@ describe("review home", () => {
       sourceSession: outdatedReview.review.sourceSession,
     });
     const stillOutdated = readReviewComments(reviewPath)["thread-1"]!;
+
     if (stillOutdated.target.kind !== "code") {
       throw new Error("Expected code target.");
     }
+
     expect(stillOutdated.target.position).toEqual(moved.target.position);
     expect(stillOutdated.target.change_position).toMatchObject({
       head_sha: restoredCommit,
@@ -588,15 +615,18 @@ describe("review home", () => {
   it("ignores active and stale locks and unrelated directories during discovery", async () => {
     const root = await gitRepository();
     await reviewHome();
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
       baseCommit: await git(root, ["rev-parse", "HEAD"]),
     });
+
     const staleReviewDir = path.join(
       reviewsHomeDir(),
       "11111111-1111-4111-8111-111111111111",
     );
+
     const staleLock = `${staleReviewDir}.mutation-lock`;
     const unrelated = path.join(reviewsHomeDir(), "notes");
     await mkdir(staleLock);
@@ -716,12 +746,14 @@ describe("review home", () => {
     await reviewHome();
 
     const sourceCommit = await git(root, ["rev-parse", "HEAD"]);
+
     const review = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
       baseCommit: sourceCommit,
       sourceCommit,
     });
+
     await createReviewDir({
       worktreePath: otherRoot,
       baseRef: "main",
@@ -747,6 +779,7 @@ describe("review home", () => {
     await reviewHome();
 
     const sourceCommit = await git(root, ["rev-parse", "HEAD"]);
+
     const review = await createReviewDir({
       visibility: "system",
       worktreePath: root,
@@ -795,6 +828,7 @@ async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", root, ...args], {
     encoding: "utf8",
   });
+
   return stdout.trim();
 }
 
@@ -802,11 +836,13 @@ describe("legacy records on read", () => {
   it("reads repair metadata without migration and preserves lookup validation", async () => {
     const root = await gitRepository();
     await reviewHome();
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
       baseCommit: await git(root, ["rev-parse", "HEAD"]),
     });
+
     const recordPath = path.join(created.dir, "review.json");
     const record = await legacyRecord(created, 4, "a".repeat(40));
     const bytes = JSON.stringify(record);
@@ -818,6 +854,7 @@ describe("legacy records on read", () => {
     });
     expect(loaded).not.toHaveProperty("recovery");
     expect(await readFile(recordPath, "utf8")).toBe(bytes);
+
     for (const value of [
       "{broken",
       JSON.stringify({ ...record, baseCommit: 42 }),
@@ -833,6 +870,7 @@ describe("legacy records on read", () => {
       ).rejects.toBeInstanceOf(ReviewHomeScanError);
       expect(await readFile(recordPath, "utf8")).toBe(value);
     }
+
     await expect(findReviewForRepair("not-a-uuid")).rejects.toThrow(
       "Review UUID is invalid",
     );
@@ -845,18 +883,22 @@ describe("legacy records on read", () => {
     async (schemaVersion) => {
       const root = await gitRepository();
       await reviewHome();
+
       const created = await createReviewDir({
         worktreePath: root,
         baseRef: "main",
         baseCommit: await git(root, ["rev-parse", "HEAD"]),
       });
+
       const recordPath = path.join(created.dir, "review.json");
       await sealReviewCandidate(created.dir, "Initial document");
+
       const record = await legacyRecord(
         created,
         schemaVersion === 6 ? 4 : schemaVersion,
         "a".repeat(40),
       );
+
       const bytes = JSON.stringify(
         schemaVersion === 6
           ? { ...created.review, schemaVersion }
@@ -867,6 +909,7 @@ describe("legacy records on read", () => {
               agentSession: "codex",
             },
       );
+
       await writeFile(recordPath, bytes);
       const refs = await git(created.dir, ["rev-parse", "HEAD"]);
       const listed = await listReviews();
@@ -885,16 +928,20 @@ describe("legacy records on read", () => {
     async (schemaVersion) => {
       const root = await gitRepository();
       const home = await reviewHome();
+
       const created = await createReviewDir({
         worktreePath: root,
         baseRef: "main",
         baseCommit: await git(root, ["rev-parse", "HEAD"]),
       });
+
       await writeLegacyDocument(created.dir);
+
       const revision = await sealReviewCandidate(
         created.dir,
         "Legacy document",
       );
+
       const recordPath = path.join(created.dir, "review.json");
       await writeFile(
         recordPath,
@@ -936,11 +983,13 @@ describe("legacy records on read", () => {
   it("migrates once when two readers race", async () => {
     const root = await gitRepository();
     await reviewHome();
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
       baseCommit: await git(root, ["rev-parse", "HEAD"]),
     });
+
     await writeLegacyDocument(created.dir);
     const revision = await sealReviewCandidate(created.dir, "Legacy document");
     await writeFile(
@@ -962,11 +1011,13 @@ describe("legacy records on read", () => {
   it("reports repair without touching a review whose sealed document is broken", async () => {
     const root = await gitRepository();
     await reviewHome();
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
       baseCommit: await git(root, ["rev-parse", "HEAD"]),
     });
+
     await writeLegacyDocument(created.dir, {
       code: 'import { jsx } from "review-doc-runtime"; throw new Error("broken sealed document");',
     });
@@ -1011,6 +1062,7 @@ async function legacyRecord(
     presentedSoftwareMapRevision: _map,
     ...common
   } = created.review;
+
   return {
     ...common,
     schemaVersion,

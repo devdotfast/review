@@ -37,6 +37,7 @@ function Diagram({ label }: { label: string }) {
       }),
     ],
   });
+
   return null;
 }
 
@@ -79,6 +80,7 @@ describe("diagram target registry", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     const container = document.createElement("div");
     const root = createRoot(container);
+
     const renderDocument = (
       anchors: ReadonlyMap<string, AnchorRef>,
       Document: () => React.ReactElement,

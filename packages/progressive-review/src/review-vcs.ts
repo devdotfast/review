@@ -5,10 +5,12 @@ import path from "node:path";
 import * as git from "isomorphic-git";
 
 const REVIEW_BRANCH = "refs/heads/main";
+
 const REVIEW_AUTHOR = {
   name: "dev.fast Review",
   email: "review@dev.fast",
 };
+
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}$/i;
 
 export interface ReviewVcsLogEntry {
@@ -39,6 +41,7 @@ export const reviewVcs: ReviewVcs = {
     await stageWorkingTree(dir);
     const parent = await resolveHead(dir);
     const timestamp = Math.floor(Date.now() / 1_000);
+
     return git.commit({
       fs,
       dir,
@@ -52,11 +55,13 @@ export const reviewVcs: ReviewVcs = {
 
   async log(dir) {
     let commits: Awaited<ReturnType<typeof git.log>>;
+
     try {
       commits = await git.log({ fs, dir, ref: REVIEW_BRANCH });
     } catch {
       return [];
     }
+
     return commits.map((entry) => ({
       oid: entry.oid,
       message: entry.commit.message.trim(),
@@ -79,36 +84,47 @@ export const reviewVcs: ReviewVcs = {
       map: async (filepath, [entry]) => {
         if (!entry || filepath === ".") return;
         const type = await entry.type();
+
         if (type === "tree") return;
+
         if (type === "commit") {
           throw new Error(
             `Cannot materialize Git submodule at ${filepath} from review ${commitId}.`,
           );
         }
+
         if (type === "special") {
           throw new Error(
             `Cannot materialize special file at ${filepath} from review ${commitId}.`,
           );
         }
+
         const content = await entry.content();
+
         if (!content) {
           throw new Error(
             `Review ${commitId} has no blob content for ${filepath}.`,
           );
         }
+
         const outputPath = path.join(destinationPath, filepath);
         await mkdir(path.dirname(outputPath), { recursive: true });
         const mode = await entry.mode();
+
         if (mode === 0o120000) {
           if (process.platform === "win32") {
             throw new Error(
               "Review symlink materialization is unsupported on Windows.",
             );
           }
+
           await symlink(Buffer.from(content).toString("utf8"), outputPath);
+
           return;
         }
+
         await writeFile(outputPath, content);
+
         if (mode === 0o100755) await chmod(outputPath, 0o755);
       },
     });
@@ -138,6 +154,8 @@ async function resolveCommit(dir: string, revision: string): Promise<string> {
   const commitId = GIT_OBJECT_ID_PATTERN.test(revision)
     ? revision.toLowerCase()
     : await git.resolveRef({ fs, dir, ref: revision });
+
   await git.readCommit({ fs, dir, oid: commitId });
+
   return commitId;
 }

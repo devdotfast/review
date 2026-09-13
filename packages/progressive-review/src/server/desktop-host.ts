@@ -11,10 +11,12 @@ export async function runDesktopHost(
 ): Promise<void> {
   // Port 0 lets the OS choose; the ready event below reports what was bound.
   const port = requiredPort(env.DEV_FAST_REVIEW_SERVER_PORT);
+
   const appPid = requiredPositiveInteger(
     env.DEV_FAST_REVIEW_APP_PID,
     "DEV_FAST_REVIEW_APP_PID",
   );
+
   const packageRoot = findProgressiveReviewPackageRoot(import.meta.url);
   const toolingRoot = env.DEV_FAST_REVIEW_TOOLING_ROOT || packageRoot;
   const telemetryEnv = { ...env };
@@ -27,6 +29,7 @@ export async function runDesktopHost(
   // This value bootstraps the stored setting. Remove it after persistence so
   // a later in-app enable also reaches telemetry instances created elsewhere.
   delete env.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
+
   const serverInput: Parameters<typeof createGlobalReviewServer>[0] = {
     appPid,
     packageRoot,
@@ -36,14 +39,17 @@ export async function runDesktopHost(
     instanceId: env.DEV_FAST_REVIEW_INSTANCE_ID,
     telemetry,
   };
+
   if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
     serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;
   }
+
   const server = createGlobalReviewServer(serverInput);
   await server.listen();
   process.stdout.write(
     `${JSON.stringify({ event: "ready", ...server.discovery, installationId })}\n`,
   );
+
   const stageRustAnalyzer = () =>
     ensureBundledRustAnalyzer({ env }).catch((error) => {
       const reason = error instanceof Error ? error.message : String(error);
@@ -51,15 +57,19 @@ export async function runDesktopHost(
         `[Review tools] Could not stage bundled rust-analyzer: ${reason}\n`,
       );
     });
+
   void stageRustAnalyzer();
 
   let stopping: Promise<void> | null = null;
+
   const stop = () => {
     if (!stopping) {
       stopping = server.close("app-exit");
     }
+
     return stopping;
   };
+
   listenForDesktopHostShutdown(
     process,
     () => {
@@ -87,11 +97,13 @@ function isEnabledEnvValue(value: string | undefined): boolean {
 
 function requiredPort(value: string | undefined): number {
   const parsed = Number(value);
+
   if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > 65_535) {
     throw new Error(
       "DEV_FAST_REVIEW_SERVER_PORT must be a port between 0 and 65535.",
     );
   }
+
   return parsed;
 }
 
@@ -100,9 +112,11 @@ function requiredPositiveInteger(
   name: string,
 ): number {
   const parsed = Number(value);
+
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${name} must be a positive integer.`);
   }
+
   return parsed;
 }
 

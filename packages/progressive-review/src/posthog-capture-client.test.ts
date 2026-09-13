@@ -19,6 +19,7 @@ describe("PostHogCaptureClient", () => {
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
     );
+
     const client = new PostHogCaptureClient({
       apiKey: "test-key",
       fetch: fetchMock,
@@ -52,9 +53,11 @@ describe("PostHogCaptureClient", () => {
   it("uses env overrides for the key and host", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
     roots.push(root);
+
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
     );
+
     const client = PostHogCaptureClient.fromEnv(
       {
         DEV_REVIEW_HOME: root,
@@ -75,9 +78,11 @@ describe("PostHogCaptureClient", () => {
   it("disables capture when no key is embedded or set in the env", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
     roots.push(root);
+
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
     );
+
     const client = PostHogCaptureClient.fromEnv(
       { DEV_REVIEW_HOME: root },
       { fetch: fetchMock },
@@ -93,10 +98,12 @@ describe("PostHogCaptureClient", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "review-queue-"));
     roots.push(root);
     let now = Date.parse("2026-08-05T12:00:00.000Z");
+
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
+
     const client = new PostHogCaptureClient({
       apiKey: "test-key",
       fetch: fetchMock,
@@ -129,6 +136,7 @@ describe("PostHogCaptureClient", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => {
       throw new Error("network down");
     });
+
     const disabled = new PostHogCaptureClient({ fetch: fetchMock });
     await disabled.capture({ event: "event", distinctId: "install-1" });
     expect(disabled.enabled).toBe(false);
@@ -137,6 +145,7 @@ describe("PostHogCaptureClient", () => {
       apiKey: "test-key",
       fetch: fetchMock,
     });
+
     await expect(
       enabled.capture({ event: "event", distinctId: "install-1" }),
     ).resolves.toBeUndefined();

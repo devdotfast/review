@@ -44,18 +44,21 @@ describe("ruler geometry", () => {
     const tickCount = 7;
     const eventCount = 23;
     let next = 0;
+
     for (let tick = 0; tick < tickCount; tick += 1) {
       const { start, end } = rulerBucketRange(tick, tickCount, eventCount);
       expect(start).toBe(next);
       expect(end).toBeGreaterThan(start);
       next = end;
     }
+
     expect(next).toBe(eventCount);
   });
 
   it("maps events back to the tick whose bucket contains them", () => {
     const tickCount = 7;
     const eventCount = 23;
+
     for (let index = 0; index < eventCount; index += 1) {
       const tick = rulerTickForEvent(index, tickCount, eventCount);
       const { start, end } = rulerBucketRange(tick, tickCount, eventCount);
@@ -97,6 +100,7 @@ describe("rulerNearestTick", () => {
       { top: 50, bottom: 52 },
       { top: 53, bottom: 55 },
     ];
+
     expect(rulerNearestTick(uneven, 30)).toBe(0);
     expect(rulerNearestTick(uneven, 52.4)).toBe(1);
     expect(rulerNearestTick(uneven, 53.6)).toBe(2);
@@ -119,6 +123,7 @@ describe("turn ticks", () => {
     assistantEvent("Keep the synthetic buffer and delegate."),
     userEvent("ok do it"),
   ];
+
   const turns = buildIndexedTraceTurns(events);
 
   it("uses the trace view's own turn grouping: one turn per user prompt", () => {
@@ -163,6 +168,7 @@ describe("turn ticks", () => {
       userEvent("a\n\n  b"),
       assistantEvent("c\td"),
     ]);
+
     expect(rulerPreview(turn)).toEqual({ title: "a b", snippet: "c d" });
   });
 });
@@ -187,6 +193,7 @@ describe("TraceRuler", () => {
       await act(async () => root?.unmount());
       root = null;
     }
+
     document.body.replaceChildren();
   });
 

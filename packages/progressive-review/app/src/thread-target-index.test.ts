@@ -16,6 +16,7 @@ import {
 describe("canonical code thread projection", () => {
   it("returns one stored thread through overlapping range anchors", () => {
     const resolution = runtimeResolution();
+
     const anchors: AnchorRef[] = [
       reviewAnchor(
         "full-range",
@@ -33,6 +34,7 @@ describe("canonical code thread projection", () => {
         resolution,
       ),
     ];
+
     const thread: ReviewCommentThreadRecord = {
       threadId: "shared-thread",
       target: buildCodeTarget({
@@ -45,6 +47,7 @@ describe("canonical code thread projection", () => {
       status: "open",
       messages: [],
     };
+
     const unrelated = Array.from({ length: 50 }, (_, index) => ({
       ...thread,
       threadId: `other-${index}`,
@@ -56,6 +59,7 @@ describe("canonical code thread projection", () => {
         span: { startLine: 1, endLine: 1 },
       }),
     }));
+
     const index = buildThreadTargetIndex([thread, ...unrelated]);
     const commits = { baseRef: "base-commit", headRef: "head-commit" };
 
@@ -87,6 +91,7 @@ describe("canonical code thread projection", () => {
         },
       ],
     };
+
     const position = createGitLabTextDiffPosition({
       base_sha: "base-commit",
       start_sha: "base-commit",
@@ -96,6 +101,7 @@ describe("canonical code thread projection", () => {
       start: { old_line: 40, new_line: null },
       end: { old_line: null, new_line: 42 },
     });
+
     const thread: ReviewCommentThreadRecord = {
       threadId: "cross-side",
       target: {
@@ -106,6 +112,7 @@ describe("canonical code thread projection", () => {
       status: "open",
       messages: [],
     };
+
     const anchor = reviewAnchor(
       "cross-side",
       { file: "src/runtime.ts", fromLine: 40, toLine: 42 },
@@ -140,6 +147,7 @@ function reviewAnchor(
 
 function runtimeResolution(): CodePeekResolution {
   const sourceId = "source-range:src/runtime.ts:40-42";
+
   return {
     snapshot: {
       roots: [{ kind: "source", sourceId }],

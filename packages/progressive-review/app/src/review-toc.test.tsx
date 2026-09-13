@@ -15,6 +15,7 @@ class NoopResizeObserver {
   unobserve(): void {}
   disconnect(): void {}
 }
+
 globalThis.ResizeObserver ??= NoopResizeObserver as never;
 
 function renderArticle(headings: string[]): HTMLElement {
@@ -23,6 +24,7 @@ function renderArticle(headings: string[]): HTMLElement {
   article.innerHTML = headings
     .map((heading) => `<h2>${heading}</h2><p>body</p>`)
     .join("");
+
   return article;
 }
 
@@ -81,6 +83,7 @@ describe("ReviewToc", () => {
       "Interface change",
       "Scheduling sequence",
     ]);
+
     reviewRoots.articleRef.current = firstArticle;
     view.append(firstArticle);
     const root = createRoot(mount);
@@ -107,11 +110,13 @@ describe("ReviewToc", () => {
     firstArticle.remove();
     reviewRoots.articleRef.current = null;
     await settle();
+
     const secondArticle = renderArticle([
       "Database lens",
       "Topology",
       "Evidence",
     ]);
+
     reviewRoots.articleRef.current = secondArticle;
     view.append(secondArticle);
     await settle();

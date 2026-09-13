@@ -42,6 +42,7 @@ import { resolveTraceStorage } from "./resolve";
 import { TraceStorageDeniedError } from "./types";
 
 const REPOSITORY_ID = 321;
+
 const ORIGIN = "https://app.dev.fast";
 
 function sessionRecord(sessionId: string, text: string): string {
@@ -78,6 +79,7 @@ describe("hosted trace storage", () => {
     localTraceRoot = path.join(tempDir, "local-traces");
     repoDir = path.join(tempDir, "repo");
     mockBucket = path.join(tempDir, "mock-bucket");
+
     for (const dir of [
       devHome,
       corpusRoot,
@@ -87,6 +89,7 @@ describe("hosted trace storage", () => {
     ]) {
       mkdirSync(dir, { recursive: true });
     }
+
     vi.stubEnv("DEV_REVIEW_HOME", devHome);
     vi.stubEnv("TRACE_LOCAL_TRACE_ROOT", localTraceRoot);
     vi.stubEnv("REVIEW_TEST_TRACE_SEARCH_DIR", corpusRoot);
@@ -133,6 +136,7 @@ describe("hosted trace storage", () => {
       `${sessionRecord(sessionId, "hello")}\n`,
     );
     const transport = createMemoryTraceStoreTransport();
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
@@ -177,11 +181,13 @@ describe("hosted trace storage", () => {
   it("reports session metadata from the store listing", async () => {
     const sessionId = "hosted-session-0005";
     const transport = createMemoryTraceStoreTransport();
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
@@ -220,6 +226,7 @@ describe("hosted trace storage", () => {
       process.env,
     );
     const warnings: string[] = [];
+
     const storage = await HostedTraceStorage.resolve({
       cwd: repoDir,
       origin: ORIGIN,
@@ -227,6 +234,7 @@ describe("hosted trace storage", () => {
       transport,
       onWarning: (message) => warnings.push(message),
     });
+
     expect(storage?.offline).toBe(true);
     expect(warnings).toEqual([
       expect.stringContaining(
@@ -263,11 +271,13 @@ describe("hosted trace storage", () => {
   it("shows nothing when the store refuses, instead of an old copy", async () => {
     const sessionId = "hosted-session-0007";
     const transport = createMemoryTraceStoreTransport();
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
@@ -285,12 +295,14 @@ describe("hosted trace storage", () => {
         "You cannot use this repository.",
       );
     };
+
     // A later command resolves its own storage; the listing is not reused.
     const revoked = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     try {
       expect(
         await loadReviewAgentTrace({
@@ -312,30 +324,36 @@ describe("hosted trace storage", () => {
   it("refreshes a saved copy when the content changes at the same size", async () => {
     const sessionId = "hosted-session-0002";
     const transport = createMemoryTraceStoreTransport();
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
       traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "first")}\n` },
     });
+
     const first = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
       storage,
     });
+
     expect(
       first?.trace.events.map((event) => "text" in event && event.text),
     ).toEqual(["first"]);
+
     const cachePath = path.join(
       corpusRoot,
       traceTargetKey(target(transport.storeId)),
       sessionId,
       "main.jsonl",
     );
+
     expect(existsSync(cachePath)).toBe(true);
     const metadata = JSON.parse(readFileSync(cachePath, "utf8").split("\n")[0]);
     expect(metadata.source.storage).toBe(storage.cacheIdentity());
@@ -348,6 +366,7 @@ describe("hosted trace storage", () => {
       sessionId,
       traces: { "main.jsonl.gz": `${sessionRecord(sessionId, "later")}\n` },
     });
+
     const second = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
@@ -358,6 +377,7 @@ describe("hosted trace storage", () => {
       }),
       refresh: true,
     });
+
     expect(
       second?.trace.events.map((event) => "text" in event && event.text),
     ).toEqual(["later"]);
@@ -366,11 +386,13 @@ describe("hosted trace storage", () => {
   it("never serves a hosted copy through s3 storage or a s3 copy as hosted", async () => {
     const sessionId = "hosted-session-0003";
     const transport = createMemoryTraceStoreTransport();
+
     const hosted = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
@@ -383,12 +405,14 @@ describe("hosted trace storage", () => {
     // An unscoped legacy copy under the classic owner/repo layout.
     const legacyDir = path.join(corpusRoot, "acme", "app", sessionId);
     mkdirSync(legacyDir, { recursive: true });
+
     const hostedCopy = path.join(
       corpusRoot,
       traceTargetKey(target(transport.storeId)),
       sessionId,
       "main.jsonl",
     );
+
     const legacyCopy = readFileSync(hostedCopy, "utf8")
       .split("\n")
       .map((line, index) => {
@@ -396,9 +420,11 @@ describe("hosted trace storage", () => {
         const record = JSON.parse(line);
         delete record.source.storage;
         delete record.source.contentId;
+
         return JSON.stringify(record);
       })
       .join("\n");
+
     writeFileSync(path.join(legacyDir, "main.jsonl"), legacyCopy);
 
     // Direct storage with nothing in its bucket: the hosted copy is not its.
@@ -407,23 +433,27 @@ describe("hosted trace storage", () => {
     clearTraceEnvCache();
     const s3 = await resolveTraceStorage({ cwd: repoDir });
     expect(s3?.kind).toBe("s3");
+
     const viaDirect = await loadReviewAgentTrace({
       sessionId,
       cwd: repoDir,
       repo: "acme/app",
       storage: s3,
     });
+
     // The legacy copy is s3's own and stays readable.
     expect(viaDirect?.descriptor.sessionId).toBe(sessionId);
 
     // The offline hosted storage sees only its own scope, not the legacy copy.
     rmSync(hostedCopy);
+
     const offline = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
       offline: true,
     });
+
     expect(
       await loadReviewAgentTrace({ sessionId, cwd: repoDir, storage: offline }),
     ).toBeNull();
@@ -488,11 +518,13 @@ describe("hosted trace storage", () => {
       // A hosted copy saved earlier, under this origin and repository.
       const sessionId = "hosted-session-0008";
       const transport = createMemoryTraceStoreTransport();
+
       const first = HostedTraceStorage.fromParts({
         target: target(transport.storeId),
         transport,
         devHome,
       });
+
       seedMemoryTraceSession(transport, {
         repositoryId: REPOSITORY_ID,
         sessionId,
@@ -591,6 +623,7 @@ describe("hosted trace storage", () => {
     async (trace) => {
       const sessionId = "hosted-session-removed";
       const transport = createMemoryTraceStoreTransport();
+
       const storage = (offline = false) =>
         HostedTraceStorage.fromParts({
           target: target(transport.storeId),
@@ -598,6 +631,7 @@ describe("hosted trace storage", () => {
           devHome,
           offline,
         });
+
       seedMemoryTraceSession(transport, {
         repositoryId: REPOSITORY_ID,
         sessionId,
@@ -609,6 +643,7 @@ describe("hosted trace storage", () => {
       expect(
         await loadReviewAgentTrace({ sessionId, trace, storage: storage() }),
       ).not.toBeNull();
+
       if (trace === "main") transport.sessions.clear();
       else
         seedMemoryTraceSession(transport, {
@@ -634,10 +669,12 @@ describe("hosted trace storage", () => {
           storage: storage(true),
         }),
       ).toBeNull();
+
       const main = await loadReviewAgentTrace({
         sessionId,
         storage: storage(),
       });
+
       expect(main !== null).toBe(trace !== "main");
     },
   );
@@ -662,9 +699,11 @@ describe("hosted trace storage", () => {
         }),
       }),
     ).not.toBeNull();
+
     const transport = createMemoryTraceStoreTransport({
       storeId: "b".repeat(32),
     });
+
     for (const offline of [true, false]) {
       expect(
         await loadReviewAgentTrace({
@@ -683,12 +722,14 @@ describe("hosted trace storage", () => {
   it("does not return stale content when a download is denied", async () => {
     const sessionId = "hosted-session-download-denied";
     const transport = createMemoryTraceStoreTransport();
+
     const storage = () =>
       HostedTraceStorage.fromParts({
         target: target(transport.storeId),
         transport,
         devHome,
       });
+
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
@@ -705,6 +746,7 @@ describe("hosted trace storage", () => {
     transport.getObject = async () => {
       throw new TraceStorageDeniedError("Access revoked");
     };
+
     await expect(
       loadReviewAgentTrace({ sessionId, storage: storage(), refresh: true }),
     ).rejects.toBeInstanceOf(TraceStorageDeniedError);
@@ -725,11 +767,13 @@ describe("hosted trace storage", () => {
       devHome,
     );
     const transport = createMemoryTraceStoreTransport();
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     await recordTraceSessionProvenance({
       sessionId,
       ...traceCaptureIdentity({ target: target(transport.storeId) }),
@@ -752,16 +796,19 @@ describe("hosted trace storage", () => {
         "subagents/agent-a1.jsonl.gz": `${sessionRecord(sessionId, "sub")}\n`,
       },
     });
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     const pulled = await pullReviewTraceCorpus({
       repo: { owner: "acme", repo: "app" },
       sessions: [{ id: sessionId }],
       storage,
     });
+
     expect(pulled.files).toBe(2);
     expect(listSessions).toHaveBeenCalledTimes(1);
   });
@@ -777,30 +824,36 @@ describe("hosted trace storage", () => {
       devHome,
     );
     const transport = createMemoryTraceStoreTransport();
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     await recordTraceSessionProvenance({
       sessionId,
       ...traceCaptureIdentity({ target: target(transport.storeId) }),
       devHome,
     });
+
     const first = await syncReviewTrace({
       sessionId,
       cwd: repoDir,
       storage,
       commits: ["a".repeat(40)],
     });
+
     expect(first.uploads.map((upload) => upload.status)).toEqual(["uploaded"]);
     const putObject = vi.spyOn(transport, "putObject");
+
     const second = await syncReviewTrace({
       sessionId,
       cwd: repoDir,
       storage,
       commits: ["b".repeat(40)],
     });
+
     expect(second.uploads.map((upload) => upload.status)).toEqual([
       "unchanged",
     ]);
@@ -814,6 +867,7 @@ describe("hosted trace storage", () => {
     const transport = createMemoryTraceStoreTransport({ pageSize: 2 });
     const commit = "c".repeat(40);
     const ids = [1, 2, 3, 4, 5].map((index) => `hosted-session-page-${index}`);
+
     for (const id of ids) {
       seedMemoryTraceSession(transport, {
         repositoryId: REPOSITORY_ID,
@@ -822,11 +876,13 @@ describe("hosted trace storage", () => {
         traces: { "main.jsonl.gz": `${sessionRecord(id, "p")}\n` },
       });
     }
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     const found = await storage.sessionsForCommit(commit);
     expect([...(found?.sessions ?? [])].sort()).toEqual(ids);
   });
@@ -845,22 +901,26 @@ describe("hosted trace storage", () => {
       devHome,
     );
     const transport = createMemoryTraceStoreTransport();
+
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     });
+
     await recordTraceSessionProvenance({
       sessionId,
       ...traceCaptureIdentity({ target: target(transport.storeId) }),
       devHome,
     });
     await syncReviewTrace({ sessionId, cwd: repoDir, storage, commits: [] });
+
     const meta = await HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
     }).sessionMeta(sessionId);
+
     expect(meta?.branch).toEqual(expect.any(String));
     expect(meta?.author).toEqual(expect.any(String));
   });

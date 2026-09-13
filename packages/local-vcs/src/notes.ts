@@ -14,13 +14,18 @@ import {
 } from "./index";
 
 const NOTES_LOCK_STALE_MS = 60_000;
+
 const NOTES_LOCK_POLL_MS = 50;
+
 const NOTES_LOCK_TIMEOUT_MS = 60_000;
+
 // The sync variant busy-spins the event loop while it waits (it runs inside
 // the Vite dev server, not just CLI one-shots), so it fails fast instead of
 // spinning for the full async budget.
 const NOTES_LOCK_SYNC_TIMEOUT_MS = 2_000;
+
 const NOTES_LOCK_TOUCH_MS = 5_000;
+
 const NOTES_WRITE_RETRIES = 3;
 
 /**
@@ -56,6 +61,7 @@ export async function readNote(input: {
     ref: input.ref,
     commits: [input.commit],
   });
+
   return batch.get(input.commit) ?? null;
 }
 
@@ -96,25 +102,33 @@ export async function readNotesBatch(input: {
   commits: readonly string[];
 }): Promise<Map<string, string>> {
   const result = new Map<string, string>();
+
   if (input.commits.length === 0) return result;
 
   const entries = await listNoteEntries(input.rootPath, input.ref);
+
   if (!entries) return result;
 
   const wanted = new Map<string, string>();
+
   for (const commit of input.commits) {
     const blob = entries.get(commit.toLowerCase());
+
     if (blob) wanted.set(commit, blob);
   }
+
   if (wanted.size === 0) return result;
 
   const contents = await catFileBatch(input.rootPath, [
     ...new Set(wanted.values()),
   ]);
+
   for (const [commit, blob] of wanted) {
     const content = contents.get(blob);
+
     if (content !== undefined) result.set(commit, content);
   }
+
   return result;
 }
 
@@ -126,22 +140,29 @@ async function listNoteEntries(
   const tree = await git(rootPath, ["rev-parse", `${ref}^{tree}`], {
     allowFailure: true,
   });
+
   if (!tree.ok) return null;
   const lsTree = await git(rootPath, ["ls-tree", "-r", tree.stdout.trim()]);
   const entries = new Map<string, string>();
+
   for (const line of lsTree.stdout.split("\n")) {
     if (!line) continue;
     // <mode> SP <type> SP <sha>\t<path>
     const tab = line.indexOf("\t");
+
     if (tab === -1) continue;
     const meta = line.slice(0, tab).split(" ");
+
     if (meta[1] !== "blob") continue;
+
     const key = line
       .slice(tab + 1)
       .replaceAll("/", "")
       .toLowerCase();
+
     if (/^[0-9a-f]{40,64}$/.test(key)) entries.set(key, meta[2]);
   }
+
   return entries;
 }
 
@@ -150,6 +171,7 @@ export async function listNoteCommits(input: {
   ref: string;
 }): Promise<string[]> {
   const entries = await listNoteEntries(input.rootPath, input.ref);
+
   return entries ? [...entries.keys()] : [];
 }
 
@@ -158,8 +180,10 @@ async function catFileBatch(
   blobShas: readonly string[],
 ): Promise<Map<string, string>> {
   const result = new Map<string, string>();
+
   if (blobShas.length === 0) return result;
   const args = await gitArgs(rootPath, ["cat-file", "--batch"]);
+
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, { stdio: ["pipe", "pipe", "pipe"] });
     const chunks: Buffer[] = [];
@@ -177,21 +201,27 @@ async function catFileBatch(
     child.once("close", (code) => {
       if (code !== 0) {
         reject(new Error(`git cat-file --batch failed: ${stderr}`));
+
         return;
       }
+
       const buffer = Buffer.concat(chunks);
       let offset = 0;
+
       for (const sha of blobShas) {
         const headerEnd = buffer.indexOf(0x0a, offset);
+
         if (headerEnd === -1) break;
         const header = buffer.slice(offset, headerEnd).toString();
         offset = headerEnd + 1;
         const parts = header.split(" ");
+
         if (parts[1] === "missing") continue;
         const size = Number.parseInt(parts[2] ?? "0", 10);
         result.set(sha, buffer.slice(offset, offset + size).toString("utf8"));
         offset += size + 1; // trailing LF after each object
       }
+
       resolve(result);
     });
     child.stdin.write(`${blobShas.join("\n")}\n`);
@@ -222,7 +252,9 @@ export async function writeNote(input: {
       os.tmpdir(),
       `dev-fast-note-${process.pid}-${Math.random().toString(36).slice(2)}`,
     );
+
     fs.writeFileSync(tmp, input.content, "utf8");
+
     try {
       // --no-filters: notes are a byte-for-byte contract; gitattributes/
       // autocrlf must not run text conversion over the blob.
@@ -232,8 +264,10 @@ export async function writeNote(input: {
         "--no-filters",
         tmp,
       ]);
+
       const blob = hashed.stdout.trim();
       let lastError: Error | null = null;
+
       for (let attempt = 0; attempt < NOTES_WRITE_RETRIES; attempt += 1) {
         const added = await git(
           input.rootPath,
@@ -248,9 +282,11 @@ export async function writeNote(input: {
           ],
           { allowFailure: true },
         );
+
         if (added.ok) return;
         lastError = new Error(added.stderr);
       }
+
       throw lastError;
     } finally {
       fs.rmSync(tmp, { force: true });
@@ -270,14 +306,18 @@ export function writeNoteSync(input: {
       os.tmpdir(),
       `dev-fast-note-${process.pid}-${Math.random().toString(36).slice(2)}`,
     );
+
     fs.writeFileSync(tmp, input.content, "utf8");
+
     try {
       const blob = execFileSyncObserved(
         "git",
         gitArgsSync(input.rootPath, ["hash-object", "-w", "--no-filters", tmp]),
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       ).trim();
+
       let lastError: Error | null = null;
+
       for (let attempt = 0; attempt < NOTES_WRITE_RETRIES; attempt += 1) {
         try {
           execFileSyncObserved(
@@ -293,11 +333,13 @@ export function writeNoteSync(input: {
             ]),
             { stdio: ["ignore", "ignore", "pipe"] },
           );
+
           return;
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
         }
       }
+
       throw lastError;
     } finally {
       fs.rmSync(tmp, { force: true });
@@ -317,6 +359,7 @@ export async function copyNote(input: {
     ref: input.ref,
     commit: input.from,
   });
+
   if (source === null) return false;
   await writeNote({
     rootPath: input.rootPath,
@@ -324,6 +367,7 @@ export async function copyNote(input: {
     commit: input.to,
     content: source,
   });
+
   return true;
 }
 
@@ -358,16 +402,19 @@ async function pruneNotesLocked(input: {
   ref: string;
 }): Promise<{ removed: string[] }> {
   const entries = await listNoteCommits(input);
+
   if (entries.length === 0) return { removed: [] };
 
   const existing: string[] = [];
   const missing: string[] = [];
+
   for (const commit of entries) {
     const exists = await git(
       input.rootPath,
       ["cat-file", "-e", `${commit}^{commit}`],
       { allowFailure: true },
     );
+
     (exists.ok ? existing : missing).push(commit);
   }
 
@@ -381,11 +428,13 @@ async function pruneNotesLocked(input: {
   // predecessor stays prunable — recovery never needs them.
   const annotated = new Set(entries.map((commit) => commit.toLowerCase()));
   const evologSpared = new Set<string>();
+
   for (const workingCopy of workingCopyIds) {
     const evolog = await evologCommitIds({
       rootPath: input.rootPath,
       ref: workingCopy,
     });
+
     for (const commit of evolog) {
       if (annotated.has(commit.toLowerCase())) {
         evologSpared.add(commit.toLowerCase());
@@ -395,6 +444,7 @@ async function pruneNotesLocked(input: {
   }
 
   const removed = [...missing];
+
   // `git notes prune` drops the entries whose commits no longer exist (they
   // cannot be named by `git notes remove`).
   if (missing.length > 0) {
@@ -402,17 +452,23 @@ async function pruneNotesLocked(input: {
       allowFailure: true,
     });
   }
+
   for (const commit of existing) {
     if (!unreachable.has(commit.toLowerCase())) continue;
+
     if (workingCopies.has(commit.toLowerCase())) continue;
+
     if (evologSpared.has(commit.toLowerCase())) continue;
+
     const dropped = await git(
       input.rootPath,
       ["notes", `--ref=${input.ref}`, "remove", commit],
       { allowFailure: true },
     );
+
     if (dropped.ok) removed.push(commit);
   }
+
   return { removed };
 }
 
@@ -422,6 +478,7 @@ async function unreachableCommits(
   commits: readonly string[],
 ): Promise<Set<string>> {
   if (commits.length === 0) return new Set();
+
   // rev-list walks from the given commits, minus everything reachable from
   // any ref; a commit appearing in the output is reachable from no ref. The
   // commits ride on stdin (--stdin injects them at that argv position, i.e.
@@ -433,6 +490,7 @@ async function unreachableCommits(
     "--not",
     "--all",
   ]);
+
   const listed = await new Promise<{ ok: boolean; stdout: string }>(
     (resolve) => {
       const child = spawn("git", args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -457,20 +515,26 @@ async function unreachableCommits(
       child.stdin.end();
     },
   );
+
   if (!listed.ok) {
     // Failing open (treating everything as reachable) is safe but must not
     // be silent: it disables pruning entirely.
     console.warn(
       `dev-fast notes prune: git rev-list reachability check failed; skipping unreachability-based pruning. ${listed.stdout.trim()}`,
     );
+
     return new Set();
   }
+
   const wanted = new Set(commits.map((commit) => commit.toLowerCase()));
   const unreachable = new Set<string>();
+
   for (const line of listed.stdout.split("\n")) {
     const commit = line.trim().toLowerCase();
+
     if (wanted.has(commit)) unreachable.add(commit);
   }
+
   return unreachable;
 }
 
@@ -493,6 +557,7 @@ async function jjWorkingCopyCommitIds(rootPath: string): Promise<string[]> {
       ],
       { cwd: rootPath, maxBuffer: 8 * 1024 * 1024 },
     );
+
     return stdout
       .split("\n")
       .map((line) => line.trim())
@@ -507,9 +572,12 @@ async function jjWorkingCopyCommitIds(rootPath: string): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 export const DEV_FAST_NOTES_GLOB = "refs/notes/dev-fast/*";
+
 export const DEV_FAST_REMOTE_NOTES_PREFIX = "refs/notes/dev-fast/remote/";
+
 export const DEV_FAST_NOTES_FETCH_REFSPEC =
   "+refs/notes/dev-fast/*:refs/notes/dev-fast/remote/*";
+
 export const DEV_FAST_NOTES_REMOTE_CONFIG = "devFast.notesRemote";
 
 export async function notesRemote(
@@ -517,12 +585,15 @@ export async function notesRemote(
   explicitRemote?: string,
 ): Promise<string> {
   const explicit = explicitRemote?.trim();
+
   if (explicit) return explicit;
+
   const configured = await git(
     rootPath,
     ["config", "--get", DEV_FAST_NOTES_REMOTE_CONFIG],
     { allowFailure: true },
   );
+
   return configured.ok && configured.stdout.trim()
     ? configured.stdout.trim()
     : "origin";
@@ -533,7 +604,9 @@ export function notesRemoteSync(
   explicitRemote?: string,
 ): string {
   const explicit = explicitRemote?.trim();
+
   if (explicit) return explicit;
+
   try {
     return (
       execFileSyncObserved(
@@ -579,22 +652,28 @@ export async function pushNotes(input: {
   const remote = await notesRemote(input.rootPath, input.remote);
   const pushed: string[] = [];
   const errors: string[] = [];
+
   for (const ref of input.refs) {
     const resolved = await git(input.rootPath, ["rev-parse", "--verify", ref], {
       allowFailure: true,
     });
+
     if (!resolved.ok) continue;
+
     const result = await pushNotesRefReconciled({
       rootPath: input.rootPath,
       remote,
       ref,
     });
+
     if (result.ok) pushed.push(ref);
     else errors.push(`${ref}: ${result.error}`);
   }
+
   if (errors.length > 0) {
     return { ok: false, pushed, error: errors.join("; ") };
   }
+
   return { ok: true, pushed };
 }
 
@@ -607,6 +686,7 @@ async function pushNotesRefReconciled(input: {
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   for (let attempt = 0; attempt < PUSH_LEASE_RETRIES; attempt += 1) {
     let remoteTip: string;
+
     try {
       remoteTip = await reconcileNotesRefWithRemote(input);
     } catch (error) {
@@ -615,6 +695,7 @@ async function pushNotesRefReconciled(input: {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+
     const pushed = await git(
       input.rootPath,
       [
@@ -629,13 +710,16 @@ async function pushNotesRefReconciled(input: {
       ],
       { allowFailure: true },
     );
+
     if (pushed.ok) return { ok: true };
     const stderr = pushed.stderr.trim();
     const leaseFailed = /stale info|\[rejected\]/i.test(stderr);
+
     if (!leaseFailed || attempt === PUSH_LEASE_RETRIES - 1) {
       return { ok: false, error: stderr };
     }
   }
+
   return { ok: false, error: "force-with-lease retry exhausted" };
 }
 
@@ -654,21 +738,26 @@ async function reconcileNotesRefWithRemote(input: {
     ["ls-remote", input.remote, input.ref],
     { allowFailure: true },
   );
+
   if (!listed.ok) {
     throw new Error(
       listed.stderr.trim() ||
         `git ls-remote ${input.remote} ${input.ref} failed`,
     );
   }
+
   const remoteTip = listed.stdout.split(/\s/, 1)[0]?.trim() ?? "";
+
   if (!remoteTip) return "";
 
   const remoteRef = remoteNotesRef(input.ref);
+
   const fetched = await git(
     input.rootPath,
     ["fetch", input.remote, `+${input.ref}:${remoteRef}`],
     { allowFailure: true },
   );
+
   if (!fetched.ok) {
     throw new Error(
       fetched.stderr.trim() || `git fetch ${input.remote} ${input.ref} failed`,
@@ -680,19 +769,23 @@ async function reconcileNotesRefWithRemote(input: {
       (commit) => commit.toLowerCase(),
     ),
   );
+
   const remoteCommits = await listNoteCommits({
     rootPath: input.rootPath,
     ref: remoteRef,
   });
+
   const remoteOnly = remoteCommits.filter(
     (commit) => !localCommits.has(commit.toLowerCase()),
   );
+
   if (remoteOnly.length > 0) {
     const contents = await readNotesBatch({
       rootPath: input.rootPath,
       ref: remoteRef,
       commits: remoteOnly,
     });
+
     for (const [commit, content] of contents) {
       // The locked write path: adoption must serialize with local writers.
       await writeNote({
@@ -703,6 +796,7 @@ async function reconcileNotesRefWithRemote(input: {
       });
     }
   }
+
   return remoteTip;
 }
 
@@ -721,12 +815,15 @@ export async function fetchNotes(input: {
   if (await notesFetchDisabled(input.rootPath)) {
     return { ok: true, skipped: true };
   }
+
   const remote = await notesRemote(input.rootPath, input.remote);
+
   const fetched = await git(
     input.rootPath,
     ["fetch", remote, DEV_FAST_NOTES_FETCH_REFSPEC],
     { allowFailure: true, signal: input.signal },
   );
+
   return fetched.ok
     ? { ok: true }
     : { ok: false, error: fetched.stderr.trim() };
@@ -740,6 +837,7 @@ export async function notesFetchDisabled(rootPath: string): Promise<boolean> {
     ["config", "--type=bool", "--get", "devFast.fetchNotes"],
     { allowFailure: true },
   );
+
   return config.ok && config.stdout.trim() === "false";
 }
 
@@ -779,9 +877,11 @@ export async function ensureNotesConfig(input: {
   rootPath: string;
 }): Promise<void> {
   const gitDir = await gitCommonDir(input.rootPath);
+
   if (!gitDir) return;
   const remote = await notesRemote(input.rootPath);
   const cacheKey = `${gitDir}\0${remote}`;
+
   if (notesConfigEnsured.has(cacheKey)) return;
 
   const rewriteRef = await git(
@@ -789,6 +889,7 @@ export async function ensureNotesConfig(input: {
     ["config", "--get-all", "notes.rewriteRef"],
     { allowFailure: true },
   );
+
   if (!rewriteRef.stdout.split("\n").includes(DEV_FAST_NOTES_GLOB)) {
     await git(
       input.rootPath,
@@ -796,6 +897,7 @@ export async function ensureNotesConfig(input: {
       { allowFailure: true },
     );
   }
+
   await git(input.rootPath, ["config", "notes.rewriteMode", "overwrite"], {
     allowFailure: true,
   });
@@ -812,6 +914,7 @@ export async function ensureNotesConfig(input: {
     ["config", "--get-all", `remote.${remote}.fetch`],
     { allowFailure: true },
   );
+
   if (
     remoteFetch.ok &&
     !remoteFetch.stdout.split("\n").includes(DEV_FAST_NOTES_FETCH_REFSPEC)
@@ -831,10 +934,13 @@ export async function ensureNotesConfig(input: {
 
 export function ensureNotesConfigSync(input: { rootPath: string }): void {
   const gitDir = gitCommonDirSync(input.rootPath);
+
   if (!gitDir) return;
   const remote = notesRemoteSync(input.rootPath);
   const cacheKey = `${gitDir}\0${remote}`;
+
   if (notesConfigEnsured.has(cacheKey)) return;
+
   const config = (args: string[]) => {
     try {
       return execFileSyncObserved(
@@ -849,6 +955,7 @@ export function ensureNotesConfigSync(input: { rootPath: string }): void {
       return "";
     }
   };
+
   if (
     !config(["--get-all", "notes.rewriteRef"])
       .split("\n")
@@ -856,12 +963,15 @@ export function ensureNotesConfigSync(input: { rootPath: string }): void {
   ) {
     config(["--add", "notes.rewriteRef", DEV_FAST_NOTES_GLOB]);
   }
+
   config(["notes.rewriteMode", "overwrite"]);
+
   // See ensureNotesConfig: skip refspec install (and memoization) while the
   // kill-switch is on.
   if (notesFetchDisabledSync(input.rootPath)) return;
   notesConfigEnsured.add(cacheKey);
   const remoteFetch = config(["--get-all", `remote.${remote}.fetch`]);
+
   if (
     remoteFetch.trim() !== "" &&
     !remoteFetch.split("\n").includes(DEV_FAST_NOTES_FETCH_REFSPEC)
@@ -911,6 +1021,7 @@ export async function evologCommitIds(input: {
         ],
         { cwd: input.rootPath, maxBuffer: 8 * 1024 * 1024 },
       );
+
       const ids = [
         ...new Set(
           stdout
@@ -919,11 +1030,13 @@ export async function evologCommitIds(input: {
             .filter(Boolean),
         ),
       ];
+
       if (ids.length > 0) return ids;
     } catch {
       // Try the next template form.
     }
   }
+
   return [];
 }
 
@@ -936,8 +1049,10 @@ async function withNotesLock<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const gitDir = await gitCommonDir(rootPath);
+
   if (!gitDir) throw new Error(`No git repository found at ${rootPath}`);
   const lockPath = notesLockPath(gitDir);
+
   return await withFileLock(
     {
       createTimeoutError: (_path, waitedMs) =>
@@ -954,9 +1069,11 @@ async function withNotesLock<T>(
 
 function withNotesLockSync<T>(rootPath: string, fn: () => T): T {
   const gitDir = gitCommonDirSync(rootPath);
+
   if (!gitDir) throw new Error(`No git repository found at ${rootPath}`);
   const lockPath = notesLockPath(gitDir);
   const timeoutMs = notesLockSyncTimeoutMs();
+
   return withFileLockSync(
     {
       createTimeoutError: (_path, waitedMs) =>
@@ -974,6 +1091,7 @@ function withNotesLockSync<T>(rootPath: string, fn: () => T): T {
 // Test hooks: the timeouts are process-wide but overridable so lock-failure
 // paths can be exercised without minute-long waits.
 let notesLockTimeoutOverrideMs: number | null = null;
+
 let notesLockSyncTimeoutOverrideMs: number | null = null;
 
 function notesLockTimeoutMs(): number {
@@ -998,5 +1116,6 @@ export function notesLockPathForTests(gitDir: string): string {
 function notesLockPath(gitDir: string): string {
   const dir = path.join(gitDir, "dev-fast");
   fs.mkdirSync(dir, { recursive: true });
+
   return path.join(dir, "notes.lock");
 }

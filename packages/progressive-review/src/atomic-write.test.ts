@@ -19,6 +19,7 @@ describe("writeFileAtomic", () => {
   it("writes contents and overwrites an existing file without leaving temp files", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "atomic-write-"));
     const target = path.join(dir, "review.mdx");
+
     try {
       writeFileSync(target, "old contents", "utf8");
 
@@ -36,6 +37,7 @@ describe("writeFileAtomic", () => {
   it("creates the target directory when it does not exist", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "atomic-write-"));
     const target = path.join(dir, "nested", "deep", "state.json");
+
     try {
       writeFileAtomic(target, '{"ok":true}\n');
       expect(readFileSync(target, "utf8")).toBe('{"ok":true}\n');
@@ -47,6 +49,7 @@ describe("writeFileAtomic", () => {
   it("preserves existing file permissions when replacing contents", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "atomic-write-"));
     const target = path.join(dir, "state.json");
+
     try {
       writeFileSync(target, "old", "utf8");
       chmodSync(target, 0o640);
@@ -64,6 +67,7 @@ describe("writeFileAtomic", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "atomic-write-"));
     const target = path.join(dir, "review.mdx");
     let tmpfile: string | undefined;
+
     try {
       writeFileSync(target, "old contents", "utf8");
 

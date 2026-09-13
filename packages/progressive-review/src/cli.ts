@@ -18,6 +18,7 @@ import {
 // Delegation runs before the Node floor check on purpose: the app's
 // Electron-as-Node runtime can rescue a machine whose system Node is too old.
 const delegatedExitCode = maybeDelegateToDesktopCli(process.argv.slice(2));
+
 if (delegatedExitCode !== null) {
   process.exitCode = delegatedExitCode;
 } else if (!supportedNodeRuntime()) {
@@ -43,13 +44,16 @@ if (delegatedExitCode !== null) {
 // missing-builtin crash deeper in.
 function supportedNodeRuntime(): boolean {
   if (process.versions.electron) return true;
+
   return Number(process.versions.node.split(".")[0]) >= 24;
 }
 
 function maybeDelegateToDesktopCli(argv: string[]): number | null {
   const env = process.env;
+
   if (env.DEV_FAST_REVIEW_CLI_NO_DELEGATE || env.DEV_FAST_REVIEW_CLI_DELEGATED)
     return null;
+
   // stop-hook runs on every agent stop and must not pay a discovery read plus
   // a second node spawn; internal-test must exercise this entry, not the
   // app's.
@@ -61,15 +65,19 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
   )
     return null;
   const ownPath = fileURLToPath(import.meta.url);
+
   if (!/[\\/]dist[\\/]cli\.js$/.test(ownPath)) return null;
+
   // This bootstrap runs before the Node floor check, so it cannot import
   // devReviewHome() from review-storage: that module graph needs a modern
   // Node. Keep this copy in step with devReviewHome().
   const devHome = env.DEV_REVIEW_HOME?.trim()
     ? path.resolve(env.DEV_REVIEW_HOME.trim())
     : path.join(os.homedir(), ".dev");
+
   let cliPath: string;
   let runtimePath: string | undefined;
+
   try {
     const discovery = jsonObject(
       parseJsonText(
@@ -79,36 +87,46 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
         ),
       ),
     );
+
     const discoveredCliPath = jsonString(discovery?.cliPath);
+
     if (!discoveredCliPath) return null;
     cliPath = discoveredCliPath;
     const discoveredRuntimePath = jsonString(discovery?.cliRuntimePath);
+
     if (discoveredRuntimePath && existsSync(discoveredRuntimePath)) {
       runtimePath = discoveredRuntimePath;
     }
   } catch {
     return null;
   }
+
   try {
     if (realpathSync(cliPath) === realpathSync(ownPath)) return null;
   } catch {
     return null;
   }
+
   // Prefer the app's Electron-as-Node runtime: it matches the server exactly
   // and works even when this process runs on an older system Node.
   const childEnv: NodeJS.ProcessEnv = {
     ...env,
     DEV_FAST_REVIEW_CLI_DELEGATED: "1",
   };
+
   if (runtimePath) childEnv.ELECTRON_RUN_AS_NODE = "1";
+
   const result = spawnSync(
     runtimePath ?? process.execPath,
     [cliPath, ...argv],
     { stdio: "inherit", env: childEnv },
   );
+
   if (result.signal) {
     process.kill(process.pid, result.signal);
+
     return 1;
   }
+
   return result.status ?? 1;
 }

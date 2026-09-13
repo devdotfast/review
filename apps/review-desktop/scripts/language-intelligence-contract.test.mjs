@@ -6,6 +6,7 @@ const reviewMain = readFileSync(
   new URL("../code-oss/src/vs/review/review.common.main.ts", import.meta.url),
   "utf8",
 );
+
 const workspaceFolderContribution = readFileSync(
   new URL(
     "../code-oss/src/vs/review/contrib/workspace/reviewWorkspaceFolder.contribution.ts",
@@ -13,6 +14,7 @@ const workspaceFolderContribution = readFileSync(
   ),
   "utf8",
 );
+
 const reviewDesktopManifest = readFileSync(
   new URL(
     "../code-oss/src/vs/review/review.desktop.main.ts",
@@ -20,6 +22,7 @@ const reviewDesktopManifest = readFileSync(
   ),
   "utf8",
 );
+
 const reviewDesktopMain = readFileSync(
   new URL(
     "../code-oss/src/vs/review/electron-browser/review.main.ts",
@@ -27,6 +30,7 @@ const reviewDesktopMain = readFileSync(
   ),
   "utf8",
 );
+
 const mainThreadExtensionService = readFileSync(
   new URL(
     "../code-oss/src/vs/workbench/api/browser/mainThreadExtensionService.ts",
@@ -34,6 +38,7 @@ const mainThreadExtensionService = readFileSync(
   ),
   "utf8",
 );
+
 const reviewServices = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewWorkbenchServices.ts",
@@ -41,6 +46,7 @@ const reviewServices = readFileSync(
   ),
   "utf8",
 );
+
 const inlineEditorService = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewInlineEditorService.ts",
@@ -48,6 +54,7 @@ const inlineEditorService = readFileSync(
   ),
   "utf8",
 );
+
 const reviewDiffViewService = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewDiffViewService.ts",
@@ -55,6 +62,7 @@ const reviewDiffViewService = readFileSync(
   ),
   "utf8",
 );
+
 const reviewLspTelemetry = readFileSync(
   new URL(
     "../code-oss/src/vs/review/contrib/telemetry/reviewLspTelemetry.contribution.ts",
@@ -62,6 +70,7 @@ const reviewLspTelemetry = readFileSync(
   ),
   "utf8",
 );
+
 const reviewCanvas = readFileSync(
   new URL(
     "../code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts",
@@ -69,6 +78,7 @@ const reviewCanvas = readFileSync(
   ),
   "utf8",
 );
+
 const keylessTelemetryClients = [
   {
     name: "JSON",

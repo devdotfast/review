@@ -27,6 +27,7 @@ function reviewMap() {
 
 function resolvedCodePeek(): CodePeekResolution {
   const sourceId = "source-range:src/example.ts:1-1";
+
   return {
     snapshot: {
       roots: [{ kind: "source", sourceId }],
@@ -66,6 +67,7 @@ describe("Review definition session", () => {
       softwareMap: null,
       baseSoftwareMap: null,
     });
+
     const stores = session.defineStores({
       db: {
         kind: "relational",
@@ -85,6 +87,7 @@ describe("Review definition session", () => {
     const data = JSON.parse(
       JSON.stringify(storeRefData(stores.db)),
     ) as StoreRefData;
+
     expect(data.tables?.orders?.target).toMatchObject({
       __kind: "db-target-ref",
       storeId: "db",
@@ -169,6 +172,7 @@ describe("Review definition session", () => {
 
   it("can defer range resolution for client definitions", async () => {
     const map = reviewMap();
+
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
@@ -189,7 +193,9 @@ describe("Review definition session", () => {
     const resolveCodePeek = vi.fn<() => Promise<CodePeekResolution>>(async () =>
       resolvedCodePeek(),
     );
+
     const map = reviewMap();
+
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
@@ -215,6 +221,7 @@ describe("Review definition session", () => {
 
   it("rejects nonexistent software-map paths at the define boundary", () => {
     const map = reviewMap();
+
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
@@ -245,6 +252,7 @@ describe("Review definition session", () => {
     ],
   ] as const)("rejects unknown keys in %s", (method, input) => {
     const map = reviewMap();
+
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
@@ -252,13 +260,16 @@ describe("Review definition session", () => {
 
     expect(() => {
       if (method === "defineActors") session.defineActors(input as never);
+
       if (method === "defineAnchors") session.defineAnchors(input as never);
+
       if (method === "defineStores") session.defineStores(input as never);
     }).toThrow(ZodError);
   });
 
   it("surfaces range resolution failures from the module readiness barrier", async () => {
     const map = reviewMap();
+
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
@@ -266,6 +277,7 @@ describe("Review definition session", () => {
         throw new Error("Source range exceeds the file length");
       },
     });
+
     session.defineAnchors({
       missing: {
         title: "Missing",
@@ -282,11 +294,13 @@ describe("Review definition session", () => {
     const map = reviewMap();
     const emptyResolution = resolvedCodePeek();
     emptyResolution.diff = undefined;
+
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
       resolveCodePeek: async () => emptyResolution,
     });
+
     session.defineAnchors({
       empty: {
         title: "Empty",
@@ -299,6 +313,7 @@ describe("Review definition session", () => {
 
   it("rejects anchors whose code peek resolves without source", async () => {
     const map = reviewMap();
+
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
@@ -306,6 +321,7 @@ describe("Review definition session", () => {
         snapshot: { roots: [], resolved: {} },
       }),
     });
+
     session.defineAnchors({
       empty: {
         title: "Empty",

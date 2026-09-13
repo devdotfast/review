@@ -54,6 +54,7 @@ export async function runReviewInfo(
   const discovery = await span("info: desktop health", () =>
     requireHealthyReviewDesktop("review info"),
   );
+
   const response = await span("info: POST /info", () =>
     fetch(`${discovery.url}/info`, {
       method: "POST",
@@ -64,18 +65,23 @@ export async function runReviewInfo(
       body: JSON.stringify(input),
     }),
   );
+
   const payload: JsonValue = await response.json();
+
   if (!response.ok) {
     throw new Error(reviewInfoResponseError(payload, response.status));
   }
+
   return parseReviewInfoEvent(payload);
 }
 
 function parseReviewInfoEvent(value: JsonValue): ReviewInfoEvent {
   const parsed = ReviewInfoEventSchema.safeParse(value);
+
   if (!parsed.success) {
     throw new Error("Review Desktop returned an invalid info response.");
   }
+
   return parsed.data;
 }
 

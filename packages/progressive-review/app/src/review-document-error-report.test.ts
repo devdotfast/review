@@ -28,6 +28,7 @@ describe("reviewDocumentErrorReport", () => {
         input: undefined,
       },
     ]);
+
     const report = reviewDocumentErrorReport(zodError);
     expect(report.name).toBe("ZodError");
     expect(report.message).toContain(

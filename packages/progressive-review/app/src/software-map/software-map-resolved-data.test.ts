@@ -38,6 +38,7 @@ describe("SoftwareMap resolved-data inputs", () => {
     const expanded = softwareMapResolvedDataInputForModel(model, {
       expandedElementPaths: new Set(["app.runtime.api"]),
     });
+
     expect(expanded.codeElements).toEqual([]);
     expect(expanded.coverageClaims).toHaveLength(2);
   });

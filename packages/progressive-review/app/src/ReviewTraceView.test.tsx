@@ -55,6 +55,7 @@ const mockTraceDetail: Extract<ReviewAgentTraceResponse, { ok: true }> = {
 };
 
 let root: Root | null = null;
+
 let container: HTMLDivElement;
 
 describe("ReviewTraceView", () => {
@@ -74,6 +75,7 @@ describe("ReviewTraceView", () => {
       await act(async () => root?.unmount());
       root = null;
     }
+
     document.body.replaceChildren();
     vi.restoreAllMocks();
   });
@@ -87,11 +89,13 @@ describe("ReviewTraceView", () => {
             new Response(JSON.stringify(mockTraceDetail), { status: 200 }),
           );
         }
+
         if (url.includes("/agent-traces")) {
           return Promise.resolve(
             new Response(JSON.stringify(mockListResponse), { status: 200 }),
           );
         }
+
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
@@ -118,31 +122,38 @@ describe("ReviewTraceView", () => {
 
   it("offers a source control when two stores are readable and labels offline copies", async () => {
     const requested: string[] = [];
+
     const requestMock = vi
       .fn<ReviewCanvasBridge["request"]>()
       .mockImplementation((url) => {
         requested.push(url);
+
         if (url.includes("/agent-traces/session-1")) {
           const detail = {
             ...mockTraceDetail,
             cacheStatus: url.includes("storage=hosted") ? "offline" : "current",
           };
+
           return Promise.resolve(
             new Response(JSON.stringify(detail), { status: 200 }),
           );
         }
+
         if (url.includes("/agent-traces")) {
           const list = {
             ...mockListResponse,
             storage: url.includes("storage=hosted") ? "hosted" : "s3",
             sources: ["s3", "hosted"],
           };
+
           return Promise.resolve(
             new Response(JSON.stringify(list), { status: 200 }),
           );
         }
+
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
+
     const session = testReviewSession({}, { request: requestMock });
 
     await act(async () => {
@@ -159,18 +170,21 @@ describe("ReviewTraceView", () => {
     const select = container.querySelector<HTMLSelectElement>(
       'select[aria-label="Trace source"]',
     );
+
     expect(select).not.toBeNull();
     expect(select?.value).toBe("s3");
     expect(container.textContent).not.toContain("Showing a saved copy");
 
     await act(async () => {
       if (!select) throw new Error("missing select");
+
       // React tracks the value; only the prototype setter leaves it unaware
       // of the new value, so the change event is delivered.
       const setter = Object.getOwnPropertyDescriptor(
         HTMLSelectElement.prototype,
         "value",
       )?.set;
+
       setter?.call(select, "hosted");
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
@@ -210,8 +224,10 @@ describe("ReviewTraceView", () => {
             ),
           );
         }
+
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
+
     const session = testReviewSession({}, { request: requestMock });
     await act(async () => {
       root?.render(
@@ -249,6 +265,7 @@ describe("ReviewTraceView", () => {
             new Response(JSON.stringify(unconfiguredList), { status: 200 }),
           );
         }
+
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
@@ -321,11 +338,13 @@ describe("ReviewTraceView", () => {
             new Response(JSON.stringify(traceWithThinking), { status: 200 }),
           );
         }
+
         if (url.includes("/agent-traces")) {
           return Promise.resolve(
             new Response(JSON.stringify(mockListResponse), { status: 200 }),
           );
         }
+
         return Promise.reject(new Error(`Unexpected URL: ${url}`));
       });
 
@@ -348,6 +367,7 @@ describe("ReviewTraceView", () => {
     const workedDetails = container.querySelector(
       "details.review-trace-worked",
     ) as HTMLDetailsElement;
+
     expect(workedDetails).not.toBeNull();
     act(() => {
       workedDetails.open = true;

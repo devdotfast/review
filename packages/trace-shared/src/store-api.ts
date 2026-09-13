@@ -3,21 +3,29 @@ import { z } from "zod";
 import { commitShaSchema, sessionIdSchema } from "./contracts.js";
 
 export const TRACE_STORE_API_PREFIX = "/api/trace/v1" as const;
+
 export const TRACE_STORE_CLIENT_ID = "review-cli" as const;
+
 export const PRESIGNED_URL_TTL_SECONDS = 900 as const;
 
 /** Largest single trace object the store accepts. */
 export const MAX_TRACE_OBJECT_BYTES = 256 * 1024 * 1024;
+
 /** Largest total size of one session's declared objects. */
 export const MAX_TRACE_SESSION_BYTES = 1024 * 1024 * 1024;
+
 /** Most objects one upload can declare. */
 export const MAX_TRACE_OBJECTS = 64;
+
 /** Most commits one completion can link. */
 export const MAX_TRACE_COMMITS = 200;
+
 /** Largest JSON body a metadata request may carry. Object bytes go to S3. */
 export const MAX_TRACE_METADATA_BODY_BYTES = 64 * 1024;
+
 /** Most sessions one listing page returns. */
 export const MAX_TRACE_SESSIONS_PAGE = 200;
+
 /** Sessions per page when the client names no limit. */
 export const DEFAULT_TRACE_SESSIONS_PAGE = 100;
 
@@ -27,11 +35,13 @@ const nameSegment = z.string().regex(/^[A-Za-z0-9_.-]{1,100}$/);
 const sessionLabelSchema = z.string().max(200).nullable();
 
 export const traceHarnessSchema = z.enum(["claude", "codex", "opencode", "pi"]);
+
 export type TraceHarness = z.infer<typeof traceHarnessSchema>;
 
 export const traceObjectNameSchema = z
   .string()
   .regex(/^(main\.jsonl\.gz|subagents\/[A-Za-z0-9_.-]{1,100}\.jsonl\.gz)$/);
+
 export type TraceObjectName = z.infer<typeof traceObjectNameSchema>;
 
 export const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -41,12 +51,14 @@ export const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
  * per begin call; neither value is ever reused.
  */
 export const storeIdSchema = z.string().regex(/^[0-9a-f]{32}$/);
+
 export const uploadIdSchema = storeIdSchema;
 
 export const createStoreRequestSchema = z.object({
   owner: nameSegment,
   name: nameSegment,
 });
+
 export type CreateStoreRequest = z.infer<typeof createStoreRequestSchema>;
 
 export const findStoreQuerySchema = createStoreRequestSchema;
@@ -62,6 +74,7 @@ export const storeResponseSchema = z.object({
   /** Bytes of every completed upload in this store instance. Absent from older servers. */
   bytesStored: z.number().int().nonnegative().optional(),
 });
+
 export type StoreResponse = z.infer<typeof storeResponseSchema>;
 
 /**
@@ -74,6 +87,7 @@ export const deleteStoreResponseSchema = z.object({
   status: z.literal("deleting"),
   deletedAt: z.string(),
 });
+
 export type DeleteStoreResponse = z.infer<typeof deleteStoreResponseSchema>;
 
 export const declaredObjectSchema = z.object({
@@ -81,6 +95,7 @@ export const declaredObjectSchema = z.object({
   size: z.number().int().positive().max(MAX_TRACE_OBJECT_BYTES),
   sha256: sha256HexSchema,
 });
+
 export type DeclaredObject = z.infer<typeof declaredObjectSchema>;
 
 /** The complete object set of one upload. Names are unique. */
@@ -91,6 +106,7 @@ export const uploadManifestSchema = z
   .superRefine((objects, context) => {
     const seen = new Set<string>();
     let total = 0;
+
     for (const object of objects) {
       if (seen.has(object.name)) {
         context.addIssue({
@@ -98,9 +114,11 @@ export const uploadManifestSchema = z
           message: `Object ${object.name} is declared twice.`,
         });
       }
+
       seen.add(object.name);
       total += object.size;
     }
+
     if (total > MAX_TRACE_SESSION_BYTES) {
       context.addIssue({
         code: "custom",
@@ -108,12 +126,14 @@ export const uploadManifestSchema = z
       });
     }
   });
+
 export type UploadManifest = z.infer<typeof uploadManifestSchema>;
 
 export const beginUploadRequestSchema = z.object({
   harness: traceHarnessSchema,
   objects: uploadManifestSchema,
 });
+
 export type BeginUploadRequest = z.infer<typeof beginUploadRequestSchema>;
 
 export const presignedUploadSchema = z.object({
@@ -122,6 +142,7 @@ export const presignedUploadSchema = z.object({
   headers: z.record(z.string(), z.string()),
   expiresAt: z.string(),
 });
+
 export type PresignedUpload = z.infer<typeof presignedUploadSchema>;
 
 export const beginUploadResponseSchema = z.object({
@@ -136,6 +157,7 @@ export const beginUploadResponseSchema = z.object({
   baseGeneration: z.number().int().nonnegative(),
   uploads: z.array(presignedUploadSchema),
 });
+
 export type BeginUploadResponse = z.infer<typeof beginUploadResponseSchema>;
 
 export const completeUploadRequestSchema = z.object({
@@ -150,6 +172,7 @@ export const completeUploadRequestSchema = z.object({
   branch: sessionLabelSchema.optional(),
   author: sessionLabelSchema.optional(),
 });
+
 export type CompleteUploadRequest = z.infer<typeof completeUploadRequestSchema>;
 
 export const storedObjectSchema = z.object({
@@ -157,6 +180,7 @@ export const storedObjectSchema = z.object({
   size: z.number().int().nonnegative(),
   sha256: sha256HexSchema,
 });
+
 export type StoredObject = z.infer<typeof storedObjectSchema>;
 
 /**
@@ -170,6 +194,7 @@ export const completeUploadResponseSchema = z.object({
   objects: z.array(storedObjectSchema),
   commits: z.array(commitShaSchema),
 });
+
 export type CompleteUploadResponse = z.infer<
   typeof completeUploadResponseSchema
 >;
@@ -191,6 +216,7 @@ export const listSessionsQuerySchema = z
   .refine((q) => q.commit !== undefined || q.session !== undefined, {
     message: "commit or session is required",
   });
+
 export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
 
 export const sessionDownloadSchema = z.object({
@@ -210,6 +236,7 @@ export const sessionDownloadSchema = z.object({
     }),
   ),
 });
+
 export type SessionDownload = z.infer<typeof sessionDownloadSchema>;
 
 export const listSessionsResponseSchema = z.object({
@@ -217,6 +244,7 @@ export const listSessionsResponseSchema = z.object({
   /** Present when another page follows; pass it back as `cursor`. */
   nextCursor: sessionIdSchema.optional(),
 });
+
 export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
 
 export const storeErrorCodeSchema = z.enum([
@@ -235,11 +263,13 @@ export const storeErrorCodeSchema = z.enum([
   "upgrade_required",
   "internal",
 ]);
+
 export type StoreErrorCode = z.infer<typeof storeErrorCodeSchema>;
 
 export const storeErrorEnvelopeSchema = z.object({
   error: z.object({ code: storeErrorCodeSchema, message: z.string() }),
 });
+
 export type StoreErrorEnvelope = z.infer<typeof storeErrorEnvelopeSchema>;
 
 /** The object key prefix of one repository. Accounting groups by it. */
@@ -247,6 +277,7 @@ export function traceRepositoryPrefix(repositoryId: number): string {
   if (!Number.isSafeInteger(repositoryId) || repositoryId < 1) {
     throw new Error("repositoryId must be a positive integer");
   }
+
   return `r${repositoryId}/`;
 }
 
@@ -266,6 +297,7 @@ export function traceObjectKey(input: {
   uploadIdSchema.parse(input.uploadId);
   sessionIdSchema.parse(input.sessionId);
   traceObjectNameSchema.parse(input.name);
+
   return `${traceRepositoryPrefix(input.repositoryId)}stores/${input.storeId}/sessions/${input.sessionId}/uploads/${input.uploadId}/${input.name}`;
 }
 
@@ -279,19 +311,24 @@ export function uploadManifestMismatch(
 ): string | null {
   const declared = new Set(manifest.map((object) => object.name));
   const seen = new Set<string>();
+
   for (const upload of uploads) {
     if (!declared.has(upload.name)) {
       return `The store offered an upload this session did not declare: ${upload.name}.`;
     }
+
     if (seen.has(upload.name)) {
       return `The store offered ${upload.name} twice.`;
     }
+
     seen.add(upload.name);
   }
+
   for (const name of declared) {
     if (!seen.has(name)) {
       return `The store offered no upload for ${name}.`;
     }
   }
+
   return null;
 }

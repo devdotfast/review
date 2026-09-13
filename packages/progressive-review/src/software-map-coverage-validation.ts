@@ -40,6 +40,7 @@ export function collectSoftwareMapCoverageErrors(
 
     for (const file of element.coverage.files) {
       const filePath = normalizeClaimedPath(file.path);
+
       if (!trackedFileSet.has(filePath)) {
         errors.push(
           `SoftwareMap coverage: "${element.path}" claims file "${file.path}" missing from ${pathsFrame}.`,
@@ -48,12 +49,14 @@ export function collectSoftwareMapCoverageErrors(
       }
 
       if (file.ranges.length === 0) continue;
+
       const lineCount = getTrackedFileLineCount({
         rootPath: input.rootPath,
         filePath,
         readFile,
         cache: lineCountCache,
       });
+
       if (lineCount === undefined) {
         errors.push(
           `SoftwareMap coverage: "${element.path}" claims unreadable file "${file.path}" in ${pathsFrame}.`,
@@ -71,6 +74,7 @@ export function collectSoftwareMapCoverageErrors(
 
     for (const glob of element.coverage.globs) {
       const normalizedGlob = normalizeClaimedPath(glob);
+
       if (
         trackedFiles.some((filePath) =>
           softwareMapGlobMatches(normalizedGlob, filePath),
@@ -78,6 +82,7 @@ export function collectSoftwareMapCoverageErrors(
       ) {
         continue;
       }
+
       errors.push(
         `SoftwareMap coverage: "${element.path}" glob "${glob}" matches nothing in ${pathsFrame}.`,
       );
@@ -87,6 +92,7 @@ export function collectSoftwareMapCoverageErrors(
   for (const element of input.model.elements) {
     if (!element.coverage) continue;
     const parent = nearestAncestorWithCoverage(element, input.model);
+
     if (!parent?.coverage) continue;
     errors.push(
       ...collectNestedCoverageErrors({
@@ -112,12 +118,16 @@ function nearestAncestorWithCoverage(
   model: NormalizedSoftwareModel,
 ) {
   let parentPath = element.parentPath;
+
   while (parentPath) {
     const parent = model.elementsByPath.get(parentPath);
+
     if (!parent) return null;
+
     if (parent.coverage) return parent;
     parentPath = parent.parentPath;
   }
+
   return null;
 }
 
@@ -128,24 +138,30 @@ function collectNestedCoverageErrors(input: {
 }) {
   if (!input.parent.coverage || !input.child.coverage) return [];
   const errors: string[] = [];
+
   const parentCoverage = expandParentCoverage(input.parent.coverage, {
     trackedFiles: input.trackedFiles,
   });
+
   const childSpans = expandCoverageSpans(input.child.coverage, {
     trackedFiles: input.trackedFiles,
   });
 
   for (const span of childSpans) {
     const parentRanges = parentCoverage.get(span.file);
+
     if (!parentRanges) {
       errors.push(nestedCoverageError(input.parent, input.child, span));
       continue;
     }
+
     if (parentRanges.length === 0) continue;
+
     if (span.ranges.length === 0) {
       errors.push(nestedCoverageError(input.parent, input.child, span));
       continue;
     }
+
     if (rangesCoverRanges(parentRanges, span.ranges)) continue;
     errors.push(nestedCoverageError(input.parent, input.child, span));
   }
@@ -191,25 +207,33 @@ function collectNonNestedCoverageOverlaps(input: {
       coverage: NormalizedSoftwareCoverage;
     } => Boolean(element.coverage),
   );
+
   const expandedByPath = new Map(
     coveredElements.map((element) => [
       element.path,
       expandCoverageForComparison(element.coverage, input.trackedFiles),
     ]),
   );
+
   const elementsByFile = new Map<string, number[]>();
+
   for (let index = 0; index < coveredElements.length; index += 1) {
     const element = coveredElements[index];
+
     if (!element) continue;
     const coverage = expandedByPath.get(element.path);
+
     if (!coverage) continue;
+
     for (const file of coverage.spansByFile.keys()) {
       const indexes = elementsByFile.get(file) ?? [];
       indexes.push(index);
       elementsByFile.set(file, indexes);
     }
   }
+
   const candidatePairs = new Set<string>();
+
   for (const indexes of elementsByFile.values()) {
     for (let left = 0; left < indexes.length; left += 1) {
       for (let right = left + 1; right < indexes.length; right += 1) {
@@ -217,19 +241,25 @@ function collectNonNestedCoverageOverlaps(input: {
       }
     }
   }
+
   const overlaps: NonNestedCoverageOverlap[] = [];
 
   for (let leftIndex = 0; leftIndex < coveredElements.length; leftIndex += 1) {
     const left = coveredElements[leftIndex];
+
     if (!left) continue;
+
     for (
       let rightIndex = leftIndex + 1;
       rightIndex < coveredElements.length;
       rightIndex += 1
     ) {
       const right = coveredElements[rightIndex];
+
       if (!right) continue;
+
       if (!candidatePairs.has(`${leftIndex}:${rightIndex}`)) continue;
+
       if (
         isAncestor(left, right, input.model) ||
         isAncestor(right, left, input.model)
@@ -239,11 +269,14 @@ function collectNonNestedCoverageOverlaps(input: {
 
       const leftCoverage = expandedByPath.get(left.path);
       const rightCoverage = expandedByPath.get(right.path);
+
       if (!leftCoverage || !rightCoverage) continue;
+
       const firstOverlap = findFirstCoverageOverlap(
         leftCoverage,
         rightCoverage,
       );
+
       if (!firstOverlap) continue;
       overlaps.push({
         left,
@@ -262,11 +295,13 @@ function expandCoverageForComparison(
 ): ExpandedCoverage {
   const spans = expandCoverageSpans(coverage, { trackedFiles });
   const spansByFile = new Map<string, CoverageSpan[]>();
+
   for (const span of spans) {
     const fileSpans = spansByFile.get(span.file) ?? [];
     fileSpans.push(span);
     spansByFile.set(span.file, fileSpans);
   }
+
   return {
     spans,
     spansByFile,
@@ -280,10 +315,12 @@ function isAncestor(
   model: NormalizedSoftwareModel,
 ) {
   let parentPath = descendant.parentPath;
+
   while (parentPath) {
     if (parentPath === possibleAncestor.path) return true;
     parentPath = model.elementsByPath.get(parentPath)?.parentPath;
   }
+
   return false;
 }
 
@@ -295,9 +332,11 @@ function findFirstCoverageOverlap(
     for (const rightSpan of rightCoverage.spansByFile.get(leftSpan.file) ??
       []) {
       if (!coverageRangesOverlap(leftSpan.ranges, rightSpan.ranges)) continue;
+
       return { leftSpan, rightSpan };
     }
   }
+
   return null;
 }
 
@@ -306,6 +345,7 @@ function coverageRangesOverlap(
   right: readonly SoftwareLineRange[],
 ) {
   if (left.length === 0 || right.length === 0) return true;
+
   return left.some((leftRange) =>
     right.some(
       (rightRange) =>
@@ -319,35 +359,45 @@ type CanonicalCoverageRange = SoftwareLineRange[] | "entire-file";
 
 function canonicalizeCoverageSpans(spans: readonly CoverageSpan[]) {
   const result = new Map<string, CanonicalCoverageRange>();
+
   for (const span of spans) {
     const current = result.get(span.file);
+
     if (current === "entire-file") continue;
+
     if (span.ranges.length === 0) {
       result.set(span.file, "entire-file");
       continue;
     }
+
     result.set(
       span.file,
       mergeCoverageRanges([...(current ?? []), ...span.ranges]),
     );
   }
+
   return result;
 }
 
 function mergeCoverageRanges(ranges: readonly SoftwareLineRange[]) {
   const result: SoftwareLineRange[] = [];
+
   const sorted = [...ranges].sort(
     (left, right) =>
       left.fromLine - right.fromLine || left.toLine - right.toLine,
   );
+
   for (const range of sorted) {
     const previous = result.at(-1);
+
     if (!previous || range.fromLine > previous.toLine + 1) {
       result.push({ ...range });
       continue;
     }
+
     previous.toLine = Math.max(previous.toLine, range.toLine);
   }
+
   return result;
 }
 
@@ -360,15 +410,20 @@ function expandParentCoverage(
   input: { trackedFiles: readonly string[] },
 ) {
   const result = new Map<string, SoftwareLineRange[]>();
+
   for (const span of expandCoverageSpans(coverage, input)) {
     const current = result.get(span.file);
+
     if (current?.length === 0) continue;
+
     if (span.ranges.length === 0) {
       result.set(span.file, []);
       continue;
     }
+
     result.set(span.file, [...(current ?? []), ...span.ranges]);
   }
+
   return result;
 }
 
@@ -377,6 +432,7 @@ function expandCoverageSpans(
   input: { trackedFiles: readonly string[] },
 ) {
   const spans: CoverageSpan[] = [];
+
   for (const file of coverage.files) {
     spans.push({
       file: normalizeClaimedPath(file.path),
@@ -384,8 +440,10 @@ function expandCoverageSpans(
       source: `file "${file.path}"`,
     });
   }
+
   for (const glob of coverage.globs) {
     const normalizedGlob = normalizeClaimedPath(glob);
+
     for (const filePath of input.trackedFiles) {
       if (!softwareMapGlobMatches(normalizedGlob, filePath)) continue;
       spans.push({
@@ -395,6 +453,7 @@ function expandCoverageSpans(
       });
     }
   }
+
   return spans;
 }
 
@@ -405,16 +464,22 @@ function rangesCoverRanges(
   const sortedParentRanges = [...parentRanges].sort(
     (left, right) => left.fromLine - right.fromLine,
   );
+
   for (const child of childRanges) {
     let nextLine = child.fromLine;
+
     for (const parent of sortedParentRanges) {
       if (parent.toLine < nextLine) continue;
+
       if (parent.fromLine > nextLine) return false;
       nextLine = Math.max(nextLine, parent.toLine + 1);
+
       if (nextLine > child.toLine) break;
     }
+
     if (nextLine <= child.toLine) return false;
   }
+
   return true;
 }
 
@@ -425,13 +490,16 @@ function getTrackedFileLineCount(input: {
   cache: Map<string, number>;
 }) {
   const cached = input.cache.get(input.filePath);
+
   if (cached !== undefined) return cached;
 
   try {
     const lineCount = countLines(
       input.readFile(input.rootPath, input.filePath),
     );
+
     input.cache.set(input.filePath, lineCount);
+
     return lineCount;
   } catch {
     return undefined;
@@ -440,11 +508,13 @@ function getTrackedFileLineCount(input: {
 
 function countLines(source: string) {
   if (source.length === 0) return 0;
+
   return source.split(/\r\n|\r|\n/).length;
 }
 
 function listTrackedFiles(rootPath: string) {
   const files = listTrackedFilesSync({ rootPath });
+
   return files.length > 0
     ? files
     : walkFiles(rootPath).map((filePath) => path.relative(rootPath, filePath));
@@ -462,19 +532,24 @@ function walkFiles(rootPath: string) {
     "dist",
     "node_modules",
   ]);
+
   const files: string[] = [];
   const queue = [rootPath];
 
   while (queue.length > 0) {
     const directory = queue.pop();
+
     if (!directory) continue;
+
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (ignoredNames.has(entry.name)) continue;
       const entryPath = path.join(directory, entry.name);
+
       if (entry.isDirectory()) {
         queue.push(entryPath);
         continue;
       }
+
       if (entry.isFile()) files.push(entryPath);
     }
   }
@@ -484,9 +559,11 @@ function walkFiles(rootPath: string) {
 
 function readTrackedFile(rootPath: string, filePath: string) {
   const absolutePath = path.resolve(rootPath, filePath);
+
   if (!statSync(absolutePath).isFile()) {
     throw new Error(`${filePath} is not a file`);
   }
+
   return readFileSync(absolutePath, "utf8");
 }
 

@@ -64,6 +64,7 @@ function codexDependencies(
     clearWaiter: async () => undefined,
     deliverMessage: async (_input, deliver) => {
       await deliver();
+
       return true;
     },
     wakeCodex: async () => undefined,
@@ -236,6 +237,7 @@ describe("Review wait", () => {
     const wakeCodex = vi.fn<ReviewCodexWaitDependencies["wakeCodex"]>(
       async () => undefined,
     );
+
     const clearWaiter = vi.fn<ReviewCodexWaitDependencies["clearWaiter"]>(
       async () => undefined,
     );
@@ -421,6 +423,7 @@ describe("Review wait dismissal", () => {
       ...dismissedReview,
       review: { ...dismissedReview.review, status: "accepted" },
     };
+
     await expect(
       waitForReviewAction(
         {
@@ -445,6 +448,7 @@ describe("Review wait dismissal", () => {
         status: "awaiting-agent-updates",
       },
     };
+
     await expect(
       waitForReviewAction(
         {

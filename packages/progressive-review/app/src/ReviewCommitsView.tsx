@@ -33,6 +33,7 @@ export function ReviewCommitsView({
       />
     );
   }
+
   return (
     <div className="review-commits-view">
       <div className="review-commits-column">
@@ -64,6 +65,7 @@ function CommitGroups({
   onOpenDiff: (commit: ReviewCommitSummary, via: "row") => void;
 }) {
   const groups = useMemo(() => groupCommitsByDate(commits), [commits]);
+
   return groups.map((group) => (
     <section className="review-commit-group" key={group.key}>
       <div className="review-commit-date">
@@ -101,9 +103,11 @@ function CommitRow({
     const next = !expanded;
     setExpanded(next);
     captureUiEvent(session, "commit_expanded", { expanded: next });
+
     if (!next || filesState) return;
     setFilesState({ status: "loading" });
     const diffView = session.bridge.diffView;
+
     const request = diffView.files
       ? diffView.files({ commit: commit.commit }).then((files) => [...files])
       : session
@@ -117,13 +121,16 @@ function CommitRow({
           })
           .then(async (response) => {
             const result = parseReviewDiffFilesResponse(await response.json());
+
             if (!response.ok || !result.ok) {
               throw new Error(
                 result.ok ? "Unable to load commit files." : result.error,
               );
             }
+
             return result.files;
           });
+
     request
       .then((files) => setFilesState({ status: "loaded", files }))
       .catch((cause: unknown) => {
@@ -138,9 +145,11 @@ function CommitRow({
     filesState?.status === "loaded"
       ? visibleCommitFiles(filesState.files)
       : null;
+
   const omittedFileCount = visibleFiles
     ? visibleFiles.testFilesOmitted + visibleFiles.overflowFilesOmitted
     : 0;
+
   return (
     <article
       className={
@@ -228,6 +237,7 @@ export function visibleCommitFiles(
       right.additions + right.deletions - (left.additions + left.deletions) ||
       left.path.localeCompare(right.path),
   );
+
   return {
     files: visible.slice(0, 8),
     testFilesOmitted: files.length - visible.length,
@@ -249,18 +259,22 @@ export function groupCommitsByDate(commits: readonly ReviewCommitSummary[]) {
     day: "numeric",
     year: "numeric",
   });
+
   const groups: Array<{
     key: string;
     label: string;
     commits: ReviewCommitSummary[];
   }> = [];
+
   const orderedCommits = [...commits].sort(
     (left, right) => Date.parse(right.authoredAt) - Date.parse(left.authoredAt),
   );
+
   for (const commit of orderedCommits) {
     const date = new Date(commit.authoredAt);
     const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     const previous = groups.at(-1);
+
     if (previous?.key === key) {
       previous.commits.push(commit);
     } else {
@@ -271,6 +285,7 @@ export function groupCommitsByDate(commits: readonly ReviewCommitSummary[]) {
       });
     }
   }
+
   return groups;
 }
 

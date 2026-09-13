@@ -82,6 +82,7 @@ export function localizeModelImport(input: {
     input.modelFile ?? MATERIALIZED_MODEL_FILE,
     input.packageRoot,
   );
+
   return replaceModelImportSpecifiers(
     input.source,
     relativeImportPath(input.outputPath, modelPath),
@@ -96,9 +97,11 @@ function replaceModelImportSpecifiers(
     `(from\\s+["'])((?:[^"']*/)?${MODEL_BASENAME_PATTERN}(?:\\.ts|\\.js)?|${escapeRegExp(CANONICAL_SOFTWARE_MAP_MODEL_IMPORT)})(["'])`,
     "g",
   );
+
   // `$` is special in String.replace replacements; a path containing `$1`
   // or `$&` would corrupt the emitted import. `$$` emits a literal `$`.
   const literalReplacement = replacement.replace(/\$/g, "$$$$");
+
   return source.replace(pattern, `$1${literalReplacement}$3`);
 }
 
@@ -132,11 +135,13 @@ export async function readSoftwareMapSourceForRef(input: {
   role: SoftwareMapArtifactRole;
 }): Promise<SoftwareMapSourceReadResult | null> {
   const gitDir = await gitCommonDir(input.repoRootPath);
+
   if (!gitDir) return null;
 
   const resolved = await resolveRevision(input.repoRootPath, input.ref).catch(
     () => null,
   );
+
   if (!resolved?.commit) return null;
 
   const local = await readNote({
@@ -144,6 +149,7 @@ export async function readSoftwareMapSourceForRef(input: {
     ref: SOFTWARE_MAP_NOTES_REF,
     commit: resolved.commit,
   });
+
   if (local !== null) {
     return { commit: resolved.commit, source: local, tier: "note" };
   }
@@ -153,8 +159,10 @@ export async function readSoftwareMapSourceForRef(input: {
     ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
     commit: resolved.commit,
   });
+
   if (remote !== null) {
     await backfillNote(input.repoRootPath, resolved.commit, remote);
+
     return { commit: resolved.commit, source: remote, tier: "remote-note" };
   }
 
@@ -162,9 +170,11 @@ export async function readSoftwareMapSourceForRef(input: {
     repoRootPath: input.repoRootPath,
     commit: resolved.commit,
   });
+
   if (recovered !== null) {
     return { commit: resolved.commit, source: recovered, tier: "evolog" };
   }
+
   return null;
 }
 
@@ -174,9 +184,11 @@ export function readSoftwareMapSourceForRefSync(input: {
   role: SoftwareMapArtifactRole;
 }): SoftwareMapSourceReadResult | null {
   const gitDir = gitCommonDirSync(input.repoRootPath);
+
   if (!gitDir) return null;
 
   const resolved = resolveRevisionSync(input.repoRootPath, input.ref);
+
   if (!resolved?.commit) return null;
 
   const local = readNoteSync({
@@ -184,14 +196,17 @@ export function readSoftwareMapSourceForRefSync(input: {
     ref: SOFTWARE_MAP_NOTES_REF,
     commit: resolved.commit,
   });
+
   if (local !== null) {
     return { commit: resolved.commit, source: local, tier: "note" };
   }
+
   const remote = readNoteSync({
     rootPath: input.repoRootPath,
     ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
     commit: resolved.commit,
   });
+
   if (remote !== null) {
     try {
       writeNoteSync({
@@ -203,8 +218,10 @@ export function readSoftwareMapSourceForRefSync(input: {
     } catch {
       // Backfill is best-effort.
     }
+
     return { commit: resolved.commit, source: remote, tier: "remote-note" };
   }
+
   // Evolog recovery is async-only; the async scan is the perf path and the
   // sync path self-heals on the next async pass.
   return null;
@@ -238,25 +255,32 @@ async function recoverNoteFromEvolog(input: {
   commit: string;
 }): Promise<string | null> {
   const vcs = await detectLocalVcs(input.repoRootPath).catch(() => null);
+
   if (vcs?.kind !== "jj") return null;
+
   const predecessors = await evologCommitIds({
     rootPath: input.repoRootPath,
     ref: input.commit,
   });
+
   for (const predecessor of predecessors) {
     if (predecessor === input.commit) continue;
+
     const source = await readNoteFromEitherNamespace({
       repoRootPath: input.repoRootPath,
       commit: predecessor,
     });
+
     if (source !== null) {
       await backfillNote(input.repoRootPath, input.commit, source);
       process.stderr.write(
         `software map: recovered note for ${input.commit.slice(0, 12)} from predecessor ${predecessor.slice(0, 12)} (jj rewrite)\n`,
       );
+
       return source;
     }
   }
+
   return null;
 }
 
@@ -273,7 +297,9 @@ export function scratchSoftwareMapPath(input: {
   commit: string;
 }): string | null {
   const gitDir = gitCommonDirSync(input.repoRootPath);
+
   if (!gitDir) return null;
+
   return path.join(
     scratchSoftwareMapDir(gitDir, input.commit),
     SOFTWARE_MAP_FILE_NAME,
@@ -313,15 +339,19 @@ export async function hydrateScratch(input: {
   force?: boolean;
 }): Promise<HydrateScratchResult> {
   const gitDir = await gitCommonDir(input.repoRootPath);
+
   if (!gitDir) {
     throw new Error(`No git repository found at ${input.repoRootPath}`);
   }
+
   const resolved = await resolveRevision(input.repoRootPath, input.rev).catch(
     () => null,
   );
+
   if (!resolved?.commit) {
     throw new Error(`Unable to resolve revision: ${input.rev}`);
   }
+
   const commit = resolved.commit;
   const scratchDir = scratchSoftwareMapDir(gitDir, commit);
   const mapPath = path.join(scratchDir, SOFTWARE_MAP_FILE_NAME);
@@ -333,20 +363,25 @@ export async function hydrateScratch(input: {
   });
 
   let mapSource = mapRead?.source ?? null;
+
   let hydratedFrom: HydrateScratchResult["hydratedFrom"] =
     mapRead?.tier ?? "stub";
+
   let seedCommit: string | undefined;
   let distance: number | undefined;
+
   if (mapSource === null) {
     const ancestor = await findNearestAnnotatedAncestor({
       repoRootPath: input.repoRootPath,
       commit,
     });
+
     if (ancestor) {
       mapSource = await readNoteFromEitherNamespace({
         repoRootPath: input.repoRootPath,
         commit: ancestor.commit,
       });
+
       if (mapSource !== null) {
         hydratedFrom = "ancestor-note";
         seedCommit = ancestor.commit;
@@ -409,9 +444,11 @@ async function findNearestAnnotatedAncestor(input: {
       ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
     }),
   ]);
+
   const annotated = new Set(
     [...local, ...remote].map((sha) => sha.toLowerCase()),
   );
+
   if (annotated.size === 0) return null;
 
   const listed = await git(
@@ -424,17 +461,21 @@ async function findNearestAnnotatedAncestor(input: {
     ],
     { allowFailure: true },
   );
+
   if (!listed.ok) return null;
+
   const revs = listed.stdout
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+
   // revs[0] is the commit itself — already probed by the exact-commit tiers.
   for (let index = 1; index < revs.length; index += 1) {
     if (annotated.has(revs[index].toLowerCase())) {
       return { commit: revs[index], distance: index };
     }
   }
+
   return null;
 }
 
@@ -475,21 +516,26 @@ export async function flushScratch(input: {
     repoRootPath: input.repoRootPath,
     commit: input.commit,
   });
+
   if (!mapPath) {
     throw new Error(`No git repository found at ${input.repoRootPath}`);
   }
+
   const mapSource = input.mapSource ?? readFileOrNull(mapPath);
+
   if (mapSource === null) {
     throw new Error(
       `No scratch exists for ${input.commit}. Run review map open first.`,
     );
   }
+
   await writeNote({
     rootPath: input.repoRootPath,
     ref: SOFTWARE_MAP_NOTES_REF,
     commit: input.commit,
     content: canonicalizeModelImport(mapSource),
   });
+
   return { commit: input.commit };
 }
 
@@ -554,16 +600,20 @@ export async function materializeSoftwareMapAtRef(input: {
   validate?: "strict-warn" | "skip";
 }): Promise<string | null> {
   const read = await readSoftwareMapSourceForRef(input);
+
   if (!read) return null;
   const gitDir = await gitCommonDir(input.repoRootPath);
+
   if (!gitDir) return null;
   const written = writeMaterializedArtifact({ gitDir, read });
+
   // Gated by a content-hash marker, NOT by write status: the sync path may
   // have materialized this content first (making this write "unchanged"),
   // and the promised strict-validation warning must still fire once for it.
   if ((input.validate ?? "strict-warn") === "strict-warn") {
     await warnOnInvalidMaterializedSource({ gitDir, read });
   }
+
   return written.outputPath;
 }
 
@@ -573,9 +623,12 @@ export function materializeSoftwareMapAtRefSync(input: {
   role: SoftwareMapArtifactRole;
 }): string | null {
   const read = readSoftwareMapSourceForRefSync(input);
+
   if (!read) return null;
   const gitDir = gitCommonDirSync(input.repoRootPath);
+
   if (!gitDir) return null;
+
   // Strict-validation warning is async-only (dynamic import); the async
   // materialization pass over the same commit covers it.
   return writeMaterializedArtifact({ gitDir, read }).outputPath;
@@ -589,7 +642,9 @@ function writeMaterializedArtifact(input: {
     materializedSoftwareMapDir(input.gitDir, input.read.commit),
     SOFTWARE_MAP_FILE_NAME,
   );
+
   mkdirSync(path.dirname(outputPath), { recursive: true });
+
   const status = writeFileIfChangedSync(
     outputPath,
     localizeModelImport({
@@ -597,6 +652,7 @@ function writeMaterializedArtifact(input: {
       outputPath,
     }),
   );
+
   return { outputPath, status };
 }
 
@@ -614,17 +670,22 @@ async function warnOnInvalidMaterializedSource(input: {
     materializedSoftwareMapDir(input.gitDir, input.read.commit),
     `.strict-${SOFTWARE_MAP_FILE_NAME}`,
   );
+
   const markerPath = `${strictPath}.validated-hash`;
+
   const strictSource = localizeModelImport({
     source: canonicalizeModelImport(input.read.source),
     outputPath: strictPath,
     modelFile: STRICT_MODEL_FILE,
   });
+
   // Validate only when the content changed since the last validation attempt
   // (the marker records the hash whether validation passed or warned, so an
   // unchanged bad note doesn't re-warn every pass).
   const contentHash = createHash("sha256").update(strictSource).digest("hex");
+
   if (readFileOrNull(markerPath) === contentHash) return;
+
   try {
     writeFileIfChangedSync(strictPath, strictSource);
     const url = pathToFileURL(strictPath);
@@ -654,7 +715,9 @@ export function writeFileIfChangedSync(
   } catch {
     // Missing or unreadable files are rewritten below.
   }
+
   writeFileSync(filePath, contents, "utf8");
+
   return "written";
 }
 

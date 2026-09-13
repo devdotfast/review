@@ -12,17 +12,22 @@ const SCORE_THRESHOLD = 0.5;
  */
 function bestScore(needle: string, labels: readonly string[]): number {
   let best = 0;
+
   for (const label of labels) {
     const score = fuzzysort.single(needle, label)?.score ?? 0;
+
     if (score > best) best = score;
   }
+
   return best;
 }
 
 /** True when the query hits any label. An empty query matches everything. */
 export function fuzzyMatches(query: string, ...labels: string[]): boolean {
   const needle = query.trim();
+
   if (!needle) return true;
+
   return bestScore(needle, labels) >= SCORE_THRESHOLD;
 }
 
@@ -42,22 +47,27 @@ export interface FuzzySegment {
 export function fuzzySegments(query: string, label: string): FuzzySegment[] {
   const whole = [{ text: label, matched: false }];
   const needle = query.trim();
+
   if (!needle) return whole;
   const result = fuzzysort.single(needle, label);
+
   if (!result || result.score < SCORE_THRESHOLD) return whole;
 
   // Indexed by code unit, the way fuzzysort reports its matches.
   const hit = new Set<number>(result.indexes);
   const segments: FuzzySegment[] = [];
+
   for (let index = 0; index < label.length; index++) {
     const matched = hit.has(index);
     const last = segments.at(-1);
+
     if (last && last.matched === matched) {
       last.text += label[index];
     } else {
       segments.push({ text: label[index], matched });
     }
   }
+
   return segments;
 }
 
@@ -71,7 +81,9 @@ export function fuzzyRank<T>(
   labelsOf: (item: T) => string[],
 ): T[] {
   const needle = query.trim();
+
   if (!needle) return [...items];
+
   return items
     .map((item) => ({ item, score: bestScore(needle, labelsOf(item)) }))
     .filter((hit) => hit.score >= SCORE_THRESHOLD)

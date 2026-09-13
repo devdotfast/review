@@ -38,6 +38,7 @@ const UPSTREAM = fileURLToPath(
     import.meta.url,
   ),
 );
+
 const COPY = fileURLToPath(
   new URL(
     "../../../packages/progressive-review/src/telemetry-clean-text.ts",
@@ -76,6 +77,7 @@ function extractDeclaration(source, opening) {
   const rest = source.slice(start + 1);
   const end = rest.search(/\n(?:\}|\];)\n/);
   assert.notEqual(end, -1, `Could not find the end of "${opening}".`);
+
   return rest.slice(0, end);
 }
 
@@ -90,6 +92,7 @@ function normalize(text) {
 
 test("the copied telemetry cleaner still matches the upstream it was taken from", () => {
   const upstream = readFileSync(UPSTREAM, "utf8");
+
   const digest = createHash("sha256")
     .update(
       COPIED_DECLARATIONS.map((opening) =>

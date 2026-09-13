@@ -29,16 +29,22 @@ export function reviewDocumentErrorReport(
       name: cause.name,
       message: cause.message,
     };
+
     if (cause.stack) report.stack = cause.stack;
+
     return report;
   }
+
   const fields = isJsonObject(cause) ? cause : undefined;
   const stack = jsonString(fields?.stack);
+
   const report: ReviewDocumentErrorReport = {
     name: jsonString(fields?.name) ?? "Error",
     message: jsonString(fields?.message) ?? String(cause),
   };
+
   if (stack !== undefined) report.stack = stack;
+
   return report;
 }
 
@@ -47,11 +53,13 @@ export function reportReviewDocumentRenderError(
   cause: unknown,
 ): void {
   const report = reviewDocumentErrorReport(cause);
+
   const diagnostic: ReviewCanvasDiagnostic = {
     level: "error",
     source: "render",
     message: `${report.name}: ${report.message}`,
   };
+
   if (report.stack) diagnostic.stack = report.stack;
   session.reportDiagnostic(diagnostic);
   // `import.meta.hot` exists only in the Vite dev client, which is the only

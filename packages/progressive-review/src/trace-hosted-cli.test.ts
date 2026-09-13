@@ -13,6 +13,7 @@ import { rememberTraceRepositoryTarget } from "./trace-repository-target";
 import { allowTraceRepository, readTraceUserConfig } from "./trace-user-config";
 
 const ORIGIN = "https://app.dev.fast";
+
 const STORE_ID = "0123456789abcdef0123456789abcdef";
 
 interface CollectedOutput {
@@ -22,12 +23,14 @@ interface CollectedOutput {
 
 function collect(): CollectedOutput {
   let text = "";
+
   const stream = new Writable({
     write(chunk, _encoding, callback) {
       text += String(chunk);
       callback();
     },
   });
+
   return { stream, text: () => text };
 }
 
@@ -84,6 +87,7 @@ describe("hosted trace commands", () => {
     });
     const calls: string[] = [];
     const out = collect();
+
     const code = await runReviewTraceDeny({
       cwd: repo,
       env,
@@ -91,6 +95,7 @@ describe("hosted trace commands", () => {
       deleteStore: true,
       client: client((url, init) => {
         calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
+
         return Response.json({
           repositoryId: 7,
           storeId: STORE_ID,
@@ -101,6 +106,7 @@ describe("hosted trace commands", () => {
       stdout: out.stream,
       stderr: out.stream,
     });
+
     expect(code).toBe(0);
     expect(calls).toEqual(["DELETE /api/trace/v1/stores/7"]);
     expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);

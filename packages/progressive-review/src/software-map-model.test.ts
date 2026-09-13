@@ -36,6 +36,7 @@ describe("softwareModelDataSchema", () => {
       elements: [{ path: "api", label: "API" }],
       relationships: [],
     });
+
     expect(parsed.success).toBe(false);
   });
 
@@ -44,15 +45,18 @@ describe("softwareModelDataSchema", () => {
       elements: [],
       relationships: [{ id: "r", from: "a", to: "b", kind: "call" }],
     });
+
     expect(parsed.success).toBe(false);
   });
 
   it("rejects an element carrying an unknown field", () => {
     const [element] = softwareModelData(model).elements;
+
     const parsed = softwareModelDataSchema.safeParse({
       elements: [{ ...element, madeUp: true }],
       relationships: [],
     });
+
     expect(parsed.success).toBe(false);
   });
 });

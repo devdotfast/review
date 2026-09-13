@@ -60,6 +60,7 @@ export function collectSoftwareMapConnectivityWarnings(
   } = {},
 ) {
   const model = collectSoftwareMapConnectivityModel(source, options.document);
+
   if (!model) return [];
 
   return collectSoftwareMapConnectivityWarningsForModel({
@@ -73,6 +74,7 @@ export function collectSoftwareMapConnectivityModel(
   document?: ReviewMdxDocument,
 ): StaticSoftwareMapConnectivityModel | null {
   const modelObject = parseSoftwareMapModelObject(source, document);
+
   if (!modelObject) return null;
 
   const elements: StaticSoftwareMapElement[] = [];
@@ -103,17 +105,20 @@ export function collectSoftwareMapConnectivityModel(
   const elementsByPath = new Map(
     elements.map((element) => [element.path, element]),
   );
+
   const relationships = pendingRelationships.flatMap((relationship) => {
     const from = resolveStaticSoftwareMapEndpoint(
       relationship.from,
       relationship.scopePath,
       elementsByPath,
     );
+
     const to = resolveStaticSoftwareMapEndpoint(
       relationship.to,
       relationship.scopePath,
       elementsByPath,
     );
+
     return from && to ? [{ from, to }] : [];
   });
 
@@ -136,6 +141,7 @@ function collectSoftwareMapConnectivityWarningsForModel({
   const elementsByPath = new Map(
     elements.map((element) => [element.path, element]),
   );
+
   const warnings: string[] = [];
 
   for (const parent of elements) {
@@ -147,16 +153,19 @@ function collectSoftwareMapConnectivityWarningsForModel({
     ) {
       continue;
     }
+
     if (parent.children.length <= 1) continue;
 
     const disconnectedChildren = parent.children.filter((childPath) => {
       const child = elementsByPath.get(childPath);
+
       return (
         child &&
         !child.external &&
         !hasStaticSoftwareMapCrossSubtreeRelationship(child.path, relationships)
       );
     });
+
     if (parent.type === "component" && disconnectedChildren.length > 0) {
       warnings.push(
         `SoftwareMap connectivity: "${parent.path}" has ${disconnectedChildren.length} code element(s) with no relationship to any element outside themselves; they may be orphaned or under-connected.`,
@@ -166,12 +175,15 @@ function collectSoftwareMapConnectivityWarningsForModel({
 
     for (const childPath of parent.children) {
       const child = elementsByPath.get(childPath);
+
       if (!child || child.external) continue;
+
       if (
         hasStaticSoftwareMapCrossSubtreeRelationship(child.path, relationships)
       ) {
         continue;
       }
+
       warnings.push(
         `SoftwareMap connectivity: "${child.path}" has no relationship to any element outside its own subtree; it may be orphaned or under-connected.`,
       );
@@ -195,18 +207,23 @@ function parseSoftwareMapModelObject(
 ): ts.ObjectLiteralExpression | null {
   if (document) {
     if (document.parseError) return null;
+
     const calls = document.esmPrograms.flatMap((program) => [
       ...findCallExpressions(program, "defineSoftwareModel"),
       ...findCallExpressions(program, "defineSoftwareMap"),
     ]);
+
     if (calls.length !== 1) return null;
     const range = estreeNodeRange(calls[0]);
+
     if (!range) return null;
+
     return softwareMapModelObjectFromTsSource(
       `(${source.slice(range.start, range.end)})`,
       { requireSingleCall: false },
     );
   }
+
   return softwareMapModelObjectFromTsSource(source, {
     requireSingleCall: true,
   });
@@ -223,6 +240,7 @@ function softwareMapModelObjectFromTsSource(
     true,
     ts.ScriptKind.TSX,
   );
+
   // `parseDiagnostics` is an internal SourceFile field the public typings omit.
   if (
     "parseDiagnostics" in sourceFile &&
@@ -233,6 +251,7 @@ function softwareMapModelObjectFromTsSource(
   }
 
   const calls: ts.CallExpression[] = [];
+
   const visit = (node: ts.Node): void => {
     if (
       ts.isCallExpression(node) &&
@@ -241,12 +260,15 @@ function softwareMapModelObjectFromTsSource(
     ) {
       calls.push(node);
     }
+
     ts.forEachChild(node, visit);
   };
+
   visit(sourceFile);
 
   if (requireSingleCall && calls.length !== 1) return null;
   const callExpression = calls[0];
+
   if (
     !callExpression ||
     callExpression.arguments.length !== 1 ||
@@ -254,6 +276,7 @@ function softwareMapModelObjectFromTsSource(
   ) {
     return null;
   }
+
   return callExpression.arguments[0];
 }
 
@@ -277,14 +300,18 @@ function collectStaticSoftwareMapCollection({
   stringBindings: ReadonlyMap<string, string>;
 }) {
   if (!collection || !ts.isObjectLiteralExpression(collection)) return;
+
   for (const property of collection.properties) {
     if (!ts.isPropertyAssignment(property)) continue;
     const id = propertyNameText(property.name);
+
     if (!id) continue;
     const path = parentPath ? `${parentPath}.${id}` : id;
+
     const object = ts.isObjectLiteralExpression(property.initializer)
       ? property.initializer
       : undefined;
+
     const element: StaticSoftwareMapElement = {
       path,
       type,
@@ -294,7 +321,9 @@ function collectStaticSoftwareMapCollection({
         ? staticSoftwareMapCoverage(object, stringBindings)
         : undefined,
     };
+
     elements.push(element);
+
     if (!object) continue;
     collectStaticSoftwareMapRelationships(object, path, pendingRelationships);
 
@@ -356,15 +385,19 @@ function staticSoftwareMapCoverage(
   stringBindings: ReadonlyMap<string, string>,
 ): StaticSoftwareMapCoverage | undefined {
   const coverage = getObjectPropertyValue(object, "coverage");
+
   if (!coverage || !ts.isObjectLiteralExpression(coverage)) return undefined;
+
   const files = staticSoftwareMapCoverageFiles(
     getObjectPropertyValue(coverage, "files"),
     stringBindings,
   );
+
   const globs = staticStringArrayValue(
     getObjectPropertyValue(coverage, "globs"),
     stringBindings,
   );
+
   return files.length > 0 || globs.length > 0 ? { files, globs } : undefined;
 }
 
@@ -373,16 +406,22 @@ function staticSoftwareMapCoverageFiles(
   stringBindings: ReadonlyMap<string, string>,
 ): StaticSoftwareMapCoverageFile[] {
   if (!expression || !ts.isArrayLiteralExpression(expression)) return [];
+
   return expression.elements.flatMap((element) => {
     if (ts.isSpreadElement(element)) return [];
     const path = staticStringExpressionValue(element, stringBindings);
+
     if (path) return [{ path, ranges: [] }];
+
     if (!ts.isObjectLiteralExpression(element)) return [];
+
     const filePath = staticStringExpressionValue(
       getObjectPropertyValue(element, "path"),
       stringBindings,
     );
+
     if (!filePath) return [];
+
     return [
       {
         path: filePath,
@@ -396,10 +435,12 @@ function staticSoftwareMapCoverageFiles(
 
 function staticSoftwareMapRanges(expression: ts.Expression | undefined) {
   if (!expression || !ts.isArrayLiteralExpression(expression)) return [];
+
   return expression.elements.flatMap((element) => {
     if (!ts.isObjectLiteralExpression(element)) return [];
     const fromLine = numberObjectProperty(element, "fromLine");
     const toLine = numberObjectProperty(element, "toLine");
+
     return fromLine && toLine ? [{ fromLine, toLine }] : [];
   });
 }
@@ -410,10 +451,13 @@ function collectStaticSoftwareMapChildPaths(
   parentPath: string,
 ) {
   const collection = getObjectPropertyValue(object, property);
+
   if (!collection || !ts.isObjectLiteralExpression(collection)) return [];
+
   return collection.properties.flatMap((child) => {
     if (!ts.isPropertyAssignment(child)) return [];
     const id = propertyNameText(child.name);
+
     return id ? [`${parentPath}.${id}`] : [];
   });
 }
@@ -424,28 +468,37 @@ function collectStaticSoftwareMapRelationships(
   pendingRelationships: StaticSoftwareMapPendingRelationship[],
 ) {
   const relationships = getObjectPropertyValue(object, "relationships");
+
   if (!relationships || !ts.isArrayLiteralExpression(relationships)) return;
+
   for (const element of relationships.elements) {
     if (!ts.isObjectLiteralExpression(element)) continue;
     const from = stringObjectProperty(element, "from");
     const to = stringObjectProperty(element, "to");
+
     if (from && to) pendingRelationships.push({ from, to, scopePath });
   }
 }
 
 function collectStaticStringBindings(source: string): Map<string, string> {
   const bindings = new Map<string, string>();
+
   const pattern =
     /export\s+const\s+([A-Za-z_$][\w$]*)\s*=\s*(["'`])((?:\\.|(?!\2)[\s\S])*?)\2\s*;/g;
+
   for (const match of source.matchAll(pattern)) {
     const [, name, quote, rawValue] = match;
+
     if (!name || !quote || rawValue === undefined) continue;
+
     const value =
       quote === "`"
         ? rawValue.replace(/\\`/g, "`")
         : rawValue.replace(new RegExp(`\\\\${quote}`, "g"), quote);
+
     bindings.set(name, value);
   }
+
   return bindings;
 }
 
@@ -454,15 +507,18 @@ function staticStringExpressionValue(
   stringBindings: ReadonlyMap<string, string>,
 ) {
   if (!expression) return undefined;
+
   if (
     ts.isStringLiteral(expression) ||
     ts.isNoSubstitutionTemplateLiteral(expression)
   ) {
     return expression.text;
   }
+
   if (ts.isIdentifier(expression)) {
     return stringBindings.get(expression.text);
   }
+
   return undefined;
 }
 
@@ -472,13 +528,18 @@ function resolveStaticSoftwareMapEndpoint(
   elementsByPath: ReadonlyMap<string, StaticSoftwareMapElement>,
 ) {
   const candidates: string[] = [];
+
   if (scopePath && endpoint === ".") candidates.push(scopePath);
+
   if (scopePath && endpoint !== ".") {
     candidates.push(`${scopePath}.${endpoint}`);
     const parentPath = softwareMapParentPath(scopePath);
+
     if (parentPath) candidates.push(`${parentPath}.${endpoint}`);
   }
+
   candidates.push(endpoint);
+
   return candidates.find((candidate) => elementsByPath.has(candidate));
 }
 
@@ -504,6 +565,7 @@ function getObjectPropertyValue(
       ts.isPropertyAssignment(candidate) &&
       propertyNameText(candidate.name) === property,
   );
+
   return match?.initializer;
 }
 
@@ -512,6 +574,7 @@ function stringObjectProperty(
   property: string,
 ) {
   const value = getObjectPropertyValue(object, property);
+
   return value &&
     (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))
     ? value.text
@@ -523,6 +586,7 @@ function booleanObjectProperty(
   property: string,
 ) {
   const value = getObjectPropertyValue(object, property);
+
   return value?.kind === ts.SyntaxKind.TrueKeyword;
 }
 
@@ -531,6 +595,7 @@ function numberObjectProperty(
   property: string,
 ) {
   const value = getObjectPropertyValue(object, property);
+
   return value && ts.isNumericLiteral(value) ? Number(value.text) : undefined;
 }
 
@@ -539,9 +604,11 @@ function staticStringArrayValue(
   stringBindings: ReadonlyMap<string, string>,
 ) {
   if (!expression || !ts.isArrayLiteralExpression(expression)) return [];
+
   return expression.elements.flatMap((element) => {
     if (ts.isSpreadElement(element)) return [];
     const value = staticStringExpressionValue(element, stringBindings);
+
     return value ? [value] : [];
   });
 }
@@ -556,6 +623,7 @@ function propertyNameText(name: ts.PropertyName) {
 
 function softwareMapParentPath(path: string) {
   const lastDot = path.lastIndexOf(".");
+
   return lastDot === -1 ? undefined : path.slice(0, lastDot);
 }
 

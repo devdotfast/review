@@ -58,6 +58,7 @@ async function readStorage(
   cwd: string,
 ): Promise<TraceStorage | null | undefined> {
   if (!override) return undefined;
+
   return resolveTraceStorage({ cwd, override });
 }
 
@@ -83,20 +84,26 @@ export async function runReviewTraceStatus(input: {
         : `version ${selection.config.source === "v1" ? "1, consent only" : "2"}`
     })\n`,
   );
+
   if (selection.error) {
     input.stderr.write(`trace status: ${selection.error}\n`);
+
     return 1;
   }
+
   if (selection.mode === "hosted") {
     await writeHostedTraceStatus({
       cwd: input.cwd,
       origin: selection.hosted?.origin ?? "",
       stdout: input.stdout,
     });
+
     return 0;
   }
+
   const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
   input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
+
   for (const failure of await listTraceSyncFailures()) {
     input.stdout.write(
       `Failed background sync: session ${failure.session}${
@@ -109,6 +116,7 @@ export async function runReviewTraceStatus(input: {
     input.stderr.write(
       `trace status: ${doctor.error ?? "No trace configuration found. Use Review Agent Setup to configure trace capture."}\n`,
     );
+
     return 1;
   }
 
@@ -124,6 +132,7 @@ export async function runReviewTraceStatus(input: {
     input.stdout.write(
       `✓ S3/R2 bucket "${doctor.config.bucket}" is reachable.\n`,
     );
+
     return 0;
   }
 
@@ -132,6 +141,7 @@ export async function runReviewTraceStatus(input: {
       `✗ Cannot reach S3/R2 bucket "${doctor.config.bucket}": ${doctor.error ?? "unknown error"}\n`,
     );
   }
+
   return 1;
 }
 
@@ -144,10 +154,13 @@ export async function runReviewTraceEnable(input: {
     input.stderr.write(
       "trace enable: Trace capture is not enabled. Use Review Agent Setup first.\n",
     );
+
     return 1;
   }
+
   const result = await enableTraceRepository({ cwd: input.cwd });
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
+
   return result.enabled ? 0 : 1;
 }
 
@@ -157,6 +170,7 @@ export async function runReviewTraceDisable(input: {
 }): Promise<number> {
   const result = await disableTraceRepository({ cwd: input.cwd });
   input.stdout.write(`${result.message}\n`);
+
   return result.repository ? 0 : 1;
 }
 
@@ -169,10 +183,13 @@ export async function runReviewTraceRepair(input: {
     input.stderr.write(
       "trace repair: Trace capture is not enabled. Use Review Agent Setup first.\n",
     );
+
     return 1;
   }
+
   const result = await repairTraceRepository({ cwd: input.cwd });
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
+
   return result.enabled ? 0 : 1;
 }
 
@@ -185,6 +202,7 @@ async function listSessionsForReview(
   const repoRootPath = resolveReviewRepoRootFromStore(review.dir);
   const record = review.review;
   const headCommit = record.sourceCommit ?? record.baseCommit;
+
   return listReviewTraceSessions({
     rootPath: repoRootPath,
     baseCommit: record.baseCommit,
@@ -205,12 +223,14 @@ export async function runReviewTraceList(input: {
   let scope: { review: string } | { commit: string };
   let sessions: ReviewTraceSessionDescriptor[];
   let emptyExitCode = 0;
+
   if (input.commitSha) {
     const resolution = await lookupReviewTraceCommit({
       cwd: input.cwd,
       sha: input.commitSha,
       storage,
     });
+
     scope = { commit: resolution.commit };
     sessions = await Promise.all(
       resolution.sessions.map((sessionId) =>
@@ -237,33 +257,42 @@ export async function runReviewTraceList(input: {
     traces: ["main", ...(session.subagents ?? [])],
     commits: session.commits,
   }));
+
   if (input.json) {
     input.stdout.write(
       `${JSON.stringify({ ...scope, sessions: publicSessions })}\n`,
     );
+
     return sessions.length === 0 ? emptyExitCode : 0;
   }
+
   if (sessions.length === 0) {
     const label =
       "review" in scope ? `review ${scope.review}` : `commit ${scope.commit}`;
+
     input.stdout.write(`No agent sessions recorded for ${label}.\n`);
+
     return emptyExitCode;
   }
+
   for (const session of publicSessions) {
     input.stdout.write(
       `${session.id}  (${session.harness}, ${
         session.available ? "S3/R2 synced" : "not synced"
       })\n`,
     );
+
     for (const commit of session.commits) {
       input.stdout.write(
         `  commit ${commit.sha.slice(0, 9)}  ${commit.subject}\n`,
       );
     }
+
     for (const name of session.traces.slice(1)) {
       input.stdout.write(`  trace ${name}\n`);
     }
   }
+
   return 0;
 }
 
@@ -279,31 +308,39 @@ export async function runReviewTraceShow(input: {
   stderr: Writable;
 }): Promise<number> {
   const traceName = input.trace === "main" ? undefined : input.trace;
+
   const loaded = await loadReviewAgentTrace({
     sessionId: input.sessionId,
     trace: traceName,
     cwd: input.cwd,
     storage: await readStorage(input.storage, input.cwd),
   });
+
   if (!loaded) {
     throw new Error(
       `No transcript is available for session ${input.sessionId}${traceName ? ` (trace ${traceName})` : ""}.`,
     );
   }
+
   const { trace } = loaded;
+
   if (input.eventIndex !== undefined) {
     const event = trace.events[input.eventIndex];
+
     if (!event) {
       throw new Error(
         `Event ${input.eventIndex} is out of range. Session ${input.sessionId} has ${trace.events.length} events.`,
       );
     }
+
     const text = extractTraceEventText(event);
+
     if (input.json) {
       const traceQuoteProps: TraceQuoteProps = {
         sessionId: input.sessionId,
         event: input.eventIndex,
       };
+
       if (traceName) traceQuoteProps.trace = traceName;
       input.stdout.write(
         `${JSON.stringify({
@@ -315,14 +352,19 @@ export async function runReviewTraceShow(input: {
           trace_quote_props: traceQuoteProps,
         })}\n`,
       );
+
       return 0;
     }
+
     input.stdout.write(`${text}\n`);
+
     return 0;
   }
+
   const rows = trace.events
     .map((event, index) => ({ event, index }))
     .filter((row) => !input.kind || row.event.kind === input.kind);
+
   if (input.json) {
     input.stdout.write(
       `${JSON.stringify({
@@ -338,8 +380,10 @@ export async function runReviewTraceShow(input: {
         })),
       })}\n`,
     );
+
     return 0;
   }
+
   input.stdout.write(
     `# session ${input.sessionId}${traceName ? ` (trace ${traceName})` : ""} (${trace.harness}) — ${
       trace.title ?? "untitled"
@@ -347,11 +391,13 @@ export async function runReviewTraceShow(input: {
       loaded.cacheStatus === "current" ? "" : ` (${loaded.cacheStatus} copy)`
     }\n`,
   );
+
   for (const { event, index } of rows) {
     input.stdout.write(
       `${String(index).padStart(4, " ")}  ${compactEventLine(event)}\n`,
     );
   }
+
   return 0;
 }
 
@@ -395,6 +441,7 @@ export async function runReviewTracePull(input: {
         sha: input.commitSha,
         storage,
       });
+
       scope = { commit: resolution.commit };
       sessions = resolution.sessions.map((id) => ({ id }));
     } else if (input.session) {
@@ -410,6 +457,7 @@ export async function runReviewTracePull(input: {
     const repo = input.repo
       ? parseRepo(input.repo)
       : await inferRepoFromGit(repoRoot);
+
     const result = await pullReviewTraceCorpus({
       repo,
       sessions,
@@ -417,6 +465,7 @@ export async function runReviewTracePull(input: {
       cwd: repoRoot,
       storage,
     });
+
     const output = {
       scope,
       corpus_root: result.corpusRoot,
@@ -437,20 +486,24 @@ export async function runReviewTracePull(input: {
       input.stdout.write(
         `Materialized ${result.files} normalized trace file(s) with ${result.events} event(s) for ${result.repository}.\n`,
       );
+
       for (const filePath of result.paths) {
         input.stdout.write(`  ${filePath}\n`);
       }
+
       if (result.unavailableSessions.length > 0) {
         input.stderr.write(
           `Unavailable sessions: ${result.unavailableSessions.join(", ")}\n`,
         );
       }
     }
+
     return sessions.length > 0 && result.sessions.length === 0 ? 1 : 0;
   } catch (error) {
     input.stderr.write(
       `trace pull error: ${error instanceof Error ? error.message : String(error)}\n`,
     );
+
     return 1;
   }
 }
@@ -470,10 +523,12 @@ export async function runReviewTraceLookupCommit(input: {
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+
     return result.sessions.length === 0 ? 1 : 0;
   }
 
   printCommitResolution(result, input.stdout);
+
   return result.sessions.length === 0 ? 1 : 0;
 }
 
@@ -488,6 +543,7 @@ export async function runReviewTraceBlame(input: {
   stderr: Writable;
 }): Promise<number> {
   let result: ReviewTraceBlameLookupResult;
+
   try {
     result = await lookupReviewTraceBlame({
       cwd: input.cwd,
@@ -500,19 +556,23 @@ export async function runReviewTraceBlame(input: {
     input.stderr.write(
       `trace blame error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
+
     return 1;
   }
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+
     const hasAnySessions = result.resolutions.some(
       (r) => r.sessions.length > 0,
     );
+
     return hasAnySessions ? 0 : 1;
   }
 
   if (result.resolutions.length === 0) {
     input.stderr.write(`no commits found for ${input.file}\n`);
+
     return 1;
   }
 
@@ -521,6 +581,7 @@ export async function runReviewTraceBlame(input: {
   }
 
   const hasAnySessions = result.resolutions.some((r) => r.sessions.length > 0);
+
   return hasAnySessions ? 0 : 1;
 }
 
@@ -540,11 +601,13 @@ export async function runReviewTraceLookupSession(input: {
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+
     return result.meta === null && !result.has_raw_trace ? 1 : 0;
   }
 
   if (result.meta === null && !result.has_raw_trace) {
     input.stdout.write(`no session meta found for ${result.session}\n`);
+
     return 1;
   }
 
@@ -559,9 +622,11 @@ export async function runReviewTraceLookupSession(input: {
       `  raw trace: by-session/${result.session}/trace.jsonl\n`,
     );
   }
+
   if (result.subagents.length > 0) {
     input.stdout.write(`  subagents: ${result.subagents.join(", ")}\n`);
   }
+
   return 0;
 }
 
@@ -570,10 +635,12 @@ function printCommitResolution(
   stdout: Writable,
 ): void {
   const shortCommit = resolution.commit.slice(0, 12);
+
   if (resolution.sessions.length === 0) {
     stdout.write(
       `${shortCommit}  no agent sessions found (source checked: trailer, index, pr-scan)\n`,
     );
+
     return;
   }
 
@@ -581,11 +648,14 @@ function printCommitResolution(
   stdout.write(
     `${shortCommit}  → ${resolution.sessions.length} session(s) via ${resolution.source}${prSuffix}\n`,
   );
+
   for (const session of resolution.sessions) {
     const meta = resolution.session_meta?.[session];
+
     const metaSuffix = meta
       ? `  (${meta.branch || "?"}, ${meta.author || "?"})`
       : "";
+
     stdout.write(`    ${session}${metaSuffix}\n`);
     stdout.write(`      trace: by-session/${session}/trace.jsonl\n`);
     stdout.write(
@@ -609,15 +679,18 @@ export async function runReviewTraceSync(input: {
   stderr?: Writable;
 }): Promise<number> {
   let result: Awaited<ReturnType<typeof syncReviewTrace>>;
+
   try {
     if (input.expectStorage !== undefined) {
       const current = traceStorageExpectation();
+
       if (current !== input.expectStorage) {
         throw new Error(
           `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`review trace sync ${input.sessionId}\` to publish to the current selection.`,
         );
       }
     }
+
     result = await syncReviewTrace({
       sessionId: input.sessionId,
       cwd: input.cwd,
@@ -636,11 +709,13 @@ export async function runReviewTraceSync(input: {
     }).catch(() => undefined);
     throw error;
   }
+
   // A successful sync clears its own failure record in every store.
   await clearTraceSyncFailure(input.sessionId.trim()).catch(() => undefined);
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result)}\n`);
+
     return 0;
   }
 
@@ -649,48 +724,60 @@ export async function runReviewTraceSync(input: {
       `${upload.blob}  ${upload.bytes_stored} bytes  ${upload.status}\n`,
     );
   }
+
   if (result.hosted) {
     for (const name of result.hosted.omitted.subagents) {
       input.stdout.write(
         `${name}  omitted (over the object limit or not a store name)\n`,
       );
     }
+
     if (result.hosted.omitted.commits > 0) {
       input.stdout.write(
         `${result.hosted.omitted.commits} commit link(s) omitted (over the commit limit).\n`,
       );
     }
+
     input.stdout.write(
       result.hosted.complete
         ? `Published session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`
         : `Published part of session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`,
     );
+
     return 0;
   }
+
   input.stdout.write(
     `Updated meta for session ${result.session} in ${result.repo}.\n`,
   );
+
   return 0;
 }
 
 function compactEventLine(event: AgentTraceEvent): string {
   const oneLine = (text: string, limit: number): string => {
     const collapsed = text.replace(/\s+/g, " ").trim();
+
     return collapsed.length > limit
       ? `${collapsed.slice(0, limit - 1)}…`
       : collapsed;
   };
+
   if (event.kind === "user") return `user       ${oneLine(event.text, 160)}`;
+
   if (event.kind === "assistant") {
     return `${event.thinking ? "thinking  " : "assistant "} ${oneLine(event.markdown, 160)}`;
   }
+
   if (event.kind === "separator") return `separator  ${event.label}`;
+
   const counts = [
     event.additions ? `+${event.additions}` : null,
     event.deletions ? `−${event.deletions}` : null,
   ]
     .filter(Boolean)
     .join(" ");
+
   return `tool       ${event.verb} ${oneLine(event.title, 120)}${
     counts ? ` ${counts}` : ""
   }${event.filePath ? ` [${event.filePath}]` : ""}`;
@@ -702,19 +789,26 @@ async function resolveTraceReview(
 ): Promise<StoredReview> {
   const managedReviewUuid = await reviewUuidForManagedCheckout(cwd);
   const wantedUuid = reviewUuid ?? managedReviewUuid ?? undefined;
+
   if (wantedUuid) {
     const review = await findReview(wantedUuid);
+
     if (!review) throw new Error(`Review not found: ${wantedUuid}`);
+
     return review;
   }
+
   const candidates = (await listReviews({ worktreePath: cwd })).reviews.filter(
     (review) => review.review.status !== "rejected",
   );
+
   if (candidates.length === 0) {
     throw new Error("No review found for this worktree.");
   }
+
   if (candidates.length > 1) {
     throw new Error("Multiple reviews require --review <uuid>.");
   }
+
   return candidates[0];
 }

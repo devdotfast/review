@@ -27,11 +27,16 @@ import {
 } from "./bug-report-trace";
 
 const BUG_REPORT_URL = "https://bug.dev.fast/api/v2/reports";
+
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024;
+
 const UPSTREAM_TIMEOUT_MS = 20_000;
+
 const TRACE_UPSTREAM_TIMEOUT_MS = 5 * 60_000;
+
 // Keep room for multipart headers and boundaries below the Worker request cap.
 const MAX_MULTIPART_CONTENT_BYTES = 99_000_000;
+
 // The review directory is a git repo, but its tracked set also holds
 // `review.json` (an absolute home path, the repo key, the pull request URL) and
 // the compiled `.bundle/` output. So the report attaches an explicit source set
@@ -39,7 +44,9 @@ const MAX_MULTIPART_CONTENT_BYTES = 99_000_000;
 // non-recursive scan keeps `.build/` and `.bundle/` out, which matters because
 // `.build/<revision>/` holds a second copy of every source file.
 const REVIEW_SOURCE_MODULE_RE = /\.tsx?$/;
+
 const MAX_REVIEW_SOURCE_FILES = 20;
+
 // Not a transfer limit: `MAX_PAYLOAD_BYTES` already bounds what reaches the
 // Worker. This bounds one file, because the size ladder below drops the whole
 // review attachment rather than one module. So a single huge file would cost
@@ -48,6 +55,7 @@ const MAX_REVIEW_SOURCE_FILES = 20;
 const MAX_REVIEW_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
 type AttachmentName = "review" | "map" | "diff" | "trace";
+
 type AttachmentError = {
   attachment: AttachmentName;
   error: "unavailable" | "too_large";
@@ -96,6 +104,7 @@ export async function submitReviewBugReport(input: {
 }) {
   const cliVersion = readProgressiveReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
+
   const payload: BugReportPayload = {
     schema_version: 4,
     description: input.report.description,
@@ -107,6 +116,7 @@ export async function submitReviewBugReport(input: {
       client_error_names: input.clientErrorNames.slice(-20),
     },
   };
+
   if (input.report.screenshot) payload.screenshot = input.report.screenshot;
 
   let reviewSource: Record<string, string> | undefined;
@@ -115,16 +125,20 @@ export async function submitReviewBugReport(input: {
   let changedFileDiffs: ReviewDiffFilesResult | undefined;
   let traceAttachment: AuthoringTraceAttachment | undefined;
   let sourceTargetPromise: Promise<ReviewSourceTarget> | undefined;
+
   const sourceTarget = () =>
     (sourceTargetPromise ??= resolveReviewSourceTarget({
       reviewRootPath: input.reviewRootPath,
     }));
+
   const tasks: Array<Promise<void>> = [];
+
   if (input.report.include_review) {
     tasks.push(
       readReviewSourceFiles(input.reviewDocumentPath).then(
         (result) => {
           reviewSource = result.files;
+
           if (result.omitted.length > 0) omittedReviewFiles = result.omitted;
         },
         () => {
@@ -133,6 +147,7 @@ export async function submitReviewBugReport(input: {
       ),
     );
   }
+
   if (input.report.include_map) {
     tasks.push(
       sourceTarget()
@@ -151,6 +166,7 @@ export async function submitReviewBugReport(input: {
         ),
     );
   }
+
   if (input.report.include_diff) {
     tasks.push(
       sourceTarget()
@@ -165,6 +181,7 @@ export async function submitReviewBugReport(input: {
         ),
     );
   }
+
   if (input.report.include_trace) {
     tasks.push(
       (input.readTraceAttachment ?? readAuthoringTraceAttachment)({
@@ -177,6 +194,7 @@ export async function submitReviewBugReport(input: {
               "The complete authoring trace is unavailable.",
             );
           }
+
           traceAttachment = trace;
         },
         () => {
@@ -188,16 +206,23 @@ export async function submitReviewBugReport(input: {
       ),
     );
   }
+
   await Promise.all(tasks);
+
   if (reviewSource !== undefined) payload.review = reviewSource;
+
   if (omittedReviewFiles !== undefined) {
     payload.diagnostics.review_omitted_files = omittedReviewFiles;
   }
+
   if (mapSource !== undefined) payload.map = mapSource;
+
   if (changedFileDiffs !== undefined) payload.diff = changedFileDiffs;
+
   if (traceAttachment !== undefined) {
     payload.trace = traceAttachment.payload;
   }
+
   if (attachmentErrors.length > 0) {
     payload.diagnostics.attachment_errors = attachmentErrors.sort(byAttachment);
   }
@@ -220,7 +245,9 @@ export async function submitReviewBugReport(input: {
         error instanceof Error ? error.message : "Bug report service failed.",
       );
     });
+
     const responseBody = await response.json().catch(() => null);
+
     if (!response.ok) {
       throw new BugReportUpstreamError(
         response.status === 429 || response.status === 413
@@ -233,8 +260,11 @@ export async function submitReviewBugReport(input: {
             : "Bug report service failed.",
       );
     }
+
     const result = parseReviewBugReportResponse(responseBody);
+
     if (!result.ok) throw new BugReportUpstreamError(502, result.error);
+
     return result;
   } finally {
     await traceAttachment?.cleanup().catch(() => {});
@@ -281,20 +311,24 @@ export async function buildBugReportRequest(
     truncatedDiff = true;
     payloadBytes = gzipPayload(payload);
   }
+
   if (payloadBytes.byteLength > maxPayloadBytes && payload.map) {
     delete payload.map;
     truncatedMap = true;
     payloadBytes = gzipPayload(payload);
   }
+
   if (payloadBytes.byteLength > maxPayloadBytes && payload.screenshot) {
     delete payload.screenshot;
     truncatedScreenshot = true;
     payloadBytes = gzipPayload(payload);
   }
+
   if (payloadBytes.byteLength > maxPayloadBytes && payload.review) {
     delete payload.review;
     payloadBytes = gzipPayload(payload);
   }
+
   if (payloadBytes.byteLength > maxPayloadBytes) {
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
@@ -307,19 +341,23 @@ export async function buildBugReportRequest(
       (total, part) => total + part.bytes,
       payloadBytes.byteLength,
     );
+
   if (contentBytes() > MAX_MULTIPART_CONTENT_BYTES && payload.trace) {
     traceParts = [];
     delete payload.trace;
+
     const tooLarge: AttachmentError = {
       attachment: "trace",
       error: "too_large",
     };
+
     payload.diagnostics.attachment_errors = [
       ...(payload.diagnostics.attachment_errors ?? []),
       tooLarge,
     ].sort(byAttachment);
     payloadBytes = gzipPayload(payload);
   }
+
   if (contentBytes() > MAX_MULTIPART_CONTENT_BYTES) {
     throw new BugReportUpstreamError(413, "Bug report is too large.");
   }
@@ -356,9 +394,11 @@ export async function buildBugReportRequest(
       })),
     ],
   };
+
   if (payload.description.trim().length > 0) {
     meta.description = payload.description;
   }
+
   if (payload.trace) meta.trace_harness = payload.trace.harness;
   const form = new FormData();
   form.append("meta", JSON.stringify(meta));
@@ -367,6 +407,7 @@ export async function buildBugReportRequest(
     new Blob([Uint8Array.from(payloadBytes)], { type: "application/gzip" }),
     "payload.json.gz",
   );
+
   for (const part of traceParts) {
     form.append(
       "trace",
@@ -374,6 +415,7 @@ export async function buildBugReportRequest(
       part.filename,
     );
   }
+
   return { body: form };
 }
 
@@ -396,15 +438,18 @@ async function readReviewSourceFiles(
   const omitted: string[] = [];
 
   const directory = path.dirname(documentPath);
+
   const entries = await readdir(directory, { withFileTypes: true }).catch(
     () => [],
   );
+
   const moduleNames = entries
     .filter(
       (entry) => entry.isFile() && REVIEW_SOURCE_MODULE_RE.test(entry.name),
     )
     .map((entry) => entry.name)
     .sort();
+
   for (const name of moduleNames.slice(MAX_REVIEW_SOURCE_FILES - 1)) {
     omitted.push(name);
   }
@@ -412,9 +457,11 @@ async function readReviewSourceFiles(
   await Promise.all(
     moduleNames.slice(0, MAX_REVIEW_SOURCE_FILES - 1).map(async (name) => {
       if (name === documentName) return;
+
       const source = await readFile(path.join(directory, name), "utf8").catch(
         () => null,
       );
+
       // Name what the report drops. A truncated module is invalid TypeScript,
       // and a silently missing one reads during triage as a rendering bug.
       if (
@@ -422,16 +469,20 @@ async function readReviewSourceFiles(
         Buffer.byteLength(source) > MAX_REVIEW_SOURCE_FILE_BYTES
       ) {
         omitted.push(name);
+
         return;
       }
+
       files[name] = source;
     }),
   );
+
   return { files, omitted: omitted.sort() };
 }
 
 async function readHeadSoftwareMap(target: ReviewSourceTarget) {
   if (!target.headRef) return null;
+
   return (
     (
       await readSoftwareMapSourceForRef({

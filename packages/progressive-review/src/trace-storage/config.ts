@@ -30,6 +30,7 @@ export const TRACE_CONFIG_VERSION = 2;
 
 /** The two stores a machine can name. */
 export const traceStoreNameSchema = z.enum(["s3", "hosted"]);
+
 export type TraceStoreName = z.infer<typeof traceStoreNameSchema>;
 
 /** The hosted origin used when a file names none. */
@@ -41,6 +42,7 @@ export const s3CaptureSchema = z.object({
   verifiedAt: z.string().optional(),
   error: z.string().optional(),
 });
+
 export type S3CaptureSettings = z.infer<typeof s3CaptureSchema>;
 
 /** Your own S3-compatible bucket. Complete or rejected; never patched from legacy files. */
@@ -52,6 +54,7 @@ export const s3ProfileSchema = z.object({
   region: z.string().min(1).optional(),
   capture: s3CaptureSchema.optional(),
 });
+
 export type S3Profile = z.infer<typeof s3ProfileSchema>;
 
 /** The hosted store in use. The login token lives in the auth file. */
@@ -72,6 +75,7 @@ export const traceRepositoryEntrySchema = z.object({
   enabledOrigins: z.array(z.string().min(1)).optional(),
   allowedAt: z.string().optional(),
 });
+
 export type TraceRepositoryEntry = z.infer<typeof traceRepositoryEntrySchema>;
 
 export const traceConfigSchema = z.object({
@@ -85,6 +89,7 @@ export const traceConfigSchema = z.object({
     .optional(),
   repositories: z.array(traceRepositoryEntrySchema).optional(),
 });
+
 export type TraceConfig = z.infer<typeof traceConfigSchema>;
 
 /** The empty configuration every writer starts from. */
@@ -105,7 +110,9 @@ export function s3Store(config: TraceConfig | null): S3Profile | null {
 /** The hosted origin in effect: the store entry's, or the default. */
 export function hostedOrigin(config: TraceConfig | null): string {
   const origin = config?.stores?.hosted?.origin;
+
   if (!origin) return DEFAULT_HOSTED_ORIGIN;
+
   try {
     return normalizeStoreOrigin(origin);
   } catch {
@@ -138,6 +145,7 @@ const traceConfigV1Schema = z.object({
   version: z.literal(1),
   repositories: z.array(z.unknown()).optional(),
 });
+
 const v1RepositorySchema = z.object({
   repositoryId: z.number().int().positive(),
   name: z.string().min(1),
@@ -178,6 +186,7 @@ export function traceConfigPath(scope: TraceConfigScope = {}): string {
   const devHome =
     scope.devHome ??
     devReviewHome(scope.env ?? process.env, scope.homeDir ?? os.homedir());
+
   return path.join(devHome, "trace", "config.json");
 }
 
@@ -187,6 +196,7 @@ export function readTraceConfigFile(
   const filePath = traceConfigPath(scope);
   let text: string;
   let fingerprint: string;
+
   try {
     // Stat first: a replacement between the two calls then reads as a later
     // change and is refused, never as a matching fingerprint over new bytes.
@@ -202,6 +212,7 @@ export function readTraceConfigFile(
       fingerprint: null,
     };
   }
+
   const malformed = (reason: string): TraceConfigFile => ({
     path: filePath,
     source: "absent",
@@ -212,22 +223,27 @@ export function readTraceConfigFile(
   });
 
   let raw: Record<string, JsonValue> | undefined;
+
   try {
     raw = jsonObject(parseJsonText(text));
   } catch {
     return malformed("not valid JSON.");
   }
+
   if (!raw) return malformed("expected a JSON object.");
 
   const v2 = traceConfigSchema.safeParse(raw);
+
   if (v2.success) {
     const both =
       v2.data.stores?.s3 !== undefined && v2.data.stores?.hosted !== undefined;
+
     if (both && v2.data["current-store"] === undefined) {
       return malformed(
         'both stores are configured; set "current-store" to "s3" or "hosted".',
       );
     }
+
     return {
       path: filePath,
       source: "v2",
@@ -241,14 +257,19 @@ export function readTraceConfigFile(
       fingerprint,
     };
   }
+
   const v1 = traceConfigV1Schema.safeParse(raw);
+
   if (v1.success) {
     const repositories = (v1.data.repositories ?? []).flatMap((entry) => {
       const parsed = v1RepositorySchema.safeParse(entry);
+
       if (!parsed.success) return [];
       const { store, ...rest } = parsed.data;
+
       return [{ ...rest, enabledOrigins: [store] }];
     });
+
     return {
       path: filePath,
       source: "v1",
@@ -257,8 +278,10 @@ export function readTraceConfigFile(
       fingerprint,
     };
   }
+
   const issue = v2.error.issues[0];
   const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
+
   return malformed(`${issue?.message ?? "unsupported contents"}${where}.`);
 }
 
@@ -273,6 +296,7 @@ export async function writeTraceConfigFile(
 ): Promise<void> {
   if (file.error) throw new TraceConfigurationError(file.error);
   await mkdir(path.dirname(file.path), { recursive: true, mode: 0o700 });
+
   const outcome = await withFileLock(
     `${path.resolve(file.path)}.lock`,
     {
@@ -288,6 +312,7 @@ export async function writeTraceConfigFile(
           `Trace configuration at ${file.path} changed while it was being updated. Re-run the command.`,
         );
       }
+
       // JSON serialization drops undefined members, so absent sections and
       // absent optional fields leave no trace in the file.
       const document = {
@@ -297,9 +322,11 @@ export async function writeTraceConfigFile(
         stores: config.stores,
         repositories: config.repositories,
       };
+
       await writePrivateJsonAtomic(file.path, document);
     },
   );
+
   if (!outcome.acquired) {
     throw new TraceConfigurationError(
       `Trace configuration at ${file.path} is busy. Re-run the command after the current update finishes.`,
@@ -310,6 +337,7 @@ export async function writeTraceConfigFile(
 function currentFingerprint(filePath: string): string | null {
   try {
     const stats = statSync(filePath);
+
     return `${stats.size}:${stats.mtimeMs}`;
   } catch {
     return null;

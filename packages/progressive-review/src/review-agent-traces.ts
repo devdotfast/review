@@ -70,8 +70,11 @@ export { type TraceRepo, inferRepoFromGit, parseRepo, traceRepoName };
  */
 
 const RECORD_SEPARATOR = "\u001e";
+
 const FIELD_SEPARATOR = "\u001f";
+
 const STORE_COMMIT_LOOKUP_LIMIT = 30;
+
 const REMOTE_HEAD_TTL_MS = 15_000;
 
 export interface ReviewTraceCommitRef {
@@ -204,9 +207,11 @@ export async function listReviewTraceSessions(input: {
   const storage = await storageFor(input.storage, input.rootPath);
   const sessions = new Map<string, ReviewTraceSessionRef>();
   const commits = await commitsWithTrailers(input);
+
   for (const commit of commits) {
     for (const sessionId of commit.sessions) {
       const existing = sessions.get(sessionId);
+
       if (existing) {
         existing.commits.push({ sha: commit.sha, subject: commit.subject });
       } else {
@@ -217,18 +222,22 @@ export async function listReviewTraceSessions(input: {
       }
     }
   }
+
   if (sessions.size === 0 && commits.length <= STORE_COMMIT_LOOKUP_LIMIT) {
     await addSessionsFromStoreIndex(storage, commits, sessions);
   }
+
   if (sessions.size === 0 && commits.length <= STORE_COMMIT_LOOKUP_LIMIT) {
     await addSessionsFromPrScan(input.rootPath, commits, sessions);
   }
 
   const descriptors: ReviewTraceSessionDescriptor[] = [];
+
   for (const ref of sessions.values()) {
     const desc = await describeTraceSession(ref, storage);
     descriptors.push(desc);
   }
+
   return descriptors;
 }
 
@@ -239,9 +248,11 @@ export async function describeTraceSession(
   const store = await storageFor(storage);
   const local = findNormalizedTraceFile(ref.sessionId, "main", store);
   const normalized = local ? readNormalizedTrace(local, store) : null;
+
   const remote = store
     ? await reachable(() => store.describeObject(ref.sessionId, "main"))
     : null;
+
   const available = normalized !== null || (remote !== null && remote.size > 0);
   const harness = normalized?.metadata.harness ?? "unknown";
 
@@ -268,24 +279,30 @@ export async function loadReviewAgentTrace(input: {
   storage?: TraceStorage | null;
 }): Promise<LoadedReviewAgentTrace | null> {
   const { sessionId, trace } = input;
+
   if (sessionId === TUTORIAL_TRACE_SESSION_ID) {
     return !trace || trace === "main" ? loadTutorialTrace() : null;
   }
+
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
   const traceName = trace ?? "main";
   const storage = await storageFor(input.storage, input.cwd);
   const requestedRepo = input.repo ? normalizeRepo(input.repo) : null;
 
   let scope = storage ? storage.cacheScope(requestedRepo) : requestedRepo;
+
   let normalizedPath = scope
     ? normalizedTracePath(scope, sessionId, traceName)
     : findNormalizedTraceFile(sessionId, traceName, storage);
+
   let normalized = normalizedPath
     ? readNormalizedTrace(normalizedPath, storage)
     : null;
+
   const now = Date.now();
   const checkKey = storage ? freshnessKey(storage, sessionId, traceName) : null;
   const lastChecked = checkKey ? (lastCheckedTimes.get(checkKey) ?? 0) : 0;
+
   const canUseWithoutCheck =
     normalized && !input.refresh && now - lastChecked < REMOTE_HEAD_TTL_MS;
 
@@ -293,37 +310,48 @@ export async function loadReviewAgentTrace(input: {
     // A hosted refresh is current only after the whole read succeeds.
     if (storage.kind === "hosted") lastCheckedTimes.delete(checkKey);
     let remote: Awaited<ReturnType<TraceStorage["describeObject"]>>;
+
     try {
       remote = await storage.describeObject(sessionId, traceName);
     } catch (error) {
       // A refusal (forbidden, deleted) shows nothing: an old copy must not
       // pass as freshly authorized data.
       if (error instanceof TraceStorageDeniedError) return null;
+
       // The store did not answer: the saved copy, if any, is all there is.
       if (!(error instanceof TraceStorageUnavailableError)) throw error;
+
       return normalized
         ? loadedNormalizedTrace(normalized, input.commits, "offline")
         : null;
     }
+
     if (storage.kind === "hosted" && remote === null) {
       // A live manifest is authoritative. Remove only this store's copy so
       // later offline reads cannot revive an object the store removed.
       if (normalized && normalizedPath) rmSync(normalizedPath, { force: true });
       lastCheckedTimes.delete(checkKey);
+
       return null;
     }
+
     if (storage.kind !== "hosted") lastCheckedTimes.set(checkKey, now);
+
     const mustMaterialize =
       remote !== null &&
       (!normalized || !cacheIsCurrent(storage, normalized, remote));
+
     if (mustMaterialize) {
       if (!scope) {
         let repo = requestedRepo;
+
         if (!repo && input.cwd) {
           repo = await inferRepoFromGit(input.cwd).catch(() => null);
         }
+
         if (!repo) {
           const meta = await storage.sessionMeta(sessionId);
+
           if (meta?.repo) {
             try {
               repo = parseRepo(meta.repo);
@@ -332,15 +360,19 @@ export async function loadReviewAgentTrace(input: {
             }
           }
         }
+
         scope = storage.cacheScope(repo);
       }
+
       if (!scope) {
         // Nowhere to place a fresh copy; the saved one is all there is.
         return normalized
           ? loadedNormalizedTrace(normalized, input.commits, "stale")
           : null;
       }
+
       normalizedPath = normalizedTracePath(scope, sessionId, traceName);
+
       const fresh = await materializeNormalizedTrace({
         storage,
         sessionId,
@@ -350,18 +382,22 @@ export async function loadReviewAgentTrace(input: {
           ? traceRepoName(requestedRepo)
           : (normalized?.metadata.repository ?? traceRepoName(scope)),
       });
+
       // A failed download leaves the last readable copy, marked stale.
       if (!fresh) {
         return normalized
           ? loadedNormalizedTrace(normalized, input.commits, "stale")
           : null;
       }
+
       normalized = fresh;
     }
+
     if (storage.kind === "hosted") lastCheckedTimes.set(checkKey, now);
   }
 
   if (!normalized) return null;
+
   return loadedNormalizedTrace(
     normalized,
     input.commits,
@@ -384,6 +420,7 @@ function cacheIsCurrent(
   if (storage.kind === "s3") {
     return remote.size <= normalized.metadata.source.bytes;
   }
+
   return normalized.metadata.source.contentId === remote.contentId;
 }
 
@@ -472,8 +509,10 @@ async function materializeNormalizedTrace(input: {
     tmpdir(),
     `review-trace-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
   );
+
   try {
     let downloaded: Awaited<ReturnType<TraceStorage["downloadObject"]>>;
+
     try {
       downloaded = await input.storage.downloadObject(
         input.sessionId,
@@ -483,6 +522,7 @@ async function materializeNormalizedTrace(input: {
     } catch (error) {
       // A refusal must not become a stale-cache response.
       if (error instanceof TraceStorageDeniedError) throw error;
+
       // A failed or corrupt transfer leaves no file and no cache change.
       if (error instanceof TraceStorageUnavailableError) return null;
       process.stderr.write(
@@ -490,16 +530,21 @@ async function materializeNormalizedTrace(input: {
           error instanceof Error ? error.message : String(error)
         }\n`,
       );
+
       return null;
     }
+
     if (!downloaded) return null;
+
     const parsed = parseAgentTraceJsonl(readFileSync(rawTempPath, "utf8"), {
       isSubagent: input.traceName !== "main",
     });
+
     const subagents = await listSessionSubagents(
       input.sessionId,
       input.storage,
     );
+
     const normalized: NormalizedTrace = {
       metadata: {
         type: "metadata",
@@ -532,7 +577,9 @@ async function materializeNormalizedTrace(input: {
         event,
       })),
     };
+
     writeNormalizedTraceAtomic(input.normalizedPath, normalized);
+
     return normalized;
   } finally {
     rmSync(rawTempPath, { force: true });
@@ -544,12 +591,15 @@ function writeNormalizedTraceAtomic(
   trace: NormalizedTrace,
 ): void {
   mkdirSync(path.dirname(targetPath), { recursive: true });
+
   const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2)}`;
+
   const content = [trace.metadata, ...trace.events]
     .map((record) => JSON.stringify(record))
     .join("\n");
+
   try {
     writeFileSync(tempPath, `${content}\n`, "utf8");
     renameSync(tempPath, targetPath);
@@ -573,10 +623,12 @@ function readNormalizedTrace(
       .split("\n")
       .filter(Boolean)
       .map((line) => parseJsonText(line));
+
     // SAFETY: normalized traces are written only by writeNormalizedTraceAtomic
     // from a NormalizedTrace; the type, version, parserVersion, and source
     // checks below reject any file that is not one of ours.
     const metadata = records[0] as NormalizedTraceMetadata | undefined;
+
     if (
       !metadata ||
       metadata.type !== "metadata" ||
@@ -586,14 +638,19 @@ function readNormalizedTrace(
     ) {
       return null;
     }
+
     if (storage) {
       const owner = metadata.source.storage;
+
       if (owner !== undefined && owner !== storage.cacheIdentity()) return null;
+
       if (owner === undefined && storage.kind !== "s3") return null;
     }
+
     // SAFETY: same file provenance as the metadata record above; each event
     // record's type, index, kind, and text are re-checked against its event.
     const events = records.slice(1) as NormalizedTraceEventRecord[];
+
     if (
       events.some(
         (record, index) =>
@@ -605,6 +662,7 @@ function readNormalizedTrace(
     ) {
       return null;
     }
+
     return { metadata, events };
   } catch {
     return null;
@@ -637,7 +695,9 @@ export function traceSearchCorpusDir(): string {
   const dir =
     process.env.REVIEW_TEST_TRACE_SEARCH_DIR ??
     path.join(devReviewHome(), "trace-search");
+
   mkdirSync(dir, { recursive: true });
+
   return dir;
 }
 
@@ -656,6 +716,7 @@ export async function pullReviewTraceCorpus(input: {
   const sessions: ReviewTracePullSessionResult[] = [];
   const unavailableSessions: string[] = [];
   const paths: string[] = [];
+
   for (const sessionRef of input.sessions) {
     const main = await loadReviewAgentTrace({
       sessionId: sessionRef.id,
@@ -663,13 +724,16 @@ export async function pullReviewTraceCorpus(input: {
       refresh: true,
       storage,
     });
+
     if (!main) {
       unavailableSessions.push(sessionRef.id);
       continue;
     }
+
     paths.push(normalizedTracePath(scope, sessionRef.id, "main"));
     let traceCount = 1;
     let eventCount = main.trace.events.length;
+
     if (!input.mainOnly) {
       for (const traceName of sessionRef.traces ?? main.subagents) {
         const subagent = await loadReviewAgentTrace({
@@ -679,6 +743,7 @@ export async function pullReviewTraceCorpus(input: {
           refresh: true,
           storage,
         });
+
         if (subagent) {
           paths.push(normalizedTracePath(scope, sessionRef.id, traceName));
           traceCount += 1;
@@ -739,22 +804,28 @@ function findNormalizedTraceFile(
   const fileName = `${corpusPathSegment(traceName.replace(/\.jsonl$/, ""), "trace")}.jsonl`;
   // A store that places its own cache never reads another store's files.
   const own = storage?.cacheScope(null);
+
   if (own) {
     const candidate = path.join(
       path.dirname(normalizedTracePath(own, sessionId, "main")),
       fileName,
     );
+
     return isFile(candidate) ? candidate : null;
   }
+
   // The corpus holds every store's copies; the first file that is ours wins,
   // not the first file that exists.
   for (const sessionDir of findNormalizedSessionDirs(sessionId)) {
     const candidate = path.join(sessionDir, fileName);
+
     if (!isFile(candidate)) continue;
+
     if (!storage || readNormalizedTrace(candidate, storage) !== null) {
       return candidate;
     }
   }
+
   return null;
 }
 
@@ -762,19 +833,23 @@ function findNormalizedSessionDirs(sessionId: string): string[] {
   const root = traceSearchCorpusDir();
   const session = corpusPathSegment(sessionId, "session");
   const results: string[] = [];
+
   try {
     for (const owner of readdirSync(root, { withFileTypes: true })) {
       if (!owner.isDirectory()) continue;
       const ownerDir = path.join(root, owner.name);
+
       for (const repo of readdirSync(ownerDir, { withFileTypes: true })) {
         if (!repo.isDirectory()) continue;
         const candidate = path.join(ownerDir, repo.name, session);
+
         if (isDirectory(candidate)) results.push(candidate);
       }
     }
   } catch {
     return [];
   }
+
   return results.sort();
 }
 
@@ -782,6 +857,7 @@ function corpusPathSegment(value: string, label: string): string {
   if (!/^[A-Za-z0-9._-]+$/.test(value)) {
     throw new Error(`Invalid ${label} path segment: ${value}`);
   }
+
   return value;
 }
 
@@ -791,6 +867,7 @@ function legacyObjectKey(sessionId: string, traceName: string): string {
   if (traceName === "main") return `by-session/${sessionId}/trace.jsonl`;
   const base = path.basename(traceName);
   const fileName = base.endsWith(".jsonl") ? base : `${base}.jsonl`;
+
   return `by-session/${sessionId}/subagents/${fileName}`;
 }
 
@@ -806,12 +883,14 @@ async function runGit(
         maxBuffer: 64 * 1024 * 1024,
       },
     );
+
     return { ok: true, stdout, stderr };
   } catch (error) {
     // SAFETY: execFile rejects with an Error whose stdout and stderr fields
     // hold the child's output as strings; both are read as optional so any
     // other rejection still reports String(error).
     const err = error as { stdout?: string; stderr?: string };
+
     return {
       ok: false,
       stdout: err.stdout ?? "",
@@ -835,6 +914,7 @@ export async function lookupReviewTraceCommit(input: {
   // Step 1: local trailers
   if (trailerSessions.length > 0) {
     const sessionMeta = await enrichSessionMeta(trailerSessions, storage);
+
     const result: ReviewTraceCommitLookupResult = {
       commit,
       sessions: trailerSessions,
@@ -842,15 +922,19 @@ export async function lookupReviewTraceCommit(input: {
       branch: null,
       source: "trailer",
     };
+
     if (sessionMeta) result.session_meta = sessionMeta;
+
     return result;
   }
 
   // Step 2: the store's commit index
   const indexed = storage ? await storage.sessionsForCommit(commit) : null;
+
   if (indexed && indexed.sessions.length > 0) {
     const sessions = deduplicateStrings(indexed.sessions);
     const sessionMeta = await enrichSessionMeta(sessions, storage);
+
     const result: ReviewTraceCommitLookupResult = {
       commit,
       sessions,
@@ -858,15 +942,19 @@ export async function lookupReviewTraceCommit(input: {
       branch: indexed.branch ?? null,
       source: "index",
     };
+
     if (sessionMeta) result.session_meta = sessionMeta;
+
     return result;
   }
 
   // Step 3: PR scan if commit subject ends in PR number
   if (pr !== null) {
     const prSessions = await prScanTrailerSessions(input.cwd, commit, pr);
+
     if (prSessions.length > 0) {
       const sessionMeta = await enrichSessionMeta(prSessions, storage);
+
       const result: ReviewTraceCommitLookupResult = {
         commit,
         sessions: prSessions,
@@ -874,7 +962,9 @@ export async function lookupReviewTraceCommit(input: {
         branch: null,
         source: "pr-scan",
       };
+
       if (sessionMeta) result.session_meta = sessionMeta;
+
       return result;
     }
   }
@@ -891,12 +981,14 @@ export async function lookupReviewTraceCommit(input: {
 function deduplicateStrings(items: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
+
   for (const item of items) {
     if (!seen.has(item)) {
       seen.add(item);
       out.push(item);
     }
   }
+
   return out;
 }
 
@@ -916,6 +1008,7 @@ async function enrichSessionMeta(
   | undefined
 > {
   if (!storage || sessions.length === 0) return undefined;
+
   const detail: Record<
     string,
     {
@@ -925,8 +1018,10 @@ async function enrichSessionMeta(
       author?: string | null;
     }
   > = {};
+
   for (const session of sessions) {
     const meta = await storage.sessionMeta(session);
+
     if (meta) {
       detail[session] = {
         repo: meta.repo,
@@ -936,6 +1031,7 @@ async function enrichSessionMeta(
       };
     }
   }
+
   return Object.keys(detail).length > 0 ? detail : undefined;
 }
 
@@ -944,11 +1040,13 @@ export async function lookupReviewTraceSession(input: {
   storage?: TraceStorage | null;
 }): Promise<ReviewTraceSessionLookupResult> {
   const parseResult = sessionIdSchema.safeParse(input.sessionId);
+
   if (!parseResult.success) {
     throw new Error(
       "Session id must be 8-128 characters of letters, digits, dots, dashes, or underscores.",
     );
   }
+
   const sessionId = parseResult.data;
   const storage = await storageFor(input.storage);
 
@@ -957,26 +1055,32 @@ export async function lookupReviewTraceSession(input: {
     : null;
 
   let hasRawTrace = false;
+
   if (
     storage &&
     (await reachable(() => storage.describeObject(sessionId, "main"))) !== null
   ) {
     hasRawTrace = true;
   }
+
   if (!hasRawTrace) {
     const local = await findLocalTrace(sessionId);
+
     if (local && existsSync(local.tracePath)) {
       hasRawTrace = true;
     }
   }
 
   const subagentSet = new Set<string>();
+
   if (storage) {
     for (const s of await listSessionSubagents(sessionId, storage)) {
       subagentSet.add(s);
     }
   }
+
   const local = await findLocalTrace(sessionId);
+
   if (local) {
     for (const s of local.subagentPaths) {
       subagentSet.add(s.name.replace(/\.jsonl(\.gz)?$/, ""));
@@ -1001,15 +1105,19 @@ export async function lookupReviewTraceBlame(input: {
   if (!input.file) {
     throw new Error("File path is required.");
   }
+
   if (input.lines) {
     const match = /^(\d+)(?:,(\d+))?$/.exec(input.lines.trim());
+
     if (!match) {
       throw new Error(
         `Invalid line range "${input.lines}". Expected start,end or single line number.`,
       );
     }
+
     const start = parseInt(match[1], 10);
     const end = match[2] ? parseInt(match[2], 10) : start;
+
     if (start <= 0 || end < start) {
       throw new Error(
         `Invalid line range "${input.lines}". Start must be >= 1 and end >= start.`,
@@ -1018,10 +1126,12 @@ export async function lookupReviewTraceBlame(input: {
   }
 
   let shas: string[] = [];
+
   if (input.history) {
     const spec = input.lines
       ? `${input.lines}:${input.file}`
       : `1,$:${input.file}`;
+
     const res = await runGit(input.cwd, [
       "log",
       "-L",
@@ -1029,38 +1139,48 @@ export async function lookupReviewTraceBlame(input: {
       "--format=%H",
       "-s",
     ]);
+
     if (!res.ok) {
       throw new Error(
         res.stderr.trim() || `git log -L failed for ${input.file}`,
       );
     }
+
     shas = deduplicateStrings(res.stdout.trim().split(/\s+/).filter(Boolean));
   } else {
     const args = ["blame", "--line-porcelain"];
+
     if (input.lines) {
       args.push("-L", input.lines);
     }
+
     args.push("--", input.file);
     const res = await runGit(input.cwd, args);
+
     if (!res.ok) {
       throw new Error(
         res.stderr.trim() || `git blame failed for ${input.file}`,
       );
     }
+
     const collected: string[] = [];
+
     for (const line of res.stdout.split("\n")) {
       const parts = line.trim().split(/\s+/);
+
       if (parts.length >= 3 && /^[0-9a-f]{40,64}$/i.test(parts[0])) {
         if (!collected.includes(parts[0])) {
           collected.push(parts[0]);
         }
       }
     }
+
     shas = collected;
   }
 
   const storage = await storageFor(input.storage, input.cwd);
   const resolutions: ReviewTraceCommitLookupResult[] = [];
+
   for (const sha of shas) {
     resolutions.push(
       await lookupReviewTraceCommit({ cwd: input.cwd, sha, storage }),
@@ -1093,19 +1213,25 @@ export async function findLocalTrace(
   const claudeRoot =
     traceEnvValue("TRACE_LOCAL_TRACE_ROOT") ||
     path.join(homedir(), ".claude", "projects");
+
   const codexRoot = codexSessionsRoot();
+
   const piRoot =
     traceEnvValue("TRACE_PI_SESSIONS_ROOT") ||
     path.join(homedir(), ".pi", "agent", "sessions");
 
   let harness: LocalTraceHarness = "claude";
   let tracePath = findClaudeTrace(claudeRoot, sessionId);
+
   if (!tracePath) {
     tracePath = findCodexTrace(codexRoot, sessionId);
+
     if (tracePath) harness = "codex";
   }
+
   if (!tracePath) {
     tracePath = findPiTrace(piRoot, sessionId);
+
     if (tracePath) harness = "pi";
   }
 
@@ -1128,42 +1254,52 @@ export async function findLocalTrace(
         process.env.TRACE_OPENCODE_TRACES_ROOT ||
         path.join(devReviewHome(), "opencode-traces"),
     });
+
     if (tracePath) harness = "opencode";
   }
 
   if (!tracePath) return null;
 
   const subagentPaths = findSubagentBlobs(tracePath);
+
   return { tracePath, harness, subagentPaths };
 }
 
 function findClaudeTrace(root: string, sessionId: string): string | null {
   const fileName = `${sessionId}.jsonl`;
+
   if (!existsSync(root)) return null;
   const direct = path.join(root, fileName);
+
   if (isFile(direct)) return direct;
+
   try {
     const entries = readdirSync(root, { withFileTypes: true });
+
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const candidate = path.join(root, entry.name, fileName);
+
         if (isFile(candidate)) return candidate;
       }
     }
   } catch {
     // Ignore read errors
   }
+
   return null;
 }
 
 function findCodexTrace(root: string, sessionId: string): string | null {
   if (!existsSync(root)) return null;
   const suffix = `-${sessionId}.jsonl`;
+
   return (
     listFilesRecursive(root)
       .sort()
       .find((entry) => {
         const name = path.basename(entry);
+
         return name.startsWith("rollout-") && name.endsWith(suffix);
       }) ?? null
   );
@@ -1171,30 +1307,38 @@ function findCodexTrace(root: string, sessionId: string): string | null {
 
 export function indexCodexTraceFiles(files: string[]): Map<string, string> {
   const index = new Map<string, string>();
+
   for (const entry of [...files].sort()) {
     const name = path.basename(entry);
+
     const match =
       /^rollout-.*-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl$/i.exec(
         name,
       );
+
     if (match && !index.has(match[1])) index.set(match[1], entry);
   }
+
   return index;
 }
 
 function findPiTrace(root: string, sessionId: string): string | null {
   if (!existsSync(root)) return null;
+
   try {
     const entries = readdirSync(root, { withFileTypes: true });
+
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const subDir = path.join(root, entry.name);
+
         for (const file of readdirSync(subDir)) {
           if (
             file.endsWith(`_${sessionId}.jsonl`) ||
             file === `${sessionId}.jsonl`
           ) {
             const candidate = path.join(subDir, file);
+
             if (isFile(candidate)) return candidate;
           }
         }
@@ -1210,6 +1354,7 @@ function findPiTrace(root: string, sessionId: string): string | null {
   } catch {
     // Ignore read errors
   }
+
   return null;
 }
 
@@ -1217,11 +1362,13 @@ function findSubagentBlobs(
   tracePath: string,
 ): Array<{ name: string; path: string }> {
   const results: Array<{ name: string; path: string }> = [];
+
   const stem = tracePath.endsWith(".jsonl")
     ? tracePath.slice(0, -".jsonl".length)
     : tracePath;
 
   const subagentsDir = path.join(stem, "subagents");
+
   if (existsSync(subagentsDir)) {
     try {
       for (const name of readdirSync(subagentsDir)) {
@@ -1239,6 +1386,7 @@ function findSubagentBlobs(
       for (const childEntry of readdirSync(stem, { withFileTypes: true })) {
         if (childEntry.isDirectory() && childEntry.name !== "subagents") {
           const childDir = path.join(stem, childEntry.name);
+
           for (const runEntry of readdirSync(childDir, {
             withFileTypes: true,
           })) {
@@ -1248,6 +1396,7 @@ function findSubagentBlobs(
                 runEntry.name,
                 "session.jsonl",
               );
+
               if (isFile(runFile)) {
                 const shortChild = childEntry.name.slice(0, 8);
                 results.push({
@@ -1275,29 +1424,36 @@ export async function syncReviewTrace(input: {
   storage?: TraceStorage | null;
 }): Promise<ReviewTraceSyncResult> {
   const sessionId = input.sessionId.trim();
+
   if (!sessionIdSchema.safeParse(sessionId).success) {
     throw new Error(
       "Session id must be 8-128 characters of letters, digits, dots, dashes, or underscores.",
     );
   }
+
   const workDir = input.cwd ?? process.cwd();
+
   const storage =
     input.storage === undefined
       ? await resolveTraceStorage({ cwd: workDir, purpose: "write" })
       : input.storage;
+
   if (!storage) {
     throw new Error(
       "S3/R2 storage is not configured. Use Review Agent Setup to configure trace capture.",
     );
   }
+
   const repo = input.repo
     ? parseRepo(input.repo)
     : await inferRepoFromGit(workDir);
 
   const local = await findLocalTrace(sessionId);
+
   if (!local) {
     throw new Error(`No local trace found for session ${sessionId}.`);
   }
+
   const { author, branch } = await readRepoMetaFields(workDir);
 
   // A hosted publication settles consent and provenance before it reads a
@@ -1321,7 +1477,9 @@ export async function syncReviewTrace(input: {
     repo: `${repo.owner}/${repo.repo}`,
     uploads: published.uploads,
   };
+
   if (published.hosted) result.hosted = published.hosted;
+
   return result;
 }
 
@@ -1334,9 +1492,11 @@ export async function writeReviewTraceCommitMapping(input: {
 }): Promise<boolean> {
   const commit = commitShaSchema.parse(input.commit);
   const storage = await storageFor(input.storage, input.cwd);
+
   if (!storage) {
     throw new Error(`Failed to write by-commit/${commit}.json.`);
   }
+
   return storage.associateCommits({
     commit,
     sessions: input.sessions,
@@ -1371,11 +1531,13 @@ export async function checkReviewTraceDoctor(input?: {
   }
 
   const config = setup.credentials;
+
   if (!config) {
     const anyInput =
       setup.profile !== null ||
       existsSync(setup.envPath) ||
       Boolean(process.env.TRACE_R2_BUCKET);
+
     return {
       ok: false,
       envPath,
@@ -1391,10 +1553,13 @@ export async function checkReviewTraceDoctor(input?: {
     bucket: config.bucket,
     accessKeyId: config.accessKeyId,
   };
+
   const doctor = await S3TraceStorage.fromCredentials(config).doctor();
+
   if (doctor.reachable) {
     return { ok: true, envPath, config: summary, reachable: true };
   }
+
   return {
     ok: false,
     envPath,
@@ -1419,6 +1584,7 @@ export async function resolveCommitSha(
     ["rev-parse", "--verify", "--end-of-options", rev],
     { allowFailure: true },
   );
+
   return result.ok && result.stdout.trim() ? result.stdout.trim() : rev;
 }
 
@@ -1437,10 +1603,13 @@ export async function readTrailerSessions(
     ],
     { allowFailure: true },
   );
+
   if (!result.ok) return [];
   const sessions: string[] = [];
+
   for (const line of result.stdout.split("\n")) {
     const value = line.trim();
+
     if (
       value &&
       sessionIdSchema.safeParse(value).success &&
@@ -1449,6 +1618,7 @@ export async function readTrailerSessions(
       sessions.push(value);
     }
   }
+
   return sessions;
 }
 
@@ -1461,6 +1631,7 @@ export async function listRepositoryTraceSessionIds(
     "--no-show-signature",
     "--format=%(trailers:key=Agent-Session,valueonly,separator=%x1f)",
   ]);
+
   if (!result.ok) return [];
 
   return deduplicateStrings(
@@ -1480,12 +1651,15 @@ export async function readSubjectPullNumber(
     ["show", "-s", "--format=%s", "--end-of-options", rev],
     { allowFailure: true },
   );
+
   if (!result.ok) return null;
+
   return subjectPullNumber(result.stdout.trim());
 }
 
 export function subjectPullNumber(subject: string): number | null {
   const match = /\(#(\d+)\)$/.exec(subject);
+
   return match ? Number(match[1]) : null;
 }
 
@@ -1495,17 +1669,23 @@ export async function readRepoMetaFields(
   const insideResult = await git(cwd, ["rev-parse", "--is-inside-work-tree"], {
     allowFailure: true,
   });
+
   if (!insideResult.ok || insideResult.stdout.trim() !== "true") {
     return { author: null, branch: null };
   }
+
   const branchResult = await git(cwd, ["branch", "--show-current"], {
     allowFailure: true,
   });
+
   const branch = branchResult.ok ? branchResult.stdout.trim() : null;
+
   const authorResult = await git(cwd, ["config", "user.email"], {
     allowFailure: true,
   });
+
   const author = authorResult.ok ? authorResult.stdout.trim() : null;
+
   return { author: author || null, branch: branch || null };
 }
 
@@ -1515,11 +1695,13 @@ async function commitsWithTrailers(input: {
   headCommit: string;
 }): Promise<CommitWithSessions[]> {
   if (input.baseCommit === input.headCommit) return [];
+
   const format = [
     "%H",
     "%s",
     "%(trailers:key=Agent-Session,valueonly,separator=%x1f)",
   ].join("%x1f");
+
   const result = await git(
     input.rootPath,
     [
@@ -1530,20 +1712,27 @@ async function commitsWithTrailers(input: {
     ],
     { allowFailure: true },
   );
+
   if (!result.ok) return [];
   const commits: CommitWithSessions[] = [];
+
   for (const chunk of result.stdout.split(RECORD_SEPARATOR)) {
     const record = chunk.replace(/^\s+/, "");
+
     if (!record) continue;
     const [sha, subject, ...trailerFields] = record.split(FIELD_SEPARATOR);
+
     if (!sha || !/^[0-9a-f]{40,64}$/.test(sha)) continue;
+
     const sessions = [
       ...new Set(trailerFields.flatMap((field) => field.split("\n"))),
     ]
       .map((value) => value.trim())
       .filter((value) => sessionIdSchema.safeParse(value).success);
+
     commits.push({ sha, subject: subject ?? "", sessions });
   }
+
   return commits;
 }
 
@@ -1562,6 +1751,7 @@ export function traceEnvValue(name: string): string | undefined {
 // consult the trace env file for it.
 export function codexSessionsRoot(): string {
   const codexHome = process.env.CODEX_HOME;
+
   return (
     traceEnvValue("TRACE_CODEX_SESSIONS_ROOT") ||
     path.join(
@@ -1593,8 +1783,10 @@ export async function listSessionSubagents(
   }
 
   const store = await storageFor(storage);
+
   if (store) {
     const names = await reachable(() => store.listSubagents(sessionId));
+
     for (const name of names ?? []) subagents.add(name);
   }
 
@@ -1612,13 +1804,16 @@ export async function prScanTrailerSessions(
     "origin",
     `refs/pull/${pr}/head`,
   ]);
+
   if (!fetchRes.ok) return [];
+
   let revListRes = await runGit(cwd, [
     "rev-list",
     "FETCH_HEAD",
     "--not",
     `${commit}^`,
   ]);
+
   if (!revListRes.ok) {
     revListRes = await runGit(cwd, [
       "rev-list",
@@ -1627,20 +1822,25 @@ export async function prScanTrailerSessions(
       `${commit}~1`,
     ]);
   }
+
   if (!revListRes.ok) {
     revListRes = await runGit(cwd, ["rev-list", "FETCH_HEAD"]);
   }
+
   if (!revListRes.ok) return [];
   const branchShas = revListRes.stdout.trim().split(/\s+/).filter(Boolean);
   const prSessions: string[] = [];
+
   for (const branchSha of branchShas) {
     const sessionsOnSha = await readTrailerSessions(cwd, branchSha);
+
     for (const s of sessionsOnSha) {
       if (!prSessions.includes(s)) {
         prSessions.push(s);
       }
     }
   }
+
   return prSessions;
 }
 
@@ -1655,13 +1855,17 @@ async function addSessionsFromPrScan(
   sessions: Map<string, ReviewTraceSessionRef>,
 ): Promise<void> {
   const scannedPrs = new Set<number>();
+
   for (const commit of commits) {
     const pr = subjectPullNumber(commit.subject);
+
     if (pr === null || scannedPrs.has(pr)) continue;
     scannedPrs.add(pr);
     const prSessions = await prScanTrailerSessions(rootPath, commit.sha, pr);
+
     for (const sessionId of prSessions) {
       const existing = sessions.get(sessionId);
+
       if (existing) {
         existing.commits.push({ sha: commit.sha, subject: commit.subject });
       } else {
@@ -1680,11 +1884,15 @@ async function addSessionsFromStoreIndex(
   sessions: Map<string, ReviewTraceSessionRef>,
 ): Promise<void> {
   if (!storage) return;
+
   for (const commit of commits) {
     const indexed = await storage.sessionsForCommit(commit.sha);
+
     if (!indexed) continue;
+
     for (const sessionId of indexed.sessions) {
       const existing = sessions.get(sessionId);
+
       if (existing) {
         existing.commits.push({ sha: commit.sha, subject: commit.subject });
       } else {
@@ -1715,10 +1923,13 @@ function isDirectory(targetPath: string): boolean {
 
 export function listFilesRecursive(dirPath: string): string[] {
   const files: string[] = [];
+
   try {
     const entries = readdirSync(dirPath, { withFileTypes: true });
+
     for (const entry of entries) {
       const full = path.join(dirPath, entry.name);
+
       if (entry.isDirectory()) {
         files.push(...listFilesRecursive(full));
       } else if (entry.isFile()) {
@@ -1728,5 +1939,6 @@ export function listFilesRecursive(dirPath: string): string[] {
   } catch {
     // Ignore read errors
   }
+
   return files;
 }

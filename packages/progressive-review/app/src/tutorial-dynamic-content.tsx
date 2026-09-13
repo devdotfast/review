@@ -13,8 +13,11 @@ export function TutorialFeature({
 }: TutorialFeatureProps): ReactElement | null {
   const tutorial = useTutorial();
   const { softwareMapEnabled } = useReviewActions();
+
   if (!tutorial) return null;
+
   if (feature === "softwareMap" && !softwareMapEnabled) return null;
+
   return <>{children}</>;
 }
 
@@ -24,8 +27,11 @@ export function TutorialViewButton({
 }: TutorialViewButtonProps): ReactElement | null {
   const tutorial = useTutorial();
   const { softwareMapEnabled } = useReviewActions();
+
   if (!tutorial) return null;
+
   if (view === "map" && !softwareMapEnabled) return null;
+
   return (
     <button
       type="button"

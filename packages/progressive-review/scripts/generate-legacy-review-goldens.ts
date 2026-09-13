@@ -32,6 +32,7 @@ async function writeGolden(
   value: JsonObject | ReviewDocumentData | ReviewSoftwareMapBundle,
 ) {
   const text = `${JSON.stringify(value, null, 2)}\n`;
+
   if (text.includes("/Users/") || text.includes("/home/"))
     throw new Error(`${name} ${kind} golden embeds a machine path`);
   await writeFile(
@@ -42,15 +43,19 @@ async function writeGolden(
 
 for (const fixture of listLegacyReviewFixtures()) {
   const { home, dir } = await extractLegacyReviewFixture(fixture.name);
+
   try {
     const outcome = await migrateStoredReview({
       reviewDir: dir,
       log: (message) => console.warn(`${fixture.name}: ${message}`),
     });
+
     if (!outcome.migrated) throw new Error(`${fixture.name} did not migrate`);
+
     const record = jsonObject(
       parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
     );
+
     if (!record) throw new Error(`${fixture.name} has no record`);
     await writeGolden(fixture.name, "record", normalizeMigratedRecord(record));
     const documentDir = path.join(home, "document");
@@ -60,12 +65,14 @@ for (const fixture of listLegacyReviewFixtures()) {
       documentDir,
     );
     const document = await readReviewDocumentBundle(documentDir, "/");
+
     if (!document) throw new Error(`${fixture.name} document did not convert`);
     await writeGolden(
       fixture.name,
       "document",
       reviewDocumentBundleData(document),
     );
+
     if (outcome.record.presentedSoftwareMapRevision) {
       const mapDir = path.join(home, "map");
       await materializeReviewRevision(
@@ -74,9 +81,11 @@ for (const fixture of listLegacyReviewFixtures()) {
         mapDir,
       );
       const map = await readReviewSoftwareMapBundle(mapDir);
+
       if (!map) throw new Error(`${fixture.name} map did not convert`);
       await writeGolden(fixture.name, "map", map);
     }
+
     console.log(`${fixture.name}: goldens written`);
   } finally {
     closeAllReviewThreadStores();

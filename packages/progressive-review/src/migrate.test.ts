@@ -25,6 +25,7 @@ type TestRunCommand = (
   command: string,
   args: string[],
 ) => Promise<{ stdout: string; stderr: string }>;
+
 type TestRunProcess = (input: {
   command: string;
   args: string[];
@@ -48,13 +49,16 @@ describe("review migrate apply", () => {
       `import { jsx, createActiveReviewDocument } from "review-doc-runtime";
       export default createActiveReviewDocument({ title: "Exact", filePath: "review.mdx", routePath: "/", modelNames: [], models: {}, Component: () => jsx("h1", { children: "Exact" }) });`,
     );
+
     const revision = await sealReviewCandidate(
       reviewDir,
       "Legacy current publication",
     );
+
     const record = JSON.parse(
       await readFile(path.join(reviewDir, "review.json"), "utf8"),
     );
+
     await writeFile(
       path.join(reviewDir, "review.json"),
       JSON.stringify({
@@ -72,6 +76,7 @@ describe("review migrate apply", () => {
     );
     const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
     const io = streams();
+
     const code = await runReviewMigration({
       homeDir: reviewHome,
       env: { DEV_REVIEW_HOME: reviewHome },
@@ -83,11 +88,14 @@ describe("review migrate apply", () => {
         removeLegacyGlobalReviewInstalls: cleanup,
       },
     });
+
     expect(io.err.join("")).not.toContain("blocker:");
     expect(code).toBe(0);
+
     const current = JSON.parse(
       await readFile(path.join(reviewDir, "review.json"), "utf8"),
     );
+
     expect(current).toMatchObject({ schemaVersion: 5, status: "accepted" });
     expect(current.presentedDocumentRevision).not.toBe(revision);
     expect(current.presentedDocumentRevision).not.toBeNull();
@@ -104,22 +112,27 @@ describe("review migrate apply", () => {
   it("does not reparse a failed legacy review or audit unrelated editable sources after sealed conversion", async () => {
     const io = streams();
     const uuid = "3b241101-e2bb-4255-8caf-4136c566a962";
+
     const managed = vi.fn<typeof migrateReviewManagedCheckouts>(async () => ({
       checked: 0,
       created: 0,
       legacyRemoved: 0,
       blockers: [],
     }));
+
     const audit = vi.fn<typeof auditStoredReviewDocuments>(async () => ({
       documents: 0,
       issues: [],
     }));
+
     const jj = vi.fn<typeof migrateJjReviewRepositories>(async () => ({
       checked: 0,
       migrated: 0,
       blockers: [],
     }));
+
     const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
+
     const code = await runReviewMigration({
       homeDir: "/home/reviewer",
       packageRoot: "/desktop/review",
@@ -131,6 +144,7 @@ describe("review migrate apply", () => {
           input.onBlocker?.(
             "Exact sealed conversion failed; review preserved.",
           );
+
           return {
             documents: 1,
             failedReviewUuids: [uuid],
@@ -150,6 +164,7 @@ describe("review migrate apply", () => {
         removeLegacyGlobalReviewInstalls: cleanup,
       },
     });
+
     expect(code).toBe(1);
     expect(managed).toHaveBeenCalledWith(
       expect.objectContaining({ skipReviewUuids: [uuid] }),
@@ -167,6 +182,7 @@ describe("review migrate apply", () => {
   });
   it("reports every completed phase and returns nonzero for blockers", async () => {
     const io = streams();
+
     const code = await runReviewMigration({
       homeDir: "/home/reviewer",
       packageRoot: "/desktop/review",
@@ -223,6 +239,7 @@ describe("review migrate apply", () => {
 
   it("continues independent cleanup phases after a migration blocker", async () => {
     const io = streams();
+
     const catalogCleanup = vi.fn<
       () => Promise<{ checked: number; removed: number; blockers: string[] }>
     >(async () => ({
@@ -274,6 +291,7 @@ describe("review migrate apply", () => {
 
   it("reports per-Review blockers without aborting the stored-data phase", async () => {
     const io = streams();
+
     const code = await runReviewMigration({
       homeDir: "/home/reviewer",
       packageRoot: "/desktop/review",
@@ -283,6 +301,7 @@ describe("review migrate apply", () => {
       runtime: {
         migrateStoredReviewData: async (input) => {
           input.onBlocker?.("one legacy Review could not migrate");
+
           return {
             documents: 2,
             droppedLegacyPeekReviews: 0,
@@ -331,17 +350,21 @@ describe("review migrate apply", () => {
 describe("jj Review repository migration", () => {
   it("preserves current pointers and every private historical commit for colocated jj reviews", async () => {
     const { reviewHome, reviewDir } = await canonicalReview();
+
     const revision = await sealReviewCandidate(
       reviewDir,
       "Immutable legacy history",
     );
+
     const record = JSON.parse(
       await readFile(path.join(reviewDir, "review.json"), "utf8"),
     );
+
     const current = JSON.stringify({
       ...record,
       presentedDocumentRevision: revision,
     });
+
     await writeFile(path.join(reviewDir, "review.json"), current);
     await mkdir(path.join(reviewDir, ".jj/repo"), { recursive: true });
     await writeFile(path.join(reviewDir, ".jj/repo/operation"), "keep history");
@@ -572,6 +595,7 @@ async function canonicalReview(): Promise<{
 }> {
   const reviewHome = await tempDir("review-migrate-");
   const sourceRoot = await gitRepository();
+
   const created = await createReviewDir({
     reviewsHomePath: reviewHome,
     worktreePath: sourceRoot,
@@ -580,6 +604,7 @@ async function canonicalReview(): Promise<{
       encoding: "utf8",
     }).trim(),
   });
+
   return { reviewHome, reviewDir: created.dir };
 }
 
@@ -590,39 +615,48 @@ async function globalPackage(manager: ReviewPackageManager): Promise<{
 }> {
   const root = await tempDir(`review-migrate-${manager}-`);
   const homeDir = path.join(root, "home");
+
   const managerRoot =
     manager === "yarn"
       ? path.join(root, "yarn", "global")
       : manager === "bun"
         ? path.join(homeDir, ".bun", "install", "global", "node_modules")
         : path.join(root, manager, "global", "node_modules");
+
   const packageRoot = path.join(
     manager === "yarn" ? path.join(managerRoot, "node_modules") : managerRoot,
     "@dev.fast",
     "review",
   );
+
   await mkdir(packageRoot, { recursive: true });
   await writeFile(
     path.join(packageRoot, "package.json"),
     `${JSON.stringify({ name: "@dev.fast/review", version: "0.1.0" })}\n`,
   );
+
   const runCommand = vi.fn<TestRunCommand>(async (command: string) => {
     if (command !== manager) throw new Error(`${command} unavailable`);
+
     if (manager === "yarn") return { stdout: `${managerRoot}\n`, stderr: "" };
+
     if (manager === "bun") {
       return {
         stdout: `${path.join(homeDir, ".bun", "bin")}\n`,
         stderr: "",
       };
     }
+
     return { stdout: `${managerRoot}\n`, stderr: "" };
   });
+
   return { homeDir, packageRoot, runCommand };
 }
 
 function streams() {
   const out: string[] = [];
   const err: string[] = [];
+
   return {
     out,
     err,

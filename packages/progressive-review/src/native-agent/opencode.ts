@@ -25,7 +25,9 @@ import type {
 import { ReviewCommandPath, reviewThreadEnvironment } from "./terminal-command";
 
 const HOST = "127.0.0.1";
+
 const STARTUP_TIMEOUT_MS = 15_000;
+
 const REQUEST_TIMEOUT_MS = 60_000;
 
 /** Something that hands out the shared `opencode serve` endpoint. */
@@ -88,6 +90,7 @@ export class OpencodeAgentServer implements AgentServer {
           stage,
         }),
       );
+
     timing("opencode.launch-start");
     const client = await this.#client();
     timing("opencode.server-events-ready");
@@ -95,6 +98,7 @@ export class OpencodeAgentServer implements AgentServer {
     // in its source's project, so the session's own directory scopes every
     // request and the terminal, not the review's checkout.
     let session: { id: string; directory: string };
+
     if (!input.session) {
       session = sessionOf(
         await client.json("POST", "/session", input.cwd, {
@@ -115,13 +119,16 @@ export class OpencodeAgentServer implements AgentServer {
     } else {
       session = await client.session(input.session.resume);
     }
+
     timing("opencode.session-ready");
     const sessionId = session.id;
     const state = this.#session(sessionId, session.directory);
+
     if (state.queue.isClosed) {
       state.queue = new AsyncQueue();
       state.attached = false;
     }
+
     if (input.prompt !== undefined) {
       const messageID = `msg_${randomBytes(12).toString("hex")}`;
       state.promptIds.set(messageID, input.prompt.id);
@@ -134,15 +141,19 @@ export class OpencodeAgentServer implements AgentServer {
         { messageID, parts: [{ type: "text", text: input.prompt.text }] },
       );
     }
+
     timing("opencode.prompt-accepted");
     const pathValue = await this.#commandPath.resolve();
     timing("opencode.command-ready");
+
     const env: NativeTerminalCommand["env"] = {
       OPENCODE_SERVER_PASSWORD: client.password,
       ...reviewThreadEnvironment(this.#desktop),
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
+
     if (pathValue) env.PATH = pathValue;
+
     return {
       sessionId,
       command: {
@@ -166,16 +177,20 @@ export class OpencodeAgentServer implements AgentServer {
     close(): Promise<void>;
   }> {
     const state = this.#sessions.get(sessionId);
+
     if (!state)
       throw new Error("Launch the OpenCode session before observing it.");
+
     if (state.attached)
       throw new Error("OpenCode session already has an observer.");
     state.attached = true;
     const queue = state.queue;
+
     return {
       updates: queue,
       close: async () => {
         queue.close();
+
         if (state.queue === queue) state.attached = false;
       },
     };
@@ -183,21 +198,26 @@ export class OpencodeAgentServer implements AgentServer {
 
   async interrupt(sessionId: string): Promise<void> {
     const state = this.#sessions.get(sessionId);
+
     if (!state?.running) return;
     const client = await this.#client();
     state.stopping = true;
     let finish!: () => void;
+
     const done = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         state.settled.delete(finish);
         reject(new Error("OpenCode did not confirm interruption."));
       }, REQUEST_TIMEOUT_MS);
+
       finish = () => {
         clearTimeout(timer);
         resolve();
       };
+
       state.settled.add(finish);
     });
+
     try {
       await client.json(
         "POST",
@@ -209,6 +229,7 @@ export class OpencodeAgentServer implements AgentServer {
       finish();
       throw error;
     }
+
     await done;
   }
 
@@ -222,19 +243,24 @@ export class OpencodeAgentServer implements AgentServer {
   async #client(): Promise<OpencodeClient> {
     const { baseUrl, password } = await this.#host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
+
     if (this.#events?.baseUrl !== baseUrl) {
       this.#events?.abort.abort();
       const abort = new AbortController();
       let ready!: () => void;
       let failed!: (error: Error) => void;
+
       const readiness = new Promise<void>((resolve, reject) => {
         ready = resolve;
         failed = reject;
       });
+
       this.#events = { abort, baseUrl, ready: readiness };
       void this.#follow(client, abort.signal, ready).catch(failed);
     }
+
     await this.#events.ready;
+
     return client;
   }
 
@@ -246,33 +272,43 @@ export class OpencodeAgentServer implements AgentServer {
     try {
       for await (const event of client.events(signal)) {
         const record = jsonObject(event);
+
         if (record?.type === "server.connected") {
           ready();
           continue;
         }
+
         const properties = jsonObject(record?.properties);
         const info = jsonObject(properties?.info);
         const part = jsonObject(properties?.part);
         const sessionId = jsonString(properties?.sessionID);
+
         if (!sessionId) continue;
         const state = this.#sessions.get(sessionId);
+
         if (!state) continue;
+
         if (
           record?.type === "message.updated" ||
           record?.type === "message.part.updated"
         ) {
           const queue = state.queue;
+
           if (queue.isClosed) continue;
+
           const messageId =
             record.type === "message.updated"
               ? jsonString(info?.id)
               : jsonString(part?.messageID);
+
           if (!messageId || state.seen.has(messageId)) continue;
+
           const value = await client.json(
             "GET",
             `/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
             state.directory,
           );
+
           for (const message of projectOpencodeMessages([value ?? null])) {
             state.seen.add(message.messageId);
             queue.push({
@@ -286,21 +322,28 @@ export class OpencodeAgentServer implements AgentServer {
             });
           }
         }
+
         if (record?.type === "session.status") {
           const status = jsonObject(properties?.status);
+
           if (status?.type === "busy" || status?.type === "retry") {
             state.running = true;
             state.queue.push({ type: "status.changed", status: "running" });
           }
+
           if (status?.type === "idle") this.#idle(state);
         }
+
         if (record?.type === "session.idle") this.#idle(state);
+
         if (record?.type === "session.error") {
           const error = jsonObject(properties?.error);
+
           if (error?.name === "MessageAbortedError") {
             state.stopping = true;
             continue;
           }
+
           state.queue.push({
             type: "status.changed",
             status: "failed",
@@ -308,11 +351,14 @@ export class OpencodeAgentServer implements AgentServer {
           });
         }
       }
+
       if (!signal.aborted) throw new Error("OpenCode event stream closed.");
     } catch (error) {
       if (signal.aborted) return;
       console.error("OpenCode capture failed", error);
+
       if (this.#events?.abort.signal === signal) this.#events = undefined;
+
       for (const state of this.#sessions.values()) {
         state.queue.push({
           type: "status.changed",
@@ -320,6 +366,7 @@ export class OpencodeAgentServer implements AgentServer {
           error: "OpenCode event stream disconnected.",
         });
       }
+
       throw error;
     }
   }
@@ -332,12 +379,14 @@ export class OpencodeAgentServer implements AgentServer {
       status: state.stopping ? "interrupted" : "idle",
     });
     state.stopping = false;
+
     for (const finish of state.settled) finish();
     state.settled.clear();
   }
 
   #session(sessionId: string, directory?: string): SessionState {
     let state = this.#sessions.get(sessionId);
+
     if (!state) {
       state = {
         directory: directory ?? "",
@@ -353,6 +402,7 @@ export class OpencodeAgentServer implements AgentServer {
     } else if (directory) {
       state.directory = directory;
     }
+
     return state;
   }
 }
@@ -366,20 +416,26 @@ export function projectOpencodeMessages(
   value: JsonValue | undefined,
 ): OpencodeMessage[] {
   const list = jsonArray(value);
+
   if (!list) {
     throw new Error("OpenCode returned an invalid session message list.");
   }
+
   const messages: OpencodeMessage[] = [];
+
   for (const entry of list) {
     const record = jsonObject(entry);
     const info = jsonObject(record?.info);
     const time = jsonObject(info?.time);
     const messageId = jsonString(info?.id);
+
     if (!record || !info || !time || messageId === undefined) continue;
+
     const body = (jsonArray(record.parts) ?? [])
       .flatMap((item) => {
         const part = jsonObject(item);
         const text = jsonString(part?.text);
+
         return part?.type === "text" &&
           part.ignored !== true &&
           text !== undefined
@@ -388,7 +444,9 @@ export function projectOpencodeMessages(
       })
       .join("\n")
       .trim();
+
     if (!body) continue;
+
     if (info.role === "user") {
       messages.push({
         id: messageId,
@@ -399,7 +457,9 @@ export function projectOpencodeMessages(
       });
       continue;
     }
+
     const completed = jsonNumber(time.completed);
+
     if (
       info.role === "assistant" &&
       completed !== undefined &&
@@ -414,6 +474,7 @@ export function projectOpencodeMessages(
       });
     }
   }
+
   return messages;
 }
 
@@ -426,14 +487,17 @@ function sessionOf(value: JsonValue | undefined): OpencodeSession {
   const record = jsonObject(value);
   const id = jsonString(record?.id);
   const directory = jsonString(record?.directory);
+
   if (!id || directory === undefined) {
     throw new Error("OpenCode returned an invalid session.");
   }
+
   return { id, directory };
 }
 
 function millisToIso(value: JsonValue | undefined): string {
   const millis = jsonNumber(value);
+
   return millis === undefined
     ? new Date(0).toISOString()
     : new Date(millis).toISOString();
@@ -458,11 +522,13 @@ export class OpencodeClient {
   ): Promise<JsonValue | undefined> {
     const response = await this.#fetch(method, pathname, directory, body);
     const text = await response.text();
+
     if (!response.ok) {
       throw new Error(
         `OpenCode ${method} ${pathname} failed (${response.status}): ${text}`,
       );
     }
+
     return text ? parseJsonText(text) : undefined;
   }
 
@@ -473,17 +539,21 @@ export class OpencodeClient {
     body?: JsonValue,
   ): Promise<Response> {
     const url = new URL(pathname, this.baseUrl);
+
     if (directory) url.searchParams.set("directory", directory);
     const headers = new Headers({ authorization: this.#authorization });
+
     const init: RequestInit = {
       method,
       headers,
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     };
+
     if (body !== undefined) {
       headers.set("content-type", "application/json");
       init.body = JSON.stringify(body);
     }
+
     return fetch(url, init);
   }
 
@@ -493,27 +563,35 @@ export class OpencodeClient {
    */
   async session(id: string): Promise<OpencodeSession> {
     const projects = jsonArray(await this.json("GET", "/project", undefined));
+
     if (!projects) {
       throw new Error("OpenCode returned an invalid project list.");
     }
+
     const worktrees = projects.flatMap((project) => {
       const worktree = jsonString(jsonObject(project)?.worktree);
+
       return worktree === undefined ? [] : [worktree];
     });
+
     for (const worktree of new Set(worktrees)) {
       const response = await this.#fetch(
         "GET",
         `/session/${encodeURIComponent(id)}`,
         worktree,
       );
+
       if (response.status === 404) continue;
+
       if (!response.ok) {
         throw new Error(
           `OpenCode GET /session/${id} failed (${response.status}): ${await response.text()}`,
         );
       }
+
       return sessionOf(parseJsonText(await response.text()));
     }
+
     throw new Error(`OpenCode has no session ${id} in any known project.`);
   }
 
@@ -526,9 +604,11 @@ export class OpencodeClient {
       },
       signal,
     });
+
     if (!response.ok || !response.body) {
       throw new Error(`OpenCode event stream failed (${response.status}).`);
     }
+
     const reader = response.body.getReader();
     // Cancel the body on abort so the stream ends cleanly instead of erroring
     // when the socket closes later.
@@ -536,30 +616,38 @@ export class OpencodeClient {
     signal.addEventListener("abort", cancel, { once: true });
     const decoder = new TextDecoder();
     let buffer = "";
+
     try {
       while (!signal.aborted) {
         const chunk = await reader.read();
+
         if (chunk.done) break;
         buffer += decoder.decode(chunk.value, { stream: true });
         let boundary = buffer.indexOf("\n\n");
+
         while (boundary >= 0) {
           const raw = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
+
           const data = raw
             .split("\n")
             .filter((line) => line.startsWith("data:"))
             .map((line) => line.slice(5).trimStart())
             .join("\n");
+
           if (data) {
             const envelope = jsonObject(parseJsonText(data));
             const payload = jsonObject(envelope?.payload);
+
             if (!payload || jsonString(payload.type) === undefined) {
               throw new Error(
                 "OpenCode returned an invalid global event envelope.",
               );
             }
+
             yield payload;
           }
+
           boundary = buffer.indexOf("\n\n");
         }
       }
@@ -583,6 +671,7 @@ export class OpencodeServeHost implements OpencodeHost {
 
   async endpoint(): Promise<{ baseUrl: string; password: string }> {
     const { baseUrl, password } = await this.#start();
+
     return { baseUrl, password };
   }
 
@@ -591,6 +680,7 @@ export class OpencodeServeHost implements OpencodeHost {
     const started = this.#started;
     this.#started = undefined;
     const { child } = await started;
+
     if (child.exitCode === null) child.kill("SIGTERM");
   }
 
@@ -600,10 +690,12 @@ export class OpencodeServeHost implements OpencodeHost {
     password: string;
   }> {
     if (this.#started) return this.#started;
+
     const started = (async () => {
       const port = await reservePort();
       const password = randomBytes(24).toString("base64url");
       const baseUrl = `http://${HOST}:${port}`;
+
       const child = spawn(
         "opencode",
         ["serve", "--hostname", HOST, "--port", String(port)],
@@ -617,6 +709,7 @@ export class OpencodeServeHost implements OpencodeHost {
           windowsHide: true,
         },
       );
+
       let stderr = "";
       child.stderr?.setEncoding("utf8");
       child.stderr?.on("data", (chunk: string) => {
@@ -627,24 +720,30 @@ export class OpencodeServeHost implements OpencodeHost {
       });
       const client = new OpencodeClient(baseUrl, password);
       const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+
       while (child.exitCode === null) {
         try {
           const health = await client.json("GET", "/global/health", undefined);
+
           if (jsonObject(health)?.healthy === true) {
             return { child, baseUrl, password };
           }
         } catch {
           // Not up yet.
         }
+
         if (Date.now() > deadline) break;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
+
       if (child.exitCode === null) child.kill("SIGTERM");
       throw new Error(
         `OpenCode server did not become ready.\n\n${stderr.trim()}`,
       );
     })();
+
     this.#started = started;
+
     return started;
   }
 }
@@ -660,9 +759,11 @@ async function reservePort(): Promise<number> {
   await new Promise<void>((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
+
   if (!address) {
     throw new Error("Could not reserve a loopback port for OpenCode.");
   }
+
   // SAFETY: a TCP listener bound to a port reports an AddressInfo, never a pipe path.
   return (address as AddressInfo).port;
 }
@@ -673,12 +774,14 @@ export async function forkOpencodeSession(input: {
   cwd: string;
 }): Promise<string> {
   const host = new OpencodeServeHost();
+
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
     // The fork lands in the source session's project, whatever the review's
     // checkout is; the terminal later attaches with that directory.
     const source = await client.session(input.sourceSessionId);
+
     return sessionOf(
       await client.json(
         "POST",
@@ -693,6 +796,7 @@ export async function forkOpencodeSession(input: {
 }
 
 const REPLY_TIMEOUT_MS = 10 * 60_000;
+
 const REPLY_POLL_MS = 1_000;
 
 /**
@@ -708,12 +812,15 @@ export async function createOpencodeSession(input: {
   signal?: AbortSignal;
 }): Promise<string> {
   const host = new OpencodeServeHost();
+
   try {
     const { baseUrl, password } = await host.endpoint();
     const client = new OpencodeClient(baseUrl, password);
+
     const sessionId = sessionOf(
       await client.json("POST", "/session", input.cwd, { title: input.title }),
     ).id;
+
     await client.json(
       "POST",
       `/session/${encodeURIComponent(sessionId)}/prompt_async`,
@@ -721,25 +828,32 @@ export async function createOpencodeSession(input: {
       { parts: [{ type: "text", text: input.prompt }] },
     );
     const deadline = Date.now() + REPLY_TIMEOUT_MS;
+
     for (;;) {
       if (input.signal?.aborted) {
         throw new Error("OpenCode session creation was canceled.");
       }
+
       const messages = await client.json(
         "GET",
         `/session/${encodeURIComponent(sessionId)}/message`,
         input.cwd,
       );
+
       const failure = assistantFailure(messages);
+
       if (failure) throw new Error(`OpenCode could not reply: ${failure}`);
+
       if (
         projectOpencodeMessages(messages).some((m) => m.role === "assistant")
       ) {
         return sessionId;
       }
+
       if (Date.now() > deadline) {
         throw new Error("OpenCode did not reply within the time limit.");
       }
+
       await new Promise((resolve) => setTimeout(resolve, REPLY_POLL_MS));
     }
   } finally {
@@ -752,11 +866,14 @@ function assistantFailure(messages: JsonValue | undefined): string | undefined {
   for (const entry of jsonArray(messages) ?? []) {
     const info = jsonObject(jsonObject(entry)?.info);
     const error = jsonObject(info?.error);
+
     if (info?.role !== "assistant" || !error) continue;
     const name = jsonString(error.name) ?? "error";
     const message = jsonString(jsonObject(error.data)?.message);
+
     return message === undefined ? name : `${name}: ${message}`;
   }
+
   return undefined;
 }
 
@@ -768,12 +885,15 @@ export function server(
     options.host ??
       new OpencodeServeHost(async () => {
         const pathValue = await new ReviewCommandPath(options).resolve();
+
         const env: NodeJS.ProcessEnv = {
           ...process.env,
           ...reviewThreadEnvironment(options.desktopEndpoint),
           [DEV_REVIEW_HOME_ENV]: devReviewHome(),
         };
+
         if (pathValue) env.PATH = pathValue;
+
         return env;
       }),
   );

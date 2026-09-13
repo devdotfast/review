@@ -535,7 +535,9 @@ function expectValidationErrors(action: () => void) {
     if (error instanceof SoftwareModelValidationError) {
       return error.errors;
     }
+
     throw error;
   }
+
   throw new Error("Expected SoftwareModelValidationError");
 }

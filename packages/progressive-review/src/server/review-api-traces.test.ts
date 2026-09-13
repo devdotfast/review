@@ -19,6 +19,7 @@ async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", root, ...args], {
     encoding: "utf8",
   });
+
   return stdout.trim();
 }
 
@@ -58,14 +59,17 @@ describe("agent trace routes", () => {
 
   async function api() {
     const commit = await git(root, ["rev-parse", "HEAD"]);
+
     const created = await createReviewDir({
       worktreePath: root,
       baseRef: "main",
       baseCommit: commit,
       sourceCommit: commit,
     });
+
     const reviewPath = path.join(created.dir, "review.mdx");
     await writeFile(reviewPath, "# Review\n", "utf8");
+
     return createReviewApi({
       mode: { kind: "live" },
       reviewPath,
@@ -94,6 +98,7 @@ describe("agent trace routes", () => {
     const response = await (
       await api()
     ).app.request("/agent-traces?storage=direct");
+
     expect(response.status).toBe(400);
   });
 
@@ -166,9 +171,11 @@ describe("agent trace routes", () => {
           ),
         ),
       );
+
       const response = await (
         await api()
       ).app.request(`/agent-traces/hosted-session-0001${query}`);
+
       expect(response.status).toBe(404);
       expect(await response.json()).toMatchObject({
         ok: false,

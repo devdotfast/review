@@ -44,6 +44,7 @@ export async function runReviewCodexWait(
     reviewUuid: input.reviewUuid,
     threadId: input.threadId,
   };
+
   try {
     const result = await dependencies.waitForReviewAction(
       {
@@ -54,6 +55,7 @@ export async function runReviewCodexWait(
       },
       waitDependencies,
     );
+
     const messageId = codexReviewMessageId(result);
     await dependencies.deliverMessage({ ...owner, messageId }, async () => {
       await dependencies.wakeCodex({
@@ -63,6 +65,7 @@ export async function runReviewCodexWait(
         threadId: input.threadId,
       });
     });
+
     return result.event === "timeout" ? 1 : 0;
   } finally {
     await dependencies.clearWaiter(owner);
@@ -74,7 +77,9 @@ export function codexReviewMessageId(result: ReviewWaitResult): string {
     result.event === "review-status"
       ? [result.event, result.status]
       : [result.event];
+
   const round = result.review.review.presentedDocumentRevision ?? "unpublished";
+
   return ["dev-fast-review", result.uuid, round, ...outcome].join(":");
 }
 
@@ -87,6 +92,7 @@ export function codexReviewWakePrompt(result: ReviewWaitResult): string {
       "</automated_message>",
     ].join("\n");
   }
+
   if (result.event === "review-deleted") {
     return [
       "<automated_message>",
@@ -95,6 +101,7 @@ export function codexReviewWakePrompt(result: ReviewWaitResult): string {
       "</automated_message>",
     ].join("\n");
   }
+
   if (result.event === "review-dismissed") {
     return [
       "<automated_message>",
@@ -103,6 +110,7 @@ export function codexReviewWakePrompt(result: ReviewWaitResult): string {
       "</automated_message>",
     ].join("\n");
   }
+
   return [
     "<automated_message>",
     `This is an automated message from dev.fast Review. Review ${result.uuid} (\"${result.review.review.title}\") requires your attention.`,

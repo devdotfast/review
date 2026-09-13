@@ -30,15 +30,19 @@ import { parseArgs } from "node:util";
 import { assertNoBlockedReviewRequests } from "./review-network-policy.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
+
 const PRODUCT_NAME = JSON.parse(
   readFileSync(path.join(APP_DIR, "code-oss", "product.json"), "utf8"),
 ).nameShort;
+
 const DEFAULT_APP = path.join(
   APP_DIR,
   "VSCode-darwin-arm64",
   `${PRODUCT_NAME}.app`,
 );
+
 const POLL_INTERVAL_MS = 500;
+
 const SERVER_READY_PATTERN = /\[Review Desktop\] server ready at https?:\/\//;
 
 /** Output that means the boot already failed — no point waiting for the timeout. */
@@ -68,6 +72,7 @@ function hasRenderer(userDataDir) {
     const matches = execFileSync("pgrep", [process.platform === "linux" ? "-fa" : "-fl", userDataDir], {
       encoding: "utf8",
     });
+
     return matches.split("\n").some((line) => line.includes("--type=renderer"));
   } catch {
     // pgrep exits non-zero when nothing matches.
@@ -79,6 +84,7 @@ function hasRenderer(userDataDir) {
 async function readMainLog(userDataDir) {
   const logsRoot = path.join(userDataDir, "logs");
   let sessions;
+
   try {
     sessions = await readdir(logsRoot, { withFileTypes: true });
   } catch {
@@ -86,6 +92,7 @@ async function readMainLog(userDataDir) {
   }
 
   const logs = [];
+
   for (const session of sessions
     .filter((entry) => entry.isDirectory())
     .sort((left, right) => left.name.localeCompare(right.name))) {
@@ -97,6 +104,7 @@ async function readMainLog(userDataDir) {
       // The session can exist briefly before the main logger creates its file.
     }
   }
+
   return logs.join("\n");
 }
 
@@ -110,6 +118,7 @@ export async function smokeLaunch({
   const binary = process.platform === "linux"
     ? path.join(app, "review")
     : path.join(app, "Contents", "MacOS", PRODUCT_NAME);
+
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "review-smoke-"));
 
   // A launch that finds a running instance hands its arguments over and exits 0
@@ -117,6 +126,7 @@ export async function smokeLaunch({
   // real boot rather than a silent no-op.
   const env = { ...process.env, ELECTRON_ENABLE_LOGGING: "1", DEV_REVIEW_HOME: path.join(userDataDir, "review-home"), DEV_REVIEW_IMPORT_FROM: "none" };
   delete env.ELECTRON_RUN_AS_NODE;
+
   const child = spawn(binary, [`--user-data-dir=${userDataDir}`, `--extensions-dir=${path.join(userDataDir, "extensions")}`], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -140,37 +150,47 @@ export async function smokeLaunch({
 
   try {
     const deadline = Date.now() + timeoutMs;
+
     while (Date.now() < deadline) {
       mainLog = await readMainLog(userDataDir);
       const startupOutput = `${output}\n${mainLog}`;
       assertNoBlockedReviewRequests(
         startupOutput.match(/https?:\/\/[^\s"'<>]+/g) ?? [],
       );
+
       const fatal = FATAL_PATTERNS.find((pattern) =>
         pattern.test(startupOutput),
       );
+
       if (fatal) {
         fail(`packaged app reported a fatal startup error (matched ${fatal})`);
       }
+
       if (exited) {
         fail(
           `packaged app exited early (code=${exited.code} signal=${exited.signal}) ` +
             `before the renderer and Review server became ready`,
         );
       }
+
       if (hasRenderer(userDataDir) && SERVER_READY_PATTERN.test(mainLog)) {
         console.log(
           `Packaged app opened a renderer and started the Review server in ${((timeoutMs - (deadline - Date.now())) / 1000).toFixed(1)}s: ${app}`,
         );
+
         return;
       }
+
       await sleep(POLL_INTERVAL_MS);
     }
+
     mainLog = await readMainLog(userDataDir);
+
     const missing = [
       !hasRenderer(userDataDir) && "a renderer",
       !SERVER_READY_PATTERN.test(mainLog) && "the Review server ready event",
     ].filter(Boolean);
+
     fail(
       `packaged app did not produce ${missing.join(" and ")} within ${timeoutMs}ms.`,
     );
@@ -178,6 +198,7 @@ export async function smokeLaunch({
     if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGKILL");
     }
+
     await closed;
     await rm(userDataDir, {
       recursive: true,
@@ -192,6 +213,7 @@ async function main() {
   const { values } = parseArgs({
     options: { app: { type: "string" }, "timeout-ms": { type: "string" } },
   });
+
   await smokeLaunch({
     app: values.app ? path.resolve(values.app) : DEFAULT_APP,
     timeoutMs: values["timeout-ms"] ? Number(values["timeout-ms"]) : undefined,

@@ -15,6 +15,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 const execFilePromise = promisify(execFile);
+
 const approvedFixtures = [
   {
     name: "schema4-opencode-agentserver",
@@ -38,19 +39,25 @@ const approvedFixtures = [
     sourceCommit: "1f872164ec94ca87d99ca3ccbd2b452d487a0db0",
   },
 ];
+
 const [reviewDir, name, sourceRepository] = process.argv.slice(2);
+
 const approved = approvedFixtures.find(
   (fixture) => fixture.name === name && fixture.repository === sourceRepository,
 );
+
 if (!reviewDir || !approved) {
   throw new Error(
     "usage: capture-legacy-review-fixture <approved reviewDir> <approved name> <devdotfast/review|tutorial-sample>",
   );
 }
+
 const sourceDir = await realpath(reviewDir);
+
 const record = JSON.parse(
   await readFile(path.join(sourceDir, "review.json"), "utf8"),
 );
+
 if (
   record.uuid !== approved.uuid ||
   record.schemaVersion !== 4 ||
@@ -61,6 +68,7 @@ if (
     "Review does not match the approved legacy fixture provenance.",
   );
 }
+
 if (sourceRepository === "devdotfast/review") {
   const { stdout } = await execFilePromise("git", [
     "-C",
@@ -69,6 +77,7 @@ if (sourceRepository === "devdotfast/review") {
     "get-url",
     "origin",
   ]);
+
   if (
     !/^(?:git@github\.com:|https:\/\/github\.com\/)devdotfast\/review(?:\.git)?$/.test(
       stdout.trim(),
@@ -82,31 +91,38 @@ if (sourceRepository === "devdotfast/review") {
 ) {
   throw new Error("Fixture source is not the approved tutorial sample.");
 }
+
 const fixturesRoot = path.resolve(
   import.meta.dirname,
   "../src/fixtures/legacy-reviews",
 );
+
 const excluded = new Set([
   ".build",
   ".native-agent",
   ".mutation-lock",
   "review.db-shm",
 ]);
+
 const staging = await mkdtemp(path.join(os.tmpdir(), "legacy-fixture-"));
+
 try {
   const copy = path.join(staging, "review");
   await cp(sourceDir, copy, {
     recursive: true,
     filter: async (source) => {
       const relative = path.relative(sourceDir, source);
+
       if (
         relative
           .split(path.sep)
           .some((part) => excluded.has(part) || part.endsWith(".lock"))
       )
         return false;
+
       if ((await lstat(source)).isSymbolicLink())
         throw new Error("Fixture capture does not accept symlinks.");
+
       return true;
     },
   });
@@ -117,6 +133,7 @@ try {
   const archive = path.join(staging, `${name}.tgz`);
   await execFilePromise("tar", ["-czf", archive, "-C", copy, "."]);
   const size = (await stat(archive)).size;
+
   if (size >= 1_000_000)
     throw new Error(`Fixture exceeds the 1 MB limit (${size} bytes).`);
   await mkdir(fixturesRoot, { recursive: true });

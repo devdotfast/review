@@ -71,6 +71,7 @@ export class CodexAppServerClient {
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
+
     return CodexAppServerClient.#initialize(stdioTransport(child));
   }
 
@@ -88,6 +89,7 @@ export class CodexAppServerClient {
         { once: true },
       );
     });
+
     return CodexAppServerClient.#initialize(webSocketTransport(socket));
   }
 
@@ -95,6 +97,7 @@ export class CodexAppServerClient {
     transport: Transport,
   ): Promise<CodexAppServerClient> {
     const client = new CodexAppServerClient(transport);
+
     try {
       await client.request("initialize", {
         capabilities: { experimentalApi: true },
@@ -105,6 +108,7 @@ export class CodexAppServerClient {
         },
       });
       client.notify("initialized", {});
+
       return client;
     } catch (error) {
       await client.close();
@@ -121,17 +125,22 @@ export class CodexAppServerClient {
     params: JsonValue,
   ): Promise<JsonValue | undefined> {
     if (this.#closed) throw new Error("The Codex app-server is closed.");
+
     if (this.#failure) throw this.#failure;
     const id = String(this.#nextId++);
+
     const response = new Promise<JsonValue | undefined>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error(`Codex request "${method}" timed out.`));
       }, REQUEST_TIMEOUT_MS);
+
       timeout.unref();
       this.#pending.set(id, { resolve, reject, timeout });
     });
+
     this.#transport.send(JSON.stringify({ id: Number(id), method, params }));
+
     return response;
   }
 
@@ -145,6 +154,7 @@ export class CodexAppServerClient {
     listener: (notification: CodexNotification) => void,
   ): () => void {
     this.#listeners.add(listener);
+
     return () => this.#listeners.delete(listener);
   }
 
@@ -157,45 +167,59 @@ export class CodexAppServerClient {
 
   #receive(line: string): void {
     let value: JsonValue;
+
     try {
       value = parseJsonText(line);
     } catch {
       this.#fail(new Error("Codex app-server wrote malformed JSON."));
+
       return;
     }
+
     if (!isJsonRecord(value)) return;
+
     if (value.id === undefined) {
       const method = jsonString(value.method);
+
       if (method !== undefined) {
         const params = jsonObject(value.params) ?? {};
+
         for (const listener of this.#listeners) {
           listener({ method, params });
         }
       }
+
       return;
     }
+
     const pending = this.#pending.get(String(value.id));
+
     if (!pending) return;
     this.#pending.delete(String(value.id));
     clearTimeout(pending.timeout);
     const error = jsonObject(value.error);
+
     if (error) {
       pending.reject(
         new Error(
           jsonString(error.message) ?? "Codex app-server request failed.",
         ),
       );
+
       return;
     }
+
     pending.resolve(jsonProperty(value, "result"));
   }
 
   #fail(error: Error): void {
     this.#failure ??= error;
+
     for (const pending of this.#pending.values()) {
       clearTimeout(pending.timeout);
       pending.reject(error);
     }
+
     this.#pending.clear();
   }
 }
@@ -207,6 +231,7 @@ function stdioTransport(child: ChildProcessWithoutNullStreams): Transport {
     stderr = `${stderr}${chunk}`.slice(-8_000);
   });
   const lines = createInterface({ input: child.stdout });
+
   return {
     send: (line) => {
       child.stdin.write(`${line}\n`);
@@ -226,11 +251,14 @@ function stdioTransport(child: ChildProcessWithoutNullStreams): Transport {
     close: async () => {
       child.stdin.end();
       const closed = once(child, "close").then(() => undefined);
+
       const timeout = new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 2_000);
         timer.unref();
       });
+
       await Promise.race([closed, timeout]);
+
       if (child.exitCode === null) child.kill("SIGTERM");
     },
   };
@@ -283,10 +311,13 @@ export class CodexAppServerHost {
 
   async client(): Promise<CodexAppServerClient> {
     const started = await this.#start();
+
     if (started.client.closed) {
       this.#started = undefined;
+
       return (await this.#start()).client;
     }
+
     return started.client;
   }
 
@@ -296,11 +327,13 @@ export class CodexAppServerHost {
     this.#started = undefined;
     const { child, client } = await started;
     await client.close();
+
     if (child.exitCode === null && child.signalCode === null) {
       const exited = once(child, "exit");
       // Codex may keep running while shutting down plugins. Bound graceful
       // shutdown so closing Review cannot hang, then wait for actual exit.
       const timer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+
       try {
         child.kill("SIGTERM");
         await exited;
@@ -312,6 +345,7 @@ export class CodexAppServerHost {
 
   #start(): Promise<StartedHost> {
     if (this.#started) return this.#started;
+
     const started = (async (): Promise<StartedHost> => {
       const child: ListeningChild = spawn(
         "codex",
@@ -334,19 +368,24 @@ export class CodexAppServerHost {
           windowsHide: true,
         },
       );
+
       child.once("exit", () => {
         this.#started = undefined;
       });
+
       try {
         const url = await listeningUrl(child);
         const client = await CodexAppServerClient.connectWebSocket(url);
+
         return { child, url, client };
       } catch (error) {
         if (child.exitCode === null) child.kill("SIGTERM");
         throw error;
       }
     })();
+
     this.#started = started;
+
     return started;
   }
 }
@@ -355,6 +394,7 @@ export class CodexAppServerHost {
 function listeningUrl(child: ListeningChild): Promise<string> {
   return new Promise((resolve, reject) => {
     let stderr = "";
+
     const timer = setTimeout(() => {
       reject(
         new Error(
@@ -362,11 +402,13 @@ function listeningUrl(child: ListeningChild): Promise<string> {
         ),
       );
     }, 30_000);
+
     timer.unref();
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       stderr = `${stderr}${chunk}`.slice(-8_000);
       const match = /listening on: (ws:\/\/[\d.]+:\d+)/u.exec(stderr);
+
       if (match) {
         clearTimeout(timer);
         resolve(match[1]!);
@@ -388,6 +430,7 @@ export async function forkCodexThread(input: {
   cwd: string;
 }): Promise<string> {
   const client = await CodexAppServerClient.connect();
+
   try {
     return await forkThread(client, input);
   } finally {
@@ -399,6 +442,7 @@ export async function startCodexThread(input: {
   cwd: string;
 }): Promise<string> {
   const client = await CodexAppServerClient.connect();
+
   try {
     return await startThread(client, input);
   } finally {
@@ -421,8 +465,11 @@ export async function forkThread(
     ephemeral: false,
     excludeTurns: true,
   };
+
   if (input.config !== undefined) params.config = input.config;
+
   if (input.permissions !== undefined) params.permissions = input.permissions;
+
   return threadId(await client.request("thread/fork", params), "forked");
 }
 
@@ -431,13 +478,18 @@ export async function startThread(
   input: { cwd: string; config?: JsonObject; permissions?: string },
 ): Promise<string> {
   const params: JsonObject = { cwd: input.cwd, ephemeral: false };
+
   if (input.config !== undefined) params.config = input.config;
+
   if (input.permissions !== undefined) params.permissions = input.permissions;
+
   return threadId(await client.request("thread/start", params), "new");
 }
 
 function threadId(result: JsonValue | undefined, kind: string): string {
   const id = jsonString(jsonObject(jsonObject(result)?.thread)?.id);
+
   if (!id) throw new Error(`Codex returned an invalid ${kind} thread.`);
+
   return id;
 }

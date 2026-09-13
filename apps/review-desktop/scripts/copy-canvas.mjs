@@ -6,7 +6,9 @@ const appDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+
 const monorepoRoot = path.resolve(appDirectory, "../..");
+
 const sourceRoot = path.join(
   monorepoRoot,
   "packages/progressive-review/app/dist/desktop",
@@ -14,23 +16,29 @@ const sourceRoot = path.join(
 
 export function canvasTargets(args, appRoot = appDirectory) {
   const targets = [path.join(appRoot, "code-oss/out/vs/review/canvas")];
+
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] !== "--packaged-root" || !args[index + 1]) {
       throw new Error(
         "usage: copy-canvas.mjs [--packaged-root <packaged-app-root>]",
       );
     }
+
     const packagedRoot = path.resolve(args[++index]);
+
     if (packagedRoot === path.parse(packagedRoot).root) {
       throw new Error("The packaged Review root cannot be a filesystem root.");
     }
+
     // A macOS bundle nests its resources under Contents/; every other platform
     // puts them at the package root.
     const packagedAppRoot = packagedRoot.endsWith(".app")
       ? path.join(packagedRoot, "Contents/Resources/app")
       : path.join(packagedRoot, "resources/app");
+
     targets.push(path.join(packagedAppRoot, "out/vs/review/canvas"));
   }
+
   return [...new Set(targets)];
 }
 
@@ -38,17 +46,21 @@ export async function copyCanvas(targets = canvasTargets([])) {
   const manifest = JSON.parse(
     await readFile(path.join(sourceRoot, ".vite/manifest.json"), "utf8"),
   );
+
   const canvas = requiredEntry(manifest, "canvas");
   const stylesheets = canvas.css ?? [];
   const wasm = (canvas.assets ?? []).find((file) => file.endsWith(".wasm"));
+
   if (!wasm)
     throw new Error("Review canvas manifest has no libavoid WASM asset.");
 
   for (const targetRoot of targets) {
     const outputRoot = path.resolve(targetRoot, "../../..");
     const relativeTarget = path.relative(outputRoot, targetRoot);
+
     const isDevelopmentOutput =
       outputRoot === path.join(appDirectory, "code-oss/out");
+
     if (
       relativeTarget !== path.join("vs", "review", "canvas") ||
       (!(await isDirectory(outputRoot)) && !isDevelopmentOutput)
@@ -57,6 +69,7 @@ export async function copyCanvas(targets = canvasTargets([])) {
         `Refusing to replace canvas outside an existing output root: ${targetRoot}`,
       );
     }
+
     if (isDevelopmentOutput) await mkdir(outputRoot, { recursive: true });
     await rm(targetRoot, { recursive: true, force: true });
     await mkdir(targetRoot, { recursive: true });
@@ -95,7 +108,9 @@ function requiredEntry(entries, name) {
   const entry = Object.values(entries).find(
     (candidate) => candidate.isEntry && candidate.name === name,
   );
+
   if (!entry) throw new Error(`Review canvas manifest has no ${name} entry.`);
+
   return entry;
 }
 

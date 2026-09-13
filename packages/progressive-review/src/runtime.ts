@@ -57,6 +57,7 @@ export async function resolveReviewSubject(input: {
       execFile: input.execFile,
       fetchImpl: input.fetchImpl,
     });
+
     return {
       baseRef: input.baseRef?.trim() || pr.baseRef,
       headRef: pr.headRef,
@@ -77,12 +78,14 @@ export async function resolveReviewSubject(input: {
   }
 
   const headRef = input.headRef?.trim();
+
   const refs = await resolveReviewRefs({
     cwd: input.cwd,
     baseRef: input.baseRef,
     headRef,
     execFile: input.execFile,
   });
+
   return {
     baseRef: refs.baseRef,
     headRef: refs.headRef,
@@ -97,6 +100,7 @@ export async function resolveReviewSource(input: {
   pullRequest?: string;
 }): Promise<{ reviewRoot: string; subject: ReviewSubject }> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
+
   const subject = await resolveReviewSubject({
     cwd: reviewRoot,
     baseRef: input.baseRef,
@@ -105,6 +109,7 @@ export async function resolveReviewSource(input: {
     execFile: execFilePromise,
     fetchImpl: fetch,
   });
+
   return { reviewRoot, subject };
 }
 
@@ -113,6 +118,7 @@ export async function resolveReviewRoot(
   execFile: typeof execFilePromise = execFilePromise,
 ): Promise<string> {
   const initialCwd = path.resolve(cwd);
+
   try {
     // cwd-based invocation: jj walks up from cwd like git does, while
     // `-R <subdir>` fails for a subdirectory of a workspace and would
@@ -120,10 +126,12 @@ export async function resolveReviewRoot(
     // non-colocated jj workspace nested in another git repo).
     const { stdout } = await execFile("jj", ["root"], { cwd: initialCwd });
     const root = stdout.trim();
+
     if (root) return path.resolve(root);
   } catch {
     // Not a jj workspace, or jj is unavailable. Try Git below.
   }
+
   try {
     const { stdout } = await execFile("git", [
       "-C",
@@ -131,11 +139,14 @@ export async function resolveReviewRoot(
       "rev-parse",
       "--show-toplevel",
     ]);
+
     const root = stdout.trim();
+
     if (root) return path.resolve(root);
   } catch {
     // Non-VCS directories keep their original cwd for existing review behavior.
   }
+
   return initialCwd;
 }
 
@@ -148,15 +159,19 @@ async function resolveReviewRefs(input: {
   const headRef = input.headRef
     ? await resolveReviewHeadRef(input.cwd, input.headRef, input.execFile)
     : await defaultReviewHeadRef(input.cwd);
+
   const baseRef =
     input.baseRef?.trim() || (await defaultReviewBaseRef(input.cwd));
+
   return { baseRef, headRef };
 }
 
 async function defaultReviewHeadRef(cwd: string): Promise<string> {
   const identity = await currentChangeIdentity(cwd);
+
   if (identity) return identity.name;
   const vcs = await detectLocalVcs(cwd);
+
   return vcs?.kind === "jj" ? "@" : "HEAD";
 }
 
@@ -167,8 +182,10 @@ async function defaultReviewHeadRef(cwd: string): Promise<string> {
 // fallbacks cover repos with no default branch at all.
 async function defaultReviewBaseRef(cwd: string): Promise<string> {
   const name = await defaultBranchRef(cwd);
+
   if (name) return name;
   const vcs = await detectLocalVcs(cwd);
+
   return vcs?.kind === "jj" ? "@-" : "HEAD";
 }
 
@@ -187,9 +204,11 @@ export async function resolvePullRequestReviewSubject(input: {
   const execFile = input.execFile ?? execFilePromise;
   const fetchImpl = input.fetchImpl ?? fetch;
   const repoContext = await resolveRepoContext(input.cwd);
+
   if (!repoContext) {
     throw new Error(`No Git repository found at ${input.cwd}.`);
   }
+
   // A PR URL names its repository explicitly and outranks the origin remote
   // (reviewing someone else's PR from a fork checkout must hit THEIR repo).
   // When neither the URL nor origin yields a slug, omit -R entirely and let
@@ -198,8 +217,10 @@ export async function resolvePullRequestReviewSubject(input: {
     parseGithubPullRequestRepoSlug(input.value) ??
     repoContext.githubSlug ??
     undefined;
+
   let stdout: string | undefined;
   let parsed: PullRequestMetadata | undefined;
+
   try {
     ({ stdout } = await execFile(
       "gh",
@@ -215,6 +236,7 @@ export async function resolvePullRequestReviewSubject(input: {
     ));
   } catch (error) {
     const pullRequestNumber = parseGithubPullRequestNumber(input.value);
+
     if (repoSlug && pullRequestNumber) {
       try {
         parsed = await fetchPublicGithubPullRequestMetadata({
@@ -255,18 +277,23 @@ export async function resolvePullRequestReviewSubject(input: {
       );
     }
   }
+
   const number = jsonNumber(parsed.number);
+
   if (number === undefined) {
     throw new Error(
       `Could not resolve pull request number for ${input.value}.`,
     );
   }
+
   const baseRefName = jsonString(parsed.baseRefName);
+
   if (!baseRefName?.trim()) {
     throw new Error(`Could not resolve base branch for PR ${number}.`);
   }
 
   const headRef = `refs/dev-fast/reviews/pr-${number}/head`;
+
   const preparedRefs = await preparePullRequestRefs({
     cwd: input.cwd,
     baseRefName,
@@ -278,6 +305,7 @@ export async function resolvePullRequestReviewSubject(input: {
   });
 
   const title = jsonString(parsed.title)?.trim();
+
   return {
     number,
     title: title || `PR ${number}`,
@@ -302,6 +330,7 @@ async function resolveAbsorbedPullRequestBaseRef(input: {
   execFile: typeof execFilePromise;
 }): Promise<string> {
   if (!input.baseRefOid) return input.baseRef;
+
   try {
     const [mergeBase, headCommit] = await Promise.all([
       gitStdout(input.execFile, input.repoContext, [
@@ -314,9 +343,11 @@ async function resolveAbsorbedPullRequestBaseRef(input: {
         input.headRef,
       ]),
     ]);
+
     if (!mergeBase || !headCommit || mergeBase !== headCommit) {
       return input.baseRef;
     }
+
     try {
       await gitStdout(input.execFile, input.repoContext, [
         "cat-file",
@@ -330,11 +361,13 @@ async function resolveAbsorbedPullRequestBaseRef(input: {
         input.baseRefOid,
       ]);
     }
+
     const pinnedBase = await gitStdout(input.execFile, input.repoContext, [
       "merge-base",
       input.baseRefOid,
       headCommit,
     ]);
+
     return pinnedBase || input.baseRef;
   } catch {
     return input.baseRef;
@@ -351,20 +384,24 @@ async function gitStdout(
     repoContext.commonDir,
     ...args,
   ]);
+
   return stdout.trim();
 }
 
 function parseGithubPullRequestRepoSlug(value: string): string | undefined {
   try {
     const url = new URL(value);
+
     if (url.hostname !== "github.com") return undefined;
     const [, owner, repo, resource, number] = url.pathname.split("/");
+
     if (owner && repo && resource === "pull" && number) {
       return `${owner}/${repo.replace(/\.git$/, "")}`;
     }
   } catch {
     return undefined;
   }
+
   return undefined;
 }
 
@@ -378,14 +415,19 @@ interface PullRequestMetadata {
 
 function parseGithubPullRequestNumber(value: string): number | undefined {
   const trimmed = value.trim();
+
   if (/^[1-9]\d*$/.test(trimmed)) return Number(trimmed);
+
   try {
     const url = new URL(trimmed);
+
     if (url.hostname !== "github.com") return undefined;
     const [, , , resource, number] = url.pathname.split("/");
+
     if (resource !== "pull" || !number || !/^[1-9]\d*$/.test(number)) {
       return undefined;
     }
+
     return Number(number);
   } catch {
     return undefined;
@@ -398,9 +440,11 @@ async function fetchPublicGithubPullRequestMetadata(input: {
   fetchImpl: typeof fetch;
 }): Promise<PullRequestMetadata> {
   const [owner, repo, ...rest] = input.repoSlug.split("/");
+
   if (!owner || !repo || rest.length > 0) {
     throw new Error(`Invalid GitHub repository slug: ${input.repoSlug}`);
   }
+
   const response = await input.fetchImpl(
     `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${input.pullRequestNumber}`,
     {
@@ -410,13 +454,16 @@ async function fetchPublicGithubPullRequestMetadata(input: {
       },
     },
   );
+
   if (!response.ok) {
     throw new Error(
       `GitHub REST API returned HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,
     );
   }
+
   const metadata = jsonObject(await response.json());
   const base = jsonObject(metadata?.base);
+
   return {
     number: metadata?.number,
     title: metadata?.title,
@@ -436,12 +483,14 @@ async function preparePullRequestRefs(input: {
 }): Promise<{ baseRef: string; headRef: string }> {
   const symbolicBaseRef = `origin/${input.baseRefName}`;
   let resolvedBaseRef = symbolicBaseRef;
+
   const fetchArgs = [
     "fetch",
     "origin",
     `+refs/heads/${input.baseRefName}:refs/remotes/origin/${input.baseRefName}`,
     `+refs/pull/${input.pullRequestNumber}/head:${input.headRef}`,
   ];
+
   try {
     await input.execFile("git", [
       "--git-dir",
@@ -456,6 +505,7 @@ async function preparePullRequestRefs(input: {
         error,
       });
     }
+
     try {
       await input.execFile("git", [
         "--git-dir",
@@ -482,8 +532,10 @@ async function preparePullRequestRefs(input: {
   }
 
   const vcs = await detectLocalVcs(input.cwd);
+
   if (vcs?.kind === "jj") {
     await input.execFile("jj", ["-R", input.cwd, "git", "import"]);
+
     const [baseBranchCommit, headCommit] = await Promise.all([
       resolveGitDirCommit(
         input.repoContext.commonDir,
@@ -498,12 +550,14 @@ async function preparePullRequestRefs(input: {
         input.execFile,
       ),
     ]);
+
     let baseCommit = await resolveGitDirMergeBase(
       input.repoContext.commonDir,
       baseBranchCommit,
       headCommit,
       input.execFile,
     );
+
     if (
       resolvedBaseRef === symbolicBaseRef &&
       baseCommit === headCommit &&
@@ -529,8 +583,10 @@ async function preparePullRequestRefs(input: {
         // Keep the absorbed-head base; an empty diff beats a hard failure.
       }
     }
+
     return { baseRef: baseCommit, headRef: headCommit };
   }
+
   const absorbedBase = await resolveAbsorbedPullRequestBaseRef({
     repoContext: input.repoContext,
     baseRef: resolvedBaseRef,
@@ -538,6 +594,7 @@ async function preparePullRequestRefs(input: {
     baseRefOid: input.baseRefOid,
     execFile: input.execFile,
   });
+
   // Pin the review base to the fork point, matching the jj path above. For
   // a PR behind its base branch, the branch tip is not an ancestor of the
   // head: diffing against it drags in unrelated base-side changes, and a
@@ -545,16 +602,19 @@ async function preparePullRequestRefs(input: {
   // line, so head hydration seeds from a stub instead of the base map.
   // (Idempotent for absorbed PRs — their base is already the fork point.)
   let pinnedBase = absorbedBase;
+
   try {
     const mergeBase = await gitStdout(input.execFile, input.repoContext, [
       "merge-base",
       absorbedBase,
       input.headRef,
     ]);
+
     if (mergeBase) pinnedBase = mergeBase;
   } catch {
     // Unrelated histories or a vanished ref: keep the resolved base.
   }
+
   return { baseRef: pinnedBase, headRef: input.headRef };
 }
 
@@ -591,6 +651,7 @@ async function resolveGitDirMergeBase(
     baseRef,
     headRef,
   ]);
+
   return stdout.trim();
 }
 
@@ -606,6 +667,7 @@ async function resolveGitDirCommit(
     "--verify",
     `${ref}^{commit}`,
   ]);
+
   return stdout.trim();
 }
 
@@ -631,12 +693,16 @@ async function resolveReviewHeadRef(
 ): Promise<string> {
   if (await resolveRevision(cwd, headRef)) return headRef;
   const repoContext = await resolveRepoContext(cwd);
+
   if (!repoContext) {
     throw new Error(`Review head ref does not exist: ${headRef}`);
   }
+
   if (await gitRefExists(repoContext, headRef, execFile)) return headRef;
+
   if (!headRef.startsWith("origin/") && !headRef.startsWith("refs/")) {
     const originRef = `origin/${headRef}`;
+
     if (await gitRefExists(repoContext, originRef, execFile)) return originRef;
     await execFile("git", [
       "--git-dir",
@@ -645,8 +711,10 @@ async function resolveReviewHeadRef(
       "origin",
       `+refs/heads/${headRef}:refs/remotes/origin/${headRef}`,
     ]).catch(() => undefined);
+
     if (await gitRefExists(repoContext, originRef, execFile)) return originRef;
   }
+
   throw new Error(`Review head ref does not exist: ${headRef}`);
 }
 
@@ -663,6 +731,7 @@ async function gitRefExists(
       "--verify",
       `${ref}^{commit}`,
     ]);
+
     return true;
   } catch {
     return false;
@@ -691,6 +760,7 @@ function execFileUntraced(
       cwd: options.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => {

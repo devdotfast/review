@@ -8,13 +8,21 @@ import type {
 } from "./c4-map-flow-types";
 
 const C4_EDGE_LABEL_MAX_WIDTH = 132;
+
 const C4_EDGE_LABEL_HORIZONTAL_PADDING = 16;
+
 const C4_EDGE_LABEL_VERTICAL_PADDING = 8;
+
 const C4_EDGE_LABEL_CHARS_PER_LINE = 18;
+
 const C4_EDGE_LABEL_LINE_HEIGHT = 15;
+
 const C4_EDGE_LABEL_LABEL_GUTTER = 8;
+
 const C4_EDGE_LABEL_NODE_GUTTER = 14;
+
 const C4_EDGE_LABEL_CANDIDATE_STEP = 28;
+
 export const C4_EXPANDED_GROUP_LABEL_HEADER_HEIGHT = 70;
 
 export function positionC4EdgeLabels(
@@ -24,32 +32,42 @@ export function positionC4EdgeLabels(
 ): Map<string, C4ElkLabel> {
   const positioned = new Map<string, C4ElkLabel>();
   const placed: C4ElkLabel[] = [];
+
   for (const edgeId of [...edgeLabels.keys()].sort()) {
     const label = edgeLabels.get(edgeId);
+
     if (!label) continue;
     const sections = edgeSections.get(edgeId);
+
     if (!sections || sections.length === 0) {
       positioned.set(edgeId, label);
       placed.push(label);
       continue;
     }
+
     const points = c4EdgePointsFromSections(sections);
+
     const center = {
       x: label.x + label.width / 2,
       y: label.y + label.height / 2,
     };
+
     const projected = projectPointOntoPolyline(center, points) ?? center;
+
     const baseDistance =
       c4PolylineDistanceForPoint(points, projected) ??
       c4PolylineTotalLength(points) / 2;
+
     const candidateDistances = c4LabelCandidateDistances(
       baseDistance,
       c4PolylineTotalLength(points),
       Math.max(C4_EDGE_LABEL_CANDIDATE_STEP, label.height),
     );
+
     const candidates = candidateDistances.flatMap((distance) =>
       c4EdgeLabelCandidatesAtDistance(points, distance, label),
     );
+
     const candidate = candidates.find(
       (next) =>
         !c4LabelOverlapsAny(next, placed, C4_EDGE_LABEL_LABEL_GUTTER) &&
@@ -60,9 +78,11 @@ export function positionC4EdgeLabels(
         x: projected.x - label.width / 2,
         y: projected.y - label.height / 2,
       };
+
     positioned.set(edgeId, candidate);
     placed.push(candidate);
   }
+
   return positioned;
 }
 
@@ -83,6 +103,7 @@ export function c4ElkLabelFromLayout(
   label: Partial<C4ElkLabel> | undefined,
 ): C4ElkLabel | null {
   const { x, y, width, height } = label ?? {};
+
   if (
     x === undefined ||
     y === undefined ||
@@ -92,6 +113,7 @@ export function c4ElkLabelFromLayout(
   ) {
     return null;
   }
+
   return {
     x,
     y,
@@ -113,6 +135,7 @@ export function estimateC4EdgeLabelDimensions(
       currentLineLength === 0
         ? word.length
         : currentLineLength + 1 + word.length;
+
     if (currentLineLength > 0 && nextLength > C4_EDGE_LABEL_CHARS_PER_LINE) {
       longestLineLength = Math.max(longestLineLength, currentLineLength);
       lineCount += 1;
@@ -132,6 +155,7 @@ export function estimateC4EdgeLabelDimensions(
   }
 
   longestLineLength = Math.max(longestLineLength, currentLineLength, 1);
+
   return {
     width: Math.min(
       C4_EDGE_LABEL_MAX_WIDTH,
@@ -148,6 +172,7 @@ export function c4EdgeLabelPoint(
   fallbackPoints: C4ElkPoint[],
 ): C4ElkPoint {
   const fallback = c4PolylineMidpoint(fallbackPoints);
+
   if (
     labelPosition &&
     Number.isFinite(labelPosition.x) &&
@@ -156,14 +181,17 @@ export function c4EdgeLabelPoint(
     const width = Number.isFinite(labelPosition.width)
       ? labelPosition.width
       : (labelDimensions?.width ?? 0);
+
     const height = Number.isFinite(labelPosition.height)
       ? labelPosition.height
       : (labelDimensions?.height ?? 0);
+
     return {
       x: labelPosition.x + width / 2,
       y: labelPosition.y + height / 2,
     };
   }
+
   return fallback;
 }
 
@@ -171,6 +199,7 @@ export function c4EdgePointsFromSections(
   sections: C4ElkEdgeSection[] | undefined,
 ): C4ElkPoint[] {
   const section = sections?.[0];
+
   return section
     ? [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]
     : [];
@@ -178,33 +207,41 @@ export function c4EdgePointsFromSections(
 
 export function c4PolylineMidpoint(points: C4ElkPoint[]): C4ElkPoint {
   if (points.length === 0) return { x: 0, y: 0 };
+
   if (points.length === 1) return points[0]!;
 
   const segments = points.slice(1).map((point, index) => {
     const previous = points[index]!;
+
     return {
       start: previous,
       end: point,
       length: Math.hypot(point.x - previous.x, point.y - previous.y),
     };
   });
+
   const totalLength = segments.reduce(
     (sum, segment) => sum + segment.length,
     0,
   );
+
   let cursor = 0;
   const halfway = totalLength / 2;
+
   for (const segment of segments) {
     if (cursor + segment.length >= halfway) {
       const progress =
         segment.length === 0 ? 0 : (halfway - cursor) / segment.length;
+
       return {
         x: segment.start.x + (segment.end.x - segment.start.x) * progress,
         y: segment.start.y + (segment.end.y - segment.start.y) * progress,
       };
     }
+
     cursor += segment.length;
   }
+
   return points.at(-1)!;
 }
 
@@ -214,13 +251,16 @@ function projectPointOntoPolyline(
 ): C4ElkPoint | null {
   if (points.length < 2) return null;
   let best: { point: C4ElkPoint; distance: number } | null = null;
+
   for (let index = 1; index < points.length; index++) {
     const start = points[index - 1]!;
     const end = points[index]!;
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lengthSquared = dx * dx + dy * dy;
+
     if (lengthSquared === 0) continue;
+
     const progress = Math.max(
       0,
       Math.min(
@@ -228,26 +268,33 @@ function projectPointOntoPolyline(
         ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
       ),
     );
+
     const projected = {
       x: start.x + dx * progress,
       y: start.y + dy * progress,
     };
+
     const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+
     if (!best || distance < best.distance) {
       best = { point: projected, distance };
     }
   }
+
   return best?.point ?? null;
 }
 
 function c4PolylineTotalLength(points: C4ElkPoint[]): number {
   let total = 0;
+
   for (let index = 1; index < points.length; index += 1) {
     const start = points[index - 1];
     const end = points[index];
+
     if (!start || !end) continue;
     total += Math.hypot(end.x - start.x, end.y - start.y);
   }
+
   return total;
 }
 
@@ -258,14 +305,17 @@ function c4PolylineDistanceForPoint(
   if (points.length < 2) return null;
   let cursor = 0;
   let best: { distance: number; pointDistance: number } | null = null;
+
   for (let index = 1; index < points.length; index += 1) {
     const start = points[index - 1]!;
     const end = points[index]!;
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const length = Math.hypot(dx, dy);
+
     if (length === 0) continue;
     const lengthSquared = length * length;
+
     const progress = Math.max(
       0,
       Math.min(
@@ -273,20 +323,26 @@ function c4PolylineDistanceForPoint(
         ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
       ),
     );
+
     const projected = {
       x: start.x + dx * progress,
       y: start.y + dy * progress,
     };
+
     const pointDistance = Math.hypot(
       point.x - projected.x,
       point.y - projected.y,
     );
+
     const distance = cursor + length * progress;
+
     if (!best || pointDistance < best.pointDistance) {
       best = { distance, pointDistance };
     }
+
     cursor += length;
   }
+
   return best?.distance ?? null;
 }
 
@@ -295,23 +351,30 @@ function c4PolylinePointAtDistance(
   distance: number,
 ): C4ElkPoint {
   if (points.length === 0) return { x: 0, y: 0 };
+
   if (points.length === 1) return points[0]!;
   let cursor = 0;
   const target = Math.max(0, Math.min(distance, c4PolylineTotalLength(points)));
+
   for (let index = 1; index < points.length; index += 1) {
     const start = points[index - 1]!;
     const end = points[index]!;
     const length = Math.hypot(end.x - start.x, end.y - start.y);
+
     if (length === 0) continue;
+
     if (cursor + length >= target) {
       const progress = (target - cursor) / length;
+
       return {
         x: start.x + (end.x - start.x) * progress,
         y: start.y + (end.y - start.y) * progress,
       };
     }
+
     cursor += length;
   }
+
   return points.at(-1)!;
 }
 
@@ -321,6 +384,7 @@ function c4EdgeLabelCandidatesAtDistance(
   label: C4ElkLabel,
 ): C4ElkLabel[] {
   const point = c4PolylinePointAtDistance(points, distance);
+
   return [
     {
       ...label,
@@ -337,9 +401,11 @@ function c4LabelCandidateDistances(
 ): number[] {
   const distances = [baseDistance];
   const maxSteps = Math.max(1, Math.ceil(totalLength / Math.max(1, step)));
+
   for (let index = 1; index <= maxSteps; index += 1) {
     distances.push(baseDistance + step * index, baseDistance - step * index);
   }
+
   return distances.map((distance) =>
     Math.max(0, Math.min(totalLength, distance)),
   );
@@ -361,6 +427,7 @@ function c4LowestCollisionLabelCandidate(
   nodeObstacles: readonly C4LabelObstacle[],
 ): C4ElkLabel | null {
   let best: { candidate: C4ElkLabel; score: number } | null = null;
+
   for (const candidate of candidates) {
     const score =
       c4LabelCollisionScore(
@@ -374,10 +441,12 @@ function c4LowestCollisionLabelCandidate(
         C4_EDGE_LABEL_NODE_GUTTER,
       ) *
         4;
+
     if (!best || score < best.score) {
       best = { candidate, score };
     }
   }
+
   return best?.candidate ?? null;
 }
 
@@ -398,16 +467,19 @@ function c4LabelOverlapArea(
   gutter: number,
 ): number {
   const expandedRight = c4ExpandLabelBox(right, gutter);
+
   const overlapWidth = Math.max(
     0,
     Math.min(left.x + left.width, expandedRight.x + expandedRight.width) -
       Math.max(left.x, expandedRight.x),
   );
+
   const overlapHeight = Math.max(
     0,
     Math.min(left.y + left.height, expandedRight.y + expandedRight.height) -
       Math.max(left.y, expandedRight.y),
   );
+
   return overlapWidth * overlapHeight;
 }
 
@@ -429,6 +501,7 @@ function c4LabelBoxesOverlap(
   gutter = 0,
 ): boolean {
   const expandedRight = c4ExpandLabelBox(right, gutter);
+
   return !(
     left.x + left.width <= expandedRight.x ||
     expandedRight.x + expandedRight.width <= left.x ||

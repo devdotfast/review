@@ -53,6 +53,7 @@ export function AgentMarkdown({
   highlightQuote?: string;
 }): ReactElement {
   const tree = parseMarkdown(source);
+
   return (
     <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
       {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
@@ -68,6 +69,7 @@ export function AgentMarkdown({
 export function markdownExcerpt(source: string): string {
   const tree = parseMarkdown(source);
   const parts: string[] = [];
+
   const walk = (node: MarkdownNode) => {
     if (
       node.type === "text" ||
@@ -75,11 +77,15 @@ export function markdownExcerpt(source: string): string {
       node.type === "code"
     ) {
       if (node.value) parts.push(node.value);
+
       return;
     }
+
     node.children?.forEach(walk);
   };
+
   walk(tree);
+
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
@@ -121,6 +127,7 @@ function renderMarkdownNode(
           />
         );
       }
+
       return node.value ?? "";
     case "emphasis":
       return (
@@ -148,6 +155,7 @@ function renderMarkdownNode(
           </code>
         );
       }
+
       return <code key={key}>{node.value ?? ""}</code>;
     case "code":
       return (
@@ -176,12 +184,14 @@ function renderMarkdownNode(
       );
     case "list": {
       const Tag = node.ordered ? "ol" : "ul";
+
       return createElement(
         Tag,
         { key, start: node.ordered ? (node.start ?? undefined) : undefined },
         renderMarkdownChildren(node.children ?? [], key, highlightQuote),
       );
     }
+
     case "listItem":
       return (
         <li key={key}>
@@ -197,6 +207,7 @@ function renderMarkdownNode(
         key,
         highlightQuote,
       );
+
       if (isLocalFilesystemHref(node.url)) {
         return (
           <code key={key} className="agent-markdown-code-reference">
@@ -204,16 +215,20 @@ function renderMarkdownNode(
           </code>
         );
       }
+
       const href = safeMarkdownHref(node.url);
+
       if (!href) {
         return <span key={key}>{children}</span>;
       }
+
       return (
         <MarkdownLink key={key} href={href} title={node.title ?? undefined}>
           {children}
         </MarkdownLink>
       );
     }
+
     case "image":
       return node.alt ? <em key={key}>{node.alt}</em> : null;
     case "table":
@@ -237,14 +252,18 @@ function renderMarkdownNode(
 
 function headingTag(depth: number | undefined): "h1" | "h2" | "h3" | "h4" {
   if (depth === 1) return "h1";
+
   if (depth === 2) return "h2";
+
   if (depth === 3) return "h3";
+
   return "h4";
 }
 
 function renderTable(node: MarkdownNode, key: string): ReactElement {
   const rows = node.children ?? [];
   const [header, ...body] = rows;
+
   return (
     <table key={key}>
       {header && <thead>{renderTableRow(header, `${key}:head`, true)}</thead>}
@@ -263,6 +282,7 @@ function renderTableRow(
   isHeader: boolean,
 ): ReactElement {
   const Cell = isHeader ? "th" : "td";
+
   return (
     <tr key={key}>
       {(node.children ?? []).map((cell, index) =>
@@ -286,6 +306,7 @@ function MarkdownLink({
   title?: string;
 }): ReactElement {
   const linkProps = newTabLinkProps(href);
+
   return (
     <a href={href} title={title} {...linkProps}>
       {children}
@@ -295,10 +316,14 @@ function MarkdownLink({
 
 function safeMarkdownHref(value: string | undefined): string | null {
   if (!value) return null;
+
   if (value.startsWith("#")) return value;
+
   if (isLocalFilesystemHref(value)) return null;
+
   try {
     const url = new URL(value, "http://localhost");
+
     return ["http:", "https:", "mailto:"].includes(url.protocol) ? value : null;
   } catch {
     return null;
@@ -308,8 +333,11 @@ function safeMarkdownHref(value: string | undefined): string | null {
 function isLocalFilesystemHref(value: string | undefined): boolean {
   if (!value) return false;
   const trimmed = value.trim();
+
   if (/^file:/i.test(trimmed)) return true;
+
   if (/^[a-z]:[\\/]/i.test(trimmed)) return true;
+
   return /^\/(?:Users|home|tmp|var|private|Volumes|mnt|workspace)\//.test(
     trimmed,
   );
@@ -322,12 +350,15 @@ export function isReactTextNode(node: ReactNode): node is string | number {
 
 function textFromChildren(children: ReactNode): string | null {
   if (isReactTextNode(children)) return String(children);
+
   if (Array.isArray(children)) {
     const text = children
       .map((child) => textFromChildren(child) ?? "")
       .join("")
       .trim();
+
     return text || null;
   }
+
   return null;
 }

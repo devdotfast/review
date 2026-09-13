@@ -18,6 +18,7 @@ import { createGlobalReviewServer } from "./server/desktop-server";
 import { createReviewSessionHandler } from "./server/session-handler";
 
 const roots: string[] = [];
+
 afterEach(async () => {
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
@@ -36,8 +37,10 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
   );
   const root = path.join(home, "source");
   await mkdir(root);
+
   const git = (args: string[]) =>
     execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+
   git(["init", "-q", "-b", "main"]);
   git(["config", "user.email", "review@example.test"]);
   git(["config", "user.name", "Review Test"]);
@@ -45,6 +48,7 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
   git(["add", "."]);
   git(["commit", "-qm", "source"]);
   const sourceCommit = git(["rev-parse", "HEAD"]);
+
   const review = await createReviewDir({
     worktreePath: root,
     baseRef: "main",
@@ -52,13 +56,16 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
     sourceCommit,
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   const recordPath = path.join(review.dir, "review.json");
   const recordBytes = JSON.stringify({ ...review.review, schemaVersion: 4 });
   await writeFile(recordPath, recordBytes);
+
   const packageRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "..",
   );
+
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -67,20 +74,25 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
     port: 0,
     discoveryPath: path.join(home, "desktop.json"),
   });
+
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
+
   const holding = withReviewMutationLock(review.dir, async () => {
     entered.resolve();
     await release.promise;
   });
+
   await entered.promise;
   const stdout = new PassThrough();
   let output = "";
   stdout.on("data", (chunk) => {
     output += String(chunk);
   });
+
   try {
     await server.listen();
+
     const [loaded, response, exitCode, ...readyResponses] = await Promise.all([
       readStoredReview(review.dir),
       fetch(`${server.url}/reviews/${review.review.uuid}/open`, {
@@ -120,6 +132,7 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
         }),
       ),
     ]);
+
     expect(loaded).toMatchObject({
       error: {
         code: "REVIEW_BUSY",
@@ -134,6 +147,7 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
       code: "review_busy",
       retryable: true,
     });
+
     for (const readyResponse of readyResponses) {
       expect(readyResponse.status).toBe(409);
       expect(await readyResponse.json()).toMatchObject({
@@ -142,6 +156,7 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
         retryable: true,
       });
     }
+
     expect(exitCode).toBe(1);
     expect(output).toContain("Retry after its current operation completes");
     expect(output).not.toContain("review repair");
@@ -151,6 +166,7 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
     await holding;
     await server.close();
   }
+
   expect(await readStoredReview(review.dir)).toMatchObject({
     review: { schemaVersion: 5 },
   });
@@ -163,6 +179,7 @@ it.each(["thread-commands", "revisions"])(
     roots.push(root);
     const reviewPath = path.join(root, "review.mdx");
     await writeFile(reviewPath, "# Review\n");
+
     const handler = await createReviewSessionHandler({
       rootPath: root,
       reviewPath,
@@ -189,6 +206,7 @@ it.each(["thread-commands", "revisions"])(
         throw new ReviewBusyError(root);
       },
     });
+
     try {
       const response = await handler.handle(
         new Request(`http://127.0.0.1:5570/__progressive-review/${route}`, {
@@ -199,6 +217,7 @@ it.each(["thread-commands", "revisions"])(
           },
         }),
       );
+
       expect(response.status).toBe(409);
       expect(await response.json()).toMatchObject({
         ok: false,

@@ -48,25 +48,30 @@ export async function runReviewMapPublish(input: {
   env?: NodeJS.ProcessEnv;
 }): Promise<number> {
   const report = mapPublishReporter(input);
+
   try {
     const reviewRoot = await resolveReviewRoot(input.cwd);
     const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
     const agent = resolveAuthoringSessionRef(input.env ?? process.env);
     const documentRevision = review.review.presentedDocumentRevision;
+
     if (!documentRevision) {
       throw new Error(
         "The Review document is not published. Run `review publish` first.",
       );
     }
+
     const documentBuildDir = await materializePublishRevision({
       review,
       revision: documentRevision,
     });
+
     const presentedDocument = parseAnyStoredReviewRecord(
       JSON.parse(
         await readFile(path.join(documentBuildDir, "review.json"), "utf8"),
       ),
     );
+
     if (!presentedDocument.sourceCommit) {
       throw new Error(
         "The published Review document has no pinned head commit.",
@@ -75,6 +80,7 @@ export async function runReviewMapPublish(input: {
 
     report.stage("validate", "running");
     let bundle;
+
     try {
       bundle = await prepareReviewSoftwareMapBundle({
         review,
@@ -84,19 +90,25 @@ export async function runReviewMapPublish(input: {
     } catch (error) {
       if (error instanceof ReviewPublicationValidationError) {
         report.error("validate", error.errors);
+
         return 1;
       }
+
       throw error;
     }
+
     report.stage("validate", "complete");
 
     const existingRevision = review.review.presentedSoftwareMapRevision;
+
     if (existingRevision) {
       const existingDir = await materializePublishRevision({
         review,
         revision: existingRevision,
       });
+
       const existing = await readReviewSoftwareMapBundle(existingDir);
+
       if (existing && sameReviewSoftwareMapBundle(existing, bundle)) {
         if (agent) {
           await touchReviewAgentSession(
@@ -105,25 +117,32 @@ export async function runReviewMapPublish(input: {
             "publisher",
           );
         }
+
         report.published(existingRevision, documentRevision, true);
+
         return 0;
       }
     }
 
     report.stage("revision", "running");
+
     const revision = await sealReviewSoftwareMapPublication({
       review,
       bundle,
     });
+
     report.stage("revision", "complete", { revision });
 
     const discovery = await readReviewDesktopDiscovery();
+
     if (!discovery) {
       throw new Error(
         "Review Desktop is not running. Run `review app launch`, then retry `review map publish`.",
       );
     }
+
     report.stage("load", "running");
+
     const response = await fetch(`${discovery.url}/map-publish-ready`, {
       method: "POST",
       headers: {
@@ -136,23 +155,28 @@ export async function runReviewMapPublish(input: {
         agent,
       }),
     });
+
     const result =
       MapPublishReadyResponseSchema.safeParse(
         await response.json().catch(() => null),
       ).data ?? null;
+
     if (!response.ok || !result?.ok) {
       throw new Error(
         result?.error ??
           `Review Desktop returned ${response.status} for map-publish-ready.`,
       );
     }
+
     report.stage("load", "complete");
     report.published(revision, documentRevision, false);
+
     return 0;
   } catch (error) {
     report.error("publish", [
       error instanceof Error ? error.message : String(error),
     ]);
+
     return 1;
   }
 }
@@ -164,6 +188,7 @@ export async function sealReviewSoftwareMapPublication(input: {
   return withReviewMutationLock(input.review.dir, async () => {
     await assertReviewUnchanged(input.review.dir, input.review.review);
     await writeReviewSoftwareMapBundle(input.review.dir, input.bundle);
+
     return sealReviewCandidate(input.review.dir, "Publish Review software map");
   });
 }
@@ -194,6 +219,7 @@ function mapPublishReporter(input: {
   if (input.json) {
     const emit = <T extends CliJsonEvent>(event: T) =>
       emitJsonEvent(input, event);
+
     return {
       stage: (name, status, details = {}) =>
         emit({
@@ -215,13 +241,16 @@ function mapPublishReporter(input: {
         }),
     };
   }
+
   return {
     stage(name, status, details = {}) {
       if (status !== "complete") return;
+
       const suffix =
         details.revision === undefined
           ? ""
           : ` ${details.revision.slice(0, 12)}`;
+
       input.stdout.write(
         `${name === "load" ? "Load map" : name}: ok${suffix}\n`,
       );
@@ -234,6 +263,7 @@ function mapPublishReporter(input: {
     published(revision, documentRevision, unchanged) {
       input.stdout.write(`Software map published: ${revision}\n`);
       input.stdout.write(`Review document remains: ${documentRevision}\n`);
+
       if (unchanged) input.stdout.write("Software map bytes are unchanged.\n");
     },
   };

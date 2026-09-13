@@ -100,10 +100,12 @@ describe("createTutorialAuthoringSession", () => {
 
   it("passes cancellation through to the command runner", async () => {
     const controller = new AbortController();
+
     const runCommand = vi.fn<RunTutorialAuthoringCommand>(async (input) => {
       expect(input.signal).toBe(controller.signal);
       throw new Error("canceled");
     });
+
     controller.abort();
 
     await expect(

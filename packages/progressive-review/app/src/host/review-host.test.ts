@@ -12,20 +12,24 @@ describe("review surface", () => {
     const posted: ReviewVerbRequest[] = [];
     const listeners = new Set<(event: ReviewSurfaceEvent) => void>();
     const ready = vi.fn<() => void>();
+
     const bridge = testReviewBridge(
       {},
       {
         post: async (request) => {
           posted.push(request);
+
           return { ok: true };
         },
         subscribe: (listener) => {
           listeners.add(listener);
+
           return { dispose: () => listeners.delete(listener) };
         },
         ready,
       },
     );
+
     const reviewSurface = createReviewSurface(bridge);
     const events: ReviewSurfaceEvent[] = [];
     const unsubscribe = reviewSurface.subscribe((event) => events.push(event));
@@ -43,6 +47,7 @@ describe("review surface", () => {
       { fromLine: 7, toLine: 9 },
       "base",
     );
+
     for (const listener of listeners) {
       listener({ event: "activeEditorChanged", path: "src/new.ts" });
     }

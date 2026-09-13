@@ -19,6 +19,7 @@ const appRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+
 const sourceSkills = path.resolve(
   appRoot,
   "../../packages/progressive-review/skills",
@@ -26,6 +27,7 @@ const sourceSkills = path.resolve(
 
 test("stamps all packaged skills with the Desktop release, preserving source hardlinks", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-stamp-skills-"));
+
   try {
     const runtime = path.join(root, "runtime");
     await cp(sourceSkills, path.join(runtime, "skills"), { recursive: true });
@@ -36,18 +38,22 @@ test("stamps all packaged skills with the Desktop release, preserving source har
     await rm(generated);
     await link(source, generated);
     await stampReviewSkills(runtime);
+
     const { version } = JSON.parse(
       await readFile(path.join(appRoot, "package.json"), "utf8"),
     );
+
     for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
       const output = await readFile(
         path.join(runtime, "skills", name, "SKILL.md"),
         "utf8",
       );
+
       assert.ok(output.includes(`review-version: "${version}"`));
       assert.ok(output.includes('review-managed-by: "Review Desktop"'));
       assert.ok(output.includes("Do not edit."));
     }
+
     assert.equal(await readFile(source, "utf8"), original);
     await stampReviewSkills(runtime, "2.0.0-preview.1");
     assert.ok(
@@ -62,6 +68,7 @@ test("stamps all packaged skills with the Desktop release, preserving source har
 
 test("refuses invalid release versions and skills without generated metadata", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-invalid-skill-"));
+
   try {
     await assert.rejects(
       stampReviewSkills(root, "not-a-version"),

@@ -53,9 +53,11 @@ export function SoftwareMapHotkeysTab({
     }
 
     const styles = getComputedStyle(root);
+
     const borderWidth =
       Number.parseFloat(styles.borderLeftWidth) +
       Number.parseFloat(styles.borderRightWidth);
+
     const openWidth = strip.scrollWidth + toggle.offsetWidth + borderWidth;
     const collapsedWidth = collapsedButton.scrollWidth + borderWidth;
     const nextWidth = Math.ceil(open ? openWidth : collapsedWidth);
@@ -75,6 +77,7 @@ export function SoftwareMapHotkeysTab({
     }
 
     const observer = new ResizeObserver(() => measureWidth());
+
     const observedElements = [
       stripRef.current,
       toggleRef.current,

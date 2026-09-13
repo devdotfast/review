@@ -84,6 +84,7 @@ export function materializeReviewDocument(
 ): MaterializedReviewDocument {
   const errors: string[] = [];
   const body = materializeChildren(input.tree, input, errors);
+
   return { body, errors };
 }
 
@@ -93,21 +94,26 @@ function materializeChildren(
   errors: string[],
 ): MaterializedReviewNode[] {
   const nodes: MaterializedReviewNode[] = [];
+
   for (const child of flattenChildren(node)) {
     if (isStringValue(child) || isNumberValue(child)) {
       nodes.push({ type: "text", value: String(child) });
       continue;
     }
+
     if (!isAuditElement(child)) continue;
+
     if (child.type === FRAGMENT) {
       nodes.push(...materializeChildren(child.props.children, input, errors));
       continue;
     }
 
     const children = child.props.children;
+
     if (isStringValue(child.type)) {
       const { children: _children, key: _key, ...props } = child.props;
       const elementProps: ReviewElementProps = {};
+
       for (const [name, value] of Object.entries(props)) {
         // MDX emits GFM table alignment as a style object. Keep that one
         // semantic value as a scalar; arbitrary authored styles remain invalid.
@@ -122,6 +128,7 @@ function materializeChildren(
           elementProps.align = tableAlignSchema.parse(value.textAlign);
           continue;
         }
+
         if (
           isStringValue(value) ||
           isNumberValue(value) ||
@@ -134,6 +141,7 @@ function materializeChildren(
           );
         }
       }
+
       nodes.push({
         type: "element",
         tag: child.type,
@@ -144,6 +152,7 @@ function materializeChildren(
     }
 
     const name = input.componentNames.get(child.type);
+
     if (!name) {
       errors.push(
         isPublishAuditComponent(child.type)
@@ -154,6 +163,7 @@ function materializeChildren(
     }
 
     const audited = input.componentProps.get(child);
+
     // A component whose props failed the audit already reported its errors.
     if (!audited) continue;
     nodes.push({
@@ -163,6 +173,7 @@ function materializeChildren(
       children: materializeChildren(children, input, errors),
     });
   }
+
   return nodes;
 }
 
@@ -171,6 +182,7 @@ function materializeComponentProps(
 ): MaterializedComponentProps {
   if (audited.name === "DatabaseLens") {
     const { children: _children, stores, ...props } = audited.props;
+
     return {
       ...props,
       stores: Object.fromEntries(
@@ -178,7 +190,9 @@ function materializeComponentProps(
       ),
     };
   }
+
   const { children: _children, ...props } = audited.props;
+
   return props;
 }
 
@@ -222,15 +236,20 @@ export function walkModuleExports(
   visit: (value: ReviewDocumentExportContainer) => "descend" | "skip",
 ): void {
   const visited = new Set<object>();
+
   const walk = (value: ReviewDocumentExport): void => {
     if (!isReviewDocumentExportContainer(value)) return;
+
     if (visited.has(value)) return;
     visited.add(value);
+
     if (visit(value) === "skip") return;
+
     for (const entry of Array.isArray(value) ? value : Object.values(value)) {
       walk(entry);
     }
   };
+
   for (const value of Object.values(models)) walk(value);
 }
 
@@ -248,26 +267,34 @@ export function collectReviewAnchors(
       for (const message of value.messages) {
         if (!message.code) continue;
         const existing = anchorContents.get(message.anchor.id);
+
         if (existing !== undefined && existing !== message.code.text) {
           throw new Error(
             `Review anchor id "${message.anchor.id}" has more than one authored content body.`,
           );
         }
+
         anchorContents.set(message.anchor.id, message.code.text);
       }
     }
+
     if (isAnchorRefExport(value)) {
       const existing = anchors.get(value.id);
+
       if (existing && existing !== value) {
         throw new Error(
           `Review anchor id "${value.id}" is defined more than once.`,
         );
       }
+
       anchors.set(value.id, value);
+
       return "skip";
     }
+
     return "descend";
   });
+
   return {
     anchors: Object.fromEntries(anchors),
     anchorContents: Object.fromEntries(anchorContents),
@@ -280,17 +307,21 @@ export function collectDocumentSoftwareModels(
 ): NormalizedSoftwareModel[] {
   const result: NormalizedSoftwareModel[] = [];
   const seen = new Set<object>();
+
   const add = (value: ReviewDocumentExport) => {
     if (!isNormalizedSoftwareModel(value) || seen.has(value)) return;
     seen.add(value);
     result.push(value);
   };
+
   for (const name of preferredNames) add(models[name]);
   walkModuleExports(models, (value) => {
     if (!isNormalizedSoftwareModel(value)) return "descend";
     add(value);
+
     return "skip";
   });
+
   return result;
 }
 

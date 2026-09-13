@@ -8,6 +8,7 @@ import type { UiTelemetryEventName } from "../../src/ui-telemetry-events";
 import type { ReviewSession } from "./host/review-session";
 
 type UiTelemetryPropertyValue = string | number | boolean;
+
 type UiTelemetryProperties = Record<string, UiTelemetryPropertyValue>;
 
 let appOpenedSent = false;
@@ -29,14 +30,18 @@ export function captureUiEvent(
   error?: PackedClientError,
 ): void {
   const sanitizedProperties = sanitizeEventProperties(name, properties);
+
   if (!sanitizedProperties) return;
   sanitizedProperties.app_session_id = session.appSessionId;
+
   const payload: UiTelemetryEventPayload = {
     name,
     properties: sanitizedProperties,
   };
+
   if (error !== undefined) payload.error = error;
   const reviewFetch = session.fetch;
+
   try {
     void reviewFetch("/telemetry/event", {
       method: "POST",
@@ -90,16 +95,20 @@ interface UiTelemetryEventPayload {
 
 function packClientError(cause: unknown): PackedClientError {
   if (!(cause instanceof Error)) return { message: String(cause) };
+
   const packed: PackedClientError = {
     name: cause.name,
     message: cause.message,
   };
+
   if (cause.stack !== undefined) packed.stack = cause.stack;
+
   return packed;
 }
 
 export function clientErrorName(cause: unknown): string {
   const name = cause instanceof Object ? cause.constructor?.name : undefined;
+
   return name !== undefined && validFreeString(name) ? name : "Error";
 }
 
@@ -108,26 +117,35 @@ function sanitizeEventProperties(
   properties: UiTelemetryProperties | undefined,
 ): UiTelemetryProperties | null {
   const spec = UI_TELEMETRY_EVENTS[name];
+
   if (!spec) return null;
   const sanitized: UiTelemetryProperties = {};
+
   for (const [key, propSpec] of Object.entries(spec.properties)) {
     const value = properties?.[key];
+
     if (value === undefined || value === null) continue;
     const text = jsonString(value);
+
     if (propSpec === "number") {
       const number = jsonNumber(value);
+
       if (number !== undefined) sanitized[key] = number;
       continue;
     }
+
     if (propSpec === "boolean") {
       const boolean = jsonBoolean(value);
+
       if (boolean !== undefined) sanitized[key] = boolean;
       continue;
     }
+
     if (propSpec === "enum_free_short") {
       if (text !== undefined && validFreeString(text)) sanitized[key] = text;
       continue;
     }
+
     if (
       Array.isArray(propSpec) &&
       text !== undefined &&
@@ -136,6 +154,7 @@ function sanitizeEventProperties(
       sanitized[key] = text;
     }
   }
+
   return sanitized;
 }
 

@@ -15,6 +15,7 @@ import { createTestReviewDefinitionSession } from "./review-definition-test-util
 import { defineSoftwareModel } from "./software-map/model";
 
 const definitions = createTestReviewDefinitionSession();
+
 const { defineActors, defineAnchors } = definitions;
 
 describe("sequence diagram guided tour", () => {
@@ -28,6 +29,7 @@ describe("sequence diagram guided tour", () => {
       from: { id: "worker" },
       to: { id: "worker" },
     };
+
     expect(sequenceMessageHandleTop(selfMessage, "source", 112)).toBe(112);
     expect(sequenceMessageHandleTop(selfMessage, "target", 112)).toBe(136);
     expect(
@@ -48,6 +50,7 @@ describe("sequence diagram guided tour", () => {
       db: { label: "Web D1" },
       settings: { label: "Settings page" },
     });
+
     const anchors = defineAnchors({
       authUserWrite: anchorWithPeek("Better Auth writes the user row"),
       orgCreate: anchorWithPeek("Organization helper creates the workspace"),
@@ -77,6 +80,7 @@ describe("sequence diagram guided tour", () => {
         },
       ],
     });
+
     await definitions.ready();
     const tour = createSequenceTourEntry(sequence);
 
@@ -186,9 +190,11 @@ describe("sequence diagram guided tour", () => {
         },
       },
     });
+
     const definitions = createTestReviewDefinitionSession({
       softwareMap: model,
     });
+
     const actors = definitions.defineSoftwareActors(model, {
       dbLens: "progressiveReview.reviewApp.dbLens",
       map: {
@@ -196,6 +202,7 @@ describe("sequence diagram guided tour", () => {
         label: "Map tab",
       },
     });
+
     const anchors = definitions.defineAnchors({
       focusMap: {
         title: "Focus map element",
@@ -314,6 +321,7 @@ describe("sequence diagram guided tour", () => {
         peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
       },
     });
+
     const sequence = createSequence({
       label: "Reuse",
       messages: [
@@ -395,11 +403,13 @@ describe("sequence diagram guided tour", () => {
       source: { label: "Source reader" },
       worker: { label: "Worker" },
     });
+
     const anchors = defineAnchors({
       localPreview: anchorWithPeek("Open local preview"),
       sourceLookup: anchorWithPeek("Resolve source range"),
       workerRefresh: anchorWithPeek("Refresh worker evidence"),
     });
+
     const sequence = createSequence({
       label: "Evidence tour",
       messages: [
@@ -423,6 +433,7 @@ describe("sequence diagram guided tour", () => {
         },
       ],
     });
+
     const baseScrollInput = {
       sequence,
       laneWidth: 176,
@@ -468,6 +479,7 @@ describe("sequence diagram guided tour", () => {
       viewportHeight: 200,
       scrollHeight: 990,
     };
+
     expect(
       sequenceActiveMessageScrollTopTarget({
         ...baseScrollTopInput,
@@ -520,11 +532,13 @@ function expectZodIssue(
   message?: string,
 ): void {
   let caught: unknown;
+
   try {
     run();
   } catch (error) {
     caught = error;
   }
+
   expect(caught).toBeInstanceOf(ZodError);
   const error = caught as ZodError;
   expect(error.issues[0]?.path).toEqual(path);

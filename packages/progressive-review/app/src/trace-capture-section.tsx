@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { TARGET_LABELS, supportsFff } from "./agent-setup-card";
 
 type InstallApplyRequest = Parameters<ReviewCanvasInstallContent["apply"]>[0];
+
 type TraceCredentials = Exclude<InstallApplyRequest["trace"], true | undefined>;
 
 /** One line naming the selected trace store and where its setup lives. */
@@ -14,15 +15,18 @@ function traceStorageSummary(trace: ReviewCliInstallStatus["trace"]): string {
   if (trace.storageMode === "hosted") {
     return "Storage: hosted trace store selected. Manage it with `review login`, `review trace allow`, and `review trace storage use` in a terminal.";
   }
+
   if (trace.storageMode === "none" || !trace.configured) {
     return "Storage: none selected. Enter S3/R2 credentials below, or select the hosted store with `review trace storage use hosted`.";
   }
+
   const source =
     trace.credentialsSource === "profile"
       ? "config.json"
       : trace.credentialsSource === "process-env"
         ? "environment variables"
         : "the legacy env file";
+
   return `Storage: S3/R2 bucket "${trace.bucket ?? ""}" (credentials from ${source}).`;
 }
 
@@ -31,6 +35,7 @@ function traceDestinationCopy(trace: ReviewCliInstallStatus["trace"]): string {
   if (trace.storageMode === "hosted") {
     return "Records agent sessions from allowed repositories to the hosted /dev/fast trace store so reviews can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
   }
+
   return "Records agent sessions to your own S3/R2 bucket so reviews can quote them. Session hooks activate each Git or Jujutsu repository when an agent session starts.";
 }
 
@@ -53,15 +58,19 @@ export function TraceCaptureSection({
   const [status, setStatus] = useState<ReviewCliInstallStatus>(install.status);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
   const [traceEndpoint, setTraceEndpoint] = useState(
     install.status.trace.endpoint ?? "",
   );
+
   const [traceBucket, setTraceBucket] = useState(
     install.status.trace.bucket ?? "",
   );
+
   const [traceRegion, setTraceRegion] = useState(
     install.status.trace.region ?? "",
   );
+
   const [traceKey, setTraceKey] = useState("");
   const [traceSecret, setTraceSecret] = useState("");
 
@@ -75,6 +84,7 @@ export function TraceCaptureSection({
   ) => {
     setBusy(key);
     setError(null);
+
     try {
       const next = await action();
       setStatus(next);
@@ -92,6 +102,7 @@ export function TraceCaptureSection({
     : status.agents
         .filter((agent) => agent.installed)
         .map((agent) => agent.target);
+
   const fffTargets = status.agents
     .filter(
       (agent) =>
@@ -104,6 +115,7 @@ export function TraceCaptureSection({
           )),
     )
     .map((agent) => agent.target);
+
   const fffReady =
     fffTargets.length > 0 &&
     fffTargets.every((target) =>
@@ -205,16 +217,24 @@ export function TraceCaptureSection({
               "trace",
               () => {
                 const trace: TraceCredentials = {};
+
                 if (traceEndpoint) trace.endpoint = traceEndpoint;
+
                 if (traceBucket) trace.bucket = traceBucket;
+
                 if (traceRegion) trace.region = traceRegion;
+
                 if (traceKey) trace.key = traceKey;
+
                 if (traceSecret) trace.secret = traceSecret;
+
                 const request: InstallApplyRequest = {
                   targets: installedTargets,
                   trace,
                 };
+
                 if (fffTargets.length > 0) request.fff = true;
+
                 return install.apply(request);
               },
               () => {

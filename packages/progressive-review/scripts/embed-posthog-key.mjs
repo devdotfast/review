@@ -6,12 +6,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const key = (process.env.REVIEW_POSTHOG_KEY ?? process.argv[2] ?? "").trim();
+
 if (!key) {
   console.error(
     "embed-posthog-key: set REVIEW_POSTHOG_KEY or pass the key as an argument",
   );
   process.exit(1);
 }
+
 if (!/^phc_[A-Za-z0-9]+$/.test(key)) {
   console.error("embed-posthog-key: value does not look like a PostHog key");
   process.exit(1);
@@ -23,6 +25,7 @@ const target = path.join(
   "src",
   "embedded-posthog-key.ts",
 );
+
 writeFileSync(
   target,
   [
@@ -33,4 +36,5 @@ writeFileSync(
     "",
   ].join("\n"),
 );
+
 console.log(`embed-posthog-key: wrote key to ${target}`);

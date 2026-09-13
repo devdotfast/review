@@ -51,6 +51,7 @@ class FakeIntersectionObserver implements IntersectionObserver {
 }
 
 let root: ReturnType<typeof createRoot> | undefined;
+
 let created: ReviewInlineEditorSpec[] = [];
 
 beforeEach(() => {
@@ -85,6 +86,7 @@ function renderPeek(active: boolean) {
         },
         create: (spec) => {
           created.push(spec);
+
           return {
             height: 180,
             setActive() {},
@@ -105,6 +107,7 @@ function renderPeek(active: boolean) {
       },
     },
   );
+
   const element = document.createElement("div");
   document.body.append(element);
   root = createRoot(element);
@@ -123,6 +126,7 @@ function renderPeek(active: boolean) {
       ),
     );
   });
+
   return element;
 }
 
@@ -145,12 +149,15 @@ it("defers native editor creation until the peek nears the viewport", () => {
 
 it("searches an offscreen peek without mounting Monaco", async () => {
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+
   const setFindQuery = vi.fn<() => Promise<{ matchCount: number }>>(
     async () => ({ matchCount: 1 }),
   );
+
   const find = vi.fn<() => Promise<{ matchCount: number }>>(async () => ({
     matchCount: 1,
   }));
+
   const session = testReviewSession(
     {},
     {
@@ -158,6 +165,7 @@ it("searches an offscreen peek without mounting Monaco", async () => {
         find,
         create: (spec) => {
           created.push(spec);
+
           return {
             height: 180,
             setActive() {},
@@ -174,6 +182,7 @@ it("searches an offscreen peek without mounting Monaco", async () => {
       },
     },
   );
+
   const element = document.createElement("div");
   const article = document.createElement("article");
   const scrollRegion = document.createElement("section");
@@ -231,6 +240,7 @@ it("searches an offscreen peek without mounting Monaco", async () => {
 
 it("finishes search when revealing a failed editor", async () => {
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
+
   const session = testReviewSession(
     {},
     {
@@ -244,6 +254,7 @@ it("finishes search when revealing a failed editor", async () => {
       },
     },
   );
+
   const article = document.createElement("article");
   const scrollRegion = document.createElement("section");
   document.body.append(article, scrollRegion);
@@ -298,6 +309,7 @@ it("mounts eagerly when IntersectionObserver is unavailable", () => {
 
 it("emits neutral hover and navigation interactions without remounting", () => {
   let disposed = 0;
+
   const session = testReviewSession(
     {},
     {
@@ -307,6 +319,7 @@ it("emits neutral hover and navigation interactions without remounting", () => {
         },
         create: (spec) => {
           created.push(spec);
+
           return {
             height: 180,
             setActive() {},
@@ -329,6 +342,7 @@ it("emits neutral hover and navigation interactions without remounting", () => {
       },
     },
   );
+
   const element = document.createElement("div");
   document.body.append(element);
   root = createRoot(element);

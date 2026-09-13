@@ -102,6 +102,7 @@ describe("SoftwareMap keyboard navigation", () => {
         },
       },
     });
+
     const projection = projectInlineC4({
       model,
       expandedNodeIds: new Set([
@@ -110,6 +111,7 @@ describe("SoftwareMap keyboard navigation", () => {
       ]),
       selectedNodeId: "progressiveReview",
     });
+
     const nodes =
       softwareMapSnapshotFromInlineC4Projection({
         projection,
@@ -251,6 +253,7 @@ describe("SoftwareMap keyboard navigation", () => {
       id: "progressiveReview.reviewApp",
       expanded: true,
     });
+
     expect(collapseFocus).toEqual({
       nodeId: "progressiveReview.reviewApp",
       requireExpanded: false,
@@ -280,10 +283,12 @@ describe("SoftwareMap keyboard navigation", () => {
         },
       },
     });
+
     const expandedNodeIds = new Set([
       "progressiveReview",
       "progressiveReview.reviewApp",
     ]);
+
     const expandedSnapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model,
@@ -291,20 +296,24 @@ describe("SoftwareMap keyboard navigation", () => {
         selectedNodeId: "progressiveReview.reviewApp.softwareMap",
       }),
     });
+
     const parent = expandedSnapshot.nodes?.find(
       (node) => node.id === "progressiveReview.reviewApp",
     );
 
     expect(parent).toBeTruthy();
     const selectedNodeId = parent!.id;
+
     const viewportFocusRequest = {
       nodeId: parent!.id,
       requireExpanded: false,
     };
+
     const collapsedExpandedNodeIds = collapseInlineC4Node(
       expandedNodeIds,
       parent!.path!,
     );
+
     const collapsedSnapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model,
@@ -354,6 +363,7 @@ describe("SoftwareMap keyboard navigation", () => {
         path: "progressiveReview.reviewApp",
       },
     ];
+
     const selected = softwareMapNodeForKeyboardExpansion({
       nodes,
       selectedNodeId: "progressiveReview.reviewApp",
@@ -377,6 +387,7 @@ describe("SoftwareMap keyboard navigation", () => {
         path: "progressiveReview",
       },
     ];
+
     const selected = softwareMapNodeForKeyboardExpansion({
       nodes,
       selectedNodeId: null,

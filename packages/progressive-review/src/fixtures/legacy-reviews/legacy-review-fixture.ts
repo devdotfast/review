@@ -46,14 +46,17 @@ export function listLegacyReviewFixtures(): LegacyReviewFixtureMetadata[] {
 function readMetadata(name: string): LegacyReviewFixtureMetadata {
   if (!/^[a-z0-9-]+$/.test(name))
     throw new Error("Invalid legacy fixture name.");
+
   const metadata: LegacyReviewFixtureMetadata = JSON.parse(
     readFileSync(
       path.join(LEGACY_REVIEW_FIXTURES_ROOT, `${name}.json`),
       "utf8",
     ),
   );
+
   if (metadata.name !== name || !/^[0-9a-f-]{36}$/.test(metadata.sourceUuid))
     throw new Error("Invalid legacy fixture metadata.");
+
   return metadata;
 }
 
@@ -69,6 +72,7 @@ export async function extractLegacyReviewFixture(
 }> {
   const metadata = readMetadata(name);
   const home = await mkdtemp(path.join(os.tmpdir(), `legacy-${name}-`));
+
   try {
     const dir = path.join(home, "reviews", metadata.sourceUuid);
     await mkdir(dir, { recursive: true });
@@ -81,12 +85,15 @@ export async function extractLegacyReviewFixture(
     const worktreePath = options.worktreePath ?? path.join(home, "worktree");
     await mkdir(worktreePath, { recursive: true });
     const recordPath = path.join(dir, "review.json");
+
     const original = jsonObject(
       parseJsonText(await readFile(recordPath, "utf8")),
     );
+
     if (!original) throw new Error("Legacy fixture record is not an object.");
     const originalRecord = { ...original, worktreePath };
     await writeFile(recordPath, `${JSON.stringify(originalRecord, null, 2)}\n`);
+
     return { home, dir, uuid: metadata.sourceUuid, metadata, originalRecord };
   } catch (error) {
     await rm(home, { recursive: true, force: true });
@@ -96,6 +103,7 @@ export async function extractLegacyReviewFixture(
 
 function includeReviewTreeEntry(relative: string): boolean {
   const name = path.basename(relative);
+
   return (
     name !== ".mutation-lock" &&
     (!isDerivedReviewPath(name) || /^review\.db(?:-|$)/.test(name))
@@ -112,16 +120,22 @@ export async function snapshotReviewTree(
 ): Promise<Record<string, string>> {
   const include = options.include ?? includeReviewTreeEntry;
   const files: Record<string, string> = {};
+
   async function visit(relative: string) {
     const entries = await readdir(path.join(dir, relative), {
       withFileTypes: true,
     });
+
     entries.sort((left, right) => left.name.localeCompare(right.name));
+
     for (const entry of entries) {
       const name = path.join(relative, entry.name);
+
       if (!include(name)) continue;
+
       if (options.refuseSpecialFiles && entry.isSymbolicLink())
         throw new Error("Review tree snapshot refuses symbolic links.");
+
       if (entry.isDirectory()) await visit(name);
       else if (entry.isFile())
         files[name] = createHash("sha256")
@@ -131,7 +145,9 @@ export async function snapshotReviewTree(
         throw new Error("Review tree snapshot refuses special files.");
     }
   }
+
   await visit("");
+
   return files;
 }
 
@@ -140,6 +156,7 @@ export async function readLegacyReviewGolden(
   kind: "record" | "document" | "map",
 ): Promise<JsonValue> {
   readMetadata(name);
+
   return parseJsonText(
     await readFile(
       path.join(LEGACY_REVIEW_FIXTURES_ROOT, `${name}.expected-${kind}.json`),

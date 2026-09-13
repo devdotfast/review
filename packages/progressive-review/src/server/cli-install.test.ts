@@ -19,9 +19,12 @@ import {
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const temporaryDirectories: string[] = [];
+
 const packageRoot = path.resolve(import.meta.dirname, "../..");
+
 const profileMarker =
   "# Managed by Review Desktop: review command PATH. Do not edit.";
+
 const profileExport = 'export PATH="$HOME/.local/bin:$PATH"';
 
 afterEach(async () => {
@@ -47,10 +50,12 @@ describe("skipCliInstall", () => {
     "does not replace %s consent",
     async (consent) => {
       const env = await isolatedEnvironment();
+
       const stamp = {
         consent,
         updatedAt: "2026-08-09T00:00:00.000Z",
       } satisfies ReviewCliInstallStamp;
+
       await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
 
       await skipCliInstall(env);
@@ -67,20 +72,25 @@ describe("trace capture installation", () => {
     const homeDir = await temporaryHome("review-legacy-trace-");
     const configDir = path.join(homeDir, ".config", "dev-trace");
     await mkdir(configDir, { recursive: true });
+
     const credentials =
       'TRACE_R2_ENDPOINT="https://storage.example.invalid"\nTRACE_R2_BUCKET="existing-traces"\nTRACE_R2_ACCESS_KEY_ID="fixture-key"\nTRACE_R2_SECRET_ACCESS_KEY="fixture-secret"\n';
+
     const settings = JSON.stringify({
       version: 1,
       enabled: true,
       autoActivateRepositories: true,
     });
+
     await writeFile(path.join(configDir, "env"), credentials, { mode: 0o600 });
     await writeFile(path.join(configDir, "settings.json"), settings);
+
     const status = await resolveCliInstallStatus({
       packageRoot,
       homeDir,
       env: { DEV_REVIEW_HOME: path.join(homeDir, ".dev") },
     });
+
     expect(status.trace).toMatchObject({
       enabled: true,
       configured: true,
@@ -98,10 +108,12 @@ describe("trace capture installation", () => {
 
   it("writes a version-2 profile for a machine with no legacy files", async () => {
     const homeDir = await temporaryHome("review-fresh-trace-");
+
     const env: NodeJS.ProcessEnv = {
       DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
       TRACE_R2_MODE: "mock",
     };
+
     const applied = await applyCliInstall({
       packageRoot,
       targets: [],
@@ -114,6 +126,7 @@ describe("trace capture installation", () => {
         secret: "fresh-secret-value",
       },
     });
+
     expect(applied.code).toBe(0);
     const configPath = path.join(homeDir, ".dev", "trace", "config.json");
     expect(JSON.parse(await readFile(configPath, "utf8"))).toMatchObject({
@@ -144,11 +157,13 @@ describe("trace capture installation", () => {
     expect(JSON.stringify(status)).not.toContain("fresh-secret-value");
 
     await removeCliInstall({ targets: [], trace: true, homeDir, env });
+
     const disabled = await resolveCliInstallStatus({
       packageRoot,
       homeDir,
       env,
     });
+
     expect(disabled.trace).toMatchObject({ enabled: false, configured: true });
     expect(
       JSON.parse(await readFile(configPath, "utf8")).stores.s3.secretAccessKey,
@@ -158,12 +173,14 @@ describe("trace capture installation", () => {
   it("uses the shared installer and keeps credentials when disabled", async () => {
     const homeDir = await mkdtemp(path.join(tmpdir(), "review-trace-install-"));
     temporaryDirectories.push(homeDir);
+
     const env: NodeJS.ProcessEnv = {
       DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
       TRACE_ENV_FILE: path.join(homeDir, "trace.env"),
       TRACE_SETTINGS_FILE: path.join(homeDir, "trace-settings.json"),
       TRACE_R2_MODE: "mock",
     };
+
     const applied = await applyCliInstall({
       packageRoot,
       targets: [],
@@ -195,6 +212,7 @@ describe("trace capture installation", () => {
       homeDir,
       env,
     });
+
     expect(disabled.trace.enabled).toBe(false);
     expect(disabled.trace.configured).toBe(true);
     expect(await readFile(env.TRACE_ENV_FILE!, "utf8")).toContain(
@@ -425,6 +443,7 @@ describe("skill and review command installation", () => {
         mode: 0o755,
       }),
     ]);
+
     const env = {
       ...profileEnvironment(homeDir, "/bin/zsh"),
       PATH: foreignBin,
@@ -514,6 +533,7 @@ describe("resolveInstalledReviewAgentStatus", () => {
         writeFile(path.join(binDir, name), executable, { mode: 0o755 }),
       ),
     );
+
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       AGENT_PROBE_LOG: probeLog,
@@ -540,12 +560,14 @@ describe("resolveInstalledReviewAgentStatus", () => {
 async function isolatedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const directory = await mkdtemp(path.join(tmpdir(), "review-cli-install-"));
   temporaryDirectories.push(directory);
+
   return { DEV_REVIEW_HOME: directory };
 }
 
 async function temporaryHome(prefix: string): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), prefix));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 

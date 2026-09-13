@@ -20,6 +20,7 @@ import type { ReviewPanelStore } from "./review-panel-store";
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: ReturnType<typeof createRoot> | undefined;
+
 const session = testReviewSession();
 
 function renderWithSession(node: ReactNode) {
@@ -38,9 +39,11 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+
       if (url.includes("/comments")) {
         return new Response(JSON.stringify({ comments: {} }));
       }
+
       return new Response(JSON.stringify({}));
     }),
   );
@@ -50,6 +53,7 @@ beforeEach(() => {
   });
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     callback(0);
+
     return 1;
   });
   vi.stubGlobal("cancelAnimationFrame", vi.fn<(handle: number) => void>());
@@ -70,9 +74,11 @@ describe("Review panel host", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+
         if (url.includes("/comments")) {
           return new Response(JSON.stringify({ comments: {} }));
         }
+
         if (url.includes("/__progressive-review/session")) {
           return new Response(
             JSON.stringify({
@@ -80,6 +86,7 @@ describe("Review panel host", () => {
             }),
           );
         }
+
         return new Response(JSON.stringify({}));
       }),
     );
@@ -136,12 +143,14 @@ describe("Review panel host", () => {
     const textarea = container.querySelector<HTMLTextAreaElement>(
       ".thread-compose textarea",
     );
+
     expect(textarea).not.toBeNull();
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
         "value",
       )!.set!;
+
       setValue.call(textarea, "hi");
       textarea!.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -186,6 +195,7 @@ describe("Review panel host", () => {
 
     const toggle = () =>
       container.querySelector<HTMLButtonElement>(".thread-resolve-toggle");
+
     expect(toggle()?.textContent).toBe("Resolve");
     expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
 
@@ -211,15 +221,18 @@ describe("Review panel host", () => {
         )!
         .click();
     });
+
     const textarea = container.querySelector<HTMLTextAreaElement>(
       ".thread-chat-composer textarea",
     );
+
     expect(textarea).not.toBeNull();
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
         "value",
       )!.set!;
+
       setValue.call(textarea, "one more thing");
       textarea!.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -428,9 +441,11 @@ describe("Review panel host", () => {
     const scrollTo = vi.mocked(HTMLElement.prototype.scrollTo);
     scrollTo.mockClear();
     const body = container.querySelector<HTMLElement>(".review-panel-body")!;
+
     const [firstStop, secondStop] = [
       ...container.querySelectorAll<HTMLElement>(".tour-stop"),
     ];
+
     vi.spyOn(body, "getBoundingClientRect").mockReturnValue(
       domRect({ top: 100, bottom: 600, height: 500 }),
     );
@@ -472,9 +487,11 @@ describe("Review panel host", () => {
     });
 
     const body = container.querySelector<HTMLElement>(".review-panel-body")!;
+
     const floatingFooter = container.querySelector<HTMLElement>(
       ".tour-floating-footer",
     )!;
+
     expect(body.contains(floatingFooter)).toBe(false);
     expect(floatingFooter.textContent).toContain("1 more steps");
 
@@ -528,12 +545,14 @@ function OpenReplacingPanel() {
       content: { kind: "inline-code", text: "start();" },
     });
   }, [openPeek, openThreads]);
+
   return null;
 }
 
 function OpenThreadsPanel() {
   const openThreads = useReviewPanel((state) => state.openThreads);
   useEffect(() => openThreads(), [openThreads]);
+
   return null;
 }
 
@@ -543,12 +562,14 @@ function OpenCommentPanel({ threadId }: { threadId: string }) {
     () => openThreads({ kind: "comment", threadId }),
     [openThreads, threadId],
   );
+
   return null;
 }
 
 function OpenNewAskPanel() {
   const openThreads = useReviewPanel((state) => state.openThreads);
   useEffect(() => openThreads({ kind: "new-ask" }), [openThreads]);
+
   return null;
 }
 
@@ -558,6 +579,7 @@ function CaptureStore({
   onStore: (store: ReviewPanelStore) => void;
 }) {
   onStore(useReviewPanelStore());
+
   return null;
 }
 
@@ -585,18 +607,21 @@ function OpenTourPanel() {
       first.id,
     );
   }, [openTour]);
+
   return null;
 }
 
 function RestoreThreadsPanel() {
   const restoreThreads = useReviewPanel((state) => state.restoreThreads);
   useEffect(() => restoreThreads(), [restoreThreads]);
+
   return null;
 }
 
 function ResumeMotionListener() {
   const appRef = useRef<HTMLDivElement | null>(null);
   useSuppressPanelMotionOnCanvasResume(appRef);
+
   return <div ref={appRef} />;
 }
 
@@ -604,6 +629,7 @@ function ActiveTourAnchor() {
   const activeAnchor = useReviewPanel((state) =>
     state.active?.kind === "tour" ? state.active.activeAnchor : "",
   );
+
   return <output data-active-tour-anchor>{activeAnchor}</output>;
 }
 

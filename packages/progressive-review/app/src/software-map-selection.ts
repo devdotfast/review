@@ -11,7 +11,9 @@ export function selectActiveSoftwareMapModel({
     const focusedModel = softwareModels.find((model) =>
       model.elementsByPath.has(focusElementPath),
     );
+
     if (focusedModel) return focusedModel;
   }
+
   return softwareModels[0];
 }

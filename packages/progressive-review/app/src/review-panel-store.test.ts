@@ -8,10 +8,12 @@ const anchor = {
   id: "startup",
   title: "Startup",
 } as AnchorRef;
+
 const content: ReviewPeekContent = {
   kind: "inline-code",
   text: "start();",
 };
+
 const tour: GuidedTour = {
   id: "flow",
   stops: [{ anchor, label: "Startup", content }],

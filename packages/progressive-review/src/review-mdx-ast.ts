@@ -83,8 +83,10 @@ const mdxParseErrorSchema = z.object({
 
 function mdxParseError(cause: unknown): ReviewMdxParseError {
   const parsed = mdxParseErrorSchema.safeParse(cause);
+
   if (!parsed.success) return { message: String(cause), line: 1 };
   const { reason, message, line, place } = parsed.data;
+
   return {
     message: reason ?? message ?? String(cause),
     line: line ?? place?.line ?? 1,
@@ -105,7 +107,9 @@ function isSelfClosing(
 ): boolean {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
+
   if (start === undefined || end === undefined) return false;
+
   return /\/\s*>$/.test(source.slice(start, end).trimEnd());
 }
 
@@ -126,19 +130,26 @@ function attributeFromNode(
 ): ReviewMdxAttribute | null {
   // Spread attributes ({...props}) carry no static name to validate.
   if (attribute.type !== "mdxJsxAttribute") return null;
+
   const base: ReviewMdxAttribute = {
     name: attribute.name,
     line: nodeLine(attribute),
   };
+
   const { value } = attribute;
+
   if (value === null || value === undefined) return base;
+
   if (!isMdxAttributeValueExpression(value)) {
     return { ...base, stringValue: value };
   }
+
   const statement = value.data?.estree?.body[0];
+
   if (statement?.type === "ExpressionStatement") {
     return { ...base, expression: statement.expression };
   }
+
   return base;
 }
 
@@ -155,6 +166,7 @@ export function parseReviewMdxDocument(source: string): ReviewMdxDocument {
   };
 
   let tree: MdastNode;
+
   try {
     tree = fromMarkdown(source, {
       extensions: [mdxjs()],
@@ -162,6 +174,7 @@ export function parseReviewMdxDocument(source: string): ReviewMdxDocument {
     });
   } catch (cause) {
     document.parseError = mdxParseError(cause);
+
     return document;
   }
 
@@ -172,9 +185,11 @@ export function parseReviewMdxDocument(source: string): ReviewMdxDocument {
       node.name !== null
     ) {
       const line = nodeLine(node);
+
       if (/^[A-Z]/.test(node.name)) {
         document.components.push({ name: node.name, line });
       }
+
       document.elements.push({
         name: node.name,
         line,
@@ -184,17 +199,22 @@ export function parseReviewMdxDocument(source: string): ReviewMdxDocument {
           .filter((attribute) => attribute !== null),
       });
     }
+
     if (node.type === "link") {
       document.links.push({ url: node.url, line: nodeLine(node) });
     }
+
     if (node.type === "mdxjsEsm" && node.data?.estree) {
       document.esmPrograms.push(node.data.estree);
     }
+
     if ("children" in node) {
       for (const child of node.children) visit(child);
     }
   };
+
   visit(tree);
+
   return document;
 }
 
@@ -206,6 +226,7 @@ export function walkEstree(
 ): void {
   visit(node);
   const fields: unknown[] = Object.values(node);
+
   for (const value of fields) {
     if (Array.isArray(value)) {
       for (const item of value) {
@@ -239,6 +260,7 @@ export function findCallExpressions(
       calls.push(node);
     }
   });
+
   return calls;
 }
 
@@ -254,15 +276,19 @@ export function objectLiteralProperties(
 ): EstreeObjectProperty[] {
   if (!node || node.type !== "ObjectExpression") return [];
   const properties: EstreeObjectProperty[] = [];
+
   for (const property of node.properties) {
     if (property.type !== "Property") continue;
+
     const name =
       property.key.type === "Identifier"
         ? property.key.name
         : property.key.type === "Literal"
           ? literalStringValue(property.key)
           : null;
+
     if (name === null) continue;
+
     if (
       property.value.type === "ObjectPattern" ||
       property.value.type === "ArrayPattern" ||
@@ -271,12 +297,14 @@ export function objectLiteralProperties(
     ) {
       continue;
     }
+
     properties.push({
       name,
       line: estreeLine(property),
       value: property.value,
     });
   }
+
   return properties;
 }
 
@@ -284,6 +312,7 @@ export function objectLiteralProperties(
 // regex literals do not.
 function literalStringValue(literal: Literal): string | null {
   const value = z.string().safeParse(literal.value);
+
   return value.success ? value.data : null;
 }
 
@@ -308,5 +337,6 @@ export function hasEstreeOffsets(
 // a different parser.
 export function estreeNodeRange(node: EstreeNode): EstreeOffsets | null {
   if (node.range) return { start: node.range[0], end: node.range[1] };
+
   return hasEstreeOffsets(node) ? { start: node.start, end: node.end } : null;
 }

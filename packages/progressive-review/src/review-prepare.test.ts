@@ -31,6 +31,7 @@ describe("prepareReviewPinnedCheckout", () => {
     cleanupPaths.push(root);
     const checkoutPath = path.join(root, "worktree");
     await mkdir(checkoutPath, { recursive: true });
+
     return checkoutPath;
   }
 
@@ -44,6 +45,7 @@ describe("prepareReviewPinnedCheckout", () => {
       commands: ["pnpm install", "uv sync"],
       runCommand: async (command, cwd) => {
         runs.push({ command, cwd });
+
         return { exitCode: 0 };
       },
     });
@@ -60,8 +62,10 @@ describe("prepareReviewPinnedCheckout", () => {
     const checkoutPath = await createCheckoutDir();
     const commands = ["pnpm install"];
     let runCount = 0;
+
     const runCommand = async () => {
       runCount += 1;
+
       return { exitCode: 0 };
     };
 
@@ -71,6 +75,7 @@ describe("prepareReviewPinnedCheckout", () => {
       commands,
       runCommand,
     });
+
     const second = await prepareReviewPinnedCheckout({
       checkoutPath,
       commit: COMMIT,
@@ -85,8 +90,10 @@ describe("prepareReviewPinnedCheckout", () => {
   it("re-runs prepare when the configured command list changes", async () => {
     const checkoutPath = await createCheckoutDir();
     const runs: string[] = [];
+
     const runCommand = async (command: string) => {
       runs.push(command);
+
       return { exitCode: 0 };
     };
 
@@ -118,6 +125,7 @@ describe("prepareReviewPinnedCheckout", () => {
       warning: (message) => warnings.push(message),
       runCommand: async (command) => {
         runs.push(command);
+
         return { exitCode: command === "pnpm install" ? 42 : 0 };
       },
     });
@@ -149,6 +157,7 @@ describe("prepareReviewPinnedCheckout", () => {
       commands: ["uv sync"],
       runCommand: async () => ({ exitCode: 1 }),
     });
+
     expect(failed).toEqual({ prepared: false });
     expect(existsSync(reviewPrepareMarkerPath(checkoutPath))).toBe(false);
 
@@ -159,6 +168,7 @@ describe("prepareReviewPinnedCheckout", () => {
       commands: ["uv sync"],
       runCommand: async () => ({ exitCode: 0 }),
     });
+
     expect(retried).toEqual({ prepared: true });
     expect(existsSync(reviewPrepareMarkerPath(checkoutPath))).toBe(true);
   });

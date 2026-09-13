@@ -61,6 +61,7 @@ type SequenceParticipantNodeData = {
   messageGap: number;
   messageTop: number;
 };
+
 type SequenceParticipantFlowNode = ReactFlowNode<
   SequenceParticipantNodeData,
   "sequenceParticipant"
@@ -83,6 +84,7 @@ type SequenceMessageFlowEdge = ReactFlowEdge<
 >;
 
 const sequenceNodeTypes = { sequenceParticipant: SequenceParticipantNode };
+
 const sequenceEdgeTypes = { sequenceMessage: SequenceMessageEdge };
 
 export function sequenceMessageColor(isActive: boolean): string {
@@ -95,6 +97,7 @@ export type {
   SequenceMessageCodeInput,
   SequenceMessageInput,
 };
+
 export type SequenceInput = SequenceDiagramProps;
 
 interface UncheckedSequenceMessageInput {
@@ -135,12 +138,15 @@ export interface SequenceRef {
 
 export function createSequence(input: UncheckedSequenceInput): SequenceRef {
   sequenceDiagramPropsSchema.parse(input);
+
   const messages = uniqueSequenceMessageAnchors(
     normalizeSequenceMessages(input),
   );
+
   const id = `sequence-${slugSequenceActorLabel(input.label)}`;
   const participants = participantsForMessages(messages);
   validateSequenceTargetPaths(input.label, participants, messages);
+
   return Object.freeze({
     __kind: "review-sequence-ref",
     id,
@@ -164,19 +170,25 @@ function uniqueSequenceMessageAnchors(
 ): SequenceMessage[] {
   const reservedIds = new Set(messages.map((message) => message.anchor.id));
   const usedIds = new Set<string>();
+
   return messages.map((message, index) => {
     if (!usedIds.has(message.anchor.id)) {
       usedIds.add(message.anchor.id);
+
       return message;
     }
+
     const prefix = `${message.anchor.id}--sequence-use-${index + 1}`;
     let id = prefix;
     let suffix = 2;
+
     while (reservedIds.has(id) || usedIds.has(id)) {
       id = `${prefix}-${suffix}`;
       suffix += 1;
     }
+
     usedIds.add(id);
+
     return {
       ...message,
       anchor: Object.freeze({ ...message.anchor, id }),
@@ -190,6 +202,7 @@ function validateSequenceTargetPaths(
   messages: readonly SequenceMessage[],
 ): void {
   const participantLabels = new Set<string>();
+
   for (const participant of participants) {
     if (participantLabels.has(participant.label)) {
       throwAuthoringIssue(
@@ -197,18 +210,23 @@ function validateSequenceTargetPaths(
         `SequenceDiagram "${diagram}" has more than one participant labelled "${participant.label}"`,
       );
     }
+
     participantLabels.add(participant.label);
   }
+
   const parallelLabels = new Map<string, Set<string>>();
+
   for (const [index, message] of messages.entries()) {
     const segment = `${message.from.label}→${message.to.label}`;
     const labels = parallelLabels.get(segment) ?? new Set<string>();
+
     if (labels.has(message.label)) {
       throwAuthoringIssue(
         ["messages", index, "label"],
         `Label must be unique among parallel ${segment} messages`,
       );
     }
+
     labels.add(message.label);
     parallelLabels.set(segment, labels);
   }
@@ -219,8 +237,10 @@ function normalizeSequenceMessages(
 ): SequenceMessage[] {
   const { messages } = input;
   const explicitActorIds = new Set<string>();
+
   for (const message of messages) {
     if (message.from.id) explicitActorIds.add(message.from.id);
+
     if (message.to.id) explicitActorIds.add(message.to.id);
   }
 
@@ -238,6 +258,7 @@ function normalizeSequenceMessages(
     }
 
     const existing = inlineActorIdsByLabel.get(actor.label);
+
     if (existing) {
       return {
         __kind: "db-actor-ref",
@@ -249,11 +270,14 @@ function normalizeSequenceMessages(
 
     const baseId = `inline-${slugSequenceActorLabel(actor.label) || "actor"}`;
     let id = baseId;
+
     for (let suffix = 2; usedActorIds.has(id); suffix += 1) {
       id = `${baseId}-${suffix}`;
     }
+
     usedActorIds.add(id);
     inlineActorIdsByLabel.set(actor.label, id);
+
     return {
       __kind: "db-actor-ref",
       id,
@@ -264,11 +288,13 @@ function normalizeSequenceMessages(
 
   return messages.map((message, index) => {
     const code = normalizeSequenceMessageCode(message.code);
+
     const fallbackAnchor = {
       __kind: "db-anchor-ref",
       id: `sequence-${slugSequenceActorLabel(input.label) || "diagram"}-message-${index + 1}`,
       title: message.label,
     } satisfies AnchorRef;
+
     return Object.freeze({
       id: `sequence-message-input-${index + 1}`,
       from: normalizeActor(message.from),
@@ -296,12 +322,16 @@ function normalizeSequenceMessageCode(
 ): SequenceMessageCodeBlock | undefined {
   if (code !== undefined && isSequenceMessageCodeText(code)) {
     const text = code.trim();
+
     return text ? { text } : undefined;
   }
+
   if (!code) return undefined;
   const text = code.text.trim();
+
   if (!text) return undefined;
   const language = code.language?.trim();
+
   return language ? { language, text } : { text };
 }
 
@@ -317,6 +347,7 @@ export function createSequenceTourEntry(sequence: SequenceRef): GuidedTour {
   const participantById = new Map(
     sequence.participants.map((participant) => [participant.id, participant]),
   );
+
   return {
     id: sequence.id,
     title: sequence.label,
@@ -348,6 +379,7 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
   const participants = new Map<string, { actor: ActorRef; order: number }>();
   const outgoing = new Map<string, Set<string>>();
   const incomingCount = new Map<string, number>();
+
   for (const message of messages) {
     if (!participants.has(message.from.id)) {
       participants.set(message.from.id, {
@@ -356,6 +388,7 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
       });
       incomingCount.set(message.from.id, 0);
     }
+
     if (!participants.has(message.to.id)) {
       participants.set(message.to.id, {
         actor: message.to,
@@ -363,8 +396,10 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
       });
       incomingCount.set(message.to.id, 0);
     }
+
     if (message.from.id === message.to.id) continue;
     const targets = outgoing.get(message.from.id) ?? new Set<string>();
+
     if (!targets.has(message.to.id)) {
       targets.add(message.to.id);
       outgoing.set(message.from.id, targets);
@@ -374,23 +409,30 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
       );
     }
   }
+
   const byFirstSeen = (left: string, right: string) =>
     (participants.get(left)?.order ?? 0) -
     (participants.get(right)?.order ?? 0);
+
   const ready = [...participants.keys()]
     .filter((id) => (incomingCount.get(id) ?? 0) === 0)
     .sort(byFirstSeen);
+
   const ordered: ActorRef[] = [];
   const consumed = new Set<string>();
 
   while (ready.length > 0) {
     const id = ready.shift()!;
+
     if (consumed.has(id)) continue;
     consumed.add(id);
     const actor = participants.get(id)?.actor;
+
     if (actor) ordered.push(actor);
+
     for (const target of outgoing.get(id) ?? []) {
       incomingCount.set(target, (incomingCount.get(target) ?? 0) - 1);
+
       if ((incomingCount.get(target) ?? 0) === 0) {
         ready.push(target);
         ready.sort(byFirstSeen);
@@ -403,27 +445,32 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
   )) {
     if (!consumed.has(id)) ordered.push(participant.actor);
   }
+
   return ordered;
 }
 
 export function SequenceDiagram(input: SequenceInput) {
   const session = useReviewSession();
   const { theme } = useReviewDebugSettings();
+
   const sequence = useMemo(
     () => createSequence(input),
     [input.label, input.messages],
   );
+
   useRegisterLiveDiagram({
     label: sequence.label,
     elements: sequenceTargetElements(sequence),
   });
   const tour = useMemo(() => createSequenceTourEntry(sequence), [sequence]);
+
   // The tour IS the fullscreen mode: the inline figure becomes the stage
   // and the standard GuidedTourPanel docks beside it.
   const [tourState, setTourState] = useState<{
     anchor: string;
     revealRequest: number;
   } | null>(null);
+
   const tourAnchor = tourState?.anchor ?? null;
   const tourOpen = tourState !== null;
   const restoredTour = useTourRestore(tour);
@@ -439,11 +486,15 @@ export function SequenceDiagram(input: SequenceInput) {
       if (anchor) {
         captureUiEvent(session, "peek_opened", { via: "diagram" });
       }
+
       const nextAnchor = anchor ?? tourAnchor ?? tour.stops[0]?.anchor.id;
+
       if (!nextAnchor) return;
+
       if (!tourOpen) {
         captureUiEvent(session, "tour_started", { steps: tour.stops.length });
       }
+
       setTourState((state) => ({
         anchor: nextAnchor,
         revealRequest: (state?.revealRequest ?? 0) + 1,
@@ -451,7 +502,9 @@ export function SequenceDiagram(input: SequenceInput) {
     },
     [session, tour, tourAnchor, tourOpen],
   );
+
   const closeTour = useCallback(() => setTourState(null), []);
+
   const changeTourAnchor = useCallback(
     (anchor: string, options: { reveal: boolean }) => {
       setTourState((state) =>
@@ -533,23 +586,28 @@ function SequenceDiagramFigure({
   const [availableWidth, setAvailableWidth] = useState(0);
   useEffect(() => {
     const scroll = sequenceScrollRef.current;
+
     if (!scroll) return;
     const update = () => setAvailableWidth(scroll.clientWidth);
     update();
     const observer = new ResizeObserver(update);
     observer.observe(scroll);
+
     return () => observer.disconnect();
   }, []);
+
   // Lanes spread across the full diagram width; 176px is the floor below which
   // the body scrolls horizontally instead of compressing further.
   const laneWidth = Math.max(
     176,
     Math.floor(availableWidth / Math.max(1, sequence.participants.length)),
   );
+
   const messageTop = 112;
   const messageGap = 76;
   const width = Math.max(320, sequence.participants.length * laneWidth);
   const height = messageTop + sequence.messages.length * messageGap + 42;
+
   const reactFlowNodes: SequenceParticipantFlowNode[] = useMemo(
     () =>
       sequence.participants.map((participant, index) => ({
@@ -571,11 +629,13 @@ function SequenceDiagramFigure({
       })),
     [height, laneWidth, sequence],
   );
+
   const reactFlowEdges: SequenceMessageFlowEdge[] = useMemo(
     () =>
       sequence.messages.map((message, index) => {
         const isActive = activeTourAnchor === message.anchor.id;
         const color = sequenceMessageColor(isActive);
+
         return {
           id: message.id,
           type: "sequenceMessage",
@@ -606,31 +666,39 @@ function SequenceDiagramFigure({
       }),
     [activeTourAnchor, onCloseTour, openTour, sequence, width],
   );
+
   const onEdgeClick: EdgeMouseHandler<SequenceMessageFlowEdge> = (
     event,
     edge,
   ) => {
     event.stopPropagation();
+
     if (edge.data) openTour(edge.data.message.anchor.id);
   };
+
   const scrollSequenceHorizontally = useCallback((event: WheelEvent) => {
     const scroll = event.currentTarget;
+
     if (
       !(scroll instanceof HTMLElement) ||
       !scrollDiagramHorizontally(scroll, event)
     ) {
       return;
     }
+
     event.preventDefault();
     event.stopPropagation();
   }, []);
+
   useEffect(() => {
     const scroll = sequenceScrollRef.current;
+
     if (!scroll) return;
     scroll.addEventListener("wheel", scrollSequenceHorizontally, {
       capture: true,
       passive: false,
     });
+
     return () =>
       scroll.removeEventListener("wheel", scrollSequenceHorizontally, {
         capture: true,
@@ -638,7 +706,9 @@ function SequenceDiagramFigure({
   }, [scrollSequenceHorizontally]);
   useEffect(() => {
     const scroll = sequenceScrollRef.current;
+
     if (!scroll || !activeTourAnchor) return;
+
     const nextScrollLeft = sequenceActiveMessageScrollTarget({
       sequence,
       activeAnchor: activeTourAnchor,
@@ -647,6 +717,7 @@ function SequenceDiagramFigure({
       scrollWidth: scroll.scrollWidth,
       currentScrollLeft: scroll.scrollLeft,
     });
+
     const nextScrollTop = sequenceActiveMessageScrollTopTarget({
       sequence,
       activeAnchor: activeTourAnchor,
@@ -656,15 +727,18 @@ function SequenceDiagramFigure({
       scrollHeight: scroll.scrollHeight,
       currentScrollTop: scroll.scrollTop,
     });
+
     const left =
       nextScrollLeft !== null &&
       Math.abs(nextScrollLeft - scroll.scrollLeft) >= 1
         ? nextScrollLeft
         : undefined;
+
     const top =
       nextScrollTop !== null && Math.abs(nextScrollTop - scroll.scrollTop) >= 1
         ? nextScrollTop
         : undefined;
+
     if (left === undefined && top === undefined) return;
     scroll.scrollTo({
       left,
@@ -672,6 +746,7 @@ function SequenceDiagramFigure({
       behavior: panelMotion === "restored" ? "auto" : "smooth",
     });
   }, [activeTourAnchor, laneWidth, panelMotion, sequence]);
+
   // SAFETY: the `--sequence-*` keys are CSS custom properties, which React
   // forwards to style.setProperty; the CSSProperties typings only omit custom
   // names.
@@ -803,8 +878,10 @@ function SequenceParticipantNode({
   data,
 }: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
   const { openCommentDraft } = useReviewActions();
+
   const { participant, diagram, height, messages, messageGap, messageTop } =
     data;
+
   const target = buildGraphTarget({
     diagram,
     type: "node",
@@ -812,10 +889,12 @@ function SequenceParticipantNode({
     payload: participant,
     quote: participant.label,
   });
+
   const activeMessages = messages.filter(
     (message) =>
       message.from.id === participant.id || message.to.id === participant.id,
   );
+
   const openParticipantComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -825,6 +904,7 @@ function SequenceParticipantNode({
       body: "",
     });
   };
+
   return (
     <div
       className="sequence-participant-node"
@@ -850,13 +930,16 @@ function SequenceParticipantNode({
         const messageIndex = messages.findIndex(
           (item) => item.id === message.id,
         );
+
         const top = messageTop + messageIndex * messageGap;
         const isSelfLoop = message.from.id === message.to.id;
+
         const handles: Array<{
           id: string;
           type: "source" | "target";
           side: Position.Left | Position.Right;
         }> = [];
+
         if (message.from.id === participant.id) {
           handles.push({
             id: sequenceHandleId(message.id, "source"),
@@ -864,6 +947,7 @@ function SequenceParticipantNode({
             side: isSelfLoop ? Position.Right : Position.Right,
           });
         }
+
         if (message.to.id === participant.id) {
           handles.push({
             id: sequenceHandleId(message.id, "target"),
@@ -871,6 +955,7 @@ function SequenceParticipantNode({
             side: isSelfLoop ? Position.Right : Position.Left,
           });
         }
+
         return handles.map((handle) => (
           <Handle
             key={`${message.id}-${handle.type}-${index}`}
@@ -908,6 +993,7 @@ export function sequenceSelfMessagePath(input: {
 }): string {
   const loopDirection = input.sourceX + 72 > input.width ? -1 : 1;
   const loopX = input.sourceX + loopDirection * 54;
+
   return `M ${input.sourceX} ${input.sourceY} H ${loopX} V ${input.targetY} H ${input.targetX}`;
 }
 
@@ -917,10 +1003,12 @@ function SequenceMessageEdge(
   const { openCommentDraft } = useReviewActions();
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
+
   if (!data) return null;
   const isSelfLoop = props.source === props.target;
   const loopDirection = props.sourceX + 72 > data.width ? -1 : 1;
   const loopX = props.sourceX + loopDirection * 54;
+
   const edgePath = isSelfLoop
     ? sequenceSelfMessagePath({
         sourceX: props.sourceX,
@@ -935,13 +1023,17 @@ function SequenceMessageEdge(
         targetX: props.targetX,
         targetY: props.targetY,
       })[0];
+
   const labelX = isSelfLoop
     ? (props.sourceX + loopX) / 2
     : (props.sourceX + props.targetX) / 2;
+
   const labelY = props.sourceY - 12;
+
   const edgeClassName = data.active
     ? "sequence-message clickable active"
     : "sequence-message clickable";
+
   const target = buildGraphTarget({
     diagram: data.diagram,
     type: "edge",
@@ -954,6 +1046,7 @@ function SequenceMessageEdge(
     },
     quote: data.message.label,
   });
+
   const openMessageComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -963,6 +1056,7 @@ function SequenceMessageEdge(
       body: "",
     });
   };
+
   return (
     <>
       <BaseEdge
@@ -1031,6 +1125,7 @@ function SequenceMessageEdge(
             onMouseLeave={() => setIsHoveringEdge(false)}
             onClick={(event) => {
               event.stopPropagation();
+
               if (hasTextSelectionWithin(event.currentTarget)) return;
               data.openTour(data.message.anchor.id);
             }}
@@ -1072,13 +1167,17 @@ function scrollDiagramHorizontally(
 ) {
   const delta =
     event.deltaX !== 0 ? event.deltaX : event.shiftKey ? event.deltaY : 0;
+
   if (delta === 0 || scroll.scrollWidth <= scroll.clientWidth) return false;
+
   const nextLeft = Math.min(
     Math.max(scroll.scrollLeft + delta, 0),
     scroll.scrollWidth - scroll.clientWidth,
   );
+
   if (nextLeft === scroll.scrollLeft) return false;
   scroll.scrollLeft = nextLeft;
+
   return true;
 }
 
@@ -1092,40 +1191,52 @@ export function sequenceActiveMessageScrollTarget({
   padding = 24,
 }: SequenceActiveMessageScrollInput) {
   const maxScrollLeft = scrollWidth - viewportWidth;
+
   if (!activeAnchor || maxScrollLeft <= 0 || viewportWidth <= 0) return null;
+
   const activeMessage = sequence.messages.find(
     (message) => message.anchor.id === activeAnchor,
   );
+
   if (!activeMessage) return null;
+
   const fromIndex = sequence.participants.findIndex(
     (participant) => participant.id === activeMessage.from.id,
   );
+
   const toIndex = sequence.participants.findIndex(
     (participant) => participant.id === activeMessage.to.id,
   );
+
   if (fromIndex < 0 || toIndex < 0) return null;
 
   const leftLane = Math.min(fromIndex, toIndex);
   const rightLane = Math.max(fromIndex, toIndex);
   const targetLeft = Math.max(0, leftLane * laneWidth - padding);
+
   const targetRight = Math.min(
     scrollWidth,
     (rightLane + 1) * laneWidth + padding,
   );
+
   const visibleLeft = currentScrollLeft;
   const visibleRight = currentScrollLeft + viewportWidth;
+
   const clampScrollLeft = (left: number) =>
     Math.min(Math.max(left, 0), maxScrollLeft);
 
   if (targetLeft >= visibleLeft && targetRight <= visibleRight) {
     return currentScrollLeft;
   }
+
   if (targetRight - targetLeft > viewportWidth) {
     return clampScrollLeft(targetLeft);
   }
+
   if (targetLeft < visibleLeft) {
     return clampScrollLeft(targetLeft);
   }
+
   return clampScrollLeft(targetRight - viewportWidth);
 }
 
@@ -1155,10 +1266,13 @@ export function sequenceActiveMessageScrollTopTarget({
   padding = 24,
 }: SequenceActiveMessageScrollTopInput) {
   const maxScrollTop = scrollHeight - viewportHeight;
+
   if (!activeAnchor || maxScrollTop <= 0 || viewportHeight <= 0) return null;
+
   const messageIndex = sequence.messages.findIndex(
     (message) => message.anchor.id === activeAnchor,
   );
+
   if (messageIndex < 0) return null;
 
   const rowTop = messageTop + messageIndex * messageGap;
@@ -1166,18 +1280,22 @@ export function sequenceActiveMessageScrollTopTarget({
   const targetBottom = Math.min(scrollHeight, rowTop + messageGap + padding);
   const visibleTop = currentScrollTop;
   const visibleBottom = currentScrollTop + viewportHeight;
+
   const clampScrollTop = (top: number) =>
     Math.min(Math.max(top, 0), maxScrollTop);
 
   if (targetTop >= visibleTop && targetBottom <= visibleBottom) {
     return currentScrollTop;
   }
+
   if (targetBottom - targetTop > viewportHeight) {
     return clampScrollTop(targetTop);
   }
+
   if (targetTop < visibleTop) {
     return clampScrollTop(targetTop);
   }
+
   return clampScrollTop(targetBottom - viewportHeight);
 }
 
@@ -1193,10 +1311,12 @@ function sequenceEdgePath(
   message: SequenceMessage,
 ): string[] {
   const segment = `${message.from.label}→${message.to.label}`;
+
   const parallelCount = messages.filter(
     (candidate) =>
       candidate.from.id === message.from.id &&
       candidate.to.id === message.to.id,
   ).length;
+
   return parallelCount > 1 ? [segment, message.label] : [segment];
 }

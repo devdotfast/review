@@ -42,10 +42,13 @@ export async function resolveReviewSourceTarget(input: {
 }): Promise<ReviewSourceTarget> {
   const review = readReviewStoreRecord(input.reviewRootPath);
   const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath, review);
+
   const headRef = review.sourceCommit
     ? await resolveRevisionCommit(repoRoot, review.sourceCommit)
     : await resolveDefaultReviewHeadRef(repoRoot);
+
   const baseRef = review.baseCommit;
+
   if (!headRef) {
     return {
       repoRoot,
@@ -62,6 +65,7 @@ export async function resolveReviewSourceTarget(input: {
     role: "head",
     warning: input.warning,
   });
+
   const preparedBase =
     baseRef && baseRef !== headRef
       ? await prepareReviewSourceTargetForRef({
@@ -93,6 +97,7 @@ export async function prepareReviewSourceTargetForRef(input: {
   warning?: (message: string) => void;
 }): Promise<PreparedReviewSourceTarget> {
   const ref = await resolveRevisionCommit(input.repoRoot, input.ref);
+
   const sourceRootPath = await ensurePinnedReviewWorktreeAtCommit({
     repoRoot: input.repoRoot,
     commit: ref,
@@ -100,6 +105,7 @@ export async function prepareReviewSourceTargetForRef(input: {
     role: input.role ?? "base",
     warning: input.warning,
   });
+
   return { ref, sourceRootPath };
 }
 
@@ -122,6 +128,7 @@ export async function ensurePinnedReviewWorktreeAtCommit(
     reviewUuid: input.reviewUuid,
     role: input.role,
   });
+
   if (!sourceRootPath) {
     throw new Error(
       `Cannot materialize a pinned worktree for ${input.commit} in ${input.repoRoot}.`,
@@ -131,15 +138,18 @@ export async function ensurePinnedReviewWorktreeAtCommit(
   const commands = await devfastPrepareCommands(input.repoRoot).catch(
     (): string[] => [],
   );
+
   if (commands.length === 0) {
     return sourceRootPath;
   }
 
   const markerPath = reviewPrepareMarkerPath(sourceRootPath);
   const expectedHash = reviewPrepareCommandsHash(commands);
+
   const alreadyPrepared = await markerMatches(markerPath, expectedHash).catch(
     () => false,
   );
+
   if (alreadyPrepared) {
     return sourceRootPath;
   }
@@ -150,6 +160,7 @@ export async function ensurePinnedReviewWorktreeAtCommit(
       commit: input.commit,
       cliEntryPath: input.cliEntryPath,
     });
+
     return sourceRootPath;
   }
 
@@ -159,6 +170,7 @@ export async function ensurePinnedReviewWorktreeAtCommit(
     commands,
     warning: input.warning,
   });
+
   return sourceRootPath;
 }
 
@@ -173,6 +185,7 @@ export async function resolveReviewSessionBaseCommit(input: {
 }): Promise<string | null> {
   const review = readReviewStoreRecord(input.reviewRootPath);
   const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath, review);
+
   return resolveRevisionCommit(repoRoot, review.baseCommit);
 }
 
@@ -182,11 +195,13 @@ export function resolveReviewRepoRootFromStore(
 ): string {
   const worktreePath = review.worktreePath;
   const resolvedWorktreePath = path.resolve(worktreePath);
+
   if (!fs.existsSync(resolvedWorktreePath)) {
     throw new Error(
       `Review worktree ${resolvedWorktreePath} no longer exists; run review rebind from the repo checkout or scaffold a new review.`,
     );
   }
+
   return resolvedWorktreePath;
 }
 
@@ -194,12 +209,16 @@ export function readReviewStoreRecord(
   reviewRootPath: string,
 ): StoredReviewRecord {
   const storePath = path.resolve(reviewRootPath);
+
   try {
     const value = parseJsonText(
       fs.readFileSync(path.join(storePath, "review.json"), "utf8"),
     );
+
     const parsed = safeParseStoredReviewRecord(value);
+
     if (!parsed.success) throw parsed.error;
+
     return parsed.data;
   } catch {
     throw new Error(
@@ -213,6 +232,8 @@ async function resolveRevisionCommit(
   commit: string,
 ): Promise<string> {
   const resolved = await resolveRevision(repoRoot, commit);
+
   if (!resolved) throw new Error(`Revision does not exist: ${commit}`);
+
   return resolved.commit;
 }

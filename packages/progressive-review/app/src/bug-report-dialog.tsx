@@ -24,6 +24,7 @@ import { useTutorial } from "./tutorial-context";
 import { captureUiEvent, clientErrorName } from "./ui-telemetry";
 
 const MAX_DESCRIPTION_BYTES = 64 * 1024;
+
 const TRACE_PRIVACY_COPY =
   "Includes the complete, uncapped authoring session trace. For forked sessions, it also includes each ancestor session up to its fork point, plus up to ten tail-capped subagent traces. Recognizable secrets are redacted, but other secrets may be included; everything is sent to /dev/fast.";
 
@@ -55,6 +56,7 @@ export function BugReportControl({
   useEffect(() => {
     if (!toast) return;
     const timeout = window.setTimeout(() => setToast(null), 6_000);
+
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
@@ -67,15 +69,19 @@ export function BugReportControl({
     setDropActive(false);
     setSending(false);
   };
+
   const cancel = () => {
     captureUiEvent(session, "bug_report_cancelled");
     reset();
     setOpen(false);
   };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+
     if (!canSend) return;
     setSending(true);
+
     try {
       const report: ReviewBugReportRequest = {
         description,
@@ -86,18 +92,22 @@ export function BugReportControl({
         app_session_id: session.appSessionId,
         app_version: session.config.appVersion,
       };
+
       if (screenshot) {
         report.screenshot = {
           mime: "image/jpeg",
           base64: screenshot.slice("data:image/jpeg;base64,".length),
         };
       }
+
       const response = await session.fetch("/telemetry/bug-report", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(report),
       });
+
       const body = await response.json().catch(() => null);
+
       if (!response.ok) {
         captureUiEvent(session, "bug_report_send_failed", {
           error_name: clientErrorName(new Error()),
@@ -113,9 +123,12 @@ export function BugReportControl({
                   ? "The complete agent session trace couldn't be read. Uncheck 'Agent session trace' to send the report without it."
                   : "The report could not be sent. Try again.",
         });
+
         return;
       }
+
       const result = parseReviewBugReportResponse(body);
+
       if (!result.ok) throw new Error(result.error);
       setToast({
         kind: "success",
@@ -139,6 +152,7 @@ export function BugReportControl({
   const attachScreenshot = async (image: Blob) => {
     try {
       const normalized = await normalizeScreenshot(image);
+
       if (!normalized) throw new Error("Screenshot could not be decoded.");
       setScreenshot(normalized);
     } catch (error) {
@@ -154,6 +168,7 @@ export function BugReportControl({
 
   const pasteScreenshot = (event: ClipboardEvent<HTMLElement>) => {
     const image = imageFileFromDataTransfer(event.clipboardData);
+
     if (!image) return;
     event.preventDefault();
     void attachScreenshot(image);
@@ -163,13 +178,16 @@ export function BugReportControl({
     event.preventDefault();
     setDropActive(false);
     const image = imageFileFromDataTransfer(event.dataTransfer);
+
     if (!image) {
       setToast({
         kind: "error",
         text: "That image could not be attached. Use a PNG, JPEG, or WebP image.",
       });
+
       return;
     }
+
     void attachScreenshot(image);
   };
 
@@ -179,6 +197,7 @@ export function BugReportControl({
     setCapturing(true);
     captureUiEvent(session, "bug_report_dialog_opened");
     let captured: string | null = null;
+
     try {
       captured = await captureScreenshot(session.bridge);
     } finally {
@@ -220,9 +239,11 @@ export function BugReportControl({
             }}
             onDragLeave={(event) => {
               const next = event.relatedTarget;
+
               if (next instanceof Node && event.currentTarget.contains(next)) {
                 return;
               }
+
               setDropActive(false);
             }}
             onDrop={dropScreenshot}

@@ -37,17 +37,22 @@ export function ReviewHistoryControl(): ReactElement | null {
 
   useEffect(() => {
     if (!open) return;
+
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const target = event.target;
+
       if (target instanceof Node && controlRef.current?.contains(target))
         return;
       setOpen(false);
     };
+
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+
     document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     document.addEventListener("keydown", closeOnEscape, true);
+
     return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
       document.removeEventListener("keydown", closeOnEscape, true);
@@ -57,6 +62,7 @@ export function ReviewHistoryControl(): ReactElement | null {
   if (historicalRevision || (!tutorial && !Array.isArray(versions))) {
     return null;
   }
+
   const versionItems = Array.isArray(versions) ? versions : [];
 
   return (
@@ -72,6 +78,7 @@ export function ReviewHistoryControl(): ReactElement | null {
         onClick={() => {
           if (tutorial) return;
           setOpen((current) => !current);
+
           if (!open) void loadVersions();
         }}
       >

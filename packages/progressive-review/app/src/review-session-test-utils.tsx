@@ -69,9 +69,11 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
 
   function buildSnapshot(): ReviewCommentStoreSnapshot {
     const commentThreads = new Map(persisted);
+
     for (const [threadId, comment] of local) {
       commentThreads.set(threadId, comment.thread);
     }
+
     return {
       commentThreads,
       localComments: new Map(local),
@@ -84,10 +86,12 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
   function publish(): void {
     const previous = snapshot;
     snapshot = buildSnapshot();
+
     const threadIds = new Set([
       ...previous.commentThreads.keys(),
       ...snapshot.commentThreads.keys(),
     ]);
+
     for (const listener of listeners) listener({ threadIds });
   }
 
@@ -97,6 +101,7 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
     applyAgentStatus() {},
     subscribe(listener) {
       listeners.add(listener);
+
       return () => listeners.delete(listener);
     },
     getSnapshot() {
@@ -104,6 +109,7 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
     },
     async saveComment(input) {
       const existing = local.get(input.threadId)?.thread;
+
       const message = {
         id: input.messageId,
         by: "You",
@@ -111,6 +117,7 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
         body: input.body.trim(),
         agentInput: input.agentInput ?? false,
       };
+
       local.set(input.threadId, {
         clientStatus: "draft",
         // Like the desktop store, a reply reopens a resolved thread.
@@ -139,12 +146,15 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
     },
     async updateComment(threadId, body, messageId) {
       const comment = local.get(threadId);
+
       if (!comment) return;
+
       const index = messageId
         ? comment.thread.messages.findIndex(
             (message) => message.id === messageId,
           )
         : comment.thread.messages.length - 1;
+
       local.set(threadId, {
         ...comment,
         thread: {
@@ -163,10 +173,13 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
     },
     async deleteCommentMessage(threadId, messageId) {
       const comment = local.get(threadId);
+
       if (!comment) return;
+
       const messages = comment.thread.messages.filter(
         (message) => message.id !== messageId,
       );
+
       if (messages.length === 0) local.delete(threadId);
       else {
         local.set(threadId, {
@@ -177,10 +190,12 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
           ),
         });
       }
+
       publish();
     },
     async setCommentResolved(threadId, resolved) {
       const comment = local.get(threadId);
+
       if (!comment) return;
       local.set(threadId, {
         ...comment,
@@ -193,10 +208,13 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
     },
     async flushPendingComments() {
       const inputs = [...local.values()].flatMap((comment) => comment.inputs);
+
       for (const [threadId, comment] of local) {
         local.set(threadId, { ...comment, clientStatus: "submitting" });
       }
+
       publish();
+
       return inputs;
     },
     async persistComment() {
@@ -208,12 +226,14 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
           local.set(threadId, { ...comment, clientStatus: "draft" });
         }
       }
+
       publish();
     },
     completeHumanReviewRound() {
       for (const [threadId, comment] of local) {
         persisted.set(threadId, comment.thread);
       }
+
       local.clear();
       publish();
     },

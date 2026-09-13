@@ -35,6 +35,7 @@ describe("bundled Review tools", () => {
     const rustAnalyzer = path.join(devHome, "desktop-rust-analyzer");
     await writeFile(rustAnalyzer, "#!/bin/sh\necho rust-analyzer 1.0\n");
     await chmod(rustAnalyzer, 0o755);
+
     const env = {
       ...process.env,
       DEV_REVIEW_HOME: devHome,
@@ -44,11 +45,13 @@ describe("bundled Review tools", () => {
     await expect(ensureBundledRustAnalyzer({ env })).resolves.toBe("staged");
     await expect(ensureBundledRustAnalyzer({ env })).resolves.toBe("fresh");
     const staged = stagedToolPath(env, "rust-analyzer");
+
     const [sourceBytes, stagedBytes, stagedMetadata] = await Promise.all([
       readFile(rustAnalyzer),
       readFile(staged),
       stat(staged),
     ]);
+
     expect(stagedBytes).toEqual(sourceBytes);
     expect(stagedMetadata.mode & 0o111).not.toBe(0);
     expect(createHash("sha256").update(stagedBytes).digest("hex")).toBe(

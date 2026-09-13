@@ -45,10 +45,12 @@ export function createReviewSurface(bridge: ReviewCanvasBridge): ReviewSurface {
     },
     async post(request) {
       const response = await bridge.post(request);
+
       if (!response.ok) throw new Error(response.error);
     },
     subscribe(listener) {
       const subscription = bridge.subscribe(listener);
+
       return () => subscription.dispose();
     },
   };

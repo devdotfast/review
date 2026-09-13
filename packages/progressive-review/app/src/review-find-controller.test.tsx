@@ -80,12 +80,15 @@ it("orders duplicate editors with MDX and wraps navigation", async () => {
 
 it("ignores results from an older query generation", async () => {
   let resolveSlow!: (value: { matchCount: number }) => void;
+
   const slow = new Promise<{ matchCount: number }>((resolve) => {
     resolveSlow = resolve;
   });
+
   const handle = findHandle(async (query) =>
     query.text.includes("slow") ? slow : { matchCount: 1 },
   );
+
   const container = document.createElement("div");
   document.body.append(container);
   const host = createReviewFindHost();
@@ -131,6 +134,7 @@ it("uses equal action controls and describes every Find option", async () => {
     button(container, "Next Match"),
     button(container, "Close Find"),
   ];
+
   expect(actions.map((action) => action.className)).toEqual([
     "review-find-action",
     "review-find-action",
@@ -161,6 +165,7 @@ function FindHarness({
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
+
   return (
     <ReviewFindProvider
       articleRef={articleRef}
@@ -185,7 +190,9 @@ function InlineRegistration({ handle }: { handle: ReviewInlineEditorHandle }) {
   const find = useReviewFindRegistration();
   useLayoutEffect(() => {
     const container = containerRef.current;
+
     if (!container || !find) return;
+
     return find.register({
       container,
       setFindQuery: (query) => handle.setFindQuery(query),
@@ -197,6 +204,7 @@ function InlineRegistration({ handle }: { handle: ReviewInlineEditorHandle }) {
       expand() {},
     });
   }, [find, handle]);
+
   return <div ref={containerRef} data-review-inline-editor="duplicate.ts" />;
 }
 
@@ -208,6 +216,7 @@ function findHandle(
   const revealFindMatch = vi.fn<(index: number) => void>();
   const clearActiveFindMatch = vi.fn<() => void>();
   const clearFind = vi.fn<() => void>();
+
   return {
     height: 100,
     setActive() {},
@@ -226,7 +235,9 @@ function button(container: HTMLElement, label: string): HTMLButtonElement {
   const result = [...container.querySelectorAll("button")].find(
     (candidate) => candidate.getAttribute("aria-label") === label,
   );
+
   if (!result) throw new Error(`Missing ${label} button`);
+
   return result;
 }
 
@@ -234,11 +245,14 @@ async function setInput(container: HTMLElement, value: string): Promise<void> {
   const input = container.querySelector<HTMLInputElement>(
     '.review-find-widget input[aria-label="Find"]',
   );
+
   if (!input) throw new Error("Missing Find input");
+
   const setValue = Object.getOwnPropertyDescriptor(
     HTMLInputElement.prototype,
     "value",
   )?.set;
+
   if (!setValue) throw new Error("Missing input value setter");
   await act(async () => {
     setValue.call(input, value);

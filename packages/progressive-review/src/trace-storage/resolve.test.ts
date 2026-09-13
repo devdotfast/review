@@ -57,6 +57,7 @@ describe("trace storage selection", () => {
         "",
       ].join("\n"),
     );
+
     return envPath;
   }
 
@@ -157,6 +158,7 @@ describe("trace storage selection", () => {
       env: { ...env, TRACE_R2_BUCKET: "override-traces" },
       homeDir: home,
     });
+
     expect(overridden.credentials?.bucket).toBe("override-traces");
     expect(overridden.credentials?.endpoint).toBe("https://s3.example.invalid");
     expect(overridden.overrides).toEqual(["TRACE_R2_BUCKET"]);
@@ -164,6 +166,7 @@ describe("trace storage selection", () => {
 
   it("keeps the legacy file's TRACE_R2_* keys ahead of exported AWS_* credentials", () => {
     writeLegacyEnv();
+
     const setup = resolveS3Setup({
       env: {
         ...env,
@@ -172,6 +175,7 @@ describe("trace storage selection", () => {
       },
       homeDir: home,
     });
+
     expect(setup.credentials).toMatchObject({
       accessKeyId: "legacy-key",
       secretAccessKey: "legacy-secret",
@@ -184,10 +188,12 @@ describe("trace storage selection", () => {
       'TRACE_R2_ENDPOINT="https://legacy.example.invalid"\nTRACE_R2_BUCKET="legacy-traces"\n',
     );
     clearTraceEnvCache();
+
     const fallback = resolveS3Setup({
       env: { ...env, AWS_ACCESS_KEY_ID: "k", AWS_SECRET_ACCESS_KEY: "s" },
       homeDir: home,
     });
+
     expect(fallback.credentials?.accessKeyId).toBe("k");
     expect(fallback.overrides).toEqual([
       "AWS_ACCESS_KEY_ID",
@@ -223,12 +229,14 @@ describe("trace storage selection", () => {
       hosted: { origin: DEFAULT_HOSTED_ORIGIN },
     });
     expect(selection.s3?.credentials?.bucket).toBe("profile-traces");
+
     // A read-only override reaches the bucket without changing the selection.
     const s3 = await resolveTraceStorage({
       env,
       homeDir: home,
       override: "s3",
     });
+
     expect(s3?.kind).toBe("s3");
     expect(selectTraceStorage({ env, homeDir: home }).mode).toBe("hosted");
   });

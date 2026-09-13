@@ -47,6 +47,7 @@ describe("SoftwareMap snapshot helpers", () => {
         },
       },
     });
+
     const summaries = buildSoftwareMapChangeSummaries(
       model,
       new Map([["product.runtime.worker.run", { additions: 2, deletions: 1 }]]),
@@ -187,6 +188,7 @@ describe("SoftwareMap snapshot helpers", () => {
       ],
       relationships: [],
     };
+
     const currentSnapshot: SoftwareMapResolvedSnapshot = {
       ...layoutSnapshot,
       selectedNodeId: "root.child",
@@ -309,6 +311,7 @@ describe("SoftwareMap snapshot helpers", () => {
         },
       },
     });
+
     const changeSummaries = buildSoftwareMapChangeSummaries(
       model,
       new Map([
@@ -324,6 +327,7 @@ describe("SoftwareMap snapshot helpers", () => {
         ],
       ]),
     );
+
     const snapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model,

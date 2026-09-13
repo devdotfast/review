@@ -11,6 +11,7 @@ export class CheckoutApi {
 
   checkout(request: CheckoutRequest): CheckoutResponse {
     const order = this.orderService.placeOrder(request);
+
     return { status: 201, order };
   }
 }

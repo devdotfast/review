@@ -12,6 +12,7 @@ export function c4MapReactFlowInteractionProps(
   interactionMode: C4MapInteractionMode,
 ) {
   const standalone = interactionMode === "standalone";
+
   return {
     panOnScroll: false,
     preventScrolling: standalone,
@@ -61,9 +62,11 @@ export function findSpatialC4Node(
   const visiblePositions = positions.filter(
     (position) => Number.isFinite(position.x) && Number.isFinite(position.y),
   );
+
   const current = selectedNodeId
     ? visiblePositions.find((position) => position.id === selectedNodeId)
     : null;
+
   if (!current) {
     return firstC4SpatialNode(visiblePositions);
   }
@@ -71,13 +74,16 @@ export function findSpatialC4Node(
   const scopedPositions = visiblePositions.filter(
     (position) => position.parentId === current.parentId,
   );
+
   const currentRect = c4SpatialRect(current);
+
   const sameLevelTarget = bestC4SpatialTarget({
     selectedNodeId: current.id,
     positions: scopedPositions,
     currentRect,
     direction,
   });
+
   if (sameLevelTarget) return sameLevelTarget;
 
   return bestC4SpatialTarget({
@@ -97,22 +103,28 @@ function bestC4SpatialTarget(input: {
   direction: C4SpatialDirection;
 }): string | null {
   let best: { id: string; score: number } | null = null;
+
   for (const position of input.positions) {
     if (position.id === input.selectedNodeId) continue;
+
     const score = c4SpatialScore(
       input.currentRect,
       c4SpatialRect(position),
       input.direction,
     );
+
     if (score === null) continue;
+
     if (!best || score < best.score) best = { id: position.id, score };
   }
+
   return best?.id ?? null;
 }
 
 function c4SpatialRect(position: C4SpatialNodePosition) {
   const width = position.width ?? 0;
   const height = position.height ?? 0;
+
   return {
     left: position.x,
     right: position.x + width,
@@ -129,12 +141,16 @@ function c4SpatialScore(
   direction: C4SpatialDirection,
 ): number | null {
   if (direction === "left" && candidate.centerX >= current.centerX) return null;
+
   if (direction === "right" && candidate.centerX <= current.centerX)
     return null;
+
   if (direction === "up" && candidate.centerY >= current.centerY) return null;
+
   if (direction === "down" && candidate.centerY <= current.centerY) return null;
 
   const vertical = direction === "up" || direction === "down";
+
   const primaryGap =
     direction === "left"
       ? Math.max(0, current.left - candidate.right)
@@ -143,13 +159,17 @@ function c4SpatialScore(
         : direction === "up"
           ? Math.max(0, current.top - candidate.bottom)
           : Math.max(0, candidate.top - current.bottom);
+
   const crossGap = vertical
     ? intervalGap(current.left, current.right, candidate.left, candidate.right)
     : intervalGap(current.top, current.bottom, candidate.top, candidate.bottom);
+
   const crossCenterDistance = vertical
     ? Math.abs(candidate.centerX - current.centerX)
     : Math.abs(candidate.centerY - current.centerY);
+
   if (crossGap === 0) return primaryGap * 1000 + crossCenterDistance;
+
   return 1_000_000_000 + crossGap * 1000 + primaryGap;
 }
 
@@ -160,7 +180,9 @@ function intervalGap(
   rightEnd: number,
 ): number {
   if (rightEnd < leftStart) return leftStart - rightEnd;
+
   if (rightStart > leftEnd) return rightStart - leftEnd;
+
   return 0;
 }
 
@@ -170,9 +192,12 @@ function firstC4SpatialNode(
   return (
     [...positions].sort((left, right) => {
       const dy = left.y - right.y;
+
       if (dy !== 0) return dy;
       const dx = left.x - right.x;
+
       if (dx !== 0) return dx;
+
       return left.id.localeCompare(right.id);
     })[0]?.id ?? null
   );
@@ -182,9 +207,13 @@ export function c4SpatialDirectionForKey(
   key: string,
 ): C4SpatialDirection | null {
   if (key === "h" || key === "ArrowLeft") return "left";
+
   if (key === "j" || key === "ArrowDown") return "down";
+
   if (key === "k" || key === "ArrowUp") return "up";
+
   if (key === "l" || key === "ArrowRight") return "right";
+
   return null;
 }
 
@@ -228,9 +257,11 @@ export function selectedSoftwareMapNodeIdForNodes(input: {
   selectedNodeId: string | null | undefined;
 }): string | null {
   const nodeIds = new Set(input.nodes.map((node) => node.id));
+
   if (input.selectedNodeId && nodeIds.has(input.selectedNodeId)) {
     return input.selectedNodeId;
   }
+
   return input.nodes[0]?.id ?? null;
 }
 
@@ -258,6 +289,7 @@ export function softwareMapChildNodeIdForDrill(input: {
   ) {
     return input.rememberedChildNodeId;
   }
+
   return firstSoftwareMapChildNodeId(input);
 }
 
@@ -267,6 +299,7 @@ export function softwareMapNodeIdForDrill(input: {
   preferredChildNodeId?: string | null;
 }): string {
   if (!input.node.expanded) return input.node.id;
+
   return (
     softwareMapChildNodeIdForDrill({
       nodes: input.nodes,
@@ -282,7 +315,9 @@ export function parentSoftwareMapNodeId(input: {
 }): string | null {
   if (!input.nodeId) return null;
   const selected = input.nodes.find((node) => node.id === input.nodeId);
+
   if (!selected?.parentId) return null;
+
   return input.nodes.some((node) => node.id === selected.parentId)
     ? selected.parentId
     : null;
@@ -293,14 +328,18 @@ export function toggledSoftwareMapExpandedNodeIds(input: {
   node: Pick<SoftwareMapNodeSnapshot, "path" | "expandable" | "expanded">;
 }): Set<string> {
   const path = input.node.path;
+
   if (!path || !input.node.expandable) {
     return new Set(input.expandedNodeIds);
   }
+
   if (input.node.expanded) {
     return collapseInlineC4Node(input.expandedNodeIds, path);
   }
+
   const expandedNodeIds = new Set(input.expandedNodeIds);
   expandedNodeIds.add(path);
+
   return expandedNodeIds;
 }
 
@@ -329,11 +368,13 @@ export function softwareMapNodeForKeyboardExpansion<
     const selected = input.nodes.find(
       (node) => node.id === input.selectedNodeId,
     );
+
     return selected?.expandable ? selected : null;
   }
 
   if (input.focusedNodeId) {
     const focused = input.nodes.find((node) => node.id === input.focusedNodeId);
+
     return focused?.expandable ? focused : null;
   }
 
@@ -345,9 +386,11 @@ export function softwareMapViewportFocusNodeId(input: {
   viewportFocusNodeId: string | null | undefined;
 }): string | null {
   const nodeIds = new Set(input.nodes.map((node) => node.id));
+
   if (input.viewportFocusNodeId && nodeIds.has(input.viewportFocusNodeId)) {
     return input.viewportFocusNodeId;
   }
+
   return null;
 }
 
@@ -357,10 +400,12 @@ export function softwareMapViewportFocusTargetReady(input: {
   requireExpanded?: boolean;
 }) {
   if (input.viewportFocusNodeId !== input.node.id) return true;
+
   return input.requireExpanded === false || input.node.expanded;
 }
 
 const SOFTWARE_MAP_KEYBOARD_NODE_ID_ATTRIBUTE = "data-software-map-node-id";
+
 const SOFTWARE_MAP_KEYBOARD_NODE_SELECTOR = `[${SOFTWARE_MAP_KEYBOARD_NODE_ID_ATTRIBUTE}]`;
 
 export function softwareMapKeyboardNodeDomAttributes(
@@ -378,16 +423,21 @@ export function softwareMapEventTargetNodeId(
   currentTarget: HTMLElement,
 ): string | null {
   if (typeof HTMLElement === "undefined") return null;
+
   if (!(target instanceof HTMLElement)) return null;
+
   const nodeElement = target.closest<HTMLElement>(
     SOFTWARE_MAP_KEYBOARD_NODE_SELECTOR,
   );
+
   if (!nodeElement || !currentTarget.contains(nodeElement)) return null;
+
   return nodeElement.getAttribute(SOFTWARE_MAP_KEYBOARD_NODE_ID_ATTRIBUTE);
 }
 
 export function isSoftwareMapEditableTarget(target: EventTarget | null) {
   if (typeof HTMLElement === "undefined") return false;
+
   return (
     target instanceof HTMLElement &&
     (target.isContentEditable ||
@@ -400,7 +450,9 @@ export function isSoftwareMapEditableTarget(target: EventTarget | null) {
 export function focusSoftwareMapKeyboardTarget(element: HTMLElement | null) {
   if (!element || typeof document === "undefined") return;
   const activeElement = document.activeElement;
+
   if (isSoftwareMapEditableTarget(activeElement)) return;
+
   if (activeElement === element) return;
   element.focus({ preventScroll: true });
 }
@@ -411,8 +463,10 @@ export function observeSoftwareMapVisibility(
 ) {
   if (typeof IntersectionObserver === "undefined") {
     onVisible();
+
     return () => {};
   }
+
   const observer = new IntersectionObserver(
     (entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return;
@@ -421,7 +475,9 @@ export function observeSoftwareMapVisibility(
     },
     { rootMargin: "200px" },
   );
+
   observer.observe(element);
+
   return () => observer.disconnect();
 }
 

@@ -28,6 +28,7 @@ describe("createReviewSessionHandler", () => {
     const rootPath = await tempDir("review-map-stale-");
     const reviewPath = path.join(rootPath, "review.mdx");
     await writeFile(reviewPath, "# Review");
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -45,12 +46,14 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     try {
       const response = await handler.handle(
         new Request("http://127.0.0.1:5570/__progressive-review/document", {
           headers: { "x-review-token": "secret" },
         }),
       );
+
       expect(response.status).toBe(409);
       expect(await response.json()).toMatchObject({
         error: NEEDS_REPUBLISH_ERROR,
@@ -70,6 +73,7 @@ describe("createReviewSessionHandler", () => {
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
+
     const versions = [
       {
         revision: "b".repeat(40),
@@ -77,6 +81,7 @@ describe("createReviewSessionHandler", () => {
         isCurrent: true,
       },
     ];
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -93,12 +98,14 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     try {
       const response = await handler.handle(
         new Request(new URL("/__progressive-review/revisions", sessionUrl), {
           headers: { "x-review-token": token },
         }),
       );
+
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({ ok: true, versions });
     } finally {
@@ -115,6 +122,7 @@ describe("createReviewSessionHandler", () => {
     await writeFile(reviewPath, "# Review\n", "utf8");
     const bundle = bundleReviewDocument(reviewDocument);
     await writeReviewDocumentBundle(rootPath, bundle);
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -130,10 +138,12 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     const dispatchSessionUrl = (url: string) => {
       const requestUrl = new URL(url);
       expect(requestUrl.pathname.startsWith(`${sessionPath}/`)).toBe(true);
       requestUrl.pathname = requestUrl.pathname.slice(sessionPath.length);
+
       return handler.handle(
         new Request(requestUrl, {
           headers: { "x-review-token": token },
@@ -173,6 +183,7 @@ describe("createReviewSessionHandler", () => {
             { headers: { "x-review-token": token } },
           ),
         );
+
         expect(missing.status).toBe(404);
         await expect(missing.json()).resolves.toEqual({
           ok: false,
@@ -185,6 +196,7 @@ describe("createReviewSessionHandler", () => {
           headers: { "x-review-token": token },
         }),
       );
+
       expect(legacyRoute.status).toBe(404);
     } finally {
       await handler.close();
@@ -207,11 +219,13 @@ describe("createReviewSessionHandler", () => {
       const token = "session-secret";
       const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
       await writeFile(reviewPath, "# Review\n", "utf8");
+
       if (documentState === "v1") {
         const documentBundleDir = path.join(
           rootPath,
           REVIEW_DOCUMENT_BUNDLE_DIR,
         );
+
         await mkdir(documentBundleDir, { recursive: true });
         await writeFile(
           path.join(documentBundleDir, "manifest.json"),
@@ -228,6 +242,7 @@ describe("createReviewSessionHandler", () => {
           "utf8",
         );
       }
+
       if (mapState === "ready") {
         await writeReviewSoftwareMapBundle(
           rootPath,
@@ -239,8 +254,10 @@ describe("createReviewSessionHandler", () => {
           }),
         );
       }
+
       const softwareMapRootPath =
         mapState === "unpublished" ? undefined : rootPath;
+
       const handler = await createReviewSessionHandler({
         ...unusedAgentServices,
         rootPath,
@@ -265,6 +282,7 @@ describe("createReviewSessionHandler", () => {
             headers: { "x-review-token": token },
           }),
         );
+
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual({
           ok: false,
@@ -282,6 +300,7 @@ describe("createReviewSessionHandler", () => {
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -304,6 +323,7 @@ describe("createReviewSessionHandler", () => {
           headers: { "x-review-token": token },
         }),
       );
+
       expect(response.status).toBe(500);
       await expect(response.json()).resolves.toEqual({
         ok: false,

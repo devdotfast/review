@@ -34,22 +34,27 @@ export async function runReviewRebind(input: {
 }): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
+
   const resolved = await resolveRevision(
     review.review.worktreePath,
     input.change,
   );
+
   if (!resolved) {
     throw new Error(
       `Change does not resolve in ${review.review.worktreePath}: ${input.change}`,
     );
   }
+
   const sourceIdentity = await changeIdentityForRevision(
     review.review.worktreePath,
     input.change,
   );
+
   if (!sourceIdentity) {
     throw new Error(`Change does not resolve to one identity: ${input.change}`);
   }
+
   const repinned = await repinReview(
     review,
     {
@@ -61,12 +66,15 @@ export async function runReviewRebind(input: {
     },
     sourceIdentity,
   );
+
   const output: ReviewRebindJsonOutput = {
     event: "rebound",
     uuid: review.review.uuid,
     change: input.change,
   };
+
   if (repinned.warnings) output.warnings = repinned.warnings;
   input.stdout.write(`${JSON.stringify(output)}\n`);
+
   return 0;
 }

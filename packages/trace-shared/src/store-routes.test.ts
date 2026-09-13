@@ -4,7 +4,9 @@ import { TRACE_STORE_API_PREFIX } from "./store-api.js";
 import { storeRoutePatterns, storeRoutes } from "./store-routes.js";
 
 const repositoryId = 42;
+
 const sessionId = "session_1234";
+
 const uploadId = "0123456789abcdef0123456789abcdef";
 
 function relative(path: string): string {

@@ -11,11 +11,14 @@ export class FulfillmentWorker {
 
   runNext(): string | null {
     const job = this.queue.dequeue();
+
     if (!job) return null;
     const order = this.orders.find(job.orderId);
+
     if (!order) throw new Error(`Order not found: ${job.orderId}`);
     const shipment = this.shipping.createShipment(order);
     this.orders.setStatus(order.id, "fulfilled");
+
     return shipment.trackingNumber;
   }
 }

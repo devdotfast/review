@@ -34,6 +34,7 @@ import {
 import type { ReviewView } from "./review-view-route";
 
 const REVIEW_VIEW_STATE_NAMESPACE = "view-state";
+
 const SCROLL_RESTORE_DEADLINE_MS = 30_000;
 
 export interface PersistedReviewViewState {
@@ -102,6 +103,7 @@ export function ReviewViewStateProvider({
     }),
     [persistOverlayTour, tourRestore],
   );
+
   return createElement(ReviewTourStateContext.Provider, { value }, children);
 }
 
@@ -114,11 +116,14 @@ export function useReviewViewStateSync({
 }): ReviewViewStateSync {
   const session = useReviewSession();
   const key = reviewViewStateKey(session.config);
+
   const initialState = useMemo(
     () => readPersistedReviewViewState(session.config),
     [session],
   );
+
   const persistedRef = useRef(initialState);
+
   // Overlay tours claim first; the panel slot keeps older in-panel tours
   // restorable.
   const tourRestore = useMemo(
@@ -141,9 +146,11 @@ export function useReviewViewStateSync({
       const normalized = parsePersistedReviewViewState(
         parseJsonText(JSON.stringify(next)),
       );
+
       if (JSON.stringify(normalized) === JSON.stringify(persistedRef.current)) {
         return;
       }
+
       persistedRef.current = normalized;
       writeReviewUiState("session", key, normalized);
     },
@@ -185,6 +192,7 @@ export function useReviewViewStateSync({
     scrollRegionRef,
     initialState.scrollTop,
   );
+
   useScrollCapture(
     scrollRegionRef,
     persist,
@@ -211,6 +219,7 @@ export function useTourRestore(
     attemptedRef.current = true;
     setRestore(claim?.claim(tours) ?? null);
   }, [claim, tours]);
+
   return restore;
 }
 
@@ -223,6 +232,7 @@ export function useTourPersist(
   const persistOverlayTour = useContext(
     ReviewTourStateContext,
   )?.persistOverlayTour;
+
   useEffect(() => {
     persistOverlayTour?.(
       tour && activeAnchor ? { tourId: tour.id, activeAnchor } : null,
@@ -241,6 +251,7 @@ export function readPersistedReviewViewState(
     "session",
     reviewViewStateKey(config),
   );
+
   return parsePersistedReviewViewState(value);
 }
 
@@ -254,20 +265,26 @@ export function createReviewTourRestoreClaim(
   pending: { tourId: string; activeAnchor: string } | null | undefined,
 ): ReviewTourRestoreClaim {
   let claimed = false;
+
   return {
     claim(tours) {
       if (claimed || !pending) return null;
+
       const candidates: readonly GuidedTour[] = Array.isArray(tours)
         ? tours
         : [tours];
+
       const tour = candidates.find(
         (candidate) => candidate.id === pending.tourId,
       );
+
       if (!tour) return null;
       claimed = true;
+
       if (!tour.stops.some((stop) => stop.anchor.id === pending.activeAnchor)) {
         return null;
       }
+
       return { tour, activeAnchor: pending.activeAnchor };
     },
   };
@@ -281,6 +298,7 @@ function useScrollRestoration(
   useLayoutEffect(() => {
     const scrollRegion = scrollRegionRef.current;
     pendingRef.current = scrollRegion !== null && scrollTop !== undefined;
+
     if (!scrollRegion || scrollTop === undefined) return;
     let deadline: ReturnType<typeof setTimeout> | null = null;
     let resizeObserver: ResizeObserver | null = null;
@@ -292,28 +310,36 @@ function useScrollRestoration(
       scrollRegion.removeEventListener("touchstart", abortForUserInput);
       scrollRegion.removeEventListener("keydown", abortForNavigationKey);
     };
+
     const finish = () => {
       if (aborted) return;
       aborted = true;
       pendingRef.current = false;
+
       if (deadline !== null) clearTimeout(deadline);
       deadline = null;
       resizeObserver?.disconnect();
       resizeObserver = null;
       removeUserListeners();
     };
+
     const restore = () => {
       if (aborted) return;
+
       const maxScrollTop = Math.max(
         0,
         scrollRegion.scrollHeight - scrollRegion.clientHeight,
       );
+
       scrollRegion.scrollTop = Math.min(scrollTop, maxScrollTop);
+
       if (scrollTop <= maxScrollTop) {
         finish();
       }
     };
+
     const abortForUserInput = () => finish();
+
     const abortForNavigationKey = (event: Event) => {
       if (
         event instanceof KeyboardEvent &&
@@ -346,14 +372,18 @@ function useScrollRestoration(
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(restore);
+
     if (resizeObserver) {
       resizeObserver.observe(scrollRegion);
+
       for (const element of scrollRegion.querySelectorAll("*")) {
         resizeObserver.observe(element);
       }
     }
+
     deadline = setTimeout(finish, SCROLL_RESTORE_DEADLINE_MS);
     restore();
+
     return () => {
       if (deadline !== null) clearTimeout(deadline);
       resizeObserver?.disconnect();
@@ -361,6 +391,7 @@ function useScrollRestoration(
       pendingRef.current = false;
     };
   }, [scrollRegionRef, scrollTop]);
+
   return pendingRef;
 }
 
@@ -372,27 +403,37 @@ function useScrollCapture(
 ): void {
   useEffect(() => {
     const scrollRegion = scrollRegionRef.current;
+
     if (!scrollRegion) return;
     let frame: number | null = null;
     let dirty = false;
+
     const write = () => {
       frame = null;
+
       if (!dirty) return;
       dirty = false;
+
       if (restorationPending.current) return;
       persist({
         ...persistedRef.current,
         scrollTop: scrollRegion.scrollTop,
       });
     };
+
     const onScroll = () => {
       dirty = true;
+
       if (frame === null) frame = requestAnimationFrame(write);
     };
+
     scrollRegion.addEventListener("scroll", onScroll, { passive: true });
+
     return () => {
       scrollRegion.removeEventListener("scroll", onScroll);
+
       if (frame !== null) cancelAnimationFrame(frame);
+
       if (dirty) write();
     };
   }, [persist, persistedRef, restorationPending, scrollRegionRef]);
@@ -404,6 +445,7 @@ function persistedPanelState(
   if (state.active?.kind === "threads" && state.active.page.kind === "list") {
     return { kind: "threads" };
   }
+
   if (state.active?.kind === "tour") {
     return {
       kind: "tour",
@@ -411,6 +453,7 @@ function persistedPanelState(
       activeAnchor: state.active.activeAnchor,
     };
   }
+
   return undefined;
 }
 
@@ -420,8 +463,10 @@ function parsePersistedReviewViewState(
   if (!isJsonObject(value)) return {};
   const state: PersistedReviewViewState = {};
   const scrollTop = jsonNumber(jsonProperty(value, "scrollTop"));
+
   if (scrollTop !== undefined && scrollTop >= 0) state.scrollTop = scrollTop;
   const activeView = jsonString(jsonProperty(value, "activeView"));
+
   if (
     activeView === "review" ||
     activeView === "commits" ||
@@ -430,12 +475,17 @@ function parsePersistedReviewViewState(
   ) {
     state.activeView = activeView;
   }
+
   const panel = parsePersistedPanel(jsonObject(jsonProperty(value, "panel")));
+
   if (panel) state.panel = panel;
+
   const overlayTour = parsePersistedTourState(
     jsonObject(jsonProperty(value, "overlayTour")),
   );
+
   if (overlayTour) state.overlayTour = overlayTour;
+
   return state;
 }
 
@@ -446,17 +496,21 @@ function parsePersistedPanel(
   if (!panel) return undefined;
   const kind = jsonString(jsonProperty(panel, "kind"));
   const tour = parsePersistedTourState(panel);
+
   if (kind === "tour" && tour) return { kind: "tour", ...tour };
   const legacyThread = jsonObject(jsonProperty(panel, "thread"));
+
   if (
     kind === "threads" ||
     jsonString(legacyThread && jsonProperty(legacyThread, "kind")) === "threads"
   ) {
     return { kind: "threads" };
   }
+
   const legacyTour = parsePersistedTourState(
     jsonObject(jsonProperty(panel, "tour")),
   );
+
   return legacyTour ? { kind: "tour", ...legacyTour } : undefined;
 }
 
@@ -465,6 +519,7 @@ function parsePersistedTourState(
 ): PersistedReviewViewState["overlayTour"] {
   const tourId = jsonString(tour && jsonProperty(tour, "tourId"));
   const activeAnchor = jsonString(tour && jsonProperty(tour, "activeAnchor"));
+
   return tourId !== undefined && activeAnchor !== undefined
     ? { tourId, activeAnchor }
     : undefined;

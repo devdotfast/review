@@ -26,6 +26,7 @@ export function CallStackDiff(props: CallStackDiffProps) {
   const rows = diffCallStacks(parsed.base, parsed.head);
   const added = rows.filter((row) => row.change === "added").length;
   const removed = rows.filter((row) => row.change === "removed").length;
+
   return (
     <div className="call-stack-diff" data-review-call-stack="ready">
       <div className="call-stack-hunk">
@@ -46,8 +47,10 @@ export function CallStackDiff(props: CallStackDiffProps) {
       <div className="call-stack-body" role="list">
         {rows.map((row, index) => {
           const anchor = callStackEntryAnchor(row.entry);
+
           const marker =
             row.change === "added" ? "+" : row.change === "removed" ? "-" : " ";
+
           return (
             <button
               key={`${anchor.id}-${index}`}
@@ -98,6 +101,7 @@ export function CallStackDiff(props: CallStackDiffProps) {
 function rowTooltip(entry: CallStackEntry): string {
   if (!isCallsAssertion(entry)) return entry.title;
   const reason = entry.reason ? `: ${entry.reason}` : "";
+
   return `${entry.parent.title} → ${entry.child.title}${reason}`;
 }
 
@@ -105,5 +109,6 @@ function rowTooltip(entry: CallStackEntry): string {
 // tooltip. Deep monorepo paths otherwise crush the frame name lane.
 function locationLabel(file: string, line: number): string {
   const name = file.split("/").pop() ?? file;
+
   return `${name}:${line}`;
 }

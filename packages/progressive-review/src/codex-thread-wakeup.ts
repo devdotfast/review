@@ -18,11 +18,17 @@ import {
 } from "./review-codex-wait-state";
 
 const IPC_FRAME_HEADER_BYTES = 4;
+
 const MAX_IPC_FRAME_BYTES = 256 * 1024 * 1024;
+
 const IPC_REQUEST_TIMEOUT_MS = 30_000;
+
 const WAKE_RETRY_INTERVAL_MS = 2_000;
+
 const WAKE_RETRY_TIMEOUT_MS = 60_000;
+
 const CODEX_START_TURN_METHOD = "thread-follower-start-turn";
+
 const CODEX_START_TURN_VERSION = 1;
 
 // Deliberately duplicated from packages/cli/src/commands/codex-thread-wakeup.ts.
@@ -75,9 +81,11 @@ export class CodexIpcProtocolError extends Error {
 
 export function requireCodexThreadId(env: NodeJS.ProcessEnv): string {
   const threadId = env.CODEX_THREAD_ID?.trim();
+
   if (!threadId) {
     throw new CodexThreadIdUnavailableError();
   }
+
   return threadId;
 }
 
@@ -116,10 +124,13 @@ function spawnCodexWaitProcess(
       stdio: "ignore",
     },
   );
+
   child.unref();
+
   if (child.pid === undefined) {
     throw new Error("Could not start the detached Codex Review waiter.");
   }
+
   return child.pid;
 }
 
@@ -128,6 +139,7 @@ export async function wakeCodexThread(
 ): Promise<void> {
   const socketPath = codexIpcSocketPath(input.env);
   let socket: Socket;
+
   try {
     socket = await connectSocket(socketPath);
   } catch (error) {
@@ -135,6 +147,7 @@ export async function wakeCodexThread(
   }
 
   const messages = framedMessages(socket);
+
   try {
     const initializeRequestId = randomUUID();
     writeFrame(socket, {
@@ -188,14 +201,18 @@ export async function wakeCodexThreadWithRetry(
   const retryIntervalMs = options.retryIntervalMs ?? WAKE_RETRY_INTERVAL_MS;
   const timeoutMs = options.timeoutMs ?? WAKE_RETRY_TIMEOUT_MS;
   const send = options.send ?? wakeCodexThread;
+
   const sleep =
     options.sleep ??
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+
   const startedAt = Date.now();
+
   for (;;) {
     try {
       await send(input);
+
       return;
     } catch (error) {
       if (
@@ -204,10 +221,13 @@ export async function wakeCodexThreadWithRetry(
       ) {
         throw error;
       }
+
       const elapsedMs = Date.now() - startedAt;
+
       if (elapsedMs >= timeoutMs) {
         throw error;
       }
+
       await sleep(Math.min(retryIntervalMs, timeoutMs - elapsedMs));
     }
   }
@@ -215,20 +235,24 @@ export async function wakeCodexThreadWithRetry(
 
 export function codexIpcSocketPath(env: NodeJS.ProcessEnv): string {
   const codexHome = env.CODEX_HOME?.trim() || join(homedir(), ".codex");
+
   return join(codexHome, "ipc", "ipc.sock");
 }
 
 function connectSocket(socketPath: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
+
     const onError = (error: Error): void => {
       socket.off("connect", onConnect);
       reject(error);
     };
+
     const onConnect = (): void => {
       socket.off("error", onError);
       resolve(socket);
     };
+
     socket.once("error", onError);
     socket.once("connect", onConnect);
   });
@@ -243,6 +267,7 @@ function framedMessages(socket: Socket): FramedMessages {
   let buffered = Buffer.alloc(0);
   let failed: Error | undefined;
   const queued: JsonObject[] = [];
+
   const waiters = new Map<
     string,
     {
@@ -255,24 +280,32 @@ function framedMessages(socket: Socket): FramedMessages {
   const fail = (error: Error): void => {
     if (failed !== undefined) return;
     failed = error;
+
     for (const waiter of waiters.values()) {
       clearTimeout(waiter.timer);
       waiter.reject(error);
     }
+
     waiters.clear();
   };
 
   const dispatch = (message: JsonObject): void => {
     const requestId = jsonString(message.requestId);
+
     if (requestId === undefined) {
       queued.push(message);
+
       return;
     }
+
     const waiter = waiters.get(requestId);
+
     if (waiter === undefined) {
       queued.push(message);
+
       return;
     }
+
     clearTimeout(waiter.timer);
     waiters.delete(requestId);
     waiter.resolve(message);
@@ -280,25 +313,33 @@ function framedMessages(socket: Socket): FramedMessages {
 
   const onData = (chunk: Buffer): void => {
     buffered = Buffer.concat([buffered, chunk]);
+
     while (buffered.length >= IPC_FRAME_HEADER_BYTES) {
       const frameBytes = buffered.readUInt32LE(0);
+
       if (frameBytes === 0 || frameBytes > MAX_IPC_FRAME_BYTES) {
         fail(
           new CodexIpcProtocolError(
             `Codex IPC returned an invalid frame length (${frameBytes} bytes).`,
           ),
         );
+
         return;
       }
+
       const totalBytes = IPC_FRAME_HEADER_BYTES + frameBytes;
+
       if (buffered.length < totalBytes) return;
       const frame = buffered.subarray(IPC_FRAME_HEADER_BYTES, totalBytes);
       buffered = buffered.subarray(totalBytes);
+
       try {
         const parsed = parseJsonText(frame.toString("utf8"));
+
         if (!isJsonObject(parsed)) {
           throw new TypeError("frame is not an object");
         }
+
         dispatch(parsed);
       } catch (error) {
         fail(
@@ -307,13 +348,17 @@ function framedMessages(socket: Socket): FramedMessages {
             { cause: error },
           ),
         );
+
         return;
       }
     }
   };
+
   const onError = (error: Error): void => fail(error);
+
   const onClose = (): void =>
     fail(new CodexIpcProtocolError("Codex IPC closed before responding."));
+
   socket.on("data", onData);
   socket.on("error", onError);
   socket.on("close", onClose);
@@ -323,19 +368,24 @@ function framedMessages(socket: Socket): FramedMessages {
       socket.off("data", onData);
       socket.off("error", onError);
       socket.off("close", onClose);
+
       for (const waiter of waiters.values()) {
         clearTimeout(waiter.timer);
       }
+
       waiters.clear();
     },
     async waitForResponse(requestId) {
       if (failed !== undefined) throw failed;
+
       const queuedIndex = queued.findIndex(
         (message) => message.requestId === requestId,
       );
+
       if (queuedIndex >= 0) {
         return queued.splice(queuedIndex, 1)[0]!;
       }
+
       return await new Promise<JsonObject>((resolve, reject) => {
         const timer = setTimeout(() => {
           waiters.delete(requestId);
@@ -345,6 +395,7 @@ function framedMessages(socket: Socket): FramedMessages {
             ),
           );
         }, IPC_REQUEST_TIMEOUT_MS);
+
         timer.unref();
         waiters.set(requestId, { reject, resolve, timer });
       });
@@ -365,12 +416,15 @@ function initializedClientId(message: JsonObject): string {
   if (message.resultType !== "success" || message.method !== "initialize") {
     throw responseError("initialize", message);
   }
+
   const clientId = jsonString(jsonObject(message.result)?.clientId);
+
   if (clientId === undefined) {
     throw new CodexIpcProtocolError(
       "Codex IPC returned a malformed initialize response.",
     );
   }
+
   return clientId;
 }
 
@@ -386,6 +440,7 @@ function assertSuccessfulWake(message: JsonObject): void {
 function responseError(method: string, message: JsonObject): Error {
   const error = jsonString(message.error);
   const detail = error === undefined ? "" : `: ${error}`;
+
   return new CodexIpcProtocolError(
     `Codex IPC request "${method}" failed${detail}.`,
   );

@@ -32,9 +32,11 @@ const cleanups: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
+
   for (const dir of cleanups.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
+
   await cleanupTempDirs();
 });
 
@@ -50,6 +52,7 @@ describe("review threads CLI", () => {
         messages: [],
       },
     };
+
     let destination: string | undefined;
     let request = "";
     const proxy = createServer();
@@ -58,6 +61,7 @@ describe("review threads CLI", () => {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       socket.on("data", (chunk) => {
         request += chunk.toString();
+
         if (!request.includes("\r\n\r\n")) return;
         const body = JSON.stringify(payload);
         socket.end(
@@ -66,9 +70,11 @@ describe("review threads CLI", () => {
       });
     });
     await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+
     try {
       // listen above binds a TCP port and has completed successfully.
       const address = proxy.address() as AddressInfo;
+
       const output = await captureOutput((stdout) =>
         runReviewThreadsGet({
           cwd: process.cwd(),
@@ -83,6 +89,7 @@ describe("review threads CLI", () => {
           },
         }),
       );
+
       expect(JSON.parse(output)).toEqual(payload);
       expect(destination).toBe("review.invalid:12345");
       expect(request).toContain("GET /agent-threads/thread-proxy HTTP/1.1");
@@ -104,11 +111,13 @@ describe("review threads CLI", () => {
       body: "Please fix.",
       author: "Reviewer",
     });
+
     const listed = JSON.parse(
       await captureOutput((stdout) =>
         runReviewThreadsList({ cwd: root, stdout }),
       ),
     );
+
     expect(listed).toMatchObject({
       review: review.review.uuid,
       comments: {
@@ -126,6 +135,7 @@ describe("review threads CLI", () => {
         }),
       ),
     );
+
     expect(replied).toMatchObject({ event: "replied", threadId: "thread-1" });
 
     const resolved = JSON.parse(
@@ -133,6 +143,7 @@ describe("review threads CLI", () => {
         runReviewThreadsResolve({ cwd: root, threadId: "thread-1", stdout }),
       ),
     );
+
     expect(resolved).toMatchObject({
       event: "resolved",
       threadId: "thread-1",
@@ -143,6 +154,7 @@ describe("review threads CLI", () => {
         runReviewThreadsList({ cwd: root, stdout }),
       ),
     );
+
     expect(after.comments["thread-1"]).toMatchObject({
       status: "resolved",
       messages: [
@@ -195,12 +207,15 @@ async function makeReview(): Promise<{
   const home = await mkdtemp(path.join(os.tmpdir(), "review-threads-home-"));
   cleanups.push(home);
   vi.stubEnv("DEV_REVIEW_HOME", home);
+
   const review = await createReviewDir({
     worktreePath: root,
     baseRef: "main",
     baseCommit: await git(root, ["rev-parse", "HEAD"]),
   });
+
   const document = path.join(review.dir, "review.mdx");
+
   return { root, review, document };
 }
 
@@ -208,6 +223,7 @@ async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", root, ...args], {
     encoding: "utf8",
   });
+
   return stdout.trim();
 }
 
@@ -218,6 +234,7 @@ async function captureOutput(
   let output = "";
   stream.on("data", (chunk) => (output += String(chunk)));
   await expect(run(stream)).resolves.toBe(0);
+
   return output;
 }
 

@@ -26,6 +26,7 @@ import {
 } from "./review-document-data";
 
 let directory: string | undefined;
+
 afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });

@@ -7,6 +7,7 @@ import {
 } from "./review-source-ref";
 
 const uuid = "3b241101-e2bb-4255-8caf-4136c566a962";
+
 const ref = reviewSourceHeadRef(uuid);
 
 describe("review source head ref failures", () => {
@@ -15,6 +16,7 @@ describe("review source head ref failures", () => {
       if (options?.allowFailure) {
         return { ok: false, stdout: "", stderr: "delete failed" };
       }
+
       throw new Error("delete failed");
     };
 

@@ -105,6 +105,7 @@ describe("mapDiffLineCountsToSoftwareMapElements across wide authored ranges", (
   it("counts only changed lines, never walking the whole authored range", () => {
     const countsByFile = parseGitUnifiedDiffLineCounts(widePatch);
     const fileCounts = countsByFile.get("src/editorOptions.ts");
+
     if (!fileCounts)
       throw new Error("expected changed-line counts for the file");
 
@@ -112,6 +113,7 @@ describe("mapDiffLineCountsToSoftwareMapElements across wide authored ranges", (
     const rangeSize = 6895;
 
     let getCalls = 0;
+
     // Duck-typed stand-in for the per-file counts map: count `.get` lookups
     // (the operation the range-walk regression performs once per authored
     // line) while delegating iteration to the real map for the diff-bounded
@@ -119,10 +121,12 @@ describe("mapDiffLineCountsToSoftwareMapElements across wide authored ranges", (
     const countingFileCounts = {
       get: (key: number) => {
         getCalls += 1;
+
         return fileCounts.get(key);
       },
       [Symbol.iterator]: () => fileCounts[Symbol.iterator](),
     };
+
     const countingCountsByFile = new Map([
       ["src/editorOptions.ts", countingFileCounts],
     ]);

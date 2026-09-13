@@ -44,6 +44,7 @@ export async function resolveReviewStackLayers(
   if (!subject.pullRequestNumber) return [];
 
   let parsed: z.infer<typeof GhStackViewSchema>;
+
   try {
     parsed = GhStackViewSchema.parse(
       JSON.parse(await runGhStackView(subject.worktreePath)),
@@ -58,16 +59,19 @@ export async function resolveReviewStackLayers(
   const currentIndex = parsed.branches.findIndex(
     (branch) => branch.pr?.number === subject.pullRequestNumber,
   );
+
   if (currentIndex < 0) return [];
 
   return parsed.branches.flatMap((branch, index) => {
     if (!branch.pr) return [];
+
     const review = reviews.find(
       (candidate) =>
         candidate.repoKey === subject.repoKey &&
         candidate.pullRequestNumber === branch.pr?.number &&
         candidate.presentedDocumentRevision,
     );
+
     return [
       {
         branch: branch.name,
@@ -94,5 +98,6 @@ async function defaultRunGhStackView(cwd: string): Promise<string> {
     timeout: 10_000,
     maxBuffer: 2 * 1024 * 1024,
   });
+
   return stdout;
 }

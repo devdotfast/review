@@ -45,6 +45,7 @@ export async function checkSoftwareMapSource(input: {
   const canonicalSource = canonicalizeModelImport(input.source);
 
   let model: NormalizedSoftwareModel;
+
   try {
     model = await span("map check: import map module", () =>
       loadSoftwareMap(input.repoRootPath, canonicalSource, input.sourceName),
@@ -67,6 +68,7 @@ export async function checkSoftwareMapSource(input: {
     () => listCommitTreeFiles(input.repoRootPath, input.commit),
     input.commit,
   );
+
   const filesToRead = [
     ...new Set(
       model.elements.flatMap((element) =>
@@ -76,12 +78,15 @@ export async function checkSoftwareMapSource(input: {
       ),
     ),
   ].filter((filePath) => treeFiles.includes(filePath));
+
   const treeFileContents = readCommitTreeFilesSync(
     input.repoRootPath,
     input.commit,
     filesToRead,
   );
+
   const coverageSpan = startSpan("map check: coverage validation");
+
   const errors = [
     // An element-free model is the unauthored schema stub; green-lighting it
     // would flush a stub note that ancestor hydration then propagates to
@@ -97,15 +102,19 @@ export async function checkSoftwareMapSource(input: {
       listFiles: () => treeFiles,
       readFile: (_rootPath, filePath) => {
         const source = treeFileContents.get(filePath);
+
         if (source === undefined) {
           throw new Error(`Commit tree file is missing: ${filePath}`);
         }
+
         return source;
       },
       pathsFrame: `tree of ${input.commit.slice(0, 12)}`,
     }),
   ];
+
   coverageSpan.end();
+
   return { canonicalSource, model, errors };
 }
 
@@ -124,26 +133,32 @@ export async function loadPublishSoftwareMaps(input: {
     ["base", input.baseCommit],
     ["head", input.headCommit],
   ];
+
   const errors: string[] = [];
   let head: NormalizedSoftwareModel | null = null;
   let base: NormalizedSoftwareModel | null = null;
+
   for (const [role, commit] of targets) {
     const short = commit.slice(0, 12);
+
     const read = await readSoftwareMapSourceForRef({
       repoRootPath: input.repoRootPath,
       ref: commit,
       role,
     });
+
     if (!read) {
       errors.push(
         `No software map note at ${role} commit ${short}. Run \`review map open ${short}\`, author the map, then \`review map check ${short}\` and \`review map push\`.`,
       );
       continue;
     }
+
     const scratchPath = scratchSoftwareMapPath({
       repoRootPath: input.repoRootPath,
       commit: read.commit,
     });
+
     if (scratchPath) {
       const scratch = await readFile(scratchPath, "utf8").catch((error) => {
         if (
@@ -153,8 +168,10 @@ export async function loadPublishSoftwareMaps(input: {
         ) {
           return null;
         }
+
         throw error;
       });
+
       if (
         scratch !== null &&
         canonicalizeModelImport(scratch) !==
@@ -166,6 +183,7 @@ export async function loadPublishSoftwareMaps(input: {
         continue;
       }
     }
+
     const check = await span(
       `map publish: check ${role} map`,
       () =>
@@ -177,16 +195,19 @@ export async function loadPublishSoftwareMaps(input: {
         }),
       read.commit,
     );
+
     for (const error of check.errors) {
       errors.push(
         `Software map at ${role} commit ${short} fails \`review map check\`: ${error}`,
       );
     }
+
     if (check.errors.length === 0 && check.model) {
       if (role === "head") head = check.model;
       else base = check.model;
     }
   }
+
   return { head, base, errors };
 }
 
@@ -200,9 +221,11 @@ export async function loadSoftwareMap(
     source,
     basename: path.basename(mapPath),
   });
+
   if (!model) {
     throw new Error(`${mapPath} must default-export defineSoftwareMap({...}).`);
   }
+
   return model;
 }
 
@@ -217,7 +240,9 @@ async function importWithLocalizedModelImport(input: {
   basename: string;
 }): Promise<NormalizedSoftwareModel | null> {
   const gitDir = gitCommonDirSync(input.rootPath);
+
   if (!gitDir) throw new Error(`No git repository found at ${input.rootPath}`);
+
   // The check copy lives in a per-invocation directory (pid + random): a
   // shared path would let concurrent checks of different commits race each
   // other and publish never-validated bytes.
@@ -226,8 +251,10 @@ async function importWithLocalizedModelImport(input: {
     "check",
     `${process.pid}-${Math.random().toString(36).slice(2)}`,
   );
+
   const checkPath = path.join(checkDir, input.basename);
   mkdirSync(checkDir, { recursive: true });
+
   try {
     writeFileIfChangedSync(
       checkPath,
@@ -239,10 +266,13 @@ async function importWithLocalizedModelImport(input: {
     );
     const url = pathToFileURL(checkPath);
     url.searchParams.set("t", String(Date.now()));
+
     const module: { default?: unknown; softwareMap?: unknown } = await import(
       url.href
     );
+
     const model = module.default ?? module.softwareMap;
+
     return isNormalizedSoftwareModel(model) ? model : null;
   } finally {
     rmSync(checkDir, { recursive: true, force: true });
@@ -260,7 +290,9 @@ export async function listCommitTreeFiles(
     ["ls-tree", "-r", "-z", "--name-only", commit],
     { allowFailure: true },
   );
+
   if (!listed.ok) return [];
+
   return listed.stdout.split("\0").filter(Boolean);
 }
 
@@ -271,6 +303,7 @@ function readCommitTreeFilesSync(
 ): Map<string, string> {
   if (filePaths.length === 0) return new Map();
   const args = gitArgsSync(rootPath, ["cat-file", "--batch"]);
+
   const output = traceCommandSync("git", args, () =>
     execFileSync("git", args, {
       input: `${filePaths.map((filePath) => `${commit}:${filePath}`).join("\n")}\n`,
@@ -278,20 +311,26 @@ function readCommitTreeFilesSync(
       stdio: ["pipe", "pipe", "pipe"],
     }),
   );
+
   const contents = new Map<string, string>();
   let offset = 0;
+
   for (const filePath of filePaths) {
     const headerEnd = output.indexOf(0x0a, offset);
+
     if (headerEnd < 0) throw new Error(`Missing git object for ${filePath}.`);
     const header = output.subarray(offset, headerEnd).toString("utf8");
     const size = Number(header.split(" ").at(-1));
+
     if (!Number.isSafeInteger(size) || size < 0) {
       throw new Error(`Invalid git object header for ${filePath}: ${header}`);
     }
+
     const start = headerEnd + 1;
     const end = start + size;
     contents.set(filePath, output.subarray(start, end).toString("utf8"));
     offset = end + 1;
   }
+
   return contents;
 }

@@ -28,6 +28,7 @@ describe("target fingerprints", () => {
       start: 9,
       length: 13,
     };
+
     const created = buildBlockTarget(input);
     const checked = buildBlockTarget(input);
     expect(targetsEqual(created, checked)).toBe(true);
@@ -39,6 +40,7 @@ describe("target fingerprints", () => {
 
   it("preserves whitespace exactly in document block targets", () => {
     const text = "  const first = true;\n    return first;";
+
     const target = buildBlockTarget({
       tag: "pre",
       index: 2,
@@ -67,6 +69,7 @@ describe("target fingerprints", () => {
       start: 0,
       length: 4,
     };
+
     expect(
       targetsEqual(buildTableCellTarget(input), buildTableCellTarget(input)),
     ).toBe(true);
@@ -78,6 +81,7 @@ describe("target fingerprints", () => {
       field: "detail" as const,
       text: "Starts   the server",
     };
+
     const created = buildAnchorTextTarget(input);
     expect(targetsEqual(created, buildAnchorTextTarget(input))).toBe(true);
     expect(created).toMatchObject({
@@ -104,6 +108,7 @@ describe("target fingerprints", () => {
       headCommit: "head-commit",
       span: { startLine: 3, endLine: 5 },
     };
+
     expect(targetsEqual(buildCodeTarget(input), buildCodeTarget(input))).toBe(
       true,
     );
@@ -141,11 +146,13 @@ describe("target fingerprints", () => {
       start: { old_line: 3, new_line: null },
       end: { old_line: null, new_line: 5 },
     });
+
     const target = {
       kind: "code" as const,
       original_position: position,
       position,
     };
+
     const patch = [
       "@@ -3,2 +3,3 @@",
       "-old three",
@@ -197,6 +204,7 @@ describe("target fingerprints", () => {
       payload: { from: "Browser", label: "Dispatch", to: "Worker" },
       quote: "Dispatch",
     };
+
     const created = buildGraphTarget(input);
     expect(targetsEqual(created, buildGraphTarget(input))).toBe(true);
     expect(targetKey(created)).toBe(targetKey(buildGraphTarget(input)));
@@ -210,6 +218,7 @@ describe("target fingerprints", () => {
       payload: { from: "Browser", to: "Worker" },
       quote: "Browser to Worker",
     });
+
     const withUndefined = buildGraphTarget({
       diagram: "Request flow",
       type: "edge",
@@ -217,6 +226,7 @@ describe("target fingerprints", () => {
       payload: { from: "Browser", label: undefined, to: "Worker" },
       quote: "Browser to Worker",
     });
+
     expect(withUndefined.element.hash).toBe(withoutOptional.element.hash);
   });
 });

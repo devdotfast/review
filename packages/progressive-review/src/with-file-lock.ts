@@ -9,6 +9,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 const LOCK_OWNER_FILE = "owner.json";
+
 const DEFAULT_HEARTBEAT_MS = 30_000;
 
 export interface FileLockOptions {
@@ -46,9 +47,11 @@ export async function withFileLock<T>(
 ): Promise<FileLockOutcome<T>> {
   await mkdir(path.dirname(lockPath), { recursive: true });
   const deadline = Date.now() + options.timeoutMs;
+
   while (true) {
     try {
       await mkdir(lockPath);
+
       try {
         await writeFile(
           path.join(lockPath, LOCK_OWNER_FILE),
@@ -59,6 +62,7 @@ export async function withFileLock<T>(
         await rm(lockPath, { recursive: true, force: true });
         throw error;
       }
+
       break;
     } catch (error) {
       if (
@@ -66,25 +70,31 @@ export async function withFileLock<T>(
       ) {
         throw error;
       }
+
       const lockAge = await stat(lockPath)
         .then((metadata) => Date.now() - metadata.mtimeMs)
         .catch(() => 0);
+
       const ownerPid = await readLockOwner(lockPath);
       const ownerDead = ownerPid !== null && !processIsAlive(ownerPid);
       const neverOwned = ownerPid === null && lockAge > options.unownedGraceMs;
       const heartbeatSilent = lockAge > options.staleMs;
+
       if (ownerDead || neverOwned || heartbeatSilent) {
         await rm(lockPath, { recursive: true, force: true });
         continue;
       }
+
       if (Date.now() >= deadline) return { acquired: false };
       await delay(options.retryMs);
     }
   }
+
   const heartbeat = startHeartbeat(
     lockPath,
     options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
   );
+
   try {
     return { acquired: true, result: await operation() };
   } finally {
@@ -96,6 +106,7 @@ export async function withFileLock<T>(
 export function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
+
     return true;
   } catch (error) {
     return error instanceof Error && "code" in error && error.code === "EPERM";
@@ -109,7 +120,9 @@ function startHeartbeat(lockPath: string, intervalMs: number): NodeJS.Timeout {
       // The lock may already be reclaimed; the next steal check settles it.
     });
   }, intervalMs);
+
   timer.unref?.();
+
   return timer;
 }
 

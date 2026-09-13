@@ -19,6 +19,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 export const OPENCODE_SESSION_RECORD = "opencode_session";
+
 export const OPENCODE_MESSAGE_RECORD = "opencode_message";
 
 /** OpenCode session ids are `ses_` followed by a sortable id. */
@@ -41,30 +42,38 @@ export async function exportOpenCodeTrace(input: {
   const destination = path.join(input.root, `${input.sessionId}.jsonl`);
   const staging = `${destination}.tmp-${process.pid}`;
   const raw = await runOpenCodeExport(input.sessionId, `${staging}.json`);
+
   if (raw === null) return null;
   const exported = jsonObject(parseJsonText(raw));
   const info = jsonObject(exported?.info);
+
   if (!exported || !info) {
     throw new Error(
       `opencode export ${input.sessionId} returned no session info.`,
     );
   }
+
   const messages = jsonArray(exported.messages);
+
   if (!messages) {
     throw new Error(
       `opencode export ${input.sessionId} returned no message list.`,
     );
   }
+
   const header: JsonObject = {
     type: OPENCODE_SESSION_RECORD,
     ...pick(info, ["id", "parentID", "directory", "title", "version", "time"]),
   };
+
   const lines = [
     JSON.stringify(header),
     ...messages.map((message) => JSON.stringify(traceMessageRecord(message))),
   ];
+
   writeFileSync(staging, `${lines.join("\n")}\n`, "utf8");
   renameSync(staging, destination);
+
   return destination;
 }
 
@@ -78,6 +87,7 @@ function runOpenCodeExport(
   stdoutPath: string,
 ): Promise<string | null> {
   const fd = openSync(stdoutPath, "w");
+
   return new Promise<string | null>((resolve, reject) => {
     // `--pure` skips user plugins, so the Review trace plugin cannot fire
     // hooks from inside the export it triggered.
@@ -85,11 +95,14 @@ function runOpenCodeExport(
       stdio: ["ignore", fd, "pipe"],
       windowsHide: true,
     });
+
     let stderr = "";
     const stderrStream = child.stderr;
+
     if (!stderrStream) {
       throw new Error("opencode export did not open a stderr pipe.");
     }
+
     stderrStream.setEncoding("utf8");
     stderrStream.on("data", (chunk: string) => {
       stderr += chunk;
@@ -103,6 +116,7 @@ function runOpenCodeExport(
     });
     child.once("exit", (code) => {
       closeSync(fd);
+
       try {
         if (code === 0) {
           resolve(readFileSync(stdoutPath, "utf8"));
@@ -125,10 +139,13 @@ function runOpenCodeExport(
 function traceMessageRecord(message: JsonValue) {
   const record = jsonObject(message);
   const info = jsonObject(record?.info);
+
   if (!record || !info) {
     throw new Error("opencode export returned a message without info.");
   }
+
   const parts = jsonArray(record.parts) ?? [];
+
   const trace: JsonObject = {
     type: OPENCODE_MESSAGE_RECORD,
     info: pick(info, [
@@ -143,14 +160,17 @@ function traceMessageRecord(message: JsonValue) {
     ]),
     parts: parts.flatMap((part) => {
       const object = jsonObject(part);
+
       return object ? [tracePart(object)] : [];
     }),
   };
+
   return trace;
 }
 
 function tracePart(part: JsonObject) {
   const common = pick(part, ["id", "type"]);
+
   switch (part.type) {
     case "text":
       return { ...common, ...pick(part, ["text", "ignored", "synthetic"]) };
@@ -158,6 +178,7 @@ function tracePart(part: JsonObject) {
       return { ...common, ...pick(part, ["text", "time"]) };
     case "tool": {
       const state = jsonObject(part.state);
+
       return {
         ...common,
         ...pick(part, ["tool", "callID"]),
@@ -166,6 +187,7 @@ function tracePart(part: JsonObject) {
           : {},
       };
     }
+
     case "file":
       return { ...common, ...pick(part, ["mime", "filename"]) };
     case "patch":
@@ -179,9 +201,12 @@ function tracePart(part: JsonObject) {
 
 function pick(value: JsonObject, keys: readonly string[]) {
   const picked: JsonObject = {};
+
   for (const key of keys) {
     const entry = value[key];
+
     if (entry !== undefined) picked[key] = entry;
   }
+
   return picked;
 }

@@ -43,6 +43,7 @@ import { useResolvedBaseRef, useResolvedHeadRef } from "./thread-target-model";
 import { captureUiEvent, reviewAppTelemetryHeaders } from "./ui-telemetry";
 
 export type LocalCommentThread = ReviewLocalCommentThread;
+
 export interface CommentThreadView extends ReviewCommentThreadRecord {
   clientStatus: "persisted" | ReviewLocalCommentThread["clientStatus"];
   agentActivity?: ReviewCommentAgentActivity;
@@ -111,6 +112,7 @@ export function openThreadsWithDraftCleanup(input: {
   if (isGlobalCommentDraft(input.draftTarget)) {
     input.closeCommentDraft();
   }
+
   input.openThreads();
 }
 
@@ -203,7 +205,9 @@ interface PendingSubmission {
 }
 
 const ReviewActionsContext = createContext<ReviewActionsValue | null>(null);
+
 const ReviewStateContext = createContext<ReviewStateValue | null>(null);
+
 export function ReviewProvider({
   documentRoute,
   softwareMapEnabled = false,
@@ -250,14 +254,19 @@ function ReviewCoordinator({
   const [commentStore, commentSnapshot] = useComments();
   const resolvedBaseRef = useResolvedBaseRef();
   const resolvedHeadRef = useResolvedHeadRef();
+
   const [draftTarget, setDraftTarget] = useState<CommentDraftTarget | null>(
     null,
   );
+
   const [focusedThreadId, setFocusedThreadId] = useState<string | null>(null);
+
   const [threadFocusRequest, setThreadFocusRequest] =
     useState<ThreadFocusRequest | null>(null);
+
   const [softwareMapFocusRequest, setSoftwareMapFocusRequest] =
     useState<SoftwareMapFocusRequest | null>(null);
+
   // Resolved threads are hidden from the canvas by default; this toggles them
   // back into view (greyed, with an unresolve action) so a reviewer can inspect
   // the context of already-addressed comments.
@@ -266,9 +275,11 @@ function ReviewCoordinator({
   // a live-looking but dead document. The containing host owns its own window.
   const [submissionOutcome, setSubmissionOutcome] =
     useState<ReviewSubmissionOutcome | null>(null);
+
   const [historicalRevision, setHistoricalRevision] = useState<string | null>(
     null,
   );
+
   const historicalRevisionRef = useRef<string | null>(null);
   historicalRevisionRef.current = historicalRevision;
   const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
@@ -281,6 +292,7 @@ function ReviewCoordinator({
   const pendingCommentCount = commentSnapshot.pendingCommentCount;
   const commentThreadsRef = useRef(commentThreads);
   commentThreadsRef.current = commentThreads;
+
   const commentTargetIndex = useMemo(
     () => buildThreadTargetIndex(commentThreads.values()),
     [commentThreads],
@@ -332,6 +344,7 @@ function ReviewCoordinator({
         ),
     [agentActivities, commentThreads, localComments],
   );
+
   const allCommentThreads = useCallback(
     () => activeCommentThreads,
     [activeCommentThreads],
@@ -349,6 +362,7 @@ function ReviewCoordinator({
         ),
     [agentActivities, commentThreads, localComments],
   );
+
   const resolvedCommentThreads = useCallback(
     () => resolvedThreads,
     [resolvedThreads],
@@ -401,6 +415,7 @@ function ReviewCoordinator({
     async (input: CreateReviewCommentInput) => {
       const existing = commentThreadsRef.current.get(input.threadId);
       await commentStore.saveComment(input);
+
       if (input.body.trim()) {
         captureUiEvent(session, "comment_created", {
           is_reply: Boolean(existing?.messages.length),
@@ -409,6 +424,7 @@ function ReviewCoordinator({
     },
     [commentStore, session],
   );
+
   const openCommentDraft = useCallback(
     (target: OpenCommentDraftTarget) => {
       if (historicalRevisionRef.current) return;
@@ -425,25 +441,31 @@ function ReviewCoordinator({
     },
     [session],
   );
+
   const closeCommentDraft = useCallback(() => setDraftTarget(null), []);
+
   const deleteLocalComment = useCallback(
     (threadId: string) => commentStore.deleteLocalComment(threadId),
     [commentStore],
   );
+
   const updateComment = useCallback(
     (threadId: string, body: string, messageId?: string) =>
       commentStore.updateComment(threadId, body, messageId),
     [commentStore],
   );
+
   const deleteComment = useCallback(
     (threadId: string) => commentStore.deleteComment(threadId),
     [commentStore],
   );
+
   const deleteCommentMessage = useCallback(
     (threadId: string, messageId: string) =>
       commentStore.deleteCommentMessage(threadId, messageId),
     [commentStore],
   );
+
   const setCommentResolved = useCallback(
     async (threadId: string, resolved: boolean) => {
       if (resolved)
@@ -466,11 +488,13 @@ function ReviewCoordinator({
     async (decision: "approve" | "request-changes", summary?: string) => {
       const summaryBody = summary?.trim();
       const key = `${decision}\u0000${summaryBody ?? ""}`;
+
       if (pendingSubmissionRef.current?.key !== key) {
         const pendingSubmission: PendingSubmission = {
           key,
           submissionId: createSubmissionId(),
         };
+
         if (summaryBody) {
           pendingSubmission.summaryComment = {
             threadId: createClientId(),
@@ -479,14 +503,19 @@ function ReviewCoordinator({
             body: summaryBody,
           };
         }
+
         pendingSubmissionRef.current = pendingSubmission;
       }
+
       const pendingSubmission = pendingSubmissionRef.current;
+
       try {
         if (pendingSubmission.summaryComment) {
           await commentStore.saveComment(pendingSubmission.summaryComment);
         }
+
         const submittedInputs = await commentStore.flushPendingComments();
+
         const response = await reviewFetch(
           "/submissions",
           {
@@ -503,12 +532,14 @@ function ReviewCoordinator({
           },
           { routePath: documentRoute },
         );
+
         if (!response.ok) {
           throw new Error(
             (await response.text()) ||
               `Failed to submit review (${response.status}).`,
           );
         }
+
         commentStore.completeHumanReviewRound();
         pendingSubmissionRef.current = null;
         setSubmissionOutcome(
@@ -549,9 +580,11 @@ function ReviewCoordinator({
       { method: "POST", headers: reviewAppTelemetryHeaders(session) },
       { routePath: documentRoute },
     );
+
     if (!response.ok) {
       throw new Error(`Review dismiss failed (${response.status}).`);
     }
+
     setSubmissionOutcome("dismissed");
   }, [documentRoute, reviewFetch, session]);
 
@@ -561,9 +594,12 @@ function ReviewCoordinator({
       {},
       { routePath: documentRoute },
     );
+
     if (!response.ok) return null;
     const body: JsonValue = await response.json();
+
     if (!isJsonObject(body) || body.ok !== true) return null;
+
     return parseZod(
       ReviewDocumentVersionSchema.array(),
       body.versions ?? [],
@@ -580,14 +616,17 @@ function ReviewCoordinator({
       .then(async (response) => {
         if (!response.ok) return;
         const body: JsonValue = await response.json();
+
         const reviewSession = isJsonObject(body)
           ? jsonObject(body.session)
           : undefined;
+
         if (disposed) return;
         setHistoricalRevision(
           jsonString(reviewSession?.historicalRevision) ?? null,
         );
         const reviewStatus = jsonString(reviewSession?.reviewStatus);
+
         if (reviewStatus === "accepted") {
           setSubmissionOutcome("approved");
         } else if (reviewStatus === "awaiting-agent-updates") {
@@ -597,6 +636,7 @@ function ReviewCoordinator({
       .catch((cause: unknown) => {
         console.error("Review status fetch failed", cause);
       });
+
     return () => {
       disposed = true;
     };
@@ -702,13 +742,16 @@ function commentDraftPlacementFromActiveElement(): CommentDraftPlacement {
     document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+
   const rect = activeElement?.getBoundingClientRect();
+
   if (rect && rect.width > 0 && rect.height > 0) {
     return {
       x: rect.left + rect.width / 2,
       y: rect.bottom + 8,
     };
   }
+
   return {
     x: window.innerWidth / 2,
     y: Math.min(window.innerHeight / 2, 280),
@@ -721,15 +764,18 @@ function createSubmissionId(): string {
 
 export function createClientId(): string {
   const crypto = globalThis.crypto;
+
   if (!crypto) {
     throw new Error("Review thread creation requires browser cryptography.");
   }
+
   // randomUUID is only exposed in secure contexts.
   if (crypto.randomUUID !== undefined) return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = (bytes[6]! & 0x0f) | 0x40;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+
   return [
     hex.slice(0, 4).join(""),
     hex.slice(4, 6).join(""),
@@ -741,6 +787,7 @@ export function createClientId(): string {
 
 function firstMessageTime(thread: ReviewCommentThreadRecord): number {
   const time = Date.parse(thread.messages[0]?.at ?? "");
+
   return Number.isFinite(time) ? time : 0;
 }
 
@@ -760,6 +807,7 @@ export function createAstLineCommentTarget(
   if (!anchor.peek?.resolution) {
     throw new Error("Code comments require a resolved anchor CodePeek.");
   }
+
   if (
     !Number.isInteger(input.fromLine) ||
     !Number.isInteger(input.toLine) ||
@@ -767,6 +815,7 @@ export function createAstLineCommentTarget(
   ) {
     throw new Error("Code comments require a valid inclusive line range.");
   }
+
   return createAstLineCommentTargetFromSource(
     input,
     resolvedCodeSurface(anchor.peek.resolution),
@@ -781,19 +830,23 @@ export function createAstLineCommentTargetFromSource(
 ): OpenCommentDraftTarget {
   const side = input.side === "deletions" ? "base" : "head";
   const commit = side === "base" ? commits.baseRef : commits.headRef;
+
   if (!commit || !commits.baseRef || !commits.headRef) {
     throw new Error(
       "Code comments require the resolved base and head commits.",
     );
   }
+
   const lines = source.text.split("\n");
   const fromIndex = input.fromLine - source.fromLine;
   const toIndex = input.toLine - source.fromLine;
   const fromText = lines[fromIndex];
   const toText = lines[toIndex];
+
   if (fromText === undefined || toText === undefined) {
     throw new Error("Code comments require a range within resolved source.");
   }
+
   return {
     target: buildCodeTarget({
       path: source.file,
@@ -822,10 +875,12 @@ export function createBaseAstLineCommentDraftTarget(
       "Deleted-line comments require the resolved base and head commits.",
     );
   }
+
   const label =
     input.fromLine === input.toLine
       ? `L${input.fromLine}`
       : `L${input.fromLine}–${input.toLine}`;
+
   return {
     target: buildCodeTarget({
       path: anchor.peek?.resolution
@@ -841,6 +896,7 @@ export function createBaseAstLineCommentDraftTarget(
     panelRange: input,
     resolveTarget: async () => {
       const source = await resolveBaseSource();
+
       return createAstLineCommentTargetFromSource(input, source, {
         baseRef,
         headRef,
@@ -880,8 +936,11 @@ function commentThreadViewState(
     ...thread,
     clientStatus: commentClientStatus(thread.threadId, localComments),
   };
+
   const agentActivity = agentActivities.get(thread.threadId);
+
   if (agentActivity) view.agentActivity = agentActivity;
+
   return view;
 }
 
@@ -900,10 +959,12 @@ export function buildLineCommentsForAnchor(
   const source = anchor.peek?.resolution
     ? resolvedCodeSurface(anchor.peek.resolution)
     : undefined;
+
   return [...threads]
     .filter((thread) => thread.status !== "resolved")
     .flatMap((thread) => {
       const target = thread.target;
+
       const diffFile =
         target.kind === "code"
           ? anchor.peek?.resolution?.diff?.files.find(
@@ -912,10 +973,12 @@ export function buildLineCommentsForAnchor(
                 file.previousPath === target.position.old_path,
             )
           : undefined;
+
       const projection =
         target.kind === "code"
           ? projectCodeTarget(target, "head", diffFile?.patch)
           : null;
+
       if (
         target.kind !== "code" ||
         !projection ||
@@ -926,6 +989,7 @@ export function buildLineCommentsForAnchor(
         projection.span.startLine > sourceEndLine(source)
       )
         return [];
+
       return [
         {
           rootIndex: 0,
@@ -948,15 +1012,19 @@ function reportBackgroundReviewError(cause: unknown): void {
 
 export function useReviewActions(): ReviewActionsValue {
   const value = useContext(ReviewActionsContext);
+
   if (!value)
     throw new Error("Review components must render inside ReviewProvider");
+
   return value;
 }
 
 export function useReviewState(): ReviewStateValue {
   const value = useContext(ReviewStateContext);
+
   if (!value)
     throw new Error("Review components must render inside ReviewProvider");
+
   return value;
 }
 
@@ -964,5 +1032,6 @@ export function useReviewState(): ReviewStateValue {
 export function useReview(): ReviewContextValue {
   const actions = useReviewActions();
   const state = useReviewState();
+
   return useMemo(() => ({ ...actions, ...state }), [actions, state]);
 }

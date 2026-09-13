@@ -30,6 +30,7 @@ function makeContainer(
       bottom: 700,
       right: 800,
     }) as DOMRect;
+
   const setTop = (element: HTMLElement, top: number) => {
     element.getBoundingClientRect = () =>
       ({
@@ -41,15 +42,21 @@ function makeContainer(
         right: 800,
       }) as DOMRect;
   };
+
   const elements = rows.map((row) => {
     const element = document.createElement("div");
+
     if (row.index !== undefined) element.dataset.traceEvent = String(row.index);
+
     if (row.gap !== undefined) element.dataset.traceGap = String(row.gap);
     setTop(element, row.top);
     container.append(element);
+
     return element;
   });
+
   document.body.append(container);
+
   return { container, elements, setTop };
 }
 
@@ -68,6 +75,7 @@ describe("chooseTraceAnchor", () => {
       ],
       100,
     );
+
     expect(anchor).toEqual({ index: 2, offset: 20 });
   });
 
@@ -99,6 +107,7 @@ describe("capture and restore across an elision change", () => {
       { index: 7, top: 110 },
       { index: 8, top: 170 },
     ]);
+
     const anchor = captureTraceScrollAnchor(container);
     expect(anchor).toEqual({ index: 7, offset: 10 });
 
@@ -114,6 +123,7 @@ describe("capture and restore across an elision change", () => {
       { index: 3, top: 130 },
       { index: 9, top: 200 },
     ]);
+
     const anchor = captureTraceScrollAnchor(container);
     expect(anchor).toEqual({ index: 3, offset: 30 });
 
@@ -130,6 +140,7 @@ describe("capture and restore across an elision change", () => {
       { index: 6, top: 190 },
       { index: 9, top: 250 },
     ]);
+
     const anchor = captureTraceScrollAnchor(container);
     expect(anchor).toEqual({ index: 5, offset: 30 });
 

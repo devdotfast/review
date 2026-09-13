@@ -70,6 +70,7 @@ describe("review UI state", () => {
 
   it("keys reader scope without the session so it outlives one review", () => {
     const reader = reviewUiStateKey(null, "reader", "ui", "side-peek-width");
+
     const session = reviewUiStateKey(
       TEST_REVIEW_CONFIG,
       "session",
@@ -90,18 +91,24 @@ describe("review UI state", () => {
     const walk = (directory: string) => {
       for (const entry of readdirSync(directory)) {
         const full = path.join(directory, entry);
+
         if (statSync(full).isDirectory()) {
           walk(full);
           continue;
         }
+
         if (!/\.tsx?$/.test(entry)) continue;
+
         if (/\.test\.tsx?$/.test(entry)) continue;
+
         if (allowed.has(path.relative(root, full))) continue;
+
         if (/window\.(local|session)Storage/.test(readFileSync(full, "utf8"))) {
           offenders.push(path.relative(root, full));
         }
       }
     };
+
     walk(root);
 
     expect(offenders).toEqual([]);

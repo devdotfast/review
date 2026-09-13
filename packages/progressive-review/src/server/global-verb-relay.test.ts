@@ -16,7 +16,9 @@ describe("global Review Desktop verb relay", () => {
       name: "state",
       args: {},
     });
+
     await vi.waitFor(() => expect(first.frames).toHaveLength(1));
+
     const message = JSON.parse(first.frames[0].slice(6)) as {
       id: string;
       sessionId: string;
@@ -53,14 +55,17 @@ describe("global Review Desktop verb relay", () => {
 
   it("resolves pending verbs on timeout, disconnect, and close", async () => {
     vi.useFakeTimers();
+
     try {
       const timeoutRelay = new GlobalReviewDesktopVerbRelay(25);
       const timeoutWriter = createWriter();
       timeoutRelay.attach(timeoutWriter.writer);
+
       const timedOut = timeoutRelay.dispatch("session-one", {
         name: "state",
         args: {},
       });
+
       await vi.advanceTimersByTimeAsync(25);
       await expect(timedOut).resolves.toEqual({
         ok: false,
@@ -70,10 +75,12 @@ describe("global Review Desktop verb relay", () => {
       const disconnectRelay = new GlobalReviewDesktopVerbRelay();
       const disconnectWriter = createWriter();
       disconnectRelay.attach(disconnectWriter.writer);
+
       const disconnected = disconnectRelay.dispatch("session-one", {
         name: "state",
         args: {},
       });
+
       disconnectWriter.abort.abort();
       await expect(disconnected).resolves.toEqual({
         ok: false,
@@ -83,10 +90,12 @@ describe("global Review Desktop verb relay", () => {
       const closedRelay = new GlobalReviewDesktopVerbRelay();
       const closedWriter = createWriter();
       closedRelay.attach(closedWriter.writer);
+
       const closed = closedRelay.dispatch("session-one", {
         name: "state",
         args: {},
       });
+
       closedRelay.close();
       expect(closedWriter.close).toHaveBeenCalledOnce();
       await expect(closed).resolves.toEqual({
@@ -103,6 +112,7 @@ function createWriter() {
   const abort = new AbortController();
   const close = vi.fn<() => void>();
   const frames: string[] = [];
+
   return {
     abort,
     close,

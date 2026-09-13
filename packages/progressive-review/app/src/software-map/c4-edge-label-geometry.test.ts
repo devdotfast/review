@@ -24,6 +24,7 @@ describe("SoftwareMap edge label geometry", () => {
       { x: 160, y: 220 },
       { x: 260, y: 220 },
     ]);
+
     for (let index = 1; index < points.length; index += 1) {
       const previous = points[index - 1]!;
       const next = points[index]!;
@@ -52,10 +53,12 @@ describe("SoftwareMap edge label geometry", () => {
         ],
       ],
     ]);
+
     const edgeLabels = new Map([
       ["edge-a", { x: 180, y: -12, width: 96, height: 24 }],
       ["edge-b", { x: 180, y: -12, width: 96, height: 24 }],
     ]);
+
     const nodeObstacles = [{ x: 150, y: -44, width: 120, height: 88 }];
 
     const positioned = positionC4EdgeLabels(
@@ -63,6 +66,7 @@ describe("SoftwareMap edge label geometry", () => {
       edgeLabels,
       nodeObstacles,
     );
+
     const first = positioned.get("edge-a");
     const second = positioned.get("edge-b");
 

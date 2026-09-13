@@ -20,6 +20,7 @@ export async function resolveReviewHeadRelationship(input: {
     resolveRevision(input.rootPath, input.headRef).catch(() => null),
     currentHead(input.rootPath).catch(() => null),
   ]);
+
   if (!pinnedHead || !checkout) {
     return {
       kind: "unresolved",
@@ -27,6 +28,7 @@ export async function resolveReviewHeadRelationship(input: {
       checkoutCommit: checkout?.commit ?? null,
     };
   }
+
   if (pinnedHead.commit === checkout.commit) {
     return {
       kind: "exact",
@@ -34,11 +36,13 @@ export async function resolveReviewHeadRelationship(input: {
       checkoutCommit: checkout.commit,
     };
   }
+
   const ancestor = await mergeBase({
     rootPath: input.rootPath,
     baseRef: pinnedHead.commit,
     headRef: checkout.commit,
   }).catch(() => null);
+
   return {
     kind: ancestor?.commit === pinnedHead.commit ? "descendant" : "mismatch",
     pinnedCommit: pinnedHead.commit,

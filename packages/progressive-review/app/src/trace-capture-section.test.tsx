@@ -34,6 +34,7 @@ describe("TraceCaptureSection", () => {
     const apply = vi.fn<ReviewCanvasInstallContent["apply"]>(
       async () => traceStatus,
     );
+
     const install: ReviewCanvasInstallContent = {
       status: traceStatus,
       apply,
@@ -72,6 +73,7 @@ describe("TraceCaptureSection", () => {
         storageMode: "hosted",
       },
     };
+
     const install: ReviewCanvasInstallContent = {
       status: hostedStatus,
       apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
@@ -80,6 +82,7 @@ describe("TraceCaptureSection", () => {
       skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
       enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
     };
+
     await act(async () =>
       root.render(<TraceCaptureSection install={install} />),
     );
@@ -96,9 +99,11 @@ describe("TraceCaptureSection", () => {
       ...traceStatus,
       trace: { ...traceStatus.trace, enabled: true },
     };
+
     const remove = vi.fn<ReviewCanvasInstallContent["remove"]>(
       async () => traceStatus,
     );
+
     const install: ReviewCanvasInstallContent = {
       status: enabledStatus,
       apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
@@ -133,6 +138,7 @@ describe("TraceCaptureSection", () => {
         storageMode: "hosted",
       },
     };
+
     const install: ReviewCanvasInstallContent = {
       status: hostedStatus,
       apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
@@ -141,6 +147,7 @@ describe("TraceCaptureSection", () => {
       skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
       enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
     };
+
     await act(async () =>
       root.render(<TraceCaptureSection install={install} />),
     );

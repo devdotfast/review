@@ -49,7 +49,9 @@ export function isTelemetryOptedOut(
   // installation and command metrics. Telemetry's own unit tests inject fake
   // capture clients, so they are unaffected by this guard.
   if (isEnabledEnvValue(env.VITEST) || env.NODE_ENV === "test") return true;
+
   if (config?.enabled === false) return true;
+
   return [
     env.DO_NOT_TRACK,
     env.DNT,
@@ -78,7 +80,9 @@ export function normalizeTelemetryInstallConfig(
   now: () => Date,
 ): ProgressiveReviewTelemetryInstallConfig | undefined {
   const stored = storedTelemetryInstallConfigSchema.safeParse(parsed);
+
   if (!stored.success) return undefined;
+
   return {
     installationId: stored.data.installationId,
     createdAt: stored.data.createdAt ?? now().toISOString(),
@@ -113,26 +117,36 @@ let cachedWorkspaceCheckout: boolean | undefined;
 // above it.
 function isWorkspaceCheckout(): boolean {
   if (cachedWorkspaceCheckout !== undefined) return cachedWorkspaceCheckout;
+
   try {
     const packageRoot = findProgressiveReviewPackageRoot();
+
     if (packageRoot.split(path.sep).includes("node_modules")) {
       cachedWorkspaceCheckout = false;
+
       return cachedWorkspaceCheckout;
     }
+
     let dir = packageRoot;
+
     while (true) {
       if (existsSync(path.join(dir, "pnpm-workspace.yaml"))) {
         cachedWorkspaceCheckout = true;
+
         return cachedWorkspaceCheckout;
       }
+
       const parent = path.dirname(dir);
+
       if (parent === dir) break;
       dir = parent;
     }
+
     cachedWorkspaceCheckout = false;
   } catch {
     cachedWorkspaceCheckout = false;
   }
+
   return cachedWorkspaceCheckout;
 }
 
@@ -146,7 +160,10 @@ export function isInternalTelemetry(
   config?: Pick<ProgressiveReviewTelemetryInstallConfig, "internal">,
 ): boolean {
   if (env.PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL === "1") return true;
+
   if (env.PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL === "0") return false;
+
   if (config?.internal === true) return true;
+
   return isWorkspaceCheckout();
 }

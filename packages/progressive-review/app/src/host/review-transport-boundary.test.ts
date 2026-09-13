@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const appSourceRoot = fileURLToPath(new URL("../", import.meta.url));
+
 const transportModule = fileURLToPath(
   new URL("./review-client.ts", import.meta.url),
 );
@@ -12,6 +13,7 @@ const transportModule = fileURLToPath(
 describe("review host transport boundary", () => {
   it("keeps the private API prefix and raw transport constructors in one module", () => {
     const violations: string[] = [];
+
     for (const file of sourceFiles(appSourceRoot)) {
       if (
         file === transportModule ||
@@ -19,17 +21,22 @@ describe("review host transport boundary", () => {
       ) {
         continue;
       }
+
       const source = readFileSync(file, "utf8");
+
       if (source.includes("__progressive-review")) {
         violations.push(`${file}: private API prefix`);
       }
+
       if (/(?<![.\w])fetch\s*\(/.test(source)) {
         violations.push(`${file}: raw fetch`);
       }
+
       if (/new\s+EventSource\s*\(/.test(source)) {
         violations.push(`${file}: raw EventSource`);
       }
     }
+
     expect(violations).toEqual([]);
   });
 });
@@ -37,7 +44,9 @@ describe("review host transport boundary", () => {
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(directory, entry.name);
+
     if (entry.isDirectory()) return sourceFiles(path);
+
     return /\.[cm]?[jt]sx?$/.test(entry.name) ? [path] : [];
   });
 }

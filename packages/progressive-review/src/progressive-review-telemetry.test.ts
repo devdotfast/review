@@ -67,6 +67,7 @@ describe("ProgressiveReviewTelemetry", () => {
     const { events, rootPath, telemetry } = createTelemetry({
       env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1" },
     });
+
     cleanupPaths.push(rootPath);
 
     await telemetry.captureCommandSucceeded({
@@ -120,6 +121,7 @@ describe("ProgressiveReviewTelemetry", () => {
   it("migrates a legacy installation id with a false internal marker", async () => {
     const { configPath, legacyConfigPath, rootPath, telemetry } =
       createTelemetry();
+
     cleanupPaths.push(rootPath);
     await writeStoredConfig(legacyConfigPath, { installId: "legacy-install" });
 
@@ -154,6 +156,7 @@ describe("ProgressiveReviewTelemetry", () => {
     const { configPath, events, rootPath, telemetry } = createTelemetry({
       env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "0" },
     });
+
     cleanupPaths.push(rootPath);
     await writeStoredConfig(configPath, storedConfig({ internal: true }));
 
@@ -170,6 +173,7 @@ describe("ProgressiveReviewTelemetry", () => {
     const { configPath, events, rootPath, telemetry } = createTelemetry({
       env: { PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL: "1" },
     });
+
     cleanupPaths.push(rootPath);
     await writeStoredConfig(configPath, storedConfig({ internal: false }));
 
@@ -202,6 +206,7 @@ describe("ProgressiveReviewTelemetry", () => {
       "review_review_reaped",
       "review_app_opened",
     ]);
+
     for (const event of events) {
       expect(event.properties).toMatchObject({ internal: true });
     }
@@ -211,6 +216,7 @@ describe("ProgressiveReviewTelemetry", () => {
     const { events, rootPath, telemetry } = createTelemetry({
       env: { [REVIEW_APP_VERSION_ENV]: "0.0.16" },
     });
+
     cleanupPaths.push(rootPath);
 
     await telemetry.captureSessionStarted({ mode: "refs" });
@@ -228,6 +234,7 @@ describe("ProgressiveReviewTelemetry", () => {
       const { events, rootPath, telemetry } = createTelemetry({
         env: appVersion ? { [REVIEW_APP_VERSION_ENV]: appVersion } : {},
       });
+
       cleanupPaths.push(rootPath);
 
       await telemetry.captureSessionStarted({ mode: "refs" });
@@ -241,6 +248,7 @@ describe("ProgressiveReviewTelemetry", () => {
     const { events, rootPath, telemetry } = createTelemetry({
       env: { CODEX_THREAD_ID: "secret-agent-session-id" },
     });
+
     cleanupPaths.push(rootPath);
 
     await telemetry.captureSessionStarted({ mode: "refs" });
@@ -271,6 +279,7 @@ describe("ProgressiveReviewTelemetry", () => {
     const { configPath, events, rootPath, telemetry } = createTelemetry({
       env: { DO_NOT_TRACK: "1" },
     });
+
     cleanupPaths.push(rootPath);
 
     await telemetry.captureInstallationCreated();
@@ -346,6 +355,7 @@ describe("ProgressiveReviewTelemetry", () => {
       env: { CODEX_THREAD_ID: "agent-session-secret" },
       commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
     });
+
     cleanupPaths.push(rootPath);
     const commandRunId = telemetry.createCommandRunId();
     const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
@@ -468,15 +478,18 @@ function createTelemetry(input?: {
       .toString(16)
       .slice(2)}`,
   );
+
   const configPath = path.join(rootPath, "telemetry.json");
   const legacyConfigPath = path.join(rootPath, "legacy.json");
   const events: PostHogCaptureInput[] = [];
+
   const captureClient: ProgressiveReviewTelemetryCaptureClient = {
     enabled: true,
     capture: async (event) => {
       events.push(event);
     },
   };
+
   const options: ProgressiveReviewTelemetryOptions = {
     captureClient,
     env: input?.env ?? {},
@@ -485,9 +498,12 @@ function createTelemetry(input?: {
     idFactory: () => input?.installationId ?? "install-123",
     now: () => new Date("2026-01-02T03:04:05.000Z"),
   };
+
   const commandRunId = input?.commandRunId;
+
   if (commandRunId) options.randomUUID = () => commandRunId;
   const telemetry = new ProgressiveReviewTelemetry(options);
+
   return { configPath, events, legacyConfigPath, rootPath, telemetry };
 }
 
@@ -516,16 +532,20 @@ async function writeStoredConfig(
 
 async function readStoredConfig(configPath: string): Promise<JsonObject> {
   const value = parseJsonText(await readFile(configPath, "utf8"));
+
   if (!isJsonObject(value)) {
     throw new Error(`Stored config at ${configPath} is not an object.`);
   }
+
   return value;
 }
 
 async function progressiveReviewPackageVersion(): Promise<string> {
   const packageRoot = findProgressiveReviewPackageRoot(import.meta.url);
+
   const packageJson = JSON.parse(
     await readFile(path.join(packageRoot, "package.json"), "utf8"),
   ) as { version: string };
+
   return packageJson.version;
 }

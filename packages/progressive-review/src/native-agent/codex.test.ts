@@ -26,6 +26,7 @@ afterEach(async () => {
 async function options(): Promise<AgentServerOptions> {
   const directory = await mkdtemp(path.join(tmpdir(), "review-codex-"));
   temporaryDirectories.push(directory);
+
   return {
     runtimeDirectory: directory,
     desktopEndpoint: { baseUrl: "http://127.0.0.1:4000", token: "s" },
@@ -37,6 +38,7 @@ const userItem = (id: string, text: string) => ({
   id,
   content: [{ type: "text", text, text_elements: [] }],
 });
+
 const agentItem = (id: string, text: string) => ({
   type: "agentMessage",
   id,
@@ -53,6 +55,7 @@ function fakeHost(handlers: {
 } {
   const lineListeners: Array<(line: string) => void> = [];
   const requests: Array<{ method: string; params: JsonObject }> = [];
+
   const transport: Transport = {
     send(line) {
       // SAFETY: the client under test writes exactly this JSON-RPC request shape.
@@ -61,9 +64,11 @@ function fakeHost(handlers: {
         method: string;
         params: JsonObject;
       };
+
       if (message.id === undefined) return;
       requests.push({ method: message.method, params: message.params });
       const handler = handlers[message.method];
+
       const reply = handler
         ? (() => {
             try {
@@ -76,6 +81,7 @@ function fakeHost(handlers: {
             }
           })()
         : { id: message.id, result: {} };
+
       queueMicrotask(() => {
         for (const listener of lineListeners) listener(JSON.stringify(reply));
       });
@@ -84,7 +90,9 @@ function fakeHost(handlers: {
     onClose: () => undefined,
     close: async () => undefined,
   };
+
   const client = new CodexAppServerClient(transport);
+
   return {
     requests,
     url: async () => "ws://127.0.0.1:4500",
@@ -100,6 +108,7 @@ function fakeHost(handlers: {
 describe("Codex live capture", () => {
   it("buffers a fast reply before subscription and keeps a resumed follow-up on the same stream", async () => {
     let turn = 0;
+
     const host = fakeHost({
       "thread/fork": () => ({ thread: { id: "forked" } }),
       "turn/start": () => {
@@ -125,9 +134,11 @@ describe("Codex live capture", () => {
             },
           },
         });
+
         return { turn: { id } };
       },
     });
+
     const server = new CodexAgentServer(await options(), host);
     await server.launch({
       session: { forkOf: "source" },
@@ -200,15 +211,19 @@ describe("Codex live capture", () => {
             completedAtMs: 1000,
           },
         });
+
         return { turn: { id: "run" } };
       },
     });
+
     const server = new CodexAgentServer(await options(), host);
     await server.launch({ cwd: "/tmp", prompt: { id: "ask", text: "work" } });
     let finished = false;
+
     const stop = server.interrupt("t").then(() => {
       finished = true;
     });
+
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(finished).toBe(false);
     host.emit({

@@ -208,20 +208,25 @@ export async function runProgressiveReviewCli(
 ): Promise<number> {
   const env = input.env ?? process.env;
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
+
   const cliVersion =
     input.cliVersion ?? readProgressiveReviewPackageVersion(import.meta.url);
+
   const runtime = progressiveReviewCliRuntime(input.runtime);
   const telemetry = input.telemetry ?? ProgressiveReviewTelemetry.fromEnv(env);
+
   const state: CliRunState = {
     exitCode: 0,
     parseSurface: "review",
     parserErrorOutput: "",
     json: jsonRequestedInArgv(input.argv),
   };
+
   let telemetryProperties: Record<
     string,
     boolean | number | string | null | undefined
   > = {};
+
   let activeTelemetry:
     | {
         command: ProgressiveReviewCommandPath;
@@ -244,6 +249,7 @@ export async function runProgressiveReviewCli(
       },
     });
     command.showHelpAfterError();
+
     return command;
   };
 
@@ -259,6 +265,7 @@ export async function runProgressiveReviewCli(
     configureOutput(command, surface).addOption(
       new Option("--json", "print machine-readable JSON events on stdout"),
     );
+
   // A read-only source override for trace reads. It never changes the
   // persisted selection, capture settings, or consent.
   const storageOption = () =>
@@ -266,6 +273,7 @@ export async function runProgressiveReviewCli(
       "--storage <mode>",
       "read from the s3 or hosted store instead of the selected one",
     ).choices(["s3", "hosted"]);
+
   const viewOption = () =>
     new Option("--view <view>", "view to show after opening").choices([
       "review",
@@ -293,6 +301,7 @@ export async function runProgressiveReviewCli(
     .version(cliVersion)
     .description("Create, publish, and open dev.fast Reviews.")
     .addHelpText("after", progressiveReviewTopLevelHelp());
+
   // Tolerate the leading form (`review --json scaffold`) as well as the usual
   // trailing one. Never give this a .default(): optsWithGlobals merges globals
   // over locals, so a default would clobber a subcommand's own true.
@@ -337,6 +346,7 @@ export async function runProgressiveReviewCli(
       input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
     }
   };
+
   const pickReview = async (options: {
     review?: string;
     view?: ReviewView;
@@ -353,20 +363,26 @@ export async function runProgressiveReviewCli(
       // not be stdout: the picker's ANSI frames would corrupt the event line.
       stdout: humanStream({ ...input, json: options.json }),
     });
+
     if (!event) {
       state.exitCode = 1;
+
       return;
     }
+
     writeAppEvent(event, options.json);
     state.exitCode = 0;
   };
+
   const launchApp = async (options: { json?: boolean }) => {
     const event = await runtime.runReviewAppLaunch();
     writeAppEvent(event, options.json);
     state.exitCode = 0;
   };
+
   const bindActiveReview = async (reviewUuid: string): Promise<void> => {
     const active = activeTelemetry;
+
     if (!active || active.finished || active.reviewUuid) return;
     active.reviewUuid = reviewUuid;
     setTraceAttribute("reviewUuid", reviewUuid);
@@ -378,6 +394,7 @@ export async function runProgressiveReviewCli(
       }),
     );
   };
+
   const app = configureJsonOutput(
     program
       .command("app")
@@ -388,9 +405,11 @@ export async function runProgressiveReviewCli(
   ).action(
     async (options: { review?: string; view?: ReviewView; json?: boolean }) => {
       if (options.review) return pickReview(options);
+
       return launchApp(options);
     },
   );
+
   configureJsonOutput(
     app.command("launch").description("Start or activate Review Desktop"),
     "plain",
@@ -490,10 +509,12 @@ export async function runProgressiveReviewCli(
   ).action(async (options: ReviewWaitOptions) => {
     if (options.codex) {
       const threadId = requireCodexThreadId(env);
+
       const review = await runtime.validateReviewWait({
         cwd,
         reviewUuid: options.review,
       });
+
       const registration = await runtime.startCodexWaitProcess({
         cliEntryPath: process.argv[1]!,
         cwd,
@@ -502,6 +523,7 @@ export async function runProgressiveReviewCli(
         threadId,
         timeout: String(options.timeout),
       });
+
       input.stdout.write(
         `${JSON.stringify({
           event: "codex-wait",
@@ -513,8 +535,10 @@ export async function runProgressiveReviewCli(
         })}\n`,
       );
       state.exitCode = 0;
+
       return;
     }
+
     state.exitCode = await runtime.runReviewWait({
       cwd,
       reviewUuid: options.review,
@@ -555,14 +579,17 @@ export async function runProgressiveReviewCli(
       .requiredOption("--commit <commit>")
       .action(async (checkoutPath: string, options: { commit: string }) => {
         const resolvedPath = path.resolve(checkoutPath);
+
         const commands = await devfastPrepareCommands(resolvedPath).catch(
           (): string[] => [],
         );
+
         const result = await runtime.prepareReviewPinnedCheckout({
           checkoutPath: resolvedPath,
           commit: options.commit,
           commands,
         });
+
         state.exitCode = result.prepared ? 0 : 1;
       }),
     "plain",
@@ -582,6 +609,7 @@ export async function runProgressiveReviewCli(
         all: options.all,
         reviewUuid: options.review,
       });
+
       input.stdout.write(`${JSON.stringify(event)}\n`);
       state.exitCode = 0;
     });
@@ -626,6 +654,7 @@ export async function runProgressiveReviewCli(
         newReview: options.new,
         onReviewBound: bindActiveReview,
       });
+
       input.stdout.write(`${JSON.stringify(event)}\n`);
       state.exitCode = 0;
     });
@@ -675,6 +704,7 @@ export async function runProgressiveReviewCli(
       .addHelpText("after", progressiveReviewInstallHelp()),
     "plain",
   );
+
   install.action(
     async (
       targets: string[],
@@ -691,9 +721,11 @@ export async function runProgressiveReviewCli(
     ) => {
       const selectedTargets = installTargets(targets);
       const installShim = options.shim !== false;
+
       const cliSource = installShim
         ? await resolveInstallCliSource(env)
         : undefined;
+
       const installInput: RunInstallInput = {
         targets: selectedTargets,
         env,
@@ -702,7 +734,9 @@ export async function runProgressiveReviewCli(
         stdout: input.stdout,
         stderr: input.stderr,
       };
+
       if (installShim) installInput.reviewCommand = pathShimPath();
+
       // Trace capture is experimental and opt-in: only a request that names
       // R2 credentials configures it. --without-traces stays accepted so
       // existing scripts keep working.
@@ -717,7 +751,9 @@ export async function runProgressiveReviewCli(
           },
         };
       }
+
       state.exitCode = await runtime.runInstall(installInput);
+
       if (state.exitCode !== 0 || !installShim) return;
 
       const human = humanStream({
@@ -725,16 +761,20 @@ export async function runProgressiveReviewCli(
         stdout: input.stdout,
         stderr: input.stderr,
       });
+
       if (!cliSource) {
         human.write(
           "Review did not install the review command because no built CLI was found. The skills were installed.\n",
         );
+
         return;
       }
+
       const installed = await runtime.installReviewCommand({
         ...cliSource,
         env,
       });
+
       human.write(installed.output);
     },
   );
@@ -743,6 +783,7 @@ export async function runProgressiveReviewCli(
     program.command("migrate").description("Migrate legacy Review data"),
     "plain",
   );
+
   configureJsonOutput(
     migrate
       .command("apply")
@@ -768,6 +809,7 @@ export async function runProgressiveReviewCli(
       .description("Read and update review comment threads"),
     "plain",
   );
+
   configureJsonOutput(
     threads
       .command("get <thread-id>")
@@ -842,23 +884,28 @@ export async function runProgressiveReviewCli(
     "plain",
   ).action(async () => {
     const payload = await readStopHookPayload(input);
+
     for (const review of await touchedStopHookReviews(
       payload,
       runtime.listReviews,
     )) {
       await runtime.sealReviewCandidate(review.dir, "Review turn checkpoint");
     }
+
     const decisionCwd = payload.cwd ?? cwd;
     const marker = await readReopenMarker(decisionCwd);
     const decision = decideStopHook(marker);
+
     if (decision.markNudged && marker) {
       await markReopenNudged(decisionCwd, marker);
     }
+
     if (decision.block) {
       input.stdout.write(
         `${JSON.stringify({ decision: "block", reason: decision.reason })}\n`,
       );
     }
+
     state.exitCode = 0;
   });
 
@@ -911,6 +958,7 @@ export async function runProgressiveReviewCli(
     program.command("trace").description("Manage agent traces"),
     "plain",
   );
+
   configureOutput(
     trace
       .command("status")
@@ -930,6 +978,7 @@ export async function runProgressiveReviewCli(
     trace.command("storage").description("Select the trace store"),
     "plain",
   );
+
   configureJsonOutput(
     traceStorage
       .command("use <mode>")
@@ -1040,6 +1089,7 @@ export async function runProgressiveReviewCli(
     trace.command("config").description("Manage trace storage configuration"),
     "plain",
   );
+
   configureJsonOutput(
     traceConfig
       .command("migrate")
@@ -1124,6 +1174,7 @@ export async function runProgressiveReviewCli(
       if (options.review && options.commit) {
         throw new Error("Use either --review or --commit, not both.");
       }
+
       state.exitCode = await runtime.runReviewTraceList({
         cwd,
         reviewUuid: options.review,
@@ -1199,9 +1250,11 @@ export async function runProgressiveReviewCli(
         options.commit,
         options.session,
       ].filter(Boolean);
+
       if (selectors.length > 1) {
         throw new Error("Use only one of --review, --commit, or --session.");
       }
+
       state.exitCode = await runtime.runReviewTracePull({
         cwd,
         repo: options.repo,
@@ -1338,6 +1391,7 @@ export async function runProgressiveReviewCli(
       .addHelpText("after", progressiveReviewMapHelp()),
     "map",
   );
+
   map.action((mapArgs: string[]) => executeMap(mapArgs));
 
   program.hook("preAction", async (_command, actionCommand) => {
@@ -1346,7 +1400,9 @@ export async function runProgressiveReviewCli(
     if (actionCommand.optsWithGlobals().json === true) {
       state.json = true;
     }
+
     const command = telemetryCommandPath(actionCommand, input.argv);
+
     if (!command) return;
     const commandRunId = telemetry.createCommandRunId();
     setTraceAttribute("command", command);
@@ -1374,6 +1430,7 @@ export async function runProgressiveReviewCli(
 
   try {
     await program.parseAsync(input.argv, { from: "user" });
+
     return state.exitCode;
   } catch (error) {
     if (error instanceof CommanderError) {
@@ -1385,9 +1442,12 @@ export async function runProgressiveReviewCli(
             : "help",
           0,
         );
+
         return 0;
       }
+
       const surface = state.parseSurface;
+
       // stdout carries the parseable failure whenever the caller asked for
       // JSON; stderr keeps the commander message and the help that
       // showHelpAfterError() produced, because a human may be reading too.
@@ -1400,11 +1460,13 @@ export async function runProgressiveReviewCli(
           },
         });
       }
+
       if (surface !== "review") {
         input.stderr.write(
           state.parserErrorOutput || ensureTrailingNewline(error.message),
         );
       }
+
       await finishActiveTelemetry(
         telemetry,
         activeTelemetry,
@@ -1412,9 +1474,11 @@ export async function runProgressiveReviewCli(
         error,
         telemetryProperties,
       );
+
       if (!activeTelemetry) {
         await captureOneOffCommand(telemetry, "invalid", 1, error);
       }
+
       return 1;
     }
 
@@ -1426,6 +1490,7 @@ export async function runProgressiveReviewCli(
     } else {
       input.stderr.write(ensureTrailingNewline(formatCliError(error)));
     }
+
     await finishActiveTelemetry(
       telemetry,
       activeTelemetry,
@@ -1433,6 +1498,7 @@ export async function runProgressiveReviewCli(
       error,
       telemetryProperties,
     );
+
     return 1;
   } finally {
     await attemptTelemetry(() => telemetry.shutdown(1_000));
@@ -1441,9 +1507,11 @@ export async function runProgressiveReviewCli(
 
 function parseTimeoutSeconds(value: string): number {
   const timeout = Number(value);
+
   if (!Number.isFinite(timeout) || timeout <= 0) {
     throw new Error("Timeout must be a positive number of seconds.");
   }
+
   return timeout;
 }
 
@@ -1451,6 +1519,7 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
   if (targets.length === 0 || targets.includes("all")) {
     return [...ALL_INSTALL_TARGETS];
   }
+
   return [
     ...new Set(
       targets
@@ -1469,20 +1538,28 @@ async function readStopHookPayload(
   input: ProgressiveReviewCliInput,
 ): Promise<StopHookPayload> {
   const stdin = input.stdin ?? process.stdin;
+
   if (stdin.isTTY) return {};
+
   try {
     const chunks: Buffer[] = [];
+
     for await (const chunk of stdin) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
+
     const raw = Buffer.concat(chunks).toString("utf8").trim();
+
     if (!raw) return {};
     const parsed = jsonObject(parseJsonText(raw));
     const payload: StopHookPayload = {};
     const cwd = jsonString(parsed?.cwd);
+
     if (cwd !== undefined) payload.cwd = cwd;
     const transcriptPath = jsonString(parsed?.transcript_path);
+
     if (transcriptPath !== undefined) payload.transcriptPath = transcriptPath;
+
     return payload;
   } catch {
     return {};
@@ -1498,20 +1575,27 @@ async function touchedStopHookReviews(
 ): Promise<StoredReview[]> {
   const listed = await scan();
   const cwd = input.cwd ? path.resolve(input.cwd) : undefined;
+
   const transcript = input.transcriptPath
     ? await readFile(input.transcriptPath, "utf8")
     : "";
+
   const touched = (reviewDir: string) => {
     const dir = path.resolve(reviewDir);
+
     const cwdInside =
       cwd === dir || (cwd?.startsWith(`${dir}${path.sep}`) ?? false);
+
     return cwdInside || transcript.includes(dir);
   };
+
   const errors = listed.errors.filter((error) => touched(error.reviewDir));
+
   if (errors.length > 0)
     throw new Error(
       `Could not checkpoint reviews:\n${errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
     );
+
   return listed.reviews.filter((review) => touched(review.dir));
 }
 
@@ -1577,11 +1661,14 @@ async function resolveInstallCliSource(
     const discovery = await readReviewDesktopDiscovery(
       reviewDesktopDiscoveryPath(env),
     );
+
     if (discovery?.cliPath && (await isFile(discovery.cliPath))) {
       const source: InstallCliSource = { cliPath: discovery.cliPath };
+
       if (discovery.cliRuntimePath) {
         source.cliRuntimePath = discovery.cliRuntimePath;
       }
+
       return source;
     }
   } catch {
@@ -1589,6 +1676,7 @@ async function resolveInstallCliSource(
   }
 
   const packageCliPath = path.join(defaultPackageRoot(), "dist", "cli.js");
+
   return (await isFile(packageCliPath))
     ? { cliPath: packageCliPath }
     : undefined;
@@ -1689,6 +1777,7 @@ function mapCommandProperties(
   const metadata = parsed.ok
     ? mapTelemetryMetadata(parsed.command, parsed.force, parsed.diffRefs)
     : mapTelemetryMetadata("check", false, {});
+
   return {
     command: "map",
     subcommand: normalizeMapTelemetrySubcommand(mapArgs),
@@ -1708,6 +1797,7 @@ function mapTelemetryMetadata(
     command === "init" || command === "update" || command === "check"
       ? command
       : "check";
+
   return {
     mode,
     has_base_ref: Boolean(diffRefs.baseRef),
@@ -1739,9 +1829,11 @@ function normalizeMapTelemetrySubcommand(
   const args = inputArgs[0] === "--" ? inputArgs.slice(1) : inputArgs;
   const rawCommand = args[0] ?? "check";
   const command = rawCommand === "present" ? "publish" : rawCommand;
+
   if (isMapHelpCommand(command)) {
     return "help";
   }
+
   if (
     command === "open" ||
     command === "check" ||
@@ -1758,6 +1850,7 @@ function normalizeMapTelemetrySubcommand(
   ) {
     return command;
   }
+
   return "unknown";
 }
 
@@ -1837,10 +1930,12 @@ function telemetryCommandPath(
 ): ProgressiveReviewCommandPath | undefined {
   const name = command.name();
   const parent = command.parent?.name();
+
   if (parent === "map" || name === "map") {
     const subcommand = normalizeMapTelemetrySubcommand(
       name === "map" ? argv.slice(argv.indexOf("map") + 1) : [name],
     );
+
     return subcommand === "open" ||
       subcommand === "check" ||
       subcommand === "publish" ||
@@ -1850,24 +1945,33 @@ function telemetryCommandPath(
       ? `map.${subcommand}`
       : "invalid";
   }
+
   if (parent === "migrate" && name === "apply") return "migrate.apply";
+
   if (parent === "trace") {
     if (name === "onboard" || name === "allow" || name === "deny") {
       return `trace.${name}`;
     }
   }
+
   if (parent === "storage" && name === "use") return "trace.storage.use";
+
   if (parent === "config" && name === "migrate") return "trace.config.migrate";
+
   if (name === "login" || name === "logout" || name === "whoami") return name;
+
   if (parent === "app" && (name === "launch" || name === "pick")) {
     return `app.${name}`;
   }
+
   if (parent === "threads") {
     if (name === "list" || name === "resolve" || name === "reply") {
       return `threads.${name}`;
     }
+
     return "invalid";
   }
+
   if (
     name === "version" ||
     name === "rebind" ||
@@ -1879,6 +1983,7 @@ function telemetryCommandPath(
   ) {
     return name;
   }
+
   if (name === "app") {
     return argv.some(
       (argument) => argument === "--review" || argument.startsWith("--review="),
@@ -1886,6 +1991,7 @@ function telemetryCommandPath(
       ? "app.pick"
       : "app.launch";
   }
+
   return undefined;
 }
 
@@ -1901,19 +2007,24 @@ function errorClassification(
   if (cause instanceof CommanderError || command === "invalid") {
     return { errorName: "usage_error", errorCategory: "user_input" };
   }
+
   const name = cause instanceof Error ? cause.name.toLowerCase() : "";
+
   if (name.includes("notfound")) {
     return { errorName: "review_not_found", errorCategory: "local_state" };
   }
+
   if (command.startsWith("app.")) {
     return {
       errorName: "desktop_connection_error",
       errorCategory: "dependency",
     };
   }
+
   if (command === "scaffold") {
     return { errorName: "index_error", errorCategory: "dependency" };
   }
+
   if (
     command === "publish" ||
     command === "wait" ||
@@ -1923,12 +2034,15 @@ function errorClassification(
   ) {
     return { errorName: "review_state_error", errorCategory: "local_state" };
   }
+
   if (command.startsWith("map.") || command.startsWith("cache.")) {
     return { errorName: "repository_error", errorCategory: "local_state" };
   }
+
   if (cause) {
     return { errorName: "unexpected_error", errorCategory: "internal" };
   }
+
   return { errorName: "process_error", errorCategory: "dependency" };
 }
 
@@ -1948,6 +2062,7 @@ function formatCliError(cause: unknown): string {
   if (cause instanceof Error) {
     return cause.stack || `${cause.name}: ${cause.message}`;
   }
+
   return String(cause);
 }
 

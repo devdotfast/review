@@ -9,6 +9,7 @@ const canonicalMark = await readFile(
   ),
   "utf8",
 );
+
 const reviewStyles = await readFile(
   new URL(
     "../code-oss/src/vs/review/browser/media/review.css",
@@ -16,6 +17,7 @@ const reviewStyles = await readFile(
   ),
   "utf8",
 );
+
 const themedAssets = await Promise.all(
   ["light", "dark", "hc-light", "hc-dark"].map(async (theme) => ({
     theme,
@@ -54,6 +56,7 @@ test("routes each Code OSS theme to a Review-owned watermark", () => {
       theme,
     );
   }
+
   assert.match(reviewStyles, /\.monaco-workbench\.vs-dark/);
   assert.match(reviewStyles, /\.monaco-workbench\.hc-light/);
   assert.match(reviewStyles, /\.monaco-workbench\.hc-black/);

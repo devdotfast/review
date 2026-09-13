@@ -53,6 +53,7 @@ describe("trace user config", () => {
       { repositoryId: 1, name: "acme/app", origin: DEFAULT_HOSTED_ORIGIN },
       devHome,
     );
+
     const operations = [
       () => denyTraceRepository({ name: "acme/app" }, devHome),
       () =>
@@ -65,9 +66,11 @@ describe("trace user config", () => {
           devHome,
         ),
     ];
+
     const results = await Promise.allSettled(
       operations.map((operation) => operation()),
     );
+
     expect(
       results.filter((result) => result.status === "fulfilled"),
     ).toHaveLength(1);
@@ -75,11 +78,13 @@ describe("trace user config", () => {
     expect(rejected?.reason.message).toMatch(
       /changed while it was being updated/,
     );
+
     for (const [index, result] of results.entries()) {
       if (result.status === "rejected") {
         await operations[index]();
       }
     }
+
     const config = await readTraceUserConfig(devHome);
     expect(findTraceRepository(config, "acme/app")).toBeNull();
     expect(findTraceRepository(config, "acme/other")?.enabledOrigins).toEqual([

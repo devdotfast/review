@@ -14,6 +14,7 @@ export function defineSoftwareMap(
     if (error instanceof SoftwareModelValidationError) {
       return null;
     }
+
     throw error;
   }
 }

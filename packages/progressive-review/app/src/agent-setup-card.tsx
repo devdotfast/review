@@ -43,6 +43,7 @@ export function AgentSetupCard({
   ) => {
     setBusy(key);
     setError(null);
+
     try {
       const next = await action();
       setStatus(next);
@@ -59,20 +60,26 @@ export function AgentSetupCard({
       <ul className="review-agent-setup-agents">
         {status.agents.map((agent) => {
           const Logo = AGENT_LOGOS[agent.target];
+
           const skills =
             status.skills?.filter((skill) => skill.target === agent.target) ??
             [];
+
           const needsUpdate = skills.some((skill) => skill.stale);
+
           const versions = skills
             .map(
               (skill) =>
                 `${skill.name}: installed ${skill.installedVersion ?? "unversioned"}; bundled ${skill.bundledVersion ?? "unversioned"}`,
             )
             .join("\n");
+
           const request: InstallRequest = { targets: [agent.target] };
+
           if (status.trace.enabled && supportsFff(agent.target)) {
             request.fff = true;
           }
+
           return (
             <li key={agent.target}>
               <span

@@ -8,20 +8,26 @@ import { ReviewProvider, useReview, useReviewActions } from "./review-context";
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: Root | null = null;
+
 let actionsRenders = 0;
+
 let stateRenders = 0;
+
 let latestActions: ReturnType<typeof useReviewActions> | null = null;
+
 let latestReview: ReturnType<typeof useReview> | null = null;
 
 function ActionsOnly() {
   actionsRenders += 1;
   latestActions = useReviewActions();
+
   return null;
 }
 
 function StateReader() {
   stateRenders += 1;
   latestReview = useReview();
+
   return null;
 }
 
@@ -29,17 +35,21 @@ function stubReviewFetch() {
   const fetchMock = vi.fn<typeof fetch>(
     async (input: RequestInfo | URL): Promise<Response> => {
       const url = String(input);
+
       if (url.includes("/__progressive-review/comments")) {
         return new Response(JSON.stringify({ comments: {} }), {
           headers: { "content-type": "application/json" },
         });
       }
+
       return new Response(JSON.stringify({}), {
         headers: { "content-type": "application/json" },
       });
     },
   );
+
   vi.stubGlobal("fetch", fetchMock);
+
   return fetchMock;
 }
 

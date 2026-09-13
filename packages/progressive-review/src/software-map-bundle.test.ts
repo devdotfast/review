@@ -19,6 +19,7 @@ import {
 } from "./software-map-model";
 
 let directory: string | undefined;
+
 afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
@@ -28,6 +29,7 @@ describe("software map bundle", () => {
     "rejects unknown %s field properties before creating a bundle",
     (side) => {
       const field = { type: "string", unsupported: true };
+
       const invalid = defineSoftwareMap({
         systems: {
           app: {
@@ -37,6 +39,7 @@ describe("software map bundle", () => {
           },
         },
       });
+
       const valid = defineSoftwareMap({ systems: {} });
       expect(() =>
         bundleReviewSoftwareMap({
@@ -51,6 +54,7 @@ describe("software map bundle", () => {
 
   it("rejects unknown foreign-key properties before creating a bundle", () => {
     const fk = { table: "users", field: "id", unsupported: true };
+
     const map = defineSoftwareMap({
       systems: {
         app: {
@@ -64,6 +68,7 @@ describe("software map bundle", () => {
         },
       },
     });
+
     expect(() =>
       bundleReviewSoftwareMap({
         head: map,
@@ -78,6 +83,7 @@ describe("software map bundle", () => {
     directory = await mkdtemp(path.join(tmpdir(), "review-map-bundle-"));
     const head = defineSoftwareMap({ systems: { app: { label: "App" } } });
     const base = defineSoftwareMap({ systems: { api: { label: "API" } } });
+
     const bundle = bundleReviewSoftwareMap({
       head,
       base,
@@ -89,12 +95,14 @@ describe("software map bundle", () => {
 
     const read = await readReviewSoftwareMapBundle(directory);
     expect(read).toEqual(bundle);
+
     const headFile = JSON.parse(
       await readFile(
         path.join(directory, REVIEW_SOFTWARE_MAP_BUNDLE_DIR, "head-map.json"),
         "utf8",
       ),
     );
+
     expect(headFile.format).toBe("software-map/1");
     expect(headFile.elements.map((e: { path: string }) => e.path)).toEqual(
       head.elements.map((e) => e.path),

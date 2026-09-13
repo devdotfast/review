@@ -13,6 +13,7 @@ import {
 } from "./trace-repository-hooks";
 
 const execFileAsync = promisify(execFile);
+
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -31,6 +32,7 @@ describe("trace repository hooks", () => {
       homeDir,
       reviewCommand: "/opt/review/bin/review",
     });
+
     const second = await enableTraceRepository({
       cwd: repo,
       homeDir,
@@ -81,10 +83,12 @@ async function makeRepository(): Promise<{ homeDir: string; repo: string }> {
   const repo = await mkdtemp(path.join(os.tmpdir(), "trace-hooks-repo-"));
   roots.push(homeDir, repo);
   await runGit(repo, ["init", "-b", "main"]);
+
   return { homeDir, repo };
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", ["-C", cwd, ...args]);
+
   return stdout.trim();
 }

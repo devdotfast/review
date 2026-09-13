@@ -15,17 +15,21 @@ it.runIf(process.env.REVIEW_CODEX_INTEGRATION === "1")(
   async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "review-codex-live-"));
     vi.stubEnv("CODEX_HOME", directory);
+
     const agent = server({
       runtimeDirectory: directory,
       desktopEndpoint: { baseUrl: "http://127.0.0.1:4000", token: "test" },
     });
+
     let terminal: CodexAppServerClient | undefined;
+
     try {
       const launch = await agent.launch({ cwd: directory });
       const remoteIndex = launch.command.args.indexOf("--remote");
       terminal = await CodexAppServerClient.connectWebSocket(
         launch.command.args[remoteIndex + 1]!,
       );
+
       // Unlike Review's initial submission, the TUI explicitly re-selects the
       // active profile. This causes Codex to reload the server configuration.
       const result = await terminal.request("turn/start", {
@@ -33,6 +37,7 @@ it.runIf(process.env.REVIEW_CODEX_INTEGRATION === "1")(
         permissions: "review-ask",
         input: [],
       });
+
       const turn = jsonObject(jsonObject(result)?.turn);
       expect(jsonString(turn?.id)).toBeTruthy();
       expect(turn?.error).toBeNull();

@@ -57,6 +57,7 @@ export interface UiTelemetryEventSpec {
 }
 
 const PEEK_VIA = ["prose_link", "diagram", "marker", "map", "db_lens"] as const;
+
 export const LSP_FEATURE = [
   "hover",
   "goto_definition",
@@ -69,8 +70,11 @@ export const LSP_FEATURE = [
   "code_action",
   "symbol_search",
 ] as const;
+
 export const LSP_VIA = ["command", "mouse"] as const;
+
 export const LSP_EDITOR_KIND = ["files_tab", "inline_peek", "diff"] as const;
+
 export const LSP_LANGUAGE = [
   "typescript",
   "javascript",
@@ -89,7 +93,9 @@ export const LSP_LANGUAGE = [
   "sql",
   "other",
 ] as const;
+
 export const LS_GROUP = ["python", "go", "rust", "swift", "csharp"] as const;
+
 export const EXTENSION_ID = [
   "vscodevim.vim",
   "tuttieee.emacs-mcx",
@@ -103,6 +109,7 @@ export const EXTENSION_ID = [
   "muhammad-sammy.csharp",
   "ms-dotnettools.vscode-dotnet-runtime",
 ] as const;
+
 export const EXTENSION_TRIGGER = [
   "user",
   "auto_upgrade",
@@ -110,25 +117,39 @@ export const EXTENSION_TRIGGER = [
   "keymap",
   "rollback",
 ] as const;
+
 export const EXTENSION_INSTALL_PHASE = ["download", "install"] as const;
+
 export const SETTING_NAME = [
   "telemetry_enabled",
   "keymap",
   "dismissed_retention_days",
   "software_map_enabled",
 ] as const;
+
 export const REVIEW_OPENED_VIA = ["home", "cli", "other"] as const;
+
 const REVIEW_DISMISSED_VIA = ["review_topbar", "home"] as const;
+
 // "open" is the implicit undo: opening a dismissed review brings it back.
 const REVIEW_RESTORED_VIA = ["home", "open"] as const;
+
 const PEEK_ROOT_KIND = ["symbol", "declaration", "range"] as const;
+
 const MAP_LEVEL = ["system", "container", "component", "code"] as const;
+
 const THREAD_INTENT = ["comment", "ask-agent"] as const;
+
 const NEW_ASK_VIA = ["topbar", "threads_panel"] as const;
+
 const SOURCE_TREE_OPENED_VIA = ["topbar", "home"] as const;
+
 const THREAD_RESOLUTION_KIND = ["comment"] as const;
+
 const TAB = ["review", "commits", "map", "files", "trace"] as const;
+
 const COMMIT_DIFF_VIA = ["row", "file", "footer"] as const;
+
 export const CLIENT_ERROR_SOURCE = [
   "window",
   "worker",
@@ -141,8 +162,11 @@ export const CLIENT_ERROR_SOURCE = [
   // A workbench setting write the app requested failed.
   "settings",
 ] as const;
+
 export const ERROR_PROCESS = ["main", "renderer", "canvas", "server"] as const;
+
 export const UPDATE_FAILURE_PHASE = ["check", "download", "install"] as const;
+
 export const UPDATE_MESSAGE_SOURCE = [
   "electron",
   "request",
@@ -191,6 +215,7 @@ export const BUNDLE_FRAME_ENTRY_FILES = [
  */
 const escapeForPattern = (value: string): string =>
   value.replaceAll(".", "\\.").replaceAll("/", "\\/");
+
 export const BUNDLE_FRAME_PATTERN = new RegExp(
   "^(?:" +
     [
@@ -199,11 +224,17 @@ export const BUNDLE_FRAME_PATTERN = new RegExp(
     ].join("|") +
     "):\\d{1,9}:\\d{1,9}$",
 );
+
 export const BUNDLE_FRAME_SEPARATOR = "|";
+
 const MAX_BUNDLE_FRAMES = 10;
+
 const MAX_BUNDLE_FRAMES_LENGTH = 1_024;
+
 const HASH_HEX_PATTERN = /^[0-9a-f]{16}$/;
+
 const MAX_CLEANED_MESSAGE_LENGTH = 300;
+
 /** A marker the cleaner writes, e.g. `<REDACTED: user-file-path>`. */
 const REDACTION_MARKER_PATTERN = /<REDACTED: [A-Za-z][A-Za-z0-9 -]*>/g;
 
@@ -442,10 +473,14 @@ export const UI_TELEMETRY_EVENTS = {
 export type UiTelemetryEventName = keyof typeof UI_TELEMETRY_EVENTS;
 
 const MAX_FREE_STRING_LENGTH = 40;
+
 const FREE_STRING_PATTERN = /^[A-Za-z0-9_$-]+$/;
+
 const OPAQUE_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
+
 const RELEASE_VERSION_PATTERN =
   /^\d{1,10}\.\d{1,10}\.\d{1,10}(?:[-+][0-9A-Za-z.-]{1,40})?$/;
+
 const COMMON_PROPERTIES = {
   app_session_id: "opaque_id",
 } as const satisfies Record<string, UiTelemetryPropertySpec>;
@@ -468,41 +503,54 @@ export function sanitizeUiTelemetryEvent(input: {
   properties: Record<string, string | number | boolean>;
 } | null {
   const name = z.string().safeParse(input.name);
+
   if (!name.success || !isUiTelemetryEventName(name.data)) return null;
   const spec: UiTelemetryEventSpec = UI_TELEMETRY_EVENTS[name.data];
 
   const raw: JsonObject = isJsonObject(input.properties)
     ? input.properties
     : {};
+
   const properties: Record<string, string | number | boolean> = {};
+
   const propertySpecs: UiTelemetryEventSpec["properties"] = {
     ...COMMON_PROPERTIES,
     ...spec.properties,
   };
+
   for (const [key, propSpec] of Object.entries(propertySpecs)) {
     const value = raw[key];
+
     if (value === undefined || value === null) continue;
     const text = jsonString(value);
+
     if (propSpec === "number") {
       const number = jsonNumber(value);
+
       if (number !== undefined) properties[key] = number;
       continue;
     }
+
     if (propSpec === "boolean") {
       const boolean = jsonBoolean(value);
+
       if (boolean !== undefined) properties[key] = boolean;
       continue;
     }
+
     if (propSpec === "opaque_id") {
       if (isValidReviewAppSessionId(text)) properties[key] = text;
       continue;
     }
+
     if (propSpec === "release_version") {
       if (text !== undefined && RELEASE_VERSION_PATTERN.test(text)) {
         properties[key] = text;
       }
+
       continue;
     }
+
     if (propSpec === "enum_free_short") {
       if (
         text !== undefined &&
@@ -511,29 +559,38 @@ export function sanitizeUiTelemetryEvent(input: {
       ) {
         properties[key] = text;
       }
+
       continue;
     }
+
     if (propSpec === "hash_hex") {
       if (text !== undefined && HASH_HEX_PATTERN.test(text)) {
         properties[key] = text;
       }
+
       continue;
     }
+
     if (propSpec === "bundle_frames") {
       const frames = sanitizeBundleFrames(text);
+
       if (frames) properties[key] = frames;
       continue;
     }
+
     if (propSpec === "cleaned_message") {
       if (text !== undefined && isReportableCleanedMessage(text)) {
         properties[key] = text;
       }
+
       continue;
     }
+
     if (text !== undefined && propSpec.includes(text)) {
       properties[key] = text;
     }
   }
+
   return { event: spec.event, properties };
 }
 
@@ -551,12 +608,14 @@ export function isReportableCleanedMessage(value: string): boolean {
   if (value.length === 0 || value.length > MAX_CLEANED_MESSAGE_LENGTH) {
     return false;
   }
+
   // The cleaner's own markers are known-safe output, and several of them name
   // the thing they replaced — "<REDACTED: GitHub Token>" holds the word "token"
   // and would trip the secret rule below. So the checks apply to what is left
   // once the markers are removed. The marker shape is deliberately narrow, so a
   // producer cannot hide content inside a marker of its own.
   const remainder = value.replaceAll(REDACTION_MARKER_PATTERN, " ");
+
   return !containsFilePath(remainder) && !hasPossibleUserInfo(remainder);
 }
 
@@ -569,14 +628,18 @@ function sanitizeBundleFrames(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const kept: string[] = [];
   let length = 0;
+
   for (const frame of value.split(BUNDLE_FRAME_SEPARATOR)) {
     if (!BUNDLE_FRAME_PATTERN.test(frame)) continue;
     const next = length + frame.length + (kept.length > 0 ? 1 : 0);
+
     if (next > MAX_BUNDLE_FRAMES_LENGTH) break;
     kept.push(frame);
     length = next;
+
     if (kept.length >= MAX_BUNDLE_FRAMES) break;
   }
+
   return kept.length > 0 ? kept.join(BUNDLE_FRAME_SEPARATOR) : undefined;
 }
 

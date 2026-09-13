@@ -17,11 +17,14 @@ export interface C4MapNodeData extends Record<string, unknown> {
 }
 
 export type C4MapFlowNode = ReactFlowNode<C4MapNodeData, "softwareMapC4">;
+
 export type C4MapFlowGroupNode = ReactFlowNode<
   C4MapNodeData,
   "softwareMapC4Group"
 >;
+
 export type C4MapAnyFlowNode = C4MapFlowNode | C4MapFlowGroupNode;
+
 export type C4MapInteractionMode = "inline" | "standalone";
 
 export interface C4MapEdgeData extends Record<string, unknown> {

@@ -82,11 +82,13 @@ export function ReviewDebugSettingsProvider({
 
 export function useReviewDebugSettings() {
   const settings = useContext(ReviewDebugSettingsContext);
+
   if (!settings) {
     throw new Error(
       "useReviewDebugSettings must be used within ReviewDebugSettingsProvider",
     );
   }
+
   return settings;
 }
 
@@ -109,6 +111,7 @@ function readStoredSettings(session: ReviewSession): StoredReviewDebugSettings {
       "session",
       debugSettingsStorageKey(session),
     ) ?? {};
+
   return {
     showModifiedOnly: parsed.showModifiedOnly !== false,
     showRemovedNodes: parsed.showRemovedNodes !== false,

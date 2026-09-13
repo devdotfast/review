@@ -1,6 +1,7 @@
 import type { CommentThreadView } from "./review-context";
 
 export const PROSE_BLOCK_SELECTOR = "[data-review-block-index]";
+
 export const ANNOTATION_CONTAINER_SELECTOR =
   ".review-annotations, .review-margin-threads, .thread-popover";
 
@@ -39,6 +40,7 @@ export interface CommentAnnotationPosition {
 export function isDocumentContent(node: Node, article: HTMLElement): boolean {
   if (!article.contains(node)) return false;
   const element = node instanceof Element ? node : node.parentElement;
+
   return !element?.closest(ANNOTATION_CONTAINER_SELECTOR);
 }
 
@@ -50,6 +52,7 @@ export function commentAnnotationPositionsEqual(
     left.length === right.length &&
     left.every((annotation, index) => {
       const other = right[index];
+
       return (
         other !== undefined &&
         annotation.key === other.key &&
@@ -76,6 +79,7 @@ function commentHighlightRectsEqual(
     left.length === right.length &&
     left.every((rect, index) => {
       const other = right[index];
+
       return (
         other !== undefined &&
         rect.x === other.x &&

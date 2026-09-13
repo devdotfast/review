@@ -18,14 +18,17 @@ import {
 } from "./build-app-icon-catalog.mjs";
 
 const appRoot = path.resolve(import.meta.dirname, "..");
+
 const previewWorkflow = readFileSync(
   path.resolve(appRoot, "../../.github/workflows/review-desktop-preview.yml"),
   "utf8",
 );
+
 const stableWorkflow = readFileSync(
   path.resolve(appRoot, "../../.github/workflows/review-desktop-release.yml"),
   "utf8",
 );
+
 const applyAppIcon = readFileSync(
   path.resolve(import.meta.dirname, "apply-app-icon.mjs"),
   "utf8",
@@ -36,6 +39,7 @@ for (const [channel, variant] of Object.entries(ICON_VARIANTS)) {
     const regenerate =
       "regenerate with: node scripts/build-app-icon-catalog.mjs " +
       `--channel ${channel} (needs Xcode 26)`;
+
     assert.ok(
       existsSync(variant.iconSource),
       path.basename(variant.iconSource) + " is missing",
@@ -48,6 +52,7 @@ for (const [channel, variant] of Object.entries(ICON_VARIANTS)) {
       existsSync(variant.sourceDigest),
       path.basename(variant.sourceDigest) + " is missing; " + regenerate,
     );
+
     if (variant.fallback) {
       assert.ok(
         existsSync(variant.fallback),
@@ -76,6 +81,7 @@ test("preview uses the approved orange background", () => {
   const previewIcon = JSON.parse(
     readFileSync(path.join(ICON_VARIANTS.preview.iconSource, "icon.json")),
   );
+
   assert.equal(
     previewIcon.fill["automatic-gradient"],
     "display-p3:0.85098,0.46667,0.34118,1.00000",

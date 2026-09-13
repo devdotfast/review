@@ -27,12 +27,14 @@ const initialData: ReviewInitialData = {
   diffStats: { files: [{ additions: 2, deletions: 1 }] },
   softwareMapResolvedData: [],
 };
+
 const stackInitialData: ReviewInitialData = {
   ...initialData,
   documentMeta: { pullRequestNumber: 20 },
 };
 
 let root: Root | null = null;
+
 const session = testReviewSession();
 
 describe("ReviewDocumentMetaLine", () => {
@@ -49,6 +51,7 @@ describe("ReviewDocumentMetaLine", () => {
       await act(async () => root?.unmount());
       root = null;
     }
+
     document.body.replaceChildren();
     vi.restoreAllMocks();
   });
@@ -56,6 +59,7 @@ describe("ReviewDocumentMetaLine", () => {
   it("hydrates when the relative update time changes after SSR", async () => {
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(Date.UTC(2026, 6, 22, 12, 1));
+
     const tree = (
       <ReviewSessionProvider session={session}>
         <ReviewInitialDataContext.Provider value={initialData}>
@@ -63,15 +67,18 @@ describe("ReviewDocumentMetaLine", () => {
         </ReviewInitialDataContext.Provider>
       </ReviewSessionProvider>
     );
+
     const serverHtml = renderToString(tree);
     const container = document.createElement("div");
     container.innerHTML = serverHtml;
     document.body.append(container);
 
     now.mockReturnValue(Date.UTC(2026, 6, 22, 12, 5));
+
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
+
     await act(async () => {
       root = hydrateRoot(container, tree);
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -87,12 +94,14 @@ describe("ReviewDocumentMetaLine", () => {
 
   it("opens an available later Review in a background tab", async () => {
     const post = vi.fn<ReviewCanvasBridge["post"]>(async () => ({ ok: true }));
+
     const stackSession = createReviewSession(
       testReviewBridge(
         {},
         {
           request: async (url) => {
             expect(url).toContain("/stack");
+
             return Response.json({
               layers: [
                 {
@@ -126,6 +135,7 @@ describe("ReviewDocumentMetaLine", () => {
         },
       ),
     );
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -147,14 +157,18 @@ describe("ReviewDocumentMetaLine", () => {
         (marker) => marker.textContent,
       ),
     ).toEqual(["1", "2", "3"]);
+
     const unavailable = container.querySelector<HTMLButtonElement>(
       ".review-stack-menu button:disabled",
     );
+
     expect(unavailable?.textContent).toContain("PR #40");
     expect(unavailable?.textContent).toContain("No Review");
+
     const layer = container.querySelector<HTMLButtonElement>(
       '.review-stack-menu button[data-relation="later"]',
     );
+
     expect(layer?.textContent).toContain("PR #30");
     await act(async () => {
       layer?.dispatchEvent(

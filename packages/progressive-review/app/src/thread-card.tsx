@@ -96,6 +96,7 @@ export function ThreadCard({
     const first = thread.messages[0];
     const last = thread.messages.length > 1 ? thread.messages.at(-1) : null;
     const hiddenCount = Math.max(0, thread.messages.length - 2);
+
     return (
       <button
         type="button"
@@ -311,7 +312,9 @@ function ThreadStatusPill({
   status?: ThreadView["clientStatus"];
 }): ReactElement | null {
   const label = status === undefined ? undefined : STATUS_PILL_LABEL[status];
+
   if (label === undefined) return null;
+
   return (
     <span className={`thread-status-pill thread-status-pill--${status}`}>
       <span className="thread-status-pill-dot" aria-hidden="true" />
@@ -339,6 +342,7 @@ function ThreadScroll({
 
   const measure = () => {
     const scroll = scrollRef.current;
+
     if (!scroll) return;
     setCanScrollMore(
       scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 8,
@@ -389,14 +393,18 @@ function useClampedOverflow(
 
   useLayoutEffect(() => {
     const element = ref.current;
+
     if (!element || !active) return;
+
     const measure = () =>
       setClamped(element.scrollHeight - element.clientHeight > 1);
+
     // Measured eagerly as well as observed: the observer's first callback
     // lands after paint, which would flash a frame without the hint.
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
+
     return () => observer.disconnect();
   }, [ref, active, content]);
 
@@ -415,9 +423,11 @@ function ThreadCompactBody({
   message: ThreadMessage;
 }): ReactElement {
   const bodyRef = useRef<HTMLDivElement | null>(null);
+
   const body = message.agentMarkdown
     ? markdownExcerpt(message.body)
     : message.body;
+
   const clamped = useClampedOverflow(bodyRef, true, body);
 
   return (
@@ -438,9 +448,11 @@ function ThreadQuote({
   kind?: "text" | "line";
 }): ReactElement | null {
   if (!quote) return null;
+
   if (kind === "line") {
     return <span className="panel-thread-line-chip">{quote}</span>;
   }
+
   return (
     <div className="thread-quote">
       <i aria-hidden="true" />
@@ -461,20 +473,25 @@ function ThreadMessageActions({
 
   useEffect(() => {
     if (!menuOpen) return;
+
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const menu = menuRef.current;
       const target = event.target;
+
       if (!menu || (target instanceof Node && menu.contains(target))) return;
       setMenuOpen(false);
     };
+
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopImmediatePropagation();
       setMenuOpen(false);
     };
+
     document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     document.addEventListener("keydown", closeOnEscape, true);
+
     return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
       document.removeEventListener("keydown", closeOnEscape, true);
@@ -623,6 +640,7 @@ const DEFAULT_COMPOSE_VERBS: readonly ComposeVerb[] = [
   "ask-now",
   "add-to-review",
 ];
+
 export type ComposeVerbMenuPlacement = "above" | "below";
 
 export function composeVerbMenuPlacement(input: {
@@ -635,6 +653,7 @@ export function composeVerbMenuPlacement(input: {
   const gap = input.gap ?? 7;
   const roomBelow = input.viewportHeight - input.controlBottom;
   const roomAbove = input.controlTop;
+
   return roomBelow < input.menuHeight + gap && roomAbove > roomBelow
     ? "above"
     : "below";
@@ -706,28 +725,38 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     onDraftStateChange,
     onDraftTextChange,
   } = props;
+
   const isNewThread = props.kind === "new-thread";
   const initialVerb = isNewThread ? props.initialVerb : undefined;
+
   const requestedVerbs =
     isNewThread && props.kind === "new-thread"
       ? (props.verbs ?? DEFAULT_COMPOSE_VERBS)
       : DEFAULT_COMPOSE_VERBS;
+
   const availableVerbs = requestedVerbs;
+
   const [composing, setComposing] = useState(
     autoFocus || Boolean(initialDraft),
   );
+
   const [draft, setDraft] = useState(initialDraft);
+
   /* The primary verb follows the context, not a remembered preference: ask
      until a review batch is open, then add to it. A sticky last-used verb made
      the button mean different things on identical-looking screens. */
   const [verb, setVerb] = useState<ComposeVerb>(() => {
     if (!isNewThread) return "ask-now";
     const preferred = initialVerb ?? "ask-now";
+
     return availableVerbs.includes(preferred) ? preferred : availableVerbs[0]!;
   });
+
   const [verbMenuOpen, setVerbMenuOpen] = useState(false);
+
   const [verbMenuPlacement, setVerbMenuPlacement] =
     useState<ComposeVerbMenuPlacement>("below");
+
   const draftHasTextRef = useRef(Boolean(initialDraft.trim()));
   const draftRef = useRef(initialDraft);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -742,22 +771,28 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
 
   useEffect(() => {
     if (!verbMenuOpen) return;
+
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const control = verbControlRef.current;
       const target = event.target;
+
       if (!control || (target instanceof Node && control.contains(target))) {
         return;
       }
+
       setVerbMenuOpen(false);
     };
+
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopImmediatePropagation();
       setVerbMenuOpen(false);
     };
+
     document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     document.addEventListener("keydown", closeOnEscape, true);
+
     return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
       document.removeEventListener("keydown", closeOnEscape, true);
@@ -768,6 +803,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     if (!verbMenuOpen) return;
     const control = verbControlRef.current;
     const menu = verbMenuRef.current;
+
     if (!control || !menu) return;
     const controlRect = control.getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
@@ -784,6 +820,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
   useLayoutEffect(() => {
     if (!composing) return;
     const textarea = textareaRef.current;
+
     if (!textarea) return;
     autosize(textarea);
     textarea.focus({ preventScroll: preventFocusScroll });
@@ -794,6 +831,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     setDraft(nextDraft);
     onDraftTextChange?.(nextDraft);
     const hasText = Boolean(nextDraft.trim());
+
     if (draftHasTextRef.current === hasText) return;
     draftHasTextRef.current = hasText;
     onDraftStateChange?.(hasText);
@@ -805,6 +843,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
    */
   const submitWithVerb = async (chosen: ComposeVerb) => {
     const body = draft.trim();
+
     if (
       !body ||
       props.kind !== "new-thread" ||
@@ -815,23 +854,28 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
       setDraftValue("");
       setVerbMenuOpen(false);
     });
+
     const onSubmit =
       chosen === "ask-now" ? props.onAskNow : props.onAddToReview;
+
     try {
       if ((await onSubmit(body)) === false) {
         if (!draftRef.current.trim()) setDraftValue(body);
+
         return;
       }
     } catch (error) {
       if (!draftRef.current.trim()) setDraftValue(body);
       throw error;
     }
+
     if (!draftRef.current.trim()) setComposing(autoFocus);
   };
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const body = draft.trim();
+
     if (
       !body ||
       (props.kind === "new-thread" && verb === "ask-now" && props.askDisabled)
@@ -842,25 +886,31 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
       setDraftValue("");
       setVerbMenuOpen(false);
     });
+
     try {
       if (props.kind === "new-thread") {
         const onSubmit =
           verb === "ask-now" ? props.onAskNow : props.onAddToReview;
+
         if (!onSubmit) {
           throw new Error(`Compose verb "${verb}" has no submit handler.`);
         }
+
         if ((await onSubmit(body)) === false) {
           if (!draftRef.current.trim()) setDraftValue(body);
+
           return;
         }
       } else if ((await props.onSubmit(body)) === false) {
         if (!draftRef.current.trim()) setDraftValue(body);
+
         return;
       }
     } catch (error) {
       if (!draftRef.current.trim()) setDraftValue(body);
       throw error;
     }
+
     if (!draftRef.current.trim()) setComposing(autoFocus);
   };
 
@@ -888,18 +938,22 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
       if (event.key === "Escape") {
         event.stopPropagation();
+
         if (!draft.trim()) {
           if (onCancel) onCancel();
           else setComposing(false);
         } else {
           event.currentTarget.blur();
         }
+
         return;
       }
+
       if (event.key !== "Enter") return;
       // Enter submits, as does Cmd/Ctrl+Enter (the workbench composer's
       // shortcut, shown on the button). Shift/Alt+Enter insert a newline.
       const shouldSubmit = !event.shiftKey && !event.altKey;
+
       if (!shouldSubmit) return;
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -1056,6 +1110,7 @@ export function ThreadDraftCard({
   onDraftTextChange?: (text: string) => void;
 }): ReactElement {
   const { pendingCommentCount } = useReview();
+
   /* With no explicit intent the verb follows the batch: an open review means
      the next thing you write most likely belongs to it. */
   const initialVerb =
@@ -1066,6 +1121,7 @@ export function ThreadDraftCard({
         : pendingCommentCount > 0
           ? "add-to-review"
           : "ask-now";
+
   return (
     <section
       ref={cardRef}

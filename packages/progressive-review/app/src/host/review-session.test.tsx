@@ -26,6 +26,7 @@ describe("ReviewSessionProvider", () => {
       async (_url: string, _init?: RequestInit) =>
         new Response(null, { status: 204 }),
     );
+
     const session = testReviewSession({}, { request });
 
     await session.fetch("/comments");
@@ -43,6 +44,7 @@ describe("ReviewSessionProvider", () => {
   it("keeps mounted sessions independent when a sibling session unmounts", async () => {
     const postedA: ReviewVerbRequest[] = [];
     const postedB: ReviewVerbRequest[] = [];
+
     const sessionA = testReviewSession(
       {
         sessionUrl: "http://127.0.0.1:5570/sessions/a",
@@ -53,10 +55,12 @@ describe("ReviewSessionProvider", () => {
       {
         post: async (request) => {
           postedA.push(request);
+
           return { ok: true };
         },
       },
     );
+
     const sessionB = testReviewSession(
       {
         sessionUrl: "http://127.0.0.1:5570/sessions/b",
@@ -67,19 +71,23 @@ describe("ReviewSessionProvider", () => {
       {
         post: async (request) => {
           postedB.push(request);
+
           return { ok: true };
         },
       },
     );
+
     const containerA = document.createElement("div");
     const containerB = document.createElement("div");
     document.body.append(containerA, containerB);
     const rootA = createRoot(containerA);
     const rootB = createRoot(containerB);
     roots.push(rootA, rootB);
+
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 204 }),
     );
+
     vi.stubGlobal("fetch", fetchMock);
 
     await act(async () => {
@@ -133,6 +141,7 @@ describe("ReviewSessionProvider", () => {
 function SessionProbe() {
   const session = useReviewSession();
   const [clicks, setClicks] = useState(0);
+
   return (
     <>
       <output>

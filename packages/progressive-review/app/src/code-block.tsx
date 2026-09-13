@@ -31,6 +31,7 @@ export function RenderedCodeBlock({
   ...props
 }: RenderedCodeBlockProps): ReactElement {
   const normalizedLanguage = normalizeMarkdownCodeLanguage(language ?? "");
+
   const [highlightedTokens, setHighlightedTokens] = useState<
     HighlightedToken[] | null
   >(null);
@@ -40,6 +41,7 @@ export function RenderedCodeBlock({
 
     if (!normalizedLanguage) {
       setHighlightedTokens(null);
+
       return;
     }
 
@@ -62,6 +64,7 @@ export function RenderedCodeBlock({
   const preClassName = ["rendered-code-block", className]
     .filter(Boolean)
     .join(" ");
+
   const displayLanguage = normalizedLanguage ?? language?.trim() ?? undefined;
 
   if (normalizedLanguage && highlightedTokens) {
@@ -106,12 +109,16 @@ export function MarkdownCodeBlock({
   const codeElement = isValidElement<ComponentProps<"code">>(children)
     ? children
     : null;
+
   const codeClassName = codeElement?.props.className ?? "";
+
   const language = codeClassName
     .split(/\s+/)
     .find((name) => name.startsWith("language-"))
     ?.slice("language-".length);
+
   const code = reactTextContent(codeElement?.props.children ?? children);
+
   const preClassName = ["markdown-code-block", className]
     .filter(Boolean)
     .join(" ");
@@ -129,6 +136,7 @@ export function MarkdownCodeBlock({
 
 function normalizeMarkdownCodeLanguage(language: string): ShjLanguage | null {
   const normalized = language.trim().toLowerCase();
+
   switch (normalized) {
     case "asm":
     case "bash":
@@ -193,9 +201,11 @@ function normalizeMarkdownCodeLanguage(language: string): ShjLanguage | null {
 
 function reactTextContent(node: ReactNode): string {
   if (Array.isArray(node)) return node.map(reactTextContent).join("");
+
   if (isValidElement<{ children?: ReactNode }>(node)) {
     return reactTextContent(node.props.children);
   }
+
   return isReactText(node) ? String(node) : "";
 }
 

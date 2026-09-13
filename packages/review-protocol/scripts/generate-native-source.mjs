@@ -10,12 +10,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
+
 const outputPath = args[0];
+
 const sourceRootFlag = args.indexOf("--source-root");
+
 const sourceRoot =
   sourceRootFlag === -1
     ? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src")
     : args[sourceRootFlag + 1];
+
 const isValidArgs =
   outputPath &&
   !outputPath.startsWith("--") &&
@@ -23,6 +27,7 @@ const isValidArgs =
   (sourceRootFlag === -1
     ? args.length === 1
     : args.length === 3 && sourceRootFlag === 1);
+
 if (!isValidArgs) {
   throw new Error(
     "Usage: generate-native-source.mjs <output-path> [--source-root <dir>]",
@@ -51,6 +56,7 @@ const HEADER = [
 function stripModuleStatements(source) {
   const kept = [];
   let buffer = null;
+
   for (const line of source.split("\n")) {
     if (
       buffer === null &&
@@ -59,14 +65,19 @@ function stripModuleStatements(source) {
       kept.push(line);
       continue;
     }
+
     buffer = buffer === null ? [line] : [...buffer, line];
+
     if (!line.trimEnd().endsWith(";")) continue;
     const statement = buffer.join("\n");
+
     if (!/^import\s/.test(statement) && !/\bfrom\s*["']/.test(statement)) {
       kept.push(...buffer);
     }
+
     buffer = null;
   }
+
   return kept.join("\n").replace(/^\n+/, "").trimEnd();
 }
 

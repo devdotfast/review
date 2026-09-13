@@ -108,23 +108,29 @@ export function softwareMapNodeDiffPeeks({
     seen.add(key);
     result.push(peek);
   };
+
   const visit = (path: string) => {
     const element = model.elementsByPath.get(path);
+
     if (!element) return;
     const summary = changeSummaries.get(path);
+
     if (element.type === "codeElement" && element.sourceRanges?.length) {
       if (summary?.changeStatus === "unchanged") return;
       const graph = summary?.changeStatus === "removed" ? "base" : "head";
+
       for (const range of element.sourceRanges) {
         append(
           `range:${graph}:${range.file}:${range.fromLine}-${range.toLine}`,
           { ...range, graph },
         );
       }
+
       return;
     }
 
     const coveredDiff = summary?.unmapped;
+
     if (element.coverage && coveredDiff?.files.length) {
       for (const file of coveredDiff.files) {
         for (const range of softwareMapDiffFileRanges(file)) {
@@ -139,6 +145,7 @@ export function softwareMapNodeDiffPeeks({
           );
         }
       }
+
       return;
     }
 
@@ -146,6 +153,7 @@ export function softwareMapNodeDiffPeeks({
   };
 
   visit(elementPath);
+
   return result;
 }
 
@@ -158,12 +166,16 @@ function softwareMapDiffFileRanges(file: SoftwareMapUnmappedDiffFile): Array<{
     const graph = hunk.lines.some((line) => line.newLine !== null)
       ? "head"
       : "base";
+
     const lineNumbers = hunk.lines.flatMap((line) => {
       const lineNumber = graph === "base" ? line.oldLine : line.newLine;
+
       return lineNumber === null ? [] : [lineNumber];
     });
+
     const hunkLines = lineNumbers.length > 0 ? lineNumbers : [hunk.startLine];
     const fromLine = Math.max(1, Math.min(...hunkLines));
+
     return {
       fromLine,
       toLine: Math.max(fromLine, ...hunkLines),
@@ -234,11 +246,13 @@ export function c4DisplayedSnapshotForCurrentState(
 ): SoftwareMapResolvedSnapshot {
   const layoutNodes = layoutSnapshot.nodes ?? [];
   const layoutNodeIds = new Set(layoutNodes.map((node) => node.id));
+
   const currentSelectedNodeId =
     currentSnapshot.selectedNodeId &&
     layoutNodeIds.has(currentSnapshot.selectedNodeId)
       ? currentSnapshot.selectedNodeId
       : null;
+
   const layoutSelectedNodeId =
     layoutSnapshot.selectedNodeId &&
     layoutNodeIds.has(layoutSnapshot.selectedNodeId)
@@ -265,41 +279,49 @@ export function buildSoftwareMapChangeSummaries(
 
   const summarize = (path: string): SoftwareMapChangeSummary => {
     const cached = summaries.get(path);
+
     if (cached) return cached;
 
     const element = model.elementsByPath.get(path);
     const ownCounts = diffCounts.get(path) ?? { additions: 0, deletions: 0 };
     const ownUnmapped = unmappedByElementPath.get(path);
     const hasOwnCoverage = Boolean(element?.coverage);
+
     let additions =
       element?.type === "codeElement"
         ? ownCounts.additions
         : (ownUnmapped?.additions ?? 0);
+
     let deletions =
       element?.type === "codeElement"
         ? ownCounts.deletions
         : (ownUnmapped?.deletions ?? 0);
+
     const changedDescendantStatuses: SoftwareChangeStatus[] = [];
 
     for (const childPath of element?.children ?? []) {
       const child = summarize(childPath);
       const childElement = model.elementsByPath.get(childPath);
+
       if (!hasOwnCoverage && childElement?.type !== "codeElement") {
         additions += child.additions;
         deletions += child.deletions;
       }
+
       if (child.changeStatus !== "unchanged") {
         changedDescendantStatuses.push(child.changeStatus);
       }
     }
 
     const authoredStatus = element?.changeStatus;
+
     const changeStatus = inferSoftwareMapChangeStatus({
       authoredStatus,
       additions,
       deletions,
       changedDescendantStatuses,
     });
+
     const summary: SoftwareMapChangeSummary = {
       changeStatus,
       authoredStatus,
@@ -307,13 +329,16 @@ export function buildSoftwareMapChangeSummaries(
       deletions,
       unmapped: ownUnmapped,
     };
+
     summaries.set(path, summary);
+
     return summary;
   };
 
   for (const element of model.elements) {
     summarize(element.path);
   }
+
   return summaries;
 }
 
@@ -388,12 +413,14 @@ export function parseSoftwareMapResolvedDataResponse(
   json: JsonValue,
 ): SoftwareMapResolvedDataPayload {
   const body = softwareMapResolvedDataResponseSchema.safeParse(json);
+
   if (!body.success) {
     return {
       counts: new Map(),
       unmappedByElementPath: new Map(),
     };
   }
+
   return {
     counts: new Map(Object.entries(body.data.countsByElementPath ?? {})),
     unmappedByElementPath: new Map(
@@ -410,9 +437,11 @@ export function softwareMapSnapshotFromInlineC4Projection({
   changeSummaries?: ReadonlyMap<string, SoftwareMapChangeSummary>;
 }): SoftwareMapResolvedSnapshot {
   const selectedNodeId = projection.selectedNodeId ?? projection.nodes[0]?.id;
+
   const selectedNode = selectedNodeId
     ? projection.nodes.find((node) => node.id === selectedNodeId)
     : undefined;
+
   return {
     title: "Software map",
     view: "inline-c4",
@@ -423,6 +452,7 @@ export function softwareMapSnapshotFromInlineC4Projection({
       : undefined,
     nodes: projection.nodes.map((element) => {
       const summary = changeSummaries?.get(element.path);
+
       return {
         id: element.id,
         label: element.label,

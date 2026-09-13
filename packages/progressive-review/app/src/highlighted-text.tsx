@@ -5,6 +5,7 @@ export function findWhitespaceNormalizedSpan(
   quote: string,
 ): { start: number; end: number } | null {
   const trimmedQuote = quote.trim();
+
   if (!trimmedQuote || !text) return null;
   const normQuote = trimmedQuote.replace(/\s+/g, " ");
 
@@ -13,12 +14,15 @@ export function findWhitespaceNormalizedSpan(
   const normToOriginalEnd: number[] = [];
 
   let i = 0;
+
   while (i < text.length) {
     if (/\s/.test(text[i])) {
       const spaceStart = i;
+
       while (i < text.length && /\s/.test(text[i])) {
         i++;
       }
+
       normToOriginalStart.push(spaceStart);
       normToOriginalEnd.push(i);
       normText += " ";
@@ -31,12 +35,14 @@ export function findWhitespaceNormalizedSpan(
   }
 
   const matchIdx = normText.indexOf(normQuote);
+
   if (matchIdx === -1) {
     return null;
   }
 
   const origStart = normToOriginalStart[matchIdx];
   const origEnd = normToOriginalEnd[matchIdx + normQuote.length - 1];
+
   return { start: origStart, end: origEnd };
 }
 
@@ -48,9 +54,11 @@ export function HighlightedText({
   quote: string;
 }): ReactNode {
   const span = findWhitespaceNormalizedSpan(text, quote);
+
   if (!span) {
     return text;
   }
+
   return (
     <>
       {text.slice(0, span.start)}

@@ -39,12 +39,15 @@ export async function execFileAsync(
     args,
     cwd: options.cwd === undefined ? undefined : String(options.cwd),
   });
+
   try {
     const result = await execFilePromise(file, args, {
       ...options,
       encoding: options.encoding ?? "utf8",
     });
+
     finish?.({ ok: true });
+
     return { stdout: String(result.stdout), stderr: String(result.stderr) };
   } catch (error) {
     finish?.({ ok: false });
@@ -62,9 +65,11 @@ export function execFileSyncObserved(
     args,
     cwd: options.cwd === undefined ? undefined : String(options.cwd),
   });
+
   try {
     const output = execFileSync(file, args, options);
     finish?.({ ok: true });
+
     return String(output);
   } catch (error) {
     finish?.({ ok: false });

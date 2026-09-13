@@ -75,13 +75,16 @@ describe("local vcs", () => {
       );
       writeFileSync(path.join(rootPath, "app.ts"), "base\n");
       execFileSync("jj", ["commit", "-m", "base"], { cwd: rootPath });
+
       const baseRef = execFileSync(
         "jj",
         ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
         { cwd: rootPath, encoding: "utf8" },
       ).trim();
+
       writeFileSync(path.join(rootPath, "app.ts"), "base\nchange\n");
       execFileSync("jj", ["commit", "-m", "jj change"], { cwd: rootPath });
+
       const headRef = execFileSync(
         "jj",
         ["log", "-r", "@-", "--no-graph", "-T", "commit_id"],
@@ -222,6 +225,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-git-summary-"),
     );
+
     execGit(rootPath, ["init"]);
     execGit(rootPath, ["config", "user.email", "test@example.com"]);
     execGit(rootPath, ["config", "user.name", "Test User"]);
@@ -250,6 +254,7 @@ describe("local vcs", () => {
       baseRef,
       headRef,
     });
+
     expect(summaries).toHaveLength(6);
     expect(summaries).toEqual(
       expect.arrayContaining([
@@ -317,6 +322,7 @@ describe("local vcs", () => {
     execJj(rootPath, ["git", "init"]);
     mkdirSync(path.join(rootPath, "src"));
     writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 1;\n");
+
     const baseRef = execJjOutput(rootPath, [
       "log",
       "--no-graph",
@@ -325,8 +331,10 @@ describe("local vcs", () => {
       "-T",
       "change_id.short()",
     ]);
+
     execJj(rootPath, ["new"]);
     writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 2;\n");
+
     const headRef = execJjOutput(rootPath, [
       "log",
       "--no-graph",
@@ -386,12 +394,14 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-jj-git-sha-"),
     );
+
     execJj(rootPath, ["git", "init", "--colocate"]);
     execGit(rootPath, ["config", "user.email", "test@example.com"]);
     execGit(rootPath, ["config", "user.name", "Test User"]);
     writeFileSync(path.join(rootPath, "git-only.txt"), "git only\n");
     execGit(rootPath, ["add", "git-only.txt"]);
     const tree = execGitOutput(rootPath, ["write-tree"]);
+
     const commit = execFileSync("git", ["-C", rootPath, "commit-tree", tree], {
       input: "git-only commit\n",
       encoding: "utf8",
@@ -424,6 +434,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-prepare-wt-"),
     );
+
     execGit(rootPath, ["init"]);
     execGit(rootPath, ["config", "user.email", "test@example.com"]);
     execGit(rootPath, ["config", "user.name", "Test User"]);
@@ -443,6 +454,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-prepare-none-"),
     );
+
     execGit(rootPath, ["init"]);
 
     await expect(devfastPrepareCommands(rootPath)).resolves.toEqual([]);
@@ -454,6 +466,7 @@ describe("local vcs", () => {
     const parentRootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-parent-git-"),
     );
+
     execGit(parentRootPath, ["init"]);
     execGit(parentRootPath, ["config", "user.email", "test@example.com"]);
     execGit(parentRootPath, ["config", "user.name", "Test User"]);
@@ -477,6 +490,7 @@ describe("local vcs", () => {
     const parentRootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-parent-git-dir-"),
     );
+
     execGit(parentRootPath, ["init"]);
     execGit(parentRootPath, ["config", "user.email", "test@example.com"]);
     execGit(parentRootPath, ["config", "user.name", "Test User"]);
@@ -513,6 +527,7 @@ describe("local vcs", () => {
     const parentRootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-parent-repo-context-"),
     );
+
     execGit(parentRootPath, ["init"]);
     execGit(parentRootPath, [
       "remote",
@@ -613,6 +628,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-remote-alias-"),
     );
+
     execGit(rootPath, ["init"]);
     execGit(rootPath, [
       "config",
@@ -681,6 +697,7 @@ describe("local vcs", () => {
     const rootPath = await mkdtemp(
       path.join(tmpdir(), "local-vcs-read-file-revision-"),
     );
+
     execGit(rootPath, ["init"]);
     execGit(rootPath, ["config", "user.email", "test@example.com"]);
     execGit(rootPath, ["config", "user.name", "Test User"]);
@@ -740,6 +757,7 @@ function commandExists(command: string): boolean {
     execFileSync(command, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
     });
+
     return true;
   } catch {
     return false;

@@ -32,6 +32,7 @@ describe("Codex thread wake-up", () => {
     fixture.server.on("connection", (socket) => {
       readFrames(socket, (message) => {
         received.push(message);
+
         if (message.method === "initialize") {
           writeFrame(socket, {
             method: "initialize",
@@ -40,8 +41,10 @@ describe("Codex thread wake-up", () => {
             resultType: "success",
             type: "response",
           });
+
           return;
         }
+
         writeFrame(socket, {
           handledByClientId: "desktop-client-1",
           method: "thread-follower-start-turn",
@@ -96,8 +99,10 @@ describe("Codex thread wake-up", () => {
             resultType: "success",
             type: "response",
           });
+
           return;
         }
+
         writeFrame(socket, {
           error: "no-client-found",
           requestId: message.requestId,
@@ -125,6 +130,7 @@ describe("Codex thread wake-up", () => {
   test("retries transient desktop delivery failures with one stable message ID", async () => {
     const calls: string[] = [];
     let attempt = 0;
+
     const input = {
       clientUserMessageId: "stable-message",
       env: {},
@@ -137,6 +143,7 @@ describe("Codex thread wake-up", () => {
       send: async (next) => {
         calls.push(next.clientUserMessageId);
         attempt += 1;
+
         if (attempt < 3) {
           throw new CodexIpcUnavailableError("/tmp/missing.sock");
         }
@@ -164,6 +171,7 @@ async function ipcFixture() {
     server.once("error", reject);
     server.listen(socketPath, resolve);
   });
+
   return {
     close: () =>
       new Promise<void>((resolve, reject) => {
@@ -181,12 +189,15 @@ function readFrames(
   let buffered = Buffer.alloc(0);
   socket.on("data", (chunk: Buffer) => {
     buffered = Buffer.concat([buffered, chunk]);
+
     while (buffered.length >= 4) {
       const bodyBytes = buffered.readUInt32LE(0);
+
       if (buffered.length < bodyBytes + 4) return;
       const body = buffered.subarray(4, bodyBytes + 4);
       buffered = buffered.subarray(bodyBytes + 4);
       const message = parseJsonText(body.toString("utf8"));
+
       if (!isJsonObject(message)) throw new Error("frame is not an object");
       onMessage(message);
     }

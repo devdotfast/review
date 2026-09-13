@@ -21,8 +21,11 @@ import {
 type TestReviewSession = ReturnType<typeof testReviewSession>;
 
 let root: ReturnType<typeof createRoot> | undefined;
+
 let nextFrame = 1;
+
 let frames = new Map<number, FrameRequestCallback>();
+
 let resizeObservers = new Set<{ trigger(): void; disconnect(): void }>();
 
 beforeEach(() => {
@@ -40,11 +43,13 @@ beforeEach(() => {
     const frame = nextFrame;
     nextFrame += 1;
     frames.set(frame, callback);
+
     return frame;
   });
   vi.stubGlobal("cancelAnimationFrame", (frame: number) => {
     frames.delete(frame);
   });
+
   class TestResizeObserver implements ResizeObserver {
     constructor(private readonly callback: ResizeObserverCallback) {
       resizeObservers.add(this);
@@ -58,6 +63,7 @@ beforeEach(() => {
       this.callback([], this);
     }
   }
+
   vi.stubGlobal("ResizeObserver", TestResizeObserver);
 });
 
@@ -65,6 +71,7 @@ afterEach(() => {
   if (root) {
     act(() => root?.unmount());
   }
+
   root = undefined;
   document.body.replaceChildren();
   vi.unstubAllGlobals();
@@ -295,6 +302,7 @@ describe("review view state", () => {
       sessionId: "session-a",
       routePath: "/first.mdx",
     });
+
     const second = testReviewSession({
       sessionId: "session-b",
       routePath: "/second.mdx",
@@ -352,6 +360,7 @@ function renderViewState({
       </ReviewSessionProvider>,
     );
   });
+
   return { element: element!, store };
 }
 
@@ -369,9 +378,11 @@ function ViewStateHarness({
     scrollRegionRef: scrollRegionRef as RefObject<HTMLElement | null>,
     panelStore: store,
   });
+
   return createElement("div", {
     ref: (element: HTMLDivElement | null) => {
       scrollRegionRef.current = element;
+
       if (!element) return;
       Object.defineProperties(element, {
         scrollHeight: {
@@ -400,6 +411,7 @@ function flushNextFrame(): void {
   const next = frames.entries().next().value as
     | [number, FrameRequestCallback]
     | undefined;
+
   if (!next) throw new Error("No animation frame is pending");
   const [frame, callback] = next;
   frames.delete(frame);

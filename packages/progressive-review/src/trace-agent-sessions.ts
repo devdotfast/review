@@ -12,23 +12,29 @@ export async function readActiveTraceSessions(
     readFile(filePath, "utf8").catch(() => ""),
     stat(filePath).catch(() => null),
   ]);
+
   const legacyTimestamp = Math.floor(fileStat?.mtimeMs ?? now);
   const sessions = new Map<string, number>();
 
   for (const rawLine of content.split("\n")) {
     const line = rawLine.trim();
+
     if (!line) continue;
     const fields = line.split("\t");
     const parsedSessionId = sessionIdSchema.safeParse(fields[0]);
+
     if (!parsedSessionId.success) continue;
     const sessionId = parsedSessionId.data;
 
     let lastActiveAt = legacyTimestamp;
+
     if (fields.length > 1) {
       if (fields.length !== 2 || !/^\d+$/.test(fields[1] ?? "")) continue;
       lastActiveAt = Number(fields[1]);
+
       if (!Number.isSafeInteger(lastActiveAt) || lastActiveAt <= 0) continue;
     }
+
     if (now - lastActiveAt <= TRACE_SESSION_TTL_MS) {
       sessions.set(sessionId, lastActiveAt);
     }
@@ -43,10 +49,13 @@ export async function writeTraceSessions(
 ): Promise<void> {
   if (sessions.size === 0) {
     await rm(filePath, { force: true });
+
     return;
   }
+
   const content = [...sessions]
     .map(([sessionId, lastActiveAt]) => `${sessionId}\t${lastActiveAt}`)
     .join("\n");
+
   await writeFile(filePath, `${content}\n`, "utf8");
 }

@@ -83,7 +83,9 @@ export async function runReviewTraceStorageUse(
 ): Promise<number> {
   const stage = "trace.storage.use";
   const scope = commandScope(input);
+
   if (input.mode === "hosted") return useHosted(input, scope, stage);
+
   if (input.mode !== "s3") {
     return failWithJsonError(
       input,
@@ -94,16 +96,19 @@ export async function runReviewTraceStorageUse(
 
   try {
     const configFile = readTraceConfigFile(scope);
+
     if (configFile.error) throw new TraceConfigurationError(configFile.error);
     const current = configFile.config ?? emptyTraceConfig();
     const flags = [input.endpoint, input.bucket, input.key, input.secret];
     let next: TraceConfig;
+
     if (flags.some(Boolean)) {
       if (!flags.every(Boolean)) {
         throw new TraceConfigurationError(
           "The s3 store needs --endpoint, --bucket, --key, and --secret together.",
         );
       }
+
       const profile = s3ProfileSchema.parse({
         endpoint: input.endpoint,
         bucket: input.bucket,
@@ -118,6 +123,7 @@ export async function runReviewTraceStorageUse(
             traceSettingsPath(scope.homeDir, scope.env),
           )) ?? { enabled: true, autoActivateRepositories: true },
       });
+
       await requireReachable(profile, scope);
       next = {
         ...current,
@@ -126,13 +132,16 @@ export async function runReviewTraceStorageUse(
       };
     } else {
       const setup = resolveS3Setup(scope);
+
       if (!setup.credentials && !isS3MockMode(scope.env)) {
         throw new TraceConfigurationError(
           "No S3/R2 credentials are configured. Pass --endpoint, --bucket, --key, and --secret, or use Review Agent Setup.",
         );
       }
+
       next = { ...current, "current-store": "s3" };
     }
+
     await writeTraceConfigFile(configFile, next);
     clearTraceEnvCache();
 
@@ -153,6 +162,7 @@ export async function runReviewTraceStorageUse(
       captureEnabled: machine.enabled,
       repository: repository.message,
     });
+
     return 0;
   } catch (error) {
     return failWithJsonError(
@@ -176,18 +186,24 @@ async function useHosted(
 ): Promise<number> {
   try {
     const auth = await readStoreAuth(scope.env);
+
     const origin = normalizeStoreOrigin(
       input.origin ?? auth?.origin ?? DEFAULT_HOSTED_ORIGIN,
     );
+
     if (!auth || auth.origin !== origin) {
       throw new TraceConfigurationError(
         `Log in to ${origin} first: \`review login --origin ${origin}\`.`,
       );
     }
+
     const devHome = devReviewHome(scope.env, scope.homeDir);
+
     const client =
       input.client ?? new StoreClient({ origin, token: auth.token });
+
     let target: TraceRepositoryTarget;
+
     try {
       ({ target } = await resolveTraceRepositoryTarget({
         cwd: input.cwd,
@@ -202,15 +218,19 @@ async function useHosted(
           `${origin} does not serve the trace store contract this Review needs. Hosted storage was not selected.`,
         );
       }
+
       throw error;
     }
+
     const consent = await requireTraceConsent(target, devHome);
 
     const configFile = readTraceConfigFile(scope);
+
     if (configFile.error) throw new TraceConfigurationError(configFile.error);
     const current = configFile.config ?? emptyTraceConfig();
     // The default origin needs no entry; any other origin is written down.
     const stores = { ...current.stores };
+
     if (origin === DEFAULT_HOSTED_ORIGIN) delete stores.hosted;
     else stores.hosted = { origin };
     await writeTraceConfigFile(configFile, {
@@ -232,11 +252,13 @@ async function useHosted(
         .map((entry) => entry.name)
         .join(", ")}\n`,
     );
+
     if (selectTraceStorage(scope).s3?.credentials) {
       human.write(
         "Bucket credentials stay saved and inactive; `review trace storage use s3` switches back.\n",
       );
     }
+
     emitJsonEvent(input, {
       event: stage,
       mode: "hosted",
@@ -247,6 +269,7 @@ async function useHosted(
       name: target.name,
       allowedAt: consent.allowedAt,
     });
+
     return 0;
   } catch (error) {
     return failWithJsonError(
@@ -273,7 +296,9 @@ export function legacyRetiredPath(filePath: string): string {
     path.dirname(filePath),
     `legacy_${path.basename(filePath)}`,
   );
+
   if (!existsSync(base)) return base;
+
   return `${base}.${new Date().toISOString().replace(/[:.]/g, "-")}`;
 }
 
@@ -287,14 +312,17 @@ export async function runReviewTraceConfigMigrate(
   const stage = "trace.config.migrate";
   const scope = commandScope(input);
   const human = humanStream(input);
+
   try {
     // 1. The effective legacy inputs, overrides and custom paths included.
     const legacy = resolveS3Setup({ ...scope, ignoreProfile: true });
+
     if (!legacy.credentials) {
       throw new TraceConfigurationError(
         `No legacy S3/R2 configuration to migrate (checked ${legacy.envPath} and the environment).`,
       );
     }
+
     const settingsPath = traceSettingsPath(scope.homeDir, scope.env);
     const settings = await readLegacyCaptureSettings(settingsPath);
 
@@ -306,22 +334,30 @@ export async function runReviewTraceConfigMigrate(
         settings?.enabled === true &&
         settings.autoActivateRepositories === true,
     };
+
     if (settings?.verifiedAt) capture.verifiedAt = settings.verifiedAt;
+
     const candidate = s3ProfileSchema.parse({
       ...legacy.credentials,
       capture,
     });
+
     const configFile = readTraceConfigFile(scope);
+
     if (configFile.error) throw new TraceConfigurationError(configFile.error);
     const current = configFile.config ?? emptyTraceConfig();
+
     if (currentStore(current) === "hosted") {
       throw new TraceConfigurationError(
         `Hosted storage is selected in ${configFile.path}. Run \`review trace storage use s3\` first; migration never switches destinations.`,
       );
     }
+
     const existingProfile = s3Store(current);
+
     const unchanged =
       existingProfile !== null && sameS3Profile(existingProfile, candidate);
+
     if (existingProfile && !unchanged) {
       throw new TraceConfigurationError(
         `${configFile.path} already holds a different s3 store. Remove it or update it with \`review trace storage use s3 --endpoint ...\`; migration does not overwrite it.`,
@@ -350,6 +386,7 @@ export async function runReviewTraceConfigMigrate(
     human.write("  Reachability: ok\n");
 
     let status: "unchanged" | "written" | "preview";
+
     if (input.dryRun) {
       // A dry run touches nothing, whatever the config already holds.
       status = "preview";
@@ -372,14 +409,17 @@ export async function runReviewTraceConfigMigrate(
       status = "written";
       human.write(`Wrote ${configFile.path} (mode 0600).\n`);
     }
+
     // 5. The legacy files are retired beside their originals so the new
     //    file is the only active source. Renaming, not deleting, keeps the
     //    rollback a rename away. Exported variables are the user's own.
     const retired: Array<{ from: string; to: string }> = [];
     const kept: string[] = [];
+
     if (!input.dryRun && !input.keepLegacy) {
       for (const filePath of [legacy.envPath, settingsPath]) {
         if (!existsSync(filePath)) continue;
+
         // The env file may also hold session-root settings that only it
         // supplies; those keys are not migrated, so such a file stays.
         const others =
@@ -388,21 +428,27 @@ export async function runReviewTraceConfigMigrate(
                 (key) => !key.startsWith("TRACE_R2_"),
               )
             : [];
+
         if (others.length > 0) {
           kept.push(`${filePath} (still supplies ${others.join(", ")})`);
           continue;
         }
+
         const to = legacyRetiredPath(filePath);
         renameSync(filePath, to);
         retired.push({ from: filePath, to });
       }
+
       clearTraceEnvCache();
     }
+
     for (const line of kept) human.write(`Kept ${line}\n`);
+
     if (retired.length > 0) {
       for (const move of retired) {
         human.write(`Retired ${move.from} -> ${move.to}\n`);
       }
+
       human.write(
         `To roll back, rename the retired files back and delete ${configFile.path}. Exported TRACE_R2_* variables still take precedence.\n`,
       );
@@ -411,6 +457,7 @@ export async function runReviewTraceConfigMigrate(
         "Legacy env and settings files were left unchanged; exported TRACE_R2_* variables still take precedence.\n",
       );
     }
+
     emitJsonEvent(input, {
       event: stage,
       status,
@@ -426,6 +473,7 @@ export async function runReviewTraceConfigMigrate(
       accessKeyIdPrefix: candidate.accessKeyId.slice(0, 6),
       capture: candidate.capture ?? null,
     });
+
     return 0;
   } catch (error) {
     return failWithJsonError(
@@ -438,15 +486,19 @@ export async function runReviewTraceConfigMigrate(
 
 export function describeSelection(selection: TraceStorageSelection): string {
   if (selection.error) return `error (${selection.error})`;
+
   if (selection.mode === "hosted") {
     return `hosted (${selection.hosted?.origin ?? "unknown origin"})`;
   }
+
   if (selection.mode === "none") return "none configured";
   const setup = selection.s3;
   const credentials = setup?.credentials;
+
   const where = credentials
     ? `bucket "${credentials.bucket}" at ${credentials.endpoint}`
     : "mock bucket";
+
   const source =
     setup?.source === "profile"
       ? "config.json profile"
@@ -455,10 +507,12 @@ export function describeSelection(selection: TraceStorageSelection): string {
         : setup?.source === "process-env"
           ? "process environment"
           : "test mode";
+
   const overrides =
     setup && setup.overrides.length > 0 && setup.source !== "process-env"
       ? `; environment overrides: ${setup.overrides.join(", ")}`
       : "";
+
   return `S3/R2 ${where} (${selection.explicit ? "selected" : "legacy configuration"}; credentials from ${source}${overrides})`;
 }
 
@@ -467,7 +521,9 @@ async function requireReachable(
   scope: TraceStorageCommandScope,
 ): Promise<void> {
   const env = scope.env ?? process.env;
+
   if (isS3MockMode(env)) return;
+
   const credentials: S3Credentials = {
     endpoint: profile.endpoint,
     bucket: profile.bucket,
@@ -475,10 +531,12 @@ async function requireReachable(
     secretAccessKey: profile.secretAccessKey,
     region: profile.region ?? S3_DEFAULT_REGION,
   };
+
   const doctor = await S3TraceStorage.fromCredentials(
     credentials,
     env,
   ).doctor();
+
   if (!doctor.reachable) {
     throw new TraceConfigurationError(
       `Cannot reach S3/R2 bucket "${profile.bucket}": ${doctor.error ?? "unknown error"}. Nothing was written; retry when the bucket is reachable.`,

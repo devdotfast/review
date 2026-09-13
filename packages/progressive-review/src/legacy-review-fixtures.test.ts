@@ -39,7 +39,9 @@ import { reviewVcs } from "./review-vcs";
 import { readReviewSoftwareMapBundle } from "./software-map-bundle";
 
 const execFilePromise = promisify(execFile);
+
 const fixtures = listLegacyReviewFixtures();
+
 const tempRoots: string[] = [];
 
 afterEach(async () => {
@@ -57,6 +59,7 @@ async function extract(name: string) {
   const extracted = await extractLegacyReviewFixture(name);
   tempRoots.push(extracted.home);
   vi.stubEnv("DEV_REVIEW_HOME", extracted.home);
+
   return extracted;
 }
 
@@ -66,6 +69,7 @@ async function git(dir: string, args: string[]) {
 
 function threadRows(dir: string) {
   const db = new DatabaseSync(path.join(dir, "review.db"), { readOnly: true });
+
   try {
     const rows = (table: "comments" | "comment_drafts") =>
       db
@@ -77,6 +81,7 @@ function threadRows(dir: string) {
             record_json: parseJsonText(z.string().parse(row.record_json)),
           };
         });
+
     return {
       version: db
         .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
@@ -128,18 +133,23 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     const { home, dir, uuid, originalRecord } = await extract(fixture.name);
     const threadsBefore = threadRows(dir);
     const oldCommits = (await git(dir, ["rev-list", "--all"])).split("\n");
+
     const oldRefs = (
       await git(dir, ["for-each-ref", "--format=%(refname) %(objectname)"])
     ).split("\n");
+
     const oldHead = await git(dir, ["rev-parse", "HEAD"]);
     const loaded = await readStoredReview(dir);
     expect("error" in loaded).toBe(false);
+
     const record = jsonObject(
       parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
     )!;
+
     expect(normalizeMigratedRecord(record)).toEqual(
       await readLegacyReviewGolden(fixture.name, "record"),
     );
+
     const preservedEntries = Object.entries(originalRecord).filter(
       ([key]) =>
         ![
@@ -148,9 +158,11 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
           "presentedSoftwareMapRevision",
         ].includes(key),
     );
+
     for (const [key, value] of preservedEntries) {
       expect(record[key]).toEqual(value);
     }
+
     const documentRevision = record.presentedDocumentRevision as string;
     expect(documentRevision).not.toBe(originalRecord.presentedDocumentRevision);
     const documentDir = path.join(home, "document");
@@ -161,6 +173,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     );
     let actualMap = null;
     let expectedMap = null;
+
     if (fixture.hasMap) {
       const mapDir = path.join(home, "map");
       await materializeReviewRevision(
@@ -171,25 +184,32 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       actualMap = await readReviewSoftwareMapBundle(mapDir);
       expectedMap = await readLegacyReviewGolden(fixture.name, "map");
     }
+
     expect(actualMap).toEqual(expectedMap);
     expect(Boolean(record.presentedSoftwareMapRevision)).toBe(fixture.hasMap);
+
     for (const revision of oldCommits)
       expect(await reviewVcs.resolve(dir, revision)).toBe(revision);
+
     for (const entry of oldRefs) {
       const [ref, revision] = entry.split(" ");
       expect(await reviewVcs.resolve(dir, revision!)).toBe(revision);
       await git(dir, ["merge-base", "--is-ancestor", revision!, ref!]);
     }
+
     for (const entry of oldRefs.filter(
       (entry) => !entry.startsWith("refs/heads/main "),
     )) {
       const [ref, revision] = entry.split(" ");
       expect(await reviewVcs.resolve(dir, ref!)).toBe(revision);
     }
+
     let parentRevision = oldHead;
+
     const newRevisions = fixture.hasMap
       ? [record.presentedSoftwareMapRevision as string, documentRevision]
       : [documentRevision];
+
     for (const revision of newRevisions) {
       expect(
         (await git(dir, ["rev-list", "--parents", "-n", "1", revision]))
@@ -198,6 +218,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       ).toEqual([parentRevision]);
       parentRevision = revision;
     }
+
     const threadsAfter = threadRows(dir);
     expect(threadsAfter.version).toEqual({
       value: String(REVIEW_THREAD_DB_SCHEMA_VERSION),
@@ -214,10 +235,12 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
   it("migrates once when two readers race", async () => {
     const { dir } = await extract(fixture.name);
     const seal = vi.spyOn(reviewVcs, "seal");
+
     const [first, second] = await Promise.all([
       readStoredReview(dir),
       readStoredReview(dir),
     ]);
+
     expect("error" in first).toBe(false);
     expect(first).toEqual(second);
     expect(seal).toHaveBeenCalledTimes(fixture.hasMap ? 2 : 1);
@@ -229,10 +252,12 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       path.join(dir, ".bundle/document/review-document.js"),
       'throw new Error("corrupt sealed document");',
     );
+
     const brokenRevision = await sealReviewCandidate(
       dir,
       "Corrupt sealed document fixture",
     );
+
     await writeFile(
       path.join(dir, "review.json"),
       JSON.stringify({
@@ -265,10 +290,12 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
     path.join(broken.dir, ".bundle/document/review-document.js"),
     'throw new Error("corrupt sealed document");',
   );
+
   const revision = await sealReviewCandidate(
     broken.dir,
     "Corrupt mixed-store fixture",
   );
+
   await writeFile(
     path.join(broken.dir, "review.json"),
     JSON.stringify({
@@ -295,6 +322,7 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
 
 it("preserves seeded prose and code threads and a prose draft", async () => {
   const { dir, originalRecord } = await extract("schema4-bug-report-dialog");
+
   const target = {
     kind: "text" as const,
     surface: {
@@ -305,6 +333,7 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
     },
     selection: { start: 0, length: 5, hash: "f55c314b", quote: "Hello" },
   };
+
   const proseThread = ReviewCommentThreadRecordSchema.parse({
     threadId: "prose-thread",
     target,
@@ -319,6 +348,7 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
       },
     ],
   });
+
   const draft = ReviewCommentDraftThreadSchema.parse({
     thread: {
       ...proseThread,
@@ -340,6 +370,7 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
       },
     ],
   });
+
   const position = {
     position_type: "text",
     base_sha: originalRecord.baseCommit,
@@ -350,6 +381,7 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
     old_line: 1,
     new_line: 1,
   };
+
   const codeThread = ReviewCommentThreadRecordSchema.parse({
     threadId: "code-thread",
     target: { kind: "code", original_position: position, position },
@@ -364,7 +396,9 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
       },
     ],
   });
+
   const db = new DatabaseSync(path.join(dir, "review.db"));
+
   try {
     // Seed the legacy layout without using a current-schema runtime writer.
     db.prepare(
@@ -379,6 +413,7 @@ it("preserves seeded prose and code threads and a prose draft", async () => {
   } finally {
     db.close();
   }
+
   const before = threadRows(dir);
   expect(before.comments).toHaveLength(2);
   expect(before.drafts).toHaveLength(1);

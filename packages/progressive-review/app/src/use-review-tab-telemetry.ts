@@ -26,6 +26,7 @@ export function useReviewTabTelemetry(activeView: ReviewView): void {
 
   useEffect(() => {
     captureAppOpened(session);
+
     const tracker = createReviewTabDwellTracker({
       initialTab: telemetryTab,
       appSessionId,
@@ -37,17 +38,20 @@ export function useReviewTabTelemetry(activeView: ReviewView): void {
         fetch: window.fetch.bind(window),
       }),
     });
+
     trackerRef.current = tracker;
 
     const handleVisibilityChange = () => {
       tracker.handleVisibilityChange(document.visibilityState === "visible");
     };
+
     const handlePageHide = () => {
       tracker.handlePageHide();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pagehide", handlePageHide);
+
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pagehide", handlePageHide);

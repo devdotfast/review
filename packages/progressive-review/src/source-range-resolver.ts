@@ -26,6 +26,7 @@ export async function resolveReviewSourceRange(
   input: ResolveSourceRangeInput,
 ): Promise<SourceSnapshot> {
   const resolved = resolveSourceRange(input.rootPath, input.root);
+
   return createSourceSnapshot(resolved);
 }
 
@@ -36,6 +37,7 @@ function resolveSourceRange(
   const { file, fromLine, toLine } = parseSourceRange(input);
   const absoluteRoot = path.resolve(rootPath);
   const absoluteFile = path.resolve(absoluteRoot, file);
+
   if (!isInsideDirectoryOrSame(absoluteFile, absoluteRoot)) {
     throw new Error("file must be inside the review root");
   }
@@ -44,18 +46,24 @@ function resolveSourceRange(
     .relative(absoluteRoot, absoluteFile)
     .split(path.sep)
     .join("/");
+
   const sourceLines = fs.readFileSync(absoluteFile, "utf8").split(/\r?\n/);
+
   if (toLine > sourceLines.length) {
     throw new Error(
       `Source range ${relativeFile}:${fromLine}-${toLine} exceeds ${sourceLines.length} lines`,
     );
   }
+
   const sliced = sourceLines.slice(fromLine - 1, toLine);
+
   if (sliced.length === 0) {
     throw new Error(`No source lines found for ${relativeFile}:${fromLine}`);
   }
+
   const actualToLine = fromLine + sliced.length - 1;
   const id = `source-range:${relativeFile}:${fromLine}-${actualToLine}`;
+
   return {
     source: {
       id,
@@ -79,11 +87,13 @@ function parseSourceRange(input: SourceRangeSpec): SourceRangeSpec {
   ) {
     throw new Error("invalid source range");
   }
+
   return input;
 }
 
 function createSourceSnapshot(resolved: ResolvedSourceRange): SourceSnapshot {
   const sourceId = resolved.source.id;
+
   return {
     roots: [{ kind: "source", sourceId }],
     resolved: { [sourceId]: resolved },
@@ -95,6 +105,7 @@ function isInsideDirectoryOrSame(filePath: string, directory: string): boolean {
     path.resolve(directory),
     path.resolve(filePath),
   );
+
   return (
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))

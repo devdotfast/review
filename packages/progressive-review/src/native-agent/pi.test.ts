@@ -8,16 +8,19 @@ import { PiAgentServer } from "./pi";
 
 it("buffers new Pi messages, deduplicates delivery, and binds each resumed Ask without branch replay", async () => {
   const directory = await mkdtemp(join(tmpdir(), "review-pi-"));
+
   const server = new PiAgentServer({
     runtimeDirectory: directory,
     desktopEndpoint: { baseUrl: "http://localhost:4000", token: "test" },
   });
+
   try {
     const launch = await server.launch({
       session: { forkOf: "parent" },
       prompt: { id: "ask", text: "question" },
       cwd: directory,
     });
+
     const post = async (
       command: typeof launch.command,
       id: string,
@@ -37,6 +40,7 @@ it("buffers new Pi messages, deduplicates delivery, and binds each resumed Ask w
           message: { id, role, body, createdAt: "2026-01-01T00:00:00Z" },
         }),
       });
+
     expect(
       (await post(launch.command, "native-event-1", "user", "question")).status,
     ).toBe(200);
@@ -54,11 +58,13 @@ it("buffers new Pi messages, deduplicates delivery, and binds each resumed Ask w
     expect((await iterator.next()).value).toMatchObject({
       status: "interrupted",
     });
+
     const resumed = await server.launch({
       session: { resume: launch.sessionId },
       prompt: { id: "ask2", text: "again" },
       cwd: directory,
     });
+
     await post(launch.command, "late", "assistant", "stale");
     await post(resumed.command, "new-event", "user", "again");
     expect((await iterator.next()).value).toMatchObject({
@@ -66,11 +72,13 @@ it("buffers new Pi messages, deduplicates delivery, and binds each resumed Ask w
     });
     await stream.close();
     await post(resumed.command, "offline", "assistant", "offline answer");
+
     const reopened = await server.launch({
       session: { resume: launch.sessionId },
       prompt: { id: "reopened", text: "new question" },
       cwd: directory,
     });
+
     const replacement = await server.updates(launch.sessionId);
     await stream.close();
     await post(resumed.command, "old-generation", "assistant", "stale answer");

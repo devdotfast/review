@@ -25,8 +25,10 @@ describe("publish revision stage", () => {
       await withPublishedFixture(async (review, revision) => {
         const destination = path.join(review.dir, ".build", revision);
         await mkdir(destination, { recursive: true });
+
         if (kind !== "empty")
           await writeFile(path.join(destination, "data.ts"), "partial");
+
         if (kind === "wrong-revision")
           await writeFile(
             path.join(destination, ".review-materialized.json"),
@@ -35,11 +37,13 @@ describe("publish revision stage", () => {
               revision: "f".repeat(40),
             }),
           );
+
         const results = await Promise.all(
           Array.from({ length: 3 }, () =>
             materializePublishRevision({ review, revision }),
           ),
         );
+
         expect(new Set(results)).toEqual(new Set([destination]));
         expect(await readFile(path.join(destination, "data.ts"), "utf8")).toBe(
           "complete",
@@ -69,10 +73,12 @@ describe("publish revision stage", () => {
         ),
       ).rejects.toThrow("read failed");
       expect(await readdir(path.join(review.dir, ".build"))).toEqual([]);
+
       const destination = await materializePublishRevision({
         review,
         revision,
       });
+
       expect(await readFile(path.join(destination, "data.ts"), "utf8")).toBe(
         "complete",
       );
@@ -98,16 +104,20 @@ describe("publish revision stage", () => {
 
   it("materializes a review Git revision into its build staging directory", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-publish-home-"));
+
     const source = await mkdtemp(
       path.join(os.tmpdir(), "review-publish-source-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
+
     try {
       const review = await createReviewDir({
         worktreePath: source,
         baseRef: "HEAD",
         baseCommit: "base-commit",
       });
+
       await writeFile(
         path.join(review.dir, "data.ts"),
         "export const data = 1;\n",
@@ -150,6 +160,7 @@ async function withPublishedFixture(
   ) => Promise<void>,
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "review-materialize-"));
+
   try {
     const review = await createReviewDir({
       reviewsHomePath: path.join(root, "reviews"),
@@ -157,6 +168,7 @@ async function withPublishedFixture(
       baseRef: "HEAD",
       baseCommit: "a".repeat(40),
     });
+
     await writeFile(path.join(review.dir, "data.ts"), "complete");
     const revision = await sealReviewCandidate(review.dir, "Complete");
     await run(review, revision);

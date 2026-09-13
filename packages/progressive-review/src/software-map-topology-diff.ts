@@ -48,6 +48,7 @@ export function diffSoftwareMaps(
 
   const elementChanges = diffElements(base, head);
   const relationshipChanges = diffRelationships(base, head);
+
   const elementStatusByPath = Object.fromEntries(
     elementChanges
       .filter((change) => change.status !== "removed")
@@ -91,10 +92,12 @@ function diffElements(
 
   for (const headElement of head.elements) {
     const baseElement = baseByPath.get(headElement.path);
+
     if (!baseElement) {
       changes.push(elementChange(headElement, "added"));
       continue;
     }
+
     if (
       elementTopologySignature(baseElement) !==
       elementTopologySignature(headElement)
@@ -152,10 +155,12 @@ function diffRelationships(
 
   for (const [key, headRelationship] of headByKey) {
     const baseRelationship = baseByKey.get(key);
+
     if (!baseRelationship) {
       changes.push(relationshipChange(key, headRelationship, "added"));
       continue;
     }
+
     if (
       relationshipTopologySignature(baseRelationship) !==
       relationshipTopologySignature(headRelationship)
@@ -248,6 +253,8 @@ function compareRelationshipChanges(
 
 function statusOrder(status: Exclude<SoftwareChangeStatus, "unchanged">) {
   if (status === "added") return 0;
+
   if (status === "modified") return 1;
+
   return 2;
 }

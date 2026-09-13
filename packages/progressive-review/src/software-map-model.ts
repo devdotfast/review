@@ -9,6 +9,7 @@ const softwareElementTypeSchema = z.enum([
   "component",
   "codeElement",
 ]);
+
 export type SoftwareElementType = z.infer<typeof softwareElementTypeSchema>;
 
 const softwareChangeStatusSchema = z.enum([
@@ -17,6 +18,7 @@ const softwareChangeStatusSchema = z.enum([
   "modified",
   "unchanged",
 ]);
+
 export type SoftwareChangeStatus = z.infer<typeof softwareChangeStatusSchema>;
 
 const softwareDataStoreKindSchema = z.enum([
@@ -26,17 +28,20 @@ const softwareDataStoreKindSchema = z.enum([
   "artifactStore",
   "fileStore",
 ]);
+
 export type SoftwareDataStoreKind = z.infer<typeof softwareDataStoreKindSchema>;
 
 export const softwareLineRangeSchema = z.strictObject({
   fromLine: z.int().positive(),
   toLine: z.int().positive(),
 });
+
 export type SoftwareLineRange = z.infer<typeof softwareLineRangeSchema>;
 
 export const softwareSourceRangeSchema = softwareLineRangeSchema.extend({
   file: z.string(),
 });
+
 export type SoftwareSourceRange = z.infer<typeof softwareSourceRangeSchema>;
 
 export interface SoftwareCoverageFileInput {
@@ -146,6 +151,7 @@ const softwareDataStoreForeignKeyRefDataSchema = z.union([
     onUpdate: z.string().optional(),
   }),
 ]);
+
 export type SoftwareDataStoreForeignKeyRef = z.infer<
   typeof softwareDataStoreForeignKeyRefDataSchema
 >;
@@ -176,6 +182,7 @@ export const normalizedSoftwareDataStoreCollectionSchema = z.strictObject({
   key: z.string().optional(),
   schema: softwareDataStoreFieldDataSchema,
 });
+
 export type NormalizedSoftwareDataStoreCollection = z.infer<
   typeof normalizedSoftwareDataStoreCollectionSchema
 >;
@@ -184,6 +191,7 @@ export const normalizedSoftwareDataStoreSchemaSchema = z.strictObject({
   tables: z.record(z.string(), normalizedSoftwareDataStoreCollectionSchema),
   documents: z.record(z.string(), normalizedSoftwareDataStoreCollectionSchema),
 });
+
 export type NormalizedSoftwareDataStoreSchema = z.infer<
   typeof normalizedSoftwareDataStoreSchemaSchema
 >;
@@ -192,6 +200,7 @@ export const normalizedSoftwareCoverageFileSchema = z.strictObject({
   path: z.string(),
   ranges: z.array(softwareLineRangeSchema),
 });
+
 export type NormalizedSoftwareCoverageFile = z.infer<
   typeof normalizedSoftwareCoverageFileSchema
 >;
@@ -200,6 +209,7 @@ export const normalizedSoftwareCoverageSchema = z.strictObject({
   files: z.array(normalizedSoftwareCoverageFileSchema),
   globs: z.array(z.string()),
 });
+
 export type NormalizedSoftwareCoverage = z.infer<
   typeof normalizedSoftwareCoverageSchema
 >;
@@ -219,6 +229,7 @@ export const normalizedSoftwareElementSchema = z.strictObject({
   sourceRanges: z.array(softwareSourceRangeSchema).optional(),
   children: z.array(z.string()),
 });
+
 export type NormalizedSoftwareElement = z.infer<
   typeof normalizedSoftwareElementSchema
 >;
@@ -248,13 +259,16 @@ export const normalizedSoftwareRelationshipSchema = z.discriminatedUnion(
     }),
   ],
 );
+
 export type NormalizedSoftwareRelationship = z.infer<
   typeof normalizedSoftwareRelationshipSchema
 >;
+
 export type NormalizedCallRelationship = Extract<
   NormalizedSoftwareRelationship,
   { kind: "call" }
 >;
+
 export type NormalizedSemanticRelationship = Extract<
   NormalizedSoftwareRelationship,
   { kind: "semantic" }
@@ -346,6 +360,7 @@ export function defineSoftwareMap(
   }
 
   const normalizedElements = elements.map((element) => Object.freeze(element));
+
   return Object.freeze({
     elements: normalizedElements,
     elementsByPath: new Map(
@@ -376,6 +391,7 @@ function flattenElements({
 
   const siblings = entriesForCollection(collection);
   const siblingIds = new Set<string>();
+
   for (const [collectionKey, input] of siblings) {
     const id = input.id ?? collectionKey;
     const path = parentPath ? `${parentPath}.${id}` : id;
@@ -384,13 +400,16 @@ function flattenElements({
       errors.push(`Software ${type} under ${parentPath ?? "model"} has no id.`);
       continue;
     }
+
     if (siblingIds.has(id)) {
       errors.push(
         `Duplicate ${type} id "${id}" under ${parentPath ?? "model"}.`,
       );
       continue;
     }
+
     siblingIds.add(id);
+
     if (elementsByPath.has(path)) {
       errors.push(`Duplicate element path "${path}".`);
       continue;
@@ -413,16 +432,19 @@ function flattenElements({
     if (parentPath) {
       elementsByPath.get(parentPath)?.children.push(path);
     }
+
     if (type === "softwareSystem") {
       // SAFETY: `type` names the collection `input` came from.
       draft.external = (input as SoftwareSystemInput).external;
     }
+
     if (type === "dataStore") {
       // SAFETY: `type` names the collection `input` came from.
       const dataStore = input as DataStoreInput;
       draft.dataStoreKind = dataStore.kind ?? "database";
       draft.dataStoreSchema = normalizeDataStoreSchema(path, dataStore, errors);
     }
+
     if (type === "codeElement") {
       // SAFETY: `type` names the collection `input` came from.
       const codeElement = input as CodeElementInput;
@@ -467,6 +489,7 @@ function flattenElements({
         errors,
       });
     }
+
     if (type === "container" || type === "dataStore") {
       // SAFETY: `type` names the collection `input` came from.
       flattenElements({
@@ -479,6 +502,7 @@ function flattenElements({
         errors,
       });
     }
+
     if (type === "component") {
       // SAFETY: `type` names the collection `input` came from.
       flattenElements({
@@ -500,6 +524,7 @@ function entriesForCollection<T extends SoftwareElementBaseInput>(
   if (Array.isArray(collection)) {
     return collection.map((item, index) => [item.id ?? String(index), item]);
   }
+
   return Object.entries(collection);
 }
 
@@ -514,6 +539,7 @@ function validateElementFields(
       `Element "${path}" must not author additions or deletions; diff counts are computed automatically.`,
     );
   }
+
   if (
     "changeStatus" in input &&
     input.changeStatus !== undefined &&
@@ -526,6 +552,7 @@ function validateElementFields(
       `Element "${path}" changeStatus must be one of "added", "removed", "modified", or "unchanged".`,
     );
   }
+
   if (
     type === "dataStore" &&
     "kind" in input &&
@@ -540,17 +567,21 @@ function validateElementFields(
       `Data store "${path}" kind must be one of "database", "objectStore", "bucket", "artifactStore", or "fileStore".`,
     );
   }
+
   if (type !== "dataStore" && "kind" in input) {
     errors.push(`Only data stores may define kind: "${path}".`);
   }
+
   if (type !== "dataStore" && ("tables" in input || "documents" in input)) {
     errors.push(`Only data stores may define tables or documents: "${path}".`);
   }
+
   if (type === "codeElement") {
     if ("codeElements" in input) {
       errors.push(`Code element "${path}" cannot contain code elements.`);
     }
   }
+
   if (
     "coverage" in input &&
     input.coverage !== undefined &&
@@ -579,9 +610,11 @@ function normalizeDataStoreSchema(
   );
   const tables = normalizeDataStoreCollections(dataStore.tables);
   const documents = normalizeDataStoreCollections(dataStore.documents);
+
   if (Object.keys(tables).length === 0 && Object.keys(documents).length === 0) {
     return undefined;
   }
+
   return Object.freeze({
     tables: Object.freeze(tables),
     documents: Object.freeze(documents),
@@ -595,21 +628,26 @@ function validateDataStoreCollectionRecord(
   errors: string[],
 ) {
   if (collections === undefined) return;
+
   if (!isAuthoredObject(collections)) {
     errors.push(`Data store "${path}" ${property} must be an object.`);
+
     return;
   }
+
   for (const [collectionId, collection] of Object.entries(collections)) {
     if (!collectionId.trim()) {
       errors.push(`Data store "${path}" ${property} contains an empty id.`);
       continue;
     }
+
     if (!isAuthoredObject(collection)) {
       errors.push(
         `Data store "${path}" ${property}.${collectionId} must be an object.`,
       );
       continue;
     }
+
     validateDataStoreFieldSchema(
       collection.schema,
       `Data store "${path}" ${property}.${collectionId}.schema`,
@@ -641,22 +679,28 @@ function validateDataStoreFieldSchema(
 ) {
   if (!isAuthoredObject(schema)) {
     errors.push(`${path} must be an object.`);
+
     return;
   }
+
   for (const [field, value] of Object.entries(schema)) {
     if (!field.trim()) {
       errors.push(`${path} contains an empty field name.`);
       continue;
     }
+
     const fieldPath = `${path}.${field}`;
+
     if (!isAuthoredObject(value)) {
       errors.push(`${fieldPath} must be a field object or nested schema.`);
       continue;
     }
+
     if (isDataStoreFieldLeaf(value)) {
       if (!value.type.trim()) {
         errors.push(`${fieldPath}.type must not be empty.`);
       }
+
       if (value.schema) {
         validateDataStoreFieldSchema(
           value.schema,
@@ -664,8 +708,10 @@ function validateDataStoreFieldSchema(
           errors,
         );
       }
+
       continue;
     }
+
     validateDataStoreFieldSchema(value, fieldPath, errors);
   }
 }
@@ -685,6 +731,7 @@ function normalizeCoverage(
   errors: string[],
 ): NormalizedSoftwareCoverage | undefined {
   if (!coverage) return undefined;
+
   if (
     type !== "softwareSystem" &&
     type !== "container" &&
@@ -700,21 +747,25 @@ function normalizeCoverage(
   if (coverage.files !== undefined && !Array.isArray(coverage.files)) {
     errors.push(`Element "${path}" coverage.files must be an array.`);
   }
+
   for (const [index, file] of (coverage.files ?? []).entries()) {
     if (isAuthoredString(file)) {
       if (!file.trim()) {
         errors.push(`Element "${path}" coverage.files[${index}] is empty.`);
         continue;
       }
+
       files.push({ path: file, ranges: [] });
       continue;
     }
+
     if (!isAuthoredObject(file) || !file.path) {
       errors.push(
         `Element "${path}" coverage.files[${index}] must be a file path or object with path.`,
       );
       continue;
     }
+
     files.push({
       path: file.path,
       ranges: file.ranges ?? [],
@@ -729,15 +780,18 @@ function normalizeCoverage(
   if (coverage.globs !== undefined && !Array.isArray(coverage.globs)) {
     errors.push(`Element "${path}" coverage.globs must be an array.`);
   }
+
   for (const [index, glob] of (coverage.globs ?? []).entries()) {
     if (!isAuthoredString(glob) || !glob.trim()) {
       errors.push(`Element "${path}" coverage.globs[${index}] is empty.`);
       continue;
     }
+
     globs.push(glob);
   }
 
   if (files.length === 0 && globs.length === 0) return undefined;
+
   return Object.freeze({
     files: files.map((file) => Object.freeze(file)),
     globs,
@@ -757,11 +811,13 @@ function normalizeRelationships(
       pending.scopePath,
       elementsByPath,
     );
+
     const to = resolveEndpoint(
       pending.input.to,
       pending.scopePath,
       elementsByPath,
     );
+
     const relationshipLabel = pending.scopePath
       ? `relationship scoped to "${pending.scopePath}"`
       : "top-level relationship";
@@ -771,12 +827,15 @@ function normalizeRelationships(
         `Invalid ${relationshipLabel}: endpoint "${pending.input.from}" does not match an element path or data store schema path.`,
       );
     }
+
     if (!to) {
       errors.push(
         `Invalid ${relationshipLabel}: endpoint "${pending.input.to}" does not match an element path or data store schema path.`,
       );
     }
+
     validateRelationshipFields(pending, errors);
+
     if (!from || !to) continue;
 
     const base = {
@@ -787,6 +846,7 @@ function normalizeRelationships(
       label: pending.input.label,
       description: pending.input.description,
     };
+
     if (pending.input.kind === "call") {
       relationships.push(
         Object.freeze({
@@ -816,6 +876,7 @@ function validateRelationshipFields(
 ) {
   if (pending.input.kind === "call") {
     const nthCallSite = pending.input.nthCallSite ?? 0;
+
     if (!Number.isInteger(nthCallSite) || nthCallSite < 0) {
       errors.push(
         `Call relationship "${relationshipIdForPending(
@@ -823,6 +884,7 @@ function validateRelationshipFields(
         )}" must use a non-negative integer nthCallSite.`,
       );
     }
+
     return;
   }
 
@@ -839,23 +901,31 @@ function resolveEndpoint(
   elementsByPath: Map<string, ElementDraft>,
 ): string | undefined {
   const candidates: string[] = [];
+
   if (scopePath && endpoint === ".") {
     candidates.push(scopePath);
   }
+
   if (scopePath && endpoint !== ".") {
     candidates.push(`${scopePath}.${endpoint}`);
     const parentPath = parentPathFor(scopePath);
+
     if (parentPath) candidates.push(`${parentPath}.${endpoint}`);
   }
+
   candidates.push(endpoint);
+
   for (const candidate of candidates) {
     if (elementsByPath.has(candidate)) return candidate;
+
     const schemaEndpoint = resolveDataStoreSchemaEndpoint(
       candidate,
       elementsByPath,
     );
+
     if (schemaEndpoint) return schemaEndpoint;
   }
+
   return undefined;
 }
 
@@ -875,13 +945,16 @@ export function parseDataStoreSchemaEndpoint(
 ): ResolvedDataStoreSchemaEndpoint | undefined {
   for (const [dataStorePath, element] of elementsByPath) {
     if (element.type !== "dataStore" || !element.dataStoreSchema) continue;
+
     const parsed = parseDataStoreSchemaEndpointForStore(
       endpoint,
       dataStorePath,
       element.dataStoreSchema,
     );
+
     if (parsed) return parsed;
   }
+
   return undefined;
 }
 
@@ -901,18 +974,23 @@ function parseDataStoreSchemaEndpointForStore(
 ): ResolvedDataStoreSchemaEndpoint | undefined {
   for (const collectionKind of ["tables", "documents"] as const) {
     const prefix = `${dataStorePath}.${collectionKind}.`;
+
     if (!endpoint.startsWith(prefix)) continue;
     const parts = endpoint.slice(prefix.length).split(".").filter(Boolean);
+
     if (parts.length === 0) continue;
     const [collectionId, ...fieldPath] = parts;
     const collection = schema[collectionKind][collectionId];
+
     if (!collection) continue;
+
     if (
       fieldPath.length > 0 &&
       !dataStoreFieldPathExists(collection.schema, fieldPath)
     ) {
       continue;
     }
+
     return {
       dataStorePath,
       collectionKind,
@@ -920,6 +998,7 @@ function parseDataStoreSchemaEndpointForStore(
       fieldPath,
     };
   }
+
   return undefined;
 }
 
@@ -928,11 +1007,15 @@ function dataStoreFieldPathExists(
   fieldPath: readonly string[],
 ): boolean {
   let current: SoftwareDataStoreFieldSchema = schema;
+
   for (const [index, part] of fieldPath.entries()) {
     const next: SoftwareDataStoreFieldSchema | SoftwareDataStoreFieldLeaf =
       current[part];
+
     if (!next) return false;
+
     if (index === fieldPath.length - 1) return true;
+
     if (isDataStoreFieldLeaf(next)) {
       if (!next.schema) return false;
       current = next.schema;
@@ -940,6 +1023,7 @@ function dataStoreFieldPathExists(
       current = next;
     }
   }
+
   return fieldPath.length === 0;
 }
 
@@ -952,6 +1036,7 @@ function validateSourceRanges(
     if (!isAuthoredString(range.file) || range.file.trim().length === 0) {
       errors.push(`${label}[${index}].file must be a non-empty string.`);
     }
+
     if (
       !Number.isInteger(range.fromLine) ||
       !Number.isInteger(range.toLine) ||
@@ -990,7 +1075,9 @@ function relationshipIdForPending(pending: PendingRelationship) {
 
 function parentPathFor(path: string) {
   const lastDot = path.lastIndexOf(".");
+
   if (lastDot === -1) return undefined;
+
   return path.slice(0, lastDot);
 }
 
@@ -998,6 +1085,7 @@ function parentPathFor(path: string) {
 // normalizer without type checking. These decode a value's representation once
 // before the normalizer reads its fields.
 const AuthoredObjectSchema = z.object({});
+
 const AuthoredStringSchema = z.string();
 
 function isAuthoredObject<T>(value: T | undefined): value is T {
@@ -1031,10 +1119,12 @@ export const softwareModelDataSchema = z.strictObject({
 });
 
 export const SOFTWARE_MAP_DATA_FORMAT = "software-map/1";
+
 /** The on-disk envelope, shared by publishers, readers and the canvas. */
 export const softwareMapDataFileSchema = softwareModelDataSchema.extend({
   format: z.literal(SOFTWARE_MAP_DATA_FORMAT),
 });
+
 /** JSON projection of a normalized model. `elementsByPath` is derived and is
     rebuilt on load by `hydrateSoftwareModel`. */
 export type SoftwareModelData = z.infer<typeof softwareModelDataSchema>;

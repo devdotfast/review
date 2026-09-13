@@ -54,16 +54,21 @@ export async function lockfileDigest(checkoutPath, installDirs = dirs) {
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
+
   if (command === "digest" && args.length === 1) {
     const [checkoutPath] = args;
     console.log(await lockfileDigest(checkoutPath));
+
     return;
   }
+
   if (command === "needs-install" && args.length === 2) {
     const [checkoutPath, stampPath] = args;
+
     const installedLockfileDigest = existsSync(stampPath)
       ? (await readFile(stampPath, "utf8")).trim()
       : undefined;
+
     console.log(
       needsDependencyInstall({
         dependencyDirectoriesExist: dependencyDirectoriesExist(checkoutPath),
@@ -71,6 +76,7 @@ async function main() {
         lockfileDigest: await lockfileDigest(checkoutPath),
       }),
     );
+
     return;
   }
 

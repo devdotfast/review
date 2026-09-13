@@ -138,6 +138,7 @@ describe("trace-cli", () => {
         secret: "test-secret-key",
       },
     });
+
     const exitCode = await runReviewTraceEnable({
       cwd: tempDir,
       stdout: stdout as any,
@@ -145,16 +146,20 @@ describe("trace-cli", () => {
     });
 
     expect(exitCode).toBe(0);
+
     const hooksPath = execFileSync("git", ["config", "core.hooksPath"], {
       cwd: tempDir,
     })
       .toString()
       .trim();
+
     expect(hooksPath).toContain("dev-fast/trace-hooks/hooks");
+
     const managedHook = readFileSync(
       path.join(hooksPath, "prepare-commit-msg"),
       "utf8",
     );
+
     expect(managedHook).toContain(
       'root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"',
     );
@@ -206,12 +211,14 @@ describe("trace-cli", () => {
     stdoutJson.on("data", (d) => {
       jsonOut += d.toString();
     });
+
     const exitCodeJson = await runReviewTraceLookupCommit({
       cwd: tempDir,
       sha,
       json: true,
       stdout: stdoutJson as any,
     });
+
     expect(exitCodeJson).toBe(0);
     const parsed = JSON.parse(jsonOut);
     expect(parsed.commit).toBe(sha);
@@ -224,11 +231,13 @@ describe("trace-cli", () => {
     stdoutText.on("data", (d) => {
       textOut += d.toString();
     });
+
     const exitCodeText = await runReviewTraceLookupCommit({
       cwd: tempDir,
       sha,
       stdout: stdoutText as any,
     });
+
     expect(exitCodeText).toBe(0);
     expect(textOut).toContain("via index PR #12");
     expect(textOut).toContain(sessionId);
@@ -278,12 +287,14 @@ describe("trace-cli", () => {
     missingStdout.on("data", (d) => {
       missingOut += d.toString();
     });
+
     const missingCode = await runReviewTraceLookupSession({
       cwd: tempDir,
       sessionId: "99999999-aaaa-bbbb-cccc-000000000099",
       json: true,
       stdout: missingStdout as any,
     });
+
     expect(missingCode).toBe(1);
     expect(JSON.parse(missingOut)).toEqual({
       session: "99999999-aaaa-bbbb-cccc-000000000099",
@@ -366,8 +377,10 @@ describe("trace-cli", () => {
     const searchDir = path.join(tempDir, "trace-search");
     process.env.REVIEW_TEST_TRACE_SEARCH_DIR = searchDir;
     process.env.DEV_REVIEW_HOME = path.join(tempDir, "dev-home");
+
     try {
       const out: string[] = [];
+
       const code = await runReviewTraceShow({
         cwd: tempDir,
         sessionId,
@@ -376,6 +389,7 @@ describe("trace-cli", () => {
         stdout: collectingWritable(out),
         stderr: collectingWritable([]),
       });
+
       expect(code).toBe(0);
       expect(JSON.parse(out.join("").trim())).toMatchObject({
         session: sessionId,
@@ -403,6 +417,7 @@ describe("trace-cli", () => {
     const sessionId = "11111111-aaaa-bbbb-cccc-000000000011";
     const devHome = path.join(tempDir, "dev-home");
     process.env.DEV_REVIEW_HOME = devHome;
+
     try {
       await recordTraceSyncFailure({
         sessionId,
@@ -423,6 +438,7 @@ describe("trace-cli", () => {
         path.join(localTraceRoot, `${sessionId}.jsonl`),
         JSON.stringify({ type: "session", id: sessionId }) + "\n",
       );
+
       const code = await runReviewTraceSync({
         cwd: tempDir,
         sessionId,
@@ -430,6 +446,7 @@ describe("trace-cli", () => {
         json: true,
         stdout: collectingWritable([]),
       });
+
       expect(code).toBe(0);
       expect(await listTraceSyncFailures(devHome)).toEqual([]);
     } finally {
@@ -445,6 +462,7 @@ describe("trace-cli", () => {
     );
     const devHome = path.join(tempDir, "dev-home");
     process.env.DEV_REVIEW_HOME = devHome;
+
     try {
       await expect(
         runReviewTraceSync({
@@ -497,6 +515,7 @@ describe("trace-cli", () => {
     stdoutJson.on("data", (d) => {
       jsonOut += d.toString();
     });
+
     const exitCodeJson = await runReviewTraceLookupBlame({
       cwd: gitDir,
       file: "app.ts",
@@ -505,6 +524,7 @@ describe("trace-cli", () => {
       stdout: stdoutJson as any,
       stderr: new PassThrough() as any,
     });
+
     expect(exitCodeJson).toBe(0);
     const parsed = JSON.parse(jsonOut);
     expect(parsed.file).toBe("app.ts");
@@ -520,12 +540,14 @@ describe("trace-cli", () => {
     stdoutText.on("data", (d) => {
       textOut += d.toString();
     });
+
     const exitCodeText = await runReviewTraceLookupBlame({
       cwd: gitDir,
       file: "app.ts",
       stdout: stdoutText as any,
       stderr: new PassThrough() as any,
     });
+
     expect(exitCodeText).toBe(0);
     expect(textOut).toContain("→ 1 session(s) via trailer");
     expect(textOut).toContain("aaaa1111-bbbb-cccc-dddd-eeee00000001");

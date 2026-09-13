@@ -37,6 +37,7 @@ it("initializes a committed repository on the requested branch", async () => {
     execFileSync("git", ["-C", branch, "rev-parse", "--abbrev-ref", "HEAD"], {
       encoding: "utf8",
     }).trim();
+
   expect(head(root)).toBe("main");
   expect(head(branched)).toBe("trunk");
   expect(
@@ -60,6 +61,7 @@ it("stages a promotable review directory at either stored schema", async () => {
     schemaVersion: 4,
     uuid: "22222222-2222-4222-8222-222222222222",
   });
+
   expect(legacy.record.schemaVersion).toBe(4);
   expect(legacy.record.uuid).toBe("22222222-2222-4222-8222-222222222222");
 });

@@ -41,10 +41,12 @@ export function ReviewDiffFilesProvider({
   const reviewFetch = session.fetch;
   const diffView = session.bridge.diffView;
   const container = useReviewContainer();
+
   const [snapshot, setSnapshot] = useState<ReviewDiffFilesSnapshot>(() => ({
     documentKey,
     state: LOADING_REVIEW_DIFF_FILES_STATE,
   }));
+
   const state =
     snapshot.documentKey === documentKey
       ? snapshot.state
@@ -61,6 +63,7 @@ export function ReviewDiffFilesProvider({
           },
     );
     recordDiffSummaryRequest(container);
+
     const request = diffView.files
       ? diffView.files().then((files) => [...files])
       : reviewFetch("/diff-files", {
@@ -70,13 +73,16 @@ export function ReviewDiffFilesProvider({
           signal: controller.signal,
         }).then(async (response) => {
           const result = parseReviewDiffFilesResponse(await response.json());
+
           if (!response.ok || !result.ok) {
             throw new Error(
               result.ok ? "Unable to load diff files." : result.error,
             );
           }
+
           return result.files;
         });
+
     request
       .then((files) => {
         if (controller.signal.aborted) return;
@@ -96,10 +102,12 @@ export function ReviewDiffFilesProvider({
           },
         });
       });
+
     return () => controller.abort();
   }, [container, diffView, documentKey, reviewFetch]);
 
   const value = useMemo(() => state, [state]);
+
   return (
     <ReviewDiffFilesContext.Provider value={value}>
       {children}

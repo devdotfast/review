@@ -21,6 +21,7 @@ export interface AgentTraceHookInstallResult {
 }
 
 const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
+
 const OPENCODE_TRACE_PLUGIN_MARKER = PI_EXTENSION_MARKER;
 
 function piExtensionSource(reviewCommand: string): string {
@@ -180,9 +181,11 @@ export async function installClaudeTraceHook(
   const settingsPath = path.join(settingsDir, "settings.json");
 
   let parsed: JsonObject = {};
+
   if (existsSync(settingsPath)) {
     try {
       const content = parseJsonText(await readFile(settingsPath, "utf8"));
+
       if (isJsonObject(content)) parsed = content;
     } catch {
       parsed = {};
@@ -206,14 +209,17 @@ export async function installClaudeTraceHook(
   ] as const) {
     const existing = hooks[eventName];
     const existingGroup: JsonValue[] = isJsonArray(existing) ? existing : [];
+
     const hasHook = existingGroup.some((entry) => {
       if (!isJsonObject(entry)) return false;
       const subHooks = entry.hooks;
+
       if (isJsonArray(subHooks)) {
         return subHooks.some(
           (h) => isJsonObject(h) && isReviewTraceHookCommand(h.command),
         );
       }
+
       return false;
     });
 
@@ -250,6 +256,7 @@ export async function installCodexTraceHook(
   const configPath = path.join(codexDir, "config.toml");
 
   let existing = "";
+
   if (existsSync(configPath)) {
     existing = await readFile(configPath, "utf8");
   }
@@ -259,9 +266,11 @@ export async function installCodexTraceHook(
     "UserPromptSubmit",
     "SessionEnd",
   ] as const;
+
   const missingEvents = hookEvents.filter(
     (eventName) => !existing.includes(` trace hook ${eventName}`),
   );
+
   if (missingEvents.length === 0) {
     return { agent: "codex", path: configPath, modified: false };
   }
@@ -270,9 +279,11 @@ export async function installCodexTraceHook(
     "review trace hook",
     `${shellCommand(reviewCommand)} trace hook`,
   );
+
   const missingHookToml = missingEvents
     .map((eventName) => codexTraceHookToml(eventName, reviewCommand))
     .join("\n\n");
+
   await mkdir(codexDir, { recursive: true });
   await writeFile(
     configPath,
@@ -296,11 +307,13 @@ export async function installPiTraceExtension(
   const extensionPath = path.join(extensionsDir, "review-trace.ts");
 
   let existing = "";
+
   if (existsSync(extensionPath)) {
     existing = await readFile(extensionPath, "utf8");
   }
 
   const source = piExtensionSource(reviewCommand);
+
   if (existing.trim() === source.trim()) {
     return { agent: "pi", path: extensionPath, modified: false };
   }
@@ -322,11 +335,13 @@ export async function installOpenCodeTraceExtension(
   const pluginPath = path.join(pluginsDir, "review-trace.ts");
 
   let existing = "";
+
   if (existsSync(pluginPath)) {
     existing = await readFile(pluginPath, "utf8");
   }
 
   const source = openCodeTracePluginSource(reviewCommand);
+
   if (existing.trim() === source.trim()) {
     return { agent: "opencode", path: pluginPath, modified: false };
   }
@@ -344,17 +359,22 @@ export async function removeAgentTraceHook(
 ): Promise<boolean> {
   if (agent === "claude") {
     const settingsPath = path.join(homeDir, ".claude", "settings.json");
+
     if (!existsSync(settingsPath)) return false;
     let parsed: JsonValue;
+
     try {
       parsed = parseJsonText(await readFile(settingsPath, "utf8"));
     } catch {
       return false;
     }
+
     if (!isJsonObject(parsed)) return false;
     const hooks = parsed.hooks;
+
     if (!isJsonObject(hooks)) return false;
     let changed = false;
+
     for (const eventName of [
       "SessionStart",
       "UserPromptSubmit",
@@ -362,20 +382,28 @@ export async function removeAgentTraceHook(
     ] as const) {
       const existing = hooks[eventName];
       const groups: JsonValue[] = isJsonArray(existing) ? existing : [];
+
       const keptGroups = groups.flatMap((group): JsonValue[] => {
         if (!isJsonObject(group)) return [group];
+
         if (!isJsonArray(group.hooks)) return [group];
+
         const keptHooks = group.hooks.filter((hook) => {
           const command = isJsonObject(hook) ? hook.command : undefined;
           const owned = isReviewTraceHookCommand(command);
+
           if (owned) changed = true;
+
           return !owned;
         });
+
         return keptHooks.length > 0 ? [{ ...group, hooks: keptHooks }] : [];
       });
+
       if (keptGroups.length > 0) hooks[eventName] = keptGroups;
       else delete hooks[eventName];
     }
+
     if (!changed) return false;
     parsed.hooks = hooks;
     await writeFile(
@@ -383,22 +411,28 @@ export async function removeAgentTraceHook(
       `${JSON.stringify(parsed, null, 2)}\n`,
       "utf8",
     );
+
     return true;
   }
 
   if (agent === "codex") {
     const configPath = path.join(homeDir, ".codex", "config.toml");
+
     if (!existsSync(configPath)) return false;
     const existing = await readFile(configPath, "utf8");
+
     const marked =
       /# review-trace-hooks:start\n[\s\S]*?# review-trace-hooks:end\n?/;
+
     const withoutMarkedBlock = existing
       .replace(marked, "")
       .replace(CODEX_HOOK_TOML.trim(), "");
+
     const removed = ["SessionStart", "UserPromptSubmit", "SessionEnd"].reduce(
       (content, eventName) => removeCodexTraceHook(content, eventName),
       withoutMarkedBlock,
     );
+
     if (removed === existing) return false;
     const next = removed.replace(/\n{3,}/g, "\n\n");
     await writeFile(
@@ -406,6 +440,7 @@ export async function removeAgentTraceHook(
       next.trim() ? `${next.trimEnd()}\n` : "",
       "utf8",
     );
+
     return true;
   }
 
@@ -413,12 +448,16 @@ export async function removeAgentTraceHook(
     agent === "pi"
       ? path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts")
       : path.join(homeDir, ".config", "opencode", "plugins", "review-trace.ts");
+
   if (!existsSync(extensionPath)) return false;
   const existing = await readFile(extensionPath, "utf8");
+
   if (!existing.trimStart().startsWith(`// ${PI_EXTENSION_MARKER}`)) {
     return false;
   }
+
   await rm(extensionPath, { force: true });
+
   return true;
 }
 
@@ -430,10 +469,14 @@ function shellCommand(command: string): string {
 
 function isReviewTraceHookCommand(command: JsonValue | undefined): boolean {
   const text = jsonString(command);
+
   if (text === undefined) return false;
+
   const match =
     /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(text);
+
   if (!match) return false;
+
   return match[1] === "review" || match[1].endsWith("/review'");
 }
 
@@ -445,6 +488,7 @@ function codexTraceHookToml(
     eventName === "SessionStart"
       ? '\nstatusMessage = "Recording agent session id for trace stamping"'
       : "";
+
   return `[[hooks.${eventName}]]
 [[hooks.${eventName}.hooks]]
 type = "command"
@@ -453,6 +497,7 @@ command = "${shellCommand(reviewCommand)} trace hook ${eventName}"${status}`;
 
 function removeCodexTraceHook(content: string, eventName: string): string {
   const escapedEvent = eventName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
   const pattern = new RegExp(
     `(?:^|\\n)\\[\\[hooks\\.${escapedEvent}\\]\\]\\n` +
       `\\[\\[hooks\\.${escapedEvent}\\.hooks\\]\\]\\n` +
@@ -461,5 +506,6 @@ function removeCodexTraceHook(content: string, eventName: string): string {
       `(?:statusMessage = "[^"\\n]*"\\n)?`,
     "g",
   );
+
   return content.replace(pattern, "\n");
 }

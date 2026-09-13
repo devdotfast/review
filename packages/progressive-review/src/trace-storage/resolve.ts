@@ -51,6 +51,7 @@ export function selectTraceStorage(
 ): TraceStorageSelection {
   const env = scope.env ?? process.env;
   const config = readTraceConfigFile(scope);
+
   if (config.error) {
     return {
       mode: "none",
@@ -61,7 +62,9 @@ export function selectTraceStorage(
       error: config.error,
     };
   }
+
   let s3: S3Setup | null;
+
   try {
     s3 = resolveS3Setup(scope);
   } catch (error) {
@@ -74,6 +77,7 @@ export function selectTraceStorage(
       error: error instanceof Error ? error.message : String(error),
     };
   }
+
   const mock = isS3MockMode(env);
   const file = config.config;
   const pointer = currentStore(file);
@@ -90,6 +94,7 @@ export function selectTraceStorage(
       hosted: hosted ?? { origin: hostedOrigin(file) },
     };
   }
+
   if (pointer === "s3") {
     if (!hasS3) {
       return {
@@ -102,13 +107,16 @@ export function selectTraceStorage(
           "S3 trace storage is selected but no bucket credentials are configured. Run `review trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>` or Review Agent Setup.",
       };
     }
+
     return { mode: "s3", explicit: true, config, s3, hosted };
   }
 
   // Inferred: a bucket outranks hosted, so a consent entry alone never
   // redirects an existing bucket install; hosted alone needs only consent.
   if (hasS3) return { mode: "s3", explicit: false, config, s3, hosted };
+
   if (hosted) return { mode: "hosted", explicit: false, config, s3, hosted };
+
   return { mode: "none", explicit: false, config, s3, hosted };
 }
 
@@ -135,10 +143,14 @@ export async function resolveTraceStorage(
   input: ResolveTraceStorageInput = {},
 ): Promise<TraceStorage | null> {
   const selection = selectTraceStorage(input);
+
   if (selection.error) throw new TraceConfigurationError(selection.error);
   const mode = input.override ?? selection.mode;
+
   if (mode === "none") return null;
+
   if (mode === "s3") return s3Storage(selection, input);
+
   return hostedStorage(selection, input);
 }
 
@@ -148,11 +160,15 @@ export async function resolveTraceStorage(
  */
 export function traceStorageExpectation(scope: S3ConfigScope = {}): string {
   const selection = selectTraceStorage(scope);
+
   if (selection.error || selection.mode === "none") return "none";
+
   if (selection.mode === "hosted") {
     return `hosted:${selection.hosted?.origin ?? ""}`;
   }
+
   const storage = s3Storage(selection, scope);
+
   return `s3:${storage?.cacheIdentity() ?? ""}`;
 }
 
@@ -161,13 +177,16 @@ function s3Storage(
   scope: S3ConfigScope,
 ): TraceStorage | null {
   const env = scope.env ?? process.env;
+
   if (isS3MockMode(env)) return S3TraceStorage.fromEnvironment(scope);
   const credentials = selection.s3?.credentials;
+
   if (!credentials) {
     throw new TraceConfigurationError(
       "S3 trace storage was requested but no bucket credentials are configured.",
     );
   }
+
   return S3TraceStorage.fromCredentials(credentials, env);
 }
 
@@ -176,12 +195,15 @@ async function hostedStorage(
   input: ResolveTraceStorageInput,
 ): Promise<TraceStorage | null> {
   const origin = selection.hosted?.origin;
+
   if (!origin) {
     throw new TraceConfigurationError(
       "Hosted trace storage is not configured. Run `review trace allow .` or `review trace storage use hosted`.",
     );
   }
+
   const write = input.purpose === "write";
+
   const storage = await HostedTraceStorage.resolve({
     cwd: input.cwd ?? process.cwd(),
     origin,
@@ -190,17 +212,20 @@ async function hostedStorage(
     homeDir: input.homeDir,
     onWarning: input.onWarning,
   });
+
   if (!storage) {
     throw new TraceConfigurationError(
       "Hosted trace storage needs a login and a GitHub checkout with an onboarded store. Run `review login`, `review trace onboard`, and `review trace allow .`.",
     );
   }
+
   return storage;
 }
 
 /** Whether the selected store can be used; a configuration error counts as no. */
 export function isTraceStorageConfigured(scope: S3ConfigScope = {}): boolean {
   const selection = selectTraceStorage(scope);
+
   return !selection.error && selection.mode !== "none";
 }
 

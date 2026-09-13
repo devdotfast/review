@@ -57,11 +57,13 @@ function DesktopReviewApp({
   findHost: ReviewFindHost;
 }) {
   const session = useReviewSession();
+
   // Render boundaries report during commit, before our readiness effect.
   // Keep their failure authoritative for this pair of validation artifacts.
   const settlementSession = useMemo(() => {
     if (purpose === "display") return session;
     let failed = false;
+
     return {
       ...session,
       signalReady: () => {
@@ -73,19 +75,24 @@ function DesktopReviewApp({
       },
     };
   }, [session, purpose, documentBundle, softwareMapBundle]);
+
   const sessionRef = useRef(session);
   sessionRef.current = session;
   const container = useReviewContainer();
+
   const reportedDocumentBundle = useRef<Promise<ReviewDocumentLoad> | null>(
     null,
   );
+
   const reportedSoftwareMapBundle =
     useRef<Promise<ReviewSoftwareMapLoad | null> | null>(null);
+
   const documentState = useSettledLoad(
     documentBundle,
     async (load): Promise<ReviewDocumentAppState> => {
       if (load.state !== "ready") return load;
       const document = await prepareReviewDocument(load, sessionRef.current);
+
       if (purpose === "validation") {
         for (const anchor of document.anchors.values()) {
           if (anchor.peek && !anchor.peek.resolution)
@@ -94,14 +101,18 @@ function DesktopReviewApp({
             );
         }
       }
+
       return { state: "ready", document };
     },
   );
+
   const softwareMapState = useSettledLoad(
     softwareMapBundle,
     (load): ReviewSoftwareMapAppState => {
       if (load === null) return { state: "absent" };
+
       if (load.state !== "ready") return load;
+
       return {
         state: "ready",
         softwareMap: hydratePublishedSoftwareMap(load),
@@ -116,15 +127,18 @@ function DesktopReviewApp({
     ) {
       return;
     }
+
     // The display host opens a usable recovery shell before diagnostics.
     // Validation instead reports every unusable artifact before success.
     if (purpose === "display") settlementSession.signalReady();
+
     if (
       reportedDocumentBundle.current !== documentBundle &&
       reportLoadFailure(settlementSession, "document", documentState, purpose)
     ) {
       reportedDocumentBundle.current = documentBundle;
     }
+
     if (
       reportedSoftwareMapBundle.current !== softwareMapBundle &&
       reportLoadFailure(
@@ -136,6 +150,7 @@ function DesktopReviewApp({
     ) {
       reportedSoftwareMapBundle.current = softwareMapBundle;
     }
+
     if (
       purpose === "validation" &&
       documentState.state === "ready" &&
@@ -156,6 +171,7 @@ function DesktopReviewApp({
   useEffect(() => {
     if (!container) return;
     const { authoredCodePeekRequestCount } = codePeekDiagnostics;
+
     if (authoredCodePeekRequestCount === 0) return;
     container.dataset.reviewAuthoredCodePeekRequestCount = String(
       authoredCodePeekRequestCount,
@@ -197,17 +213,21 @@ function useSettledLoad<TLoad, TState>(
 ): TState | ReviewLoadFallback {
   const settleRef = useRef(settle);
   settleRef.current = settle;
+
   const [settledLoad, setSettledLoad] = useState<{
     bundle: Promise<TLoad>;
     value: TState | ReviewLoadFallback;
   }>(() => ({ bundle, value: reviewLoadLoading }));
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const load = await bundle;
+
         if (cancelled) return;
         const settled = await settleRef.current(load);
+
         if (!cancelled) setSettledLoad({ bundle, value: settled });
       } catch (error) {
         if (cancelled) return;
@@ -218,10 +238,12 @@ function useSettledLoad<TLoad, TState>(
         });
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [bundle]);
+
   return settledLoad.bundle === bundle ? settledLoad.value : reviewLoadLoading;
 }
 
@@ -244,18 +266,23 @@ function reportLoadFailure(
           ? state.message
           : `The ${source} needs repair before publication.`,
     });
+
     return true;
   }
+
   if (state.state !== "unavailable" || state.currentReviewUuid) return false;
   const cause = state.cause ?? new Error(state.message);
   captureClientError(session, source, cause);
+
   const diagnostic: ReviewCanvasDiagnostic = {
     level: "error",
     source: "loader",
     message: cause.message,
   };
+
   if (cause.stack) diagnostic.stack = cause.stack;
   session.reportDiagnostic(diagnostic);
+
   return true;
 }
 
@@ -281,7 +308,9 @@ function ReviewCanvas({
       />
     );
   }
+
   if (content.kind === "home") return <Home content={content} />;
+
   if (content.kind === "source") {
     if (content.error) {
       return (
@@ -291,6 +320,7 @@ function ReviewCanvas({
         </div>
       );
     }
+
     return (
       <div className="review-source-empty">
         <p>Select a file in the source tree</p>
@@ -298,6 +328,7 @@ function ReviewCanvas({
       </div>
     );
   }
+
   if (content.kind === "welcome") {
     return (
       <WelcomePage
@@ -308,9 +339,11 @@ function ReviewCanvas({
       />
     );
   }
+
   if (content.kind === "settings") {
     return <SettingsPage settings={content.settings} />;
   }
+
   if (content.kind === "completed") {
     return (
       <CanvasShell title="Review completed">
@@ -327,6 +360,7 @@ function ReviewCanvas({
       </CanvasShell>
     );
   }
+
   if (content.kind === "error") {
     return (
       <CanvasShell title="Review unavailable">
@@ -334,6 +368,7 @@ function ReviewCanvas({
       </CanvasShell>
     );
   }
+
   return null;
 }
 
@@ -346,6 +381,7 @@ function Home({
   const dismissReview = content.dismissReview;
   const restoreReview = content.restoreReview;
   const openSourceTree = content.openSourceTree;
+
   return (
     <ReviewHome
       reviews={content.reviews}
@@ -391,7 +427,9 @@ function CanvasShell({
 // own theme bridge) the workbench root is the theme authority.
 function workbenchColorTheme(container: HTMLElement): "dark" | "light" {
   const workbench = container.ownerDocument.querySelector(".monaco-workbench");
+
   if (!workbench) return "dark";
+
   return workbench.classList.contains("vs-dark") ||
     workbench.classList.contains("hc-black")
     ? "dark"
@@ -426,25 +464,31 @@ export function mountReviewCanvas(
   const render = () => {
     themeSubscription?.dispose();
     themeSubscription = null;
+
     if (content.kind === "session") {
       resetSessionDiagnostics(container);
+
       if (session?.bridge !== content.bridge) {
         session = createReviewSession(content.bridge);
       }
     } else {
       session = null;
     }
+
     if (content.kind === "session") {
       applyTheme(content.bridge.currentTheme());
       themeSubscription = content.bridge.onDidChangeTheme(applyTheme);
     } else {
       applyTheme(workbenchColorTheme(container));
+
       const workbench =
         container.ownerDocument.querySelector(".monaco-workbench");
+
       if (workbench) {
         const observer = new MutationObserver(() => {
           applyTheme(workbenchColorTheme(container));
         });
+
         observer.observe(workbench, {
           attributes: true,
           attributeFilter: ["class"],
@@ -452,6 +496,7 @@ export function mountReviewCanvas(
         themeSubscription = { dispose: () => observer.disconnect() };
       }
     }
+
     root.render(
       <ReviewContainerProvider container={container}>
         {session ? (
@@ -464,6 +509,7 @@ export function mountReviewCanvas(
       </ReviewContainerProvider>,
     );
   };
+
   render();
 
   return {

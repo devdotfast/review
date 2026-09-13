@@ -42,9 +42,11 @@ export function softwareMapNavigationKey({
 export function softwareMapAncestorPaths(path: string): string[] {
   const parts = path.split(".");
   const ancestors: string[] = [];
+
   for (let index = 1; index < parts.length; index += 1) {
     ancestors.push(parts.slice(0, index).join("."));
   }
+
   return ancestors;
 }
 
@@ -81,9 +83,11 @@ export function restoreSoftwareMapNavigationState(
   modelKey: string | undefined,
 ): SoftwareMapNavigationState {
   const cached = cachedSoftwareMapNavigationState(session, key);
+
   if (!cached || cached.modelKey !== modelKey) {
     return defaultSoftwareMapNavigationState(modelKey);
   }
+
   return {
     modelKey,
     expandedNodeIds: [...cached.expandedNodeIds],
@@ -113,10 +117,13 @@ export function seedSoftwareMapDefaultExpandedNodeIds(input: {
   if (!input.defaultExpansionActive) {
     return new Set(input.expandedNodeIds);
   }
+
   const expandedNodeIds = new Set(input.expandedNodeIds);
+
   for (const path of initialSoftwareMapExpandedNodeIds(input.model)) {
     expandedNodeIds.add(path);
   }
+
   return expandedNodeIds;
 }
 
@@ -139,6 +146,7 @@ export function clearSoftwareMapNavigationStateForTests(
   session: ReviewSession,
 ) {
   softwareMapNavigationStateByKey.clear();
+
   if (typeof window !== "undefined") {
     forgetReviewUiState("window", (key) =>
       key.startsWith(session.storageKey("software-map-navigation")),
@@ -158,7 +166,9 @@ function readStoredSoftwareMapNavigationState(
     "window",
     softwareMapNavigationStorageKey(session, key),
   );
+
   if (!isJsonObject(parsed)) return null;
+
   return {
     modelKey: jsonString(jsonProperty(parsed, "modelKey")),
     expandedNodeIds: (jsonArray(jsonProperty(parsed, "expandedNodeIds")) ?? [])

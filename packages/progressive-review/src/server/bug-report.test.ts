@@ -32,9 +32,11 @@ describe("submitReviewBugReport", () => {
     codexRoot = path.join(tempDir, "codex");
     claudeRoot = path.join(tempDir, "claude");
     piRoot = path.join(tempDir, "pi");
+
     for (const directory of [reviewRootPath, codexRoot, claudeRoot, piRoot]) {
       mkdirSync(directory, { recursive: true });
     }
+
     process.env.TRACE_LOCAL_TRACE_ROOT = claudeRoot;
     process.env.TRACE_CODEX_SESSIONS_ROOT = codexRoot;
     process.env.TRACE_PI_SESSIONS_ROOT = piRoot;
@@ -53,12 +55,15 @@ describe("submitReviewBugReport", () => {
     const parentId = "11111111-1111-4111-8111-111111111111";
     const childId = "22222222-2222-4222-8222-222222222222";
     const parentAtFork = codexTrace(parentId, 0, [{ parent: true }]);
+
     const parent =
       parentAtFork + JSON.stringify({ parentLater: true, ordinal: 2 }) + "\n";
+
     const child = codexTrace(childId, 2, [{ child: true }], {
       parentId,
       endOrdinalExclusive: 2,
     });
+
     writeCodexTrace(parentId, parent);
     writeCodexTrace(childId, child);
     writeReview("codex:" + childId);
@@ -80,6 +85,7 @@ describe("submitReviewBugReport", () => {
       "trace",
       "trace",
     ]);
+
     const meta = JSON.parse(capture.textPart("meta")) as {
       schema_version: number;
       payload_bytes: number;
@@ -90,6 +96,7 @@ describe("submitReviewBugReport", () => {
         sha256: string;
       }>;
     };
+
     expect(meta.schema_version).toBe(2);
     expect(meta.parts.map((part) => part.field)).toEqual([
       "payload",
@@ -117,6 +124,7 @@ describe("submitReviewBugReport", () => {
     expect(gunzipSync(traceFiles[1]).toString("utf8")).toBe(parentAtFork);
     expect(meta.payload_bytes).toBe(payloadBytes.byteLength);
     const files = [payloadBytes, ...traceFiles];
+
     for (const [index, part] of meta.parts.entries()) {
       const bytes = files[index];
       expect(part.bytes).toBe(bytes.byteLength);
@@ -161,9 +169,11 @@ describe("submitReviewBugReport", () => {
           },
         ],
       });
+
       const payload = JSON.parse(
         gunzipSync(capture.filePart("payload")).toString("utf8"),
       );
+
       expect(payload.trace).toMatchObject({
         harness,
       });
@@ -207,11 +217,13 @@ describe("submitReviewBugReport", () => {
       "meta",
       "payload",
     ]);
+
     const meta = JSON.parse(capture.textPart("meta")) as {
       schema_version: number;
       has_trace: boolean;
       parts: Array<{ field: string; bytes: number; sha256: string }>;
     };
+
     expect(meta).toMatchObject({
       schema_version: 2,
       has_trace: false,
@@ -269,6 +281,7 @@ describe("submitReviewBugReport", () => {
     "reports an upstream %s as a service failure without retrying",
     async (status) => {
       writeReview("disabled:review");
+
       const fetchImpl = vi.fn<typeof fetch>(async () =>
         Response.json({ ok: false, error: "Rejected." }, { status }),
       );
@@ -302,6 +315,7 @@ describe("submitReviewBugReport", () => {
       parts: [],
       cleanup: async () => {},
     };
+
     const payload: BugReportPayload = {
       schema_version: 4,
       description: "",
@@ -327,11 +341,15 @@ describe("submitReviewBugReport", () => {
       cliVersion: "0.0.1",
       maxPayloadBytes: 1024,
     });
+
     const formPayload = request.body.get("payload");
+
     if (!(formPayload instanceof Blob)) throw new Error("Missing payload.");
+
     const fitted = JSON.parse(
       gunzipSync(Buffer.from(await formPayload.arrayBuffer())).toString("utf8"),
     );
+
     const meta = JSON.parse(String(request.body.get("meta")));
 
     expect(fitted.trace).toEqual({
@@ -369,6 +387,7 @@ describe("submitReviewBugReport", () => {
       ],
       cleanup: async () => {},
     };
+
     const payload: BugReportPayload = {
       schema_version: 4,
       description: "",
@@ -383,11 +402,15 @@ describe("submitReviewBugReport", () => {
       appVersion: "1.2.3",
       cliVersion: "0.0.1",
     });
+
     const formPayload = request.body.get("payload");
+
     if (!(formPayload instanceof Blob)) throw new Error("Missing payload.");
+
     const fitted = JSON.parse(
       gunzipSync(Buffer.from(await formPayload.arrayBuffer())).toString("utf8"),
     );
+
     const meta = JSON.parse(String(request.body.get("meta")));
 
     expect(request.body.getAll("trace")).toEqual([]);
@@ -403,9 +426,11 @@ describe("submitReviewBugReport", () => {
 
   it("does not replace a successful submit when trace cleanup fails", async () => {
     writeReview("claude-code:cleanup-test");
+
     const cleanup = vi.fn<() => Promise<void>>(async () => {
       throw new Error("busy");
     });
+
     const trace: AuthoringTraceAttachment = {
       payload: {
         harness: "claude-code",
@@ -416,6 +441,7 @@ describe("submitReviewBugReport", () => {
       parts: [],
       cleanup,
     };
+
     const capture = captureFetch();
 
     await expect(
@@ -474,6 +500,7 @@ describe("submitReviewBugReport", () => {
       harness === "claude-code" ? claudeRoot : piRoot,
       "project",
     );
+
     mkdirSync(directory, { recursive: true });
     writeFileSync(
       path.join(
@@ -536,11 +563,14 @@ function captureFetch(): CapturedFetch {
   let url: string | undefined;
   let headers: Headers | undefined;
   const capturedParts: CapturedPart[] = [];
+
   const fetchImpl: typeof fetch = async (input, init) => {
     url = input.toString();
     headers = new Headers(init?.headers);
     const form = init?.body;
+
     if (!(form instanceof FormData)) throw new Error("Expected FormData.");
+
     for (const [name, value] of form.entries()) {
       capturedParts.push(
         value instanceof File
@@ -555,13 +585,18 @@ function captureFetch(): CapturedFetch {
           : { name, text: value },
       );
     }
+
     return successResponse();
   };
+
   const part = (name: string) => {
     const result = capturedParts.find((candidate) => candidate.name === name);
+
     if (!result) throw new Error(`Missing captured ${name} part.`);
+
     return result;
   };
+
   return {
     fetchImpl,
     url: () => url ?? "",
@@ -569,12 +604,16 @@ function captureFetch(): CapturedFetch {
     parts: () => capturedParts,
     textPart: (name) => {
       const captured = part(name);
+
       if (!("text" in captured)) throw new Error(`${name} is not text.`);
+
       return captured.text;
     },
     filePart: (name) => {
       const captured = part(name);
+
       if (!("file" in captured)) throw new Error(`${name} is not a file.`);
+
       return captured.file.bytes;
     },
     fileParts: (name) =>
@@ -584,6 +623,7 @@ function captureFetch(): CapturedFetch {
           if (!("file" in candidate)) {
             throw new Error(`${name} is not a file.`);
           }
+
           return candidate.file.bytes;
         }),
   };
@@ -610,12 +650,14 @@ function codexTrace(
   },
 ): string {
   const payload: JsonObject = { id };
+
   if (parent) {
     payload.history_base = {
       thread_id: parent.parentId,
       end_ordinal_exclusive: parent.endOrdinalExclusive,
     };
   }
+
   return [{ type: "session_meta", payload }, ...records]
     .map(
       (value, index) =>

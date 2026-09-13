@@ -24,6 +24,7 @@ export function SoftwareMapUnavailable({
       : ({
           "--software-map-empty-height": softwareMapCssLength(height),
         } as CSSProperties);
+
   return (
     <section
       className={["software-map", className].filter(Boolean).join(" ")}
@@ -60,7 +61,9 @@ export function SoftwareMapTopologyUnavailable({
     ...(!baseSoftwareMap ? [softwareMapSideLabel("base", baseRef)] : []),
     ...(!repoSoftwareMap ? [softwareMapSideLabel("head", headRef)] : []),
   ];
+
   if (missingSides.length === 0) return null;
+
   return (
     <p className="software-map-topology-unavailable" role="status">
       Structural diff unavailable: no software map at{" "}

@@ -27,7 +27,9 @@ function auditDocument(
       throw new Error(message);
     },
   });
+
   if (!audit) throw new Error("Expected the document audit to succeed.");
+
   return audit;
 }
 
@@ -49,13 +51,16 @@ describe("materializeReviewDocument", () => {
     let traceSessionReads = 0;
     let callStackCollections = 0;
     let traceCollections = 0;
+
     const Component: PublishAuditComponent = ({ components }) => {
       if (!components) throw new Error("Expected Review components.");
+
       return react.jsx(FRAGMENT, {
         children: [
           react.jsx(components.ReviewSection, {
             get title() {
               titleReads += 1;
+
               return "Part";
             },
             children: "Body",
@@ -64,12 +69,14 @@ describe("materializeReviewDocument", () => {
             base: [],
             get head() {
               callStackHeadReads += 1;
+
               return [anchor];
             },
           }),
           react.jsx(components.TraceQuote, {
             get sessionId() {
               traceSessionReads += 1;
+
               return "session-1";
             },
             children: "Quote",
@@ -77,6 +84,7 @@ describe("materializeReviewDocument", () => {
         ],
       });
     };
+
     const audit = auditReviewDocumentComponent({
       Component,
       reportError: (message) => {
@@ -89,7 +97,9 @@ describe("materializeReviewDocument", () => {
         traceCollections += 1;
       },
     });
+
     if (!audit) throw new Error("Expected the document audit to succeed.");
+
     const readsAfterAudit = {
       title: titleReads,
       callStackHead: callStackHeadReads,
@@ -123,6 +133,7 @@ describe("materializeReviewDocument", () => {
             }),
           ),
         );
+
         expect(result).toEqual({
           body: [
             {
@@ -146,6 +157,7 @@ describe("materializeReviewDocument", () => {
     const result = materializeReviewDocument(
       auditDocument(() => react.jsx("td", { style })),
     );
+
     expect(result.errors).toEqual([
       '<td> prop "style" must be a string, number, or boolean.',
     ]);
@@ -155,6 +167,7 @@ describe("materializeReviewDocument", () => {
     const { body, errors } = materializeReviewDocument(
       auditDocument(({ components }) => {
         if (!components) throw new Error("Expected Review components.");
+
         return react.jsx(FRAGMENT, {
           children: [
             react.jsx("h1", {
@@ -207,6 +220,7 @@ describe("materializeReviewDocument", () => {
       softwareMap: null,
       baseSoftwareMap: null,
     });
+
     const stores = session.defineStores({
       db: {
         kind: "relational",
@@ -219,9 +233,11 @@ describe("materializeReviewDocument", () => {
         },
       },
     });
+
     const { body, errors } = materializeReviewDocument(
       auditDocument(({ components }) => {
         if (!components) throw new Error("Expected Review components.");
+
         return react.jsx(components.DatabaseLens, {
           stores,
           children: react.jsx(components.DbUseCase, {
@@ -279,11 +295,13 @@ describe("collectReviewAnchors", () => {
       __kind: "review-sequence-ref",
       messages: [{ anchor, code: { text: "const answer = 42;" } }],
     };
+
     interface CyclicReviewExports extends ReviewDocumentModuleExports {
       anchor: typeof anchor;
       sequence: typeof sequence;
       self?: CyclicReviewExports;
     }
+
     const cyclic: CyclicReviewExports = { anchor, sequence };
     cyclic.self = cyclic;
 
@@ -316,10 +334,12 @@ describe("collectDocumentSoftwareModels", () => {
   it("finds nested models once, preferred names first, through cycles", () => {
     const first = defineSoftwareMap({ people: { a: { label: "A" } } });
     const second = defineSoftwareMap({ people: { b: { label: "B" } } });
+
     interface CyclicModelExports extends ReviewDocumentModuleExports {
       second: typeof second;
       self?: CyclicModelExports;
     }
+
     const cyclic: CyclicModelExports = { second };
     cyclic.self = cyclic;
     const models = { nested: cyclic, first, alsoFirst: first };

@@ -26,8 +26,11 @@ import {
 import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFileAsync = promisify(execFile);
+
 const roots: string[] = [];
+
 const workspace = path.resolve(import.meta.dirname, "../../../..");
+
 afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -39,11 +42,13 @@ async function fixture() {
   roots.push(root);
   const homeDir = path.join(root, "home");
   await mkdir(homeDir);
+
   const env = {
     DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
     PATH: "",
     TRACE_R2_MODE: "mock",
   };
+
   const packageRoot = path.join(root, "runtime");
   await cp(
     path.join(workspace, "packages/progressive-review/skills"),
@@ -59,6 +64,7 @@ async function fixture() {
     path.join(packageRoot, "package.json"),
     '{"version":"0.0.1"}',
   );
+
   const stampVersion = async (version: string) => {
     await execFileAsync(
       process.execPath,
@@ -72,22 +78,29 @@ async function fixture() {
       { cwd: workspace },
     );
   };
+
   await stampVersion("1.0.0");
   const input = { homeDir, env, packageRoot, shim: false };
+
   const skill = (name = "dev-review", rootName = ".agents") =>
     path.join(homeDir, rootName, "skills", name, "SKILL.md");
+
   const launch = async () => {
     const status = await resolveCliInstallStatus(input);
+
     const request = status.stale
       ? reviewCliInstallResyncRequest(status)
       : undefined;
+
     if (!request) return;
+
     return applyCliInstall({
       ...input,
       ...request,
       targets: [...request.targets],
     });
   };
+
   return { ...input, input, skill, stampVersion, launch };
 }
 
@@ -162,6 +175,7 @@ describe("packaged skill updates", () => {
         stdout: sink,
         stderr: sink,
       });
+
       if (consent !== "absent")
         await writePrivateJsonAtomic(cliInstallStampPath(f.env), {
           consent,
@@ -216,10 +230,12 @@ describe("packaged skill updates", () => {
 
   it("serializes concurrent installs without losing selected agents", async () => {
     const f = await fixture();
+
     const results = await Promise.all([
       applyCliInstall({ ...f.input, targets: ["codex"] }),
       applyCliInstall({ ...f.input, targets: ["claude"] }),
     ]);
+
     expect(results.map((result) => result.code)).toEqual([0, 0]);
     expect(
       (await resolveCliInstallStatus(f.input)).stamp?.targets?.sort(),
@@ -227,9 +243,11 @@ describe("packaged skill updates", () => {
   });
   it("serializes independent installer processes", async () => {
     const f = await fixture();
+
     const code = `import { applyCliInstall } from "./packages/progressive-review/src/server/cli-install.ts";
       const result = await applyCliInstall({ homeDir: process.argv[1], packageRoot: process.argv[2], env: { DEV_REVIEW_HOME: process.argv[3], PATH: "" }, targets: [process.argv[4]], shim: false });
       if (result.code !== 0) throw new Error(result.output);`;
+
     await Promise.all(
       ["codex", "claude"].map((target) =>
         execFileAsync(
@@ -276,6 +294,7 @@ describe("packaged skill updates", () => {
 
   it("updates OpenCode and trace skills only for already enabled integrations", async () => {
     const f = await fixture();
+
     const installed = await applyCliInstall({
       ...f.input,
       targets: ["opencode"],
@@ -286,18 +305,22 @@ describe("packaged skill updates", () => {
         secret: "mock-secret",
       },
     });
+
     expect(installed).toMatchObject({ code: 0 });
     // A fresh machine keeps its capture settings in the trace config
     // profile; a legacy one in settings.json. Either way the skill update
     // must leave that file alone.
     const traceStatus = (await resolveCliInstallStatus(f.input)).trace;
+
     const settingsPath =
       traceStatus.captureSource === "profile" && traceStatus.configPath
         ? traceStatus.configPath
         : traceStatus.settingsPath;
+
     const traceBefore = await readFile(settingsPath, "utf8");
     await f.stampVersion("2.0.0");
     expect((await f.launch())?.code).toBe(0);
+
     const traceSkill = path.join(
       f.homeDir,
       ".config",
@@ -306,6 +329,7 @@ describe("packaged skill updates", () => {
       "trace-archaeology",
       "SKILL.md",
     );
+
     expect(await readSkillVersion(traceSkill, "trace-archaeology")).toBe(
       "2.0.0",
     );

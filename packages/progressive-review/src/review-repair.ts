@@ -28,14 +28,17 @@ export async function runReviewRepair(input: {
       throw new Error(
         "Repair requires an explicit UUID: review repair --review <uuid>.",
       );
+
     const review = await findScopedReview(input.reviewUuid, {
       worktreePath: await resolveReviewRoot(input.cwd),
       includeTerminal: true,
       includeLegacySchema: true,
       devHome: devReviewHome(input.env ?? process.env, os.homedir()),
     });
+
     if (!review)
       throw new Error(`Review not found in this checkout: ${input.reviewUuid}`);
+
     const prepared = await prepareReviewRepair({
       reviewDir: review.dir,
       warning: (message) => {
@@ -43,6 +46,7 @@ export async function runReviewRepair(input: {
         input.stderr.write(`warning: ${message}\n`);
       },
     });
+
     if (prepared.kind === "noop") {
       emitJsonEvent(input, {
         event: "repaired",
@@ -57,10 +61,13 @@ export async function runReviewRepair(input: {
       humanStream(input).write(
         "Current Review artifacts are healthy; no repair needed.\n",
       );
+
       return 0;
     }
+
     try {
       const discovery = await requireHealthyReviewDesktop("review repair");
+
       const response = await fetch(`${discovery.url}/repair-ready`, {
         method: "POST",
         headers: {
@@ -69,8 +76,10 @@ export async function runReviewRepair(input: {
         },
         body: JSON.stringify(prepared.request),
       });
+
       const body = jsonObject(parseJsonText(await response.text()));
       const parsed = ReviewRepairReadyResponseSchema.safeParse(body);
+
       if (!response.ok || !parsed.success)
         throw new Error(
           jsonString(body?.error) ??
@@ -85,6 +94,7 @@ export async function runReviewRepair(input: {
       humanStream(input).write(
         `Review repaired: ${prepared.review.uuid}\nStatus preserved: ${prepared.review.status}\nDocument: ${prepared.review.presentedDocumentRevision} → ${prepared.request.newDocumentRevision}\nMap: ${prepared.review.presentedSoftwareMapRevision ?? "absent"} → ${prepared.request.newMapRevision ?? "absent"}\n`,
       );
+
       return 0;
     } finally {
       await prepared.cleanup();

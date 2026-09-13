@@ -57,6 +57,7 @@ describe("model import rewriting", () => {
       source: MAP_SOURCE("X"),
       outputPath: "/tmp/somewhere/deep/software-map.ts",
     });
+
     expect(localized).not.toContain(CANONICAL_SOFTWARE_MAP_MODEL_IMPORT);
     expect(localized).toMatch(/from "(file:\/\/|\.\.?\/)/);
     expect(localized).toContain("tolerant-software-map-model");
@@ -70,6 +71,7 @@ describe("model import rewriting", () => {
       outputPath: "/tmp/somewhere/software-map.ts",
       packageRoot: "/tmp/pkgs/$&-weird/$1",
     });
+
     expect(localized).toContain("$&-weird/$1/");
     expect(localized).not.toContain(CANONICAL_SOFTWARE_MAP_MODEL_IMPORT);
   });
@@ -79,6 +81,7 @@ describe("model import rewriting", () => {
       source: MAP_SOURCE("Y"),
       outputPath: "/tmp/x/software-map.ts",
     });
+
     expect(canonicalizeModelImport(localized)).toContain(
       `from "${CANONICAL_SOFTWARE_MAP_MODEL_IMPORT}"`,
     );
@@ -89,6 +92,7 @@ describe("model import rewriting", () => {
       `import path from "node:path";`,
       `import { defineSoftwareMap } from "./software-map-model";`,
     ].join("\n");
+
     const rewritten = canonicalizeModelImport(source);
     expect(rewritten).toContain(`from "node:path"`);
     expect(rewritten).toContain(
@@ -100,6 +104,7 @@ describe("model import rewriting", () => {
 describe("the read ladder", () => {
   it("tier 1: reads the local note for a resolved commit (both roles)", async () => {
     const repo = await gitFixture("map-ladder-note-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -108,20 +113,24 @@ describe("the read ladder", () => {
         commit,
         content: MAP_SOURCE("Note"),
       });
+
       for (const role of ["head", "base"] as const) {
         const read = await readSoftwareMapSourceForRef({
           repoRootPath: repo,
           ref: "HEAD",
           role,
         });
+
         expect(read).toMatchObject({ commit, tier: "note" });
         expect(read?.source).toContain("Note");
       }
+
       const syncRead = readSoftwareMapSourceForRefSync({
         repoRootPath: repo,
         ref: "HEAD",
         role: "base",
       });
+
       expect(syncRead).toMatchObject({ commit, tier: "note" });
     } finally {
       await rm(repo, { recursive: true, force: true });
@@ -130,6 +139,7 @@ describe("the read ladder", () => {
 
   it("tier 2: falls back to a fetched peer note and backfills the local ref", async () => {
     const repo = await gitFixture("map-ladder-remote-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -138,11 +148,13 @@ describe("the read ladder", () => {
         commit,
         content: MAP_SOURCE("Peer"),
       });
+
       const read = await readSoftwareMapSourceForRef({
         repoRootPath: repo,
         ref: "HEAD",
         role: "base",
       });
+
       expect(read).toMatchObject({ commit, tier: "remote-note" });
       // Backfill: the local ref now serves tier 1.
       expect(
@@ -159,10 +171,12 @@ describe("the read ladder", () => {
 
   it("misses strictly for both roles when no note exists — no file fallback", async () => {
     const repo = await gitFixture("map-ladder-strict-");
+
     try {
       // Even a hydrated (stub) scratch for HEAD must not serve reads: the
       // ladder ends at notes.
       await hydrateScratch({ repoRootPath: repo, rev: "HEAD" });
+
       for (const role of ["head", "base"] as const) {
         expect(
           await readSoftwareMapSourceForRef({
@@ -186,6 +200,7 @@ describe("the read ladder", () => {
 
   it("misses entirely outside a git repository", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "map-ladder-nogit-"));
+
     try {
       expect(
         await readSoftwareMapSourceForRef({
@@ -203,6 +218,7 @@ describe("the read ladder", () => {
     "tier 3: recovers a note across a jj rewrite via the evolog and backfills",
     async () => {
       const repo = await jjFixture("map-ladder-evolog-");
+
       try {
         jj(repo, ["describe", "-m", "original"]);
         const original = jjHead(repo);
@@ -221,6 +237,7 @@ describe("the read ladder", () => {
           ref: rewritten,
           role: "base",
         });
+
         expect(read).toMatchObject({ commit: rewritten, tier: "evolog" });
         expect(read?.source).toContain("Evolog");
 
@@ -230,6 +247,7 @@ describe("the read ladder", () => {
           ref: rewritten,
           role: "base",
         });
+
         expect(second).toMatchObject({ tier: "note" });
       } finally {
         await rm(repo, { recursive: true, force: true });
@@ -241,6 +259,7 @@ describe("the read ladder", () => {
 describe("scratch hydration", () => {
   it("hydrates a scratch from the local note, byte-equal and note-shaped", async () => {
     const repo = await gitFixture("scratch-hydrate-note-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -249,10 +268,12 @@ describe("scratch hydration", () => {
         commit,
         content: MAP_SOURCE("Hydrated"),
       });
+
       const hydrated = await hydrateScratch({
         repoRootPath: repo,
         rev: "HEAD",
       });
+
       expect(hydrated).toMatchObject({
         commit,
         hydratedFrom: "note",
@@ -278,6 +299,7 @@ describe("scratch hydration", () => {
 
   it("hydrates from a fetched peer note", async () => {
     const repo = await gitFixture("scratch-hydrate-remote-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -286,10 +308,12 @@ describe("scratch hydration", () => {
         commit,
         content: MAP_SOURCE("Peer"),
       });
+
       const hydrated = await hydrateScratch({
         repoRootPath: repo,
         rev: "HEAD",
       });
+
       expect(hydrated).toMatchObject({
         commit,
         hydratedFrom: "remote-note",
@@ -303,6 +327,7 @@ describe("scratch hydration", () => {
 
   it("seeds from the NEAREST annotated first-parent ancestor, with distance", async () => {
     const repo = await gitFixture("scratch-hydrate-ancestor-");
+
     try {
       const far = head(repo);
       await commitFile(repo, "near.txt", "near");
@@ -340,6 +365,7 @@ describe("scratch hydration", () => {
 
   it("finds ancestor seeds in the fetched remote namespace too", async () => {
     const repo = await gitFixture("scratch-hydrate-ancestor-remote-");
+
     try {
       const base = head(repo);
       await commitFile(repo, "tip.txt", "tip");
@@ -367,6 +393,7 @@ describe("scratch hydration", () => {
 
   it("prefers the exact commit's note over any ancestor's", async () => {
     const repo = await gitFixture("scratch-hydrate-exact-over-ancestor-");
+
     try {
       const base = head(repo);
       await commitFile(repo, "tip.txt", "tip");
@@ -395,12 +422,15 @@ describe("scratch hydration", () => {
 
   it("writes the schema stub when the ladder fully misses", async () => {
     const repo = await gitFixture("scratch-hydrate-stub-");
+
     try {
       const commit = head(repo);
+
       const hydrated = await hydrateScratch({
         repoRootPath: repo,
         rev: "HEAD",
       });
+
       expect(hydrated).toMatchObject({
         commit,
         hydratedFrom: "stub",
@@ -416,6 +446,7 @@ describe("scratch hydration", () => {
 
   it("leaves a dirty scratch alone, and discards it with force", async () => {
     const repo = await gitFixture("scratch-hydrate-dirty-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -437,6 +468,7 @@ describe("scratch hydration", () => {
         rev: "HEAD",
         force: true,
       });
+
       expect(forced.dirty).toBe(false);
       expect(await readFile(first.path, "utf8")).toBe(MAP_SOURCE("Original"));
     } finally {
@@ -446,6 +478,7 @@ describe("scratch hydration", () => {
 
   it("re-hydrates silently when the scratch is byte-equal to the note", async () => {
     const repo = await gitFixture("scratch-hydrate-equal-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -468,6 +501,7 @@ describe("scratch hydration", () => {
 
   it("throws on unresolvable revisions", async () => {
     const repo = await gitFixture("scratch-hydrate-badrev-");
+
     try {
       await expect(
         hydrateScratch({ repoRootPath: repo, rev: "not-a-rev" }),
@@ -479,6 +513,7 @@ describe("scratch hydration", () => {
 
   it("does not read an untouched stub scratch as dirty on re-open", async () => {
     const repo = await gitFixture("scratch-hydrate-stub-clean-");
+
     try {
       // No note anywhere: hydration writes the schema stub.
       const first = await hydrateScratch({ repoRootPath: repo, rev: "HEAD" });
@@ -500,12 +535,15 @@ describe("scratch hydration", () => {
 describe("scratch flush", () => {
   it("round-trips the scratch to the note byte-exactly", async () => {
     const repo = await gitFixture("scratch-flush-");
+
     try {
       const commit = head(repo);
+
       const hydrated = await hydrateScratch({
         repoRootPath: repo,
         rev: "HEAD",
       });
+
       await writeFile(hydrated.path, MAP_SOURCE("Flushed"), "utf8");
 
       const flushed = await flushScratch({ repoRootPath: repo, commit });
@@ -520,6 +558,7 @@ describe("scratch flush", () => {
 
   it("refuses to flush when no scratch exists", async () => {
     const repo = await gitFixture("scratch-flush-missing-");
+
     try {
       await expect(
         flushScratch({ repoRootPath: repo, commit: head(repo) }),
@@ -531,13 +570,16 @@ describe("scratch flush", () => {
 
   it("canonicalizes the model import before writing the note", async () => {
     const repo = await gitFixture("scratch-flush-canonical-");
+
     try {
       const commit = head(repo);
       await hydrateScratch({ repoRootPath: repo, rev: "HEAD" });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: repo,
         commit,
       })!;
+
       // A localized (relative) import in the scratch must not leak into the
       // stored note: notes are location-independent, and the prune sweep's
       // equality check compares canonicalized content to the note.
@@ -546,14 +588,17 @@ describe("scratch flush", () => {
         'export default defineSoftwareMap({ systems: { app: { label: "L" } } });',
         "",
       ].join("\n");
+
       await writeFile(scratchPath, localized, "utf8");
 
       await flushScratch({ repoRootPath: repo, commit });
+
       const note = await readNote({
         rootPath: repo,
         ref: SOFTWARE_MAP_NOTES_REF,
         commit,
       });
+
       expect(note).toContain(`from "${CANONICAL_SOFTWARE_MAP_MODEL_IMPORT}"`);
       expect(note).not.toContain("some/where");
       expect(note).toBe(canonicalizeModelImport(localized));
@@ -564,13 +609,16 @@ describe("scratch flush", () => {
 
   it("publishes exactly the threaded validated bytes, not a scratch re-read", async () => {
     const repo = await gitFixture("scratch-flush-threaded-");
+
     try {
       const commit = head(repo);
       await hydrateScratch({ repoRootPath: repo, rev: "HEAD" });
+
       const scratchPath = scratchSoftwareMapPath({
         repoRootPath: repo,
         commit,
       })!;
+
       const validated = MAP_SOURCE("Validated bytes");
       // The scratch mutates AFTER validation (simulating a concurrent edit);
       // the flush must still publish the validated bytes.
@@ -596,6 +644,7 @@ describe("scratch flush", () => {
 describe("materialization", () => {
   it("writes the note into the git-dir cache with a localized import", async () => {
     const repo = await gitFixture("map-materialize-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -604,11 +653,13 @@ describe("materialization", () => {
         commit,
         content: MAP_SOURCE("Materialized"),
       });
+
       const artifactPath = await materializeSoftwareMapAtRef({
         repoRootPath: repo,
         ref: "HEAD",
         role: "base",
       });
+
       const gitDir = gitCommonDirSync(repo)!;
       expect(artifactPath).toBe(
         path.join(
@@ -627,6 +678,7 @@ describe("materialization", () => {
 
   it("is write-if-changed: re-materializing does not rewrite the file", async () => {
     const repo = await gitFixture("map-materialize-stable-");
+
     try {
       const commit = head(repo);
       await writeNote({
@@ -635,18 +687,22 @@ describe("materialization", () => {
         commit,
         content: MAP_SOURCE("Stable"),
       });
+
       const first = materializeSoftwareMapAtRefSync({
         repoRootPath: repo,
         ref: "HEAD",
         role: "base",
       });
+
       const before = statSync(first!).mtimeMs;
       await new Promise((resolve) => setTimeout(resolve, 10));
+
       const second = materializeSoftwareMapAtRefSync({
         repoRootPath: repo,
         ref: "HEAD",
         role: "base",
       });
+
       expect(second).toBe(first);
       expect(statSync(first!).mtimeMs).toBe(before);
     } finally {
@@ -656,6 +712,7 @@ describe("materialization", () => {
 
   it("returns null when nothing can serve the ref", async () => {
     const repo = await gitFixture("map-materialize-miss-");
+
     try {
       expect(
         await materializeSoftwareMapAtRef({
@@ -683,6 +740,7 @@ describe("materialization", () => {
       console.warn = (...args: unknown[]) => {
         warnings.push(args.map(String).join(" "));
       };
+
       await writeNote({
         rootPath: repo,
         ref: SOFTWARE_MAP_NOTES_REF,
@@ -707,6 +765,7 @@ describe("materialization", () => {
         ref: "HEAD",
         role: "head",
       });
+
       expect(artifactPath).not.toBeNull();
       expect(warnings.join("\n")).toContain(commit);
       expect(warnings.join("\n")).toContain("failed strict validation");
@@ -719,6 +778,7 @@ describe("materialization", () => {
         role: "head",
         validate: "skip",
       });
+
       expect(artifactPath).not.toBeNull();
       expect(warnings).toEqual([]);
     });
@@ -738,6 +798,7 @@ async function gitFixture(prefix: string): Promise<string> {
   await writeFile(path.join(repo, "README.md"), "base\n", "utf8");
   git(repo, ["add", "README.md"]);
   git(repo, ["commit", "-q", "-m", "base"]);
+
   return repo;
 }
 
@@ -757,6 +818,7 @@ async function jjFixture(prefix: string): Promise<string> {
   jj(repo, ["git", "init", "--colocate"]);
   git(repo, ["config", "user.email", "test@example.com"]);
   git(repo, ["config", "user.name", "Test User"]);
+
   return repo;
 }
 
@@ -793,6 +855,7 @@ function commandExists(command: string): boolean {
     execFileSync(command, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
     });
+
     return true;
   } catch {
     return false;

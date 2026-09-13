@@ -42,10 +42,12 @@ export class ReviewMissingAgentResponsesError extends Error {
 export function requireClosedThreadsForRepublish(review: StoredReview): void {
   if (!review.review.presentedDocumentRevision) return;
   const comments = readReviewComments(path.join(review.dir, "review.mdx"));
+
   const threadIds = Object.values(comments)
     .filter((thread) => thread.status === "open")
     .map((thread) => thread.threadId)
     .sort((left, right) => left.localeCompare(right));
+
   if (threadIds.length > 0) {
     throw new ReviewOpenThreadsError(review.review.uuid, threadIds);
   }
@@ -56,9 +58,11 @@ export function requireCompletedAgentResponsesForRepublish(
   review: StoredReview,
 ): void {
   const publishedAt = review.review.lastPublishedAt;
+
   if (!review.review.presentedDocumentRevision || !publishedAt) return;
 
   const comments = readReviewComments(path.join(review.dir, "review.mdx"));
+
   const threadIds = Object.values(comments)
     .filter((thread) =>
       thread.messages.some(
@@ -69,6 +73,7 @@ export function requireCompletedAgentResponsesForRepublish(
     .filter((thread) => !hasCompletedAgentResponse(thread, publishedAt))
     .map((thread) => thread.threadId)
     .sort((left, right) => left.localeCompare(right));
+
   if (threadIds.length > 0) {
     throw new ReviewMissingAgentResponsesError(review.review.uuid, threadIds);
   }
@@ -88,6 +93,7 @@ function hasCompletedAgentResponse(
     (message) =>
       message.role !== "agent" && messageIsAfter(message.at, publishedAt),
   );
+
   return currentRoundReviewerMessages.every((reviewerMessage) =>
     thread.messages.some(
       (message) =>
@@ -100,8 +106,10 @@ function hasCompletedAgentResponse(
 function messageIsAfter(messageAt: string, publishedAt: string): boolean {
   const messageTime = Date.parse(messageAt);
   const publishedTime = Date.parse(publishedAt);
+
   if (Number.isFinite(messageTime) && Number.isFinite(publishedTime)) {
     return messageTime > publishedTime;
   }
+
   return messageAt > publishedAt;
 }

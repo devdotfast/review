@@ -9,6 +9,7 @@ const source = readFileSync(
   ),
   "utf8",
 );
+
 const widgetSource = readFileSync(
   new URL(
     "../code-oss/src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorWidget.ts",
@@ -16,6 +17,7 @@ const widgetSource = readFileSync(
   ),
   "utf8",
 );
+
 const widgetImplementationSource = readFileSync(
   new URL(
     "../code-oss/src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.ts",
@@ -23,6 +25,7 @@ const widgetImplementationSource = readFileSync(
   ),
   "utf8",
 );
+
 const itemTemplateSource = readFileSync(
   new URL(
     "../code-oss/src/vs/editor/browser/widget/multiDiffEditor/diffEditorItemTemplate.ts",
@@ -30,6 +33,7 @@ const itemTemplateSource = readFileSync(
   ),
   "utf8",
 );
+
 const commentThreadHeaderSource = readFileSync(
   new URL(
     "../code-oss/src/vs/workbench/contrib/comments/browser/commentThreadHeader.ts",
@@ -37,6 +41,7 @@ const commentThreadHeaderSource = readFileSync(
   ),
   "utf8",
 );
+
 const resourceHeaderSource = readFileSync(
   new URL(
     "../code-oss/src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorResourceHeader.ts",
@@ -44,6 +49,7 @@ const resourceHeaderSource = readFileSync(
   ),
   "utf8",
 );
+
 const viewModelSource = readFileSync(
   new URL(
     "../code-oss/src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorViewModel.ts",
@@ -51,6 +57,7 @@ const viewModelSource = readFileSync(
   ),
   "utf8",
 );
+
 const factorySource = readFileSync(
   new URL(
     "../code-oss/src/vs/review/services/reviewMultiDiff.ts",
@@ -58,6 +65,7 @@ const factorySource = readFileSync(
   ),
   "utf8",
 );
+
 const reviewStyles = readFileSync(
   new URL(
     "../code-oss/src/vs/review/browser/media/review.css",
@@ -65,6 +73,7 @@ const reviewStyles = readFileSync(
   ),
   "utf8",
 );
+
 const referencesControllerSource = readFileSync(
   new URL(
     "../code-oss/src/vs/editor/contrib/gotoSymbol/browser/peek/referencesController.ts",
@@ -72,6 +81,7 @@ const referencesControllerSource = readFileSync(
   ),
   "utf8",
 );
+
 test("authored CodePeeks use one unified native comment editor", () => {
   assert.match(
     source,

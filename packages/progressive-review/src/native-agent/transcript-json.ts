@@ -18,10 +18,13 @@ export function isJsonRecord(value: unknown): value is JsonRecord {
 
 export async function readJsonLines(path: string): Promise<JsonRecord[]> {
   const source = await readFile(path, "utf8");
+
   return source.split("\n").flatMap((line) => {
     if (!line.trim()) return [];
+
     try {
       const value = parseJsonText(line);
+
       return isJsonRecord(value) ? [value] : [];
     } catch {
       // A native writer can leave the last line incomplete during a read.
@@ -32,12 +35,16 @@ export async function readJsonLines(path: string): Promise<JsonRecord[]> {
 
 export function textBlocks(value: JsonValue | undefined): string[] {
   const text = jsonString(value);
+
   if (text !== undefined) return text.trim() ? [text] : [];
   const blocks = jsonArray(value);
+
   if (!blocks) return [];
+
   return blocks.flatMap((block) => {
     if (!isJsonRecord(block) || block.type !== "text") return [];
     const blockText = jsonString(block.text);
+
     return blockText?.trim() ? [blockText] : [];
   });
 }

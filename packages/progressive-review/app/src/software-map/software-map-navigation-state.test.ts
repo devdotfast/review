@@ -29,6 +29,7 @@ describe("SoftwareMap navigation state", () => {
   it("persists selected node and expanded node ids by model identity", () => {
     const session = testReviewSession();
     clearSoftwareMapNavigationStateForTests(session);
+
     const key = softwareMapNavigationKey({
       title: "CI SoftwareMap",
       view: "inline",
@@ -102,6 +103,7 @@ describe("SoftwareMap navigation state", () => {
         },
       },
     });
+
     const completeModel = defineSoftwareModel({
       systems: {
         app: {
@@ -126,6 +128,7 @@ describe("SoftwareMap navigation state", () => {
 
     const initialExpandedNodeIds =
       initialSoftwareMapExpandedNodeIds(initialModel);
+
     expect([...initialExpandedNodeIds]).toEqual(["app"]);
 
     const expandedNodeIds = seedSoftwareMapDefaultExpandedNodeIds({
@@ -133,12 +136,14 @@ describe("SoftwareMap navigation state", () => {
       model: completeModel,
       defaultExpansionActive: true,
     });
+
     expect([...expandedNodeIds].sort()).toEqual(["app", "app.web"]);
 
     const projection = projectInlineC4({
       model: completeModel,
       expandedNodeIds,
     });
+
     expect(projection.nodes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "app", isExpanded: true }),

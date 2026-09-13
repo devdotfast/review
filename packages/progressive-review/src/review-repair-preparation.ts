@@ -100,12 +100,15 @@ export async function prepareReviewRepair(input: {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "review-repair-"));
   const stagingDir = path.join(temporaryRoot, "candidate");
   const cleanup = () => rm(temporaryRoot, { recursive: true, force: true });
+
   try {
     const snapshot = await snapshotReviewForRepair(input.reviewDir, stagingDir);
     const { review } = snapshot;
+
     const threadDbMigration: ReviewThreadDbMigrationOptions = {
       preserveLegacyQuestions: true,
     };
+
     if (review.sourceCommit)
       threadDbMigration.migrateLegacyCodeRecord =
         createLegacyCodeRecordMigrator({
@@ -113,12 +116,14 @@ export async function prepareReviewRepair(input: {
           baseCommit: review.baseCommit,
           headCommit: review.sourceCommit,
         });
+
     const threadDbUpgraded =
       snapshot.threadDbFingerprint !== undefined &&
       (await migrateReviewThreadDb(
         path.join(stagingDir, "review.mdx"),
         threadDbMigration,
       )) === "upgraded";
+
     const document = await repairPresentedDocument({
       reviewDir: input.reviewDir,
       stagingDir,
@@ -127,7 +132,9 @@ export async function prepareReviewRepair(input: {
       revision: snapshot.documentRevision,
       warning: input.warning,
     });
+
     const presentedMapRevision = review.presentedSoftwareMapRevision;
+
     const map: RepairedMap = presentedMapRevision
       ? await repairPresentedMap({
           stagingDir,
@@ -139,6 +146,7 @@ export async function prepareReviewRepair(input: {
           warning: input.warning,
         })
       : unchangedPresentedMap(document);
+
     if (
       snapshot.threadDbFingerprint !== undefined &&
       readReviewThreadDatabaseFingerprint(
@@ -148,6 +156,7 @@ export async function prepareReviewRepair(input: {
       throw new Error(
         "Review threads changed while preparing repair; retry after active writes finish.",
       );
+
     if (
       !document.changed &&
       !map.changed &&
@@ -156,8 +165,10 @@ export async function prepareReviewRepair(input: {
       snapshot.schemaVersion === REVIEW_SCHEMA_VERSION
     ) {
       await cleanup();
+
       return { kind: "noop", review };
     }
+
     const { documentRevision, mapRevision } = await sealRepairedPresentations({
       stagingDir,
       review,
@@ -166,6 +177,7 @@ export async function prepareReviewRepair(input: {
       document,
       map,
     });
+
     const request: ReviewRepairReadyRequest = {
       reviewUuid: review.uuid,
       stagingDir,
@@ -178,8 +190,10 @@ export async function prepareReviewRepair(input: {
         map: map.usedEditableSources,
       },
     };
+
     if (threadDbUpgraded)
       request.expectedThreadDbFingerprint = snapshot.threadDbFingerprint;
+
     return { kind: "prepared", review, cleanup, request };
   } catch (error) {
     await cleanup();
@@ -210,6 +224,7 @@ async function sealRepairedPresentations(input: {
   map: RepairedMap;
 }): Promise<{ documentRevision: string; mapRevision: string | null }> {
   let mapRevision = input.map.revision;
+
   if (input.map.changed) {
     await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
       ...input.review,
@@ -223,7 +238,9 @@ async function sealRepairedPresentations(input: {
       "Repair current Review software map",
     );
   }
+
   let documentRevision = input.documentRevision;
+
   if (input.document.changed) {
     await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
       ...input.review,
@@ -235,11 +252,13 @@ async function sealRepairedPresentations(input: {
       "Repair current Review document",
     );
   }
+
   await writePrivateJsonAtomic(path.join(input.stagingDir, "review.json"), {
     ...input.review,
     presentedDocumentRevision: documentRevision,
     presentedSoftwareMapRevision: mapRevision,
   });
+
   return { documentRevision, mapRevision };
 }
 
@@ -252,15 +271,19 @@ async function snapshotReviewForRepair(
   return withReviewMutationLock(reviewDir, async () => {
     await assertIsolatedRepairInternals(reviewDir);
     await assertNoActiveReviewAgentWrites(reviewDir);
+
     const expectedRecord = await readFile(
       path.join(reviewDir, "review.json"),
       "utf8",
     );
+
     const expectedValue = parseJsonText(expectedRecord);
     const review = parseAnyStoredReviewRecord(expectedValue);
+
     if (review.uuid !== path.basename(reviewDir))
       throw new Error("Review UUID does not match its storage directory.");
     const documentRevision = review.presentedDocumentRevision;
+
     if (!documentRevision)
       throw new Error(
         "This Review has no current presentation. Run review publish instead.",
@@ -274,12 +297,14 @@ async function snapshotReviewForRepair(
         ),
     });
     await assertIsolatedRepairInternals(stagingDir);
+
     if (
       (await fingerprintReviewRepairInputs(reviewDir)) !== expectedFingerprint
     )
       throw new Error(
         "Review authoring changed while preparing repair. Retry after active writes finish.",
       );
+
     const threadDbFingerprint = existsSync(
       reviewThreadDbPath(path.join(reviewDir, "review.mdx")),
     )
@@ -288,6 +313,7 @@ async function snapshotReviewForRepair(
           path.join(stagingDir, "review.mdx"),
         )
       : undefined;
+
     return {
       review,
       documentRevision,
@@ -311,6 +337,7 @@ async function repairPresentedDocument(input: {
 }): Promise<RepairedDocument> {
   const documentDir = path.join(input.temporaryRoot, "document");
   let presentedRecord = input.review;
+
   try {
     await materializeReviewRevision(
       input.stagingDir,
@@ -323,23 +350,29 @@ async function repairPresentedDocument(input: {
       ),
     );
     const candidateBundle = await readReviewDocumentBundle(documentDir, "/");
+
     if (candidateBundle) {
       await writeReviewDocumentBundle(input.stagingDir, candidateBundle);
+
       return { changed: false, usedEditableSources: false, presentedRecord };
     }
+
     const evaluated = await evaluateSealedReviewDocument(
       documentDir,
       input.warning,
     );
+
     await writeReviewDocumentBundle(
       input.stagingDir,
       bundleReviewDocument(evaluated.document),
     );
+
     return { changed: true, usedEditableSources: false, presentedRecord };
   } catch (error) {
     input.warning?.(
       `Sealed document conversion failed: ${message(error)}. Using editable review.mdx/data.ts; reconcile unpublished edits without changing the Review's meaning. Validation does not prove semantic equivalence.`,
     );
+
     try {
       await readFile(path.join(input.stagingDir, "review.mdx"), "utf8").catch(
         (cause) => {
@@ -348,30 +381,37 @@ async function repairPresentedDocument(input: {
               `Missing editable Review input: ${path.join(input.reviewDir, "review.mdx")}. Restore that source file before retrying repair.`,
             );
           }
+
           throw cause;
         },
       );
+
       const sourceReview = {
         ...input.review,
         ...reviewSourcePins(presentedRecord),
       };
+
       await writePrivateJsonAtomic(
         path.join(input.stagingDir, "review.json"),
         sourceReview,
       );
+
       const prepared = await prepareReviewDocumentBundle({
         review: {
           dir: input.stagingDir,
           review: sourceReview,
         },
       });
+
       await writeReviewDocumentBundle(input.stagingDir, prepared.bundle);
+
       for (const warning of prepared.warnings) input.warning?.(warning);
     } catch (fallbackError) {
       throw new Error(
         `Document repair failed. Sealed input: ${message(error)}. Editable input: ${message(fallbackError).replaceAll(input.stagingDir, input.reviewDir)}`,
       );
     }
+
     return { changed: true, usedEditableSources: true, presentedRecord };
   }
 }
@@ -386,8 +426,10 @@ async function readSealedMapManifestPins(
   )
     .then((value) => jsonObject(parseJsonText(value)))
     .catch(() => undefined);
+
   const baseCommit = jsonString(manifest?.baseCommit);
   const headCommit = jsonString(manifest?.headCommit);
+
   if (
     !baseCommit ||
     !headCommit ||
@@ -395,6 +437,7 @@ async function readSealedMapManifestPins(
     !/^[0-9a-f]{40}$/i.test(headCommit)
   )
     return undefined;
+
   return { baseCommit, headCommit };
 }
 
@@ -411,12 +454,15 @@ async function repairPresentedMap(input: {
 }): Promise<RepairedMap> {
   const mapDir = path.join(input.temporaryRoot, "map");
   let presentedRecord = input.documentRecord;
+
   let pins: MapPins = {
     baseCommit: presentedRecord.baseCommit,
     headCommit: presentedRecord.sourceCommit,
   };
+
   let sealedError: unknown;
   let materialized = false;
+
   try {
     await materializeReviewRevision(input.stagingDir, input.revision, mapDir);
     presentedRecord = parseAnyStoredReviewRecord(
@@ -430,8 +476,10 @@ async function repairPresentedMap(input: {
   } catch (error) {
     sealedError = error;
   }
+
   if (materialized) {
     const manifestPins = await readSealedMapManifestPins(mapDir);
+
     if (manifestPins) {
       if (
         manifestPins.baseCommit !== pins.baseCommit ||
@@ -441,12 +489,16 @@ async function repairPresentedMap(input: {
           "Presented software-map manifest pins contradict its sealed Review record; reconcile this presentation before repair.",
         );
       }
+
       pins = manifestPins;
     }
+
     try {
       const candidateBundle = await readReviewSoftwareMapBundle(mapDir);
+
       if (candidateBundle) {
         await writeReviewSoftwareMapBundle(input.stagingDir, candidateBundle);
+
         return {
           changed: false,
           usedEditableSources: false,
@@ -455,9 +507,12 @@ async function repairPresentedMap(input: {
           pins,
         };
       }
+
       const legacyBundle = await legacySoftwareMapBundle(mapDir);
+
       if (legacyBundle) {
         await writeReviewSoftwareMapBundle(input.stagingDir, legacyBundle);
+
         return {
           changed: true,
           usedEditableSources: false,
@@ -466,6 +521,7 @@ async function repairPresentedMap(input: {
           pins,
         };
       }
+
       if (input.allowAbsentMap) {
         return {
           changed: false,
@@ -475,31 +531,38 @@ async function repairPresentedMap(input: {
           pins,
         };
       }
+
       throw new Error("The presented software map is missing.");
     } catch (error) {
       sealedError = error;
     }
   }
+
   input.warning?.(
     `Sealed software map conversion failed: ${message(sealedError)}. Validating saved map notes at the current presentation's pinned commits.`,
   );
+
   try {
     const headCommit = pins.headCommit;
+
     if (!headCommit)
       throw new Error(
         "The current map presentation has no pinned head commit.",
       );
+
     const bundle = await prepareSavedMapNotes({
       rootPath: input.review.worktreePath,
       baseCommit: pins.baseCommit,
       headCommit,
     });
+
     await writeReviewSoftwareMapBundle(input.stagingDir, bundle);
   } catch (fallbackError) {
     throw new Error(
       `Software map repair failed. Sealed input: ${message(sealedError)}. Saved map notes: ${message(fallbackError)}`,
     );
   }
+
   return {
     changed: true,
     usedEditableSources: true,
@@ -516,7 +579,9 @@ async function assertIsolatedRepairInternals(dir: string): Promise<void> {
       if (isMissingFileError(error)) return null;
       throw error;
     });
+
     if (!metadata) return;
+
     if (
       metadata.isSymbolicLink() ||
       (!metadata.isDirectory() && !metadata.isFile())
@@ -525,11 +590,13 @@ async function assertIsolatedRepairInternals(dir: string): Promise<void> {
         `Repair internal path ${relative} is a symbolic link or special file. Restore ordinary artifact and private Git files before retrying repair.`,
       );
     }
+
     if (metadata.isDirectory()) {
       for (const entry of await readdir(path.join(dir, relative)))
         await inspect(path.join(relative, entry));
     }
   };
+
   await inspect(".bundle");
   await inspect(".git");
 }
@@ -551,24 +618,30 @@ async function prepareSavedMapNotes(input: {
         ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
         commit,
       }));
+
     if (source === null)
       throw new Error(
         `No saved software map note at ${role} commit ${commit}; author and validate that pinned map before retrying repair.`,
       );
+
     const checked = await checkSoftwareMapSource({
       repoRootPath: input.rootPath,
       commit,
       source,
       sourceName: `repair-${role}-map.ts`,
     });
+
     if (!checked.model || checked.errors.length)
       throw new Error(
         checked.errors.join("; ") || `Invalid saved ${role} map.`,
       );
+
     return checked.model;
   };
+
   const base = await load(input.baseCommit, "base");
   const head = await load(input.headCommit, "head");
+
   return bundleReviewSoftwareMap({
     base,
     head,

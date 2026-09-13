@@ -10,7 +10,9 @@ import { testReviewSession } from "./review-session-test-utils";
 import { useRightPanelResize } from "./side-panel-resizer";
 
 let root: ReturnType<typeof createRoot> | undefined;
+
 let host: HTMLDivElement | undefined;
+
 const session = testReviewSession();
 
 function Panel({
@@ -23,6 +25,7 @@ function Panel({
   // jsdom reports a zero-width container, which is also what a review panel
   // sees when it mounts before its tab has been laid out.
   const containerRef = useRef<HTMLElement | null>(null);
+
   const resize = useRightPanelResize({
     stateKey,
     defaultWidth: 360,
@@ -33,6 +36,7 @@ function Panel({
     label: "Resize test panel",
     containerRef: cramped ? containerRef : undefined,
   });
+
   return (
     <section ref={containerRef}>
       <div className="side-panel-resizer" {...resize.separatorProps} />
@@ -42,7 +46,9 @@ function Panel({
 
 function separator(): HTMLDivElement {
   const element = host?.querySelector<HTMLDivElement>(".side-panel-resizer");
+
   if (!element) throw new Error("Separator not rendered.");
+
   return element;
 }
 
@@ -116,9 +122,11 @@ describe("useRightPanelResize persistence", () => {
     mountPanel("test-panel-width");
     widenWithKeyboard();
     widenWithKeyboard();
+
     const requested = window.localStorage.getItem(
       reviewPreferenceKey("ui", "test-panel-width"),
     );
+
     expect(requested).toBe("424");
     unmountPanel();
 

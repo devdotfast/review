@@ -14,8 +14,11 @@ import {
 import { testReviewSession } from "./review-session-test-utils";
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
+
 let review: ReturnType<typeof useReview> | null = null;
+
 let secondaryReview: ReturnType<typeof useReview> | null = null;
+
 const session = testReviewSession({
   serverUrl: "http://localhost:3000",
   sessionUrl: "http://localhost:3000",
@@ -26,11 +29,13 @@ const target: ThreadTarget = { kind: "document" };
 
 function CaptureReview() {
   review = useReview();
+
   return null;
 }
 
 function CaptureSecondaryReview() {
   secondaryReview = useReview();
+
   return null;
 }
 
@@ -129,6 +134,7 @@ describe("ReviewProvider comment message deletion", () => {
           array.fill(seed);
           seed += 1;
         }
+
         return array;
       },
     });
@@ -154,6 +160,7 @@ describe("ReviewProvider comment message deletion", () => {
 
   it("loads a terminal outcome through the canvas bridge", async () => {
     vi.stubGlobal("fetch", undefined);
+
     const statusSession = testReviewSession(
       {},
       {
@@ -201,6 +208,7 @@ function stubReviewFetch(
   const fetchMock = vi.fn<typeof fetch>(
     async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = String(input);
+
       if (init?.method === "DELETE" && url.includes("/messages/")) {
         return new Response(
           mutationStatus === 200 ? undefined : "delete failed",
@@ -209,23 +217,28 @@ function stubReviewFetch(
           },
         );
       }
+
       if (init?.method === "PATCH" && url.includes("/comments/")) {
         return new Response(
           mutationStatus === 200 ? undefined : "update failed",
           { status: mutationStatus },
         );
       }
+
       if (url.includes("/__progressive-review/comments")) {
         return new Response(JSON.stringify({ comments }), {
           headers: { "content-type": "application/json" },
         });
       }
+
       return new Response(JSON.stringify({}), {
         headers: { "content-type": "application/json" },
       });
     },
   );
+
   vi.stubGlobal("fetch", fetchMock);
+
   return fetchMock;
 }
 
@@ -263,10 +276,12 @@ async function renderSecondaryProvider() {
     await Promise.resolve();
     await Promise.resolve();
   });
+
   return root;
 }
 
 function requireReview(): ReturnType<typeof useReview> {
   if (!review) throw new Error("Review context was not captured");
+
   return review;
 }

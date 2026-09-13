@@ -49,17 +49,20 @@ async function initGitRepo(): Promise<string> {
   git(rootPath, ["init", "-q", "-b", "main"]);
   git(rootPath, ["config", "user.email", "test@example.com"]);
   git(rootPath, ["config", "user.name", "Test User"]);
+
   return rootPath;
 }
 
 function commit(rootPath: string, message: string): string {
   git(rootPath, ["commit", "-q", "--allow-empty", "-m", message]);
+
   return git(rootPath, ["rev-parse", "HEAD"]);
 }
 
 function hasJj(): boolean {
   try {
     execFileSync("jj", ["--version"], { stdio: "ignore" });
+
     return true;
   } catch {
     return false;
@@ -72,6 +75,7 @@ async function initJjRepo(): Promise<string> {
   git(rootPath, ["config", "user.email", "test@example.com"]);
   git(rootPath, ["config", "user.name", "Test User"]);
   run(rootPath, "jj", ["describe", "-m", "working copy"]);
+
   return rootPath;
 }
 
@@ -96,7 +100,9 @@ afterEach(() => {
 
 async function lockPathFor(rootPath: string): Promise<string> {
   const gitDir = await gitCommonDir(rootPath);
+
   if (!gitDir) throw new Error("no git dir");
+
   return notesLockPathForTests(gitDir);
 }
 
@@ -196,6 +202,7 @@ describe("git notes primitives", () => {
     // `* text` + autocrlf would run CRLF→LF conversion in hash-object unless
     // the writer passes --no-filters; notes are a byte-for-byte contract.
     const gitDir = await gitCommonDir(rootPath);
+
     if (!gitDir) throw new Error("no git dir");
     mkdirSync(path.join(gitDir, "info"), { recursive: true });
     writeFileSync(path.join(gitDir, "info", "attributes"), "* text\n");
@@ -255,6 +262,7 @@ describe("git notes primitives", () => {
   it("batch-reads many notes with one process pair", async () => {
     const rootPath = await initGitRepo();
     const commits: string[] = [];
+
     for (let index = 0; index < 25; index += 1) {
       const sha = commit(rootPath, `c${index}`);
       commits.push(sha);
@@ -265,16 +273,21 @@ describe("git notes primitives", () => {
         content: `map ${index}`,
       });
     }
+
     const unannotated = commit(rootPath, "no-note");
+
     const batch = await readNotesBatch({
       rootPath,
       ref: MAP_REF,
       commits: [...commits, unannotated],
     });
+
     expect(batch.size).toBe(25);
+
     for (const [index, sha] of commits.entries()) {
       expect(batch.get(sha)).toBe(`map ${index}`);
     }
+
     expect(batch.has(unannotated)).toBe(false);
   });
 
@@ -282,29 +295,35 @@ describe("git notes primitives", () => {
     const rootPath = await initGitRepo();
     const head = commit(rootPath, "one");
     const gitDir = await gitCommonDir(rootPath);
+
     if (!gitDir) throw new Error("no git dir");
+
     // Manually build a 2/38 fanout notes tree: ab/cdef... -> blob.
     const realBlob = execFileSync("git", ["hash-object", "-w", "--stdin"], {
       cwd: rootPath,
       input: "fanout map content",
       encoding: "utf8",
     }).trim();
+
     const inner = execFileSync("git", ["mktree"], {
       cwd: rootPath,
       input: `100644 blob ${realBlob}\t${head.slice(2)}\n`,
       encoding: "utf8",
     }).trim();
+
     const outer = execFileSync("git", ["mktree"], {
       cwd: rootPath,
       input: `040000 tree ${inner}\t${head.slice(0, 2)}\n`,
       encoding: "utf8",
     }).trim();
+
     const notesCommit = git(rootPath, [
       "commit-tree",
       outer,
       "-m",
       "Notes added by test",
     ]);
+
     git(rootPath, ["update-ref", MAP_REF, notesCommit]);
 
     expect(await readNote({ rootPath, ref: MAP_REF, commit: head })).toBe(
@@ -314,12 +333,14 @@ describe("git notes primitives", () => {
 
   it("survives concurrent writers via the notes lock", async () => {
     const rootPath = await initGitRepo();
+
     const commits = [
       commit(rootPath, "a"),
       commit(rootPath, "b"),
       commit(rootPath, "c"),
       commit(rootPath, "d"),
     ];
+
     await Promise.all(
       commits.map((sha, index) =>
         writeNote({
@@ -330,6 +351,7 @@ describe("git notes primitives", () => {
         }),
       ),
     );
+
     for (const [index, sha] of commits.entries()) {
       expect(await readNote({ rootPath, ref: MAP_REF, commit: sha })).toBe(
         `concurrent ${index}`,
@@ -339,15 +361,20 @@ describe("git notes primitives", () => {
 
   it("serializes notes writes from independent processes", async () => {
     const rootPath = await initGitRepo();
+
     const commits = Array.from({ length: 6 }, (_, index) =>
       commit(rootPath, `process ${index}`),
     );
+
     const barrierPath = path.join(rootPath, "notes-workers.start");
+
     const workerPath = fileURLToPath(
       new URL("./test-fixtures/notes-write-worker.ts", import.meta.url),
     );
+
     const workers = commits.map((sha, index) => {
       const readyPath = path.join(rootPath, `notes-worker-${index}.ready`);
+
       return {
         promise: runNotesWorker(workerPath, [
           rootPath,
@@ -436,6 +463,7 @@ describe("git notes primitives", () => {
     git(rootPath, ["checkout", "-q", "main"]);
     git(rootPath, ["branch", "-q", "-D", "doomed"]);
     git(rootPath, ["reflog", "expire", "--expire=now", "--all"]);
+
     // No gc: the doomed commit still exists as an object, but no ref
     // reaches it.
     for (const target of [kept, doomed]) {
@@ -538,6 +566,7 @@ async function runNotesWorker(
       stdio: ["ignore", "ignore", "pipe"],
     },
   );
+
   let stderr = "";
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
@@ -559,10 +588,12 @@ async function runNotesWorker(
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 5_000;
+
   while (Date.now() < deadline) {
     if (predicate()) return;
     await sleep(20);
   }
+
   throw new Error("Timed out waiting for notes workers.");
 }
 
@@ -583,8 +614,10 @@ describe("notes config and rewrite handling", () => {
       "--get-all",
       "notes.rewriteRef",
     ]).split("\n");
+
     expect(rewriteRefs).toEqual(["refs/notes/dev-fast/*"]);
     expect(git(rootPath, ["config", "notes.rewriteMode"])).toBe("overwrite");
+
     const fetchSpecs = git(rootPath, [
       "config",
       "--get-all",
@@ -592,6 +625,7 @@ describe("notes config and rewrite handling", () => {
     ])
       .split("\n")
       .filter((line) => line.includes("dev-fast"));
+
     expect(fetchSpecs).toEqual([DEV_FAST_NOTES_FETCH_REFSPEC]);
   });
 
@@ -604,6 +638,7 @@ describe("notes config and rewrite handling", () => {
     git(rootPath, ["config", "devFast.fetchNotes", "false"]);
 
     await ensureNotesConfig({ rootPath });
+
     const disabledSpecs = git(rootPath, [
       "config",
       "--get-all",
@@ -611,6 +646,7 @@ describe("notes config and rewrite handling", () => {
     ])
       .split("\n")
       .filter((line) => line.includes("dev-fast"));
+
     expect(disabledSpecs).toEqual([]);
     // The rewrite config still installs (it is not fetch-related).
     expect(git(rootPath, ["config", "notes.rewriteMode"])).toBe("overwrite");
@@ -619,6 +655,7 @@ describe("notes config and rewrite handling", () => {
     // refspec on the next ensure (no cache clear here on purpose).
     git(rootPath, ["config", "--unset", "devFast.fetchNotes"]);
     await ensureNotesConfig({ rootPath });
+
     const enabledSpecs = git(rootPath, [
       "config",
       "--get-all",
@@ -626,6 +663,7 @@ describe("notes config and rewrite handling", () => {
     ])
       .split("\n")
       .filter((line) => line.includes("dev-fast"));
+
     expect(enabledSpecs).toEqual([DEV_FAST_NOTES_FETCH_REFSPEC]);
   });
 
@@ -718,6 +756,7 @@ describe("notes sharing", () => {
       rootPath: publisher,
       refs: [MAP_REF, "refs/notes/dev-fast/unannotated"],
     });
+
     expect(pushed.ok).toBe(true);
     expect(pushed.pushed).toEqual([MAP_REF]);
     expect(git(bare, ["ls-remote", ".", "refs/notes/*"])).toContain(MAP_REF);
@@ -911,6 +950,7 @@ describe("jj integration", () => {
       git(rootPath, ["config", "user.email", "test@example.com"]);
       git(rootPath, ["config", "user.name", "Test User"]);
       run(rootPath, "jj", ["describe", "-m", "original"]);
+
       const original = run(rootPath, "jj", [
         "log",
         "-r",
@@ -919,6 +959,7 @@ describe("jj integration", () => {
         "-T",
         "commit_id",
       ]);
+
       await writeNote({
         rootPath,
         ref: MAP_REF,
@@ -926,6 +967,7 @@ describe("jj integration", () => {
         content: "map of change",
       });
       run(rootPath, "jj", ["describe", "-m", "rewritten"]);
+
       const rewritten = run(rootPath, "jj", [
         "log",
         "-r",
@@ -934,6 +976,7 @@ describe("jj integration", () => {
         "-T",
         "commit_id",
       ]);
+
       expect(rewritten).not.toBe(original);
       expect(
         await readNote({ rootPath, ref: MAP_REF, commit: rewritten }),
@@ -952,6 +995,7 @@ describe("jj integration", () => {
       git(rootPath, ["config", "user.email", "test@example.com"]);
       git(rootPath, ["config", "user.name", "Test User"]);
       run(rootPath, "jj", ["describe", "-m", "change"]);
+
       const head = run(rootPath, "jj", [
         "log",
         "-r",
@@ -960,6 +1004,7 @@ describe("jj integration", () => {
         "-T",
         "commit_id",
       ]);
+
       await writeNote({ rootPath, ref: MAP_REF, commit: head, content: "jj" });
       expect(await readNote({ rootPath, ref: MAP_REF, commit: head })).toBe(
         "jj",

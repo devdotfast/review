@@ -52,6 +52,7 @@ describe("side-peek line interactions", () => {
   it("creates canonical code targets and restores their line range", () => {
     const anchor = testAnchor("authored");
     const sourceText = "const one = 1;\nconst two = 2;\nreturn one + two;";
+
     const created = buildAuthoredCodeLineTarget(
       {
         path: "src/authored.ts",
@@ -63,6 +64,7 @@ describe("side-peek line interactions", () => {
     );
 
     expect(created.title).toBe("L2–3");
+
     if (created.target.kind !== "code")
       throw new Error("Expected code target.");
     expect(created.target.position).toMatchObject({
@@ -118,6 +120,7 @@ describe("side-peek line interactions", () => {
       },
       selection: { start: 0, length: 7, hash: "12345678", quote: "Runtime" },
     } as const;
+
     const codeTarget = buildCodeTarget({
       path: "src/runtime.ts",
       side: "head",

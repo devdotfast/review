@@ -24,11 +24,13 @@ describe("StoreClient", () => {
           { status: 403, headers: { "content-type": "application/json" } },
         ),
     );
+
     const client = new StoreClient({
       origin: "https://app.dev.fast",
       token: "tok",
       fetch,
     });
+
     await expect(
       client.createStore({ owner: "a", name: "b" }),
     ).rejects.toMatchObject({ code: "forbidden", status: 403 });
@@ -48,11 +50,13 @@ describe("StoreClient", () => {
           { status: 404, headers: { "content-type": "application/json" } },
         ),
     );
+
     const client = new StoreClient({
       origin: "https://app.dev.fast",
       token: "tok",
       fetch,
     });
+
     await expect(
       client.findStore({ owner: "a", name: "b" }),
     ).resolves.toBeNull();
@@ -69,6 +73,7 @@ describe("StoreClient", () => {
           { status: 400 },
         ),
     );
+
     const client = new StoreClient({ origin: "https://app.dev.fast", fetch });
     expect(await client.deviceToken("dc")).toEqual({
       pending: "authorization_pending",
@@ -84,14 +89,17 @@ describe("StoreClient", () => {
           { status: 400 },
         ),
     );
+
     const rejectingClient = new StoreClient({
       origin: "https://app.dev.fast",
       fetch: rejectingFetch,
     });
+
     await expect(rejectingClient.deviceToken("dc")).rejects.toSatisfy(
       (error) => {
         expect(error).toBeInstanceOf(StoreApiError);
         expect((error as StoreApiError).message).toMatch(/invalid/i);
+
         return true;
       },
     );
@@ -101,11 +109,13 @@ describe("StoreClient", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       jsonResponse({ nonsense: true }),
     );
+
     const client = new StoreClient({
       origin: "https://app.dev.fast",
       token: "tok",
       fetch,
     });
+
     await expect(
       client.createStore({ owner: "a", name: "b" }),
     ).rejects.toMatchObject({
@@ -123,11 +133,13 @@ describe("StoreClient", () => {
         uploads: [],
       }),
     );
+
     const client = new StoreClient({
       origin: "https://app.dev.fast",
       token: "tok",
       fetch,
     });
+
     await expect(
       client.beginUpload(7, "session-1", { harness: "claude", objects: [] }),
     ).rejects.toMatchObject({ code: "upgrade_required" });
@@ -141,9 +153,11 @@ describe("StoreClient", () => {
       objects: [{ name: "main.jsonl.gz", size: 10, sha256: "0".repeat(64) }],
       commits: ["c".repeat(40)],
     };
+
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       jsonResponse(receipt),
     );
+
     const client = new StoreClient({
       origin: "https://app.dev.fast",
       token: "tok",
@@ -175,9 +189,11 @@ describe("StoreClient", () => {
       status: "deleting",
       deletedAt: "2026-09-05T00:00:00.000Z",
     };
+
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       jsonResponse(receipt, 202),
     );
+
     const client = new StoreClient({
       origin: "https://app.dev.fast",
       token: "tok",

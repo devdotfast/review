@@ -26,6 +26,7 @@ describe("decideStopHook", () => {
       submittedAt: "2026-07-01T00:00:00Z",
       nudged: false,
     };
+
     expect(decideStopHook(marker)).toEqual({
       block: true,
       reason: REOPEN_STOP_HOOK_REASON,
@@ -38,6 +39,7 @@ describe("decideStopHook", () => {
       submittedAt: "2026-07-01T00:00:00Z",
       nudged: true,
     };
+
     expect(decideStopHook(marker)).toEqual({ block: false, markNudged: false });
   });
 });
@@ -58,6 +60,7 @@ describe("reopen marker lifecycle", () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "reopen-marker-"));
     cleanupPaths.push(rootPath);
     vi.stubEnv("DEV_REVIEW_HOME", path.join(rootPath, ".dev-home"));
+
     return path.join(rootPath, "repo");
   }
 
@@ -94,6 +97,7 @@ describe("reopen marker lifecycle", () => {
 
     const first = await readReopenMarker(cwd);
     expect(first && decideStopHook(first).block).toBe(true);
+
     if (first) await markReopenNudged(cwd, first);
 
     const second = await readReopenMarker(cwd);
@@ -109,6 +113,7 @@ describe("reopen marker lifecycle", () => {
 
     // A concurrent reopen clears the marker between read and nudge.
     await clearReopenPending(cwd);
+
     if (marker) await markReopenNudged(cwd, marker);
 
     // The nudge must be a no-op, not recreate a stale nudged marker.

@@ -57,6 +57,7 @@ export async function registerReviewCodexWait(
 
     const ownerToken = dependencies.createOwnerToken();
     const pid = input.start(ownerToken);
+
     return [
       { ...state, waiter: { ownerToken, pid } },
       registration(input, pid, false),
@@ -70,9 +71,12 @@ export async function deliverReviewCodexMessage(
 ): Promise<boolean> {
   const shouldDeliver = await updateWaitState(input, (state) => {
     if (!ownsWaiter(state, input.ownerToken)) return [undefined, false];
+
     if (state.delivered.includes(input.messageId)) return [undefined, false];
+
     return [undefined, true];
   });
+
   if (!shouldDeliver) return false;
 
   await deliver();
@@ -82,6 +86,7 @@ export async function deliverReviewCodexMessage(
       : { ...state, delivered: [...state.delivered, input.messageId] },
     undefined,
   ]);
+
   return true;
 }
 
@@ -121,6 +126,7 @@ async function updateWaitState<T>(
   update: StateUpdate<T>,
 ): Promise<T> {
   const statePath = reviewCodexWaitStatePath(input);
+
   const outcome = await withFileLock(
     `${statePath}.lock`,
     {
@@ -132,34 +138,43 @@ async function updateWaitState<T>(
     },
     async () => {
       const [nextState, result] = update(await readWaitState(statePath));
+
       if (nextState) await writePrivateJsonAtomic(statePath, nextState);
+
       return result;
     },
   );
+
   if (!outcome.acquired) {
     throw new Error(
       `Timed out while updating the Codex waiter for Review ${input.reviewUuid}.`,
     );
   }
+
   return outcome.result;
 }
 
 async function readWaitState(statePath: string): Promise<WaitState> {
   let value: JsonValue;
+
   try {
     value = parseJsonText(await readFile(statePath, "utf8"));
   } catch (error) {
     if (isMissingFileError(error)) {
       return { waiter: null, delivered: [] };
     }
+
     throw new Error(`Could not read Codex waiter state at ${statePath}.`, {
       cause: error,
     });
   }
+
   const state = waitStateSchema.safeParse(value);
+
   if (!state.success) {
     throw new Error(`Codex waiter state is invalid at ${statePath}.`);
   }
+
   return state.data;
 }
 
@@ -169,10 +184,12 @@ function reviewCodexWaitStatePath(input: {
   threadId: string;
 }): string {
   const devHome = devReviewHome(input.env);
+
   const threadKey = createHash("sha256")
     .update(input.threadId)
     .digest("hex")
     .slice(0, 24);
+
   return path.join(
     devHome,
     "review-codex-waits",

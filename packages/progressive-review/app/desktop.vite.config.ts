@@ -11,6 +11,7 @@ import {
 } from "./desktop-trusted-types";
 
 const require = createRequire(import.meta.url);
+
 const decodeNamedCharacterReferenceIndex = path.join(
   path.dirname(require.resolve("decode-named-character-reference")),
   "index.js",
@@ -24,6 +25,7 @@ export default defineConfig({
       enforce: "pre",
       transform(source, moduleId) {
         if (!isLibavoidBrowserModule(moduleId)) return;
+
         return {
           code: hardenLibavoidForTrustedTypes(source),
           map: null,
@@ -38,10 +40,12 @@ export default defineConfig({
           if (output.type !== "asset" || !output.fileName.endsWith(".css")) {
             continue;
           }
+
           const source =
             output.source instanceof Uint8Array
               ? new TextDecoder().decode(output.source)
               : output.source;
+
           output.source = scopeReviewCanvasCss(source);
         }
       },

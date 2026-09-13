@@ -16,6 +16,7 @@ describe("SoftwareMap thread-target paths", () => {
       label: "System",
       type: "softwareSystem",
     } satisfies SoftwareMapNodeSnapshot;
+
     const child = {
       id: "worker",
       path: "system.worker",
@@ -23,10 +24,12 @@ describe("SoftwareMap thread-target paths", () => {
       type: "container",
       parentId: parent.id,
     } satisfies SoftwareMapNodeSnapshot;
+
     const nodes = new Map<string, SoftwareMapNodeSnapshot>([
       [parent.id, parent],
       [child.id, child],
     ]);
+
     expect(softwareMapNodeLabelPath(child, nodes)).toEqual([
       "System",
       "Worker",
@@ -50,6 +53,7 @@ describe("SoftwareMap thread-target paths", () => {
       expandable: true,
       childCount: 2,
     };
+
     expect(softwareMapNodeTargetPayload(node)).toEqual(
       softwareMapNodeTargetPayload({ ...node, expanded: true }),
     );
@@ -135,6 +139,7 @@ describe("SoftwareMap thread-target paths", () => {
     const edgePaths = diagram.elements
       .filter((element) => element.element.type === "edge")
       .map((element) => element.element.path);
+
     expect(edgePaths).toEqual([
       ["Node host.expandSetupKeyFiles→Node host.hasGlobPattern"],
       ["Worker runtime.expandSetupKeyFiles→Worker runtime.hasGlobPattern"],
@@ -176,6 +181,7 @@ describe("SoftwareMap thread-target paths", () => {
     const edgePaths = diagram.elements
       .filter((element) => element.element.type === "edge")
       .map((element) => element.element.path);
+
     expect(edgePaths).toEqual([
       ["useEffect() callback→update", "(call)"],
       ["useEffect() callback→update", "(semantic)"],

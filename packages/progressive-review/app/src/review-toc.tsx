@@ -48,13 +48,17 @@ export function ReviewToc(): ReactElement | null {
   // of the document.
   useEffect(() => {
     const shell = shellRef?.current;
+
     if (!shell) return;
+
     const updateWidth = () => {
       setIsWide(shell.clientWidth >= TOC_RAIL_MIN_SHELL_WIDTH);
     };
+
     updateWidth();
     const resizeObserver = new ResizeObserver(updateWidth);
     resizeObserver.observe(shell);
+
     return () => resizeObserver.disconnect();
   }, [shellRef]);
 
@@ -64,14 +68,17 @@ export function ReviewToc(): ReactElement | null {
   useEffect(() => {
     const updateScrolled = () => {
       const scrollRoot = scrollRegionRef?.current;
+
       if (!scrollRoot) return;
       setIsScrolled(scrollRoot.scrollTop > TOC_COLLAPSE_SCROLL_TOP);
     };
+
     updateScrolled();
     document.addEventListener("scroll", updateScrolled, {
       passive: true,
       capture: true,
     });
+
     return () => {
       document.removeEventListener("scroll", updateScrolled, {
         capture: true,
@@ -85,16 +92,23 @@ export function ReviewToc(): ReactElement | null {
 
   useEffect(() => {
     if (!isDrawerOpen) return;
+
     const closeOnOutsidePointerDown = (event: PointerEvent) => {
       const target = event.target;
+
       if (!(target instanceof Node)) return;
+
       if (target instanceof Element && target.closest(".review-toc")) return;
+
       if (target instanceof Element && target.closest(".review-toc-toggle")) {
         return;
       }
+
       setIsDrawerOpen(false);
     };
+
     document.addEventListener("pointerdown", closeOnOutsidePointerDown);
+
     return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointerDown);
     };
@@ -109,9 +123,11 @@ export function ReviewToc(): ReactElement | null {
     const collect = () => {
       if (disposed) return;
       const article = articleRef?.current;
+
       if (!article) {
         setEntries([]);
         setActive(null);
+
         return;
       }
 
@@ -156,7 +172,9 @@ export function ReviewToc(): ReactElement | null {
 
     return () => {
       disposed = true;
+
       if (frame !== null) cancelAnimationFrame(frame);
+
       for (const timeout of timeouts) window.clearTimeout(timeout);
       mutationObserver.disconnect();
     };
@@ -165,6 +183,7 @@ export function ReviewToc(): ReactElement | null {
   useEffect(() => {
     if (entries.length < 2) {
       setActive(null);
+
       return;
     }
 
@@ -177,21 +196,29 @@ export function ReviewToc(): ReactElement | null {
     // whose body is under the reader.
     const updateActiveHeading = () => {
       const article = articleRef?.current;
+
       if (!article) return;
+
       const headings = entries
         .flatMap((entry) => {
           const heading = article.querySelector<HTMLElement>(
             `#${cssIdentifier(entry.id)}`,
           );
+
           return heading ? [heading] : [];
         })
         .filter(isVisibleHeadingForActiveTracking);
+
       const firstHeading = headings[0];
+
       if (!firstHeading) return;
+
       const activeLine = getScrollRootActiveLine(
         getReviewScrollRoot(article, scrollRegionRef?.current ?? null),
       );
+
       let nextActive = firstHeading;
+
       for (const heading of headings) {
         if (heading.getBoundingClientRect().top <= activeLine) {
           nextActive = heading;
@@ -199,10 +226,12 @@ export function ReviewToc(): ReactElement | null {
           break;
         }
       }
+
       setActive(nextActive.id);
     };
 
     let frame: number | null = null;
+
     const scheduleUpdate = () => {
       if (frame !== null) return;
       frame = requestAnimationFrame(() => {
@@ -231,19 +260,23 @@ export function ReviewToc(): ReactElement | null {
 
   const scrollTo = (id: string) => {
     const article = articleRef?.current;
+
     const heading = article?.querySelector<HTMLElement>(
       `#${cssIdentifier(id)}`,
     );
+
     if (article && heading) {
       // Headings inside a collapsed section have no scroll position until
       // the section expands, so expand first and scroll on the next frame.
       const collapsedSection = heading.closest(".review-section--collapsed");
       collapsedSection?.dispatchEvent(new CustomEvent("review-section-expand"));
+
       const performScroll = () => {
         const scrollRoot = getReviewScrollRoot(
           article,
           scrollRegionRef?.current ?? null,
         );
+
         if (scrollRoot?.contains(heading)) {
           scrollRoot.scrollTo({
             top:
@@ -256,19 +289,23 @@ export function ReviewToc(): ReactElement | null {
           heading.scrollIntoView({ behavior: "smooth", block: "start" });
         }
       };
+
       if (collapsedSection) {
         requestAnimationFrame(performScroll);
       } else {
         performScroll();
       }
     }
+
     setActive(id);
     setIsDrawerOpen(false);
   };
 
   const numberedEntries = numberReviewTocEntries(entries);
+
   const activeEntry =
     numberedEntries.find((entry) => entry.id === active) ?? numberedEntries[0];
+
   const showRail = !isScrolled && isWide;
   const showList = showRail || isDrawerOpen;
 
@@ -344,13 +381,17 @@ function numberReviewTocEntries(
 ): NumberedReviewTocEntry[] {
   let sectionIndex = 0;
   let subsectionIndex = 0;
+
   return entries.map((entry) => {
     if (entry.level === "h2") {
       sectionIndex += 1;
       subsectionIndex = 0;
+
       return { ...entry, number: `${sectionIndex}` };
     }
+
     subsectionIndex += 1;
+
     return {
       ...entry,
       number: `${sectionIndex}.${subsectionIndex}`,
@@ -362,12 +403,14 @@ function collectHeadingEntries(article: HTMLElement): ReviewTocEntry[] {
   const headings = [
     ...article.querySelectorAll<HTMLHeadingElement>("h2, h3"),
   ].filter((heading) => !heading.closest(REVIEW_LAYER_SELECTOR));
+
   const usedIds = new Set(
     headings.map((heading) => heading.id.trim()).filter((id) => id.length > 0),
   );
 
   return headings.flatMap((heading) => {
     const text = normalizeHeadingText(heading.textContent ?? "");
+
     if (!text) return [];
 
     if (!heading.id) {
@@ -390,10 +433,12 @@ function uniqueHeadingId(baseId: string, usedIds: Set<string>): string {
   const base = baseId || "section";
   let candidate = base;
   let index = 2;
+
   while (usedIds.has(candidate)) {
     candidate = `${base}-${index}`;
     index += 1;
   }
+
   return candidate;
 }
 
@@ -418,6 +463,7 @@ function tocEntriesEqual(
     leftEntries.length === rightEntries.length &&
     leftEntries.every((leftEntry, index) => {
       const rightEntry = rightEntries[index];
+
       return (
         rightEntry !== undefined &&
         leftEntry.id === rightEntry.id &&
@@ -431,6 +477,7 @@ function tocEntriesEqual(
 function isVisibleHeadingForActiveTracking(heading: HTMLElement): boolean {
   if (heading.closest("[hidden]")) return false;
   const rect = heading.getBoundingClientRect();
+
   return rect.width !== 0 || rect.height !== 0;
 }
 
@@ -445,16 +492,20 @@ function getNearestScrollableAncestor(
   element: HTMLElement,
 ): HTMLElement | null {
   let current = element.parentElement;
+
   while (current) {
     const style = window.getComputedStyle(current);
+
     if (
       current.scrollHeight > current.clientHeight &&
       isScrollableOverflow(style.overflowY, style.overflow)
     ) {
       return current;
     }
+
     current = current.parentElement;
   }
+
   return null;
 }
 
@@ -471,10 +522,12 @@ function isScrollableOverflow(overflowY: string, overflow: string): boolean {
 
 function getScrollRootActiveLine(scrollRoot: HTMLElement | null): number {
   if (!scrollRoot) return ACTIVE_HEADING_TOP_SLACK_PX;
+
   return scrollRoot.getBoundingClientRect().top + ACTIVE_HEADING_TOP_SLACK_PX;
 }
 
 function cssIdentifier(value: string): string {
   if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(value);
+
   return value.replace(/["\\]/g, "\\$&");
 }

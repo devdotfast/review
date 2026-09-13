@@ -29,6 +29,7 @@ export function diffCallStacks(
   const lcs: number[][] = Array.from({ length: base.length + 1 }, () =>
     new Array<number>(head.length + 1).fill(0),
   );
+
   for (let i = base.length - 1; i >= 0; i -= 1) {
     for (let j = head.length - 1; j >= 0; j -= 1) {
       lcs[i]![j] =
@@ -41,6 +42,7 @@ export function diffCallStacks(
   const rows: CallStackDiffRow[] = [];
   let i = 0;
   let j = 0;
+
   while (i < base.length || j < head.length) {
     if (i < base.length && j < head.length && baseIds[i] === headIds[j]) {
       // Shared frame: render the head entry, so the click opens new code.
@@ -58,6 +60,7 @@ export function diffCallStacks(
       j += 1;
     }
   }
+
   return rows;
 }
 
@@ -70,19 +73,27 @@ export function callStackConnectorPrefix(
   index: number,
 ): string {
   const depth = rows[index]!.depth;
+
   if (depth === 0) return "";
+
   const continuesAt = (column: number): boolean => {
     for (let next = index + 1; next < rows.length; next += 1) {
       const nextDepth = rows[next]!.depth;
+
       if (nextDepth <= column) return false;
+
       if (nextDepth === column + 1) return true;
     }
+
     return false;
   };
+
   let prefix = "";
+
   for (let column = 0; column < depth - 1; column += 1) {
     prefix += continuesAt(column) ? "│  " : "   ";
   }
+
   return `${prefix}${continuesAt(depth - 1) ? "├─ " : "└─ "}`;
 }
 
@@ -98,14 +109,18 @@ export function patchChangedLines(patch: string): CallStackChangedLines {
   const added = new Set<number>();
   let oldLine = 0;
   let newLine = 0;
+
   for (const line of patch.split("\n")) {
     const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+
     if (hunk) {
       oldLine = Number(hunk[1]);
       newLine = Number(hunk[2]);
       continue;
     }
+
     if (oldLine === 0 && newLine === 0) continue;
+
     if (line.startsWith("-")) {
       deleted.add(oldLine);
       oldLine += 1;
@@ -117,6 +132,7 @@ export function patchChangedLines(patch: string): CallStackChangedLines {
       newLine += 1;
     }
   }
+
   return { deleted, added };
 }
 
@@ -133,6 +149,7 @@ export function callStackEvidenceErrors(
   ) => CallStackChangedLines | null,
 ): string[] {
   const errors: string[] = [];
+
   for (const row of rows) {
     if (row.change === "unchanged") continue;
     const anchor = callStackEntryAnchor(row.entry);
@@ -141,6 +158,7 @@ export function callStackEvidenceErrors(
     const lines = changedLines(file, side);
     const relevant = row.change === "removed" ? lines?.deleted : lines?.added;
     let intersects = false;
+
     if (relevant) {
       for (let line = fromLine; line <= toLine; line += 1) {
         if (relevant.has(line)) {
@@ -149,6 +167,7 @@ export function callStackEvidenceErrors(
         }
       }
     }
+
     if (intersects) continue;
     const marker = row.change === "removed" ? '"-"' : '"+"';
     const kind = row.change === "removed" ? "deleted" : "added";
@@ -158,5 +177,6 @@ export function callStackEvidenceErrors(
         `site, or list the frame on both sides.`,
     );
   }
+
   return errors;
 }

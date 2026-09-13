@@ -18,11 +18,13 @@ describe("checkSoftwareMapSource coverage path normalization", () => {
   it("accepts a ./-prefixed coverage file with ranges against the commit tree", async () => {
     if (!commandExists("git")) return;
     const fixture = await gitFixtureWithApp("map-health-dotprefix-");
+
     try {
       const errors = await runCheck(fixture, {
         path: "./src/app.ts",
         ranges: [{ fromLine: 1, toLine: 2 }],
       });
+
       expect(errors).toEqual([]);
     } finally {
       await rm(fixture.rootPath, { recursive: true, force: true });
@@ -32,11 +34,13 @@ describe("checkSoftwareMapSource coverage path normalization", () => {
   it("accepts a backslash-separated coverage file with ranges against the commit tree", async () => {
     if (!commandExists("git")) return;
     const fixture = await gitFixtureWithApp("map-health-backslash-");
+
     try {
       const errors = await runCheck(fixture, {
         path: "src\\app.ts",
         ranges: [{ fromLine: 1, toLine: 2 }],
       });
+
       expect(errors).toEqual([]);
     } finally {
       await rm(fixture.rootPath, { recursive: true, force: true });
@@ -49,11 +53,13 @@ describe("checkSoftwareMapSource coverage path normalization", () => {
   it("range-validates a ./-prefixed coverage file instead of reporting it unreadable", async () => {
     if (!commandExists("git")) return;
     const fixture = await gitFixtureWithApp("map-health-range-");
+
     try {
       const errors = await runCheck(fixture, {
         path: "./src/app.ts",
         ranges: [{ fromLine: 1, toLine: 10 }],
       });
+
       expect(errors).toEqual([
         'SoftwareMap coverage: "product.web.shell" range 1-10 exceeds "./src/app.ts" length (4 lines).',
       ]);
@@ -68,11 +74,13 @@ describe("checkSoftwareMapSource coverage path normalization", () => {
   it("reports a ./-prefixed coverage file as missing when absent from the commit tree", async () => {
     if (!commandExists("git")) return;
     const fixture = await gitFixtureWithApp("map-health-missing-");
+
     try {
       const errors = await runCheck(fixture, {
         path: "./src/missing.ts",
         ranges: [{ fromLine: 1, toLine: 2 }],
       });
+
       expect(errors).toEqual([
         `SoftwareMap coverage: "product.web.shell" claims file "./src/missing.ts" missing from tree of ${fixture.commit.slice(0, 12)}.`,
       ]);
@@ -84,11 +92,13 @@ describe("checkSoftwareMapSource coverage path normalization", () => {
   it("accepts a canonical coverage file with ranges against the commit tree (no regression)", async () => {
     if (!commandExists("git")) return;
     const fixture = await gitFixtureWithApp("map-health-canonical-");
+
     try {
       const errors = await runCheck(fixture, {
         path: "src/app.ts",
         ranges: [{ fromLine: 1, toLine: 2 }],
       });
+
       expect(errors).toEqual([]);
     } finally {
       await rm(fixture.rootPath, { recursive: true, force: true });
@@ -109,6 +119,7 @@ async function runCheck(
     source: authoredMapSource(coverageFile),
     sourceName: "software-map.ts",
   });
+
   return errors;
 }
 
@@ -117,6 +128,7 @@ function authoredMapSource(coverageFile: {
   ranges: Array<{ fromLine: number; toLine: number }>;
 }): string {
   const files = JSON.stringify([coverageFile]);
+
   return [
     `import { defineSoftwareMap } from "${CANONICAL_SOFTWARE_MAP_MODEL_IMPORT}";`,
     "",
@@ -151,6 +163,7 @@ async function gitFixtureWithApp(
   execGit(rootPath, ["add", "src/app.ts"]);
   execGit(rootPath, ["commit", "-m", "base"]);
   const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
   return { rootPath, commit };
 }
 
@@ -159,6 +172,7 @@ function commandExists(command: string): boolean {
     execFileSync(command, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
     });
+
     return true;
   } catch {
     return false;

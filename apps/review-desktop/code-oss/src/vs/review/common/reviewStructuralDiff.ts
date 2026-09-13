@@ -164,6 +164,69 @@ export function structuralRows(diff: StructuralTextDiff): [number | null, number
   return rows;
 }
 
+/** A block that moved: the same code on both sides, out of reading order. Zero-based, half-open lines. */
+export interface StructuralMove {
+  lhs: { start: number; end: number };
+  rhs: { start: number; end: number };
+}
+
+/**
+ * Moves: paired leaves the row zip had to show one-sided because their
+ * partner was already behind the cursor. Each is widened to the nearest
+ * enclosing fold that is paired too and holds the partner, so a moved
+ * function is one block rather than a scatter of leaves.
+ */
+export function structuralMoves(diff: StructuralTextDiff): StructuralMove[] {
+  const lhsLeaves = structuralLeaves(diff.lhs?.regions);
+  const rhsLeaves = structuralLeaves(diff.rhs?.regions);
+  const rhsIndex = new Map(rhsLeaves.map((leaf, index) => [leaf.alignment_id, index] as const));
+  const moved: [StructuralRegion, StructuralRegion][] = [];
+  let cursor = 0;
+  for (const leaf of lhsLeaves) {
+    const partner = rhsIndex.get(leaf.alignment_id);
+    if (partner === undefined) continue;
+    if (partner < cursor) {
+      moved.push([leaf, rhsLeaves[partner]]);
+      continue;
+    }
+    cursor = partner + 1;
+  }
+  const ancestors = (regions: readonly StructuralRegion[] | undefined) => {
+    const parents = new Map<StructuralRegion, StructuralRegion[]>();
+    const folds = new Map<number, StructuralRegion>();
+    const walk = (region: StructuralRegion, chain: StructuralRegion[]) => {
+      parents.set(region, chain);
+      if (region.kind !== "fold") return;
+      folds.set(region.alignment_id, region);
+      for (const child of region.children) walk(child, [region, ...chain]);
+    };
+    for (const region of regions ?? []) walk(region, []);
+    return { parents, folds };
+  };
+  const left = ancestors(diff.lhs?.regions);
+  const right = ancestors(diff.rhs?.regions);
+  const contains = (outer: StructuralRegion, inner: StructuralRegion) => {
+    const a = regionLines(outer), b = regionLines(inner);
+    return a.start <= b.start && b.end <= a.end;
+  };
+  const blocks = new Map<string, StructuralMove>();
+  for (const [leaf, partner] of moved) {
+    let pair: StructuralMove = { lhs: regionLines(leaf), rhs: regionLines(partner) };
+    for (const fold of left.parents.get(leaf) ?? []) {
+      const other = right.folds.get(fold.alignment_id);
+      if (other && contains(other, partner)) {
+        pair = { lhs: regionLines(fold), rhs: regionLines(other) };
+        break;
+      }
+    }
+    blocks.set(`${pair.lhs.start}:${pair.lhs.end}:${pair.rhs.start}:${pair.rhs.end}`, pair);
+  }
+  const all = [...blocks.values()];
+  const inside = (a: StructuralMove, b: StructuralMove) =>
+    a !== b && b.lhs.start <= a.lhs.start && a.lhs.end <= b.lhs.end && b.rhs.start <= a.rhs.start && a.rhs.end <= b.rhs.end;
+  return all.filter((a) => !all.some((b) => inside(a, b))).sort((a, b) => a.rhs.start - b.rhs.start);
+}
+
 export function utf16Column(text: string, byteColumn: number): number {
   let bytes = 0,
     units = 0;

@@ -14,6 +14,7 @@ import {
   structuralCountsTooltip,
   structuralInitialCounts,
   structuralHighlights,
+  structuralMoves,
   structuralRows,
   utf16Column,
   type StructuralRegion,
@@ -302,4 +303,15 @@ test("alignment and fold state are separate: the zip follows one, collapse follo
   // A paired region whose fold states disagree breaks the wire contract.
   const broken: StructuralTextDiff = { ...diff, lhs: text(lines(4), [{ ...fnL, fold_state_id: 8 }]) };
   assert.throws(() => structuralContextGaps(broken, () => true), /different fold states/);
+});
+
+test("a paired function out of reading order is one moved block, widened to its paired fold", () => {
+  // lhs: a (0-3), b (3-6).  rhs: b (0-3), a (3-6). The zip keeps a in order, so b is the move.
+  const a = (base: number) => fold(10, [leaf(11, base, base + 1), leaf(12, base + 1, base + 3)]);
+  const b = (base: number) => fold(20, [leaf(21, base, base + 1), leaf(22, base + 1, base + 3)]);
+  const lines = ["x", "x", "x", "x", "x", "x"];
+  const diff: StructuralTextDiff = { type: "text", stats, lhs: text(lines, [a(0), b(3)]), rhs: text(lines, [b(0), a(3)]) };
+  assert.deepEqual(structuralMoves(diff), [{ lhs: { start: 3, end: 6 }, rhs: { start: 0, end: 3 } }]);
+  const still: StructuralTextDiff = { type: "text", stats, lhs: text(lines, [a(0), b(3)]), rhs: text(lines, [a(0), b(3)]) };
+  assert.deepEqual(structuralMoves(still), []);
 });

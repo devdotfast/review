@@ -14,7 +14,7 @@ import { IInstantiationService } from "../../platform/instantiation/common/insta
 import { ServiceCollection } from "../../platform/instantiation/common/serviceCollection.js";
 import { IDiffProviderFactoryService } from "../../editor/browser/widget/diffEditor/diffProviderFactoryService.js";
 import { ICodeEditorService } from "../../editor/browser/services/codeEditorService.js";
-import type { IDiffEditor } from "../../editor/browser/editorBrowser.js";
+import { MouseTargetType, type ICodeEditor, type IDiffEditor } from "../../editor/browser/editorBrowser.js";
 import { LineRange } from "../../editor/common/core/ranges/lineRange.js";
 import { DetailedLineRangeMapping } from "../../editor/common/diff/rangeMapping.js";
 import { autorun, type IObservable } from "../../base/common/observable.js";
@@ -25,6 +25,7 @@ import {
   structuralContextGaps,
   structuralFilePath,
   structuralInitialCounts,
+  structuralMoves,
   structuralRows,
   structuralHighlights,
   STRUCTURAL_WIRE_VERSION,
@@ -273,7 +274,7 @@ export async function prepareStructuralReview(
   const child = lifetime.add(
     instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
   );
-  attachStructuralEditors(instantiation, entries, files, lifetime, {
+  attachStructuralEditors(instantiation, entries, files, lifetime, changed.event, {
     get: (path, id) => collapsed.get(collapseKey(path, id)),
     set: (path, id, value) => {
       if (collapsed.get(collapseKey(path, id)) === value) return;
@@ -294,6 +295,7 @@ function attachStructuralEditors(
   entries: readonly ReviewFilesEditorEntry[],
   files: Map<string, StructuralTextDiff>,
   lifetime: DisposableStore,
+  filesChanged: Event<void>,
   collapsed: CollapseState,
 ): void {
   const editors = instantiation.invokeFunction((a) => a.get(ICodeEditorService));
@@ -301,6 +303,7 @@ function attachStructuralEditors(
   function watch(editor: IDiffEditor) {
     const store = lifetime.add(new DisposableStore());
     store.add(editor.onDidDispose(() => store.dispose()));
+    markMoves(editor, store);
     const widget = editor as unknown as { unchangedRegions?: IObservable<readonly UnchangedRegion[]> };
     if (!widget.unchangedRegions) return;
     let revealed = new Set<UnchangedRegion>();
@@ -333,6 +336,87 @@ function attachStructuralEditors(
       }),
     );
   }
+  /**
+   * Moved code: a neutral tint on both copies and a label on each copy's first
+   * line naming where the other copy is. Clicking the label reveals it.
+   */
+  function markMoves(editor: IDiffEditor, store: DisposableStore) {
+    const original = editor.getOriginalEditor(), modified = editor.getModifiedEditor();
+    const leftDecorations = original.createDecorationsCollection();
+    const rightDecorations = modified.createDecorationsCollection();
+    const render = () => {
+      const model = editor.getModel();
+      const path = model && pairs.get(model.original.uri.toString() + "\n" + model.modified.uri.toString());
+      const diff = path === undefined || path === null ? undefined : files.get(path);
+      if (!diff) {
+        leftDecorations.clear();
+        rightDecorations.clear();
+        return;
+      }
+      const moves = structuralMoves(diff);
+      const side = (ranges: { start: number; end: number }[], labels: string[], targets: { line: number }[]) =>
+        ranges.flatMap((range, index) => {
+          const lines = [];
+          for (let line = range.start; line < range.end; line++) {
+            lines.push({
+              range: { startLineNumber: line + 1, startColumn: 1, endLineNumber: line + 1, endColumn: 1 },
+              options: {
+                description: "review-structural-moved",
+                isWholeLine: true,
+                className: "review-structural-moved",
+                ...(line === range.start
+                  ? {
+                      after: {
+                        content: labels[index],
+                        inlineClassName: "review-structural-moved-label",
+                        cursorStops: 0,
+                        attachedData: { reviewMoveTarget: targets[index].line },
+                      },
+                    }
+                  : {}),
+              },
+            });
+          }
+          return lines;
+        });
+      leftDecorations.set(
+        side(
+          moves.map((m) => m.lhs),
+          moves.map((m) => `  Moved to line ${m.rhs.start + 1}`),
+          moves.map((m) => ({ line: m.rhs.start + 1 })),
+        ),
+      );
+      rightDecorations.set(
+        side(
+          moves.map((m) => m.rhs),
+          moves.map((m) => `  Moved from line ${m.lhs.start + 1}`),
+          moves.map((m) => ({ line: m.lhs.start + 1 })),
+        ),
+      );
+    };
+    const follow = (from: ICodeEditor, to: ICodeEditor) =>
+      store.add(
+        from.onMouseDown((event) => {
+          if (event.target.type !== MouseTargetType.CONTENT_TEXT) return;
+          const data = event.target.detail.injectedText?.options.attachedData as { reviewMoveTarget?: number } | undefined;
+          if (data?.reviewMoveTarget === undefined) return;
+          event.event.preventDefault();
+          to.revealLineInCenter(data.reviewMoveTarget);
+          to.setPosition({ lineNumber: data.reviewMoveTarget, column: 1 });
+          to.focus();
+        }),
+      );
+    follow(original, modified);
+    follow(modified, original);
+    store.add(editor.onDidChangeModel(render));
+    store.add(filesChanged(render));
+    store.add(toDisposable(() => {
+      leftDecorations.clear();
+      rightDecorations.clear();
+    }));
+    render();
+  }
+
   lifetime.add(editors.onDiffEditorAdd(watch));
   for (const editor of editors.listDiffEditors()) watch(editor);
 }

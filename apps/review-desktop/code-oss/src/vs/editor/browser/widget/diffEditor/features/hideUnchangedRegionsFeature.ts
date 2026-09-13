@@ -503,7 +503,7 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 				children.push(span);
 
 				const range = this._unchangedRegion.getHiddenModifiedRange(reader);
-				const items = this._modifiedOutlineSource.getBreadcrumbItems(range, reader);
+				const items = this._unchangedRegion.breadcrumbs ? this._modifiedOutlineSource.getBreadcrumbItems(range, reader) : [];
 
 				if (items.length > 0) {
 					children.push($('span', undefined, '\u00a0\u00a0|\u00a0\u00a0'));

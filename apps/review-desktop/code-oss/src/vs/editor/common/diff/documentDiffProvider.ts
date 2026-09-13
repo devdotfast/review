@@ -72,6 +72,11 @@ export interface IDocumentContextGap {
 	 */
 	readonly kind?: 'unchanged' | 'inserted' | 'removed';
 	/**
+	 * Whether the band lists the symbols its hidden lines belong to. Default
+	 * `true`; `false` keeps the bare count.
+	 */
+	readonly breadcrumbs?: boolean;
+	/**
 	 * Whether the region starts hidden. `false` supplies a region that is
 	 * fully shown, so the editor keeps its fold control on the region's
 	 * first line. Default `true`.

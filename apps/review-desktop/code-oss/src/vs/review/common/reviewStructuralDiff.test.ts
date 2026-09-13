@@ -211,10 +211,10 @@ test("every collapsed region becomes a labelled band: paired by alignment_id, or
   };
   const gaps = structuralContextGaps(diff, (id) => id === 1 || id === 2 || id === 5);
   assert.deepEqual(gaps, [
-    { originalStart: 1, originalCount: 40, modifiedStart: 1, modifiedCount: 40, label: "40 unchanged lines", kind: "unchanged", collapsed: true, foldStateId: 1 },
+    { originalStart: 1, originalCount: 40, modifiedStart: 1, modifiedCount: 40, label: "40 unchanged lines", kind: "unchanged", collapsed: true, foldStateId: 1, breadcrumbs: true },
     // The removed body hides lines 42..60 on the left; its rows precede the added body's, so it anchors before them on the right.
-    { originalStart: 42, originalCount: 19, modifiedStart: 41, modifiedCount: 0, label: "19 lines removed", kind: "removed", collapsed: true, foldStateId: 2 },
-    { originalStart: 61, originalCount: 0, modifiedStart: 42, modifiedCount: 29, label: pseudocode, kind: "inserted", collapsed: true, foldStateId: 5 },
+    { originalStart: 42, originalCount: 19, modifiedStart: 41, modifiedCount: 0, label: "19 lines removed", kind: "removed", collapsed: true, foldStateId: 2, breadcrumbs: true },
+    { originalStart: 61, originalCount: 0, modifiedStart: 42, modifiedCount: 29, label: pseudocode, kind: "inserted", collapsed: true, foldStateId: 5, breadcrumbs: true },
   ]);
   // A region the reader revealed stays a band, marked open, so the editor keeps a fold control on it.
   const revealed = structuralContextGaps(diff, (id) => id === 2 || id === 5, (id) => (id === 1 ? false : id === 2 || id === 5 ? true : undefined));
@@ -245,7 +245,7 @@ test("a one-sided band also hides the opposite lines the zip aligned with it", (
   const [gap] = structuralContextGaps(diff, (id) => id === 2);
   assert.deepEqual(gap, {
     originalStart: 2, originalCount: 5, modifiedStart: 2, modifiedCount: 5,
-    label: "5 lines removed", kind: "removed", collapsed: true, foldStateId: 2,
+    label: "5 lines removed", kind: "removed", collapsed: true, foldStateId: 2, breadcrumbs: true,
   });
 });
 
@@ -265,7 +265,7 @@ test("a one-sided band starts after the row before its fold and hides only the o
   ]);
   assert.deepEqual(structuralContextGaps(inserted, (id) => id === 20), [{
     originalStart: 3, originalCount: 2, modifiedStart: 4, modifiedCount: 6,
-    label: "// pseudocode\nreturn rows", kind: "inserted", collapsed: true, foldStateId: 20,
+    label: "// pseudocode\nreturn rows", kind: "inserted", collapsed: true, foldStateId: 20, breadcrumbs: true,
   }]);
   // The mirror: a left-only function whose rows are all filler on the right, followed by a right-only line.
   const removed = fold(20, [leaf(21, 2, 3), leaf(22, 3, 6)], ["body", "function"]);
@@ -279,7 +279,7 @@ test("a one-sided band starts after the row before its fold and hides only the o
   assert.deepEqual(structuralRows(deleted).slice(0, 8), [[0, 0], [1, 1], [2, null], [3, null], [4, null], [5, null], [null, 2], [6, 3]]);
   assert.deepEqual(structuralContextGaps(deleted, (id) => id === 20), [{
     originalStart: 4, originalCount: 3, modifiedStart: 3, modifiedCount: 0,
-    label: "3 lines removed", kind: "removed", collapsed: true, foldStateId: 20,
+    label: "3 lines removed", kind: "removed", collapsed: true, foldStateId: 20, breadcrumbs: true,
   }]);
 });
 
@@ -314,4 +314,20 @@ test("a paired function out of reading order is one moved block, widened to its 
   assert.deepEqual(structuralMoves(diff), [{ lhs: { start: 3, end: 6 }, rhs: { start: 0, end: 3 } }]);
   const still: StructuralTextDiff = { type: "text", stats, lhs: text(lines, [a(0), b(3)]), rhs: text(lines, [a(0), b(3)]) };
   assert.deepEqual(structuralMoves(still), []);
+});
+
+test("a docstring bundled with its function shares one fold state and shows a bare count", () => {
+  const collapsed = { collapsed: true, label: "" };
+  const doc = leaf(30, 0, 2, { tags: ["docstring"], visibility: collapsed });
+  doc.fold_state_id = 40;
+  const body = fold(40, [leaf(41, 2, 3), leaf(42, 3, 6)], ["body", "function"]);
+  body.visibility = { collapsed: true, label: "// pseudocode\nreturn x" };
+  const lines = ["/// a", "/// b", "fn f() {", "x", "y", "}"];
+  const diff: StructuralTextDiff = { type: "text", stats, lhs: text([], []), rhs: text(lines, [doc, body]) };
+  const open = new Set<number>();
+  const state = (id: number) => (id === 40 ? !open.has(id) : undefined);
+  const gaps = structuralContextGaps(diff, (id) => state(id) === true, state);
+  assert.deepEqual(gaps.map((g) => [g.foldStateId, g.breadcrumbs, g.collapsed]), [[40, false, true], [40, true, true]]);
+  open.add(40);
+  assert.deepEqual(structuralContextGaps(diff, (id) => state(id) === true, state).map((g) => g.collapsed), [false, false]);
 });

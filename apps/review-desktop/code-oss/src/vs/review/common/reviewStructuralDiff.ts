@@ -276,6 +276,8 @@ export function structuralHighlights(diff: StructuralTextDiff) {
 
 /** One file's counts: what is on screen now, what diffr found structurally, and what git counts. */
 /** A hidden band on one or both sides, one-based like Monaco's diff editor. */
+const isDocstring = (region: StructuralRegion) => region.tags?.includes("docstring") === true;
+
 export interface StructuralGap {
   originalStart: number;
   modifiedStart: number;
@@ -288,6 +290,8 @@ export interface StructuralGap {
   collapsed: boolean;
   /** The fold-state id of the region(s) this band hides; toggling the band toggles it. */
   foldStateId: number;
+  /** False for a bundled docstring: its band shows the bare count, no symbol names. */
+  breadcrumbs: boolean;
 }
 
 /**
@@ -396,6 +400,7 @@ export function structuralContextGaps(
         kind: "unchanged",
         collapsed: collapsed && partner.collapsed,
         foldStateId: left.fold_state_id,
+        breadcrumbs: !isDocstring(left) && !isDocstring(partner.region),
       });
       continue;
     }
@@ -404,6 +409,7 @@ export function structuralContextGaps(
       originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
       modifiedStart: opposite.start, modifiedCount: opposite.count,
       label: left.visibility?.label || "", kind: "removed", collapsed, foldStateId: left.fold_state_id,
+      breadcrumbs: !isDocstring(left),
     });
   }
   for (const { region: right, collapsed } of rhs) {
@@ -414,6 +420,7 @@ export function structuralContextGaps(
       originalStart: opposite.start, originalCount: opposite.count,
       modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
       label: right.visibility?.label || "", kind: "inserted", collapsed, foldStateId: right.fold_state_id,
+      breadcrumbs: !isDocstring(right),
     });
   }
   gaps.sort((a, b) => (a.modifiedStart - b.modifiedStart) || (a.originalStart - b.originalStart));

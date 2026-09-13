@@ -405,7 +405,10 @@ function collectHeadingEntries(article: HTMLElement): ReviewTocEntry[] {
   ].filter((heading) => !heading.closest(REVIEW_LAYER_SELECTOR));
 
   const usedIds = new Set(
-    headings.map((heading) => heading.id.trim()).filter((id) => id.length > 0),
+    headings
+      .values()
+      .map((heading) => heading.id.trim())
+      .filter((id) => id.length > 0),
   );
 
   return headings.flatMap((heading) => {

@@ -1128,8 +1128,10 @@ function proseRightEdge(
   annotations: CommentAnnotationPosition[],
 ): number | null {
   const fromAnnotations = annotations
+    .values()
     .map((annotation) => annotation.blockRight)
-    .filter((value): value is number => value !== null);
+    .filter((value): value is number => value !== null)
+    .toArray();
 
   if (fromAnnotations.length > 0) return Math.max(...fromAnnotations);
 

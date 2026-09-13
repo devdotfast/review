@@ -239,8 +239,10 @@ function codePositionSideLocation(
   if (!rows) return null;
 
   const lines = [rows.start, rows.end]
+    .values()
     .map((row) => (side === "base" ? row.old_line : row.new_line))
-    .filter((line): line is number => line !== null);
+    .filter((line): line is number => line !== null)
+    .toArray();
 
   if (lines.length === 0) return null;
   const path = side === "base" ? position.old_path : position.new_path;

@@ -440,17 +440,23 @@ export async function promoteReviewRepair<
       session: mounted.descriptor,
       review: descriptor,
     });
+
+    // Snapshot before closing: closeSession mutates input.sessions, so a live
+    // iterator would skip entries mid-pass.
+    const replaced = input.sessions
+      .values()
+      .filter(
+        (session) =>
+          session !== mounted &&
+          session.promoted &&
+          session.review.review.uuid === request.reviewUuid,
+      )
+      .toArray();
+
     await Promise.all(
-      [...input.sessions.values()]
-        .filter(
-          (session) =>
-            session !== mounted &&
-            session.promoted &&
-            session.review.review.uuid === request.reviewUuid,
-        )
-        .map((session) =>
-          input.closeSession(session, "replaced").catch(() => undefined),
-        ),
+      replaced.map((session) =>
+        input.closeSession(session, "replaced").catch(() => undefined),
+      ),
     );
     void input.dispatch(mounted.descriptor.sessionId, {
       name: "focusCanvas",

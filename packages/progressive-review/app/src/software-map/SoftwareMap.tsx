@@ -615,7 +615,8 @@ function SoftwareMapWithModel({
   const modifiedOnlyNodeIds = useMemo(
     () =>
       new Set(
-        [...changeSummaries.entries()]
+        changeSummaries
+          .entries()
           .filter(([, summary]) => summary.changeStatus !== "unchanged")
           .map(([path]) => path),
       ),

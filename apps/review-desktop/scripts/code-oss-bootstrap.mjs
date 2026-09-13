@@ -29,9 +29,7 @@ export function dependencyDirectoriesExist(checkoutPath, installDirs = dirs) {
 export function installInputPaths(checkoutPath, installDirs = dirs) {
   return [
     ...installDirs.flatMap((directory) =>
-      installInputNames
-        .map((name) => join(checkoutPath, directory, name))
-        .filter(existsSync),
+      installInputNames.map((name) => join(checkoutPath, directory, name)),
     ),
     join(checkoutPath, ".nvmrc"),
   ].filter(existsSync);

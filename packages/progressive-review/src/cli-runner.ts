@@ -1523,6 +1523,7 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
   return [
     ...new Set(
       targets
+        .values()
         .map((target) => (target === "claude-code" ? "claude" : target))
         .filter(isInstallTarget),
     ),

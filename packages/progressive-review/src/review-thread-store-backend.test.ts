@@ -506,8 +506,10 @@ describe("sqlite thread store", () => {
 const pendingWriteCases = ["1", "2", "3", "4", "5", "6", "7", "8", "9"].flatMap(
   (version) =>
     (["comments", "comment_drafts"] as const)
+      .values()
       .filter((table) => version !== "1" || table === "comments")
-      .map((table) => ({ version, table })),
+      .map((table) => ({ version, table }))
+      .toArray(),
 );
 
 it.each(pendingWriteCases)(

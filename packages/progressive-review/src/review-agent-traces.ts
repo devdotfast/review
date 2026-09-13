@@ -1724,11 +1724,13 @@ async function commitsWithTrailers(input: {
 
     if (!sha || !/^[0-9a-f]{40,64}$/.test(sha)) continue;
 
-    const sessions = [
-      ...new Set(trailerFields.flatMap((field) => field.split("\n"))),
-    ]
+    const sessions = new Set(
+      trailerFields.flatMap((field) => field.split("\n")),
+    )
+      .values()
       .map((value) => value.trim())
-      .filter((value) => sessionIdSchema.safeParse(value).success);
+      .filter((value) => sessionIdSchema.safeParse(value).success)
+      .toArray();
 
     commits.push({ sha, subject: subject ?? "", sessions });
   }

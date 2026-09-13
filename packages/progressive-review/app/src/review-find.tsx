@@ -288,8 +288,10 @@ export function ReviewFindProvider({
       setAllCssHighlights(
         article?.ownerDocument,
         mdxMatches
+          .values()
           .map((match) => (match.kind === "mdx" ? match.range : null))
-          .filter((range): range is Range => range !== null),
+          .filter((range): range is Range => range !== null)
+          .toArray(),
       );
       setMatches(combined);
       matchesRef.current = combined;

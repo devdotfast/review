@@ -301,14 +301,15 @@ export function TraceRuler({
       const { start: turn } = rulerBucketRange(tick, tickCount, turnCount);
       const start = turnStarts[turn] ?? 0;
 
-      const wrappers = [
-        ...container.querySelectorAll<HTMLElement>("[data-trace-event]"),
-      ]
+      const wrappers = container
+        .querySelectorAll<HTMLElement>("[data-trace-event]")
+        .values()
         .map((wrapper) => ({
           wrapper,
           index: Number(wrapper.dataset.traceEvent),
         }))
         .filter((entry) => Number.isFinite(entry.index))
+        .toArray()
         .sort((left, right) => left.index - right.index);
 
       const target =

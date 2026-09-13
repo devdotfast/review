@@ -60,6 +60,7 @@ const COPIED_RESET_MS = 2000;
 export function PromptCard({ agent }: { agent: PromptAgent }) {
   const [kind, setKind] = useState<PromptKind>(readStoredPromptKind);
   const [copied, setCopied] = useState(false);
+
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -70,6 +71,7 @@ export function PromptCard({ agent }: { agent: PromptAgent }) {
     setKind(next);
     setCopied(false);
     clearTimeout(resetTimer.current);
+
     try {
       globalThis.localStorage?.setItem(
         REVIEW_HOME_PROMPT_KIND_STORAGE_KEY,
@@ -85,6 +87,7 @@ export function PromptCard({ agent }: { agent: PromptAgent }) {
       if (!ok) {
         return;
       }
+
       setCopied(true);
       clearTimeout(resetTimer.current);
       resetTimer.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
@@ -141,20 +144,28 @@ export function promptAgent(
   status: ReviewCliInstallStatus | undefined,
 ): PromptAgent {
   if (!status) return "generic";
+
   const has = (
     target: "claude" | "codex" | "opencode",
     key: "installed" | "present",
   ) => status.agents.some((agent) => agent.target === target && agent[key]);
+
   const stored = readStoredPromptAgent();
+
   if (stored === "generic") return "generic";
+
   if (stored && (has(stored, "installed") || has(stored, "present"))) {
     return stored;
   }
+
   for (const key of ["installed", "present"] as const) {
     if (has("claude", key)) return "claude";
+
     if (has("codex", key)) return "codex";
+
     if (has("opencode", key)) return "opencode";
   }
+
   return "generic";
 }
 
@@ -166,12 +177,14 @@ function readStoredPromptAgent(): PromptAgent | undefined {
     const stored = globalThis.localStorage?.getItem(
       LEGACY_PROMPT_AGENT_STORAGE_KEY,
     );
+
     if (stored === "claude" || stored === "codex" || stored === "generic") {
       return stored;
     }
   } catch {
     // Fall through to the derived choice when DOM storage is unavailable.
   }
+
   return undefined;
 }
 
@@ -180,11 +193,13 @@ function readStoredPromptKind(): PromptKind {
     const stored = globalThis.localStorage?.getItem(
       REVIEW_HOME_PROMPT_KIND_STORAGE_KEY,
     );
+
     if (stored === "change" || stored === "architecture") {
       return stored;
     }
   } catch {
     // Fall through to the default when DOM storage is unavailable.
   }
+
   return "change";
 }

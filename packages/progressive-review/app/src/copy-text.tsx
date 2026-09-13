@@ -1,10 +1,12 @@
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
+
     return true;
   } catch {
     // The workbench denies DOM clipboard permission requests.
   }
+
   const active = document.activeElement;
   const scratch = document.createElement("textarea");
   scratch.value = text;
@@ -13,13 +15,17 @@ export async function copyText(text: string): Promise<boolean> {
   document.body.appendChild(scratch);
   scratch.select();
   let copied = false;
+
   try {
     copied = document.execCommand("copy");
   } catch {
     // The caller keeps its default label when the copy fails.
   }
+
   scratch.remove();
+
   if (active instanceof HTMLElement) active.focus();
+
   return copied;
 }
 

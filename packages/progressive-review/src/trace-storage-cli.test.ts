@@ -39,9 +39,11 @@ async function withProcessEnv<T>(
   action: () => Promise<T>,
 ): Promise<T> {
   const previous = { ...process.env };
+
   for (const key of Object.keys(process.env)) delete process.env[key];
   Object.assign(process.env, env, { HOME: env.HOME ?? previous.HOME });
   clearTraceEnvCache();
+
   try {
     return await action();
   } finally {
@@ -105,6 +107,7 @@ describe("trace storage commands", () => {
   ) {
     const out: string[] = [];
     const err: string[] = [];
+
     const code = await runReviewTraceConfigMigrate({
       ...options,
       homeDir: home,
@@ -112,6 +115,7 @@ describe("trace storage commands", () => {
       stdout: collectingWritable(out),
       stderr: collectingWritable(err),
     });
+
     return { code, stdout: out.join(""), stderr: err.join("") };
   }
 
@@ -270,6 +274,7 @@ describe("trace storage commands", () => {
     writeLegacy();
     const configPath = traceConfigPath({ env, homeDir: home });
     mkdirSync(path.dirname(configPath), { recursive: true });
+
     const other = {
       version: 2,
       stores: {
@@ -281,6 +286,7 @@ describe("trace storage commands", () => {
         },
       },
     };
+
     writeFileSync(configPath, JSON.stringify(other));
     const conflict = await migrate();
     expect(conflict.code).toBe(1);
@@ -329,6 +335,7 @@ describe("trace storage commands", () => {
     }) {
       const out: string[] = [];
       const err: string[] = [];
+
       const code = await runReviewTraceStorageUse({
         ...input,
         cwd: home,
@@ -337,6 +344,7 @@ describe("trace storage commands", () => {
         stdout: collectingWritable(out),
         stderr: collectingWritable(err),
       });
+
       return { code, stdout: out.join(""), stderr: err.join("") };
     }
 
@@ -361,6 +369,7 @@ describe("trace storage commands", () => {
         region: "eu-west-1",
         json: true,
       });
+
       expect(result.code).toBe(0);
       expect(result.stdout).not.toContain("flag-secret-value");
       expect(JSON.parse(result.stdout.trim())).toMatchObject({
@@ -445,6 +454,7 @@ describe("trace storage commands", () => {
           },
           env,
         );
+
         const active = {
           repositoryId: 42,
           storeId,
@@ -452,10 +462,12 @@ describe("trace storage commands", () => {
           status: "active",
           createdAt: "2026-09-02T12:00:00Z",
         };
+
         const noConsent = await use({
           mode: "hosted",
           client: storeClient(active),
         });
+
         expect(noConsent.code).toBe(1);
         expect(noConsent.stderr).toContain("not allowed for trace publication");
         expect(
@@ -466,14 +478,17 @@ describe("trace storage commands", () => {
           { repositoryId: 42, name: "acme/app", origin },
           path.join(home, ".dev"),
         );
+
         const olderContractStore = {
           repositoryId: 42,
           displayName: "acme/app",
         };
+
         const old = await use({
           mode: "hosted",
           client: storeClient(olderContractStore),
         });
+
         expect(old.code).toBe(1);
         expect(old.stderr).toContain("does not serve the trace store contract");
         expect(
@@ -481,11 +496,13 @@ describe("trace storage commands", () => {
         ).toBeUndefined();
 
         writeLegacy();
+
         const selected = await use({
           mode: "hosted",
           client: storeClient(active),
           json: true,
         });
+
         expect(selected.code).toBe(0);
         expect(JSON.parse(selected.stdout.trim())).toMatchObject({
           event: "trace.storage.use",
@@ -520,6 +537,7 @@ describe("trace storage commands", () => {
         autoActivateRepositories: true,
       });
       expect((await migrate()).code).toBe(0);
+
       const result = await use({
         mode: "s3",
         endpoint: "https://s3.example.invalid",
@@ -527,6 +545,7 @@ describe("trace storage commands", () => {
         key: "new-key",
         secret: "new-secret",
       });
+
       expect(result.code).toBe(0);
       const file = readTraceConfigFile({ env, homeDir: home });
       expect(file.config?.stores?.s3?.bucket).toBe("rotated");

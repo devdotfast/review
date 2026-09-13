@@ -88,9 +88,11 @@ export async function resolveSoftwareMapDiffCounts(
   input: ResolveSoftwareMapDiffCountsInput,
 ): Promise<SoftwareMapDiffCountsResult> {
   const baseRef = input.baseRef?.trim();
+
   if (!baseRef) {
     return { countsByElementPath: {}, unmappedByElementPath: {} };
   }
+
   const headRef = input.headRef?.trim() || undefined;
   const sourceRootPath = input.sourceRootPath;
 
@@ -100,6 +102,7 @@ export async function resolveSoftwareMapDiffCounts(
     headRef,
     contextLines: 0,
   }).catch(() => "");
+
   if (!diff.trim()) {
     return {
       baseRef,
@@ -110,6 +113,7 @@ export async function resolveSoftwareMapDiffCounts(
   }
 
   const countsByFile = parseGitUnifiedDiffLineCounts(diff);
+
   if (countsByFile.size === 0) {
     return {
       baseRef,
@@ -142,10 +146,12 @@ export function parseGitUnifiedDiffLineCounts(diff: string): FileLineCounts {
 
   for (const fileDiff of splitGitDiff(diff)) {
     const file = fileDiff.newFile ?? fileDiff.oldFile;
+
     if (!file) continue;
 
     for (const hunk of parseUnifiedPatch(file, fileDiff.patch)) {
       let currentNewLine = Math.max(1, hunk.newStart);
+
       for (const line of hunk.lines) {
         if (line.kind === "add" && line.newLine !== null) {
           addLineCount(countsByFile, file, line.newLine, "additions", line);
@@ -181,12 +187,16 @@ export function mapDiffLineCountsToSoftwareMapElements(input: {
   for (const element of input.codeElements) {
     const total: SoftwareMapDiffLineCount = { additions: 0, deletions: 0 };
     const countedLines = new Set<string>();
+
     for (const range of element.sourceRanges ?? []) {
       const fileCounts = input.countsByFile.get(range.file);
+
       if (!fileCounts) continue;
+
       for (const [line, counts] of fileCounts) {
         if (line < range.fromLine || line > range.toLine) continue;
         const lineKey = `${range.file}:${line}`;
+
         if (countedLines.has(lineKey)) continue;
         countedLines.add(lineKey);
         total.additions +=
@@ -209,6 +219,7 @@ export function mapDiffLineCountsToCoverageClaims(input: {
   countsByFile: FileLineCounts;
 }) {
   const result: SoftwareMapUnmappedDiffByElementPath = {};
+
   const claims = input.coverageClaims
     .filter(
       (claim) =>
@@ -220,11 +231,13 @@ export function mapDiffLineCountsToCoverageClaims(input: {
     for (const [line, counts] of fileCounts) {
       for (const claim of claims) {
         if (!softwareMapCoverageClaimMatchesLine(claim, file, line)) continue;
+
         const summary = (result[claim.path] ??= {
           additions: 0,
           deletions: 0,
           files: [],
         });
+
         summary.additions += counts.additions;
         summary.deletions += counts.deletions;
         addUnmappedFileLine(summary, file, line, counts.rows);
@@ -243,11 +256,13 @@ function addLineCount(
   diffLine: DiffHunkLine,
 ): void {
   const fileCounts = countsByFile.get(file) ?? new Map();
+
   const current = fileCounts.get(line) ?? {
     additions: 0,
     deletions: 0,
     rows: [],
   };
+
   current[kind] += 1;
   current.rows.push(toUnmappedDiffLine(diffLine));
   fileCounts.set(line, current);
@@ -261,15 +276,20 @@ function addUnmappedFileLine(
   rows: SoftwareMapUnmappedDiffLine[],
 ): void {
   let fileSummary = summary.files.find((candidate) => candidate.file === file);
+
   if (!fileSummary) {
     fileSummary = { file, additions: 0, deletions: 0, hunks: [] };
     summary.files.push(fileSummary);
   }
+
   for (const row of rows) {
     if (row.kind === "add") fileSummary.additions += 1;
+
     if (row.kind === "remove") fileSummary.deletions += 1;
   }
+
   const lastHunk = fileSummary.hunks.at(-1);
+
   if (lastHunk && line <= lastHunk.startLine + lastHunk.lines.length + 1) {
     lastHunk.lines.push(...rows);
   } else {
@@ -296,8 +316,10 @@ function compareCoverageClaims(
 function coverageSpecificity(claim: SoftwareMapCoverageClaimInput) {
   const pathDepth = claim.path.split(".").length * 1000;
   const exactFiles = (claim.files?.length ?? 0) * 20;
+
   const globs =
     claim.globs?.reduce((total, glob) => total + glob.length, 0) ?? 0;
+
   return pathDepth + exactFiles + globs;
 }
 
@@ -308,8 +330,10 @@ export function softwareMapCoverageClaimMatchesLine(
 ) {
   for (const claimedFile of claim.files ?? []) {
     if (claimedFile.path !== file) continue;
+
     if (softwareMapLineInRanges(line, claimedFile.ranges)) return true;
   }
+
   return (claim.globs ?? []).some((glob) => softwareMapGlobMatches(glob, file));
 }
 
@@ -318,6 +342,7 @@ export function softwareMapLineInRanges(
   ranges: SoftwareMapLineRangeInput[] = [],
 ) {
   if (ranges.length === 0) return true;
+
   return ranges.some((range) => line >= range.fromLine && line <= range.toLine);
 }
 
@@ -325,33 +350,41 @@ const softwareMapGlobRegexes = new Map<string, RegExp>();
 
 export function softwareMapGlobMatches(pattern: string, value: string) {
   let regex = softwareMapGlobRegexes.get(pattern);
+
   if (!regex) {
     regex = new RegExp(`^${globToRegex(pattern)}$`);
     softwareMapGlobRegexes.set(pattern, regex);
   }
+
   return regex.test(value);
 }
 
 function globToRegex(pattern: string) {
   let result = "";
+
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
     const next = pattern[index + 1];
+
     if (char === "*" && next === "*") {
       result += ".*";
       index += 1;
       continue;
     }
+
     if (char === "*") {
       result += "[^/]*";
       continue;
     }
+
     if (char === "?") {
       result += "[^/]";
       continue;
     }
+
     result += escapeRegex(char);
   }
+
   return result;
 }
 
@@ -367,6 +400,7 @@ function splitGitDiff(
     newFile: string | null;
     patch: string;
   }> = [];
+
   let current: {
     oldFile: string | null;
     newFile: string | null;
@@ -382,6 +416,7 @@ function splitGitDiff(
           patch: current.lines.join("\n"),
         });
       }
+
       current = { oldFile: null, newFile: null, lines: [] };
       continue;
     }
@@ -389,14 +424,17 @@ function splitGitDiff(
     if (!current) continue;
     const oldFile = parseGitFileLine(line, "--- ");
     const newFile = parseGitFileLine(line, "+++ ");
+
     if (oldFile !== undefined) {
       current.oldFile = oldFile;
       continue;
     }
+
     if (newFile !== undefined) {
       current.newFile = newFile;
       continue;
     }
+
     current.lines.push(line);
   }
 
@@ -417,14 +455,18 @@ function parseGitFileLine(
 ): string | null | undefined {
   if (!line.startsWith(prefix)) return undefined;
   const raw = unquoteGitPath(line.slice(prefix.length).trim());
+
   if (raw === "/dev/null") return null;
+
   if (raw.startsWith("a/") || raw.startsWith("b/")) return raw.slice(2);
+
   return raw;
 }
 
 function unquoteGitPath(value: string): string {
   if (!value.startsWith(`"`)) return value;
   const unquoted = value.slice(1, value.endsWith(`"`) ? -1 : undefined);
+
   try {
     return jsonString(parseJsonText(value)) ?? unquoted;
   } catch {

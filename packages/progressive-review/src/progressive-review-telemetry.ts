@@ -35,6 +35,7 @@ import { withFileLock } from "./with-file-lock";
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 
 export type ProgressiveReviewCommand = "review" | "map" | "status";
+
 export type ProgressiveReviewCommandPath =
   | "help"
   | "version"
@@ -91,7 +92,9 @@ export type ProgressiveReviewSourceKind =
   | "git_commit"
   | "jj_bookmark"
   | "jj_change";
+
 export type ProgressiveReviewSessionAgent = "codex" | "claude" | "pi" | "other";
+
 export type ProgressiveReviewSessionOutcome =
   | "approve"
   | "request-changes"
@@ -104,6 +107,7 @@ export type ReviewTelemetryTab =
   | "map"
   | "files"
   | "trace";
+
 export type ReviewTabTelemetryReason =
   | "tab_change"
   | "visibility_hidden"
@@ -183,6 +187,7 @@ export interface ProgressiveReviewTelemetryOptions {
 
 /** A single structured value a log line may carry beside its message. */
 export type LoggerAttributeValue = string | number | boolean | null | undefined;
+
 export type LoggerAttributes = Record<string, LoggerAttributeValue>;
 
 export interface Logger {
@@ -194,6 +199,7 @@ export interface Logger {
 }
 
 const noop = () => undefined;
+
 const noopLogger: Logger = {
   trace: noop,
   debug: noop,
@@ -201,6 +207,7 @@ const noopLogger: Logger = {
   warn: noop,
   error: noop,
 };
+
 const sharedInstallConfigs = new Map<
   string,
   ProgressiveReviewTelemetryInstallConfig
@@ -273,6 +280,7 @@ export class ProgressiveReviewTelemetry {
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
     }, 5_000);
+
     if (!enabled) {
       await this.captureClient.discard?.().catch(() => undefined);
     }
@@ -284,14 +292,17 @@ export class ProgressiveReviewTelemetry {
       const config = await this.readOrCreateInstallConfig();
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
+
       if (this.optedOut(config) || config.installationCreatedSent) {
         return;
       }
+
       await this.captureClient.capture({
         event: "review_installation_created",
         distinctId: config.installationId,
         properties: await this.commonProperties(config),
       });
+
       // A printed event is not a sent event. Persisting the flag here would
       // suppress the real installation event on this machine forever.
       if (this.captureClient.ignoresOptOut) return;
@@ -471,11 +482,14 @@ export class ProgressiveReviewTelemetry {
       command_path: input.command,
       exit_code: input.exitCode,
     };
+
     if (input.durationMs !== undefined)
       properties.duration_ms = input.durationMs;
     Object.assign(properties, input.properties);
     properties.command_run_id = input.commandRunId;
+
     if (input.errorName) properties.error_name = input.errorName;
+
     if (input.errorCategory) properties.error_category = input.errorCategory;
     await this.captureEvent(event, properties, {
       reviewUuid: input.reviewUuid,
@@ -486,8 +500,10 @@ export class ProgressiveReviewTelemetry {
     fn: (config: ProgressiveReviewTelemetryInstallConfig) => Promise<void>,
   ): Promise<void> {
     if (!this.captureClient.enabled || this.optedOut()) return;
+
     try {
       const config = await this.loadInstallConfig();
+
       if (this.optedOut(config)) return;
       await fn(config);
     } catch {
@@ -497,15 +513,19 @@ export class ProgressiveReviewTelemetry {
 
   private async loadInstallConfig(): Promise<ProgressiveReviewTelemetryInstallConfig> {
     const shared = sharedInstallConfigs.get(this.installConfigPath);
+
     if (shared) {
       this.installConfig = shared;
+
       return shared;
     }
+
     if (this.installConfig) return this.installConfig;
     await this.withConfigLock(async () => {
       this.installConfig = await this.readOrCreateInstallConfig();
       sharedInstallConfigs.set(this.installConfigPath, this.installConfig);
     });
+
     return (
       this.installConfig ??
       createTelemetryInstallConfig(this.idFactory(), this.now)
@@ -514,6 +534,7 @@ export class ProgressiveReviewTelemetry {
 
   private optedOut(config?: ProgressiveReviewTelemetryInstallConfig): boolean {
     if (this.captureClient.ignoresOptOut) return false;
+
     return isTelemetryOptedOut(this.env, config);
   }
 
@@ -521,14 +542,17 @@ export class ProgressiveReviewTelemetry {
     if (!this.captureClient.enabled || this.optedOut()) {
       return false;
     }
+
     try {
       const config = normalizeTelemetryInstallConfig(
         parseJsonText(await readFile(this.installConfigPath, "utf8")),
         this.now,
       );
+
       if (!config) return true;
       this.installConfig = config;
       sharedInstallConfigs.set(this.installConfigPath, config);
+
       return !this.optedOut(config);
     } catch {
       return true;
@@ -540,7 +564,9 @@ export class ProgressiveReviewTelemetry {
       const parsed = parseJsonText(
         await readFile(this.installConfigPath, "utf8"),
       );
+
       const config = normalizeTelemetryInstallConfig(parsed, this.now);
+
       if (config) {
         if (jsonObject(parsed)?.internal !== config.internal) {
           try {
@@ -549,6 +575,7 @@ export class ProgressiveReviewTelemetry {
             // Keep the existing identity when a best-effort migration fails.
           }
         }
+
         return config;
       }
     } catch {
@@ -559,7 +586,9 @@ export class ProgressiveReviewTelemetry {
       (await this.readLegacyInstallId()) ?? this.idFactory(),
       this.now,
     );
+
     this.writeInstallConfig(config);
+
     return config;
   }
 
@@ -570,6 +599,7 @@ export class ProgressiveReviewTelemetry {
           parseJsonText(await readFile(this.legacyInstallConfigPath, "utf8")),
         )?.installId,
       );
+
       return installId ? installId : undefined;
     } catch {
       return undefined;
@@ -601,6 +631,7 @@ export class ProgressiveReviewTelemetry {
       },
       operation,
     );
+
     if (!outcome.acquired) {
       throw new Error("Timed out while updating the telemetry configuration");
     }
@@ -610,6 +641,7 @@ export class ProgressiveReviewTelemetry {
     config: Pick<ProgressiveReviewTelemetryInstallConfig, "internal">,
   ): Promise<PostHogCaptureProperties> {
     const appVersion = reviewAppVersion(this.env);
+
     const properties: PostHogCaptureProperties = {
       product: "review-cli",
       package: "@dev.fast/review",
@@ -620,20 +652,27 @@ export class ProgressiveReviewTelemetry {
       ci: Boolean(this.env.CI),
       internal: isInternalTelemetry(this.env, config),
     };
+
     if (appVersion) properties.app_version = appVersion;
+
     return properties;
   }
 
   private readPackageVersion(): Promise<string> {
     this.packageVersion ??= readProgressiveReviewPackageVersion();
+
     return this.packageVersion;
   }
 
   private sessionAgent(): ProgressiveReviewSessionAgent {
     const harness = resolveAuthoringSessionRef(this.env)?.harness;
+
     if (harness === "codex") return "codex";
+
     if (harness === "claude-code") return "claude";
+
     if (harness === "pi") return "pi";
+
     return "other";
   }
 }
@@ -644,7 +683,9 @@ function sourceKind(
   input: ProgressiveReviewSessionStartedInput,
 ): ProgressiveReviewSourceKind {
   if (input.sourceKind) return input.sourceKind;
+
   if (input.mode === "pr") return "pull_request";
+
   return "git_branch";
 }
 
@@ -662,7 +703,9 @@ function correlationProperties(
   context: ProgressiveReviewTelemetryContext | undefined,
 ): PostHogCaptureProperties {
   const properties: PostHogCaptureProperties = {};
+
   if (!context) return properties;
+
   if (context.reviewUuid) {
     properties.review_id = opaqueCorrelationId(
       "rv_",
@@ -671,6 +714,7 @@ function correlationProperties(
       context.reviewUuid,
     );
   }
+
   if (context.presentationSessionId) {
     properties.presentation_id = opaqueCorrelationId(
       "pr_",
@@ -679,6 +723,7 @@ function correlationProperties(
       context.presentationSessionId,
     );
   }
+
   return properties;
 }
 
@@ -688,6 +733,7 @@ function withAppSession(
   appSessionId: string | undefined,
 ): PostHogCaptureProperties {
   if (appSessionId) properties.app_session_id = appSessionId;
+
   return properties;
 }
 
@@ -702,6 +748,7 @@ function opaqueCorrelationId(
     .digest()
     .subarray(0, 16)
     .toString("base64url");
+
   return `${prefix}${digest}`;
 }
 
@@ -727,22 +774,26 @@ function directCaptureClient(
 
 function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
+
   return trimmed ? trimmed : undefined;
 }
 
 function reviewAppVersion(env: NodeJS.ProcessEnv): string | undefined {
   const value = nonEmpty(env[REVIEW_APP_VERSION_ENV]);
+
   return value && validSemver(value) ? value : undefined;
 }
 
 async function readProgressiveReviewPackageVersion(): Promise<string> {
   try {
     const packageRoot = findProgressiveReviewPackageRoot(import.meta.url);
+
     const packageJson = jsonObject(
       parseJsonText(
         await readFile(path.join(packageRoot, "package.json"), "utf8"),
       ),
     );
+
     return jsonString(packageJson?.version) ?? "unknown";
   } catch {
     return "unknown";

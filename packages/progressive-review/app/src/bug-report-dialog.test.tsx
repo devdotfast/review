@@ -32,6 +32,7 @@ import { TutorialProvider } from "./tutorial-context";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const captureScreenshotMock = vi.fn<typeof captureWindowScreenshot>();
+
 const screenshotDataUrl = "data:image/jpeg;base64,c2NyZWVuc2hvdA==";
 
 describe("BugReportControl", () => {
@@ -53,6 +54,7 @@ describe("BugReportControl", () => {
             short_id: "123456789012",
           });
         }
+
         return jsonResponse({ ok: true });
       },
     );
@@ -98,9 +100,11 @@ describe("BugReportControl", () => {
   it("requires trace consent and exposes its privacy tooltip", async () => {
     await renderAndOpen();
     const traceCheckbox = checkbox("Agent session trace");
+
     const privacyButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Agent session trace privacy information"]',
     );
+
     const tooltipId = privacyButton?.getAttribute("aria-describedby") ?? "";
     const tooltip = document.getElementById(tooltipId);
 
@@ -210,10 +214,12 @@ describe("BugReportControl", () => {
     const textarea = container.querySelector<HTMLTextAreaElement>("textarea");
     await act(async () => {
       if (!textarea) return;
+
       const valueSetter = Object.getOwnPropertyDescriptor(
         HTMLTextAreaElement.prototype,
         "value",
       )?.set;
+
       valueSetter?.call(textarea, value);
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
     });
@@ -223,7 +229,9 @@ describe("BugReportControl", () => {
     const button = [
       ...container.querySelectorAll<HTMLButtonElement>("button"),
     ].find((candidate) => candidate.textContent === "Send");
+
     if (!button) throw new Error("Send button not found");
+
     return button;
   }
 
@@ -231,7 +239,9 @@ describe("BugReportControl", () => {
     const button = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Report a bug"]',
     );
+
     if (!button) throw new Error("Report bug button not found");
+
     return button;
   }
 
@@ -239,7 +249,9 @@ describe("BugReportControl", () => {
     const input = [...container.querySelectorAll("label")]
       .find((label) => label.textContent?.trim() === labelText)
       ?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+
     if (!input) throw new Error(labelText + " checkbox not found");
+
     return input;
   }
 
@@ -247,10 +259,13 @@ describe("BugReportControl", () => {
     const call = request.mock.calls.find(([url]) =>
       String(url).includes("/telemetry/bug-report"),
     );
+
     if (!call) throw new Error("Bug-report request not found");
     const body = parseJsonText(String(call[1]?.body));
+
     if (!isJsonObject(body))
       throw new Error("Bug-report body is not an object");
+
     return body;
   }
 });

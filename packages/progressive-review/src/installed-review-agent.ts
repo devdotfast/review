@@ -23,14 +23,19 @@ export function preferredInstalledReviewAgent(
       .filter((agent) => agent.installed)
       .map((agent) => agent.target),
   );
+
   const orderedTargets = [
     ...(status.stamp?.targets ?? []),
     ...status.agents.map((agent) => agent.target),
   ];
+
   for (const target of new Set(orderedTargets)) {
     const harness = LAUNCHABLE_HARNESS[target];
+
     if (!installed.has(target) || !harness) continue;
+
     return harness;
   }
+
   return undefined;
 }

@@ -29,6 +29,7 @@ export class NativeMessageMirror {
 
   async watch(threadId: string, binding: SessionRef): Promise<void> {
     const existing = this.#watchers.get(threadId);
+
     if (existing) {
       if (
         existing.binding.sessionId !== binding.sessionId ||
@@ -37,24 +38,31 @@ export class NativeMessageMirror {
         throw new Error(
           "The comment already observes a different native session.",
         );
+
       return;
     }
+
     const pipe = await this.#options.updates(binding);
     const watcher = { binding, pipe, task: Promise.resolve() };
     this.#watchers.set(threadId, watcher);
     watcher.task = (async () => {
       for await (const update of pipe.updates) {
         if (this.#watchers.get(threadId) !== watcher) return;
+
         if (update.type === "status.changed") {
           this.#options.onStatus(threadId, update);
           continue;
         }
+
         const message = update.message;
         const snapshot = this.#options.service.snapshot();
+
         const thread =
           snapshot.drafts[threadId]?.thread ?? snapshot.comments[threadId];
+
         if (!thread || thread.agentSession?.sessionId !== binding.sessionId)
           return;
+
         // The submitted Ask already exists. Its Review ID travels through capture.
         if (thread.messages.some((item) => item.id === message.id)) continue;
         this.#options.service.upsertAgentSessionMessage({

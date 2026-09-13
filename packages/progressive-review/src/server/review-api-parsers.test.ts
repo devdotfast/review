@@ -45,6 +45,7 @@ describe("parseReviewBugReportInput", () => {
       mime: "image/jpeg" as const,
       base64: Buffer.from("jpeg bytes").toString("base64"),
     };
+
     expect(
       parseReviewBugReportInput({ ...bugReport, screenshot }),
     ).toMatchObject({ screenshot });
@@ -85,11 +86,13 @@ describe("parseReviewBugReportInput", () => {
 
 function expectBugReportStatus(value: JsonValue, statusCode: number) {
   let thrown: unknown;
+
   try {
     parseReviewBugReportInput(value);
   } catch (error) {
     thrown = error;
   }
+
   expect(thrown).toMatchObject({ statusCode });
 }
 

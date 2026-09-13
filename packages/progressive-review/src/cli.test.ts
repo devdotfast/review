@@ -59,6 +59,7 @@ describe("Review CLI", () => {
     expect(runReviewRepair).toHaveBeenCalledWith(
       expect.objectContaining({ reviewUuid: uuid, json: true }),
     );
+
     for (const argv of [
       ["repair"],
       ["repair", "--review", uuid, "--revision", "a".repeat(40)],
@@ -72,19 +73,23 @@ describe("Review CLI", () => {
         }),
       ).toBe(1);
     }
+
     expect(runReviewRepair).toHaveBeenCalledTimes(1);
   });
   it("installs the review command with headless skills", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-cli-shim-install-"),
     );
+
     const discoveryDir = path.join(rootPath, ".dev", "review-desktop");
     const cliPath = path.join(rootPath, "cli.js");
     const cliRuntimePath = path.join(rootPath, "runtime");
+
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       DEV_REVIEW_HOME: path.join(rootPath, ".dev"),
     };
+
     await mkdir(discoveryDir, { recursive: true });
     await Promise.all([
       writeFile(cliPath, "// test CLI\n"),
@@ -104,6 +109,7 @@ describe("Review CLI", () => {
       ),
     ]);
     const runInstall = vi.fn<typeof runInstallActual>(async () => 0);
+
     const installReviewCommand = vi.fn<typeof installReviewCommandActual>(
       async () => ({
         shimPath: pathShimPath(),
@@ -230,10 +236,12 @@ describe("Review CLI", () => {
     const stdout = outputStream();
     let output = "";
     stdout.on("data", (chunk) => (output += String(chunk)));
+
     const review = {
       dir: "/tmp/reviews/99d4519f-5a72-4684-9af4-98abaa2849cc",
       review: { uuid: "99d4519f-5a72-4684-9af4-98abaa2849cc" },
     } as StoredReview;
+
     const runtime = {
       validateReviewWait: async () => review,
       startCodexWaitProcess: async () => ({
@@ -269,13 +277,16 @@ describe("Review CLI", () => {
       reviewUuid: "review-uuid",
       title: "Review",
     }));
+
     const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => ({
       event: "info" as const,
       reviews: [],
     }));
+
     const runReviewPublish = vi.fn<typeof runReviewPublishActual>(
       async () => 0,
     );
+
     const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
       emptyScaffoldEvent(),
     );
@@ -336,6 +347,7 @@ describe("Review CLI", () => {
           instanceId: "desktop-1",
         }),
       );
+
       const stdout = outputStream();
       let output = "";
       stdout.on("data", (chunk) => (output += String(chunk)));
@@ -369,6 +381,7 @@ describe("Review CLI", () => {
     const captureCommandSucceeded = vi.fn<() => Promise<undefined>>(
       async () => undefined,
     );
+
     const telemetry = {
       createCommandRunId: vi.fn<
         ProgressiveReviewTelemetry["createCommandRunId"]
@@ -420,15 +433,18 @@ describe("Review CLI", () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-cli-run-"));
     const queueDir = path.join(rootPath, "queue");
     let queueId = 0;
+
     const fetchMock = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
     );
+
     const captureClient = new PostHogCaptureClient({
       apiKey: "test-key",
       fetch: fetchMock,
       queueDir,
       idFactory: () => `queue-${queueId++}`,
     });
+
     const telemetry = new ProgressiveReviewTelemetry({
       captureClient,
       env: {},
@@ -436,16 +452,21 @@ describe("Review CLI", () => {
       idFactory: () => "install-123",
       randomUUID: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
     });
+
     let entered!: () => void;
     const handlerEntered = new Promise<void>((resolve) => (entered = resolve));
+
     let release!: (
       value: Awaited<ReturnType<typeof runReviewInfoActual>>,
     ) => void;
+
     const handlerResult = new Promise<
       Awaited<ReturnType<typeof runReviewInfoActual>>
     >((resolve) => (release = resolve));
+
     const runReviewInfo = vi.fn<typeof runReviewInfoActual>(async () => {
       entered();
+
       return handlerResult;
     });
 
@@ -457,6 +478,7 @@ describe("Review CLI", () => {
         telemetry,
         runtime: { runReviewInfo },
       });
+
       await handlerEntered;
 
       const queued = await Promise.all(
@@ -466,6 +488,7 @@ describe("Review CLI", () => {
             JSON.parse(await readFile(path.join(queueDir, file), "utf8")),
           ),
       );
+
       expect(queued).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -480,6 +503,7 @@ describe("Review CLI", () => {
 
       release({ event: "info", reviews: [] });
       await expect(running).resolves.toBe(0);
+
       const sent = fetchMock.mock.calls.flatMap(
         ([, init]) =>
           JSON.parse(String(init?.body)).batch as Array<{
@@ -487,11 +511,13 @@ describe("Review CLI", () => {
             properties: PostHogCaptureProperties;
           }>,
       );
+
       const lifecycle = sent.filter((event) =>
         ["review_command_started", "review_command_succeeded"].includes(
           event.event,
         ),
       );
+
       expect(lifecycle).toHaveLength(2);
       expect(lifecycle.map((event) => event.properties.command_run_id)).toEqual(
         [
@@ -508,9 +534,11 @@ describe("Review CLI", () => {
     const captureCommandStarted = vi.fn<
       ProgressiveReviewTelemetry["captureCommandStarted"]
     >(async () => undefined);
+
     const captureCommandFailed = vi.fn<
       ProgressiveReviewTelemetry["captureCommandFailed"]
     >(async () => undefined);
+
     const telemetry = {
       createCommandRunId: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
       captureInstallationCreated: vi.fn<
@@ -558,12 +586,15 @@ describe("Review CLI", () => {
 
   it("binds scaffold telemetry and enriches the terminal event", async () => {
     const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+
     const captureCommandBound = vi.fn<
       ProgressiveReviewTelemetry["captureCommandBound"]
     >(async () => undefined);
+
     const captureCommandSucceeded = vi.fn<
       ProgressiveReviewTelemetry["captureCommandSucceeded"]
     >(async () => undefined);
+
     const telemetry = {
       createCommandRunId: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
       captureInstallationCreated: vi.fn<
@@ -581,9 +612,11 @@ describe("Review CLI", () => {
         async () => undefined,
       ),
     } satisfies ProgressiveReviewCommandTelemetry;
+
     const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
       async (input) => {
         await input.onReviewBound?.(reviewUuid);
+
         return emptyScaffoldEvent();
       },
     );
@@ -628,6 +661,7 @@ describe("Review CLI", () => {
       reviewUuid: "review-uuid",
       title: "Review",
     }));
+
     const stdout = outputStream();
     let output = "";
     stdout.on("data", (chunk) => (output += String(chunk)));
@@ -685,6 +719,7 @@ describe("Review CLI", () => {
     const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
       emptyScaffoldEvent(),
     );
+
     const stdout = outputStream();
     let output = "";
     stdout.on("data", (chunk) => (output += String(chunk)));
@@ -803,9 +838,11 @@ describe("Review CLI", () => {
     const runReviewThreadsList = vi.fn<typeof runReviewThreadsListActual>(
       async () => 0,
     );
+
     const runReviewThreadsResolve = vi.fn<typeof runReviewThreadsResolveActual>(
       async () => 0,
     );
+
     const runReviewThreadsReply = vi.fn<typeof runReviewThreadsReplyActual>(
       async () => 0,
     );
@@ -920,13 +957,16 @@ describe("Review CLI", () => {
         status: "awaiting-agent-updates",
       },
     } as StoredReview;
+
     const listReviews = vi.fn<typeof listReviewsActual>(async () => ({
       reviews: [review],
       errors: [],
     }));
+
     const sealReviewCandidate = vi.fn<typeof sealReviewCandidateActual>(
       async () => "revision",
     );
+
     const stdin = new PassThrough();
     stdin.end(`${JSON.stringify({ cwd: `${review.dir}/notes` })}\n`);
 

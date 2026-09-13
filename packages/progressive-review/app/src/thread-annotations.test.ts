@@ -37,11 +37,13 @@ describe("scrollTargetForThread", () => {
 
   function articleWith(html: string): HTMLElement {
     document.body.innerHTML = `<article class="review-document">${html}</article>`;
+
     return document.querySelector<HTMLElement>(".review-document")!;
   }
 
   it("prefers a real locator outside the annotation layer", () => {
     const key = targetKey(proseTarget);
+
     const article = articleWith(
       `<p data-review-locator="${key}">real</p>` +
         `<div class="review-annotations"><div class="review-highlight" data-review-locator="${key}"></div></div>`,
@@ -52,6 +54,7 @@ describe("scrollTargetForThread", () => {
 
   it("falls back to the thread's highlight for prose targets", () => {
     const key = targetKey(proseTarget);
+
     const article = articleWith(
       `<p>prose</p>` +
         `<div class="review-annotations"><div class="review-highlight" data-review-locator="${key}"></div></div>`,
@@ -102,10 +105,12 @@ describe("annotationForThread", () => {
     vi.spyOn(paragraph, "getBoundingClientRect").mockReturnValue(paragraphRect);
 
     const rangePrototype = Range.prototype;
+
     const originalGetClientRects = Object.getOwnPropertyDescriptor(
       rangePrototype,
       "getClientRects",
     );
+
     Object.defineProperty(rangePrototype, "getClientRects", {
       configurable: true,
       value: vi.fn<() => DOMRectList>(function (this: Range): DOMRectList {
@@ -151,6 +156,7 @@ describe("annotationForThread", () => {
       } else {
         Reflect.deleteProperty(rangePrototype, "getClientRects");
       }
+
       article.remove();
     }
   });
@@ -178,25 +184,32 @@ describe("textNodeClientRects", () => {
     const secondParagraphLine = { width: 410, height: 15 } as DOMRect;
     const measuredRanges: Range[] = [];
     const rangePrototype = Object.getPrototypeOf(selection) as Range;
+
     const originalGetClientRects = Object.getOwnPropertyDescriptor(
       rangePrototype,
       "getClientRects",
     );
+
     const getClientRects = vi.fn<() => DOMRectList>(
       function (this: Range): DOMRectList {
         measuredRanges.push(this);
+
         if (this === selection) {
           return domRectList(enclosingParagraph);
         }
+
         if (this.startContainer === headingText) {
           return domRectList(headingLine);
         }
+
         if (this.startContainer === firstParagraphText) {
           return domRectList(firstParagraphLine);
         }
+
         return domRectList(secondParagraphLine);
       },
     );
+
     Object.defineProperty(rangePrototype, "getClientRects", {
       configurable: true,
       value: getClientRects,
@@ -224,6 +237,7 @@ describe("textNodeClientRects", () => {
       } else {
         Reflect.deleteProperty(rangePrototype, "getClientRects");
       }
+
       article.remove();
     }
   });

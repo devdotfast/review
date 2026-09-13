@@ -83,16 +83,19 @@ describe("review attention stamps", () => {
   ): Promise<StoredReview> {
     const dir = await mkdtemp(path.join(os.tmpdir(), "review-attention-"));
     directories.push(dir);
+
     const stored = {
       dir,
       review: {
         ...storedReview("3b241101-e2bb-4255-8caf-4136c566a962", patch).review,
       },
     };
+
     await writeFile(
       path.join(dir, "review.json"),
       JSON.stringify(stored.review),
     );
+
     return stored;
   }
 
@@ -102,6 +105,7 @@ describe("review attention stamps", () => {
     const raw: ReviewRecord = JSON.parse(
       await readFile(path.join(stored.dir, "review.json"), "utf8"),
     );
+
     return { viewedAt: raw.viewedAt, dismissedAt: raw.dismissedAt };
   }
 

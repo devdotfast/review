@@ -29,11 +29,15 @@ async function walkReviewTree(
     const entries = await readdir(path.join(dir, relative), {
       withFileTypes: true,
     });
+
     entries.sort((left, right) => left.name.localeCompare(right.name));
+
     for (const entry of entries) {
       const relativePath = path.join(relative, entry.name);
+
       if (!options.include(relativePath)) continue;
       digest.update(`${relativePath}\0`);
+
       if (entry.isDirectory()) {
         digest.update("directory\0");
         await visitor.directory?.(relativePath);
@@ -44,6 +48,7 @@ async function walkReviewTree(
             `Review authoring contains an unsupported symbolic link: ${relativePath}`,
           );
         }
+
         digest.update(
           `link\0${await readlink(path.join(dir, relativePath))}\0`,
         );
@@ -60,6 +65,7 @@ async function walkReviewTree(
       }
     }
   };
+
   await walk("");
 }
 
@@ -70,6 +76,7 @@ export async function fingerprintReviewTree(
 ): Promise<string> {
   const digest = createHash("sha256");
   await walkReviewTree(dir, options, digest, {});
+
   return digest.digest("hex");
 }
 
@@ -90,5 +97,6 @@ export async function copyReviewTree(
       await writeFile(path.join(destination, relativePath), contents);
     },
   });
+
   return digest.digest("hex");
 }

@@ -10,14 +10,17 @@ export interface SoftwareMapResolvedDataInput {
 
 function createSoftwareMapSignature() {
   let hash = 0x811c9dc5;
+
   const addText = (text: string) => {
     for (let index = 0; index < text.length; index += 1) {
       hash ^= text.charCodeAt(index);
       hash = Math.imul(hash, 0x01000193);
     }
+
     hash ^= 0x1f;
     hash = Math.imul(hash, 0x01000193);
   };
+
   return {
     add(value: string | number) {
       const text = String(value);
@@ -45,15 +48,18 @@ export function softwareMapModelKey({
   signature.add(view ?? "");
   signature.add(showModifiedOnly ? "modified-only" : "all");
   signature.add(showRemovedNodes ? "with-removed" : "without-removed");
+
   for (const element of model.elements) {
     signature.add(element.path);
     signature.add(element.type);
     signature.add(element.dataStoreKind ?? "");
     signature.add(element.parentPath ?? "");
+
     for (const child of element.children) {
       signature.add(child);
     }
   }
+
   for (const relationship of model.relationships) {
     signature.add(relationship.id);
     signature.add(relationship.from);
@@ -63,6 +69,7 @@ export function softwareMapModelKey({
       relationship.kind === "semantic" ? (relationship.semanticKind ?? "") : "",
     );
   }
+
   return signature.value(
     "model",
     model.elements.length + model.relationships.length,
@@ -75,21 +82,26 @@ export function softwareMapResolvedDataInputKey(
   const signature = createSoftwareMapSignature();
   signature.add(SOFTWARE_MAP_RESOLVED_DATA_VERSION);
   signature.add("code-elements");
+
   for (const codeElement of input.codeElements) {
     signature.add(codeElement.path);
     signature.add(codeElement.label);
     signature.add(codeElement.description ?? "");
     signature.add(codeElement.changeStatus ?? "");
+
     for (const range of codeElement.sourceRanges ?? []) {
       signature.add(range.file);
       signature.add(range.fromLine);
       signature.add(range.toLine);
     }
   }
+
   signature.add("coverage");
+
   for (const claim of input.coverageClaims) {
     addSoftwareMapCoverageClaimSignature(signature, claim);
   }
+
   return signature.value(
     "resolved",
     input.codeElements.length + input.coverageClaims.length,
@@ -101,13 +113,16 @@ function addSoftwareMapCoverageClaimSignature(
   claim: SoftwareMapCoverageClaim,
 ) {
   signature.add(claim.path);
+
   for (const file of claim.files ?? []) {
     signature.add(file.path);
+
     for (const range of file.ranges ?? []) {
       signature.add(range.fromLine);
       signature.add(range.toLine);
     }
   }
+
   for (const glob of claim.globs ?? []) {
     signature.add(glob);
   }

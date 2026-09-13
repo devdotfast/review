@@ -48,9 +48,13 @@ export interface DerivedErrorTelemetryProperties {
 const SCHEMA_ERROR_NAMES = new Set(["ZodError", "ValidationError"]);
 
 const MESSAGE_HASH_LENGTH = 16;
+
 const MAX_FRAMES = 10;
+
 const MAX_STACK_LENGTH = 16_384;
+
 const MAX_ERROR_NAME_LENGTH = 40;
+
 const ERROR_NAME_PATTERN = /^[A-Za-z0-9_$-]+$/;
 
 /**
@@ -73,10 +77,12 @@ export function deriveErrorTelemetryProperties(
   cause: unknown,
 ): DerivedErrorTelemetryProperties {
   const derived: DerivedErrorTelemetryProperties = {};
+
   try {
     if (!isJsonObject(cause)) return derived;
 
     const name = jsonString(cause.name);
+
     if (
       name !== undefined &&
       name.length > 0 &&
@@ -87,12 +93,15 @@ export function deriveErrorTelemetryProperties(
     }
 
     const message = jsonString(cause.message);
+
     if (message !== undefined && message.length > 0) {
       // The digest goes on every report, cleaned message or not. It is what
       // groups the reports whose message does not survive the checks below.
       derived.message_hash = hashErrorMessage(message);
+
       if (!SCHEMA_ERROR_NAMES.has(derived.error_name ?? "")) {
         const cleaned = cleanTelemetryText(message, NO_DELETED_DIRECTORIES);
+
         // Ask the allowlist's own check before sending. Failing here rather
         // than there keeps a message that the cleaner could not finish out of
         // the payload entirely, instead of relying on the later gate.
@@ -101,10 +110,12 @@ export function deriveErrorTelemetryProperties(
     }
 
     const frames = packBundleFrames(cause.stack);
+
     if (frames) derived.frames = frames;
   } catch {
     // Telemetry must never break the request that carried it.
   }
+
   return derived;
 }
 
@@ -136,8 +147,11 @@ export function mergeErrorTelemetryProperties(
   cause: unknown,
 ): JsonObject {
   const merged = { ...clientProperties };
+
   for (const key of SERVER_DERIVED_PROPERTIES) delete merged[key];
+
   if (cause) Object.assign(merged, deriveErrorTelemetryProperties(cause));
+
   return merged;
 }
 
@@ -180,21 +194,28 @@ export function packBundleFrames(
   stack: JsonValue | undefined,
 ): string | undefined {
   const text = Array.isArray(stack) ? stack.join("\n") : jsonString(stack);
+
   if (!text) return undefined;
 
   const frames: string[] = [];
+
   for (const line of text.slice(0, MAX_STACK_LENGTH).split("\n")) {
     const match = STACK_FRAME_PATTERN.exec(line);
+
     if (!match) continue;
     const file = bundleRelativePath(match[1]);
+
     if (!file) continue;
     const frame = `${file}:${match[2]}:${match[3]}`;
+
     // A user directory can be called "out" too, so anchoring alone is not
     // enough: the result must also start inside a known bundle directory.
     if (!BUNDLE_FRAME_PATTERN.test(frame)) continue;
     frames.push(frame);
+
     if (frames.length >= MAX_FRAMES) break;
   }
+
   return frames.length > 0 ? frames.join(BUNDLE_FRAME_SEPARATOR) : undefined;
 }
 
@@ -204,13 +225,16 @@ function bundleRelativePath(location: string): string | undefined {
   const clean = location.split(/[?#]/, 1)[0];
   let cut = -1;
   let anchorLength = 0;
+
   for (const anchor of BUNDLE_ANCHORS) {
     const index = clean.lastIndexOf(anchor);
+
     if (index > cut) {
       cut = index;
       anchorLength = anchor.length;
     }
   }
+
   if (cut < 0) return undefined;
   const relative = clean.slice(cut + anchorLength);
   // "/review-runtime/" and "/assets/" name the directory the frame lives in, so
@@ -218,5 +242,6 @@ function bundleRelativePath(location: string): string | undefined {
   // report.
   const prefix = clean.slice(cut + 1, cut + anchorLength);
   const path = prefix === "out/" ? relative : `${prefix}${relative}`;
+
   return path.length > 0 ? path : undefined;
 }

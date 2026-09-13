@@ -42,6 +42,7 @@ import {
 import { allowTraceRepository, denyTraceRepository } from "./trace-user-config";
 
 const REPOSITORY_ID = 123;
+
 const SESSION_ID = "session-0001";
 
 function testTarget(storeId: string): TraceRepositoryTarget {
@@ -59,12 +60,14 @@ function compressedObject(
   name: StoredObject["name"] = "main.jsonl.gz",
 ) {
   const compressed = zlib.gzipSync(Buffer.from(content, "utf8"));
+
   const object = {
     name,
     size: compressed.byteLength,
     sha256: createHash("sha256").update(compressed).digest("hex"),
     url: "https://r2.test/object?sig",
   } satisfies StoredObject & { url: string };
+
   return { compressed, object };
 }
 
@@ -78,6 +81,7 @@ function httpTransport(
 /** A fetch that answers every GET with `body` and the given headers. */
 function respondWith(body: Buffer | ReadableStream, headers = {}) {
   const bodyInit = Buffer.isBuffer(body) ? new Uint8Array(body) : body;
+
   return vi.fn<typeof fetch>(
     async () => new Response(bodyInit, { status: 200, headers }),
   );
@@ -89,12 +93,14 @@ async function stageUpload(
   sourcePath: string,
 ) {
   const gzipped = await gzipToTemp(sourcePath);
+
   const begun = await transport.beginUpload(REPOSITORY_ID, SESSION_ID, {
     harness: "claude",
     objects: [
       { name: "main.jsonl.gz", size: gzipped.size, sha256: gzipped.sha256 },
     ],
   });
+
   return { gzipped, begun, upload: begun.uploads[0] };
 }
 
@@ -114,9 +120,11 @@ describe("trace-store-transport", () => {
     localTraceRoot = path.join(tempDir, "local-traces");
     corpusRoot = path.join(devHome, "trace-search");
     repoDir = path.join(tempDir, "repo");
+
     for (const dir of [devHome, localTraceRoot, corpusRoot, repoDir]) {
       mkdirSync(dir, { recursive: true });
     }
+
     vi.stubEnv("DEV_REVIEW_HOME", devHome);
     vi.stubEnv("TRACE_LOCAL_TRACE_ROOT", localTraceRoot);
 
@@ -165,6 +173,7 @@ describe("trace-store-transport", () => {
 
   it("stages gzipped files privately", async () => {
     const previousUmask = process.umask(0o022);
+
     try {
       const source = path.join(tempDir, "private.jsonl");
       await writeFile(source, "secret\n", "utf8");
@@ -186,6 +195,7 @@ describe("trace-store-transport", () => {
     const gzipped = await gzipToTemp(source);
     let receivedHeaders: IncomingHttpHeaders = {};
     let receivedBytes = 0;
+
     const server = createServer((request, response) => {
       receivedHeaders = request.headers;
       request.on("data", (chunk: Buffer) => {
@@ -196,11 +206,13 @@ describe("trace-store-transport", () => {
         response.end();
       });
     });
+
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
     );
     // The listener's address is external input to this test; parse it.
     const { port } = z.object({ port: z.number() }).parse(server.address());
+
     try {
       await httpTransport(globalThis.fetch).putObject(
         {
@@ -232,6 +244,7 @@ describe("trace-store-transport", () => {
     const source = path.join(tempDir, "put.jsonl");
     await writeFile(source, "hello\n", "utf8");
     const gzipped = await gzipToTemp(source);
+
     const fetchImpl = vi.fn<typeof fetch>(
       async () => new Response(null, { status: 200 }),
     );
@@ -268,6 +281,7 @@ describe("trace-store-transport", () => {
     const source = path.join(tempDir, "put.jsonl");
     await writeFile(source, "hello\n", "utf8");
     const gzipped = await gzipToTemp(source);
+
     const upload = {
       name: "main.jsonl.gz" as const,
       url: "https://r2.test/k?sig=secret",
@@ -299,6 +313,7 @@ describe("trace-store-transport", () => {
     it("verifies size and checksum then writes the expanded bytes privately", async () => {
       const { compressed, object } = compressedObject("hello\n");
       const destination = path.join(tempDir, "out", "main.jsonl");
+
       const fetchImpl = respondWith(compressed, {
         "content-length": String(compressed.byteLength),
       });
@@ -379,6 +394,7 @@ describe("trace-store-transport", () => {
     it("times out a stalled response", async () => {
       const { object } = compressedObject("hello\n");
       const destination = path.join(tempDir, "main.jsonl");
+
       const stalled = new ReadableStream<Uint8Array>({
         pull: () => new Promise(() => {}),
       });
@@ -437,6 +453,7 @@ describe("trace-store-transport", () => {
         begun.uploadId,
         { commits: ["a".repeat(40)] },
       );
+
       expect(receipt).toMatchObject({
         uploadId: begun.uploadId,
         generation: 1,
@@ -457,6 +474,7 @@ describe("trace-store-transport", () => {
       const listed = await transport.listSessions(REPOSITORY_ID, {
         session: SESSION_ID,
       });
+
       expect(listed.sessions[0]).toMatchObject({
         uploadId: begun.uploadId,
         generation: 1,
@@ -494,6 +512,7 @@ describe("trace-store-transport", () => {
       ).rejects.toSatisfy((error) => {
         expect(error).toBeInstanceOf(StoreApiError);
         expect(error).toMatchObject({ code: "stale_upload", status: 409 });
+
         return true;
       });
       expect(
@@ -540,14 +559,17 @@ describe("trace-store-transport", () => {
       const transport = createMemoryTraceStoreTransport({
         limits: { maxExpandedBytes: 4096 },
       });
+
       const seeded = seedMemoryTraceSession(transport, {
         repositoryId: REPOSITORY_ID,
         sessionId: SESSION_ID,
         traces: { "main.jsonl.gz": "hello\n" },
       });
+
       const listed = await transport.listSessions(REPOSITORY_ID, {
         session: SESSION_ID,
       });
+
       const object = listed.sessions[0].objects[0];
       const destination = path.join(tempDir, "main.jsonl");
 
@@ -594,10 +616,12 @@ describe("trace-store-transport", () => {
       ["commit", "-m", `Add a\n\nAgent-Session: ${sessionId}`],
       { cwd: repoDir },
     );
+
     const sha = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: repoDir,
       encoding: "utf8",
     }).trim();
+
     const transport = createMemoryTraceStoreTransport();
     const target = testTarget(transport.storeId);
     await recordTraceSessionProvenance({
@@ -614,6 +638,7 @@ describe("trace-store-transport", () => {
     const session = transport.sessions.get(
       memoryTraceSessionKey(REPOSITORY_ID, sessionId),
     );
+
     const upload = transport.uploads.get(session?.currentUploadId ?? "");
     expect(upload?.status).toBe("complete");
     expect(transport.objects.has(upload?.keys["main.jsonl.gz"] ?? "")).toBe(
@@ -641,6 +666,7 @@ describe("trace-store-transport", () => {
   it("pull downloads and normalizes into the corpus", async () => {
     const sessionId = "session-0002";
     const transport = createMemoryTraceStoreTransport();
+
     const trace = [
       JSON.stringify({
         type: "session",
@@ -654,6 +680,7 @@ describe("trace-store-transport", () => {
         message: { role: "user", content: "Build the feature" },
       }),
     ].join("\n");
+
     seedMemoryTraceSession(transport, {
       repositoryId: REPOSITORY_ID,
       sessionId,
@@ -661,6 +688,7 @@ describe("trace-store-transport", () => {
     });
 
     const target = testTarget(transport.storeId);
+
     const result = await pullReviewTraceCorpus({
       repo: { owner: "acme", repo: "app" },
       sessions: [{ id: sessionId }],
@@ -674,6 +702,7 @@ describe("trace-store-transport", () => {
       sessionId,
       "main.jsonl",
     );
+
     expect(existsSync(corpusPath)).toBe(true);
     expect(result.paths).toEqual([corpusPath]);
     expect(result.sessions).toEqual([
@@ -697,6 +726,7 @@ describe("trace-store-transport", () => {
         })}\n`,
       },
     });
+
     const fetchImpl = vi.fn<typeof fetch>(
       async () =>
         new Response(
@@ -722,6 +752,7 @@ describe("trace-store-transport", () => {
         fetch: fetchImpl,
       }),
     });
+
     const result = await pullReviewTraceCorpus({
       repo: { owner: "acme", repo: "app" },
       sessions: [{ id: sessionId }],

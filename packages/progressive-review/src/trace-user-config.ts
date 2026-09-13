@@ -49,7 +49,9 @@ async function readTraceUserConfigFile(
   devHome?: string,
 ): Promise<{ file: TraceConfigFile; consent: TraceUserConfig }> {
   const file = readTraceConfigFile({ devHome: devHome ?? devReviewHome() });
+
   if (file.error) throw new TraceConfigurationError(file.error);
+
   const repositories = (file.config?.repositories ?? []).map((entry) => ({
     repositoryId: entry.repositoryId,
     name: entry.name,
@@ -64,6 +66,7 @@ async function readTraceUserConfigFile(
     }),
     allowedAt: entry.allowedAt ?? null,
   }));
+
   return { file, consent: { version: TRACE_CONFIG_VERSION, repositories } };
 }
 
@@ -85,7 +88,9 @@ function toConfigEntry(entry: TraceRepositoryEntry): ConfigEntry {
     name: entry.name,
     enabledOrigins: entry.enabledOrigins,
   };
+
   if (entry.allowedAt) written.allowedAt = entry.allowedAt;
+
   return written;
 }
 
@@ -99,19 +104,24 @@ export async function allowTraceRepository(
   devHome = devReviewHome(),
 ): Promise<TraceUserConfig> {
   const origin = normalizeStoreOrigin(entry.origin);
+
   if (!Number.isSafeInteger(entry.repositoryId) || entry.repositoryId < 1) {
     throw new Error("The trace repository id must be a positive integer.");
   }
+
   const { file, consent: config } = await readTraceUserConfigFile(devHome);
+
   const existing = config.repositories.find(
     (candidate) => candidate.repositoryId === entry.repositoryId,
   );
+
   const merged: TraceRepositoryEntry = {
     repositoryId: entry.repositoryId,
     name: entry.name,
     enabledOrigins: [...new Set([...(existing?.enabledOrigins ?? []), origin])],
     allowedAt: existing?.allowedAt ?? new Date().toISOString(),
   };
+
   const repositories = [
     ...config.repositories.filter(
       (candidate) =>
@@ -120,7 +130,9 @@ export async function allowTraceRepository(
     ),
     merged,
   ];
+
   await writeRepositories(file, repositories.map(toConfigEntry));
+
   return { version: TRACE_CONFIG_VERSION, repositories };
 }
 
@@ -134,14 +146,18 @@ export async function denyTraceRepository(
   devHome = devReviewHome(),
 ): Promise<boolean> {
   const { file, consent: config } = await readTraceUserConfigFile(devHome);
+
   const repositories = config.repositories.filter(
     (existing) =>
       existing.name.toLowerCase() !== repository.name.toLowerCase() &&
       (repository.repositoryId == null ||
         existing.repositoryId !== repository.repositoryId),
   );
+
   const removed = repositories.length !== config.repositories.length;
+
   if (removed) await writeRepositories(file, repositories.map(toConfigEntry));
+
   return removed;
 }
 

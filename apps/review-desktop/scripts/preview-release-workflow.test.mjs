@@ -13,11 +13,14 @@ const workflow = readFileSync(
 
 function job(name, nextName) {
   const start = workflow.indexOf(`  ${name}:`);
+
   const end = nextName
     ? workflow.indexOf(`  ${nextName}:`, start + 1)
     : workflow.length;
+
   assert.notEqual(start, -1, `${name} job is missing`);
   assert.notEqual(end, -1, `${nextName} job is missing`);
+
   return workflow.slice(start, end);
 }
 

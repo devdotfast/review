@@ -42,8 +42,10 @@ export const reviewTypescriptEstreeParser = {
         ...parserOptions,
         sourceType: options?.sourceType ?? "module",
       }) as EstreeParseResult;
+
       const program = file.program;
       program.comments = file.comments ?? [];
+
       return program;
     });
   },
@@ -55,7 +57,9 @@ export const reviewTypescriptEstreeParser = {
         value.slice(offset),
         parserOptions,
       ) as Expression;
+
       if (offset > 0) offsetEstreeNode(expression, offset);
+
       return expression;
     });
   },
@@ -69,6 +73,7 @@ function withAcornCompatibleError<T>(run: () => T): T {
       const syntaxError: AcornCompatibleError = cause;
       syntaxError.raisedAt = (syntaxError.pos ?? 0) + 1;
     }
+
     throw cause;
   }
 }
@@ -79,6 +84,7 @@ function offsetEstreeNode(root: Expression, offset: number): void {
       node.start += offset;
       node.end += offset;
     }
+
     if (node.range) {
       node.range = [node.range[0] + offset, node.range[1] + offset];
     }

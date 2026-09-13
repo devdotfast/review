@@ -35,6 +35,8 @@ export function reviewSessionModeRecord(
 /** True while the session must reject writes. */
 export function reviewSessionModeIsReadOnly(mode: ReviewSessionMode): boolean {
   if (mode.kind === "live") return false;
+
   if (mode.kind === "historical") return true;
+
   return !mode.isPromoted();
 }

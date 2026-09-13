@@ -15,6 +15,7 @@ import { afterEach, expect, it } from "vitest";
 import { installDirectory } from "./install-directory";
 
 let root: string | undefined;
+
 afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
@@ -30,16 +31,19 @@ it.each(["existing", "interrupted"])(
     await mkdir(old, { recursive: true });
     await writeFile(path.join(old, "SKILL.md"), "old content");
     await writeFile(path.join(old, "reference.txt"), "old reference");
+
     if (state === "interrupted")
       await rename(
         old,
         path.join(path.dirname(old), ".dev-review.review-previous"),
       );
+
     const failPromotion: typeof rename = async (from, to) => {
       if (to === old && String(from).endsWith(".review-staging"))
         throw new Error("Injected replacement failure");
       await rename(from, to);
     };
+
     await expect(installDirectory(source, old, failPromotion)).rejects.toThrow(
       "Injected replacement failure",
     );

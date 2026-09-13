@@ -13,6 +13,7 @@ const choices: readonly { value: ReviewKeymapChoice; label: string }[] = [
 export function TutorialKeymapPicker(_props: TutorialKeymapPickerProps) {
   const tutorial = useTutorial();
   const [pending, setPending] = useState<ReviewKeymapChoice | null>(null);
+
   return (
     <div
       className="tutorial-keymap-picker"

@@ -15,6 +15,7 @@ export function scheduleC4NodeMeasurements(
   },
 ): () => void {
   let disposed = false;
+
   const run = () => {
     if (!disposed) measure();
   };
@@ -24,6 +25,7 @@ export function scheduleC4NodeMeasurements(
   // layout measurement synchronously and use frames only for refinement.
   run();
   const frame = scheduler.requestFrame(run);
+
   const followUpMeasurements = [120, 500].map((delay) =>
     scheduler.setTimer(run, delay),
   );
@@ -31,6 +33,7 @@ export function scheduleC4NodeMeasurements(
   return () => {
     disposed = true;
     scheduler.cancelFrame(frame);
+
     for (const timeout of followUpMeasurements) scheduler.clearTimer(timeout);
   };
 }

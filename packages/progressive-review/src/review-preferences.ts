@@ -39,6 +39,7 @@ export async function readReviewPreferences(
     const raw = parseJsonText(
       await readFile(reviewPreferencesPath(devHome), "utf8"),
     );
+
     return { dismissedRetentionDays: parseRetentionDays(raw) };
   } catch {
     return { ...DEFAULT_REVIEW_PREFERENCES };
@@ -54,7 +55,9 @@ export async function writeReviewPreferences(
       preferences.dismissedRetentionDays,
     ),
   };
+
   await writePrivateJsonAtomic(reviewPreferencesPath(devHome), next);
+
   return next;
 }
 
@@ -62,8 +65,11 @@ function parseRetentionDays(raw: JsonValue): DismissedRetentionDays {
   if (!isJsonObject(raw)) {
     return DEFAULT_DISMISSED_RETENTION_DAYS;
   }
+
   const value = raw.dismissedRetentionDays;
+
   if (value === null) return null;
+
   return normalizeRetentionDays(jsonNumber(value));
 }
 
@@ -75,8 +81,10 @@ function normalizeRetentionDays(
   value: number | null | undefined,
 ): DismissedRetentionDays {
   if (value === null) return null;
+
   if (value === undefined || !Number.isFinite(value) || value < 1) {
     return DEFAULT_DISMISSED_RETENTION_DAYS;
   }
+
   return Math.floor(value);
 }

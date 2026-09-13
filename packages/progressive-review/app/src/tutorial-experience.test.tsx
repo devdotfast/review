@@ -30,7 +30,9 @@ const CHAPTER_TITLES = [
 ];
 
 let session: ReviewSession;
+
 let root: ReturnType<typeof createRoot> | null = null;
+
 let canvasRoot: HTMLElement;
 
 beforeEach(() => {
@@ -68,6 +70,7 @@ function Shell({
 }): ReactElement {
   const shellRef = useRef<HTMLElement | null>(null);
   const regionRef = useRef<HTMLElement | null>(null);
+
   return (
     <main ref={shellRef} className="review-document-shell">
       <TutorialExperienceProvider
@@ -133,7 +136,9 @@ function section(title: string): HTMLElement {
   const element = canvasRoot.querySelector<HTMLElement>(
     `[data-review-section="${title}"]`,
   );
+
   if (!element) throw new Error(`Missing section ${title}`);
+
   return element;
 }
 
@@ -169,9 +174,11 @@ describe("TutorialExperience", () => {
     const tutorial = tutorialBridge([]);
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(0);
+
       return 1;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
+
     try {
       render(tutorial);
     } finally {
@@ -181,6 +188,7 @@ describe("TutorialExperience", () => {
     const layer = canvasRoot.querySelector(
       ".review-view-region > .tutorial-target-layer",
     );
+
     expect(layer?.querySelectorAll(".tutorial-target-ring")).toHaveLength(1);
     expect(
       canvasRoot.querySelectorAll(".tutorial-experience .tutorial-target-ring"),
@@ -194,11 +202,14 @@ describe("TutorialExperience", () => {
       "gotoDefinition",
       "openPeek",
     ]);
+
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
       callback(0);
+
       return 1;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
+
     try {
       render(tutorial);
     } finally {
@@ -217,10 +228,12 @@ describe("TutorialExperience", () => {
   it("expands the active chapter without collapsing the others", () => {
     const tutorial = tutorialBridge([]);
     render(tutorial);
+
     const toggle = (title: string) =>
       section(title).querySelector<HTMLButtonElement>(
         ".review-section-toggle",
       )!;
+
     act(() => toggle("Comments are threads").click());
     expect(toggle("Comments are threads").getAttribute("aria-expanded")).toBe(
       "false",
@@ -264,11 +277,13 @@ describe("TutorialExperience", () => {
       "gotoDefinition",
       "openPeek",
     ]);
+
     render(tutorial);
 
     const commits = canvasRoot.querySelector<HTMLButtonElement>(
       '.review-segment[aria-label="Commits"]',
     )!;
+
     expect(card()?.textContent).toContain("Inspect the commits");
     expect(commits.dataset.tutorialTarget).toBe("openCommits");
     expect(
@@ -287,6 +302,7 @@ describe("TutorialExperience", () => {
       "openPeek",
       "openCommits",
     ]);
+
     render(tutorial, { activeView: "commits" });
 
     expect(card()?.textContent).toContain("Open a focused diff");
@@ -314,14 +330,18 @@ describe("TutorialExperience", () => {
 
   it("coalesces target discovery after several DOM mutations", async () => {
     const frames: FrameRequestCallback[] = [];
+
     const requestFrame = vi.fn<(callback: FrameRequestCallback) => number>(
       (callback) => {
         frames.push(callback);
+
         return frames.length;
       },
     );
+
     vi.stubGlobal("requestAnimationFrame", requestFrame);
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
     try {
       render(tutorialBridge([]));
       frames.length = 0;
@@ -360,6 +380,7 @@ describe("TutorialExperience", () => {
       "openDiff",
       "leaveComment",
     ]);
+
     render(tutorial);
 
     expect(card()?.textContent).toContain("Walk the sequence");
@@ -388,6 +409,7 @@ describe("TutorialExperience", () => {
       "leaveComment",
       "openSequence",
     ]);
+
     render(tutorial);
 
     expect(card()?.textContent).toContain("Inspect the database flow");
@@ -414,6 +436,7 @@ describe("TutorialExperience", () => {
       "openCommits",
       "openDiff",
     ]);
+
     await session.bridge.comments.saveComment({
       threadId: "thread-1",
       messageId: "message-1",
@@ -432,6 +455,7 @@ describe("TutorialExperience", () => {
     const next = [...canvasRoot.querySelectorAll("button")].find(
       (button) => button.textContent === "Next",
     );
+
     expect(next).toBeDefined();
     act(() => next?.click());
     expect(tutorial.setStep).toHaveBeenCalledWith("chooseKeymap", true);
@@ -460,11 +484,13 @@ describe("TutorialExperience", () => {
       "gotoDefinition",
       "openPeek",
     ]);
+
     render(tutorial);
 
     const back = [...canvasRoot.querySelectorAll("button")].find(
       (button) => button.textContent === "Back",
     );
+
     act(() => back?.click());
     expect(tutorial.setStep).toHaveBeenCalledTimes(1);
     expect(tutorial.setStep).toHaveBeenCalledWith("openPeek", false);
@@ -485,6 +511,7 @@ describe("TutorialExperience", () => {
         ? offScreen
         : viewRect;
     };
+
     try {
       render(tutorial);
     } finally {
@@ -494,6 +521,7 @@ describe("TutorialExperience", () => {
     const targetScrolls = scrolled.mock.contexts.filter((element) =>
       (element as HTMLElement).classList.contains("tutorial-keymap-picker"),
     );
+
     expect(targetScrolls).toHaveLength(1);
   });
 
@@ -506,6 +534,7 @@ describe("TutorialExperience", () => {
       "openCommits",
       "openDiff",
     ]);
+
     render(tutorial);
     const editor = document.createElement("div");
     editor.className = "review-inline-editor";
@@ -513,6 +542,7 @@ describe("TutorialExperience", () => {
     lines.className = "view-lines";
     const margins = document.createElement("div");
     margins.className = "margin-view-overlays";
+
     const rows = [
       'import\u00a0type\u00a0{\u00a0CheckoutItem\u00a0}\u00a0from\u00a0"../orders/order.js";',
       "",
@@ -521,6 +551,7 @@ describe("TutorialExperience", () => {
       "\u00a0\u00a0reserve(items:\u00a0readonly\u00a0CheckoutItem[]):\u00a0void\u00a0{",
       "\u00a0\u00a0\u00a0\u00a0const\u00a0unavailable\u00a0=\u00a0items.find((item)\u00a0=>\u00a0item.quantity\u00a0<\u00a01);",
     ];
+
     // Reverse DOM order: Monaco does not keep rows in line order.
     for (const [index, text] of [...rows.entries()].reverse()) {
       const line = document.createElement("div");
@@ -532,6 +563,7 @@ describe("TutorialExperience", () => {
       margin.style.top = `${index * 18}px`;
       margins.append(margin);
     }
+
     editor.append(margins, lines);
     await act(async () => {
       section("Comments are threads")
@@ -546,6 +578,7 @@ describe("TutorialExperience", () => {
     const marked = [
       ...editor.querySelectorAll<HTMLElement>("[data-tutorial-line]"),
     ];
+
     expect(marked).toHaveLength(2);
     expect(marked.map((element) => element.style.top)).toEqual([
       "72px",
@@ -570,12 +603,15 @@ describe("TutorialExperience", () => {
       "openDatabase",
       "openTraceQuote",
     ]);
+
     render(tutorial);
 
     expect(card()?.textContent).toContain("Know where to get help");
+
     const finish = [...canvasRoot.querySelectorAll("button")].find(
       (button) => button.textContent === "Finish tour",
     );
+
     act(() => finish?.click());
 
     expect(tutorial.setStep).toHaveBeenCalledWith("getHelp", true);
@@ -597,6 +633,7 @@ describe("TutorialExperience", () => {
     const pill = canvasRoot.querySelector<HTMLButtonElement>(
       ".tutorial-experience > .tutorial-guide-pill",
     );
+
     expect(pill?.getAttribute("aria-label")).toBe("Show tutorial");
     expect(pill?.querySelector(".ui-icon--tutorial")).not.toBeNull();
     expect(card()).toBeNull();
@@ -610,6 +647,7 @@ function tutorialBridge(
   dismissed = false,
 ) {
   const setStep = vi.fn<ReviewCanvasTutorialBridge["setStep"]>();
+
   return {
     content: {
       reviewUuid: "tutorial-review",

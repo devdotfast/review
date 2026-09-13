@@ -23,6 +23,7 @@ import {
   type NormalizedSoftwareModel,
   hydrateSoftwareModel,
 } from "../../src/software-map-model";
+
 export type HydratedReviewTextNode = ReviewTextNode;
 
 export interface HydratedReviewElementNode extends Omit<
@@ -77,6 +78,7 @@ export function hydrateReviewDocument(
 ): HydratedReviewDocument {
   const data = reviewDocumentDataSchema.parse(load.data);
   const anchors = new Map(Object.entries(data.anchors));
+
   return {
     contentHash: load.contentHash,
     body: data.body.map((node) => hydrateNode(node, anchors)),
@@ -116,12 +118,14 @@ function hydrateNode(
   anchors: ReadonlyMap<string, AnchorRef>,
 ): HydratedReviewNode {
   if (node.type === "text") return node;
+
   if (node.type === "element") {
     return {
       ...node,
       children: node.children.map((child) => hydrateNode(child, anchors)),
     };
   }
+
   return hydrateComponentNode(node, anchors);
 }
 
@@ -131,6 +135,7 @@ function hydrateComponentNode<K extends ReviewAuthoringComponentName>(
 ): HydratedReviewComponentNode {
   const walked = hydrateComponentProps(node.props, anchors);
   const hydrate = componentHydrators[node.name];
+
   return {
     type: "component",
     name: node.name,
@@ -158,20 +163,26 @@ function canonicalizeAnchorRefs(
   if (Array.isArray(value)) {
     return value.map((child) => canonicalizeAnchorRefs(child, anchors));
   }
+
   if (!isJsonObject(value)) return value;
+
   const anchorId =
     jsonString(value.__kind) === "db-anchor-ref"
       ? jsonString(value.id)
       : undefined;
+
   if (anchorId !== undefined) {
     const canonical = anchors.get(anchorId);
+
     if (!canonical) {
       throw new Error(
         `Review document references missing anchor ${JSON.stringify(anchorId)}.`,
       );
     }
+
     return canonical;
   }
+
   return Object.fromEntries(
     Object.entries(value).map(([key, child]) => [
       key,

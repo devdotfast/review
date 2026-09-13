@@ -22,6 +22,7 @@ export default createActiveReviewDocument({ title: "Sealed", routePath: "/", fil
 export async function tempDir(prefix = "review-test-"): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
   trackedTempDirs.push(dir);
+
   return dir;
 }
 
@@ -43,19 +44,23 @@ export async function gitRepository(
     ["-C", root, "init", "-b", options.initialBranch ?? "main"],
     { stdio: "pipe" },
   );
+
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
+
   git("config", "user.email", "review@example.test");
   git("config", "user.name", "Review Test");
   await writeFile(path.join(root, "README.md"), "# Review\n", "utf8");
   git("add", ".");
   git("commit", "-m", "initial");
+
   return root;
 }
 
 export async function reviewHome(): Promise<string> {
   const home = await tempDir("review-test-home-");
   vi.stubEnv("DEV_REVIEW_HOME", home);
+
   return home;
 }
 
@@ -67,6 +72,7 @@ export async function storedReviewFixture(
   const reviewDir = path.join(root, "review");
   await mkdir(path.join(reviewDir, ".git"), { recursive: true });
   await mkdir(path.join(reviewDir, ".bundle"));
+
   const record: JsonObject = {
     schemaVersion: options.schemaVersion ?? 5,
     uuid: options.uuid ?? DEFAULT_STORED_REVIEW_UUID,
@@ -86,9 +92,11 @@ export async function storedReviewFixture(
     viewedAt: "viewed",
     dismissedAt: "dismissed",
   };
+
   await writeFile(path.join(reviewDir, "review.json"), JSON.stringify(record));
   await writeFile(path.join(reviewDir, ".git", "HEAD"), "old-head");
   await writeFile(path.join(reviewDir, ".bundle", "document"), "old-document");
+
   return { reviewDir, record };
 }
 

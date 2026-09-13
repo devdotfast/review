@@ -41,6 +41,7 @@ export interface ReviewTabTelemetryTransportOptions {
 export type ReviewTabTelemetryDelivery = "beacon" | "fetch" | "none";
 
 export const MIN_REVIEW_TAB_DWELL_MS = 250;
+
 export const MAX_REVIEW_TAB_DWELL_MS = 4 * 60 * 60 * 1_000;
 
 export function createReviewTabDwellTracker(
@@ -58,8 +59,10 @@ export function createReviewTabDwellTracker(
     if (segmentStartMs === null) return;
     const elapsedMs = input.now() - segmentStartMs;
     segmentStartMs = null;
+
     if (!Number.isFinite(elapsedMs) || elapsedMs < minDurationMs) return;
     const durationMs = Math.round(Math.min(elapsedMs, maxDurationMs));
+
     if (durationMs < minDurationMs) return;
     input.send(
       {
@@ -86,8 +89,10 @@ export function createReviewTabDwellTracker(
     handleVisibilityChange(visible) {
       if (!visible) {
         flush("visibility_hidden", { pageExit: false });
+
         return;
       }
+
       if (segmentStartMs === null) {
         segmentStartMs = input.now();
       }
@@ -120,6 +125,7 @@ export function sendReviewTabTelemetryPayload(
 ): ReviewTabTelemetryDelivery {
   const endpoint = options.endpoint;
   const body = JSON.stringify(payload);
+
   if (options.pageExit && options.navigator?.sendBeacon) {
     try {
       if (options.navigator.sendBeacon(endpoint, body)) {
@@ -132,6 +138,7 @@ export function sendReviewTabTelemetryPayload(
   }
 
   const fetchImpl = options.fetch ?? globalThis.fetch;
+
   if (!fetchImpl) return "none";
   void fetchImpl(endpoint, {
     method: "POST",
@@ -139,6 +146,7 @@ export function sendReviewTabTelemetryPayload(
     body,
     keepalive: options.pageExit,
   }).catch(() => undefined);
+
   return "fetch";
 }
 
@@ -148,13 +156,16 @@ export function createReviewAppSessionId(
     | undefined = globalThis.crypto,
 ): string {
   if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+
   if (cryptoApi?.getRandomValues) {
     const bytes = new Uint8Array(16);
     cryptoApi.getRandomValues(bytes);
+
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
       "",
     );
   }
+
   return `session_${Date.now().toString(36)}_${Math.random()
     .toString(36)
     .slice(2, 14)}`;

@@ -25,7 +25,9 @@ function anchor(id: string, graph?: "base" | "head"): PeekableAnchorRef {
     fromLine: 1,
     toLine: 5,
   };
+
   if (graph !== undefined) props.graph = graph;
+
   return Object.freeze({
     __kind: "db-anchor-ref",
     id,
@@ -39,9 +41,13 @@ function anchor(id: string, graph?: "base" | "head"): PeekableAnchorRef {
 }
 
 const reconcile = anchor("reconcile");
+
 const auth = anchor("auth", "base");
+
 const enqueueWork = anchor("enqueueWork");
+
 const processItem = anchor("processItem");
+
 const persistResult = anchor("persistResult");
 
 describe("diffCallStacks", () => {
@@ -50,6 +56,7 @@ describe("diffCallStacks", () => {
       [reconcile, auth, enqueueWork, persistResult],
       [reconcile, enqueueWork, processItem, persistResult],
     );
+
     expect(
       rows.map((row) => [row.change, (row.entry as PeekableAnchorRef).id]),
     ).toEqual([
@@ -87,6 +94,7 @@ describe("diffCallStacks", () => {
       [reconcile, auth, enqueueWork],
       [reconcile, enqueueWork, processItem],
     );
+
     expect(rows.map((row) => [row.change, row.depth])).toEqual([
       ["unchanged", 0],
       ["removed", 1],
@@ -102,6 +110,7 @@ describe("callStackConnectorPrefix", () => {
       [reconcile, auth, enqueueWork],
       [reconcile, enqueueWork, processItem],
     );
+
     expect(
       rows.map((_, index) => callStackConnectorPrefix(rows, index)),
     ).toEqual(["", "├─ ", "└─ ", "   └─ "]);
@@ -125,6 +134,7 @@ describe("callStackDiffPropsSchema side rules", () => {
       head: [reconcile, enqueueWork, processItem],
       children: undefined,
     });
+
     expect(result.success).toBe(true);
   });
 
@@ -134,6 +144,7 @@ describe("callStackDiffPropsSchema side rules", () => {
       head: [auth],
       children: undefined,
     });
+
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.message).toContain("points at base");
   });
@@ -144,6 +155,7 @@ describe("callStackDiffPropsSchema side rules", () => {
       head: [enqueueWork],
       children: undefined,
     });
+
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.message).toContain("removed frame");
   });
@@ -154,6 +166,7 @@ describe("callStackDiffPropsSchema side rules", () => {
       head: [],
       children: undefined,
     });
+
     expect(result.success).toBe(false);
   });
 });
@@ -175,6 +188,7 @@ describe("patchChangedLines", () => {
       " context",
       "",
     ].join("\n");
+
     const lines = patchChangedLines(patch);
     expect([...lines.deleted]).toEqual([11]);
     expect([...lines.added]).toEqual([11, 31]);

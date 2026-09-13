@@ -10,6 +10,7 @@ import { runReviewApp } from "./review-app";
 function fakeTty(): NodeJS.ReadStream {
   return { isTTY: true } as NodeJS.ReadStream;
 }
+
 import type { StoredReview } from "./review-home";
 
 const discovery: ReviewDesktopDiscovery = {
@@ -25,6 +26,7 @@ const discovery: ReviewDesktopDiscovery = {
 describe("review app", () => {
   it("opens the requested Review through Desktop without exposing private handles", async () => {
     const selected = storedReview("latest", "2026-07-29T10:00:00.000Z");
+
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({
         sessionId: "session-1",
@@ -79,6 +81,7 @@ describe("review app", () => {
 
   it("selects an explicit Review UUID", async () => {
     const selected = storedReview("selected", null);
+
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({ sessionId: "session-2" }),
     );
@@ -181,6 +184,7 @@ function storedReview(
   lastPublishedAt: string | null,
 ): StoredReview {
   const uuid = `${suffix.padEnd(8, "0").slice(0, 8)}-0000-4000-8000-000000000000`;
+
   return {
     dir: `/reviews/${uuid}`,
     review: {

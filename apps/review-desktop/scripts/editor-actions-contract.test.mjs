@@ -6,10 +6,13 @@ const read = (relative) =>
   readFileSync(new URL(relative, import.meta.url), "utf8");
 
 const contextKeys = read("../code-oss/src/vs/workbench/common/contextkeys.ts");
+
 const reviewWorkbench = read("../code-oss/src/vs/review/browser/workbench.ts");
+
 const editorContribution = read(
   "../code-oss/src/vs/workbench/browser/parts/editor/editor.contribution.ts",
 );
+
 const editorTabsControl = read(
   "../code-oss/src/vs/workbench/browser/parts/editor/editorTabsControl.ts",
 );
@@ -36,6 +39,7 @@ test("the split editor toolbar icon is gated out of Review", () => {
     2,
     "expected the horizontal and vertical split toolbar registrations",
   );
+
   for (const item of splitToolItems) {
     assert.match(item, /IsReviewWindowContext\.toNegated\(\)/);
   }

@@ -46,6 +46,7 @@ describe("Review source resolution", () => {
           }),
         };
       }
+
       if (command === "git") return { stdout: "" };
       throw new Error(`Unexpected command: ${command}`);
     });

@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { stageReviewDocs } from "./stage-review-runtime.mjs";
 
 const temporaryRoots = [];
+
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
@@ -30,6 +31,7 @@ after(async () => {
 async function temporaryRoot(prefix) {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix));
   temporaryRoots.push(root);
+
   return root;
 }
 
@@ -74,14 +76,17 @@ test("bundled Review documentation has no escaping or broken relative links", as
   for (const file of markdownFiles) {
     const source = await readFile(file, "utf8");
     const links = source.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g);
+
     for (const match of links) {
       const target = match[1].trim();
+
       if (target.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(target)) {
         continue;
       }
 
       const relativeTarget = target.split("#", 1)[0];
       const resolved = path.resolve(path.dirname(file), relativeTarget);
+
       if (
         resolved !== docsRoot &&
         !resolved.startsWith(`${docsRoot}${path.sep}`)
@@ -89,6 +94,7 @@ test("bundled Review documentation has no escaping or broken relative links", as
         missing.push(`${path.relative(docsRoot, file)} -> ${target} (escapes)`);
         continue;
       }
+
       try {
         await access(resolved);
       } catch {
@@ -102,15 +108,20 @@ test("bundled Review documentation has no escaping or broken relative links", as
 
 async function listMarkdownFiles(root) {
   const files = [];
+
   const walk = async (directory) => {
     const entries = await readdir(directory, { withFileTypes: true });
+
     for (const entry of entries) {
       const absolute = path.join(directory, entry.name);
+
       if (entry.isDirectory()) await walk(absolute);
       else if (entry.isFile() && entry.name.endsWith(".md"))
         files.push(absolute);
     }
   };
+
   await walk(root);
+
   return files;
 }

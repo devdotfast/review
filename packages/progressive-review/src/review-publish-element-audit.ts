@@ -22,6 +22,7 @@ import { errorMessage } from "./error-message";
 // mistakes: the app never sees an element the audit did not see first.
 
 const ELEMENT_MARKER = "__reviewPublishElement";
+
 export const FRAGMENT = Symbol.for("react.fragment");
 
 // What `jsx` receives as an element type: an intrinsic tag name, a React
@@ -67,6 +68,7 @@ export interface PublishValidationProps {
 const authoringComponentNameSchema = z.keyof(
   z.object(reviewAuthoringPropsSchemas),
 );
+
 export type AuthoringComponentName = z.infer<
   typeof authoringComponentNameSchema
 >;
@@ -93,6 +95,7 @@ export function isAuditElement(
   value: PublishAuditNode,
 ): value is PublishAuditElement {
   if (!isObjectValue(value)) return false;
+
   return (
     (ELEMENT_MARKER in value && value[ELEMENT_MARKER] === true) ||
     ("$$typeof" in value &&
@@ -133,7 +136,9 @@ export function flattenChildren(
   ) {
     return [];
   }
+
   if (Array.isArray(children)) return children.flatMap(flattenChildren);
+
   return [children];
 }
 
@@ -150,20 +155,24 @@ type PublishValidationReactMembers = ReturnType<
 export function createPublishValidationReact(): PublishValidationReact {
   const react: PublishValidationReact = { ...publishValidationReactMembers() };
   react.React = react;
+
   return react;
 }
 
 function publishValidationReactMembers() {
   const noop = () => undefined;
   const identity = <T>(value: T) => value;
+
   // A plain function keeps `class X extends Component` working: unlike an
   // arrow function it has a prototype, and the stub is never instantiated.
   function StubComponent(): void {}
+
   const jsx = (
     type: PublishAuditElementType,
     props?: PublishValidationProps,
     key?: PublishAuditKey,
   ) => makeElement(type, props, key);
+
   const createElement = (
     type: PublishAuditElementType,
     props?: PublishValidationProps | null,
@@ -176,6 +185,7 @@ function publishValidationReactMembers() {
         : (props ?? {}),
       props?.key,
     );
+
   return {
     Children: {
       map: (
@@ -191,9 +201,11 @@ function publishValidationReactMembers() {
       count: (children: PublishAuditNode) => flattenChildren(children).length,
       only: (children: PublishAuditNode) => {
         const flat = flattenChildren(children);
+
         if (flat.length !== 1 || !isAuditElement(flat[0])) {
           throw new Error("React.Children.only expected a single child.");
         }
+
         return flat[0];
       },
       toArray: (children: PublishAuditNode) => flattenChildren(children),
@@ -213,9 +225,11 @@ function publishValidationReactMembers() {
       ...children: PublishAuditNode[]
     ) => {
       const nextProps: PublishValidationProps = { ...element.props, ...props };
+
       if (children.length > 0) {
         nextProps.children = children.length === 1 ? children[0] : children;
       }
+
       return makeElement(
         element.type,
         nextProps,
@@ -273,12 +287,15 @@ export function extractAuditText(node: PublishAuditNode): string {
   if (node === null || node === undefined || node === true || node === false) {
     return "";
   }
+
   if (Array.isArray(node)) {
     return node.map(extractAuditText).join("");
   }
+
   if (isAuditElement(node)) {
     return extractAuditText(node.props.children);
   }
+
   return String(node);
 }
 
@@ -292,11 +309,14 @@ export function auditReviewDocumentComponent(input: {
   collectTraceQuote?: (quote: PublishAuditTraceQuote) => void;
 }): ReviewDocumentPublishAudit | null {
   const components = new Map<AuthoringComponentName, PublishAuditComponent>();
+
   const componentNames = new Map<
     PublishAuditElementType,
     AuthoringComponentName
   >();
+
   const componentProps = new Map<PublishAuditElement, AuditedComponentProps>();
+
   for (const name of authoringComponentNameSchema.options) {
     const stub = () => null;
     Object.defineProperty(stub, "name", { value: name });
@@ -305,12 +325,14 @@ export function auditReviewDocumentComponent(input: {
   }
 
   let tree: PublishAuditNode;
+
   try {
     tree = input.Component({ components: Object.fromEntries(components) });
   } catch (error) {
     input.reportError(
       `Review document did not evaluate for validation: ${errorMessage(error)}`,
     );
+
     return null;
   }
 
@@ -321,6 +343,7 @@ export function auditReviewDocumentComponent(input: {
     for (const child of flattenChildren(node)) {
       if (!isAuditElement(child)) continue;
       const name = componentNames.get(child.type) ?? null;
+
       if (name) {
         const audited = auditElement(
           child,
@@ -331,26 +354,33 @@ export function auditReviewDocumentComponent(input: {
           input.collectCallStackDiff,
           input.collectTraceQuote,
         );
+
         if (audited) componentProps.set(child, audited);
         walk(child.props.children, name);
         continue;
       }
+
       if (isPublishAuditComponent(child.type)) {
         // Best-effort expansion of document-local components: MDX-generated
         // helpers are hook-free and expand; anything that throws under the
         // stub hooks is skipped, exactly as inert as it was before the audit.
         let rendered: PublishAuditNode = null;
+
         try {
           rendered = child.type(child.props);
         } catch {
           rendered = null;
         }
+
         walk(rendered, null);
       }
+
       walk(child.props.children, null);
     }
   };
+
   walk(tree, null);
+
   return { tree, componentNames, componentProps };
 }
 
@@ -364,6 +394,7 @@ function auditElement(
   collectTraceQuote?: (quote: PublishAuditTraceQuote) => void,
 ): AuditedComponentProps | null {
   let audited: AuditedComponentProps | null;
+
   if (name === "DatabaseLens") {
     const parsed = databaseLensPropsSchema.safeParse(element.props);
     reportParseErrors(name, parsed, reportError);
@@ -372,11 +403,13 @@ function auditElement(
     const parsed = callStackDiffPropsSchema.safeParse(element.props);
     reportParseErrors(name, parsed, reportError);
     audited = parsed.success ? { name, props: parsed.data } : null;
+
     if (parsed.success) collectCallStackDiff?.(parsed.data);
   } else if (name === "TraceQuote") {
     const parsed = traceQuotePropsSchema.safeParse(element.props);
     reportParseErrors(name, parsed, reportError);
     audited = parsed.success ? { name, props: parsed.data } : null;
+
     if (parsed.success && collectTraceQuote) {
       collectTraceQuote({
         sessionId: parsed.data.sessionId,
@@ -403,37 +436,48 @@ function auditElement(
       `<DbUseCase> must be a direct child of <DatabaseLens>; the app ignores it anywhere else.`,
     );
   }
+
   if ((name === "DbRead" || name === "DbWrite") && parentName !== "DbUseCase") {
     reportError(
       `<${name}> must be a direct child of <DbUseCase>; the app ignores it anywhere else.`,
     );
   }
+
   if (name === "DatabaseLens") {
     if (!childNames.includes("DbUseCase")) {
       reportError(`<DatabaseLens> must contain at least one <DbUseCase>.`);
     }
+
     const labels = new Set<string>();
+
     for (const child of flattenChildren(element.props.children)) {
       if (!isAuditElement(child)) continue;
+
       if (componentNames.get(child.type) !== "DbUseCase") continue;
+
       const label = dbUseCasePropsSchema.shape.label.safeParse(
         child.props.label,
       );
+
       if (!label.success) continue;
+
       if (labels.has(label.data)) {
         reportError(
           `<DbUseCase> label "${label.data}" must be unique within its <DatabaseLens>.`,
         );
       }
+
       labels.add(label.data);
     }
   }
+
   if (
     name === "DbUseCase" &&
     !childNames.some((child) => child === "DbRead" || child === "DbWrite")
   ) {
     reportError(`<DbUseCase> must contain at least one <DbRead> or <DbWrite>.`);
   }
+
   return audited;
 }
 
@@ -443,6 +487,7 @@ function reportParseErrors(
   reportError: (message: string) => void,
 ): void {
   if (parsed.success) return;
+
   for (const issue of parsed.error.issues) {
     const path = issue.path.length > 0 ? issue.path.join(".") : "props";
     reportError(`<${name}> ${path}: ${issue.message}`);

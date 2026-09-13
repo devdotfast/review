@@ -31,10 +31,13 @@ export function jsonResponse<T>(
   const headers = new Headers({
     "content-type": options.contentType ?? "application/json; charset=utf-8",
   });
+
   if (options.cacheControl) {
     headers.set("cache-control", options.cacheControl);
   }
+
   const serialized = JSON.stringify(body);
+
   return new Response(
     options.newline === false ? serialized : `${serialized}\n`,
     {
@@ -49,16 +52,20 @@ export function applyCorsHeaders(
   response: Response,
 ): Response {
   const origin = request.headers.get("origin");
+
   if (origin) {
     response.headers.set("access-control-allow-origin", origin);
     const vary = response.headers.get("vary");
+
     const varyFields = vary
       ?.split(",")
       .map((field) => field.trim().toLowerCase());
+
     if (!varyFields?.includes("*") && !varyFields?.includes("origin")) {
       response.headers.set("vary", vary ? `${vary}, Origin` : "Origin");
     }
   }
+
   response.headers.set(
     "access-control-allow-headers",
     `content-type, x-review-token, ${REVIEW_APP_SESSION_ID_HEADER}`,
@@ -68,6 +75,7 @@ export function applyCorsHeaders(
     "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
   );
   response.headers.set("access-control-allow-private-network", "true");
+
   return response;
 }
 
@@ -82,9 +90,11 @@ export function isAuthorizedRequest(
   const supplied =
     request.headers.get("x-review-token") ??
     new URL(request.url).searchParams.get("token");
+
   if (!supplied) return false;
   const expected = Buffer.from(expectedToken);
   const actual = Buffer.from(supplied);
+
   return (
     expected.length === actual.length &&
     crypto.timingSafeEqual(expected, actual)
@@ -99,6 +109,7 @@ export async function readBoundedRequestJson(
 ): Promise<JsonValue> {
   assertJsonContentType(request, options);
   const contentLength = Number(request.headers.get("content-length"));
+
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw requestTooLarge(maxBytes);
   }
@@ -106,16 +117,20 @@ export async function readBoundedRequestJson(
   const reader = request.body?.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+
   if (reader) {
     try {
       while (true) {
         const { done, value } = await reader.read();
+
         if (done) break;
         total += value.byteLength;
+
         if (total > maxBytes) {
           await reader.cancel();
           throw requestTooLarge(maxBytes);
         }
+
         chunks.push(value);
       }
     } finally {
@@ -124,7 +139,9 @@ export async function readBoundedRequestJson(
   }
 
   const body = Buffer.concat(chunks).toString("utf8");
+
   if (!body && emptyValue !== undefined) return emptyValue;
+
   try {
     return parseJsonText(body);
   } catch {
@@ -141,6 +158,7 @@ function assertJsonContentType(
     ?.split(";", 1)[0]
     ?.trim()
     .toLowerCase();
+
   if (
     mediaType !== "application/json" &&
     !mediaType?.endsWith("+json") &&

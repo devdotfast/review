@@ -33,14 +33,17 @@ test("postinstall does not target vendor-time exclusions", () => {
 
   assert.deepEqual(excludedTargets, []);
 });
+
 test("extension compilation does not target vendor-time exclusions", async () => {
   const source = await readFile(
     new URL("../code-oss/build/gulpfile.extensions.ts", import.meta.url),
     "utf8",
   );
+
   const compilationTargets = [
     ...source.matchAll(/['"]([^'"]+\/tsconfig\.json)['"]/g),
   ].map((match) => match[1]);
+
   const excludedTargets = compilationTargets.filter((target) =>
     vendorTimeExclusions.some(
       (excluded) =>
@@ -61,10 +64,12 @@ test("postinstall does not install unused remote and upstream test packages", ()
 
 test("does not register the unreachable browser automation surface", async () => {
   const codeOss = new URL("../code-oss/", import.meta.url);
+
   const app = await readFile(
     new URL("src/vs/code/electron-main/app.ts", codeOss),
     "utf8",
   );
+
   const sharedProcess = await readFile(
     new URL(
       "src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts",
@@ -72,6 +77,7 @@ test("does not register the unreachable browser automation surface", async () =>
     ),
     "utf8",
   );
+
   const moduleIgnore = await readFile(
     new URL("build/.moduleignore", codeOss),
     "utf8",

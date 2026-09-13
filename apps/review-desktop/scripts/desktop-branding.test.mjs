@@ -6,16 +6,21 @@ const readSource = (relativePath) =>
   readFile(new URL(relativePath, import.meta.url), "utf8");
 
 const product = JSON.parse(await readSource("../code-oss/product.json"));
+
 const electronBuild = await readSource("../code-oss/build/lib/electron.ts");
+
 const aboutPanel = await readSource(
   "../code-oss/src/vs/review/electron-main/reviewMenubar.ts",
 );
+
 const themePackage = JSON.parse(
   await readSource("../code-oss/extensions/review-themes/package.json"),
 );
+
 const canvasShell = await readSource(
   "../../../packages/progressive-review/app/src/desktop-entry.tsx",
 );
+
 const bugReportDialog = await readSource(
   "../../../packages/progressive-review/app/src/bug-report-dialog.tsx",
 );

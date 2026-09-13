@@ -46,12 +46,14 @@ export function DiagramTourOverlay({
   // element the theme modifier lives on. Carrying the modifier here keeps the
   // light theme's token overrides in scope for the stage and the panel.
   const { theme } = useReviewDebugSettings();
+
   // SAFETY: `--diagram-tour-pane-width` is a CSS custom property, which React
   // forwards to style.setProperty; the CSSProperties typings only omit custom
   // names.
   const overlayStyle = {
     "--diagram-tour-pane-width": `${paneWidth}px`,
   } as CSSProperties;
+
   return (
     <div
       ref={overlayRef}
@@ -89,6 +91,7 @@ export function useDiagramTourShell(open: boolean, onClose: () => void) {
   // The desktop build wraps every canvas rule in @scope (.review-canvas-root),
   // so the overlay must portal INSIDE the canvas root or it renders unstyled.
   const portalTarget = useReviewContainer();
+
   const paneResize = useRightPanelResize({
     stateKey: "diagram-tour-pane-width",
     defaultWidth: 424,
@@ -102,20 +105,27 @@ export function useDiagramTourShell(open: boolean, onClose: () => void) {
 
   useEffect(() => {
     if (!open) return;
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
+
     window.addEventListener("keydown", onKeyDown);
+
     // Lock the canvas scroller (not document.body: the canvas composes into
     // the host DOM, so the element that actually scrolls the review is the
     // view region).
     const scroller = document.querySelector<HTMLElement>(
       ".review-view-region--review",
     );
+
     const originalOverflow = scroller?.style.overflow ?? "";
+
     if (scroller) scroller.style.overflow = "hidden";
+
     return () => {
       window.removeEventListener("keydown", onKeyDown);
+
       if (scroller) scroller.style.overflow = originalOverflow;
     };
   }, [onClose, open]);

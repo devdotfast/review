@@ -9,8 +9,11 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
+
 const workspaceRoot = path.resolve(packageRoot, "../..");
+
 const [inputPath, outputPath] = process.argv.slice(2);
+
 if (!inputPath || !outputPath || process.argv.length !== 4) {
   throw new Error(
     "Usage: bundle-native-runtime.mjs <input-path> <output-path>",
@@ -29,7 +32,9 @@ const result = await build({
   target: "es2022",
   write: false,
 });
+
 if (result.outputFiles.length !== 1) {
   throw new Error("Expected one bundled native runtime output");
 }
+
 writeFileSync(path.resolve(outputPath), result.outputFiles[0].contents);

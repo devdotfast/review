@@ -15,9 +15,11 @@ import { unusedAgentServices } from "./session-handler-test-utils";
 
 it("refreshes note artifacts without executing authored code in the server", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-map-refresh-"));
+
   try {
     const git = (args: string[]) =>
       execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+
     git(["init", "-q", "-b", "main"]);
     git(["config", "user.name", "Test"]);
     git(["config", "user.email", "test@example.com"]);
@@ -25,9 +27,11 @@ it("refreshes note artifacts without executing authored code in the server", asy
     const base = git(["rev-parse", "HEAD"]);
     git(["commit", "-q", "--allow-empty", "-m", "Head"]);
     const head = git(["rev-parse", "HEAD"]);
+
     const markers = [base, head].map((commit) =>
       path.join(root, `${commit}.ran`),
     );
+
     for (const [index, commit] of [base, head].entries()) {
       await writeNote({
         rootPath: root,
@@ -41,6 +45,7 @@ it("refreshes note artifacts without executing authored code in the server", asy
         ].join("\n"),
       });
     }
+
     const stored = await createReviewDir({
       reviewsHomePath: path.join(root, "home"),
       worktreePath: root,
@@ -49,7 +54,9 @@ it("refreshes note artifacts without executing authored code in the server", asy
       sourceCommit: head,
       sourceIdentity: { kind: "git-branch", name: "main" },
     });
+
     const reviewPath = path.join(stored.dir, "review.mdx");
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath: root,
@@ -69,6 +76,7 @@ it("refreshes note artifacts without executing authored code in the server", asy
         startedAt: Date.now(),
       },
     });
+
     try {
       const response = await handler.handle(
         new Request(
@@ -79,6 +87,7 @@ it("refreshes note artifacts without executing authored code in the server", asy
           },
         ),
       );
+
       expect(response.status).toBe(200);
       const result = await response.json();
       expect(result.refresh.status).toBe("rematerialized");

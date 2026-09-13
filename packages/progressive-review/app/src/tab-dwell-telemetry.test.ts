@@ -11,10 +11,12 @@ import {
 describe("createReviewTabDwellTracker", () => {
   it("flushes visible dwell time on tab change", () => {
     let now = 1_000;
+
     const sent: Array<{
       payload: ReviewTabDwellPayload;
       pageExit: boolean;
     }> = [];
+
     const tracker = createReviewTabDwellTracker({
       initialTab: "review",
       appSessionId: "session-1234567890",
@@ -44,6 +46,7 @@ describe("createReviewTabDwellTracker", () => {
     let now = 0;
     let visible = true;
     const sent: ReviewTabDwellPayload[] = [];
+
     const tracker = createReviewTabDwellTracker({
       initialTab: "review",
       appSessionId: "session-1234567890",
@@ -83,6 +86,7 @@ describe("createReviewTabDwellTracker", () => {
     let now = 0;
     const beacons: Array<{ url: string; body: ReviewTabDwellPayload }> = [];
     const fetchCalls: unknown[] = [];
+
     const tracker = createReviewTabDwellTracker({
       initialTab: "files",
       appSessionId: "session-1234567890",
@@ -96,11 +100,13 @@ describe("createReviewTabDwellTracker", () => {
               url: String(url),
               body: JSON.parse(String(data)) as ReviewTabDwellPayload,
             });
+
             return true;
           },
         },
         fetch: (async (...args) => {
           fetchCalls.push(args);
+
           return new Response(null, { status: 200 });
         }) as typeof fetch,
       }),
@@ -125,6 +131,7 @@ describe("createReviewTabDwellTracker", () => {
 
   it("falls back to keepalive fetch when sendBeacon rejects the document origin", () => {
     const fetchCalls: Array<Parameters<typeof fetch>> = [];
+
     const delivery = sendReviewTabTelemetryPayload(
       {
         tab: "review",
@@ -142,6 +149,7 @@ describe("createReviewTabDwellTracker", () => {
         },
         fetch: (async (...args) => {
           fetchCalls.push(args);
+
           return new Response(null, { status: 200 });
         }) as typeof fetch,
       },
@@ -161,10 +169,12 @@ describe("createReviewTabDwellTracker", () => {
 
   it("captures the session endpoint before the bridge is torn down", () => {
     const fetchCalls: Array<Parameters<typeof fetch>> = [];
+
     const send = createReviewTabTelemetryTransport({
       endpoint: "http://127.0.0.1:1234/session/telemetry/tab",
       fetch: (async (...args) => {
         fetchCalls.push(args);
+
         return new Response(null, { status: 200 });
       }) as typeof fetch,
     });
@@ -187,6 +197,7 @@ describe("createReviewTabDwellTracker", () => {
   it("drops invalid and sub-threshold durations", () => {
     let now = 0;
     const sent: ReviewTabDwellPayload[] = [];
+
     const tracker = createReviewTabDwellTracker({
       initialTab: "review",
       appSessionId: "session-1234567890",
@@ -206,6 +217,7 @@ describe("createReviewTabDwellTracker", () => {
   it("caps stale visible segments at four hours", () => {
     let now = 0;
     const sent: ReviewTabDwellPayload[] = [];
+
     const tracker = createReviewTabDwellTracker({
       initialTab: "review",
       appSessionId: "session-1234567890",

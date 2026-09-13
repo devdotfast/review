@@ -16,16 +16,20 @@ async function fixture() {
   const { reviewDir: dir, record } = await storedReviewFixture({
     schemaVersion: 4,
   });
+
   const stagingDir = path.join(path.dirname(dir), "stage");
   const expectedFingerprint = await fingerprintReviewRepairInputs(dir);
   await cp(dir, stagingDir, { recursive: true });
+
   const next = {
     ...record,
     schemaVersion: 5,
     presentedDocumentRevision: "d".repeat(40),
   };
+
   await writeFile(path.join(stagingDir, "review.json"), JSON.stringify(next));
   await writeFile(path.join(stagingDir, ".git", "HEAD"), "new-ref");
+
   const request: ReviewRepairReadyRequest = {
     reviewUuid: String(record.uuid),
     stagingDir,
@@ -35,8 +39,10 @@ async function fixture() {
     newMapRevision: null,
     sourceFallback: { document: false, map: false },
   };
+
   return { dir, request, record, next };
 }
+
 it("promotes only schema and artifact fields for an accepted review", async () => {
   const { dir, request, next } = await fixture();
   await applyPreparedReviewRepair(dir, request);
@@ -47,6 +53,7 @@ it("promotes only schema and artifact fields for an accepted review", async () =
     "new-ref",
   );
 });
+
 it("upgrades legacy metadata without moving healthy artifact pointers", async () => {
   const { dir, request, record } = await fixture();
   request.newDocumentRevision = String(record.presentedDocumentRevision);
@@ -59,6 +66,7 @@ it("upgrades legacy metadata without moving healthy artifact pointers", async ()
     JSON.parse(await readFile(path.join(dir, "review.json"), "utf8")),
   ).toEqual({ ...record, schemaVersion: 5 });
 });
+
 it("rejects concurrent inputs and restores all transaction bytes after promotion failure", async () => {
   const { dir, request } = await fixture();
   await writeFile(path.join(dir, "review.mdx"), "concurrent edit");

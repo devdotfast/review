@@ -40,26 +40,32 @@ export async function readReviewDesktopDiscovery(
   filePath = reviewDesktopDiscoveryPath(),
 ): Promise<ReviewDesktopDiscovery | null> {
   let source: string;
+
   try {
     source = await readFile(filePath, "utf8");
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return null;
     }
+
     throw new ReviewDesktopDiscoveryUnreadableError(filePath, String(error));
   }
+
   let value: JsonValue;
+
   try {
     value = parseJsonText(source);
   } catch (error) {
     throw new ReviewDesktopDiscoveryUnreadableError(filePath, String(error));
   }
+
   try {
     return parseReviewDesktopDiscovery(value);
   } catch (error) {
     const version = isJsonObject(value)
       ? jsonNumber(jsonProperty(value, "version"))
       : undefined;
+
     if (
       version !== undefined &&
       Number.isInteger(version) &&
@@ -67,6 +73,7 @@ export async function readReviewDesktopDiscovery(
     ) {
       throw new ReviewDesktopProtocolMismatchError(version);
     }
+
     throw new ReviewDesktopDiscoveryUnreadableError(filePath, String(error));
   }
 }
@@ -81,16 +88,20 @@ export async function readHealthyReviewDesktopDiscovery(
 ): Promise<ReviewDesktopDiscovery | null> {
   const readDiscovery =
     dependencies.readDiscovery ?? readReviewDesktopDiscovery;
+
   const fetch = dependencies.fetch ?? globalThis.fetch;
   const discovery = await readDiscovery();
+
   if (!discovery) return null;
 
   try {
     const response = await fetch(`${discovery.url}/health`, {
       signal: AbortSignal.timeout(1_500),
     });
+
     if (!response.ok) return null;
     const health = await response.json();
+
     if (
       !isJsonObject(health) ||
       health.ok !== true ||
@@ -99,6 +110,7 @@ export async function readHealthyReviewDesktopDiscovery(
     ) {
       return null;
     }
+
     return discovery;
   } catch {
     return null;
@@ -110,6 +122,7 @@ export async function requireHealthyReviewDesktop(
   dependencies: ReviewDesktopHealthDependencies = {},
 ): Promise<ReviewDesktopDiscovery> {
   const discovery = await readHealthyReviewDesktopDiscovery(dependencies);
+
   if (discovery) return discovery;
   throw new Error(
     `Review Desktop is not ready. Run \`review app launch\`, then retry \`${retryCommand}\`.`,

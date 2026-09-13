@@ -22,6 +22,7 @@ export function isLibavoidBrowserModule(moduleId: string): boolean {
 export function hardenLibavoidForTrustedTypes(source: string): string {
   const dynamicFunctionPattern = /\bnew Function\(/g;
   const occurrences = source.match(dynamicFunctionPattern)?.length ?? 0;
+
   if (occurrences === 0) {
     throw new Error(
       "libavoid browser bundle no longer contains the expected Emscripten Function constructors",

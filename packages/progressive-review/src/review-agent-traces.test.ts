@@ -68,6 +68,7 @@ describe("review-agent-traces", () => {
     const sessionId = "ses_legacy_storage_regression";
     const binDir = path.join(tempDir, "bin");
     mkdirSync(binDir);
+
     const exported = {
       info: { id: sessionId, directory: tempDir, title: "Legacy storage" },
       messages: [
@@ -79,6 +80,7 @@ describe("review-agent-traces", () => {
         },
       ],
     };
+
     writeFileSync(
       path.join(binDir, "opencode"),
       `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(JSON.stringify(exported))});\n`,
@@ -86,22 +88,26 @@ describe("review-agent-traces", () => {
     );
     vi.stubEnv("PATH", `${binDir}${path.delimiter}${process.env.PATH}`);
     vi.stubEnv("DEV_REVIEW_HOME", path.join(tempDir, "review-home"));
+
     try {
       const synced = await syncReviewTrace({
         sessionId,
         cwd: tempDir,
         repo: "acme/widgets",
       });
+
       expect(synced.uploads[0]?.status).toBe("uploaded");
       expect(
         existsSync(
           path.join(mockR2Dir, "by-session", sessionId, "trace.jsonl"),
         ),
       ).toBe(true);
+
       const loaded = await loadReviewAgentTrace({
         sessionId,
         repo: "acme/widgets",
       });
+
       expect(loaded?.descriptor.harness).toBe("opencode");
     } finally {
       vi.unstubAllEnvs();
@@ -141,6 +147,7 @@ describe("review-agent-traces", () => {
 
   it("marks session as notSynced when missing from R2", async () => {
     const sessionId = "88888888-2e72-41b6-8686-527a93d16647";
+
     const desc = await describeTraceSession({
       sessionId,
       commits: [
@@ -199,6 +206,7 @@ describe("review-agent-traces", () => {
       sessionId,
       repo: "acme/widgets",
     });
+
     expect(mainLoaded).not.toBeNull();
     expect(mainLoaded?.trace.userTurns).toBe(1);
     expect(mainLoaded?.subagents).toContain("pi-run-0-sub1");
@@ -210,6 +218,7 @@ describe("review-agent-traces", () => {
       trace: "pi-run-0-sub1",
       repo: "acme/widgets",
     });
+
     expect(subLoaded).not.toBeNull();
     expect(subLoaded?.trace.userTurns).toBe(1);
     expect(subLoaded?.traceName).toBe("pi-run-0-sub1");
@@ -309,6 +318,7 @@ describe("review-agent-traces", () => {
       cwd: tempDir,
       repo: "acme/widgets",
     });
+
     expect(claudeSync.session).toBe(claudeId);
     expect(claudeSync.repo).toBe("acme/widgets");
     expect(claudeSync.uploads).toEqual([
@@ -333,6 +343,7 @@ describe("review-agent-traces", () => {
       cwd: tempDir,
       repo: "acme/widgets",
     });
+
     expect(secondSync.uploads).toEqual([
       {
         blob: "trace.jsonl",
@@ -363,20 +374,24 @@ describe("review-agent-traces", () => {
     const piId = "33333333-aaaa-bbbb-cccc-000000000003";
     const piProjectDir = path.join(localPiDir, "project-slug");
     mkdirSync(piProjectDir, { recursive: true });
+
     const piTracePath = path.join(
       piProjectDir,
       `2026-08-16T12-00-00_${piId}.jsonl`,
     );
+
     writeFileSync(
       piTracePath,
       JSON.stringify({ type: "session", id: piId }) + "\n",
     );
+
     const piChildRunDir = path.join(
       piProjectDir,
       `2026-08-16T12-00-00_${piId}`,
       "childagent123456",
       "run-0",
     );
+
     mkdirSync(piChildRunDir, { recursive: true });
     writeFileSync(
       path.join(piChildRunDir, "session.jsonl"),
@@ -472,6 +487,7 @@ describe("review-agent-traces", () => {
         indexed_by: "ci",
         ts: new Date().toISOString(),
       };
+
       const byCommitDir = path.join(mockR2Dir, "by-commit");
       mkdirSync(byCommitDir, { recursive: true });
       writeFileSync(
@@ -516,6 +532,7 @@ describe("review-agent-traces", () => {
         indexed_by: "hook",
         ts: new Date().toISOString(),
       };
+
       const byCommitDir = path.join(mockR2Dir, "by-commit");
       mkdirSync(byCommitDir, { recursive: true });
       writeFileSync(
@@ -529,6 +546,7 @@ describe("review-agent-traces", () => {
         "by-session",
         "22222222-aaaa-bbbb-cccc-000000000002",
       );
+
       mkdirSync(sessionDir, { recursive: true });
       writeFileSync(
         path.join(sessionDir, "meta.json"),
@@ -616,6 +634,7 @@ describe("review-agent-traces", () => {
         cwd: clientRepo,
         sha: squashSha,
       });
+
       expect(result.source).toBe("pr-scan");
       expect(result.pr).toBe(42);
       expect(result.sessions).toEqual(["33333333-aaaa-bbbb-cccc-000000000003"]);
@@ -679,6 +698,7 @@ describe("review-agent-traces", () => {
       execFileSync("git", ["push", "--quiet", "origin", "HEAD:main"], {
         cwd: clientRepo,
       });
+
       const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: clientRepo,
         encoding: "utf8",
@@ -708,6 +728,7 @@ describe("review-agent-traces", () => {
       execFileSync("git", ["commit", "-m", "Squash merged feature work (#7)"], {
         cwd: clientRepo,
       });
+
       const squashSha = execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: clientRepo,
         encoding: "utf8",
@@ -718,6 +739,7 @@ describe("review-agent-traces", () => {
         baseCommit: baseSha,
         headCommit: squashSha,
       });
+
       expect(sessions.map((session) => session.sessionId)).toEqual([
         "55555555-aaaa-bbbb-cccc-000000000005",
       ]);
@@ -738,6 +760,7 @@ describe("review-agent-traces", () => {
       writeFileSync(path.join(gitDir, "a.txt"), "base");
       execFileSync("git", ["add", "a.txt"], { cwd: gitDir });
       execFileSync("git", ["commit", "-m", "Base commit"], { cwd: gitDir });
+
       const baseSha = execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: gitDir,
         encoding: "utf8",
@@ -748,6 +771,7 @@ describe("review-agent-traces", () => {
       execFileSync("git", ["commit", "-m", "Plain commit without trailer"], {
         cwd: gitDir,
       });
+
       const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: gitDir,
         encoding: "utf8",
@@ -758,6 +782,7 @@ describe("review-agent-traces", () => {
         baseCommit: baseSha,
         headCommit: headSha,
       });
+
       expect(sessions).toEqual([]);
     });
   });
@@ -805,6 +830,7 @@ describe("review-agent-traces", () => {
         file: "code.ts",
         lines: "2,2",
       });
+
       expect(blame.file).toBe("code.ts");
       expect(blame.range).toBe("2,2");
       expect(blame.resolutions).toHaveLength(1);
@@ -819,6 +845,7 @@ describe("review-agent-traces", () => {
         lines: "2,2",
         history: true,
       });
+
       expect(historyBlame.history).toBe(true);
       expect(historyBlame.resolutions).toHaveLength(2);
     });

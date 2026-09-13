@@ -35,6 +35,7 @@ describe("sanitizeUiTelemetryEvent", () => {
         message: "Cannot read /Users/alice/secret-repo/plan.md",
       },
     });
+
     expect(sanitized).toEqual({
       event: "review_client_error",
       properties: { error_source: "renderer_unexpected" },
@@ -110,6 +111,7 @@ describe("sanitizeUiTelemetryEvent", () => {
         name: "client_error",
         properties: { error_source: "window", message_hash },
       })?.properties.message_hash;
+
     expect(hashed("0123456789abcdef")).toBe("0123456789abcdef");
     expect(hashed("0123456789ABCDEF")).toBeUndefined();
     expect(hashed("not-a-digest")).toBeUndefined();
@@ -147,6 +149,7 @@ describe("sanitizeUiTelemetryEvent", () => {
         editor_kind: "files_tab",
       },
     });
+
     expect(output?.event).toBe("review_lsp_used");
     expect(output?.properties).toEqual({
       feature: "hover",
@@ -160,6 +163,7 @@ describe("sanitizeUiTelemetryEvent", () => {
       name: "extension_installed",
       properties: { extension_id: "evil.extension", trigger: "user" },
     });
+
     expect(output?.properties).toEqual({ trigger: "user" });
   });
 
@@ -249,6 +253,7 @@ describe("sanitizeUiTelemetryEvent", () => {
         file_path: "/etc/passwd",
       },
     });
+
     expect(output?.properties).not.toHaveProperty("file_path");
   });
 });

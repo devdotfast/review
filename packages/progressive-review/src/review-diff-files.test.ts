@@ -24,6 +24,7 @@ describe("resolveReviewDiffFiles", () => {
     }
 
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-jj-"));
+
     try {
       execJj(rootPath, ["git", "init"]);
       await mkdir(path.join(rootPath, "src"), { recursive: true });
@@ -31,6 +32,7 @@ describe("resolveReviewDiffFiles", () => {
         path.join(rootPath, "src/example.ts"),
         "export const value = 1;\n",
       );
+
       const baseRef = execJjOutput(rootPath, [
         "log",
         "--no-graph",
@@ -39,11 +41,13 @@ describe("resolveReviewDiffFiles", () => {
         "-T",
         "change_id.short()",
       ]);
+
       execJj(rootPath, ["new"]);
       await writeFile(
         path.join(rootPath, "src/example.ts"),
         "export const value = 2;\n",
       );
+
       const headRef = execJjOutput(rootPath, [
         "log",
         "--no-graph",
@@ -83,6 +87,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("limits parsed diff files to requested paths", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-git-"));
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "test@example.com"]);
@@ -128,6 +133,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("can return file summaries without patch bodies", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-git-"));
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "test@example.com"]);
@@ -170,6 +176,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("can request enough context for declaration-shaped CodePeek patches", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-git-"));
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "test@example.com"]);
@@ -216,6 +223,7 @@ describe("resolveReviewDiffFiles", () => {
         paths: ["src/example.ts"],
         contextLines: 1,
       });
+
       const wide = await resolveReviewDiffFiles({
         rootPath,
         baseRef,
@@ -236,6 +244,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("serves pinned modified, added, deleted, and renamed diff sides", async () => {
     const fixture = await createFileContentFixture();
+
     try {
       const { rootPath, baseRef, headRef } = fixture;
       await expect(
@@ -299,12 +308,14 @@ describe("resolveReviewDiffFiles", () => {
 
   test("reuses a precomputed comparison when reading file content", async () => {
     const fixture = await createFileContentFixture();
+
     try {
       const comparison = await resolveReviewDiffFiles({
         rootPath: fixture.rootPath,
         baseRef: fixture.baseRef,
         headRef: fixture.headRef,
       });
+
       await expect(
         resolveReviewFileContent({
           rootPath: fixture.rootPath,
@@ -322,6 +333,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("reads the live working-tree head while keeping the base pinned", async () => {
     const fixture = await createFileContentFixture();
+
     try {
       execGit(fixture.rootPath, ["reset", "--hard", fixture.baseRef]);
       await writeFile(
@@ -357,6 +369,7 @@ describe("resolveReviewDiffFiles", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-content-git-"),
     );
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "test@example.com"]);
@@ -396,6 +409,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("parses a deleted file whose removed content begins with `-- `", async () => {
     const fixture = await createDeletedHijackFixture();
+
     try {
       const result = await resolveReviewDiffFiles({
         rootPath: fixture.rootPath,
@@ -423,6 +437,7 @@ describe("resolveReviewDiffFiles", () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-diff-hijack-add-"),
     );
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "test@example.com"]);
@@ -462,6 +477,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("resolves content via a precomputed patch comparison for a deleted `-- ` file", async () => {
     const fixture = await createDeletedHijackFixture();
+
     try {
       const comparison = await resolveReviewDiffFiles({
         rootPath: fixture.rootPath,
@@ -501,6 +517,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("parses a mode-only change with no hunk header", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-mode-"));
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "test@example.com"]);
@@ -534,6 +551,7 @@ describe("resolveReviewDiffFiles", () => {
 
   test("parses a binary file change with no hunk header", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "review-diff-bin-"));
+
     try {
       execGit(rootPath, ["init"]);
       execGit(rootPath, ["config", "user.email", "test@example.com"]);
@@ -588,6 +606,7 @@ async function createDeletedHijackFixture(): Promise<{
   execGit(rootPath, ["add", "src"]);
   execGit(rootPath, ["commit", "-m", "remove schema"]);
   const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
   return { rootPath, baseRef, headRef };
 }
 
@@ -636,6 +655,7 @@ async function createFileContentFixture(): Promise<{
   execGit(rootPath, ["add", "src"]);
   execGit(rootPath, ["commit", "-m", "change"]);
   const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
   return { rootPath, baseRef, headRef };
 }
 
@@ -674,6 +694,7 @@ function commandExists(command: string): boolean {
     execFileSync(command, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
     });
+
     return true;
   } catch {
     return false;

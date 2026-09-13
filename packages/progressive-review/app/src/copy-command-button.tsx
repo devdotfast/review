@@ -8,9 +8,11 @@ export function CopyCommandButton({
   command: string;
 }): ReactElement {
   const [copied, setCopied] = useState(false);
+
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+
   useEffect(() => () => clearTimeout(resetTimer.current), []);
 
   const copyCommand = () => {

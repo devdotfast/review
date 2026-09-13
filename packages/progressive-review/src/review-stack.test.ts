@@ -45,12 +45,14 @@ describe("resolveReviewStackLayers", () => {
         ],
       }),
     );
+
     const reviewA = publishedReview({
       uuid: "11111111-1111-4111-8111-111111111111",
       repoKey: "github.com/o/r",
       pullRequestNumber: 10,
       title: "Review A",
     });
+
     const reviewB = publishedReview({
       uuid: "22222222-2222-4222-8222-222222222222",
       repoKey: "github.com/o/r",
@@ -111,6 +113,7 @@ describe("resolveReviewStackLayers", () => {
       worktreePath: "/repo",
       pullRequestNumber: 30,
     };
+
     await expect(
       resolveReviewStackLayers(subject, [], async () => {
         throw new Error("not in a stack");

@@ -51,6 +51,7 @@ describe("code target remapping", () => {
       start: { old_line: 3, new_line: null },
       end: { old_line: null, new_line: 5 },
     });
+
     const baseMapped = mapCodePositionSideThroughHunks({
       position,
       side: "base",
@@ -65,7 +66,9 @@ describe("code target remapping", () => {
         head_sha: "new-head",
       },
     });
+
     expect(baseMapped).not.toBeNull();
+
     const fullyMapped = mapCodePositionSideThroughHunks({
       position: baseMapped!,
       side: "head",

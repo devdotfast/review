@@ -26,17 +26,24 @@ export function listenForDesktopHostShutdown(
   const handleMessage = (message: JsonValue) => {
     if (!isJsonObject(message)) return;
     const type = jsonProperty(message, "type");
+
     if (type === "shutdown") {
       onShutdown();
+
       return;
     }
+
     if (type === "telemetry-setting") {
       const enabled = jsonBoolean(jsonProperty(message, "enabled"));
+
       if (enabled !== undefined) onTelemetrySetting?.(enabled);
+
       return;
     }
+
     if (type === "stage-rust-analyzer") {
       const path = jsonString(jsonProperty(message, "path"));
+
       if (path) onStageRustAnalyzer?.(path);
     }
   };
@@ -45,10 +52,13 @@ export function listenForDesktopHostShutdown(
     const handleParentMessage = (event: { data: JsonValue }) => {
       handleMessage(event.data);
     };
+
     hostProcess.parentPort.on("message", handleParentMessage);
+
     return () => hostProcess.parentPort?.off("message", handleParentMessage);
   }
 
   hostProcess.on("message", handleMessage);
+
   return () => hostProcess.off("message", handleMessage);
 }

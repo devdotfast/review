@@ -8,16 +8,19 @@ export async function installDirectory(
   renameDirectory: typeof rename = rename,
 ): Promise<void> {
   await mkdir(path.dirname(dest), { recursive: true });
+
   // The installer lock serializes these swaps. Temporary rollback copies are
   // removed on success; user edits are not retained as preservation backups.
   const staging = path.join(
     path.dirname(dest),
     `.${path.basename(dest)}.review-staging`,
   );
+
   const backup = path.join(
     path.dirname(dest),
     `.${path.basename(dest)}.review-previous`,
   );
+
   // A terminated process may have moved the previous directory but not yet
   // promoted staging. Recover it before attempting another copy.
   try {
@@ -26,6 +29,7 @@ export async function installDirectory(
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
       throw error;
+
     try {
       await renameDirectory(backup, dest);
     } catch (restoreError) {
@@ -39,10 +43,13 @@ export async function installDirectory(
         throw restoreError;
     }
   }
+
   await rm(staging, { recursive: true, force: true });
+
   try {
     await cp(src, staging, { recursive: true });
     let movedExisting = false;
+
     try {
       await renameDirectory(dest, backup);
       movedExisting = true;
@@ -52,6 +59,7 @@ export async function installDirectory(
       )
         throw error;
     }
+
     try {
       await renameDirectory(staging, dest);
     } catch (error) {
@@ -65,8 +73,10 @@ export async function installDirectory(
           );
         }
       }
+
       throw error;
     }
+
     if (movedExisting) await rm(backup, { recursive: true, force: true });
   } finally {
     await rm(staging, { recursive: true, force: true });

@@ -109,6 +109,7 @@ export function projectInlineC4({
     expandedNodeIds,
     showRemovedNodes,
   );
+
   const visibleNodeIds = modifiedOnly
     ? changedVisibleNodeIdsForProjection(
         model,
@@ -117,7 +118,9 @@ export function projectInlineC4({
         expandedNodeIds,
       )
     : baseVisibleNodeIds;
+
   const effectiveExpandedNodeIds = new Set<string>();
+
   const baseRelationships = [
     ...projectRelationships(model, baseVisibleNodeIds, showRemovedNodes),
     ...projectDataStoreForeignKeyRelationships(model, baseVisibleNodeIds),
@@ -125,11 +128,14 @@ export function projectInlineC4({
 
   const nodes = model.elements.flatMap((element) => {
     if (!visibleNodeIds.has(element.path)) return [];
+
     const isExpanded =
       isElementExpandable(element) && expandedNodeIds.has(element.path);
+
     if (isExpanded) {
       effectiveExpandedNodeIds.add(element.path);
     }
+
     const node = projectNode(
       model,
       element,
@@ -138,6 +144,7 @@ export function projectInlineC4({
       selectedNodeId,
       showRemovedNodes,
     );
+
     return [
       node,
       ...(isExpanded
@@ -162,11 +169,13 @@ export function collapseInlineC4Node(
   nodeId: string,
 ): Set<string> {
   const collapsed = new Set(expandedNodeIds);
+
   for (const expandedNodeId of expandedNodeIds) {
     if (expandedNodeId === nodeId || isDescendantPath(expandedNodeId, nodeId)) {
       collapsed.delete(expandedNodeId);
     }
   }
+
   return collapsed;
 }
 
@@ -180,6 +189,7 @@ function visibleNodeIdsForProjection(
   showRemovedNodes: boolean,
 ) {
   const visibleNodeIds = new Set<string>();
+
   const rootNodes = model.elements.filter(
     (element) =>
       !element.parentPath &&
@@ -206,6 +216,7 @@ function changedVisibleNodeIdsForProjection(
   expandedNodeIds: ReadonlySet<string>,
 ) {
   const visibleNodeIds = new Set<string>();
+
   if (changedNodeIds) {
     for (const changedNodeId of changedNodeIds) {
       const endpoint = projectedEndpoint(
@@ -213,6 +224,7 @@ function changedVisibleNodeIdsForProjection(
         changedNodeId,
         baseVisibleNodeIds,
       );
+
       if (!endpoint) continue;
       visibleNodeIds.add(endpoint);
       addExpandedDataStoreCollectionPaths(
@@ -224,9 +236,11 @@ function changedVisibleNodeIdsForProjection(
       );
     }
   }
+
   for (const element of model.elements) {
     if (!isChangedElement(element)) continue;
     const endpoint = projectedEndpoint(model, element.path, baseVisibleNodeIds);
+
     if (!endpoint) continue;
     visibleNodeIds.add(endpoint);
     addExpandedDataStoreCollectionPaths(
@@ -237,6 +251,7 @@ function changedVisibleNodeIdsForProjection(
       visibleNodeIds,
     );
   }
+
   return visibleNodeIds;
 }
 
@@ -249,7 +264,9 @@ function addExpandedDataStoreCollectionPaths(
 ) {
   if (!expandedNodeIds.has(endpoint)) return;
   const element = model.elementsByPath.get(endpoint);
+
   if (!element || element.type !== "dataStore") return;
+
   for (const collectionPath of dataStoreCollectionPaths(element)) {
     if (baseVisibleNodeIds.has(collectionPath)) {
       visibleNodeIds.add(collectionPath);
@@ -267,7 +284,9 @@ function addVisibleSubtree(
   if (!showRemovedNodes && element.changeStatus === "removed") {
     return;
   }
+
   visibleNodeIds.add(element.path);
+
   if (!expandedNodeIds.has(element.path) || !isElementExpandable(element)) {
     return;
   }
@@ -280,6 +299,7 @@ function addVisibleSubtree(
 
   for (const childPath of element.children) {
     const child = model.elementsByPath.get(childPath);
+
     if (!child) continue;
     addVisibleSubtree(
       model,
@@ -327,12 +347,14 @@ function projectDataStoreCollectionNodes(
   selectedNodeId: string | undefined,
 ): ProjectedC4Node[] {
   if (element.type !== "dataStore" || !element.dataStoreSchema) return [];
+
   return dataStoreSchemaSectionsForElement(element).map((section) => {
     const collectionPath = dataStoreCollectionPath(
       element.path,
       section.kind === "table" ? "tables" : "documents",
       collectionIdFromSection(section),
     );
+
     return {
       id: collectionPath,
       path: collectionPath,
@@ -360,11 +382,13 @@ function childCountForElement(
       ? true
       : !pathHasRemovedAncestor(model, child, element.path),
   ).length;
+
   return visibleChildCount + dataStoreSchemaChildCount(element);
 }
 
 function dataStoreSchemaChildCount(element: NormalizedSoftwareElement) {
   if (element.type !== "dataStore" || !element.dataStoreSchema) return 0;
+
   return (
     Object.keys(element.dataStoreSchema.tables).length +
     Object.keys(element.dataStoreSchema.documents).length
@@ -376,12 +400,15 @@ function dataStoreSchemaSectionsForElement(
 ): ProjectedC4DataStoreSchemaSection[] {
   if (!element.dataStoreSchema) return [];
   const sections: ProjectedC4DataStoreSchemaSection[] = [];
+
   for (const collection of Object.values(element.dataStoreSchema.tables)) {
     sections.push(dataStoreSchemaSection("table", collection));
   }
+
   for (const collection of Object.values(element.dataStoreSchema.documents)) {
     sections.push(dataStoreSchemaSection("document", collection));
   }
+
   return sections;
 }
 
@@ -420,6 +447,7 @@ function flattenDataStoreSchemaRows(
   schema: SoftwareDataStoreFieldSchema,
 ): DataStoreSchemaRow[] {
   const rows: DataStoreSchemaRow[] = [];
+
   const visit = (
     node: SoftwareDataStoreFieldSchema,
     prefix: string[],
@@ -427,6 +455,7 @@ function flattenDataStoreSchemaRows(
   ) => {
     for (const [field, value] of Object.entries(node)) {
       const nextPath = [...prefix, field];
+
       if (isDataStoreFieldLeaf(value)) {
         rows.push({
           path: nextPath,
@@ -437,6 +466,7 @@ function flattenDataStoreSchemaRows(
           fk: value.fk,
           example: exampleForDataStoreField(value),
         });
+
         if (value.schema) visit(value.schema, nextPath, depth + 1);
       } else {
         rows.push({
@@ -449,7 +479,9 @@ function flattenDataStoreSchemaRows(
       }
     }
   };
+
   visit(schema, [], 0);
+
   return rows;
 }
 
@@ -472,7 +504,9 @@ export function exampleForDataStoreField(
   field: SoftwareDataStoreFieldLeaf,
 ): DataStoreFieldExample {
   if ("example" in field) return field.example;
+
   if (field.schema) return exampleForDataStoreSchema(field.schema);
+
   return undefined;
 }
 
@@ -501,6 +535,7 @@ export function formatSchemaExample(
 ): string | undefined {
   if (value === undefined) return undefined;
   const scalar = scalarExampleSchema.safeParse(value);
+
   return scalar.success ? String(scalar.data) : JSON.stringify(value);
 }
 
@@ -508,6 +543,7 @@ function dataStoreCollectionPaths(
   element: NormalizedSoftwareElement,
 ): string[] {
   if (element.type !== "dataStore" || !element.dataStoreSchema) return [];
+
   return [
     ...Object.keys(element.dataStoreSchema.tables).map((collectionId) =>
       dataStoreCollectionPath(element.path, "tables", collectionId),
@@ -530,6 +566,7 @@ function collectionIdFromSection(
   section: ProjectedC4DataStoreSchemaSection,
 ): string {
   const separatorIndex = section.id.indexOf(":");
+
   return separatorIndex === -1
     ? section.id
     : section.id.slice(separatorIndex + 1);
@@ -540,11 +577,14 @@ function dataStoreCollectionPathForEndpoint(
   endpoint: string,
 ): string | undefined {
   if (!looksLikeDataStoreSchemaEndpoint(endpoint)) return undefined;
+
   const schemaEndpoint = parseDataStoreSchemaEndpoint(
     endpoint,
     model.elementsByPath,
   );
+
   if (!schemaEndpoint) return undefined;
+
   return dataStoreCollectionPath(
     schemaEndpoint.dataStorePath,
     schemaEndpoint.collectionKind,
@@ -557,6 +597,7 @@ function dataStorePathForSchemaEndpoint(
   endpoint: string,
 ): string | undefined {
   if (!looksLikeDataStoreSchemaEndpoint(endpoint)) return undefined;
+
   return parseDataStoreSchemaEndpoint(endpoint, model.elementsByPath)
     ?.dataStorePath;
 }
@@ -576,8 +617,10 @@ function projectRelationships(
     ) {
       continue;
     }
+
     const from = projectedEndpoint(model, relationship.from, visibleNodeIds);
     const to = projectedEndpoint(model, relationship.to, visibleNodeIds);
+
     if (!from || !to || from === to) continue;
 
     const bucketKey = relationshipBucketKey({
@@ -586,6 +629,7 @@ function projectRelationships(
       to,
       kind: relationship.kind,
     });
+
     const bucket = buckets.get(bucketKey) ?? {
       kind: relationship.kind,
       from,
@@ -632,15 +676,20 @@ function projectedRelationshipSchemaEndpoints(
   bucket: RelationshipBucket,
 ): ProjectedRelationshipSchemaEndpoints {
   const endpoints: ProjectedRelationshipSchemaEndpoints = {};
+
   if (bucket.relationships.length !== 1) return endpoints;
   const relationship = bucket.relationships[0];
+
   if (!relationship) return endpoints;
+
   const fromEndpoint = looksLikeDataStoreSchemaEndpoint(relationship.from)
     ? parseDataStoreSchemaEndpoint(relationship.from, model.elementsByPath)
     : undefined;
+
   const toEndpoint = looksLikeDataStoreSchemaEndpoint(relationship.to)
     ? parseDataStoreSchemaEndpoint(relationship.to, model.elementsByPath)
     : undefined;
+
   if (
     fromEndpoint &&
     bucket.from ===
@@ -654,6 +703,7 @@ function projectedRelationshipSchemaEndpoints(
     endpoints.fromSchemaEndpointKind =
       fromEndpoint.fieldPath.length > 0 ? "field" : "header";
   }
+
   if (
     toEndpoint &&
     bucket.to ===
@@ -667,6 +717,7 @@ function projectedRelationshipSchemaEndpoints(
     endpoints.toSchemaEndpointKind =
       toEndpoint.fieldPath.length > 0 ? "field" : "header";
   }
+
   return endpoints;
 }
 
@@ -679,28 +730,35 @@ function projectDataStoreForeignKeyRelationships(
   visibleNodeIds: ReadonlySet<string>,
 ): ProjectedC4Relationship[] {
   const relationships: ProjectedC4Relationship[] = [];
+
   for (const element of model.elements) {
     if (element.type !== "dataStore" || !element.dataStoreSchema) continue;
+
     for (const collection of Object.values(element.dataStoreSchema.tables)) {
       const sourceCollectionPath = dataStoreCollectionPath(
         element.path,
         "tables",
         collection.id,
       );
+
       if (!visibleNodeIds.has(sourceCollectionPath)) continue;
+
       for (const row of flattenDataStoreSchemaRows(collection.schema)) {
         if (!row.fk) continue;
         const targetEndpoint = foreignKeyTargetEndpoint(element.path, row.fk);
+
         if (
           !targetEndpoint ||
           !parseDataStoreSchemaEndpoint(targetEndpoint, model.elementsByPath)
         ) {
           continue;
         }
+
         const targetCollectionPath = dataStoreCollectionPathForEndpoint(
           model,
           targetEndpoint,
         );
+
         if (
           !targetCollectionPath ||
           !visibleNodeIds.has(targetCollectionPath) ||
@@ -708,6 +766,7 @@ function projectDataStoreForeignKeyRelationships(
         ) {
           continue;
         }
+
         const sourceEndpoint = `${sourceCollectionPath}.${row.path.join(".")}`;
         relationships.push({
           id: `schema-fk:${sourceEndpoint}->${targetEndpoint}`,
@@ -729,6 +788,7 @@ function projectDataStoreForeignKeyRelationships(
       }
     }
   }
+
   return relationships;
 }
 
@@ -737,7 +797,9 @@ function foreignKeyTargetEndpoint(
   fk: SoftwareDataStoreForeignKeyRef,
 ): string | undefined {
   const target = foreignKeyTarget(fk);
+
   if (!target) return undefined;
+
   return `${dataStorePath}.tables.${target.table}.${target.fieldPath.join(".")}`;
 }
 
@@ -747,9 +809,12 @@ export function foreignKeyTarget(
 ): { table: string; fieldPath: string[] } | undefined {
   if (isForeignKeyShorthand(fk)) {
     const [table, ...fieldPath] = fk.split(".").filter(Boolean);
+
     return table && fieldPath.length > 0 ? { table, fieldPath } : undefined;
   }
+
   const fieldPath = fk.field.split(".").filter(Boolean);
+
   return fk.table && fieldPath.length > 0
     ? { table: fk.table, fieldPath }
     : undefined;
@@ -771,11 +836,13 @@ function projectModifiedOnlyRelationships(
       visibleNodeIds.has(relationship.from) &&
       visibleNodeIds.has(relationship.to),
   );
+
   const directKeys = new Set(
     direct.map(
       (relationship) => `${relationship.from}\u0000${relationship.to}`,
     ),
   );
+
   const implied = projectElidedRelationships(
     baseRelationships,
     visibleNodeIds,
@@ -783,6 +850,7 @@ function projectModifiedOnlyRelationships(
     (relationship) =>
       !directKeys.has(`${relationship.from}\u0000${relationship.to}`),
   );
+
   return [...direct, ...implied];
 }
 
@@ -791,6 +859,7 @@ function projectElidedRelationships(
   visibleNodeIds: ReadonlySet<string>,
 ): ProjectedC4Relationship[] {
   const adjacency = new Map<string, ProjectedC4Relationship[]>();
+
   for (const relationship of baseRelationships) {
     const outgoing = adjacency.get(relationship.from) ?? [];
     outgoing.push(relationship);
@@ -798,6 +867,7 @@ function projectElidedRelationships(
   }
 
   const candidates = new Map<string, ImpliedRelationshipCandidate>();
+
   for (const sourceId of visibleNodeIds) {
     const queue: ImpliedTraversalState[] = [
       {
@@ -806,17 +876,22 @@ function projectElidedRelationships(
         crossedHiddenNode: false,
       },
     ];
+
     const visited = new Set<string>([sourceId]);
 
     while (queue.length > 0) {
       const current = queue.shift()!;
+
       for (const relationship of adjacency.get(current.currentId) ?? []) {
         const targetId = relationship.to;
+
         if (targetId === sourceId) continue;
+
         const sourceRelationshipIds = [
           ...current.sourceRelationshipIds,
           ...relationship.sourceRelationshipIds,
         ];
+
         if (visibleNodeIds.has(targetId)) {
           if (current.crossedHiddenNode) {
             rememberImpliedRelationship(candidates, {
@@ -825,8 +900,10 @@ function projectElidedRelationships(
               sourceRelationshipIds,
             });
           }
+
           continue;
         }
+
         if (visited.has(targetId)) continue;
         visited.add(targetId);
         queue.push({
@@ -867,6 +944,7 @@ function rememberImpliedRelationship(
   candidate: ImpliedRelationshipCandidate,
 ) {
   const key = `${candidate.from}\u0000${candidate.to}`;
+
   if (!candidates.has(key)) candidates.set(key, candidate);
 }
 
@@ -876,19 +954,24 @@ function projectedEndpoint(
   visibleNodeIds: ReadonlySet<string>,
 ) {
   const collectionPath = dataStoreCollectionPathForEndpoint(model, path);
+
   if (collectionPath && visibleNodeIds.has(collectionPath)) {
     return collectionPath;
   }
+
   const dataStorePath = dataStorePathForSchemaEndpoint(model, path);
+
   if (dataStorePath && visibleNodeIds.has(dataStorePath)) {
     return dataStorePath;
   }
 
   let current: string | undefined = path;
+
   while (current) {
     if (visibleNodeIds.has(current)) return current;
     current = model.elementsByPath.get(current)?.parentPath;
   }
+
   return undefined;
 }
 
@@ -906,13 +989,17 @@ function pathHasRemovedAncestor(
 ) {
   let current: string | undefined =
     dataStorePathForSchemaEndpoint(model, path) ?? path;
+
   while (current) {
     if (current !== stopAtPath) {
       const element = model.elementsByPath.get(current);
+
       if (element?.changeStatus === "removed") return true;
     }
+
     current = model.elementsByPath.get(current)?.parentPath;
   }
+
   return false;
 }
 

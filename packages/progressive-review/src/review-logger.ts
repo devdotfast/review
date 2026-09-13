@@ -24,6 +24,7 @@ export function createReviewLogger(input: {
   colorize?: boolean;
 }): ReviewLogger {
   const format = input.format ?? DEFAULT_REVIEW_LOG_FORMAT;
+
   const destination =
     format === "pretty"
       ? pretty({
@@ -38,6 +39,7 @@ export function createReviewLogger(input: {
           ignore: "pid,hostname,time,event",
         })
       : input.output;
+
   const logger = pino(
     {
       base: null,
@@ -56,12 +58,16 @@ export function createReviewLogger(input: {
       if (event.event === "diagnostic") {
         const { level, ...record } = event;
         logger[level](record);
+
         return;
       }
+
       if (event.event === "error") {
         logger.error(event);
+
         return;
       }
+
       logger.info(event);
     },
   };
@@ -74,10 +80,12 @@ export function emitReviewEvent(
   event: ReviewLifecycleEvent,
 ): void {
   let logger = defaultLoggers.get(output);
+
   if (!logger) {
     logger = createReviewLogger({ output });
     defaultLoggers.set(output, logger);
   }
+
   logger.event(event);
 }
 
@@ -88,6 +96,7 @@ export function serializeReviewError(cause: unknown): ReviewLifecycleError {
   const stack = jsonString(fields?.stack);
   const component = jsonString(fields?.component);
   const propertyPath = jsonString(fields?.propertyPath);
+
   const error: ReviewLifecycleError = {
     name:
       cause instanceof Error
@@ -98,15 +107,21 @@ export function serializeReviewError(cause: unknown): ReviewLifecycleError {
         ? cause.message
         : (jsonString(fields?.message) ?? String(cause)),
   };
+
   if (stack !== undefined) error.stack = stack;
+
   if (component !== undefined) error.component = component;
+
   if (propertyPath !== undefined) error.propertyPath = propertyPath;
+
   if (fields && "expected" in fields) {
     error.expected = jsonSafeValue(fields.expected);
   }
+
   if (fields && "received" in fields) {
     error.received = jsonSafeValue(fields.received);
   }
+
   return error;
 }
 

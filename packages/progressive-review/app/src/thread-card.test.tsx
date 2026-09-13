@@ -12,6 +12,7 @@ class StubResizeObserver implements ResizeObserver {
   unobserve(): void {}
   disconnect(): void {}
 }
+
 globalThis.ResizeObserver ??= StubResizeObserver;
 
 import type { ThreadView } from "./review-threads";
@@ -57,6 +58,7 @@ describe("ThreadComposer", () => {
   it("fires the current new-thread verb from the primary segment and Enter", async () => {
     const onAskNow = vi.fn<(body: string) => void>();
     const onAddToReview = vi.fn<(body: string) => void>();
+
     const { container } = await renderComposer({
       initialDraft: "Why did this change?",
       onAskNow,
@@ -68,12 +70,14 @@ describe("ThreadComposer", () => {
     expect(onAddToReview).not.toHaveBeenCalled();
 
     await setTextarea(container, "Queue this finding");
+
     const shiftEnter = new KeyboardEvent("keydown", {
       key: "Enter",
       shiftKey: true,
       bubbles: true,
       cancelable: true,
     });
+
     await act(async () => {
       textarea(container).dispatchEvent(shiftEnter);
     });
@@ -100,18 +104,24 @@ describe("ThreadComposer", () => {
   it("clears a submitted ask while the answer is still running", async () => {
     let finishAsk!: () => void;
     let valueWhenAskStarted: string | undefined;
+
     const askFinished = new Promise<void>((resolve) => {
       finishAsk = resolve;
     });
+
     let composerContainer!: HTMLElement;
+
     const onAskNow = vi.fn<() => Promise<void>>(() => {
       valueWhenAskStarted = textarea(composerContainer).value;
+
       return askFinished;
     });
+
     const { container } = await renderComposer({
       initialDraft: "Why did this change?",
       onAskNow,
     });
+
     composerContainer = container;
 
     await act(async () => {
@@ -128,6 +138,7 @@ describe("ThreadComposer", () => {
 
   it("submits a message with Enter or Command-Enter and keeps Shift-Enter for a newline", async () => {
     const onSubmit = vi.fn<(body: string) => void>();
+
     const { container } = await renderMessageComposer({
       initialDraft: "Please change this",
       onSubmit,
@@ -139,6 +150,7 @@ describe("ThreadComposer", () => {
       bubbles: true,
       cancelable: true,
     });
+
     await act(async () => {
       textarea(container).dispatchEvent(shiftEnter);
     });
@@ -163,6 +175,7 @@ describe("ThreadComposer", () => {
   it("sends the draft from the menu item instead of re-arming the primary", async () => {
     const onAskNow = vi.fn<(body: string) => void>();
     const onAddToReview = vi.fn<(body: string) => void>();
+
     const { container } = await renderComposer({
       initialDraft: "Queue this finding",
       onAskNow,
@@ -236,6 +249,7 @@ describe("ThreadCard compact presentation", () => {
         },
       ],
     };
+
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -288,6 +302,7 @@ describe("ThreadCard message actions", () => {
         },
       ],
     };
+
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -330,9 +345,11 @@ describe("ThreadCard message actions", () => {
         ?.querySelector<HTMLButtonElement>(".thread-message-menu-button")
         ?.click();
     });
+
     const labels = Array.from(
       container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
     ).map((button) => button.textContent);
+
     expect(labels).toEqual(["Edit", "Delete"]);
 
     await act(async () => {
@@ -377,6 +394,7 @@ async function renderComposer(
       />,
     );
   });
+
   return { container, root };
 }
 
@@ -400,6 +418,7 @@ async function renderMessageComposer(overrides: {
       />,
     );
   });
+
   return { container, root };
 }
 
@@ -408,13 +427,16 @@ async function chooseVerb(container: HTMLElement, label: string) {
   const toggle = container.querySelector<HTMLButtonElement>(
     ".thread-compose-verb-chevron",
   );
+
   if (!toggle) throw new Error("Missing compose verb menu toggle");
   await act(async () => toggle.click());
+
   const option = Array.from(
     container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
   ).find(
     (candidate) => candidate.querySelector("strong")?.textContent === label,
   );
+
   if (!option) throw new Error(`Missing ${label} compose verb option`);
   await act(async () => option.click());
 }
@@ -422,10 +444,12 @@ async function chooseVerb(container: HTMLElement, label: string) {
 async function setTextarea(container: HTMLElement, value: string) {
   await act(async () => {
     const field = textarea(container);
+
     const setValue = Object.getOwnPropertyDescriptor(
       HTMLTextAreaElement.prototype,
       "value",
     )?.set;
+
     if (!setValue) throw new Error("Missing textarea value setter");
     setValue.call(field, value);
     field.dispatchEvent(new Event("input", { bubbles: true }));
@@ -434,7 +458,9 @@ async function setTextarea(container: HTMLElement, value: string) {
 
 function textarea(container: HTMLElement): HTMLTextAreaElement {
   const field = container.querySelector("textarea");
+
   if (!field) throw new Error("Missing thread composer textarea");
+
   return field;
 }
 
@@ -442,6 +468,8 @@ function primaryButton(container: HTMLElement): HTMLButtonElement {
   const button = container.querySelector<HTMLButtonElement>(
     ".thread-compose-verb-primary",
   );
+
   if (!button) throw new Error("Missing primary compose verb button");
+
   return button;
 }

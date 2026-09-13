@@ -28,7 +28,9 @@ export async function actionableReviewsForCheckout(
   reviewRoot: string,
 ): Promise<StoredReview[]> {
   const checkout = await currentHead(reviewRoot);
+
   if (!checkout) return [...reviews];
+
   const matches = await Promise.all(
     reviews.map(async (stored) => {
       if (
@@ -37,9 +39,11 @@ export async function actionableReviewsForCheckout(
       ) {
         return false;
       }
+
       return reviewMatchesCheckout(stored, reviewRoot);
     }),
   );
+
   return reviews.filter((_, index) => matches[index]);
 }
 
@@ -48,14 +52,18 @@ export async function reviewMatchesCheckout(
   reviewRoot: string,
 ): Promise<boolean> {
   const identity = stored.review.sourceIdentity?.name;
+
   const headRef =
     !identity || POSITIONAL_REFS.has(identity)
       ? stored.review.sourceCommit
       : identity;
+
   if (!headRef) return false;
+
   const relationship = await resolveReviewHeadRelationship({
     rootPath: reviewRoot,
     headRef,
   });
+
   return relationship.kind === "exact" || relationship.kind === "descendant";
 }

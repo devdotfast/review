@@ -96,7 +96,9 @@ describe("ReviewHistoryControl", () => {
     const button = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Version history"]',
     );
+
     if (!button) throw new Error("Version history button not found");
+
     return button;
   }
 

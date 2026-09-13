@@ -41,6 +41,7 @@ function isRetentionChoice(choice: string): choice is RetentionChoice {
 function retentionChoice(days: number | null): RetentionChoice {
   if (days === null) return "never";
   const choice = String(days);
+
   return isRetentionChoice(choice) ? choice : "30";
 }
 
@@ -64,17 +65,22 @@ export function SettingsPage({
   const [telemetryEnabled, setTelemetryEnabled] = useState(
     settings.telemetryEnabled,
   );
+
   const [theme, setTheme] = useState(settings.theme);
   const [keymap, setKeymap] = useState(settings.keymap);
+
   const [retention, setRetention] = useState(
     retentionChoice(settings.dismissedRetentionDays),
   );
+
   const [softwareMapEnabled, setSoftwareMapEnabled] = useState(
     settings.softwareMapEnabled,
   );
+
   const [installStatus, setInstallStatus] = useState<
     ReviewCliInstallStatus | undefined
   >(settings.install?.status);
+
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +101,7 @@ export function SettingsPage({
   ) => {
     setBusy(key);
     setError(null);
+
     try {
       adopt(await action());
     } catch (cause) {
@@ -303,6 +310,7 @@ function Choice<T extends string>({
   // SAFETY: `labels` is declared as Record<T, string>, so its own keys are
   // exactly the T choices this select offers.
   const choices = Object.keys(labels) as T[];
+
   return (
     <select
       className="review-settings-select"
@@ -311,6 +319,7 @@ function Choice<T extends string>({
       disabled={disabled}
       onChange={(event) => {
         const choice = choices.find((option) => option === event.target.value);
+
         if (choice !== undefined) onChange(choice);
       }}
     >

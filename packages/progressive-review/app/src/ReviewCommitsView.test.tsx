@@ -22,6 +22,7 @@ it("shows missing pinned source as unavailable rather than zero commits", () => 
       onOpenDiff={() => {}}
     />,
   );
+
   expect(html).toContain(
     "The pinned source commits are unavailable: missing head",
   );
@@ -77,6 +78,7 @@ describe("groupCommitsByDate", () => {
   it("sorts by author time and creates one group for each date", () => {
     const localTime = (day: number, hour: number) =>
       new Date(2026, 7, day, hour).toISOString();
+
     const commit = {
       commit: "a".repeat(40),
       parentCommit: "b".repeat(40),
@@ -87,6 +89,7 @@ describe("groupCommitsByDate", () => {
       additions: 1,
       deletions: 0,
     };
+
     const groups = groupCommitsByDate([
       commit,
       {

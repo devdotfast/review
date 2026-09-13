@@ -46,6 +46,7 @@ async function fixture() {
     path.join(directory, "extensions", "git", ".npmrc"),
     "ignore-scripts=true",
   );
+
   return { directory, installDirs };
 }
 
@@ -77,6 +78,7 @@ test("installs when any nested Code OSS dependency directory is missing", async 
   const missingDirectory = await mkdtemp(
     path.join(tmpdir(), "review-desktop-"),
   );
+
   await mkdir(path.join(missingDirectory, "node_modules"));
   assert.equal(
     dependencyDirectoriesExist(missingDirectory, installDirs),
@@ -111,12 +113,14 @@ test("the bootstrap digest includes every upstream install input", async () => {
 test("the bootstrap digest ignores lockfiles outside upstream install directories", async () => {
   const { directory, installDirs } = await fixture();
   const originalDigest = await lockfileDigest(directory, installDirs);
+
   const unusedLockfile = path.join(
     directory,
     "test",
     "smoke",
     "package-lock.json",
   );
+
   await mkdir(path.dirname(unusedLockfile), { recursive: true });
   await writeFile(unusedLockfile, "unused lockfile");
 

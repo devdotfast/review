@@ -56,6 +56,7 @@ it("accepts retryable busy errors through strict response envelopes", () => {
     retryable: true,
     error: "Review is busy",
   };
+
   expect(ReviewErrorResponseSchema.parse(busy)).toEqual(busy);
   expect(ReviewDocumentResponseSchema.parse(busy)).toEqual(busy);
   expect(
@@ -69,6 +70,7 @@ const repository = {
   repositoryPath: "/tmp/repo/.jj/repo",
   worktreeRoot: "/tmp/repo",
 };
+
 const reviewRecord = {
   schemaVersion: REVIEW_SCHEMA_VERSION,
   uuid: "3b241101-e2bb-4255-8caf-4136c566a962",
@@ -86,6 +88,7 @@ const reviewRecord = {
   createdAt: "2026-07-28T00:00:00.000Z",
   lastPublishedAt: null,
 };
+
 const descriptor = {
   sessionId: "session-1",
   sessionUrl: "http://127.0.0.1:5570/sessions/session-1",
@@ -93,6 +96,7 @@ const descriptor = {
   routePath: "/",
   startedAt: 1,
 };
+
 const reviewDescriptor = {
   uuid: reviewRecord.uuid,
   title: reviewRecord.title,
@@ -113,6 +117,7 @@ const reviewDescriptor = {
   lastPublishedAt: reviewRecord.lastPublishedAt,
   available: true,
 };
+
 const session = {
   sessionId: "session-1",
   rootPath: "/tmp/repo",
@@ -126,6 +131,7 @@ const session = {
   freshQuestionHarness: "codex",
   startedAt: 1,
 };
+
 const submission = {
   id: "submission-1",
   decision: "request-changes",
@@ -136,12 +142,14 @@ const submission = {
   comments: [],
   prompt: "",
 };
+
 const anchor = {
   startLine: 1,
   endLine: 2,
   threadId: "thread-1",
   kind: "comment",
 };
+
 const contracts: Array<[string, ZodType, JsonObject]> = [
   ["review record", ReviewRecordSchema, reviewRecord],
   ["review descriptor", ReviewDescriptorSchema, reviewDescriptor],
@@ -440,6 +448,7 @@ describe("review canvas load states", () => {
       contentHash: "h",
       data: { format: "review-document/1", body: [] },
     } satisfies ReviewDocumentLoad;
+
     expect(jsonValueSchema.safeParse(load.data).success).toBe(true);
 
     const maps = {
@@ -448,6 +457,7 @@ describe("review canvas load states", () => {
       head: { elements: [], relationships: [] },
       base: { elements: [], relationships: [] },
     } satisfies ReviewSoftwareMapLoad;
+
     expect(jsonValueSchema.safeParse(maps.head).success).toBe(true);
 
     const bad = {
@@ -456,6 +466,7 @@ describe("review canvas load states", () => {
       // @ts-expect-error data must be JSON
       data: new Date(),
     } satisfies ReviewDocumentLoad;
+
     expect(bad.data).toBeInstanceOf(Date);
   });
 
@@ -469,6 +480,7 @@ describe("review canvas load states", () => {
       },
       { state: "unavailable", message: "Document unavailable" },
     ] satisfies ReviewDocumentLoad[];
+
     const softwareMapLoads = [
       {
         state: "ready",
@@ -523,6 +535,7 @@ describe("review source identity", () => {
       sourceIdentity: { kind: "jj-change", name: "rknkrlsrsmuu" },
       sourceCommit: "1".repeat(40),
     };
+
     const { sourceIdentity: _sourceIdentity, ...legacyRecord } = reviewRecord;
 
     expect(ReviewRecordSchema.safeParse(input).success).toBe(true);
@@ -545,6 +558,7 @@ describe("canonical comment contracts", () => {
     start: { old_line: null, new_line: 3 },
     end: { old_line: null, new_line: 5 },
   });
+
   const target = {
     kind: "code" as const,
     original_position: position,
@@ -595,6 +609,7 @@ describe("canonical comment contracts", () => {
   it("requires the immutable original position inside code targets", () => {
     const { original_position: _originalPosition, ...incompleteTarget } =
       target;
+
     expect(
       ReviewCommentThreadMapSchema.safeParse({
         "thread-1": {

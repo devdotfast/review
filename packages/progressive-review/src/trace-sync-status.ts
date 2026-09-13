@@ -46,6 +46,7 @@ export function sanitizeTraceSyncError(message: string): string {
     .replace(/X-Amz-\S+/g, "<signature>")
     .replace(/\s+/g, " ")
     .trim();
+
   return cleaned.length > MAX_ERROR_LENGTH
     ? `${cleaned.slice(0, MAX_ERROR_LENGTH - 1)}…`
     : cleaned;
@@ -58,6 +59,7 @@ export async function recordTraceSyncFailure(input: {
   devHome?: string;
 }): Promise<void> {
   if (!sessionIdSchema.safeParse(input.sessionId).success) return;
+
   const record: TraceSyncFailure = {
     session: input.sessionId,
     repository: input.repository,
@@ -66,6 +68,7 @@ export async function recordTraceSyncFailure(input: {
     at: new Date().toISOString(),
     retry: `review trace sync ${input.sessionId}`,
   };
+
   await writePrivateJsonAtomic(
     statusPath(input.sessionId, input.devHome ?? devReviewHome()),
     record,
@@ -86,16 +89,20 @@ export async function listTraceSyncFailures(
   const dir = traceSyncStatusDir(devHome ?? devReviewHome());
   const files = await readdir(dir).catch(() => []);
   const failures: TraceSyncFailure[] = [];
+
   for (const file of files.sort()) {
     if (!file.endsWith(".json")) continue;
+
     try {
       const parsed = syncFailureSchema.safeParse(
         JSON.parse(await readFile(path.join(dir, file), "utf8")),
       );
+
       if (parsed.success) failures.push(parsed.data);
     } catch {
       // A partial file is not a record.
     }
   }
+
   return failures;
 }

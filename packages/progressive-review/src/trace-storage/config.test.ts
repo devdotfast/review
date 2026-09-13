@@ -36,6 +36,7 @@ describe("trace config file", () => {
     const filePath = traceConfigPath({ env });
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, text);
+
     return filePath;
   }
 
@@ -113,6 +114,7 @@ describe("trace config file", () => {
 
   it("serializes writers in separate processes and rejects the stale snapshot", async () => {
     write(JSON.stringify({ version: 2, future: { keep: true } }));
+
     const script = `
       import { readTraceConfigFile, writeTraceConfigFile } from ${JSON.stringify(new URL("./config.ts", import.meta.url).href)};
       const file = readTraceConfigFile();
@@ -127,6 +129,7 @@ describe("trace config file", () => {
         }
       });
     `;
+
     const children = ["hosted", "s3"].map((selection) => {
       const child = spawn(
         process.execPath,
@@ -137,10 +140,12 @@ describe("trace config file", () => {
           stdio: ["pipe", "pipe", "pipe"],
         },
       );
+
       let stderr = "";
       child.stderr.on("data", (chunk) => {
         stderr += chunk;
       });
+
       const ready = new Promise<void>((resolve, reject) => {
         child.stdout.once("data", () => resolve());
         child.once("error", reject);
@@ -148,15 +153,19 @@ describe("trace config file", () => {
           reject(new Error(stderr || "Writer exited before ready")),
         );
       });
+
       const done = new Promise<{ code: number | null; stderr: string }>(
         (resolve) => {
           child.once("exit", (code) => resolve({ code, stderr }));
         },
       );
+
       return { child, ready, done, selection };
     });
+
     try {
       await Promise.all(children.map(({ ready }) => ready));
+
       for (const { child } of children) child.stdin.end("write");
       const results = await Promise.all(children.map(({ done }) => done));
       expect(results.map(({ code }) => code).sort()).toEqual([0, 1]);
@@ -181,6 +190,7 @@ describe("trace config file", () => {
     const filePath = write(
       JSON.stringify({ version: 2, future: { keep: true } }),
     );
+
     const file = readTraceConfigFile({ env });
     await writeTraceConfigFile(file, {
       version: 2,

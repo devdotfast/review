@@ -9,6 +9,7 @@ import { collectingWritable } from "./cli-output";
 import { runInstall } from "./install";
 
 const REQUIRED_SKILLS = ["dev-review", "dev-review-map"] as const;
+
 const ALL_SKILLS = [...REQUIRED_SKILLS, "trace-archaeology"] as const;
 
 const tempRoots: string[] = [];
@@ -16,6 +17,7 @@ const tempRoots: string[] = [];
 afterEach(async () => {
   while (tempRoots.length > 0) {
     const dir = tempRoots.pop();
+
     if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
@@ -23,6 +25,7 @@ afterEach(async () => {
 async function makeTempDir(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "review-install-"));
   tempRoots.push(dir);
+
   return dir;
 }
 
@@ -38,20 +41,24 @@ async function writeSkill(
 
 async function makePackageRoot(): Promise<string> {
   const packageRoot = await makeTempDir();
+
   for (const name of ALL_SKILLS) {
     await writeSkill(packageRoot, name);
   }
+
   await mkdir(path.join(packageRoot, "plugins"), { recursive: true });
   await writeFile(
     path.join(packageRoot, "plugins", "review.ts"),
     "// Managed by Review Desktop (@dev.fast/review).\n",
   );
+
   return packageRoot;
 }
 
 function silentStreams() {
   const out: string[] = [];
   const err: string[] = [];
+
   return {
     out,
     err,
@@ -75,6 +82,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
+
     for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
@@ -95,6 +103,7 @@ describe("runInstall", () => {
         ),
       ).toContain(`# ${name}`);
     }
+
     // Trace capture is off by default: no agent hooks, no trace skill.
     expect(existsSync(path.join(homeDir, ".claude", "settings.json"))).toBe(
       false,
@@ -126,6 +135,7 @@ describe("runInstall", () => {
         "utf8",
       ),
     ).rejects.toThrow(/ENOENT/);
+
     for (const staleName of ["review-map", "review-stop"]) {
       await expect(
         readFile(
@@ -174,6 +184,7 @@ describe("runInstall", () => {
         "utf8",
       ),
     ).rejects.toThrow(/ENOENT/);
+
     for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
@@ -182,6 +193,7 @@ describe("runInstall", () => {
         ),
       ).toContain(`# ${name}`);
     }
+
     await expect(
       readFile(
         path.join(homeDir, ".codex", "prompts", "review-stop.md"),
@@ -214,12 +226,14 @@ describe("runInstall", () => {
     const staleMapDest = path.join(homeDir, ".claude", "skills", "review-map");
     await mkdir(staleMapDest, { recursive: true });
     await writeFile(path.join(staleMapDest, "SKILL.md"), "# old-map\n");
+
     const staleStopDest = path.join(
       homeDir,
       ".claude",
       "skills",
       "review-stop",
     );
+
     await mkdir(staleStopDest, { recursive: true });
     await writeFile(path.join(staleStopDest, "SKILL.md"), "# old-stop\n");
     const streams = silentStreams();
@@ -258,6 +272,7 @@ describe("runInstall", () => {
     await writeFile(path.join(sourceDocs, "assets", "image.png"), "image\n");
 
     const homeDir = await makeTempDir();
+
     const destination = path.join(
       homeDir,
       ".agents",
@@ -265,6 +280,7 @@ describe("runInstall", () => {
       "dev-review",
       "docs",
     );
+
     await mkdir(destination, { recursive: true });
     await writeFile(path.join(destination, "stale.md"), "stale\n");
     const streams = silentStreams();
@@ -303,6 +319,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
+
     for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
@@ -311,6 +328,7 @@ describe("runInstall", () => {
         ),
       ).toContain(`# ${name}`);
     }
+
     await expect(
       readFile(
         path.join(homeDir, ".claude", "skills", "dev-review", "SKILL.md"),
@@ -340,6 +358,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
+
     for (const name of REQUIRED_SKILLS) {
       expect(
         await readFile(
@@ -348,6 +367,7 @@ describe("runInstall", () => {
         ),
       ).toContain(`# ${name}`);
     }
+
     expect(
       existsSync(
         path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts"),
@@ -379,6 +399,7 @@ describe("runInstall", () => {
     });
 
     expect(code).toBe(0);
+
     for (const root of [".claude", ".agents"]) {
       expect(
         await readFile(
@@ -387,6 +408,7 @@ describe("runInstall", () => {
         ),
       ).toContain("# trace-archaeology");
     }
+
     expect(existsSync(path.join(homeDir, ".claude", "settings.json"))).toBe(
       true,
     );
@@ -463,6 +485,7 @@ describe("runInstall", () => {
     // skills/dev-review is intentionally absent -> isDirectory guard
     // returns 1 before touching the existing install.
     const streams = silentStreams();
+
     const code = await runInstall({
       targets: ["claude"],
       homeDir,

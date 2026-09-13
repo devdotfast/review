@@ -38,7 +38,9 @@ export async function ensureReviewPinnedCheckout(input: {
     ...input,
     role: input.role ?? "head",
   });
+
   if (!target) return null;
+
   const prepared = await withFileLock(
     `${target.checkoutPath}.prepare-lock`,
     {
@@ -51,10 +53,12 @@ export async function ensureReviewPinnedCheckout(input: {
     () =>
       materializeReviewPinnedCheckout({ rootPath: input.rootPath, ...target }),
   );
+
   if (!prepared.acquired)
     throw new Error(
       `Pinned checkout ${target.commit} is busy; retry the operation.`,
     );
+
   return target.checkoutPath;
 }
 
@@ -65,9 +69,12 @@ async function resolveReviewPinnedCheckout(input: {
   role: ReviewCheckoutRole;
 }): Promise<{ checkoutPath: string; commit: string } | null> {
   const commit = await resolveReviewPinnedCommit(input.rootPath, input.ref);
+
   if (!commit) return null;
   const commonDir = await gitCommonDir(input.rootPath);
+
   if (!commonDir) return null;
+
   return {
     checkoutPath: reviewManagedCheckoutDir(
       commonDir,
@@ -85,9 +92,11 @@ async function materializeReviewPinnedCheckout(input: {
   commit: string;
 }): Promise<void> {
   const { checkoutPath } = input;
+
   if (await isWorktreeAt(input.rootPath, checkoutPath, input.commit)) {
     return;
   }
+
   // jj materializes conflict markers into the git export of a conflicted
   // revision, so a checkout of it would silently contain marker text instead
   // of code — and the graph would index that. Refuse with the remedy instead.
@@ -96,6 +105,7 @@ async function materializeReviewPinnedCheckout(input: {
       `Review cannot pin conflicted revision ${input.commit.slice(0, 12)}: the jj change has unresolved conflicts. Resolve them (jj resolve), then scaffold again.`,
     );
   }
+
   // A stale registration (e.g. a manually gutted or deleted directory) blocks
   // re-adding the same path: drop both the registration and any leftover
   // directory before recreating the worktree. The tree is recreated bare, so
@@ -126,8 +136,10 @@ export async function removeReviewPinnedCheckout(input: {
   checkoutPath: string;
 }): Promise<boolean> {
   const commonDir = await gitCommonDir(input.rootPath);
+
   if (!commonDir) return false;
   const target = path.resolve(input.checkoutPath);
+
   if (
     !isInsideDirectory(
       target,
@@ -136,6 +148,7 @@ export async function removeReviewPinnedCheckout(input: {
   ) {
     return false;
   }
+
   const existed = existsSync(target);
   await git(input.rootPath, ["worktree", "remove", "--force", target], {
     allowFailure: true,
@@ -143,6 +156,7 @@ export async function removeReviewPinnedCheckout(input: {
   await git(input.rootPath, ["worktree", "prune"], { allowFailure: true });
   rmSync(target, { recursive: true, force: true });
   await removeReviewPrepareArtifacts(target);
+
   return existed;
 }
 
@@ -152,10 +166,12 @@ export async function removeReviewManagedCheckouts(input: {
   reviewUuid: string;
 }): Promise<number> {
   const commonDir = await gitCommonDir(input.rootPath);
+
   if (!commonDir) return 0;
   const reviewRoot = reviewManagedCheckoutRoot(commonDir, input.reviewUuid);
   const worktrees = await listRegisteredWorktrees(input.rootPath);
   let removed = 0;
+
   for (const worktree of worktrees) {
     if (!isInsideDirectory(worktree.worktreePath, reviewRoot)) continue;
     await git(
@@ -165,8 +181,10 @@ export async function removeReviewManagedCheckouts(input: {
     );
     removed += 1;
   }
+
   await git(input.rootPath, ["worktree", "prune"], { allowFailure: true });
   await rm(reviewRoot, { recursive: true, force: true });
+
   return removed;
 }
 
@@ -176,18 +194,22 @@ export async function removeLegacyReviewCheckouts(input: {
   onBlocker?: (message: string) => void;
 }): Promise<number> {
   const commonDir = await gitCommonDir(input.rootPath);
+
   if (!commonDir) return 0;
   const legacyRoot = legacyReviewWorktreesDir(commonDir);
   const worktrees = await listRegisteredWorktrees(input.rootPath);
   let removed = 0;
+
   for (const worktree of worktrees) {
     if (!isInsideDirectory(worktree.worktreePath, legacyRoot)) continue;
+
     if (!isManagedLegacyReviewWorktree(worktree, legacyRoot)) {
       input.onBlocker?.(
         `Legacy checkout ${worktree.worktreePath} was not removed because it does not match the managed commit checkout layout.`,
       );
       continue;
     }
+
     // The path is a registered, commit-owned checkout inside our legacy
     // namespace. Force is safe because users cannot write through Review.
     const removal = await git(
@@ -195,6 +217,7 @@ export async function removeLegacyReviewCheckouts(input: {
       ["worktree", "remove", "--force", worktree.worktreePath],
       { allowFailure: true },
     );
+
     if (!removal.ok) {
       const detail = removal.stderr.trim() || removal.stdout.trim();
       input.onBlocker?.(
@@ -202,22 +225,27 @@ export async function removeLegacyReviewCheckouts(input: {
       );
       continue;
     }
+
     removed += 1;
   }
+
   const prune = await git(input.rootPath, ["worktree", "prune"], {
     allowFailure: true,
   });
+
   if (!prune.ok) {
     const detail = prune.stderr.trim() || prune.stdout.trim();
     input.onBlocker?.(
       `Legacy checkout registrations were not pruned${detail ? `: ${detail}` : "."}`,
     );
   }
+
   // Remove only an empty container. Keep any unregistered files for manual
   // inspection instead of deleting them recursively.
   await rmdir(legacyRoot).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
   });
+
   return removed;
 }
 
@@ -226,18 +254,26 @@ export async function reviewUuidForManagedCheckout(
   cwd: string,
 ): Promise<string | null> {
   const commonDir = await gitCommonDir(cwd).catch(() => null);
+
   if (!commonDir) return null;
+
   const relative = path.relative(
     reviewManagedCheckoutsDir(commonDir),
     path.resolve(cwd),
   );
+
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
     return null;
   }
+
   const [reviewUuid, role, commit] = relative.split(path.sep);
+
   if (!reviewUuid || !isReviewUuid(reviewUuid)) return null;
+
   if (role !== "head" && role !== "base") return null;
+
   if (!commit) return null;
+
   return reviewUuid;
 }
 
@@ -250,13 +286,17 @@ async function resolveReviewPinnedCommit(
   ref: string,
 ): Promise<string | null> {
   const resolved = await resolveRevision(rootPath, ref).catch(() => null);
+
   if (resolved) return resolved.commit;
+
   const fromGitDir = await git(
     rootPath,
     ["rev-parse", "--verify", `${ref}^{commit}`],
     { allowFailure: true },
   ).catch(() => null);
+
   if (!fromGitDir?.ok) return null;
+
   return fromGitDir.stdout.trim() || null;
 }
 
@@ -269,10 +309,13 @@ async function isWorktreeAt(
   commit: string,
 ): Promise<boolean> {
   if (!existsSync(path.join(checkoutPath, ".git"))) return false;
+
   const list = await git(rootPath, ["worktree", "list", "--porcelain"], {
     allowFailure: true,
   }).catch(() => null);
+
   if (!list?.ok) return false;
+
   return parseWorktreeList(list.stdout).some(
     (entry) =>
       path.resolve(entry.worktreePath) === path.resolve(checkoutPath) &&
@@ -285,9 +328,11 @@ function parseWorktreeList(
 ): Array<{ worktreePath: string; headCommit: string | null }> {
   const entries: Array<{ worktreePath: string; headCommit: string | null }> =
     [];
+
   for (const block of output.split(/\n\n+/)) {
     let worktreePath: string | null = null;
     let headCommit: string | null = null;
+
     for (const line of block.split("\n")) {
       if (line.startsWith("worktree ")) {
         worktreePath = line.slice("worktree ".length);
@@ -295,8 +340,10 @@ function parseWorktreeList(
         headCommit = line.slice("HEAD ".length);
       }
     }
+
     if (worktreePath) entries.push({ worktreePath, headCommit });
   }
+
   return entries;
 }
 
@@ -306,6 +353,7 @@ async function listRegisteredWorktrees(
   const listed = await git(rootPath, ["worktree", "list", "--porcelain"], {
     allowFailure: true,
   }).catch(() => null);
+
   return listed?.ok ? parseWorktreeList(listed.stdout) : [];
 }
 
@@ -317,9 +365,11 @@ function isManagedLegacyReviewWorktree(
     path.resolve(legacyRoot),
     path.resolve(worktree.worktreePath),
   );
+
   if (relative.includes(path.sep) || !/^[0-9a-f]{12}$/iu.test(relative)) {
     return false;
   }
+
   return worktree.headCommit?.startsWith(relative.toLowerCase()) ?? false;
 }
 

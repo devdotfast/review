@@ -18,16 +18,19 @@ export function softwareMapNodeLabelPath(
   const path: string[] = [];
   const visited = new Set<string>();
   let current: SoftwareMapNodeSnapshot | undefined = node;
+
   while (current) {
     if (visited.has(current.id)) {
       throw new Error(
         `Software map node ancestry contains a cycle at ${current.id}.`,
       );
     }
+
     visited.add(current.id);
     path.unshift(current.label);
     current = current.parentId ? nodesById.get(current.parentId) : undefined;
   }
+
   return path;
 }
 
@@ -41,6 +44,7 @@ export function softwareMapLiveDiagram(
   validateSoftwareMapTargetPaths(label, nodes, relationships);
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const viewType = snapshot.viewType ?? "inlineC4";
+
   const elements: LiveDiagramTarget["elements"] = [
     buildGraphTarget({
       diagram: label,
@@ -77,7 +81,9 @@ export function softwareMapLiveDiagram(
       }),
     ),
   ];
+
   validateGraphElementPaths(label, elements);
+
   return { label, elements };
 }
 
@@ -121,15 +127,18 @@ function validateSoftwareMapTargetPaths(
   relationships: readonly SoftwareMapRelationshipSnapshot[],
 ): void {
   const siblingLabels = new Map<string, Set<string>>();
+
   for (const node of nodes) {
     const parent = node.parentId ?? "<root>";
     const labels = siblingLabels.get(parent) ?? new Set<string>();
+
     if (labels.has(node.label)) {
       throwAuthoringIssue(
         ["model", "elements"],
         `SoftwareMap "${diagram}" has sibling elements labelled "${node.label}"`,
       );
     }
+
     labels.add(node.label);
     siblingLabels.set(parent, labels);
   }
@@ -143,14 +152,17 @@ function validateSoftwareMapTargetPaths(
   const edgeDiscriminators = new Map<string, Set<string>>();
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const parallelCounts = new Map<string, number>();
+
   for (const relationship of relationships) {
     const key = relationshipEndpointsKey(relationship);
     parallelCounts.set(key, (parallelCounts.get(key) ?? 0) + 1);
   }
+
   for (const [index, relationship] of relationships.entries()) {
     const key = relationshipEndpointsKey(relationship);
     const discriminators = edgeDiscriminators.get(key) ?? new Set<string>();
     const discriminator = relationshipParallelDiscriminator(relationship);
+
     if (
       (parallelCounts.get(key) ?? 0) > 1 &&
       discriminators.has(discriminator)
@@ -162,6 +174,7 @@ function validateSoftwareMapTargetPaths(
         `Label must be unique among parallel ${from}→${to} relationships`,
       );
     }
+
     discriminators.add(discriminator);
     edgeDiscriminators.set(key, discriminators);
   }
@@ -175,11 +188,14 @@ function relationshipParallelDiscriminator(
   relationship: SoftwareMapRelationshipSnapshot,
 ): string {
   const label = relationship.label?.trim();
+
   if (label) return label;
+
   const kind =
     relationship.kind === "semantic" && relationship.semanticKind
       ? `${relationship.kind}: ${relationship.semanticKind}`
       : (relationship.kind ?? "relationship");
+
   return `(${kind})`;
 }
 
@@ -188,14 +204,17 @@ function validateGraphElementPaths(
   elements: LiveDiagramTarget["elements"],
 ): void {
   const paths = new Set<string>();
+
   for (const element of elements) {
     const key = `${element.element.type}\u0000${element.element.path.join("\u0000")}`;
+
     if (paths.has(key)) {
       throwAuthoringIssue(
         ["model"],
         `SoftwareMap "${diagram}" has an ambiguous ${element.element.type} path ${element.element.path.join(" / ")}`,
       );
     }
+
     paths.add(key);
   }
 }
@@ -207,18 +226,23 @@ export function softwareMapRelationshipLabelPath(
 ): string[] {
   const endpointLabel = (nodeId: string) =>
     nodesById.get(nodeId)?.label ?? nodeId;
+
   const segmentFor = (candidate: { from: string; to: string }) =>
     `${endpointLabel(candidate.from)}→${endpointLabel(candidate.to)}`;
+
   const segment = segmentFor(relationship);
   const identityKey = relationshipEndpointsKey(relationship);
   const endpointPairsForSegment = new Set<string>();
   let parallelCount = 0;
+
   for (const candidate of relationships) {
     if (segmentFor(candidate) !== segment) continue;
     const candidateKey = relationshipEndpointsKey(candidate);
     endpointPairsForSegment.add(candidateKey);
+
     if (candidateKey === identityKey) parallelCount += 1;
   }
+
   // Distinct endpoint pairs can share a segment when same-named elements live
   // under different parents; qualify with the full node label paths so edge
   // paths stay unique.
@@ -226,7 +250,9 @@ export function softwareMapRelationshipLabelPath(
     endpointPairsForSegment.size > 1
       ? `${endpointLabelPath(relationship.from, nodesById)}→${endpointLabelPath(relationship.to, nodesById)}`
       : segment;
+
   if (parallelCount <= 1) return [qualifiedSegment];
+
   return [qualifiedSegment, relationshipParallelDiscriminator(relationship)];
 }
 
@@ -235,6 +261,8 @@ function endpointLabelPath(
   nodesById: ReadonlyMap<string, SoftwareMapNodeSnapshot>,
 ): string {
   const node = nodesById.get(nodeId);
+
   if (!node) return nodeId;
+
   return softwareMapNodeLabelPath(node, nodesById).join(".");
 }

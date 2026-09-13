@@ -31,6 +31,7 @@ import {
 } from "./terminal-command";
 
 const MATERIALIZE_TIMEOUT_MS = 60_000;
+
 const ASK_PERMISSIONS = "review-ask";
 
 function askPermissionsConfig(baseUrl: string): JsonObject {
@@ -105,17 +106,22 @@ export class CodexAgentServer implements AgentServer {
   ): Promise<{ sessionId: string; command: NativeTerminalCommand }> {
     const client = await this.#connect();
     const pathValue = await this.#commandPath.resolve();
+
     const env: NativeToolEnvironment = {
       ...reviewThreadEnvironment(this.#desktop),
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
+
     if (pathValue) env.PATH = pathValue;
+
     // Ask sessions read a frozen checkout and fetch their thread from Desktop.
     const config: JsonObject = {
       ...askPermissionsConfig(this.#desktop.baseUrl),
       "shell_environment_policy.set": env,
     };
+
     let threadId: string;
+
     if (!input.session) {
       threadId = await startThread(client, {
         cwd: input.cwd,
@@ -138,13 +144,17 @@ export class CodexAgentServer implements AgentServer {
       });
       this.#thread(threadId).subscribed = true;
     }
+
     // Threads created on this connection already stream to it.
     const state = this.#thread(threadId);
+
     if (state.queue.isClosed) {
       state.queue = new AsyncQueue();
       state.attached = false;
     }
+
     if (!input.session || "forkOf" in input.session) state.subscribed = true;
+
     if (input.prompt !== undefined) {
       // Review drives the turn; the TUI joins a running thread. Codex only
       // materializes a thread on its first user message, so wait for it.
@@ -152,6 +162,7 @@ export class CodexAgentServer implements AgentServer {
         throw new Error("Codex prompt submission is already pending.");
       state.pending = { id: input.prompt.id, notifications: [] };
       let result;
+
       try {
         result = await client.request("turn/start", {
           threadId,
@@ -162,37 +173,47 @@ export class CodexAgentServer implements AgentServer {
         state.pending = undefined;
         throw error;
       }
+
       const turnId = jsonString(jsonObject(jsonObject(result)?.turn)?.id);
+
       if (!turnId) throw new Error("Codex returned no submitted turn ID.");
       state.promptIds.set(turnId, input.prompt.id);
       state.activeTurn = turnId;
+
       const accepted = new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
           state.accepted.delete(turnId);
           reject(new Error("Codex did not emit the submitted user message."));
         }, MATERIALIZE_TIMEOUT_MS);
+
         state.accepted.set(turnId, () => {
           clearTimeout(timer);
           resolve();
         });
       });
+
       const pending = state.pending;
       state.pending = undefined;
+
       for (const notification of pending.notifications)
         this.#receive(notification);
       await accepted;
     }
+
     const url = await this.#host.url();
     // Remote resume inherits the server thread's permissions; the TUI rejects
     // permission overrides when attaching to an existing remote thread.
     const args = ["--remote", url];
+
     for (const [name, value] of Object.entries(env)) {
       args.push(
         "-c",
         `shell_environment_policy.set.${name}=${tomlInline(value)}`,
       );
     }
+
     args.push("resume", threadId);
+
     return {
       sessionId: threadId,
       command: {
@@ -209,16 +230,20 @@ export class CodexAgentServer implements AgentServer {
     close(): Promise<void>;
   }> {
     const state = this.#threads.get(sessionId);
+
     if (!state)
       throw new Error("Launch the Codex session before observing it.");
+
     if (state.attached)
       throw new Error("Codex session already has an observer.");
     state.attached = true;
     const queue = state.queue;
+
     return {
       updates: queue,
       close: async () => {
         queue.close();
+
         if (state.queue === queue) state.attached = false;
       },
     };
@@ -226,21 +251,26 @@ export class CodexAgentServer implements AgentServer {
 
   async interrupt(sessionId: string): Promise<void> {
     const state = this.#threads.get(sessionId);
+
     if (!state?.activeTurn) return;
     const turnId = state.activeTurn;
     const client = await this.#connect();
     let finish!: () => void;
+
     const done = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         state.interrupted.delete(finish);
         reject(new Error("Codex did not confirm interruption."));
       }, MATERIALIZE_TIMEOUT_MS);
+
       finish = () => {
         clearTimeout(timer);
         resolve();
       };
+
       state.interrupted.add(finish);
     });
+
     try {
       await client.request("turn/interrupt", { threadId: sessionId, turnId });
     } catch (error) {
@@ -248,6 +278,7 @@ export class CodexAgentServer implements AgentServer {
       finish();
       throw error;
     }
+
     await done;
   }
 
@@ -258,45 +289,58 @@ export class CodexAgentServer implements AgentServer {
 
   async #connect(): Promise<CodexAppServerClient> {
     const client = await this.#host.client();
+
     if (this.#listening !== client) {
       // A fresh connection knows nothing about earlier subscriptions.
       for (const state of this.#threads.values()) state.subscribed = false;
       client.onNotification((notification) => this.#receive(notification));
       this.#listening = client;
     }
+
     return client;
   }
 
   #receive(notification: CodexNotification): void {
     const threadId = jsonString(notification.params.threadId);
+
     if (threadId === undefined) return;
     const state = this.#threads.get(threadId);
+
     if (!state) return;
+
     if (state.pending) {
       state.pending.notifications.push(notification);
+
       return;
     }
+
     const turn = jsonObject(notification.params.turn);
+
     const turnId =
       notification.method === "turn/started" ||
       notification.method === "turn/completed"
         ? jsonString(turn?.id)
         : jsonString(notification.params.turnId);
+
     if (notification.method === "turn/started" && turnId) {
       state.activeTurn = turnId;
       state.queue.push({ type: "status.changed", status: "running" });
     }
+
     for (const message of projectCodexNotification(notification)) {
       if (state.seenItems.has(message.itemId)) continue;
       state.seenItems.add(message.itemId);
+
       if (message.role === "user" && turnId) {
         state.accepted.get(turnId)?.();
         state.accepted.delete(turnId);
       }
+
       const submitted =
         message.role === "user" && turnId
           ? state.promptIds.get(turnId)
           : undefined;
+
       if (submitted && turnId) state.promptIds.delete(turnId);
       state.queue.push({
         type: "message.updated",
@@ -308,18 +352,22 @@ export class CodexAgentServer implements AgentServer {
         },
       });
     }
+
     if (
       notification.method === "turn/completed" &&
       turnId === state.activeTurn
     ) {
       state.activeTurn = undefined;
+
       const status =
         turn?.status === "interrupted"
           ? "interrupted"
           : turn?.status === "failed"
             ? "failed"
             : "idle";
+
       state.queue.push({ type: "status.changed", status });
+
       for (const finish of state.interrupted) finish();
       state.interrupted.clear();
     }
@@ -327,6 +375,7 @@ export class CodexAgentServer implements AgentServer {
 
   #thread(threadId: string): ThreadState {
     let state = this.#threads.get(threadId);
+
     if (!state) {
       state = {
         seenItems: new Set(),
@@ -339,6 +388,7 @@ export class CodexAgentServer implements AgentServer {
       };
       this.#threads.set(threadId, state);
     }
+
     return state;
   }
 }
@@ -353,17 +403,24 @@ export function projectCodexNotification(
   notification: CodexNotification,
 ): CodexMessage[] {
   const { method, params } = notification;
+
   if (method === "item/completed") {
     const user = userMessage(params.item, millisToIso(params.completedAtMs));
+
     return user ? [user] : [];
   }
+
   const turn = jsonObject(params.turn);
+
   if (method === "turn/completed" && turn) {
     const items = jsonArray(turn.items);
+
     if (turn.status !== "completed" || !items) return [];
     const final = finalAgentMessage(items, secondsToIso(turn.completedAt));
+
     return final ? [final] : [];
   }
+
   return [];
 }
 
@@ -374,6 +431,7 @@ function userMessage(
   const record = jsonObject(item);
   const itemId = jsonString(record?.id);
   const content = jsonArray(record?.content);
+
   if (
     !record ||
     record.type !== "userMessage" ||
@@ -382,15 +440,19 @@ function userMessage(
   ) {
     return undefined;
   }
+
   const body = content
     .flatMap((entry) => {
       const part = jsonObject(entry);
       const text = jsonString(part?.text);
+
       return part?.type === "text" && text !== undefined ? [text] : [];
     })
     .join("\n")
     .trim();
+
   if (!body) return undefined;
+
   return { id: itemId, role: "user", body, createdAt, itemId };
 }
 
@@ -402,15 +464,18 @@ function finalAgentMessage(
     const item = jsonObject(items[index]);
     const itemId = jsonString(item?.id);
     const text = jsonString(item?.text)?.trim();
+
     if (item?.type === "agentMessage" && itemId !== undefined && text) {
       return { id: itemId, role: "assistant", body: text, createdAt, itemId };
     }
   }
+
   return undefined;
 }
 
 function secondsToIso(value: JsonValue | undefined): string {
   const seconds = jsonNumber(value);
+
   return seconds === undefined
     ? new Date(0).toISOString()
     : new Date(seconds * 1000).toISOString();
@@ -418,6 +483,7 @@ function secondsToIso(value: JsonValue | undefined): string {
 
 function millisToIso(value: JsonValue | undefined): string {
   const millis = jsonNumber(value);
+
   return millis === undefined
     ? new Date(0).toISOString()
     : new Date(millis).toISOString();

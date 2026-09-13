@@ -15,12 +15,15 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
+
 const generatorPath = fileURLToPath(
   new URL("../scripts/generate-native-source.mjs", import.meta.url),
 );
+
 const bundlerPath = fileURLToPath(
   new URL("../scripts/bundle-native-runtime.mjs", import.meta.url),
 );
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -36,6 +39,7 @@ describe("native Review Protocol source generation", () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "review-protocol-native-"),
     );
+
     temporaryDirectories.push(directory);
     const outputPath = path.join(directory, "reviewProtocol.ts");
 
@@ -65,6 +69,7 @@ describe("native Review Protocol source generation", () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "review-protocol-native-bundle-"),
     );
+
     temporaryDirectories.push(directory);
     const sourcePath = path.join(directory, "reviewProtocol.ts");
     const outputPath = path.join(directory, "reviewProtocol.mjs");
@@ -94,10 +99,12 @@ describe("native Review Protocol source generation", () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "review-protocol-native-reformat-"),
     );
+
     temporaryDirectories.push(directory);
     const packageRoot = fileURLToPath(new URL("..", import.meta.url));
     const sourceRoot = path.join(directory, "src");
     await mkdir(sourceRoot, { recursive: true });
+
     for (const name of [
       "runtime-value.ts",
       "json.ts",
@@ -110,12 +117,14 @@ describe("native Review Protocol source generation", () => {
         path.join(sourceRoot, name),
       );
     }
+
     // Reformat index.ts: one named import per line, different order, the
     // re-exports moved to the bottom of the file, and the `contracts.js`
     // re-export rewritten from `export * from` to a wrapped multi-line
     // named re-export.
     const indexPath = path.join(sourceRoot, "index.ts");
     const original = await readFile(indexPath, "utf8");
+
     const reexports = original
       .split("\n")
       .filter((line) => line.startsWith("export * from "))
@@ -124,10 +133,12 @@ describe("native Review Protocol source generation", () => {
           ? 'export {\n  sessionIdSchema,\n  commitShaSchema,\n} from "./contracts.js";'
           : line,
       );
+
     const body = original
       .split("\n")
       .filter((line) => !line.startsWith("export * from "))
       .join("\n");
+
     const reformatted = body
       .replace(
         /import \{([\s\S]*?)\} from "\.\/contracts\.js";/,
@@ -141,6 +152,7 @@ describe("native Review Protocol source generation", () => {
             .join("\n"),
       )
       .concat("\n", reexports.join("\n"), "\n");
+
     await writeFile(indexPath, reformatted);
 
     const expectedPath = path.join(directory, "expected.ts");
@@ -161,6 +173,7 @@ describe("native Review Protocol source generation", () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "review-protocol-native-local-export-"),
     );
+
     temporaryDirectories.push(directory);
     const sourceRoot = path.join(directory, "src");
     await mkdir(sourceRoot, { recursive: true });

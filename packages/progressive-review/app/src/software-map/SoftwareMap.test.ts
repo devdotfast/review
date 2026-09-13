@@ -12,9 +12,13 @@ import {
 function sourceBetween(source: string, start: string, end: string): string {
   const from = source.indexOf(start);
   const to = source.indexOf(end);
+
   if (from === -1) throw new Error(`marker not found: ${start}`);
+
   if (to === -1) throw new Error(`marker not found: ${end}`);
+
   if (to < from) throw new Error(`markers out of order: ${start} after ${end}`);
+
   return source.slice(from, to);
 }
 
@@ -241,6 +245,7 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
     );
+
     const canvasSource = sourceBetween(
       source,
       "function C4MapCanvas",
@@ -266,6 +271,7 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
     );
+
     const measurementLayerSource = sourceBetween(
       source,
       "function C4NodeMeasurementLayer",
@@ -280,6 +286,7 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./styles.css", import.meta.url),
       "utf8",
     );
+
     const source = readFileSync(
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
@@ -351,10 +358,12 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
     );
+
     const hotkeysSource = readFileSync(
       new URL("./hotkeys-tab.tsx", import.meta.url),
       "utf8",
     );
+
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
@@ -435,6 +444,7 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./styles.css", import.meta.url),
       "utf8",
     );
+
     const source = readFileSync(
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
@@ -518,10 +528,12 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./styles.css", import.meta.url),
       "utf8",
     );
+
     const appSource = readFileSync(
       new URL("../App.tsx", import.meta.url),
       "utf8",
     );
+
     const source = readFileSync(
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
@@ -545,6 +557,7 @@ describe("SoftwareMap inline C4 helpers", () => {
       new URL("./styles.css", import.meta.url),
       "utf8",
     );
+
     const source = readFileSync(
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
@@ -568,6 +581,7 @@ describe("SoftwareMap inline C4 helpers", () => {
     const source = readFileSync(new URL("./SoftwareMap.tsx", import.meta.url), {
       encoding: "utf8",
     });
+
     const styles = readFileSync(new URL("./styles.css", import.meta.url), {
       encoding: "utf8",
     });

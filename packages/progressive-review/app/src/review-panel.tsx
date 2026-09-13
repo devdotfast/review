@@ -17,6 +17,7 @@ import {
 } from "./review-panel-store";
 
 const ReviewPanelContext = createContext<ReviewPanelStore | null>(null);
+
 const fallbackReviewPanelStore = createReviewPanelStore();
 
 export function ReviewPanelProvider({
@@ -33,6 +34,7 @@ export function ReviewPanelProvider({
     previousDetailRevision.current = detailRevision;
     store.getState().closeForDocumentChange();
   }, [detailRevision, store]);
+
   return (
     <ReviewPanelContext.Provider value={store}>
       {children}
@@ -55,16 +57,19 @@ export function useOptionalReviewPanel<T>(
 ): T | undefined {
   const store = useContext(ReviewPanelContext);
   const selected = useStore(store ?? fallbackReviewPanelStore, selector);
+
   return store ? selected : undefined;
 }
 
 export function useReviewPanelStore(): ReviewPanelStore {
   const store = useContext(ReviewPanelContext);
+
   if (!store) {
     throw new Error(
       "Review panel components must render inside ReviewPanelProvider",
     );
   }
+
   return store;
 }
 
@@ -74,9 +79,11 @@ export function useSuppressPanelMotionOnCanvasResume(
   const store = useReviewPanelStore();
   useEffect(() => {
     const canvasRoot = appRef.current?.closest(".review-canvas-root");
+
     if (!canvasRoot) return;
     const suppressMotion = () => store.getState().suppressMotion();
     canvasRoot.addEventListener(REVIEW_CANVAS_RESUME_EVENT, suppressMotion);
+
     return () =>
       canvasRoot.removeEventListener(
         REVIEW_CANVAS_RESUME_EVENT,

@@ -134,9 +134,11 @@ export function groupLineCommentBadges(
   comments: readonly SourceLineComment[],
 ): PanelLineBadge[] {
   const counts = new Map<number, number>();
+
   for (const comment of comments) {
     counts.set(comment.line, (counts.get(comment.line) ?? 0) + comment.count);
   }
+
   return [...counts]
     .map(([line, count]) => ({ line, count }))
     .sort((left, right) => left.line - right.line);
@@ -146,16 +148,20 @@ function groupPanelThreadBadges(
   ranges: readonly PanelThreadRange[],
 ): PanelLineBadge[] {
   const counts = new Map<string, PanelLineBadge>();
+
   for (const range of ranges) {
     const key = `${range.side ?? "file"}:${range.fromLine}`;
     const current = counts.get(key);
+
     const badge: PanelLineBadge = {
       line: range.fromLine,
       count: (current?.count ?? 0) + range.count,
     };
+
     if (range.side) badge.side = range.side;
     counts.set(key, badge);
   }
+
   return [...counts.values()].sort(
     (left, right) =>
       left.line - right.line ||
@@ -168,13 +174,17 @@ export function lineFromPointerY(
   pointerY: number,
 ): number | null {
   if (rows.length === 0) return null;
+
   const containing = rows.find(
     (row) => pointerY >= row.top && pointerY <= row.top + row.height,
   );
+
   if (containing) return containing.line;
+
   return rows.reduce((nearest, row) => {
     const rowCenter = row.top + row.height / 2;
     const nearestCenter = nearest.top + nearest.height / 2;
+
     return Math.abs(rowCenter - pointerY) < Math.abs(nearestCenter - pointerY)
       ? row
       : nearest;
@@ -204,11 +214,14 @@ export function normalizePanelLineRange(
   const first = "start" in range ? range.start : range.fromLine;
   const last = "end" in range ? range.end : range.toLine;
   const side = range.side ?? ("endSide" in range ? range.endSide : undefined);
+
   const normalized: PanelLineRange = {
     fromLine: Math.min(first, last),
     toLine: Math.max(first, last),
   };
+
   if (side) normalized.side = side;
+
   return normalized;
 }
 
@@ -228,20 +241,26 @@ export function panelThreadInjectionTarget(input: {
       key: `draft:${input.draft.threadId}`,
       line: input.draft.range.toLine,
     };
+
     if (input.draft.range.side) target.side = input.draft.range.side;
+
     return target;
   }
+
   if (input.expandedThread) {
     const target: PanelThreadInjectionTarget = {
       kind: "thread",
       key: `thread:${input.expandedThread.threadId}`,
       line: input.expandedThread.range.toLine,
     };
+
     if (input.expandedThread.range.side) {
       target.side = input.expandedThread.range.side;
     }
+
     return target;
   }
+
   return null;
 }
 
@@ -250,6 +269,7 @@ export function panelDraftDismissalAction(
   hasText: boolean,
 ): "blur" | "close" | "keep" {
   if (!hasText) return "close";
+
   return trigger === "escape" ? "blur" : "keep";
 }
 
@@ -264,10 +284,13 @@ export function panelEscapeAction(input: {
   | "minimize-thread"
   | "close-panel" {
   if (input.menuOpen) return "close-menu";
+
   if (input.draftHasText !== null) {
     return input.draftHasText ? "blur-draft" : "close-draft";
   }
+
   if (input.threadExpanded) return "minimize-thread";
+
   return "close-panel";
 }
 
@@ -297,15 +320,19 @@ export function codeTargetLineRange(
 ): PanelLineRange | null {
   if (target.kind !== "code") return null;
   const projection = projectCodeTarget(target, side, patch);
+
   if (!projection) return null;
+
   const lastLine =
     sourceFromLine + normalizeLineEndings(sourceText).split("\n").length - 1;
+
   if (
     projection.span.startLine < sourceFromLine ||
     projection.span.endLine > lastLine
   ) {
     return null;
   }
+
   return {
     fromLine: projection.span.startLine,
     toLine: projection.span.endLine,
@@ -328,12 +355,14 @@ export function panelThreadHostForTarget(
   anchorId: string,
 ): Exclude<PanelThreadHost, "all"> | null {
   if (target.kind === "code") return "content";
+
   if (
     target.kind !== "text" ||
     target.surface.type !== "anchor" ||
     target.surface.anchorId !== anchorId
   )
     return null;
+
   return target.surface.part.field === "title" ? "title" : "content";
 }
 
@@ -382,6 +411,7 @@ export function usePanelThreadController({
   threadHost?: PanelThreadHost;
 }): PanelThreadController {
   const appRef = useReviewRoots()?.appRef;
+
   const {
     focusThread,
     blurThread,
@@ -394,34 +424,42 @@ export function usePanelThreadController({
     deleteCommentMessage,
     deleteComment,
   } = useReviewActions();
+
   const {
     terminalThreadIds,
     commentsForAnchor,
     draftTarget: draftTargetFromContext,
   } = useReviewState();
+
   const comments = commentsForAnchor(anchor).filter(
     (thread) =>
       threadHost === "all" ||
       panelThreadHostForTarget(thread.target, anchor.id) === threadHost,
   );
+
   const openComments = comments.filter(
     (thread) => thread.status !== "resolved",
   );
+
   const resolvedComments = comments.filter(
     (thread) => thread.status === "resolved",
   );
+
   const panelDraftTarget = commentDraftTargetForSurface(
     draftTargetFromContext,
     "panel",
   );
+
   const defaultCodeSide =
     anchor.peek?.resolution?.diff?.orientation ??
     anchor.peek?.props.graph ??
     "head";
+
   const draftCodeResource =
     panelDraftTarget?.target.kind === "code"
       ? codeTargetResource(panelDraftTarget.target, defaultCodeSide)
       : null;
+
   const draftTarget =
     panelDraftTarget &&
     ((panelDraftTarget.target.kind === "code" &&
@@ -435,19 +473,24 @@ export function usePanelThreadController({
         threadHost)
       ? panelDraftTarget
       : null;
+
   const storageKey = panelThreadSectionSessionKey(
     typeof window === "undefined" ? "" : window.location.pathname,
     anchor.id,
     threadHost,
   );
+
   const [sectionCollapsed, setSectionCollapsed] = useState(() =>
     readPanelThreadSectionCollapsed(storageKey),
   );
+
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [resolvedExpanded, setResolvedExpanded] = useState(false);
   const [dragRange, setDragRange] = useState<PanelLineRange | null>(null);
+
   const [baseSource, setBaseSource] =
     useState<ResolvedCommentCodeSource | null>(null);
+
   const [baseSourceError, setBaseSourceError] = useState<string | null>(null);
   const [draftSubmitError, setDraftSubmitError] = useState<string | null>(null);
   const activeCardRef = useRef<HTMLDivElement | null>(null);
@@ -478,6 +521,7 @@ export function usePanelThreadController({
         }
       },
     );
+
     return () => {
       cancelled = true;
     };
@@ -487,6 +531,7 @@ export function usePanelThreadController({
     return openComments.flatMap((thread) => {
       if (thread.target.kind !== "code") return [];
       const patch = diffFileForCodeTarget(anchor, thread.target)?.patch;
+
       return codeTargetProjectionSides(thread.target, defaultCodeSide).flatMap(
         (side) => {
           const source =
@@ -495,7 +540,9 @@ export function usePanelThreadController({
               : sourceText === undefined
                 ? null
                 : { text: sourceText, fromLine: sourceFromLine };
+
           if (!source) return [];
+
           const range = codeTargetLineRange(
             thread.target,
             anchor.id,
@@ -504,6 +551,7 @@ export function usePanelThreadController({
             side,
             patch,
           );
+
           return range
             ? [
                 {
@@ -524,26 +572,33 @@ export function usePanelThreadController({
     sourceFromLine,
     sourceText,
   ]);
+
   const activeThread =
     openComments.find((thread) => thread.threadId === activeThreadId) ?? null;
+
   const activeRange =
     threadRanges.find((range) => range.threadId === activeThreadId) ?? null;
+
   const draftRange = draftTarget?.panelRange
     ? normalizePanelLineRange(draftTarget.panelRange)
     : draftTarget
       ? (() => {
           if (draftTarget.target.kind !== "code") return null;
+
           const side = codeTargetProjectionSides(
             draftTarget.target,
             defaultCodeSide,
           )[0];
+
           if (!side) return null;
+
           const source =
             side === "base"
               ? baseSource
               : sourceText === undefined
                 ? null
                 : { text: sourceText, fromLine: sourceFromLine };
+
           return source
             ? codeTargetLineRange(
                 draftTarget.target,
@@ -556,8 +611,10 @@ export function usePanelThreadController({
             : null;
         })()
       : null;
+
   const lineBadges = groupPanelThreadBadges(threadRanges);
   const selectedRange = dragRange ?? draftRange ?? activeRange;
+
   const threadInjection = panelThreadInjectionTarget({
     draft:
       draftTarget && draftRange
@@ -587,6 +644,7 @@ export function usePanelThreadController({
         line <= range.toLine &&
         (!side || !range.side || range.side === side),
     );
+
     if (matching) activateThread(matching.threadId);
   };
 
@@ -598,6 +656,7 @@ export function usePanelThreadController({
   const endLineSelection = (range: PanelLineRange | null) => {
     const normalized = normalizePanelLineRange(range);
     setDragRange(null);
+
     if (!normalized || !createLineTarget) return;
     setCollapsed(false);
     setActiveThreadId(null);
@@ -610,6 +669,7 @@ export function usePanelThreadController({
   useEffect(() => {
     draftHasTextRef.current = false;
     setDraftSubmitError(null);
+
     if (!draftTarget) return;
     setCollapsed(false);
     setActiveThreadId(null);
@@ -623,27 +683,34 @@ export function usePanelThreadController({
   useLayoutEffect(() => {
     if (sectionCollapsed) return;
     const card = draftTarget ? draftCardRef.current : activeCardRef.current;
+
     if (!card) return;
     const scroller = card.closest<HTMLElement>(".side-peek-body");
+
     const viewport = scroller?.getBoundingClientRect() ?? {
       top: 0,
       right: window.innerWidth,
       bottom: window.innerHeight,
       left: 0,
     };
+
     if (!panelThreadCardNeedsScroll(card.getBoundingClientRect(), viewport)) {
       return;
     }
+
     card.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeThreadId, draftTarget?.threadId, sectionCollapsed]);
 
   useEffect(() => {
     if (!draftTarget) return;
+
     const closeEmptyDraftOnOutsidePointer = (event: PointerEvent) => {
       const target = event.target;
+
       if (target instanceof Node) {
         const element =
           target instanceof Element ? target : target.parentElement;
+
         if (
           draftCardRef.current?.contains(target) ||
           element?.closest(".thread-card--draft")
@@ -651,6 +718,7 @@ export function usePanelThreadController({
           return;
         }
       }
+
       if (
         panelDraftDismissalAction(
           "outside-pointer",
@@ -660,28 +728,36 @@ export function usePanelThreadController({
         closeCommentDraft();
       }
     };
+
     const handleDraftEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+
       const action = panelEscapeAction({
         menuOpen: panelThreadMenuIsOpen(appRef?.current),
         draftHasText: draftHasTextRef.current,
         threadExpanded: false,
       });
+
       if (action === "close-menu") return;
       event.preventDefault();
       event.stopImmediatePropagation();
+
       if (action === "close-draft") {
         closeCommentDraft();
+
         return;
       }
+
       draftCardRef.current?.querySelector("textarea")?.blur();
     };
+
     document.addEventListener(
       "pointerdown",
       closeEmptyDraftOnOutsidePointer,
       true,
     );
     document.addEventListener("keydown", handleDraftEscape, true);
+
     return () => {
       document.removeEventListener(
         "pointerdown",
@@ -694,19 +770,24 @@ export function usePanelThreadController({
 
   useEffect(() => {
     if (!activeThreadId) return;
+
     const collapseOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+
       const action = panelEscapeAction({
         menuOpen: panelThreadMenuIsOpen(appRef?.current),
         draftHasText: null,
         threadExpanded: true,
       });
+
       if (action !== "minimize-thread") return;
       event.preventDefault();
       event.stopImmediatePropagation();
       minimize();
     };
+
     document.addEventListener("keydown", collapseOnEscape, true);
+
     return () =>
       document.removeEventListener("keydown", collapseOnEscape, true);
   }, [activeThreadId, appRef]);
@@ -718,8 +799,10 @@ export function usePanelThreadController({
     if (!draftTarget) return false;
     const { resolveTarget } = draftTarget;
     setDraftSubmitError(null);
+
     try {
       const target = resolveTarget ? await resolveTarget() : draftTarget.target;
+
       if (askAgent) {
         await askAgentAction({
           threadId: draftTarget.threadId,
@@ -728,8 +811,10 @@ export function usePanelThreadController({
           body,
         });
         closeCommentDraft();
+
         return true;
       }
+
       await saveComment({
         threadId: draftTarget.threadId,
         target,
@@ -737,11 +822,13 @@ export function usePanelThreadController({
         body,
       });
       closeCommentDraft();
+
       return true;
     } catch (error) {
       setDraftSubmitError(
         error instanceof Error ? error.message : String(error),
       );
+
       return false;
     }
   };
@@ -749,6 +836,7 @@ export function usePanelThreadController({
   const renderActiveThreadCard = (): ReactElement | null => {
     if (!activeThread || terminalThreadIds.has(activeThread.threadId))
       return null;
+
     return (
       <div ref={activeCardRef} className="panel-thread-active-card">
         <ThreadCard
@@ -763,6 +851,7 @@ export function usePanelThreadController({
           onMinimize={minimize}
           onResolve={(resolved) => {
             void setCommentResolved(activeThread.threadId, resolved);
+
             if (resolved) minimize();
           }}
           onAskNow={(body) =>
@@ -789,6 +878,7 @@ export function usePanelThreadController({
           }
           onDelete={() => {
             minimize();
+
             return deleteComment(activeThread.threadId);
           }}
         />
@@ -798,9 +888,11 @@ export function usePanelThreadController({
 
   const renderDraftCard = (): ReactElement | null => {
     if (!draftTarget) return null;
+
     const draftQuote = draftRange
       ? panelLineRangeLabel(draftRange)
       : (draftTarget.title ?? targetQuote(draftTarget.target));
+
     return (
       <ThreadDraftCard
         cardRef={draftCardRef}
@@ -823,6 +915,7 @@ export function usePanelThreadController({
     target: PanelThreadInjectionTarget,
   ): ReactElement | null => {
     if (target.key !== threadInjection?.key) return null;
+
     return (
       <div
         className="panel-thread-injected-row"
@@ -835,15 +928,18 @@ export function usePanelThreadController({
 
   const renderThreadArea = (): ReactElement | null => {
     if (sectionCollapsed) return null;
+
     const unbadgedThreads = openComments.filter(
       (thread) =>
         !threadRanges.some((range) => range.threadId === thread.threadId),
     );
+
     const hasCards =
       (unbadgedThreads.length > 0 && !activeThread) ||
       Boolean(activeThread && !activeRange) ||
       Boolean(draftTarget && !draftRange) ||
       (resolvedExpanded && resolvedComments.length > 0);
+
     if (!hasCards) return null;
 
     return (
@@ -875,12 +971,14 @@ export function usePanelThreadController({
                 thread.target.kind === "code"
                   ? codeTargetProjectionSides(thread.target, defaultCodeSide)[0]
                   : undefined;
+
               const rangeSource =
                 side === "base"
                   ? baseSource
                   : side === "head" && sourceText !== undefined
                     ? { text: sourceText, fromLine: sourceFromLine }
                     : null;
+
               const range = rangeSource
                 ? codeTargetLineRange(
                     thread.target,
@@ -891,6 +989,7 @@ export function usePanelThreadController({
                     diffFileForCodeTarget(anchor, thread.target)?.patch,
                   )
                 : null;
+
               return (
                 <article key={thread.threadId} className="panel-resolved-card">
                   <span
@@ -925,8 +1024,11 @@ export function usePanelThreadController({
       openComments.length > 0 ||
       resolvedComments.length > 0 ||
       Boolean(draftTarget);
+
     if (!hasContent) return null;
+
     if (threadHost === "title" && sectionCollapsed) return null;
+
     if (threadHost === "title") {
       return resolvedComments.length > 0 ? (
         <section className="panel-thread-footer" aria-label="Comment controls">
@@ -944,6 +1046,7 @@ export function usePanelThreadController({
         </section>
       ) : null;
     }
+
     if (sectionCollapsed) {
       return (
         <button
@@ -992,11 +1095,14 @@ export function usePanelThreadController({
 
   const renderTitleMarker = (): ReactElement | null => {
     if (threadHost !== "title") return null;
+
     const hasContent =
       openComments.length > 0 ||
       resolvedComments.length > 0 ||
       Boolean(draftTarget);
+
     if (!hasContent) return null;
+
     return (
       <button
         type="button"
@@ -1067,6 +1173,7 @@ export function PanelCodeSurface({
   const dragAnchorRef = useRef<PanelLineRange | null>(null);
   const dragRangeRef = useRef<PanelLineRange | null>(null);
   const [rows, setRows] = useState<PanelMeasuredLine[]>([]);
+
   const [injectionGeometry, setInjectionGeometry] = useState<{
     top: number;
     left: number;
@@ -1075,19 +1182,24 @@ export function PanelCodeSurface({
 
   const measureRows = () => {
     const layout = layoutRef.current;
+
     if (!layout) return;
     const layoutRect = layout.getBoundingClientRect();
+
     const elements = [
       ...layout.querySelectorAll<HTMLElement>("[data-panel-code-line]"),
     ];
+
     const nextRows = controller.lineBadges.flatMap((badge) => {
       const element = elements.find(
         (candidate) =>
           Number(candidate.dataset.line) === badge.line &&
           (!badge.side || candidate.dataset.lineSide === badge.side),
       );
+
       if (!element) return [];
       const rect = element.getBoundingClientRect();
+
       return [
         {
           line: badge.line,
@@ -1097,10 +1209,12 @@ export function PanelCodeSurface({
         },
       ];
     });
+
     setRows((current) =>
       panelMeasuredLinesEqual(current, nextRows) ? current : nextRows,
     );
     const injection = controller.threadInjection;
+
     const injectionElement = injection
       ? elements.find(
           (candidate) =>
@@ -1108,16 +1222,21 @@ export function PanelCodeSurface({
             (!injection.side || candidate.dataset.lineSide === injection.side),
         )
       : undefined;
+
     if (!injectionElement) {
       setInjectionGeometry(null);
+
       return;
     }
+
     const rect = injectionElement.getBoundingClientRect();
+
     const nextGeometry = {
       top: rect.bottom - layoutRect.top,
       left: rect.left - layoutRect.left,
       width: rect.width,
     };
+
     setInjectionGeometry((current) =>
       current &&
       Math.abs(current.top - nextGeometry.top) < 0.5 &&
@@ -1138,21 +1257,26 @@ export function PanelCodeSurface({
 
   useEffect(() => {
     const layout = layoutRef.current;
+
     if (!layout || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measureRows);
     observer.observe(layout);
+
     return () => observer.disconnect();
   }, [lines]);
 
   useEffect(() => {
     const finishSelection = () => {
       const range = dragRangeRef.current;
+
       if (!range) return;
       dragAnchorRef.current = null;
       dragRangeRef.current = null;
       controller.endLineSelection(range);
     };
+
     window.addEventListener("pointerup", finishSelection);
+
     return () => window.removeEventListener("pointerup", finishSelection);
   }, [controller]);
 
@@ -1162,23 +1286,30 @@ export function PanelCodeSurface({
   ) => {
     event.preventDefault();
     const range: PanelLineRange = { fromLine: line.line, toLine: line.line };
+
     if (line.side) range.side = line.side;
     dragAnchorRef.current = range;
     dragRangeRef.current = range;
     controller.beginLineSelection(range);
   };
+
   const extendSelection = (
     event: ReactPointerEvent<HTMLButtonElement>,
     line: PanelCodeLine,
   ) => {
     const anchor = dragAnchorRef.current;
+
     if (!anchor || event.buttons !== 1) return;
+
     if (anchor.side && line.side && anchor.side !== line.side) return;
+
     const range: PanelLineRange = {
       fromLine: Math.min(anchor.fromLine, line.line),
       toLine: Math.max(anchor.toLine, line.line),
     };
+
     const side = anchor.side ?? line.side;
+
     if (side) range.side = side;
     dragRangeRef.current = range;
     controller.changeLineSelection(range);
@@ -1248,7 +1379,9 @@ function panelCodeLineHighlight(
   >,
 ): "idle" | "active" | "candidate" | undefined {
   if (panelRangeContainsLine(controller.dragRange, line)) return "candidate";
+
   if (panelRangeContainsLine(controller.selectedRange, line)) return "active";
+
   return controller.threadRanges.some((range) =>
     panelRangeContainsLine(range, line),
   )
@@ -1281,10 +1414,13 @@ export function PanelAuthoredCodeSurface({
 }): ReactElement {
   const headRef = useResolvedHeadRef();
   const baseRef = useResolvedBaseRef();
+
   const source = anchor.peek?.resolution
     ? resolvedCodeSurface(anchor.peek.resolution)
     : null;
+
   const normalizedCode = normalizeLineEndings(code);
+
   const controller = usePanelThreadController({
     anchor,
     sourceText: normalizedCode,
@@ -1306,12 +1442,15 @@ export function PanelAuthoredCodeSurface({
             )
         : undefined,
   });
+
   const firstLine = source?.fromLine ?? 1;
+
   const lines = normalizedCode.split("\n").map((text, index) => ({
     key: `line:${firstLine + index}`,
     line: firstLine + index,
     text,
   }));
+
   return (
     <PanelCodeSurface
       lines={lines}
@@ -1337,8 +1476,10 @@ export function PanelThreadRail({
           (candidate) =>
             candidate.line === badge.line && candidate.side === badge.side,
         );
+
         if (!row) return null;
         const active = controller.isBadgeActive(badge.line, badge.side);
+
         return (
           <button
             type="button"

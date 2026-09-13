@@ -24,7 +24,9 @@ describe("libavoid Trusted Types hardening", () => {
       'globalThis.first = new Function("value", "return value + 1")(41);',
       'globalThis.second = new Function("return 7")();',
     ].join("\n");
+
     const transformed = hardenLibavoidForTrustedTypes(source);
+
     const createPolicy = vi.fn<
       (
         name: string,
@@ -37,6 +39,7 @@ describe("libavoid Trusted Types hardening", () => {
         trustedScript: rules.createScript(value),
       }),
     }));
+
     const functionConstructor = vi.fn<
       (
         ...args: Array<{ trustedScript: string }>
@@ -47,19 +50,24 @@ describe("libavoid Trusted Types hardening", () => {
           "Function constructor arguments must be TrustedScript values",
         );
       }
+
       const body = args.at(-1);
+
       if (!body) {
         throw new TypeError("Function body must be a TrustedScript");
       }
+
       return (...values: unknown[]) =>
         body.trustedScript === "return value + 1" ? Number(values[0]) + 1 : 7;
     });
+
     interface LibavoidCanvasGlobal {
       Function: typeof functionConstructor;
       trustedTypes: { createPolicy: typeof createPolicy };
       first?: number;
       second?: number;
     }
+
     const canvasGlobal: LibavoidCanvasGlobal = {
       Function: functionConstructor,
       trustedTypes: { createPolicy },

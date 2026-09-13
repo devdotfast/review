@@ -34,16 +34,24 @@ export interface PostHogCaptureClientOptions {
 
 export const PROGRESSIVE_REVIEW_POSTHOG_KEY_ENV =
   "PROGRESSIVE_REVIEW_POSTHOG_KEY";
+
 export const PROGRESSIVE_REVIEW_POSTHOG_HOST_ENV =
   "PROGRESSIVE_REVIEW_POSTHOG_HOST";
 
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
+
 const DEFAULT_CAPTURE_TIMEOUT_MS = 1_000;
+
 const QUEUE_LIMIT = 1_000;
+
 const BATCH_LIMIT = 50;
+
 const QUEUE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
+
 const FLUSH_DELAY_MS = 5_000;
+
 const MAX_BACKOFF_MS = 60 * 60 * 1_000;
+
 const DROPPED_FILE = "dropped.json";
 
 const DROP_REASONS = [
@@ -53,6 +61,7 @@ const DROP_REASONS = [
   "permanent_rejection",
   "storage_failure",
 ] as const;
+
 type DropReason = (typeof DROP_REASONS)[number];
 
 /** The dropped-event tally as this module wrote it to disk. */
@@ -65,6 +74,7 @@ interface QueuedPostHogEvent extends PostHogCaptureInput {
 }
 
 type SendResult = "success" | "transient" | "permanent";
+
 type FlushBatchResult =
   | { state: "done"; nextRetryAt?: number }
   | { state: "more" }
@@ -103,6 +113,7 @@ export class PostHogCaptureClient {
     > = {},
   ): PostHogCaptureClient {
     const reviewHome = devReviewHome(env);
+
     return new PostHogCaptureClient({
       ...options,
       apiKey:
@@ -124,6 +135,7 @@ export class PostHogCaptureClient {
 
   async capture(input: PostHogCaptureInput): Promise<void> {
     if (!this.enabled) return;
+
     const queued: QueuedPostHogEvent = {
       event: input.event,
       distinctId: input.distinctId,
@@ -132,10 +144,13 @@ export class PostHogCaptureClient {
       attempts: 0,
       nextAttemptAt: 0,
     };
+
     if (!this.queueDir) {
       await this.sendBatch([queued]);
+
       return;
     }
+
     try {
       writeFileAtomic(
         path.join(
@@ -157,6 +172,7 @@ export class PostHogCaptureClient {
 
   async discard(): Promise<void> {
     this.clearFlushTimer();
+
     if (!this.queueDir) return;
     await withFileLock(
       path.join(this.queueDir, ".flush.lock"),
@@ -186,6 +202,7 @@ export class PostHogCaptureClient {
     if (!this.enabled || !this.queueDir) return;
     this.clearFlushTimer();
     const startedAt = this.now();
+
     const lock = await withFileLock(
       path.join(this.queueDir, ".flush.lock"),
       {
@@ -197,18 +214,22 @@ export class PostHogCaptureClient {
       },
       async () => {
         let result: FlushBatchResult;
+
         do {
           result = await this.flushBatchLocked(deadlineMs, startedAt);
         } while (
           result.state === "more" &&
           this.now() - startedAt < deadlineMs
         );
+
         if (result.state === "more") this.scheduleFlush(0);
+
         if ("nextRetryAt" in result && result.nextRetryAt !== undefined) {
           this.scheduleFlush(Math.max(0, result.nextRetryAt - this.now()));
         }
       },
     ).catch(() => ({ acquired: false as const }));
+
     if (!lock.acquired) this.scheduleFlush(FLUSH_DELAY_MS);
   }
 
@@ -223,38 +244,47 @@ export class PostHogCaptureClient {
   ): Promise<FlushBatchResult> {
     const queueDir = this.queueDir!;
     const now = this.now();
+
     const fileNames = (await readdir(queueDir).catch(() => []))
       .filter((name) => name.endsWith(".json") && name !== DROPPED_FILE)
       .sort();
+
     const drops = mergeDropCounts(
       await this.readDroppedCounts(),
       this.memoryDrops,
     );
+
     this.memoryDrops = {};
 
     const overflow = Math.max(0, fileNames.length - QUEUE_LIMIT);
     const retainedNames = fileNames.slice(overflow);
+
     for (const fileName of fileNames.slice(0, overflow)) {
       await rm(path.join(queueDir, fileName), { force: true });
     }
+
     addDrop(drops, "queue_full", overflow);
 
     const eligible: Array<{ fileName: string; event: QueuedPostHogEvent }> = [];
     let hasMoreEligible = false;
     let nextRetryAt: number | undefined;
+
     for (const fileName of retainedNames) {
       const filePath = path.join(queueDir, fileName);
       const event = await readQueuedEvent(filePath);
+
       if (!event) {
         await rm(filePath, { force: true });
         addDrop(drops, "corrupt", 1);
         continue;
       }
+
       if (now - event.createdAt > QUEUE_MAX_AGE_MS) {
         await rm(filePath, { force: true });
         addDrop(drops, "expired", 1);
         continue;
       }
+
       if (event.nextAttemptAt <= now) {
         if (eligible.length < BATCH_LIMIT) {
           eligible.push({ fileName, event });
@@ -267,8 +297,10 @@ export class PostHogCaptureClient {
     }
 
     await this.writeDroppedCounts(drops);
+
     if (eligible.length === 0) {
       this.queuedSinceFlush = 0;
+
       return doneResult(nextRetryAt);
     }
 
@@ -276,29 +308,38 @@ export class PostHogCaptureClient {
       drops,
       eligible[0]!.event.distinctId,
     );
+
     const sentEligible = eligible.slice(
       0,
       Math.max(0, BATCH_LIMIT - diagnosticEvents.length),
     );
+
     hasMoreEligible ||= sentEligible.length < eligible.length;
+
     const batch = [
       ...diagnosticEvents,
       ...sentEligible.map(({ event }) => event),
     ];
+
     const remainingMs = Math.max(1, deadlineMs - (this.now() - startedAt));
     const result = await this.sendBatch(batch, remainingMs);
+
     if (result === "success") {
       await Promise.all(
         sentEligible.map(({ fileName }) =>
           rm(path.join(queueDir, fileName), { force: true }),
         ),
       );
+
       if (diagnosticEvents.length > 0) {
         await rm(path.join(queueDir, DROPPED_FILE), { force: true });
       }
+
       this.queuedSinceFlush = 0;
+
       return hasMoreEligible ? { state: "more" } : doneResult(nextRetryAt);
     }
+
     if (result === "permanent") {
       await Promise.all(
         sentEligible.map(({ fileName }) =>
@@ -308,10 +349,12 @@ export class PostHogCaptureClient {
       addDrop(drops, "permanent_rejection", sentEligible.length);
       await this.writeDroppedCounts(drops);
       this.queuedSinceFlush = 0;
+
       return hasMoreEligible ? { state: "more" } : doneResult(nextRetryAt);
     }
 
     let retryAt = Infinity;
+
     for (const { fileName, event } of sentEligible) {
       const attempts = event.attempts + 1;
       const eventRetryAt = now + retryDelay(attempts);
@@ -326,6 +369,7 @@ export class PostHogCaptureClient {
         "utf8",
       );
     }
+
     return { state: "retry", nextRetryAt: retryAt };
   }
 
@@ -336,6 +380,7 @@ export class PostHogCaptureClient {
     if (!this.apiKey || !this.fetchImpl || events.length === 0) {
       return "success";
     }
+
     try {
       const response = await this.fetchImpl(this.batchUrl, {
         method: "POST",
@@ -353,7 +398,9 @@ export class PostHogCaptureClient {
         }),
         signal: this.timeoutSignal(Math.min(this.timeoutMs, timeoutMs)),
       });
+
       if (response.ok) return "success";
+
       if (
         response.status === 408 ||
         response.status === 429 ||
@@ -361,6 +408,7 @@ export class PostHogCaptureClient {
       ) {
         return "transient";
       }
+
       return "permanent";
     } catch {
       return "transient";
@@ -389,9 +437,11 @@ export class PostHogCaptureClient {
     Partial<Record<DropReason, number>>
   > {
     if (!this.queueDir) return {};
+
     return readFile(path.join(this.queueDir, DROPPED_FILE), "utf8")
       .then((value) => {
         const parsed = droppedCountsSchema.safeParse(parseJsonText(value));
+
         return parsed.success ? parsed.data : {};
       })
       .catch(() => ({}));
@@ -401,9 +451,11 @@ export class PostHogCaptureClient {
     drops: Partial<Record<DropReason, number>>,
   ): Promise<void> {
     if (!this.queueDir) return;
+
     const compact = Object.fromEntries(
       Object.entries(drops).filter(([, count]) => Number(count) > 0),
     );
+
     if (Object.keys(compact).length === 0) return;
     writeFileAtomic(
       path.join(this.queueDir, DROPPED_FILE),
@@ -419,7 +471,9 @@ function droppedEvents(
 ): QueuedPostHogEvent[] {
   return DROP_REASONS.flatMap((reason) => {
     const count = drops[reason];
+
     if (count === undefined || count <= 0) return [];
+
     return [
       {
         event: "review_telemetry_dropped",
@@ -435,7 +489,9 @@ function droppedEvents(
 
 function doneResult(nextRetryAt: number | undefined): FlushBatchResult {
   const result: FlushBatchResult = { state: "done" };
+
   if (nextRetryAt) result.nextRetryAt = nextRetryAt;
+
   return result;
 }
 
@@ -461,6 +517,7 @@ async function readQueuedEvent(
     const parsed = QueuedPostHogEventSchema.safeParse(
       parseJsonText(await readFile(filePath, "utf8")),
     );
+
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -472,10 +529,13 @@ function mergeDropCounts(
   right: Partial<Record<DropReason, number>>,
 ): Partial<Record<DropReason, number>> {
   const merged = { ...left };
+
   for (const reason of DROP_REASONS) {
     const count = right[reason];
+
     if (count !== undefined) addDrop(merged, reason, count);
   }
+
   return merged;
 }
 
@@ -492,6 +552,7 @@ function retryDelay(attempts: number): number {
     MAX_BACKOFF_MS,
     1_000 * 2 ** Math.min(attempts - 1, 12),
   );
+
   return Math.round(base * (0.75 + Math.random() * 0.5));
 }
 
@@ -501,6 +562,7 @@ function normalizeHost(host: string | undefined): string {
 
 function nonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
+
   return trimmed ? trimmed : undefined;
 }
 

@@ -69,9 +69,11 @@ describe("desktop review document load states", () => {
       });
     });
     expect(container.querySelector(".review-home-attention")).toBeNull();
+
     const entry = container.querySelector<HTMLButtonElement>(
       ".review-home-unavailable-entries button",
     );
+
     expect(entry?.textContent).toContain("Old review");
     expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
     await act(async () => entry?.click());
@@ -87,6 +89,7 @@ describe("desktop review document load states", () => {
       { sessionId: "migration-banner-order" },
       { request: requestStub, diffView: { create: createDiffView } },
     );
+
     const content = sessionContent(bridge, {
       document: Promise.resolve({
         state: "needs-republish",
@@ -95,6 +98,7 @@ describe("desktop review document load states", () => {
       }),
       softwareMap: Promise.resolve(null),
     });
+
     content.reviewErrors = [
       {
         code: "MIGRATION_REQUIRED",
@@ -123,6 +127,7 @@ describe("desktop review document load states", () => {
   it("keeps a valid document visible and offers repair only inside a stale map", async () => {
     const reportDiagnostic =
       vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+
     const bridge = testReviewBridge(
       { sessionId: "map-only-repair" },
       {
@@ -131,6 +136,7 @@ describe("desktop review document load states", () => {
         diffView: { create: createDiffView },
       },
     );
+
     const container = document.createElement("div");
     document.body.append(container);
     let handle: ReturnType<typeof mountReviewCanvas> | undefined;
@@ -188,8 +194,10 @@ describe("desktop review document load states", () => {
   });
   it("opens the current review from expected historical unavailability without diagnostics", async () => {
     const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
+
     const reportDiagnostic =
       vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+
     const bridge = testReviewBridge(
       { sessionId: "old-history" },
       {
@@ -199,6 +207,7 @@ describe("desktop review document load states", () => {
         diffView: { create: createDiffView },
       },
     );
+
     const reviewUuid = "11111111-1111-4111-8111-111111111111";
     const container = document.createElement("div");
     document.body.append(container);
@@ -222,9 +231,11 @@ describe("desktop review document load states", () => {
     );
     expect(container.textContent).not.toContain("review publish");
     expect(container.textContent).not.toContain("review repair");
+
     const button = [...container.querySelectorAll("button")].find(
       (node) => node.textContent === "Open current review",
     );
+
     await act(async () => button!.click());
     expect(post).toHaveBeenCalledWith({
       name: "openReview",
@@ -238,6 +249,7 @@ describe("desktop review document load states", () => {
       { sessionId: "rendered-data-behavior" },
       { request: requestStub, diffView: { create: createDiffView } },
     );
+
     const content = sessionContent(bridge, {
       document: Promise.resolve({
         state: "ready",
@@ -290,9 +302,11 @@ describe("desktop review document load states", () => {
       }),
       softwareMap: Promise.resolve(null),
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+
     try {
       await act(async () => {
         handle = mountReviewCanvas(container, content);
@@ -306,9 +320,11 @@ describe("desktop review document load states", () => {
       const heading = container.querySelector(".review-section-heading > h2");
       expect(heading?.id).toBe("authored-heading");
       expect(container.querySelectorAll("#authored-heading")).toHaveLength(1);
+
       const body = container.querySelector<HTMLElement>(
         ".review-section-body",
       )!;
+
       expect(body.querySelector("h2")).toBeNull();
       expect(body.hidden).toBe(false);
       await act(async () => {
@@ -327,15 +343,18 @@ describe("desktop review document load states", () => {
 
   it("keeps the app shell and valid map after document failure, settling ready before diagnostics", async () => {
     const order: string[] = [];
+
     const model = defineSoftwareModel({
       systems: { orders: { label: "Orders map" } },
     });
+
     const mapBundle = bundleReviewSoftwareMap({
       head: model,
       base: model,
       headCommit: "a".repeat(40),
       baseCommit: "b".repeat(40),
     });
+
     const bridge = testReviewBridge(
       { sessionId: "unavailable-document" },
       {
@@ -345,6 +364,7 @@ describe("desktop review document load states", () => {
         diffView: { create: createDiffView },
       },
     );
+
     const content = sessionContent(bridge, {
       document: Promise.resolve({
         state: "unavailable",
@@ -357,6 +377,7 @@ describe("desktop review document load states", () => {
         base: parseJsonText(mapBundle.baseJson),
       }),
     });
+
     const container = document.createElement("div");
     document.body.append(container);
 
@@ -389,8 +410,10 @@ describe("desktop review document load states", () => {
 
   it("waits for replacement bundles before publishing ready or diagnostics", async () => {
     const ready = vi.fn<() => void>();
+
     const reportDiagnostic =
       vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+
     const bridge = testReviewBridge(
       { sessionId: "replacement-bundles" },
       {
@@ -400,6 +423,7 @@ describe("desktop review document load states", () => {
         diffView: { create: createDiffView },
       },
     );
+
     const container = document.createElement("div");
     document.body.append(container);
     let handle: ReturnType<typeof mountReviewCanvas> | undefined;
@@ -419,6 +443,7 @@ describe("desktop review document load states", () => {
     expect(reportDiagnostic).toHaveBeenCalledTimes(1);
     ready.mockClear();
     reportDiagnostic.mockClear();
+
     const replacementBridge = testReviewBridge(
       { sessionId: "replacement-bundles" },
       {
@@ -430,8 +455,10 @@ describe("desktop review document load states", () => {
     );
 
     const replacementDocument = Promise.withResolvers<ReviewDocumentLoad>();
+
     const replacementSoftwareMap =
       Promise.withResolvers<ReviewSoftwareMapLoad | null>();
+
     await act(async () => {
       handle?.update(
         sessionContent(replacementBridge, {
@@ -464,10 +491,12 @@ describe("desktop review document load states", () => {
   it("does not prepare a late obsolete document after replacement", async () => {
     const oldDocument = Promise.withResolvers<ReviewDocumentLoad>();
     const request = vi.fn<typeof requestStub>(requestStub);
+
     const bridge = testReviewBridge(
       { sessionId: "late-replacement" },
       { request, diffView: { create: createDiffView } },
     );
+
     const container = document.createElement("div");
     document.body.append(container);
     let handle: ReturnType<typeof mountReviewCanvas> | undefined;
@@ -501,10 +530,12 @@ describe("desktop review document load states", () => {
   it("does not prepare a late document after disposal", async () => {
     const documentBundle = Promise.withResolvers<ReviewDocumentLoad>();
     const request = vi.fn<typeof requestStub>(requestStub);
+
     const bridge = testReviewBridge(
       { sessionId: "late-disposal" },
       { request, diffView: { create: createDiffView } },
     );
+
     const container = document.createElement("div");
     document.body.append(container);
     let handle: ReturnType<typeof mountReviewCanvas> | undefined;
@@ -527,6 +558,7 @@ describe("desktop review document load states", () => {
   it("does not report an unchanged peer failure after one bundle is replaced", async () => {
     const reportDiagnostic =
       vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+
     const bridge = testReviewBridge(
       { sessionId: "single-replacement" },
       {
@@ -535,10 +567,12 @@ describe("desktop review document load states", () => {
         diffView: { create: createDiffView },
       },
     );
+
     const documentBundle = Promise.resolve<ReviewDocumentLoad>({
       state: "unavailable",
       message: "Document fetch failed",
     });
+
     const container = document.createElement("div");
     document.body.append(container);
     let handle: ReturnType<typeof mountReviewCanvas> | undefined;
@@ -555,6 +589,7 @@ describe("desktop review document load states", () => {
 
     const replacementSoftwareMap =
       Promise.withResolvers<ReviewSoftwareMapLoad | null>();
+
     await act(async () => {
       handle?.update(
         sessionContent(bridge, {
@@ -574,8 +609,10 @@ describe("desktop review document load states", () => {
     "signals ready for needs-republish without reporting an error (mapStale=%s)",
     async (mapStale) => {
       const ready = vi.fn<() => void>();
+
       const reportDiagnostic =
         vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
+
       const bridge = testReviewBridge(
         { sessionId: `needs-republish-${mapStale}` },
         {
@@ -585,6 +622,7 @@ describe("desktop review document load states", () => {
           diffView: { create: createDiffView },
         },
       );
+
       const content = sessionContent(bridge, {
         document: Promise.resolve({
           state: "needs-republish",
@@ -600,6 +638,7 @@ describe("desktop review document load states", () => {
             : null,
         ),
       });
+
       const container = document.createElement("div");
       document.body.append(container);
 
@@ -646,6 +685,7 @@ describe("desktop review document load states", () => {
       expect(
         container.querySelector('button[aria-label="Copy prompt"]'),
       ).toBeNull();
+
       if (mapStale) {
         await act(async () =>
           container
@@ -655,6 +695,7 @@ describe("desktop review document load states", () => {
             .click(),
         );
       }
+
       expect(
         container
           .querySelector(".review-map-view")
@@ -682,6 +723,7 @@ describe("publication validation mounts", () => {
     "absent-map",
   ] as const)("settles %s before publication", async (scenario) => {
     const order: string[] = [];
+
     const bridge = testReviewBridge(
       { sessionId: `validation-${scenario}` },
       {
@@ -701,11 +743,14 @@ describe("publication validation mounts", () => {
         diffView: { create: createDiffView },
       },
     );
+
     let documentLoad: ReviewDocumentLoad = codePeekDocument(
       "validation-document",
     );
+
     let mapLoad: ReviewSoftwareMapLoad | null = null;
     const reviewUuid = "11111111-1111-4111-8111-111111111111";
+
     if (
       scenario === "document-unavailable" ||
       scenario === "historical-unavailable"
@@ -714,21 +759,28 @@ describe("publication validation mounts", () => {
         state: "unavailable",
         message: "Unavailable",
       };
+
     if (
       scenario === "historical-unavailable" &&
       documentLoad.state === "unavailable"
     )
       documentLoad.currentReviewUuid = reviewUuid;
+
     if (scenario === "document-republish")
       documentLoad = { state: "needs-republish", reviewUuid, mapStale: false };
+
     if (scenario === "malformed-document")
       documentLoad = { state: "ready", contentHash: "invalid", data: {} };
+
     if (scenario === "map-unavailable")
       mapLoad = { state: "unavailable", message: "Unavailable map" };
+
     if (scenario === "map-republish")
       mapLoad = { state: "needs-republish", reviewUuid };
+
     if (scenario === "malformed-map")
       mapLoad = { state: "ready", contentHash: "invalid", head: {}, base: {} };
+
     if (scenario === "render-failure") {
       documentLoad = {
         state: "ready",
@@ -752,9 +804,11 @@ describe("publication validation mounts", () => {
         },
       };
     }
+
     const container = document.createElement("div");
     document.body.append(container);
     let handle: ReturnType<typeof mountReviewCanvas> | undefined;
+
     try {
       await act(async () => {
         handle = mountReviewCanvas(container, {
@@ -818,6 +872,7 @@ function codePeekDocument(contentHash: string): ReviewDocumentLoad {
       resolution: null,
     },
   };
+
   return {
     state: "ready",
     contentHash,
@@ -859,12 +914,15 @@ async function requestStub(input: string): Promise<Response> {
       }),
     );
   }
+
   if (input.includes("/agent-traces")) {
     return new Response(JSON.stringify({ ok: true, sessions: [] }));
   }
+
   if (input.includes("/session")) {
     return new Response(JSON.stringify({ session: {} }));
   }
+
   return new Response(JSON.stringify({}));
 }
 

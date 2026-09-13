@@ -27,10 +27,12 @@ describe("Review Desktop launcher", () => {
     const launchDesktop = vi.fn<typeof launchDesktopApplication>(() =>
       pendingAttempt(),
     );
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(healthyResponse())
       .mockResolvedValueOnce(Response.json({ ok: true }));
+
     await expect(
       runReviewAppLaunch(
         {},
@@ -59,9 +61,11 @@ describe("Review Desktop launcher", () => {
 
   it("launches when discovery is missing", async () => {
     let readCount = 0;
+
     const launchDesktop = vi.fn<typeof launchDesktopApplication>(() =>
       pendingAttempt(),
     );
+
     await expect(
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
@@ -87,6 +91,7 @@ describe("Review Desktop launcher", () => {
           ),
           readReviewDesktopDiscovery: async () => {
             if (readCount++ === 0) throw new Error("unreadable discovery");
+
             return discovery;
           },
         },
@@ -97,6 +102,7 @@ describe("Review Desktop launcher", () => {
   it("ignores stale discovery and waits for the new instance", async () => {
     const fresh = { ...discovery, instanceId: "desktop-2" };
     let readCount = 0;
+
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(Response.json({ ok: false }))
@@ -107,6 +113,7 @@ describe("Review Desktop launcher", () => {
           desktopAttached: true,
         }),
       );
+
     await expect(
       runReviewAppLaunch(
         { timeoutMs: 1_000 },
@@ -143,6 +150,7 @@ describe("Review Desktop launcher", () => {
           desktopAttached: true,
         }),
       );
+
     let now = 0;
     await expect(
       runReviewAppLaunch(
@@ -191,6 +199,7 @@ describe("Review Desktop launcher", () => {
             readCount++ === 0 ? null : discovery,
           fetch: async () => {
             await new Promise((resolve) => setTimeout(resolve, 20));
+
             return Response.json({ ok: false });
           },
           launchDesktop: () => ({
@@ -233,9 +242,11 @@ describe("Review Desktop launcher", () => {
 
   it("launches the exact Electron path without ELECTRON_RUN_AS_NODE", () => {
     const child = new FakeChild();
+
     const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
       () => child,
     );
+
     launchDesktopApplication({
       platform: "darwin",
       electron: true,
@@ -257,9 +268,11 @@ describe("Review Desktop launcher", () => {
 
   it("passes the isolated Desktop profile to the exact Electron path", () => {
     const child = new FakeChild();
+
     const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
       () => child,
     );
+
     launchDesktopApplication({
       platform: "darwin",
       electron: true,
@@ -286,9 +299,11 @@ describe("Review Desktop launcher", () => {
 
   it("uses the bundle identifier for a standalone CLI", () => {
     const child = new FakeChild();
+
     const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
       () => child,
     );
+
     launchDesktopApplication({
       platform: "darwin",
       electron: false,
@@ -308,15 +323,18 @@ describe("Review Desktop launcher", () => {
     "launches Linux with bundled Electron=%s and preserves the isolated profile",
     (electron, executable) => {
       const child = new FakeChild();
+
       const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
         () => child,
       );
+
       const environment = {
         ELECTRON_RUN_AS_NODE: "1",
         DEV_FAST_REVIEW_DESKTOP_STATE_ROOT: "/tmp/linux-profile",
         VSCODE_DEV: "1",
         VSCODE_CLI: "1",
       };
+
       const attempt = launchDesktopApplication({
         platform: "linux",
         electron,
@@ -324,6 +342,7 @@ describe("Review Desktop launcher", () => {
         env: environment,
         spawn,
       });
+
       expect(spawn).toHaveBeenCalledWith(
         executable,
         [
@@ -342,11 +361,13 @@ describe("Review Desktop launcher", () => {
 
   it("reports a missing Linux package launcher", async () => {
     const child = new FakeChild();
+
     const attempt = launchDesktopApplication({
       platform: "linux",
       electron: false,
       spawn: () => child,
     });
+
     child.emit("error", new Error("spawn /usr/bin/review-desktop ENOENT"));
     await expect(attempt.completion).rejects.toThrow("ENOENT");
   });
@@ -357,7 +378,9 @@ function launcherRuntime(
   launchDesktop: typeof launchDesktopApplication,
 ) {
   const fetch = vi.fn<typeof globalThis.fetch>();
+
   for (const response of responses) fetch.mockResolvedValueOnce(response);
+
   return {
     readReviewDesktopDiscovery: async () => discovery,
     fetch,

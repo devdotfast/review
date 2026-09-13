@@ -39,10 +39,12 @@ export async function resolveReviewDiffFiles(input: {
   paths?: string[];
 }): Promise<ReviewDiffFilesResult> {
   const baseRef = input.baseRef?.trim();
+
   if (!baseRef) return { files: [] };
 
   const headRef = input.headRef?.trim() || undefined;
   const paths = normalizeDiffPaths(input.paths);
+
   if (input.includePatch === false) {
     return {
       baseRef,
@@ -55,6 +57,7 @@ export async function resolveReviewDiffFiles(input: {
       }),
     };
   }
+
   const stdout = await readDiffOutput(
     input.rootPath,
     baseRef,
@@ -83,7 +86,9 @@ export async function resolveReviewFileContent(input: {
   comparison?: ReviewDiffFilesResult;
 }): Promise<ReviewFileContentResult> {
   const requestedPath = input.path.trim();
+
   if (!requestedPath) throw new Error("A changed file path is required.");
+
   const comparison =
     input.comparison ??
     (await resolveReviewDiffFiles({
@@ -92,7 +97,9 @@ export async function resolveReviewFileContent(input: {
       headRef: input.headRef,
       includePatch: false,
     }));
+
   const file = comparison.files.find((entry) => entry.path === requestedPath);
+
   if (!file) {
     throw new Error(
       `File is not present in the current diff: ${requestedPath}`,
@@ -102,22 +109,27 @@ export async function resolveReviewFileContent(input: {
   if (input.side === "base" && file.status === "added") {
     return { absent: true };
   }
+
   if (input.side === "head" && file.status === "deleted") {
     return { absent: true };
   }
 
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
   }
+
   const relativePath =
     input.side === "base" && file.status === "renamed"
       ? (file.previousPath ?? file.path)
       : file.path;
+
   const limit = input.maxBytes ?? REVIEW_FILE_CONTENT_LIMIT_BYTES;
 
   if (input.side === "head" && !comparison.headRef) {
     const absolutePath = resolveRepoFilePath(vcs.rootPath, relativePath);
+
     try {
       return fileContentFromBytes(await readFile(absolutePath), limit);
     } catch (error) {
@@ -127,26 +139,32 @@ export async function resolveReviewFileContent(input: {
   }
 
   let revision = comparison.headRef;
+
   if (input.side === "base") {
     if (!comparison.baseRef) throw new Error("A base revision is required.");
+
     if (comparison.headRef) {
       const mergeBase = await vcs.mergeBase(
         comparison.baseRef,
         comparison.headRef,
       );
+
       if (!mergeBase) {
         throw new Error(
           `Could not resolve the merge base for ${comparison.baseRef}...${comparison.headRef}.`,
         );
       }
+
       revision = mergeBase.commit;
     } else {
       revision = comparison.baseRef;
     }
   }
+
   if (!revision) throw new Error("A file revision is required.");
 
   const content = await vcs.readFileAtRef(revision, relativePath);
+
   return content === null
     ? { absent: true }
     : fileContentFromBytes(Buffer.from(content, "utf8"), limit);
@@ -155,9 +173,11 @@ export async function resolveReviewFileContent(input: {
 function resolveRepoFilePath(rootPath: string, relativePath: string): string {
   const absolutePath = path.resolve(rootPath, relativePath);
   const relative = path.relative(rootPath, absolutePath);
+
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`File path escapes the repository: ${relativePath}`);
   }
+
   return absolutePath;
 }
 
@@ -166,7 +186,9 @@ function fileContentFromBytes(
   limit: number,
 ): ReviewFileContentResult {
   if (bytes.includes(0)) return { binary: true };
+
   if (bytes.byteLength <= limit) return { content: bytes.toString("utf8") };
+
   return {
     content: bytes.subarray(0, limit).toString("utf8"),
     truncated: true,
@@ -206,6 +228,7 @@ function normalizeDiffPaths(paths: string[] | undefined): string[] {
 function matchesDiffPath(file: ReviewDiffFile, paths: string[]): boolean {
   if (paths.length === 0) return true;
   const candidates = new Set([file.path, file.previousPath].filter(Boolean));
+
   return paths.some((path) => candidates.has(path));
 }
 
@@ -219,10 +242,12 @@ function splitGitDiffSections(diff: string): string[] {
       current = [line];
       continue;
     }
+
     current?.push(line);
   }
 
   if (current) sections.push(current.join("\n"));
+
   return sections.filter((section) => section.trim().length > 0);
 }
 
@@ -237,24 +262,32 @@ function parseReviewDiffFile(section: string): ReviewDiffFile | null {
   let deletions = 0;
 
   let inHunk = false;
+
   for (const line of lines) {
     if (line.startsWith("@@")) {
       inHunk = true;
       continue;
     }
+
     if (!inHunk) {
       const parsedOldPath = parseGitFileLine(line, "--- ");
       const parsedNewPath = parseGitFileLine(line, "+++ ");
+
       if (parsedOldPath !== undefined) oldPath = parsedOldPath;
+
       if (parsedNewPath !== undefined) newPath = parsedNewPath;
+
       if (line.startsWith("rename from ")) {
         renameFrom = unquoteGitPath(line.slice("rename from ".length).trim());
       }
+
       if (line.startsWith("rename to ")) {
         renameTo = unquoteGitPath(line.slice("rename to ".length).trim());
       }
+
       continue;
     }
+
     if (line.startsWith("+")) additions += 1;
     else if (line.startsWith("-")) deletions += 1;
   }
@@ -266,6 +299,7 @@ function parseReviewDiffFile(section: string): ReviewDiffFile | null {
       : section.includes("\nrename from ") && section.includes("\nrename to ")
         ? "renamed"
         : "modified";
+
   const path =
     status === "deleted" ? oldPath : renameTo ? renameTo : (newPath ?? oldPath);
 
@@ -287,7 +321,9 @@ function parseDiffGitHeaderPaths(
 ): { oldPath: string; newPath: string } | null {
   if (!line.startsWith("diff --git ")) return null;
   const tokens = line.slice("diff --git ".length).match(/"([^"\\]|\\.)*"|\S+/g);
+
   if (!tokens || tokens.length < 2) return null;
+
   return {
     oldPath: stripDiffPathPrefix(unquoteGitPath(tokens[0])),
     newPath: stripDiffPathPrefix(unquoteGitPath(tokens[1])),
@@ -300,18 +336,22 @@ function parseGitFileLine(
 ): string | null | undefined {
   if (!line.startsWith(prefix)) return undefined;
   const raw = unquoteGitPath(line.slice(prefix.length).trim());
+
   if (raw === "/dev/null") return null;
+
   return stripDiffPathPrefix(raw);
 }
 
 function stripDiffPathPrefix(value: string): string {
   if (value.startsWith("a/") || value.startsWith("b/")) return value.slice(2);
+
   return value;
 }
 
 function unquoteGitPath(value: string): string {
   if (!value.startsWith(`"`)) return value;
   const unquoted = value.slice(1, value.endsWith(`"`) ? -1 : undefined);
+
   try {
     return jsonString(parseJsonText(value)) ?? unquoted;
   } catch {

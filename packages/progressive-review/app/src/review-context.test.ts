@@ -53,6 +53,7 @@ describe("comment draft surface routing", () => {
 describe("anchor comment plumbing", () => {
   it("finds code threads by canonical identity", () => {
     const anchor = runtimeAnchor();
+
     const codeTarget = buildCodeTarget({
       path: "src/runtime.ts",
       side: "head",
@@ -60,6 +61,7 @@ describe("anchor comment plumbing", () => {
       headCommit: "head-commit",
       span: { startLine: 41, endLine: 41 },
     });
+
     const otherTarget = buildCodeTarget({
       path: "src/other.ts",
       side: "head",
@@ -67,6 +69,7 @@ describe("anchor comment plumbing", () => {
       headCommit: "head-commit",
       span: { startLine: 41, endLine: 41 },
     });
+
     const comments = selectCommentsForAnchor(
       [
         {
@@ -102,6 +105,7 @@ describe("anchor comment plumbing", () => {
 
   it("shows a base-side thread in a diff CodePeek for the same file", () => {
     const anchor = runtimeAnchor();
+
     if (!anchor.peek?.resolution) throw new Error("Expected a resolved peek.");
     anchor.peek.resolution.diff = {
       baseRef: "base-commit",
@@ -116,6 +120,7 @@ describe("anchor comment plumbing", () => {
         },
       ],
     };
+
     const target = buildCodeTarget({
       path: "src/runtime.ts",
       side: "base",
@@ -193,7 +198,9 @@ describe("anchor comment plumbing", () => {
         resolution: null,
       },
     };
+
     let resolveCount = 0;
+
     const draft = createBaseAstLineCommentDraftTarget(
       anchor,
       { fromLine: 40, toLine: 41, side: "deletions" },
@@ -201,6 +208,7 @@ describe("anchor comment plumbing", () => {
       "head-commit",
       async () => {
         resolveCount += 1;
+
         return {
           text: "one\ntwo\nthree",
           file: "src/runtime.ts",
@@ -247,6 +255,7 @@ describe("anchor comment plumbing", () => {
 
   it("reports authored code comments by their content line", () => {
     const anchor = runtimeAnchor();
+
     const target = buildCodeTarget({
       path: "src/runtime.ts",
       side: "head",
@@ -290,6 +299,7 @@ describe("anchor comment plumbing", () => {
 
 function runtimeAnchor(): AnchorRef {
   const sourceId = "source-range:src/runtime.ts:40-42";
+
   return {
     __kind: "db-anchor-ref",
     id: "runtime",

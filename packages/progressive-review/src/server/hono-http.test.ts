@@ -12,6 +12,7 @@ describe("Hono HTTP adapter", () => {
     const request = new Request("http://localhost/path?token=query-token", {
       headers: { origin: "vscode-file://review" },
     });
+
     const json = jsonResponse({ ok: true }, 200, { cacheControl: "no-store" });
     json.headers.set("vary", "Accept-Encoding");
     const response = applyCorsHeaders(request, json);
@@ -83,6 +84,7 @@ describe("Hono HTTP adapter", () => {
         controller.close();
       },
     });
+
     await expect(
       readBoundedRequestJson(
         new Request("http://localhost/path", {
@@ -98,6 +100,7 @@ describe("Hono HTTP adapter", () => {
 
   it("propagates aborted request bodies", async () => {
     const abort = new AbortController();
+
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         abort.signal.addEventListener("abort", () => {
@@ -105,6 +108,7 @@ describe("Hono HTTP adapter", () => {
         });
       },
     });
+
     const request = new Request("http://localhost/path", {
       method: "POST",
       headers: { "content-type": "application/json" },

@@ -26,6 +26,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 const SRC = fileURLToPath(new URL("../code-oss/src/", import.meta.url));
+
 const ENTRY = path.join(SRC, "main.ts");
 
 /**
@@ -93,6 +94,7 @@ function runtimeEdges(file) {
       target: ts.ScriptTarget.ESNext,
     },
   }).outputText;
+
   const source = ts.createSourceFile(
     "emitted.js",
     emitted,
@@ -100,6 +102,7 @@ function runtimeEdges(file) {
     true,
     ts.ScriptKind.JS,
   );
+
   return source.statements
     .filter(
       (statement) =>
@@ -117,17 +120,21 @@ function resolveToSource(specifier, fromFile) {
   if (!specifier.startsWith(".")) {
     return { external: true };
   }
+
   const absolute = path.resolve(path.dirname(fromFile), specifier);
+
   const candidates = [
     absolute.replace(/\.js$/, ".ts"),
     `${absolute}.ts`,
     path.join(absolute, "index.ts"),
   ];
+
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return { file: candidate };
     }
   }
+
   return { unresolved: specifier };
 }
 
@@ -139,19 +146,25 @@ function walk() {
 
   while (queue.length > 0) {
     const file = queue.shift();
+
     for (const specifier of runtimeEdges(file)) {
       const resolved = resolveToSource(specifier, file);
+
       if (resolved.external) {
         continue;
       }
+
       if (resolved.unresolved) {
         unresolved.push(`${rel(file)} -> ${resolved.unresolved}`);
         continue;
       }
+
       const key = rel(resolved.file);
+
       if (importers.has(key)) {
         continue;
       }
+
       importers.set(key, rel(file));
       queue.push(resolved.file);
     }
@@ -163,9 +176,11 @@ function walk() {
 /** Render `main.ts -> ... -> module` so a failure names the edge to cut. */
 function chainTo(module, importers) {
   const chain = [];
+
   for (let at = module; at != null; at = importers.get(at)) {
     chain.unshift(at);
   }
+
   return chain.join("\n           -> ");
 }
 
@@ -177,26 +192,35 @@ function callsLocalize(file) {
     true,
     ts.ScriptKind.TS,
   );
+
   let found = false;
+
   const visit = (node) => {
     if (found) {
       return;
     }
+
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
+
       const name = ts.isPropertyAccessExpression(callee)
         ? callee.name.text
         : ts.isIdentifier(callee)
           ? callee.text
           : undefined;
+
       if (name === "localize" || name === "localize2") {
         found = true;
+
         return;
       }
     }
+
     ts.forEachChild(node, visit);
   };
+
   ts.forEachChild(source, visit);
+
   return found;
 }
 
@@ -213,9 +237,11 @@ test("every relative import from main.ts resolves to a source file", () => {
 test("main.ts reaches no module that localizes before bootstrapESM()", () => {
   for (const { module, reason, allowedImporters } of FORBIDDEN_MODULES) {
     const importer = importers.get(module);
+
     if (importer === undefined || allowedImporters.includes(importer)) {
       continue;
     }
+
     assert.fail(
       `src/main.ts statically reaches ${module}\n` +
         `  chain: ${chainTo(module, importers)}\n` +

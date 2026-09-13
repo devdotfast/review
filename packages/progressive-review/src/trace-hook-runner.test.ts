@@ -19,12 +19,15 @@ import { traceConfigPath } from "./trace-storage/config";
 import { allowTraceRepository } from "./trace-user-config";
 
 const execFilePromise = promisify(execFile);
+
 const tempRoots: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
+
   while (tempRoots.length > 0) {
     const dir = tempRoots.pop();
+
     if (dir) await rm(dir, { recursive: true, force: true });
   }
 });
@@ -33,6 +36,7 @@ async function runGit(root: string, args: string[]): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", root, ...args], {
     encoding: "utf8",
   });
+
   return stdout.trim();
 }
 
@@ -41,6 +45,7 @@ async function runJj(root: string, args: string[]): Promise<string> {
     cwd: root,
     encoding: "utf8",
   });
+
   return stdout;
 }
 
@@ -63,6 +68,7 @@ async function makeGitRepo(): Promise<string> {
       secret: "mock-secret",
     },
   });
+
   return dir;
 }
 
@@ -81,6 +87,7 @@ describe("runReviewTraceHook", () => {
       homeDir: repo,
       env: { TRACE_R2_MODE: "mock" },
     });
+
     expect(startCode).toBe(0);
 
     const agentSessionFile = path.join(repo, ".git", "agent-session");
@@ -110,6 +117,7 @@ describe("runReviewTraceHook", () => {
       homeDir: repo,
       env: { TRACE_R2_MODE: "mock" },
     });
+
     expect(endCode).toBe(0);
     expect(await readFile(agentSessionFile, "utf8")).toBe(
       `${secondSessionId}\t${now}\n`,
@@ -136,6 +144,7 @@ describe("runReviewTraceHook", () => {
       hook_event_name: "SessionStart",
       session_id: sessionId,
     });
+
     const stdinStart = Readable.from([startPayload]);
 
     await runReviewTraceHook({
@@ -156,6 +165,7 @@ describe("runReviewTraceHook", () => {
       hook_event_name: "SessionEnd",
       session_id: sessionId,
     });
+
     const stdinEnd = Readable.from([endPayload]);
 
     await runReviewTraceHook({
@@ -280,6 +290,7 @@ describe("runReviewTraceHook", () => {
     }
 
     await runJj(repo, ["describe", "-m", "Trace work"]);
+
     const description = await runJj(repo, [
       "log",
       "-r",
@@ -288,6 +299,7 @@ describe("runReviewTraceHook", () => {
       "-T",
       "description",
     ]);
+
     expect(description).toBe(
       `Trace work\n\nAgent-Session: ${firstSessionId}\nAgent-Session: ${secondSessionId}\n`,
     );
@@ -301,6 +313,7 @@ describe("runReviewTraceHook", () => {
       env: { TRACE_R2_MODE: "mock" },
     });
     await runJj(repo, ["describe", "-m", "Fresh trace work"]);
+
     const refreshedDescription = await runJj(repo, [
       "log",
       "-r",
@@ -309,6 +322,7 @@ describe("runReviewTraceHook", () => {
       "-T",
       "description",
     ]);
+
     expect(refreshedDescription).toBe(
       `Fresh trace work\n\nAgent-Session: ${firstSessionId}\n`,
     );
@@ -324,6 +338,7 @@ describe("runReviewTraceHook", () => {
       homeDir: repo,
       env: { TRACE_R2_MODE: "mock" },
     });
+
     expect(code).toBe(0);
 
     const agentSessionFile = path.join(repo, ".git", "agent-session");
@@ -348,6 +363,7 @@ describe("runReviewTraceHook with hosted storage", () => {
     const repo = await mkdtemp(
       path.join(os.tmpdir(), "trace-hook-hosted-test-"),
     );
+
     tempRoots.push(repo);
     await runGit(repo, ["init", "-b", "main"]);
     await runGit(repo, ["config", "user.name", "Test User"]);
@@ -360,17 +376,21 @@ describe("runReviewTraceHook with hosted storage", () => {
     const env: NodeJS.ProcessEnv = { DEV_REVIEW_HOME: devHome };
     const configPath = traceConfigPath({ devHome });
     await mkdir(path.dirname(configPath), { recursive: true });
+
     const config =
       input.selectHosted === false
         ? { version: 2 }
         : { version: 2, "current-store": "hosted" };
+
     await writeFile(configPath, JSON.stringify(config));
+
     if (input.allow) {
       await allowTraceRepository(
         { repositoryId: 1, name: "acme/hook-test", origin },
         devHome,
       );
     }
+
     return { repo, env, devHome };
   }
 
@@ -379,7 +399,9 @@ describe("runReviewTraceHook with hosted storage", () => {
       remote: "git@github.com:acme/other.git",
       allow: false,
     });
+
     const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec9";
+
     const code = await runReviewTraceHook({
       cwd: repo,
       event: "SessionStart",
@@ -387,6 +409,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       homeDir: repo,
       env,
     });
+
     expect(code).toBe(0);
     expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
     // The session still leaves a mark, so a publication elsewhere can see it
@@ -404,6 +427,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       remote: "git@github.com:acme/hook-test.git",
       allow: true,
     });
+
     const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
     await runReviewTraceHook({
       cwd: repo,
@@ -454,11 +478,13 @@ describe("runReviewTraceHook with hosted storage", () => {
       allow: true,
       selectHosted: false,
     });
+
     await writeStoreAuth(
       { origin, token: "t", login: "dev", savedAt: "2026-09-02T00:00:00Z" },
       env,
     );
     const sessionId = "03c015e4-0477-7055-a0fd-21a0f72a4ec8";
+
     const code = await runReviewTraceHook({
       cwd: repo,
       event: "SessionStart",
@@ -466,6 +492,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       homeDir: repo,
       env,
     });
+
     expect(code).toBe(0);
     expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(true);
     expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([

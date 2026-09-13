@@ -47,6 +47,7 @@ export async function runReviewTraceOnboard(
     HostedCommandScope & { cwd: string; client?: StoreClient },
 ): Promise<number> {
   let name: { owner: string; repo: string };
+
   try {
     name = await inferRepoFromGit(input.cwd);
   } catch (error) {
@@ -56,7 +57,9 @@ export async function runReviewTraceOnboard(
       error instanceof Error ? error.message : String(error),
     );
   }
+
   let client: StoreClient;
+
   try {
     client = input.client ?? (await requireStoreClient(input.env));
   } catch (error) {
@@ -66,7 +69,9 @@ export async function runReviewTraceOnboard(
       error instanceof Error ? error.message : String(error),
     );
   }
+
   let store: Awaited<ReturnType<StoreClient["createStore"]>>;
+
   try {
     store = await client.createStore({ owner: name.owner, name: name.repo });
   } catch (error) {
@@ -77,12 +82,14 @@ export async function runReviewTraceOnboard(
         `You need write access to ${traceRepoName(name)} to onboard it.`,
       );
     }
+
     return failWithJsonError(
       input,
       "onboard",
       error instanceof Error ? error.message : String(error),
     );
   }
+
   emitJsonEvent(input, {
     event: "trace.onboard",
     repositoryId: store.repositoryId,
@@ -94,6 +101,7 @@ export async function runReviewTraceOnboard(
   stream.write(
     "Run `review trace allow .` to send traces from this repository.\n",
   );
+
   return 0;
 }
 
@@ -106,6 +114,7 @@ export async function runReviewTraceAllow(
     },
 ): Promise<number> {
   let name: { owner: string; repo: string };
+
   try {
     name = await inferRepoFromGit(input.cwd);
   } catch (error) {
@@ -115,16 +124,22 @@ export async function runReviewTraceAllow(
       error instanceof Error ? error.message : String(error),
     );
   }
+
   // The allow entry records the exact destination, so a login is required
   // before the user can allow anything.
   const auth = await readStoreAuth(input.env);
+
   if (!auth) {
     return failWithJsonError(input, "allow", "Run `review login` first.");
   }
+
   const storeOrigin = auth.origin;
+
   const client =
     input.client ?? new StoreClient({ origin: storeOrigin, token: auth.token });
+
   let store: Awaited<ReturnType<StoreClient["findStore"]>>;
+
   try {
     store = await client.findStore({ owner: name.owner, name: name.repo });
   } catch (error) {
@@ -134,6 +149,7 @@ export async function runReviewTraceAllow(
       error instanceof Error ? error.message : String(error),
     );
   }
+
   if (!store) {
     return failWithJsonError(
       input,
@@ -141,6 +157,7 @@ export async function runReviewTraceAllow(
       `${traceRepoName(name)} is not onboarded. Run \`review trace onboard\` first.`,
     );
   }
+
   if (store.status !== "active") {
     return failWithJsonError(
       input,
@@ -155,6 +172,7 @@ export async function runReviewTraceAllow(
     await installOpenCodeTraceExtension(input.homeDir);
     await installPiTraceExtension(input.homeDir);
   }
+
   await enableTraceRepository({ cwd: input.cwd, homeDir: input.homeDir });
   await allowTraceRepository(
     {
@@ -174,6 +192,7 @@ export async function runReviewTraceAllow(
   humanStream(input).write(
     `Traces from ${store.displayName} may be published to ${storeOrigin}. A machine with no bucket configured now uses the hosted store; one with a bucket needs \`review trace storage use hosted\`.\n`,
   );
+
   return 0;
 }
 
@@ -187,6 +206,7 @@ export async function runReviewTraceDeny(
     },
 ): Promise<number> {
   let name: string;
+
   try {
     name = traceRepoName(await inferRepoFromGit(input.cwd));
   } catch (error) {
@@ -196,7 +216,9 @@ export async function runReviewTraceDeny(
       error instanceof Error ? error.message : String(error),
     );
   }
+
   const devHome = devReviewHome(input.env, input.homeDir);
+
   // The id this checkout resolved to earlier, if any, so a renamed
   // repository is still found. No network is needed to deny.
   const cached = await readCachedTraceRepositoryTarget({
@@ -204,13 +226,17 @@ export async function runReviewTraceDeny(
     origin: hostedOrigin(readTraceConfigFile({ devHome }).config),
     devHome,
   }).catch(() => null);
+
   const removed = await denyTraceRepository(
     { name, repositoryId: cached?.repositoryId ?? null },
     devHome,
   );
+
   let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>> | null = null;
+
   if (input.deleteStore) {
     let client: StoreClient;
+
     try {
       client = input.client ?? (await requireStoreClient(input.env));
     } catch (error) {
@@ -220,7 +246,9 @@ export async function runReviewTraceDeny(
         error instanceof Error ? error.message : String(error),
       );
     }
+
     const repositoryId = cached?.repositoryId ?? null;
+
     if (repositoryId === null) {
       return failWithJsonError(
         input,
@@ -228,6 +256,7 @@ export async function runReviewTraceDeny(
         `${name} has no resolved hosted store on this machine. Run \`review trace allow .\` once, then deny with --delete-store.`,
       );
     }
+
     try {
       deletion = await client.deleteStore(repositoryId);
     } catch (error) {
@@ -238,6 +267,7 @@ export async function runReviewTraceDeny(
           `Deleting the store of ${name} needs admin access to the repository.`,
         );
       }
+
       return failWithJsonError(
         input,
         "deny",
@@ -245,6 +275,7 @@ export async function runReviewTraceDeny(
       );
     }
   }
+
   emitJsonEvent(input, {
     event: "trace.deny",
     name,
@@ -257,11 +288,13 @@ export async function runReviewTraceDeny(
       ? `${name} will no longer publish traces.\n`
       : `${name} was not allowed to publish traces.\n`,
   );
+
   if (deletion) {
     stream.write(
       `Store deletion requested for ${name} (store ${deletion.storeId}). Uploaded objects are removed by a later operator cleanup.\n`,
     );
   }
+
   return 0;
 }
 
@@ -287,6 +320,7 @@ export async function writeHostedTraceStatus(
         }\n`
       : `Login: none. Run \`review login --origin ${input.origin}\`.\n`,
   );
+
   if (config.repositories.length === 0) {
     stream.write("Allowed repositories: none. Run `review trace allow .`.\n");
   } else {
@@ -296,16 +330,20 @@ export async function writeHostedTraceStatus(
       );
     }
   }
+
   let name: string | null = null;
+
   try {
     name = traceRepoName(await inferRepoFromGit(input.cwd));
   } catch {
     name = null;
   }
+
   if (name === null) {
     stream.write("This directory has no GitHub remote to check.\n");
   } else {
     const entry = findTraceRepository(config, name);
+
     if (!entry) {
       stream.write(
         `This repository (${name}) is not allowed. Run \`review trace allow .\`.\n`,
@@ -318,25 +356,31 @@ export async function writeHostedTraceStatus(
       stream.write(
         `This repository (${name}) is allowed to publish traces to ${input.origin}.\n`,
       );
+
       const client =
         input.client ??
         (auth && auth.origin === input.origin
           ? new StoreClient({ origin: auth.origin, token: auth.token })
           : null);
+
       if (client) {
         const [owner = "", repo = ""] = name.split("/");
+
         const store = await client
           .findStore({ owner, name: repo })
           .catch(() => null);
+
         if (store?.bytesStored !== undefined) {
           stream.write(`Stored bytes: ${store.bytesStored}\n`);
         }
       }
     }
   }
+
   for (const sessionId of await pendingTraceSessions(input.cwd)) {
     stream.write(`Pending agent session: ${sessionId}\n`);
   }
+
   for (const failure of await listTraceSyncFailures(devHome)) {
     stream.write(
       `Failed background sync: session ${failure.session}${
@@ -353,8 +397,11 @@ async function pendingTraceSessions(cwd: string): Promise<string[]> {
     ["rev-parse", "--git-path", "agent-session"],
     { allowFailure: true },
   );
+
   const sessionFilePath = gitPathResult.ok ? gitPathResult.stdout.trim() : "";
+
   if (!sessionFilePath) return [];
   const sessions = await readActiveTraceSessions(sessionFilePath);
+
   return [...sessions.keys()];
 }

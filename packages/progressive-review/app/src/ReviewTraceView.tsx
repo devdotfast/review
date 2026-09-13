@@ -81,21 +81,26 @@ export function ReviewTraceView({
   const session = useReviewSession();
   const reviewFetch = session.fetch;
   const [list, setList] = useState<TraceListState>({ status: "loading" });
+
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
       ? makeTraceKey(initialSelection.sessionId, initialSelection.trace)
       : null,
   );
+
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+
   // A read-only source override. It never changes capture or consent.
   const [storageOverride, setStorageOverride] =
     useState<AgentTraceStorage | null>(null);
 
   useEffect(() => {
     if (!pickerOpen) return;
+
     const handleOutsideClick = (e: MouseEvent) => {
       const target = e.target;
+
       if (
         pickerRef.current &&
         target instanceof Node &&
@@ -104,7 +109,9 @@ export function ReviewTraceView({
         setPickerOpen(false);
       }
     };
+
     document.addEventListener("mousedown", handleOutsideClick);
+
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, [pickerOpen]);
 
@@ -118,17 +125,21 @@ export function ReviewTraceView({
 
   useEffect(() => {
     const controller = new AbortController();
+
     const url: `/${string}` = storageOverride
       ? `/agent-traces?storage=${storageOverride}`
       : "/agent-traces";
+
     reviewFetch(url, { signal: controller.signal })
       .then(async (response) => {
         const result = parseReviewAgentTraceListResponse(await response.json());
+
         if (!response.ok || !result.ok) {
           throw new Error(
             result.ok ? "Unable to load agent traces." : result.error,
           );
         }
+
         if (controller.signal.aborted) return;
         setList({
           status: "loaded",
@@ -149,6 +160,7 @@ export function ReviewTraceView({
           error: cause instanceof Error ? cause.message : String(cause),
         });
       });
+
     return () => controller.abort();
   }, [reviewFetch, storageOverride]);
 
@@ -179,6 +191,7 @@ export function ReviewTraceView({
         notSynced: s.notSynced,
         commits: s.commits,
       });
+
       for (const sub of s.subagents ?? []) {
         const key = `${s.sessionId}:${sub}`;
         result.push({
@@ -193,6 +206,7 @@ export function ReviewTraceView({
         });
       }
     }
+
     return result;
   }, [sessions]);
 
@@ -212,6 +226,7 @@ export function ReviewTraceView({
     activeTarget?.trace,
     storageOverride,
   );
+
   // The last known sources stay while a refetch is in flight, so the
   // control never disappears between two answers.
   const [sourceChoices, setSourceChoices] = useState<AgentTraceStorage[]>([]);
@@ -220,12 +235,15 @@ export function ReviewTraceView({
       setSourceChoices(list.sources);
     }
   }, [list]);
+
   const activeSource =
     storageOverride ?? (list.status === "loaded" ? list.storage : null);
 
   const activeTrace = detail.status === "loaded" ? detail.trace : undefined;
+
   const activeHarness =
     activeTrace?.session.harness ?? activeTarget?.harness ?? "unknown";
+
   const activeTitle = activeTrace?.title ?? activeTarget?.title ?? "";
 
   return (
@@ -316,6 +334,7 @@ export function ReviewTraceView({
                   const isActive = target.key === activeKey;
                   const targetHarness = target.harness;
                   const itemTitle = target.title;
+
                   return (
                     <button
                       key={target.key}
@@ -402,9 +421,13 @@ export function ReviewTraceView({
 
 function harnessLabel(harness: ReviewAgentTraceSession["harness"]): string {
   if (harness === "claude-code") return "claude";
+
   if (harness === "codex") return "codex";
+
   if (harness === "opencode") return "opencode";
+
   if (harness === "pi") return "pi";
+
   return "agent";
 }
 
@@ -414,15 +437,24 @@ function harnessTag(
 ): string {
   if (isSubagent) {
     if (harness === "pi") return "PI SUB";
+
     if (harness === "claude-code") return "CLAUDE SUB";
+
     if (harness === "codex") return "CODEX SUB";
+
     if (harness === "opencode") return "OPENCODE SUB";
+
     return "SUBAGENT";
   }
+
   if (harness === "pi") return "PI";
+
   if (harness === "claude-code") return "CLAUDE";
+
   if (harness === "codex") return "CODEX";
+
   if (harness === "opencode") return "OPENCODE";
+
   return "AGENT";
 }
 
@@ -445,6 +477,7 @@ export function ReviewTraceDocument({
             Date.parse(trace.endedAt) - Date.parse(trace.startedAt),
           )
         : null;
+
   return (
     <>
       <header className="review-trace-header">

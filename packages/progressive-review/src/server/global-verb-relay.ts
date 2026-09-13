@@ -48,27 +48,33 @@ export class GlobalReviewDesktopVerbRelay implements ReviewDesktopVerbRelay {
     const detach = () => this.detach(writer, "No Review Desktop is attached.");
     this.controlAbortListener = detach;
     writer.signal.addEventListener("abort", detach, { once: true });
+
     return true;
   }
 
   dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse> {
     const request: ReviewVerbRequest = parseReviewVerbRequest(value);
     const control = this.controlWriter;
+
     if (!control) {
       return Promise.resolve({
         ok: false,
         error: "No Review Desktop is attached.",
       });
     }
+
     const id = crypto.randomUUID();
+
     return new Promise<ReviewVerbResponse>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         resolve({ ok: false, error: "Review Desktop verb timed out." });
       }, this.timeoutMs);
+
       timer.unref?.();
       this.pending.set(id, { sessionId, resolve, timer });
       const frame = `data: ${JSON.stringify({ event: "desktop-verb", id, sessionId, request })}\n\n`;
+
       try {
         void Promise.resolve(control.write(frame)).catch(() => {
           this.detach(control, "No Review Desktop is attached.");
@@ -82,28 +88,35 @@ export class GlobalReviewDesktopVerbRelay implements ReviewDesktopVerbRelay {
   acceptResult(value: JsonValue): boolean {
     const result = parseReviewDesktopVerbResult(value);
     const pending = this.pending.get(result.id);
+
     if (!pending || pending.sessionId !== result.sessionId) return false;
     this.pending.delete(result.id);
     clearTimeout(pending.timer);
     pending.resolve(result.response);
+
     return true;
   }
 
   close(): void {
     const control = this.controlWriter;
+
     if (!control) {
       this.rejectPending("Review Desktop relay closed.");
+
       return;
     }
+
     this.detach(control, "Review Desktop relay closed.");
     void Promise.resolve(control.close()).catch(() => undefined);
   }
 
   private detach(writer: GlobalReviewDesktopVerbWriter, error: string): void {
     if (this.controlWriter !== writer) return;
+
     if (this.controlAbortListener) {
       writer.signal.removeEventListener("abort", this.controlAbortListener);
     }
+
     this.controlAbortListener = null;
     this.controlWriter = null;
     this.rejectPending(error);

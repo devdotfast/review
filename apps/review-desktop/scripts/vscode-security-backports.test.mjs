@@ -36,18 +36,23 @@ test("keeps the Anthropic SDK out of production dependencies", async () => {
 
 test("keeps the security boundary backports", async () => {
   const processes = await source("src/vs/base/common/processes.ts");
+
   const commands = await source(
     "src/vs/workbench/api/common/extHostCommands.ts",
   );
+
   const webview = await source(
     "src/vs/workbench/contrib/webview/browser/webviewElement.ts",
   );
+
   const environment = await source(
     "src/vs/workbench/services/environment/browser/environmentService.ts",
   );
+
   const terminal = await source(
     "src/vs/workbench/contrib/terminal/browser/terminalInstance.ts",
   );
+
   const urlHandler = await source(
     "src/vs/workbench/services/extensions/browser/extensionUrlHandler.ts",
   );
@@ -61,6 +66,7 @@ test("keeps the security boundary backports", async () => {
   ]) {
     assert.match(processes, new RegExp(`'${name}'`));
   }
+
   assert.match(processes, /dangerousEnvVariables\.has\(key\.toUpperCase\(\)\)/);
   assert.match(commands, /\.slice\(obj\.buffer\.byteOffset,/);
   assert.match(webview, /new Uint8Array\(chunk\.buffer\)/);
@@ -82,15 +88,19 @@ test("keeps the memory and crash backports", async () => {
   const ipc = await source("src/vs/base/parts/ipc/common/ipc.ts");
   const app = await source("src/vs/code/electron-main/app.ts");
   const events = await source("src/vs/base/common/event.ts");
+
   const editors = await source(
     "src/vs/workbench/api/browser/mainThreadDocumentsAndEditors.ts",
   );
+
   const codeActions = await source(
     "src/vs/editor/contrib/codeAction/browser/codeActionModel.ts",
   );
+
   const multiDiff = await source(
     "src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorWidget.ts",
   );
+
   const textMate = await source(
     "src/vs/workbench/services/textMate/browser/textMateTokenizationFeatureImpl.ts",
   );
@@ -111,9 +121,11 @@ test("keeps the September 2026 advisory backports", async () => {
   const configuration = await source(
     "src/vs/platform/configuration/common/configurationModels.ts",
   );
+
   const webviewResources = await source(
     "src/vs/workbench/contrib/webview/browser/resourceLoading.ts",
   );
+
   const mcp = await source("src/vs/platform/mcp/common/mcpManagementService.ts");
   const sanitize = await source("src/vs/base/browser/domSanitize.ts");
   const markdown = await source("src/vs/base/browser/markdownRenderer.ts");

@@ -64,10 +64,12 @@ export class ClaudeAgentServer implements AgentServer {
       input.session && "resume" in input.session
         ? input.session.resume
         : randomUUID();
+
     const sessionPath = `${this.harness}/${encodeURIComponent(sessionId)}`;
     const hookBaseUrl = await this.#ingress.url();
     const pathValue = await this.#commandPath.resolve();
     const settingsPath = await this.#writeSettings();
+
     const args = [
       "--settings",
       settingsPath,
@@ -81,6 +83,7 @@ export class ClaudeAgentServer implements AgentServer {
       "Grep",
       "Read",
     ];
+
     if (input.session && "forkOf" in input.session) {
       args.push(
         "--resume",
@@ -94,10 +97,12 @@ export class ClaudeAgentServer implements AgentServer {
     } else {
       args.push("--session-id", sessionId);
     }
+
     if (input.prompt !== undefined) args.push(input.prompt.text);
     const capture = this.#sessions.get(sessionId) ?? new LiveCapture();
     const launchId = capture.launch(input.prompt);
     this.#sessions.set(sessionId, capture);
+
     const env: NativeTerminalCommand["env"] = {
       DEV_FAST_REVIEW_AGENT_LAUNCH_ID: launchId,
       [REVIEW_AGENT_HOOK_URL_ENV]: `${hookBaseUrl}/${sessionPath}`,
@@ -106,7 +111,9 @@ export class ClaudeAgentServer implements AgentServer {
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
       CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "1",
     };
+
     if (pathValue) env.PATH = pathValue;
+
     return {
       sessionId,
       command: {
@@ -136,31 +143,41 @@ export class ClaudeAgentServer implements AgentServer {
     const settingsPath = join(this.#runtimeDirectory, "claude-settings.json");
     await mkdir(this.#runtimeDirectory, { recursive: true, mode: 0o700 });
     const observerHook = { command: nativeHookCommand(), type: "command" };
+
     const hooks = Object.fromEntries(
       OBSERVER_EVENTS.map((event) => [event, [{ hooks: [observerHook] }]]),
     );
+
     await writeFile(settingsPath, `${JSON.stringify({ hooks })}\n`, "utf8");
+
     return settingsPath;
   }
 
   #receiveHook(sessionId: string, payload: JsonValue): void {
     const record = jsonObject(payload);
+
     if (!record || jsonString(record.session_id) !== sessionId) {
       throw new Error(`The Claude hook must name session "${sessionId}".`);
     }
+
     const event = jsonString(record.hook_event_name);
     const eventId = jsonString(record.review_event_id);
+
     if (!eventId) throw new Error("The Claude hook has no observer event ID.");
     const capture = this.#session(sessionId);
     const launchId = jsonString(record.review_launch_id);
+
     if (!launchId) throw new Error("The observer event has no launch ID.");
+
     if (!capture.accepts(launchId)) return;
+
     if (event === "UserPromptSubmit" || event === "Stop") {
       const body = jsonString(
         event === "UserPromptSubmit"
           ? record.prompt
           : record.last_assistant_message,
       );
+
       if (body === undefined)
         throw new Error("The Claude hook has no message text.");
       capture.message({
@@ -172,6 +189,7 @@ export class ClaudeAgentServer implements AgentServer {
       capture.status(event === "UserPromptSubmit" ? "running" : "idle");
     } else if (event === "StopFailure") {
       const error = jsonString(record.error);
+
       if (!error) throw new Error("Claude StopFailure has no error.");
       capture.status("failed", error);
     } else if (event === "SessionEnd") {
@@ -183,8 +201,10 @@ export class ClaudeAgentServer implements AgentServer {
 
   #session(sessionId: string): LiveCapture {
     const capture = this.#sessions.get(sessionId);
+
     if (!capture)
       throw new Error(`Claude session "${sessionId}" has not been launched.`);
+
     return capture;
   }
 }

@@ -18,6 +18,7 @@ import { compileReviewFindQuery } from "./review-find-query";
 import { reviewFindRanges } from "./review-find-text";
 
 const ALL_HIGHLIGHT = "review-find-match";
+
 const ACTIVE_HIGHLIGHT = "review-find-match-active";
 
 interface FindController {
@@ -31,6 +32,7 @@ export interface ReviewFindHost extends FindController {
 
 export function createReviewFindHost(): ReviewFindHost {
   let controller: FindController | null = null;
+
   return {
     attach(next) {
       controller = next;
@@ -110,6 +112,7 @@ export function ReviewFindProvider({
 
   const clearHighlights = useCallback(() => {
     clearCssHighlights(articleRef.current?.ownerDocument);
+
     for (const registration of registrations.current) {
       registration.clearFind();
     }
@@ -126,6 +129,7 @@ export function ReviewFindProvider({
       setActiveIndex(-1);
       const target = priorFocus.current;
       priorFocus.current = null;
+
       if (restoreFocus && target?.isConnected) target.focus();
     },
     [clearHighlights],
@@ -136,17 +140,21 @@ export function ReviewFindProvider({
   const showFind = useCallback(
     (seed?: string) => {
       if (!reviewActive.current) return false;
+
       if (!openRef.current) {
         const active = articleRef.current?.ownerDocument.activeElement;
         priorFocus.current = active instanceof HTMLElement ? active : null;
         setOpen(true);
         const selected = seed ?? selectedMdxText(articleRef.current);
+
         if (selected) setQueryText(selected);
       }
+
       requestAnimationFrame(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
       });
+
       return true;
     },
     [articleRef],
@@ -154,6 +162,7 @@ export function ReviewFindProvider({
 
   useEffect(() => {
     host?.attach({ showFind, hideFind });
+
     return () => host?.attach(null);
   }, [hideFind, host, showFind]);
 
@@ -172,9 +181,11 @@ export function ReviewFindProvider({
       setActiveIndex(wrapped);
       activeIndexRef.current = wrapped;
       clearActiveCssHighlight(articleRef.current?.ownerDocument);
+
       for (const registration of registrations.current) {
         registration.getHandle()?.clearActiveFindMatch();
       }
+
       if (match.kind === "mdx") {
         expandReviewSection(match.node);
         requestAnimationFrame(() => {
@@ -196,31 +207,40 @@ export function ReviewFindProvider({
 
   useEffect(() => {
     if (!open) return;
+
     const query: ReviewFindQuery = {
       text: queryText,
       matchCase,
       wholeWord,
       isRegex,
     };
+
     const currentGeneration = ++generation.current;
+
     if (!query.text) {
       clearHighlights();
       setSearching(false);
       setInvalid(null);
       setMatches([]);
       setActiveIndex(-1);
+
       return;
     }
+
     const compiled = compileReviewFindQuery(query);
+
     if ("error" in compiled) {
       setSearching(false);
       setInvalid(compiled.error);
+
       return;
     }
+
     clearHighlights();
     setInvalid(null);
     setSearching(true);
     const article = articleRef.current;
+
     const mdxMatches: UnifiedMatch[] = article
       ? reviewFindRanges(article, compiled.expression).map((range) => ({
           kind: "mdx" as const,
@@ -228,9 +248,11 @@ export function ReviewFindProvider({
           node: range.startContainer,
         }))
       : [];
+
     const orderedRegistrations = [...registrations.current].sort(
       (left, right) => compareDocumentOrder(left.container, right.container),
     );
+
     void Promise.all(
       orderedRegistrations.map(async (registration) => {
         try {
@@ -240,6 +262,7 @@ export function ReviewFindProvider({
             wholeWord: false,
             isRegex: true,
           });
+
           return { registration, matchCount: result.matchCount };
         } catch {
           return { registration, matchCount: 0 };
@@ -247,6 +270,7 @@ export function ReviewFindProvider({
       }),
     ).then((editorResults) => {
       if (currentGeneration !== generation.current) return;
+
       const editorMatches: UnifiedMatch[] = editorResults.flatMap(
         ({ registration, matchCount }) =>
           Array.from({ length: matchCount }, (_, localIndex) => ({
@@ -256,9 +280,11 @@ export function ReviewFindProvider({
             node: registration.container,
           })),
       );
+
       const combined = [...mdxMatches, ...editorMatches].sort((left, right) =>
         compareDocumentOrder(left.node, right.node),
       );
+
       setAllCssHighlights(
         article?.ownerDocument,
         mdxMatches
@@ -268,6 +294,7 @@ export function ReviewFindProvider({
       setMatches(combined);
       matchesRef.current = combined;
       setSearching(false);
+
       if (combined.length > 0) reveal(0, combined);
       else setActiveIndex(-1);
     });
@@ -288,6 +315,7 @@ export function ReviewFindProvider({
       register(registration) {
         registrations.current.add(registration);
         setRegistrationVersion((value) => value + 1);
+
         return () => {
           registration.clearFind();
           registrations.current.delete(registration);
@@ -296,6 +324,7 @@ export function ReviewFindProvider({
       },
       setReviewActive(active) {
         reviewActive.current = active;
+
         if (!active && openRef.current) closeFind(false);
       },
     }),
@@ -462,6 +491,7 @@ function FindActionIcon({ icon }: { icon: "previous" | "next" | "close" }) {
       : icon === "next"
         ? "m3 8.5 5 5 5-5M8 13V2.5"
         : "m3 3 10 10M13 3 3 13";
+
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path d={path} />
@@ -471,9 +501,12 @@ function FindActionIcon({ icon }: { icon: "previous" | "next" | "close" }) {
 
 function selectedMdxText(article: HTMLElement | null): string | undefined {
   const selection = article?.ownerDocument.getSelection();
+
   if (!article || !selection || selection.rangeCount === 0) return undefined;
   const range = selection.getRangeAt(0);
+
   if (!article.contains(range.commonAncestorContainer)) return undefined;
+
   return selection.toString().trim() || undefined;
 }
 
@@ -493,6 +526,7 @@ function rangeElement(range: Range): Element | null {
 function compareDocumentOrder(left: Node, right: Node): number {
   if (left === right) return 0;
   const position = left.compareDocumentPosition(right);
+
   return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
 }
 
@@ -509,7 +543,9 @@ function highlightApi(document: Document | null | undefined): {
         Highlight?: typeof Highlight;
       })
     | null;
+
   const registry = view?.CSS?.highlights;
+
   return registry && view?.Highlight
     ? { registry, Highlight: view.Highlight }
     : null;
@@ -520,12 +556,14 @@ function setAllCssHighlights(
   ranges: Range[],
 ): void {
   const api = highlightApi(document);
+
   if (!api) return;
   api.registry.set(ALL_HIGHLIGHT, new api.Highlight(...ranges));
 }
 
 function setActiveCssHighlight(range: Range): void {
   const api = highlightApi(range.startContainer.ownerDocument);
+
   if (!api) return;
   api.registry.set(ACTIVE_HIGHLIGHT, new api.Highlight(range));
 }

@@ -28,6 +28,7 @@ describe("withFileLock", () => {
   async function createLockPath(): Promise<string> {
     const root = await mkdtemp(path.join(os.tmpdir(), "with-file-lock-"));
     cleanupPaths.push(root);
+
     return path.join(root, "resource.lock");
   }
 
@@ -36,6 +37,7 @@ describe("withFileLock", () => {
 
     const outcome = await withFileLock(lockPath, FAST, async () => {
       expect(existsSync(lockPath)).toBe(true);
+
       return "ran";
     });
 

@@ -36,9 +36,11 @@ export default function piBridgeExtension(pi: PiBridgeApi): void {
   const url = process.env.DEV_FAST_REVIEW_AGENT_BRIDGE_URL;
   const token = process.env.DEV_FAST_REVIEW_AGENT_BRIDGE_TOKEN;
   const launchId = process.env.DEV_FAST_REVIEW_AGENT_LAUNCH_ID;
+
   if (!url || !token || !launchId)
     throw new Error("Review's Pi bridge requires its URL and token.");
   let failed = false;
+
   const post = async (
     context: PiBridgeContext,
     update: SessionUpdate,
@@ -60,6 +62,7 @@ export default function piBridgeExtension(pi: PiBridgeApi): void {
       // Observation failure must not abort native work.
     }
   };
+
   pi.on("agent_start", async (_event, context) => {
     failed = false;
     await post(context, { type: "status.changed", status: "running" });
@@ -75,19 +78,23 @@ export default function piBridgeExtension(pi: PiBridgeApi): void {
         status: message.stopReason === "aborted" ? "interrupted" : "failed",
         error: message.errorMessage,
       });
+
       return;
     }
+
     if (
       message.role !== "user" &&
       !(message.role === "assistant" && message.stopReason === "stop")
     )
       return;
+
     const body = !Array.isArray(message.content)
       ? message.content
       : message.content
           .filter((block) => block.type === "text")
           .map((block) => block.text)
           .join("\n");
+
     if (!body.trim()) return;
     await post(context, {
       type: "message.updated",

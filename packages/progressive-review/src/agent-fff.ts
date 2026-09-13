@@ -20,9 +20,12 @@ import { isFile } from "./fs-utils";
 import { devReviewHome } from "./review-storage";
 
 export const FFF_SERVER_NAME = "fff";
+
 export const FFF_INSTALL_URL =
   "https://raw.githubusercontent.com/dmtrKovalenko/fff/main/install-mcp.sh";
+
 export const FFF_TARGETS: ReviewFffInstallTarget[] = ["claude", "codex", "pi"];
+
 export const PI_FFF_PACKAGE = "npm:@ff-labs/pi-fff";
 
 const execFileAsync = promisify(execFile);
@@ -58,21 +61,26 @@ export async function installFffForTargets(input: {
   await mkdir(corpusRoot, { recursive: true });
 
   const missingTargets: ReviewFffInstallTarget[] = [];
+
   for (const target of input.targets) {
     const current = await readFffRegistration(target, input.homeDir, input.env);
+
     if (current.present) {
       input.write(`[ok] existing ${fffTargetLabel(target)} left unchanged\n`);
     } else {
       missingTargets.push(target);
     }
   }
+
   if (missingTargets.length === 0) {
     return { ok: true, created: [] };
   }
 
   const needsMcpBinary = missingTargets.some((target) => target !== "pi");
+
   if (needsMcpBinary && !(await isFile(binaryPath))) {
     input.write("Installing FFF MCP…\n");
+
     const installer = await runCommand(
       "/bin/bash",
       [
@@ -82,9 +90,12 @@ export async function installFffForTargets(input: {
       input.homeDir,
       input.env,
     );
+
     input.write(installer.output);
+
     if (!installer.ok || !(await isFile(binaryPath))) {
       input.write(`FFF MCP was not installed at ${binaryPath}.\n`);
+
       return { ok: false, created: [] };
     }
   } else if (needsMcpBinary) {
@@ -92,19 +103,24 @@ export async function installFffForTargets(input: {
   }
 
   const created: ReviewFffManagedRegistration[] = [];
+
   for (const target of missingTargets) {
     const registration = fffRegistration(target, binaryPath, corpusRoot);
+
     const result = await runCommand(
       registration.command,
       registration.args,
       input.homeDir,
       input.env,
     );
+
     input.write(result.output);
+
     if (!result.ok) return { ok: false, created };
     created.push(registration);
     input.write(`[ok] installed ${fffTargetLabel(target)}\n`);
   }
+
   return { ok: true, created };
 }
 
@@ -115,8 +131,10 @@ export async function readFffRegistration(
 ): Promise<{ present: boolean; output: string }> {
   if (target === "pi") {
     const present = await isPiFffInstalled(homeDir, env);
+
     return { present, output: present ? PI_FFF_PACKAGE : "" };
   }
+
   const result = await runCommand(
     target,
     target === "codex"
@@ -125,6 +143,7 @@ export async function readFffRegistration(
     homeDir,
     env,
   );
+
   return { present: result.ok, output: result.output };
 }
 
@@ -140,6 +159,7 @@ export function fffRegistration(
       args: ["install", PI_FFF_PACKAGE],
     };
   }
+
   return target === "claude"
     ? {
         target,
@@ -169,13 +189,16 @@ export function fffRegistrationMatches(
   if (registration.target === "pi") {
     return output.trim() === PI_FFF_PACKAGE;
   }
+
   const binaryPath = registration.args.at(-2);
   const corpusRoot = registration.args.at(-1);
+
   if (!binaryPath || !corpusRoot) return false;
 
   if (registration.target === "codex") {
     try {
       const config = findStdioConfig(parseJsonText(output));
+
       return (
         config?.command === binaryPath &&
         config.args.length === 1 &&
@@ -188,8 +211,10 @@ export function fffRegistrationMatches(
 
   const lines = output.split("\n").map((line) => line.trim());
   const command = readLabeledValue(lines, "Command");
+
   const args =
     readLabeledValue(lines, "Args") ?? readLabeledValue(lines, "Arguments");
+
   return command === binaryPath && args === corpusRoot;
 }
 
@@ -210,6 +235,7 @@ export async function removeFffRegistration(
             command: "codex",
             args: ["mcp", "remove", FFF_SERVER_NAME],
           };
+
   return runCommand(command.command, command.args, homeDir, env);
 }
 
@@ -218,16 +244,20 @@ async function isPiFffInstalled(
   env: NodeJS.ProcessEnv,
 ): Promise<boolean> {
   const configured = env.PI_CODING_AGENT_DIR;
+
   const agentDir = configured
     ? path.resolve(homeDir, configured)
     : path.join(homeDir, ".pi", "agent");
+
   try {
     const settings = jsonObject(
       parseJsonText(
         await readFile(path.join(agentDir, "settings.json"), "utf8"),
       ),
     );
+
     const packages = jsonArray(settings?.packages);
+
     return packages !== undefined && packages.includes(PI_FFF_PACKAGE);
   } catch {
     return false;
@@ -246,23 +276,30 @@ function findStdioConfig(
   if (!isJsonObject(value)) return null;
   const command = jsonString(value.command);
   const args = isJsonArray(value.args) ? value.args : undefined;
+
   if (command !== undefined && args !== undefined) {
     const argStrings = args.flatMap((arg) => jsonString(arg) ?? []);
+
     if (argStrings.length === args.length) {
       return { command, args: argStrings };
     }
   }
+
   for (const child of Object.values(value)) {
     const found = findStdioConfig(child);
+
     if (found) return found;
   }
+
   return null;
 }
 
 function readLabeledValue(lines: string[], label: string): string | null {
   const prefix = `${label}:`;
   const line = lines.find((candidate) => candidate.startsWith(prefix));
+
   if (!line) return null;
+
   return line
     .slice(prefix.length)
     .trim()
@@ -282,6 +319,7 @@ async function runCommand(
       maxBuffer: 8 * 1024 * 1024,
       timeout: 120_000,
     });
+
     return { ok: true, output: `${result.stdout}${result.stderr}` };
   } catch (error) {
     // SAFETY: execFile rejects with an Error whose stdout and stderr fields
@@ -292,6 +330,7 @@ async function runCommand(
       stderr?: string;
       message?: string;
     };
+
     return {
       ok: false,
       output: `${failure.stdout ?? ""}${failure.stderr ?? failure.message ?? ""}`,

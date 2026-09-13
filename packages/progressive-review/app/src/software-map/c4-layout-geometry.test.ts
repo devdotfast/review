@@ -51,6 +51,7 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       },
     });
+
     const snapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model,
@@ -84,12 +85,14 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       },
     });
+
     const snapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model,
         expandedNodeIds: new Set(["product"]),
       }),
     });
+
     const onExpandNode = vi.fn<(node: SoftwareMapNodeSnapshot) => void>();
     const onCollapseNode = vi.fn<(node: SoftwareMapNodeSnapshot) => void>();
     const onDrillNode = vi.fn<(node: SoftwareMapNodeSnapshot) => void>();
@@ -99,6 +102,7 @@ describe("SoftwareMap C4 layout geometry", () => {
       onCollapseNode,
       onDrillNode,
     });
+
     const nodeData = flow.nodes.find((node) => node.id === "product")?.data;
 
     expect(nodeData?.onExpandNode).toBe(onExpandNode);
@@ -116,6 +120,7 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       },
     });
+
     const snapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model,
@@ -135,6 +140,7 @@ describe("SoftwareMap C4 layout geometry", () => {
     const queue = new C4LayoutQueue();
     const calls: string[] = [];
     let releaseFirst!: () => void;
+
     const firstGate = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
@@ -143,10 +149,13 @@ describe("SoftwareMap C4 layout geometry", () => {
       calls.push("first:start");
       await firstGate;
       calls.push("first:end");
+
       return 1;
     });
+
     const second = queue.run(async () => {
       calls.push("second");
+
       return 2;
     });
 
@@ -160,6 +169,7 @@ describe("SoftwareMap C4 layout geometry", () => {
   it("serializes libavoid work shared by separate map canvases", async () => {
     const calls: string[] = [];
     let releaseFirst!: () => void;
+
     const firstGate = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
@@ -168,10 +178,13 @@ describe("SoftwareMap C4 layout geometry", () => {
       calls.push("first:start");
       await firstGate;
       calls.push("first:end");
+
       return 1;
     });
+
     const second = runSerializedC4Layout(async () => {
       calls.push("second");
+
       return 2;
     });
 
@@ -189,6 +202,7 @@ describe("SoftwareMap C4 layout geometry", () => {
       { x: 280, y: 196 },
       { x: 410, y: 196 },
     ];
+
     const relationship = { from: "source-node", to: "target-node" };
 
     expect(c4EdgeEndpointBubbles(points, relationship, "source-node")).toEqual([
@@ -225,14 +239,17 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       ],
     });
+
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
       "utf8",
     );
+
     const source = readFileSync(
       new URL("./c4-layout-geometry.ts", import.meta.url),
       "utf8",
     );
+
     const softwareMapSource = readFileSync(
       new URL("./SoftwareMap.tsx", import.meta.url),
       "utf8",
@@ -266,6 +283,7 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       },
     });
+
     const resolvedModel = defineSoftwareModel({
       systems: {
         app: {
@@ -292,14 +310,17 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       ],
     });
+
     const initialExpandedNodeIds =
       initialSoftwareMapExpandedNodeIds(initialModel);
+
     const initialSnapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model: initialModel,
         expandedNodeIds: initialExpandedNodeIds,
       }),
     });
+
     const initialLayout = await runInlineC4Layout(
       initialSnapshot.nodes ?? [],
       initialSnapshot.relationships ?? [],
@@ -310,12 +331,14 @@ describe("SoftwareMap C4 layout geometry", () => {
       model: resolvedModel,
       defaultExpansionActive: true,
     });
+
     const resolvedSnapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model: resolvedModel,
         expandedNodeIds: resolvedExpandedNodeIds,
       }),
     });
+
     const resolvedLayout = await runInlineC4Layout(
       resolvedSnapshot.nodes ?? [],
       resolvedSnapshot.relationships ?? [],
@@ -326,6 +349,7 @@ describe("SoftwareMap C4 layout geometry", () => {
         currentRelationships: resolvedSnapshot.relationships ?? [],
       }),
     );
+
     const flow = createC4MapFlowFromLayout(
       resolvedSnapshot,
       resolvedLayout.layout,
@@ -368,6 +392,7 @@ describe("SoftwareMap C4 layout geometry", () => {
       width: 320,
       height: 180,
     };
+
     const fitBounds = vi.fn<() => void>();
 
     expect(focusC4MapNode(null, node as never)).toBe(false);
@@ -412,10 +437,13 @@ describe("SoftwareMap C4 layout geometry", () => {
       width: 320,
       height: 180,
     };
+
     const fitBounds = vi.fn<() => void>();
+
     const keyboardTarget = {
       focus: vi.fn<(options?: FocusOptions) => void>(),
     };
+
     const focusKeyboardTarget = vi.fn<(element: HTMLElement | null) => void>(
       (element) => {
         element?.focus({ preventScroll: true });
@@ -561,6 +589,7 @@ describe("SoftwareMap C4 layout geometry", () => {
         },
       ],
     });
+
     const snapshot = softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model,
@@ -646,6 +675,7 @@ describe("SoftwareMap C4 layout geometry", () => {
         ]),
       }),
     });
+
     const codeLevelFlow = await createC4MapFlow(codeLevelSnapshot);
     expect(
       codeLevelFlow.edges.find(
@@ -669,6 +699,7 @@ describe("SoftwareMap C4 layout geometry", () => {
       ...snapshot,
       selectedNodeId: "devFastCi.ciWorker",
     };
+
     const selectedFlow = await createC4MapFlow(selectedSnapshot);
     expect(
       selectedFlow.edges.filter((edge) =>
@@ -701,6 +732,7 @@ describe("SoftwareMap C4 layout geometry", () => {
         ],
       ]),
     });
+
     expect(
       activeRelationshipFlow.edges.find(
         (edge) =>
@@ -723,9 +755,11 @@ describe("SoftwareMap C4 layout geometry", () => {
     const routedEdge = flow.edges.find(
       (edge) => edge.label === "Persists run state",
     );
+
     const routedPoints = c4EdgePointsForTest(routedEdge?.data);
 
     expect(routedPoints.length).toBeGreaterThanOrEqual(2);
+
     for (let index = 1; index < routedPoints.length; index += 1) {
       const previous = routedPoints[index - 1]!;
       const next = routedPoints[index]!;
@@ -794,6 +828,7 @@ describe("SoftwareMap C4 layout geometry", () => {
     };
 
     const flow = await createC4MapFlow(snapshot);
+
     const routedPoints = flow.edges.map((edge) =>
       c4EdgePointsForTest(edge.data),
     );
@@ -802,14 +837,17 @@ describe("SoftwareMap C4 layout geometry", () => {
       undefined,
       undefined,
     ]);
+
     for (const points of routedPoints) {
       expect(points.length).toBeGreaterThanOrEqual(2);
+
       for (let index = 1; index < points.length; index += 1) {
         const previous = points[index - 1]!;
         const next = points[index]!;
         expect(previous.x === next.x || previous.y === next.y).toBe(true);
       }
     }
+
     expect(
       flow.edges.map((edge) =>
         Object.prototype.hasOwnProperty.call(
@@ -828,6 +866,7 @@ describe("runInlineC4Layout stability", () => {
     { from: "server", to: "canvas", label: "serves" },
     { from: "canvas", to: "server", label: "queries" },
   ];
+
   // Labels sort "alpha canvas" before "zeta server", so model order alone
   // would put the canvas first; the previous layout says the opposite.
   const previousLayout: InlineC4LayoutResult = {
@@ -878,11 +917,13 @@ describe("runInlineC4Layout stability", () => {
         parentId: "server",
       },
     ];
+
     const layoutRelationships: SoftwareMapRelationshipSnapshot[] = [
       { from: "api", to: "store" },
       { from: "api", to: "canvas" },
       { from: "canvas", to: "external" },
     ];
+
     const { layout } = await runInlineC4Layout(nodes, layoutRelationships);
     const centers = c4CentersById(layout.nodes);
     const system = centers.get("system")!;
@@ -906,9 +947,11 @@ describe("runInlineC4Layout stability", () => {
       },
       layout,
     );
+
     const componentEdge = flow.edges.find(
       (edge) => edge.source === "api" && edge.target === "store",
     );
+
     expect(componentEdge).toMatchObject({
       sourceHandle: "source-right",
       targetHandle: "target-left",
@@ -928,10 +971,13 @@ describe("runInlineC4Layout stability", () => {
     const crossContainerEdge = flow.edges.find(
       (edge) => edge.source === "api" && edge.target === "canvas",
     );
+
     const crossContainerPoints = c4EdgePointsForTest(crossContainerEdge?.data);
+
     const systemEntry = layout.nodes.find(
       (entry) => entry.node.id === "system",
     )!;
+
     expect(crossContainerPoints.length).toBeGreaterThanOrEqual(2);
     expect(
       crossContainerPoints.every(
@@ -972,6 +1018,7 @@ describe("runInlineC4Layout stability", () => {
       { id: "canvas", label: "alpha canvas", type: "container" },
       { id: "runtime", label: "review runtime", type: "container" },
     ];
+
     const expandedRelationships: SoftwareMapRelationshipSnapshot[] = [
       { from: "server.plugin", to: "canvas", label: "serves" },
       { from: "canvas", to: "server.watcher", label: "queries" },
@@ -979,6 +1026,7 @@ describe("runInlineC4Layout stability", () => {
       { from: "runtime", to: "server.plugin", label: "starts" },
       { from: "runtime", to: "canvas", label: "writes session" },
     ];
+
     const expandedPreviousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["server", { x: 300, y: 200, width: 280, height: 112 }],
@@ -1083,6 +1131,7 @@ describe("runInlineC4Layout stability", () => {
         parentId: "system",
       },
     ];
+
     const nestedRelationships: SoftwareMapRelationshipSnapshot[] = [
       { from: "system.runtime", to: "system.server.plugin", label: "starts" },
       {
@@ -1105,6 +1154,7 @@ describe("runInlineC4Layout stability", () => {
       },
       { from: "system.runtime", to: "system.artifacts", label: "writes" },
     ];
+
     const nestedPreviousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["system.runtime", { x: 100, y: 300, width: 280, height: 112 }],
@@ -1128,9 +1178,11 @@ describe("runInlineC4Layout stability", () => {
     const server = layout.nodes.find(
       (entry) => entry.node.id === "system.server" && entry.expandedGroup,
     );
+
     const canvas = layout.nodes.find(
       (entry) => entry.node.id === "system.canvas",
     );
+
     expect(server).toBeDefined();
     expect(canvas).toBeDefined();
     expect(server!.x + server!.width / 2).toBeLessThan(
@@ -1147,6 +1199,7 @@ describe("runInlineC4Layout stability", () => {
       { id: "targetTop", label: "target top", type: "container" },
       { id: "targetBottom", label: "target bottom", type: "container" },
     ];
+
     // Edges cross given the previous arrangement: top source feeds the
     // bottom target and vice versa. Unconstrained crossing minimization
     // removes the crossing by swapping one of the pairs.
@@ -1154,6 +1207,7 @@ describe("runInlineC4Layout stability", () => {
       { from: "sourceTop", to: "targetBottom", label: "feeds" },
       { from: "sourceBottom", to: "targetTop", label: "feeds" },
     ];
+
     const verticalPreviousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["sourceTop", { x: 0, y: 0, width: 280, height: 112 }],
@@ -1175,8 +1229,10 @@ describe("runInlineC4Layout stability", () => {
     const centerY = (id: string) => {
       const entry = layout.nodes.find((candidate) => candidate.node.id === id);
       expect(entry).toBeDefined();
+
       return entry!.y + entry!.height / 2;
     };
+
     expect(centerY("sourceTop")).toBeLessThan(centerY("sourceBottom"));
     expect(centerY("targetTop")).toBeLessThan(centerY("targetBottom"));
   });
@@ -1192,6 +1248,7 @@ describe("runInlineC4Layout stability", () => {
       },
       { id: "right", label: "right", type: "container" },
     ];
+
     const expandedNodes: SoftwareMapNodeSnapshot[] = [
       collapsedNodes[0]!,
       { ...collapsedNodes[1]!, expanded: true },
@@ -1209,6 +1266,7 @@ describe("runInlineC4Layout stability", () => {
       },
       collapsedNodes[2]!,
     ];
+
     const collapsedPreviousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["left", { x: 0, y: 0, width: 280, height: 112 }],
@@ -1218,6 +1276,7 @@ describe("runInlineC4Layout stability", () => {
       groupBboxes: new Map(),
       childLayoutKeys: new Map(),
     };
+
     const localRelationships: SoftwareMapRelationshipSnapshot[] = [
       {
         id: "left-to-right",
@@ -1238,6 +1297,7 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       collapsedPreviousLayout,
     );
+
     const expandedCenters = c4CentersById(expanded.layout.nodes);
 
     expect(expandedCenters.get("middle")!.x).toBeCloseTo(560, 4);
@@ -1267,6 +1327,7 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       expanded.inlineLayout,
     );
+
     const contractedCenters = c4CentersById(contracted.layout.nodes);
 
     expect(contractedCenters.get("middle")!.x).toBeCloseTo(
@@ -1295,6 +1356,7 @@ describe("runInlineC4Layout stability", () => {
       },
       { id: "right", label: "right", type: "container" },
     ];
+
     const expandedNodes: SoftwareMapNodeSnapshot[] = [
       collapsedNodes[0]!,
       { ...collapsedNodes[1]!, expanded: true },
@@ -1318,7 +1380,9 @@ describe("runInlineC4Layout stability", () => {
       },
       collapsedNodes[2]!,
     ];
+
     const localRelationships: SoftwareMapRelationshipSnapshot[] = [];
+
     let previousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["left", { x: 0, y: 0, width: 280, height: 112 }],
@@ -1328,6 +1392,7 @@ describe("runInlineC4Layout stability", () => {
       groupBboxes: new Map(),
       childLayoutKeys: new Map(),
     };
+
     let firstContractedGaps:
       | { leftGap: number; rightGap: number; width: number }
       | undefined;
@@ -1339,16 +1404,19 @@ describe("runInlineC4Layout stability", () => {
         undefined,
         previousLayout,
       );
+
       expect(c4CentersById(expanded.layout.nodes).get("middle")!.x).toBeCloseTo(
         660,
         4,
       );
+
       const contracted = await runInlineC4Layout(
         collapsedNodes,
         localRelationships,
         undefined,
         expanded.inlineLayout,
       );
+
       const gaps = c4SiblingGaps(contracted.layout.nodes, [
         "left",
         "middle",
@@ -1385,6 +1453,7 @@ describe("runInlineC4Layout stability", () => {
       },
       { id: "e2b", label: "E2B", type: "softwareSystem" },
     ];
+
     const expandedNodes: SoftwareMapNodeSnapshot[] = [
       ...collapsedNodes.map((node) =>
         node.id === "devFast" ? { ...node, expanded: true } : node,
@@ -1414,6 +1483,7 @@ describe("runInlineC4Layout stability", () => {
         parentId: "devFast",
       },
     ];
+
     const collapsedPreviousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["githubUser", { x: 0, y: 180, width: 280, height: 112 }],
@@ -1436,12 +1506,14 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       collapsedPreviousLayout,
     );
+
     const contracted = await runInlineC4Layout(
       collapsedNodes,
       [],
       undefined,
       expanded.inlineLayout,
     );
+
     const contractedCenters = c4CentersById(contracted.layout.nodes);
 
     expect(contractedCenters.get("developer")!.y).toBeLessThan(
@@ -1466,6 +1538,7 @@ describe("runInlineC4Layout stability", () => {
       },
       { id: "right", label: "right", type: "container" },
     ];
+
     let previousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["left", { x: 0, y: 0, width: 280, height: 112 }],
@@ -1477,6 +1550,7 @@ describe("runInlineC4Layout stability", () => {
       ]),
       childLayoutKeys: new Map(),
     };
+
     const dimensions = [
       new Map<string, { width: number; height: number }>([
         ["left", { width: 280, height: 112 }],
@@ -1489,6 +1563,7 @@ describe("runInlineC4Layout stability", () => {
         ["right", { width: 280, height: 112 }],
       ]),
     ];
+
     let firstWidth: number | undefined;
 
     for (let index = 0; index < 8; index += 1) {
@@ -1498,6 +1573,7 @@ describe("runInlineC4Layout stability", () => {
         dimensions[index % dimensions.length],
         previousLayout,
       );
+
       const width = c4LayoutWidth(next.layout.nodes);
 
       firstWidth ??= width;
@@ -1518,6 +1594,7 @@ describe("runInlineC4Layout stability", () => {
       },
       { id: "right", label: "right", type: "container" },
     ];
+
     const previousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["left", { x: 0, y: 200, width: 280, height: 112 }],
@@ -1535,6 +1612,7 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       previousLayout,
     );
+
     const centers = c4CentersById(layout.nodes);
 
     expect(centers.get("left")!.y).toBeCloseTo(256, 4);
@@ -1543,6 +1621,7 @@ describe("runInlineC4Layout stability", () => {
 
   it("routes dense nested expansion without a single huge router transaction", async () => {
     const childCount = 23;
+
     const nodes: SoftwareMapNodeSnapshot[] = [
       {
         id: "system",
@@ -1572,7 +1651,9 @@ describe("runInlineC4Layout stability", () => {
         parentId: "system.progressive",
       })),
     ];
+
     const denseRelationships: SoftwareMapRelationshipSnapshot[] = [];
+
     for (let index = 0; index < 65; index += 1) {
       denseRelationships.push({
         id: `dense-${index}`,
@@ -1581,6 +1662,7 @@ describe("runInlineC4Layout stability", () => {
         label: `edge ${index}`,
       });
     }
+
     const previousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["system.progressive", { x: 300, y: 200, width: 280, height: 112 }],
@@ -1618,6 +1700,7 @@ describe("runInlineC4Layout stability", () => {
       "web",
       "repoAutomation",
     ];
+
     const previousBoxes = new Map<string, C4LayoutBoxForTest>(
       [
         ["cli", 0, 0],
@@ -1637,6 +1720,7 @@ describe("runInlineC4Layout stability", () => {
         { x: x as number, y: y as number, width: 280, height: 112 },
       ]),
     );
+
     const nodes: SoftwareMapNodeSnapshot[] = [
       {
         id: "system",
@@ -1660,6 +1744,7 @@ describe("runInlineC4Layout stability", () => {
         parentId: "progressiveReview",
       })),
     ];
+
     const relationships: SoftwareMapRelationshipSnapshot[] = Array.from(
       { length: 32 },
       (_, index) => ({
@@ -1669,6 +1754,7 @@ describe("runInlineC4Layout stability", () => {
         label: `edge ${index}`,
       }),
     );
+
     const previousLayout: InlineC4LayoutResult = {
       nodeBboxes: previousBoxes,
       groupBboxes: new Map([
@@ -1683,12 +1769,15 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       previousLayout,
     );
+
     const directChildren = expanded.layout.nodes.filter((entry) =>
       childIds.includes(entry.node.id),
     );
+
     const previousRowCount = new Set(
       childIds.map((id) => Math.round(previousBoxes.get(id)!.y / 24)),
     ).size;
+
     const nextRowCount = new Set(
       directChildren.map((entry) => Math.round(entry.y / 24)),
     ).size;
@@ -1700,18 +1789,21 @@ describe("runInlineC4Layout stability", () => {
       .map((node) =>
         node.id === "progressiveReview" ? { ...node, expanded: false } : node,
       );
+
     const collapsed = await runInlineC4Layout(
       collapsedNodes,
       [],
       undefined,
       expanded.inlineLayout,
     );
+
     const previousChildrenBbox = c4EntriesBboxForTest(
       childIds.map((id) => ({
         node: { id },
         ...previousBoxes.get(id)!,
       })),
     );
+
     const collapsedChildrenBbox = c4EntriesBboxForTest(
       collapsed.layout.nodes.filter((entry) =>
         childIds.includes(entry.node.id),
@@ -1744,6 +1836,7 @@ describe("runInlineC4Layout stability", () => {
       },
       { id: "e2b", label: "E2B", type: "softwareSystem" },
     ];
+
     const childIds = [
       "cli",
       "traceViewer",
@@ -1758,6 +1851,7 @@ describe("runInlineC4Layout stability", () => {
       "web",
       "repoAutomation",
     ];
+
     const devFastChildren: SoftwareMapNodeSnapshot[] = childIds.map((id) => ({
       id: `devFast.${id}`,
       label: id,
@@ -1765,6 +1859,7 @@ describe("runInlineC4Layout stability", () => {
       parentId: "devFast",
       expandable: id === "progressiveReview",
     }));
+
     const progressiveChildren: SoftwareMapNodeSnapshot[] = Array.from(
       { length: 23 },
       (_, index) => ({
@@ -1774,6 +1869,7 @@ describe("runInlineC4Layout stability", () => {
         parentId: "devFast.progressiveReview",
       }),
     );
+
     const collapsedPreviousLayout: InlineC4LayoutResult = {
       nodeBboxes: new Map([
         ["githubUser", { x: 0, y: 180, width: 280, height: 112 }],
@@ -1789,6 +1885,7 @@ describe("runInlineC4Layout stability", () => {
       groupBboxes: new Map(),
       childLayoutKeys: new Map(),
     };
+
     const initialBbox = c4EntriesBboxForTest(
       [...collapsedPreviousLayout.nodeBboxes.entries()].map(([id, box]) => ({
         node: { id },
@@ -1807,6 +1904,7 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       collapsedPreviousLayout,
     );
+
     const expandedProgressiveReview = await runInlineC4Layout(
       [
         ...topLevelNodes.map((node) =>
@@ -1823,6 +1921,7 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       expandedDevFast.inlineLayout,
     );
+
     const collapsedProgressiveReview = await runInlineC4Layout(
       [
         ...topLevelNodes.map((node) =>
@@ -1834,23 +1933,28 @@ describe("runInlineC4Layout stability", () => {
       undefined,
       expandedProgressiveReview.inlineLayout,
     );
+
     const collapsedDevFast = await runInlineC4Layout(
       topLevelNodes,
       [],
       undefined,
       collapsedProgressiveReview.inlineLayout,
     );
+
     const finalCenters = c4CentersById(collapsedDevFast.layout.nodes);
+
     const initialCenters = c4CentersById(
       [...collapsedPreviousLayout.nodeBboxes.entries()].map(([id, box]) => ({
         node: { id },
         ...box,
       })),
     );
+
     const finalBbox = c4EntriesBboxForTest(collapsedDevFast.layout.nodes);
 
     expect(finalBbox.width).toBeLessThanOrEqual(initialBbox.width + 120);
     expect(finalBbox.height).toBeLessThanOrEqual(initialBbox.height + 120);
+
     for (const node of topLevelNodes) {
       expect(finalCenters.get(node.id)!.x).toBeCloseTo(
         initialCenters.get(node.id)!.x,
@@ -1868,6 +1972,7 @@ describe("runInlineC4Layout stability", () => {
       { id: "server", label: "zeta server", type: "container" },
       { id: "canvas", label: "alpha canvas", type: "container" },
     ];
+
     const rebuiltNodes = [...nodes.map((node) => ({ ...node }))].reverse();
 
     expect(c4LayoutSignature(nodes, relationships)).toBe(
@@ -1904,6 +2009,7 @@ describe("runInlineC4Layout stability", () => {
         },
       ],
     };
+
     const highlightedNode: SoftwareMapNodeSnapshot = {
       ...baseNode,
       dataStoreSchemaSections: [
@@ -1950,6 +2056,7 @@ describe("runInlineC4Layout stability", () => {
         },
       ],
     };
+
     const movedHighlightNode: SoftwareMapNodeSnapshot = {
       ...baseNode,
       dataStoreSchemaSections: [
@@ -1968,7 +2075,9 @@ describe("runInlineC4Layout stability", () => {
         },
       ],
     };
+
     const { layout } = await runInlineC4Layout([baseNode], []);
+
     const flow = createC4MapFlowFromLayout(
       {
         view: "database:test",
@@ -1978,7 +2087,9 @@ describe("runInlineC4Layout stability", () => {
       },
       layout,
     );
+
     const renderedNode = flow.nodes[0]?.data.node as SoftwareMapNodeSnapshot;
+
     const activeRows = renderedNode.dataStoreSchemaSections
       ?.flatMap((section) => section.rows)
       .filter((row) => row.state === "active")
@@ -1992,9 +2103,11 @@ describe("runInlineC4Layout stability", () => {
       { id: "server", label: "zeta server", type: "container" },
       { id: "canvas", label: "alpha canvas", type: "container" },
     ];
+
     const expandedNodes = nodes.map((node) =>
       node.id === "server" ? { ...node, expanded: true } : node,
     );
+
     const dimensions = new Map([["server", { width: 320, height: 140 }]]);
 
     expect(c4LayoutSignature(nodes, relationships)).not.toBe(
@@ -2009,6 +2122,7 @@ describe("runInlineC4Layout stability", () => {
     const nodes: SoftwareMapNodeSnapshot[] = [
       { id: "developer", label: "Developer", type: "person" },
     ];
+
     const initialDimensions = new Map([["developer", { width: 0, height: 0 }]]);
 
     const { layout } = await runInlineC4Layout(nodes, [], initialDimensions);
@@ -2042,6 +2156,7 @@ function c4CentersById(
 function c4LayoutWidth(entries: Array<{ x: number; width: number }>): number {
   const minX = Math.min(...entries.map((entry) => entry.x));
   const maxX = Math.max(...entries.map((entry) => entry.x + entry.width));
+
   return maxX - minX;
 }
 
@@ -2058,6 +2173,7 @@ function c4EntriesBboxForTest(
   const minY = Math.min(...entries.map((entry) => entry.y));
   const maxX = Math.max(...entries.map((entry) => entry.x + entry.width));
   const maxY = Math.max(...entries.map((entry) => entry.y + entry.height));
+
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
@@ -2072,6 +2188,7 @@ function c4SiblingGaps(
   expect(left).toBeDefined();
   expect(middle).toBeDefined();
   expect(right).toBeDefined();
+
   return {
     leftGap: middle!.x - (left!.x + left!.width),
     rightGap: right!.x - (middle!.x + middle!.width),
@@ -2093,6 +2210,7 @@ function c4EdgePointsForTest(
         }
       | undefined
   )?.sections;
+
   return (
     sections?.flatMap((section) => [
       section.startPoint,
@@ -2122,9 +2240,11 @@ function c4SectionPointsForTest(
 
 function isOrthogonalPolylineForTest(points: Array<{ x: number; y: number }>) {
   if (points.length < 2) return false;
+
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1]!;
     const next = points[index]!;
+
     if (
       Math.abs(previous.x - next.x) > 0.001 &&
       Math.abs(previous.y - next.y) > 0.001
@@ -2132,5 +2252,6 @@ function isOrthogonalPolylineForTest(points: Array<{ x: number; y: number }>) {
       return false;
     }
   }
+
   return true;
 }

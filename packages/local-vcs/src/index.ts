@@ -104,11 +104,13 @@ export async function detectLocalVcs(
   rootPath: string,
 ): Promise<LocalVcs | null> {
   const resolvedRootPath = canonicalPath(rootPath);
+
   const jjRoot = await commandOutput(
     "jj",
     ["-R", resolvedRootPath, "root", "--ignore-working-copy"],
     { cwd: resolvedRootPath },
   ).catch(() => null);
+
   if (jjRoot && isInsideDirectory(resolvedRootPath, canonicalPath(jjRoot))) {
     return createLocalVcs("jj", canonicalPath(jjRoot));
   }
@@ -118,17 +120,21 @@ export async function detectLocalVcs(
     ["-C", resolvedRootPath, "rev-parse", "--show-toplevel"],
     { cwd: resolvedRootPath },
   ).catch(() => null);
+
   if (gitRoot) return createLocalVcs("git", canonicalPath(gitRoot));
+
   return null;
 }
 
 export function detectLocalVcsSync(rootPath: string): LocalVcs | null {
   const resolvedRootPath = canonicalPath(rootPath);
+
   const jjRoot = commandOutputSync(
     "jj",
     ["-R", resolvedRootPath, "root", "--ignore-working-copy"],
     { cwd: resolvedRootPath },
   );
+
   if (jjRoot && isInsideDirectory(resolvedRootPath, canonicalPath(jjRoot))) {
     return createLocalVcs("jj", canonicalPath(jjRoot));
   }
@@ -138,7 +144,9 @@ export function detectLocalVcsSync(rootPath: string): LocalVcs | null {
     ["-C", resolvedRootPath, "rev-parse", "--show-toplevel"],
     { cwd: resolvedRootPath },
   );
+
   if (gitRoot) return createLocalVcs("git", canonicalPath(gitRoot));
+
   return null;
 }
 
@@ -162,6 +170,7 @@ export interface RepoContext {
  */
 export async function gitCommonDir(rootPath: string): Promise<string | null> {
   const key = path.resolve(rootPath);
+
   // cwd-based jj invocation, never `-R`: jj walks UP from cwd like git does,
   // while `-R <subdir>` fails outright for a subdirectory of a workspace and
   // would silently fall through to git's cwd walk — which, from a
@@ -177,11 +186,13 @@ export async function gitCommonDir(rootPath: string): Promise<string | null> {
       { cwd: key },
     ).catch(() => null)) ||
     null;
+
   return resolved;
 }
 
 export function gitCommonDirSync(rootPath: string): string | null {
   const key = path.resolve(rootPath);
+
   const resolved =
     commandOutputSync("jj", ["git", "root", "--ignore-working-copy"], {
       cwd: key,
@@ -192,6 +203,7 @@ export function gitCommonDirSync(rootPath: string): string | null {
       { cwd: key },
     ) ||
     null;
+
   return resolved;
 }
 
@@ -206,7 +218,9 @@ export async function resolveRepoContext(
   const key = path.resolve(rootPath);
 
   const commonDir = await gitCommonDir(key);
+
   if (!commonDir) return null;
+
   const [originUrl, resolvedOriginUrl] = await Promise.all([
     commandOutput("git", [
       "--git-dir",
@@ -223,6 +237,7 @@ export async function resolveRepoContext(
       "origin",
     ]).catch(() => null),
   ]);
+
   const context = {
     commonDir,
     originUrl: originUrl || null,
@@ -230,6 +245,7 @@ export async function resolveRepoContext(
       (resolvedOriginUrl ? parseGitRemoteSlug(resolvedOriginUrl) : null) ??
       (originUrl ? parseGitRemoteSlug(originUrl) : null),
   };
+
   return context;
 }
 
@@ -237,7 +253,9 @@ export function resolveRepoContextSync(rootPath: string): RepoContext | null {
   const key = path.resolve(rootPath);
 
   const commonDir = gitCommonDirSync(key);
+
   if (!commonDir) return null;
+
   const originUrl =
     commandOutputSync("git", [
       "--git-dir",
@@ -246,6 +264,7 @@ export function resolveRepoContextSync(rootPath: string): RepoContext | null {
       "--get",
       "remote.origin.url",
     ]) || null;
+
   const resolvedOriginUrl =
     commandOutputSync("git", [
       "--git-dir",
@@ -254,6 +273,7 @@ export function resolveRepoContextSync(rootPath: string): RepoContext | null {
       "get-url",
       "origin",
     ]) || null;
+
   const context = {
     commonDir,
     originUrl,
@@ -261,6 +281,7 @@ export function resolveRepoContextSync(rootPath: string): RepoContext | null {
       (resolvedOriginUrl ? parseGitRemoteSlug(resolvedOriginUrl) : null) ??
       (originUrl ? parseGitRemoteSlug(originUrl) : null),
   };
+
   return context;
 }
 
@@ -270,13 +291,17 @@ export async function gitArgs(
   args: string[],
 ): Promise<string[]> {
   const gitDir = await gitCommonDir(rootPath);
+
   if (!gitDir) throw new Error(`No git repository found at ${rootPath}`);
+
   return ["--git-dir", gitDir, ...args];
 }
 
 export function gitArgsSync(rootPath: string, args: string[]): string[] {
   const gitDir = gitCommonDirSync(rootPath);
+
   if (!gitDir) throw new Error(`No git repository found at ${rootPath}`);
+
   return ["--git-dir", gitDir, ...args];
 }
 
@@ -292,18 +317,21 @@ export async function git(
       await gitArgs(rootPath, args),
       { maxBuffer: 64 * 1024 * 1024, signal: options.signal },
     );
+
     return { ok: true, stdout, stderr };
   } catch (error) {
     if (options.allowFailure) {
       // SAFETY: execFile rejects with an ExecFileException that carries the
       // child's captured stdout and stderr as utf8 strings.
       const err = error as { stdout?: string; stderr?: string };
+
       return {
         ok: false,
         stdout: err.stdout ?? "",
         stderr: err.stderr ?? String(error),
       };
     }
+
     throw error;
   }
 }
@@ -371,7 +399,9 @@ export async function currentHead(
   rootPath: string,
 ): Promise<ResolvedRevision | null> {
   const vcs = await detectLocalVcs(rootPath);
+
   if (!vcs) return null;
+
   return vcs.currentHead();
 }
 
@@ -392,22 +422,32 @@ export async function currentChangeIdentity(
   rootPath: string,
 ): Promise<LocalChangeIdentity | null> {
   const vcs = await detectLocalVcs(rootPath);
+
   if (!vcs) return null;
+
   if (vcs.kind === "jj") {
     const at = await jjChangeSummary(rootPath, "@");
+
     if (at.length !== 1) return null;
     let subject = at[0]!;
+
     if (subject.scratch) {
       const parents = await jjChangeSummary(rootPath, "@-");
+
       if (parents.length === 1) subject = parents[0]!;
     }
+
     const bookmark = subject.bookmarks[0];
+
     if (bookmark) return { kind: "jj-bookmark", name: bookmark };
+
     return subject.changeId
       ? { kind: "jj-change", name: subject.changeId }
       : null;
   }
+
   let stdout: string;
+
   try {
     ({ stdout } = await execFileAsync(
       "git",
@@ -418,9 +458,12 @@ export async function currentChangeIdentity(
     if (error instanceof Error && "code" in error && error.code === 1) {
       return null;
     }
+
     throw error;
   }
+
   const branch = stdout.trim();
+
   return branch ? { kind: "git-branch", name: branch } : null;
 }
 
@@ -430,24 +473,33 @@ export async function changeIdentityForRevision(
   revision: string,
 ): Promise<LocalChangeIdentity | null> {
   const vcs = await detectLocalVcs(rootPath);
+
   if (!vcs) return null;
+
   if (vcs.kind === "git") {
     const resolved = await vcs.resolveRevision(revision);
+
     if (!resolved) return null;
     const branch = await gitRevisionBranch(rootPath, revision);
+
     return branch
       ? { kind: "git-branch", name: branch }
       : { kind: "git-commit", name: resolved.commit };
   }
+
   const summaries = await jjChangeSummary(rootPath, revision);
+
   if (summaries.length === 1) {
     const subject = summaries[0]!;
     const bookmark = subject.bookmarks[0];
+
     if (bookmark) return { kind: "jj-bookmark", name: bookmark };
+
     return subject.changeId
       ? { kind: "jj-change", name: subject.changeId }
       : null;
   }
+
   if (summaries.length > 1 || !canUseGitFallbackSync(rootPath, vcs.kind)) {
     return null;
   }
@@ -458,6 +510,7 @@ export async function changeIdentityForRevision(
   const resolved = await resolveGitRevisionCommit(rootPath, revision).catch(
     () => null,
   );
+
   return resolved ? { kind: "git-commit", name: resolved } : null;
 }
 
@@ -472,9 +525,11 @@ async function gitRevisionBranch(
     "--symbolic-full-name",
     revision,
   ]).catch(() => "");
+
   for (const prefix of ["refs/heads/", "refs/remotes/"]) {
     if (symbolic.startsWith(prefix)) return symbolic.slice(prefix.length);
   }
+
   return null;
 }
 
@@ -490,7 +545,9 @@ async function jjChangeSummary(
 ): Promise<JjChangeSummary[]> {
   const template =
     'change_id ++ "\\t" ++ bookmarks.join(",") ++ "\\t" ++ if(empty && description == "", "scratch", "subject") ++ "\\n"';
+
   let stdout: string;
+
   try {
     ({ stdout } = await execFileAsync(
       "jj",
@@ -509,13 +566,16 @@ async function jjChangeSummary(
     if (error instanceof Error && "code" in error && error.code === 1) {
       return [];
     }
+
     throw error;
   }
+
   return stdout
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => {
       const [changeId, bookmarks, kind] = line.split("\t");
+
       return {
         changeId: changeId?.trim() ?? "",
         bookmarks: (bookmarks ?? "")
@@ -539,7 +599,9 @@ export async function jjRevisionIsConflicted(
   revision: string,
 ): Promise<boolean | null> {
   const vcs = await detectLocalVcs(rootPath);
+
   if (vcs?.kind !== "jj") return null;
+
   try {
     const { stdout } = await execFileAsync(
       "jj",
@@ -554,7 +616,9 @@ export async function jjRevisionIsConflicted(
       ],
       { cwd: rootPath },
     );
+
     const value = stdout.trim();
+
     return value === "true" ? true : value === "false" ? false : null;
   } catch {
     return null;
@@ -563,7 +627,9 @@ export async function jjRevisionIsConflicted(
 
 export function currentHeadSync(rootPath: string): ResolvedRevision | null {
   const vcs = detectLocalVcsSync(rootPath);
+
   if (!vcs) return null;
+
   return currentHeadForKindSync(rootPath, vcs.kind);
 }
 
@@ -572,7 +638,9 @@ export async function resolveRevision(
   revision: string,
 ): Promise<ResolvedRevision | null> {
   const vcs = await detectLocalVcs(rootPath);
+
   if (!vcs) return null;
+
   return vcs.resolveRevision(revision);
 }
 
@@ -581,7 +649,9 @@ export function resolveRevisionSync(
   revision: string,
 ): ResolvedRevision | null {
   const vcs = detectLocalVcsSync(rootPath);
+
   if (!vcs) return null;
+
   return resolveRevisionForKindSync(rootPath, revision, vcs.kind);
 }
 
@@ -589,7 +659,9 @@ export async function defaultBranch(
   rootPath: string,
 ): Promise<ResolvedRevision | null> {
   const vcs = await detectLocalVcs(rootPath);
+
   if (!vcs) return null;
+
   return vcs.defaultBranch();
 }
 
@@ -599,7 +671,9 @@ export async function mergeBase(input: {
   headRef: string;
 }): Promise<ResolvedRevision | null> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) return null;
+
   return vcs.mergeBase(input.baseRef, input.headRef);
 }
 
@@ -608,7 +682,9 @@ export async function defaultBase(input: {
   headRef: string;
 }): Promise<ResolvedRevision | null> {
   const base = await defaultBranch(input.rootPath);
+
   if (!base) return null;
+
   return mergeBase({
     rootPath: input.rootPath,
     baseRef: base.commit,
@@ -644,6 +720,7 @@ async function resolveRevisionForKind(
     revision,
     kind,
   );
+
   return commit ? { commit } : null;
 }
 
@@ -657,6 +734,7 @@ function resolveRevisionForKindSync(
     revision,
     kind,
   );
+
   return commit ? { commit } : null;
 }
 
@@ -670,16 +748,20 @@ export async function defaultBranchRef(
   rootPath: string,
 ): Promise<string | null> {
   const vcs = await detectLocalVcs(rootPath);
+
   if (!vcs) return null;
   const candidates = await defaultBranchCandidates(vcs.rootPath);
+
   for (const candidate of candidates) {
     const commit = await resolveRevisionCommitByPreference(
       vcs.rootPath,
       candidate,
       vcs.kind,
     );
+
     if (commit) return candidate;
   }
+
   return null;
 }
 
@@ -699,7 +781,9 @@ export async function devfastPrepareCommands(
     ["config", "--get-all", "devfast.prepare"],
     { allowFailure: true },
   ).catch(() => null);
+
   if (!result?.ok) return [];
+
   return result.stdout
     .split("\n")
     .map((line) => line.trim())
@@ -711,14 +795,17 @@ async function defaultBranchForKind(
   kind: LocalVcsKind,
 ): Promise<ResolvedRevision | null> {
   const candidates = await defaultBranchCandidates(rootPath);
+
   for (const candidate of candidates) {
     const commit = await resolveRevisionCommitByPreference(
       rootPath,
       candidate,
       kind,
     );
+
     if (commit) return { commit };
   }
+
   return null;
 }
 
@@ -734,6 +821,7 @@ async function mergeBaseForKind(input: {
     input.headRef,
     input.kind,
   );
+
   // No guessing: disjoint histories have no merge base, and callers must see
   // that as null rather than a silently substituted default branch.
   return commit ? { commit } : null;
@@ -744,7 +832,9 @@ export function listTrackedFilesSync(input: {
   ref?: string;
 }): string[] {
   const vcs = detectLocalVcsSync(input.rootPath);
+
   if (!vcs) return [];
+
   return listTrackedFilesForKind({
     rootPath: vcs.rootPath,
     ref: input.ref,
@@ -765,9 +855,12 @@ function listTrackedFilesForKind(input: {
       "list",
       "--ignore-working-copy",
     ];
+
     if (input.ref) args.push("-r", input.ref);
     const output = commandOutputSync("jj", args, { cwd: input.rootPath });
+
     if (output !== null) return splitLines(output);
+
     if (!canUseGitFallbackSync(input.rootPath, input.kind)) return [];
   }
 
@@ -780,7 +873,9 @@ function listTrackedFilesForKind(input: {
     : commandOutputSync("git", ["-C", input.rootPath, "ls-files", "-z"], {
         cwd: input.rootPath,
       });
+
   if (output === null) return [];
+
   return output.split("\0").filter(Boolean);
 }
 
@@ -790,7 +885,9 @@ export function readFileAtRevisionSync(input: {
   relativePath: string;
 }): { commit: string; source: string } | null {
   const vcs = detectLocalVcsSync(input.rootPath);
+
   if (!vcs) return null;
+
   return readFileAtRevisionForKind({
     ...input,
     rootPath: vcs.rootPath,
@@ -804,7 +901,9 @@ export async function readFileAtRevision(input: {
   relativePath: string;
 }): Promise<{ commit: string; source: string } | null> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) return null;
+
   return readFileAtRevisionForKindAsync({
     ...input,
     rootPath: vcs.rootPath,
@@ -840,6 +939,7 @@ async function readFileAtRevisionForKindAsync(input: {
         : null)
     );
   }
+
   return (
     (await readGitFileAtRevision(input).catch(() => null)) ??
     (canUseGitFallbackSync(input.rootPath, input.kind)
@@ -857,9 +957,11 @@ export async function diff(input: {
   paths?: string[];
 }): Promise<string> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
   }
+
   return diffForKind({ ...input, rootPath: vcs.rootPath, kind: vcs.kind });
 }
 
@@ -872,9 +974,11 @@ export async function diffTrees(input: {
   paths?: string[];
 }): Promise<string> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
   }
+
   return diffForKind({
     ...input,
     rootPath: vcs.rootPath,
@@ -890,9 +994,11 @@ export async function diffFileSummaries(input: {
   paths?: string[];
 }): Promise<LocalVcsDiffFileSummary[]> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
   }
+
   return diffFileSummariesForKind({
     ...input,
     rootPath: vcs.rootPath,
@@ -907,9 +1013,11 @@ export async function listCommitRange(input: {
   headRef: string;
 }): Promise<LocalVcsCommitSummary[]> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
   }
+
   try {
     const { stdout } = await execFileAsync(
       "git",
@@ -925,9 +1033,11 @@ export async function listCommitRange(input: {
       ],
       { cwd: vcs.rootPath, maxBuffer: 25 * 1024 * 1024 },
     );
+
     return parseGitCommitRange(stdout);
   } catch (error) {
     if (vcs.kind !== "jj") throw error;
+
     return readJjCommitRange(vcs.rootPath, input.baseRef, input.headRef);
   }
 }
@@ -936,29 +1046,38 @@ function parseGitCommitRange(output: string): LocalVcsCommitSummary[] {
   const fields = output.split("\0");
   const commits: LocalVcsCommitSummary[] = [];
   let index = 0;
+
   while (index < fields.length) {
     const commit = fields[index++]?.replace(/^\n+/u, "") ?? "";
+
     if (!/^[0-9a-f]{40}$/iu.test(commit)) continue;
     const parentCommit = (fields[index++] ?? "").split(" ")[0] ?? "";
     const author = fields[index++] ?? "";
     const authoredAt = fields[index++] ?? "";
     const subject = fields[index++] ?? "";
+
     if (fields[index] === "") index += 1;
     let fileCount = 0;
     let additions = 0;
     let deletions = 0;
+
     while (index < fields.length) {
       const field = fields[index]?.replace(/^\n+/u, "") ?? "";
+
       if (/^[0-9a-f]{40}$/iu.test(field)) break;
       index += 1;
+
       if (!field) continue;
       const [rawAdditions, rawDeletions, filePath] = field.split("\t");
+
       if (rawDeletions === undefined) continue;
       fileCount += 1;
       additions += parseGitNumStatCount(rawAdditions);
       deletions += parseGitNumStatCount(rawDeletions);
+
       if (!filePath) index += 2;
     }
+
     if (!parentCommit || !authoredAt) continue;
     commits.push({
       commit,
@@ -971,6 +1090,7 @@ function parseGitCommitRange(output: string): LocalVcsCommitSummary[] {
       deletions,
     });
   }
+
   return commits;
 }
 
@@ -995,13 +1115,17 @@ async function readJjCommitRange(
     ],
     { cwd: rootPath, maxBuffer: 25 * 1024 * 1024, trim: false },
   );
+
   const fields = output.split("\0");
+
   const metadata: Array<
     Omit<LocalVcsCommitSummary, "fileCount" | "additions" | "deletions">
   > = [];
+
   for (let index = 0; index + 4 < fields.length; index += 5) {
     const commit = fields[index]?.trim() ?? "";
     const parentCommit = (fields[index + 1] ?? "").split(" ")[0] ?? "";
+
     if (!commit || !parentCommit) continue;
     metadata.push({
       commit,
@@ -1011,6 +1135,7 @@ async function readJjCommitRange(
       subject: fields[index + 4] ?? "",
     });
   }
+
   return Promise.all(
     metadata.map(async (entry) => {
       const files = await diffFileSummariesForKind({
@@ -1020,6 +1145,7 @@ async function readJjCommitRange(
         mergeBase: false,
         kind: "jj",
       });
+
       return {
         ...entry,
         fileCount: files.length,
@@ -1038,9 +1164,11 @@ export async function diffFileSummariesTrees(input: {
   paths?: string[];
 }): Promise<LocalVcsDiffFileSummary[]> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
   }
+
   return diffFileSummariesForKind({
     ...input,
     rootPath: vcs.rootPath,
@@ -1062,9 +1190,11 @@ async function diffForKind(input: {
   if (input.kind === "jj") {
     return readJjDiff(input).catch((cause: unknown) => {
       if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw cause;
+
       return readGitDiff(input);
     });
   }
+
   return readGitDiff(input).catch(() => readJjDiff(input));
 }
 
@@ -1079,21 +1209,27 @@ async function diffFileSummariesForKind(input: {
   const requestedPaths = normalizeDiffPaths(input.paths);
   const unfilteredInput = { ...input, paths: undefined };
   let summaries: LocalVcsDiffFileSummary[];
+
   if (input.kind === "jj") {
     if (canUseGitFallbackSync(input.rootPath, input.kind)) {
       try {
         summaries = await readGitDiffFileSummaries(unfilteredInput);
+
         return filterDiffFileSummaries(summaries, requestedPaths);
       } catch {
         // jj-only revisions are not always addressable by colocated Git.
       }
     }
+
     summaries = parseGitPatchFileSummaries(await readJjDiff(unfilteredInput));
+
     return filterDiffFileSummaries(summaries, requestedPaths);
   }
+
   summaries = await readGitDiffFileSummaries(unfilteredInput).catch(async () =>
     parseGitPatchFileSummaries(await readJjDiff(unfilteredInput)),
   );
+
   return filterDiffFileSummaries(summaries, requestedPaths);
 }
 
@@ -1104,9 +1240,11 @@ export async function diffNameStatus(input: {
   mergeBase?: boolean;
 }): Promise<DiffNameStatus> {
   const vcs = await detectLocalVcs(input.rootPath);
+
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
   }
+
   return diffNameStatusForKind({
     ...input,
     rootPath: vcs.rootPath,
@@ -1132,9 +1270,11 @@ async function diffNameStatusForKind(input: {
   if (input.kind === "jj") {
     return readJjDiffNameStatus(input).catch((cause: unknown) => {
       if (!canUseGitFallbackSync(input.rootPath, input.kind)) throw cause;
+
       return readGitDiffNameStatus(input);
     });
   }
+
   return readGitDiffNameStatus(input).catch(() => readJjDiffNameStatus(input));
 }
 
@@ -1155,6 +1295,7 @@ export interface ParsedGitRemote {
 
 export function parseGitRemote(remote: string): ParsedGitRemote | null {
   const value = remote.trim();
+
   if (!value) return null;
 
   try {
@@ -1163,6 +1304,7 @@ export function parseGitRemote(remote: string): ParsedGitRemote | null {
     const owner = parsed.owner.trim();
     const repo = parsed.name.trim().replace(/\.git$/u, "");
     const port = parsed.port ? Number(parsed.port) : null;
+
     if (
       !host ||
       !owner ||
@@ -1171,6 +1313,7 @@ export function parseGitRemote(remote: string): ParsedGitRemote | null {
     ) {
       return null;
     }
+
     return {
       protocol: parsed.protocol,
       host,
@@ -1197,12 +1340,15 @@ export function parseGitRemoteSlug(
   options: { githubHosts?: readonly string[] } = {},
 ): string | null {
   const parsed = parseGitRemote(remote);
+
   if (!parsed) return null;
+
   const githubHosts = new Set(
     ["github.com", ...(options.githubHosts ?? [])].map((host) =>
       host.toLowerCase(),
     ),
   );
+
   return githubHosts.has(parsed.host) ? parsed.slug : null;
 }
 
@@ -1213,21 +1359,27 @@ export function parseGitDiffNameStatus(output: string): DiffNameStatus {
   for (const line of output.split(/\r?\n/)) {
     if (!line.trim()) continue;
     const [status, firstPath, secondPath] = line.split("\t");
+
     if (!status || !firstPath) continue;
     const kind = status[0];
+
     if (kind === "D") {
       deletedFiles.add(firstPath);
       continue;
     }
+
     if (kind === "R") {
       deletedFiles.add(firstPath);
+
       if (secondPath) changedFiles.add(secondPath);
       continue;
     }
+
     if (kind === "C") {
       changedFiles.add(secondPath ?? firstPath);
       continue;
     }
+
     changedFiles.add(firstPath);
   }
 
@@ -1245,7 +1397,9 @@ export function parseJjDiffSummary(output: string): DiffNameStatus {
     if (!line.trim()) continue;
     const status = line[0];
     const file = line.slice(2).trim();
+
     if (!file) continue;
+
     if (status === "D") {
       deletedFiles.add(file);
     } else {
@@ -1282,6 +1436,7 @@ async function readGitDiffNameStatus(input: {
     input.mergeBase === false
       ? [input.baseRef, input.headRef]
       : [`${input.baseRef}...${input.headRef}`];
+
   return parseGitDiffNameStatus(
     await commandOutput(
       "git",
@@ -1340,6 +1495,7 @@ async function defaultBranchCandidates(rootPath: string): Promise<string[]> {
     ],
     { cwd: rootPath },
   ).catch(() => null);
+
   return uniqueStrings([
     remoteHead,
     "origin/main",
@@ -1356,8 +1512,10 @@ async function resolveRevisionCommitByPreference(
 ): Promise<string | null> {
   const primary =
     preferred === "jj" ? resolveJjRevisionCommit : resolveGitRevisionCommit;
+
   const secondary =
     preferred === "jj" ? resolveGitRevisionCommit : resolveJjRevisionCommit;
+
   return (
     (await primary(rootPath, revision).catch(() => null)) ??
     (canUseGitFallbackSync(rootPath, preferred)
@@ -1375,10 +1533,12 @@ function resolveRevisionCommitByPreferenceSync(
     preferred === "jj"
       ? resolveJjRevisionCommitSync
       : resolveGitRevisionCommitSync;
+
   const secondary =
     preferred === "jj"
       ? resolveGitRevisionCommitSync
       : resolveJjRevisionCommitSync;
+
   return (
     primary(rootPath, revision) ??
     (canUseGitFallbackSync(rootPath, preferred)
@@ -1394,8 +1554,10 @@ async function mergeBaseByPreference(
   preferred: LocalVcsKind,
 ): Promise<string | null> {
   const primary = preferred === "jj" ? resolveJjMergeBase : resolveGitMergeBase;
+
   const secondary =
     preferred === "jj" ? resolveGitMergeBase : resolveJjMergeBase;
+
   return (
     (await primary(rootPath, baseRef, headRef).catch(() => null)) ??
     (canUseGitFallbackSync(rootPath, preferred)
@@ -1449,6 +1611,7 @@ async function resolveJjRevisionCommit(
     ],
     { cwd: rootPath },
   );
+
   return oneResolvedCommit(output, revision);
 }
 
@@ -1471,14 +1634,17 @@ function resolveJjRevisionCommitSync(
     ],
     { cwd: rootPath },
   );
+
   return output ? oneResolvedCommit(output, revision) : null;
 }
 
 function oneResolvedCommit(output: string, revision: string): string {
   const commits = output.split("\n").filter(Boolean);
+
   if (commits.length !== 1 || !/^[0-9a-f]{40}$/.test(commits[0]!)) {
     throw new Error(`Revision ${revision} does not resolve to one Git commit.`);
   }
+
   return commits[0]!;
 }
 
@@ -1510,6 +1676,7 @@ async function resolveJjMergeBase(
     ],
     { cwd: rootPath },
   );
+
   return splitLines(output)[0] ?? null;
 }
 
@@ -1519,12 +1686,15 @@ function readGitFileAtRevisionSync(input: {
   relativePath: string;
 }): { commit: string; source: string } | null {
   const commit = resolveGitRevisionCommitSync(input.rootPath, input.ref);
+
   if (!commit) return null;
+
   const source = commandOutputSync(
     "git",
     ["-C", input.rootPath, "show", `${commit}:${input.relativePath}`],
     { maxBuffer: 10 * 1024 * 1024, trim: false },
   );
+
   return source === null ? null : { commit, source };
 }
 
@@ -1534,7 +1704,9 @@ async function readGitFileAtRevision(input: {
   relativePath: string;
 }): Promise<{ commit: string; source: string } | null> {
   const commit = await resolveGitRevisionCommit(input.rootPath, input.ref);
+
   if (!commit) return null;
+
   const source = await commandOutput(
     "git",
     ["-C", input.rootPath, "show", `${commit}:${input.relativePath}`],
@@ -1543,6 +1715,7 @@ async function readGitFileAtRevision(input: {
       trim: false,
     },
   );
+
   return source === null ? null : { commit, source };
 }
 
@@ -1552,7 +1725,9 @@ function readJjFileAtRevisionSync(input: {
   relativePath: string;
 }): { commit: string; source: string } | null {
   const commit = resolveJjRevisionCommitSync(input.rootPath, input.ref);
+
   if (!commit) return null;
+
   const source = commandOutputSync(
     "jj",
     [
@@ -1568,6 +1743,7 @@ function readJjFileAtRevisionSync(input: {
     ],
     { cwd: input.rootPath, maxBuffer: 10 * 1024 * 1024, trim: false },
   );
+
   return source === null ? null : { commit, source };
 }
 
@@ -1577,7 +1753,9 @@ async function readJjFileAtRevision(input: {
   relativePath: string;
 }): Promise<{ commit: string; source: string } | null> {
   const commit = await resolveJjRevisionCommit(input.rootPath, input.ref);
+
   if (!commit) return null;
+
   const source = await commandOutput(
     "jj",
     [
@@ -1597,6 +1775,7 @@ async function readJjFileAtRevision(input: {
       trim: false,
     },
   );
+
   return source === null ? null : { commit, source };
 }
 
@@ -1610,11 +1789,13 @@ async function readGitDiff(input: {
   mergeBase?: boolean;
 }): Promise<string> {
   const paths = normalizeDiffPaths(input.paths);
+
   const diffRefs = input.headRef
     ? input.mergeBase === false
       ? [input.baseRef, input.headRef]
       : [`${input.baseRef}...${input.headRef}`]
     : [input.baseRef];
+
   const args = [
     "-C",
     input.rootPath,
@@ -1630,10 +1811,12 @@ async function readGitDiff(input: {
     "--",
     ...paths,
   ];
+
   const { stdout } = await execFileAsync("git", args, {
     cwd: input.rootPath,
     maxBuffer: 25 * 1024 * 1024,
   });
+
   return stdout;
 }
 
@@ -1645,11 +1828,13 @@ async function readGitDiffFileSummaries(input: {
   mergeBase?: boolean;
 }): Promise<LocalVcsDiffFileSummary[]> {
   const paths = normalizeDiffPaths(input.paths);
+
   const diffRefs = input.headRef
     ? input.mergeBase === false
       ? [input.baseRef, input.headRef]
       : [`${input.baseRef}...${input.headRef}`]
     : [input.baseRef];
+
   const commonArgs = [
     "-C",
     input.rootPath,
@@ -1662,6 +1847,7 @@ async function readGitDiffFileSummaries(input: {
     "--",
     ...paths,
   ];
+
   const [{ stdout: nameStatus }, { stdout: numStat }] = await Promise.all([
     execFileAsync(
       "git",
@@ -1680,7 +1866,9 @@ async function readGitDiffFileSummaries(input: {
       },
     ),
   ]);
+
   const counts = parseGitNumStat(numStat);
+
   return parseGitNameStatusSummaries(nameStatus).map((file) => ({
     ...file,
     ...(counts.get(file.path) ?? { additions: 0, deletions: 0 }),
@@ -1696,6 +1884,7 @@ async function readJjDiff(input: {
   paths?: string[];
 }): Promise<string> {
   const paths = normalizeDiffPaths(input.paths);
+
   const args = [
     "-R",
     input.rootPath,
@@ -1713,10 +1902,12 @@ async function readJjDiff(input: {
     "--ignore-working-copy",
     ...paths,
   ];
+
   const { stdout } = await execFileAsync("jj", args, {
     cwd: input.rootPath,
     maxBuffer: 25 * 1024 * 1024,
   });
+
   return stdout;
 }
 
@@ -1724,27 +1915,36 @@ function parseGitNameStatusSummaries(
   output: string,
 ): Array<Omit<LocalVcsDiffFileSummary, "additions" | "deletions">> {
   const fields = output.split("\0");
+
   const files: Array<Omit<LocalVcsDiffFileSummary, "additions" | "deletions">> =
     [];
+
   for (let index = 0; index < fields.length; ) {
     const rawStatus = fields[index++];
+
     if (!rawStatus) continue;
     const kind = rawStatus[0];
+
     if (kind === "R") {
       const previousPath = fields[index++];
       const path = fields[index++];
+
       if (previousPath && path) {
         files.push({ path, previousPath, status: "renamed" });
       }
+
       continue;
     }
+
     const path = fields[index++];
+
     if (!path) continue;
     files.push({
       path,
       status: kind === "A" ? "added" : kind === "D" ? "deleted" : "modified",
     });
   }
+
   return files;
 }
 
@@ -1753,36 +1953,44 @@ function parseGitNumStat(
 ): Map<string, { additions: number; deletions: number }> {
   const fields = output.split("\0");
   const counts = new Map<string, { additions: number; deletions: number }>();
+
   for (let index = 0; index < fields.length; ) {
     const record = fields[index++];
+
     if (!record) continue;
     const additionsEnd = record.indexOf("\t");
     const deletionsEnd = record.indexOf("\t", additionsEnd + 1);
+
     if (additionsEnd < 0 || deletionsEnd < 0) continue;
     const rawAdditions = record.slice(0, additionsEnd);
     const rawDeletions = record.slice(additionsEnd + 1, deletionsEnd);
     let path = record.slice(deletionsEnd + 1);
+
     if (!path) {
       index += 1;
       path = fields[index++] ?? "";
     }
+
     if (!path) continue;
     counts.set(path, {
       additions: parseGitNumStatCount(rawAdditions),
       deletions: parseGitNumStatCount(rawDeletions),
     });
   }
+
   return counts;
 }
 
 function parseGitNumStatCount(value: string): number {
   const count = Number(value);
+
   return Number.isSafeInteger(count) && count >= 0 ? count : 0;
 }
 
 function parseGitPatchFileSummaries(output: string): LocalVcsDiffFileSummary[] {
   return splitGitDiffSections(output).flatMap((section) => {
     const file = parseGitDiffSectionSummary(section);
+
     return file ? [file] : [];
   });
 }
@@ -1793,6 +2001,7 @@ function filterDiffFileSummaries(
 ): LocalVcsDiffFileSummary[] {
   if (paths.length === 0) return summaries;
   const requested = new Set(paths);
+
   return summaries.filter(
     (file) =>
       requested.has(file.path) ||
@@ -1803,6 +2012,7 @@ function filterDiffFileSummaries(
 function splitGitDiffSections(diff: string): string[] {
   const sections: string[] = [];
   let current: string[] | null = null;
+
   for (const line of diff.split(/\r?\n/)) {
     if (line.startsWith("diff --git ")) {
       if (current) sections.push(current.join("\n"));
@@ -1811,7 +2021,9 @@ function splitGitDiffSections(diff: string): string[] {
       current?.push(line);
     }
   }
+
   if (current) sections.push(current.join("\n"));
+
   return sections.filter((section) => section.trim().length > 0);
 }
 
@@ -1830,15 +2042,21 @@ function parseGitDiffSectionSummary(
   for (const line of lines) {
     const parsedOldPath = parseGitFileLine(line, "--- ");
     const parsedNewPath = parseGitFileLine(line, "+++ ");
+
     if (parsedOldPath !== undefined) oldPath = parsedOldPath;
+
     if (parsedNewPath !== undefined) newPath = parsedNewPath;
+
     if (line.startsWith("rename from ")) {
       renameFrom = unquoteGitPath(line.slice("rename from ".length).trim());
     }
+
     if (line.startsWith("rename to ")) {
       renameTo = unquoteGitPath(line.slice("rename to ".length).trim());
     }
+
     if (line.startsWith("+") && !line.startsWith("+++ ")) additions += 1;
+
     if (line.startsWith("-") && !line.startsWith("--- ")) deletions += 1;
   }
 
@@ -1849,9 +2067,12 @@ function parseGitDiffSectionSummary(
       : section.includes("\nrename from ") && section.includes("\nrename to ")
         ? "renamed"
         : "modified";
+
   const filePath =
     status === "deleted" ? oldPath : renameTo ? renameTo : (newPath ?? oldPath);
+
   if (!filePath) return null;
+
   return {
     path: filePath,
     previousPath:
@@ -1867,7 +2088,9 @@ function parseDiffGitHeaderPaths(
 ): { oldPath: string; newPath: string } | null {
   if (!line.startsWith("diff --git ")) return null;
   const tokens = line.slice("diff --git ".length).match(/"([^"\\]|\\.)*"|\S+/g);
+
   if (!tokens || tokens.length < 2) return null;
+
   return {
     oldPath: stripDiffPathPrefix(unquoteGitPath(tokens[0])),
     newPath: stripDiffPathPrefix(unquoteGitPath(tokens[1])),
@@ -1880,17 +2103,21 @@ function parseGitFileLine(
 ): string | null | undefined {
   if (!line.startsWith(prefix)) return undefined;
   const raw = unquoteGitPath(line.slice(prefix.length).trim());
+
   if (raw === "/dev/null") return null;
+
   return stripDiffPathPrefix(raw);
 }
 
 function stripDiffPathPrefix(value: string): string {
   if (value.startsWith("a/") || value.startsWith("b/")) return value.slice(2);
+
   return value;
 }
 
 function unquoteGitPath(value: string): string {
   if (!value.startsWith(`"`)) return value;
+
   try {
     // SAFETY: the text starts with a double quote, so the only JSON value it
     // can parse to is a string.
@@ -1925,11 +2152,13 @@ function canUseGitFallbackSync(
   preferred: LocalVcsKind,
 ): boolean {
   if (preferred !== "jj") return true;
+
   const gitRoot = commandOutputSync(
     "git",
     ["-C", rootPath, "rev-parse", "--show-toplevel"],
     { cwd: rootPath },
   );
+
   return gitRoot !== null && canonicalPath(gitRoot) === canonicalPath(rootPath);
 }
 
@@ -1938,6 +2167,7 @@ function isInsideDirectory(filePath: string, directoryPath: string): boolean {
     canonicalPath(directoryPath),
     canonicalPath(filePath),
   );
+
   return (
     relative === "" ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))
@@ -1993,6 +2223,7 @@ function runCommandOutputSync(
       maxBuffer: options.maxBuffer,
       stdio: ["ignore", "pipe", "ignore"],
     });
+
     return options.trim === false ? output : output.trim();
   } catch {
     return null;
@@ -2006,10 +2237,13 @@ function commandEnvironment(
   if (command !== "git" || (args[0] !== "-C" && args[0] !== "--git-dir")) {
     return undefined;
   }
+
   const env = { ...process.env };
+
   for (const key of LOCAL_GIT_ENV_KEYS) {
     delete env[key];
   }
+
   return env;
 }
 

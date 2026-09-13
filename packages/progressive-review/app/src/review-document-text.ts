@@ -1,6 +1,7 @@
 import { ANNOTATION_CONTAINER_SELECTOR } from "./comment-pins";
 
 const NON_DOCUMENT_TEXT_SELECTOR = `${ANNOTATION_CONTAINER_SELECTOR}, .review-doc-meta, .selection-action-buttons`;
+
 const BLOCK_TEXT_TAGS = new Set([
   "ADDRESS",
   "ARTICLE",
@@ -52,6 +53,7 @@ export function reviewDocumentRange(
   end: number,
 ): Range | null {
   const tokens = documentTextTokens(article);
+
   if (
     !Number.isInteger(start) ||
     !Number.isInteger(end) ||
@@ -61,12 +63,15 @@ export function reviewDocumentRange(
   ) {
     return null;
   }
+
   const startPoint = tokens[start]?.start;
   const endPoint = tokens[end - 1]?.end;
+
   if (!startPoint || !endPoint) return null;
   const range = article.ownerDocument.createRange();
   range.setStart(startPoint.node, startPoint.offset);
   range.setEnd(endPoint.node, endPoint.offset);
+
   return range;
 }
 
@@ -78,17 +83,23 @@ export function reviewDocumentSelection(
     container: range.startContainer,
     offset: range.startOffset,
   });
+
   const end = documentBoundaryOffset(article, {
     container: range.endContainer,
     offset: range.endOffset,
   });
+
   if (start < 0 || end <= start) return null;
   const text = reviewDocumentText(article);
   const rawSelection = text.slice(start, end);
+
   const leadingWhitespace =
     rawSelection.length - rawSelection.trimStart().length;
+
   const selectionText = rawSelection.trim();
+
   if (!selectionText) return null;
+
   return { text, start: start + leadingWhitespace, selectionText };
 }
 
@@ -97,6 +108,7 @@ function documentBoundaryOffset(
   boundary: { container: Node; offset: number },
 ): number {
   const marker = "\u0000";
+
   return documentTextTokens(article, { ...boundary, marker })
     .map((token) => token.value)
     .join("")
@@ -120,18 +132,23 @@ function documentTextTokens(
 ): DocumentTextToken[] {
   const normalized: DocumentTextToken[] = [];
   let previousWasWhitespace = true;
+
   for (const token of rawDocumentTextTokens(article, boundary)) {
     if (/\s/.test(token.value)) {
       if (!previousWasWhitespace) {
         normalized.push({ ...token, value: " " });
         previousWasWhitespace = true;
       }
+
       continue;
     }
+
     normalized.push(token);
     previousWasWhitespace = false;
   }
+
   if (normalized.at(-1)?.value === " ") normalized.pop();
+
   return normalized;
 }
 
@@ -144,34 +161,44 @@ function rawDocumentTextTokens(
     const textNode = node as Text;
     const text = textNode.textContent ?? "";
     const tokens: DocumentTextToken[] = [];
+
     for (let offset = 0; offset < text.length; offset += 1) {
       if (node === boundary?.container && offset === boundary.offset) {
         tokens.push({ value: boundary.marker });
       }
+
       tokens.push({
         value: text[offset]!,
         start: { node: textNode, offset },
         end: { node: textNode, offset: offset + 1 },
       });
     }
+
     if (node === boundary?.container && boundary.offset === text.length) {
       tokens.push({ value: boundary.marker });
     }
+
     return tokens;
   }
+
   if (!(node instanceof Element)) return [];
+
   if (node.matches(NON_DOCUMENT_TEXT_SELECTOR)) return [];
   const separator = BLOCK_TEXT_TAGS.has(node.tagName) ? [{ value: " " }] : [];
+
   const children = [...node.childNodes].flatMap((child, index) => {
     const marker =
       node === boundary?.container && index === boundary.offset
         ? [{ value: boundary.marker }]
         : [];
+
     return [...marker, ...rawDocumentTextTokens(child, boundary)];
   });
+
   const trailingMarker =
     node === boundary?.container && boundary.offset === node.childNodes.length
       ? [{ value: boundary.marker }]
       : [];
+
   return [...separator, ...children, ...trailingMarker, ...separator];
 }

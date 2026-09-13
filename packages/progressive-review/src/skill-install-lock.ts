@@ -13,9 +13,11 @@ export async function withSkillInstallLock<T>(
     { retryMs: 50, timeoutMs: 30_000, staleMs: 300_000, unownedGraceMs: 5_000 },
     operation,
   );
+
   if (!outcome.acquired)
     throw new Error(
       "Another Review skill installation is running. Retry shortly.",
     );
+
   return outcome.result;
 }

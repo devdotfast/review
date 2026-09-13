@@ -19,6 +19,7 @@ import {
 import { useReviewSession } from "./host/review-session";
 import { useReviewDiffFiles } from "./review-diff-files-context";
 import { useReviewInitialData } from "./review-initial-data-context";
+
 interface ReviewDocumentMetaState {
   pullRequestNumber: number | null;
   pullRequestUrl: string | null;
@@ -37,15 +38,19 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   const diffFiles = useReviewDiffFiles();
   const initialDocumentMeta = initialData?.documentMeta;
   const initialDiffStats = initialData?.diffStats;
+
   const [meta, setMeta] = useState<ReviewDocumentMetaState | null>(() =>
     initialDocumentMeta ? documentMetaState(initialDocumentMeta) : null,
   );
+
   const [initialDiff] = useState<ReviewDiffStats | null>(() =>
     initialDiffStats ? reviewDiffStats(initialDiffStats) : null,
   );
+
   const [relativeTimeNowMs, setRelativeTimeNowMs] = useState<number | null>(
     null,
   );
+
   const [stackLayers, setStackLayers] = useState<ReviewStackLayer[]>([]);
 
   useEffect(() => {
@@ -54,12 +59,14 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
 
   useEffect(() => {
     const controller = new AbortController();
+
     if (!initialDocumentMeta) {
       reviewFetch("/document-meta", {
         signal: controller.signal,
       })
         .then(async (response) => {
           const json: JsonValue = await response.json();
+
           if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
           setMeta(
             documentMetaState({
@@ -71,30 +78,37 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
         })
         .catch(() => {});
     }
+
     return () => controller.abort();
   }, [initialDocumentMeta, reviewFetch]);
 
   useEffect(() => {
     const controller = new AbortController();
+
     if (!meta?.pullRequestNumber) {
       setStackLayers([]);
+
       return () => controller.abort();
     }
+
     reviewFetch("/stack", { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) return;
         setStackLayers(parseReviewStackResponse(await response.json()).layers);
       })
       .catch(() => {});
+
     return () => controller.abort();
   }, [meta?.pullRequestNumber, reviewFetch]);
 
   const diff =
     diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : initialDiff;
+
   const updatedLabel =
     meta?.updatedAtMs != null && relativeTimeNowMs != null
       ? relativeTimeLabel(meta.updatedAtMs, relativeTimeNowMs)
       : null;
+
   if (!meta?.pullRequestNumber && !diff && !updatedLabel) return null;
 
   return (
@@ -138,10 +152,13 @@ function ReviewStackSelector({
 }): ReactElement {
   const session = useReviewSession();
   const detailsRef = useRef<HTMLDetailsElement>(null);
+
   const currentIndex = layers.findIndex(
     (layer) => layer.relation === "current",
   );
+
   const position = currentIndex < 0 ? 1 : currentIndex + 1;
+
   const openLayer = (
     layer: ReviewStackLayer,
     event: Pick<MouseEvent, "metaKey" | "ctrlKey" | "shiftKey" | "button">,
@@ -200,6 +217,7 @@ function ReviewStackLayerRow({
   ) => void;
 }): ReactElement {
   const current = layer.relation === "current";
+
   const content = (
     <>
       <span className="review-stack-indicator">
@@ -263,19 +281,25 @@ function reviewDiffStats(diff: {
   files?: { additions?: number; deletions?: number }[];
 }): ReviewDiffStats | null {
   if (!diff.files?.length) return null;
+
   return summarizeReviewDiffFiles(diff.files);
 }
 
 function relativeTimeLabel(timeMs: number, nowMs: number): string | null {
   if (!Number.isFinite(timeMs)) return null;
   const seconds = Math.max(0, Math.round((nowMs - timeMs) / 1000));
+
   if (seconds < 60) return "just now";
   const minutes = Math.round(seconds / 60);
+
   if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.round(minutes / 60);
+
   if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
   const days = Math.round(hours / 24);
+
   if (days < 7) return days === 1 ? "1 day ago" : `${days} days ago`;
+
   return new Date(timeMs).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",

@@ -28,5 +28,6 @@ export function reviewInteractionDetail(
 ): ReviewInteractionDetail | null {
   if (!(event instanceof CustomEvent)) return null;
   const detail = ReviewInteractionDetailSchema.safeParse(event.detail);
+
   return detail.success ? detail.data : null;
 }

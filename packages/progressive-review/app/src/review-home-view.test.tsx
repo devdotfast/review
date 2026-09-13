@@ -60,14 +60,17 @@ describe("ReviewHome", () => {
         message: "Cannot read review.json.",
       },
     ];
+
     await act(async () =>
       root.render(
         <ReviewHome reviews={[]} onOpen={() => {}} reviewErrors={errors} />,
       ),
     );
+
     const entries = container.querySelectorAll<HTMLButtonElement>(
       ".review-home-unavailable-entries button",
     );
+
     expect(entries).toHaveLength(2);
     expect(container.querySelector(".review-home-attention")).toBeNull();
     expect(container.textContent).not.toContain(errors[0]!.message);
@@ -128,6 +131,7 @@ describe("ReviewHome", () => {
 
   it("toggles between the Paper card and list views and remembers the choice", async () => {
     const onOpen = vi.fn<(review: ReviewDescriptor) => void>();
+
     const reviews = [
       descriptor({
         uuid: uuid(1),
@@ -157,6 +161,7 @@ describe("ReviewHome", () => {
     const listToggle = container.querySelector<HTMLButtonElement>(
       'button[aria-label="List view"]',
     );
+
     await act(async () => listToggle?.click());
     expect(container.querySelector(".review-home-list-table")?.tagName).toBe(
       "TABLE",
@@ -167,6 +172,7 @@ describe("ReviewHome", () => {
     const row = container.querySelector<HTMLButtonElement>(
       ".review-home-list-row",
     );
+
     await act(async () => row?.click());
     expect(onOpen).toHaveBeenCalledWith(reviews[0]);
   });
@@ -196,6 +202,7 @@ describe("ReviewHome", () => {
 
   it("groups rows by workspace and sorts them through column headers", async () => {
     localStorage.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, "list");
+
     const reviews = [
       descriptor({
         uuid: uuid(1),
@@ -228,6 +235,7 @@ describe("ReviewHome", () => {
         (row) =>
           row.querySelector(".review-home-review-title")?.textContent ?? "",
       );
+
     expect(visibleTitles()).toEqual([
       "Later PR",
       "Early PR",
@@ -237,6 +245,7 @@ describe("ReviewHome", () => {
     const prSort = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Sort by PR"]',
     );
+
     await act(async () => prSort?.click());
 
     expect(visibleTitles()).toEqual([
@@ -250,6 +259,7 @@ describe("ReviewHome", () => {
   it("keeps list workspace groups expanded", async () => {
     localStorage.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, "list");
     const devWorktreePath = "/Users/ketanagrawal/monorepo/repos/dev";
+
     const reviews = [
       descriptor({
         uuid: uuid(1),
@@ -277,9 +287,11 @@ describe("ReviewHome", () => {
         (row) =>
           row.querySelector(".review-home-review-title")?.textContent ?? "",
       );
+
     const workspaceRows = container.querySelectorAll(
       ".review-home-list-workspace-row",
     );
+
     expect(workspaceRows).toHaveLength(2);
     expect(workspaceRows[0]?.textContent).toContain(devWorktreePath);
     expect(workspaceRows[0]?.textContent).not.toContain("…/");
@@ -303,9 +315,11 @@ describe("ReviewHome", () => {
 
   it("deletes a review after an arming click without opening it", async () => {
     const onOpen = vi.fn<(review: ReviewDescriptor) => void>();
+
     const onDelete = vi.fn<(review: ReviewDescriptor) => Promise<void>>(
       async () => undefined,
     );
+
     const reviews = [
       descriptor({
         uuid: uuid(1),
@@ -323,10 +337,13 @@ describe("ReviewHome", () => {
     const dismissed = container.querySelector<HTMLButtonElement>(
       ".review-home-dismissed-toggle",
     );
+
     await act(async () => dismissed?.click());
+
     const remove = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Delete Removable"]',
     );
+
     expect(remove).not.toBeNull();
     await act(async () => remove?.click());
     expect(onDelete).not.toHaveBeenCalled();
@@ -334,6 +351,7 @@ describe("ReviewHome", () => {
     const confirm = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Confirm delete Removable"]',
     );
+
     await act(async () => confirm?.click());
     expect(onDelete).toHaveBeenCalledWith(reviews[0]);
     expect(onOpen).not.toHaveBeenCalled();
@@ -356,6 +374,7 @@ describe("ReviewHome", () => {
       code: "REPAIR_REQUIRED",
       message: `Sealed document conversion failed. Run \`review repair --review ${uuid(2)}\` to regenerate this Review's artifacts.`,
     };
+
     await act(async () =>
       root.render(
         <ReviewHome
@@ -411,6 +430,7 @@ describe("ReviewHome", () => {
     vi.spyOn(Date, "now").mockReturnValue(
       Date.parse("2026-07-29T12:00:00.000Z"),
     );
+
     const review = descriptor({
       documentUpdatedAt: "2026-07-29T11:54:00.000Z",
       lastPublishedAt: null,

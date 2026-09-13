@@ -18,9 +18,11 @@ describe("DiffLayoutControl", () => {
   let root: Root;
   let layout: ReviewDiffLayout;
   let listeners: Set<(layout: ReviewDiffLayout) => void>;
+
   let setDiffLayout: ReturnType<
     typeof vi.fn<(next: ReviewDiffLayout) => Promise<void>>
   >;
+
   let posted: unknown[];
 
   beforeEach(async () => {
@@ -37,6 +39,7 @@ describe("DiffLayoutControl", () => {
         confirm(next);
       },
     );
+
     const session = testReviewSession(
       {},
       {
@@ -44,15 +47,18 @@ describe("DiffLayoutControl", () => {
         setDiffLayout: (next) => setDiffLayout(next),
         onDidChangeDiffLayout: (listener) => {
           listeners.add(listener);
+
           return { dispose: () => listeners.delete(listener) };
         },
         request: async (url, init) => {
           if (url.includes("/telemetry/event"))
             posted.push(JSON.parse(String(init?.body)));
+
           return Response.json({ ok: true });
         },
       },
     );
+
     await act(async () => {
       root.render(
         <ReviewSessionProvider session={session}>
@@ -64,6 +70,7 @@ describe("DiffLayoutControl", () => {
 
   function confirm(next: ReviewDiffLayout) {
     layout = next;
+
     for (const listener of listeners) listener(next);
   }
 
@@ -85,6 +92,7 @@ describe("DiffLayoutControl", () => {
 
   it("shows the choice before the desktop confirms it", async () => {
     let finishWrite = () => {};
+
     setDiffLayout.mockImplementation(
       () => new Promise<void>((resolve) => (finishWrite = resolve)),
     );
@@ -128,6 +136,7 @@ describe("DiffLayoutControl", () => {
     // The Toggle Inline View command changes the same setting.
     await act(async () => {
       layout = "unified";
+
       for (const listener of listeners) listener(layout);
     });
     expect(radio("Unified").getAttribute("aria-checked")).toBe("true");
@@ -154,7 +163,9 @@ describe("DiffLayoutControl", () => {
     const button = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Diff settings"]',
     );
+
     if (!button) throw new Error("Diff settings button not found");
+
     return button;
   }
 
@@ -166,8 +177,11 @@ describe("DiffLayoutControl", () => {
     const radios = [
       ...container.querySelectorAll<HTMLButtonElement>('[role="radio"]'),
     ];
+
     const match = radios.find((candidate) => candidate.textContent === label);
+
     if (!match) throw new Error(`${label} option not found`);
+
     return match;
   }
 });

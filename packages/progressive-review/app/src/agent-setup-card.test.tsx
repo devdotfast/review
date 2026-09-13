@@ -32,9 +32,11 @@ describe("AgentSetupCard", () => {
 
   it("reports the refreshed status after a per-agent install", async () => {
     const onStatusChange = vi.fn<(status: ReviewCliInstallStatus) => void>();
+
     const apply = vi.fn<ReviewCanvasInstallContent["apply"]>(
       async () => grantedStatus,
     );
+
     const install: ReviewCanvasInstallContent = {
       // A granted stamp: not first run, so only the per-agent rows install.
       status: { ...status, stamp: grantedStatus.stamp },
@@ -56,6 +58,7 @@ describe("AgentSetupCard", () => {
           ".review-agent-setup-agents button",
         ),
       ];
+
       buttons.find((button) => button.textContent === "Install")?.click();
     });
 

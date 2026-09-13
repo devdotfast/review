@@ -41,11 +41,15 @@ interface DiagramRegistry {
 }
 
 const DiagramRegistryContext = createContext<DiagramRegistry | null>(null);
+
 const EMPTY_DIAGRAMS = new Map<string, LiveDiagramTarget>();
+
 const LiveAnchorsContext = createContext<ReadonlyMap<string, LiveAnchorTarget>>(
   new Map(),
 );
+
 const ResolvedBaseRefContext = createContext<string | null>(null);
+
 const ResolvedHeadRefContext = createContext<string | null>(null);
 
 export function ThreadTargetModelProvider({
@@ -60,14 +64,17 @@ export function ThreadTargetModelProvider({
   children?: ReactNode;
 }): ReactElement {
   const registry = useMemo(createDiagramRegistry, [anchorContents, anchors]);
+
   const liveAnchors = useMemo(
     () => buildLiveAnchors(anchors, anchorContents),
     [anchorContents, anchors],
   );
+
   // Session facts travel the data plane, not the build plane: a virtual-module
   // field is frozen at plugin boot and goes stale when server code changes
   // under a live session, while a fetch always reflects the running server.
   const resolvedRefs = useReviewSessionRefs(documentRoute);
+
   return (
     <ResolvedBaseRefContext.Provider value={resolvedRefs.base}>
       <ResolvedHeadRefContext.Provider value={resolvedRefs.head}>
@@ -88,10 +95,12 @@ function useReviewSessionRefs(documentRoute?: string): {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
   const initialResolvedBaseRef = useReviewInitialData()?.sessionResolvedBaseRef;
+
   const [resolvedRefs, setResolvedRefs] = useState<{
     base: string | null;
     head: string | null;
   }>(() => ({ base: initialResolvedBaseRef ?? null, head: null }));
+
   useEffect(() => {
     if (typeof fetch === "undefined") return;
     let disposed = false;
@@ -102,10 +111,13 @@ function useReviewSessionRefs(documentRoute?: string): {
             `Review session request failed (${response.status}).`,
           );
         }
+
         const body: JsonValue = await response.json();
+
         const reviewSession = isJsonObject(body)
           ? jsonObject(body.session)
           : undefined;
+
         if (!disposed) {
           setResolvedRefs({
             base: jsonString(reviewSession?.resolvedBaseRef) ?? null,
@@ -120,10 +132,12 @@ function useReviewSessionRefs(documentRoute?: string): {
           cause instanceof Error ? cause : new Error(String(cause)),
         );
       });
+
     return () => {
       disposed = true;
     };
   }, [documentRoute, reviewFetch]);
+
   return resolvedRefs;
 }
 
@@ -132,6 +146,7 @@ export function useRegisterLiveDiagram(
 ): void {
   const registry = useContext(DiagramRegistryContext);
   const owner = useId();
+
   if (diagram) registry?.register(owner, diagram);
   useLayoutEffect(() => {
     registry?.publish();
@@ -151,6 +166,7 @@ export function useLiveDiagrams(): ReadonlyMap<string, LiveDiagramTarget> {
     registry?.version ?? zeroVersion,
     registry?.version ?? zeroVersion,
   );
+
   return registry?.diagrams() ?? EMPTY_DIAGRAMS;
 }
 
@@ -170,6 +186,7 @@ export function useThreadTargetState(target: ThreadTarget): ThreadTargetState {
   const diagrams = useLiveDiagrams();
   const anchors = useContext(LiveAnchorsContext);
   const article = useReviewRoots()?.articleRef.current ?? null;
+
   return resolveTargetState(
     { target },
     buildLiveThreadTargetModel(article, anchors, diagrams),
@@ -190,6 +207,7 @@ export function buildLiveThreadTargetModel(
         text: element.textContent ?? "",
       }))
     : [];
+
   const tableCells = article
     ? [...article.querySelectorAll<HTMLElement>("[data-review-table]")].map(
         (element) => ({
@@ -200,6 +218,7 @@ export function buildLiveThreadTargetModel(
         }),
       )
     : [];
+
   return {
     documentText: article ? reviewDocumentText(article) : null,
     blocks,
@@ -213,20 +232,25 @@ function createDiagramRegistry(): DiagramRegistry {
   const byOwner = new Map<string, LiveDiagramTarget>();
   const listeners = new Set<() => void>();
   let currentVersion = 0;
+
   return {
     register(owner, diagram) {
       const previous = byOwner.get(owner);
+
       if (previous?.label !== diagram.label) byOwner.delete(owner);
+
       const duplicate = [...byOwner.entries()].find(
         ([candidateOwner, candidate]) =>
           candidateOwner !== owner && candidate.label === diagram.label,
       );
+
       if (duplicate) {
         throwAuthoringIssue(
           ["diagrams", "label"],
           `Diagram label "${diagram.label}" is used more than once in this document`,
         );
       }
+
       byOwner.set(owner, diagram);
     },
     unregister(owner) {
@@ -234,10 +258,12 @@ function createDiagramRegistry(): DiagramRegistry {
     },
     publish() {
       currentVersion += 1;
+
       for (const listener of listeners) listener();
     },
     subscribe(listener) {
       listeners.add(listener);
+
       return () => listeners.delete(listener);
     },
     version: () => currentVersion,
@@ -256,12 +282,15 @@ function buildLiveAnchors(
   return new Map(
     [...anchors.values()].map((anchor) => {
       const contentText = anchorContents.get(anchor.id);
+
       const target: LiveAnchorTarget = {
         anchorId: anchor.id,
         title: anchor.title,
         detail: anchor.detail,
       };
+
       if (contentText !== undefined) target.content = { text: contentText };
+
       return [anchor.id, target];
     }),
   );
@@ -272,11 +301,13 @@ function requiredDatasetInteger(
   key: keyof DOMStringMap,
 ): number {
   const value = Number(element.dataset[key]);
+
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(
       `Review target stamp ${String(key)} must be a non-negative integer.`,
     );
   }
+
   return value;
 }
 

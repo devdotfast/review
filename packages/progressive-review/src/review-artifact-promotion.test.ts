@@ -37,6 +37,7 @@ async function fixture() {
     path.join(candidateDir, ".bundle", "document"),
     "new-document",
   );
+
   return {
     reviewDir,
     candidateDir,
@@ -64,10 +65,12 @@ it("stages every replacement before touching live files", async () => {
 it("restores original directories by rename after replacement failure", async () => {
   const input = await fixture();
   const originalInode = (await stat(path.join(input.reviewDir, ".git"))).ino;
+
   const originalRecord = await readFile(
     path.join(input.reviewDir, "review.json"),
     "utf8",
   );
+
   const { stagingDir, prepared } = await preparedCommitFixture(input);
   await expect(
     commitReviewArtifactPromotion({
@@ -157,12 +160,14 @@ it("promotes fully prepared files and removes temporary state", async () => {
 
 async function databaseFixture() {
   const input = await fixture();
+
   for (const name of ["review.db", "review.db-wal", "review.db-shm"])
     await writeFile(path.join(input.reviewDir, name), `original ${name}`);
   await writeFile(
     path.join(input.candidateDir, "review.db"),
     "upgraded database",
   );
+
   return { ...input, upgradeThreadDatabase: true };
 }
 
@@ -175,10 +180,12 @@ async function preparedCommitFixture(
   const backup = path.join(stagingDir, "backup");
   await mkdir(prepared);
   await mkdir(backup);
+
   for (const name of [".bundle", ".git"])
     await cp(path.join(input.candidateDir, name), path.join(prepared, name), {
       recursive: true,
     });
+
   if (upgradeThreadDatabase)
     await cp(
       path.join(input.candidateDir, "review.db"),
@@ -188,6 +195,7 @@ async function preparedCommitFixture(
     path.join(input.reviewDir, "review.json"),
     path.join(backup, "review.json"),
   );
+
   return { stagingDir, prepared };
 }
 
@@ -195,6 +203,7 @@ it("rolls back the database and its sidecars after promotion failure", async () 
   const input = await databaseFixture();
   const { stagingDir, prepared } = await preparedCommitFixture(input, true);
   const names = ["review.db", "review.db-wal", "review.db-shm"];
+
   const originalInodes = new Map(
     await Promise.all(
       names.map(
@@ -203,6 +212,7 @@ it("rolls back the database and its sidecars after promotion failure", async () 
       ),
     ),
   );
+
   const originalRecord = await readFile(
     path.join(input.reviewDir, "review.json"),
     "utf8",
@@ -228,6 +238,7 @@ it("rolls back the database and its sidecars after promotion failure", async () 
       originalInodes.get(name),
     );
   }
+
   expect(
     await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
   ).toBe(originalRecord);

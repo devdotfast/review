@@ -21,6 +21,7 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
+
 const execFilePromise = promisify(execFile);
 
 afterEach(() => vi.unstubAllEnvs());
@@ -32,20 +33,25 @@ describe("tutorial service", () => {
       const home = await mkdtemp(
         path.join(os.tmpdir(), "review-tutorial-invalid-"),
       );
+
       vi.stubEnv("DEV_REVIEW_HOME", home);
+
       const service = createTutorialService({
         packageRoot,
         deleteReview: async (review) => {
           await rm(review.dir, { recursive: true, force: true });
         },
       });
+
       try {
         const saved = await service.prepare("claude-code");
         expect((await service.status()).reviewUuid).toBe(saved.review.uuid);
+
         const documentPath = path.join(
           saved.dir,
           ".bundle/document/review-document.json",
         );
+
         if (kind === "missing") await rm(documentPath);
         else
           await writeFile(documentPath, kind === "invalid-json" ? "{" : "{}");
@@ -70,23 +76,28 @@ describe("tutorial service", () => {
         recursive: true,
       },
     );
+
     const service = createTutorialService({
       packageRoot: assets,
       deleteReview: async (review) => {
         await rm(review.dir, { recursive: true, force: true });
       },
     });
+
     try {
       const before = await service.prepare("claude-code");
+
       const documentPath = path.join(
         ".bundle",
         "document",
         "review-document.json",
       );
+
       const shipped = await readReviewDocumentBundle(
         path.join(assets, "tutorial"),
         "/",
       );
+
       if (!shipped) throw new Error("Missing shipped tutorial JSON");
       const document = reviewDocumentBundleData(shipped);
       await writeReviewDocumentBundle(
@@ -119,6 +130,7 @@ describe("tutorial service", () => {
   it("materializes a hidden published Review with shipped bundles", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
+
     const service = createTutorialService({
       packageRoot,
       deleteReview: async (review) => {
@@ -143,10 +155,12 @@ describe("tutorial service", () => {
       await expect(listReviews({ includeSystem: true })).resolves.toMatchObject(
         { reviews: [{ review: { uuid: review.review.uuid } }] },
       );
+
       const build = await materializePublishRevision({
         review,
         revision: revision!,
       });
+
       await expect(
         readFile(
           path.join(build, ".bundle", "document", "review-document.json"),
@@ -171,6 +185,7 @@ describe("tutorial service", () => {
   it("rebuilds a fresh marker when the installed harness changes", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
+
     const service = createTutorialService({
       packageRoot,
       deleteReview: async (review) => {
@@ -193,12 +208,14 @@ describe("tutorial service", () => {
   it("fails closed when repository history is invalid or Git fails", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
+
     const service = createTutorialService({
       packageRoot,
       deleteReview: async (review) => {
         await rm(review.dir, { recursive: true, force: true });
       },
     });
+
     const repository = path.join(home, "tutorial", "sample-service");
 
     try {
@@ -219,6 +236,7 @@ describe("tutorial service", () => {
       const gitDir = path.join(repository, ".git");
       const hiddenGitDir = path.join(repository, ".git-unavailable");
       await rename(gitDir, hiddenGitDir);
+
       try {
         await expect(service.find()).resolves.toBeNull();
       } finally {

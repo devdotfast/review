@@ -2,7 +2,9 @@ import type { CodePeekProps, CodePeekResolution } from "../../src/authoring";
 import type { ReviewSession } from "./host/review-session";
 
 const REVIEW_CODE_PEEK_RESOLUTION_CONCURRENCY = 8;
+
 let activeCodePeekResolutions = 0;
+
 const pendingCodePeekResolutionSlots: Array<() => void> = [];
 
 export const codePeekDiagnostics = {
@@ -15,6 +17,7 @@ export async function resolveCodePeekRequest(
   session: ReviewSession,
 ): Promise<CodePeekResolution> {
   codePeekDiagnostics.authoredCodePeekRequestCount += 1;
+
   const response = await session.fetch(
     "/code-peek/resolve",
     {
@@ -29,11 +32,13 @@ export async function resolveCodePeekRequest(
     },
     { routePath },
   );
+
   // SAFETY: the authenticated review route returns CodePeekResolution on
   // success and a human-readable error response otherwise.
   const json = (await response.json()) as
     | ({ ok: true } & CodePeekResolution)
     | { ok: false; error?: string };
+
   if (!response.ok || !json.ok) {
     throw new Error(
       json.ok
@@ -41,6 +46,7 @@ export async function resolveCodePeekRequest(
         : (json.error ?? "CodePeek resolve failed"),
     );
   }
+
   return { snapshot: json.snapshot, diff: json.diff };
 }
 
@@ -52,7 +58,9 @@ export async function runWithCodePeekResolutionSlot<T>(
       pendingCodePeekResolutionSlots.push(grant);
     });
   }
+
   activeCodePeekResolutions += 1;
+
   try {
     return await resolve();
   } finally {

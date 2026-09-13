@@ -73,19 +73,24 @@ export function createLegacyCodeRecordMigrator(
 
   const migrateThread = async (value: JsonValue): Promise<JsonValue> => {
     const thread = objectRecord(value, "legacy code comment thread");
+
     if (!isLegacyCodeTarget(thread.target)) return value;
     const target = parseLegacyCodeTarget(thread.target);
+
     const original = parseLegacyCodeTarget(
       thread.originalTarget ?? thread.target,
     );
+
     const change = parseLegacyChangePosition(thread.changePosition);
     const originalPosition = await positionForTarget(original);
     const position = await positionForTarget(target);
+
     const nextTarget: JsonObject = {
       kind: "code",
       original_position: storedDiffPosition(originalPosition),
       position: storedDiffPosition(position),
     };
+
     if (change?.newSpan === null) {
       nextTarget.change_position = storedDiffPosition({
         ...position,
@@ -94,11 +99,13 @@ export function createLegacyCodeRecordMigrator(
         head_sha: context.headCommit,
       });
     }
+
     const {
       originalTarget: _originalTarget,
       changePosition: _changePosition,
       ...rest
     } = thread;
+
     return { ...rest, target: nextTarget };
   };
 
@@ -108,11 +115,14 @@ export function createLegacyCodeRecordMigrator(
     const pair = diffPairForTarget(target, context);
     const cacheKey = `${pair.baseCommit}\0${pair.headCommit}\0${target.side}\0${target.path}`;
     let fileDiff = fileDiffs.get(cacheKey);
+
     if (!fileDiff) {
       fileDiff = loadFileDiff(context.rootPath, pair, target);
       fileDiffs.set(cacheKey, fileDiff);
     }
+
     const resolved = await fileDiff;
+
     return createGitLabTextDiffPosition({
       base_sha: pair.baseCommit,
       start_sha: pair.baseCommit,
@@ -128,15 +138,19 @@ export function createLegacyCodeRecordMigrator(
     if (kind === "comment") return migrateThread(record);
     const draft = objectRecord(record, "legacy code comment draft");
     const thread = await migrateThread(draft.thread);
+
     if (thread === draft.thread) return record;
     const migratedThread = objectRecord(thread, "migrated code comment thread");
+
     const inputs = Array.isArray(draft.inputs)
       ? draft.inputs.map((input) => {
           if (!isJsonObject(input) || !isLegacyCodeTarget(input.target))
             return input;
+
           return { ...input, target: migratedThread.target };
         })
       : draft.inputs;
+
     return { ...draft, thread, inputs };
   };
 }
@@ -161,18 +175,24 @@ async function loadFileDiff(
     headRef: pair.headCommit,
     paths: [target.path],
   });
+
   const summary = summaries.find((candidate) =>
     summaryMatchesTarget(candidate, target),
   );
+
   const oldPath = summaryOldPath(summary, target.path);
   const newPath = summaryNewPath(summary, target.path);
+
   if (target.side === "base" && !oldPath) {
     throw new Error(`Legacy code target ${target.path} has no base file.`);
   }
+
   if (target.side === "head" && !newPath) {
     throw new Error(`Legacy code target ${target.path} has no head file.`);
   }
+
   const paths = [...new Set([oldPath, newPath].filter(isString))];
+
   const patch = summary
     ? await diffTrees({
         rootPath,
@@ -181,6 +201,7 @@ async function loadFileDiff(
         paths,
       })
     : "";
+
   return {
     oldPath,
     newPath,
@@ -202,6 +223,7 @@ function summaryOldPath(
   fallback: string,
 ): string | null {
   if (summary?.status === "added") return null;
+
   return summary?.previousPath ?? summary?.path ?? fallback;
 }
 
@@ -219,28 +241,35 @@ function diffRowForLine(
 ): GitLabTextDiffRow {
   let oldCursor = 1;
   let newCursor = 1;
+
   for (const hunk of hunks) {
     const sideStart = side === "base" ? hunk.oldStart : hunk.newStart;
     const sideLength = side === "base" ? hunk.oldLines : hunk.newLines;
+
     if (line < sideStart) {
       return side === "base"
         ? { old_line: line, new_line: newCursor + line - oldCursor }
         : { old_line: oldCursor + line - newCursor, new_line: line };
     }
+
     if (line < sideStart + sideLength) {
       const match = hunk.lines.find((candidate) =>
         side === "base"
           ? candidate.oldLine === line
           : candidate.newLine === line,
       );
+
       if (!match) {
         throw new Error(`Could not locate ${side} line ${line} in its diff.`);
       }
+
       return { old_line: match.oldLine, new_line: match.newLine };
     }
+
     oldCursor = hunk.oldStart + hunk.oldLines;
     newCursor = hunk.newStart + hunk.newLines;
   }
+
   return side === "base"
     ? { old_line: line, new_line: newCursor + line - oldCursor }
     : { old_line: oldCursor + line - newCursor, new_line: line };
@@ -248,7 +277,9 @@ function diffRowForLine(
 
 function parseLegacyCodeTarget(value: JsonValue): LegacyCodeTarget {
   const parsed = LegacyCodeTargetSchema.safeParse(value);
+
   if (!parsed.success) throw new Error("Legacy code target is malformed.");
+
   return parsed.data;
 }
 
@@ -257,16 +288,20 @@ function parseLegacyChangePosition(
 ): LegacyCodeChangePosition | null {
   if (value === undefined) return null;
   const parsed = LegacyCodeChangePositionSchema.safeParse(value);
+
   if (!parsed.success) {
     throw new Error("Legacy code change position is malformed.");
   }
+
   return parsed.data;
 }
 
 /** A diff position as review.db stores it: serialized, undefined optionals dropped. */
 function storedDiffPosition(position: GitLabDiffPosition): JsonObject {
   const stored = jsonObject(parseJsonText(JSON.stringify(position)));
+
   if (!stored) throw new Error("Diff position did not serialize to an object.");
+
   return stored;
 }
 
@@ -276,6 +311,7 @@ function isLegacyCodeTarget(value: JsonValue | undefined): value is JsonObject {
 
 function objectRecord(value: JsonValue | undefined, name: string): JsonObject {
   if (!isJsonObject(value)) throw new Error(`${name} is malformed.`);
+
   return value;
 }
 

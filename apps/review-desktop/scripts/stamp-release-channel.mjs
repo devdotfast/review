@@ -13,6 +13,7 @@ function replaceRequired(source, pattern, replacement, marker, file) {
   if (!pattern.test(source)) {
     throw new Error(`${marker} not found in ${file}`);
   }
+
   return source.replace(pattern, replacement);
 }
 
@@ -25,18 +26,22 @@ export function stampReleaseChannel({
   if (!version) {
     throw new Error("version is required");
   }
+
   assertReleaseChannel(quality);
 
   const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
   pkg.version = version;
 
   const product = readFileSync(productPath, "utf8");
+
   const fields = {
     reviewVersion: version,
     quality,
     ...releaseIdentityFor(quality),
   };
+
   let stampedProduct = product;
+
   for (const [field, value] of Object.entries(fields)) {
     stampedProduct = replaceRequired(
       stampedProduct,

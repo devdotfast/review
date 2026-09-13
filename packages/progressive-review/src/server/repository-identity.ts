@@ -14,8 +14,10 @@ export async function resolveReviewRepositoryIdentity(
 ): Promise<ReviewRepositoryIdentity> {
   const worktreeRoot = await canonicalPath(rootPath);
   const jjRepoFile = path.join(worktreeRoot, ".jj", "repo");
+
   if (existsSync(jjRepoFile)) {
     const repositoryPath = await resolveJjRepositoryPath(jjRepoFile);
+
     return identity("jj", repositoryPath, worktreeRoot);
   }
 
@@ -25,11 +27,14 @@ export async function resolveReviewRepositoryIdentity(
       ["-C", worktreeRoot, "rev-parse", "--git-common-dir"],
       { maxBuffer: 1024 * 1024 },
     );
+
     const raw = stdout.trim();
+
     if (raw) {
       const repositoryPath = await canonicalPath(
         path.isAbsolute(raw) ? raw : path.resolve(worktreeRoot, raw),
       );
+
       return identity("git", repositoryPath, worktreeRoot);
     }
   } catch {
@@ -41,9 +46,12 @@ export async function resolveReviewRepositoryIdentity(
 
 async function resolveJjRepositoryPath(repoFile: string): Promise<string> {
   const info = await stat(repoFile);
+
   if (info.isDirectory()) return canonicalPath(repoFile);
   const target = (await readFile(repoFile, "utf8")).trim();
+
   if (!target) return canonicalPath(repoFile);
+
   return canonicalPath(path.resolve(path.dirname(repoFile), target));
 }
 
@@ -66,5 +74,6 @@ function identity(
 
 async function canonicalPath(value: string): Promise<string> {
   const resolved = path.resolve(value);
+
   return realpath(resolved).catch(() => resolved);
 }

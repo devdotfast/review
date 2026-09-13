@@ -10,8 +10,10 @@ export function resolveReviewCommitScope(
   commit: string,
 ): ReviewCommitRefs {
   const entry = commits.find((candidate) => candidate.commit === commit);
+
   if (!entry) {
     throw new Error("The commit is outside the pinned review range.");
   }
+
   return { baseRef: entry.parentCommit, headRef: entry.commit };
 }

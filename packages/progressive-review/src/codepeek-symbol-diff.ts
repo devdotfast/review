@@ -36,6 +36,7 @@ export function codePeekRootSourceRanges(
   snapshot: SourceSnapshot,
 ): CodePeekDiffRange[] {
   const rootSourceIds = snapshot.roots.map((root) => root.sourceId);
+
   const sourceIds =
     rootSourceIds.length > 0 ? rootSourceIds : Object.keys(snapshot.resolved);
 
@@ -60,7 +61,9 @@ export function sliceReviewDiffFileToCodePeekRanges(input: {
   const fileRanges = mergeCodePeekDiffRanges(
     input.ranges.filter((range) => rangeMatchesDiffFile(range, input.file)),
   );
+
   if (fileRanges.length === 0) return null;
+
   if (!input.file.patch) return null;
 
   const parsed = parsePatch(input.file.patch);
@@ -79,6 +82,7 @@ export function sliceReviewDiffFileToCodePeekRanges(input: {
 
     for (const segment of segments) {
       const section = formatHunkSegment(hunk, segment);
+
       if (!section) continue;
       additions += segment.filter((row) => row.marker === "+").length;
       deletions += segment.filter((row) => row.marker === "-").length;
@@ -107,11 +111,13 @@ function sliceHunkToRanges(input: {
 
   input.hunk.rows.forEach((row, index) => {
     const anchorLine = rowAnchorLine(input.hunk.rows, index, input.orientation);
+
     if (anchorLine === null) return;
 
     const inRange = input.ranges.some((range) =>
       lineIntersectsRange(anchorLine, range.fromLine, range.toLine),
     );
+
     if (inRange && row.marker !== " ") hasChangedRowInRange = true;
 
     const inContextRange = input.ranges.some((range) =>
@@ -121,6 +127,7 @@ function sliceHunkToRanges(input: {
         range.toLine + input.contextLines,
       ),
     );
+
     if (inContextRange) relevantIndexes.add(index);
   });
 
@@ -142,6 +149,7 @@ function parsePatch(patch: string): ParsedPatch {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const header = parseHunkHeader(line);
+
     if (header) {
       current = {
         ...header,
@@ -161,11 +169,13 @@ function parsePatch(patch: string): ParsedPatch {
 
     if (line.startsWith("\\ No newline at end of file")) {
       const previous = current.rows.at(-1);
+
       if (previous) previous.noNewlineMarker = line;
       continue;
     }
 
     const marker = line[0];
+
     if (marker !== " " && marker !== "+" && marker !== "-") continue;
 
     const row: ParsedHunkRow = {
@@ -176,9 +186,11 @@ function parsePatch(patch: string): ParsedPatch {
       oldCursor,
       newCursor,
     };
+
     current.rows.push(row);
 
     if (marker !== "+") oldCursor += 1;
+
     if (marker !== "-") newCursor += 1;
   }
 
@@ -197,7 +209,9 @@ function parseHunkHeader(line: string): {
     /^@@ -(?<oldStart>\d+)(?:,(?<oldLines>\d+))? \+(?<newStart>\d+)(?:,(?<newLines>\d+))? @@(?<section>.*)$/.exec(
       line,
     );
+
   if (!match?.groups) return null;
+
   return {
     oldStart: Number(match.groups.oldStart),
     newStart: Number(match.groups.newStart),
@@ -215,10 +229,12 @@ function formatHunkSegment(
   const newCount = rows.filter((row) => row.marker !== "-").length;
   const oldStart = hunkRangeStart(rows, "old", oldCount);
   const newStart = hunkRangeStart(rows, "new", newCount);
+
   const header = `@@ -${formatHunkRange(oldStart, oldCount)} +${formatHunkRange(
     newStart,
     newCount,
   )} @@${hunk.section}`;
+
   const rowLines = rows.flatMap((row) => [
     `${row.marker}${row.text}`,
     ...(row.noNewlineMarker ? [row.noNewlineMarker] : []),
@@ -236,11 +252,14 @@ function hunkRangeStart(
     side === "old"
       ? rows.find((row) => row.oldLine !== null)?.oldLine
       : rows.find((row) => row.newLine !== null)?.newLine;
+
   if (firstLine !== undefined && firstLine !== null) return firstLine;
 
   const firstRow = rows[0];
+
   if (count === 0) {
     const cursor = side === "old" ? firstRow.oldCursor : firstRow.newCursor;
+
     return Math.max(0, cursor - 1);
   }
 
@@ -249,6 +268,7 @@ function hunkRangeStart(
 
 function formatHunkRange(start: number, count: number): string {
   if (count === 1) return String(start);
+
   return `${start},${count}`;
 }
 
@@ -258,12 +278,15 @@ function rowAnchorLine(
   orientation: DiffOrientation,
 ): number | null {
   const row = rows[index];
+
   if (orientation === "head") {
     if (row.newLine !== null) return row.newLine;
+
     return adjacentLine(rows, index, "newLine");
   }
 
   if (row.oldLine !== null) return row.oldLine;
+
   return adjacentLine(rows, index, "oldLine");
 }
 
@@ -274,11 +297,13 @@ function adjacentLine(
 ): number | null {
   for (let i = index + 1; i < rows.length; i += 1) {
     const line = rows[i][key];
+
     if (line !== null) return line;
   }
 
   for (let i = index - 1; i >= 0; i -= 1) {
     const line = rows[i][key];
+
     if (line !== null) return line + 1;
   }
 
@@ -287,14 +312,17 @@ function adjacentLine(
 
 function contiguousSegments(indexes: number[]): number[][] {
   const segments: number[][] = [];
+
   for (const index of indexes) {
     const current = segments.at(-1);
+
     if (current && current.at(-1) === index - 1) {
       current.push(index);
     } else {
       segments.push([index]);
     }
   }
+
   return segments;
 }
 
@@ -302,6 +330,7 @@ function mergeCodePeekDiffRanges(
   ranges: CodePeekDiffRange[],
 ): CodePeekDiffRange[] {
   const byFile = new Map<string, CodePeekDiffRange[]>();
+
   for (const range of ranges) {
     const fileRanges = byFile.get(range.file) ?? [];
     fileRanges.push(range);
@@ -316,10 +345,12 @@ function mergeCodePeekDiffRanges(
         toLine: Math.max(range.fromLine, range.toLine),
       }))
       .sort((a, b) => a.fromLine - b.fromLine || a.toLine - b.toLine);
+
     const merged: CodePeekDiffRange[] = [];
 
     for (const range of sorted) {
       const current = merged.at(-1);
+
       if (current && range.fromLine <= current.toLine + 1) {
         current.toLine = Math.max(current.toLine, range.toLine);
       } else {
@@ -348,5 +379,6 @@ function lineIntersectsRange(
 
 function trimTrailingBlankHeaderLine(lines: string[]): string[] {
   if (lines.at(-1) === "") return lines.slice(0, -1);
+
   return lines;
 }

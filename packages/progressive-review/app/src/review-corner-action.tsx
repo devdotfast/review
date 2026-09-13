@@ -23,6 +23,7 @@ export function ReviewCornerAction(): ReactElement | null {
 
   useEffect(() => {
     if (!confirming) return;
+
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (
         event.target instanceof Node &&
@@ -30,13 +31,17 @@ export function ReviewCornerAction(): ReactElement | null {
       ) {
         return;
       }
+
       setConfirming(false);
     };
+
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setConfirming(false);
     };
+
     document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     document.addEventListener("keydown", closeOnEscape);
+
     return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
       document.removeEventListener("keydown", closeOnEscape);
@@ -68,6 +73,7 @@ export function ReviewCornerAction(): ReactElement | null {
     if (busy) return;
     setBusy(true);
     setFailed(false);
+
     try {
       await action();
       setConfirming(false);

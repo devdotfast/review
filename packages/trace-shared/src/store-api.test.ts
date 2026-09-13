@@ -20,6 +20,7 @@ import {
 } from "./store-api.js";
 
 const id = "0123456789abcdef0123456789abcdef";
+
 const sha = "a".repeat(64);
 
 describe("store-api contracts", () => {
@@ -46,11 +47,14 @@ describe("store-api contracts", () => {
       harness: "claude",
       objects: [{ name: "main.jsonl.gz", size: 10, sha256: sha }],
     });
+
     expect(ok.success).toBe(true);
+
     const bad = beginUploadRequestSchema.safeParse({
       harness: "claude",
       objects: [{ name: "main.jsonl.gz", size: 0, sha256: "A".repeat(64) }],
     });
+
     expect(bad.success).toBe(false);
   });
 
@@ -65,6 +69,7 @@ describe("store-api contracts", () => {
         },
       ],
     });
+
     expect(oversize.success).toBe(false);
   });
 
@@ -76,8 +81,10 @@ describe("store-api contracts", () => {
         { name: "main.jsonl.gz", size: 11, sha256: sha },
       ],
     });
+
     expect(duplicate.success).toBe(false);
     const half = MAX_TRACE_SESSION_BYTES / 2;
+
     const total = beginUploadRequestSchema.safeParse({
       harness: "claude",
       objects: [
@@ -86,6 +93,7 @@ describe("store-api contracts", () => {
         { name: "subagents/b.jsonl.gz", size: 1, sha256: sha },
       ],
     });
+
     expect(total.success).toBe(false);
   });
 
@@ -129,6 +137,7 @@ describe("store-api contracts", () => {
       { name: "main.jsonl.gz" },
       { name: "subagents/a.jsonl.gz" },
     ];
+
     expect(uploadManifestMismatch(manifest, manifest)).toBeNull();
     expect(
       uploadManifestMismatch(manifest, [{ name: "main.jsonl.gz" }]),
@@ -183,6 +192,7 @@ describe("store-api contracts", () => {
       status: "active",
       createdAt: "2026-09-01T00:00:00.000Z",
     };
+
     expect(storeResponseSchema.safeParse(base).success).toBe(true);
     expect(
       storeResponseSchema.safeParse({ ...base, bytesStored: 12 }).success,
@@ -210,6 +220,7 @@ describe("store-api contracts", () => {
         branch: "x".repeat(201),
       }).success,
     ).toBe(false);
+
     const session = {
       sessionId: "session-0001",
       harness: "claude",
@@ -219,6 +230,7 @@ describe("store-api contracts", () => {
       commits: [],
       objects: [],
     };
+
     expect(sessionDownloadSchema.safeParse(session).success).toBe(true);
     expect(
       sessionDownloadSchema.safeParse({

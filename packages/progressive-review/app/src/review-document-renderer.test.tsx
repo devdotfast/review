@@ -20,9 +20,11 @@ describe("renderReviewNodes", () => {
             children: [{ type: "text", value: "Cell" }],
           },
         ];
+
         const html = renderToStaticMarkup(
           renderReviewNodes(nodes, reviewDocumentComponents),
         );
+
         expect(html).toContain(`style="text-align:${align}"`);
         expect(nodes[0]).toMatchObject({ props: { align } });
         expect(JSON.stringify(nodes)).not.toContain("style");
@@ -110,7 +112,9 @@ describe("renderReviewNodes", () => {
 
     const rendered = renderReviewNodes(nodes, reviewDocumentComponents);
     expect(isValidElement(rendered)).toBe(true);
+
     if (!isValidElement<{ children: unknown }>(rendered)) return;
+
     const [section, lens] = Children.toArray(
       rendered.props.children as ReactNode,
     );
@@ -121,11 +125,15 @@ describe("renderReviewNodes", () => {
     expect(isValidElement(lens) && lens.type).toBe(
       reviewAuthoringComponents.DatabaseLens,
     );
+
     if (!isValidElement<{ children: unknown }>(section)) return;
+
     if (!isValidElement<{ children: unknown }>(lens)) return;
+
     const sectionHeading = Children.toArray(
       section.props.children as ReactNode,
     )[0];
+
     const useCase = Children.toArray(lens.props.children as ReactNode)[0];
     expect(isValidElement(sectionHeading) ? sectionHeading.type : null).toBe(
       "h2",

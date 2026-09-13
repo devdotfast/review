@@ -107,12 +107,15 @@ export function anonymizeFilePaths(
   let updatedStack = stack;
 
   const cleanUpIndexes: [number, number][] = [];
+
   for (const regexp of cleanupPatterns) {
     while (true) {
       const result = regexp.exec(stack);
+
       if (!result) {
         break;
       }
+
       cleanUpIndexes.push([result.index, regexp.lastIndex]);
     }
   }
@@ -120,13 +123,16 @@ export function anonymizeFilePaths(
   // Match node_modules or node_modules.asar at any position in the path, capturing the node_modules/... suffix
   const nodeModulesRegex =
     /(?:^|[\\\/])((node_modules|node_modules\.asar)[\\\/].*)$/;
+
   const fileRegex =
     /(file:\/\/)?([a-zA-Z]:(\\\\|\\|\/)|(\\\\|\\|\/))?([\w\-\._@]+(\\\\|\\|\/))+[\w\-\._@]*/g;
+
   let lastIndex = 0;
   updatedStack = "";
 
   while (true) {
     const result = fileRegex.exec(stack);
+
     if (!result) {
       break;
     }
@@ -140,6 +146,7 @@ export function anonymizeFilePaths(
     if (!overlappingRange) {
       // Check if node_modules appears in the path — preserve node_modules/... suffix
       const nodeModulesMatch = nodeModulesRegex.exec(result[0]);
+
       if (nodeModulesMatch) {
         updatedStack +=
           stack.substring(lastIndex, result.index) +
@@ -149,9 +156,11 @@ export function anonymizeFilePaths(
         updatedStack +=
           stack.substring(lastIndex, result.index) + REDACTED_PATH_MARKER;
       }
+
       lastIndex = fileRegex.lastIndex;
     }
   }
+
   if (lastIndex < stack.length) {
     updatedStack += stack.substring(lastIndex);
   }
@@ -177,6 +186,7 @@ function redactIfPossibleUserInfo(
       return `<REDACTED: ${secretRegex.label}>`;
     }
   }
+
   return value;
 }
 
@@ -211,10 +221,12 @@ export function removePropertiesWithPossibleUserInfo(property: string): string {
   // Multi-line values (e.g. callstacks) are redacted line-by-line so we only
   // drop the offending lines and preserve the rest of the information.
   const lines = property.split("\n");
+
   for (let i = 0; i < lines.length; i++) {
     const probe = i < lines.length - 1 ? lines[i] + "\n" : lines[i];
     lines[i] = redactIfPossibleUserInfo(lines[i], probe);
   }
+
   return lines.join("\n");
 }
 
@@ -229,9 +241,11 @@ export function cleanTelemetryText(
 ): string {
   let updated = value.replaceAll("%20", " ");
   updated = anonymizeFilePaths(updated, cleanupPatterns);
+
   for (const regexp of cleanupPatterns) {
     updated = updated.replace(regexp, "");
   }
+
   return removePropertiesWithPossibleUserInfo(updated);
 }
 

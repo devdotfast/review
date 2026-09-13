@@ -20,6 +20,7 @@ import {
 } from "./release-channel.mjs";
 
 const APP_DIR = path.resolve(import.meta.dirname, "..");
+
 const UPDATE_URL = "https://update.dev.fast";
 
 export { assertReleaseChannel };
@@ -43,12 +44,14 @@ export function buildManifest({
 
 export function assertPackagedProduct(product, { commit, channel = "stable" }) {
   assertReleaseChannel(channel);
+
   const expectations = {
     commit,
     quality: channel,
     updateUrl: UPDATE_URL,
     ...releaseIdentityFor(channel),
   };
+
   for (const [key, expected] of Object.entries(expectations)) {
     if (product[key] !== expected) {
       throw new Error(
@@ -60,13 +63,16 @@ export function assertPackagedProduct(product, { commit, channel = "stable" }) {
 
 export function assertUpdaterCompatibleApp(app) {
   const unwritable = [];
+
   const walk = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
+
       if (entry.isDirectory()) {
         walk(absolute);
         continue;
       }
+
       if (!entry.isFile()) continue;
 
       if ((lstatSync(absolute).mode & 0o200) === 0) {
@@ -74,6 +80,7 @@ export function assertUpdaterCompatibleApp(app) {
       }
     }
   };
+
   walk(app);
 
   if (unwritable.length > 0) {
@@ -102,36 +109,44 @@ function main() {
       "artifact-dir": { type: "string" },
     },
   });
+
   const { version, commit, channel } = values;
+
   if (!version || !commit) {
     console.error(
       "usage: validate-release-artifacts.mjs --version <semver> --commit <sha> [--channel stable|preview] [--artifact-dir <dir>]",
     );
     process.exit(2);
   }
+
   assertReleaseChannel(channel);
 
   const artifactDir = path.resolve(
     values["artifact-dir"] ?? path.join(APP_DIR, "dist"),
   );
+
   const sourceProduct = JSON.parse(
     readFileSync(path.join(APP_DIR, "code-oss", "product.json"), "utf8"),
   );
+
   const app = path.join(
     APP_DIR,
     "VSCode-darwin-arm64",
     `${sourceProduct.nameShort}.app`,
   );
+
   const zip = path.join(artifactDir, `Review-darwin-arm64-${version}.zip`);
   const dmg = path.join(artifactDir, `Review-darwin-arm64-${version}.dmg`);
 
   assertUpdaterCompatibleApp(app);
+
   const product = JSON.parse(
     readFileSync(
       path.join(app, "Contents", "Resources", "app", "product.json"),
       "utf8",
     ),
   );
+
   assertPackagedProduct(product, { commit, channel });
   verifyCuratedExtensions({
     root: path.join(app, "Contents", "Resources", "app", "extensions"),

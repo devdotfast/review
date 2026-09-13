@@ -13,6 +13,7 @@ function fakeTransport(): Transport & {
 } {
   const lineListeners: Array<(line: string) => void> = [];
   const closeListeners: Array<(error?: Error) => void> = [];
+
   return {
     sent: [],
     send(line) {

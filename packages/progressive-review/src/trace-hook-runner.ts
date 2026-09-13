@@ -60,18 +60,22 @@ export function spawnDetachedTraceSync(input: {
       "bin",
       "review",
     );
+
     const command =
       process.env.REVIEW_TRACE_COMMAND ??
       (existsSync(installedCommand) ? installedCommand : "review");
+
     const expectation = traceStorageExpectation({
       homeDir: input.homeDir,
       env: input.env,
     });
+
     const child = spawn(
       command,
       ["trace", "sync", input.sessionId, "--expect-storage", expectation],
       { cwd: input.cwd, detached: true, stdio: "ignore" },
     );
+
     child.on("error", () => {});
     child.unref();
   } catch {
@@ -94,6 +98,7 @@ export async function runReviewTraceHook(
   if (process.env.TRACE_DISABLE === "1") {
     return 0;
   }
+
   // The machine switch comes first and has one owner. Hosted capture is
   // gated again per repository below, after the session is known, because
   // provenance must be recorded either way.
@@ -101,7 +106,9 @@ export async function runReviewTraceHook(
     homeDir: input.homeDir,
     env: input.env,
   });
+
   if (selection.error || selection.mode === "none") return 0;
+
   if (
     !(await traceMachineEnabled({
       homeDir: input.homeDir,
@@ -118,15 +125,20 @@ export async function runReviewTraceHook(
   if (input.stdin && !input.stdin.isTTY) {
     try {
       const chunks: Buffer[] = [];
+
       for await (const chunk of input.stdin) {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       }
+
       const raw = Buffer.concat(chunks).toString("utf8").trim();
+
       if (raw) {
         const parsed = jsonObject(parseJsonText(raw));
         const hookEventName = jsonString(parsed?.hook_event_name);
         const parsedSessionId = jsonString(parsed?.session_id);
+
         if (hookEventName) event = hookEventName;
+
         if (parsedSessionId) sessionId = parsedSessionId;
       }
     } catch {
@@ -135,6 +147,7 @@ export async function runReviewTraceHook(
   }
 
   sessionId = (sessionId || process.env.AGENT_SESSION_ID || "").trim();
+
   if (!sessionId || !SESSION_ID_REGEX.test(sessionId)) {
     return 0;
   }
@@ -142,6 +155,7 @@ export async function runReviewTraceHook(
   const normalizedEvent = event.toLowerCase().replaceAll(/[_-]/g, "");
   const isStart = normalizedEvent === "sessionstart";
   const isEnd = normalizedEvent === "sessionend";
+
   const isHeartbeat =
     normalizedEvent === "userpromptsubmit" || normalizedEvent === "turnstart";
 
@@ -154,11 +168,13 @@ export async function runReviewTraceHook(
     // a later publication can tell a session that stayed in one allowed
     // repository from one that also ran somewhere the user did not allow.
     const origin = selection.hosted?.origin ?? "";
+
     const entry = await resolveAllowedTraceRepository(
       input.cwd,
       input.env,
       input.homeDir,
     );
+
     await recordCaptureProvenance({
       cwd: input.cwd,
       sessionId,
@@ -167,6 +183,7 @@ export async function runReviewTraceHook(
       env: input.env,
       homeDir: input.homeDir,
     }).catch(() => undefined);
+
     if (!entry || !entry.enabledOrigins.includes(origin)) return 0;
   }
 
@@ -185,6 +202,7 @@ export async function runReviewTraceHook(
   );
 
   let sessionFilePath: string | null = null;
+
   if (gitPathResult.ok && gitPathResult.stdout.trim()) {
     sessionFilePath = gitPathResult.stdout.trim();
   }
@@ -192,6 +210,7 @@ export async function runReviewTraceHook(
   const jjRootResult = await execFileAsync("jj", ["root"], {
     cwd: input.cwd,
   }).catch(() => null);
+
   if (!sessionFilePath && jjRootResult?.stdout.trim()) {
     sessionFilePath = path.join(
       jjRootResult.stdout.trim(),
@@ -271,12 +290,15 @@ export async function resolveAllowedTraceRepository(
   homeDir?: string,
 ): Promise<TraceRepositoryEntry | null> {
   let name: string;
+
   try {
     name = traceRepoName(await inferRepoFromGit(cwd));
   } catch {
     return null;
   }
+
   const config = await readTraceUserConfig(devReviewHome(env, homeDir));
+
   return findTraceRepository(config, name);
 }
 
@@ -295,6 +317,7 @@ async function recordCaptureProvenance(input: {
 }): Promise<void> {
   const auth = await readStoreAuth(input.env);
   let identity: TraceCaptureIdentity;
+
   if (
     input.entry &&
     input.entry.enabledOrigins.includes(input.origin) &&
@@ -309,14 +332,17 @@ async function recordCaptureProvenance(input: {
     });
   } else {
     const repo = await inferRepoFromGit(input.cwd).catch(() => null);
+
     if (repo) {
       identity = traceCaptureIdentity({ repositoryName: traceRepoName(repo) });
     } else {
       const gitDir = await gitCommonDirectory(input.cwd);
+
       if (!gitDir) return;
       identity = traceCaptureIdentity({ gitDir });
     }
   }
+
   await recordTraceSessionProvenance({
     sessionId: input.sessionId,
     ...identity,
@@ -328,8 +354,10 @@ function jjCommitTrailersConfigValue(sessionIds: readonly string[]): string {
   const trailers = `${sessionIds
     .map((id) => `Agent-Session: ${id}`)
     .join("\n")}\n`;
+
   // `jj config set` parses TOML first. Jujutsu then parses the stored string
   // as a template, so the trailer text needs one quote layer for each parser.
   const templateExpression = JSON.stringify(trailers);
+
   return JSON.stringify(templateExpression);
 }

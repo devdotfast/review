@@ -66,18 +66,23 @@ export function clearTraceEnvCache(): void {
 /** Parses one `export NAME=value` file; a missing file reads as empty. */
 export function readTraceEnvFile(envPath: string): Map<string, string> {
   const cached = envFileCache.get(envPath);
+
   if (cached) return cached;
   const values = new Map<string, string>();
+
   try {
     for (const line of readFileSync(envPath, "utf8").split("\n")) {
       const match = /^\s*(?:export\s+)?([A-Z0-9_]+)=(.*)$/.exec(line);
+
       if (!match) continue;
       values.set(match[1], unquoteEnvValue(match[2]));
     }
   } catch {
     // No env file; exported variables may still be present.
   }
+
   envFileCache.set(envPath, values);
+
   return values;
 }
 
@@ -85,12 +90,15 @@ export function readTraceEnvFile(envPath: string): Map<string, string> {
 // shell-quoted values. Read the JSON form first so escapes round-trip.
 function unquoteEnvValue(raw: string): string {
   const trimmed = raw.trim();
+
   try {
     const decoded = jsonString(parseJsonText(trimmed));
+
     if (decoded !== undefined) return decoded;
   } catch {
     // Not JSON; fall through to the quote strip.
   }
+
   return trimmed.replace(/^["']|["']$/g, "").trim();
 }
 
@@ -99,6 +107,7 @@ export function traceEnvValue(
   scope: S3ConfigScope = {},
 ): string | undefined {
   const env = scope.env ?? process.env;
+
   return (
     env[name] ?? readTraceEnvFile(traceEnvPath(scope.homeDir, env)).get(name)
   );
@@ -111,6 +120,7 @@ const S3_FIELDS = [
   "secretAccessKey",
   "region",
 ] as const;
+
 type S3Field = (typeof S3_FIELDS)[number];
 
 /** The variables that supply each field, in precedence order. */
@@ -152,12 +162,14 @@ export function resolveS3Setup(
   const env = scope.env ?? process.env;
   const envPath = traceEnvPath(scope.homeDir, env);
   const configFile = readTraceConfigFile(scope);
+
   if (configFile.error) throw new TraceConfigurationError(configFile.error);
   const configPath = configFile.path;
   const profile = scope.ignoreProfile ? null : s3Store(configFile.config);
   const legacy = readTraceEnvFile(envPath);
 
   const overrides: string[] = [];
+
   const resolved: Record<S3Field, string | undefined> = {
     endpoint: undefined,
     bucket: undefined,
@@ -165,7 +177,9 @@ export function resolveS3Setup(
     secretAccessKey: undefined,
     region: undefined,
   };
+
   let source: S3CredentialsSource = profile ? "profile" : "none";
+
   // Precedence is per variable name, as it always was: the TRACE_R2_* name
   // is tried in the environment, then the profile, then the file before the
   // AWS_* fallback name is considered at all. An exported AWS_* pair must
@@ -177,20 +191,25 @@ export function resolveS3Setup(
         resolved[field] = env[name];
         break;
       }
+
       if (profile && profile[field] !== undefined) {
         resolved[field] = profile[field];
         break;
       }
+
       if (legacy.has(name)) {
         resolved[field] = legacy.get(name);
+
         if (source === "none") source = "legacy-file";
         break;
       }
     }
   }
+
   if (source === "none" && overrides.length > 0) source = "process-env";
 
   const { endpoint, bucket, accessKeyId, secretAccessKey } = resolved;
+
   const credentials =
     endpoint && bucket && accessKeyId && secretAccessKey
       ? {
@@ -201,6 +220,7 @@ export function resolveS3Setup(
           region: resolved.region ?? S3_DEFAULT_REGION,
         }
       : null;
+
   return {
     credentials,
     source: credentials ? source : "none",
@@ -222,6 +242,7 @@ export function s3MockRoot(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   if (env.TRACE_R2_MODE !== "mock") return null;
+
   return env.TRACE_R2_MOCK_DIR || null;
 }
 

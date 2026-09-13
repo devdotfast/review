@@ -22,10 +22,12 @@ describe("software map backed database lenses", () => {
     const styles = readFileSync(new URL("./styles.css", import.meta.url), {
       encoding: "utf8",
     });
+
     const mapStyles = readFileSync(
       new URL("./software-map/styles.css", import.meta.url),
       { encoding: "utf8" },
     );
+
     const source = readFileSync(
       new URL("./database-lens.tsx", import.meta.url),
       {
@@ -177,9 +179,11 @@ describe("software map backed database lenses", () => {
         },
       },
     });
+
     const stores = defineSoftwareStores(model, {
       graphDb: { path: "product.graphDb" },
     });
+
     const fieldRef = stores.graphDb.tables?.nodes.label;
     expect(resolveTargetRef(fieldRef)).toMatchObject({
       __kind: "db-target-ref",
@@ -191,7 +195,9 @@ describe("software map backed database lenses", () => {
       id: "reader",
       label: "Reader",
     };
+
     const target = stores.graphDb.tables?.nodes.label;
+
     const snapshot = databaseC4Snapshot({
       useCase: {
         id: "inspect",
@@ -220,6 +226,7 @@ describe("software map backed database lenses", () => {
     const tableNode = snapshot.nodes?.find(
       (node) => node.id === "product.graphDb.tables.nodes",
     );
+
     expect(tableNode).toMatchObject({
       label: "nodes",
       description: "Table",
@@ -257,14 +264,17 @@ describe("software map backed database lenses", () => {
         },
       },
     });
+
     const stores = defineSoftwareStores(model, {
       graphDb: { path: "product.graphDb" },
     });
+
     const actor = {
       __kind: "db-actor-ref",
       id: "writer",
       label: "Writer",
     };
+
     const operations = [
       {
         operation: {
@@ -289,6 +299,7 @@ describe("software map backed database lenses", () => {
         target: stores.graphDb.tables?.edges.from_id,
       },
     ] as never;
+
     const snapshot = databaseC4Snapshot({
       useCase: {
         id: "publish",
@@ -328,6 +339,7 @@ describe("software map backed database lenses", () => {
 
   it("does not re-expand a default data store after the reader collapses it", () => {
     const seededDefaultNodeIds = new Set(["store:graphDb"]);
+
     const next = seedDatabaseC4DefaultExpandedNodeIds({
       expandedNodeIds: new Set(),
       seededDefaultNodeIds,
@@ -381,14 +393,17 @@ describe("software map backed database lenses", () => {
         },
       },
     });
+
     const stores = defineSoftwareStores(model, {
       graphDb: { path: "product.graphDb" },
     });
+
     const actor = {
       __kind: "db-actor-ref",
       id: "reader",
       label: "Reader",
     };
+
     const operations = [
       {
         operation: {
@@ -413,6 +428,7 @@ describe("software map backed database lenses", () => {
         target: stores.graphDb.tables?.edges.from_id,
       },
     ] as never;
+
     const highlightInputs = [
       {
         anchorId: "readNodes",
@@ -423,6 +439,7 @@ describe("software map backed database lenses", () => {
         targetKey: "graphDb.tables.edges.from_id",
       },
     ];
+
     const nodesSnapshot = databaseC4Snapshot({
       useCase: {
         id: "inspect",
@@ -438,6 +455,7 @@ describe("software map backed database lenses", () => {
       selectedNodeId: null,
       expandedNodeIds: new Set(["store:graphDb"]),
     });
+
     const edgesSnapshot = databaseC4Snapshot({
       useCase: {
         id: "inspect",
@@ -492,6 +510,7 @@ describe("software map backed database lenses", () => {
     });
 
     let caught: unknown;
+
     try {
       defineSoftwareStores(model, {
         web: {
@@ -504,6 +523,7 @@ describe("software map backed database lenses", () => {
     } catch (error) {
       caught = error;
     }
+
     expect(caught).toBeInstanceOf(ZodError);
     expect((caught as ZodError).issues[0]).toMatchObject({
       path: ["web", "path"],

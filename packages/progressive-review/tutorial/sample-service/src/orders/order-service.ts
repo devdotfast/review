@@ -15,8 +15,10 @@ export class OrderService {
       (sum, item) => sum + item.quantity * item.unitPriceCents,
       0,
     );
+
     this.inventory.reserve(request.items);
     this.payments.charge(request.paymentToken, totalCents);
+
     const order: Order = {
       id: `order-${request.customerId}`,
       customerId: request.customerId,
@@ -24,7 +26,9 @@ export class OrderService {
       totalCents,
       status: "pending",
     };
+
     this.orders.insert(order);
+
     return order;
   }
 }

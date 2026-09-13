@@ -33,6 +33,7 @@ export interface ReviewPanelActions {
 }
 
 export type ReviewPanelStoreState = ReviewPanelState & ReviewPanelActions;
+
 export type ReviewPanelStore = ReturnType<typeof createReviewPanelStore>;
 
 export function createReviewPanelStore() {
@@ -68,6 +69,7 @@ export function createReviewPanelStore() {
     activateTourAnchor: (anchorId, options) => {
       set((state) => {
         if (state.active?.kind !== "tour") return state;
+
         return {
           active: {
             ...state.active,

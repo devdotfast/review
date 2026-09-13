@@ -35,6 +35,7 @@ describe("resolveTargetState", () => {
       headCommit: "1".repeat(40),
       span: { startLine: 3, endLine: 4 },
     });
+
     expect(
       resolveTargetState(
         {
@@ -65,6 +66,7 @@ describe("resolveTargetState", () => {
       start: 6,
       length: 15,
     });
+
     expect(
       resolveTargetState(
         { target },
@@ -84,6 +86,7 @@ describe("resolveTargetState", () => {
       start: 6,
       length: 15,
     });
+
     expect(
       resolveTargetState(
         { target },
@@ -103,6 +106,7 @@ describe("resolveTargetState", () => {
       start: 7,
       length: 13,
     });
+
     expect(
       resolveTargetState(
         { target },
@@ -122,6 +126,7 @@ describe("resolveTargetState", () => {
       start: 0,
       length: 3,
     });
+
     expect(
       resolveTargetState(
         { target },
@@ -141,6 +146,7 @@ describe("resolveTargetState", () => {
       start: 0,
       length: 5,
     });
+
     expect(resolveTargetState({ target }, live())).toEqual({
       state: "outdated",
       reason: "gone",
@@ -155,6 +161,7 @@ describe("resolveTargetState", () => {
       start: 0,
       length: 18,
     });
+
     const state = resolveTargetState(
       { target },
       live({
@@ -164,6 +171,7 @@ describe("resolveTargetState", () => {
         ],
       }),
     );
+
     expect(state).toMatchObject({
       state: "attached",
       target: { surface: { index: 1 } },
@@ -178,6 +186,7 @@ describe("resolveTargetState", () => {
       start: 18,
       length: 19,
     });
+
     const state = resolveTargetState(
       { target },
       live({
@@ -190,6 +199,7 @@ describe("resolveTargetState", () => {
         ],
       }),
     );
+
     expect(state).toEqual({ state: "outdated", reason: "edited" });
   });
 
@@ -220,6 +230,7 @@ describe("resolveTargetState", () => {
       start: 0,
       length: 19,
     });
+
     expect(
       resolveTargetState(
         { target },
@@ -239,17 +250,20 @@ describe("resolveTargetState", () => {
       field: "title",
       text: "Runtime",
     });
+
     const detailTarget = buildAnchorTextTarget({
       anchorId: "runtime",
       field: "detail",
       text: "Starts the server",
     });
+
     const anchors = new Map([
       [
         "runtime",
         { anchorId: "runtime", title: "Runtime", detail: "Starts the server" },
       ],
     ]);
+
     expect(
       resolveTargetState({ target: titleTarget }, live({ anchors })),
     ).toMatchObject({ state: "attached" });
@@ -264,6 +278,7 @@ describe("resolveTargetState", () => {
       field: "detail",
       text: "Starts the server",
     });
+
     expect(
       resolveTargetState(
         { target },
@@ -289,6 +304,7 @@ describe("resolveTargetState", () => {
       field: "detail",
       text: "Starts the server",
     });
+
     expect(
       resolveTargetState(
         { target },
@@ -309,6 +325,7 @@ describe("resolveTargetState", () => {
       headCommit: "head-commit",
       span: { startLine: 8, endLine: 10 },
     });
+
     expect(resolveTargetState({ target }, live())).toEqual({
       state: "attached",
       target,
@@ -323,6 +340,7 @@ describe("resolveTargetState", () => {
       payload: { from: "Browser", to: "Worker", label: "Send" },
       quote: "Send",
     });
+
     const edited = buildGraphTarget({
       diagram: "Request flow",
       type: "edge",
@@ -330,6 +348,7 @@ describe("resolveTargetState", () => {
       payload: { from: "Browser", to: "Worker", label: "Dispatch" },
       quote: "Dispatch",
     });
+
     expect(
       resolveTargetState(
         { target },

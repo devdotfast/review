@@ -18,6 +18,7 @@ const anchor = {
     resolution: null,
   },
 };
+
 const base = {
   format: REVIEW_DOCUMENT_FORMAT,
   title: "T",
@@ -72,6 +73,7 @@ describe("review document data", () => {
       ...base,
       body: [{ type: "element", tag, props: { align }, children: [] }],
     });
+
     expect(reviewDocumentDataSchema.safeParse(node("td", "left")).success).toBe(
       true,
     );
@@ -217,6 +219,7 @@ describe("review document data", () => {
         },
       ],
     });
+
     expect(parsed.success).toBe(false);
     expect(
       parsed.success ? [] : parsed.error.issues.map((issue) => issue.path),
@@ -266,6 +269,7 @@ describe("review document data", () => {
         },
       ],
     };
+
     const json = toReviewDocumentJson(input);
     expect(json).toEqual({
       body: [

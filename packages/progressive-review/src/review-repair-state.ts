@@ -12,6 +12,7 @@ import {
 import { fingerprintReviewTree } from "./review-tree-fingerprint";
 
 const revisionSchema = z.string().regex(/^[0-9a-f]{40}$/);
+
 export const ReviewRepairReadyRequestSchema = z.strictObject({
   reviewUuid: z.uuid(),
   stagingDir: z.string().min(1),
@@ -25,6 +26,7 @@ export const ReviewRepairReadyRequestSchema = z.strictObject({
   newMapRevision: revisionSchema.nullable(),
   sourceFallback: z.strictObject({ document: z.boolean(), map: z.boolean() }),
 });
+
 export type ReviewRepairReadyRequest = z.infer<
   typeof ReviewRepairReadyRequestSchema
 >;
@@ -39,6 +41,7 @@ export const ReviewRepairReadyResponseSchema = z.strictObject({
   sessionId: z.string().min(1),
   url: z.string().min(1),
 });
+
 export type ReviewRepairReadyResponse = z.infer<
   typeof ReviewRepairReadyResponseSchema
 >;
@@ -57,7 +60,9 @@ export async function fingerprintReviewRepairInputs(
  * open reviewer threads are intentionally not a repair gate. */
 export function assertNoActiveReviewAgentWrites(dir: string): void {
   const reviewPath = path.join(dir, "review.mdx");
+
   if (!existsSync(reviewThreadDbPath(reviewPath))) return;
+
   if (hasPendingReviewAgentWrites(reviewPath))
     throw new Error(
       "Review repair is blocked by pending agent writes; wait for the active agent response to finish, then retry.",

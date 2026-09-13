@@ -25,6 +25,7 @@ describe("Review structured logger", () => {
 
   it("switches the same event callsite to human-readable output by format", () => {
     const output = writableOutput();
+
     const logger = createReviewLogger({
       output: output.stream,
       format: "pretty",
@@ -64,6 +65,7 @@ describe("Review structured logger", () => {
 
 function writableOutput() {
   const chunks: string[] = [];
+
   return {
     stream: new Writable({
       write(chunk, _encoding, callback) {

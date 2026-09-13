@@ -16,6 +16,7 @@ test("presented telemetry follows a successful visible canvas ready signal", asy
     canvasPart.indexOf("private createBridge("),
     canvasPart.indexOf("private async validateSessionMount("),
   );
+
   assert.match(
     visibleBridge,
     /lifecycle\?\.ready\(\);\s*void this\.captureReviewPresented\(model\);/,
@@ -24,5 +25,6 @@ test("presented telemetry follows a successful visible canvas ready signal", asy
   const validationMount = canvasPart.slice(
     canvasPart.indexOf("private async validateSessionMount("),
   );
+
   assert.doesNotMatch(validationMount, /captureReviewPresented/);
 });

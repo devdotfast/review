@@ -27,9 +27,11 @@ export class LiveCapture {
       this.#subscribed = false;
       this.#seen.clear();
     }
+
     this.#launchId = randomUUID();
     this.#promptId = prompt?.id;
     this.#interrupted = false;
+
     return this.#launchId;
   }
 
@@ -43,8 +45,10 @@ export class LiveCapture {
     if (this.#queue.isClosed || this.#interrupted || this.#seen.has(message.id))
       return;
     this.#seen.add(message.id);
+
     const id =
       message.role === "user" && this.#promptId ? this.#promptId : message.id;
+
     if (message.role === "user") this.#promptId = undefined;
     this.queue.push({ type: "message.updated", message: { ...message, id } });
   }
@@ -55,6 +59,7 @@ export class LiveCapture {
   ): void {
     if (this.#queue.isClosed || this.#interrupted) return;
     const update: SessionUpdate = { type: "status.changed", status };
+
     if (error !== undefined) update.error = error;
     this.queue.push(update);
   }
@@ -70,10 +75,12 @@ export class LiveCapture {
       throw new Error("This session already has a message subscriber.");
     this.#subscribed = true;
     const queue = this.#queue;
+
     return {
       updates: queue,
       close: async () => {
         queue.close();
+
         if (this.#queue === queue) this.#subscribed = false;
       },
     };

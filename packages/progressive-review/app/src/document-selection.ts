@@ -23,7 +23,9 @@ export interface SelectionTarget {
 
 /** Chip box, used to keep it clear of the selection and inside its container. */
 export const CHIP_HEIGHT = 30;
+
 export const CHIP_HALF_WIDTH = 48;
+
 export const CHIP_GAP = 8;
 
 /**
@@ -43,6 +45,7 @@ export function chipPositionClearOf(
 ): ChipPosition {
   const centerX = selectionRect.left + selectionRect.width / 2;
   const above = selectionRect.top - containerRect.top - CHIP_HEIGHT - CHIP_GAP;
+
   return {
     x: Math.min(
       Math.max(centerX - containerRect.left, CHIP_HALF_WIDTH),
@@ -57,9 +60,12 @@ export function observeDocumentSelection(
   onTargetChange: (target: SelectionTarget | null) => void,
 ): () => void {
   const document = article.ownerDocument;
+
   const update = () =>
     onTargetChange(documentSelectionTarget(document.getSelection(), article));
+
   document.addEventListener("selectionchange", update);
+
   return () => document.removeEventListener("selectionchange", update);
 }
 
@@ -68,6 +74,7 @@ export function documentSelectionTarget(
   article: HTMLElement,
 ): SelectionTarget | null {
   const exactText = selection?.toString() ?? "";
+
   if (
     !selection ||
     selection.isCollapsed ||
@@ -76,7 +83,9 @@ export function documentSelectionTarget(
   ) {
     return null;
   }
+
   const range = selection.getRangeAt(0);
+
   if (
     !selection.anchorNode ||
     !selection.focusNode ||
@@ -86,9 +95,12 @@ export function documentSelectionTarget(
   ) {
     return null;
   }
+
   const target = targetForRange(range, article, exactText);
+
   if (!target) return null;
   const rect = range.getBoundingClientRect();
+
   return {
     ...chipPositionClearOf(rect, article.getBoundingClientRect()),
     anchorX: rect.left + rect.width / 2,
@@ -116,9 +128,11 @@ function targetForRange(
   exactText: string,
 ): Extract<ThreadTarget, { kind: "text" }> | null {
   const startSurface = selectionSurface(range.startContainer, article);
+
   if (startSurface) {
     const surfaceText = startSurface.textContent ?? "";
     const start = exactRangeStart(startSurface, range);
+
     if (surfaceText.slice(start, start + exactText.length) === exactText) {
       return targetForSelectionSurface(
         startSurface,
@@ -130,9 +144,11 @@ function targetForRange(
   }
 
   const intersectedSurface = singleIntersectedSurface(range, article);
+
   if (intersectedSurface) {
     const surfaceText = intersectedSurface.textContent ?? "";
     const start = surfaceText.indexOf(exactText);
+
     if (start >= 0) {
       return targetForSelectionSurface(
         intersectedSurface,
@@ -144,7 +160,9 @@ function targetForRange(
   }
 
   const documentSelection = reviewDocumentSelection(article, range);
+
   if (!documentSelection) return null;
+
   return buildDocumentTextTarget({
     text: documentSelection.text,
     start: documentSelection.start,
@@ -156,6 +174,7 @@ function exactRangeStart(root: HTMLElement, range: Range): number {
   const prefix = document.createRange();
   prefix.selectNodeContents(root);
   prefix.setEnd(range.startContainer, range.startOffset);
+
   return prefix.toString().length;
 }
 
@@ -168,6 +187,7 @@ function singleIntersectedSurface(
       "[data-review-table][data-review-row][data-review-column], [data-review-block-index]",
     ),
   ].filter((surface) => range.intersectsNode(surface));
+
   return surfaces.length === 1 ? surfaces[0]! : null;
 }
 
@@ -176,9 +196,11 @@ function selectionSurface(
   article: HTMLElement,
 ): HTMLElement | null {
   const element = node instanceof HTMLElement ? node : node.parentElement;
+
   const surface = element?.closest<HTMLElement>(
     "[data-review-table][data-review-row][data-review-column], [data-review-block-index]",
   );
+
   return surface && article.contains(surface) ? surface : null;
 }
 
@@ -198,6 +220,7 @@ function targetForSelectionSurface(
       length,
     });
   }
+
   return buildBlockTarget({
     tag: surface.dataset.reviewBlockTag ?? surface.tagName.toLowerCase(),
     index: datasetInteger(surface, "reviewBlockIndex"),
@@ -213,14 +236,17 @@ function datasetInteger(
 ): number {
   const raw = element.dataset[name];
   const value = Number(raw);
+
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`Invalid ${String(name)} review target stamp.`);
   }
+
   return value;
 }
 
 function closestCommentTarget(node: Node): Element | null {
   const element = node instanceof Element ? node : node.parentElement;
+
   return element?.closest("[data-review-locator]") ?? null;
 }
 

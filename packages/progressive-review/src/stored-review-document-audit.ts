@@ -13,7 +13,9 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const REVIEW_AUTHORING_MODULE_ID = "virtual:progressive-review-authoring";
+
 const LEGACY_REVIEW_AUTHORING_MODULE_ID = "@dev.fast/review/authoring";
+
 const LEGACY_IMPLICIT_AUTHORING_HELPERS = [
   "defineActors",
   "defineAnchors",
@@ -44,6 +46,7 @@ export async function auditStoredReviewDocuments(input: {
   onlyUnpresented?: boolean;
 }): Promise<StoredReviewDocumentAuditResult> {
   const reviewPaths = await listStoredReviewDocuments(input.reviewHome, input);
+
   const issues = (
     await Promise.all(
       reviewPaths.map(async (reviewPath) =>
@@ -54,6 +57,7 @@ export async function auditStoredReviewDocuments(input: {
       ),
     )
   ).flat();
+
   return { documents: reviewPaths.length, issues };
 }
 
@@ -63,6 +67,7 @@ export function auditStoredReviewDocument(
 ): StoredReviewDocumentMigrationIssue[] {
   const maskedSource = maskReviewFrontmatter(source);
   const document = parseReviewMdxDocument(maskedSource);
+
   if (document.parseError) {
     const issues: StoredReviewDocumentMigrationIssue[] = [
       {
@@ -72,6 +77,7 @@ export function auditStoredReviewDocument(
         message: document.parseError.message,
       },
     ];
+
     issues.push(
       ...auditUnparseableStoredReviewDocument({
         filePath,
@@ -79,20 +85,24 @@ export function auditStoredReviewDocument(
         reportedParseErrorLine: document.parseError.line,
       }),
     );
+
     return issues.sort((left, right) => left.line - right.line);
   }
 
   const issues: StoredReviewDocumentMigrationIssue[] = [];
   const importedAuthoringHelpers = new Set<string>();
   const reportedHelpers = new Set<string>();
+
   for (const program of document.esmPrograms) {
     for (const statement of program.body) {
       if (statement.type !== "ImportDeclaration") continue;
+
       if (statement.source.value === REVIEW_AUTHORING_MODULE_ID) {
         for (const specifier of statement.specifiers) {
           importedAuthoringHelpers.add(specifier.local.name);
         }
       }
+
       if (statement.source.value === LEGACY_REVIEW_AUTHORING_MODULE_ID) {
         issues.push({
           code: "LEGACY_AUTHORING_IMPORT",
@@ -103,6 +113,7 @@ export function auditStoredReviewDocument(
       }
     }
   }
+
   for (const program of document.esmPrograms) {
     for (const helper of LEGACY_IMPLICIT_AUTHORING_HELPERS) {
       if (
@@ -112,6 +123,7 @@ export function auditStoredReviewDocument(
       ) {
         continue;
       }
+
       const call = findCallExpressions(program, helper)[0];
       reportedHelpers.add(helper);
       issues.push({
@@ -122,6 +134,7 @@ export function auditStoredReviewDocument(
       });
     }
   }
+
   return issues;
 }
 
@@ -132,6 +145,7 @@ function auditUnparseableStoredReviewDocument(input: {
 }): StoredReviewDocumentMigrationIssue[] {
   const issues: StoredReviewDocumentMigrationIssue[] = [];
   const reportedHelpers = new Set<string>();
+
   for (const { line, source } of mdxCodeLines(input.source)) {
     if (isLegacyAuthoringImport(source)) {
       issues.push({
@@ -145,6 +159,7 @@ function auditUnparseableStoredReviewDocument(input: {
     }
 
     const helper = implicitAuthoringHelper(source);
+
     if (helper && !reportedHelpers.has(helper)) {
       reportedHelpers.add(helper);
       issues.push({
@@ -156,6 +171,7 @@ function auditUnparseableStoredReviewDocument(input: {
     }
 
     const syntax = typescriptOnlyMdxSyntax(source);
+
     if (syntax && line !== input.reportedParseErrorLine) {
       issues.push({
         code: "STANDARD_MDX_PARSE_ERROR",
@@ -165,22 +181,28 @@ function auditUnparseableStoredReviewDocument(input: {
       });
     }
   }
+
   return issues.sort((left, right) => left.line - right.line);
 }
 
 function mdxCodeLines(source: string): { line: number; source: string }[] {
   const result: { line: number; source: string }[] = [];
   let fence: "`" | "~" | undefined;
+
   for (const [index, lineSource] of source.split("\n").entries()) {
     const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(lineSource);
+
     if (fenceMatch) {
       const marker = fenceMatch[1].startsWith("`") ? "`" : "~";
+
       if (!fence) fence = marker;
       else if (fence === marker) fence = undefined;
       continue;
     }
+
     if (!fence) result.push({ line: index + 1, source: lineSource });
   }
+
   return result;
 }
 
@@ -200,7 +222,9 @@ function implicitAuthoringHelper(
     /^\s*export\s+const\s+[$\w]+(?:\s*:[^=]+)?\s*=\s*(defineActors|defineAnchors|defineSoftwareActors|defineSoftwareModel|defineSoftwareStores|defineStores)\s*\(/.exec(
       source,
     );
+
   const helper = match?.[1];
+
   return LEGACY_IMPLICIT_AUTHORING_HELPERS.find(
     (candidate) => candidate === helper,
   );
@@ -208,16 +232,21 @@ function implicitAuthoringHelper(
 
 function typescriptOnlyMdxSyntax(source: string): string | undefined {
   if (/^\s*import\s+type\b/.test(source)) return "`import type`";
+
   if (/^\s*(?:export\s+)?interface\b/.test(source)) {
     return "an `interface` declaration";
   }
+
   if (/^\s*(?:export\s+)?type\s+[$\w]+\s*=/.test(source)) {
     return "a `type` declaration";
   }
+
   if (/^\s*export\s+const\s+[$\w]+\s*:[^=]+?=/.test(source)) {
     return "a type annotation";
   }
+
   if (/[}\]]\s+satisfies\b/.test(source)) return "`satisfies`";
+
   return undefined;
 }
 
@@ -225,6 +254,7 @@ function legacyAuthoringImportMessage(input?: { typeOnly: boolean }): string {
   if (input?.typeOnly) {
     return `Delete this TypeScript-only import from the Review document; standard MDX cannot use imported types. The .mdx documents rely on runtime type validation now, so it is safe to delete wholesale rather than preserving.`;
   }
+
   return `Import Review runtime helpers from "${REVIEW_AUTHORING_MODULE_ID}", not "${LEGACY_REVIEW_AUTHORING_MODULE_ID}".`;
 }
 
@@ -250,9 +280,12 @@ async function listStoredReviewDocuments(
   } = {},
 ): Promise<string[]> {
   const reviewPaths: string[] = [];
+
   for (const entry of await readDirectory(path.join(reviewHome, "reviews"))) {
     if (!entry.isDirectory() || !UUID_PATTERN.test(entry.name)) continue;
+
     if (options.skipReviewUuids?.includes(entry.name)) continue;
+
     if (options.onlyUnpresented) {
       const record = parseAnyStoredReviewRecord(
         parseJsonText(
@@ -262,13 +295,16 @@ async function listStoredReviewDocuments(
           ),
         ),
       );
+
       if (record.presentedDocumentRevision) continue;
     }
+
     await collectStoredReviewDocuments(
       path.join(reviewHome, "reviews", entry.name),
       reviewPaths,
     );
   }
+
   return reviewPaths.sort();
 }
 
@@ -288,8 +324,10 @@ async function collectStoredReviewDocuments(
           reviewPaths,
         );
       }
+
       continue;
     }
+
     if (entry.isFile() && path.extname(entry.name) === ".mdx") {
       reviewPaths.push(path.join(directory, entry.name));
     }

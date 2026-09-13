@@ -68,6 +68,7 @@ describe("store-auth", () => {
     stderr.on("data", (chunk) => {
       errors += chunk.toString();
     });
+
     const code = await runReviewLogin({
       origin: "http://store.example.com",
       stdout,
@@ -75,6 +76,7 @@ describe("store-auth", () => {
       fetch: vi.fn<typeof globalThis.fetch>(),
       sleep: async () => {},
     });
+
     expect(code).toBe(1);
     expect(errors).toContain("https");
   });
@@ -83,6 +85,7 @@ describe("store-auth", () => {
     vi.stubEnv("DEV_REVIEW_HOME", tmp);
     const stdout = outputStream();
     const stderr = outputStream();
+
     const responses = [
       json({
         device_code: "dc",
@@ -96,10 +99,13 @@ describe("store-auth", () => {
       json({ access_token: "tok", token_type: "Bearer" }),
       json({ user: { name: "dev" } }),
     ];
+
     const fetch = vi.fn<typeof globalThis.fetch>(
       async () => responses.shift()!,
     );
+
     const opened: string[] = [];
+
     const code = await runReviewLogin({
       stdout,
       stderr,
@@ -109,6 +115,7 @@ describe("store-auth", () => {
       },
       sleep: async () => {},
     });
+
     expect(code).toBe(0);
     expect(opened[0]).toContain("user_code=ABCD-1234");
     expect((await readStoreAuth())?.token).toBe("tok");

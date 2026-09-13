@@ -96,10 +96,13 @@ export class S3TraceStorage implements TraceStorage {
    */
   static fromEnvironment(scope: S3ConfigScope = {}): S3TraceStorage | null {
     const env = scope.env ?? process.env;
+
     if (isS3MockMode(env)) {
       return new S3TraceStorage(null, s3MockRoot(env), env);
     }
+
     const config = resolveS3Credentials(scope);
+
     return config ? new S3TraceStorage(config, null, env) : null;
   }
 
@@ -113,12 +116,14 @@ export class S3TraceStorage implements TraceStorage {
   /** Secret-free identity of the destination; the same bucket keys the same cache. */
   cacheIdentity(): string {
     if (!this.config) return `s3:mock:${this.mockRoot ?? ""}`;
+
     const digest = createHash("sha256")
       .update(
         `${normalizeEndpoint(this.config.endpoint)}\n${this.config.bucket}`,
       )
       .digest("hex")
       .slice(0, 16);
+
     return `s3:${digest}`;
   }
 
@@ -137,6 +142,7 @@ export class S3TraceStorage implements TraceStorage {
     traceName: string,
   ): Promise<TraceObjectInfo | null> {
     const size = await this.headObjectSize(objectKey(sessionId, traceName));
+
     return size === null ? null : { size, contentId: `size:${size}` };
   }
 
@@ -150,16 +156,20 @@ export class S3TraceStorage implements TraceStorage {
     ) {
       return null;
     }
+
     const size = statSync(destinationPath).size;
+
     return { size, contentId: `size:${size}` };
   }
 
   async listSubagents(sessionId: string): Promise<string[]> {
     const prefix = `by-session/${sessionId}/subagents/`;
     const names = new Set<string>();
+
     if (this.mockRoot !== null || !this.config) {
       if (this.mockRoot) {
         const dir = path.join(this.mockRoot, prefix);
+
         if (existsSync(dir)) {
           try {
             for (const entry of readdirSync(dir)) {
@@ -170,8 +180,10 @@ export class S3TraceStorage implements TraceStorage {
           }
         }
       }
+
       return [...names].sort();
     }
+
     try {
       const proc = await this.aws(
         [
@@ -184,17 +196,22 @@ export class S3TraceStorage implements TraceStorage {
         ],
         { timeout: 10_000 },
       );
+
       const listing = jsonObject(parseJsonText(proc.stdout));
+
       for (const item of jsonArray(listing?.Contents) ?? []) {
         const key = jsonString(jsonObject(item)?.Key);
+
         if (key && key.startsWith(prefix) && key.endsWith(".jsonl")) {
           const name = key.slice(prefix.length, -6);
+
           if (name) names.add(name);
         }
       }
     } catch {
       // Ignore remote list failure
     }
+
     return [...names].sort();
   }
 
@@ -203,6 +220,7 @@ export class S3TraceStorage implements TraceStorage {
       const parsed = sessionMetaSchema.safeParse(
         await this.getJson(metaKey(sessionId)),
       );
+
       return parsed.success ? parsed.data : null;
     } catch {
       return null;
@@ -211,11 +229,14 @@ export class S3TraceStorage implements TraceStorage {
 
   async sessionsForCommit(commit: string): Promise<TraceCommitSessions | null> {
     if (!commitShaSchema.safeParse(commit).success) return null;
+
     try {
       const parsed = byCommitSchema.safeParse(
         await this.getJson(commitKey(commit)),
       );
+
       if (!parsed.success || parsed.data.sessions.length === 0) return null;
+
       return {
         sessions: parsed.data.sessions,
         pr: parsed.data.pr,
@@ -228,6 +249,7 @@ export class S3TraceStorage implements TraceStorage {
 
   async publish(input: TracePublishInput): Promise<TracePublishResult> {
     const uploads: TracePublishUpload[] = [];
+
     for (const file of input.files) {
       const key = objectKey(input.sessionId, file.name);
       const grown = await this.putIfGrown(key, file.path);
@@ -240,6 +262,7 @@ export class S3TraceStorage implements TraceStorage {
 
     // Session metadata is read, merged, and written back.
     const existing = await this.sessionMeta(input.sessionId);
+
     const meta: SessionMeta = {
       session: input.sessionId,
       repo: `${input.repo.owner}/${input.repo.repo}`,
@@ -254,23 +277,28 @@ export class S3TraceStorage implements TraceStorage {
       author: input.author ?? existing?.author ?? null,
       ts: new Date().toISOString(),
     };
+
     const saved = await this.putBuffer(
       metaKey(input.sessionId),
       Buffer.from(JSON.stringify(meta, null, 2), "utf8"),
     );
+
     if (!saved) {
       throw new Error(
         `Failed to update session metadata for ${input.sessionId} in S3/R2 storage.`,
       );
     }
+
     return { uploads };
   }
 
   async associateCommits(input: TraceCommitAssociation): Promise<boolean> {
     const commit = commitShaSchema.parse(input.commit);
     const existing = await this.getJson(commitKey(commit));
+
     if (existing !== null) return false;
     const { repo, pr } = await input.resolve();
+
     const entry: ByCommitEntry = byCommitSchema.parse({
       commit,
       sessions: deduplicateStrings(input.sessions),
@@ -280,23 +308,28 @@ export class S3TraceStorage implements TraceStorage {
       indexed_by: "hook",
       ts: new Date().toISOString(),
     });
+
     const saved = await this.putBuffer(
       commitKey(commit),
       Buffer.from(JSON.stringify(entry, null, 2), "utf8"),
     );
+
     if (!saved) {
       throw new Error(`Failed to write by-commit/${commit}.json.`);
     }
+
     return true;
   }
 
   /** A non-mutating reachability check of the configured bucket. */
   async doctor(): Promise<S3DoctorResult> {
     if (!this.config) return { reachable: true };
+
     try {
       await this.aws(["s3api", "head-bucket", "--bucket", this.config.bucket], {
         timeout: 15_000,
       });
+
       return { reachable: true };
     } catch (error) {
       return {
@@ -311,18 +344,22 @@ export class S3TraceStorage implements TraceStorage {
   private async headObjectSize(key: string): Promise<number | null> {
     if (!this.config) {
       if (!this.mockRoot) return null;
+
       try {
         const stats = statSync(path.join(this.mockRoot, key));
+
         return stats.isFile() ? stats.size : null;
       } catch {
         return null;
       }
     }
+
     try {
       const proc = await this.aws(
         ["s3api", "head-object", "--bucket", this.config.bucket, "--key", key],
         { timeout: 10_000 },
       );
+
       return (
         jsonNumber(jsonObject(parseJsonText(proc.stdout))?.ContentLength) ??
         null
@@ -334,15 +371,19 @@ export class S3TraceStorage implements TraceStorage {
 
   private async getObject(key: string, destPath: string): Promise<boolean> {
     mkdirSync(path.dirname(destPath), { recursive: true });
+
     if (!this.config) {
       if (!this.mockRoot) return false;
+
       try {
         writeFileSync(destPath, readFileSync(path.join(this.mockRoot, key)));
+
         return true;
       } catch {
         return false;
       }
     }
+
     try {
       await this.aws(
         [
@@ -356,6 +397,7 @@ export class S3TraceStorage implements TraceStorage {
         ],
         { timeout: 60_000, maxBuffer: 16 * 1024 * 1024 },
       );
+
       return existsSync(destPath);
     } catch {
       return false;
@@ -367,8 +409,10 @@ export class S3TraceStorage implements TraceStorage {
       tmpdir(),
       `r2-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
     );
+
     try {
       if (!(await this.getObject(key, tmpPath))) return null;
+
       return parseJsonText(readFileSync(tmpPath, "utf8"));
     } catch {
       return null;
@@ -380,15 +424,18 @@ export class S3TraceStorage implements TraceStorage {
   private async putFile(key: string, filePath: string): Promise<boolean> {
     if (!this.config) {
       if (!this.mockRoot) return false;
+
       try {
         const target = path.join(this.mockRoot, key);
         mkdirSync(path.dirname(target), { recursive: true });
         writeFileSync(target, readFileSync(filePath));
+
         return true;
       } catch {
         return false;
       }
     }
+
     try {
       await this.aws(
         [
@@ -400,6 +447,7 @@ export class S3TraceStorage implements TraceStorage {
         ],
         { timeout: 60_000 },
       );
+
       return true;
     } catch {
       return false;
@@ -409,20 +457,25 @@ export class S3TraceStorage implements TraceStorage {
   private async putBuffer(key: string, content: Buffer): Promise<boolean> {
     if (!this.config) {
       if (!this.mockRoot) return false;
+
       try {
         const target = path.join(this.mockRoot, key);
         mkdirSync(path.dirname(target), { recursive: true });
         writeFileSync(target, content);
+
         return true;
       } catch {
         return false;
       }
     }
+
     const tempFile = path.join(
       tmpdir(),
       `put-${process.pid}-${Math.random().toString(36).slice(2)}.tmp`,
     );
+
     writeFileSync(tempFile, content);
+
     try {
       return await this.putFile(key, tempFile);
     } finally {
@@ -433,10 +486,13 @@ export class S3TraceStorage implements TraceStorage {
   private async putIfGrown(key: string, filePath: string): Promise<boolean> {
     const remoteSize = await this.headObjectSize(key);
     const localSize = statSync(filePath).size;
+
     if (remoteSize !== null && localSize <= remoteSize) return false;
+
     if (!(await this.putFile(key, filePath))) {
       throw new Error(`Failed to upload ${key} to S3/R2 storage.`);
     }
+
     return true;
   }
 
@@ -445,7 +501,9 @@ export class S3TraceStorage implements TraceStorage {
     options: { timeout: number; maxBuffer?: number },
   ): Promise<{ stdout: string; stderr: string }> {
     const config = this.config;
+
     if (!config) throw new Error("S3 trace storage is not configured.");
+
     return execFileAsync(
       "aws",
       ["--region", config.region, "--endpoint-url", config.endpoint, ...args],
@@ -477,6 +535,7 @@ function commitKey(commit: string): string {
 
 export function normalizeSubagentFileName(name: string): string {
   const base = path.basename(name);
+
   return base.endsWith(".jsonl") ? base : `${base}.jsonl`;
 }
 
@@ -485,6 +544,7 @@ function normalizeEndpoint(endpoint: string): string {
     const url = new URL(endpoint);
     url.hash = "";
     url.search = "";
+
     return url.toString().replace(/\/+$/, "").toLowerCase();
   } catch {
     return endpoint.trim().replace(/\/+$/, "").toLowerCase();

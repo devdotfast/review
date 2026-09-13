@@ -19,6 +19,7 @@ export function createTelemetryDebugSink(
   output: NodeJS.WritableStream = process.stderr,
 ): ProgressiveReviewTelemetryCaptureClient | undefined {
   if (!isEnabledEnvValue(env[REVIEW_TELEMETRY_DEBUG_ENV])) return undefined;
+
   return {
     enabled: true,
     // Printing is not sending, so the sink prints events that the opt-out
@@ -32,6 +33,7 @@ export function createTelemetryDebugSink(
       } catch {
         // The sink is a developer aid and must never affect Review behavior.
       }
+
       return Promise.resolve();
     },
   };

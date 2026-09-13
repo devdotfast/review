@@ -86,6 +86,7 @@ describe("review app software map selection", () => {
         repo: { label: "Repo map" },
       },
     });
+
     const documentModel = defineSoftwareModel({
       systems: {
         review: {
@@ -179,6 +180,7 @@ describe("review app CodePeek rendering", () => {
         },
       },
     });
+
     const html = renderWithTestSession(createElement(CodePeekCard, { input }));
 
     expect(html).toContain('data-code-rendering="inline-editor"');
@@ -197,6 +199,7 @@ describe("review app CodePeek rendering", () => {
       props: { file: "src/unchanged.ts", fromLine: 8, toLine: 8 },
       resolution: { snapshot: { roots: [], resolved: {} } },
     });
+
     const html = renderWithTestSession(createElement(CodePeekCard, { input }));
 
     expect(html).toContain('data-review-inline-editor="src/unchanged.ts"');

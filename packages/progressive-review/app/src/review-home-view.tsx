@@ -78,9 +78,11 @@ const SearchQueryContext = createContext("");
 function MatchedText({ text }: { text: string }) {
   const query = useContext(SearchQueryContext);
   const segments = fuzzySegments(query, text);
+
   // One segment can also mean the query matched the whole label, so check that
   // it is the unmatched one before skipping the marks.
   if (segments.length === 1 && !segments[0].matched) return <>{text}</>;
+
   return (
     <>
       {segments.map((segment, index) =>
@@ -103,9 +105,12 @@ export function reapCountdownLabel(
 ): string | null {
   if (!review.reapsAt) return null;
   const remainingMs = Date.parse(review.reapsAt) - now;
+
   if (!Number.isFinite(remainingMs)) return null;
+
   if (remainingMs <= 0) return "deletes soon";
   const days = Math.ceil(remainingMs / 86_400_000);
+
   return days === 1 ? "deletes tomorrow" : `deletes in ${days}d`;
 }
 
@@ -138,14 +143,18 @@ export function ReviewHome({
   const [showDismissed, setShowDismissed] = useState(false);
   const [query, setQuery] = useState("");
   const [openedErrorDir, setOpenedErrorDir] = useState<string | null>(null);
+
   const openedError = reviewErrors.find(
     (error) => error.reviewDir === openedErrorDir,
   );
+
   const actions = useMemo(
     () => ({ onDismiss, onRestore, onOpenSourceTree }),
     [onDismiss, onRestore, onOpenSourceTree],
   );
+
   const needle = query.trim();
+
   const foundErrors = reviewErrors.filter((error) =>
     fuzzyMatches(
       needle,
@@ -155,23 +164,29 @@ export function ReviewHome({
       error.reviewDir,
     ),
   );
+
   const found = useMemo(
     () => reviews.filter((review) => matchesQuery(review, needle)),
     [reviews, needle],
   );
+
   /* New first, then viewed. Dismissed leaves the main list entirely: it is the
      one group you asked to stop seeing. */
   const active = found.filter((review) => !review.dismissedAt);
   const dismissed = found.filter((review) => review.dismissedAt);
+
   const sortedActive = [...active].sort((left, right) => {
     const leftNew = left.viewedAt ? 1 : 0;
     const rightNew = right.viewedAt ? 1 : 0;
+
     return leftNew - rightNew;
   });
+
   const workspaces = groupReviewsByWorktree(sortedActive);
 
   const selectView = (next: ReviewHomeView) => {
     setView(next);
+
     try {
       globalThis.localStorage?.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, next);
     } catch {
@@ -270,6 +285,7 @@ export function ReviewHome({
 function unavailableReviewGuidance(error: ReviewListError) {
   let explanation: string;
   let command: string | undefined;
+
   switch (error.code) {
     case "MIGRATION_REQUIRED":
       explanation =
@@ -287,9 +303,11 @@ function unavailableReviewGuidance(error: ReviewListError) {
       explanation =
         "This review could not be opened. Copy the prompt to your agent.";
   }
+
   const nextStep = command
     ? `Inspect the affected review and create any necessary backup yourself before making changes; do not ask me to do manual backup steps. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`
     : "Inspect the diagnostic and fix the underlying access or storage problem.";
+
   const prompt = [
     `Help me open this Review: ${JSON.stringify(error.title || error.reviewUuid || error.reviewDir)}.`,
     `Review directory: ${JSON.stringify(error.reviewDir)}.`,
@@ -297,6 +315,7 @@ function unavailableReviewGuidance(error: ReviewListError) {
     nextStep,
     "Preserve reviews, comments, and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
   ].join("\n");
+
   return {
     explanation,
     prompt,
@@ -314,6 +333,7 @@ function UnavailableReview({
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const { explanation, prompt, promptLabel } = unavailableReviewGuidance(error);
+
   return (
     <main className="review-home">
       <div className="review-home-scroll">
@@ -367,7 +387,9 @@ function UnavailableReview({
  */
 function SetupBanner({ setup }: { setup: ReviewCanvasHomeSetup }) {
   const message = setupBannerMessage(setup.status);
+
   if (!message) return null;
+
   return (
     <div className="review-home-setup-banner">
       <span>{message}</span>
@@ -382,23 +404,30 @@ export function setupBannerMessage(
   status: ReviewCliInstallStatus,
 ): string | null {
   if (!status.cli || status.stamp?.consent === "declined") return null;
+
   if (!status.stamp || status.stamp.consent === "skipped") {
     if (status.agents.some((agent) => agent.installed)) return null;
     const present = status.agents.filter((agent) => agent.present);
+
     if (present.length === 0) return null;
+
     return "Review is not set up for your coding agents yet.";
   }
+
   if (status.stale) {
     return "The installed Review skills are older than this app.";
   }
+
   const missing = status.agents.filter(
     (agent) => agent.present && !agent.installed,
   );
+
   if (missing.length > 0) {
     return `The Review skills are not installed for ${missing
       .map((agent) => TARGET_LABELS[agent.target])
       .join(", ")}.`;
   }
+
   // Trace capture is experimental and opt-in, so Home never nags about it.
   return null;
 }
@@ -415,6 +444,7 @@ function SearchBox({
   onChange(query: string): void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+
   return (
     <div className="review-home-search">
       <SearchIcon />
@@ -542,7 +572,9 @@ function DismissedSection({
 function RestoreReviewButton({ review }: { review: ReviewDescriptor }) {
   const { onRestore } = useContext(AttentionActionsContext);
   const [busy, setBusy] = useState(false);
+
   if (!onRestore) return null;
+
   return (
     <button
       type="button"
@@ -639,8 +671,10 @@ function ReviewCard({
 function DismissReviewButton({ review }: { review: ReviewDescriptor }) {
   const { onDismiss } = useContext(AttentionActionsContext);
   const [busy, setBusy] = useState(false);
+
   if (!onDismiss) return null;
   const title = reviewTitle(review);
+
   return (
     <button
       type="button"
@@ -672,14 +706,17 @@ function workspaceSourceReview(
 ): ReviewDescriptor | null {
   let selected: ReviewDescriptor | null = null;
   let selectedUpdatedAt = 0;
+
   for (const review of workspace.reviews) {
     if (!review.available || !review.lastPublishedAt) continue;
     const updatedAt = reviewUpdatedAtMs(review);
+
     if (!selected || updatedAt > selectedUpdatedAt) {
       selected = review;
       selectedUpdatedAt = updatedAt;
     }
   }
+
   return selected;
 }
 
@@ -698,6 +735,7 @@ function DeleteReviewButton({
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const title = reviewTitle(review);
+
   return (
     <button
       type="button"
@@ -709,10 +747,13 @@ function DeleteReviewButton({
       onKeyDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
+
         if (!armed) {
           setArmed(true);
+
           return;
         }
+
         setBusy(true);
         void onDelete(review)
           .catch(() => undefined)
@@ -736,6 +777,7 @@ function ListView({
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const data = useMemo(() => [...reviews], [reviews]);
+
   const table = useReactTable({
     columns: reviewListColumns,
     data,
@@ -798,6 +840,7 @@ function ReviewListColumnHeaders({
     <tr className="review-home-list-columns" key={headerGroup.id}>
       {headerGroup.headers.map((header) => {
         const direction = header.column.getIsSorted();
+
         return (
           <th
             key={header.id}
@@ -849,6 +892,7 @@ function WorkspaceGroupRow({
   columnCount: number;
 }) {
   const path = row.getValue<string>("workspace");
+
   const workspace: ReviewWorkspace = {
     path,
     label: worktreeLabel(path),
@@ -873,9 +917,11 @@ function ReviewRow({
   onOpen(review: ReviewDescriptor): void;
 }) {
   const review = row.original;
+
   const open = () => {
     if (review.available) onOpen(review);
   };
+
   return (
     <tr
       className="review-home-list-row"
@@ -949,6 +995,7 @@ const reviewListColumns: ColumnDef<ReviewDescriptor>[] = [
     sortUndefined: "last",
     cell: ({ row }) => {
       const stats = row.original.diffStats;
+
       return stats ? (
         <span className="review-home-changes">
           <span className="review-home-added">+{stats.additions}</span>
@@ -1003,11 +1050,13 @@ const reviewListDefaultColumn = {
 function WorkspaceHeader({ workspace }: { workspace: ReviewWorkspace }) {
   const { onOpenSourceTree } = useContext(AttentionActionsContext);
   const review = onOpenSourceTree ? workspaceSourceReview(workspace) : null;
+
   const name = (
     <strong>
       <MatchedText text={workspace.label} />/
     </strong>
   );
+
   return (
     <div className="review-home-workspace-header review-home-workspace-header--group">
       {onOpenSourceTree && review ? (
@@ -1043,6 +1092,7 @@ function WorkspaceHeader({ workspace }: { workspace: ReviewWorkspace }) {
 
 function ReviewMeta({ review }: { review: ReviewDescriptor }) {
   const stats = review.diffStats;
+
   return (
     <span className="review-home-card-meta">
       {review.pullRequestNumber ? (
@@ -1064,6 +1114,7 @@ function ReviewMeta({ review }: { review: ReviewDescriptor }) {
 
 function StatusPill({ review }: { review: ReviewDescriptor }) {
   const status = statusDisplay(review);
+
   return (
     <span className={`review-home-status review-home-status--${status.tone}`}>
       <StatusIcon tone={status.tone} />
@@ -1079,6 +1130,7 @@ function StatusIcon({ tone }: { tone: ReviewStatusDisplay["tone"] }) {
       : tone === "dismissed"
         ? "M3.5 6h5"
         : "M3.7 6.1l1.4 1.4 3.2-3.1";
+
   return (
     <svg aria-hidden="true" viewBox="0 0 12 12">
       <circle cx="6" cy="6" r="5" />
@@ -1101,6 +1153,7 @@ function CommentCount({
       <span className="review-home-no-comments">—</span>
     );
   }
+
   return (
     <span
       className={
@@ -1117,8 +1170,10 @@ export function groupReviewsByWorktree(
   reviews: readonly ReviewDescriptor[],
 ): ReviewWorkspace[] {
   const groups = new Map<string, ReviewWorkspace>();
+
   for (const review of reviews) {
     let workspace = groups.get(review.worktreePath);
+
     if (!workspace) {
       workspace = {
         path: review.worktreePath,
@@ -1128,8 +1183,10 @@ export function groupReviewsByWorktree(
       };
       groups.set(review.worktreePath, workspace);
     }
+
     workspace.reviews.push(review);
   }
+
   return [...groups.values()];
 }
 
@@ -1139,7 +1196,9 @@ export function reviewUpdatedAt(review: ReviewDescriptor): string | null {
   const candidates = [review.documentUpdatedAt, review.lastPublishedAt].filter(
     (value): value is string => Boolean(value),
   );
+
   if (candidates.length === 0) return null;
+
   return candidates.reduce((a, b) => (Date.parse(a) >= Date.parse(b) ? a : b));
 }
 
@@ -1154,15 +1213,21 @@ export function formatRelativeTime(
 ): string {
   if (!timestamp) return "not published";
   const then = Date.parse(timestamp);
+
   if (!Number.isFinite(then)) return "unknown";
   const elapsed = Math.max(0, now - then);
+
   if (elapsed < 60_000) return "just now";
   const minutes = Math.floor(elapsed / 60_000);
+
   if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
+
   if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
   const days = Math.floor(hours / 24);
+
   if (days < 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
+
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "numeric",
@@ -1175,24 +1240,31 @@ function statusDisplay(review: ReviewDescriptor): ReviewStatusDisplay {
   if (review.dismissedAt) {
     return { label: "Dismissed", tone: "dismissed" };
   }
+
   if (!review.viewedAt && review.presentedDocumentRevision) {
     return { label: "New", tone: "ready" };
   }
+
   if (review.status === "draft") {
     return { label: "Draft", tone: "in-review" };
   }
+
   if (review.status === "rejected") {
     return { label: "Rejected", tone: "dismissed" };
   }
+
   if (review.status === "accepted") {
     return { label: "Accepted", tone: "submitted" };
   }
+
   if (review.status === "awaiting-agent-updates") {
     return { label: "Awaiting updates", tone: "in-review" };
   }
+
   if (review.presentedDocumentRevision) {
     return { label: "Review ready", tone: "ready" };
   }
+
   return { label: "In review", tone: "in-review" };
 }
 
@@ -1221,11 +1293,13 @@ function matchesQuery(review: ReviewDescriptor, query: string): boolean {
 
 function readableSourceBranch(value: string | null): string | null {
   if (!value || /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value)) return null;
+
   return value;
 }
 
 function worktreeLabel(value: string): string {
   const parts = value.split(/[\\/]/).filter(Boolean);
+
   return parts.at(-1) ?? value;
 }
 

@@ -12,9 +12,13 @@ import {
 } from "./review-codex-wait-state";
 
 const reviewUuid = "99d4519f-5a72-4684-9af4-98abaa2849cc";
+
 const threadId = "thread-1";
+
 const children: ChildProcess[] = [];
+
 let root: string;
+
 let env: NodeJS.ProcessEnv;
 
 beforeEach(async () => {
@@ -35,8 +39,11 @@ describe("Codex Review wait state", () => {
         ["-e", "setInterval(() => {}, 1000)"],
         { stdio: "ignore" },
       );
+
       children.push(child);
+
       if (!child.pid) throw new Error("Test child did not start.");
+
       return child.pid;
     });
 

@@ -21,6 +21,7 @@ it("bounds concurrent CodePeek requests to the running server", async () => {
         maximumActive = Math.max(maximumActive, active);
         await new Promise((resolve) => setTimeout(resolve, 5));
         active -= 1;
+
         return index;
       }),
     ),
@@ -31,6 +32,7 @@ it("bounds concurrent CodePeek requests to the running server", async () => {
 
 it("resolves peeks through the configured ReviewSession request path", async () => {
   const sourceId = "source-range:src/example.ts:1-3";
+
   const fetchMock = vi.fn<typeof fetch>(async () =>
     Promise.resolve(
       new Response(
@@ -45,7 +47,9 @@ it("resolves peeks through the configured ReviewSession request path", async () 
       ),
     ),
   );
+
   vi.stubGlobal("fetch", fetchMock);
+
   const session = testReviewSession({
     sessionUrl: "http://localhost:5620/sessions/review-a",
     routePath: "/default",

@@ -7,6 +7,7 @@ import { defineSoftwareModel } from "./software-map/model";
 
 export function testCodePeekResolution(): CodePeekResolution {
   const sourceId = "source-range:src/example.ts:1-1";
+
   return {
     snapshot: {
       roots: [{ kind: "source", sourceId }],
@@ -48,6 +49,7 @@ export function createTestReviewDefinitionSession(
 ) {
   const softwareMap =
     options.softwareMap ?? defineSoftwareModel({ systems: {} });
+
   return createReviewDefinitionSession({
     softwareMap,
     baseSoftwareMap: softwareMap,

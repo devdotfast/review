@@ -64,6 +64,7 @@ describe("bug report protocol", () => {
 
   it("accepts a verbatim Unicode and multiline description", () => {
     const description = "First line\nSnowman: ☃️\nLast line";
+
     const meta = {
       ...baseMeta,
       description,
@@ -75,6 +76,7 @@ describe("bug report protocol", () => {
 
   it("accepts the 64 KiB description boundary", () => {
     const description = "😀".repeat(16_384);
+
     const meta = {
       ...baseMeta,
       description,

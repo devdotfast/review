@@ -47,6 +47,7 @@ import {
 } from "./global-verb-relay";
 
 let root: string | undefined;
+
 type DispatchVerb = (
   sessionId: string,
   value: JsonValue,
@@ -56,6 +57,7 @@ let dispatchVerb: DispatchVerb = async () => ({ ok: true });
 
 function recordingRelay(): ReviewDesktopVerbRelay {
   const inner = new GlobalReviewDesktopVerbRelay();
+
   return {
     get attached() {
       return inner.attached;
@@ -72,12 +74,15 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   closeAllReviewThreadStores();
   dispatchVerb = async () => ({ ok: true });
+
   if (root) await rm(root, { recursive: true, force: true });
 });
+
 const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
+
 async function fixture(schemaVersion: 4 | 5 = 4) {
   root = await mkdtemp(path.join(tmpdir(), "repair-server-"));
   vi.stubEnv("DEV_REVIEW_HOME", root);
@@ -86,6 +91,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
   await reviewVcs.init(source);
   await writeFile(path.join(source, "one.ts"), "export const one = 1;\n");
   const commit = await reviewVcs.seal(source, "source");
+
   const stored = await createReviewDir({
     worktreePath: source,
     baseRef: "main",
@@ -93,6 +99,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     sourceCommit: commit,
     title: "Keep title",
   });
+
   const record = {
     ...stored.review,
     schemaVersion,
@@ -101,6 +108,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     dismissedAt: schemaVersion === 4 ? "2026-09-01T01:00:00Z" : null,
     viewedAt: "2026-09-01T00:01:00Z",
   };
+
   await mkdir(path.join(stored.dir, ".bundle", "document"), {
     recursive: true,
   });
@@ -113,23 +121,28 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     "throw new Error('never execute server');",
   );
   await writeFile(path.join(stored.dir, "review.json"), JSON.stringify(record));
+
   const oldRevision = await reviewVcs.seal(
     stored.dir,
     "Review publish candidate",
   );
+
   const expectedRecord = JSON.stringify({
     ...record,
     presentedDocumentRevision: oldRevision,
   });
+
   await writeFile(path.join(stored.dir, "review.json"), expectedRecord);
   const expectedFingerprint = await fingerprintReviewRepairInputs(stored.dir);
   const stagingDir = path.join(root, "stage");
   await cp(stored.dir, stagingDir, { recursive: true });
+
   const normalized = {
     ...record,
     schemaVersion: 5,
     presentedDocumentRevision: oldRevision,
   };
+
   await writeFile(
     path.join(stagingDir, "review.json"),
     JSON.stringify(normalized),
@@ -147,10 +160,12 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
       softwareModels: [],
     }),
   );
+
   const newDocumentRevision = await reviewVcs.seal(
     stagingDir,
     "Repair current Review document",
   );
+
   await writeFile(
     path.join(stagingDir, "review.json"),
     JSON.stringify({
@@ -158,6 +173,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
       presentedDocumentRevision: newDocumentRevision,
     }),
   );
+
   const request: ReviewRepairReadyRequest = {
     reviewUuid: record.uuid,
     stagingDir,
@@ -167,6 +183,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     newMapRevision: null,
     sourceFallback: { document: false, map: false },
   };
+
   const visible = await createReviewDir({
     worktreePath: source,
     baseRef: "main",
@@ -174,6 +191,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     sourceCommit: commit,
     title: "Visible review",
   });
+
   await writeReviewDocumentBundle(
     visible.dir,
     bundleReviewDocument({
@@ -187,10 +205,12 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
       softwareModels: [],
     }),
   );
+
   const visibleRevision = await reviewVcs.seal(
     visible.dir,
     "Review publish candidate",
   );
+
   await writeFile(
     path.join(visible.dir, "review.json"),
     JSON.stringify({
@@ -199,6 +219,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     }),
   );
   const token = "repair-secret";
+
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -208,7 +229,9 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     discoveryPath: path.join(root, "desktop.json"),
     relay: recordingRelay(),
   });
+
   await server.listen();
+
   const post = (
     route: string,
     body: ReviewRepairReadyRequest | ReviewThreadsCommand | JsonObject,
@@ -218,12 +241,15 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
       headers: { "content-type": "application/json", "x-review-token": token },
       body: JSON.stringify(body),
     });
+
   const list = () =>
     fetch(`${server.url}/sessions`, {
       headers: { "x-review-token": token },
     }).then((response) => response.json());
+
   const get = (route: string) =>
     fetch(`${server.url}${route}`, { headers: { "x-review-token": token } });
+
   return { stored, record, request, server, post, list, visible, get };
 }
 
@@ -248,6 +274,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
     const before = await snapshotReviewTree(stored.dir);
     let expectedAfterFailure = before;
     const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
+
     if (prepared.kind !== "prepared") throw new Error("Expected legacy repair");
     expect(prepared.request.expectedThreadDbFingerprint).toBeDefined();
     expect(prepared.request.sourceFallback.document).toBe(true);
@@ -260,9 +287,11 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
       expect((await get(`${prefix}/session`)).status).toBe(200);
       const response = await get(`${prefix}/comments`);
       expect(response.status).toBe(200);
+
       const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
         await response.json(),
       );
+
       if (!snapshot.ok) throw new Error(snapshot.error);
       expect(Object.keys(snapshot.snapshot.drafts)).toEqual([
         "preserved-draft",
@@ -275,9 +304,11 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
           ),
         ),
       ).toEqual(before);
+
       if (outcome === "live-change" || outcome === "stage-change") {
         const changedDir =
           outcome === "live-change" ? stored.dir : prepared.request.stagingDir;
+
         if (outcome === "stage-change") {
           appendReviewCommentDraft(path.join(changedDir, "review.mdx"), {
             threadId: "concurrent-draft",
@@ -286,9 +317,11 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
             body: "Concurrent staged draft",
             author: "Reviewer",
           });
+
           const refreshed = ReviewThreadsSnapshotResponseSchema.parse(
             await (await get(`${prefix}/comments`)).json(),
           );
+
           if (!refreshed.ok) throw new Error(refreshed.error);
           refreshedDraftIds = Object.keys(refreshed.snapshot.drafts).sort();
         } else {
@@ -300,6 +333,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
             .run();
           changed.close();
         }
+
         if (outcome === "live-change") {
           const latest = await snapshotReviewTree(stored.dir);
           expectedAfterFailure = Object.fromEntries(
@@ -309,36 +343,45 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
           );
         }
       }
+
       expect(refreshedDraftIds).toEqual(
         outcome === "stage-change"
           ? ["concurrent-draft", "preserved-draft"]
           : undefined,
       );
       validated = true;
+
       return outcome === "mount-failure"
         ? { ok: false, error: "test mount failure" }
         : { ok: true };
     };
+
     try {
       const response = await post("/repair-ready", prepared.request);
       expect(validated).toBe(true);
       expect(response.status).toBe(
         outcome === "success" ? 201 : outcome === "mount-failure" ? 422 : 400,
       );
+
       if (outcome !== "success") {
         await expectReviewTree(stored.dir, expectedAfterFailure);
+
         return;
       }
+
       checkReviewThreadDbVersion(reviewPath);
       const { sessionId } = await response.json();
       const prefix = `/sessions/${sessionId}/__progressive-review`;
+
       const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
         await (await get(`${prefix}/comments`)).json(),
       );
+
       if (!snapshot.ok) throw new Error(snapshot.error);
       expect(Object.keys(snapshot.snapshot.drafts)).toEqual([
         "preserved-draft",
       ]);
+
       const created = await post(`${prefix}/thread-commands`, {
         command: "comment.create",
         mutationId: "after-legacy-repair",
@@ -349,6 +392,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
           body: "Works after repair",
         },
       });
+
       expect(created.status).toBe(200);
     } finally {
       await server.close();
@@ -359,6 +403,7 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
 
 it("switches repaired comments to live snapshots for resynchronization after promotion", async () => {
   const { stored, record, request, server, post, get } = await fixture(5);
+
   const comment = (index: number): ReviewThreadsCommand => ({
     command: "comment.create",
     mutationId: `repair-message-${index}`,
@@ -369,14 +414,17 @@ it("switches repaired comments to live snapshots for resynchronization after pro
       body: `Repair comment ${index}`,
     },
   });
+
   const validationReads: Array<{ writeStatus: number; revision: number }> = [];
   dispatchVerb = async (sessionId, value) => {
     if (jsonObject(value)?.name !== "validateCanvasMount") return { ok: true };
     const before = await snapshotReviewTree(stored.dir);
     const prefix = `/sessions/${sessionId}/__progressive-review`;
+
     const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
       await (await get(`${prefix}/comments`)).json(),
     );
+
     if (!snapshot.ok) throw new Error(snapshot.error);
     const blocked = await post(`${prefix}/thread-commands`, comment(0));
     validationReads.push({
@@ -384,34 +432,43 @@ it("switches repaired comments to live snapshots for resynchronization after pro
       revision: snapshot.snapshot.revision,
     });
     expect(await snapshotReviewTree(stored.dir)).toEqual(before);
+
     return { ok: true };
   };
+
   try {
     const repaired = await post("/repair-ready", request);
     expect(repaired.status).toBe(201);
     expect(validationReads).toEqual([{ writeStatus: 409, revision: 0 }]);
     const { sessionId } = await repaired.json();
     const prefix = `/sessions/${sessionId}/__progressive-review`;
+
     const liveThreads = async () => {
       const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
         await (await get(`${prefix}/comments`)).json(),
       );
+
       if (!snapshot.ok) throw new Error(snapshot.error);
+
       return {
         revision: snapshot.snapshot.revision,
         threadIds: Object.keys(snapshot.snapshot.comments),
       };
     };
+
     // The promoted session must own a fresh live store: revision 0, no
     // carried-over threads, and one revision per accepted mutation.
     expect(await liveThreads()).toEqual({ revision: 0, threadIds: [] });
     const revisions: number[] = [];
+
     for (const index of [1, 2, 3]) {
       const response = await post(`${prefix}/thread-commands`, comment(index));
       expect(response.status).toBe(200);
+
       const result = ReviewThreadsCommandResponseSchema.parse(
         await response.json(),
       );
+
       if (!result.ok) throw new Error(result.error);
       revisions.push(result.commit.revision);
       expect(await liveThreads()).toEqual({
@@ -422,17 +479,21 @@ it("switches repaired comments to live snapshots for resynchronization after pro
         ),
       });
     }
+
     expect(revisions).toEqual([1, 2, 3]);
 
     const historical = await post(`/reviews/${record.uuid}/open`, {
       revision: JSON.parse(request.expectedRecord).presentedDocumentRevision,
     });
+
     expect(historical.status).toBe(201);
     const historicalPrefix = `/sessions/${(await historical.json()).sessionId}/__progressive-review`;
     const beforeHistoricalRead = await snapshotReviewTree(stored.dir);
+
     const historicalSnapshot = ReviewThreadsSnapshotResponseSchema.parse(
       await (await get(`${historicalPrefix}/comments`)).json(),
     );
+
     if (!historicalSnapshot.ok) throw new Error(historicalSnapshot.error);
     expect(historicalSnapshot.snapshot.revision).toBe(0);
     expect(
@@ -449,17 +510,21 @@ it.each([true, false])(
   async (mountSucceeds) => {
     const { stored, record, request, server, post, list, get } =
       await fixture(5);
+
     dispatchVerb = async (_sessionId, value) =>
       jsonObject(value)?.name === "validateCanvasMount" && !mountSucceeds
         ? { ok: false, error: "test mount failure" }
         : { ok: true };
+
     try {
       const opened = await post(`/reviews/${record.uuid}/open`, {});
       expect(opened.status).toBe(201);
       const old = await opened.json();
+
       const document = await get(
         `/sessions/${old.sessionId}/__progressive-review/document`,
       );
+
       expect(document.status).toBe(409);
       expect(await document.json()).toMatchObject({
         detail: { code: "needs_republish" },
@@ -473,6 +538,7 @@ it.each([true, false])(
         ),
       ).toEqual([mountSucceeds ? result.sessionId : old.sessionId]);
       const expectedRecord = JSON.parse(request.expectedRecord);
+
       if (mountSucceeds)
         expectedRecord.presentedDocumentRevision = request.newDocumentRevision;
       expect(
@@ -501,6 +567,7 @@ it.each([
   async (outcome) => {
     const { stored, record, request, server, post, list, visible, get } =
       await fixture();
+
     if (outcome === "changed-pins") {
       const recordPath = path.join(request.stagingDir, "review.json");
       const finalRecord = JSON.parse(await readFile(recordPath, "utf8"));
@@ -520,31 +587,38 @@ it.each([
         }),
       );
     }
+
     if (outcome === "staging-link") {
       const index = path.join(request.stagingDir, ".git", "index");
       await rm(index);
       await symlink("HEAD", index);
     }
+
     const validationReads: Array<{ status: number; record: string }> = [];
     dispatchVerb = async (sessionId, value) => {
       if (jsonObject(value)?.name === "validateCanvasMount") {
         const versions = await get(
           `/sessions/${sessionId}/__progressive-review/revisions`,
         );
+
         validationReads.push({
           status: versions.status,
           record: await readFile(path.join(stored.dir, "review.json"), "utf8"),
         });
+
         if (outcome === "mount-failure")
           return { ok: false, error: "test mount failure" };
+
         if (outcome === "concurrent-edit")
           await writeFile(
             path.join(stored.dir, "data.ts"),
             "export const concurrent = true;\n",
           );
       }
+
       return { ok: true };
     };
+
     try {
       const failedOpen = await post(`/reviews/${record.uuid}/open`, {});
       expect(failedOpen.status).toBe(409);
@@ -602,6 +676,7 @@ it.each([
         ),
       );
       expect((await list()).items).toHaveLength(success ? 2 : 1);
+
       if (outcome === "concurrent-edit")
         await writeFile(path.join(stored.dir, "data.ts"), "export {};\n");
       expect(

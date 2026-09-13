@@ -42,9 +42,11 @@ describe("readAuthoringTraceAttachment", () => {
     codexRoot = path.join(tempDir, "codex");
     piRoot = path.join(tempDir, "pi");
     originalCodexHome = process.env.CODEX_HOME;
+
     for (const directory of [reviewRootPath, claudeRoot, codexRoot, piRoot]) {
       mkdirSync(directory, { recursive: true });
     }
+
     process.env.TRACE_LOCAL_TRACE_ROOT = claudeRoot;
     process.env.TRACE_CODEX_SESSIONS_ROOT = codexRoot;
     process.env.TRACE_PI_SESSIONS_ROOT = piRoot;
@@ -55,6 +57,7 @@ describe("readAuthoringTraceAttachment", () => {
     delete process.env.TRACE_LOCAL_TRACE_ROOT;
     delete process.env.TRACE_CODEX_SESSIONS_ROOT;
     delete process.env.TRACE_PI_SESSIONS_ROOT;
+
     if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = originalCodexHome;
     clearTraceEnvCache();
@@ -112,9 +115,11 @@ describe("readAuthoringTraceAttachment", () => {
 
   it("does not require ordinals on an untrimmed Codex source", async () => {
     const id = "10201020-1020-4020-8020-102010201020";
+
     const source =
       jsonLine({ type: "session_meta", payload: { id } }) +
       jsonLine({ standalone: true });
+
     writeCodexTrace(id, source);
     writeReview("codex:" + id);
 
@@ -161,19 +166,23 @@ describe("readAuthoringTraceAttachment", () => {
     const parentId = "22222222-2222-4222-8222-222222222222";
     const childId = "33333333-3333-4333-8333-333333333333";
     const grandparent = codexTrace(grandparentId, 0, [{ root: true }]);
+
     const parentAtFork = codexTrace(
       parentId,
       2,
       [{ parent: true }],
       historyBase(grandparentId, 2),
     );
+
     const parent = parentAtFork + jsonLine({ parentLater: true, ordinal: 4 });
+
     const child = codexTrace(
       childId,
       4,
       [{ child: true }],
       historyBase(parentId, 4),
     );
+
     writeCodexTrace(grandparentId, grandparent);
     writeCodexTrace(parentId, parent);
     writeCodexTrace(childId, child);
@@ -198,12 +207,14 @@ describe("readAuthoringTraceAttachment", () => {
   it("keeps the source trace and names an unresolved Codex parent", async () => {
     const childId = "44444444-4444-4444-8444-444444444444";
     const parentId = "55555555-5555-4555-8555-555555555555";
+
     const child = codexTrace(
       childId,
       2,
       [{ child: true }],
       historyBase(parentId, 2),
     );
+
     writeCodexTrace(childId, child);
     writeReview("codex:" + childId);
 
@@ -239,6 +250,7 @@ describe("readAuthoringTraceAttachment", () => {
   it("rejects malformed Codex history metadata", async () => {
     const childId = "45454545-4545-4545-8545-454545454545";
     const parentId = "56565656-5656-4656-8656-565656565656";
+
     const records: JsonObject[] = [
       {
         type: "session_meta",
@@ -247,6 +259,7 @@ describe("readAuthoringTraceAttachment", () => {
       },
       { child: true, ordinal: 3 },
     ];
+
     writeCodexTrace(childId, records.map(jsonLine).join(""));
     writeReview("codex:" + childId);
 
@@ -309,12 +322,14 @@ describe("readAuthoringTraceAttachment", () => {
   it("does not require contiguous Codex ordinals", async () => {
     const childId = "49494949-4949-4949-8949-494949494949";
     const parentId = "60606060-6060-4060-8060-606060606060";
+
     const parent =
       jsonLine({
         type: "session_meta",
         payload: { id: parentId },
         ordinal: 0,
       }) + jsonLine({ gap: true, ordinal: 2 });
+
     writeCodexTrace(parentId, parent);
     writeCodexTrace(
       childId,
@@ -331,10 +346,12 @@ describe("readAuthoringTraceAttachment", () => {
     const grandparentId = "61616161-6161-4161-8161-616161616161";
     const parentId = "62626262-6262-4262-8262-626262626262";
     const childId = "63636363-6363-4363-8363-636363636363";
+
     const grandparentAtLeafFork = codexTrace(grandparentId, 0, [
       { inherited: 1 },
       { inherited: 2 },
     ]);
+
     writeCodexTrace(
       grandparentId,
       grandparentAtLeafFork + jsonLine({ unseen: true, ordinal: 3 }),
@@ -348,12 +365,14 @@ describe("readAuthoringTraceAttachment", () => {
         historyBase(grandparentId, 6),
       ),
     );
+
     const child = codexTrace(
       childId,
       3,
       [{ child: true }],
       historyBase(parentId, 3),
     );
+
     writeCodexTrace(childId, child);
     writeReview("codex:" + childId);
 
@@ -370,17 +389,21 @@ describe("readAuthoringTraceAttachment", () => {
   it("accepts 32 Codex parent levels and omits the 33rd", async () => {
     let parentId = codexId(0);
     writeCodexTrace(parentId, codexTrace(parentId, 0, [{ depth: 0 }]));
+
     for (let depth = 1; depth <= 32; depth++) {
       const id = codexId(depth);
+
       const trace = codexTrace(
         id,
         depth * 2,
         [{ depth }],
         historyBase(parentId, depth * 2),
       );
+
       writeCodexTrace(id, trace);
       parentId = id;
     }
+
     writeReview("codex:" + parentId);
 
     const accepted = await requiredAttachment();
@@ -418,16 +441,19 @@ describe("readAuthoringTraceAttachment", () => {
   it("omits an ancestor that would exceed the lineage cap", async () => {
     const parentId = "67676767-6767-4767-8767-676767676767";
     const childId = "68686868-6868-4868-8868-686868686868";
+
     const parentPath = writeCodexTrace(
       parentId,
       codexTrace(parentId, 0, [{ parent: true }]),
     );
+
     const child = codexTrace(
       childId,
       2,
       [{ child: true }],
       historyBase(parentId, 2),
     );
+
     const childPath = writeCodexTrace(childId, child);
     truncateSync(parentPath, MAX_AUTHORING_TRACE_BYTES + 1);
     writeReview("codex:" + childId);
@@ -473,14 +499,17 @@ describe("readAuthoringTraceAttachment", () => {
     const googleApiKey = "AIza" + "a".repeat(35);
     const entraToken = "eyJ0eXAiOiJKV1Qi.abc.def";
     const jwt = "eyJzdWIiOiIxMjM0NTY3ODkw.abc.def";
+
     const slackToken = [
       "xoxb",
       "123456789012",
       "123456789012",
       "abcdefghijklmnop",
     ].join("-");
+
     const githubToken = "ghp_" + "b".repeat(36);
     const ordinaryBase64 = "U29tZUJhc2U2NERhdGFXaXRob3V0U2VjcmV0";
+
     const source = jsonLine({
       prompt: "Use " + slackToken,
       googleApiKey,
@@ -490,11 +519,13 @@ describe("readAuthoringTraceAttachment", () => {
       ordinaryBase64,
       path: "/Users/reviewer/project/src/auth.ts",
     });
+
     writeReview("claude-code:" + id);
     writeHarnessTrace("claude-code", id, source);
 
     const attachment = await requiredAttachment();
     const trace = readPart(attachment, 0);
+
     for (const [secret, label] of [
       [googleApiKey, "Google API Key"],
       [entraToken, "Microsoft Entra ID"],
@@ -505,6 +536,7 @@ describe("readAuthoringTraceAttachment", () => {
       expect(trace).not.toContain(secret);
       expect(trace).toContain(`<REDACTED: ${label}>`);
     }
+
     expect(trace).toContain(ordinaryBase64);
     expect(trace).toContain("/Users/reviewer/project/src/auth.ts");
     expect(() => JSON.parse(trace.trim())).not.toThrow();
@@ -514,19 +546,24 @@ describe("readAuthoringTraceAttachment", () => {
   it("keeps the ten newest subagent traces and names unreadable or excess files", async () => {
     const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     writeReview("claude-code:" + id);
+
     const tracePath = writeHarnessTrace(
       "claude-code",
       id,
       jsonLine({ main: true }),
     );
+
     const subagentsDir = path.join(
       tracePath.slice(0, -".jsonl".length),
       "subagents",
     );
+
     mkdirSync(subagentsDir, { recursive: true });
+
     for (let index = 0; index < 11; index++) {
       const name = "agent-" + String(index).padStart(2, "0") + ".jsonl";
       const subagentPath = path.join(subagentsDir, name);
+
       if (index === 9) {
         mkdirSync(subagentPath);
       } else {
@@ -535,8 +572,10 @@ describe("readAuthoringTraceAttachment", () => {
             ? jsonLine({ old: "x".repeat(SUBAGENT_TRACE_CAP_BYTES) }) +
               jsonLine({ recent: true })
             : jsonLine({ index });
+
         writeFileSync(subagentPath, contents);
       }
+
       const modifiedAt = new Date(1_700_000_000_000 + index * 1000);
       utimesSync(subagentPath, modifiedAt, modifiedAt);
     }
@@ -561,7 +600,9 @@ describe("readAuthoringTraceAttachment", () => {
 
   async function requiredAttachment(): Promise<AuthoringTraceAttachment> {
     const attachment = await readAuthoringTraceAttachment({ reviewRootPath });
+
     if (!attachment) throw new Error("Expected an authoring trace.");
+
     return attachment;
   }
 
@@ -596,6 +637,7 @@ describe("readAuthoringTraceAttachment", () => {
     contents: string,
   ): string {
     let tracePath: string;
+
     if (harness === "claude-code") {
       const projectDir = path.join(claudeRoot, "project");
       mkdirSync(projectDir, { recursive: true });
@@ -607,18 +649,23 @@ describe("readAuthoringTraceAttachment", () => {
       mkdirSync(projectDir, { recursive: true });
       tracePath = path.join(projectDir, "2026-08-31T12-00-00_" + id + ".jsonl");
     }
+
     writeFileSync(tracePath, contents);
+
     return tracePath;
   }
 
   function writeCodexTrace(id: string, contents: string): string {
     const dateDir = path.join(codexRoot, "2026", "08", "31");
     mkdirSync(dateDir, { recursive: true });
+
     const tracePath = path.join(
       dateDir,
       "rollout-2026-08-31T12-00-00-" + id + ".jsonl",
     );
+
     writeFileSync(tracePath, contents);
+
     return tracePath;
   }
 });
@@ -638,12 +685,14 @@ function codexTrace(
   parent?: ReturnType<typeof historyBase>,
 ): string {
   const metaPayload: JsonObject = { id };
+
   if (parent) {
     metaPayload.history_base = {
       thread_id: parent.parentId,
       end_ordinal_exclusive: parent.endOrdinalExclusive,
     };
   }
+
   return [{ type: "session_meta", payload: metaPayload }, ...records]
     .map((value, index) =>
       jsonLine({ ...value, ordinal: startOrdinal + index }),
@@ -653,7 +702,9 @@ function codexTrace(
 
 function readPart(attachment: AuthoringTraceAttachment, index: number): string {
   const part = attachment.parts[index];
+
   if (!part) throw new Error(`Missing trace part ${index}.`);
+
   return gunzipSync(readFileSync(part.path)).toString("utf8");
 }
 

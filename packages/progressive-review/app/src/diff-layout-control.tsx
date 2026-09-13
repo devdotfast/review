@@ -30,16 +30,19 @@ const LAYOUT_OPTIONS: ReadonlyArray<{
 export function DiffLayoutControl(): ReactElement {
   const session = useReviewSession();
   const bridge = session.bridge;
+
   const layout = useSyncExternalStore(
     useCallback(
       (onChange: () => void) => {
         const subscription = bridge.onDidChangeDiffLayout(onChange);
+
         return () => subscription.dispose();
       },
       [bridge],
     ),
     () => bridge.currentDiffLayout(),
   );
+
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   // The desktop confirms a write by round-tripping the setting through its
@@ -55,17 +58,22 @@ export function DiffLayoutControl(): ReactElement {
 
   useEffect(() => {
     if (!open) return;
+
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const target = event.target;
+
       if (target instanceof Node && controlRef.current?.contains(target))
         return;
       setOpen(false);
     };
+
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+
     document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     document.addEventListener("keydown", closeOnEscape, true);
+
     return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
       document.removeEventListener("keydown", closeOnEscape, true);

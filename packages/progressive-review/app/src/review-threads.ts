@@ -38,12 +38,14 @@ export type ThreadListStatus = "open" | "pending" | "resolved";
 
 export function threadListStatus(thread: ThreadView): ThreadListStatus {
   if (thread.resolved) return "resolved";
+
   if (
     thread.clientStatus !== undefined &&
     thread.clientStatus !== "persisted"
   ) {
     return "pending";
   }
+
   return "open";
 }
 
@@ -56,11 +58,15 @@ export function commentThreadView(thread: CommentThreadView): ThreadView {
       body: message.body,
       userAuthored: message.role !== "agent",
     };
+
     if (message.format === "markdown") view.agentMarkdown = true;
+
     return view;
   });
+
   if (thread.agentActivity) {
     const activity = thread.agentActivity;
+
     const activityMessage: ThreadMessage = {
       id: `review-agent-activity:${activity.messageId}`,
       by: "Agent",
@@ -75,11 +81,13 @@ export function commentThreadView(thread: CommentThreadView): ThreadView {
               : "Failed",
       userAuthored: false,
     };
+
     if (activity.status === "failed" || activity.status === "interrupting")
       activityMessage.error = activity.error;
     else activityMessage.running = true;
     messages.push(activityMessage);
   }
+
   return {
     askDisabled: thread.agentActivity?.status === "interrupting",
     key: thread.threadId,
@@ -96,47 +104,65 @@ export function commentThreadView(thread: CommentThreadView): ThreadView {
 
 export function targetQuote(target: CommentThreadView["target"]): string {
   if (target.kind === "document") return "Entire document";
+
   if (target.kind === "text") return target.selection.quote;
+
   if (target.kind === "code") {
     const projection =
       projectCodeTarget(target, "head") ?? projectCodeTarget(target, "base");
+
     if (projection) {
       const { endLine, startLine } = projection.span;
+
       return startLine === endLine
         ? `${projection.path}:L${startLine}`
         : `${projection.path}:L${startLine}-L${endLine}`;
     }
+
     const rows = gitLabDiffPositionRows(target.position);
+
     if (!rows) return "Code comment";
+
     const startPath =
       rows.start.new_line !== null
         ? target.position.new_path
         : target.position.old_path;
+
     const endPath =
       rows.end.new_line !== null
         ? target.position.new_path
         : target.position.old_path;
+
     const startLine = rows.start.new_line ?? rows.start.old_line;
     const endLine = rows.end.new_line ?? rows.end.old_line;
+
     if (!startPath || !endPath || startLine === null || endLine === null) {
       return "Code comment";
     }
+
     return `${startPath}:L${startLine} → ${endPath}:L${endLine}`;
   }
+
   return target.element.quote;
 }
 
 export function threadRelativeTimeLabel(value: string): string {
   const time = Date.parse(value);
+
   if (!Number.isFinite(time)) return "";
   const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
+
   if (seconds < 45) return "now";
   const minutes = Math.round(seconds / 60);
+
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.round(minutes / 60);
+
   if (hours < 24) return `${hours}h`;
   const days = Math.round(hours / 24);
+
   if (days < 7) return `${days}d`;
+
   return new Date(time).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",

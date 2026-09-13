@@ -23,6 +23,7 @@ function reviewDocumentData(): ReviewDocumentData {
     softwareMap: null,
     baseSoftwareMap: null,
   });
+
   const stores = definition.defineStores({
     db: {
       kind: "relational",
@@ -35,6 +36,7 @@ function reviewDocumentData(): ReviewDocumentData {
       },
     },
   });
+
   const anchor = {
     __kind: "db-anchor-ref" as const,
     id: "create-order",
@@ -45,6 +47,7 @@ function reviewDocumentData(): ReviewDocumentData {
       resolution: null,
     },
   };
+
   const data = {
     format: "review-document/1",
     title: "Orders",
@@ -76,6 +79,7 @@ function reviewDocumentData(): ReviewDocumentData {
       },
     ],
   };
+
   return reviewDocumentDataSchema.parse(JSON.parse(JSON.stringify(data)));
 }
 
@@ -93,6 +97,7 @@ describe("hydrateReviewDocument", () => {
     const codePeek = document.body[0] as HydratedReviewComponentNode;
     const databaseLens = document.body[1] as HydratedReviewComponentNode;
     const anchor = document.anchors.get("create-order");
+
     const stores = databaseLensPropsSchema.parse({
       ...databaseLens.props,
       children: [],

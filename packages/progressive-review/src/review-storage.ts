@@ -17,17 +17,20 @@ export function devReviewHome(
   homeDir: string = os.homedir(),
 ): string {
   const override = env[DEV_REVIEW_HOME_ENV]?.trim();
+
   return override ? path.resolve(override) : path.join(homeDir, ".dev");
 }
 
 export function reviewRepoStorageRoot(rootPath: string): string {
   const resolvedRoot = path.resolve(rootPath);
   const basename = safeStorageSegment(path.basename(resolvedRoot) || "repo");
+
   const hash = crypto
     .createHash("sha256")
     .update(resolvedRoot)
     .digest("hex")
     .slice(0, 12);
+
   return path.join(devReviewHome(), "repos", `${basename}-${hash}`);
 }
 
@@ -126,6 +129,7 @@ export function safeStorageSegment(value: string): string {
 /** Count open comment threads stored for a UUID Review directory. */
 export function readOpenReviewThreadCount(reviewDir: string): number {
   const threads = readReviewComments(path.join(reviewDir, "review.mdx"));
+
   return Object.values(threads).filter((thread) => thread.status === "open")
     .length;
 }

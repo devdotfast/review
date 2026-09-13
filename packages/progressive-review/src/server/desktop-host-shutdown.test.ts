@@ -11,6 +11,7 @@ describe("listenForDesktopHostShutdown", () => {
     const onShutdown = vi.fn<() => void>();
     const onTelemetrySetting = vi.fn<(enabled: boolean) => void>();
     const onStageRustAnalyzer = vi.fn<(path: string) => void>();
+
     const dispose = listenForDesktopHostShutdown(
       Object.assign(processEvents, { parentPort }),
       onShutdown,

@@ -23,19 +23,24 @@ describe("createReviewSessionHandler", () => {
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const sessionPath = new URL(sessionUrl).pathname;
     const token = "session-secret";
+
     const head = defineSoftwareMap({
       systems: { app: { label: "App" } },
     });
+
     const base = defineSoftwareMap({
       systems: { api: { label: "API" } },
     });
+
     const bundle = bundleReviewSoftwareMap({
       head,
       base,
       headCommit: "a".repeat(40),
       baseCommit: "b".repeat(40),
     });
+
     await writeReviewSoftwareMapBundle(rootPath, bundle);
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -52,10 +57,12 @@ describe("createReviewSessionHandler", () => {
         startedAt: Date.now(),
       },
     });
+
     const dispatchSessionUrl = (url: string) => {
       const requestUrl = new URL(url);
       expect(requestUrl.pathname.startsWith(`${sessionPath}/`)).toBe(true);
       requestUrl.pathname = requestUrl.pathname.slice(sessionPath.length);
+
       return handler.handle(
         new Request(requestUrl, {
           headers: { "x-review-token": token },
@@ -69,13 +76,16 @@ describe("createReviewSessionHandler", () => {
           headers: { "x-review-token": token },
         }),
       );
+
       expect(index.status).toBe(200);
+
       const payload = (await index.json()) as {
         ok: true;
         contentHash: string;
         headMapUrl: string;
         baseMapUrl: string;
       };
+
       expect(payload).toMatchObject({
         ok: true,
         contentHash: bundle.contentHash,
@@ -97,10 +107,12 @@ describe("createReviewSessionHandler", () => {
           "application/json; charset=utf-8",
         );
         expect(response.headers.get("cache-control")).toBe("no-store");
+
         const mapJson = (await response.json()) as {
           format: string;
           elements: Array<{ path: string }>;
         };
+
         expect(mapJson.format).toBe("software-map/1");
         expect(mapJson.elements.map((element) => element.path)).toEqual([
           expectedPath,
@@ -111,6 +123,7 @@ describe("createReviewSessionHandler", () => {
         head: await (await dispatchSessionUrl(payload.headMapUrl)).json(),
         base: await (await dispatchSessionUrl(payload.baseMapUrl)).json(),
       });
+
       expect(hydrated.head.elementsByPath.get("app")).toEqual(
         head.elementsByPath.get("app"),
       );
@@ -127,6 +140,7 @@ describe("createReviewSessionHandler", () => {
           { headers: { "x-review-token": token } },
         ),
       );
+
       expect(missing.status).toBe(404);
       await expect(missing.json()).resolves.toEqual({
         ok: false,
@@ -145,11 +159,13 @@ describe("createReviewSessionHandler", () => {
       const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
       const token = "session-secret";
       const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
+
       if (mapState === "v1") {
         const softwareMapBundleDir = path.join(
           rootPath,
           REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
         );
+
         await mkdir(softwareMapBundleDir, { recursive: true });
         await writeFile(
           path.join(softwareMapBundleDir, "manifest.json"),
@@ -161,6 +177,7 @@ describe("createReviewSessionHandler", () => {
           "utf8",
         );
       }
+
       const handler = await createReviewSessionHandler({
         ...unusedAgentServices,
         rootPath,
@@ -188,6 +205,7 @@ describe("createReviewSessionHandler", () => {
             },
           ),
         );
+
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual({
           ok: false,
@@ -205,6 +223,7 @@ describe("createReviewSessionHandler", () => {
     const reviewPath = path.join(rootPath, "review.mdx");
     const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
     const token = "session-secret";
+
     const handler = await createReviewSessionHandler({
       ...unusedAgentServices,
       rootPath,
@@ -227,6 +246,7 @@ describe("createReviewSessionHandler", () => {
           headers: { "x-review-token": token },
         }),
       );
+
       expect(response.status).toBe(404);
       await expect(response.json()).resolves.toEqual({
         ok: false,

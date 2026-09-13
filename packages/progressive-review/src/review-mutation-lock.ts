@@ -68,11 +68,13 @@ function fingerprintGuardedValues(
   values: JsonObject | Partial<Pick<StoredReviewRecord, GuardedReviewField>>,
 ): string {
   const digest = createHash("sha256");
+
   for (const field of GUARDED_REVIEW_FIELDS) {
     digest.update(`${field}\0`);
     digest.update(field in values ? stableJson(values[field]) : "\0absent");
     digest.update("\0");
   }
+
   return digest.digest("hex");
 }
 
@@ -80,8 +82,11 @@ function fingerprintGuardedValues(
  * `sourceIdentity` keys still compares equal, as deep equality did. */
 function stableJson(value: JsonValue | undefined): string {
   if (value === undefined) return "\0undefined";
+
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+
   if (!isJsonObject(value)) return JSON.stringify(value);
+
   return `{${Object.entries(value)
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
@@ -96,6 +101,7 @@ export async function assertReviewUnchanged(
   const actual = jsonObject(
     parseJsonText(await readFile(path.join(reviewDir, "review.json"), "utf8")),
   );
+
   if (
     fingerprintGuardedValues(actual ?? {}) !==
     reviewMutationFingerprint(expected)
@@ -113,7 +119,9 @@ export async function withReviewMutationLock<T>(
 ): Promise<T> {
   const canonicalDir = path.resolve(reviewDir);
   const inherited = heldLocks.getStore();
+
   if (inherited?.has(canonicalDir)) return operation();
+
   const outcome = await withFileLock(
     `${reviewDir}.mutation-lock`,
     {
@@ -126,6 +134,8 @@ export async function withReviewMutationLock<T>(
     () =>
       heldLocks.run(new Set([...(inherited ?? []), canonicalDir]), operation),
   );
+
   if (!outcome.acquired) throw new ReviewBusyError(reviewDir);
+
   return outcome.result;
 }

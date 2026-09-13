@@ -16,6 +16,7 @@ export async function evaluateSealedReviewDocument(
 ) {
   let bundleDir = path.join(reviewDir, ".bundle/document");
   let manifestText: string;
+
   try {
     manifestText = await readFile(
       path.join(bundleDir, "manifest.json"),
@@ -29,8 +30,10 @@ export async function evaluateSealedReviewDocument(
       "utf8",
     );
   }
+
   if (jsonObject(parseJsonText(manifestText))?.version !== 1)
     throw new Error("The sealed document manifest is invalid or unsupported.");
+
   const evaluated = await evaluateReviewDocumentBundleForPublish({
     reviewDir,
     bundleCode: await readFile(
@@ -39,10 +42,13 @@ export async function evaluateSealedReviewDocument(
     ),
     ranges: "skip",
   });
+
   for (const warning of evaluated.warnings) onWarning?.(warning);
+
   if (!evaluated.document)
     throw new Error(
       evaluated.errors.join("; ") || "Sealed document did not materialize.",
     );
+
   return { ...evaluated, document: evaluated.document };
 }

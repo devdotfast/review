@@ -70,14 +70,17 @@ export function reviewFindRanges(
   expression: RegExp,
 ): Range[] {
   const index = buildFindTextIndex(article);
+
   return regularExpressionMatches(index.text, expression).flatMap(
     ({ start, end }) => {
       const startPoint = rangePoint(index.segments, start, true);
       const endPoint = rangePoint(index.segments, end, false);
+
       if (!startPoint || !endPoint) return [];
       const range = article.ownerDocument.createRange();
       range.setStart(startPoint.node, startPoint.offset);
       range.setEnd(endPoint.node, endPoint.offset);
+
       return [range];
     },
   );
@@ -122,9 +125,11 @@ function buildFindTextIndex(article: HTMLElement): FindTextIndex {
       // SAFETY: a TEXT_NODE nodeType means this node is a Text.
       const textNode = node as Text;
       const value = textNode.textContent ?? "";
+
       for (const match of value.matchAll(/\s+|\S+/gu)) {
         const token = match[0];
         const start = match.index;
+
         if (/^\s/u.test(token)) {
           appendWhitespace(textNode, start, start + token.length);
         } else {
@@ -132,22 +137,30 @@ function buildFindTextIndex(article: HTMLElement): FindTextIndex {
           previousWasWhitespace = false;
         }
       }
+
       return;
     }
+
     if (!(node instanceof Element) || node.matches(NON_FIND_TEXT_SELECTOR)) {
       return;
     }
+
     const block = BLOCK_TEXT_TAGS.has(node.tagName);
+
     if (block) appendWhitespace();
+
     for (const child of node.childNodes) visit(child);
+
     if (block) appendWhitespace();
   };
 
   visit(article);
+
   if (parts.at(-1) === " ") {
     parts.pop();
     segments.pop();
   }
+
   return { text: parts.join(""), segments };
 }
 
@@ -157,33 +170,41 @@ function rangePoint(
   start: boolean,
 ): { node: Text; offset: number } | undefined {
   const ordered = start ? segments : [...segments].reverse();
+
   for (const segment of ordered) {
     const contains = start
       ? segment.outputStart <= offset && offset < segment.outputEnd
       : segment.outputStart < offset && offset <= segment.outputEnd;
+
     if (!contains || !segment.node) continue;
     const nodeStart = segment.nodeStart ?? 0;
     const nodeEnd = segment.nodeEnd ?? nodeStart;
+
     if (segment.outputEnd - segment.outputStart === nodeEnd - nodeStart) {
       return {
         node: segment.node,
         offset: nodeStart + offset - segment.outputStart,
       };
     }
+
     return { node: segment.node, offset: start ? nodeStart : nodeEnd };
   }
 
   // A match boundary can land on an inserted block separator. Use the nearest
   // authored text point on the correct side of that separator.
   const candidates = start ? segments : [...segments].reverse();
+
   for (const segment of candidates) {
     if (!segment.node) continue;
+
     if (start && segment.outputStart >= offset) {
       return { node: segment.node, offset: segment.nodeStart ?? 0 };
     }
+
     if (!start && segment.outputEnd <= offset) {
       return { node: segment.node, offset: segment.nodeEnd ?? 0 };
     }
   }
+
   return undefined;
 }

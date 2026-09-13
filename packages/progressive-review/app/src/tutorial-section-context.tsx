@@ -22,5 +22,6 @@ export interface TutorialSection {
 
 export function useTutorialSection(title: string): TutorialSection {
   const value = useContext(TutorialSectionContext);
+
   return { state: value?.chapterStates.get(title) ?? null };
 }

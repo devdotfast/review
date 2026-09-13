@@ -11,6 +11,7 @@ const reviewConfiguration = await readFile(
   ),
   "utf8",
 );
+
 const settingsPage = await readFile(
   new URL(
     "../../../packages/progressive-review/app/src/settings-page.tsx",
@@ -18,6 +19,7 @@ const settingsPage = await readFile(
   ),
   "utf8",
 );
+
 const reviewReadme = await readFile(
   new URL("../README.md", import.meta.url),
   "utf8",
@@ -43,7 +45,9 @@ function curatedDefaultKeys() {
   const block = reviewConfiguration.match(
     /export const curatedExtensionConfigurationDefaults = \{([\s\S]*?)\n\} as const;/,
   );
+
   assert.ok(block, "curatedExtensionConfigurationDefaults is missing");
+
   return [...block[1].matchAll(/^\t'([^']+)':/gm)].map((match) => match[1]);
 }
 
@@ -55,10 +59,12 @@ test("every curated extension group has a stated defaults position", () => {
   );
 
   const keys = curatedDefaultKeys();
+
   for (const [group, prefixes] of Object.entries(settingPrefixes)) {
     if (prefixes.length === 0) {
       continue;
     }
+
     for (const prefix of prefixes) {
       assert.ok(
         keys.some((key) => key.startsWith(`${prefix}.`)),
@@ -70,6 +76,7 @@ test("every curated extension group has a stated defaults position", () => {
 
 test("carries no defaults for extensions Review stopped shipping", () => {
   const owned = Object.values(settingPrefixes).flat();
+
   for (const key of curatedDefaultKeys()) {
     assert.ok(
       owned.some((prefix) => key.startsWith(`${prefix}.`)),
@@ -119,5 +126,6 @@ test("does not import the workspace-file finder that prompts on startup", async 
     new URL("../code-oss/src/vs/review/review.common.main.ts", import.meta.url),
     "utf8",
   );
+
   assert.doesNotMatch(reviewMain, /contrib\/workspaces\/browser\/workspaces\./);
 });

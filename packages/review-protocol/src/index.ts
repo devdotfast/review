@@ -45,8 +45,11 @@ import {
 import type { JsonValue } from "./json.js";
 
 export * from "./bug-report.js";
+
 export * from "./json.js";
+
 export * from "./runtime-value.js";
+
 export * from "./contracts.js";
 
 export function parseReviewDesktopDiscovery(
@@ -168,15 +171,18 @@ export function parseZod<T>(
   prefixPath = false,
 ): T {
   const result = schema.safeParse(value);
+
   if (result.success) return result.data;
   const issue = result.error.issues[0];
   const issuePath = formatIssuePath(issue?.path ?? []);
+
   const path =
     prefixPath && label
       ? issuePath
         ? `${label}.${issuePath}`
         : label
       : issuePath || label;
+
   throw new Error(
     `${path ? `${path} ` : ""}${issue?.message ?? "Invalid input"}`,
   );
@@ -184,6 +190,7 @@ export function parseZod<T>(
 
 function formatIssuePath(path: PropertyKey[]): string {
   let output = "";
+
   for (const segment of path) {
     if (Number.isInteger(segment)) {
       output += `[${String(segment)}]`;
@@ -191,5 +198,6 @@ function formatIssuePath(path: PropertyKey[]): string {
       output += `${output ? "." : ""}${String(segment)}`;
     }
   }
+
   return output;
 }

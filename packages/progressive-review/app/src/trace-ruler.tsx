@@ -27,14 +27,19 @@ import { findScrollContainer } from "./trace-scroll-anchor";
  */
 
 export const RULER_TICK_PITCH = 11;
+
 export const RULER_PAD = 10;
+
 const RULER_TICK_WIDTH = 6;
+
 const RULER_HOVER_WIDTH = 30;
+
 const RULER_COMB_REACH = 4;
 
 export function rulerTickCount(height: number, eventCount: number): number {
   if (eventCount <= 0) return 0;
   const fit = Math.floor((height - RULER_PAD * 2) / RULER_TICK_PITCH);
+
   return Math.max(0, Math.min(eventCount, fit));
 }
 
@@ -50,10 +55,12 @@ export function rulerBucketRange(
   eventCount: number,
 ): RulerBucketRange {
   const start = Math.floor((tick * eventCount) / tickCount);
+
   const end = Math.max(
     start + 1,
     Math.floor(((tick + 1) * eventCount) / tickCount),
   );
+
   return { start, end: Math.min(end, eventCount) };
 }
 
@@ -66,6 +73,7 @@ export function rulerTickForEvent(
   // Inverse of rulerBucketRange's floor boundaries: the tick whose
   // half-open bucket contains the event index.
   const tick = Math.ceil(((index + 1) * tickCount) / eventCount) - 1;
+
   return Math.min(tickCount - 1, Math.max(0, tick));
 }
 
@@ -73,8 +81,10 @@ export function rulerTickForEvent(
 export function rulerCombWidth(tick: number, hoverTick: number | null): number {
   if (hoverTick === null) return RULER_TICK_WIDTH;
   const distance = Math.abs(tick - hoverTick);
+
   if (distance > RULER_COMB_REACH) return RULER_TICK_WIDTH;
   const falloff = (RULER_COMB_REACH - distance) / RULER_COMB_REACH;
+
   return Math.round(
     RULER_TICK_WIDTH + (RULER_HOVER_WIDTH - RULER_TICK_WIDTH) * falloff ** 1.6,
   );
@@ -92,11 +102,13 @@ export function rulerNearestTick(
   let bestDistance = Number.POSITIVE_INFINITY;
   rects.forEach((rect, index) => {
     const distance = Math.abs((rect.top + rect.bottom) / 2 - clientY);
+
     if (distance < bestDistance) {
       bestDistance = distance;
       best = index;
     }
   });
+
   return best;
 }
 
@@ -117,11 +129,14 @@ export function rulerTurnForEvent(
 ): number {
   let lo = 0;
   let hi = starts.length - 1;
+
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1;
+
     if (starts[mid] <= index) lo = mid;
     else hi = mid - 1;
   }
+
   return lo;
 }
 
@@ -135,12 +150,16 @@ export function rulerPreview(
 ): { title: string; snippet: string } | null {
   if (!turn?.user) return null;
   const title = collapseWhitespace(extractEventText(turn.user.event));
+
   if (!title) return null;
   let snippet = "";
+
   for (const item of turn.final) {
     snippet = collapseWhitespace(extractEventText(item.event));
+
     if (snippet) break;
   }
+
   return { title, snippet };
 }
 
@@ -157,16 +176,20 @@ export function TraceRuler({
   const railRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
   const frameRef = useRef<number | null>(null);
+
   const [rect, setRect] = useState<{
     top: number;
     left: number;
     height: number;
   } | null>(null);
+
   const railHeight = rect?.height ?? 0;
+
   const [visibleRange, setVisibleRange] = useState<{
     lo: number;
     hi: number;
   } | null>(null);
+
   const [hoverTick, setHoverTick] = useState<number | null>(null);
 
   const eventCount = events.length;
@@ -177,29 +200,37 @@ export function TraceRuler({
 
   const measureVisible = useCallback(() => {
     const container = containerRef.current;
+
     if (!container) return;
     const containerRect = container.getBoundingClientRect();
     let lo = Number.POSITIVE_INFINITY;
     let hi = Number.NEGATIVE_INFINITY;
+
     const wrappers =
       container.querySelectorAll<HTMLElement>("[data-trace-event]");
+
     for (const wrapper of wrappers) {
       const index = Number(wrapper.dataset.traceEvent);
+
       if (!Number.isFinite(index)) continue;
       const rect = wrapper.getBoundingClientRect();
+
       if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
         lo = Math.min(lo, index);
         hi = Math.max(hi, index);
       }
     }
+
     setVisibleRange(lo <= hi ? { lo, hi } : null);
   }, []);
 
   useEffect(() => {
     const anchor = anchorRef.current;
+
     if (!anchor) return;
     const container = findScrollContainer(anchor);
     containerRef.current = container;
+
     if (!container) return;
 
     const measureHeight = () => {
@@ -210,6 +241,7 @@ export function TraceRuler({
         height: container.clientHeight,
       });
     };
+
     measureHeight();
     measureVisible();
 
@@ -220,8 +252,10 @@ export function TraceRuler({
         measureVisible();
       });
     };
+
     container.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", measureHeight);
+
     const resizeObserver =
       typeof ResizeObserver !== "undefined"
         ? new ResizeObserver(() => {
@@ -229,11 +263,14 @@ export function TraceRuler({
             measureVisible();
           })
         : null;
+
     resizeObserver?.observe(container);
+
     return () => {
       container.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", measureHeight);
       resizeObserver?.disconnect();
+
       if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     };
@@ -246,19 +283,24 @@ export function TraceRuler({
 
   const tickFromPointer = useCallback((clientY: number) => {
     const rail = railRef.current;
+
     if (!rail) return null;
+
     const rects = [
       ...rail.querySelectorAll<HTMLElement>(".review-trace-ruler-tick"),
     ].map((tick) => tick.getBoundingClientRect());
+
     return rulerNearestTick(rects, clientY);
   }, []);
 
   const jumpToTick = useCallback(
     (tick: number) => {
       const container = containerRef.current;
+
       if (!container || tickCount === 0) return;
       const { start: turn } = rulerBucketRange(tick, tickCount, turnCount);
       const start = turnStarts[turn] ?? 0;
+
       const wrappers = [
         ...container.querySelectorAll<HTMLElement>("[data-trace-event]"),
       ]
@@ -268,13 +310,17 @@ export function TraceRuler({
         }))
         .filter((entry) => Number.isFinite(entry.index))
         .sort((left, right) => left.index - right.index);
+
       const target =
         wrappers.find((entry) => entry.index >= start) ?? wrappers.at(-1);
+
       // jsdom has no scrollIntoView, so the call stays optional.
       if (target?.wrapper.scrollIntoView) {
         target.wrapper.scrollIntoView({ block: "start", behavior: "auto" });
+
         return;
       }
+
       container.scrollTop =
         (start / Math.max(1, eventCount)) *
         (container.scrollHeight - container.clientHeight);
@@ -285,6 +331,7 @@ export function TraceRuler({
   const preview = useMemo(() => {
     if (hoverTick === null || tickCount === 0) return null;
     const { start } = rulerBucketRange(hoverTick, tickCount, turnCount);
+
     return rulerPreview(turns[start]);
   }, [hoverTick, tickCount, turnCount, turns]);
 
@@ -300,13 +347,17 @@ export function TraceRuler({
         };
 
   const ticks: ReactNode[] = [];
+
   for (let tick = 0; tick < tickCount; tick += 1) {
     const { start, end } = rulerBucketRange(tick, tickCount, turnCount);
+
     const isVisible =
       visibleTurns !== null &&
       start <= visibleTurns.hi &&
       end > visibleTurns.lo;
+
     const width = rulerCombWidth(tick, hoverTick);
+
     const className = [
       "review-trace-ruler-tick",
       // While the comb is active only the hover treatment shows; the
@@ -316,6 +367,7 @@ export function TraceRuler({
     ]
       .filter(Boolean)
       .join(" ");
+
     ticks.push(
       <div
         key={tick}
@@ -344,6 +396,7 @@ export function TraceRuler({
         onMouseLeave={() => setHoverTick(null)}
         onClick={(event) => {
           const tick = tickFromPointer(event.clientY);
+
           if (tick !== null) jumpToTick(tick);
         }}
       >

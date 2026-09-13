@@ -60,6 +60,7 @@ export function failWithJsonError(
 ): number {
   output.stderr.write(`${message}\n`);
   emitJsonEvent(output, { event: "error", stage, message });
+
   return 1;
 }
 
@@ -87,12 +88,16 @@ const VALUE_FLAGS = new Set([
 export function jsonRequestedInArgv(argv: readonly string[]): boolean {
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index]!;
+
     if (token === "--") return false;
+
     if (VALUE_FLAGS.has(token)) {
       index += 1;
       continue;
     }
+
     if (token === "--json" || token === "--json=true") return true;
   }
+
   return false;
 }

@@ -9,6 +9,7 @@ const reviewCanvasPart = await readFile(
   ),
   "utf8",
 );
+
 const reviewCss = await readFile(
   new URL("../code-oss/src/vs/review/browser/media/review.css", import.meta.url),
   "utf8",

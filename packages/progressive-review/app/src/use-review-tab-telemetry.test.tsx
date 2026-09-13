@@ -13,6 +13,7 @@ const session = testReviewSession();
 
 function TelemetryConsumer() {
   useReviewTabTelemetry("review");
+
   return createElement("div", null, "review");
 }
 

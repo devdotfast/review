@@ -164,8 +164,11 @@ import "./styles.css";
 import "@xyflow/react/dist/style.css";
 
 const DEFAULT_CODE_INSPECTOR_WIDTH = 420;
+
 const MIN_CODE_INSPECTOR_WIDTH = 340;
+
 const MAX_CODE_INSPECTOR_WIDTH = 760;
+
 const MIN_SOFTWARE_MAP_CANVAS_WIDTH = 420;
 
 interface SoftwareMapProps {
@@ -257,10 +260,13 @@ function softwareMapNodeTypeLabel(
   if (node.type === "dataStore") {
     return DATA_STORE_KIND_LABELS[node.dataStoreKind ?? "database"];
   }
+
   if (node.type === "dataStoreCollection") {
     const sectionKind = node.dataStoreSchemaSections?.[0]?.kind;
+
     return sectionKind === "document" ? "Document" : "Table";
   }
+
   return ELEMENT_TYPE_LABELS[node.type];
 }
 
@@ -268,12 +274,17 @@ const softwareMapC4NodeTypes = {
   softwareMapC4: SoftwareMapC4Node,
   softwareMapC4Group: SoftwareMapC4GroupNode,
 };
+
 const softwareMapC4EdgeTypes = {
   softwareMapC4Edge: SoftwareMapC4Edge,
 };
+
 const c4NodeTypes = softwareMapC4NodeTypes;
+
 const c4EdgeTypes = softwareMapC4EdgeTypes;
+
 const C4HoveredNodeContext = createContext<string | null>(null);
+
 export function SoftwareMap(props: SoftwareMapProps) {
   if (!props.model && !props.snapshot && !props.resolvedSnapshot) {
     return (
@@ -284,6 +295,7 @@ export function SoftwareMap(props: SoftwareMapProps) {
       />
     );
   }
+
   return <SoftwareMapWithModel {...props} />;
 }
 
@@ -306,6 +318,7 @@ function SoftwareMapWithModel({
   const session = useReviewSession();
   const debugSettings = useReviewDebugSettings();
   const { showModifiedOnly, showRemovedNodes } = debugSettings;
+
   const modelKey = useMemo(
     () =>
       softwareMapModelKey({
@@ -316,39 +329,51 @@ function SoftwareMapWithModel({
       }),
     [model, showModifiedOnly, showRemovedNodes, view],
   );
+
   const navigationKey = softwareMapNavigationKey({
     title,
     view,
     placeholderLabel,
   });
+
   const resolvedDataRequestPath = useMemo(
     () => session.apiUrl("/software-map/resolved-data"),
     [session],
   );
+
   const initialData = useReviewInitialData();
+
   const initialNavigation = restoreSoftwareMapNavigationState(
     session,
     navigationKey,
     modelKey,
   );
+
   const hasInitialNavigation = hasStoredSoftwareMapNavigationState(
     session,
     navigationKey,
     modelKey,
   );
+
   const initialExpandedNodeIds = hasInitialNavigation
     ? new Set(initialNavigation.expandedNodeIds)
     : initialSoftwareMapExpandedNodeIds(model);
+
   const [expanded, setExpanded] = useState(initialNavigation.expanded);
+
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
     () => initialExpandedNodeIds,
   );
+
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
     initialNavigation.selectedNodeId,
   );
+
   const [inspectedNode, setInspectedNode] =
     useState<SoftwareMapNodeSnapshot | null>(null);
+
   useEffect(() => setInspectedNode(null), [modelKey, navigationKey]);
+
   const softwareMapResolvedDataInput = useMemo(
     () =>
       model
@@ -358,6 +383,7 @@ function SoftwareMapWithModel({
         : null,
     [expandedNodeIds, model],
   );
+
   const resolvedDataKey = useMemo(
     () =>
       softwareMapResolvedDataInput
@@ -365,8 +391,10 @@ function SoftwareMapWithModel({
         : "",
     [softwareMapResolvedDataInput],
   );
+
   const [viewportFocusRequest, setViewportFocusRequest] =
     useState<SoftwareMapViewportFocusRequest | null>(null);
+
   // Resolved diff data is applied only once the map is visible after
   // hydration.
   const [resolvedDataState, setResolvedDataState] =
@@ -375,12 +403,15 @@ function SoftwareMapWithModel({
       counts: new Map(),
       unmappedByElementPath: new Map(),
     });
+
   const [pendingResolvedDataKey, setPendingResolvedDataKey] = useState<
     string | null
   >(null);
+
   const [resolvedDataError, setResolvedDataError] = useState<string | null>(
     null,
   );
+
   const [artifactRefreshPending, setArtifactRefreshPending] = useState(false);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const appliedResolvedDataKeyRef = useRef(resolvedDataState.key);
@@ -393,7 +424,9 @@ function SoftwareMapWithModel({
   useEffect(() => {
     if (resolveDataWhenVisible) return;
     const mapRoot = mapRootRef.current;
+
     if (!mapRoot) return;
+
     return observeSoftwareMapVisibility(mapRoot, () =>
       setResolveDataWhenVisible(true),
     );
@@ -403,6 +436,7 @@ function SoftwareMapWithModel({
     if (previousBaseView.current === view) {
       return;
     }
+
     previousBaseView.current = view;
     setSelectedNodeId(null);
     setExpandedNodeIds(new Set());
@@ -413,9 +447,11 @@ function SoftwareMapWithModel({
     const targetPath = focusRequest.elementPath;
     setExpandedNodeIds((current) => {
       const next = new Set(current);
+
       for (const ancestorPath of softwareMapAncestorPaths(targetPath)) {
         next.add(ancestorPath);
       }
+
       return next;
     });
     setSelectedNodeId(targetPath);
@@ -458,26 +494,33 @@ function SoftwareMapWithModel({
         counts: new Map(),
         unmappedByElementPath: new Map(),
       });
+
       return;
     }
+
     if (!softwareMapResolvedDataInputHasWork(softwareMapResolvedDataInput)) {
       applyResolvedDataState({
         key: resolvedDataKey,
         counts: new Map(),
         unmappedByElementPath: new Map(),
       });
+
       return;
     }
+
     if (!resolveDataWhenVisible) return;
+
     if (
       appliedResolvedDataKeyRef.current === resolvedDataKey &&
       refreshEpoch === 0
     ) {
       return;
     }
+
     const initialEntry = initialData?.softwareMapResolvedData.find(
       (entry) => entry.key === resolvedDataKey,
     );
+
     if (initialEntry && refreshEpoch === 0) {
       applyResolvedDataState({
         key: initialEntry.key,
@@ -485,8 +528,10 @@ function SoftwareMapWithModel({
           isJsonObject(initialEntry.response) ? initialEntry.response : null,
         ),
       });
+
       return;
     }
+
     let cancelled = false;
     setResolvedDataError(null);
     setPendingResolvedDataKey(resolvedDataKey);
@@ -514,6 +559,7 @@ function SoftwareMapWithModel({
           );
         }
       });
+
     return () => {
       cancelled = true;
     };
@@ -540,12 +586,14 @@ function SoftwareMapWithModel({
         model: projectionModel,
         defaultExpansionActive: defaultExpansionActiveRef.current,
       });
+
       if (
         next.size === current.size &&
         [...current].every((nodeId) => next.has(nodeId))
       ) {
         return current;
       }
+
       return next;
     });
   }, [projectionModel]);
@@ -563,6 +611,7 @@ function SoftwareMapWithModel({
         : new Map(),
     [projectionModel, resolvedDataReady, resolvedDataState],
   );
+
   const modifiedOnlyNodeIds = useMemo(
     () =>
       new Set(
@@ -572,6 +621,7 @@ function SoftwareMapWithModel({
       ),
     [changeSummaries],
   );
+
   const shouldApplyModifiedOnly = shouldApplySoftwareMapModifiedOnly({
     showModifiedOnly,
     resolvedDataReady,
@@ -585,6 +635,7 @@ function SoftwareMapWithModel({
         error: null,
       };
     }
+
     try {
       return {
         snapshot: softwareMapSnapshotFromInlineC4Projection({
@@ -619,24 +670,32 @@ function SoftwareMapWithModel({
   const resolvingModelData = Boolean(
     model && pendingResolvedDataKey === resolvedDataKey && !resolvedDataReady,
   );
+
   const refreshingModelData = artifactRefreshPending;
   const activeModelSnapshot = modelSnapshotState.snapshot;
+
   const providedSnapshot =
     snapshot ?? resolvedSnapshot ?? activeModelSnapshot ?? null;
+
   const hasResolvedSnapshot = Boolean(providedSnapshot);
+
   const mapSnapshot = useMemo(() => {
     const base =
       providedSnapshot ?? createPlaceholderSnapshot(placeholderLabel, view);
+
     const selectedForView = selectedSoftwareMapNodeIdForNodes({
       nodes: base.nodes ?? [],
       selectedNodeId,
     });
+
     return selectedForView
       ? { ...base, selectedNodeId: selectedForView }
       : base;
   }, [view, placeholderLabel, providedSnapshot, selectedNodeId]);
+
   const inspectedNodeDiffPeeks = useMemo(() => {
     if (!inspectedNode) return [];
+
     if (projectionModel && inspectedNode.path) {
       return softwareMapNodeDiffPeeks({
         model: projectionModel,
@@ -644,8 +703,10 @@ function SoftwareMapWithModel({
         changeSummaries,
       });
     }
+
     if (!inspectedNode.file || !inspectedNode.line) return [];
     const graph = inspectedNode.changeStatus === "removed" ? "base" : "head";
+
     return [
       {
         file: inspectedNode.file,
@@ -655,8 +716,10 @@ function SoftwareMapWithModel({
       } satisfies SoftwareMapNodeDiffPeek,
     ];
   }, [changeSummaries, inspectedNode, projectionModel]);
+
   const targetModelSnapshot = useMemo(() => {
     if (!projectionModel) return mapSnapshot;
+
     return softwareMapSnapshotFromInlineC4Projection({
       projection: projectInlineC4({
         model: projectionModel,
@@ -674,6 +737,7 @@ function SoftwareMapWithModel({
       nodes: mapSnapshot.nodes ?? [],
       selectedNodeId,
     });
+
     if (nextSelectedNodeId !== selectedNodeId) {
       setSelectedNodeId(nextSelectedNodeId);
     }
@@ -681,11 +745,14 @@ function SoftwareMapWithModel({
 
   const frameTitle = title ?? mapSnapshot.title ?? placeholderLabel;
   const frameView = mapSnapshot.view ?? view ?? "inline-c4";
+
   const liveDiagram = useMemo(
     () => softwareMapLiveDiagram(frameTitle, frameView, targetModelSnapshot),
     [frameTitle, frameView, targetModelSnapshot],
   );
+
   useRegisterLiveDiagram(registerTargets ? liveDiagram : null);
+
   const statusMessage =
     status ??
     mapSnapshot.status ??
@@ -696,7 +763,9 @@ function SoftwareMapWithModel({
       : resolvingModelData
         ? "Resolving software map..."
         : null);
+
   const errorMessage = error;
+
   const handleRefreshSoftwareMap = useCallback(() => {
     setArtifactRefreshPending(true);
     setResolvedDataError(null);
@@ -713,10 +782,12 @@ function SoftwareMapWithModel({
         setArtifactRefreshPending(false);
       });
   }, [session]);
+
   const overlayClassName = softwareMapOverlayClassName({
     theme: debugSettings.theme,
     nodeTint: debugSettings.nodeTint,
   });
+
   const rememberChildNodeFocus = useCallback(
     (node: Pick<SoftwareMapNodeSnapshot, "id" | "parentId">) => {
       if (node.parentId) {
@@ -725,6 +796,7 @@ function SoftwareMapWithModel({
     },
     [],
   );
+
   const selectChildNodeIdForDrill = useCallback(
     (
       parentId: string,
@@ -738,28 +810,35 @@ function SoftwareMapWithModel({
       }),
     [],
   );
+
   const handleSelectNode = (node: SoftwareMapNodeSnapshot) => {
     rememberChildNodeFocus(node);
     setViewportFocusRequest(null);
     setSelectedNodeId(node.id);
     setInspectedNode(node);
   };
+
   const handleFocusNode = (node: SoftwareMapNodeSnapshot) => {
     setViewportFocusRequest({
       nodeId: node.id,
       requireExpanded: false,
     });
   };
+
   const handleExpandNode = (node: SoftwareMapNodeSnapshot) => {
     if (!node.path || !node.expandable) return;
     defaultExpansionActiveRef.current = false;
     setInspectedNode(node);
+
     if (!projectionModel) {
       setSelectedNodeId(node.id);
+
       return;
     }
+
     const nextExpandedNodeIds = new Set(expandedNodeIds);
     nextExpandedNodeIds.add(node.path);
+
     const nextProjection = projectInlineC4({
       model: projectionModel,
       expandedNodeIds: nextExpandedNodeIds,
@@ -768,18 +847,22 @@ function SoftwareMapWithModel({
       showRemovedNodes,
       changedNodeIds: modifiedOnlyNodeIds,
     });
+
     const nextNodes = nextProjection.nodes.map((element) => ({
       id: element.id,
       parentId: element.parentPath ?? null,
     }));
+
     const childNodeId =
       selectChildNodeIdForDrill(node.id, nextNodes) ?? node.id;
+
     if (childNodeId !== node.id) {
       rememberChildNodeFocus({
         id: childNodeId,
         parentId: node.id,
       });
     }
+
     setSelectedNodeId(childNodeId);
     setViewportFocusRequest({
       nodeId: node.id,
@@ -787,6 +870,7 @@ function SoftwareMapWithModel({
     });
     setExpandedNodeIds(nextExpandedNodeIds);
   };
+
   const handleCollapseNode = (node: SoftwareMapNodeSnapshot) => {
     if (!node.path) return;
     defaultExpansionActiveRef.current = false;
@@ -797,6 +881,7 @@ function SoftwareMapWithModel({
     setSelectedNodeId(node.id);
     setExpandedNodeIds((current) => collapseInlineC4Node(current, node.path!));
   };
+
   const handleToggleNodeExpansion = (node: SoftwareMapNodeSnapshot) => {
     if (!node.path || !node.expandable) return;
     defaultExpansionActiveRef.current = false;
@@ -809,18 +894,23 @@ function SoftwareMapWithModel({
       }),
     );
   };
+
   const handleCloseCodeInspector = () => setInspectedNode(null);
 
   useEffect(() => {
     if (!expanded) return;
+
     // Lock the canvas scroller (not document.body: the canvas composes into
     // the host DOM, so the element that actually scrolls the review is the
     // view region).
     const scroller = document.querySelector<HTMLElement>(
       ".review-view-region--review",
     );
+
     const originalOverflow = scroller?.style.overflow ?? "";
+
     if (scroller) scroller.style.overflow = "hidden";
+
     return () => {
       if (scroller) scroller.style.overflow = originalOverflow;
     };
@@ -938,10 +1028,13 @@ async function fetchSoftwareMapResolvedDataUncached(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
   });
+
   const json: unknown = await response.json();
+
   if (!response.ok || !isJsonObject(json)) {
     return parseSoftwareMapResolvedDataResponse(null);
   }
+
   return parseSoftwareMapResolvedDataResponse(json);
 }
 
@@ -979,6 +1072,7 @@ export function SoftwareMapFrame({
   const session = useReviewSession();
   const { openCommentDraft } = useReviewActions();
   const frameRef = useRef<HTMLElement | null>(null);
+
   const codeInspectorResize = useRightPanelResize({
     // The expanded overlay is far wider than the inline frame, so it keeps its
     // own width instead of having a wide drag clamped down over the inline one.
@@ -995,6 +1089,7 @@ export function SoftwareMapFrame({
   });
 
   const viewType = snapshot.viewType ?? "inlineC4";
+
   const viewTarget = buildGraphTarget({
     diagram: title,
     type: "node",
@@ -1002,6 +1097,7 @@ export function SoftwareMapFrame({
     payload: { title, viewName, viewType },
     quote: title,
   });
+
   // SAFETY: React passes "--*" keys through to style.setProperty; CSSProperties
   // only lacks an index signature for custom properties.
   const style =
@@ -1010,6 +1106,7 @@ export function SoftwareMapFrame({
           "--software-map-height": softwareMapCssLength(height),
         } as CSSProperties)
       : undefined;
+
   // SAFETY: React passes "--*" keys through to style.setProperty; CSSProperties
   // only lacks an index signature for custom properties.
   const bodyStyle = inspectedNode
@@ -1017,27 +1114,32 @@ export function SoftwareMapFrame({
         "--software-map-inspector-width": `${codeInspectorResize.width}px`,
       } as CSSProperties)
     : undefined;
+
   const showMapFloatingActions = shouldShowSoftwareMapFloatingActions({
     showChrome,
     showFloatingActions,
     hasCodeInspector: inspectedNode !== null,
     hasRefreshAction: Boolean(onRefresh),
   });
+
   const captureNodeExpansion = (node: SoftwareMapNodeSnapshot) => {
     if (!node.expandable || node.expanded) return;
     captureUiEvent(session, "map_expanded", {
       level: mapExpansionLevelForNode(node),
     });
   };
+
   const selectNodeWithTelemetry = (node: SoftwareMapNodeSnapshot) => {
     captureUiEvent(session, "peek_opened", { via: "map" });
     onSelectNode?.(node);
   };
+
   const expandNodeWithTelemetry = (node: SoftwareMapNodeSnapshot) => {
     captureNodeExpansion(node);
     captureUiEvent(session, "peek_opened", { via: "map" });
     onExpandNode?.(node);
   };
+
   const toggleNodeExpansionWithTelemetry = (node: SoftwareMapNodeSnapshot) => {
     captureNodeExpansion(node);
     onToggleNodeExpansion?.(node);
@@ -1210,6 +1312,7 @@ function SoftwareMapCodeInspector({
   onClose?: () => void;
 }) {
   const [diffsCollapsed, setDiffsCollapsed] = useState(false);
+
   const collapseActionLabel = diffsCollapsed
     ? "Expand all diffs"
     : "Collapse all diffs";
@@ -1326,32 +1429,42 @@ function C4MapCanvas({
   onViewportFocusComplete?: (nodeId: string) => void;
 }) {
   const session = useReviewSession();
+
   const [layoutState, setLayoutState] = useState<C4DisplayedLayoutState | null>(
     null,
   );
+
   const [layoutError, setLayoutError] = useState<string | null>(null);
   const keyboardTargetRef = useRef<HTMLDivElement | null>(null);
+
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<
     C4MapAnyFlowNode,
     ReactFlowEdge
   > | null>(null);
+
   const [hotkeysOpen, setHotkeysOpen] = useState(true);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+
   const flowRef = useRef<ReactFlowInstance<
     C4MapAnyFlowNode,
     ReactFlowEdge
   > | null>(null);
+
   const previousInlineLayoutRef = useRef<{
     layout: InlineC4LayoutResult;
     relationships: readonly SoftwareMapRelationshipSnapshot[];
   } | null>(null);
+
   const appliedLayoutSignatureRef = useRef<string | null>(null);
+
   const [nodeMeasurement, setNodeMeasurement] = useState<{
     key: string;
     dimensions: ReadonlyMap<string, C4NodeDimensions>;
   } | null>(null);
+
   const measuredNodes = snapshot.nodes ?? [];
   const measuredRelationships = snapshot.relationships ?? [];
+
   const displayedSnapshot = useMemo(
     () =>
       layoutState
@@ -1359,17 +1472,22 @@ function C4MapCanvas({
         : snapshot,
     [layoutState, snapshot],
   );
+
   const layout = layoutState?.layout ?? null;
   const nodes = displayedSnapshot.nodes ?? [];
   const { theme } = useReviewDebugSettings();
+
   const reactFlowInteractionProps =
     c4MapReactFlowInteractionProps(interactionMode);
+
   const measurementKey = useMemo(
     () => c4MeasurementKey(measuredNodes),
     [measuredNodes],
   );
+
   const nodeDimensions =
     nodeMeasurement?.key === measurementKey ? nodeMeasurement.dimensions : null;
+
   const hasMeasuredNodes =
     measuredNodes.length === 0 ||
     (nodeDimensions !== null &&
@@ -1386,6 +1504,7 @@ function C4MapCanvas({
     },
     [measurementKey],
   );
+
   const layoutSignature = useMemo(
     () =>
       hasMeasuredNodes
@@ -1397,12 +1516,14 @@ function C4MapCanvas({
         : "",
     [hasMeasuredNodes, measuredNodes, measuredRelationships, nodeDimensions],
   );
+
   const layoutInputRef = useRef({
     snapshot,
     nodes: measuredNodes,
     relationships: measuredRelationships,
     nodeDimensions,
   });
+
   layoutInputRef.current = {
     snapshot,
     nodes: measuredNodes,
@@ -1412,20 +1533,24 @@ function C4MapCanvas({
 
   useEffect(() => {
     if (!hasMeasuredNodes || !layoutSignature) return;
+
     if (appliedLayoutSignatureRef.current === layoutSignature) return;
     let cancelled = false;
     setLayoutError(null);
+
     const {
       nodes: layoutNodes,
       relationships: layoutRelationships,
       nodeDimensions: layoutNodeDimensions,
       snapshot: layoutSnapshot,
     } = layoutInputRef.current;
+
     const previousInlineLayout = c4PreviousInlineLayoutForRelationships({
       previousLayout: previousInlineLayoutRef.current?.layout,
       previousRelationships: previousInlineLayoutRef.current?.relationships,
       currentRelationships: layoutRelationships,
     });
+
     void runSerializedC4Layout(() =>
       cancelled
         ? Promise.resolve(null)
@@ -1457,10 +1582,12 @@ function C4MapCanvas({
         if (cancelled) return;
         setLayoutError(cause instanceof Error ? cause.message : String(cause));
       });
+
     return () => {
       cancelled = true;
     };
   }, [hasMeasuredNodes, layoutSignature, session]);
+
   const layoutRefreshing = Boolean(
     layoutState && layoutSignature && layoutState.signature !== layoutSignature,
   );
@@ -1472,11 +1599,14 @@ function C4MapCanvas({
         nodes,
         preferredChildNodeId: selectChildNodeIdForDrill?.(node.id, nodes),
       });
+
       if (drillNodeId !== node.id) {
         const childNode = nodes.find(
           (candidate) => candidate.id === drillNodeId,
         );
+
         if (childNode) onSelectNode?.(childNode);
+
         return;
       }
 
@@ -1514,10 +1644,12 @@ function C4MapCanvas({
       viewName,
     ],
   );
+
   useEffect(() => {
     if (!flowInstance || !layout) return;
     const canvas = keyboardTargetRef.current;
     let frame = 0;
+
     const scheduleFit = () => {
       if (frame !== 0) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
@@ -1525,14 +1657,18 @@ function C4MapCanvas({
         fitC4MapView(flowRef.current);
       });
     };
+
     scheduleFit();
+
     if (!canvas || !hasResizeObserver()) {
       return () => {
         if (frame !== 0) cancelAnimationFrame(frame);
       };
     }
+
     const resizeObserver = new ResizeObserver(scheduleFit);
     resizeObserver.observe(canvas);
+
     return () => {
       if (frame !== 0) cancelAnimationFrame(frame);
       resizeObserver.disconnect();
@@ -1544,10 +1680,13 @@ function C4MapCanvas({
       nodes: flow?.nodes ?? [],
       viewportFocusNodeId,
     });
+
     const focused = focusNodeId
       ? flow?.nodes.find((node) => node.id === focusNodeId)
       : null;
+
     if (!focused) return;
+
     if (
       !softwareMapViewportFocusTargetReady({
         node: focused.data.node,
@@ -1557,6 +1696,7 @@ function C4MapCanvas({
     ) {
       return;
     }
+
     const frame = requestAnimationFrame(() => {
       if (
         !focusC4MapNodeAndKeyboard(
@@ -1567,10 +1707,12 @@ function C4MapCanvas({
       ) {
         return;
       }
+
       if (viewportFocusNodeId === focused.id) {
         onViewportFocusComplete?.(focused.id);
       }
     });
+
     return () => cancelAnimationFrame(frame);
   }, [
     flowInstance,
@@ -1593,6 +1735,7 @@ function C4MapCanvas({
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (event.defaultPrevented) return;
+
       if (
         isSoftwareMapEditableTarget(event.target) ||
         event.metaKey ||
@@ -1606,24 +1749,30 @@ function C4MapCanvas({
         event.preventDefault();
         event.stopPropagation();
         fitC4MapView(flowRef.current);
+
         return;
       }
 
       const direction = c4SpatialDirectionForKey(event.key);
+
       if (direction) {
         event.preventDefault();
         event.stopPropagation();
+
         const nextId = findSpatialC4Node(
           displayedSnapshot.selectedNodeId,
           c4SpatialPositions(layout),
           direction,
         );
+
         const nextNode = nextId
           ? nodes.find((candidate) => candidate.id === nextId)
           : null;
+
         if (nextNode) {
           onSelectNode?.(nextNode);
           const flowNode = flow?.nodes.find((node) => node.id === nextNode.id);
+
           if (flowNode) {
             revealC4MapNode(
               flowRef.current,
@@ -1632,6 +1781,7 @@ function C4MapCanvas({
             );
           }
         }
+
         return;
       }
 
@@ -1639,11 +1789,13 @@ function C4MapCanvas({
         const selected = displayedSnapshot.selectedNodeId
           ? nodes.find((node) => node.id === displayedSnapshot.selectedNodeId)
           : null;
+
         if (selected) {
           event.preventDefault();
           event.stopPropagation();
           drillNode(selected);
         }
+
         return;
       }
 
@@ -1656,11 +1808,13 @@ function C4MapCanvas({
             event.currentTarget,
           ),
         });
+
         if (selected) {
           event.preventDefault();
           event.stopPropagation();
           onToggleNodeExpansion?.(selected);
         }
+
         return;
       }
 
@@ -1669,9 +1823,11 @@ function C4MapCanvas({
           nodes,
           nodeId: displayedSnapshot.selectedNodeId,
         });
+
         const parent = parentId
           ? nodes.find((node) => node.id === parentId)
           : null;
+
         if (parent) {
           event.preventDefault();
           event.stopPropagation();
@@ -1691,6 +1847,7 @@ function C4MapCanvas({
       displayedSnapshot.selectedNodeId,
     ],
   );
+
   const handleKeyDownCapture = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (event.key === "Tab") {
@@ -1840,8 +1997,10 @@ function c4DimensionsEqual(
   right: ReadonlyMap<string, C4NodeDimensions>,
 ) {
   if (!left || left.size !== right.size) return false;
+
   for (const [id, rightDimensions] of right) {
     const leftDimensions = left.get(id);
+
     if (
       !leftDimensions ||
       leftDimensions.width !== rightDimensions.width ||
@@ -1850,6 +2009,7 @@ function c4DimensionsEqual(
       return false;
     }
   }
+
   return true;
 }
 
@@ -1868,14 +2028,19 @@ function C4NodeMeasurementLayer({
 
   useLayoutEffect(() => {
     const measuredNodes = nodesRef.current;
+
     if (measuredNodes.length === 0) {
       onMeasure(new Map());
+
       return;
     }
+
     const measure = () => {
       const dimensions = new Map<string, C4NodeDimensions>();
+
       for (const node of measuredNodes) {
         const element = refs.current.get(node.id);
+
         if (!element) return;
         const rect = element.getBoundingClientRect();
         dimensions.set(node.id, {
@@ -1883,8 +2048,10 @@ function C4NodeMeasurementLayer({
           height: Math.ceil(rect.height),
         });
       }
+
       onMeasure(dimensions);
     };
+
     return scheduleC4NodeMeasurements(measure);
   }, [measurementKey, onMeasure]);
 
@@ -1919,22 +2086,29 @@ function SoftwareMapC4Edge(
   const hoveredNodeId = useContext(C4HoveredNodeContext);
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
+
   const label = data?.relationship.hideLabel
     ? undefined
     : (data?.label ?? data?.semanticKind);
+
   const points = c4EdgePointsFromSections(data?.sections);
+
   if (points.length < 2) return null;
   const path = c4PolylinePath(points);
+
   const endpointBubbles = c4EdgeEndpointBubbles(
     points,
     data?.relationship ?? { from: props.source },
     hoveredNodeId,
   );
+
   const labelPoint =
     data?.labelPoint ??
     c4EdgeLabelPoint(data?.labelPosition, data?.labelDimensions, points);
+
   const relationshipId = data?.relationshipId ?? props.id;
   const commentLabel = label ?? relationshipId;
+
   const target = data
     ? buildGraphTarget({
         diagram: data.diagram,
@@ -1944,18 +2118,23 @@ function SoftwareMapC4Edge(
         quote: commentLabel,
       })
     : null;
+
   const openRelationship = (
     event: ReactMouseEvent<Element> | ReactKeyboardEvent<Element>,
   ) => {
     if (!data?.onOpenRelationship) return;
+
     if (hasTextSelectionWithin(event.currentTarget)) {
       event.stopPropagation();
+
       return;
     }
+
     event.preventDefault();
     event.stopPropagation();
     data.onOpenRelationship(relationshipId);
   };
+
   const openEdgeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
     if (!target) return;
     event.preventDefault();
@@ -2072,6 +2251,7 @@ function SoftwareMapC4Edge(
 
 function c4NodeCommentPlacement(button: HTMLElement): CommentDraftPlacement {
   const rect = button.getBoundingClientRect();
+
   return {
     x: rect.right + 8,
     y: rect.top - 4,
@@ -2081,7 +2261,9 @@ function c4NodeCommentPlacement(button: HTMLElement): CommentDraftPlacement {
 
 function c4PolylinePath(points: C4ElkPoint[]): string {
   const [first, ...rest] = points;
+
   if (!first) return "";
+
   return [
     `M ${first.x} ${first.y}`,
     ...rest.map((point) => `L ${point.x} ${point.y}`),
@@ -2092,6 +2274,7 @@ function SoftwareMapC4GroupNode({
   data,
 }: ReactFlowNodeProps<C4MapFlowGroupNode>) {
   const { openCommentDraft } = useReviewActions();
+
   const target = buildGraphTarget({
     diagram: data.diagram,
     type: "node",
@@ -2099,6 +2282,7 @@ function SoftwareMapC4GroupNode({
     payload: softwareMapNodeTargetPayload(data.node),
     quote: data.node.label,
   });
+
   const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -2126,8 +2310,10 @@ function SoftwareMapC4GroupNode({
       onClick={(event) => {
         if (hasTextSelectionWithin(event.currentTarget)) {
           event.stopPropagation();
+
           return;
         }
+
         event.preventDefault();
         event.stopPropagation();
         data.onSelect?.(data.node);
@@ -2202,6 +2388,7 @@ function SoftwareMapC4GroupNode({
 
 function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
   const { openCommentDraft } = useReviewActions();
+
   const target = buildGraphTarget({
     diagram: data.diagram,
     type: "node",
@@ -2209,6 +2396,7 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
     payload: softwareMapNodeTargetPayload(data.node),
     quote: data.node.label,
   });
+
   const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -2229,10 +2417,13 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
       onDoubleClickCapture={(event) => {
         if (hasTextSelectionWithin(event.currentTarget)) {
           event.stopPropagation();
+
           return;
         }
+
         event.preventDefault();
         event.stopPropagation();
+
         if (data.node.expanded) {
           data.onCollapseNode?.(data.node);
         } else {
@@ -2330,6 +2521,7 @@ function SoftwareMapDataStoreOutline({
   }
 
   const geometry = softwareMapDataStoreOutlineGeometry(outline);
+
   return (
     <svg
       aria-hidden="true"
@@ -2415,13 +2607,16 @@ function SoftwareMapNodeFrame({
   onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
 }) {
   const isCodeElement = node.type === "codeElement";
+
   const dataStoreOutline =
     node.type === "dataStore"
       ? softwareMapDataStoreOutlineKind(node.dataStoreKind)
       : undefined;
+
   const hasExpandedDataStoreSchema =
     (node.type === "dataStore" || node.type === "dataStoreCollection") &&
     Boolean(node.dataStoreSchemaSections?.length);
+
   const props = {
     className: [
       "software-map-node",
@@ -2449,8 +2644,10 @@ function SoftwareMapNodeFrame({
     onClick: (event: ReactMouseEvent<HTMLElement>) => {
       if (hasTextSelectionWithin(event.currentTarget)) {
         event.stopPropagation();
+
         return;
       }
+
       event.preventDefault();
       event.stopPropagation();
       onSelect?.(node);
@@ -2458,13 +2655,16 @@ function SoftwareMapNodeFrame({
     onDoubleClick: (event: ReactMouseEvent<HTMLElement>) => {
       if (hasTextSelectionWithin(event.currentTarget)) {
         event.stopPropagation();
+
         return;
       }
+
       event.preventDefault();
       event.stopPropagation();
       onExpandNode?.(node);
     },
   };
+
   return (
     <Element
       {...props}
@@ -2632,7 +2832,9 @@ function SoftwareMapChangeBadge({
   const visibleDeletions = visibleSoftwareMapChangeCount(deletions);
   const hasCounts = Boolean(visibleAdditions || visibleDeletions);
   const hasChangeStatus = Boolean(status && status !== "unchanged");
+
   if (!hasCounts && !hasChangeStatus) return null;
+
   if (!hasCounts) {
     return (
       <span
@@ -2641,6 +2843,7 @@ function SoftwareMapChangeBadge({
       />
     );
   }
+
   return (
     <span className="software-map-change-badge">
       {visibleAdditions ? (

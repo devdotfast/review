@@ -9,16 +9,19 @@ import { ClaudeAgentServer } from "./claude-code";
 
 it("captures prompt and final hooks before subscription, continues after resume, and ignores the closed terminal", async () => {
   const directory = await mkdtemp(join(tmpdir(), "review-claude-"));
+
   const server = new ClaudeAgentServer({
     runtimeDirectory: directory,
     desktopEndpoint: { baseUrl: "http://localhost:4000", token: "test" },
   });
+
   try {
     const launch = await server.launch({
       session: { forkOf: "parent" },
       prompt: { id: "review-ask", text: "question" },
       cwd: directory,
     });
+
     const post = async (
       command: typeof launch.command,
       event: {
@@ -41,6 +44,7 @@ it("captures prompt and final hooks before subscription, continues after resume,
           ...event,
         }),
       });
+
     expect(
       (
         await post(launch.command, {
@@ -72,11 +76,13 @@ it("captures prompt and final hooks before subscription, continues after resume,
     expect((await iterator.next()).value).toMatchObject({
       status: "interrupted",
     });
+
     const resumed = await server.launch({
       session: { resume: launch.sessionId },
       prompt: { id: "followup", text: "again" },
       cwd: directory,
     });
+
     await post(launch.command, {
       hook_event_name: "Stop",
       last_assistant_message: "stale response",
@@ -111,11 +117,13 @@ it("captures prompt and final hooks before subscription, continues after resume,
       hook_event_name: "Stop",
       last_assistant_message: "offline answer",
     });
+
     const reopened = await server.launch({
       session: { resume: launch.sessionId },
       prompt: { id: "reopened", text: "new question" },
       cwd: directory,
     });
+
     const replacement = await server.updates(launch.sessionId);
     await stream.close(); // A late disposal cannot close the replacement observer.
     await post(resumed.command, {

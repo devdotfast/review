@@ -60,11 +60,13 @@ describe("ensureReviewPinnedCheckout", () => {
 
   it("reuses the existing checkout on a second start", async () => {
     const repo = await createRepoWithFeature(cleanupPaths);
+
     const first = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
       reviewUuid: TEST_REVIEW_UUID,
     });
+
     const marker = path.join(first ?? "", "reused-marker.txt");
     await writeFile(marker, "still here\n", "utf8");
 
@@ -95,11 +97,13 @@ describe("ensureReviewPinnedCheckout", () => {
 
   it("recreates a checkout whose directory was gutted on disk", async () => {
     const repo = await createRepoWithFeature(cleanupPaths);
+
     const first = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
       reviewUuid: TEST_REVIEW_UUID,
     });
+
     // Simulate a manual `rm -rf` of the checkout: git still registers the
     // worktree, but the directory is gone.
     rmSync(first ?? "", { recursive: true, force: true });
@@ -121,11 +125,13 @@ describe("ensureReviewPinnedCheckout", () => {
 
   it("drops the prepare marker when a gutted checkout is recreated", async () => {
     const repo = await createRepoWithFeature(cleanupPaths);
+
     const first = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: repo.headCommit,
       reviewUuid: TEST_REVIEW_UUID,
     });
+
     await writeFile(
       reviewPrepareMarkerPath(first ?? ""),
       JSON.stringify({ commandsHash: "cafecafecafecafe", preparedAt: 1 }),
@@ -154,6 +160,7 @@ describe("ensureReviewPinnedCheckout", () => {
     });
     await writeFile(path.join(rootPath, "file.txt"), "base\n", "utf8");
     execJj(rootPath, ["commit", "-m", "base"]);
+
     const baseChange = jjOutput(rootPath, [
       "log",
       "--no-graph",
@@ -162,8 +169,10 @@ describe("ensureReviewPinnedCheckout", () => {
       "-T",
       "change_id",
     ]);
+
     await writeFile(path.join(rootPath, "file.txt"), "left\n", "utf8");
     execJj(rootPath, ["commit", "-m", "left"]);
+
     const leftChange = jjOutput(rootPath, [
       "log",
       "--no-graph",
@@ -172,11 +181,13 @@ describe("ensureReviewPinnedCheckout", () => {
       "-T",
       "change_id",
     ]);
+
     // A sibling edit of the same line, rebased onto "left", conflicts.
     execJj(rootPath, ["new", baseChange]);
     await writeFile(path.join(rootPath, "file.txt"), "right\n", "utf8");
     execJj(rootPath, ["describe", "-m", "right"]);
     execJj(rootPath, ["rebase", "-r", "@", "-d", leftChange]);
+
     const conflictedCommit = jjOutput(rootPath, [
       "log",
       "--no-graph",
@@ -208,11 +219,13 @@ describe("ensureReviewPinnedCheckout", () => {
       stdio: "ignore",
     });
     await writeFile(path.join(rootPath, "README.md"), "working copy\n", "utf8");
+
     const pinnedCommit = execFileSync(
       "jj",
       ["-R", rootPath, "log", "--no-graph", "-r", "@-", "-T", "commit_id"],
       { encoding: "utf8" },
     ).trim();
+
     const commonDir = execFileSync("jj", ["-R", rootPath, "git", "root"], {
       encoding: "utf8",
     }).trim();
@@ -265,6 +278,7 @@ describe("removeReviewPinnedCheckout", () => {
       ref: repo.headCommit,
       reviewUuid: TEST_REVIEW_UUID,
     });
+
     const other = await ensureReviewPinnedCheckout({
       rootPath: repo.rootPath,
       ref: otherCommit,
@@ -290,11 +304,13 @@ describe("removeReviewPinnedCheckout", () => {
     expect(readFileSync(path.join(other ?? "", "README.md"), "utf8")).toBe(
       "head-2\n",
     );
+
     const worktrees = gitOutput(repo.rootPath, [
       "worktree",
       "list",
       "--porcelain",
     ]);
+
     expect(worktrees).not.toContain(first ?? "");
     expect(worktrees).toContain(other ?? "");
   });
@@ -335,17 +351,20 @@ async function createRepoWithFeature(cleanupPaths: string[]): Promise<{
   execGit(rootPath, ["commit", "-am", "head"]);
   const headCommit = gitOutput(rootPath, ["rev-parse", "HEAD"]);
   execGit(rootPath, ["checkout", "main"]);
+
   const commonDir = gitOutput(rootPath, [
     "rev-parse",
     "--path-format=absolute",
     "--git-common-dir",
   ]);
+
   return { rootPath, commonDir, headCommit };
 }
 
 function commandExists(command: string): boolean {
   try {
     execFileSync("sh", ["-c", `command -v ${command}`], { stdio: "ignore" });
+
     return true;
   } catch {
     return false;

@@ -8,7 +8,9 @@ import { PaymentGateway } from "./payments/payment-gateway.js";
 import { ShippingGateway } from "./shipping/shipping-gateway.js";
 
 const queue = new FulfillmentQueue();
+
 const orders = new OrdersRepository(queue);
+
 const orderService = new OrderService(
   new InventoryService(),
   new PaymentGateway(),
@@ -16,6 +18,7 @@ const orderService = new OrderService(
 );
 
 export const checkoutApi = new CheckoutApi(orderService);
+
 export const fulfillmentWorker = new FulfillmentWorker(
   queue,
   orders,

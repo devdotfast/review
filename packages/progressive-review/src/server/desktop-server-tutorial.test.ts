@@ -21,13 +21,17 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
+
 const token = "tutorial-test-token";
+
 type TutorialAuthoringFactory = NonNullable<
   Parameters<
     typeof createGlobalReviewServer
   >[0]["tutorialAuthoringSessionFactory"]
 >;
+
 type GlobalServerInput = Parameters<typeof createGlobalReviewServer>[0];
+
 type TutorialServerOverrides = Partial<
   Pick<
     GlobalServerInput,
@@ -45,23 +49,29 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-server-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
     const handlers: ReviewSessionHandlerInput[] = [];
     let release!: (session: SessionRef) => void;
+
     const handoff = new Promise<SessionRef>((resolve) => {
       release = resolve;
     });
+
     const authoringFactory = vi.fn<TutorialAuthoringFactory>(
       async () => handoff,
     );
+
     const first = tutorialServer(home, handlers, authoringFactory);
 
     try {
       await first.listen();
+
       const [preparedA, preparedB] = await Promise.all([
         tutorialRequest(first.url, "/tutorial/prepare", "POST"),
         tutorialRequest(first.url, "/tutorial/prepare", "POST"),
       ]);
+
       expect(preparedA.status).toBe(200);
       expect(preparedB.status).toBe(200);
       expect(authoringFactory).not.toHaveBeenCalled();
@@ -90,10 +100,13 @@ describe("Review Desktop tutorial preparation", () => {
 
       await first.close();
       handlers.length = 0;
+
       const restartedFactory = vi.fn<TutorialAuthoringFactory>(async () => {
         throw new Error("restart must reuse the durable source session");
       });
+
       const restarted = tutorialServer(home, handlers, restartedFactory);
+
       try {
         await restarted.listen();
         await tutorialRequest(restarted.url, "/tutorial/open", "POST");
@@ -115,13 +128,17 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-server-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
     const handlers: ReviewSessionHandlerInput[] = [];
     let attempt = 0;
+
     const authoringFactory = vi.fn<TutorialAuthoringFactory>(async () => {
       if (++attempt === 1) throw new Error("transient model failure");
+
       return { harness: "codex", sessionId: "tutorial-retry" };
     });
+
     const server = tutorialServer(home, handlers, authoringFactory);
 
     try {
@@ -149,11 +166,14 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-server-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
     const handlers: ReviewSessionHandlerInput[] = [];
+
     const authoringFactory = vi.fn<TutorialAuthoringFactory>(async () => {
       throw new Error("model unavailable");
     });
+
     const server = tutorialServer(home, handlers, authoringFactory);
 
     try {
@@ -182,8 +202,10 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-server-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
     let canceled = false;
+
     const authoringFactory = vi.fn<TutorialAuthoringFactory>(
       async (input) =>
         new Promise<SessionRef>((_resolve, reject) => {
@@ -197,6 +219,7 @@ describe("Review Desktop tutorial preparation", () => {
           );
         }),
     );
+
     const handlers: ReviewSessionHandlerInput[] = [];
     const server = tutorialServer(home, handlers, authoringFactory);
 
@@ -222,17 +245,22 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-server-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
     const handlers: ReviewSessionHandlerInput[] = [];
     let source = 0;
+
     const authoringFactory = vi.fn<TutorialAuthoringFactory>(async () => ({
       harness: "codex",
       sessionId: `tutorial-source-${++source}`,
     }));
+
     const close = vi.fn<ReviewSessionHandler["close"]>(async () => undefined);
+
     const server = tutorialServer(home, handlers, authoringFactory, {
       sessionHandlerFactory: async (input) => {
         handlers.push(input);
+
         return { ...stubSessionHandler(), close };
       },
     });
@@ -250,6 +278,7 @@ describe("Review Desktop tutorial preparation", () => {
         "/tutorial/prepare",
         "POST",
       );
+
       expect(repaired.status).toBe(200);
       expect(existsSync(firstHandler!.reviewPath)).toBe(true);
       expect(close).toHaveBeenCalledOnce();
@@ -263,11 +292,13 @@ describe("Review Desktop tutorial preparation", () => {
         recursive: true,
         force: true,
       });
+
       const checkoutRepaired = await tutorialRequest(
         server.url,
         "/tutorial/prepare",
         "POST",
       );
+
       expect(checkoutRepaired.status).toBe(200);
       expect(existsSync(repairedHandler!.session.headRootPath!)).toBe(true);
 
@@ -276,6 +307,7 @@ describe("Review Desktop tutorial preparation", () => {
         `/reviews/${String(first.reviewUuid)}`,
         "DELETE",
       );
+
       expect(deleted.status).toBe(200);
       await expect(findReview(String(first.reviewUuid))).resolves.toBeNull();
 
@@ -296,16 +328,21 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-server-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
     let release!: () => void;
     let entered!: () => void;
+
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const started = new Promise<void>((resolve) => {
       entered = resolve;
     });
+
     let blockFirst = true;
+
     const server = tutorialServer(
       home,
       [],
@@ -321,6 +358,7 @@ describe("Review Desktop tutorial preparation", () => {
               entered();
               await gate;
             }
+
             return materializePublishRevision(input);
           },
         },
@@ -333,17 +371,21 @@ describe("Review Desktop tutorial preparation", () => {
       await mkdir(path.join(home, "reviews", unrelatedUuid), {
         recursive: true,
       });
+
       const firstPrepare = tutorialRequest(
         server.url,
         "/tutorial/prepare",
         "POST",
       );
+
       await started;
+
       const unrelatedDeletion = tutorialRequest(
         server.url,
         `/reviews/${unrelatedUuid}`,
         "DELETE",
       );
+
       await expect(
         Promise.race([
           unrelatedDeletion,
@@ -357,11 +399,13 @@ describe("Review Desktop tutorial preparation", () => {
       ).resolves.toMatchObject({ status: 200 });
       const deletion = tutorialRequest(server.url, "/tutorial", "DELETE");
       await new Promise((resolve) => setTimeout(resolve, 20));
+
       const secondPrepare = tutorialRequest(
         server.url,
         "/tutorial/prepare",
         "POST",
       );
+
       release();
 
       const first = await responseJson(firstPrepare);
@@ -383,12 +427,15 @@ describe("Review Desktop tutorial preparation", () => {
     const home = await mkdtemp(
       path.join(os.tmpdir(), "review-tutorial-server-"),
     );
+
     vi.stubEnv("DEV_REVIEW_HOME", home);
     let agent: "codex" | "pi" | undefined = "codex";
+
     const authoringFactory = vi.fn<TutorialAuthoringFactory>(async () => ({
       harness: "codex",
       sessionId: "unused",
     }));
+
     const server = tutorialServer(home, [], authoringFactory, {
       tutorialAgentResolver: async () => agent,
     });
@@ -401,11 +448,13 @@ describe("Review Desktop tutorial preparation", () => {
       ).toBe("fresh:codex");
 
       agent = "pi";
+
       const second = await tutorialJson(
         server.url,
         "/tutorial/prepare",
         "POST",
       );
+
       expect(second.reviewUuid).not.toBe(first.reviewUuid);
       await expect(findReview(String(first.reviewUuid))).resolves.toBeNull();
       expect(
@@ -413,11 +462,13 @@ describe("Review Desktop tutorial preparation", () => {
       ).toBe("fresh:pi");
 
       agent = undefined;
+
       const unavailable = await tutorialRequest(
         server.url,
         "/tutorial/prepare",
         "POST",
       );
+
       expect(unavailable.status).toBe(409);
       expect(authoringFactory).not.toHaveBeenCalled();
     } finally {
@@ -432,21 +483,27 @@ describe("Review Desktop tutorial preparation", () => {
       const home = await mkdtemp(
         path.join(os.tmpdir(), "review-tutorial-server-"),
       );
+
       vi.stubEnv("DEV_REVIEW_HOME", home);
       const handlers: ReviewSessionHandlerInput[] = [];
       let release!: () => void;
       let entered!: () => void;
+
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
+
       const started = new Promise<void>((resolve) => {
         entered = resolve;
       });
+
       const binder = vi.fn<typeof bindReviewAuthorSession>(async (...args) => {
         entered();
         await gate;
+
         return bindReviewAuthorSession(...args);
       });
+
       const server = tutorialServer(
         home,
         handlers,
@@ -463,10 +520,12 @@ describe("Review Desktop tutorial preparation", () => {
         await started;
         const handler = handlers[0];
         expect(handler).toBeDefined();
+
         const userAction =
           action === "submit"
             ? handler!.onSubmission!(submissionEvent())
             : handler!.onReviewDismiss!();
+
         let settled = false;
         void Promise.resolve(userAction).finally(() => {
           settled = true;
@@ -510,6 +569,7 @@ function tutorialServer(
     tutorialAuthoringSessionFactory,
     sessionHandlerFactory: async (input) => {
       handlers.push(input);
+
       return stubSessionHandler();
     },
     ...overrides,
@@ -548,9 +608,11 @@ async function responseJson(response: Promise<Response>): Promise<JsonObject> {
   const resolved = await response;
   expect(resolved.status).toBe(200);
   const body = await resolved.json();
+
   if (!isJsonObject(body)) {
     throw new Error("Expected a JSON object response body.");
   }
+
   return body;
 }
 

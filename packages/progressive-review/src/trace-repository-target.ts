@@ -24,6 +24,7 @@ import {
 } from "./trace-user-config";
 
 export type { TraceRepo } from "./trace-repo";
+
 export { inferRepoFromGit, parseRepo, traceRepoName } from "./trace-repo";
 
 export interface TraceRepositoryTarget {
@@ -48,8 +49,10 @@ export function traceTargetKey(
   if (!Number.isSafeInteger(target.repositoryId) || target.repositoryId < 1) {
     throw new Error("The trace repository id must be a positive integer.");
   }
+
   const origin = normalizeStoreOrigin(target.origin);
   const digest = createHash("sha256").update(origin).digest("hex");
+
   return `${digest.slice(0, 16)}/r${target.repositoryId}`;
 }
 
@@ -74,10 +77,13 @@ async function cachedTargetPath(
   devHome: string,
 ): Promise<string | null> {
   const commonDir = await gitCommonDirectory(cwd);
+
   if (!commonDir) return null;
+
   const key = createHash("sha256")
     .update(`${origin}\n${commonDir}`)
     .digest("hex");
+
   return path.join(devHome, "trace", "targets", `${key}.json`);
 }
 
@@ -94,6 +100,7 @@ export async function rememberTraceRepositoryTarget(input: {
   const devHome = input.devHome ?? devReviewHome();
   const origin = normalizeStoreOrigin(input.target.origin);
   const filePath = await cachedTargetPath(input.cwd, origin, devHome);
+
   if (!filePath) return;
   await writePrivateJsonAtomic(filePath, {
     ...input.target,
@@ -115,29 +122,37 @@ export async function readCachedTraceRepositoryTarget(input: {
   const devHome = input.devHome ?? devReviewHome();
   const origin = normalizeStoreOrigin(input.origin);
   const filePath = await cachedTargetPath(input.cwd, origin, devHome);
+
   if (!filePath) return null;
   let raw: string;
+
   try {
     raw = await readFile(filePath, "utf8");
   } catch {
     return null;
   }
+
   let parsed: z.infer<typeof cachedTargetSchema>;
+
   try {
     const result = cachedTargetSchema.safeParse(JSON.parse(raw));
+
     if (!result.success) return null;
     parsed = result.data;
   } catch {
     return null;
   }
+
   if (parsed.origin !== origin) return null;
   const checkout = await inferRepoFromGit(input.cwd).catch(() => null);
+
   if (
     !checkout ||
     traceRepoName(checkout).toLowerCase() !== parsed.checkout.toLowerCase()
   ) {
     return null;
   }
+
   return {
     origin: parsed.origin,
     repositoryId: parsed.repositoryId,
@@ -167,6 +182,7 @@ export async function resolveTraceRepositoryTarget(input: {
   const repo = await inferRepoFromGit(input.cwd);
   const checkout = traceRepoName(repo);
   let store: Awaited<ReturnType<StoreClient["findStore"]>>;
+
   try {
     store = await input.client.findStore({
       owner: repo.owner,
@@ -174,6 +190,7 @@ export async function resolveTraceRepositoryTarget(input: {
     });
   } catch (error) {
     const cause = error instanceof Error ? error : new Error(String(error));
+
     if (
       input.write ||
       !isStoreUnreachable(cause) ||
@@ -181,14 +198,18 @@ export async function resolveTraceRepositoryTarget(input: {
     ) {
       throw cause;
     }
+
     const cached = await readCachedTraceRepositoryTarget({
       cwd: input.cwd,
       origin,
       devHome: input.devHome,
     });
+
     if (!cached) throw cause;
+
     return { target: cached, offline: true };
   }
+
   if (!store) {
     throw new StoreApiError(
       "not_found",
@@ -196,6 +217,7 @@ export async function resolveTraceRepositoryTarget(input: {
       "This repository has no active hosted trace store. Run `review trace onboard`.",
     );
   }
+
   if (store.status !== "active") {
     throw new StoreApiError(
       "store_deleted",
@@ -203,18 +225,21 @@ export async function resolveTraceRepositoryTarget(input: {
       "This repository's trace store was deleted.",
     );
   }
+
   const target: TraceRepositoryTarget = {
     origin,
     repositoryId: store.repositoryId,
     storeId: store.storeId,
     name: store.displayName,
   };
+
   await rememberTraceRepositoryTarget({
     cwd: input.cwd,
     target,
     checkout,
     devHome: input.devHome,
   }).catch(() => undefined);
+
   return { target, offline: false };
 }
 
@@ -227,17 +252,21 @@ export async function requireTraceConsent(
   devHome?: string,
 ): Promise<TraceRepositoryEntry> {
   const config = await readTraceUserConfig(devHome);
+
   // The id is the identity. A display name can be reused by another
   // repository, so a name match never stands in for a missing id match.
   const entry = config.repositories.find(
     (candidate) => candidate.repositoryId === target.repositoryId,
   );
+
   if (entry?.enabledOrigins.includes(target.origin)) return entry;
+
   if (entry) {
     throw new Error(
       `${entry.name} is allowed to publish traces to ${entry.enabledOrigins.join(", ")}, not ${target.origin}. Run \`review trace allow .\` while logged in there.`,
     );
   }
+
   throw new Error(
     "This repository is not allowed for trace publication. Run `review trace allow .`.",
   );

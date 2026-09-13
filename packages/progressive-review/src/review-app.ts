@@ -58,16 +58,20 @@ export async function runReviewAppPick(
     fetch: globalThis.fetch,
     ...overrides,
   };
+
   await runtime.launch();
   const reviewRoot = await runtime.resolveReviewRoot(input.cwd);
   const review = await selectAppReview(input, reviewRoot, runtime);
+
   if (!review) return null;
   const discovery = await runtime.readReviewDesktopDiscovery();
+
   if (!discovery) {
     throw new Error(
       "Review Desktop is not ready. Run `review app launch` and retry `review app pick`.",
     );
   }
+
   const response = await runtime.fetch(
     `${discovery.url}/reviews/${encodeURIComponent(review.review.uuid)}/open`,
     {
@@ -79,10 +83,13 @@ export async function runReviewAppPick(
       body: JSON.stringify(input.view ? { view: input.view } : {}),
     },
   );
+
   const payload: JsonValue = await response.json();
+
   if (!response.ok) {
     throw new Error(reviewAppResponseError(payload, response.status));
   }
+
   return {
     event: "app",
     action: "pick",
@@ -103,14 +110,19 @@ async function selectAppReview(
       worktreePath: reviewRoot,
       includeTerminal: true,
     });
+
     if (!selected) throw new Error(`Review not found: ${input.reviewUuid}`);
+
     return requirePublishedReview(selected);
   }
+
   const listed = await runtime.listReviews({ worktreePath: reviewRoot });
+
   if (listed.errors.length > 0)
     throw new Error(
       `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
     );
+
   return pickAppReview(
     await actionableReviewsForCheckout(listed.reviews, reviewRoot),
     input,
@@ -124,6 +136,7 @@ function requirePublishedReview(selected: StoredReview): StoredReview {
       `Review ${selected.review.uuid} is not published. Run \`review publish --review ${selected.review.uuid}\` first.`,
     );
   }
+
   return selected;
 }
 
@@ -137,12 +150,15 @@ async function pickAppReview(
       "review app pick needs a terminal without --review. Pass --review <uuid> or run it in a terminal.",
     );
   }
+
   const openable = reviews.filter(
     (review) => review.review.presentedDocumentRevision !== null,
   );
+
   if (openable.length === 0) {
     throw new Error("No published review to show. Run `review publish` first.");
   }
+
   const items: ReviewPickerItem[] = [...openable]
     .sort((left, right) =>
       (right.review.lastPublishedAt ?? "").localeCompare(
@@ -155,13 +171,17 @@ async function pickAppReview(
       status: review.review.status,
       lastPublishedAt: review.review.lastPublishedAt,
     }));
+
   const picked = await runtime.pickReview(items, {
     stdin: input.stdin,
     stdout: input.stdout,
   });
+
   if (!picked) return null;
   const selected = reviews.find((review) => review.review.uuid === picked.uuid);
+
   if (!selected) throw new Error(`Review not found: ${picked.uuid}`);
+
   return requirePublishedReview(selected);
 }
 

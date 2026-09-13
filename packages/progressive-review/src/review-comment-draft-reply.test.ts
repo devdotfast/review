@@ -19,6 +19,7 @@ import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 const execFilePromise = promisify(execFile);
 
 const homes: string[] = [];
+
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -38,6 +39,7 @@ async function git(root: string, args: string[]): Promise<string> {
   const { stdout } = await execFilePromise("git", ["-C", root, ...args], {
     encoding: "utf8",
   });
+
   return stdout.trim();
 }
 
@@ -50,6 +52,7 @@ async function makeGitRepository(): Promise<string> {
   await git(root, ["add", "."]);
   await git(root, ["commit", "-m", "initial"]);
   roots.push(root);
+
   return root;
 }
 
@@ -66,6 +69,7 @@ async function makeOutdatedReview(): Promise<{ reviewPath: string }> {
   await git(root, ["add", "."]);
   await git(root, ["commit", "-m", "add example"]);
   const originalCommit = await git(root, ["rev-parse", "HEAD"]);
+
   const created = await createReviewDir({
     worktreePath: root,
     baseRef: "main",
@@ -73,7 +77,9 @@ async function makeOutdatedReview(): Promise<{ reviewPath: string }> {
     sourceCommit: originalCommit,
     sourceIdentity: { kind: "git-branch", name: "main" },
   });
+
   const reviewPath = path.join(created.dir, "review.mdx");
+
   const originalPosition = createGitLabTextDiffPosition({
     base_sha: originalCommit,
     start_sha: originalCommit,
@@ -83,6 +89,7 @@ async function makeOutdatedReview(): Promise<{ reviewPath: string }> {
     start: { old_line: null, new_line: 8 },
     end: { old_line: null, new_line: 9 },
   });
+
   appendReviewComment(reviewPath, {
     threadId: "thread-1",
     messageId: "message-1",
@@ -103,6 +110,7 @@ async function makeOutdatedReview(): Promise<{ reviewPath: string }> {
   await git(root, ["add", "."]);
   await git(root, ["commit", "-m", "insert lines"]);
   const movedCommit = await git(root, ["rev-parse", "HEAD"]);
+
   const movedReview = await updateReviewPins(created, {
     baseRef: "main",
     baseCommit: originalCommit,
@@ -127,9 +135,11 @@ async function makeOutdatedReview(): Promise<{ reviewPath: string }> {
   });
 
   const outdated = readReviewComments(reviewPath)["thread-1"]!;
+
   if (outdated.target.kind !== "code") {
     throw new Error("Expected a code target for the outdated thread.");
   }
+
   expect(outdated.target.change_position).toBeTruthy();
 
   return { reviewPath };
@@ -174,9 +184,11 @@ describe("appendReviewCommentDraft outdated-thread reply", () => {
   it("still rejects a reply whose target differs from the stored thread", async () => {
     const { reviewPath } = await makeOutdatedReview();
     const outdated = readReviewComments(reviewPath)["thread-1"]!;
+
     if (outdated.target.kind !== "code") {
       throw new Error("Expected a code target for the outdated thread.");
     }
+
     const mismatchedTarget = {
       ...outdated.target,
       position: {

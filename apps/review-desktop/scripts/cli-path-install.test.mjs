@@ -8,9 +8,11 @@ const read = (relative) =>
 const contribution = read(
   "../code-oss/src/vs/review/contrib/install/reviewCliInstall.contribution.ts",
 );
+
 const desktopContribution = read(
   "../code-oss/src/vs/workbench/electron-browser/desktop.contribution.ts",
 );
+
 const nativeHost = read(
   "../code-oss/src/vs/platform/native/electron-main/nativeHostMainService.ts",
 );

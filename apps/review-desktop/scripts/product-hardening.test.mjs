@@ -5,6 +5,7 @@ import test from "node:test";
 const product = JSON.parse(
   await readFile(new URL("../code-oss/product.json", import.meta.url), "utf8"),
 );
+
 const webviewPreloader = await readFile(
   new URL(
     "../code-oss/src/vs/workbench/contrib/webview/browser/pre/index.html",
@@ -12,6 +13,7 @@ const webviewPreloader = await readFile(
   ),
   "utf8",
 );
+
 const reviewCanvasPart = await readFile(
   new URL(
     "../code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts",
@@ -44,6 +46,7 @@ test("publishes the release number the About panel shows", async () => {
   const appPackage = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );
+
   assert.equal(product.reviewVersion, appPackage.version);
 });
 
@@ -65,6 +68,7 @@ test("owns every install identity rather than sharing Code OSS's", () => {
     product.win32x64UserAppId,
     product.win32arm64UserAppId,
   ];
+
   // Stock Code OSS product GUIDs; a Review installer sharing one would be
   // mistaken for a Code OSS install by the Inno uninstall-key probe.
   const codeOssAppIds = new Set([
@@ -73,7 +77,9 @@ test("owns every install identity rather than sharing Code OSS's", () => {
     "{{CC6B787D-37A0-49E8-AE24-8559A032BE0C}",
     "{{3AEBF0C8-F733-4AD4-BADE-FDB816D53D7B}",
   ]);
+
   assert.equal(new Set(appIds).size, 4, "each install target needs its own id");
+
   for (const appId of appIds) {
     assert.ok(!codeOssAppIds.has(appId), `${appId} is a Code OSS product id`);
     // Inno Setup escapes a literal "{" as "{{".
@@ -106,6 +112,7 @@ test("keeps upstream identity out of the fields Review has claimed", () => {
     "win32RegValueName",
     "win32ShellNameShort",
   ];
+
   for (const key of claimedKeys) {
     const value = product[key];
     assert.match(value, /\S/u, key);
@@ -123,6 +130,7 @@ test("removes dormant Microsoft endpoint configuration that is safe to omit", ()
   ]) {
     assert.equal(product[key], undefined, key);
   }
+
   assert.equal(product.defaultChatAgent.extensionId, "GitHub.copilot");
   assert.equal(product.defaultChatAgent.chatExtensionId, "GitHub.copilot-chat");
 });
@@ -146,9 +154,11 @@ test("configures Zod's CSP-safe mode before the canvas module evaluates", () => 
   const candidateConfig = reviewCanvasPart.indexOf(
     "canvasGlobal.__zod_globalConfig ??= {};",
   );
+
   const candidateModule = reviewCanvasPart.indexOf(
     "vs/review/canvas/canvas-loader.js",
   );
+
   assert.notEqual(candidateConfig, -1);
   assert.notEqual(candidateModule, -1);
   assert.ok(candidateConfig < candidateModule);

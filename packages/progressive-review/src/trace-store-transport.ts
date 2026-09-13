@@ -135,11 +135,13 @@ function stagingDir(): Promise<string> {
         // Best effort; the file modes already keep the contents private.
       }
     });
+
     return dir;
   })();
   stagingDirectory.catch(() => {
     stagingDirectory = null;
   });
+
   return stagingDirectory;
 }
 
@@ -152,13 +154,16 @@ export async function gzipToTemp(sourcePath: string): Promise<GzippedFile> {
     await stagingDir(),
     `${randomBytes(8).toString("hex")}.jsonl.gz`,
   );
+
   const hash = createHash("sha256");
+
   const digestTap = new Transform({
     transform(chunk, _encoding, callback) {
       hash.update(chunk);
       callback(null, chunk);
     },
   });
+
   try {
     await pipeline(
       createReadStream(sourcePath),
@@ -170,6 +175,7 @@ export async function gzipToTemp(sourcePath: string): Promise<GzippedFile> {
     await rm(targetPath, { force: true });
     throw cause;
   }
+
   return {
     path: targetPath,
     size: (await stat(targetPath)).size,
@@ -187,6 +193,7 @@ export function createHttpTraceStoreTransport(
   options: TraceStoreTransportOptions = {},
 ): TraceStoreTransport {
   const limits = { ...DEFAULT_LIMITS, ...options.limits };
+
   return {
     beginUpload: (repositoryId, sessionId, body) =>
       client.beginUpload(repositoryId, sessionId, body),
@@ -208,12 +215,15 @@ export function createHttpTraceStoreTransport(
         duplex: "half",
         signal: AbortSignal.timeout(limits.timeoutMs),
       } as RequestInit;
+
       const response = await fetchImpl(upload.url, init);
+
       if (response.status === 412) {
         // The immutable key already holds bytes from an earlier attempt.
         // The store checks them at completion, so this attempt is done.
         return;
       }
+
       if (!response.ok) {
         throw new Error(
           await storageErrorMessage(response, `store ${upload.name}`),
@@ -226,25 +236,31 @@ export function createHttpTraceStoreTransport(
       // honor the signal, so the pipeline watches it too.
       const signal = AbortSignal.timeout(limits.timeoutMs);
       const response = await fetchImpl(object.url, { method: "GET", signal });
+
       if (!response.ok) {
         throw new Error(await storageErrorMessage(response, "read the object"));
       }
+
       const contentLength = response.headers.get("content-length");
+
       if (contentLength !== null && Number(contentLength) !== object.size) {
         throw new Error(
           `The trace store announced ${contentLength} bytes for ${object.name}; the session declared ${object.size}.`,
         );
       }
+
       if (!response.body) {
         throw new Error(
           `The trace store sent no body for ${object.name} (HTTP ${response.status}).`,
         );
       }
+
       // SAFETY: Node's fetch returns its own web stream; the DOM type only
       // names the same object.
       const compressed = Readable.fromWeb(response.body as WebReadableStream, {
         signal,
       });
+
       await writeVerifiedObject(compressed, object, destinationPath, limits);
     },
   };
@@ -267,35 +283,44 @@ async function writeVerifiedObject(
   const hash = createHash("sha256");
   let compressedBytes = 0;
   let expandedBytes = 0;
+
   const compressedTap = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       compressedBytes += chunk.byteLength;
+
       if (compressedBytes > object.size) {
         callback(
           new Error(
             `The trace store sent more than the declared ${object.size} bytes for ${object.name}.`,
           ),
         );
+
         return;
       }
+
       hash.update(chunk);
       callback(null, chunk);
     },
   });
+
   const expansionTap = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       expandedBytes += chunk.byteLength;
+
       if (expandedBytes > limits.maxExpandedBytes) {
         callback(
           new Error(
             `${object.name} expands past the ${limits.maxExpandedBytes} byte limit.`,
           ),
         );
+
         return;
       }
+
       callback(null, chunk);
     },
   });
+
   try {
     await pipeline(
       compressed,
@@ -304,16 +329,19 @@ async function writeVerifiedObject(
       expansionTap,
       createWriteStream(tempPath, { flags: "wx", mode: 0o600 }),
     );
+
     if (compressedBytes !== object.size) {
       throw new Error(
         `The trace store sent ${compressedBytes} bytes for ${object.name}; the session declared ${object.size}.`,
       );
     }
+
     if (hash.digest("hex") !== object.sha256) {
       throw new Error(
         `The bytes of ${object.name} do not match the declared checksum.`,
       );
     }
+
     await rename(tempPath, destinationPath);
   } catch (cause) {
     await rm(tempPath, { force: true });
@@ -330,11 +358,13 @@ async function storageErrorMessage(
   action: string,
 ): Promise<string> {
   let code: string | null = null;
+
   try {
     code = /<Code>([^<]+)<\/Code>/.exec(await response.text())?.[1] ?? null;
   } catch {
     code = null;
   }
+
   return code
     ? `The trace store did not ${action} (HTTP ${response.status}: ${code}).`
     : `The trace store did not ${action} (HTTP ${response.status}).`;
@@ -386,7 +416,9 @@ export interface MemoryTraceStoreTransport extends TraceStoreTransport {
 
 /** Tests address memory objects through URLs that never reach the network. */
 const MEMORY_URL_PREFIX = "https://trace-store.invalid/";
+
 const MEMORY_EXPIRES_AT = "2099-01-01T00:00:00.000Z";
+
 const MEMORY_STORE_ID = "0123456789abcdef0123456789abcdef";
 
 export function memoryTraceSessionKey(
@@ -433,8 +465,10 @@ export function createMemoryTraceStoreTransport(
       const session = sessions.get(
         memoryTraceSessionKey(repositoryId, sessionId),
       );
+
       const uploadId = newUploadId();
       const keys: Record<string, string> = {};
+
       for (const object of body.objects) {
         keys[object.name] = traceObjectKey({
           repositoryId,
@@ -444,6 +478,7 @@ export function createMemoryTraceStoreTransport(
           name: object.name,
         });
       }
+
       const baseGeneration = session?.generation ?? 0;
       uploads.set(uploadId, {
         uploadId,
@@ -459,6 +494,7 @@ export function createMemoryTraceStoreTransport(
         branch: null,
         author: null,
       });
+
       return {
         uploadId,
         storeId,
@@ -485,19 +521,24 @@ export function createMemoryTraceStoreTransport(
       // headers. The memory store rejects it the same way.
       const body = await readFile(filePath);
       const declaredSize = Number(upload.headers["content-length"]);
+
       if (body.byteLength !== declaredSize) {
         throw new Error(
           `The trace store did not store ${upload.name} (size ${body.byteLength} does not match the signed ${declaredSize}).`,
         );
       }
+
       const digest = createHash("sha256").update(body).digest("base64");
+
       if (digest !== upload.headers["x-amz-checksum-sha256"]) {
         throw new Error(
           `The trace store did not store ${upload.name} (the digest does not match the signed checksum).`,
         );
       }
+
       const key = memoryObjectKey(upload.url);
       const existing = objects.get(key);
+
       if (existing) {
         // `if-none-match: *` makes S3 answer 412 for an occupied key. The
         // HTTP transport treats identical bytes as done; different bytes
@@ -507,11 +548,13 @@ export function createMemoryTraceStoreTransport(
           `The trace store did not store ${upload.name} (HTTP 412: PreconditionFailed).`,
         );
       }
+
       objects.set(key, body);
     },
 
     async completeUpload(repositoryId, sessionId, uploadId, body) {
       const upload = uploads.get(uploadId);
+
       if (
         !upload ||
         upload.repositoryId !== repositoryId ||
@@ -523,16 +566,19 @@ export function createMemoryTraceStoreTransport(
           "This session has no such upload.",
         );
       }
+
       if (upload.status === "complete" && upload.generation !== null) {
         const current = sessions.get(
           memoryTraceSessionKey(repositoryId, sessionId),
         );
+
         if (current && current.currentUploadId === uploadId) {
           // Completing the current upload again links any new commits.
           const merged = [...new Set([...current.commits, ...body.commits])];
           current.commits = merged;
           upload.commits = merged;
         }
+
         return {
           sessionId,
           uploadId,
@@ -541,14 +587,17 @@ export function createMemoryTraceStoreTransport(
           commits: [...upload.commits],
         };
       }
+
       const missing = upload.objects.filter((object) => {
         const stored = objects.get(upload.keys[object.name] ?? "");
+
         return (
           !stored ||
           stored.byteLength !== object.size ||
           createHash("sha256").update(stored).digest("hex") !== object.sha256
         );
       });
+
       if (missing.length > 0) {
         throw new StoreApiError(
           "upload_incomplete",
@@ -558,8 +607,10 @@ export function createMemoryTraceStoreTransport(
             .join(", ")}.`,
         );
       }
+
       const sessionKey = memoryTraceSessionKey(repositoryId, sessionId);
       const session = sessions.get(sessionKey);
+
       if ((session?.generation ?? 0) !== upload.baseGeneration) {
         throw new StoreApiError(
           "stale_upload",
@@ -567,10 +618,13 @@ export function createMemoryTraceStoreTransport(
           "Another upload published after this one began. Start a new upload.",
         );
       }
+
       const generation = upload.baseGeneration + 1;
+
       const commits = [
         ...new Set([...(session?.commits ?? []), ...body.commits]),
       ];
+
       sessions.set(sessionKey, {
         repositoryId,
         sessionId,
@@ -587,6 +641,7 @@ export function createMemoryTraceStoreTransport(
       upload.commits = commits;
       upload.branch = body.branch ?? null;
       upload.author = body.author ?? null;
+
       return {
         sessionId,
         uploadId,
@@ -609,14 +664,18 @@ export function createMemoryTraceStoreTransport(
             (query.cursor === undefined || session.sessionId > query.cursor),
         )
         .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+
       const limit = query.limit ?? pageSize;
       const page = matches.slice(0, limit);
+
       const response: ListSessionsResponse = {
         sessions: page.map((session) => {
           const upload = uploads.get(session.currentUploadId ?? "");
+
           if (!upload) {
             throw new Error("A published session lost its upload.");
           }
+
           return {
             sessionId: session.sessionId,
             harness: session.harness,
@@ -634,16 +693,21 @@ export function createMemoryTraceStoreTransport(
           };
         }),
       };
+
       const last = page[page.length - 1];
+
       if (matches.length > limit && last) response.nextCursor = last.sessionId;
+
       return response;
     },
 
     async getObject(object, destinationPath) {
       const compressed = objects.get(memoryObjectKey(object.url));
+
       if (!compressed) {
         throw new Error("The trace store has no object at that address.");
       }
+
       await writeVerifiedObject(
         Readable.from([compressed]),
         object,
@@ -679,11 +743,13 @@ export function seedMemoryTraceSession(
   const generation = (existing?.generation ?? 0) + 1;
   const objects: StoredObject[] = [];
   const keys: Record<string, string> = {};
+
   for (const [name, content] of Object.entries(input.traces)) {
     if (content === undefined) continue;
     // SAFETY: the record's keys are object names; Object.entries widens them.
     const objectName = name as TraceObjectName;
     const compressed = gzipSync(Buffer.from(content, "utf8"));
+
     const key = traceObjectKey({
       repositoryId,
       storeId: transport.storeId,
@@ -691,6 +757,7 @@ export function seedMemoryTraceSession(
       uploadId,
       name: objectName,
     });
+
     transport.objects.set(key, compressed);
     keys[objectName] = key;
     objects.push({
@@ -699,9 +766,11 @@ export function seedMemoryTraceSession(
       sha256: createHash("sha256").update(compressed).digest("hex"),
     });
   }
+
   const commits = [
     ...new Set([...(existing?.commits ?? []), ...(input.commits ?? [])]),
   ];
+
   const upload: MemoryTraceStoreUpload = {
     uploadId,
     repositoryId,
@@ -716,6 +785,7 @@ export function seedMemoryTraceSession(
     branch: null,
     author: null,
   };
+
   transport.uploads.set(uploadId, upload);
   transport.sessions.set(sessionKey, {
     repositoryId,
@@ -728,5 +798,6 @@ export function seedMemoryTraceSession(
     currentUploadId: uploadId,
     generation,
   });
+
   return upload;
 }

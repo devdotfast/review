@@ -67,6 +67,7 @@ export function useBottomSheetResize({
     stateKey,
     defaultFraction,
   );
+
   const [isResizing, setIsResizing] = useState(false);
 
   const clampFraction = useCallback(
@@ -74,14 +75,17 @@ export function useBottomSheetResize({
       Math.min(Math.max(fraction, minFraction), maxFraction),
     [maxFraction, minFraction],
   );
+
   const fraction = clampFraction(requestedFraction);
 
   const containerMetrics = useCallback(() => {
     const rect = containerRef?.current?.getBoundingClientRect();
+
     const viewportHeight =
       typeof window === "undefined"
         ? Number.POSITIVE_INFINITY
         : window.innerHeight;
+
     return {
       bottom: rect?.bottom ?? viewportHeight,
       height: rect?.height ?? viewportHeight,
@@ -91,6 +95,7 @@ export function useBottomSheetResize({
   const resizeFromClientY = useCallback(
     (clientY: number) => {
       const { bottom, height } = containerMetrics();
+
       if (!Number.isFinite(height) || height <= 0) return;
       setRequestedFraction((bottom - clientY) / height);
     },
@@ -119,6 +124,7 @@ export function useBottomSheetResize({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+
     setIsResizing(false);
   }, []);
 
@@ -128,6 +134,7 @@ export function useBottomSheetResize({
         event.preventDefault();
         setRequestedFraction((current) => clampFraction(current) + 0.05);
       }
+
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setRequestedFraction((current) => clampFraction(current) - 0.05);
@@ -189,11 +196,13 @@ export function useRightPanelResize({
     stateKey,
     defaultWidth,
   );
+
   const [isResizing, setIsResizing] = useState(false);
   const [, setLayoutRevision] = useState(0);
 
   const containerMetrics = useCallback(() => {
     const rect = containerRef?.current?.getBoundingClientRect();
+
     // The width is clamped during render, which also happens during SSR where
     // there is no viewport to measure. An unbounded viewport there leaves the
     // requested width alone until the browser reports real geometry.
@@ -201,6 +210,7 @@ export function useRightPanelResize({
       typeof window === "undefined"
         ? Number.POSITIVE_INFINITY
         : window.innerWidth;
+
     return {
       right: rect?.right ?? viewportWidth,
       width: rect?.width ?? viewportWidth,
@@ -210,10 +220,12 @@ export function useRightPanelResize({
   const constrainWidth = useCallback(
     (nextWidth: number) => {
       const { width: containerWidth } = containerMetrics();
+
       const availableMax = Math.min(
         maxWidth,
         containerWidth - minMainWidth - separatorWidth,
       );
+
       return Math.min(
         Math.max(nextWidth, minWidth),
         Math.max(minWidth, availableMax),
@@ -245,11 +257,14 @@ export function useRightPanelResize({
     const reclampWidth = () => setLayoutRevision((revision) => revision + 1);
     window.addEventListener("resize", reclampWidth);
     const container = containerRef?.current;
+
     const resizeObserver =
       container && typeof ResizeObserver !== "undefined"
         ? new ResizeObserver(reclampWidth)
         : null;
+
     if (container && resizeObserver) resizeObserver.observe(container);
+
     return () => {
       window.removeEventListener("resize", reclampWidth);
       resizeObserver?.disconnect();
@@ -286,6 +301,7 @@ export function useRightPanelResize({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+
     setIsResizing(false);
   }, []);
 
@@ -295,6 +311,7 @@ export function useRightPanelResize({
         event.preventDefault();
         setWidth((currentWidth) => currentWidth + 32);
       }
+
       if (event.key === "ArrowRight") {
         event.preventDefault();
         setWidth((currentWidth) => currentWidth - 32);

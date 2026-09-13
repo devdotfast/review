@@ -40,12 +40,16 @@ export function WelcomePage({
   const [cardStatus, setCardStatus] = useState<
     ReviewCliInstallStatus | undefined
   >(undefined);
+
   const status = cardStatus ?? install?.status;
+
   const installed = status
     ? onboardingSetupComplete(status)
     : (onboarding?.installed ?? false);
+
   const tourChecked = onboarding?.tutorialChecked ?? 0;
   const tourTotal = onboarding?.tutorialTotal ?? 0;
+
   const steps: WelcomeStep[] = [
     {
       title: "Connect your agents",
@@ -131,6 +135,7 @@ export function WelcomePage({
             <ol className="review-onboarding-steps">
               {steps.map((step, index) => {
                 const open = activeStep === index;
+
                 return (
                   <li
                     key={step.title}
@@ -172,10 +177,13 @@ export function WelcomePage({
 
 function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
   const installedAgents = status.agents.filter((agent) => agent.installed);
+
   if (installedAgents.length === 0) return false;
+
   const fffAgents = installedAgents.filter(
     (agent) => agent.target === "claude" || agent.target === "codex",
   );
+
   // Trace capture is experimental and lives in Settings; onboarding does
   // not depend on it.
   return (
@@ -203,7 +211,9 @@ function installedLabels(
   status: ReviewCliInstallStatus | undefined,
 ): string | null {
   const installed = (status?.agents ?? []).filter((agent) => agent.installed);
+
   if (installed.length === 0) return null;
+
   return installed.map((agent) => TARGET_LABELS[agent.target]).join(", ");
 }
 

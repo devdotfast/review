@@ -42,6 +42,7 @@ describe("packBundleFrames", () => {
 
   it("leaves no trace of the user's machine", () => {
     const frames = packBundleFrames(MIXED_STACK) ?? "";
+
     for (const token of USER_TOKENS) expect(frames).not.toContain(token);
   });
 
@@ -90,6 +91,7 @@ describe("packBundleFrames", () => {
       (_unused, index) =>
         `    at f (/app/out/vs/base/common/errors.js:${index + 1}:1)`,
     ).join("\n");
+
     expect(packBundleFrames(deep)?.split("|")).toHaveLength(10);
   });
 
@@ -123,6 +125,7 @@ describe("deriveErrorTelemetryProperties", () => {
     );
     expect(derived.message_hash).toMatch(/^[0-9a-f]{16}$/);
     const serialized = JSON.stringify(derived);
+
     for (const token of [...USER_TOKENS, "fix/oops"]) {
       expect(serialized).not.toContain(token);
     }
@@ -163,12 +166,15 @@ describe("deriveErrorTelemetryProperties", () => {
       message("bad credential ghp_012345678901234567890123456789012345"),
     ).toBe("<REDACTED: GitHub Token>");
     expect(message("api_key was rejected")).toBe("<REDACTED: Generic Secret>");
+
     // A web address is path-shaped, so the path pass reaches it first. Either
     // marker is fine; what matters is that no part of the address survives.
     const url = message(
       "request to https://github.example/alice/secret failed",
     );
+
     expect(url).toMatch(/^request to .*<REDACTED: [^>]+>.* failed$/);
+
     for (const token of ["github.example", "alice", "secret"]) {
       expect(url).not.toContain(token);
     }
@@ -190,6 +196,7 @@ describe("deriveErrorTelemetryProperties", () => {
       name: "ZodError",
       message: 'messages[0].from received string "HeyGen"',
     });
+
     expect(derived.message).toBeUndefined();
     expect(derived.error_name).toBe("ZodError");
     expect(derived.message_hash).toMatch(/^[0-9a-f]{16}$/);
@@ -233,6 +240,7 @@ describe("deriveErrorTelemetryProperties", () => {
       },
       undefined,
     );
+
     expect(merged).toEqual({
       error_source: "document",
       error_name: "ZodError",
@@ -244,6 +252,7 @@ describe("deriveErrorTelemetryProperties", () => {
       { message: "trust me", message_hash: "0000000000000000" },
       { name: "TypeError", message: "Cannot read properties of undefined" },
     );
+
     expect(merged.message).toBe("Cannot read properties of undefined");
     expect(merged.message_hash).not.toBe("0000000000000000");
   });
@@ -266,6 +275,7 @@ describe("deriveErrorTelemetryProperties", () => {
         }),
       },
     });
+
     expect(sanitized?.properties).toEqual({
       error_source: "renderer_unexpected",
       error_process: "renderer",
@@ -292,6 +302,7 @@ describe("deriveErrorTelemetryProperties", () => {
         },
       ),
     });
+
     expect(sanitized?.properties).toEqual({
       phase: "install",
       message_source: "shipit",

@@ -15,6 +15,7 @@ const tempRoots: string[] = [];
 afterEach(async () => {
   while (tempRoots.length > 0) {
     const root = tempRoots.pop();
+
     if (root) await rm(root, { recursive: true, force: true });
   }
 });
@@ -42,6 +43,7 @@ describe("listReviewDocumentVersions", () => {
       dir,
       review: { presentedDocumentRevision: v2 },
     } as never;
+
     const versions = await listReviewDocumentVersions(review);
 
     expect(versions.map((version) => version.revision)).toEqual([v2, v1]);

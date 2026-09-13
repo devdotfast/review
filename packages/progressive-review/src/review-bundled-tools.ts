@@ -42,9 +42,12 @@ export async function ensureBundledTool(
   if (!/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/.test(input.tool)) {
     throw new Error(`Invalid bundled tool name: ${input.tool}`);
   }
+
   const sourcePath = input.sourcePath?.trim();
+
   if (!sourcePath) return "no-source";
   const source = path.resolve(sourcePath);
+
   if (!(await isExecutableFile(source))) return "no-source";
 
   const env = input.env ?? process.env;
@@ -52,34 +55,42 @@ export async function ensureBundledTool(
   const executable = stagedToolPath(env, input.tool, platform);
   const destination = path.dirname(executable);
   const sha256 = await hashFile(source);
+
   const identity: ReviewToolIdentity = {
     tool: input.tool,
     platform,
     sha256,
   };
+
   if (installedToolMatches(destination, executable, identity)) return "fresh";
 
   await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+
   return await withInstallLock(destination, async () => {
     if (installedToolMatches(destination, executable, identity)) return "fresh";
     const staging = `${destination}.staging-${process.pid}-${randomBytes(6).toString("hex")}`;
     await rm(staging, { recursive: true, force: true });
     await mkdir(staging, { recursive: true, mode: 0o700 });
+
     try {
       const stagedExecutable = path.join(
         staging,
         executableName(input.tool, platform),
       );
+
       await copyFile(source, stagedExecutable);
+
       if ((await hashFile(stagedExecutable)) !== sha256) {
         throw new Error(
           `The bundled ${input.tool} source changed while Review staged it.`,
         );
       }
+
       await chmod(stagedExecutable, 0o755);
       await writeToolStamp(staging, identity);
       await rm(destination, { recursive: true, force: true });
       await rename(staging, destination);
+
       return "staged";
     } finally {
       await rm(staging, { recursive: true, force: true });
@@ -91,6 +102,7 @@ export async function ensureBundledRustAnalyzer(
   input: { env?: NodeJS.ProcessEnv } = {},
 ): Promise<EnsureBundledToolResult> {
   const env = input.env ?? process.env;
+
   return await ensureBundledTool({
     tool: "rust-analyzer",
     sourcePath: env.DEV_FAST_REVIEW_RUST_ANALYZER,
@@ -118,6 +130,7 @@ async function withInstallLock<T>(
 ): Promise<T> {
   const lockPath = `${destination}.install-lock`;
   const deadline = Date.now() + 120_000;
+
   while (true) {
     try {
       await mkdir(lockPath, { mode: 0o700 });
@@ -128,21 +141,26 @@ async function withInstallLock<T>(
       ) {
         throw error;
       }
+
       const lockAge = await stat(lockPath)
         .then((value) => Date.now() - value.mtimeMs)
         .catch(() => 0);
+
       if (lockAge > 10 * 60_000) {
         await rm(lockPath, { recursive: true, force: true });
         continue;
       }
+
       if (Date.now() >= deadline) {
         throw new Error(
           `Timed out waiting for another Review process to install ${path.basename(destination)}.`,
         );
       }
+
       await delay(100);
     }
   }
+
   try {
     return await operation();
   } finally {
@@ -156,10 +174,12 @@ function installedToolMatches(
   identity: ReviewToolIdentity,
 ): boolean {
   if (!isExecutable(executable)) return false;
+
   try {
     const stamp = parseJsonText(
       fs.readFileSync(path.join(destination, "review-tool.json"), "utf8"),
     );
+
     return (
       isJsonObject(stamp) &&
       stamp.tool === identity.tool &&
@@ -189,6 +209,7 @@ function reviewToolPlatform(): string {
       : process.platform === "linux"
         ? "linux"
         : process.platform;
+
   return `${platform}-${process.arch}`;
 }
 
@@ -199,6 +220,7 @@ function executableName(name: string, platform: string): string {
 function isExecutable(filePath: string): boolean {
   try {
     fs.accessSync(filePath, fs.constants.X_OK);
+
     return true;
   } catch {
     return false;
@@ -207,6 +229,7 @@ function isExecutable(filePath: string): boolean {
 
 async function isExecutableFile(filePath: string): Promise<boolean> {
   const metadata = await stat(filePath).catch(() => undefined);
+
   return Boolean(metadata?.isFile() && isExecutable(filePath));
 }
 
@@ -221,5 +244,6 @@ async function hashFile(filePath: string): Promise<string> {
       },
     }),
   );
+
   return hash.digest("hex");
 }

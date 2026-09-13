@@ -39,6 +39,7 @@ describe("side-peek validation boundary", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
+
         if (url.includes("/code-peek/resolve")) {
           return new Response(
             JSON.stringify({
@@ -48,9 +49,11 @@ describe("side-peek validation boundary", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
+
         if (url.includes("/comments")) {
           return new Response(JSON.stringify({ comments: {} }));
         }
+
         return new Response(JSON.stringify({}));
       }),
     );
@@ -69,19 +72,23 @@ describe("side-peek validation boundary", () => {
     const session = testReviewSession();
     const model = defineSoftwareModel({ systems: {} });
     const validatedRoots: string[] = [];
+
     const definitions = createTestReviewDefinitionSession({
       softwareMap: model,
       resolveCodePeek: async (props) => {
         validatedRoots.push(props.file);
+
         return testCodePeekResolution();
       },
     });
+
     const anchors = definitions.defineAnchors({
       startup: {
         title: "Startup",
         peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
       },
     });
+
     await definitions.ready();
     const container = document.createElement("div");
     document.body.append(container);
@@ -113,9 +120,11 @@ describe("side-peek validation boundary", () => {
     });
 
     const validationCountBeforeOpen = validatedRoots.length;
+
     const link = container.querySelector<HTMLAnchorElement>(
       'a[href="#review-anchor-startup"]',
     );
+
     expect(link).not.toBeNull();
 
     await act(async () => {
@@ -128,11 +137,13 @@ describe("side-peek validation boundary", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(container.querySelector(".code-peek")).not.toBeNull();
     expect(validatedRoots).toHaveLength(validationCountBeforeOpen);
+
     const codePeekFetches = vi
       .mocked(fetch)
       .mock.calls.filter(([input]) =>
         String(input).includes("/code-peek/resolve"),
       );
+
     expect(codePeekFetches).toHaveLength(0);
   });
 });

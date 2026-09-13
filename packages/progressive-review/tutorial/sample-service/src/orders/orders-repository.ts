@@ -17,6 +17,7 @@ export class OrdersRepository {
 
   setStatus(orderId: string, status: OrderStatus): void {
     const order = this.find(orderId);
+
     if (!order) throw new Error(`Order not found: ${orderId}`);
     this.rows.set(orderId, { ...order, status });
   }

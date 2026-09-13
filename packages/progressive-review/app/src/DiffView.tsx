@@ -22,13 +22,17 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
     if (!container) return;
     setError(null);
     let handle: ReviewDiffViewHandle;
+
     try {
       handle = diffViewFactory.create({ container, scope });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
+
       return;
     }
+
     const errorSubscription = handle.onDidError(setError);
+
     return () => {
       errorSubscription.dispose();
       handle.dispose();

@@ -75,6 +75,7 @@ const traceMachineSettingsSchema = z.object({
   verifiedAt: z.string().optional(),
   error: z.string().optional(),
 });
+
 type TraceMachineSettings = z.infer<typeof traceMachineSettingsSchema>;
 
 /** The bucket credentials in the setup flow's field names. */
@@ -83,7 +84,9 @@ export async function readTraceCredentials(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Required<TraceCredentialsInput> | null> {
   const credentials = resolveS3Setup({ homeDir, env }).credentials;
+
   if (!credentials) return null;
+
   return {
     endpoint: credentials.endpoint,
     bucket: credentials.bucket,
@@ -107,7 +110,9 @@ async function readCaptureSettings(
   if (setup.profile?.capture) {
     return { settings: setup.profile.capture, source: "profile" };
   }
+
   const legacy = await readSettings(settingsPath);
+
   return {
     settings: legacy
       ? {
@@ -132,6 +137,7 @@ export async function traceMachineStatus(
   const envPath = traceEnvPath(homeDir, env);
   const settingsPath = traceSettingsPath(homeDir, env);
   const selection = selectTraceStorage({ homeDir, env });
+
   if (!selection.s3) {
     return {
       enabled: false,
@@ -144,6 +150,7 @@ export async function traceMachineStatus(
       error: selection.error,
     };
   }
+
   const setup = selection.s3;
   const credentials = setup.credentials;
   const { settings, source } = await readCaptureSettings(setup, settingsPath);
@@ -152,9 +159,12 @@ export async function traceMachineStatus(
   // With hosted selected only the hosted switch decides; a legacy setting
   // left behind by a bucket install never re-enables hosted uploads.
   const hostedSelected = selection.mode === "hosted";
+
   const hosted =
     hostedSelected && hostedCaptureEnabled(selection.config.config);
+
   const s3Enabled = !hostedSelected && settings?.enabled === true;
+
   const status: TraceMachineStatus = {
     enabled: hosted || s3Enabled,
     configured: hostedSelected || credentials !== null,
@@ -167,15 +177,20 @@ export async function traceMachineStatus(
     credentialsSource: setup.source,
     captureSource: source,
   };
+
   if (credentials) {
     status.endpoint = credentials.endpoint;
     status.bucket = credentials.bucket;
     status.region = credentials.region;
     status.accessKeyIdPrefix = credentials.accessKeyId.slice(0, 6);
   }
+
   if (settings?.verifiedAt) status.verifiedAt = settings.verifiedAt;
+
   if (settings?.error) status.error = settings.error;
+
   if (selection.error) status.error = selection.error;
+
   return status;
 }
 
@@ -202,17 +217,20 @@ export async function configureTraceMachine(input: {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const existing = await readTraceCredentials(homeDir, env);
+
   const credentials = {
     endpoint: input.credentials?.endpoint ?? existing?.endpoint ?? "",
     bucket: input.credentials?.bucket ?? existing?.bucket ?? "",
     key: input.credentials?.key ?? existing?.key ?? "",
     secret: input.credentials?.secret ?? existing?.secret ?? "",
   };
+
   if (!Object.values(credentials).every(Boolean)) {
     throw new Error(
       "Trace setup needs an S3/R2 endpoint, bucket, access key ID, and secret access key.",
     );
   }
+
   const region =
     input.credentials?.region?.trim() || existing?.region || S3_DEFAULT_REGION;
 
@@ -221,10 +239,13 @@ export async function configureTraceMachine(input: {
   // TRACE_ENV_FILE/TRACE_SETTINGS_FILE name them explicitly, and a new
   // version-2 profile on a machine that has neither.
   const configFile = readTraceConfigFile({ homeDir, env });
+
   if (configFile.error) throw new TraceConfigurationError(configFile.error);
   const envPath = traceEnvPath(homeDir, env);
+
   const legacyPathsRequested =
     env.TRACE_ENV_FILE !== undefined || env.TRACE_SETTINGS_FILE !== undefined;
+
   const target: "profile" | "legacy" =
     configFile.config?.stores?.s3 ||
     (!existsSync(envPath) && !legacyPathsRequested)
@@ -251,6 +272,7 @@ export async function configureTraceMachine(input: {
 
   let error: string | undefined;
   let verifiedAt: string | undefined;
+
   if (input.verify !== false) {
     if (env.TRACE_R2_MODE === "mock") {
       verifiedAt = new Date().toISOString();
@@ -265,6 +287,7 @@ export async function configureTraceMachine(input: {
         },
         env,
       ).doctor();
+
       if (doctor.reachable) {
         verifiedAt = new Date().toISOString();
       } else {
@@ -279,7 +302,9 @@ export async function configureTraceMachine(input: {
       enabled: true,
       autoActivateRepositories: true,
     };
+
     if (verifiedAt) settings.verifiedAt = verifiedAt;
+
     if (error) settings.error = error;
     await writeSettings(traceSettingsPath(homeDir, env), settings);
   } else {
@@ -287,8 +312,11 @@ export async function configureTraceMachine(input: {
       enabled: true,
       autoActivateRepositories: true,
     };
+
     if (verifiedAt) capture.verifiedAt = verifiedAt;
+
     if (error) capture.error = error;
+
     const profile: S3Profile = {
       endpoint: credentials.endpoint,
       bucket: credentials.bucket,
@@ -297,9 +325,11 @@ export async function configureTraceMachine(input: {
       region,
       capture,
     };
+
     await writeS3Profile(configFile, profile);
     clearTraceEnvCache();
   }
+
   return traceMachineStatus({ homeDir, env });
 }
 
@@ -330,7 +360,9 @@ export async function disableTraceMachine(
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const configFile = readTraceConfigFile({ homeDir, env });
+
   if (configFile.error) throw new TraceConfigurationError(configFile.error);
+
   if (selectTraceStorage({ homeDir, env }).mode === "hosted") {
     // The hosted store gets its own switch; consent is left intact.
     const current = configFile.config ?? emptyTraceConfig();
@@ -341,22 +373,30 @@ export async function disableTraceMachine(
         hosted: { ...current.stores?.hosted, capture: { enabled: false } },
       },
     });
+
     return;
   }
+
   const profile = configFile.config?.stores?.s3;
+
   if (profile?.capture) {
     // Credentials stay; only capture turns off.
     await writeS3Profile(configFile, {
       ...profile,
       capture: { ...profile.capture, enabled: false },
     });
+
     return;
   }
+
   const settingsPath = traceSettingsPath(homeDir, env);
+
   if (input.removeSettings) {
     await rm(settingsPath, { force: true });
+
     return;
   }
+
   await writeSettings(settingsPath, {
     version: 1,
     enabled: false,
@@ -369,13 +409,18 @@ export async function readLegacyCaptureSettings(
   filePath: string,
 ): Promise<S3CaptureSettings | null> {
   const legacy = await readSettings(filePath);
+
   if (!legacy) return null;
+
   const capture: S3CaptureSettings = {
     enabled: legacy.enabled,
     autoActivateRepositories: legacy.autoActivateRepositories,
   };
+
   if (legacy.verifiedAt) capture.verifiedAt = legacy.verifiedAt;
+
   if (legacy.error) capture.error = legacy.error;
+
   return capture;
 }
 
@@ -386,6 +431,7 @@ async function readSettings(
     const parsed = traceMachineSettingsSchema.safeParse(
       parseJsonText(await readFile(filePath, "utf8")),
     );
+
     return parsed.success ? parsed.data : null;
   } catch {
     return null;

@@ -342,6 +342,7 @@ describe("collectSoftwareMapCoverageErrors", () => {
         },
       },
     });
+
     const input = {
       rootPath: "/repo",
       model,
@@ -366,6 +367,7 @@ describe("collectSoftwareMapCoverageErrors", () => {
         },
       },
     });
+
     const input = {
       rootPath: "/repo",
       model,
@@ -499,6 +501,7 @@ function commandExists(command: string): boolean {
     execFileSync(command, ["--version"], {
       stdio: ["ignore", "ignore", "ignore"],
     });
+
     return true;
   } catch {
     return false;

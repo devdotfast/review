@@ -32,11 +32,13 @@ export async function createReviewSourceAgentSession(input: {
       createClaudeReviewSourceSession(input),
     );
   }
+
   if (input.agent.harness === "pi") {
     return span("fork session: pi --fork", () =>
       createPiReviewSourceSession(input),
     );
   }
+
   if (input.agent.harness === "opencode") {
     return {
       harness: "opencode",
@@ -46,6 +48,7 @@ export async function createReviewSourceAgentSession(input: {
       }),
     };
   }
+
   return {
     harness: "codex",
     sessionId: await span("fork session: codex thread/fork", () =>
@@ -71,31 +74,42 @@ async function createClaudeReviewSourceSession(input: {
   const sessionId = randomUUID();
   const promptId = randomUUID();
   const source = await readFile(sourcePath, "utf8");
+
   const records = source
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => {
       const record = parseJsonText(line);
+
       if (!isJsonObject(record)) {
         throw new Error(
           `Claude transcript ${sourcePath} has a non-object line.`,
         );
       }
+
       return record;
     });
+
   const fork = records.map((record) => {
     const forked: JsonObject = { ...record };
+
     if (record.sessionId !== undefined) forked.sessionId = sessionId;
+
     if (record.session_id !== undefined) forked.session_id = sessionId;
+
     if (record.cwd !== undefined) forked.cwd = input.rootPath;
+
     if (record.promptId !== undefined) forked.promptId = promptId;
+
     return forked;
   });
+
   await writeFile(
     join(dirname(sourcePath), `${sessionId}.jsonl`),
     `${fork.map((record) => JSON.stringify(record)).join("\n")}\n`,
     { encoding: "utf8", flag: "wx" },
   );
+
   return { harness: "claude-code", sessionId };
 }
 
@@ -113,11 +127,13 @@ function runPiProcess(
       cwd: options.cwd,
       stdio: ["ignore", "ignore", "pipe"],
     });
+
     let stderr = "";
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
     });
+
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(
@@ -126,16 +142,20 @@ function runPiProcess(
         }),
       );
     }, options.timeout);
+
     child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);
     });
     child.on("exit", (code) => {
       clearTimeout(timer);
+
       if (code === 0) {
         resolve();
+
         return;
       }
+
       reject(
         Object.assign(new Error(`Command failed: pi ${args.join(" ")}`), {
           stderr,
@@ -152,6 +172,7 @@ async function createPiReviewSourceSession(input: {
   rootPath: string;
 }): Promise<SessionRef> {
   const sessionId = randomUUID();
+
   try {
     await runPiProcess(
       [
@@ -182,6 +203,7 @@ async function createPiReviewSourceSession(input: {
       { cause: error },
     );
   }
+
   return { harness: "pi", sessionId };
 }
 
@@ -189,7 +211,9 @@ async function createPiReviewSourceSession(input: {
 function commandFailure(cause: unknown): string {
   if (cause instanceof Error && "stderr" in cause) {
     const stderr = String(cause.stderr).trim();
+
     if (stderr) return stderr;
   }
+
   return errorMessage(cause);
 }

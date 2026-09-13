@@ -11,10 +11,12 @@ export function useComments(): [
   ReviewCommentStoreSnapshot,
 ] {
   const store = useReviewSession().bridge.comments;
+
   const snapshot = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getSnapshot,
   );
+
   return [store, snapshot];
 }

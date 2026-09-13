@@ -20,10 +20,12 @@ describe("source range resolver", () => {
 
   it("reads and tokenizes an exact range", async () => {
     const root = createFixture();
+
     const snapshot = await resolveReviewSourceRange({
       rootPath: root,
       root: { kind: "range", file: "src/example.ts", fromLine: 2, toLine: 3 },
     });
+
     const source = snapshot.resolved[snapshot.roots[0]!.sourceId];
 
     expect(source?.source).toMatchObject({
@@ -61,6 +63,7 @@ describe("source range resolver", () => {
       path.join(root, "src", "example.ts"),
       ["// header", "export const answer = 42;", "answer += 1;"].join("\n"),
     );
+
     return root;
   }
 });

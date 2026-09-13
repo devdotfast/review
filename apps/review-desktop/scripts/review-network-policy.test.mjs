@@ -50,6 +50,7 @@ test("allows local Review resources and non-service protocols", () => {
   ]) {
     assert.equal(blockedReviewRequestReason(url), undefined, url);
   }
+
   assert.doesNotThrow(() =>
     assertNoBlockedReviewRequests([
       "http://localhost:3000/api/review",
@@ -71,6 +72,7 @@ test("reports each blocked request once", () => {
         error.message.match(/mobile\.events\.data\.microsoft\.com/g)?.length,
         2,
       );
+
       return true;
     },
   );

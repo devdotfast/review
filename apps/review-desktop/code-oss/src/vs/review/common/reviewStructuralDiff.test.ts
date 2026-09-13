@@ -13,7 +13,6 @@ import {
   bandDetail,
   structuralCountsTooltip,
   structuralInitialCounts,
-  structuralVisibleCounts,
   structuralHighlights,
   structuralRows,
   utf16Column,
@@ -159,7 +158,7 @@ test("Tree-sitter byte offsets convert to Monaco UTF-16 columns", () => {
   assert.throws(() => utf16Column("a😀éz", 2), /UTF-8 boundary/);
 });
 
-test("header counts follow what is visible: collapsed regions hide their changed lines", () => {
+test("header counts are the wire's and never change with fold state", () => {
   const span = (line: number) => ({ line, start_column: 0, end_column: 1 });
   const body = fold(3, [leaf(4, 2, 3), leaf(5, 3, 5, { changed: [span(3), span(4)] }), leaf(6, 5, 6)]);
   const diff: StructuralTextDiff = {
@@ -173,15 +172,11 @@ test("header counts follow what is visible: collapsed regions hide their changed
     () => structuralInitialCounts({ ...diff, stats: { textual: diff.stats.textual } as StructuralTextDiff["stats"] }),
     /without visible counts/,
   );
-  const open = structuralVisibleCounts(diff, () => false);
-  assert.deepEqual(open.visible, { added: 3, removed: 3 });
-  // Fold state spans sides: collapsing the paired body hides its changed lines on both.
-  const folded = structuralVisibleCounts(diff, (id) => id === 3);
-  assert.deepEqual(folded.visible, { added: 1, removed: 1 });
-  assert.equal(structuralCountsTooltip(folded), "visible +1 −1\ntextual +3 −1");
+  const counts = structuralInitialCounts(diff);
+  assert.equal(structuralCountsTooltip(counts), "visible +1 −3\ntextual +3 −1");
   assert.equal(
-    structuralCountsTooltip({ ...folded, fallback: { code: "unsupported_language", message: "no grammar" } }),
-    "visible +1 −1\ntextual +3 −1\nline diff: unsupported_language",
+    structuralCountsTooltip({ ...counts, fallback: { code: "unsupported_language", message: "no grammar" } }),
+    "visible +1 −3\ntextual +3 −1\nline diff: unsupported_language",
   );
 });
 

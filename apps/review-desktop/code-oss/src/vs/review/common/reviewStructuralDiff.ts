@@ -367,46 +367,10 @@ export interface StructuralFileCounts {
   fallback?: StructuralProblem;
 }
 
-function visibleChangedLines(
-  source: StructuralSource | undefined,
-  isCollapsed: (foldStateId: number) => boolean,
-): number {
-  if (!source) return 0;
-  const changed = new Set<number>();
-  for (const leaf of structuralLeaves(source.regions)) {
-    if (leaf.kind !== "leaf") continue;
-    for (const span of leaf.changed ?? []) changed.add(span.line);
-  }
-  for (const region of collapsedRegions(source.regions, isCollapsed)) {
-    const hidden = hiddenLinesOf(region);
-    for (let line = hidden.start; line < hidden.end; line++) changed.delete(line);
-  }
-  return changed.size;
-}
-
-/** The wire's counts as a file arrives: its own `visible` is the headline. */
+/** The file's counts, straight from the wire. Folding never changes them. */
 export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFileCounts {
   if (!diff.stats.visible) throw new Error("diffr sent stats without visible counts.");
   return { visible: diff.stats.visible, textual: diff.stats.textual, fallback: diff.stats.fallback };
-}
-
-/**
- * Changed lines that are not hidden inside a collapsed region, per side,
- * recomputed locally once the reader toggles folds. `isCollapsed` answers for
- * a fold-state id, which may span sides.
- */
-export function structuralVisibleCounts(
-  diff: StructuralTextDiff,
-  isCollapsed: (foldStateId: number) => boolean,
-): StructuralFileCounts {
-  return {
-    visible: {
-      added: visibleChangedLines(diff.rhs, isCollapsed),
-      removed: visibleChangedLines(diff.lhs, isCollapsed),
-    },
-    textual: diff.stats.textual,
-    fallback: diff.stats.fallback,
-  };
 }
 
 export function structuralCountsTooltip(counts: StructuralFileCounts): string {

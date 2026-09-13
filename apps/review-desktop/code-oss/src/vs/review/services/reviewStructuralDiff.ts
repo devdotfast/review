@@ -25,7 +25,6 @@ import {
   structuralContextGaps,
   structuralFilePath,
   structuralInitialCounts,
-  structuralVisibleCounts,
   structuralRows,
   structuralHighlights,
   STRUCTURAL_WIRE_VERSION,
@@ -75,16 +74,11 @@ export async function prepareStructuralReview(
   const collapsed = new Map<string, boolean>();
   const collapseKey = (path: string, foldStateId: number) => `${path}:${foldStateId}`;
   const countsChanged = lifetime.add(new Emitter<{ path: string; counts: StructuralFileCounts }>());
-  // The wire's own visible counts are the headline on arrival; toggling a fold recomputes locally.
-  const emitCounts = (path: string, initial = false) => {
+  // Counts are the wire's, read once when a file arrives; folding never changes them.
+  const emitCounts = (path: string) => {
     const diff = files.get(path);
     if (!diff) return;
-    countsChanged.fire({
-      path,
-      counts: initial
-        ? structuralInitialCounts(diff)
-        : structuralVisibleCounts(diff, (id) => collapsed.get(collapseKey(path, id)) === true),
-    });
+    countsChanged.fire({ path, counts: structuralInitialCounts(diff) });
   };
   // Use pinned checkout resources so native language providers see real project files.
   // Revision-only resources retain their virtual snapshot identity.
@@ -137,7 +131,7 @@ export async function prepareStructuralReview(
       }
     } else binary.add(path);
     changed.fire();
-    emitCounts(path, true);
+    emitCounts(path);
     return { path, stats: diff.type === "text" ? diff.stats.textual : undefined };
   }
   async function load(
@@ -284,7 +278,6 @@ export async function prepareStructuralReview(
     set: (path, id, value) => {
       if (collapsed.get(collapseKey(path, id)) === value) return;
       collapsed.set(collapseKey(path, id), value);
-      emitCounts(path);
       providerChanged.fire();
     },
   });

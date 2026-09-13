@@ -23,11 +23,16 @@ async function executable(script: string) {
   return root;
 }
 
+const START =
+  '{"type":"start","version":3,"lhs":{"type":"revision","rev":"base"},"rhs":{"type":"revision","rev":"head"},"files":[]}';
+const FILE =
+  '{"lhs":{"path":"a.ts","oid":"1","mode":"100644"},"rhs":{"path":"a.ts","oid":"2","mode":"100644"}}';
+
 test("reads chunked NDJSON and sends Review's merge-base comparison as one argument", async () => {
   const root = await executable(`
-    process.stdout.write('{"type":"start","version":1}\\n{"type":"fi');
+    process.stdout.write('${START}\\n{"type":"fi');
     setTimeout(() => {
-      process.stdout.write('le","args":' + JSON.stringify(process.argv.slice(2)) + '}\\n');
+      process.stdout.write('le","file":${FILE},"args":' + JSON.stringify(process.argv.slice(2)) + '}\\n');
       process.stdout.write('{"type":"complete","succeeded":1,"failed":0}\\n');
     }, 5);
   `);
@@ -37,7 +42,7 @@ test("reads chunked NDJSON and sends Review's merge-base comparison as one argum
     headRef: "head",
     paths: ["space name.ts"],
   });
-  expect(result.events[1]).toEqual({
+  expect(result.events[1]).toMatchObject({
     type: "file",
     args: [
       "--repo",
@@ -51,10 +56,17 @@ test("reads chunked NDJSON and sends Review's merge-base comparison as one argum
   });
 });
 
-test("rejects a successful process that truncates its stream", async () => {
+test("rejects an older wire version", async () => {
   const root = await executable(
-    `console.log(JSON.stringify({ type: "start", version: 1 }));`,
+    `console.log('{"type":"start","version":1}\\n{"type":"complete","succeeded":0,"failed":0}');`,
   );
+  await expect(
+    structuralDiff({ rootPath: root, baseRef: "base" }),
+  ).rejects.toThrow("Unsupported diffr stream protocol");
+});
+
+test("rejects a successful process that truncates its stream", async () => {
+  const root = await executable(`console.log('${START}');`);
   await expect(
     structuralDiff({ rootPath: root, baseRef: "base" }),
   ).rejects.toThrow("before completion");
@@ -62,11 +74,35 @@ test("rejects a successful process that truncates its stream", async () => {
 
 test("propagates per-file errors instead of silently showing a different diff", async () => {
   const root = await executable(
-    `console.log('{"type":"start","version":1}\\n{"type":"file_error","message":"parse failed"}');`,
+    `console.log('${START}\\n{"type":"file","file":${FILE},"error":{"code":"parse_error","message":"parse failed"}}');`,
   );
   await expect(
     structuralDiff({ rootPath: root, baseRef: "base" }),
   ).rejects.toThrow("parse failed");
+});
+
+test("an aborted run keeps the files it emitted and reports the abort", async () => {
+  const root = await executable(`
+    console.log('${START}');
+    console.log('{"type":"file","file":${FILE},"diff":{"type":"binary","lhs":{"size":1},"rhs":{"size":2}}}');
+    console.log('{"type":"complete","succeeded":1,"failed":0,"aborted":{"code":"hook_failed","message":"summarizer down"}}');
+    process.exit(2);
+  `);
+  await expect(
+    structuralDiff({ rootPath: root, baseRef: "base" }),
+  ).rejects.toThrow("summarizer down");
+  const forwarded: unknown[] = [];
+  await structuralDiff({
+    rootPath: root,
+    baseRef: "base",
+    onEvent: (event) => forwarded.push(event),
+  });
+  expect(forwarded.map((event) => (event as { type: string }).type)).toEqual([
+    "start",
+    "file",
+    "complete",
+  ]);
+  expect(forwarded[2]).toMatchObject({ aborted: { code: "hook_failed" } });
 });
 
 test("cancellation terminates the subprocess", async () => {
@@ -77,5 +113,5 @@ test("cancellation terminates the subprocess", async () => {
       baseRef: "base",
       signal: AbortSignal.timeout(50),
     }),
-  ).rejects.toThrow();
+  ).rejects.toThrow(/abort|exited/i);
 });

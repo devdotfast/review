@@ -112,6 +112,7 @@ import {
   reviewDesktopDiscoveryPath,
   writePrivateJsonAtomic,
 } from "./desktop-paths";
+import { readDiffrConfig, setDiffrConfigValue } from "./diffr-config";
 import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay";
 import {
   type ReviewHonoEnv,
@@ -747,6 +748,22 @@ export function createGlobalReviewServer(
   app.get("/preferences", async () =>
     globalJson(200, await readReviewPreferences()),
   );
+  // diffr's own configuration, shared with its TUI. The host runs the CLI;
+  // the page only ever sees the schema and the resolved values.
+  app.get("/diffr-config", async () =>
+    globalJson(200, await readDiffrConfig()),
+  );
+  app.put("/diffr-config", async (context) => {
+    const body = await readBoundedRequestJson(context.req.raw);
+    const key = isJsonObject(body)
+      ? jsonString(jsonProperty(body, "key"))
+      : undefined;
+    const value = isJsonObject(body) ? jsonProperty(body, "value") : undefined;
+    if (key === undefined || value === undefined) {
+      throw new ReviewServerError("key and value are required.", 400);
+    }
+    return globalJson(200, await setDiffrConfigValue(key, value));
+  });
   app.put("/preferences", async (context) => {
     const body = await readBoundedRequestJson(context.req.raw);
     const value = isJsonObject(body)

@@ -160,7 +160,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       const store = this._register(new DisposableStore());
       const structural = structuralEnabled
         ? await prepareStructuralReview(this.instantiationService, entries, this.spec.scope, store)
-        : { instantiation: this.instantiationService, entries, enabled: false, load: undefined };
+        : { instantiation: this.instantiationService, entries, enabled: false, load: undefined, onDidChangeCounts: undefined };
       if (this.disposed) return;
       // The input owns the text-model references its view model resolves, so
       // this handle disposes it alongside the view.
@@ -189,9 +189,22 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       if (this.disposed) return;
       this.bindActiveControl(view);
       if (structural.load) {
-        void structural.load((path, error) => {
-          if (!this.disposed) view.fileLoaded(path, error);
-        }).catch(error => {
+        store.add(structural.onDidChangeCounts(({ path, counts }) => {
+          if (!this.disposed) view.fileCounts(path, counts);
+        }));
+        void structural.load(
+          (path, outcome) => {
+            if (!this.disposed) view.fileLoaded(path, outcome.error, outcome.stats);
+          },
+          (files) => {
+            if (this.disposed) return;
+            const hidden = new Map<string, string>();
+            for (const file of files) {
+              if (file.visibility?.collapsed) hidden.set(file.file.rhs?.path ?? file.file.lhs?.path ?? "", file.visibility.label ?? "Hidden by default");
+            }
+            view.setHiddenFiles(hidden);
+          },
+        ).catch(error => {
           if (!this.disposed) view.loadingFailed(error instanceof Error ? error.message : String(error));
         });
       }

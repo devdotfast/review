@@ -21,74 +21,98 @@ REVIEW_DIFFR_BINARY=/absolute/path/to/diffr \
 Use the same `DEV_REVIEW_HOME` with this checkout's `review` CLI when opening a
 Review in this isolated app.
 
+## The wire
+
+Review reads diffr's v3 NDJSON stream: a `start` header carrying the file
+manifest, one `file` record per changed file in completion order, and a
+`complete` footer. Every record is internally tagged with `type`; optional
+fields are omitted rather than null. A pairing of sides serializes by
+presence: `{lhs, rhs}`, `{lhs}` for a deletion, `{rhs}` for an addition.
+
+A text diff carries each side's full `text` and a tree of `regions`. Leaves
+tile the file in order; a region with children is a fold whose range is the
+hull of its children. Each region carries two identities that are never
+interchangeable: the same `alignment_id` on both sides marks a visual pair,
+one-to-one, and keys the row zip; regions sharing a `fold_state_id` open and
+close together on either side, and it keys collapse state. For an ordinary
+region they are equal; a paired region shares its fold state across sides. Every region has a `visibility` with
+`collapsed` and a `label`; a collapsed leaf is a context gap, a collapsed fold
+is a folded body, and the label is what shows while collapsed (a placeholder,
+or the pseudocode a summarizer wrote). Leaves carry `changed` byte spans for
+within-line change paint. `stats` has `textual` line counts, `visible` counts under the
+initial fold state, and a `fallback` error when the AST match did not run. Lines are 0-based and split on `\n`; columns are byte offsets into the
+wire text; ranges are half-open.
+
+The reader is `common/reviewStructuralDiff.ts`; the host side is
+`packages/progressive-review/src/server/structural-diff.ts`.
+
 ## Implemented
 
-- Review invokes the CLI for its resolved repository comparison and reads v1
-  NDJSON from stdout. Nonzero exit, cancellation, incomplete streams and
-  per-file errors are surfaced. The executable is host configuration.
+- The host invokes the CLI for Review's resolved comparison and forwards the
+  stream. Nonzero exit, cancellation, incomplete streams, per-file errors and
+  a `complete` that carries `aborted` are surfaced. The executable is host
+  configuration.
 - Native Monaco models display the exact source snapshots carried by the wire.
   Base/head comparisons use pinned file URIs so existing language services can
   attach. Revision-only virtual resources retain their existing language-service
   limitations. The sidebar uses ReviewChangedFilesTree (the native Workbench tree).
-- Complete `aligned_rows` from the TUI wire drives split alignment when supplied;
-  older wire continues to use hunk pairings. Folding hides source rows;
-  wrapping and external editor view zones contribute height; only unequal
-  segments create alignment spacers. The diff is not recomputed on folding.
-- Whole-line fold controls use the supplied fold ranges. Paired ranges share
-  collapse state. Unified view filters folded original lines out of its deleted
-  code view zones, and restores them on expansion.
-- Review's native language tokenization and theme color the source rows. Change paint uses
-  the hunks’ `novel_lhs` / `novel_rhs` lists for light whole-line backgrounds and
-  `Novel` / `NovelWord` spans for darker token highlights in both layouts. Textual
-  replacement groups control layout but never imply red/green backgrounds.
-- Unchanged tokens stay neutral regardless of their position or indentation.
-- Only `hunks[].lines` are initially visible. Omitted source ranges use native
-  expandable context gaps; full models remain intact for language services.
-  Structural folds within the visible hunks initially expand. Fold state survives split/unified switches
-  while the Files view remains mounted.
+- Split alignment is the zip of both sides' leaves by `alignment_id`: paired leaves pair
+  line for line, unpaired leaves pad the other side, and a paired leaf whose
+  partner already went by is a move, shown one-sided for now. Folding hides
+  source rows; wrapping and external editor view zones contribute height; only
+  unequal segments create alignment spacers. The diff is not recomputed on folding.
+- Every region the wire marks collapsed is a diff-editor hidden-region band,
+  the same full-width `⌃ … ⌄` control the diff editor draws for unchanged
+  code, supplied to the diff model as labelled context gaps instead of
+  computed by Monaco. A fold keeps its first line (the signature) visible and
+  hides the rest; a leaf hides every line. A region paired by `alignment_id` and
+  collapsed is one band on both sides; a region collapsed on one side only is a band there
+  and an alignment spacer on the other. Native folding is off in the
+  structural editor, so bands are the only thing hiding lines.
+- The band's title is the region's label ("142 unchanged lines", "test
+  module", "5 test bodies", "59 lines removed"). A multi-line label, the
+  pseudocode summary, opens the band to show the whole text under its first
+  line in monospace. Revealing a band with its arrows or by double-click marks
+  its `fold_state_id` open, so every region sharing it opens on both sides, and
+  the visible counts follow.
+- Review's native language tokenization and theme color the source rows. Change
+  paint uses each leaf's `changed` spans: any line with a span gets the light
+  whole-line background, and the spans get the darker token highlight in both
+  layouts. Text inequality alone never implies red/green backgrounds.
+- Files the manifest marks hidden (generated, tests) start collapsed in the
+  multi-diff list with the reason beside the counts; the header click loads them.
+- Header and tree counts are visible changed lines: the wire's `visible` on
+  arrival, recomputed locally as folds toggle. The file tree pane sums them
+  into a review total with GitHub's five-block bar; hovering a count shows
+  `visible`, `textual`, and `line diff: <code>` when the file fell back. The git-based file list is still fetched first: it resolves the
+  pinned checkout resources the editors open before any diff arrives.
+- Settings → Experimental Features shows diffr's own configuration when
+  structural diffs are on. The host runs `diffr config schema` and `diffr config
+  show --json`, the page renders one row per key with its description and
+  default, and each change runs `diffr config set <key> <value>`. It is the same
+  file the diffr terminal UI edits.
 
 ## Verified
 
-Both native and server TypeScript checks; six alignment/coordinate tests; four
-subprocess protocol tests; native app build. A real two-commit TypeScript fixture
-was opened in the isolated app. Mouse checks cover paired collapse/expansion in
-both layouts, unequal fold lengths, preserved alignment, unchanged toggle
-coordinates, and carrying collapse state between layouts.
+Both native and server TypeScript checks; alignment, folding-model and paint
+tests against hand-written v3 fixtures; subprocess protocol tests including an
+aborted run; diffr configuration reads and writes against a stand-in CLI.
 
-## First-pass limits
+## Limits
 
-- Native folding is a whole-line approximation: inline folds and the wire's
-  custom placeholder strings are not yet rendered. Native controls retain the
-  first source line and show the editor's normal collapsed indicator.
-- Fold state is not yet persisted across unmounting the Files view. Defaults
-  do not yet specialize by file class or fold tag.
-- Older wire without `aligned_rows` uses hunk alignment. Omitted gaps
-  are filled positionally for expansion only; use the newer `aligned_rows` wire
-  field for authoritative full-file alignment.
-- The CLI stream is forwarded as NDJSON. The file tree appears before diffs
-  arrive, with loading indicators and per-file errors. Ready files are inserted
-  in tree order without replacing the existing editors; selecting a pending
-  file reveals it when ready. Disposing the review cancels the subprocess.
+- Monaco keeps one folding range per start line and needs ranges to nest, so
+  a fold that begins on its parent's header line yields to the parent, a
+  collapsed gap folds under the nearest free line above it. The wire
+  guarantees a strict tree, so a range set that fails to nest is a wire bug
+  and fails that file rather than silently disabling folding.
+
+- Native folding is a whole-line approximation: inline folds are not rendered.
+- Fold state is not yet persisted across unmounting the Files view.
+- Moves render one-sided; the wire expresses them, the view does not link them yet.
 - Comparisons retain the 64 MiB / 120-second limits and are not yet cached.
+- The stream is forwarded as NDJSON. The file tree appears before diffs arrive,
+  with loading indicators and per-file errors. Ready files are inserted in tree
+  order without replacing the existing editors; selecting a pending file reveals
+  it when ready. Disposing the review cancels the subprocess.
 - This is not a large-file performance benchmark or a complete validation of
-  comments, nested partial folds, Unicode wrapping, added/deleted files, or jj.
-
-## Larger manual exercise
-
-Review PR #108 was loaded at its original comparison commits:
-- Base: `de8ebb1b1fd5786577a68b70c80b0ab8f5bb83b4`
-- Head: `f00d6a8b3cbe1b85f1deddbb9a016450003bb8a3`
-
-This covers 30 files, roughly 30,600 aligned rows, and a 32 MB NDJSON payload.
-Manual checks covered every file-tree entry, split/unified switching, paired
-fold toggles, context expansion, and scrolling between files. Initial visibility
-was also checked against the hunk row sets across all 30 files.
-
-The exercise exposed a renderer-reconnect bug: disposing the disconnect emitter
-inside its first listener suppressed later cleanup, so old IPC channel servers
-kept replaying file-stream chunks after reloads. Cleanup now waits until event
-delivery finishes. After three reloads, the sampled file stream delivered one
-copy and scrolling crossed file boundaries in both layouts.
-
-Structural results now render progressively; the large comparison is still
-useful for exercising files that finish at different times.
+  comments, nested partial folds, Unicode wrapping, or jj.

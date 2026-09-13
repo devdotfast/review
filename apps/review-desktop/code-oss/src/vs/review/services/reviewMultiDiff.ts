@@ -24,6 +24,10 @@ export interface ReviewMultiDiffHeaderEntry {
   readonly modified: URI | undefined;
   readonly additions?: number;
   readonly deletions?: number;
+  /** Why the file starts collapsed, e.g. "Generated file · hidden by default". */
+  readonly note?: string;
+  /** Hover text for the counts: visible, structural and textual rows. */
+  readonly countsTitle?: string;
   readonly onDidOpen?: () => void;
 }
 
@@ -32,6 +36,13 @@ export class ReviewMultiDiffUIElementFactory
 {
   get headerClickToCollapse(): boolean {
     return !this.hideResourceHeader;
+  }
+
+  private readonly headers = new Set<() => void>();
+
+  /** Re-reads every live header's entry, for counts that change without the items changing. */
+  refreshHeaders(): void {
+    for (const refresh of this.headers) refresh();
   }
 
   constructor(
@@ -99,6 +110,9 @@ export class ReviewMultiDiffUIElementFactory
     counts.className = "review-multidiff-counts";
     counts.append(additions, deletions);
     element.append(counts);
+    const note = ownerDocument.createElement("span");
+    note.className = "review-multidiff-note";
+    element.append(note);
 
     const openContainer = ownerDocument.createElement("span");
     openContainer.className = "review-multidiff-open-container";
@@ -111,10 +125,13 @@ export class ReviewMultiDiffUIElementFactory
     open.label = `$(${Codicon.goToFile.id}) Open file`;
     open.element.classList.add("review-multidiff-open");
     let current: ReviewMultiDiffHeaderEntry | undefined;
+    let lastUris: Parameters<IResourceHeaderMetadata["setUris"]>[0];
     const openListener = open.onDidClick(() => current?.onDidOpen?.());
+    const refresh = () => setUris(lastUris);
+    this.headers.add(refresh);
 
-    return {
-      setUris: (uris) => {
+    const setUris: IResourceHeaderMetadata["setUris"] = (uris) => {
+        lastUris = uris;
         current = uris
           ? this.entries().find(
               (entry) =>
@@ -135,9 +152,15 @@ export class ReviewMultiDiffUIElementFactory
             `${current.additions} lines added, ${current.deletions} lines removed`,
           );
         }
+        counts.title = current.countsTitle ?? "";
+        note.hidden = !current.note;
+        note.textContent = current.note ?? "";
         openContainer.hidden = !current.onDidOpen;
-      },
-      dispose() {
+    };
+    return {
+      setUris,
+      dispose: () => {
+        this.headers.delete(refresh);
         openListener.dispose();
         open.dispose();
         element.replaceChildren();

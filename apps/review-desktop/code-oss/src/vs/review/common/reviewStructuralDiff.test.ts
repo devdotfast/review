@@ -208,3 +208,17 @@ test("a band's detail drops diffr's pseudocode marker line and keeps one-line la
   assert.equal(bandDetail("first\nsecond"), "first\nsecond");
   assert.equal(bandDetail("19 lines removed"), "");
 });
+
+test("a one-sided band also hides the opposite lines the zip aligned with it", () => {
+  // The lhs fold is unpaired by id, but its body leaf (id 3) pairs with an rhs leaf: the band spans both.
+  const body = fold(2, [leaf(3, 0, 1), leaf(4, 1, 6)], ["body", "function"]);
+  body.visibility = { collapsed: true, label: "5 lines removed" };
+  const rhsHead = leaf(3, 0, 1), rhsBody = leaf(4, 1, 6);
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `l${i}`);
+  const diff: StructuralTextDiff = { type: "text", stats, lhs: text(lines(6), [body]), rhs: text(lines(6), [rhsHead, rhsBody]) };
+  const [gap] = structuralContextGaps(diff, (side, id) => side === 0 && id === 2);
+  assert.deepEqual(gap, {
+    originalStart: 2, originalCount: 5, modifiedStart: 2, modifiedCount: 5,
+    label: "5 lines removed", kind: "removed", collapsed: true, ids: { lhs: 2 },
+  });
+});

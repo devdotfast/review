@@ -329,12 +329,21 @@ export function bandHeightPx(label: string | undefined, lineHeight: number): num
 	return 24 + (lines > 0 ? lines * lineHeight + 12 : 0);
 }
 
+/** The reveal tooltip names what the band hides. */
+export function showTitle(kind: 'unchanged' | 'inserted' | 'removed'): string {
+	switch (kind) {
+		case 'inserted': return localize('showAddedLines', 'Show added lines');
+		case 'removed': return localize('showRemovedLines', 'Show removed lines');
+		default: return localize('showUnchangedRegion', 'Show Unchanged Region');
+	}
+}
+
 class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 	private readonly _nodes = h('div.diff-hidden-lines', [
 		h('div.top@top', { title: localize('diff.hiddenLines.top', 'Click or drag to show more above') }),
 		h('div.center@content', { style: { display: 'flex' } }, [
 			h('div@first', { style: { display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: '0' } },
-				[$('a', { title: localize('showUnchangedRegion', 'Show Unchanged Region'), role: 'button', onclick: () => { this._unchangedRegion.showAll(undefined); } },
+				[$('a', { title: showTitle(this._unchangedRegion.kind), role: 'button', onclick: () => { this._unchangedRegion.showAll(undefined); } },
 					...renderLabelWithIcons('$(unfold)'))]
 			),
 			h('div@others', { style: { display: 'flex', justifyContent: 'center', alignItems: 'center' } }),

@@ -303,6 +303,17 @@ export function structuralContextGaps(
     }
     return side === 0 ? monacoLineCount(diff.rhs) : monacoLineCount(diff.lhs);
   };
+  // The opposite side's lines the zip aligned with a hidden span on one side: the band covers them too,
+  // so both editors shrink together. Rows are monotone, so the aligned lines are contiguous.
+  const alignedOpposite = (side: 0 | 1, hidden: { start: number; end: number }): { start: number; count: number } | undefined => {
+    let first: number | undefined, last: number | undefined;
+    for (const row of rows) {
+      const own = row[side], other = row[side === 0 ? 1 : 0];
+      if (own === null || own < hidden.start || own >= hidden.end || other === null) continue;
+      first ??= other; last = other;
+    }
+    return first === undefined ? undefined : { start: first + 1, count: last! - first + 1 };
+  };
   const lhs = knownRegions(diff.lhs?.regions, (id) => state(0, id));
   const rhs = knownRegions(diff.rhs?.regions, (id) => state(1, id));
   const rhsById = new Map(rhs.map((entry) => [entry.region.id, entry]));
@@ -325,9 +336,10 @@ export function structuralContextGaps(
       continue;
     }
     const row = rowOfLeft.get(hidden.start) ?? rows.length;
+    const opposite = alignedOpposite(0, hidden);
     gaps.push({
       originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
-      modifiedStart: nextOpposite(row, 0) + 1, modifiedCount: 0,
+      modifiedStart: opposite ? opposite.start : nextOpposite(row, 0) + 1, modifiedCount: opposite ? opposite.count : 0,
       label: left.visibility?.label || "", kind: "removed", collapsed, ids: { lhs: left.id },
     });
   }
@@ -335,8 +347,9 @@ export function structuralContextGaps(
     if (usedRhs.has(right.id)) continue;
     const hidden = hiddenLinesOf(right);
     const row = rowOfRight.get(hidden.start) ?? rows.length;
+    const opposite = alignedOpposite(1, hidden);
     gaps.push({
-      originalStart: nextOpposite(row, 1) + 1, originalCount: 0,
+      originalStart: opposite ? opposite.start : nextOpposite(row, 1) + 1, originalCount: opposite ? opposite.count : 0,
       modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
       label: right.visibility?.label || "", kind: "inserted", collapsed, ids: { rhs: right.id },
     });

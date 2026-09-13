@@ -10,7 +10,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 /** The diffr wire version this host reads. Changes within it are additive. */
-export const STRUCTURAL_DIFF_WIRE_VERSION = 2;
+export const STRUCTURAL_DIFF_WIRE_VERSION = 3;
 
 /** The one error shape diffr uses for file failures, aborts and fallbacks. */
 export interface StructuralProblem {

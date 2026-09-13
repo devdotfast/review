@@ -9,7 +9,7 @@
  * are half-open. Sides are `lhs` (base) and `rhs` (head), and a pairing
  * carries whichever sides exist.
  */
-export const STRUCTURAL_WIRE_VERSION = 2;
+export const STRUCTURAL_WIRE_VERSION = 3;
 
 export interface StructuralPairing<T> {
   lhs?: T;
@@ -33,12 +33,15 @@ export interface StructuralVisibility {
   label?: string;
 }
 /**
- * One range on one side. The same `id` on the other side is its
- * counterpart. Leaves tile the file in order; a fold's range is the hull of
- * its children.
+ * One range on one side. `alignment_id` pairs it with its counterpart on the
+ * other side, one-to-one, and keys the row zip. `fold_state_id` groups what
+ * opens and closes together, on either side, and keys collapse state. The
+ * two are never interchangeable. Leaves tile the file in order; a fold's
+ * range is the hull of its children.
  */
 export type StructuralRegion = {
-  id: number;
+  alignment_id: number;
+  fold_state_id: number;
   start: StructuralPos;
   end: StructuralPos;
   tags?: string[];
@@ -139,10 +142,10 @@ export function structuralRows(diff: StructuralTextDiff): [number | null, number
     const lines = regionLines(leaf);
     for (let line = lines.start; line < lines.end; line++) push(side === 0 ? line : null, side === 1 ? line : null);
   };
-  const rhsIndex = new Map(rhsLeaves.map((leaf, index) => [leaf.id, index] as const));
+  const rhsIndex = new Map(rhsLeaves.map((leaf, index) => [leaf.alignment_id, index] as const));
   let cursor = 0;
   for (const leaf of lhsLeaves) {
-    const partner = rhsIndex.get(leaf.id);
+    const partner = rhsIndex.get(leaf.alignment_id);
     if (partner === undefined || partner < cursor) {
       oneSided(leaf, 0);
       continue;
@@ -220,8 +223,8 @@ export interface StructuralGap {
   kind: "unchanged" | "inserted" | "removed";
   /** False for a region the reader revealed: it stays a band the editor can fold again. */
   collapsed: boolean;
-  /** The region ids this band hides, per side. */
-  ids: { lhs?: number; rhs?: number };
+  /** The fold-state id of the region(s) this band hides; toggling the band toggles it. */
+  foldStateId: number;
 }
 
 /**
@@ -245,10 +248,10 @@ export function hiddenLinesOf(region: StructuralRegion): { start: number; end: n
   return region.kind === "fold" ? { start: lines.start + 1, end: lines.end } : lines;
 }
 
-/** Collapsed regions of one side, outermost first; a collapsed descendant of a collapsed region is subsumed. */
+/** Collapsed regions of one side, outermost first; a collapsed descendant of a collapsed region is subsumed. `isCollapsed` answers for a fold-state id. */
 export function collapsedRegions(
   regions: readonly StructuralRegion[] | undefined,
-  isCollapsed: (id: number) => boolean,
+  isCollapsed: (foldStateId: number) => boolean,
 ): StructuralRegion[] {
   return knownRegions(regions, (id) => (isCollapsed(id) ? true : undefined)).map((r) => r.region);
 }
@@ -260,11 +263,11 @@ export function collapsedRegions(
  */
 export function knownRegions(
   regions: readonly StructuralRegion[] | undefined,
-  state: (id: number) => boolean | undefined,
+  state: (foldStateId: number) => boolean | undefined,
 ): { region: StructuralRegion; collapsed: boolean }[] {
   const result: { region: StructuralRegion; collapsed: boolean }[] = [];
   const walk = (region: StructuralRegion) => {
-    const known = state(region.id);
+    const known = state(region.fold_state_id);
     const hides = hiddenLinesOf(region).end > hiddenLinesOf(region).start;
     if (known === true) {
       if (hides) result.push({ region, collapsed: true });
@@ -286,8 +289,8 @@ export function knownRegions(
  */
 export function structuralContextGaps(
   diff: StructuralTextDiff,
-  isCollapsed: (side: 0 | 1, id: number) => boolean,
-  state: (side: 0 | 1, id: number) => boolean | undefined = (side, id) => (isCollapsed(side, id) ? true : undefined),
+  isCollapsed: (foldStateId: number) => boolean,
+  state: (foldStateId: number) => boolean | undefined = (id) => (isCollapsed(id) ? true : undefined),
 ): StructuralGap[] {
   const rows = structuralRows(diff);
   // First row index for each source line per side, and the opposite line at or after it.
@@ -314,16 +317,19 @@ export function structuralContextGaps(
     }
     return first === undefined ? undefined : { start: first + 1, count: last! - first + 1 };
   };
-  const lhs = knownRegions(diff.lhs?.regions, (id) => state(0, id));
-  const rhs = knownRegions(diff.rhs?.regions, (id) => state(1, id));
-  const rhsById = new Map(rhs.map((entry) => [entry.region.id, entry]));
+  const lhs = knownRegions(diff.lhs?.regions, state);
+  const rhs = knownRegions(diff.rhs?.regions, state);
+  // Pairing is alignment; the state a band toggles is fold state.
+  const rhsById = new Map(rhs.map((entry) => [entry.region.alignment_id, entry]));
   const usedRhs = new Set<number>();
   const gaps: StructuralGap[] = [];
   for (const { region: left, collapsed } of lhs) {
     const hidden = hiddenLinesOf(left);
-    const partner = rhsById.get(left.id);
+    const partner = rhsById.get(left.alignment_id);
     if (partner) {
-      usedRhs.add(left.id);
+      if (partner.region.fold_state_id !== left.fold_state_id)
+        throw new Error(`diffr paired regions ${left.alignment_id} with different fold states.`);
+      usedRhs.add(left.alignment_id);
       const right = hiddenLinesOf(partner.region);
       gaps.push({
         originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
@@ -331,7 +337,7 @@ export function structuralContextGaps(
         label: partner.region.visibility?.label || left.visibility?.label || "",
         kind: "unchanged",
         collapsed: collapsed && partner.collapsed,
-        ids: { lhs: left.id, rhs: partner.region.id },
+        foldStateId: left.fold_state_id,
       });
       continue;
     }
@@ -340,18 +346,18 @@ export function structuralContextGaps(
     gaps.push({
       originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
       modifiedStart: opposite ? opposite.start : nextOpposite(row, 0) + 1, modifiedCount: opposite ? opposite.count : 0,
-      label: left.visibility?.label || "", kind: "removed", collapsed, ids: { lhs: left.id },
+      label: left.visibility?.label || "", kind: "removed", collapsed, foldStateId: left.fold_state_id,
     });
   }
   for (const { region: right, collapsed } of rhs) {
-    if (usedRhs.has(right.id)) continue;
+    if (usedRhs.has(right.alignment_id)) continue;
     const hidden = hiddenLinesOf(right);
     const row = rowOfRight.get(hidden.start) ?? rows.length;
     const opposite = alignedOpposite(1, hidden);
     gaps.push({
       originalStart: opposite ? opposite.start : nextOpposite(row, 1) + 1, originalCount: opposite ? opposite.count : 0,
       modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
-      label: right.visibility?.label || "", kind: "inserted", collapsed, ids: { rhs: right.id },
+      label: right.visibility?.label || "", kind: "inserted", collapsed, foldStateId: right.fold_state_id,
     });
   }
   gaps.sort((a, b) => (a.modifiedStart - b.modifiedStart) || (a.originalStart - b.originalStart));
@@ -370,7 +376,7 @@ export interface StructuralFileCounts {
 
 function visibleChangedLines(
   source: StructuralSource | undefined,
-  isCollapsed: (id: number) => boolean,
+  isCollapsed: (foldStateId: number) => boolean,
 ): number {
   if (!source) return 0;
   const changed = new Set<number>();
@@ -394,16 +400,16 @@ export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFil
 /**
  * Changed lines that are not hidden inside a collapsed region, per side,
  * recomputed locally once the reader toggles folds. `isCollapsed` answers for
- * the region id on the given side.
+ * a fold-state id, which may span sides.
  */
 export function structuralVisibleCounts(
   diff: StructuralTextDiff,
-  isCollapsed: (side: 0 | 1, id: number) => boolean,
+  isCollapsed: (foldStateId: number) => boolean,
 ): StructuralFileCounts {
   return {
     visible: {
-      added: visibleChangedLines(diff.rhs, (id) => isCollapsed(1, id)),
-      removed: visibleChangedLines(diff.lhs, (id) => isCollapsed(0, id)),
+      added: visibleChangedLines(diff.rhs, isCollapsed),
+      removed: visibleChangedLines(diff.lhs, isCollapsed),
     },
     textual: diff.stats.textual,
     fallback: diff.stats.fallback,

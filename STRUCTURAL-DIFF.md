@@ -23,7 +23,7 @@ Review in this isolated app.
 
 ## The wire
 
-Review reads diffr's v2 NDJSON stream: a `start` header carrying the file
+Review reads diffr's v3 NDJSON stream: a `start` header carrying the file
 manifest, one `file` record per changed file in completion order, and a
 `complete` footer. Every record is internally tagged with `type`; optional
 fields are omitted rather than null. A pairing of sides serializes by
@@ -31,8 +31,11 @@ presence: `{lhs, rhs}`, `{lhs}` for a deletion, `{rhs}` for an addition.
 
 A text diff carries each side's full `text` and a tree of `regions`. Leaves
 tile the file in order; a region with children is a fold whose range is the
-hull of its children. The same region `id` on both sides marks a pair, so
-pairing needs no cross-references. Every region has a `visibility` with
+hull of its children. Each region carries two identities that are never
+interchangeable: the same `alignment_id` on both sides marks a visual pair,
+one-to-one, and keys the row zip; regions sharing a `fold_state_id` open and
+close together on either side, and it keys collapse state. For an ordinary
+region they are equal; a paired region shares its fold state across sides. Every region has a `visibility` with
 `collapsed` and a `label`; a collapsed leaf is a context gap, a collapsed fold
 is a folded body, and the label is what shows while collapsed (a placeholder,
 or the pseudocode a summarizer wrote). Leaves carry `changed` byte spans for
@@ -53,7 +56,7 @@ The reader is `common/reviewStructuralDiff.ts`; the host side is
   Base/head comparisons use pinned file URIs so existing language services can
   attach. Revision-only virtual resources retain their existing language-service
   limitations. The sidebar uses ReviewChangedFilesTree (the native Workbench tree).
-- Split alignment is the zip of both sides' leaves by id: paired leaves pair
+- Split alignment is the zip of both sides' leaves by `alignment_id`: paired leaves pair
   line for line, unpaired leaves pad the other side, and a paired leaf whose
   partner already went by is a move, shown one-sided for now. Folding hides
   source rows; wrapping and external editor view zones contribute height; only
@@ -62,15 +65,16 @@ The reader is `common/reviewStructuralDiff.ts`; the host side is
   the same full-width `⌃ … ⌄` control the diff editor draws for unchanged
   code, supplied to the diff model as labelled context gaps instead of
   computed by Monaco. A fold keeps its first line (the signature) visible and
-  hides the rest; a leaf hides every line. Regions collapsed under one id on
-  both sides are one band; a region collapsed on one side only is a band there
+  hides the rest; a leaf hides every line. A region paired by `alignment_id` and
+  collapsed is one band on both sides; a region collapsed on one side only is a band there
   and an alignment spacer on the other. Native folding is off in the
   structural editor, so bands are the only thing hiding lines.
 - The band's title is the region's label ("142 unchanged lines", "test
   module", "5 test bodies", "59 lines removed"). A multi-line label, the
   pseudocode summary, opens the band to show the whole text under its first
   line in monospace. Revealing a band with its arrows or by double-click marks
-  the region open on both sides and the visible counts follow.
+  its `fold_state_id` open, so every region sharing it opens on both sides, and
+  the visible counts follow.
 - Review's native language tokenization and theme color the source rows. Change
   paint uses each leaf's `changed` spans: any line with a span gets the light
   whole-line background, and the spans get the darker token highlight in both
@@ -91,7 +95,7 @@ The reader is `common/reviewStructuralDiff.ts`; the host side is
 ## Verified
 
 Both native and server TypeScript checks; alignment, folding-model and paint
-tests against hand-written v2 fixtures; subprocess protocol tests including an
+tests against hand-written v3 fixtures; subprocess protocol tests including an
 aborted run; diffr configuration reads and writes against a stand-in CLI.
 
 ## Limits

@@ -24,7 +24,7 @@ async function executable(script: string) {
 }
 
 const START =
-  '{"type":"start","version":2,"lhs":{"type":"revision","rev":"base"},"rhs":{"type":"revision","rev":"head"},"files":[]}';
+  '{"type":"start","version":3,"lhs":{"type":"revision","rev":"base"},"rhs":{"type":"revision","rev":"head"},"files":[]}';
 const FILE =
   '{"lhs":{"path":"a.ts","oid":"1","mode":"100644"},"rhs":{"path":"a.ts","oid":"2","mode":"100644"}}';
 

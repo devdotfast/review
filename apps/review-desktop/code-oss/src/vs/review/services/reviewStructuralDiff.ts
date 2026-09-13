@@ -71,9 +71,9 @@ export async function prepareStructuralReview(
   const files = new Map<string, StructuralTextDiff>();
   const binary = new Set<string>();
   const changed = lifetime.add(new Emitter<void>());
-  /** Collapse state by `${path}:${side}:${region id}`, seeded from the wire's initial visibility. */
+  /** Collapse state by `${path}:${fold_state_id}`, seeded from the wire's initial visibility. A fold-state id spans sides. */
   const collapsed = new Map<string, boolean>();
-  const collapseKey = (path: string, side: 0 | 1, id: number) => `${path}:${side}:${id}`;
+  const collapseKey = (path: string, foldStateId: number) => `${path}:${foldStateId}`;
   const countsChanged = lifetime.add(new Emitter<{ path: string; counts: StructuralFileCounts }>());
   // The wire's own visible counts are the headline on arrival; toggling a fold recomputes locally.
   const emitCounts = (path: string, initial = false) => {
@@ -83,7 +83,7 @@ export async function prepareStructuralReview(
       path,
       counts: initial
         ? structuralInitialCounts(diff)
-        : structuralVisibleCounts(diff, (side, id) => collapsed.get(collapseKey(path, side, id)) === true),
+        : structuralVisibleCounts(diff, (id) => collapsed.get(collapseKey(path, id)) === true),
     });
   };
   // Use pinned checkout resources so native language providers see real project files.
@@ -127,9 +127,9 @@ export async function prepareStructuralReview(
     if (diff.type === "text") {
       structuralInitialCounts(diff);
       files.set(path, diff);
-      for (const [side, source] of [[0, diff.lhs], [1, diff.rhs]] as const) {
+      for (const source of [diff.lhs, diff.rhs]) {
         const seed = (region: StructuralRegion) => {
-          const key = collapseKey(path, side, region.id);
+          const key = collapseKey(path, region.fold_state_id);
           if (!collapsed.has(key)) collapsed.set(key, region.visibility?.collapsed === true);
           if (region.kind === "fold") region.children.forEach(seed);
         };
@@ -267,8 +267,8 @@ export async function prepareStructuralReview(
             // Every collapsed region is a hidden-region band, labelled by the wire.
             contextGaps: structuralContextGaps(
               diff,
-              (side, id) => collapsed.get(collapseKey(path!, side, id)) === true,
-              (side, id) => collapsed.get(collapseKey(path!, side, id)),
+              (id) => collapsed.get(collapseKey(path!, id)) === true,
+              (id) => collapsed.get(collapseKey(path!, id)),
             ),
             changeHighlights: highlights,
           };
@@ -280,10 +280,10 @@ export async function prepareStructuralReview(
     instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
   );
   attachStructuralEditors(instantiation, entries, files, lifetime, {
-    get: (path, side, id) => collapsed.get(collapseKey(path, side, id)),
-    set: (path, side, id, value) => {
-      if (collapsed.get(collapseKey(path, side, id)) === value) return;
-      collapsed.set(collapseKey(path, side, id), value);
+    get: (path, id) => collapsed.get(collapseKey(path, id)),
+    set: (path, id, value) => {
+      if (collapsed.get(collapseKey(path, id)) === value) return;
+      collapsed.set(collapseKey(path, id), value);
       emitCounts(path);
       providerChanged.fire();
     },
@@ -293,8 +293,8 @@ export async function prepareStructuralReview(
 
 /**
  * Keeps each structural diff editor's bands in step with the collapse state:
- * a band a reader reveals (its arrows, or double-click) marks its region open
- * on both sides, and the file's visible counts follow.
+ * a band a reader reveals (its arrows, or double-click) marks its fold state
+ * open, which covers both sides by construction, and the visible counts follow.
  */
 function attachStructuralEditors(
   instantiation: IInstantiationService,
@@ -317,7 +317,7 @@ function attachStructuralEditors(
         const path = model && pairs.get(model.original.uri.toString() + "\n" + model.modified.uri.toString());
         const regions = widget.unchangedRegions!.read(reader);
         if (!path || !files.has(path)) return;
-        const gaps = structuralContextGaps(files.get(path)!, (side, id) => collapsed.get(path, side, id) === true, (side, id) => collapsed.get(path, side, id));
+        const gaps = structuralContextGaps(files.get(path)!, (id) => collapsed.get(path, id) === true, (id) => collapsed.get(path, id));
         const next = new Set<UnchangedRegion>();
         const gapOf = (region: UnchangedRegion) =>
           gaps.find((g) => g.originalStart === region.originalLineNumber && g.modifiedStart === region.modifiedLineNumber && g.label === region.label);
@@ -328,14 +328,12 @@ function attachStructuralEditors(
             if (revealed.has(region)) continue;
             const gap = gapOf(region);
             if (!gap) continue;
-            if (gap.ids.lhs !== undefined) collapsed.set(path, 0, gap.ids.lhs, false);
-            if (gap.ids.rhs !== undefined) collapsed.set(path, 1, gap.ids.rhs, false);
+            collapsed.set(path, gap.foldStateId, false);
           } else if (revealed.has(region)) {
-            // Monaco's own fold control closed a region we had marked open: mirror it, on both sides.
+            // Monaco's own fold control closed a region we had marked open.
             const gap = gapOf(region);
             if (!gap) continue;
-            if (gap.ids.lhs !== undefined) collapsed.set(path, 0, gap.ids.lhs, true);
-            if (gap.ids.rhs !== undefined) collapsed.set(path, 1, gap.ids.rhs, true);
+            collapsed.set(path, gap.foldStateId, true);
           }
         }
         revealed = next;
@@ -346,8 +344,9 @@ function attachStructuralEditors(
   for (const editor of editors.listDiffEditors()) watch(editor);
 }
 
+/** Collapse state per file, keyed by fold-state id. */
 interface CollapseState {
-  get(path: string, side: 0 | 1, id: number): boolean | undefined;
-  set(path: string, side: 0 | 1, id: number, value: boolean): void;
+  get(path: string, foldStateId: number): boolean | undefined;
+  set(path: string, foldStateId: number, value: boolean): void;
 }
 

@@ -27,7 +27,7 @@ import { observableCodeEditor } from '../../../observableCodeEditor.js';
 import { DiffEditorEditors } from '../components/diffEditorEditors.js';
 import { DiffEditorOptions } from '../diffEditorOptions.js';
 import { DiffEditorViewModel, RevealPreference, UnchangedRegion } from '../diffEditorViewModel.js';
-import { IObservableViewZone, PlaceholderViewZone, ViewZoneOverlayWidget, applyObservableDecorations, applyStyle } from '../utils.js';
+import { IObservableViewZone, PlaceholderViewZone, ViewZoneOverlayWidget, applyObservableDecorations, applyStyle, bandDetailText, bandZoneHeightPx } from '../utils.js';
 
 /**
  * Make sure to add the view zones to the editor!
@@ -113,18 +113,18 @@ export class HideUnchangedRegionsFeature extends Disposable {
 			const curUnchangedRegions = unchangedRegions.read(reader);
 			for (let i = 0; i < curUnchangedRegions.length; i++) {
 				const r = curUnchangedRegions[i];
-				if (r.shouldHideControls(reader)) {
+				const height = bandZoneHeightPx(curUnchangedRegions, i, compactMode, this._editors.modified.getOption(EditorOption.lineHeight), reader);
+				if (height === undefined) {
 					continue;
 				}
-
-				if (compactMode && (i === 0 || i === curUnchangedRegions.length - 1)) {
-					continue;
-				}
+				// A region on one side only is a band on that side alone; the diff's alignment leaves room for it on the other.
+				const onOriginal = r.kind !== 'inserted';
+				const onModified = r.kind !== 'removed';
 
 				if (compactMode) {
-					{
+					if (onOriginal) {
 						const d = derived(this, reader => /** @description hiddenOriginalRangeStart */ r.getHiddenOriginalRange(reader).startLineNumber - 1);
-						const origVz = new PlaceholderViewZone(d, 12);
+						const origVz = new PlaceholderViewZone(d, height);
 						origViewZones.push(origVz);
 						reader.store.add(new CompactCollapsedCodeOverlayWidget(
 							this._editors.original,
@@ -133,9 +133,9 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							!sideBySide,
 						));
 					}
-					{
+					if (onModified) {
 						const d = derived(this, reader => /** @description hiddenModifiedRangeStart */ r.getHiddenModifiedRange(reader).startLineNumber - 1);
-						const modViewZone = new PlaceholderViewZone(d, 12);
+						const modViewZone = new PlaceholderViewZone(d, height);
 						modViewZones.push(modViewZone);
 						reader.store.add(new CompactCollapsedCodeOverlayWidget(
 							this._editors.modified,
@@ -144,8 +144,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 						));
 					}
 				} else {
-					const height = bandHeightPx(r.label, this._editors.modified.getOption(EditorOption.lineHeight));
-					{
+					if (onOriginal) {
 						const d = derived(this, reader => /** @description hiddenOriginalRangeStart */ r.getHiddenOriginalRange(reader).startLineNumber - 1);
 						const origVz = new PlaceholderViewZone(d, height);
 						origViewZones.push(origVz);
@@ -154,15 +153,14 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							origVz,
 							r,
 							r.originalUnchangedRange,
-							// A region supplied for the other side only keeps the zone for alignment and shows nothing here.
-							!sideBySide || r.originalUnchangedRange.isEmpty,
+							!sideBySide,
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
 							this._themeService,
 						));
 					}
-					{
+					if (onModified) {
 						const d = derived(this, reader => /** @description hiddenModifiedRangeStart */ r.getHiddenModifiedRange(reader).startLineNumber - 1);
 						const modViewZone = new PlaceholderViewZone(d, height);
 						modViewZones.push(modViewZone);
@@ -171,7 +169,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							modViewZone,
 							r,
 							r.modifiedUnchangedRange,
-							r.modifiedUnchangedRange.isEmpty,
+							false,
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
@@ -200,8 +198,8 @@ export class HideUnchangedRegionsFeature extends Disposable {
 
 		this._register(applyObservableDecorations(this._editors.original, derived(this, reader => {
 			/** @description decorations */
-			// A region that exists on the other side only has no lines here: no decoration, no control.
-			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => !r.originalUnchangedRange.isEmpty);
+			// An inserted region belongs to the modified side: no decoration and no control here.
+			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.kind !== 'inserted');
 			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
 			const result = curUnchangedRegions.filter(r => r.kind === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.originalUnchangedRange.toInclusiveRange()!,
@@ -220,7 +218,8 @@ export class HideUnchangedRegionsFeature extends Disposable {
 
 		this._register(applyObservableDecorations(this._editors.modified, derived(this, reader => {
 			/** @description decorations */
-			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => !r.modifiedUnchangedRange.isEmpty);
+			// A removed region belongs to the original side: no decoration and no control here.
+			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.kind !== 'removed');
 			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
 			const result = curUnchangedRegions.filter(r => r.kind === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.modifiedUnchangedRange.toInclusiveRange()!,
@@ -308,25 +307,6 @@ class CompactCollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			}
 		}));
 	}
-}
-
-/**
- * The text shown under a band's title. A supplied label may begin with a
- * `<comment> pseudocode` marker meant for terminals; it is dropped here.
- */
-export function bandDetailText(label: string | undefined): string {
-	if (!label) { return ''; }
-	const lines = label.split('\n');
-	if (lines.length < 2) { return ''; }
-	const body = /^(\/\/|#|--|;|%)\s*pseudocode$/.test(lines[0].trim()) ? lines.slice(1) : lines;
-	return body.join('\n');
-}
-
-/** The band is 24px for its controls, plus one line of detail text per detail line. */
-export function bandHeightPx(label: string | undefined, lineHeight: number): number {
-	const detail = bandDetailText(label);
-	const lines = detail ? detail.split('\n').length : 0;
-	return 24 + (lines > 0 ? lines * lineHeight + 12 : 0);
 }
 
 /** The reveal tooltip names what the band hides. */

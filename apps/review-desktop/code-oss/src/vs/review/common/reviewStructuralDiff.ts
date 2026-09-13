@@ -283,9 +283,10 @@ export function knownRegions(
 
 /**
  * Every collapsed region as a diff-editor band. Regions collapsed on both
- * sides under one id become one band; a region collapsed on one side only
- * becomes a band with a zero count on the other side, anchored where the row
- * table puts its first hidden line.
+ * sides under one alignment id become one band. A region on one side only
+ * becomes a band on that side; the other side's range starts right after the
+ * row that precedes the region and covers only the opposite lines the zip put
+ * inside the region's rows, none when those rows are filler.
  */
 export function structuralContextGaps(
   diff: StructuralTextDiff,
@@ -293,29 +294,23 @@ export function structuralContextGaps(
   state: (foldStateId: number) => boolean | undefined = (id) => (isCollapsed(id) ? true : undefined),
 ): StructuralGap[] {
   const rows = structuralRows(diff);
-  // First row index for each source line per side, and the opposite line at or after it.
   const rowOfLeft = new Map<number, number>(), rowOfRight = new Map<number, number>();
   rows.forEach(([l, r], index) => {
-    if (l !== null && !rowOfLeft.has(l)) rowOfLeft.set(l, index);
-    if (r !== null && !rowOfRight.has(r)) rowOfRight.set(r, index);
+    if (l !== null) rowOfLeft.set(l, index);
+    if (r !== null) rowOfRight.set(r, index);
   });
-  const nextOpposite = (fromRow: number, side: 0 | 1): number => {
-    for (let index = fromRow; index < rows.length; index++) {
-      const value = rows[index][side === 0 ? 1 : 0];
-      if (value !== null) return value;
-    }
-    return side === 0 ? monacoLineCount(diff.rhs) : monacoLineCount(diff.lhs);
-  };
-  // The opposite side's lines the zip aligned with a hidden span on one side: the band covers them too,
-  // so both editors shrink together. Rows are monotone, so the aligned lines are contiguous.
-  const alignedOpposite = (side: 0 | 1, hidden: { start: number; end: number }): { start: number; count: number } | undefined => {
-    let first: number | undefined, last: number | undefined;
-    for (const row of rows) {
-      const own = row[side], other = row[side === 0 ? 1 : 0];
-      if (own === null || own < hidden.start || own >= hidden.end || other === null) continue;
-      first ??= other; last = other;
-    }
-    return first === undefined ? undefined : { start: first + 1, count: last! - first + 1 };
+  // One-based start and count of the opposite range for lines hidden on `side`. Rows are monotone, so
+  // the opposite lines inside the region's rows follow the opposite line of the row before it.
+  const oppositeSpan = (side: 0 | 1, hidden: { start: number; end: number }): { start: number; count: number } => {
+    const other = side === 0 ? 1 : 0;
+    const rowOf = side === 0 ? rowOfLeft : rowOfRight;
+    const first = rowOf.get(hidden.start), last = rowOf.get(hidden.end - 1);
+    if (first === undefined || last === undefined) throw new Error("diffr region lines are missing from the alignment.");
+    let before = -1;
+    for (let index = first - 1; index >= 0 && before === -1; index--) before = rows[index][other] ?? -1;
+    let count = 0;
+    for (let index = first; index <= last; index++) if (rows[index][other] !== null) count++;
+    return { start: before + 2, count };
   };
   const lhs = knownRegions(diff.lhs?.regions, state);
   const rhs = knownRegions(diff.rhs?.regions, state);
@@ -341,21 +336,19 @@ export function structuralContextGaps(
       });
       continue;
     }
-    const row = rowOfLeft.get(hidden.start) ?? rows.length;
-    const opposite = alignedOpposite(0, hidden);
+    const opposite = oppositeSpan(0, hidden);
     gaps.push({
       originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
-      modifiedStart: opposite ? opposite.start : nextOpposite(row, 0) + 1, modifiedCount: opposite ? opposite.count : 0,
+      modifiedStart: opposite.start, modifiedCount: opposite.count,
       label: left.visibility?.label || "", kind: "removed", collapsed, foldStateId: left.fold_state_id,
     });
   }
   for (const { region: right, collapsed } of rhs) {
     if (usedRhs.has(right.alignment_id)) continue;
     const hidden = hiddenLinesOf(right);
-    const row = rowOfRight.get(hidden.start) ?? rows.length;
-    const opposite = alignedOpposite(1, hidden);
+    const opposite = oppositeSpan(1, hidden);
     gaps.push({
-      originalStart: opposite ? opposite.start : nextOpposite(row, 1) + 1, originalCount: opposite ? opposite.count : 0,
+      originalStart: opposite.start, originalCount: opposite.count,
       modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
       label: right.visibility?.label || "", kind: "inserted", collapsed, foldStateId: right.fold_state_id,
     });

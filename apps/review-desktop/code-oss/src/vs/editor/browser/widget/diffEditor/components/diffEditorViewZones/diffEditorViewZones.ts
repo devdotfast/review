@@ -20,7 +20,7 @@ import { DiffEditorViewModel, DiffMapping } from '../../diffEditorViewModel.js';
 import { DiffEditorWidget } from '../../diffEditorWidget.js';
 import { InlineDiffDeletedCodeMargin } from './inlineDiffDeletedCodeMargin.js';
 import { LineSource, RenderOptions, renderLines } from './renderLines.js';
-import { IObservableViewZone, animatedObservable, joinCombine } from '../../utils.js';
+import { IObservableViewZone, animatedObservable, bandZoneHeightPx, joinCombine } from '../../utils.js';
 import { EditorOption } from '../../../../../common/config/editorOptions.js';
 import { LineRange } from '../../../../../common/core/ranges/lineRange.js';
 import { Position } from '../../../../../common/core/position.js';
@@ -104,7 +104,22 @@ export class DiffEditorViewZones extends Disposable {
 			const renderSideBySide = this._options.renderSideBySide.read(reader);
 			const innerHunkAlignment = renderSideBySide;
 			if (renderSideBySide && diff.sourceLineAlignment) {
-				return computeSourceAlignment(this._editors.original, this._editors.modified, diff.sourceLineAlignment, this._origViewZonesToIgnore, this._modViewZonesToIgnore);
+				const regions = diffModel.unchangedRegions.read(reader);
+				const compactMode = this._options.compactMode.read(reader);
+				const bandLineHeight = this._editors.modified.getOption(EditorOption.lineHeight);
+				// A one-sided band is a zone on its own side only. Its height counts as the height of its first hidden line,
+				// so the row that starts the fold gets a filler of exactly that height on the other side.
+				const originalBands = new Map<number, number>(), modifiedBands = new Map<number, number>();
+				regions.forEach((region, index) => {
+					if (region.kind === 'unchanged') { return; }
+					const height = bandZoneHeightPx(regions, index, compactMode, bandLineHeight, reader);
+					if (height === undefined) { return; }
+					const [bands, first] = region.kind === 'removed'
+						? [originalBands, region.getHiddenOriginalRange(reader).startLineNumber]
+						: [modifiedBands, region.getHiddenModifiedRange(reader).startLineNumber];
+					bands.set(first, (bands.get(first) ?? 0) + height);
+				});
+				return computeSourceAlignment(this._editors.original, this._editors.modified, diff.sourceLineAlignment, this._origViewZonesToIgnore, this._modViewZonesToIgnore, originalBands, modifiedBands);
 			}
 			return computeRangeAlignment(
 				this._editors.original,
@@ -691,7 +706,8 @@ export function rangeIsSingleLine(range: Range): boolean {
 }
 
 /** Project existing correspondence through folding and wrapping, without rematching. */
-function computeSourceAlignment(original: CodeEditorWidget, modified: CodeEditorWidget, rows: readonly (readonly [number | null, number | null])[], originalZonesToIgnore: ReadonlySet<string>, modifiedZonesToIgnore: ReadonlySet<string>): ILineRangeAlignment[] {
+/** `originalBands` and `modifiedBands` are band heights by the band's first hidden line, one-based, on the side that shows it. */
+function computeSourceAlignment(original: CodeEditorWidget, modified: CodeEditorWidget, rows: readonly (readonly [number | null, number | null])[], originalZonesToIgnore: ReadonlySet<string>, modifiedZonesToIgnore: ReadonlySet<string>, originalBands: ReadonlyMap<number, number>, modifiedBands: ReadonlyMap<number, number>): ILineRangeAlignment[] {
 	const leftView = original._getViewModel()!.coordinatesConverter;
 	const rightView = modified._getViewModel()!.coordinatesConverter;
 	const leftHeight = original.getOption(EditorOption.lineHeight);
@@ -699,7 +715,7 @@ function computeSourceAlignment(original: CodeEditorWidget, modified: CodeEditor
 	const leftExtra = new Map(getAdditionalLineHeights(original, originalZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
 	const rightExtra = new Map(getAdditionalLineHeights(modified, modifiedZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
 	return projectSourceAlignment(rows,
-		l => leftView.getModelLineViewLineCount(l + 1) === 0 ? 0 : leftHeight + (leftExtra.get(l + 1) ?? 0),
-		r => rightView.getModelLineViewLineCount(r + 1) === 0 ? 0 : rightHeight + (rightExtra.get(r + 1) ?? 0),
+		l => (leftView.getModelLineViewLineCount(l + 1) === 0 ? 0 : leftHeight + (leftExtra.get(l + 1) ?? 0)) + (originalBands.get(l + 1) ?? 0),
+		r => (rightView.getModelLineViewLineCount(r + 1) === 0 ? 0 : rightHeight + (rightExtra.get(r + 1) ?? 0)) + (modifiedBands.get(r + 1) ?? 0),
 	).filter(s => s.leftHeight !== s.rightHeight).map(s => ({ originalRange: new LineRange(s.leftStart + 1, s.leftEnd + 1), modifiedRange: new LineRange(s.rightStart + 1, s.rightEnd + 1), originalHeightInPx: s.leftHeight, modifiedHeightInPx: s.rightHeight, diff: undefined }));
 }

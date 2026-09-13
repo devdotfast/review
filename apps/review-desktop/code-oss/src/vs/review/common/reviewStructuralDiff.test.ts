@@ -49,8 +49,37 @@ test("paired collapse removes hidden height without leaving padding for hidden a
   assert.deepEqual(
     segments.map((s) => [s.leftEnd, s.rightEnd, s.rightHeight - s.leftHeight]),
     [
+      [1, 1, 0],
       [3, 4, 0],
       [4, 5, 0],
+    ],
+  );
+});
+
+test("a one-sided band's height is filled on the other side at the row that starts the fold, not past it", () => {
+  // Right-only row 1, then a right fold (rows 2..4) whose band is 50px and whose middle row pairs with left 1, then right-only row 5.
+  const rows: [number | null, number | null][] = [
+    [0, 0],
+    [null, 1],
+    [null, 2],
+    [1, 3],
+    [null, 4],
+    [null, 5],
+    [2, 6],
+  ];
+  const segments = projectSourceAlignment(
+    rows,
+    (l) => (l === 1 ? 0 : 20),
+    (r) => (r === 2 ? 50 : r === 3 || r === 4 ? 0 : 20),
+  );
+  // Fillers sit after a segment's last left line: after left 0 for row 1 and the band, then again after left 0 (left 1 is folded) for row 5.
+  assert.deepEqual(
+    segments.map((s) => [s.leftEnd, s.rightEnd, s.rightHeight - s.leftHeight]),
+    [
+      [1, 3, 70],
+      [2, 5, 0],
+      [2, 6, 20],
+      [3, 7, 0],
     ],
   );
 });
@@ -222,6 +251,40 @@ test("a one-sided band also hides the opposite lines the zip aligned with it", (
     originalStart: 2, originalCount: 5, modifiedStart: 2, modifiedCount: 5,
     label: "5 lines removed", kind: "removed", collapsed: true, foldStateId: 2,
   });
+});
+
+test("a one-sided band starts after the row before its fold and hides only the opposite lines inside its rows", () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `l${i}`);
+  // Right: a function whose body has an inserted run, a middle leaf paired with the left, and another inserted run.
+  const added = fold(20, [leaf(21, 2, 3), leaf(22, 3, 5), leaf(12, 5, 7), leaf(23, 7, 9)], ["body", "function"]);
+  added.visibility = { collapsed: true, label: "// pseudocode\nreturn rows" };
+  const inserted: StructuralTextDiff = {
+    type: "text",
+    stats,
+    lhs: text(lines(6), [leaf(10, 0, 2), leaf(12, 2, 4), leaf(14, 4, 6)]),
+    rhs: text(lines(11), [leaf(10, 0, 2), added, leaf(14, 9, 11)]),
+  };
+  assert.deepEqual(structuralRows(inserted).slice(0, 10), [
+    [0, 0], [1, 1], [null, 2], [null, 3], [null, 4], [2, 5], [3, 6], [null, 7], [null, 8], [4, 9],
+  ]);
+  assert.deepEqual(structuralContextGaps(inserted, (id) => id === 20), [{
+    originalStart: 3, originalCount: 2, modifiedStart: 4, modifiedCount: 6,
+    label: "// pseudocode\nreturn rows", kind: "inserted", collapsed: true, foldStateId: 20,
+  }]);
+  // The mirror: a left-only function whose rows are all filler on the right, followed by a right-only line.
+  const removed = fold(20, [leaf(21, 2, 3), leaf(22, 3, 6)], ["body", "function"]);
+  removed.visibility = { collapsed: true, label: "3 lines removed" };
+  const deleted: StructuralTextDiff = {
+    type: "text",
+    stats,
+    lhs: text(lines(8), [leaf(10, 0, 2), removed, leaf(14, 6, 8)]),
+    rhs: text(lines(5), [leaf(10, 0, 2), leaf(30, 2, 3), leaf(14, 3, 5)]),
+  };
+  assert.deepEqual(structuralRows(deleted).slice(0, 8), [[0, 0], [1, 1], [2, null], [3, null], [4, null], [5, null], [null, 2], [6, 3]]);
+  assert.deepEqual(structuralContextGaps(deleted, (id) => id === 20), [{
+    originalStart: 4, originalCount: 3, modifiedStart: 3, modifiedCount: 0,
+    label: "3 lines removed", kind: "removed", collapsed: true, foldStateId: 20,
+  }]);
 });
 
 test("alignment and fold state are separate: the zip follows one, collapse follows the other", () => {

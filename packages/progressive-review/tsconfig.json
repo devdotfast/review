@@ -2,9 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    // ES2025 for iterator helpers; the runtime floor is Node 24
-    // (package.json engines), tsdown targets node24, and the app ships in
-    // Electron 42 (Chromium 140).
+    // ES2025 as in the base config; the DOM libs are what this package adds.
     "lib": ["ES2025", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "types": ["node"]

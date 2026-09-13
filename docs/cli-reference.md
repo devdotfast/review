@@ -263,6 +263,26 @@ onboarding never selects hosted storage by itself, a legacy bucket always
 outranks consent, and a commit trailer alone never authorizes a publication.
 Hosted uploads that fail never fall back to the bucket.
 
+Hosted setup requires explicit opt-in to publishing complete agent transcripts.
+Explain the destination and who can read them before enabling publication.
+Ask whether the scope covers only the current repository or also future
+eligible repositories. For ongoing activation, the setup choice can say:
+
+> Enable hosted tracing at https://app.dev.fast for repositories where I have
+> write access, including future repositories. Agents may onboard and allow
+> these repositories unless I deny them. Complete agent transcripts are shared
+> with users who have push access to each repository.
+
+Retain the user's chosen scope in their agent setup instructions. An agent can
+then run `review trace onboard` and `review trace allow .` for covered
+repositories without asking again. Later denials override that authorization.
+Keep exclusions in those instructions: the current `deny` command removes
+consent but does not save a denial for agents to inspect later.
+The current CLI has no hosted auto-activation flag; these commands still need
+to run for each repository. Selecting hosted alone does not authorize future
+repositories, and the S3 `autoActivateRepositories` setting applies only to
+the bucket. Migration does not create hosted consent.
+
 Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture
 settings, or consent. `review trace status` names the effective store, the

@@ -618,6 +618,7 @@ function captureFetch(): CapturedFetch {
     },
     fileParts: (name) =>
       capturedParts
+        .values()
         .filter((candidate) => candidate.name === name)
         .map((candidate) => {
           if (!("file" in candidate)) {
@@ -625,7 +626,8 @@ function captureFetch(): CapturedFetch {
           }
 
           return candidate.file.bytes;
-        }),
+        })
+        .toArray(),
   };
 }
 

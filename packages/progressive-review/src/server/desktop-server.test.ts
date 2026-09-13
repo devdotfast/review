@@ -641,8 +641,10 @@ describe("real legacy fixtures open end to end", () => {
 
     const missing = legacyOpenFixtures.flatMap((fixture) =>
       [fixture.baseCommit, fixture.sourceCommit]
+        .values()
         .filter((commit) => !hasCommit(commit))
-        .map((commit) => `${fixture.name} ${commit}`),
+        .map((commit) => `${fixture.name} ${commit}`)
+        .toArray(),
     );
 
     if (missing.length > 0)

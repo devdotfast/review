@@ -1785,10 +1785,12 @@ describe("runInlineC4Layout stability", () => {
     expect(nextRowCount).toBeGreaterThanOrEqual(previousRowCount - 1);
 
     const collapsedNodes = nodes
+      .values()
       .filter((node) => !node.id.startsWith("progressiveReview.c"))
       .map((node) =>
         node.id === "progressiveReview" ? { ...node, expanded: false } : node,
-      );
+      )
+      .toArray();
 
     const collapsed = await runInlineC4Layout(
       collapsedNodes,

@@ -334,11 +334,13 @@ function ReviewCoordinator({
   // markers (see ThreadAnnotations).
   const activeCommentThreads = useMemo(
     () =>
-      [...commentThreads.values()]
+      commentThreads
+        .values()
         .filter((thread) => thread.status !== "resolved")
         .map((thread) =>
           commentThreadViewState(thread, localComments, agentActivities),
         )
+        .toArray()
         .sort(
           (left, right) => firstMessageTime(left) - firstMessageTime(right),
         ),
@@ -352,11 +354,13 @@ function ReviewCoordinator({
 
   const resolvedThreads = useMemo(
     () =>
-      [...commentThreads.values()]
+      commentThreads
+        .values()
         .filter((thread) => thread.status === "resolved")
         .map((thread) =>
           commentThreadViewState(thread, localComments, agentActivities),
         )
+        .toArray()
         .sort(
           (left, right) => firstMessageTime(left) - firstMessageTime(right),
         ),
@@ -920,11 +924,12 @@ export function selectCommentsForAnchor(
   commits: ReviewSessionCommits,
   agentActivities: ReadonlyMap<string, ReviewCommentAgentActivity> = new Map(),
 ): CommentThreadView[] {
-  return [...threads]
+  return Iterator.from(threads)
     .filter((thread) => targetBelongsToAnchor(thread.target, anchor, commits))
     .map((thread) =>
       commentThreadViewState(thread, localComments, agentActivities),
-    );
+    )
+    .toArray();
 }
 
 function commentThreadViewState(

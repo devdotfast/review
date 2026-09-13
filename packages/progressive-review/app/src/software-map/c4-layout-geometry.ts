@@ -973,8 +973,10 @@ async function c4LocalIsolatedLayout(
   const childIdSet = new Set(childIds);
 
   const childNodes = childIds
+    .values()
     .map((childId) => context.nodesById.get(childId))
-    .filter((node): node is SoftwareMapNodeSnapshot => Boolean(node));
+    .filter((node): node is SoftwareMapNodeSnapshot => Boolean(node))
+    .toArray();
 
   const childRelationships = c4LocalProjectedRelationships(
     parentId,
@@ -1535,6 +1537,7 @@ async function routeC4FixedLayoutEdges(
   const nodeIds = new Set(layoutNodes.map((entry) => entry.node.id));
 
   const edgeRelationships = relationships
+    .values()
     .map((relationship, index) => ({
       relationship,
       edgeId: c4RelationshipEdgeId(relationship, index),
@@ -1542,7 +1545,8 @@ async function routeC4FixedLayoutEdges(
     .filter(
       ({ relationship }) =>
         nodeIds.has(relationship.from) && nodeIds.has(relationship.to),
-    );
+    )
+    .toArray();
 
   if (edgeRelationships.length === 0) {
     return {

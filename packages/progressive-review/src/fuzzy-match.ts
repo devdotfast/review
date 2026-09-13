@@ -85,8 +85,10 @@ export function fuzzyRank<T>(
   if (!needle) return [...items];
 
   return items
+    .values()
     .map((item) => ({ item, score: bestScore(needle, labelsOf(item)) }))
     .filter((hit) => hit.score >= SCORE_THRESHOLD)
+    .toArray()
     .sort((left, right) => right.score - left.score)
     .map((hit) => hit.item);
 }

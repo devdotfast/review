@@ -104,6 +104,7 @@ import {
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
+import { resolveTraceCommand, traceHomeDir } from "./trace-command";
 import {
   DEFAULT_TRACE_SESSIONS_LIMIT,
   runReviewTraceAllow,
@@ -221,6 +222,13 @@ export async function runProgressiveReviewCli(
 ): Promise<number> {
   const env = input.env ?? process.env;
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
+
+  // The command every installed hook re-enters. The Review CLI resolves it
+  // the same way the hooks did on their own, so `review` behaves as before.
+  const traceCommand = resolveTraceCommand({
+    env,
+    homeDir: traceHomeDir(env),
+  });
 
   const cliVersion =
     input.cliVersion ?? readProgressiveReviewPackageVersion(import.meta.url);
@@ -1136,6 +1144,7 @@ export async function runProgressiveReviewCli(
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         json: options.json,
         harnessHooks: options.harnessHooks,
+        traceCommand,
         stdout: input.stdout,
         stderr: input.stderr,
       });
@@ -1211,6 +1220,7 @@ export async function runProgressiveReviewCli(
       cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
       stdout: input.stdout,
       stderr: input.stderr,
+      traceCommand,
     });
   });
 
@@ -1236,6 +1246,7 @@ export async function runProgressiveReviewCli(
       cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
       stdout: input.stdout,
       stderr: input.stderr,
+      traceCommand,
     });
   });
 
@@ -1438,6 +1449,7 @@ export async function runProgressiveReviewCli(
         event,
         sessionId: options.session,
         stdin: input.stdin,
+        traceCommand,
       });
     },
   );
@@ -1454,6 +1466,7 @@ export async function runProgressiveReviewCli(
       args,
       stdin: input.stdin,
       stderr: input.stderr,
+      traceCommand,
     });
   });
 

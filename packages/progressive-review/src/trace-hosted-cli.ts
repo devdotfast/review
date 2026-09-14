@@ -25,7 +25,7 @@ import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
 import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
-import { traceCliName } from "./trace-command";
+import { type TraceCommand, traceCliName } from "./trace-command";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
@@ -126,6 +126,8 @@ export async function runReviewTraceAllow(
       cwd: string;
       client?: StoreClient;
       harnessHooks?: boolean;
+      /** The executable the installed hooks run; the CLI name when absent. */
+      traceCommand?: TraceCommand;
     },
 ): Promise<number> {
   let name: { owner: string; repo: string };
@@ -185,14 +187,20 @@ export async function runReviewTraceAllow(
     );
   }
 
+  const hookExecutable = input.traceCommand?.file;
+
   if (input.harnessHooks !== false) {
-    await installClaudeTraceHook(input.homeDir);
-    await installCodexTraceHook(input.homeDir);
-    await installOpenCodeTraceExtension(input.homeDir);
-    await installPiTraceExtension(input.homeDir);
+    await installClaudeTraceHook(input.homeDir, hookExecutable);
+    await installCodexTraceHook(input.homeDir, hookExecutable);
+    await installOpenCodeTraceExtension(input.homeDir, hookExecutable);
+    await installPiTraceExtension(input.homeDir, hookExecutable);
   }
 
-  await enableTraceRepository({ cwd: input.cwd, homeDir: input.homeDir });
+  await enableTraceRepository({
+    cwd: input.cwd,
+    homeDir: input.homeDir,
+    reviewCommand: input.traceCommand,
+  });
   await allowTraceRepository(
     {
       repositoryId: store.repositoryId,

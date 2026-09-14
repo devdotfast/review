@@ -1,7 +1,7 @@
 import type { Writable } from "node:stream";
 
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
-import { traceCliName } from "./trace-command";
+import { type TraceCommand, traceCliName } from "./trace-command";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { writeHostedTraceStatus } from "./trace-hosted-cli";
@@ -128,6 +128,8 @@ export async function runReviewTraceEnable(input: {
   cwd: string;
   stdout: Writable;
   stderr: Writable;
+  /** The command installed in the repository hooks. */
+  traceCommand?: TraceCommand;
 }): Promise<number> {
   if (!(await traceMachineStatus()).enabled) {
     input.stderr.write(
@@ -137,7 +139,11 @@ export async function runReviewTraceEnable(input: {
     return 1;
   }
 
-  const result = await enableTraceRepository({ cwd: input.cwd });
+  const result = await enableTraceRepository({
+    cwd: input.cwd,
+    reviewCommand: input.traceCommand,
+  });
+
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
 
   return result.enabled ? 0 : 1;
@@ -157,6 +163,8 @@ export async function runReviewTraceRepair(input: {
   cwd: string;
   stdout: Writable;
   stderr: Writable;
+  /** The command installed in the repository hooks. */
+  traceCommand?: TraceCommand;
 }): Promise<number> {
   if (!(await traceMachineStatus()).enabled) {
     input.stderr.write(
@@ -166,7 +174,11 @@ export async function runReviewTraceRepair(input: {
     return 1;
   }
 
-  const result = await repairTraceRepository({ cwd: input.cwd });
+  const result = await repairTraceRepository({
+    cwd: input.cwd,
+    reviewCommand: input.traceCommand,
+  });
+
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
 
   return result.enabled ? 0 : 1;

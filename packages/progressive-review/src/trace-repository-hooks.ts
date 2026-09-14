@@ -12,6 +12,7 @@ import {
 import { z } from "zod";
 
 import {
+  type TraceCommand,
   renderTraceCommand,
   resolveTraceCommand,
   shellQuote,
@@ -27,6 +28,7 @@ const repositoryHookStateSchema = z.object({
   previousHooksPath: z.string(),
   previousHookDirectory: z.string(),
   previousWasConfigured: z.boolean(),
+  command: z.string().optional(),
 });
 
 type RepositoryHookState = z.infer<typeof repositoryHookStateSchema>;
@@ -37,13 +39,15 @@ export interface TraceRepositoryStatus {
   root?: string;
   managedHooksPath?: string;
   previousHooksPath?: string;
+  /** The rendered hook command, when hooks are installed. */
+  command?: string;
   message: string;
 }
 
 export async function enableTraceRepository(input: {
   cwd: string;
   homeDir?: string;
-  reviewCommand?: string;
+  reviewCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   const resolved = await resolveRepository(input.cwd);
 
@@ -91,6 +95,12 @@ export async function enableTraceRepository(input: {
       resolveHooksPath(resolved.root, previousHooksPath))
     : previousHooksPath;
 
+  const homeDir = input.homeDir ?? traceHomeDir();
+
+  const reviewCommand = renderTraceCommand(
+    resolveTraceCommand({ explicit: input.reviewCommand, homeDir }),
+  );
+
   const state: RepositoryHookState = {
     version: 1,
     root: resolved.root,
@@ -98,13 +108,8 @@ export async function enableTraceRepository(input: {
     previousHooksPath,
     previousHookDirectory,
     previousWasConfigured,
+    command: reviewCommand,
   };
-
-  const homeDir = input.homeDir ?? traceHomeDir();
-
-  const reviewCommand = renderTraceCommand(
-    resolveTraceCommand({ explicit: input.reviewCommand, homeDir }),
-  );
 
   await mkdir(hooksPath, { recursive: true });
   await writeHook(
@@ -130,6 +135,7 @@ export async function enableTraceRepository(input: {
     root: resolved.root,
     managedHooksPath: hooksPath,
     previousHooksPath,
+    command: reviewCommand,
     message: "Review trace hooks are enabled for this repository.",
   };
 }
@@ -137,7 +143,7 @@ export async function enableTraceRepository(input: {
 export async function repairTraceRepository(input: {
   cwd: string;
   homeDir?: string;
-  reviewCommand?: string;
+  reviewCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   return enableTraceRepository(input);
 }
@@ -237,6 +243,8 @@ export async function traceRepositoryStatus(
   if (state) {
     status.managedHooksPath = state.managedHooksPath;
     status.previousHooksPath = state.previousHooksPath;
+
+    if (state.command !== undefined) status.command = state.command;
   }
 
   return status;

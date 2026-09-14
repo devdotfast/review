@@ -16,7 +16,7 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
-import { resolveTraceCommand } from "./trace-command";
+import { type TraceCommand, resolveTraceCommand } from "./trace-command";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -51,9 +51,12 @@ export function spawnDetachedTraceSync(input: {
   cwd: string;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
+  /** The binary to re-enter; the resolved default when absent. */
+  command?: TraceCommand;
 }): void {
   try {
     const command = resolveTraceCommand({
+      explicit: input.command,
       env: input.env,
       homeDir: input.homeDir,
     });
@@ -90,6 +93,8 @@ export interface RunReviewTraceHookInput {
   stdin?: CliInputStream;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
+  /** The command installed in repository hooks and used for detached sync. */
+  traceCommand?: TraceCommand;
 }
 
 export async function runReviewTraceHook(
@@ -191,6 +196,7 @@ export async function runReviewTraceHook(
     await enableTraceRepository({
       cwd: input.cwd,
       homeDir: input.homeDir,
+      reviewCommand: input.traceCommand,
     }).catch(() => undefined);
   }
 
@@ -274,6 +280,7 @@ export async function runReviewTraceHook(
       cwd: input.cwd,
       homeDir: input.homeDir,
       env: input.env,
+      command: input.traceCommand,
     });
   }
 

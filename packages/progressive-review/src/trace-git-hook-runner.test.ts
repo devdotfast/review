@@ -76,7 +76,7 @@ describe("runReviewTraceGitHook", () => {
     clearTraceEnvCache();
   }
 
-  function prePush(): Promise<number> {
+  function prePush(traceCommand?: { file: string }): Promise<number> {
     return git(repo, ["rev-parse", "HEAD"]).then((sha) =>
       runReviewTraceGitHook({
         cwd: repo,
@@ -86,6 +86,7 @@ describe("runReviewTraceGitHook", () => {
           `refs/heads/main ${sha} refs/heads/main ${"0".repeat(40)}\n`,
         ]),
         stderr,
+        traceCommand,
       }),
     );
   }
@@ -104,11 +105,12 @@ describe("runReviewTraceGitHook", () => {
       .spyOn(hookRunner, "spawnDetachedTraceSync")
       .mockImplementation(() => undefined);
 
-    expect(await prePush()).toBe(0);
+    expect(await prePush({ file: "/opt/dev-traces" })).toBe(0);
     expect(spawned).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         sessionId: "01a015e4-0477-7055-a0fd-21a0f72a4ec9",
         cwd: repo,
+        command: { file: "/opt/dev-traces" },
       }),
     );
   });

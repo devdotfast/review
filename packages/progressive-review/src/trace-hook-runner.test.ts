@@ -73,6 +73,46 @@ async function makeGitRepo(): Promise<string> {
 }
 
 describe("runReviewTraceHook", () => {
+  it("re-enters the injected command from the git hooks and detached sync", async () => {
+    const repo = await makeGitRepo();
+    const log = path.join(repo, "hook-calls.log");
+    const script = path.join(repo, "fake-cli.sh");
+    await writeFile(script, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\n`, {
+      mode: 0o755,
+    });
+    const traceCommand = { file: script, args: ["--flag"] };
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+
+    await runReviewTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      homeDir: repo,
+      env: { TRACE_R2_MODE: "mock" },
+      traceCommand,
+    });
+
+    const prePush = await readFile(
+      path.join(repo, ".git", "dev-fast", "trace-hooks", "hooks", "pre-push"),
+      "utf8",
+    );
+
+    expect(prePush).toContain(`'${script}' '--flag' trace git-hook pre-push`);
+
+    await runReviewTraceHook({
+      cwd: repo,
+      event: "SessionEnd",
+      sessionId,
+      homeDir: repo,
+      env: { TRACE_R2_MODE: "mock" },
+      traceCommand,
+    });
+
+    expect(await waitForCompleteFile(log)).toMatch(
+      new RegExp(`^--flag trace sync ${sessionId} --expect-storage \\S+\\n$`),
+    );
+  });
+
   it("records session ID on SessionStart and removes on SessionEnd", async () => {
     const repo = await makeGitRepo();
     const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
@@ -345,6 +385,20 @@ describe("runReviewTraceHook", () => {
     expect(existsSync(agentSessionFile)).toBe(false);
   });
 });
+
+async function waitForCompleteFile(filePath: string): Promise<string> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (existsSync(filePath)) {
+      const content = await readFile(filePath, "utf8");
+
+      if (content.endsWith("\n")) return content;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`No complete hook call was logged at ${filePath}.`);
+}
 
 async function commandAvailable(command: string): Promise<boolean> {
   return execFilePromise(command, ["--version"])

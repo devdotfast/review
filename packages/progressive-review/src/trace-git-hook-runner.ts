@@ -12,6 +12,7 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
+import type { TraceCommand } from "./trace-command";
 // The namespace import keeps the detached spawn observable to tests, which
 // intercept it through the module namespace.
 import * as hookRunner from "./trace-hook-runner";
@@ -29,6 +30,8 @@ export async function runReviewTraceGitHook(input: {
   /** The machine scope; the real home and environment when absent. */
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
+  /** The command used for detached hosted sync. */
+  traceCommand?: TraceCommand;
 }): Promise<number> {
   if (process.env.TRACE_DISABLE === "1") return 0;
   // The machine switch owns every capture path, including the git hooks.
@@ -110,6 +113,7 @@ async function runPrePush(input: {
   stderr: Writable;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
+  traceCommand?: TraceCommand;
 }): Promise<void> {
   const raw = await readStdin(input.stdin);
 
@@ -185,6 +189,7 @@ async function runPrePush(input: {
         sessionId,
         cwd: input.cwd,
         ...scope,
+        command: input.traceCommand,
       });
       continue;
     }

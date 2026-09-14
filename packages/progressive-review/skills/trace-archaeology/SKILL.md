@@ -13,20 +13,11 @@ Agent-written commits record `Agent-Session: <id>` trailers. Use the `review tra
 
 ## Configuration
 
-Hosted tracing requires user opt-in. Before setup, explain that complete agent transcripts go to the selected hosted origin. Users with GitHub push access to the repository can read them.
+Before hosted setup, explain: complete transcripts go to the chosen origin; users with GitHub push access can read them.
 
-Configure only repositories explicitly named by the user, at the authorized origin. Existing authorization for those repositories is sufficient. An absent allow entry means no capture; it does not mean setup is unfinished.
-
-When configuring capture or investigating missing capture:
-
-1. Run `review trace status` in the current repository.
-2. Check the user's request for authorization naming this repository and origin. Hosted selection, login, and an existing store do not authorize another repository.
-3. If authorization covers it, run `review trace onboard` when no store exists. Run `review trace allow .` to allow publication. Respect any later denial or narrower instruction.
-4. Run `review trace status` again. Report access or authentication failures without changing the destination.
-
-If authorization is missing, report that capture is off and continue available read-only investigation. Do not automatically allow missing repositories. A trace lookup does not require enabling publication.
-
-The `deny` command removes consent. Respect that choice until the user explicitly requests publication again.
+- Enable only user-authorized repositories and origins. Existing authorization is sufficient unless later revoked, including by `review trace deny`.
+- Check `review trace status`. If authorized, run `review trace onboard` when needed, then `review trace allow .`. Check status again.
+- Without authorization, leave capture off and continue read-only investigation. Trace lookup does not require publication.
 
 FFF setup is human-owned. If FFF is unavailable, report the setup gap. Do not replace or reconfigure it.
 

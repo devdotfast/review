@@ -263,17 +263,13 @@ onboarding never selects hosted storage by itself, a legacy bucket always
 outranks consent, and a commit trailer alone never authorizes a publication.
 Hosted uploads that fail never fall back to the bucket.
 
-See [hosted trace privacy and setup consent](privacy.md#hosted-trace-store)
-before enabling publication. Run `review trace onboard` and `review trace allow`
-for each authorized repository. `review trace deny` removes its consent.
+Before setup, review [hosted trace consent and access](privacy.md#hosted-trace-store).
 
-Use a packaged app that supports v2 configuration before migrating.
-`--keep-legacy` preserves configuration files for older apps, but cannot stop
-an older app from using its saved S3 destination.
+Use a Desktop release that supports v2 configuration before migration. `--keep-legacy`
+does not prevent older apps from uploading to their saved bucket.
 
-`review version --verbose` reports the requested and effective CLI paths,
-delegation, and available build identity. Add `--json` for structured output.
-Use `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
+`review version --verbose [--json]` reports CLI paths, delegation, and build
+identity. Set `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
 
 Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture

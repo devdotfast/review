@@ -126,12 +126,10 @@ submission.
 
 ## Hosted trace store
 
-Hosted tracing requires explicit user opt-in. Setup must explain the hosted
-destination, transcript contents, and repository access rules below. Name the
-repositories you authorize at that origin. An absent allow entry means no
-capture. Agents must not automatically allow other repositories.
-The S3 `autoActivateRepositories` setting applies only to the bucket.
-Neither bucket migration nor hosted selection authorizes other repositories.
+Hosted tracing requires explicit consent for each repository and origin.
+Before setup, explain transcript contents, destination, and access rules below.
+Without consent, capture stays off. S3 `autoActivateRepositories` never grants
+hosted consent.
 
 Trace capture is off by default. Hosted uploads start when this machine's
 selected store is the hosted store and the repository is allowed. Selection

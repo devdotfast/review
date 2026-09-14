@@ -278,7 +278,7 @@ export async function configureTraceMachine(input: {
     } else {
       const { S3TraceStorage } = await import("./trace-storage/s3");
 
-      const doctor = await S3TraceStorage.fromCredentials(
+      const readiness = await S3TraceStorage.fromCredentials(
         {
           endpoint: credentials.endpoint,
           bucket: credentials.bucket,
@@ -287,12 +287,12 @@ export async function configureTraceMachine(input: {
           region,
         },
         env,
-      ).doctor();
+      ).readiness();
 
-      if (doctor.reachable) {
+      if (readiness.ready) {
         verifiedAt = new Date().toISOString();
       } else {
-        error = doctor.error;
+        error = readiness.reason;
       }
     }
   }

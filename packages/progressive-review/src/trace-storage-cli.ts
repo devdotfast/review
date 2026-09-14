@@ -503,14 +503,14 @@ async function requireReachable(
     region: profile.region ?? S3_DEFAULT_REGION,
   };
 
-  const doctor = await S3TraceStorage.fromCredentials(
+  const readiness = await S3TraceStorage.fromCredentials(
     credentials,
     env,
-  ).doctor();
+  ).readiness();
 
-  if (!doctor.reachable) {
+  if (!readiness.ready) {
     throw new TraceConfigurationError(
-      `Cannot reach S3/R2 bucket "${profile.bucket}": ${doctor.error ?? "unknown error"}. Nothing was written; retry when the bucket is reachable.`,
+      `Cannot reach S3/R2 bucket "${profile.bucket}": ${readiness.reason ?? "unknown error"}. Nothing was written; retry when the bucket is reachable.`,
     );
   }
 }

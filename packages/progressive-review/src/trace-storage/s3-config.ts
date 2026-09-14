@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -236,6 +236,59 @@ export function resolveS3Credentials(
   scope: S3ConfigScope = {},
 ): S3Credentials | null {
   return resolveS3Setup(scope).credentials;
+}
+
+/** What `review trace status` prints about the direct bucket setup. */
+export interface S3SetupReport {
+  /** The file the values came from: the version-2 profile, else the env file. */
+  envPath: string;
+  config?: { endpoint: string; bucket: string; accessKeyId: string };
+  /** Why no complete configuration exists. */
+  error?: string;
+}
+
+/** Describes the resolved direct-bucket setup without testing the network. */
+export function describeS3Setup(
+  env: NodeJS.ProcessEnv = process.env,
+): S3SetupReport {
+  const setup = resolveS3Setup({ env });
+  const envPath = setup.source === "profile" ? setup.configPath : setup.envPath;
+
+  if (isS3MockMode(env)) {
+    return {
+      envPath,
+      config: {
+        endpoint: "mock://endpoint",
+        bucket: "mock-bucket",
+        accessKeyId: "mock-key",
+      },
+    };
+  }
+
+  const config = setup.credentials;
+
+  if (!config) {
+    const anyInput =
+      setup.profile !== null ||
+      existsSync(setup.envPath) ||
+      Boolean(env.TRACE_R2_BUCKET);
+
+    return {
+      envPath,
+      error: anyInput
+        ? "Configuration is missing one or more required S3/R2 values."
+        : "No trace configuration found. Use Review Agent Setup to configure trace capture.",
+    };
+  }
+
+  return {
+    envPath,
+    config: {
+      endpoint: config.endpoint,
+      bucket: config.bucket,
+      accessKeyId: config.accessKeyId,
+    },
+  };
 }
 
 /** The bucket test double: object keys become files under this directory. */

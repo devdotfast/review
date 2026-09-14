@@ -26,6 +26,7 @@ import {
   sessionMetaSchema,
 } from "@dev.fast/review-protocol";
 
+import { errorMessage } from "../error-message";
 import {
   type S3ConfigScope,
   type S3Credentials,
@@ -59,11 +60,6 @@ import type {
  */
 
 const execFileAsync = promisify(execFile);
-
-export interface S3DoctorResult {
-  reachable: boolean;
-  error?: string;
-}
 
 export class S3TraceStorage implements TraceStorage {
   readonly kind = "s3" as const;
@@ -124,8 +120,19 @@ export class S3TraceStorage implements TraceStorage {
     return repo;
   }
 
+  /** A non-mutating reachability check of the configured bucket. */
   async readiness(): Promise<TraceStorageReadiness> {
-    return { ready: true };
+    if (!this.config) return { ready: true };
+
+    try {
+      await this.aws(["s3api", "head-bucket", "--bucket", this.config.bucket], {
+        timeout: 15_000,
+      });
+
+      return { ready: true };
+    } catch (error) {
+      return { ready: false, reason: errorMessage(error) };
+    }
   }
 
   async describeObject(
@@ -310,24 +317,6 @@ export class S3TraceStorage implements TraceStorage {
     }
 
     return true;
-  }
-
-  /** A non-mutating reachability check of the configured bucket. */
-  async doctor(): Promise<S3DoctorResult> {
-    if (!this.config) return { reachable: true };
-
-    try {
-      await this.aws(["s3api", "head-bucket", "--bucket", this.config.bucket], {
-        timeout: 15_000,
-      });
-
-      return { reachable: true };
-    } catch (error) {
-      return {
-        reachable: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
   }
 
   // --- transport -----------------------------------------------------------

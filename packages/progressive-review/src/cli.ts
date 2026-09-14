@@ -123,11 +123,6 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
   };
 
   if (printRuntimeDiagnostics(argv, cliPath)) return 0;
-  const command = argv.filter((argument) => argument !== "--json");
-
-  if (command[0] === "trace" && command[1] === "status") {
-    childEnv.DEV_FAST_REVIEW_CLI_DIAGNOSTICS_PRINTED = "1";
-  }
 
   if (runtimePath) childEnv.ELECTRON_RUN_AS_NODE = "1";
 
@@ -152,24 +147,15 @@ function printRuntimeDiagnostics(
 ): boolean {
   const args = argv.filter((argument) => argument !== "--json");
   const verbose = args[0] === "version" && args.includes("--verbose");
-  const status = args[0] === "trace" && args[1] === "status";
 
-  if (!verbose && !status) return false;
+  if (!verbose) return false;
   const info = cliRuntimeInfo(ownCliPath, effectivePath);
 
-  if (verbose) {
-    process.stdout.write(
-      argv.includes("--json")
-        ? `${JSON.stringify(info)}\n`
-        : describeCliRuntime(info),
-    );
+  process.stdout.write(
+    argv.includes("--json")
+      ? `${JSON.stringify(info)}\n`
+      : describeCliRuntime(info),
+  );
 
-    return true;
-  }
-
-  if (!process.env.DEV_FAST_REVIEW_CLI_DIAGNOSTICS_PRINTED) {
-    process.stderr.write(describeCliRuntime(info));
-  }
-
-  return false;
+  return true;
 }

@@ -20,13 +20,13 @@ Configure only repositories explicitly named by the user, at the authorized orig
 When configuring capture or investigating missing capture:
 
 1. Run `review trace status` in the current repository.
-2. Check the user's request for authorization naming this repository and origin. Hosted selection, login, an existing store, and S3 auto-activation do not authorize another repository.
+2. Check the user's request for authorization naming this repository and origin. Hosted selection, login, and an existing store do not authorize another repository.
 3. If authorization covers it, run `review trace onboard` when no store exists. Run `review trace allow .` to allow publication. Respect any later denial or narrower instruction.
 4. Run `review trace status` again. Report access or authentication failures without changing the destination.
 
 If authorization is missing, report that capture is off and continue available read-only investigation. Do not automatically allow missing repositories. A trace lookup does not require enabling publication.
 
-The current CLI has no hosted auto-activation flag. The `deny` command removes consent. Respect that choice until the user explicitly requests publication again.
+The `deny` command removes consent. Respect that choice until the user explicitly requests publication again.
 
 FFF setup is human-owned. If FFF is unavailable, report the setup gap. Do not replace or reconfigure it.
 

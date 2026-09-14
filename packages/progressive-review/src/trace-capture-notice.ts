@@ -6,7 +6,7 @@ import type { Writable } from "node:stream";
 import { normalizeStoreOrigin } from "./store-origin";
 
 export const HOSTED_CAPTURE_SCOPE_NOTICE =
-  "Other repositories do not capture to hosted storage. S3 auto-activation applies only to the bucket. Enable another repository only when the user explicitly requests publication.\n";
+  "Hosted capture is limited to repositories allowed at this origin. Enable another repository only when the user explicitly requests publication.\n";
 
 /** Informational only: no network access, consent writes, or transfers. */
 export async function notifySkippedHostedCapture(input: {
@@ -25,11 +25,10 @@ export async function notifySkippedHostedCapture(input: {
   await mkdir(directory, { recursive: true, mode: 0o700 });
 
   try {
-    await writeFile(
-      path.join(directory, `${key}.json`),
-      JSON.stringify({ version: 1, notifiedAt: new Date().toISOString() }),
-      { flag: "wx", mode: 0o600 },
-    );
+    await writeFile(path.join(directory, `${key}.json`), "", {
+      flag: "wx",
+      mode: 0o600,
+    });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "EEXIST")
       return;

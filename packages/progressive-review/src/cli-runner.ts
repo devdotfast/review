@@ -312,8 +312,9 @@ export async function runProgressiveReviewCli(
   configureJsonOutput(
     program
       .command("version")
-      .description("Print Review package version")
-      .option("--verbose", "Show executing CLI paths and build identity"),
+      .description(
+        "Print Review package version; use --verbose for CLI paths and build identity",
+      ),
     "plain",
   ).action((options: { json?: boolean }) => {
     input.stdout.write(

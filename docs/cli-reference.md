@@ -263,17 +263,9 @@ onboarding never selects hosted storage by itself, a legacy bucket always
 outranks consent, and a commit trailer alone never authorizes a publication.
 Hosted uploads that fail never fall back to the bucket.
 
-Hosted setup requires explicit opt-in to publishing complete agent transcripts.
-Explain the destination and who can read them before enabling publication.
-Name the repositories and origin the user authorizes. An agent can run
-`review trace onboard` and `review trace allow .` for those repositories.
-An absent allow entry means no capture. It does not authorize an agent to
-enable that repository. `review trace deny` removes consent until the user
-explicitly requests publication again.
-The current CLI has no hosted auto-activation flag; these commands still need
-to run for each repository. Selecting hosted alone does not authorize future
-repositories, and the S3 `autoActivateRepositories` setting applies only to
-the bucket. Migration does not create hosted consent.
+See [hosted trace privacy and setup consent](privacy.md#hosted-trace-store)
+before enabling publication. Run `review trace onboard` and `review trace allow`
+for each authorized repository. `review trace deny` removes its consent.
 
 Use a packaged app that supports v2 configuration before migrating.
 `--keep-legacy` preserves configuration files for older apps, but cannot stop

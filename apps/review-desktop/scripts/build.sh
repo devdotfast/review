@@ -122,8 +122,6 @@ if [[ "$DEV_FAST_ACTIVE" != "1" ]]; then
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build:tutorial-assets
   node "$APP_DIR/scripts/copy-canvas.mjs"
-else
-  bash "$APP_DIR/scripts/build-review-cli.sh"
 fi
 if [[ -n "$TYPECHECK_PID" ]]; then
   wait "$TYPECHECK_PID"

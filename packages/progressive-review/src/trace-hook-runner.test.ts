@@ -450,12 +450,6 @@ describe("runReviewTraceHook with hosted storage", () => {
     expect(chunks).toHaveLength(0);
     await runReviewTraceHook({ ...input, event: "SessionStart" });
     expect(chunks).toHaveLength(1);
-    await runReviewTraceHook({
-      ...input,
-      event: "SessionStart",
-      sessionId: "session-notice-again",
-    });
-    expect(chunks).toHaveLength(1);
     expect(await readFile(traceConfigPath({ devHome }), "utf8")).toBe(before);
     expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
   });

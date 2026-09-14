@@ -31,7 +31,7 @@ import {
   traceStorageExpectation,
 } from "./trace-storage/resolve";
 import {
-  type TraceRepositoryEntry,
+  type TraceRepositoryConsent,
   findTraceRepository,
   readTraceUserConfig,
 } from "./trace-user-config";
@@ -295,7 +295,7 @@ export async function resolveAllowedTraceRepository(
   cwd: string,
   env: NodeJS.ProcessEnv = process.env,
   homeDir?: string,
-): Promise<TraceRepositoryEntry | null> {
+): Promise<TraceRepositoryConsent | null> {
   let name: string;
 
   try {
@@ -317,7 +317,7 @@ export async function resolveAllowedTraceRepository(
 async function recordCaptureProvenance(input: {
   cwd: string;
   sessionId: string;
-  entry: TraceRepositoryEntry | null;
+  entry: TraceRepositoryConsent | null;
   origin: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;

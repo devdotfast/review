@@ -39,10 +39,7 @@ import {
   parseRepo,
   traceRepoName,
 } from "./trace-repo";
-import {
-  isTraceStorageConfigured,
-  resolveTraceStorage,
-} from "./trace-storage/resolve";
+import { resolveTraceStorage } from "./trace-storage/resolve";
 import {
   clearTraceEnvCache as clearS3EnvCache,
   traceEnvValue as s3EnvValue,
@@ -150,10 +147,6 @@ export interface ReviewTraceSyncResult {
 }
 
 const lastCheckedTimes = new Map<string, number>();
-
-export function isTraceR2Configured(): boolean {
-  return isTraceStorageConfigured();
-}
 
 /**
  * The store to read from or publish to: an explicit override, or the
@@ -1465,10 +1458,7 @@ interface CommitWithSessions extends ReviewTraceCommitRef {
   sessions: string[];
 }
 
-export async function resolveCommitSha(
-  cwd: string,
-  rev: string,
-): Promise<string> {
+async function resolveCommitSha(cwd: string, rev: string): Promise<string> {
   const result = await git(
     cwd,
     ["rev-parse", "--verify", "--end-of-options", rev],
@@ -1536,7 +1526,7 @@ export async function listRepositoryTraceSessionIds(
   );
 }
 
-export async function readSubjectPullNumber(
+async function readSubjectPullNumber(
   cwd: string,
   rev: string,
 ): Promise<number | null> {
@@ -1551,13 +1541,13 @@ export async function readSubjectPullNumber(
   return subjectPullNumber(result.stdout.trim());
 }
 
-export function subjectPullNumber(subject: string): number | null {
+function subjectPullNumber(subject: string): number | null {
   const match = /\(#(\d+)\)$/.exec(subject);
 
   return match ? Number(match[1]) : null;
 }
 
-export async function readRepoMetaFields(
+async function readRepoMetaFields(
   cwd: string,
 ): Promise<{ author: string | null; branch: string | null }> {
   const insideResult = await git(cwd, ["rev-parse", "--is-inside-work-tree"], {
@@ -1658,7 +1648,7 @@ export function codexSessionsRoot(): string {
 }
 
 /** Subagent traces known locally or in the store, by name without ".jsonl". */
-export async function listSessionSubagents(
+async function listSessionSubagents(
   sessionId: string,
   storage?: TraceStorage | null,
 ): Promise<string[]> {
@@ -1687,7 +1677,7 @@ export async function listSessionSubagents(
   return [...subagents].sort();
 }
 
-export async function prScanTrailerSessions(
+async function prScanTrailerSessions(
   cwd: string,
   commit: string,
   pr: number,

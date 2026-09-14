@@ -19,7 +19,7 @@ import { normalizeStoreOrigin } from "./store-origin";
 import { traceCliName } from "./trace-command";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import {
-  type TraceRepositoryEntry,
+  type TraceRepositoryConsent,
   findTraceRepository,
   readTraceUserConfig,
 } from "./trace-user-config";
@@ -251,7 +251,7 @@ export async function resolveTraceRepositoryTarget(input: {
 export async function requireTraceConsent(
   target: TraceRepositoryTarget,
   devHome?: string,
-): Promise<TraceRepositoryEntry> {
+): Promise<TraceRepositoryConsent> {
   const config = await readTraceUserConfig(devHome);
 
   // The id is the identity. A display name can be reused by another

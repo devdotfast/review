@@ -9,7 +9,6 @@ import {
   clearTraceEnvCache,
   describeTraceSession,
   findLocalTrace,
-  isTraceR2Configured,
   listReviewTraceSessions,
   loadReviewAgentTrace,
   lookupReviewTraceBlame,
@@ -17,6 +16,7 @@ import {
   lookupReviewTraceSession,
   syncReviewTrace,
 } from "./review-agent-traces";
+import { isTraceStorageConfigured } from "./trace-storage/resolve";
 
 describe("review-agent-traces", () => {
   let tempDir: string;
@@ -115,7 +115,7 @@ describe("review-agent-traces", () => {
   });
 
   it("reports configured when in mock mode", () => {
-    expect(isTraceR2Configured()).toBe(true);
+    expect(isTraceStorageConfigured()).toBe(true);
   });
 
   it("describes a session as available when stored in mock R2", async () => {

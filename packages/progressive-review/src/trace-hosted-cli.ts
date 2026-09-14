@@ -1,3 +1,4 @@
+import os from "node:os";
 import type { Writable } from "node:stream";
 
 import { git } from "@dev.fast/local-vcs";
@@ -9,6 +10,7 @@ import {
 } from "@dev.fast/trace-shared";
 
 import {
+  describeTraceHookOwners,
   installClaudeTraceHook,
   installCodexTraceHook,
   installOpenCodeTraceExtension,
@@ -27,9 +29,18 @@ import { readActiveTraceSessions } from "./trace-agent-sessions";
 import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
 import { type TraceCommand, traceCliName } from "./trace-command";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
-import { enableTraceRepository } from "./trace-repository-hooks";
+import {
+  enableTraceRepository,
+  traceRepositoryStatus,
+} from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
-import { hostedOrigin, readTraceConfigFile } from "./trace-storage/config";
+import {
+  emptyTraceConfig,
+  hostedCaptureEnabled,
+  hostedOrigin,
+  readTraceConfigFile,
+  writeTraceConfigFile,
+} from "./trace-storage/config";
 import { traceNameFromObject } from "./trace-storage/hosted";
 import { selectTraceStorage } from "./trace-storage/resolve";
 import type { TraceStorageKind } from "./trace-storage/types";
@@ -154,6 +165,24 @@ export async function runReviewTraceAllow(
     );
   }
 
+  // Consent is hosted-only. A machine that sends traces to a bucket keeps
+  // doing so until the user selects the hosted store explicitly.
+  const selection = selectTraceStorage({
+    env: input.env,
+    homeDir: input.homeDir,
+  });
+
+  if (selection.error)
+    return failWithJsonError(input, "allow", selection.error);
+
+  if (selection.mode === "s3") {
+    return failWithJsonError(
+      input,
+      "allow",
+      `This machine sends traces to a bucket. Run \`${traceCliName()} trace storage use hosted\` first.`,
+    );
+  }
+
   const storeOrigin = auth.origin;
 
   const client =
@@ -201,6 +230,10 @@ export async function runReviewTraceAllow(
     homeDir: input.homeDir,
     reviewCommand: input.traceCommand,
   });
+  await enableHostedCapture(
+    devReviewHome(input.env, input.homeDir),
+    storeOrigin,
+  );
   await allowTraceRepository(
     {
       repositoryId: store.repositoryId,
@@ -217,10 +250,36 @@ export async function runReviewTraceAllow(
     store: storeOrigin,
   });
   humanStream(input).write(
-    `Traces from ${store.displayName} may be published to ${storeOrigin}. A machine with no bucket configured now uses the hosted store; one with a bucket needs \`${traceCliName()} trace storage use hosted\`.\n`,
+    `Traces from ${store.displayName} may be published to ${storeOrigin}.\n`,
   );
 
   return 0;
+}
+
+/**
+ * Switches hosted capture on. An uninstall leaves `capture.enabled: false`
+ * behind; a later allow means the user wants capture back. A file with no
+ * hosted entry gets one that names the login's origin.
+ */
+async function enableHostedCapture(
+  devHome: string,
+  origin: string,
+): Promise<void> {
+  const file = readTraceConfigFile({ devHome });
+  const current = file.config ?? emptyTraceConfig();
+  const hosted = current.stores?.hosted;
+
+  if (hosted?.capture?.enabled === true) return;
+
+  await writeTraceConfigFile(file, {
+    ...current,
+    stores: {
+      ...current.stores,
+      hosted: hosted
+        ? { ...hosted, capture: { enabled: true } }
+        : { origin, capture: { enabled: true } },
+    },
+  });
 }
 
 export async function runReviewTraceDeny(
@@ -601,6 +660,19 @@ export async function writeHostedTraceStatus(
             : ` (selected store is ${input.origin}; run \`${traceCliName()} login --origin ${input.origin}\`)`
         }\n`
       : `Login: none. Run \`${traceCliName()} login --origin ${input.origin}\`.\n`,
+  );
+  stream.write(
+    `Capture switch: ${hostedCaptureEnabled(readTraceConfigFile({ devHome }).config) ? "on" : "off"}\n`,
+  );
+
+  const owners = await describeTraceHookOwners(input.homeDir ?? os.homedir());
+  stream.write(
+    `Harness hooks: claude -> ${owners.claude ?? "none"}, codex -> ${owners.codex ?? "none"}, opencode -> ${owners.opencode ?? "none"}, pi -> ${owners.pi ?? "none"}\n`,
+  );
+
+  const repositoryHooks = await traceRepositoryStatus(input.cwd);
+  stream.write(
+    `Git hooks: ${repositoryHooks.enabled ? (repositoryHooks.command ?? "enabled") : "not enabled"}\n`,
   );
 
   if (config.repositories.length === 0) {

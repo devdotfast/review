@@ -108,10 +108,25 @@ async function defaultSleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Opens a URL with macOS's `open`. Callers inject a stub in tests. */
+/** The command that opens a URL in the user's browser on this platform. */
+export function browserOpenCommand(
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return platform === "darwin" ? "open" : "xdg-open";
+}
+
+/** Opens a URL in the browser. Callers inject a stub in tests. */
 async function defaultOpenUrl(url: string): Promise<void> {
   const { spawn } = await import("node:child_process");
-  spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+
+  const child = spawn(browserOpenCommand(), [url], {
+    stdio: "ignore",
+    detached: true,
+  });
+
+  // A machine without an opener keeps the printed URL; the login goes on.
+  child.on("error", () => {});
+  child.unref();
 }
 
 export async function runReviewLogin(input: {

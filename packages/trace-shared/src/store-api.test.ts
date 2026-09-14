@@ -266,5 +266,11 @@ describe("store-api contracts", () => {
         nextCursor: "session-0009",
       }).success,
     ).toBe(true);
+    // A repository-wide listing names no commit and no session.
+    expect(listSessionsQuerySchema.safeParse({}).success).toBe(true);
+    expect(
+      listSessionsQuerySchema.safeParse({ limit: "50", cursor: "session-0009" })
+        .success,
+    ).toBe(true);
   });
 });

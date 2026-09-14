@@ -199,23 +199,19 @@ export type CompleteUploadResponse = z.infer<
   typeof completeUploadResponseSchema
 >;
 
-export const listSessionsQuerySchema = z
-  .object({
-    commit: commitShaSchema.optional(),
-    session: sessionIdSchema.optional(),
-    /** Page size; the server caps it at MAX_TRACE_SESSIONS_PAGE. */
-    limit: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(MAX_TRACE_SESSIONS_PAGE)
-      .optional(),
-    /** The last session id of the previous page. */
-    cursor: sessionIdSchema.optional(),
-  })
-  .refine((q) => q.commit !== undefined || q.session !== undefined, {
-    message: "commit or session is required",
-  });
+/**
+ * A listing filter. Every field is optional: a query with neither `commit`
+ * nor `session` lists every published session of the store, one page at a
+ * time. Stores older than 0.3.0 reject that query as `invalid_request`.
+ */
+export const listSessionsQuerySchema = z.object({
+  commit: commitShaSchema.optional(),
+  session: sessionIdSchema.optional(),
+  /** Page size; the server caps it at MAX_TRACE_SESSIONS_PAGE. */
+  limit: z.coerce.number().int().min(1).max(MAX_TRACE_SESSIONS_PAGE).optional(),
+  /** The last session id of the previous page. */
+  cursor: sessionIdSchema.optional(),
+});
 
 export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
 

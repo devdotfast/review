@@ -75,6 +75,14 @@ function stripModuleStatements(source) {
 const MODULE_FILES = [
   "runtime-value.ts",
   "json.ts",
+  "host-document.ts",
+  "host-api.ts",
+  "host-document-operations.ts",
+  "host-source.ts",
+  "host-resources.ts",
+  "host-feedback.ts",
+  "host-activity.ts",
+  "host-commands.ts",
   "contracts.ts",
   "index.ts",
 ];

@@ -9,6 +9,7 @@ import { _electron as electron } from "playwright";
 if (process.platform !== "linux") throw new Error("Run this check on Linux");
 
 const packagedRoot = path.resolve(process.argv[2] ?? "apps/review-desktop/VSCode-linux-x64");
+
 const { applicationName } = JSON.parse(
   await readFile(path.join(packagedRoot, "resources", "app", "product.json"), "utf8"),
 );

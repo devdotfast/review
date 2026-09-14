@@ -118,6 +118,7 @@ export async function smokeLaunch({
   const applicationName = process.platform === "linux"
     ? JSON.parse(await readFile(path.join(app, "resources", "app", "product.json"), "utf8")).applicationName
     : undefined;
+
   const binary = process.platform === "linux"
     ? path.join(app, applicationName)
     : path.join(app, "Contents", "MacOS", PRODUCT_NAME);

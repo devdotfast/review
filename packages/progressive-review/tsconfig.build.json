@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {}
+  },
+  "include": [
+    "src/authoring.ts",
+    "src/runtime.ts",
+    "src/server/desktop-server.ts",
+    "src/software-map-model.ts",
+    "src/software-map-topology-diff.ts"
+  ]
+}

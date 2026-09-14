@@ -83,6 +83,7 @@ const MODULE_FILES = [
   "host-feedback.ts",
   "host-activity.ts",
   "host-commands.ts",
+  "host-client.ts",
   "contracts.ts",
   "index.ts",
 ];

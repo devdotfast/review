@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { resolveRevision } from "@dev.fast/local-vcs";
 import {
   type JsonValue,
+  ReviewRecordSchema,
   isJsonObject,
   jsonProperty,
   jsonString,
@@ -33,7 +34,9 @@ import {
   createReviewUuid,
   findReview,
   listReviews,
+  readStoredReview,
   reviewTitleFromDocument,
+  reviewsHomeDir,
   sealReviewCandidate,
 } from "../review-home";
 import {
@@ -65,6 +68,8 @@ export interface TutorialService {
   referencesReview(reviewUuid: string): Promise<boolean>;
   /** The hidden system Review record. Null when absent or invalid. */
   find(): Promise<StoredReview | null>;
+  /** Exact system-record lookup, scoped to this tutorial's storage home. */
+  lookup(reviewUuid: string): Promise<StoredReview | null>;
   /** Returns the ready-to-mount tutorial Review. Materializes the shipped
       repo and a sealed revision when absent or invalid. Compilation remains
       unnecessary because the document and map bundles ship precompiled. */
@@ -78,8 +83,11 @@ export interface TutorialService {
 export function createTutorialService(input: {
   packageRoot: string;
   deleteReview(review: StoredReview): Promise<void>;
+  /** JSON Desktop isolates trusted tutorial artifacts from inactive old reviews. */
+  isolatedHome?: string;
 }): TutorialService {
-  const tutorialRoot = path.join(devReviewHome(), "tutorial");
+  const tutorialRoot =
+    input.isolatedHome ?? path.join(devReviewHome(), "tutorial");
   const sampleRoot = path.join(tutorialRoot, "sample-service");
   const stampPath = path.join(tutorialRoot, "stamp.json");
   const assetsRoot = path.join(input.packageRoot, "tutorial");
@@ -87,8 +95,18 @@ export function createTutorialService(input: {
   const findTutorialReview = async (
     uuid: string,
   ): Promise<StoredReview | null> => {
-    const loaded = await findReview(uuid);
-    return loaded?.review.visibility === "system" ? loaded : null;
+    if (!ReviewRecordSchema.shape.uuid.safeParse(uuid).success) return null;
+    const loaded = input.isolatedHome
+      ? await readStoredReview(
+          path.join(reviewsHomeDir(input.isolatedHome), uuid),
+        )
+      : await findReview(uuid);
+    return loaded &&
+      !("error" in loaded) &&
+      loaded.review.uuid === uuid &&
+      loaded.review.visibility === "system"
+      ? loaded
+      : null;
   };
 
   const readValidState = async (
@@ -131,16 +149,29 @@ export function createTutorialService(input: {
   };
 
   const cleanup = async (): Promise<void> => {
-    const listed = await listReviews({ includeSystem: true });
-    for (const review of listed.reviews) {
-      if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
+    if (input.isolatedHome) {
+      const stamp = await readTutorialStamp(stampPath);
+      const review = stamp ? await findTutorialReview(stamp.reviewUuid) : null;
+      if (
+        review &&
+        (await isManagedTutorialPath(review.review.worktreePath, sampleRoot))
+      )
         await input.deleteReview(review);
+    } else {
+      const listed = await listReviews({ includeSystem: true });
+      for (const review of listed.reviews) {
+        if (
+          await isManagedTutorialPath(review.review.worktreePath, sampleRoot)
+        ) {
+          await input.deleteReview(review);
+        }
       }
     }
     await rm(tutorialRoot, { recursive: true, force: true });
   };
 
   return {
+    lookup: findTutorialReview,
     async status() {
       const state = await readValidState();
       return {
@@ -196,6 +227,7 @@ export function createTutorialService(input: {
       const sourceSession = freshSourceSessionKey(agent);
       const created = await createReviewDir({
         uuid,
+        reviewsHomePath: input.isolatedHome,
         visibility: "system",
         worktreePath: sampleRoot,
         baseRef: "main~1",

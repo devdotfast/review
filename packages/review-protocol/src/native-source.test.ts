@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -22,6 +23,20 @@ const bundlerPath = fileURLToPath(
   new URL("../scripts/bundle-native-runtime.mjs", import.meta.url),
 );
 const temporaryDirectories: string[] = [];
+
+async function copySourceFixture(sourceRoot: string, empty = false) {
+  const packageSource = fileURLToPath(new URL(".", import.meta.url));
+  await mkdir(sourceRoot, { recursive: true });
+  for (const name of await readdir(packageSource)) {
+    if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
+    if (empty) await writeFile(path.join(sourceRoot, name), "");
+    else
+      await copyFile(
+        path.join(packageSource, name),
+        path.join(sourceRoot, name),
+      );
+  }
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -95,21 +110,8 @@ describe("native Review Protocol source generation", () => {
       path.join(tmpdir(), "review-protocol-native-reformat-"),
     );
     temporaryDirectories.push(directory);
-    const packageRoot = fileURLToPath(new URL("..", import.meta.url));
     const sourceRoot = path.join(directory, "src");
-    await mkdir(sourceRoot, { recursive: true });
-    for (const name of [
-      "runtime-value.ts",
-      "json.ts",
-      "contracts.ts",
-      "index.ts",
-      "bug-report.ts",
-    ]) {
-      await copyFile(
-        path.join(packageRoot, "src", name),
-        path.join(sourceRoot, name),
-      );
-    }
+    await copySourceFixture(sourceRoot);
     // Reformat index.ts: one named import per line, different order, the
     // re-exports moved to the bottom of the file, and the `contracts.js`
     // re-export rewritten from `export * from` to a wrapped multi-line
@@ -163,9 +165,7 @@ describe("native Review Protocol source generation", () => {
     );
     temporaryDirectories.push(directory);
     const sourceRoot = path.join(directory, "src");
-    await mkdir(sourceRoot, { recursive: true });
-    await writeFile(path.join(sourceRoot, "runtime-value.ts"), "");
-    await writeFile(path.join(sourceRoot, "json.ts"), "");
+    await copySourceFixture(sourceRoot, true);
     await writeFile(
       path.join(sourceRoot, "contracts.ts"),
       [

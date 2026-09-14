@@ -285,6 +285,36 @@ export async function assertRuntimeClosure(runtimeRoot) {
     }
   }
   await assertNoCheckoutReferences(runtimeRoot);
+  await assertRuntimeImageDecoder(runtimeRoot);
+}
+
+/** Decode through the deployed native closure, not the build checkout's copy. */
+export async function assertRuntimeImageDecoder(runtimeRoot) {
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        "--input-type=commonjs",
+        "-e",
+        `
+      const sharp = require('./node_modules/sharp');
+      (async () => {
+        for (const format of ['png', 'jpeg', 'webp']) {
+          const encoded = await sharp({ create: { width: 1, height: 1, channels: 3, background: '#123456' } }).toFormat(format).toBuffer();
+          const decoded = await sharp(encoded, { failOn: 'warning', limitInputPixels: 1 }).raw().toBuffer({ resolveWithObject: true });
+          if (decoded.info.width !== 1 || decoded.info.height !== 1 || decoded.data.length === 0) throw new Error('Raster decoder returned invalid pixels.');
+        }
+      })().catch(error => { console.error(error); process.exitCode = 1; });
+    `,
+      ],
+      { cwd: runtimeRoot, timeout: 15_000, maxBuffer: 1024 * 1024 },
+    );
+  } catch (cause) {
+    throw new Error(
+      `The staged Review image decoder cannot run on ${process.platform}-${process.arch}. Deploy production dependencies, including optional sharp binaries, on the packaging platform before signing.`,
+      { cause },
+    );
+  }
 }
 
 export async function readTutorialRuntimeManifest(tutorialRoot) {

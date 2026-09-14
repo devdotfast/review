@@ -110,6 +110,7 @@ export class CodexAgentServer implements AgentServer {
       [DEV_REVIEW_HOME_ENV]: devReviewHome(),
     };
     if (pathValue) env.PATH = pathValue;
+    Object.assign(env, input.environment);
     // Ask sessions read a frozen checkout and fetch their thread from Desktop.
     const config: JsonObject = {
       ...askPermissionsConfig(this.#desktop.baseUrl),

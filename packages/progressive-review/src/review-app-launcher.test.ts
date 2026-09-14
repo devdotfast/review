@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import path from "node:path";
 
 import {
   REVIEW_DESKTOP_DISCOVERY_VERSION,
@@ -6,6 +7,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
 
+import { findProgressiveReviewPackageRoot } from "./package-paths";
 import {
   type LaunchDesktopApplicationInput,
   launchDesktopApplication,
@@ -20,6 +22,7 @@ const discovery: ReviewDesktopDiscovery = {
   serverPid: 2,
   token: "secret",
   startedAt: 3,
+  cliPath: path.join(findProgressiveReviewPackageRoot(), "dist", "cli.js"),
 };
 
 describe("Review Desktop launcher", () => {
@@ -292,6 +295,7 @@ describe("Review Desktop launcher", () => {
     launchDesktopApplication({
       platform: "darwin",
       electron: false,
+      packageRoot: "/opt/standalone-review-package",
       spawn,
     });
     expect(spawn).toHaveBeenCalledWith(
@@ -299,6 +303,61 @@ describe("Review Desktop launcher", () => {
       ["-b", "dev.fast.review"],
       expect.objectContaining({ detached: true }),
     );
+  });
+
+  it("launches the checkout script, not the installed application, with the selected profile", () => {
+    const child = new FakeChild();
+    const spawn = vi.fn<NonNullable<LaunchDesktopApplicationInput["spawn"]>>(
+      () => child,
+    );
+    const attempt = launchDesktopApplication({
+      platform: "darwin",
+      electron: false,
+      env: {
+        DEV_REVIEW_HOME: "/tmp/isolated-checkout-review",
+        ELECTRON_RUN_AS_NODE: "1",
+      },
+      spawn,
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      "/bin/bash",
+      [
+        path.resolve(
+          findProgressiveReviewPackageRoot(),
+          "../../apps/review-desktop/scripts/run.sh",
+        ),
+      ],
+      expect.objectContaining({
+        env: { DEV_REVIEW_HOME: "/tmp/isolated-checkout-review" },
+      }),
+    );
+    expect(attempt.successfulExitIsExpected).toBe(false);
+  });
+
+  it("refuses to activate an installed build discovered in the checkout's selected profile", async () => {
+    const launchDesktop = vi.fn<typeof launchDesktopApplication>(() =>
+      pendingAttempt(),
+    );
+    const focusDesktop = vi.fn<
+      (value: ReviewDesktopDiscovery) => Promise<void>
+    >(async () => {});
+    await expect(
+      runReviewAppLaunch(
+        {},
+        {
+          readReviewDesktopDiscovery: async () => ({
+            ...discovery,
+            cliPath:
+              "/Applications/Review.app/Contents/Resources/review/dist/cli.js",
+          }),
+          fetch: async () => healthyResponse(),
+          launchDesktop,
+          focusDesktop,
+        },
+      ),
+    ).rejects.toThrow("different Review Desktop build");
+    expect(launchDesktop).not.toHaveBeenCalled();
+    expect(focusDesktop).not.toHaveBeenCalled();
   });
 });
 

@@ -1,4 +1,5 @@
 import { type SpawnOptions, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -10,6 +11,8 @@ import {
   readHealthyReviewDesktopDiscovery,
   readReviewDesktopDiscovery,
 } from "./desktop-discovery";
+import { findProgressiveReviewPackageRoot } from "./package-paths";
+import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 
 const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
 const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000;
@@ -36,6 +39,8 @@ interface ReviewAppLauncherRuntime {
 
 export interface RunReviewAppLaunchInput {
   timeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
+  packageRoot?: string;
 }
 
 export interface ReviewAppLaunchEvent {
@@ -61,6 +66,7 @@ export interface LaunchDesktopApplicationInput {
   execPath?: string;
   electron?: boolean;
   env?: NodeJS.ProcessEnv;
+  packageRoot?: string;
   spawn?: (
     command: string,
     args: readonly string[],
@@ -72,12 +78,27 @@ export async function runReviewAppLaunch(
   input: RunReviewAppLaunchInput = {},
   overrides: Partial<ReviewAppLauncherRuntime> = {},
 ): Promise<ReviewAppLaunchEvent> {
+  const env = input.env ?? process.env;
+  const packageRoot = input.packageRoot ?? findProgressiveReviewPackageRoot();
+  const checkout = checkoutLaunchScript(packageRoot);
+  const checkBuild = (discovery: ReviewDesktopDiscovery) => {
+    if (
+      checkout &&
+      (!discovery.cliPath ||
+        path.resolve(discovery.cliPath) !==
+          path.join(packageRoot, "dist", "cli.js"))
+    )
+      throw new Error(
+        "A different Review Desktop build owns this profile. Close it or select an isolated DEV_REVIEW_HOME before launching this checkout. The installed app was not activated.",
+      );
+  };
   const fetch = overrides.fetch ?? globalThis.fetch;
   const runtime: ReviewAppLauncherRuntime = {
-    readReviewDesktopDiscovery,
+    readReviewDesktopDiscovery: () =>
+      readReviewDesktopDiscovery(reviewDesktopDiscoveryPath(env)),
     fetch,
     focusDesktop: (discovery) => focusReviewDesktop(discovery, fetch),
-    launchDesktop: launchDesktopApplication,
+    launchDesktop: () => launchDesktopApplication({ env, packageRoot }),
     now: Date.now,
     wait: (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
@@ -85,6 +106,7 @@ export async function runReviewAppLaunch(
   };
   const running = await readLaunchHealthyDesktop(runtime);
   if (running) {
+    checkBuild(running);
     await runtime.focusDesktop(running);
     return launchEvent("running", running.instanceId);
   }
@@ -98,7 +120,10 @@ export async function runReviewAppLaunch(
   let unexpectedSuccessfulExitAt: number | undefined;
   while (runtime.now() < deadline) {
     const ready = await readLaunchHealthyDesktop(runtime);
-    if (ready) return launchEvent("launched", ready.instanceId);
+    if (ready) {
+      checkBuild(ready);
+      return launchEvent("launched", ready.instanceId);
+    }
     if (
       unexpectedSuccessfulExitAt !== undefined &&
       runtime.now() - unexpectedSuccessfulExitAt >= EARLY_EXIT_GRACE_MS
@@ -164,7 +189,13 @@ export function launchDesktopApplication(
   input: LaunchDesktopApplicationInput = {},
 ): DesktopLaunchAttempt {
   const platform = input.platform ?? process.platform;
-  if (platform !== "darwin") {
+  const electron = input.electron ?? Boolean(process.versions.electron);
+  const checkout = electron
+    ? null
+    : checkoutLaunchScript(
+        input.packageRoot ?? findProgressiveReviewPackageRoot(),
+      );
+  if (platform !== "darwin" && !checkout) {
     return {
       method: `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`,
       successfulExitIsExpected: false,
@@ -174,24 +205,29 @@ export function launchDesktopApplication(
     };
   }
 
-  const electron = input.electron ?? Boolean(process.versions.electron);
-  const command = electron
-    ? (input.execPath ?? process.execPath)
-    : "/usr/bin/open";
+  const command = checkout
+    ? "/bin/bash"
+    : electron
+      ? (input.execPath ?? process.execPath)
+      : "/usr/bin/open";
   const env = { ...(input.env ?? process.env) };
-  if (electron) delete env.ELECTRON_RUN_AS_NODE;
+  delete env.ELECTRON_RUN_AS_NODE;
   const stateRoot = env.DEV_FAST_REVIEW_DESKTOP_STATE_ROOT?.trim();
-  const args = electron
-    ? stateRoot
-      ? [
-          `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
-          `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
-        ]
-      : []
-    : ["-b", REVIEW_DESKTOP_BUNDLE_ID];
-  const method = electron
-    ? `the Desktop-managed bundle at "${command}"`
-    : `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
+  const args = checkout
+    ? [checkout]
+    : electron
+      ? stateRoot
+        ? [
+            `--user-data-dir=${path.resolve(stateRoot, "user-data")}`,
+            `--extensions-dir=${path.resolve(stateRoot, "extensions")}`,
+          ]
+        : []
+      : ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+  const method = checkout
+    ? `this checkout's Desktop launcher at "${checkout}"`
+    : electron
+      ? `the Desktop-managed bundle at "${command}"`
+      : `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
 
   let resolveCompletion: (result: DesktopLaunchCompletion) => void = () =>
     undefined;
@@ -215,7 +251,19 @@ export function launchDesktopApplication(
   } catch (error) {
     rejectCompletion(error instanceof Error ? error : new Error(String(error)));
   }
-  return { method, successfulExitIsExpected: !electron, completion };
+  return {
+    method,
+    successfulExitIsExpected: !electron && !checkout,
+    completion,
+  };
+}
+
+function checkoutLaunchScript(packageRoot: string): string | null {
+  const script = path.resolve(
+    packageRoot,
+    "../../apps/review-desktop/scripts/run.sh",
+  );
+  return existsSync(script) ? script : null;
 }
 
 function launchEvent(

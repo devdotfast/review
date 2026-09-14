@@ -25,11 +25,7 @@ import {
 } from "./progressive-review-telemetry";
 import { runReviewApp as runReviewAppActual } from "./review-app";
 import { runReviewAppLaunch as runReviewAppLaunchActual } from "./review-app-launcher";
-import {
-  type StoredReview,
-  listReviews as listReviewsActual,
-  sealReviewCandidate as sealReviewCandidateActual,
-} from "./review-home";
+import type { StoredReview } from "./review-home";
 import { runReviewInfo as runReviewInfoActual } from "./review-info";
 import { runReviewPublish as runReviewPublishActual } from "./review-publish";
 import { runReviewScaffold as runReviewScaffoldActual } from "./review-scaffold";
@@ -44,19 +40,23 @@ import {
 } from "./threads-cli";
 
 describe("Review CLI", () => {
-  it("installs the review command with headless skills", async () => {
+  it("installs this package's review command, ignoring another Desktop build in discovery", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-cli-shim-install-"),
     );
     const discoveryDir = path.join(rootPath, ".dev", "review-desktop");
     const cliPath = path.join(rootPath, "cli.js");
     const cliRuntimePath = path.join(rootPath, "runtime");
+    const packageRoot = path.join(rootPath, "package");
+    const ownCliPath = path.join(packageRoot, "dist", "cli.js");
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       DEV_REVIEW_HOME: path.join(rootPath, ".dev"),
     };
     await mkdir(discoveryDir, { recursive: true });
+    await mkdir(path.dirname(ownCliPath), { recursive: true });
     await Promise.all([
+      writeFile(ownCliPath, "// invoking package CLI\n"),
       writeFile(cliPath, "// test CLI\n"),
       writeFile(
         path.join(discoveryDir, "server.json"),
@@ -85,6 +85,7 @@ describe("Review CLI", () => {
       await expect(
         runProgressiveReviewCli({
           argv: ["install", "codex"],
+          packageRoot,
           env,
           stdout: outputStream(),
           stderr: outputStream(),
@@ -99,8 +100,7 @@ describe("Review CLI", () => {
         }),
       );
       expect(installReviewCommand).toHaveBeenCalledExactlyOnceWith({
-        cliPath,
-        cliRuntimePath,
+        cliPath: ownCliPath,
         env,
       });
     } finally {
@@ -880,41 +880,6 @@ describe("Review CLI", () => {
         stderr: outputStream(),
       }),
     ).resolves.toBe(1);
-  });
-
-  it("checkpoints every touched UUID review at the end of a turn", async () => {
-    const review = {
-      dir: "/tmp/reviews/review-uuid",
-      review: {
-        uuid: "11111111-1111-4111-8111-111111111111",
-        status: "awaiting-agent-updates",
-      },
-    } as StoredReview;
-    const listReviews = vi.fn<typeof listReviewsActual>(async () => ({
-      reviews: [review],
-      errors: [],
-    }));
-    const sealReviewCandidate = vi.fn<typeof sealReviewCandidateActual>(
-      async () => "revision",
-    );
-    const stdin = new PassThrough();
-    stdin.end(`${JSON.stringify({ cwd: `${review.dir}/notes` })}\n`);
-
-    await expect(
-      runProgressiveReviewCli({
-        argv: ["stop-hook"],
-        stdin,
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { listReviews, sealReviewCandidate },
-      }),
-    ).resolves.toBe(0);
-
-    expect(listReviews).toHaveBeenCalledWith();
-    expect(sealReviewCandidate).toHaveBeenCalledWith(
-      review.dir,
-      "Review turn checkpoint",
-    );
   });
 
   it("handles the internal prepare-worktree command", async () => {

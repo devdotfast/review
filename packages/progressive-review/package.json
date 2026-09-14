@@ -105,7 +105,6 @@
     "typescript": "6.0.3",
     "unified": "11.0.5",
     "vfile-message": "^4.0.3",
-    "write-file-atomic": "8.0.0",
     "zod": "4.4.3",
     "zustand": "4.5.7"
   },
@@ -119,7 +118,6 @@
     "@types/node": "24.12.2",
     "@types/react-dom": "19.2.3",
     "@types/semver": "7.7.1",
-    "@types/write-file-atomic": "4.0.3",
     "@vitejs/plugin-react": "6.0.1",
     "jsdom": "29.1.1",
     "mdast-util-mdx-jsx": "3.2.0",

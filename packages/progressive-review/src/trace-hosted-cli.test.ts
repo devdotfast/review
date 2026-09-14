@@ -312,6 +312,48 @@ describe("hosted trace commands", () => {
     expect(err.text()).not.toContain("bucket credentials");
   });
 
+  it("lists the hosted store with --storage hosted while the s3 selection is broken", async () => {
+    const configPath = traceConfigPath({ env, homeDir: home });
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        version: 2,
+        "current-store": "s3",
+        repositories: [
+          {
+            repositoryId: 7,
+            name: "acme/app",
+            enabledOrigins: [ORIGIN],
+            allowedAt: "2026-09-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const out = collect();
+    const err = collect();
+
+    const code = await runReviewTraceSessions({
+      cwd: repo,
+      env,
+      homeDir: home,
+      storage: "hosted",
+      stdout: out.stream,
+      stderr: err.stream,
+      client: client((url) =>
+        url.includes("/stores?")
+          ? Response.json(STORE)
+          : Response.json({ sessions: [session("session-0001")] }),
+      ),
+    });
+
+    expect(code).toBe(0);
+    expect(err.text()).not.toContain("bucket credentials");
+    expect(out.text()).toContain(
+      "session-0001  claude  2026-09-02T12:00:00.000Z  main  1234 bytes",
+    );
+  });
+
   it("names a missing login instead of serving saved copies", async () => {
     await allowTraceRepository(
       { repositoryId: 7, name: "acme/app", origin: ORIGIN },

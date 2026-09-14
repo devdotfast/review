@@ -428,7 +428,12 @@ export async function runReviewTraceSessions(
     );
   }
 
-  if (selection.error) return fail(selection.error);
+  // An override to hosted sidesteps an s3 configuration error, because the
+  // hosted store this command reads needs no bucket credentials. A malformed
+  // config names no hosted store, so it still fails with its own error.
+  if (selection.error && (mode !== "hosted" || !selection.hosted)) {
+    return fail(selection.error);
+  }
 
   if (!selection.hosted) {
     return fail(

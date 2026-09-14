@@ -4,6 +4,7 @@ import { git } from "@dev.fast/local-vcs";
 import {
   type ListSessionsResponse,
   MAX_TRACE_SESSIONS_PAGE,
+  type StoreResponse,
   sessionIdSchema,
 } from "@dev.fast/trace-shared";
 
@@ -416,19 +417,18 @@ export async function runReviewTraceSessions(
     homeDir: input.homeDir,
   });
 
-  // An explicit `--storage hosted` sidesteps an s3 configuration error: the
-  // hosted store this command reads needs no bucket credentials.
-  if (selection.error && !(input.storage === "hosted" && selection.hosted)) {
-    return fail(selection.error);
-  }
-
   const mode = input.storage ?? selection.mode;
 
+  // The s3 refusal comes first. A machine that selects s3 then reads the
+  // store this command needs, not a bucket configuration error it cannot act
+  // on here.
   if (mode === "s3") {
     return fail(
       "`review trace sessions` lists the hosted store only. Run `review trace storage use hosted`, or pass `--storage hosted`.",
     );
   }
+
+  if (selection.error) return fail(selection.error);
 
   if (!selection.hosted) {
     return fail(
@@ -462,7 +462,7 @@ export async function runReviewTraceSessions(
     client = new StoreClient({ origin, token: auth.token });
   }
 
-  let store: Awaited<ReturnType<StoreClient["findStore"]>>;
+  let store: StoreResponse | null;
 
   try {
     store = await client.findStore({ owner: name.owner, name: name.repo });

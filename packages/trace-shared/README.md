@@ -12,5 +12,5 @@ as `trace-shared-v<version>`.
 Install the public package without registry-specific authentication:
 
 ```sh
-npm install @dev.fast/trace-shared@0.2.0
+npm install @dev.fast/trace-shared@0.3.0
 ```

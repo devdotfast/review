@@ -99,6 +99,7 @@ import {
   runReviewTraceSync,
 } from "./trace-cli";
 import {
+  DEFAULT_TRACE_SESSIONS_LIMIT,
   runReviewTraceAllow,
   runReviewTraceDeny,
   runReviewTraceOnboard,
@@ -1053,7 +1054,7 @@ export async function runProgressiveReviewCli(
       )
       .option(
         "--limit <n>",
-        `sessions per page (1-${MAX_TRACE_SESSIONS_PAGE}, default 50)`,
+        `sessions per page (1-${MAX_TRACE_SESSIONS_PAGE}, default ${DEFAULT_TRACE_SESSIONS_LIMIT})`,
         (value: string) => Number.parseInt(value, 10),
       )
       .option("--cursor <session-id>", "continue after this session id")

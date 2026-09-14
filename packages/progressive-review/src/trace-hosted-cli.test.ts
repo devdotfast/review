@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
@@ -15,6 +15,7 @@ import {
   writeHostedTraceStatus,
 } from "./trace-hosted-cli";
 import { rememberTraceRepositoryTarget } from "./trace-repository-target";
+import { traceConfigPath } from "./trace-storage/config";
 import { allowTraceRepository, readTraceUserConfig } from "./trace-user-config";
 
 const ORIGIN = "https://app.dev.fast";
@@ -287,6 +288,28 @@ describe("hosted trace commands", () => {
       }),
     ).toBe(1);
     expect(s3.text()).toContain("hosted store only");
+  });
+
+  it("names the hosted store, not the s3 credentials, when s3 is selected", async () => {
+    const configPath = traceConfigPath({ env, homeDir: home });
+    mkdirSync(path.dirname(configPath), { recursive: true });
+    writeFileSync(
+      configPath,
+      JSON.stringify({ version: 2, "current-store": "s3" }),
+    );
+    const err = collect();
+
+    expect(
+      await runReviewTraceSessions({
+        cwd: repo,
+        env,
+        homeDir: home,
+        stdout: collect().stream,
+        stderr: err.stream,
+      }),
+    ).toBe(1);
+    expect(err.text()).toContain("hosted store only");
+    expect(err.text()).not.toContain("bucket credentials");
   });
 
   it("names a missing login instead of serving saved copies", async () => {

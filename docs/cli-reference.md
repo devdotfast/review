@@ -280,15 +280,15 @@ secrets. On a hosted machine it also prints `Stored bytes`, the size of every
 completed upload in the repository's store.
 
 `review trace sessions` lists every published session of the current
-repository's hosted store, ordered by session id, 50 per page. The hosted
-store must be the selected store. On a machine that selects s3, pass
+repository's hosted store, ordered by session id, 50 per page. The command
+needs the hosted store. On a machine that selects s3, pass
 `--storage hosted`. `--limit` selects a different page size, from 1 to 200.
 Each line shows the session id, harness, update time, branch, and stored
 bytes. When more sessions follow, the last line names the `--cursor` value of
 the next page, and repeats `--limit` when you gave one. The command refuses a
 bad `--limit` or `--cursor` before it reads the store.
 
-The command reads the store live. It needs `review login` for the selected
+The command reads the store live. It needs `review login` for the hosted
 origin and GitHub read access to the repository. It does not need
 `review trace allow`. It never serves saved copies and prints no signed
 download URL. The hosted store is the only store it lists, so it refuses

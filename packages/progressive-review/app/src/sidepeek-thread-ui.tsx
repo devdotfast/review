@@ -1,3 +1,4 @@
+import type { HostQuestionRun } from "@dev.fast/review-protocol";
 import {
   type ReactElement,
   type PointerEvent as ReactPointerEvent,
@@ -714,6 +715,7 @@ export function usePanelThreadController({
   const submitDraft = async (
     askAgent: boolean,
     body: string,
+    harness?: HostQuestionRun["harness"],
   ): Promise<boolean> => {
     if (!draftTarget) return false;
     const { resolveTarget } = draftTarget;
@@ -721,12 +723,15 @@ export function usePanelThreadController({
     try {
       const target = resolveTarget ? await resolveTarget() : draftTarget.target;
       if (askAgent) {
-        await askAgentAction({
-          threadId: draftTarget.threadId,
-          target,
-          messageId: draftTarget.messageId,
-          body,
-        });
+        await askAgentAction(
+          {
+            threadId: draftTarget.threadId,
+            target,
+            messageId: draftTarget.messageId,
+            body,
+          },
+          harness,
+        );
         closeCommentDraft();
         return true;
       }
@@ -765,13 +770,16 @@ export function usePanelThreadController({
             void setCommentResolved(activeThread.threadId, resolved);
             if (resolved) minimize();
           }}
-          onAskNow={(body) =>
-            askAgentAction({
-              threadId: activeThread.threadId,
-              messageId: createClientId(),
-              target: activeThread.target,
-              body,
-            })
+          onAskNow={(body, harness) =>
+            askAgentAction(
+              {
+                threadId: activeThread.threadId,
+                messageId: createClientId(),
+                target: activeThread.target,
+                body,
+              },
+              harness,
+            )
           }
           onAddToReview={(body) =>
             saveComment({
@@ -809,7 +817,7 @@ export function usePanelThreadController({
         variant="panel"
         intent={draftTarget.intent}
         onSubmitComment={(body) => submitDraft(false, body)}
-        onAskAgent={(body) => submitDraft(true, body)}
+        onAskAgent={(body, harness) => submitDraft(true, body, harness)}
         error={draftSubmitError}
         onCancel={closeCommentDraft}
         onDraftStateChange={(hasText) => {

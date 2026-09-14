@@ -9,6 +9,7 @@ import {
   DisposableStore,
 } from "../../base/common/lifecycle.js";
 import type { ICodeEditor } from "../../editor/browser/editorBrowser.js";
+import type { URI } from "../../base/common/uri.js";
 import type { IMultiDiffEditorViewState } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import type {
@@ -24,10 +25,17 @@ import {
   ReviewFilesDiffView,
   ReviewFilesEditorInput,
   reviewFilesSourceUri,
+  type ReviewFilesEditorEntry,
 } from "./reviewFilesDiffView.js";
 import type { ReviewInlineEditorService } from "./reviewInlineEditorService.js";
 import { markReviewEmbeddedEditor } from "./reviewEmbeddedNavigation.js";
 import { IReviewSessionModelService } from "./reviewSessionModelService.js";
+
+/** Data boundary shared by the existing native widget and API-backed reviews. */
+export interface ReviewDiffViewSource {
+  load(scope?: ReviewCommitScope): Promise<{ sourceUri: URI; entries: readonly ReviewFilesEditorEntry[] }>;
+  files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
+}
 
 /**
  * Mounts the changed-files diff UI inside the Review canvas. One instance
@@ -46,6 +54,7 @@ export class ReviewDiffViewService
    * so the state must survive outside it.
    */
   private readonly viewStates = new Map<string, IMultiDiffEditorViewState>();
+  private source: ReviewDiffViewSource | undefined;
 
   constructor(
     private readonly inlineEditors: ReviewInlineEditorService,
@@ -63,6 +72,11 @@ export class ReviewDiffViewService
     this.overflowWidgetsDomNode = node;
   }
 
+  setSource(source: ReviewDiffViewSource | undefined): void {
+    this.reset();
+    this.source = source;
+  }
+
   create(spec: ReviewDiffViewSpec): ReviewDiffViewHandle {
     const handle = new DiffViewHandle(
       spec,
@@ -73,6 +87,7 @@ export class ReviewDiffViewService
       this.overflowWidgetsDomNode,
       this.viewStates,
       () => this.handles.delete(handle),
+      this.source,
     );
     this.handles.add(handle);
     return handle;
@@ -81,7 +96,7 @@ export class ReviewDiffViewService
   files(
     scope?: ReviewCommitScope,
   ): Promise<readonly ReviewDiffFileWire[]> {
-    return this.codeResources.files(scope);
+    return this.source?.files(scope) ?? this.codeResources.files(scope);
   }
 
   reset(): void {
@@ -113,6 +128,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     private readonly overflowWidgetsDomNode: HTMLElement | undefined,
     private readonly viewStates: Map<string, IMultiDiffEditorViewState>,
     private readonly onDispose: () => void,
+    private readonly source: ReviewDiffViewSource | undefined,
   ) {
     super();
     void this.initialize();
@@ -143,13 +159,12 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 
   private async initialize(): Promise<void> {
     try {
-      const session = this.sessionModelService.activeModel?.session;
-      if (!session) throw new Error("No active Review Desktop session.");
-      this.viewStateKey = `${session.session.sessionId}:${session.session.routePath ?? "/"}:${this.spec.scope?.commit ?? "full"}`;
-      const entries = await buildReviewFilesEntries(
-        this.codeResources,
-        this.spec.scope,
-      );
+      const session = this.source ? undefined : this.sessionModelService.activeModel?.session;
+      if (!this.source && !session) throw new Error("No active Review Desktop session.");
+      const data = this.source ? await this.source.load(this.spec.scope) : undefined;
+      const sourceUri = data?.sourceUri ?? reviewFilesSourceUri(session!, this.spec.scope);
+      this.viewStateKey = sourceUri.toString();
+      const entries = data?.entries ?? await buildReviewFilesEntries(this.codeResources, this.spec.scope);
       if (this.disposed) return;
       const store = this._register(new DisposableStore());
       // The input owns the text-model references its view model resolves, so
@@ -157,7 +172,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
       const input = store.add(
         this.instantiationService.createInstance(
           ReviewFilesEditorInput,
-          reviewFilesSourceUri(session, this.spec.scope),
+          sourceUri,
           entries,
         ),
       );

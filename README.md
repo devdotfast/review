@@ -21,6 +21,10 @@ interactive Review connected to the exact code behind it.
 Explore architecture and data flow, inspect diffs, ask questions, and explore
 coding traces from one interface.
 
+One local Desktop host owns review data. Agents author structured JSON through
+the same API used by the canvas; accepted changes appear live, and publishing
+freezes a checkpoint. The default workflow does not execute authored MDX or SQL.
+
 <p align="center">
   <img
     src="docs/assets/review-overview.png"
@@ -36,7 +40,8 @@ coding traces from one interface.
 ## Quickstart
 
 1. [Download Review](https://install.dev.fast) and open the app.
-2. Connect Claude Code, Codex, and other coding agents from the welcome screen.
+2. Install the CLI and agent skills from the welcome screen. Optionally configure
+   the matching CLI as a stdio MCP server; see [Coding agents](docs/agents.md).
 3. Ask your agent to review your current branch against up-to-date main and open
    the result in Review.
 
@@ -60,8 +65,8 @@ See [Review guidance](docs/quickstart.md#add-review-guidance).
   engineered it to map architectural changes across repos. If you need this, let
   us know!
 - Review doesn't properly handle stacked PRs right now, but this is coming soon.
-- It's currently a pain to share reviews between machines; self-hostable
-  collaboration tools are also on our roadmap.
+- Reviews are local-only. Remote hosting, sharing and multiplayer collaboration
+  are not implemented yet.
 
 _If there are any other features you need, feel free to ask on Discord or open
 an issue or discussion!_

@@ -1,121 +1,43 @@
 # Lifecycle and storage
 
-## Binding and pins
+## One owner
 
-A Review binds to one unit of change:
+Desktop runs one local HTTP Review Host. UI, CLI and MCP use the same commands, queries and events. The host owns saved review versions, evidence, maps, comments, private drafts and completed answers. Its database and filesystem layout are implementation details, not a client API.
 
-- a Git branch
-- a jj bookmark
-- a jj change ID
-- a GitHub pull request
+Do not edit SQL, review files, Git notes or bundles. No migration of old MDX reviews is provided; old data is left untouched. The trusted bundled tutorial is an explicit legacy exception.
 
-Use a bookmark for a document about a stack. Use a change ID for one jj change. Use `review scaffold --pr <number-or-url>` for a pull request.
+## Code versions
 
-Choose the base deliberately:
+Creation resolves a change selector to exact commits. Supported selectors are:
 
-- For a stack, use the branch directly below the reviewed stack.
-- For one change, use its parent.
-- A bare scaffold uses the trunk fork point.
+- `{kind:"range",baseRef,headRef}`
+- `{kind:"branch",name,baseRef}`
+- `{kind:"jj_change",changeId,baseRef}`
+- `{kind:"pull_request",url}`
+- `{kind:"snapshot",ref}` for an architecture review
 
-Use `--base @-` for one jj change. Use `--base <head>~1` for one Git commit.
+Use the returned binding, not your current checkout, as the source authority.
 
-A bare scaffold needs a named checkout. Use `--head <ref>` for a detached Git HEAD. Scaffold output shows the selected change and pins.
+`review.revision.create({reviewId,expectedReviewVersion,change})` selects new code and creates a blank canvas with no selected maps. Review details, old versions and discussions remain. The same resolved commits are rejected instead of clearing content. Reauthor deliberately from the new diff, using fresh IDs when carrying content over.
 
-`review scaffold --update` re-pins an existing Review from its binding. It creates a Review when none exists. A pull-request binding updates from GitHub. A branch binding follows only its local branch or bookmark.
+The conservative comment remapper follows surviving contiguous lines and detected renames. Ambiguous or missing locations remain attached to the original conversation; it does not rewrite prose or diagram meaning.
 
-`review rebind <change> --review <uuid>` changes the binding and immediately re-pins the Review.
+## Saved versions and retries
 
-Publication never moves pins. It warns when pins are behind the binding.
+One `reviewVersion` identifies canvas, title, description, labels, source binding and selected maps. Every changed material write saves a new immutable version, starting at 0. Use `expectedReviewVersion` for edits. Comments and lifecycle actions do not change this number.
 
-## Artifact publication
+Commands use caller-chosen UUID receipt IDs. Retry an uncertain result with the same ID and input. A changed request needs a new ID. Refetch and reconcile real conflicts.
 
-The reviewer sees sealed artifact revisions. The two publish commands have independent validation and presentation pointers.
+`review.history` lists saved versions. Historical views are read-only. `review.version.restore({reviewId,expectedReviewVersion,fromReviewVersion})` copies the complete old snapshot into a new version, even if identical. It never erases later history or conversations, changes lifecycle state, or carries approval forward.
 
-`review publish`:
+Maps are independent immutable resources. Select exact map IDs using `review.update` with a `mapVersions` patch: omitted sides stay unchanged; null clears a side. Inline `software_map` nodes independently name exact map versions.
 
-- compiles `review.mdx` and `data.ts`
-- resolves every source range against the pinned worktree
-- seals only the document bundle
-- updates `presentedDocumentRevision`
-- preserves `presentedSoftwareMapRevision`
-- sets the Review status to `awaiting-review`
+Open/closed/trash state has a separate `stateVersion`. Close/reopen/trash/untrash use `expectedStateVersion`. A closed or trashed review remains readable but rejects new edits and discussions. An already accepted Ask answer can still complete. Live views receive whole committed versions; historical material stays fixed. There is no publish/checkpoint step or render-report API.
 
-`review map publish`:
+## Conversations
 
-- requires a published document
-- reads the commits from the presented document revision
-- validates the saved base and head map notes for those commits
-- seals only the software-map bundle
-- updates `presentedSoftwareMapRevision`
-- preserves `presentedDocumentRevision` and the Review status
-- reuses the existing map revision when its bytes are identical
+`thread.get` returns immutable posted messages; append with `thread.reply`. The server assigns message IDs. `thread.set_status` uses `expectedThreadVersion`. Preserve original targets; query `thread.mapping` to see their location in a selected review version. A missing mapping does not erase the saved conversation.
 
-The document can render without a map. Map absence never blocks document publication. Agent workflows must use the two explicit publish commands.
+Human drafts are private, explicitly saved and nonblank. `feedback.submit` atomically posts selected `{draftId,expectedDraftVersion}` entries and a decision for an observed `reviewVersion`. Decisions do not close the review. It does not need an agent online; authors query feedback and respond through the API later.
 
-A failed publish keeps the last good pointer.
-
-## Review states
-
-| Status                   | Owner and next action                                        |
-| ------------------------ | ------------------------------------------------------------ |
-| `draft`                  | Agent authors and publishes the document.                    |
-| `awaiting-review`        | Reviewer reads, asks questions, or submits comments.         |
-| `awaiting-agent-updates` | Agent reads threads, corrects the document, and republishes. |
-
-An "Ask now" question does not change the status. "Submit review" with pending comments sets `awaiting-agent-updates`.
-
-Dismissal is separate from Review status. It removes the Review from the active list and stops the waiting agent. The reader can restore it from Home until retention deletes it. Closing the tab does not dismiss the Review. A new document publication clears dismissal and returns the Review to the active list.
-
-After publication, `review wait --requires-agent` resolves for `awaiting-agent-updates`, `review-dismissed`, or `review-deleted`.
-
-## UUID directory
-
-Each Review has one canonical directory:
-
-```text
-${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
-├── review.mdx
-├── data.ts
-├── review.json
-├── review.db
-├── package.json
-├── review-test.mjs
-├── .gitignore
-├── .bundle/
-│   ├── document/
-│   └── software-map/
-├── .build/<revision>/
-└── .git/
-```
-
-`review.json` is schema 3 state. It contains the source worktree, binding, pinned commits, status, `presentedDocumentRevision`, and `presentedSoftwareMapRevision`.
-
-`review.db` contains durable comment and question threads. Use only `review threads` to read or change it.
-
-`.bundle/document/` contains the current document candidate. `.bundle/software-map/` contains the current map candidate when one exists. The private Review Git repository seals these candidates as revisions.
-
-`.build/<revision>/` contains a temporary materialization of one sealed revision. Review can create it again.
-
-Do not edit Review infrastructure files or directories directly.
-
-## Threads
-
-Run thread commands in the source worktree:
-
-```sh
-review threads list --review <uuid>
-review threads reply <threadId> --body <text> --review <uuid>
-review threads resolve <threadId> --review <uuid>
-```
-
-Do not invent, rewrite, or merge opaque thread targets. After making the requested document or code change, reply with a concise disposition and then resolve the thread.
-
-A document re-publish requires zero open comment threads and a completed agent response for every current-round reviewer message. Before each re-publish, run `review threads list`. Address every open thread, reply with `review threads reply`, and mark it with `review threads resolve`. Run `review threads list` again. Do not re-publish until no comment thread has `status: "open"`. The first document publication does not use this gate.
-
-## Migration
-
-Run `review migrate apply` only for legacy Review state. It converts supported Reviews to schema 3 and the split bundle layout.
-
-A migrated valid combined revision gets independent document and map pointers. The private history can retain old combined revisions. Active pointers and materialized artifacts use the current layout.
-
-Migration drops stored Reviews whose `data.ts` uses removed `symbol` or `declarationId` peeks. It preserves range-only Reviews. Use `--force` only to restart interrupted development migration state.
+Ask saves a question and frozen context before launch. A fresh local harness receives read/answer-scoped API access, not author permission. Completed answers are durable; failed launches and interrupted runs remain visible and can be explicitly retried. Do not promise automatic process recovery, partial-answer streaming, cancellation or transcript forking.

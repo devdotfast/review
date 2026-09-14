@@ -21,6 +21,8 @@ export interface IReviewCanvasEditorTabsService {
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
+	openHostReview(reviewId: string | undefined, active: boolean, title?: string, reviewVersion?: number): Promise<ReviewCanvasEditorInput>;
+	openHostSource(reviewId: string, reviewVersion: number): Promise<ReviewCanvasEditorInput>;
 	/**
 	 * Opens the Source tab. With a `reviewUuid`, binds the tab to that review
 	 * so its activation can root the file tree at the review's pinned worktree.
@@ -87,6 +89,29 @@ export class ReviewCanvasEditorTabsService
 
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput> {
 		return this.openSingleton({ kind: "settings" }, active);
+	}
+
+	async openHostSource(reviewId: string, reviewVersion: number): Promise<ReviewCanvasEditorInput> {
+		const key = `host-source:${reviewId}:${reviewVersion}`;
+		let input = this.inputs.get(key);
+		if (!input || input.isDisposed()) {
+			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, { kind: "host-source", reviewId, reviewVersion });
+			this.inputs.set(key, input);
+		}
+		await this.openReviewInput(input, true);
+		return input;
+	}
+
+	async openHostReview(reviewId: string | undefined, active: boolean, title?: string, reviewVersion?: number): Promise<ReviewCanvasEditorInput> {
+		const key = `host:${reviewId ?? "list"}${reviewVersion === undefined ? "" : `@${reviewVersion}`}`;
+		let input = this.inputs.get(key);
+		if (!input || input.isDisposed()) {
+			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, { kind: "host-review", reviewId, reviewVersion, title });
+			this.inputs.set(key, input);
+		}
+		if (title) input.updateHostTitle(title);
+		await this.openReviewInput(input, active);
+		return input;
 	}
 
 	openSource(
@@ -227,7 +252,8 @@ export class ReviewCanvasEditorTabsService
 
 	async closeReview(reviewUuid: string): Promise<void> {
 		const keys = [...this.inputs.keys()].filter(
-			(key) => key === reviewUuid || key.startsWith(`${reviewUuid}@`),
+			(key) => key === reviewUuid || key.startsWith(`${reviewUuid}@`) ||
+				key === `host:${reviewUuid}` || key.startsWith(`host:${reviewUuid}@`) || key.startsWith(`host-source:${reviewUuid}:`),
 		);
 		const reviewInputs = keys
 			.map((key) => this.inputs.get(key))
@@ -317,4 +343,3 @@ export class ReviewCanvasEditorTabsService
 		return input;
 	}
 }
-

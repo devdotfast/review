@@ -1,0 +1,34 @@
+/* Stable JSON identities do not introduce a second document layout. */
+.host-document-node,
+.host-document-node-content {
+  display: contents;
+}
+
+/* Match the existing prose column through the stable-node wrappers. */
+.review-document
+  .host-document-node-content
+  > :is(
+    p,
+    h2,
+    h3,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    .code-peek,
+    .review-trace-quote-container,
+    .review-image
+  ) {
+  width: min(100%, var(--review-prose-max-width));
+  max-width: calc(
+    100cqi - var(--review-document-padding-inline) -
+      var(--review-document-padding-inline)
+  );
+  margin-inline: auto;
+}
+
+.review-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

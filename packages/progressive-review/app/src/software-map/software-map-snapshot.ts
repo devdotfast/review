@@ -25,6 +25,7 @@ export type SoftwareMapRelationshipKind = "call" | "semantic" | "implied";
 export interface SoftwareMapDiffCounts {
   additions: number;
   deletions: number;
+  changeStatus?: SoftwareChangeStatus;
 }
 
 export interface SoftwareMapCoverageClaim {
@@ -72,6 +73,7 @@ export type SoftwareMapNodeDiffPeek = {
 
 export interface SoftwareMapNodeSnapshot {
   id: string;
+  targetPath?: string[];
   label: string;
   type: SoftwareMapElementType;
   path?: string;
@@ -193,6 +195,8 @@ export type SoftwareMapDataStoreSchemaRowSnapshot = {
 
 export interface SoftwareMapRelationshipSnapshot {
   id?: string;
+  targetPath?: string[];
+  sourceRelationshipIds?: string[];
   from: string;
   to: string;
   label?: string;
@@ -219,6 +223,7 @@ export interface SoftwareMapResolvedSnapshot {
 
 export interface SoftwareMapResolvedDataState {
   key: string;
+  hasSourceComparison?: boolean;
   counts: ReadonlyMap<string, SoftwareMapDiffCounts>;
   unmappedByElementPath: ReadonlyMap<string, SoftwareMapUnmappedDiffSummary>;
 }
@@ -295,7 +300,7 @@ export function buildSoftwareMapChangeSummaries(
 
     const authoredStatus = element?.changeStatus;
     const changeStatus = inferSoftwareMapChangeStatus({
-      authoredStatus,
+      authoredStatus: ownCounts.changeStatus ?? authoredStatus,
       additions,
       deletions,
       changedDescendantStatuses,
@@ -348,6 +353,9 @@ function inferSoftwareMapChangeStatus({
 const softwareMapDiffCountsSchema = z.object({
   additions: z.number(),
   deletions: z.number(),
+  changeStatus: z
+    .enum(["added", "removed", "modified", "unchanged"])
+    .optional(),
 });
 
 const softwareMapUnmappedDiffSummarySchema = softwareMapDiffCountsSchema.extend(
@@ -376,6 +384,8 @@ const softwareMapUnmappedDiffSummarySchema = softwareMapDiffCountsSchema.extend(
 /** The `ok` body of the resolved-data route; any other body yields no data. */
 const softwareMapResolvedDataResponseSchema = z.object({
   ok: z.literal(true),
+  baseRef: z.string().optional(),
+  headRef: z.string().optional(),
   countsByElementPath: z
     .record(z.string(), softwareMapDiffCountsSchema)
     .optional(),
@@ -394,12 +404,15 @@ export function parseSoftwareMapResolvedDataResponse(
       unmappedByElementPath: new Map(),
     };
   }
-  return {
+  const result: SoftwareMapResolvedDataPayload = {
     counts: new Map(Object.entries(body.data.countsByElementPath ?? {})),
     unmappedByElementPath: new Map(
       Object.entries(body.data.unmappedByElementPath ?? {}),
     ),
   };
+  if (body.data.baseRef && body.data.headRef)
+    result.hasSourceComparison = body.data.baseRef !== body.data.headRef;
+  return result;
 }
 
 export function softwareMapSnapshotFromInlineC4Projection({
@@ -456,6 +469,7 @@ function softwareMapRelationshipFromInlineC4Relationship(
 ): SoftwareMapRelationshipSnapshot {
   return {
     id: relationship.id,
+    sourceRelationshipIds: relationship.sourceRelationshipIds,
     from: relationship.from,
     to: relationship.to,
     label: relationship.count > 1 ? undefined : relationship.label,

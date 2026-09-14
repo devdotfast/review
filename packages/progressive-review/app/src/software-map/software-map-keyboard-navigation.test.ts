@@ -14,7 +14,6 @@ import {
   softwareMapChildNodeIdForDrill,
   softwareMapNodeForKeyboardExpansion,
   softwareMapNodeIdForDrill,
-  softwareMapOverlayClassName,
   softwareMapViewportFocusNodeId,
   softwareMapViewportFocusTargetReady,
   toggledSoftwareMapExpandedNodeIds,
@@ -32,21 +31,6 @@ describe("SoftwareMap keyboard navigation", () => {
     });
     expect(shouldAutoFocusC4MapKeyboardTarget("inline")).toBe(false);
     expect(shouldAutoFocusC4MapKeyboardTarget("standalone")).toBe(true);
-  });
-
-  it("keeps expanded map portals inside the active review theme scope", () => {
-    const classNames = softwareMapOverlayClassName({
-      theme: "light",
-      nodeTint: "slate",
-    }).split(" ");
-
-    expect(classNames).toEqual([
-      "software-map-overlay",
-      "review-canvas-root",
-      "review-app",
-      "review-app--theme-light",
-      "review-app--tint-slate",
-    ]);
   });
 
   it("hides map floating refresh actions while the code inspector is open", () => {

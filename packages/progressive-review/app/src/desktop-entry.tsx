@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App, type PublishedSoftwareMap } from "./App";
+import { HostCanvas } from "./host-canvas";
 import {
   type ReviewSession,
   ReviewSessionProvider,
@@ -156,6 +157,14 @@ function ReviewCanvas({
   content: ReviewCanvasContent;
   findHost: ReviewFindHost;
 }) {
+  if (content.kind === "host")
+    return (
+      <HostCanvas
+        key={content.reviewId ?? "list"}
+        content={content}
+        findHost={findHost}
+      />
+    );
   if (content.kind === "session") {
     return (
       <DesktopReviewApp
@@ -236,27 +245,29 @@ function Home({
   const restoreReview = content.restoreReview;
   const openSourceTree = content.openSourceTree;
   return (
-    <ReviewHome
-      reviews={content.reviews}
-      reviewErrors={content.reviewErrors}
-      onOpen={(review) => content.openReview(review.uuid)}
-      onDelete={
-        deleteReview ? (review) => deleteReview(review.uuid) : undefined
-      }
-      onDismiss={
-        dismissReview ? (review) => dismissReview(review.uuid) : undefined
-      }
-      onRestore={
-        restoreReview ? (review) => restoreReview(review.uuid) : undefined
-      }
-      onOpenSourceTree={
-        openSourceTree ? (review) => openSourceTree(review.uuid) : undefined
-      }
-      setup={content.setup}
-      install={content.install}
-      onboarding={content.onboarding}
-      onOpenTutorial={content.openTutorial}
-    />
+    <>
+      <ReviewHome
+        reviews={content.reviews}
+        reviewErrors={content.reviewErrors}
+        onOpen={(review) => content.openReview(review.uuid)}
+        onDelete={
+          deleteReview ? (review) => deleteReview(review.uuid) : undefined
+        }
+        onDismiss={
+          dismissReview ? (review) => dismissReview(review.uuid) : undefined
+        }
+        onRestore={
+          restoreReview ? (review) => restoreReview(review.uuid) : undefined
+        }
+        onOpenSourceTree={
+          openSourceTree ? (review) => openSourceTree(review.uuid) : undefined
+        }
+        setup={content.setup}
+        install={content.install}
+        onboarding={content.onboarding}
+        onOpenTutorial={content.openTutorial}
+      />
+    </>
   );
 }
 
@@ -365,7 +376,11 @@ export function mountReviewCanvas(
       container.focus();
     },
     showFind(seed) {
-      return content.kind === "session" && findHost.showFind(seed);
+      return (
+        (content.kind === "session" ||
+          (content.kind === "host" && !!content.reviewId)) &&
+        findHost.showFind(seed)
+      );
     },
     dispose() {
       if (disposed) return;

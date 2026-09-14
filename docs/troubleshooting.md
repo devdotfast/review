@@ -1,21 +1,16 @@
 # Troubleshooting
 
-<!--
-Outline: Baseline checks -> CLI install/version -> Desktop connection -> Discovery
--> Sync -> Publication -> Maps -> Agents -> Updates -> Logs -> Reporting.
--->
-
-Start with these checks:
+Start with the matching CLI and a running Desktop:
 
 ```sh
 command -v review
 review version
-review --help
-review app launch --json
+review host --help
+review host capabilities
 ```
 
-The app-managed command should resolve through `~/.local/bin/review` and should
-offer the commands documented in the [CLI reference](cli-reference.md).
+These instructions describe the JSON host. Use the app built from the checkout
+when testing an unreleased change, not another installed copy.
 
 ## `review: command not found`
 
@@ -24,105 +19,101 @@ PATH**. Review refreshes `~/.local/bin/review` and removes the obsolete
 `/usr/local/bin/review` symlink if it exists. Then open a new terminal and check
 that `~/.local/bin` is on `PATH`.
 
-For a headless setup with a separately installed CLI, run:
+A separately installed CLI can install agent skills with `review install all`.
+Skill installation does not configure an MCP server entry; see
+[Coding agents](agents.md#connect-to-the-host).
 
-```sh
-review install all
-```
+## Old commands or a protocol mismatch
 
-## The command opens a browser or shows old options
+Check `command -v review` and `review version`. Another executable may be
+shadowing the matching CLI. The CLI does not automatically delegate to an
+installed app's CLI. Use the same version as Desktop.
 
-Another `review` executable is shadowing the app-managed CLI. Check:
+Legacy commands such as `review scaffold`, `review publish` and
+`review threads` are not the JSON host API. Use `review host command/query`
+or the corresponding MCP tools. See the [API reference](cli-reference.md).
 
-```sh
-command -v review
-review version
-review --help
-```
+## Desktop is closed or the connection is rejected
 
-Remove the legacy PATH entry or put `~/.local/bin` before it. A standalone
-current CLI defers to the app's bundled copy while Review Desktop is running so
-the client and server stay on the same version.
-
-## Review Desktop is not running
-
-Start or activate it explicitly:
+Start the intended Desktop explicitly. For the installed application:
 
 ```sh
 review app launch --json
+review host connection
+review host capabilities
 ```
 
-`review info`, `review publish`, `review wait`, and map publication need a
-healthy Review Desktop server. If launch reports success but those commands
-still cannot connect, quit all Review windows, reopen the app, and retry the
-launch command.
+For checkout development, follow the [build instructions](https://github.com/devdotfast/review/blob/main/apps/review-desktop/README.md).
+Review-data commands require a healthy host; there is no offline file-editing
+fallback. Discovery is private and host-specific. Do not copy tokens between
+installations or expose `host.json`.
 
-## No Review appears for the checkout
+An Ask process has a scoped connection. If it fails, report the failure or
+retry from the question UI; do not replace its credentials with the author's.
 
-Run `review info` from the source repository. An empty `reviews` list means the
-current worktree has no matching active Review.
+## A review is missing from Home
 
-Create one with:
+Query `reviews.list` and inspect any filters, repository selection or trash
+state. New reviews require `repository.register` when the repository is not
+registered, then `review.create`. Opening uses
+`review host open --review <uuid>`.
 
-```sh
-review scaffold
-```
+Old file-based reviews are not imported into the JSON host. Their data is left
+untouched; do not delete or rewrite it to make it appear in Home.
 
-For a detached Git checkout, pass `--head <ref>`. For a GitHub pull request,
-pass `--pr <number-or-url>`. Use `review info --all` to inspect active Reviews
-across every worktree in the repository.
+## A mutation fails
 
-## A Review is out of sync
+Read the returned error code and diagnostics. Rejected commands leave the
+previous saved versions intact. Common causes include invalid node
+shapes, duplicate or missing IDs, invalid source evidence, stale resource
+references, and version conflicts. There is no MDX compile or per-review
+`npm test` step.
 
-The bound branch, bookmark, change, or pull request moved after scaffolding.
-Re-pin it explicitly:
+After an uncertain response, retry the **same command ID and identical input**
+to recover its receipt. After a genuine version conflict, refetch the current
+state, reconcile your changes and use a new command ID. Do not blindly replace
+other clients' work.
 
-```sh
-review scaffold --update --review <uuid>
-```
+Accepted material changes save a new `reviewVersion`; no publish/ready call is
+needed. Use `review.history` to inspect saved versions. A historical canvas
+intentionally does not follow later live changes.
 
-The authoring agent must reread any changed source ranges, update invalid
-anchors, and publish again. Publication warns about stale pins but does not move
-them automatically.
+## The branch moved or source is unavailable
 
-## Publish fails
+Bindings use exact commits and do not silently follow a moving branch.
+Use `review.revision.create` to select new commits and start a blank canvas
+without selected maps. Earlier versions and discussions remain available.
+To recover complete earlier material instead, use `review.version.restore`;
+this copies its canvas, metadata, commits and selected maps into a new version.
 
-Read the first validation error. A failed publish keeps the last good revision
-visible, so it is safe to correct the document and retry.
+Source queries are bound to the observed `reviewVersion`. Retained quotations
+remain readable even if the local repository is unavailable, but opening other
+source requires the corresponding local Git objects. Never substitute today's
+working-tree contents for a pinned file.
 
-Common causes include:
+## A map or image does not render
 
-- an MDX or TypeScript error in the authored Review;
-- a source path or line range that does not exist in the pinned checkout;
-- a Review that needs to be updated after its source moved; or
-- unresolved submitted feedback that the agent has not addressed.
+Read the visible node error and Desktop logs. Resources are review-scoped and
+referenced by exact IDs. Upload image bytes through `asset.upload`; do not use
+external URLs or local file paths. Maps must match the document's exact binding.
+Selecting new commits does not make an old map a map of that code. There is no
+canvas-report API or rendering gate on accepted changes.
 
-The scaffolded Review directory contains its own validation command:
+## Ask is unavailable or failed
 
-```sh
-cd "${DEV_REVIEW_HOME:-$HOME/.dev}/reviews/<uuid>"
-npm test
-review publish --review <uuid>
-```
+Query `capabilities` for the available harnesses. Ensure the selected harness
+is installed and usable locally. Ask runs a fresh session, not the original
+author's transcript. Questions and run status remain saved if launch or
+completion fails. Use **Retry** to start another attempt; no partial-answer
+streaming or Stop workflow is provided.
 
-## The Map tab is missing or stale
-
-The document and software map publish independently. A valid Review can open
-before its map is ready. Ask the authoring agent to finish the map, or inspect
-the current state with:
-
-```sh
-review map check --review <uuid>
-review map publish --review <uuid>
-```
-
-Run `review map --help` before editing map scratch state manually.
+**Request changes** records feedback but does not automatically start an author.
+Ask the authoring agent to fetch submitted feedback through the API.
 
 ## A coding agent is not detected
 
-Make sure the agent's CLI or app is installed, then reopen Review's welcome
-screen. You can install a target explicitly even when automatic detection is
-unavailable:
+Make sure the agent is installed, then reopen Review's welcome screen. You can
+install skills explicitly:
 
 ```sh
 review install codex
@@ -130,42 +121,34 @@ review install claude
 review install cursor
 ```
 
-See [Coding agents](agents.md) for the installed locations and prompts.
+See [Coding agents](agents.md) for locations and MCP setup.
 
 ## An update failed
 
-Review records a failed update and shows **Update failed** once when the app
-reopens on the previous working build. Background checks will not repeatedly
-download that same failed build, but a manual retry remains available.
+Review shows **Update failed** after reopening on the previous working build.
+Background checks do not repeatedly download that same failed build. Choose
+**Review → Check for Updates...** to retry manually.
 
-Choose **Review → Check for Updates...** to retry. If the update fails again,
-quit Review, [download the latest installer](https://install.dev.fast), and
-replace the installed app. Reinstalling the app does not remove Reviews or
-settings stored under `~/.dev`.
+If it fails again, quit Review, [download the installer](https://install.dev.fast),
+and replace the installed app. Reinstalling the application does not remove
+reviews or settings under `~/.dev`.
 
-## Collect app logs
+## Logs and bug reports
 
-Open the Command Palette and run **Developer: Open Logs Folder**. Review reveals
-the current `main.log` in Finder. Reproduce the problem first so the latest
-entries capture it.
+Open the Command Palette and run **Developer: Open Logs Folder** after
+reproducing the problem. Logs can contain paths and extension output; inspect
+and redact them before sharing.
 
-Logs can contain local paths and extension output. Inspect and redact them
-before attaching them to a public issue. For a product defect that needs
-diagnostic data, prefer Review's **Report bug** dialog, which sends only the
-information and optional attachments shown before submission.
+Review's **Report bug** dialog shows its optional attachments before sending.
+Review, maps and diff have separate consent controls. Attachments use the exact
+saved version being viewed; missing or oversized attachments produce warnings.
+If an upload could not be confirmed, it may have reached support already:
+check before submitting again. Reports are never automatically retried.
+Read [Privacy](privacy.md#user-initiated-bug-reports), especially the distinction
+between JSON reviews and legacy source/author-session attachments.
 
-## Report a bug
-
-Use Review's **Report bug** dialog for a product defect. Review shows separate
-attachment controls for Review source, map source, and diffs before it sends
-anything. Read [Privacy](privacy.md#user-initiated-bug-reports) for the exact
-boundary.
-
-For a suspected vulnerability, follow the
-[security policy](https://github.com/devdotfast/review/blob/main/SECURITY.md) and
-use a private GitHub security advisory. Do not open a public issue with secrets
-or exploit details.
-
-Use [GitHub Issues](https://github.com/devdotfast/review/issues) for
-reproducible bugs and feature requests. For setup questions and community help,
-join the [dev.fast Discord](https://discord.gg/wYvd2cpMQg).
+Use [GitHub Issues](https://github.com/devdotfast/review/issues) for reproducible
+bugs and [Discord](https://discord.gg/wYvd2cpMQg) for setup help. For suspected
+vulnerabilities, follow the
+[security policy](https://github.com/devdotfast/review/blob/main/SECURITY.md).
+Do not post secrets or exploit details publicly.

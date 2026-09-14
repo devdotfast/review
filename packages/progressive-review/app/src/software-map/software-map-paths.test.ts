@@ -9,6 +9,51 @@ import {
 import type { SoftwareMapNodeSnapshot } from "./software-map-snapshot";
 
 describe("SoftwareMap thread-target paths", () => {
+  it("keeps distinct comments on host items that share display labels", () => {
+    const diagram = softwareMapLiveDiagram("canvas-map", "inline-c4", {
+      title: "Map",
+      view: "inline-c4",
+      viewType: "inlineC4",
+      nodes: [
+        {
+          id: "first",
+          targetPath: ["first"],
+          label: "Worker",
+          type: "container",
+        },
+        {
+          id: "second",
+          targetPath: ["second"],
+          label: "Worker",
+          type: "container",
+        },
+      ],
+      relationships: [
+        {
+          id: "read",
+          targetPath: ["read"],
+          from: "first",
+          to: "second",
+          label: "Access",
+        },
+        {
+          id: "write",
+          targetPath: ["write"],
+          from: "first",
+          to: "second",
+          label: "Access",
+        },
+      ],
+    });
+    expect(diagram.elements.map((item) => item.element.path)).toEqual([
+      ["canvas-map"],
+      ["first"],
+      ["second"],
+      ["read"],
+      ["write"],
+    ]);
+  });
+
   it("builds stable SoftwareMap label paths", () => {
     const parent = {
       id: "system",

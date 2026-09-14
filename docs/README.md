@@ -12,14 +12,14 @@ directory as a reference.
 
 - [Quickstart](quickstart.md) — install Review, add authoring guidance, and
   complete a first review.
-- [How Review works](how-review-works.md) — understand documents, live code,
-  maps, threads, and the review lifecycle.
+- [How Review works](how-review-works.md) — understand live documents, pinned
+  evidence, maps, conversations, and saved versions.
 - [Coding agents](agents.md) — connect Claude Code, Codex, and other coding
   agents.
 
 ## Reference
 
-- [CLI reference](cli-reference.md) — commands, options, and JSON output.
+- [CLI and API reference](cli-reference.md) — commands, MCP, and JSON contracts.
 - [Privacy](privacy.md) — what stays local, what is sent, and how to opt out.
 - [Telemetry reference](telemetry.md) — the complete event and data contract.
 - [Troubleshooting](troubleshooting.md) — fixes for common setup and runtime

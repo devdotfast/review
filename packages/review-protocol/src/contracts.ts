@@ -1044,6 +1044,41 @@ export interface ReviewCanvasSettingsContent {
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
+      /** Canonical host-owned JSON. Never loads an authored JavaScript module. */
+      kind: "host";
+      connection: { serverUrl: string; token: string };
+      reviewId?: string;
+      reviewVersion?: number;
+      wasmUrl?: string;
+      source?: ReviewHostSourceBridge;
+      runtime?: Pick<
+        ReviewRuntimeConfig,
+        "docRuntimeUrl" | "appVersion" | "theme"
+      >;
+      softwareMapEnabled?: boolean;
+      post?(request: ReviewVerbRequest): Promise<ReviewVerbResponse>;
+      onDidChangeTheme?(
+        listener: (theme: ReviewTheme) => void,
+      ): ReviewDisposable;
+      ready?(): void;
+      openReview(
+        reviewId: string,
+        title?: string,
+        reviewVersion?: number,
+      ): void;
+      closeReview?(reviewId: string): Promise<void>;
+      showHome(): void;
+      openWelcome?(): void;
+      openSettings?(): void;
+      openTutorial?(): void;
+      openSourceTree?(reviewId: string): void;
+      openQuestion?(runId: string): Promise<void>;
+      setup?: ReviewCanvasHomeSetup;
+      install?: ReviewCanvasInstallContent;
+      onboarding?: ReviewCanvasOnboarding;
+      setTitle?(title: string): void;
+    }
+  | {
       kind: "error";
       message: string;
       reviewErrors?: readonly ReviewListError[];

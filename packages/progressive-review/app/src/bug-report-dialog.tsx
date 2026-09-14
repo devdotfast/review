@@ -1,5 +1,6 @@
 import {
-  type ReviewBugReportRequest,
+  HostBugReportResponseSchema,
+  type HostSupportReport,
   parseReviewBugReportResponse,
 } from "@dev.fast/review-protocol";
 import {
@@ -36,10 +37,12 @@ export function BugReportControl({
   captureScreenshot?: typeof captureWindowScreenshot;
 } = {}) {
   const session = useReviewSession();
+  const snapshotSupport = session.supportReport === "snapshot";
   const tutorial = useTutorial();
   const [open, setOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [includeContext, setIncludeContext] = useState(true);
+  const [includeMap, setIncludeMap] = useState(true);
   const [includeDiff, setIncludeDiff] = useState(true);
   const [includeTrace, setIncludeTrace] = useState(false);
   const [screenshot, setScreenshot] = useState<string | null>(null);
@@ -61,6 +64,7 @@ export function BugReportControl({
   const reset = () => {
     setDescription("");
     setIncludeContext(true);
+    setIncludeMap(true);
     setIncludeDiff(true);
     setIncludeTrace(false);
     setScreenshot(null);
@@ -77,28 +81,39 @@ export function BugReportControl({
     if (!canSend) return;
     setSending(true);
     try {
-      const report: ReviewBugReportRequest = {
+      const common: HostSupportReport = {
         description,
         include_review: includeContext,
-        include_map: includeContext,
+        include_map: snapshotSupport ? includeMap : includeContext,
         include_diff: includeDiff,
-        include_trace: includeTrace,
         app_session_id: session.appSessionId,
         app_version: session.config.appVersion,
       };
       if (screenshot) {
-        report.screenshot = {
+        common.screenshot = {
           mime: "image/jpeg",
           base64: screenshot.slice("data:image/jpeg;base64,".length),
         };
       }
+      const report = snapshotSupport
+        ? common
+        : { ...common, include_trace: includeTrace };
       const response = await session.fetch("/telemetry/bug-report", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(report),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) {
+      let successText = "Bug report was sent.";
+      if (snapshotSupport) {
+        const result = HostBugReportResponseSchema.parse(body);
+        if (!result.ok) {
+          setToast({ kind: "error", text: result.error.message });
+          return;
+        }
+        if (result.data.warnings.length)
+          successText += ` ${result.data.warnings.map((warning) => warning.message).join(" ")}`;
+      } else if (!response.ok) {
         captureUiEvent(session, "bug_report_send_failed", {
           error_name: clientErrorName(new Error()),
         });
@@ -114,12 +129,13 @@ export function BugReportControl({
                   : "The report could not be sent. Try again.",
         });
         return;
+      } else {
+        const result = parseReviewBugReportResponse(body);
+        if (!result.ok) throw new Error(result.error);
       }
-      const result = parseReviewBugReportResponse(body);
-      if (!result.ok) throw new Error(result.error);
       setToast({
         kind: "success",
-        text: "Bug report was sent.",
+        text: successText,
       });
       reset();
       setOpen(false);
@@ -129,7 +145,9 @@ export function BugReportControl({
       });
       setToast({
         kind: "error",
-        text: "The report could not be sent. Try again.",
+        text: snapshotSupport
+          ? "The support upload could not be confirmed. It may have been received; check before submitting again."
+          : "The report could not be sent. Try again.",
       });
     } finally {
       setSending(false);
@@ -260,42 +278,56 @@ export function BugReportControl({
                   />
                   Review
                 </label>
+                {snapshotSupport && (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={includeMap}
+                      onChange={(event) => setIncludeMap(event.target.checked)}
+                    />
+                    Software maps
+                  </label>
+                )}
                 <label>
                   <input
                     type="checkbox"
                     checked={includeDiff}
                     onChange={(event) => setIncludeDiff(event.target.checked)}
                   />
-                  Changed-file diffs used by CodePeeks
+                  {snapshotSupport
+                    ? "Review code diff"
+                    : "Changed-file diffs used by CodePeeks"}
                 </label>
-                <div className="bug-report-option">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={includeTrace}
-                      onChange={(event) =>
-                        setIncludeTrace(event.target.checked)
-                      }
-                    />
-                    Agent session trace
-                  </label>
-                  <span className="bug-report-trace-info">
-                    <button
-                      type="button"
-                      aria-label="Agent session trace privacy information"
-                      aria-describedby={tracePrivacyTooltipId}
-                    >
-                      i
-                    </button>
-                    <span
-                      id={tracePrivacyTooltipId}
-                      role="tooltip"
-                      className="bug-report-trace-tooltip"
-                    >
-                      {TRACE_PRIVACY_COPY}
+                {!snapshotSupport && (
+                  <div className="bug-report-option">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={includeTrace}
+                        onChange={(event) =>
+                          setIncludeTrace(event.target.checked)
+                        }
+                      />
+                      Agent session trace
+                    </label>
+                    <span className="bug-report-trace-info">
+                      <button
+                        type="button"
+                        aria-label="Agent session trace privacy information"
+                        aria-describedby={tracePrivacyTooltipId}
+                      >
+                        i
+                      </button>
+                      <span
+                        id={tracePrivacyTooltipId}
+                        role="tooltip"
+                        className="bug-report-trace-tooltip"
+                      >
+                        {TRACE_PRIVACY_COPY}
+                      </span>
                     </span>
-                  </span>
-                </div>
+                  </div>
+                )}
                 <div className="bug-report-screenshot">
                   {screenshot ? (
                     <>

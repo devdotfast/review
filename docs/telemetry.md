@@ -40,7 +40,7 @@ not been sent.
 For a single command, a shell, or a headless environment, set `DO_NOT_TRACK`:
 
 ```sh
-DO_NOT_TRACK=1 review info
+DO_NOT_TRACK=1 review host capabilities
 ```
 
 Review also honors these variables when their value is `1` or `true`:

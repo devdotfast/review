@@ -1,40 +1,9 @@
-# Prepared worktrees
+# Source availability
 
-Scaffold materializes one worktree for each pinned base and head commit. It runs each configured `devfast.prepare` command in both worktrees.
+JSON review authoring does not require prepared worktrees or dependency installation. The host resolves anchors from immutable repository blobs and saves the excerpt with the accepted document.
 
-Prepared worktrees let language servers resolve repository dependencies. The configuration is local to one clone. Do not commit it.
+Use `source.read` for a range, `source.file` for an immutable full file, and `source.tree/commits/diff` for exploration. Each request names the review and observed document version. The native read-only editor obtains bytes through this API.
 
-## Configure preparation
+If deeper source access is unavailable, report it and use retained evidence. Do not install dependencies, change `devfast.prepare`, or create worktrees merely to display saved code. Full language-server navigation is not implied by the ability to open pinned files.
 
-Match the repository lockfile:
-
-- `pnpm-lock.yaml`: `pnpm install --frozen-lockfile`
-- `package-lock.json`: `npm ci`
-- `yarn.lock`: `yarn install --immutable`
-- `uv.lock`: `uv sync`
-- `go.mod`: `go mod download`
-- `Cargo.lock`: `cargo fetch`
-
-Set the first command:
-
-```sh
-git config devfast.prepare '<install command>'
-```
-
-Append another command:
-
-```sh
-git config --add devfast.prepare '<next command>'
-```
-
-Commands run in file order. Add a focused library build when workspace exports point to generated output. Do not build application targets without a clear need.
-
-For example:
-
-```sh
-git config --add devfast.prepare 'pnpm -r --filter "./packages/**" run build'
-```
-
-After the next scaffold, check one dependency link and its generated output in the pinned checkout (the `checkouts` paths in the scaffold event).
-
-Prepare failure is soft. Scaffold keeps the worktree and prints the log path. A `.prepared` marker stores the command-list hash. A configuration change runs preparation again during the next scaffold or update.
+The bundled tutorial may use existing prepared-worktree support. That trusted exception is not the JSON authoring workflow.

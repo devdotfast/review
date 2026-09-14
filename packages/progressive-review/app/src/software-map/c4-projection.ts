@@ -160,10 +160,14 @@ export function projectInlineC4({
 export function collapseInlineC4Node(
   expandedNodeIds: ReadonlySet<string>,
   nodeId: string,
+  model?: NormalizedSoftwareModel,
 ): Set<string> {
   const collapsed = new Set(expandedNodeIds);
   for (const expandedNodeId of expandedNodeIds) {
-    if (expandedNodeId === nodeId || isDescendantPath(expandedNodeId, nodeId)) {
+    if (
+      expandedNodeId === nodeId ||
+      isDescendantPath(expandedNodeId, nodeId, model)
+    ) {
       collapsed.delete(expandedNodeId);
     }
   }
@@ -183,7 +187,9 @@ function visibleNodeIdsForProjection(
   const rootNodes = model.elements.filter(
     (element) =>
       !element.parentPath &&
-      (element.type === "person" || element.type === "softwareSystem"),
+      (model.targetId ||
+        element.type === "person" ||
+        element.type === "softwareSystem"),
   );
 
   for (const rootNode of rootNodes) {
@@ -924,7 +930,19 @@ function isChangedElement(element: NormalizedSoftwareElement) {
   );
 }
 
-function isDescendantPath(path: string, ancestorPath: string) {
+function isDescendantPath(
+  path: string,
+  ancestorPath: string,
+  model?: NormalizedSoftwareModel,
+) {
+  if (model) {
+    let parent = model.elementsByPath.get(path)?.parentPath;
+    while (parent) {
+      if (parent === ancestorPath) return true;
+      parent = model.elementsByPath.get(parent)?.parentPath;
+    }
+    return false;
+  }
   return path.startsWith(`${ancestorPath}.`);
 }
 

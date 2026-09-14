@@ -1,11 +1,13 @@
 import {
   type CallStackDiffProps,
   type CallStackEntry,
+  type PeekableAnchorRef,
   callStackDiffPropsSchema,
   callStackEntryAnchor,
   isCallsAssertion,
 } from "../../src/authoring";
 import {
+  type CallStackDiffRow,
   callStackConnectorPrefix,
   diffCallStacks,
 } from "../../src/call-stack-diff";
@@ -24,15 +26,42 @@ export function CallStackDiff(props: CallStackDiffProps) {
   const parsed = callStackDiffPropsSchema.parse(props);
   const openPeek = useReviewPanel((state) => state.openPeek);
   const rows = diffCallStacks(parsed.base, parsed.head);
+  return (
+    <CallStackDiffView
+      title={parsed.title}
+      rows={rows}
+      onOpen={(anchor) => {
+        captureUiEvent(session, "peek_opened", { via: "call_stack_frame" });
+        openPeek({
+          kind: "peek",
+          anchor,
+          content: {
+            kind: "resolved-code",
+            input: validatedCodePeekInputFromRef(anchor.peek),
+          },
+        });
+      }}
+    />
+  );
+}
+
+/** Pure visual surface; the owner decides how source navigation is handled. */
+export function CallStackDiffView({
+  title,
+  rows,
+  onOpen,
+}: {
+  title?: string;
+  rows: readonly (CallStackDiffRow & { moved?: boolean })[];
+  onOpen: (anchor: PeekableAnchorRef) => void;
+}) {
   const added = rows.filter((row) => row.change === "added").length;
   const removed = rows.filter((row) => row.change === "removed").length;
   return (
     <div className="call-stack-diff" data-review-call-stack="ready">
       <div className="call-stack-hunk">
         <span className="call-stack-hunk-label">
-          {parsed.title
-            ? `@@ ${parsed.title} · base → head @@`
-            : "@@ base → head @@"}
+          {title ? `@@ ${title} · base → head @@` : "@@ base → head @@"}
         </span>
         <span className="call-stack-hunk-counts">
           {added > 0 ? (
@@ -57,17 +86,7 @@ export function CallStackDiff(props: CallStackDiffProps) {
               data-review-anchor-id={anchor.id}
               title={`${rowTooltip(row.entry)} — ${anchor.peek.props.file}:${anchor.peek.props.fromLine}`}
               onClick={() => {
-                captureUiEvent(session, "peek_opened", {
-                  via: "call_stack_frame",
-                });
-                openPeek({
-                  kind: "peek",
-                  anchor,
-                  content: {
-                    kind: "resolved-code",
-                    input: validatedCodePeekInputFromRef(anchor.peek),
-                  },
-                });
+                onOpen(anchor);
               }}
             >
               <span className="call-stack-gutter">{marker}</span>
@@ -75,6 +94,7 @@ export function CallStackDiff(props: CallStackDiffProps) {
                 {callStackConnectorPrefix(rows, index)}
               </span>
               <span className="call-stack-name">{anchor.title}</span>
+              {row.moved && <span className="call-stack-asserted">moved</span>}
               {isCallsAssertion(row.entry) ? (
                 <span className="call-stack-asserted">
                   ≈ {row.entry.reason ?? "asserted"}

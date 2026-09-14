@@ -1,3 +1,7 @@
+import type {
+  HostQuestionRun,
+  ReviewCommentStoreBridge,
+} from "@dev.fast/review-protocol";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -15,6 +19,7 @@ import {
 import { flushSync } from "react-dom";
 
 import { AgentMarkdown, markdownExcerpt } from "./agent-markdown";
+import { useOptionalReviewSession } from "./host/review-session";
 import {
   AddToReviewIcon,
   CloseIcon,
@@ -32,6 +37,13 @@ import {
   threadRelativeTimeLabel,
 } from "./review-threads";
 import { useThreadTargetState } from "./thread-target-model";
+
+type AskHarness = HostQuestionRun["harness"];
+const ASK_HARNESS_LABELS: Record<AskHarness, string> = {
+  codex: "Codex",
+  "claude-code": "Claude Code",
+  pi: "Pi",
+};
 
 /**
  * The one thread surface (Notion-style): quoted anchor with an accent bar,
@@ -64,12 +76,29 @@ export function ThreadCard({
   onMinimize?: () => void;
   onResolve?: (resolved: boolean) => void;
   onReply?: (body: string) => void;
-  onAskNow?: (body: string) => void | boolean | Promise<void | boolean>;
+  onAskNow?: (
+    body: string,
+    harness?: AskHarness,
+  ) => void | boolean | Promise<void | boolean>;
   onAddToReview?: (body: string) => void | boolean | Promise<void | boolean>;
   onEditMessage?: (messageId: string, body: string) => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   onDeleteMessage?: (messageId: string) => void | Promise<void>;
 }): ReactElement {
+  const session = useOptionalReviewSession();
+  const immutable =
+    session?.bridge.comments.postedMessagesImmutable &&
+    thread.clientStatus !== "draft";
+  if (immutable) {
+    onEditMessage = undefined;
+    onDelete = undefined;
+    onDeleteMessage = undefined;
+  }
+  if (
+    session?.bridge.comments.postedMessagesImmutable &&
+    thread.clientStatus === "draft"
+  )
+    onResolve = undefined;
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const currentTargetState = useThreadTargetState(thread.target);
   const targetState = thread.targetState ?? currentTargetState;
@@ -216,8 +245,8 @@ export function ThreadCard({
               key={`${message.id}:edit`}
               message={message}
               onCancel={() => setEditingMessageId(null)}
-              onSubmit={(body) => {
-                void onEditMessage(message.id, body);
+              onSubmit={async (body) => {
+                await onEditMessage(message.id, body);
                 setEditingMessageId(null);
               }}
             />
@@ -232,7 +261,12 @@ export function ThreadCard({
                     <ThreadMessageActions
                       onEdit={
                         onEditMessage
-                          ? () => setEditingMessageId(message.id)
+                          ? () => {
+                              session?.bridge.comments.observeDraft?.(
+                                thread.threadId,
+                              );
+                              setEditingMessageId(message.id);
+                            }
                           : undefined
                       }
                       onDelete={
@@ -596,7 +630,7 @@ function ThreadMessageEditView({
   onCancel,
 }: {
   message: ThreadMessage;
-  onSubmit: (body: string) => void;
+  onSubmit: (body: string) => void | Promise<void>;
   onCancel: () => void;
 }): ReactElement {
   return (
@@ -685,7 +719,10 @@ type ThreadComposerProps = ThreadComposerCommonProps &
         kind: "new-thread";
         initialVerb?: ComposeVerb;
         verbs?: readonly ComposeVerb[];
-        onAskNow: (body: string) => void | boolean | Promise<void | boolean>;
+        onAskNow: (
+          body: string,
+          harness?: AskHarness,
+        ) => void | boolean | Promise<void | boolean>;
         onAddToReview: (
           body: string,
         ) => void | boolean | Promise<void | boolean>;
@@ -697,6 +734,7 @@ type ThreadComposerProps = ThreadComposerCommonProps &
  * new threads use the persisted split verb control.
  */
 export function ThreadComposer(props: ThreadComposerProps): ReactElement {
+  const comments = useOptionalReviewSession()?.bridge.comments;
   const {
     placeholder,
     autoFocus = false,
@@ -734,6 +772,46 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
   const verbControlRef = useRef<HTMLDivElement | null>(null);
   const verbMenuRef = useRef<HTMLDivElement | null>(null);
   const tooltipId = useId();
+  const [askOptions, setAskOptions] = useState<Awaited<
+    ReturnType<NonNullable<ReviewCommentStoreBridge["askOptions"]>>
+  > | null>(null);
+  const [askHarness, setAskHarness] = useState<AskHarness | undefined>();
+  const [askOptionsError, setAskOptionsError] = useState<string | null>(null);
+  const needsAskHarness = isNewThread && Boolean(comments?.askOptions);
+  const askUnavailable = props.askDisabled || (needsAskHarness && !askHarness);
+
+  useEffect(() => {
+    if (!isNewThread || !comments?.askOptions) return;
+    let disposed = false;
+    void comments
+      .askOptions()
+      .then((options) => {
+        if (disposed) return;
+        setAskOptions(options);
+        setAskHarness(
+          options.defaultHarness ??
+            (options.supportedHarnesses.length === 1
+              ? options.supportedHarnesses[0]
+              : undefined),
+        );
+      })
+      .catch((error) => {
+        if (!disposed)
+          setAskOptionsError(
+            error instanceof Error ? error.message : String(error),
+          );
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [comments, isNewThread]);
+
+  const submitAsk = (body: string) =>
+    props.kind === "new-thread"
+      ? askHarness
+        ? props.onAskNow(body, askHarness)
+        : props.onAskNow(body)
+      : undefined;
 
   useEffect(() => {
     if (!isNewThread || !initialVerb) return;
@@ -808,15 +886,14 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     if (
       !body ||
       props.kind !== "new-thread" ||
-      (chosen === "ask-now" && props.askDisabled)
+      (chosen === "ask-now" && askUnavailable)
     )
       return;
     flushSync(() => {
       setDraftValue("");
       setVerbMenuOpen(false);
     });
-    const onSubmit =
-      chosen === "ask-now" ? props.onAskNow : props.onAddToReview;
+    const onSubmit = chosen === "ask-now" ? submitAsk : props.onAddToReview;
     try {
       if ((await onSubmit(body)) === false) {
         if (!draftRef.current.trim()) setDraftValue(body);
@@ -834,7 +911,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     const body = draft.trim();
     if (
       !body ||
-      (props.kind === "new-thread" && verb === "ask-now" && props.askDisabled)
+      (props.kind === "new-thread" && verb === "ask-now" && askUnavailable)
     )
       return;
     // Commit the controlled input first. A parent update must not retain it.
@@ -844,8 +921,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
     });
     try {
       if (props.kind === "new-thread") {
-        const onSubmit =
-          verb === "ask-now" ? props.onAskNow : props.onAddToReview;
+        const onSubmit = verb === "ask-now" ? submitAsk : props.onAddToReview;
         if (!onSubmit) {
           throw new Error(`Compose verb "${verb}" has no submit handler.`);
         }
@@ -930,7 +1006,40 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
   return (
     <form className="thread-compose" onSubmit={submit}>
       <textarea {...textareaProps} />
+      {askOptionsError && (
+        <div className="thread-draft-error" role="alert">
+          {askOptionsError}
+        </div>
+      )}
       <div className="thread-compose-footer">
+        {needsAskHarness && askOptions?.supportedHarnesses.length !== 1 && (
+          <select
+            aria-label="Answering agent"
+            className="thread-compose-harness"
+            value={askHarness ?? ""}
+            disabled={!askOptions?.supportedHarnesses.length}
+            onChange={(event) =>
+              setAskHarness(
+                askOptions?.supportedHarnesses.find(
+                  (value) => value === event.target.value,
+                ),
+              )
+            }
+          >
+            <option value="" disabled>
+              {!askOptions
+                ? "Loading agents…"
+                : askOptions.supportedHarnesses.length
+                  ? "Choose agent"
+                  : "No local agent available"}
+            </option>
+            {askOptions?.supportedHarnesses.map((harness) => (
+              <option key={harness} value={harness}>
+                {ASK_HARNESS_LABELS[harness]}
+              </option>
+            ))}
+          </select>
+        )}
         <div
           ref={verbControlRef}
           className={`thread-compose-verb thread-compose-verb--${verb}`}
@@ -942,7 +1051,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
               aria-describedby={tooltipId}
               disabled={
                 !draft.trim() ||
-                (isNewThread && verb === "ask-now" && props.askDisabled)
+                (isNewThread && verb === "ask-now" && askUnavailable)
               }
               onMouseDown={(event) => event.preventDefault()}
             >
@@ -987,9 +1096,7 @@ export function ThreadComposer(props: ThreadComposerProps): ReactElement {
                   className="thread-compose-verb-option"
                   disabled={
                     !draft.trim() ||
-                    (isNewThread &&
-                      candidate === "ask-now" &&
-                      props.askDisabled)
+                    (isNewThread && candidate === "ask-now" && askUnavailable)
                   }
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
@@ -1050,7 +1157,10 @@ export function ThreadDraftCard({
   error?: string | null;
   verbs?: readonly ComposeVerb[];
   onSubmitComment: (body: string) => void | boolean | Promise<void | boolean>;
-  onAskAgent: (body: string) => void | boolean | Promise<void | boolean>;
+  onAskAgent: (
+    body: string,
+    harness?: AskHarness,
+  ) => void | boolean | Promise<void | boolean>;
   onCancel: () => void;
   onDraftStateChange?: (hasText: boolean) => void;
   onDraftTextChange?: (text: string) => void;

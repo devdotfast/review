@@ -48,6 +48,7 @@ import { IReviewCodeResourceService } from "../../../services/reviewCodeResource
 import { IReviewDiffTabsService } from "../../../services/reviewDiffTabs.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { IReviewSessionModelService } from "../../../services/reviewSessionModelService.js";
+import { REVIEW_HOST_SOURCE_SCHEME, parseHostSourceUri } from "../../../services/reviewHostSourceService.js";
 import { ReviewChangedFilesTree } from "../../reviewChangedFilesTree.js";
 import { ReviewCanvasEditorInput } from "../canvas/reviewCanvasEditorInput.js";
 
@@ -79,12 +80,12 @@ function accompaniesEditor(input: EditorInput | undefined): boolean {
 	}
 
 	const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
-	return resource?.scheme === Schemas.file;
+	return resource?.scheme === Schemas.file || resource?.scheme === REVIEW_HOST_SOURCE_SCHEME;
 }
 
 /** The Source tab browses the whole worktree, so it gets the workspace tree. */
 function isSourceTab(input: EditorInput | undefined): boolean {
-	return input instanceof ReviewCanvasEditorInput && input.target.kind === "source";
+	return input instanceof ReviewCanvasEditorInput && (input.target.kind === "source" || input.target.kind === "host-source");
 }
 
 /**
@@ -251,6 +252,7 @@ export class ReviewExplorerPart extends Part {
 	private tree: WorkbenchAsyncDataTree<URI | null, IFileStat, void> | undefined;
 	private dataSource: ReviewExplorerDataSource | undefined;
 	private root: URI | undefined;
+	private sourceRoot: URI | undefined;
 	private mode: "changed" | "workspace" = "changed";
 	private changedFilesContainer: HTMLElement | undefined;
 	private workspaceTreeContainer: HTMLElement | undefined;
@@ -401,8 +403,10 @@ export class ReviewExplorerPart extends Part {
 					revealIfVisible: true,
 				},
 			}, this.editorGroupsService.mainPart.activeGroup)).then(pane => {
-				if (pane?.input && model) {
-					this.tabsService.registerReviewEditor(model.reviewUuid, pane.input);
+				const reviewId = stat.resource.scheme === REVIEW_HOST_SOURCE_SCHEME
+					? parseHostSourceUri(stat.resource).request.reviewId : model?.reviewUuid;
+				if (pane?.input && reviewId) {
+					this.tabsService.registerReviewEditor(reviewId, pane.input);
 				}
 			});
 		}));
@@ -462,7 +466,15 @@ export class ReviewExplorerPart extends Part {
 	}
 
 	private updateRoot(): void {
-		const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+		const input = this.editorService.activeEditor;
+		const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
+		const hostSourceTarget = input instanceof ReviewCanvasEditorInput && input.target.kind === "host-source" ? input.target : undefined;
+		const rootQuery = new URLSearchParams(this.sourceRoot?.query);
+		const matchingSourceRoot = hostSourceTarget && rootQuery.get("reviewId") === hostSourceTarget.reviewId && rootQuery.get("reviewVersion") === String(hostSourceTarget.reviewVersion) ? this.sourceRoot : undefined;
+		const sourceQuery = new URLSearchParams(resource?.query);
+		sourceQuery.delete("diffAbsent");
+		const folder = resource?.scheme === REVIEW_HOST_SOURCE_SCHEME ? resource.with({ path: "/", query: sourceQuery.toString() })
+			: hostSourceTarget ? matchingSourceRoot : this.workspaceContextService.getWorkspace().folders[0]?.uri;
 		if (folder && this.root && isEqual(folder, this.root)) {
 			return;
 		}
@@ -480,6 +492,11 @@ export class ReviewExplorerPart extends Part {
 		}).catch(error => this.logService.trace(`[review] explorer cannot root at ${folder?.fsPath}: ${error}`));
 	}
 
+	setSourceRoot(root: URI): void {
+		this.sourceRoot = root;
+		this.updateRoot();
+	}
+
 	/**
 	 * Expands the tree down to `resource` and selects it.
 	 *
@@ -489,7 +506,7 @@ export class ReviewExplorerPart extends Part {
 	 */
 	revealResource(resource: URI | undefined): void {
 		const root = this.root;
-		if (!resource || !root || resource.scheme !== Schemas.file || !isEqualOrParent(resource, root)) {
+		if (!resource || !root || !isEqualOrParent(resource, root)) {
 			return;
 		}
 
@@ -523,6 +540,7 @@ export class ReviewExplorerPart extends Part {
 	}
 
 	setActiveResource(resource: URI | undefined): void {
+		this.updateRoot();
 		if (this.mode === "workspace") {
 			this.revealResource(resource);
 			return;
@@ -595,6 +613,8 @@ export interface IReviewExplorerPartsService {
 	 * CTA always reveals the tree even after the user dismissed it.
 	 */
 	show(): void;
+	/** Opens the original explorer on an immutable API-backed source tree. */
+	showSource(root: URI): void;
 }
 
 /** Marks the workbench while the tree has a tab to accompany, so the toolbar toggle can fade in. */
@@ -676,6 +696,11 @@ export class ReviewExplorerParts extends Disposable implements IReviewExplorerPa
 	show(): void {
 		this.setUserClosed(false);
 		this.update();
+	}
+
+	showSource(root: URI): void {
+		this.part.setSourceRoot(root);
+		this.show();
 	}
 
 	private setUserClosed(userClosed: boolean): void {

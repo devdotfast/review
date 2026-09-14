@@ -68,7 +68,7 @@ class ReviewCanvasEditorContribution
     this._register(
       this.editorService.onDidCloseEditor(({ editor }) => {
         if (!(editor instanceof ReviewCanvasEditorInput)) return;
-        if (editor.target.kind !== "review") {
+        if (editor.target.kind !== "review" && editor.target.kind !== "host-review") {
           void this.tabsService.openHome(true);
         }
       }),
@@ -120,15 +120,12 @@ class ReviewCanvasEditorContribution
 
   private async restoreTabs(): Promise<void> {
     const stored = this.readStoredTabs();
-    const available = new Set(
-      this.sessionService.reviews.map((review) => review.uuid),
-    );
     /* The tutorial intentionally lives outside the store-backed review list,
        so normal tab restoration cannot resolve it. Restore it only when it
        was the active tab: this is the path used by the keymap reload prompt,
        and avoids reopening an inactive tutorial on an ordinary app launch. */
     let restoreActiveTutorial = false;
-    if (stored.active && !available.has(stored.active)) {
+    if (stored.active && !stored.active.startsWith("host:")) {
       try {
         const status = await this.sessionService.getTutorialStatus();
         restoreActiveTutorial = status.reviewUuid === stored.active;
@@ -137,11 +134,14 @@ class ReviewCanvasEditorContribution
       }
     }
     for (const reviewUuid of stored.open) {
-      if (!available.has(reviewUuid)) continue;
-      await this.tabsService.openReview(
-        reviewUuid,
-        reviewUuid === stored.active && !restoreActiveTutorial,
-      );
+      if (reviewUuid.startsWith("host:")) {
+        const [reviewId, savedVersion] = reviewUuid.slice(5).split("@");
+        const reviewVersion = savedVersion === undefined ? undefined : Number(savedVersion);
+        if (reviewVersion !== undefined && (!/^\d+$/.test(savedVersion!) || !Number.isSafeInteger(reviewVersion))) continue;
+        await this.tabsService.openHostReview(reviewId, reviewUuid === stored.active, undefined, reviewVersion);
+        continue;
+      }
+      // Ordinary legacy tabs are deliberately not acquired or migrated.
     }
     if (restoreActiveTutorial) {
       try {
@@ -188,16 +188,16 @@ class ReviewCanvasEditorContribution
     if (!this.restored) return;
     const group = this.editorGroupsService.mainPart.activeGroup;
     const open = group.editors.flatMap((editor) =>
-      editor instanceof ReviewCanvasEditorInput &&
-      editor.target.kind === "review"
-        ? [editor.target.reviewUuid]
+      editor instanceof ReviewCanvasEditorInput
+        ? editor.target.kind === "review" ? [editor.target.reviewUuid]
+          : editor.target.kind === "host-review" && editor.target.reviewId ? [`host:${editor.target.reviewId}${editor.target.reviewVersion === undefined ? "" : `@${editor.target.reviewVersion}`}`] : []
         : [],
     );
     const activeEditor = group.activeEditor;
     const active =
-      activeEditor instanceof ReviewCanvasEditorInput &&
-      activeEditor.target.kind === "review"
-        ? activeEditor.target.reviewUuid
+      activeEditor instanceof ReviewCanvasEditorInput
+        ? activeEditor.target.kind === "review" ? activeEditor.target.reviewUuid
+          : activeEditor.target.kind === "host-review" && activeEditor.target.reviewId ? `host:${activeEditor.target.reviewId}${activeEditor.target.reviewVersion === undefined ? "" : `@${activeEditor.target.reviewVersion}`}` : undefined
         : undefined;
     this.storageService.store(
       OPEN_REVIEW_TABS_STORAGE_KEY,

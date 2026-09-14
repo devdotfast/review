@@ -33,6 +33,13 @@ export interface ReviewRequestOptions {
   tokenInQuery?: boolean;
 }
 
+/** Recover the logical endpoint when an API-backed session adapts old views. */
+export function reviewApiEndpoint(pathname: string): string {
+  return pathname.startsWith(`${REVIEW_API_PREFIX}/`)
+    ? pathname.slice(REVIEW_API_PREFIX.length)
+    : pathname;
+}
+
 export function reviewApiUrl(
   config: ReviewClientConfig,
   endpoint: `/${string}`,

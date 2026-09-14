@@ -111,15 +111,19 @@
   color: var(--ink-faint);
 }
 
-.software-map-expand-button {
-  opacity: 0;
-  transition:
-    opacity 120ms ease,
-    color 120ms ease;
+.software-map-icon-button.software-map-action-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-height: 30px;
+  padding: 0 8px;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
-.software-map-frame:hover .software-map-expand-button,
-.software-map-expand-button:focus-visible,
 .software-map-icon-button--visible {
   opacity: 1;
 }
@@ -1557,11 +1561,8 @@
 .software-map-overlay {
   position: fixed;
   inset: 0;
-  /* Match the topbar's layer: the overlay portals to the end of <body>, so an
-     equal z-index paints it above the sticky topbar (which otherwise covers
-     the expanded map's close button). The literal fallback matters: the
-     variable is defined on .review-app, which the body-level portal never
-     inherits from. */
+  /* The overlay portals to the end of its canvas root, above the topbar while
+     remaining inside the desktop stylesheet's scope. */
   z-index: var(--review-debug-layer, 2147483000);
   display: grid;
   box-sizing: border-box;
@@ -1570,6 +1571,7 @@
   overflow: hidden;
   padding: 0;
   background: var(--bg);
+  font-family: var(--font-mono);
 }
 
 .software-map-frame {

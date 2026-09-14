@@ -10,6 +10,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { writeFileAtomicAsync } from "./atomic-write";
 import {
   type TraceCommand,
   renderTraceCommand,
@@ -348,11 +349,10 @@ async function writePrivateJson(
   filePath: string,
   value: RepositoryHookState | string[],
 ): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+  await writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
     mode: 0o600,
   });
-  await chmod(filePath, 0o600);
 }
 
 function registryPath(homeDir: string): string {

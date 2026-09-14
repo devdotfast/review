@@ -3,10 +3,8 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -29,6 +27,7 @@ import {
   extractTraceEventText,
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
+import { writeFileAtomic } from "./atomic-write";
 import {
   exportOpenCodeTrace,
   isOpenCodeSessionId,
@@ -583,22 +582,11 @@ function writeNormalizedTraceAtomic(
   targetPath: string,
   trace: NormalizedTrace,
 ): void {
-  mkdirSync(path.dirname(targetPath), { recursive: true });
-
-  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2)}`;
-
   const content = [trace.metadata, ...trace.events]
     .map((record) => JSON.stringify(record))
     .join("\n");
 
-  try {
-    writeFileSync(tempPath, `${content}\n`, "utf8");
-    renameSync(tempPath, targetPath);
-  } finally {
-    rmSync(tempPath, { force: true });
-  }
+  writeFileAtomic(targetPath, `${content}\n`, "utf8");
 }
 
 /**

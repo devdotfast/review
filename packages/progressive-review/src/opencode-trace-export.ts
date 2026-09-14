@@ -1,13 +1,5 @@
 import { spawn } from "node:child_process";
-import {
-  closeSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -17,6 +9,8 @@ import {
   jsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+
+import { writeFileAtomic } from "./atomic-write";
 
 export const OPENCODE_SESSION_RECORD = "opencode_session";
 
@@ -71,8 +65,7 @@ export async function exportOpenCodeTrace(input: {
     ...messages.map((message) => JSON.stringify(traceMessageRecord(message))),
   ];
 
-  writeFileSync(staging, `${lines.join("\n")}\n`, "utf8");
-  renameSync(staging, destination);
+  writeFileAtomic(destination, `${lines.join("\n")}\n`, "utf8");
 
   return destination;
 }

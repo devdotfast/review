@@ -15,12 +15,10 @@ import type { JsonValue } from "@dev.fast/review-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";
-import {
-  checkReviewTraceDoctor,
-  clearTraceEnvCache,
-} from "./review-agent-traces";
+import { clearTraceEnvCache } from "./review-agent-traces";
 import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
+import { checkReviewTraceDoctor } from "./trace-doctor";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
   legacyRetiredPath,

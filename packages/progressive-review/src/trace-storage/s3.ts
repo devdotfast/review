@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -32,6 +31,7 @@ import {
   type S3Credentials,
   isS3MockMode,
   resolveS3Credentials,
+  s3CacheIdentity,
   s3MockRoot,
 } from "./s3-config";
 import type {
@@ -115,16 +115,7 @@ export class S3TraceStorage implements TraceStorage {
 
   /** Secret-free identity of the destination; the same bucket keys the same cache. */
   cacheIdentity(): string {
-    if (!this.config) return `s3:mock:${this.mockRoot ?? ""}`;
-
-    const digest = createHash("sha256")
-      .update(
-        `${normalizeEndpoint(this.config.endpoint)}\n${this.config.bucket}`,
-      )
-      .digest("hex")
-      .slice(0, 16);
-
-    return `s3:${digest}`;
+    return s3CacheIdentity(this.config, this.mockRoot);
   }
 
   cacheScope(
@@ -537,18 +528,6 @@ export function normalizeSubagentFileName(name: string): string {
   const base = path.basename(name);
 
   return base.endsWith(".jsonl") ? base : `${base}.jsonl`;
-}
-
-function normalizeEndpoint(endpoint: string): string {
-  try {
-    const url = new URL(endpoint);
-    url.hash = "";
-    url.search = "";
-
-    return url.toString().replace(/\/+$/, "").toLowerCase();
-  } catch {
-    return endpoint.trim().replace(/\/+$/, "").toLowerCase();
-  }
 }
 
 function deduplicateStrings(items: string[]): string[] {

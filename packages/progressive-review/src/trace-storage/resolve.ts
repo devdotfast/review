@@ -8,13 +8,15 @@ import {
   s3Store,
 } from "./config";
 import { HostedTraceStorage } from "./hosted";
-import { S3TraceStorage } from "./s3";
 import {
   type S3ConfigScope,
+  type S3Credentials,
   type S3Setup,
   clearTraceEnvCache,
   isS3MockMode,
   resolveS3Setup,
+  s3CacheIdentity,
+  s3MockRoot,
 } from "./s3-config";
 import type { TraceStorage, TraceStorageKind } from "./types";
 
@@ -167,9 +169,23 @@ export function traceStorageExpectation(scope: S3ConfigScope = {}): string {
     return `hosted:${selection.hosted?.origin ?? ""}`;
   }
 
-  const storage = s3Storage(selection, scope);
+  const env = scope.env ?? process.env;
 
-  return `s3:${storage?.cacheIdentity() ?? ""}`;
+  if (isS3MockMode(env)) return `s3:${s3CacheIdentity(null, s3MockRoot(env))}`;
+
+  return `s3:${s3CacheIdentity(requireS3Credentials(selection), null)}`;
+}
+
+function requireS3Credentials(selection: TraceStorageSelection): S3Credentials {
+  const credentials = selection.s3?.credentials;
+
+  if (!credentials) {
+    throw new TraceConfigurationError(
+      "S3 trace storage was requested but no bucket credentials are configured.",
+    );
+  }
+
+  return credentials;
 }
 
 /** One human line for `trace status` and `trace storage use`. */
@@ -205,22 +221,17 @@ export function describeSelection(selection: TraceStorageSelection): string {
   return `S3/R2 ${where} (${selection.explicit ? "selected" : "legacy configuration"}; credentials from ${source}${overrides})`;
 }
 
-function s3Storage(
+/** The bucket store; its module loads only when a bucket is selected. */
+async function s3Storage(
   selection: TraceStorageSelection,
   scope: S3ConfigScope,
-): TraceStorage | null {
+): Promise<TraceStorage | null> {
   const env = scope.env ?? process.env;
+  const { S3TraceStorage } = await import("./s3");
 
   if (isS3MockMode(env)) return S3TraceStorage.fromEnvironment(scope);
-  const credentials = selection.s3?.credentials;
 
-  if (!credentials) {
-    throw new TraceConfigurationError(
-      "S3 trace storage was requested but no bucket credentials are configured.",
-    );
-  }
-
-  return S3TraceStorage.fromCredentials(credentials, env);
+  return S3TraceStorage.fromCredentials(requireS3Credentials(selection), env);
 }
 
 async function hostedStorage(

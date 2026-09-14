@@ -1,10 +1,6 @@
 import type { Writable } from "node:stream";
 
-import {
-  checkReviewTraceDoctor,
-  inferRepoFromGit,
-  syncReviewTrace,
-} from "./review-agent-traces";
+import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { writeHostedTraceStatus } from "./trace-hosted-cli";
@@ -86,6 +82,7 @@ export async function runReviewTraceStatus(input: {
     return 1;
   }
 
+  const { checkReviewTraceDoctor } = await import("./trace-doctor");
   const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
   input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
 

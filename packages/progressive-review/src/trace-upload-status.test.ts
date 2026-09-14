@@ -7,8 +7,6 @@ import { Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { StoreClient } from "./store-client";
-import { rememberTraceRepositoryTarget } from "./trace-repository-target";
-import { listUploadReceipts, saveUploadReceipt } from "./trace-upload-receipts";
 import { writeOwnUploadStatus } from "./trace-upload-status";
 
 const origin = "https://app.dev.fast";
@@ -16,8 +14,6 @@ const origin = "https://app.dev.fast";
 const storeId = "a".repeat(32);
 
 const uploadId = "b".repeat(32);
-
-const target = { origin, repositoryId: 123, storeId, name: "acme/app" };
 
 const confirmedAt = "2026-09-14T10:00:00.000Z";
 
@@ -71,20 +67,7 @@ describe("own upload status", () => {
     });
   }
 
-  async function receipt(scope: string) {
-    await rememberTraceRepositoryTarget({ cwd, target, devHome });
-    await saveUploadReceipt({
-      scope,
-      target,
-      devHome,
-      sessionId,
-      uploadId,
-      confirmedAt,
-      omitted: { subagents: ["agent-omitted"], commits: 1 },
-    });
-  }
-
-  it("checks completion without consent or transcript requests and shows omissions", async () => {
+  it("checks completion without consent or transcript requests", async () => {
     const service = client(() =>
       Response.json({
         storeId,
@@ -117,7 +100,6 @@ describe("own upload status", () => {
       }),
     );
 
-    await receipt(service.receiptScope()!);
     expect(
       await writeOwnUploadStatus({
         cwd,
@@ -132,9 +114,6 @@ describe("own upload status", () => {
     expect(output).toContain("Uploaded at");
     expect(output).toContain("Uploaded, later replaced");
     expect(output).toContain("Not completed");
-    expect(output).toContain(
-      "Omitted from this upload: 1 subagent file(s), 1 commit link(s)",
-    );
     expect(calls.map((url) => url.pathname)).toEqual([
       "/api/trace/v1/stores",
       "/api/trace/v1/stores/123/uploads",
@@ -197,7 +176,6 @@ describe("own upload status", () => {
         ),
       );
 
-      await receipt(service.receiptScope()!);
       expect(
         await writeOwnUploadStatus({
           cwd,
@@ -208,35 +186,27 @@ describe("own upload status", () => {
         }),
       ).toBe(1);
       expect(output).toContain("not checked");
-      expect(
-        output.includes(
-          `Previously confirmed at ${confirmedAt}; current status unknown`,
-        ),
-      ).toBe(status === 503);
-      expect(output.includes("Omitted from this upload")).toBe(status === 503);
+      expect(output).not.toContain("checked with the store");
     },
   );
 
-  it("does not reuse receipts across logins or recreated stores", async () => {
+  it("reports an unavailable server without claiming upload success", async () => {
     const service = client(() => {
       throw new Error("offline");
     });
 
-    await receipt(service.receiptScope()!);
-
-    const other = client(() => {
-      throw new Error("offline");
-    }, "another-login");
-
-    await writeOwnUploadStatus({ cwd, devHome, origin, stdout, client: other });
-    expect(output).not.toContain("Previously confirmed");
     expect(
-      await listUploadReceipts({
-        scope: service.receiptScope()!,
-        target: { ...target, storeId: "c".repeat(32) },
+      await writeOwnUploadStatus({
+        cwd,
         devHome,
+        origin,
+        stdout,
+        client: service,
       }),
-    ).toEqual([]);
+    ).toBe(1);
+    expect(output).toContain("not checked");
+    expect(output).not.toContain("checked with the store");
+    expect(output).not.toContain("No upload found");
   });
 
   it("rejects invalid filters before contacting the store", async () => {

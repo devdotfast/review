@@ -6,12 +6,10 @@ import { StoreApiError, type StoreClient } from "./store-client";
 import { inferRepoFromGit } from "./trace-repo";
 import {
   type TraceRepositoryTarget,
-  readCachedTraceRepositoryTarget,
   rememberTraceRepositoryTarget,
 } from "./trace-repository-target";
-import { listUploadReceipts } from "./trace-upload-receipts";
 
-/** A live, writer-authorized check. Offline receipts never imply current success. */
+/** A live, writer-authorized check of recorded uploads. */
 export async function writeOwnUploadStatus(input: {
   cwd: string;
   origin: string;
@@ -43,7 +41,6 @@ export async function writeOwnUploadStatus(input: {
   }
 
   const client = input.client;
-  let target: TraceRepositoryTarget | null = null;
 
   try {
     const repo = await inferRepoFromGit(input.cwd);
@@ -66,12 +63,14 @@ export async function writeOwnUploadStatus(input: {
         410,
         "This trace store was deleted.",
       );
-    target = {
+
+    const target: TraceRepositoryTarget = {
       origin: input.origin,
       repositoryId: store.repositoryId,
       storeId: store.storeId,
       name: store.displayName,
     };
+
     await rememberTraceRepositoryTarget({
       cwd: input.cwd,
       target,
@@ -93,16 +92,6 @@ export async function writeOwnUploadStatus(input: {
 
     if (page.uploads.length === 0)
       input.stdout.write("No upload found for this account.\n");
-    const scope = client.receiptScope();
-
-    const receipts = scope
-      ? await listUploadReceipts({
-          scope,
-          target,
-          devHome: input.devHome,
-          session: input.session,
-        })
-      : [];
 
     for (const upload of page.uploads) {
       const label =
@@ -115,19 +104,6 @@ export async function writeOwnUploadStatus(input: {
       input.stdout.write(
         `${upload.sessionId}: ${label} at ${upload.completedAt ?? upload.createdAt} (upload ${upload.uploadId}).\n`,
       );
-
-      const receipt = receipts.find(
-        (candidate) => candidate.uploadId === upload.uploadId,
-      );
-
-      if (
-        receipt &&
-        (receipt.omitted.subagents.length || receipt.omitted.commits)
-      ) {
-        input.stdout.write(
-          `Omitted from this upload: ${receipt.omitted.subagents.length} subagent file(s), ${receipt.omitted.commits} commit link(s).\n`,
-        );
-      }
     }
 
     if (page.nextCursor)
@@ -139,35 +115,6 @@ export async function writeOwnUploadStatus(input: {
   } catch (error) {
     const cause = error instanceof Error ? error : new Error(String(error));
     input.stdout.write(`Upload status: not checked. ${cause.message}\n`);
-
-    // A denial is authoritative. Do not replace it with an earlier receipt.
-    if (
-      cause instanceof StoreApiError &&
-      [401, 403, 410].includes(cause.status)
-    )
-      return 1;
-    target ??= await readCachedTraceRepositoryTarget(input).catch(() => null);
-    const scope = client.receiptScope();
-
-    if (target && scope) {
-      const receipts = await listUploadReceipts({
-        scope,
-        target,
-        devHome: input.devHome,
-        session: input.session,
-      });
-
-      for (const receipt of receipts.slice(0, query.data.limit)) {
-        input.stdout.write(
-          `${receipt.sessionId}: Previously confirmed at ${receipt.confirmedAt}; current status unknown (upload ${receipt.uploadId}).\n`,
-        );
-
-        if (receipt.omitted.subagents.length || receipt.omitted.commits)
-          input.stdout.write(
-            `Omitted from this upload: ${receipt.omitted.subagents.length} subagent file(s), ${receipt.omitted.commits} commit link(s).\n`,
-          );
-      }
-    }
 
     return 1;
   }

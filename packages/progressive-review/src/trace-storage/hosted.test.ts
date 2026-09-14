@@ -36,7 +36,6 @@ import {
   createMemoryTraceStoreTransport,
   seedMemoryTraceSession,
 } from "../trace-store-transport";
-import { listUploadReceipts } from "../trace-upload-receipts";
 import { allowTraceRepository } from "../trace-user-config";
 import { traceConfigPath } from "./config";
 import { HostedTraceStorage } from "./hosted";
@@ -131,7 +130,7 @@ describe("hosted trace storage", () => {
     writeFileSync(filePath, JSON.stringify(value));
   }
 
-  it("publishes and saves a receipt when a writer cannot read the session", async () => {
+  it("publishes when a writer cannot read the session", async () => {
     const sessionId = "writer-only-session";
     writeFileSync(
       path.join(localTraceRoot, `${sessionId}.jsonl`),
@@ -139,13 +138,11 @@ describe("hosted trace storage", () => {
     );
     const transport = createMemoryTraceStoreTransport();
     const warnings: string[] = [];
-    const scope = "a".repeat(64);
 
     const storage = HostedTraceStorage.fromParts({
       target: target(transport.storeId),
       transport,
       devHome,
-      receiptScope: scope,
       onWarning: (message) => warnings.push(message),
     });
 
@@ -166,15 +163,6 @@ describe("hosted trace storage", () => {
     expect(result.hosted?.complete).toBe(true);
     expect(warnings).toEqual([]);
 
-    const receipts = await listUploadReceipts({
-      scope,
-      target: target(transport.storeId),
-      devHome,
-    });
-
-    expect(receipts).toEqual([
-      expect.objectContaining({ sessionId, uploadId: result.hosted?.uploadId }),
-    ]);
     await expect(
       storage.describeObject(sessionId, "main"),
     ).rejects.toBeInstanceOf(TraceStorageDeniedError);

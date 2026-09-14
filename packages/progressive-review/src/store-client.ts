@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import {
   type BeginUploadRequest,
@@ -98,15 +96,6 @@ export class StoreClient {
     this.token = options.token;
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  }
-
-  /** Local receipts are isolated by the exact login and origin, without saving a token. */
-  receiptScope(): string | null {
-    return this.token
-      ? createHash("sha256")
-          .update(`${this.origin}\n${this.token}`)
-          .digest("hex")
-      : null;
   }
 
   async listOwnUploads(

@@ -32,7 +32,6 @@ import {
   gzipToTemp,
 } from "../trace-store-transport";
 import { clearTraceSyncFailure } from "../trace-sync-status";
-import { saveUploadReceipt } from "../trace-upload-receipts";
 import type {
   HostedStorageTarget,
   TraceCommitAssociation,
@@ -107,7 +106,6 @@ export interface HostedStorageParts {
   devHome?: string;
   offline?: boolean;
   onWarning?: TraceStoreWarning;
-  receiptScope?: string | null;
 }
 
 /** The object name the store uses for one trace of a session. */
@@ -138,7 +136,6 @@ export class HostedTraceStorage implements TraceStorage {
   private readonly transport: TraceStoreTransport;
   private readonly devHome: string;
   private readonly warn: TraceStoreWarning;
-  private readonly receiptScope: string | null;
   /** One listing per session per instance; an instance lives one operation. */
   private readonly lookups = new Map<string, Promise<StoreSessionLookup>>();
 
@@ -149,7 +146,6 @@ export class HostedTraceStorage implements TraceStorage {
     this.offline = parts.offline ?? false;
     this.devHome = parts.devHome ?? devReviewHome();
     this.warn = parts.onWarning ?? defaultWarning;
-    this.receiptScope = parts.receiptScope ?? null;
   }
 
   /** A storage over an already resolved target; tests use a memory transport. */
@@ -201,7 +197,6 @@ export class HostedTraceStorage implements TraceStorage {
 
       return new HostedTraceStorage({
         target,
-        receiptScope: client.receiptScope(),
         transport: input.transport ?? createHttpTraceStoreTransport(client),
         devHome,
         onWarning: input.onWarning,
@@ -564,9 +559,12 @@ export class HostedTraceStorage implements TraceStorage {
           () => undefined,
         );
 
-        return this.recordPublication(
-          input.sessionId,
-          publishResult(compressed, "unchanged", target, completed, omitted),
+        return publishResult(
+          compressed,
+          "unchanged",
+          target,
+          completed,
+          omitted,
         );
       }
 
@@ -605,10 +603,7 @@ export class HostedTraceStorage implements TraceStorage {
         () => undefined,
       );
 
-      return this.recordPublication(
-        input.sessionId,
-        publishResult(compressed, "uploaded", target, completed, omitted),
-      );
+      return publishResult(compressed, "uploaded", target, completed, omitted);
     } finally {
       for (const object of compressed) {
         await object.cleanup();
@@ -622,31 +617,6 @@ export class HostedTraceStorage implements TraceStorage {
   }
 
   // --- helpers -------------------------------------------------------------
-
-  private async recordPublication(
-    sessionId: string,
-    result: TracePublishResult,
-  ): Promise<TracePublishResult> {
-    const hosted = result.hosted;
-
-    if (this.receiptScope && hosted) {
-      await saveUploadReceipt({
-        scope: this.receiptScope,
-        target: this.repositoryTarget,
-        sessionId,
-        uploadId: hosted.uploadId,
-        confirmedAt: new Date().toISOString(),
-        omitted: hosted.omitted,
-        devHome: this.devHome,
-      }).catch(() =>
-        this.warn(
-          "Upload completed, but its local receipt could not be saved.",
-        ),
-      );
-    }
-
-    return result;
-  }
 
   private async requireSession(
     sessionId: string,

@@ -125,8 +125,7 @@ recent hosted uploads. Use `review trace status --session <id>` for one session.
 Repository writers can upload and check their own upload status. Repository
 admins can read transcript content. Download links expire after five minutes.
 Status reports the store's publication record; it does not repeat object integrity checks.
-Previously confirmed offline receipts include their confirmation time and do not
-imply that the upload is still current. Omitted files and failed attempts remain visible.
+If the server is unavailable, status reports "not checked".
 Use
 `review trace enable`, `review trace disable`, or `review trace repair` only
 when you need to manage the current repository manually.

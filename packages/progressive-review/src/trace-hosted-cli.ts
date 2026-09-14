@@ -18,7 +18,7 @@ import { devReviewHome } from "./review-storage";
 import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
-import { HOSTED_CAPTURE_SCOPE_NOTICE } from "./trace-capture-notice";
+import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
@@ -312,7 +312,7 @@ export async function writeHostedTraceStatus(
   },
 ): Promise<void> {
   const stream = input.stdout;
-  stream.write(HOSTED_CAPTURE_SCOPE_NOTICE);
+  stream.write(HOSTED_CAPTURE_SCOPE_DESCRIPTION);
   const devHome = devReviewHome(input.env, input.homeDir);
   const auth = await readStoreAuth(input.env);
   const config = await readTraceUserConfig(devHome);

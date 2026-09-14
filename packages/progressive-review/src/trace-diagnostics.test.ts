@@ -1,19 +1,10 @@
-import {
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, expect, it } from "vitest";
 
-import { collectingWritable } from "./cli-output";
 import { cliRuntimeInfo } from "./cli-runtime-info";
-import { notifySkippedHostedCapture } from "./trace-capture-notice";
 import { traceTargetKey } from "./trace-repository-target";
 import {
   recordTraceSessionProvenance,
@@ -42,43 +33,6 @@ afterEach(async () => {
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
-});
-
-it("deduplicates concurrent notices per origin and repository without writing consent", async () => {
-  const devHome = await temporaryHome();
-  const chunks: string[] = [];
-
-  const output = {
-    stream: collectingWritable(chunks),
-    text: () => chunks.join(""),
-  };
-
-  const input = {
-    origin: "https://app.dev.fast",
-    repository: "acme/repo",
-    devHome,
-    stdout: output.stream,
-  };
-
-  await Promise.all([
-    notifySkippedHostedCapture(input),
-    notifySkippedHostedCapture({ ...input, repository: "Acme/Repo" }),
-  ]);
-  const files = await readdir(path.join(devHome, "trace", "notices"));
-  expect(files).toHaveLength(1);
-  expect(output.text().match(/Hosted trace capture/g)).toHaveLength(1);
-  expect(
-    (await stat(path.join(devHome, "trace", "notices", files[0]!))).mode &
-      0o777,
-  ).toBe(0o600);
-  await expect(
-    readFile(path.join(devHome, "trace", "config.json")),
-  ).rejects.toMatchObject({ code: "ENOENT" });
-  await notifySkippedHostedCapture({
-    ...input,
-    origin: "https://other.example",
-  });
-  expect(await readdir(path.join(devHome, "trace", "notices"))).toHaveLength(2);
 });
 
 it("keeps provenance decisions while distinguishing remediation", async () => {

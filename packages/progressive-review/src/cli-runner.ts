@@ -1345,18 +1345,13 @@ export async function runProgressiveReviewCli(
     trace
       .command("hook <event>", { hidden: true })
       .description("Handle agent session lifecycle hooks")
-      .option("--session <id>", "Agent session ID")
-      .option(
-        "--notify-skipped-capture",
-        "Report skipped capture to the agent",
-      ),
+      .option("--session <id>", "Agent session ID"),
     "plain",
   ).action(
     async (
       event: string,
       options: {
         session?: string;
-        notifySkippedCapture?: boolean;
       },
     ) => {
       state.exitCode = await runtime.runReviewTraceHook({
@@ -1364,8 +1359,6 @@ export async function runProgressiveReviewCli(
         event,
         sessionId: options.session,
         stdin: input.stdin,
-        stdout: input.stdout,
-        notifySkippedCapture: options.notifySkippedCapture,
       });
     },
   );

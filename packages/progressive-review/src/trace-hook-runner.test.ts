@@ -8,7 +8,6 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { collectingWritable } from "./cli-output";
 import { writeStoreAuth } from "./store-auth";
 import { TRACE_SESSION_TTL_MS } from "./trace-agent-sessions";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
@@ -421,65 +420,6 @@ describe("runReviewTraceHook with hosted storage", () => {
         allowed: false,
       }),
     ]);
-  });
-
-  it("notifies only at session start and does not change consent", async () => {
-    const { repo, env, devHome } = await hostedRepo({
-      remote: "git@github.com:acme/other.git",
-      allow: false,
-    });
-
-    const before = await readFile(traceConfigPath({ devHome }), "utf8");
-    const chunks: string[] = [];
-
-    const input = {
-      cwd: repo,
-      sessionId: "session-notice-test",
-      homeDir: repo,
-      env,
-      stdout: collectingWritable(chunks),
-      notifySkippedCapture: true,
-    };
-
-    await runReviewTraceHook({ ...input, event: "UserPromptSubmit" });
-    await runReviewTraceHook({
-      ...input,
-      event: "SessionStart",
-      notifySkippedCapture: false,
-    });
-    expect(chunks).toHaveLength(0);
-    await runReviewTraceHook({ ...input, event: "SessionStart" });
-    expect(chunks).toHaveLength(1);
-    expect(await readFile(traceConfigPath({ devHome }), "utf8")).toBe(before);
-    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
-  });
-
-  it("does not notify when hosted capture is disabled", async () => {
-    const { repo, env, devHome } = await hostedRepo({
-      remote: "git@github.com:acme/disabled.git",
-      allow: false,
-    });
-
-    const config = JSON.stringify({
-      version: 2,
-      "current-store": "hosted",
-      stores: { hosted: { capture: { enabled: false } } },
-    });
-
-    await writeFile(traceConfigPath({ devHome }), config);
-    const chunks: string[] = [];
-    await runReviewTraceHook({
-      cwd: repo,
-      homeDir: repo,
-      env,
-      event: "SessionStart",
-      sessionId: "session-disabled",
-      stdout: collectingWritable(chunks),
-      notifySkippedCapture: true,
-    });
-    expect(chunks).toHaveLength(0);
-    expect(existsSync(path.join(devHome, "trace", "notices"))).toBe(false);
-    expect(await readFile(traceConfigPath({ devHome }), "utf8")).toBe(config);
   });
 
   it("records the allowed target only when the login names the selected store", async () => {

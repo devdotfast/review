@@ -199,7 +199,7 @@ export async function installClaudeTraceHook(
     eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
   ) => ({
     type: "command",
-    command: `${shellCommand(reviewCommand)} trace hook ${eventName}${eventName === "SessionStart" ? " --notify-skipped-capture" : ""}`,
+    command: `${shellCommand(reviewCommand)} trace hook ${eventName}`,
   });
 
   for (const eventName of [
@@ -215,21 +215,9 @@ export async function installClaudeTraceHook(
       const subHooks = entry.hooks;
 
       if (isJsonArray(subHooks)) {
-        return subHooks.some((hook) => {
-          if (!isJsonObject(hook) || !isReviewTraceHookCommand(hook.command))
-            return false;
-          const command = jsonString(hook.command);
-
-          if (
-            eventName === "SessionStart" &&
-            command?.endsWith(" trace hook SessionStart")
-          ) {
-            hook.command = `${command} --notify-skipped-capture`;
-            modified = true;
-          }
-
-          return true;
-        });
+        return subHooks.some(
+          (h) => isJsonObject(h) && isReviewTraceHookCommand(h.command),
+        );
       }
 
       return false;
@@ -485,9 +473,7 @@ function isReviewTraceHookCommand(command: JsonValue | undefined): boolean {
   if (text === undefined) return false;
 
   const match =
-    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)(?: --notify-skipped-capture)?$/.exec(
-      text,
-    );
+    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(text);
 
   if (!match) return false;
 

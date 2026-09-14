@@ -13,7 +13,7 @@ import { devReviewHome } from "./review-storage";
 import { readStoreAuth } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
-import { HOSTED_CAPTURE_SCOPE_NOTICE } from "./trace-capture-notice";
+import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
 import {
   readLegacyCaptureSettings,
   traceMachineStatus,
@@ -260,7 +260,7 @@ async function useHosted(
       );
     }
 
-    human.write(HOSTED_CAPTURE_SCOPE_NOTICE);
+    human.write(HOSTED_CAPTURE_SCOPE_DESCRIPTION);
 
     emitJsonEvent(input, {
       event: stage,

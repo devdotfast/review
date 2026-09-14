@@ -275,11 +275,6 @@ an older app from using its saved S3 destination.
 delegation, and available build identity. Add `--json` for structured output.
 Use `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
 
-After installing the updated Claude Code hook with `review install claude`,
-an unallowed repository produces one informational notice per hosted origin.
-The notice does not enable capture. Other agent adapters retain their current
-behavior; use `review trace status` to inspect capture there.
-
 Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture
 settings, or consent. `review trace status` names the effective store, the

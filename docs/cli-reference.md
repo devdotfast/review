@@ -274,8 +274,6 @@ an older app from using its saved S3 destination.
 `review version --verbose` reports the requested and effective CLI paths,
 delegation, and available build identity. Add `--json` for structured output.
 Use `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
-`review trace failures clear <session-id>` dismisses one local sync failure.
-It does not delete a transcript or change publication consent.
 
 After installing the updated Claude Code hook with `review install claude`,
 an unallowed repository produces one informational notice per hosted origin.

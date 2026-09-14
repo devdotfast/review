@@ -104,7 +104,6 @@ import {
   runReviewTraceConfigMigrate,
   runReviewTraceStorageUse,
 } from "./trace-storage-cli";
-import { clearTraceSyncFailure } from "./trace-sync-status";
 
 interface ProgressiveReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
@@ -975,20 +974,6 @@ export async function runProgressiveReviewCli(
       stdout: input.stdout,
       stderr: input.stderr,
     });
-  });
-
-  // Dismissal removes only one local diagnostic record.
-  configureOutput(
-    trace
-      .command("failures")
-      .description("Manage local sync failure records")
-      .command("clear <session-id>")
-      .description("Dismiss one local sync failure"),
-    "plain",
-  ).action(async (sessionId: string) => {
-    await clearTraceSyncFailure(sessionId);
-    input.stdout.write(`Dismissed local sync failure for ${sessionId}.\n`);
-    state.exitCode = 0;
   });
 
   // Storage selection and configuration migration write only the shared

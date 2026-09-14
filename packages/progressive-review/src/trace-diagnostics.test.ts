@@ -20,7 +20,6 @@ import {
   requireTraceSessionProvenance,
 } from "./trace-session-provenance";
 import {
-  clearTraceSyncFailure,
   describeTraceSyncFailure,
   listTraceSyncFailures,
   recordTraceSyncFailure,
@@ -125,7 +124,7 @@ it("keeps provenance decisions while distinguishing remediation", async () => {
   ).rejects.toMatchObject({ reason: "provenance_mixed" });
 });
 
-it("reads legacy failures without promising retry and clears only the requested record", async () => {
+it("reads legacy failures without promising retry", async () => {
   const devHome = await temporaryHome();
   await recordTraceSyncFailure({
     sessionId: "session-network",
@@ -162,15 +161,6 @@ it("reads legacy failures without promising retry and clears only the requested 
       failure.session === "session-network",
     );
   }
-
-  await clearTraceSyncFailure("session-unapproved", devHome);
-  await clearTraceSyncFailure("session-unapproved", devHome);
-  expect(
-    (await listTraceSyncFailures(devHome)).map((failure) => failure.session),
-  ).toEqual(["session-legacy", "session-network"]);
-  await expect(clearTraceSyncFailure("../escape", devHome)).rejects.toThrow(
-    /Invalid/,
-  );
 });
 
 it("reads build identity from the effective executable and reports unknown old builds", async () => {

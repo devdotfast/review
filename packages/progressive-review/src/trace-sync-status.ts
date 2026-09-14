@@ -90,7 +90,7 @@ export async function clearTraceSyncFailure(
   sessionId: string,
   devHome?: string,
 ): Promise<void> {
-  sessionIdSchema.parse(sessionId);
+  if (!sessionIdSchema.safeParse(sessionId).success) return;
   await rm(statusPath(sessionId, devHome ?? devReviewHome()), { force: true });
 }
 
@@ -100,7 +100,7 @@ export function describeTraceSyncFailure(failure: TraceSyncFailure): string {
       ? ` Retry with \`${failure.retry}\`.`
       : "";
 
-  return `Failed background sync: session ${failure.session}${failure.repository ? ` of ${failure.repository}` : ""} at ${failure.at}: ${failure.error}${retry} Dismiss with \`review trace failures clear ${failure.session}\`.\n`;
+  return `Failed background sync: session ${failure.session}${failure.repository ? ` of ${failure.repository}` : ""} at ${failure.at}: ${failure.error}${retry}\n`;
 }
 
 export async function listTraceSyncFailures(

@@ -7,6 +7,8 @@ export const DEVICE_TOKEN_PATH = "/api/auth/device/token" as const;
 export const SESSION_PATH = "/api/auth/get-session" as const;
 
 export const storeRoutes = {
+  ownUploads: (repositoryId: number) =>
+    `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}/uploads`,
   stores: () => `${TRACE_STORE_API_PREFIX}/stores`,
   store: (repositoryId: number) =>
     `${TRACE_STORE_API_PREFIX}/stores/${repositoryId}`,
@@ -20,6 +22,7 @@ export const storeRoutes = {
 
 // The server applies these patterns after it removes TRACE_STORE_API_PREFIX.
 export const storeRoutePatterns = {
+  ownUploads: /^\/stores\/(\d+)\/uploads$/,
   stores: /^\/stores$/,
   store: /^\/stores\/(\d+)$/,
   sessions: /^\/stores\/(\d+)\/sessions$/,

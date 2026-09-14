@@ -32,6 +32,7 @@ import {
   traceCaptureIdentity,
 } from "../trace-session-provenance";
 import {
+  TraceObjectHttpError,
   createMemoryTraceStoreTransport,
   seedMemoryTraceSession,
 } from "../trace-store-transport";
@@ -128,6 +129,128 @@ describe("hosted trace storage", () => {
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, JSON.stringify(value));
   }
+
+  it("publishes when a writer cannot read the session", async () => {
+    const sessionId = "writer-only-session";
+    writeFileSync(
+      path.join(localTraceRoot, `${sessionId}.jsonl`),
+      `${sessionRecord(sessionId, "writer content")}\n`,
+    );
+    const transport = createMemoryTraceStoreTransport();
+    const warnings: string[] = [];
+
+    const storage = HostedTraceStorage.fromParts({
+      target: target(transport.storeId),
+      transport,
+      devHome,
+      onWarning: (message) => warnings.push(message),
+    });
+
+    transport.listSessions = async () => {
+      throw new StoreApiError("forbidden", 403, "Admin required");
+    };
+
+    await allowTraceRepository(
+      { repositoryId: REPOSITORY_ID, name: "acme/app", origin: ORIGIN },
+      devHome,
+    );
+    await recordTraceSessionProvenance({
+      sessionId,
+      ...traceCaptureIdentity({ target: target(transport.storeId) }),
+      devHome,
+    });
+    const result = await syncReviewTrace({ sessionId, cwd: repoDir, storage });
+    expect(result.hosted?.complete).toBe(true);
+    expect(warnings).toEqual([]);
+
+    await expect(
+      storage.describeObject(sessionId, "main"),
+    ).rejects.toBeInstanceOf(TraceStorageDeniedError);
+    expect(warnings).toHaveLength(1);
+  });
+
+  it.each(["expires", "object403", "revoked", "changed", "twice403"])(
+    "refreshes download authorization safely: %s",
+    async (scenario) => {
+      const sessionId = "refresh-links-session";
+      const transport = createMemoryTraceStoreTransport();
+      seedMemoryTraceSession(transport, {
+        repositoryId: REPOSITORY_ID,
+        sessionId,
+        traces: {
+          "main.jsonl.gz": sessionRecord(sessionId, "private content"),
+        },
+      });
+      const originalList = transport.listSessions.bind(transport);
+      const originalGet = transport.getObject.bind(transport);
+      let lists = 0;
+      let gets = 0;
+      transport.listSessions = async (...args) => {
+        lists++;
+
+        if (lists === 2 && scenario === "revoked")
+          throw new StoreApiError("forbidden", 403, "Admin removed");
+        const page = await originalList(...args);
+
+        for (const session of page.sessions) {
+          if (lists === 2 && scenario === "changed")
+            session.uploadId = "b".repeat(32);
+
+          for (const object of session.objects)
+            object.expiresAt = new Date(
+              Date.now() +
+                (lists === 1 && scenario === "expires" ? 1000 : 300_000),
+            ).toISOString();
+        }
+
+        return page;
+      };
+
+      transport.getObject = async (...args) => {
+        gets++;
+
+        if (scenario !== "expires" && (gets === 1 || scenario === "twice403"))
+          throw new TraceObjectHttpError(403, "Expired or denied");
+
+        return originalGet(...args);
+      };
+
+      const storage = HostedTraceStorage.fromParts({
+        target: target(transport.storeId),
+        transport,
+        devHome,
+        onWarning: () => undefined,
+      });
+
+      const destination = path.join(tempDir, "download.jsonl");
+
+      const error = await storage
+        .downloadObject(sessionId, "main", destination)
+        .then(
+          () => null,
+          (cause: unknown) => cause,
+        );
+
+      const denied = ["revoked", "changed", "twice403"].includes(scenario);
+      expect(error instanceof TraceStorageDeniedError).toBe(denied);
+      expect(error === null).toBe(!denied);
+      expect(existsSync(destination)).toBe(!denied);
+
+      const content = existsSync(destination)
+        ? readFileSync(destination, "utf8")
+        : "";
+
+      expect(content.includes("private content")).toBe(!denied);
+      expect(lists).toBe(2);
+      expect(gets).toBe(
+        scenario === "expires" ||
+          scenario === "revoked" ||
+          scenario === "changed"
+          ? 1
+          : 2,
+      );
+    },
+  );
 
   it("refuses to publish without consent or provenance, then publishes", async () => {
     const sessionId = "hosted-session-0001";

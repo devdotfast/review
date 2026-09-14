@@ -41,6 +41,16 @@ import {
 
 import { StoreApiError, type StoreClient } from "./store-client";
 
+/** An object response failed. Its URL is deliberately not retained. */
+export class TraceObjectHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 /** One presigned upload from `beginUpload`. */
 export type TraceStoreUpload = PresignedUpload;
 
@@ -238,7 +248,10 @@ export function createHttpTraceStoreTransport(
       const response = await fetchImpl(object.url, { method: "GET", signal });
 
       if (!response.ok) {
-        throw new Error(await storageErrorMessage(response, "read the object"));
+        throw new TraceObjectHttpError(
+          response.status,
+          await storageErrorMessage(response, "read the object"),
+        );
       }
 
       const contentLength = response.headers.get("content-length");

@@ -995,15 +995,23 @@ export async function runProgressiveReviewCli(
   configureOutput(
     trace
       .command("status")
-      .description("Verify S3/R2 trace storage configuration and connectivity"),
+      .description("Check trace storage and your hosted uploads")
+      .option("--session <id>", "Check uploads of one session")
+      .option("--cursor <cursor>", "Continue an upload status page")
+      .option("--limit <count>", "Uploads per page", Number),
     "plain",
-  ).action(async () => {
-    state.exitCode = await runtime.runReviewTraceStatus({
-      cwd,
-      stdout: input.stdout,
-      stderr: input.stderr,
-    });
-  });
+  ).action(
+    async (options: { session?: string; cursor?: string; limit?: number }) => {
+      state.exitCode = await runtime.runReviewTraceStatus({
+        cwd,
+        session: options.session,
+        cursor: options.cursor,
+        limit: options.limit,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   // Storage selection and configuration migration write only the shared
   // trace config; legacy files and remote objects are never touched.

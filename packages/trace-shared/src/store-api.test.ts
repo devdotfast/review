@@ -12,6 +12,8 @@ import {
   createStoreRequestSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
+  listUploadsQuerySchema,
+  listUploadsResponseSchema,
   sessionDownloadSchema,
   storeResponseSchema,
   traceObjectKey,
@@ -24,6 +26,17 @@ const id = "0123456789abcdef0123456789abcdef";
 const sha = "a".repeat(64);
 
 describe("store-api contracts", () => {
+  it("rejects caller-selected upload owners and invalid status filters", () => {
+    expect(listUploadsQuerySchema.safeParse({ owner: 7 }).success).toBe(false);
+    expect(listUploadsQuerySchema.safeParse({ limit: 0 }).success).toBe(false);
+    expect(
+      listUploadsQuerySchema.parse({ session: "my-session", limit: "2" }),
+    ).toEqual({ session: "my-session", limit: 2 });
+    expect(
+      listUploadsResponseSchema.parse({ storeId: id, uploads: [] }),
+    ).toEqual({ storeId: id, uploads: [] });
+  });
+
   it("fixes the versioned prefix", () => {
     expect(TRACE_STORE_API_PREFIX).toBe("/api/trace/v1");
   });

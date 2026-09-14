@@ -68,6 +68,9 @@ export { runReviewTraceGitHook, runReviewTraceHook };
 
 export async function runReviewTraceStatus(input: {
   cwd: string;
+  session?: string;
+  cursor?: string;
+  limit?: number;
   stdout: Writable;
   stderr: Writable;
 }): Promise<number> {
@@ -94,13 +97,24 @@ export async function runReviewTraceStatus(input: {
   }
 
   if (selection.mode === "hosted") {
-    await writeHostedTraceStatus({
+    return writeHostedTraceStatus({
       cwd: input.cwd,
       origin: selection.hosted?.origin ?? "",
       stdout: input.stdout,
+      session: input.session,
+      cursor: input.cursor,
+      limit: input.limit,
     });
+  }
 
-    return 0;
+  if (
+    input.session !== undefined ||
+    input.cursor !== undefined ||
+    input.limit !== undefined
+  ) {
+    input.stderr.write("Upload status filters require hosted storage.\n");
+
+    return 1;
   }
 
   const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });

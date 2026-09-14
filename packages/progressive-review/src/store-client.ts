@@ -10,6 +10,8 @@ import {
   type DeleteStoreResponse,
   type ListSessionsQuery,
   type ListSessionsResponse,
+  type ListUploadsQuery,
+  type ListUploadsResponse,
   SESSION_PATH,
   type StoreErrorCode,
   type StoreResponse,
@@ -18,6 +20,7 @@ import {
   completeUploadResponseSchema,
   deleteStoreResponseSchema,
   listSessionsResponseSchema,
+  listUploadsResponseSchema,
   storeErrorCodeSchema,
   storeErrorEnvelopeSchema,
   storeResponseSchema,
@@ -93,6 +96,25 @@ export class StoreClient {
     this.token = options.token;
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
+
+  async listOwnUploads(
+    repositoryId: number,
+    query: ListUploadsQuery = {},
+  ): Promise<ListUploadsResponse> {
+    const params = new URLSearchParams();
+
+    if (query.session !== undefined) params.set("session", query.session);
+
+    if (query.cursor !== undefined) params.set("cursor", query.cursor);
+
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+    return this.get(
+      storeRoutes.ownUploads(repositoryId),
+      listUploadsResponseSchema,
+      params,
+    );
   }
 
   async deviceCode(): Promise<DeviceCodeResponse> {

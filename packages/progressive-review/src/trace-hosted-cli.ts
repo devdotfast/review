@@ -25,7 +25,7 @@ import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
 import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
-import { inferRepoFromGit, traceRepoName } from "./trace-repo";
+import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
 import { hostedOrigin, readTraceConfigFile } from "./trace-storage/config";
@@ -36,6 +36,7 @@ import {
   describeTraceSyncFailure,
   listTraceSyncFailures,
 } from "./trace-sync-status";
+import { writeOwnUploadStatus } from "./trace-upload-status";
 import {
   allowTraceRepository,
   denyTraceRepository,
@@ -569,8 +570,11 @@ export async function writeHostedTraceStatus(
     origin: string;
     stdout: Writable;
     client?: StoreClient;
+    session?: string;
+    cursor?: string;
+    limit?: number;
   },
-): Promise<void> {
+): Promise<number> {
   const stream = input.stdout;
   stream.write(HOSTED_CAPTURE_SCOPE_DESCRIPTION);
   const devHome = devReviewHome(input.env, input.homeDir);
@@ -596,17 +600,18 @@ export async function writeHostedTraceStatus(
     }
   }
 
-  let name: string | null = null;
+  let repo: TraceRepo | null = null;
 
   try {
-    name = traceRepoName(await inferRepoFromGit(input.cwd));
+    repo = await inferRepoFromGit(input.cwd);
   } catch {
-    name = null;
+    repo = null;
   }
 
-  if (name === null) {
+  if (repo === null) {
     stream.write("This directory has no GitHub remote to check.\n");
   } else {
+    const name = traceRepoName(repo);
     const entry = findTraceRepository(config, name);
 
     if (!entry) {
@@ -621,34 +626,30 @@ export async function writeHostedTraceStatus(
       stream.write(
         `This repository (${name}) is allowed to publish traces to ${input.origin}.\n`,
       );
-
-      const client =
-        input.client ??
-        (auth && auth.origin === input.origin
-          ? new StoreClient({ origin: auth.origin, token: auth.token })
-          : null);
-
-      if (client) {
-        const [owner = "", repo = ""] = name.split("/");
-
-        const store = await client
-          .findStore({ owner, name: repo })
-          .catch(() => null);
-
-        if (store?.bytesStored !== undefined) {
-          stream.write(`Stored bytes: ${store.bytesStored}\n`);
-        }
-      }
     }
   }
 
   for (const sessionId of await pendingTraceSessions(input.cwd)) {
+    if (input.session !== undefined && input.session !== sessionId) continue;
     stream.write(`Pending agent session: ${sessionId}\n`);
   }
 
   for (const failure of await listTraceSyncFailures(devHome)) {
-    stream.write(describeTraceSyncFailure(failure));
+    if (input.session === undefined || input.session === failure.session)
+      stream.write(describeTraceSyncFailure(failure));
   }
+
+  if (repo === null) return 1;
+
+  return writeOwnUploadStatus({
+    ...input,
+    repo,
+    client:
+      input.client ??
+      (auth && auth.origin === input.origin
+        ? new StoreClient({ origin: auth.origin, token: auth.token })
+        : null),
+  });
 }
 
 /** The agent sessions still marked active in this checkout. */

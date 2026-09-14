@@ -29,8 +29,9 @@ export BUILD_SOURCEVERSION="${BUILD_SOURCEVERSION:-$(git -C "$MONOREPO_ROOT" rev
 
 npm --prefix "$CHECKOUT" run gulp -- vscode-linux-x64
 
-if [[ ! -x "$PACKAGED_ROOT/review" ]]; then
-  echo "Review Desktop packaging did not create $PACKAGED_ROOT/review" >&2
+APPLICATION_NAME="$(node -p 'require(process.argv[1]).applicationName' "$PACKAGED_ROOT/resources/app/product.json")"
+if [[ ! -x "$PACKAGED_ROOT/$APPLICATION_NAME" ]]; then
+  echo "Review Desktop packaging did not create $PACKAGED_ROOT/$APPLICATION_NAME" >&2
   exit 1
 fi
 node "$APP_DIR/scripts/copy-canvas.mjs" --packaged-root "$PACKAGED_ROOT"

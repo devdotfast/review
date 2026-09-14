@@ -115,8 +115,12 @@ export async function smokeLaunch({
   app = DEFAULT_APP,
   timeoutMs = 90_000,
 } = {}) {
+  const applicationName = process.platform === "linux"
+    ? JSON.parse(await readFile(path.join(app, "resources", "app", "product.json"), "utf8")).applicationName
+    : undefined;
+
   const binary = process.platform === "linux"
-    ? path.join(app, "review")
+    ? path.join(app, applicationName)
     : path.join(app, "Contents", "MacOS", PRODUCT_NAME);
 
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), "review-smoke-"));

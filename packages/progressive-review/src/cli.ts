@@ -12,8 +12,6 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
-import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
-
 // A standalone build (npx/global install) defers to the CLI bundled with a
 // running Review Desktop so the CLI can never skew from the server it talks
 // to. Checkout runs execute src/cli.ts via tsx and therefore never delegate.
@@ -23,23 +21,25 @@ const argv = process.argv.slice(2);
 
 const ownCliPath = fileURLToPath(import.meta.url);
 
-const delegatedExitCode = maybeDelegateToDesktopCli(argv);
+const delegatedExitCode = await maybeDelegateToDesktopCli(argv);
 
-if (delegatedExitCode !== null) {
-  process.exitCode = delegatedExitCode;
-} else if (printRuntimeDiagnostics(argv, ownCliPath)) {
-  process.exitCode = 0;
-} else if (!supportedNodeRuntime()) {
-  process.stderr.write(
-    `Review needs Node.js 24 or newer; found ${process.versions.node}. ` +
-      "Update Node, or use the review command installed by Review Desktop.\n",
-  );
-  process.exitCode = 1;
-} else {
+process.exitCode = delegatedExitCode ?? (await runCli(ownCliPath));
+
+async function runCli(effectivePath: string): Promise<number> {
+  if (!supportedNodeRuntime()) {
+    process.stderr.write(
+      `Review needs Node.js 24 or newer; found ${process.versions.node}. ` +
+        "Update Node, or use the review command installed by Review Desktop.\n",
+    );
+
+    return 1;
+  }
+
   const { runProgressiveReviewCli } = await import("./cli-runner.js");
 
-  process.exitCode = await runProgressiveReviewCli({
-    argv: process.argv.slice(2),
+  return runProgressiveReviewCli({
+    argv,
+    cliPaths: { requestedPath: ownCliPath, effectivePath },
     stdin: process.stdin,
     stdout: process.stdout,
     stderr: process.stderr,
@@ -56,7 +56,9 @@ function supportedNodeRuntime(): boolean {
   return Number(process.versions.node.split(".")[0]) >= 24;
 }
 
-function maybeDelegateToDesktopCli(argv: string[]): number | null {
+async function maybeDelegateToDesktopCli(
+  argv: string[],
+): Promise<number | null> {
   const env = process.env;
 
   if (env.DEV_FAST_REVIEW_CLI_NO_DELEGATE || env.DEV_FAST_REVIEW_CLI_DELEGATED)
@@ -122,7 +124,13 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
     DEV_FAST_REVIEW_CLI_DELEGATED: "1",
   };
 
-  if (printRuntimeDiagnostics(argv, cliPath)) return 0;
+  // The current parser owns verbose diagnostics, including usage errors and
+  // help, even when the selected Desktop CLI predates this option.
+  const command = argv.filter((argument) => argument !== "--json");
+
+  if (command[0] === "version" && command.includes("--verbose")) {
+    return runCli(cliPath);
+  }
 
   if (runtimePath) childEnv.ELECTRON_RUN_AS_NODE = "1";
 
@@ -139,23 +147,4 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
   }
 
   return result.status ?? 1;
-}
-
-function printRuntimeDiagnostics(
-  argv: string[],
-  effectivePath: string,
-): boolean {
-  const args = argv.filter((argument) => argument !== "--json");
-  const verbose = args[0] === "version" && args.includes("--verbose");
-
-  if (!verbose) return false;
-  const info = cliRuntimeInfo(ownCliPath, effectivePath);
-
-  process.stdout.write(
-    argv.includes("--json")
-      ? `${JSON.stringify(info)}\n`
-      : describeCliRuntime(info),
-  );
-
-  return true;
 }

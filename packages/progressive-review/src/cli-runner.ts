@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
 import {
@@ -16,6 +17,7 @@ import {
   humanStream,
   jsonRequestedInArgv,
 } from "./cli-output";
+import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import {
   type CodexWaitProcessInput,
   requireCodexThreadId,
@@ -158,6 +160,7 @@ interface ProgressiveReviewCliRuntime {
 export interface ProgressiveReviewCliInput {
   argv: string[];
   cliVersion?: string;
+  cliPaths?: { requestedPath: string; effectivePath: string };
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   stdin?: CliInputStream;
@@ -311,13 +314,29 @@ export async function runProgressiveReviewCli(
   configureJsonOutput(
     program
       .command("version")
-      .description(
-        "Print Review package version; use --verbose for CLI paths and build identity",
-      ),
+      .description("Print Review package version")
+      .option("--verbose", "Show executing CLI paths and build identity"),
     "plain",
-  ).action((options: { json?: boolean }) => {
+  ).action((options: { verbose?: boolean }, command: Command) => {
+    const { json } = command.optsWithGlobals<{ json?: boolean }>();
+
+    if (options.verbose) {
+      const info = cliRuntimeInfo(
+        input.cliPaths?.requestedPath ??
+          path.resolve(process.argv[1] ?? fileURLToPath(import.meta.url)),
+        input.cliPaths?.effectivePath,
+      );
+
+      input.stdout.write(
+        json ? `${JSON.stringify(info)}\n` : describeCliRuntime(info),
+      );
+      state.exitCode = 0;
+
+      return;
+    }
+
     input.stdout.write(
-      options.json
+      json
         ? `${JSON.stringify({ event: "version", version: cliVersion })}\n`
         : `${cliVersion}\n`,
     );

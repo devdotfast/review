@@ -12,15 +12,23 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
+
 // A standalone build (npx/global install) defers to the CLI bundled with a
 // running Review Desktop so the CLI can never skew from the server it talks
 // to. Checkout runs execute src/cli.ts via tsx and therefore never delegate.
 // Delegation runs before the Node floor check on purpose: the app's
 // Electron-as-Node runtime can rescue a machine whose system Node is too old.
-const delegatedExitCode = maybeDelegateToDesktopCli(process.argv.slice(2));
+const argv = process.argv.slice(2);
+
+const ownCliPath = fileURLToPath(import.meta.url);
+
+const delegatedExitCode = maybeDelegateToDesktopCli(argv);
 
 if (delegatedExitCode !== null) {
   process.exitCode = delegatedExitCode;
+} else if (printRuntimeDiagnostics(argv, ownCliPath)) {
+  process.exitCode = 0;
 } else if (!supportedNodeRuntime()) {
   process.stderr.write(
     `Review needs Node.js 24 or newer; found ${process.versions.node}. ` +
@@ -114,6 +122,13 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
     DEV_FAST_REVIEW_CLI_DELEGATED: "1",
   };
 
+  if (printRuntimeDiagnostics(argv, cliPath)) return 0;
+  const command = argv.filter((argument) => argument !== "--json");
+
+  if (command[0] === "trace" && command[1] === "status") {
+    childEnv.DEV_FAST_REVIEW_CLI_DIAGNOSTICS_PRINTED = "1";
+  }
+
   if (runtimePath) childEnv.ELECTRON_RUN_AS_NODE = "1";
 
   const result = spawnSync(
@@ -129,4 +144,32 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
   }
 
   return result.status ?? 1;
+}
+
+function printRuntimeDiagnostics(
+  argv: string[],
+  effectivePath: string,
+): boolean {
+  const args = argv.filter((argument) => argument !== "--json");
+  const verbose = args[0] === "version" && args.includes("--verbose");
+  const status = args[0] === "trace" && args[1] === "status";
+
+  if (!verbose && !status) return false;
+  const info = cliRuntimeInfo(ownCliPath, effectivePath);
+
+  if (verbose) {
+    process.stdout.write(
+      argv.includes("--json")
+        ? `${JSON.stringify(info)}\n`
+        : describeCliRuntime(info),
+    );
+
+    return true;
+  }
+
+  if (!process.env.DEV_FAST_REVIEW_CLI_DIAGNOSTICS_PRINTED) {
+    process.stderr.write(describeCliRuntime(info));
+  }
+
+  return false;
 }

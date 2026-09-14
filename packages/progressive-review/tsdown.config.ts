@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +8,22 @@ import { defineConfig } from "tsdown";
 const packageRoot = dirname(fileURLToPath(import.meta.url));
 
 const cliPath = resolve(packageRoot, "dist", "cli.js");
+
+function gitOutput(args: string[]): string | null {
+  try {
+    return execFileSync("git", args, {
+      cwd: packageRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+const buildCommit = gitOutput(["rev-parse", "HEAD"]);
+
+const buildChanges = gitOutput(["status", "--porcelain"]);
 
 const desktopHostPath = resolve(
   packageRoot,
@@ -47,6 +64,19 @@ export default defineConfig({
     neverBundle: ["typescript"],
   },
   async onSuccess() {
+    const pkg = JSON.parse(
+      await readFile(resolve(packageRoot, "package.json"), "utf8"),
+    );
+
+    await writeFile(
+      resolve(packageRoot, "dist", "build-info.json"),
+      JSON.stringify({
+        version: pkg.version,
+        commit: buildCommit,
+        dirty: buildChanges === null ? null : buildChanges.length > 0,
+        builtAt: new Date().toISOString(),
+      }) + "\n",
+    );
     await Promise.all(
       [cliPath, desktopHostPath].map(async (executablePath) => {
         await normalizeExecutable(executablePath);

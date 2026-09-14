@@ -39,7 +39,7 @@ describe("agent-trace-hooks", () => {
 
     const content = JSON.parse(await readFile(first.path, "utf8"));
     expect(content.hooks.SessionStart[0].hooks[0].command).toBe(
-      "review trace hook SessionStart",
+      "review trace hook SessionStart --notify-skipped-capture",
     );
     expect(content.hooks.UserPromptSubmit[0].hooks[0].command).toBe(
       "review trace hook UserPromptSubmit",
@@ -84,6 +84,28 @@ describe("agent-trace-hooks", () => {
 
     const second = await installCodexTraceHook(homeDir);
     expect(second.modified).toBe(false);
+  });
+
+  it("upgrades only the managed Claude start hook and preserves custom hooks", async () => {
+    const homeDir = await makeTempHome();
+    const installed = await installClaudeTraceHook(homeDir);
+    const content = JSON.parse(await readFile(installed.path, "utf8"));
+    content.hooks.SessionStart[0].hooks[0].command =
+      "review trace hook SessionStart";
+    content.hooks.SessionStart.push({
+      hooks: [{ type: "command", command: "echo custom" }],
+    });
+    await writeFile(installed.path, JSON.stringify(content));
+    expect((await installClaudeTraceHook(homeDir)).modified).toBe(true);
+    expect((await installClaudeTraceHook(homeDir)).modified).toBe(false);
+    const updated = JSON.parse(await readFile(installed.path, "utf8"));
+    expect(updated.hooks.SessionStart).toHaveLength(2);
+    expect(updated.hooks.SessionStart[1]).toEqual(
+      content.hooks.SessionStart[1],
+    );
+    expect(await removeAgentTraceHook("claude", homeDir)).toBe(true);
+    const removed = JSON.parse(await readFile(installed.path, "utf8"));
+    expect(removed.hooks.SessionStart).toEqual([content.hooks.SessionStart[1]]);
   });
 
   it("adds the Codex heartbeat to an existing lifecycle-only setup", async () => {

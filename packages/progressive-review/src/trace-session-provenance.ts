@@ -149,10 +149,23 @@ export async function readTraceSessionProvenance(
   return records;
 }
 
-/**
- * Throws unless the hooks saw this session in exactly one place, and that
- * place is the allowed target.
- */
+/** Reasons a session cannot currently publish to its target. */
+export type TraceProvenanceReason =
+  | "provenance_missing"
+  | "provenance_unapproved"
+  | "provenance_mixed";
+
+export class TraceProvenanceError extends Error {
+  constructor(
+    readonly reason: TraceProvenanceReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = "TraceProvenanceError";
+  }
+}
+
+/** Require an allowed record and no records from another repository or origin. */
 export async function requireTraceSessionProvenance(
   sessionId: string,
   target: TraceRepositoryTarget,
@@ -161,7 +174,8 @@ export async function requireTraceSessionProvenance(
   const records = await readTraceSessionProvenance(sessionId, devHome);
 
   if (records.length === 0) {
-    throw new Error(
+    throw new TraceProvenanceError(
+      "provenance_missing",
       `Review did not capture this session in ${target.name}. Start a new agent session there after \`review trace allow .\`; a commit trailer does not authorize publication.`,
     );
   }
@@ -178,8 +192,15 @@ export async function requireTraceSessionProvenance(
     );
 
   if (!matches) {
-    throw new Error(
-      `This session also ran in a repository that is not allowed for ${target.name}, so Review does not publish it automatically.`,
+    const mixed = records.some(
+      (record) => record.identity !== expected && record.identity !== samePlace,
+    );
+
+    throw new TraceProvenanceError(
+      mixed ? "provenance_mixed" : "provenance_unapproved",
+      mixed
+        ? `This session also ran in a repository or destination outside ${target.name}. Start a new session in the allowed repository.`
+        : `No hook recorded allowed capture for this session in ${target.name}. If publication is authorized, allow the repository and wait for the next hook before syncing, or start a new session.`,
     );
   }
 }

@@ -13,6 +13,7 @@ import { devReviewHome } from "./review-storage";
 import { readStoreAuth } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
+import { HOSTED_CAPTURE_SCOPE_NOTICE } from "./trace-capture-notice";
 import {
   readLegacyCaptureSettings,
   traceMachineStatus,
@@ -259,6 +260,8 @@ async function useHosted(
       );
     }
 
+    human.write(HOSTED_CAPTURE_SCOPE_NOTICE);
+
     emitJsonEvent(input, {
       event: stage,
       mode: "hosted",
@@ -268,6 +271,10 @@ async function useHosted(
       storeId: target.storeId,
       name: target.name,
       allowedAt: consent.allowedAt,
+      allowedRepositories: config.repositories
+        .filter((entry) => entry.enabledOrigins.includes(origin))
+        .map((entry) => entry.name),
+      captureScopeNotice: HOSTED_CAPTURE_SCOPE_NOTICE.trim(),
     });
 
     return 0;
@@ -376,6 +383,9 @@ export async function runReviewTraceConfigMigrate(
     );
     human.write(
       `  Capture: ${candidate.capture?.enabled ? "enabled" : "disabled"} (from ${settingsPath})\n`,
+    );
+    human.write(
+      "  S3 auto-activation applies only to the bucket. Migration does not grant hosted publication consent.\n",
     );
     human.write(
       `  Destination: ${candidate.endpoint} bucket "${candidate.bucket}" region ${candidate.region ?? S3_DEFAULT_REGION}, key ${candidate.accessKeyId.slice(0, 6)}…\n`,

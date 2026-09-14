@@ -47,6 +47,7 @@ describe("trace-cli", () => {
     mkdirSync(mockR2Dir, { recursive: true });
     mkdirSync(localTraceRoot, { recursive: true });
     process.env.TRACE_ENV_FILE = envFile;
+    vi.stubEnv("DEV_REVIEW_HOME", path.join(tempDir, ".dev"));
     process.env.TRACE_SETTINGS_FILE = path.join(tempDir, "settings.json");
     process.env.TRACE_R2_MODE = "mock";
     process.env.TRACE_R2_MOCK_DIR = mockR2Dir;
@@ -62,6 +63,7 @@ describe("trace-cli", () => {
     delete process.env.TRACE_LOCAL_TRACE_ROOT;
     clearTraceEnvCache();
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     rmSync(tempDir, { recursive: true, force: true });
   });
 

@@ -18,11 +18,15 @@ import { devReviewHome } from "./review-storage";
 import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
+import { HOSTED_CAPTURE_SCOPE_NOTICE } from "./trace-capture-notice";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
 import { hostedOrigin, readTraceConfigFile } from "./trace-storage/config";
-import { listTraceSyncFailures } from "./trace-sync-status";
+import {
+  describeTraceSyncFailure,
+  listTraceSyncFailures,
+} from "./trace-sync-status";
 import {
   allowTraceRepository,
   denyTraceRepository,
@@ -308,6 +312,7 @@ export async function writeHostedTraceStatus(
   },
 ): Promise<void> {
   const stream = input.stdout;
+  stream.write(HOSTED_CAPTURE_SCOPE_NOTICE);
   const devHome = devReviewHome(input.env, input.homeDir);
   const auth = await readStoreAuth(input.env);
   const config = await readTraceUserConfig(devHome);
@@ -382,11 +387,7 @@ export async function writeHostedTraceStatus(
   }
 
   for (const failure of await listTraceSyncFailures(devHome)) {
-    stream.write(
-      `Failed background sync: session ${failure.session}${
-        failure.repository ? ` of ${failure.repository}` : ""
-      } at ${failure.at}: ${failure.error} Retry with \`${failure.retry}\`.\n`,
-    );
+    stream.write(describeTraceSyncFailure(failure));
   }
 }
 

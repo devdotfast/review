@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { devReviewHome } from "./review-storage";
 import { writePrivateJsonAtomic } from "./server/desktop-paths";
+import type { TraceProvenanceReason } from "./trace-session-provenance";
 
 const MAX_ERROR_LENGTH = 300;
 
@@ -22,7 +23,15 @@ const syncFailureSchema = z.object({
   status: z.literal("failed"),
   error: z.string(),
   at: z.string(),
-  retry: z.string(),
+  retry: z.string().optional(),
+  reason: z
+    .enum([
+      "provenance_missing",
+      "provenance_unapproved",
+      "provenance_mixed",
+      "sync_failed",
+    ])
+    .optional(),
 });
 
 export type TraceSyncFailure = z.infer<typeof syncFailureSchema>;
@@ -56,6 +65,7 @@ export async function recordTraceSyncFailure(input: {
   sessionId: string;
   repository: string | null;
   error: string;
+  reason?: TraceProvenanceReason;
   devHome?: string;
 }): Promise<void> {
   if (!sessionIdSchema.safeParse(input.sessionId).success) return;
@@ -66,7 +76,8 @@ export async function recordTraceSyncFailure(input: {
     status: "failed",
     error: sanitizeTraceSyncError(input.error),
     at: new Date().toISOString(),
-    retry: `review trace sync ${input.sessionId}`,
+    reason: input.reason ?? "sync_failed",
+    retry: input.reason ? undefined : `review trace sync ${input.sessionId}`,
   };
 
   await writePrivateJsonAtomic(
@@ -79,8 +90,17 @@ export async function clearTraceSyncFailure(
   sessionId: string,
   devHome?: string,
 ): Promise<void> {
-  if (!sessionIdSchema.safeParse(sessionId).success) return;
+  sessionIdSchema.parse(sessionId);
   await rm(statusPath(sessionId, devHome ?? devReviewHome()), { force: true });
+}
+
+export function describeTraceSyncFailure(failure: TraceSyncFailure): string {
+  const retry =
+    failure.reason === "sync_failed" && failure.retry
+      ? ` Retry with \`${failure.retry}\`.`
+      : "";
+
+  return `Failed background sync: session ${failure.session}${failure.repository ? ` of ${failure.repository}` : ""} at ${failure.at}: ${failure.error}${retry} Dismiss with \`review trace failures clear ${failure.session}\`.\n`;
 }
 
 export async function listTraceSyncFailures(

@@ -127,9 +127,9 @@ submission.
 ## Hosted trace store
 
 Hosted tracing requires explicit user opt-in. Setup must explain the hosted
-destination, transcript contents, and repository access rules below. You can
-authorize one repository or let an agent activate future eligible repositories
-at that origin. An agent must follow your chosen scope and later denials.
+destination, transcript contents, and repository access rules below. Name the
+repositories you authorize at that origin. An absent allow entry means no
+capture. Agents must not automatically allow other repositories.
 Bucket auto-activation does not grant hosted publication consent.
 
 Trace capture is off by default. Hosted uploads start when this machine's

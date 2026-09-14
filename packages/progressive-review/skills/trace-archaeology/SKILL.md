@@ -15,20 +15,18 @@ Agent-written commits record `Agent-Session: <id>` trailers. Use the `review tra
 
 Hosted tracing requires user opt-in. Before setup, explain that complete agent transcripts go to the selected hosted origin. Users with GitHub push access to the repository can read them.
 
-The user can authorize one repository or ongoing activation of eligible repositories during setup. Preserve that scope and origin. Existing setup authorization is sufficient; do not ask again for each repository it covers.
+Configure only repositories explicitly named by the user, at the authorized origin. Existing authorization for those repositories is sufficient. An absent allow entry means no capture; it does not mean setup is unfinished.
 
 When configuring capture or investigating missing capture:
 
 1. Run `review trace status` in the current repository.
-2. Check the user's setup instructions for authorization covering this repository and origin. Hosted selection, login, an existing store, and S3 auto-activation alone do not establish that scope.
+2. Check the user's request for authorization naming this repository and origin. Hosted selection, login, an existing store, and S3 auto-activation do not authorize another repository.
 3. If authorization covers it, run `review trace onboard` when no store exists. Run `review trace allow .` to allow publication. Respect any later denial or narrower instruction.
 4. Run `review trace status` again. Report access or authentication failures without changing the destination.
 
-If authorization is missing, explain the required opt-in and ask for the missing choice. Continue read-only investigation where possible. A trace lookup does not require enabling publication.
+If authorization is missing, report that capture is off and continue available read-only investigation. Do not automatically allow missing repositories. A trace lookup does not require enabling publication.
 
-The current CLI has no hosted auto-activation flag. An agent can apply explicit ongoing authorization through these commands when this skill is loaded. This does not enable automatic discovery in every agent session.
-
-The current `deny` command removes consent without saving a denial. Keep repository exclusions in the user's setup instructions. If prior denial is uncertain, ask before allowing the repository again.
+The current CLI has no hosted auto-activation flag. The `deny` command removes consent. Respect that choice until the user explicitly requests publication again.
 
 FFF setup is human-owned. If FFF is unavailable, report the setup gap. Do not replace or reconfigure it.
 

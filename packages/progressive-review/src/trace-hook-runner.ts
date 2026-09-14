@@ -2,6 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import { git } from "@dev.fast/local-vcs";
@@ -18,6 +19,7 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
+import { notifySkippedHostedCapture } from "./trace-capture-notice";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -88,6 +90,8 @@ export interface RunReviewTraceHookInput {
   event: string;
   sessionId?: string;
   stdin?: CliInputStream;
+  stdout?: Writable;
+  notifySkippedCapture?: boolean;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
 }
@@ -184,7 +188,22 @@ export async function runReviewTraceHook(
       homeDir: input.homeDir,
     }).catch(() => undefined);
 
-    if (!entry || !entry.enabledOrigins.includes(origin)) return 0;
+    if (!entry || !entry.enabledOrigins.includes(origin)) {
+      if (isStart && input.stdout && input.notifySkippedCapture) {
+        const repo = await inferRepoFromGit(input.cwd).catch(() => null);
+
+        if (repo) {
+          await notifySkippedHostedCapture({
+            origin,
+            repository: traceRepoName(repo),
+            devHome: devReviewHome(input.env, input.homeDir),
+            stdout: input.stdout,
+          }).catch(() => undefined);
+        }
+      }
+
+      return 0;
+    }
   }
 
   if (isStart) {

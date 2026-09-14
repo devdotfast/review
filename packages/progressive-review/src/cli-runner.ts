@@ -104,6 +104,7 @@ import {
   runReviewTraceConfigMigrate,
   runReviewTraceStorageUse,
 } from "./trace-storage-cli";
+import { clearTraceSyncFailure } from "./trace-sync-status";
 
 interface ProgressiveReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
@@ -309,7 +310,10 @@ export async function runProgressiveReviewCli(
   program.exitOverride();
 
   configureJsonOutput(
-    program.command("version").description("Print Review package version"),
+    program
+      .command("version")
+      .description("Print Review package version")
+      .option("--verbose", "Show executing CLI paths and build identity"),
     "plain",
   ).action((options: { json?: boolean }) => {
     input.stdout.write(
@@ -972,6 +976,20 @@ export async function runProgressiveReviewCli(
     });
   });
 
+  // Dismissal removes only one local diagnostic record.
+  configureOutput(
+    trace
+      .command("failures")
+      .description("Manage local sync failure records")
+      .command("clear <session-id>")
+      .description("Dismiss one local sync failure"),
+    "plain",
+  ).action(async (sessionId: string) => {
+    await clearTraceSyncFailure(sessionId);
+    input.stdout.write(`Dismissed local sync failure for ${sessionId}.\n`);
+    state.exitCode = 0;
+  });
+
   // Storage selection and configuration migration write only the shared
   // trace config; legacy files and remote objects are never touched.
   const traceStorage = configureOutput(
@@ -1341,13 +1359,18 @@ export async function runProgressiveReviewCli(
     trace
       .command("hook <event>", { hidden: true })
       .description("Handle agent session lifecycle hooks")
-      .option("--session <id>", "Agent session ID"),
+      .option("--session <id>", "Agent session ID")
+      .option(
+        "--notify-skipped-capture",
+        "Report skipped capture to the agent",
+      ),
     "plain",
   ).action(
     async (
       event: string,
       options: {
         session?: string;
+        notifySkippedCapture?: boolean;
       },
     ) => {
       state.exitCode = await runtime.runReviewTraceHook({
@@ -1355,6 +1378,8 @@ export async function runProgressiveReviewCli(
         event,
         sessionId: options.session,
         stdin: input.stdin,
+        stdout: input.stdout,
+        notifySkippedCapture: options.notifySkippedCapture,
       });
     },
   );

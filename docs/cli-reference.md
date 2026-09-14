@@ -265,23 +265,30 @@ Hosted uploads that fail never fall back to the bucket.
 
 Hosted setup requires explicit opt-in to publishing complete agent transcripts.
 Explain the destination and who can read them before enabling publication.
-Ask whether the scope covers only the current repository or also future
-eligible repositories. For ongoing activation, the setup choice can say:
-
-> Enable hosted tracing at https://app.dev.fast for repositories where I have
-> write access, including future repositories. Agents may onboard and allow
-> these repositories unless I deny them. Complete agent transcripts are shared
-> with users who have push access to each repository.
-
-Retain the user's chosen scope in their agent setup instructions. An agent can
-then run `review trace onboard` and `review trace allow .` for covered
-repositories without asking again. Later denials override that authorization.
-Keep exclusions in those instructions: the current `deny` command removes
-consent but does not save a denial for agents to inspect later.
+Name the repositories and origin the user authorizes. An agent can run
+`review trace onboard` and `review trace allow .` for those repositories.
+An absent allow entry means no capture. It does not authorize an agent to
+enable that repository. `review trace deny` removes consent until the user
+explicitly requests publication again.
 The current CLI has no hosted auto-activation flag; these commands still need
 to run for each repository. Selecting hosted alone does not authorize future
 repositories, and the S3 `autoActivateRepositories` setting applies only to
 the bucket. Migration does not create hosted consent.
+
+Use a packaged app that supports v2 configuration before migrating.
+`--keep-legacy` preserves configuration files for older apps, but cannot stop
+an older app from using its saved S3 destination.
+
+`review version --verbose` reports the requested and effective CLI paths,
+delegation, and available build identity. Add `--json` for structured output.
+Use `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1` to inspect the invoked CLI directly.
+`review trace failures clear <session-id>` dismisses one local sync failure.
+It does not delete a transcript or change publication consent.
+
+After installing the updated Claude Code hook with `review install claude`,
+an unallowed repository produces one informational notice per hosted origin.
+The notice does not enable capture. Other agent adapters retain their current
+behavior; use `review trace status` to inspect capture there.
 
 Read commands accept `--storage s3|hosted` to inspect the other store
 for one operation. The override never changes the selection, capture

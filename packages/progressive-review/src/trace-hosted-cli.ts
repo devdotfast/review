@@ -548,12 +548,14 @@ export async function runReviewTraceSessions(
     );
   }
 
-  const nextPageLimit =
-    input.limit === undefined ? "" : ` --limit ${input.limit}`;
+  // The next-page command repeats every flag this page was read with.
+  const nextPageFlags =
+    (input.limit === undefined ? "" : ` --limit ${input.limit}`) +
+    (input.storage === undefined ? "" : ` --storage ${input.storage}`);
 
   stream.write(
     page.nextCursor
-      ? `Sessions are ordered by id. More follow: run \`review trace sessions${nextPageLimit} --cursor ${page.nextCursor}\`.\n`
+      ? `Sessions are ordered by id. More follow: run \`review trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
       : "Sessions are ordered by id. This is the last page.\n",
   );
 

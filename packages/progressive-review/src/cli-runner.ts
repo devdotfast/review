@@ -11,7 +11,13 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import { MAX_TRACE_SESSIONS_PAGE } from "@dev.fast/trace-shared";
-import { Argument, Command, CommanderError, Option } from "commander";
+import {
+  Argument,
+  Command,
+  CommanderError,
+  InvalidArgumentError,
+  Option,
+} from "commander";
 
 import {
   type CliInputStream,
@@ -1055,7 +1061,16 @@ export async function runProgressiveReviewCli(
       .option(
         "--limit <n>",
         `sessions per page (1-${MAX_TRACE_SESSIONS_PAGE}, default ${DEFAULT_TRACE_SESSIONS_LIMIT})`,
-        (value: string) => Number.parseInt(value, 10),
+        (value: string) => {
+          // The whole argument must be digits: parseInt would accept "50junk".
+          if (!/^\d+$/.test(value)) {
+            throw new InvalidArgumentError(
+              `--limit must be a whole number from 1 to ${MAX_TRACE_SESSIONS_PAGE}.`,
+            );
+          }
+
+          return Number(value);
+        },
       )
       .option("--cursor <session-id>", "continue after this session id")
       .addOption(storageOption()),

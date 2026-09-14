@@ -343,7 +343,10 @@ describe("hosted trace commands", () => {
       client: client((url) =>
         url.includes("/stores?")
           ? Response.json(STORE)
-          : Response.json({ sessions: [session("session-0001")] }),
+          : Response.json({
+              sessions: [session("session-0001")],
+              nextCursor: "session-0001",
+            }),
       ),
     });
 
@@ -351,6 +354,10 @@ describe("hosted trace commands", () => {
     expect(err.text()).not.toContain("bucket credentials");
     expect(out.text()).toContain(
       "session-0001  claude  2026-09-02T12:00:00.000Z  main  1234 bytes",
+    );
+    // The next page needs the same override, or it fails on this machine.
+    expect(out.text()).toContain(
+      "review trace sessions --storage hosted --cursor session-0001",
     );
   });
 

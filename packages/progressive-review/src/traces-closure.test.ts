@@ -23,6 +23,8 @@ import { describe, expect, it } from "vitest";
  * part of a bundle's eager graph.
  */
 const TRACE_ROOTS = [
+  "trace-capture-cli.ts",
+  "trace-read-cli.ts",
   "store-auth.ts",
   "trace-hosted-cli.ts",
   "trace-hook-runner.ts",
@@ -35,6 +37,7 @@ const TRACE_ROOTS = [
 
 /** Source-relative module paths the closure must never contain. */
 const FORBIDDEN_MODULES = [
+  "trace-cli.ts",
   "review-home.ts",
   "review-state-store.ts",
   "review-vcs.ts",
@@ -90,6 +93,7 @@ function staticImportSpecifiers(file: string): string[] {
 
       if (
         !isStringLiteral(statement.moduleSpecifier) ||
+        clause?.isTypeOnly ||
         isTypeOnlyImportOrExportDeclaration(statement) ||
         (!clause?.name &&
           clause?.namedBindings &&
@@ -108,6 +112,7 @@ function staticImportSpecifiers(file: string): string[] {
 
     if (
       !isStringLiteral(statement.moduleSpecifier) ||
+      statement.isTypeOnly ||
       isTypeOnlyImportOrExportDeclaration(statement) ||
       (statement.exportClause &&
         isNamedExports(statement.exportClause) &&

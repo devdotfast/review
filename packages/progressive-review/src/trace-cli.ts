@@ -1,226 +1,59 @@
 import type { Writable } from "node:stream";
 
-import {
-  type AgentTraceEvent,
-  extractTraceEventText,
-} from "./agent-trace-parser";
-import type { TraceQuoteProps } from "./authoring";
-import {
-  type ReviewTraceBlameLookupResult,
-  type ReviewTraceCommitLookupResult,
-  type ReviewTraceSessionDescriptor,
-  checkReviewTraceDoctor,
-  describeTraceSession,
-  inferRepoFromGit,
-  listRepositoryTraceSessionIds,
-  listReviewTraceSessions,
-  loadReviewAgentTrace,
-  lookupReviewTraceBlame,
-  lookupReviewTraceCommit,
-  lookupReviewTraceSession,
-  parseRepo,
-  pullReviewTraceCorpus,
-  syncReviewTrace,
-} from "./review-agent-traces";
 import { reviewUuidForManagedCheckout } from "./review-head-checkout";
 import { type StoredReview, findReview, listReviews } from "./review-home";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
-import { runReviewTraceGitHook } from "./trace-git-hook-runner";
-import { runReviewTraceHook } from "./trace-hook-runner";
-import { writeHostedTraceStatus } from "./trace-hosted-cli";
-import { traceMachineStatus } from "./trace-machine-setup";
 import {
-  disableTraceRepository,
-  enableTraceRepository,
-  repairTraceRepository,
-  traceRepositoryStatus,
-} from "./trace-repository-hooks";
-import { TraceProvenanceError } from "./trace-session-provenance";
-import {
-  describeSelection,
-  resolveTraceStorage,
-  selectTraceStorage,
-  traceStorageExpectation,
-} from "./trace-storage/resolve";
-import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
-import {
-  clearTraceSyncFailure,
-  describeTraceSyncFailure,
-  listTraceSyncFailures,
-  recordTraceSyncFailure,
-} from "./trace-sync-status";
+  type TraceListScope,
+  type TracePullScope,
+  type TraceReviewScope,
+  runReviewTraceList as listWithScope,
+  runReviewTracePull as pullWithScope,
+  resolveTraceReadStorage,
+} from "./trace-read-cli";
+import type { TraceStorageKind } from "./trace-storage/types";
 
 /**
- * The store a read command uses: the explicit `--storage` override for this
- * one operation, or the machine's selection when none is given. An override
- * never changes the selection, capture settings, or consent.
+ * The Review app's trace commands. It resolves `--review <uuid>` (or the
+ * Review that owns the current checkout) against the Review store and hands
+ * the change range to the store-free read commands as a value.
  */
-async function readStorage(
-  override: TraceStorageKind | undefined,
+
+export {
+  runReviewTraceDisable,
+  runReviewTraceDoctor,
+  runReviewTraceEnable,
+  runReviewTraceGitHook,
+  runReviewTraceHook,
+  runReviewTraceRepair,
+  runReviewTraceStatus,
+  runReviewTraceSync,
+} from "./trace-capture-cli";
+
+export {
+  type TraceListScope,
+  type TracePullScope,
+  type TraceReviewScope,
+  runReviewTraceBlame,
+  runReviewTraceLookupBlame,
+  runReviewTraceLookupCommit,
+  runReviewTraceLookupSession,
+  runReviewTraceShow,
+} from "./trace-read-cli";
+
+export async function resolveTraceReviewScope(
   cwd: string,
-): Promise<TraceStorage | null | undefined> {
-  if (!override) return undefined;
-
-  return resolveTraceStorage({ cwd, override });
-}
-
-export { runReviewTraceGitHook, runReviewTraceHook };
-
-export async function runReviewTraceStatus(input: {
-  cwd: string;
-  session?: string;
-  cursor?: string;
-  limit?: number;
-  stdout: Writable;
-  stderr: Writable;
-}): Promise<number> {
-  const machine = await traceMachineStatus();
-  const repository = await traceRepositoryStatus(input.cwd);
-  const selection = selectTraceStorage();
-  input.stdout.write(
-    `Trace capture: ${machine.enabled ? "enabled" : "disabled"}\n`,
-  );
-  input.stdout.write(`Repository: ${repository.message}\n`);
-  input.stdout.write(`Storage: ${describeSelection(selection)}\n`);
-  input.stdout.write(
-    `Config: ${selection.config.path} (${
-      selection.config.source === "absent"
-        ? "not present"
-        : `version ${selection.config.source === "v1" ? "1, consent only" : "2"}`
-    })\n`,
-  );
-
-  if (selection.error) {
-    input.stderr.write(`trace status: ${selection.error}\n`);
-
-    return 1;
-  }
-
-  if (selection.mode === "hosted") {
-    return writeHostedTraceStatus({
-      cwd: input.cwd,
-      origin: selection.hosted?.origin ?? "",
-      stdout: input.stdout,
-      session: input.session,
-      cursor: input.cursor,
-      limit: input.limit,
-    });
-  }
-
-  if (
-    input.session !== undefined ||
-    input.cursor !== undefined ||
-    input.limit !== undefined
-  ) {
-    input.stderr.write("Upload status filters require hosted storage.\n");
-
-    return 1;
-  }
-
-  const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
-  input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
-
-  for (const failure of await listTraceSyncFailures()) {
-    input.stdout.write(describeTraceSyncFailure(failure));
-  }
-
-  if (!doctor.ok && !doctor.config) {
-    input.stderr.write(
-      `trace status: ${doctor.error ?? "No trace configuration found. Use Review Agent Setup to configure trace capture."}\n`,
-    );
-
-    return 1;
-  }
-
-  if (doctor.config) {
-    input.stdout.write(`  Endpoint: ${doctor.config.endpoint}\n`);
-    input.stdout.write(`  Bucket:   ${doctor.config.bucket}\n`);
-    input.stdout.write(
-      `  Key:      ${doctor.config.accessKeyId.slice(0, 6)}…\n`,
-    );
-  }
-
-  if (doctor.reachable && doctor.config) {
-    input.stdout.write(
-      `✓ S3/R2 bucket "${doctor.config.bucket}" is reachable.\n`,
-    );
-
-    return 0;
-  }
-
-  if (doctor.config) {
-    input.stderr.write(
-      `✗ Cannot reach S3/R2 bucket "${doctor.config.bucket}": ${doctor.error ?? "unknown error"}\n`,
-    );
-  }
-
-  return 1;
-}
-
-export async function runReviewTraceEnable(input: {
-  cwd: string;
-  stdout: Writable;
-  stderr: Writable;
-}): Promise<number> {
-  if (!(await traceMachineStatus()).enabled) {
-    input.stderr.write(
-      "trace enable: Trace capture is not enabled. Use Review Agent Setup first.\n",
-    );
-
-    return 1;
-  }
-
-  const result = await enableTraceRepository({ cwd: input.cwd });
-  (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
-
-  return result.enabled ? 0 : 1;
-}
-
-export async function runReviewTraceDisable(input: {
-  cwd: string;
-  stdout: Writable;
-}): Promise<number> {
-  const result = await disableTraceRepository({ cwd: input.cwd });
-  input.stdout.write(`${result.message}\n`);
-
-  return result.repository ? 0 : 1;
-}
-
-export async function runReviewTraceRepair(input: {
-  cwd: string;
-  stdout: Writable;
-  stderr: Writable;
-}): Promise<number> {
-  if (!(await traceMachineStatus()).enabled) {
-    input.stderr.write(
-      "trace repair: Trace capture is not enabled. Use Review Agent Setup first.\n",
-    );
-
-    return 1;
-  }
-
-  const result = await repairTraceRepository({ cwd: input.cwd });
-  (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
-
-  return result.enabled ? 0 : 1;
-}
-
-export const runReviewTraceDoctor = runReviewTraceStatus;
-
-async function listSessionsForReview(
-  review: StoredReview,
-  storage?: TraceStorage | null,
-) {
-  const repoRootPath = resolveReviewRepoRootFromStore(review.dir);
+  reviewUuid: string | undefined,
+): Promise<TraceReviewScope> {
+  const review = await resolveTraceReview(cwd, reviewUuid);
   const record = review.review;
-  const headCommit = record.sourceCommit ?? record.baseCommit;
 
-  return listReviewTraceSessions({
-    rootPath: repoRootPath,
+  return {
+    uuid: record.uuid,
+    repoRoot: resolveReviewRepoRootFromStore(review.dir),
     baseCommit: record.baseCommit,
-    headCommit,
-    storage,
-  });
+    headCommit: record.sourceCommit ?? record.baseCommit,
+  };
 }
 
 export async function runReviewTraceList(input: {
@@ -231,194 +64,25 @@ export async function runReviewTraceList(input: {
   json?: boolean;
   stdout: Writable;
 }): Promise<number> {
-  const storage = await readStorage(input.storage, input.cwd);
-  let scope: { review: string } | { commit: string };
-  let sessions: ReviewTraceSessionDescriptor[];
-  let emptyExitCode = 0;
-
-  if (input.commitSha) {
-    const resolution = await lookupReviewTraceCommit({
-      cwd: input.cwd,
-      sha: input.commitSha,
-      storage,
-    });
-
-    scope = { commit: resolution.commit };
-    sessions = await Promise.all(
-      resolution.sessions.map((sessionId) =>
-        describeTraceSession(
-          {
-            sessionId,
-            commits: [{ sha: resolution.commit, subject: "" }],
-          },
-          storage,
-        ),
-      ),
-    );
-    emptyExitCode = 1;
-  } else {
-    const review = await resolveTraceReview(input.cwd, input.reviewUuid);
-    scope = { review: review.review.uuid };
-    sessions = await listSessionsForReview(review, storage);
-  }
-
-  const publicSessions = sessions.map((session) => ({
-    id: session.sessionId,
-    harness: session.harness,
-    available: session.available,
-    traces: ["main", ...(session.subagents ?? [])],
-    commits: session.commits,
-  }));
-
-  if (input.json) {
-    input.stdout.write(
-      `${JSON.stringify({ ...scope, sessions: publicSessions })}\n`,
-    );
-
-    return sessions.length === 0 ? emptyExitCode : 0;
-  }
-
-  if (sessions.length === 0) {
-    const label =
-      "review" in scope ? `review ${scope.review}` : `commit ${scope.commit}`;
-
-    input.stdout.write(`No agent sessions recorded for ${label}.\n`);
-
-    return emptyExitCode;
-  }
-
-  for (const session of publicSessions) {
-    input.stdout.write(
-      `${session.id}  (${session.harness}, ${
-        session.available ? "S3/R2 synced" : "not synced"
-      })\n`,
-    );
-
-    for (const commit of session.commits) {
-      input.stdout.write(
-        `  commit ${commit.sha.slice(0, 9)}  ${commit.subject}\n`,
-      );
-    }
-
-    for (const name of session.traces.slice(1)) {
-      input.stdout.write(`  trace ${name}\n`);
-    }
-  }
-
-  return 0;
-}
-
-export async function runReviewTraceShow(input: {
-  cwd: string;
-  sessionId: string;
-  trace?: string;
-  eventIndex?: number;
-  kind?: string;
-  storage?: TraceStorageKind;
-  json?: boolean;
-  stdout: Writable;
-  stderr: Writable;
-}): Promise<number> {
-  const traceName = input.trace === "main" ? undefined : input.trace;
-
-  const loaded = await loadReviewAgentTrace({
-    sessionId: input.sessionId,
-    trace: traceName,
-    cwd: input.cwd,
-    storage: await readStorage(input.storage, input.cwd),
-  });
-
-  if (!loaded) {
-    throw new Error(
-      `No transcript is available for session ${input.sessionId}${traceName ? ` (trace ${traceName})` : ""}.`,
-    );
-  }
-
-  const { trace } = loaded;
-
-  if (input.eventIndex !== undefined) {
-    const event = trace.events[input.eventIndex];
-
-    if (!event) {
-      throw new Error(
-        `Event ${input.eventIndex} is out of range. Session ${input.sessionId} has ${trace.events.length} events.`,
-      );
-    }
-
-    const text = extractTraceEventText(event);
-
-    if (input.json) {
-      const traceQuoteProps: TraceQuoteProps = {
-        sessionId: input.sessionId,
-        event: input.eventIndex,
-      };
-
-      if (traceName) traceQuoteProps.trace = traceName;
-      input.stdout.write(
-        `${JSON.stringify({
-          session: input.sessionId,
-          trace: traceName ?? "main",
-          event: input.eventIndex,
-          kind: event.kind,
-          text,
-          trace_quote_props: traceQuoteProps,
-        })}\n`,
-      );
-
-      return 0;
-    }
-
-    input.stdout.write(`${text}\n`);
-
-    return 0;
-  }
-
-  const rows = trace.events
-    .map((event, index) => ({ event, index }))
-    .filter((row) => !input.kind || row.event.kind === input.kind);
-
-  if (input.json) {
-    input.stdout.write(
-      `${JSON.stringify({
-        session: input.sessionId,
-        trace: traceName ?? "main",
-        harness: trace.harness,
-        title: trace.title,
-        cache: loaded.cacheStatus,
-        events: rows.map(({ event, index }) => ({
-          event: index,
-          kind: event.kind,
-          summary: compactEventLine(event),
-        })),
-      })}\n`,
-    );
-
-    return 0;
-  }
-
-  input.stdout.write(
-    `# session ${input.sessionId}${traceName ? ` (trace ${traceName})` : ""} (${trace.harness}) — ${
-      trace.title ?? "untitled"
-    }\n# ${trace.events.length} events${input.kind ? ` (${rows.length} shown, kind=${input.kind})` : ""}${
-      loaded.cacheStatus === "current" ? "" : ` (${loaded.cacheStatus} copy)`
-    }\n`,
+  const resolvedStorage = await resolveTraceReadStorage(
+    input.storage,
+    input.cwd,
   );
+  // Without --commit the command lists the Review's range, so a missing
+  // --review still resolves the Review that owns this checkout.
 
-  for (const { event, index } of rows) {
-    input.stdout.write(
-      `${String(index).padStart(4, " ")}  ${compactEventLine(event)}\n`,
-    );
-  }
+  const scope: TraceListScope = input.commitSha
+    ? { commit: input.commitSha }
+    : { review: await resolveTraceReviewScope(input.cwd, input.reviewUuid) };
 
-  return 0;
+  return listWithScope({
+    cwd: input.cwd,
+    scope,
+    resolvedStorage,
+    json: input.json,
+    stdout: input.stdout,
+  });
 }
-
-/** Which sessions a `trace pull` selected, echoed back in its JSON report. */
-type TracePullScope =
-  | { review: string }
-  | { commit: string }
-  | { session: string }
-  | { repository: string };
 
 export async function runReviewTracePull(input: {
   cwd: string;
@@ -433,84 +97,23 @@ export async function runReviewTracePull(input: {
   stderr: Writable;
 }): Promise<number> {
   try {
-    const storage = await readStorage(input.storage, input.cwd);
-    let scope: TracePullScope;
-    let sessions: Array<{ id: string; traces?: string[] }>;
-    let repoRoot = input.cwd;
+    const resolvedStorage = await resolveTraceReadStorage(
+      input.storage,
+      input.cwd,
+    );
 
-    if (input.reviewUuid) {
-      const review = await resolveTraceReview(input.cwd, input.reviewUuid);
-      repoRoot = resolveReviewRepoRootFromStore(review.dir);
-      const refs = await listSessionsForReview(review, storage);
-      scope = { review: review.review.uuid };
-      sessions = refs.map((ref) => ({
-        id: ref.sessionId,
-        traces: ref.subagents,
-      }));
-    } else if (input.commitSha) {
-      const resolution = await lookupReviewTraceCommit({
-        cwd: input.cwd,
-        sha: input.commitSha,
-        storage,
-      });
+    const scope = await resolveTracePullScope(input);
 
-      scope = { commit: resolution.commit };
-      sessions = resolution.sessions.map((id) => ({ id }));
-    } else if (input.session) {
-      scope = { session: input.session };
-      sessions = [{ id: input.session }];
-    } else {
-      sessions = (await listRepositoryTraceSessionIds(input.cwd)).map((id) => ({
-        id,
-      }));
-      scope = { repository: input.repo ?? "current" };
-    }
-
-    const repo = input.repo
-      ? parseRepo(input.repo)
-      : await inferRepoFromGit(repoRoot);
-
-    const result = await pullReviewTraceCorpus({
-      repo,
-      sessions,
-      mainOnly: input.mainOnly,
-      cwd: repoRoot,
-      storage,
-    });
-
-    const output = {
+    return pullWithScope({
+      cwd: input.cwd,
       scope,
-      corpus_root: result.corpusRoot,
-      repository: result.repository,
-      sessions: result.sessions,
-      unavailable_sessions: result.unavailableSessions,
-      events: result.events,
-      files: result.files,
-      paths: result.paths,
-    };
-
-    if (input.json) {
-      input.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
-    } else {
-      input.stdout.write(
-        `Pulled ${result.sessions.length} session(s) into ${result.corpusRoot}.\n`,
-      );
-      input.stdout.write(
-        `Materialized ${result.files} normalized trace file(s) with ${result.events} event(s) for ${result.repository}.\n`,
-      );
-
-      for (const filePath of result.paths) {
-        input.stdout.write(`  ${filePath}\n`);
-      }
-
-      if (result.unavailableSessions.length > 0) {
-        input.stderr.write(
-          `Unavailable sessions: ${result.unavailableSessions.join(", ")}\n`,
-        );
-      }
-    }
-
-    return sessions.length > 0 && result.sessions.length === 0 ? 1 : 0;
+      repo: input.repo,
+      mainOnly: input.mainOnly,
+      resolvedStorage,
+      json: input.json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    });
   } catch (error) {
     input.stderr.write(
       `trace pull error: ${error instanceof Error ? error.message : String(error)}\n`,
@@ -520,280 +123,23 @@ export async function runReviewTracePull(input: {
   }
 }
 
-export async function runReviewTraceLookupCommit(input: {
+async function resolveTracePullScope(input: {
   cwd: string;
-  sha: string;
-  storage?: TraceStorageKind;
-  json?: boolean;
-  stdout: Writable;
-}): Promise<number> {
-  const result = await lookupReviewTraceCommit({
-    cwd: input.cwd,
-    sha: input.sha,
-    storage: await readStorage(input.storage, input.cwd),
-  });
-
-  if (input.json) {
-    input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-
-    return result.sessions.length === 0 ? 1 : 0;
+  reviewUuid?: string;
+  commitSha?: string;
+  session?: string;
+}): Promise<TracePullScope> {
+  if (input.reviewUuid) {
+    return {
+      review: await resolveTraceReviewScope(input.cwd, input.reviewUuid),
+    };
   }
 
-  printCommitResolution(result, input.stdout);
+  if (input.commitSha) return { commit: input.commitSha };
 
-  return result.sessions.length === 0 ? 1 : 0;
-}
+  if (input.session) return { session: input.session };
 
-export async function runReviewTraceBlame(input: {
-  cwd: string;
-  file: string;
-  lines?: string;
-  history?: boolean;
-  storage?: TraceStorageKind;
-  json?: boolean;
-  stdout: Writable;
-  stderr: Writable;
-}): Promise<number> {
-  let result: ReviewTraceBlameLookupResult;
-
-  try {
-    result = await lookupReviewTraceBlame({
-      cwd: input.cwd,
-      file: input.file,
-      lines: input.lines,
-      history: input.history,
-      storage: await readStorage(input.storage, input.cwd),
-    });
-  } catch (err: unknown) {
-    input.stderr.write(
-      `trace blame error: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-
-    return 1;
-  }
-
-  if (input.json) {
-    input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-
-    const hasAnySessions = result.resolutions.some(
-      (r) => r.sessions.length > 0,
-    );
-
-    return hasAnySessions ? 0 : 1;
-  }
-
-  if (result.resolutions.length === 0) {
-    input.stderr.write(`no commits found for ${input.file}\n`);
-
-    return 1;
-  }
-
-  for (const resolution of result.resolutions) {
-    printCommitResolution(resolution, input.stdout);
-  }
-
-  const hasAnySessions = result.resolutions.some((r) => r.sessions.length > 0);
-
-  return hasAnySessions ? 0 : 1;
-}
-
-export const runReviewTraceLookupBlame = runReviewTraceBlame;
-
-export async function runReviewTraceLookupSession(input: {
-  cwd: string;
-  sessionId: string;
-  storage?: TraceStorageKind;
-  json?: boolean;
-  stdout: Writable;
-}): Promise<number> {
-  const result = await lookupReviewTraceSession({
-    sessionId: input.sessionId,
-    storage: await readStorage(input.storage, input.cwd),
-  });
-
-  if (input.json) {
-    input.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-
-    return result.meta === null && !result.has_raw_trace ? 1 : 0;
-  }
-
-  if (result.meta === null && !result.has_raw_trace) {
-    input.stdout.write(`no session meta found for ${result.session}\n`);
-
-    return 1;
-  }
-
-  if (result.meta) {
-    input.stdout.write(`${JSON.stringify(result.meta, null, 2)}\n`);
-  } else {
-    input.stdout.write(`Session: ${result.session}\n`);
-  }
-
-  if (result.has_raw_trace) {
-    input.stdout.write(
-      `  raw trace: by-session/${result.session}/trace.jsonl\n`,
-    );
-  }
-
-  if (result.subagents.length > 0) {
-    input.stdout.write(`  subagents: ${result.subagents.join(", ")}\n`);
-  }
-
-  return 0;
-}
-
-function printCommitResolution(
-  resolution: ReviewTraceCommitLookupResult,
-  stdout: Writable,
-): void {
-  const shortCommit = resolution.commit.slice(0, 12);
-
-  if (resolution.sessions.length === 0) {
-    stdout.write(
-      `${shortCommit}  no agent sessions found (source checked: trailer, index, pr-scan)\n`,
-    );
-
-    return;
-  }
-
-  const prSuffix = resolution.pr !== null ? ` PR #${resolution.pr}` : "";
-  stdout.write(
-    `${shortCommit}  → ${resolution.sessions.length} session(s) via ${resolution.source}${prSuffix}\n`,
-  );
-
-  for (const session of resolution.sessions) {
-    const meta = resolution.session_meta?.[session];
-
-    const metaSuffix = meta
-      ? `  (${meta.branch || "?"}, ${meta.author || "?"})`
-      : "";
-
-    stdout.write(`    ${session}${metaSuffix}\n`);
-    stdout.write(`      trace: by-session/${session}/trace.jsonl\n`);
-    stdout.write(
-      `      pull for FFF: review trace pull --session ${session}\n`,
-    );
-  }
-}
-
-export async function runReviewTraceSync(input: {
-  cwd: string;
-  sessionId: string;
-  repo?: string;
-  json?: boolean;
-  /**
-   * The destination this attempt was started for. A detached sync passes
-   * it so a selection change since then stops the attempt instead of
-   * publishing to a store the user no longer selected.
-   */
-  expectStorage?: string;
-  stdout: Writable;
-  stderr?: Writable;
-}): Promise<number> {
-  let result: Awaited<ReturnType<typeof syncReviewTrace>>;
-
-  try {
-    if (input.expectStorage !== undefined) {
-      const current = traceStorageExpectation();
-
-      if (current !== input.expectStorage) {
-        throw new Error(
-          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`review trace sync ${input.sessionId}\` to publish to the current selection.`,
-        );
-      }
-    }
-
-    result = await syncReviewTrace({
-      sessionId: input.sessionId,
-      cwd: input.cwd,
-      repo: input.repo,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // The SessionEnd hook runs this command detached. The record is what
-    // `review trace status` shows, so the failure is not lost.
-    await recordTraceSyncFailure({
-      sessionId: input.sessionId.trim(),
-      repository: await inferRepoFromGit(input.cwd)
-        .then((repo) => `${repo.owner}/${repo.repo}`)
-        .catch(() => null),
-      error: message,
-      reason: error instanceof TraceProvenanceError ? error.reason : undefined,
-    }).catch(() => undefined);
-    throw error;
-  }
-
-  // A successful sync clears its own failure record in every store.
-  await clearTraceSyncFailure(input.sessionId.trim()).catch(() => undefined);
-
-  if (input.json) {
-    input.stdout.write(`${JSON.stringify(result)}\n`);
-
-    return 0;
-  }
-
-  for (const upload of result.uploads) {
-    input.stdout.write(
-      `${upload.blob}  ${upload.bytes_stored} bytes  ${upload.status}\n`,
-    );
-  }
-
-  if (result.hosted) {
-    for (const name of result.hosted.omitted.subagents) {
-      input.stdout.write(
-        `${name}  omitted (over the object limit or not a store name)\n`,
-      );
-    }
-
-    if (result.hosted.omitted.commits > 0) {
-      input.stdout.write(
-        `${result.hosted.omitted.commits} commit link(s) omitted (over the commit limit).\n`,
-      );
-    }
-
-    input.stdout.write(
-      result.hosted.complete
-        ? `Published session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`
-        : `Published part of session ${result.session} of ${result.repo} to the trace store (generation ${result.hosted.generation}).\n`,
-    );
-
-    return 0;
-  }
-
-  input.stdout.write(
-    `Updated meta for session ${result.session} in ${result.repo}.\n`,
-  );
-
-  return 0;
-}
-
-function compactEventLine(event: AgentTraceEvent): string {
-  const oneLine = (text: string, limit: number): string => {
-    const collapsed = text.replace(/\s+/g, " ").trim();
-
-    return collapsed.length > limit
-      ? `${collapsed.slice(0, limit - 1)}…`
-      : collapsed;
-  };
-
-  if (event.kind === "user") return `user       ${oneLine(event.text, 160)}`;
-
-  if (event.kind === "assistant") {
-    return `${event.thinking ? "thinking  " : "assistant "} ${oneLine(event.markdown, 160)}`;
-  }
-
-  if (event.kind === "separator") return `separator  ${event.label}`;
-
-  const counts = [
-    event.additions ? `+${event.additions}` : null,
-    event.deletions ? `−${event.deletions}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  return `tool       ${event.verb} ${oneLine(event.title, 120)}${
-    counts ? ` ${counts}` : ""
-  }${event.filePath ? ` [${event.filePath}]` : ""}`;
+  return { repository: true };
 }
 
 async function resolveTraceReview(

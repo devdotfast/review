@@ -17,9 +17,11 @@ import { clearTraceEnvCache } from "./review-agent-traces";
 import {
   runReviewTraceDoctor,
   runReviewTraceEnable,
+  runReviewTraceList,
   runReviewTraceLookupBlame,
   runReviewTraceLookupCommit,
   runReviewTraceLookupSession,
+  runReviewTracePull,
   runReviewTraceShow,
   runReviewTraceSync,
 } from "./trace-cli";
@@ -413,6 +415,31 @@ describe("trace-cli", () => {
       delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
       delete process.env.DEV_REVIEW_HOME;
     }
+  });
+
+  it("reports an invalid storage override before looking up a Review", async () => {
+    await expect(
+      runReviewTraceList({
+        cwd: tempDir,
+        reviewUuid: "missing-review",
+        storage: "hosted",
+        stdout: collectingWritable([]),
+      }),
+    ).rejects.toThrow(/Hosted trace storage is not configured/);
+
+    const errors: string[] = [];
+
+    const code = await runReviewTracePull({
+      cwd: tempDir,
+      reviewUuid: "missing-review",
+      storage: "hosted",
+      stdout: collectingWritable([]),
+      stderr: collectingWritable(errors),
+    });
+
+    expect(code).toBe(1);
+    expect(errors.join("")).toMatch(/Hosted trace storage is not configured/);
+    expect(errors.join("")).not.toContain("Review not found");
   });
 
   it("shows failed background syncs for the s3 store and clears them on success", async () => {

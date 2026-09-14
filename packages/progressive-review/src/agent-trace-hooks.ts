@@ -12,6 +12,8 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { shellQuote, traceCliName } from "./trace-command";
+
 export type AgentTraceHookAgent = "claude" | "codex" | "opencode" | "pi";
 
 export interface AgentTraceHookInstallResult {
@@ -150,32 +152,12 @@ function runTraceHook(eventName: string, sessionId: string, cwd: string) {
 `;
 }
 
-const CODEX_HOOK_TOML = `
-# review-trace-hooks:start
-[[hooks.SessionStart]]
-[[hooks.SessionStart.hooks]]
-type = "command"
-command = "review trace hook SessionStart"
-statusMessage = "Recording agent session id for trace stamping"
-
-[[hooks.UserPromptSubmit]]
-[[hooks.UserPromptSubmit.hooks]]
-type = "command"
-command = "review trace hook UserPromptSubmit"
-
-[[hooks.SessionEnd]]
-[[hooks.SessionEnd.hooks]]
-type = "command"
-command = "review trace hook SessionEnd"
-# review-trace-hooks:end
-`;
-
 /**
  * Idempotently configures Claude Code session lifecycle hooks in ~/.claude/settings.json.
  */
 export async function installClaudeTraceHook(
   homeDir = os.homedir(),
-  reviewCommand = "review",
+  reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const settingsDir = path.join(homeDir, ".claude");
   const settingsPath = path.join(settingsDir, "settings.json");
@@ -250,7 +232,7 @@ export async function installClaudeTraceHook(
  */
 export async function installCodexTraceHook(
   homeDir = os.homedir(),
-  reviewCommand = "review",
+  reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const codexDir = path.join(homeDir, ".codex");
   const configPath = path.join(codexDir, "config.toml");
@@ -275,11 +257,6 @@ export async function installCodexTraceHook(
     return { agent: "codex", path: configPath, modified: false };
   }
 
-  const codexHookToml = CODEX_HOOK_TOML.replaceAll(
-    "review trace hook",
-    `${shellCommand(reviewCommand)} trace hook`,
-  );
-
   const missingHookToml = missingEvents
     .map((eventName) => codexTraceHookToml(eventName, reviewCommand))
     .join("\n\n");
@@ -289,7 +266,7 @@ export async function installCodexTraceHook(
     configPath,
     existing
       ? `${existing.trimEnd()}\n\n${missingHookToml.trim()}\n`
-      : codexHookToml.trimStart(),
+      : codexHookBlock(reviewCommand).trimStart(),
     "utf8",
   );
 
@@ -301,7 +278,7 @@ export async function installCodexTraceHook(
  */
 export async function installPiTraceExtension(
   homeDir = os.homedir(),
-  reviewCommand = "review",
+  reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const extensionsDir = path.join(homeDir, ".pi", "agent", "extensions");
   const extensionPath = path.join(extensionsDir, "review-trace.ts");
@@ -329,7 +306,7 @@ export async function installPiTraceExtension(
  */
 export async function installOpenCodeTraceExtension(
   homeDir = os.homedir(),
-  reviewCommand = "review",
+  reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const pluginsDir = path.join(homeDir, ".config", "opencode", "plugins");
   const pluginPath = path.join(pluginsDir, "review-trace.ts");
@@ -424,9 +401,7 @@ export async function removeAgentTraceHook(
     const marked =
       /# review-trace-hooks:start\n[\s\S]*?# review-trace-hooks:end\n?/;
 
-    const withoutMarkedBlock = existing
-      .replace(marked, "")
-      .replace(CODEX_HOOK_TOML.trim(), "");
+    const withoutMarkedBlock = existing.replace(marked, "");
 
     const removed = ["SessionStart", "UserPromptSubmit", "SessionEnd"].reduce(
       (content, eventName) => removeCodexTraceHook(content, eventName),
@@ -462,9 +437,7 @@ export async function removeAgentTraceHook(
 }
 
 function shellCommand(command: string): string {
-  return command === "review"
-    ? command
-    : `'${command.replaceAll("'", `'"'"'`)}'`;
+  return command === traceCliName() ? command : shellQuote(command);
 }
 
 function isReviewTraceHookCommand(command: JsonValue | undefined): boolean {
@@ -493,6 +466,15 @@ function codexTraceHookToml(
 [[hooks.${eventName}.hooks]]
 type = "command"
 command = "${shellCommand(reviewCommand)} trace hook ${eventName}"${status}`;
+}
+
+/** The whole marked block, written when the Codex config is empty. */
+function codexHookBlock(reviewCommand: string): string {
+  const events = ["SessionStart", "UserPromptSubmit", "SessionEnd"] as const;
+
+  return `\n# review-trace-hooks:start\n${events
+    .map((eventName) => codexTraceHookToml(eventName, reviewCommand))
+    .join("\n\n")}\n# review-trace-hooks:end\n`;
 }
 
 function removeCodexTraceHook(content: string, eventName: string): string {

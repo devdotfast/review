@@ -20,6 +20,7 @@ import {
 import { devReviewHome } from "./review-storage";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
+import { traceCliName } from "./trace-command";
 import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";
 
 export const DEFAULT_STORE_ORIGIN = DEFAULT_HOSTED_ORIGIN;
@@ -53,7 +54,7 @@ export async function readStoreAuth(
     throw error;
   }
 
-  // A file this reader cannot parse means no login: `review login` writes a
+  // A file this reader cannot parse means no login: the login command writes a
   // fresh one, and every caller already handles a missing login.
   let parsed: unknown;
 
@@ -98,7 +99,7 @@ export async function requireStoreClient(
 ): Promise<StoreClient> {
   const auth = await readStoreAuth(env);
 
-  if (!auth) throw new Error("Run `review login` first.");
+  if (!auth) throw new Error(`Run \`${traceCliName()} login\` first.`);
 
   return new StoreClient({ origin: auth.origin, token: auth.token });
 }
@@ -204,7 +205,7 @@ export async function runReviewLogin(input: {
     return failWithJsonError(
       output,
       "login",
-      "The login expired. Run `review login` again.",
+      `The login expired. Run \`${traceCliName()} login\` again.`,
     );
   }
 
@@ -262,7 +263,11 @@ export async function runReviewWhoami(input: {
   const auth = await readStoreAuth(input.env);
 
   if (!auth) {
-    return failWithJsonError(output, "whoami", "Run `review login` first.");
+    return failWithJsonError(
+      output,
+      "whoami",
+      `Run \`${traceCliName()} login\` first.`,
+    );
   }
 
   const client = new StoreClient({

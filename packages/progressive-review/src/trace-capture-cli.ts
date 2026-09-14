@@ -1,6 +1,7 @@
 import type { Writable } from "node:stream";
 
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
+import { traceCliName } from "./trace-command";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { writeHostedTraceStatus } from "./trace-hosted-cli";
@@ -195,7 +196,7 @@ export async function runReviewTraceSync(input: {
 
       if (current !== input.expectStorage) {
         throw new Error(
-          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`review trace sync ${input.sessionId}\` to publish to the current selection.`,
+          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCliName()} trace sync ${input.sessionId}\` to publish to the current selection.`,
         );
       }
     }
@@ -208,7 +209,7 @@ export async function runReviewTraceSync(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // The SessionEnd hook runs this command detached. The record is what
-    // `review trace status` shows, so the failure is not lost.
+    // the trace status command shows, so the failure is not lost.
     await recordTraceSyncFailure({
       sessionId: input.sessionId.trim(),
       repository: await inferRepoFromGit(input.cwd)

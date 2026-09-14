@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +10,13 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
+
+import {
+  renderTraceCommand,
+  resolveTraceCommand,
+  shellQuote,
+  traceHomeDir,
+} from "./trace-command";
 
 const execFileAsync = promisify(execFile);
 
@@ -95,12 +101,10 @@ export async function enableTraceRepository(input: {
   };
 
   const homeDir = input.homeDir ?? traceHomeDir();
-  const installedCommand = path.join(homeDir, ".local", "bin", "review");
 
-  const reviewCommand =
-    input.reviewCommand ??
-    process.env.REVIEW_TRACE_COMMAND ??
-    (existsSync(installedCommand) ? installedCommand : "review");
+  const reviewCommand = renderTraceCommand(
+    resolveTraceCommand({ explicit: input.reviewCommand, homeDir }),
+  );
 
   await mkdir(hooksPath, { recursive: true });
   await writeHook(
@@ -248,10 +252,6 @@ export async function disableAllTraceRepositories(
   }
 }
 
-function traceHomeDir(): string {
-  return process.env.TRACE_HOME_DIR ?? os.homedir();
-}
-
 async function resolveRepository(
   cwd: string,
 ): Promise<{ root: string; commonDir: string } | null> {
@@ -290,10 +290,6 @@ function resolveHooksPath(root: string, hooksPath: string): string {
   return path.isAbsolute(hooksPath) ? hooksPath : path.resolve(root, hooksPath);
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
 function previousHookSetup(pathValue: string, name: string): string {
   if (path.isAbsolute(pathValue)) {
     return `previous=${shellQuote(path.join(pathValue, name))}`;
@@ -310,14 +306,14 @@ function prepareCommitMessageHook(
   reviewCommand: string,
 ): string {
   const previous = previousHookSetup(previousPath, "prepare-commit-msg");
-  const review = shellQuote(reviewCommand);
+  const review = reviewCommand;
 
   return `#!/bin/sh\n${previous}\nif [ -x "$previous" ]; then\n  "$previous" "$@" || exit $?\nfi\n${review} trace git-hook prepare-commit-msg "$@" || true\nexit 0\n`;
 }
 
 function prePushHook(previousPath: string, reviewCommand: string): string {
   const previous = previousHookSetup(previousPath, "pre-push");
-  const review = shellQuote(reviewCommand);
+  const review = reviewCommand;
 
   return `#!/bin/sh\n${previous}\ntmp="$(mktemp "\${TMPDIR:-/tmp}/review-pre-push.XXXXXX")" || exit 0\ntrap 'rm -f "$tmp"' EXIT HUP INT TERM\ncat > "$tmp"\nif [ -x "$previous" ]; then\n  "$previous" "$@" < "$tmp" || exit $?\nfi\n${review} trace git-hook pre-push "$@" < "$tmp" || true\nexit 0\n`;
 }

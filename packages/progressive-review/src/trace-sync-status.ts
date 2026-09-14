@@ -1,8 +1,8 @@
 // Failure records of background trace syncs.
 //
-// The SessionEnd hook runs `review trace sync` detached, with no terminal.
+// The SessionEnd hook runs trace sync detached, with no terminal.
 // A failure there would vanish, so the command writes one small record per
-// session that `review trace status` lists with a retry command. A later
+// session that trace status lists with a retry command. A later
 // successful sync removes it. The record holds no trace content and no URL.
 
 import { readFile, readdir, rm } from "node:fs/promises";
@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";
 import { devReviewHome } from "./review-storage";
+import { traceCliName } from "./trace-command";
 import type { TraceProvenanceReason } from "./trace-session-provenance";
 
 const MAX_ERROR_LENGTH = 300;
@@ -77,7 +78,9 @@ export async function recordTraceSyncFailure(input: {
     error: sanitizeTraceSyncError(input.error),
     at: new Date().toISOString(),
     reason: input.reason ?? "sync_failed",
-    retry: input.reason ? undefined : `review trace sync ${input.sessionId}`,
+    retry: input.reason
+      ? undefined
+      : `${traceCliName()} trace sync ${input.sessionId}`,
   };
 
   await writePrivateJsonAtomic(

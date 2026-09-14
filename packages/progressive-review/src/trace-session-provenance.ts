@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";
 import { devReviewHome } from "./review-storage";
+import { traceCliName } from "./trace-command";
 import {
   type TraceRepositoryTarget,
   traceTargetKey,
@@ -176,12 +177,12 @@ export async function requireTraceSessionProvenance(
   if (records.length === 0) {
     throw new TraceProvenanceError(
       "provenance_missing",
-      `Review did not capture this session in ${target.name}. Start a new agent session there after \`review trace allow .\`; a commit trailer does not authorize publication.`,
+      `Review did not capture this session in ${target.name}. Start a new agent session there after \`${traceCliName()} trace allow .\`; a commit trailer does not authorize publication.`,
     );
   }
 
   // A record of the same repository from before the user allowed it is the
-  // same place: the user can run `review trace allow .` inside a session.
+  // same place: the user can run the trace allow command inside a session.
   const expected = traceTargetKey(target);
   const samePlace = `unallowed:${target.name.toLowerCase()}`;
 

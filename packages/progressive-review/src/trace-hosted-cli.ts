@@ -25,6 +25,7 @@ import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
 import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
+import { traceCliName } from "./trace-command";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
@@ -47,7 +48,7 @@ import {
 /**
  * Hosted consent commands: onboarding creates a repository store, allow
  * records publication consent bound to the login's origin, deny withdraws
- * it. None of them selects hosted storage; `review trace storage use
+ * it. None of them selects hosted storage; the trace storage use
  * hosted` does that explicitly.
  */
 
@@ -113,7 +114,7 @@ export async function runReviewTraceOnboard(
   const stream = humanStream(input);
   stream.write(`Onboarded ${store.displayName} (id ${store.repositoryId}).\n`);
   stream.write(
-    "Run `review trace allow .` to send traces from this repository.\n",
+    `Run \`${traceCliName()} trace allow .\` to send traces from this repository.\n`,
   );
 
   return 0;
@@ -144,7 +145,11 @@ export async function runReviewTraceAllow(
   const auth = await readStoreAuth(input.env);
 
   if (!auth) {
-    return failWithJsonError(input, "allow", "Run `review login` first.");
+    return failWithJsonError(
+      input,
+      "allow",
+      `Run \`${traceCliName()} login\` first.`,
+    );
   }
 
   const storeOrigin = auth.origin;
@@ -168,7 +173,7 @@ export async function runReviewTraceAllow(
     return failWithJsonError(
       input,
       "allow",
-      `${traceRepoName(name)} is not onboarded. Run \`review trace onboard\` first.`,
+      `${traceRepoName(name)} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`,
     );
   }
 
@@ -176,7 +181,7 @@ export async function runReviewTraceAllow(
     return failWithJsonError(
       input,
       "allow",
-      `The trace store of ${store.displayName} was deleted. Run \`review trace onboard\` to create a new one.`,
+      `The trace store of ${store.displayName} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`,
     );
   }
 
@@ -204,7 +209,7 @@ export async function runReviewTraceAllow(
     store: storeOrigin,
   });
   humanStream(input).write(
-    `Traces from ${store.displayName} may be published to ${storeOrigin}. A machine with no bucket configured now uses the hosted store; one with a bucket needs \`review trace storage use hosted\`.\n`,
+    `Traces from ${store.displayName} may be published to ${storeOrigin}. A machine with no bucket configured now uses the hosted store; one with a bucket needs \`${traceCliName()} trace storage use hosted\`.\n`,
   );
 
   return 0;
@@ -267,7 +272,7 @@ export async function runReviewTraceDeny(
       return failWithJsonError(
         input,
         "deny",
-        `${name} has no resolved hosted store on this machine. Run \`review trace allow .\` once, then deny with --delete-store.`,
+        `${name} has no resolved hosted store on this machine. Run \`${traceCliName()} trace allow .\` once, then deny with --delete-store.`,
       );
     }
 
@@ -360,13 +365,13 @@ function describeStoreFailure(
 
   switch (error.code) {
     case "unauthorized":
-      return `The trace store at ${origin} rejected the login. Run \`review login --origin ${origin}\`.`;
+      return `The trace store at ${origin} rejected the login. Run \`${traceCliName()} login --origin ${origin}\`.`;
     case "forbidden":
       return `You cannot read the traces of ${repository}: ${error.message}`;
     case "store_deleted":
-      return `The trace store of ${repository} was deleted. Run \`review trace onboard\` to create a new one.`;
+      return `The trace store of ${repository} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`;
     case "not_found":
-      return `${repository} is not onboarded. Run \`review trace onboard\` first.`;
+      return `${repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`;
     default:
       return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
   }
@@ -425,7 +430,7 @@ export async function runReviewTraceSessions(
   // on here.
   if (mode === "s3") {
     return fail(
-      "`review trace sessions` lists the hosted store only. Run `review trace storage use hosted`, or pass `--storage hosted`.",
+      `\`${traceCliName()} trace sessions\` lists the hosted store only. Run \`${traceCliName()} trace storage use hosted\`, or pass \`--storage hosted\`.`,
     );
   }
 
@@ -438,7 +443,7 @@ export async function runReviewTraceSessions(
 
   if (!selection.hosted) {
     return fail(
-      "Hosted trace storage is not configured. Run `review trace allow .` or `review trace storage use hosted`.",
+      `Hosted trace storage is not configured. Run \`${traceCliName()} trace allow .\` or \`${traceCliName()} trace storage use hosted\`.`,
     );
   }
 
@@ -460,8 +465,8 @@ export async function runReviewTraceSessions(
     if (!auth || auth.origin !== origin) {
       return fail(
         auth
-          ? `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`review login --origin ${origin}\`.`
-          : `The trace store login is missing. Run \`review login --origin ${origin}\`.`,
+          ? `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`${traceCliName()} login --origin ${origin}\`.`
+          : `The trace store login is missing. Run \`${traceCliName()} login --origin ${origin}\`.`,
       );
     }
 
@@ -484,13 +489,13 @@ export async function runReviewTraceSessions(
 
   if (!store) {
     return fail(
-      `${repository} is not onboarded. Run \`review trace onboard\` first.`,
+      `${repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`,
     );
   }
 
   if (store.status !== "active") {
     return fail(
-      `The trace store of ${store.displayName} was deleted. Run \`review trace onboard\` to create a new one.`,
+      `The trace store of ${store.displayName} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`,
     );
   }
 
@@ -509,7 +514,7 @@ export async function runReviewTraceSessions(
   } catch (error) {
     if (error instanceof StoreApiError && error.code === "invalid_request") {
       return fail(
-        `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`review trace list --commit <sha>\`.`,
+        `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`${traceCliName()} trace list --commit <sha>\`.`,
       );
     }
 
@@ -556,14 +561,14 @@ export async function runReviewTraceSessions(
 
   stream.write(
     page.nextCursor
-      ? `Sessions are ordered by id. More follow: run \`review trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
+      ? `Sessions are ordered by id. More follow: run \`${traceCliName()} trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
       : "Sessions are ordered by id. This is the last page.\n",
   );
 
   return 0;
 }
 
-/** The hosted lines of `review trace status`: login, consent, pending work. */
+/** The hosted trace status lines: login, consent, and pending work. */
 export async function writeHostedTraceStatus(
   input: HostedCommandScope & {
     cwd: string;
@@ -585,13 +590,15 @@ export async function writeHostedTraceStatus(
       ? `Login: ${auth.login} at ${auth.origin}${
           auth.origin === input.origin
             ? ""
-            : ` (selected store is ${input.origin}; run \`review login --origin ${input.origin}\`)`
+            : ` (selected store is ${input.origin}; run \`${traceCliName()} login --origin ${input.origin}\`)`
         }\n`
-      : `Login: none. Run \`review login --origin ${input.origin}\`.\n`,
+      : `Login: none. Run \`${traceCliName()} login --origin ${input.origin}\`.\n`,
   );
 
   if (config.repositories.length === 0) {
-    stream.write("Allowed repositories: none. Run `review trace allow .`.\n");
+    stream.write(
+      `Allowed repositories: none. Run \`${traceCliName()} trace allow .\`.\n`,
+    );
   } else {
     for (const repository of config.repositories) {
       stream.write(
@@ -616,11 +623,11 @@ export async function writeHostedTraceStatus(
 
     if (!entry) {
       stream.write(
-        `This repository (${name}) is not allowed. Run \`review trace allow .\`.\n`,
+        `This repository (${name}) is not allowed. Run \`${traceCliName()} trace allow .\`.\n`,
       );
     } else if (!entry.enabledOrigins.includes(input.origin)) {
       stream.write(
-        `This repository (${name}) is allowed at ${entry.enabledOrigins.join(", ")}, not the selected ${input.origin}. Run \`review trace allow .\` while logged in there.\n`,
+        `This repository (${name}) is allowed at ${entry.enabledOrigins.join(", ")}, not the selected ${input.origin}. Run \`${traceCliName()} trace allow .\` while logged in there.\n`,
       );
     } else {
       stream.write(

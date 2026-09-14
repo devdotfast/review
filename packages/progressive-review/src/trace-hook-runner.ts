@@ -1,6 +1,4 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -18,6 +16,7 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
+import { resolveTraceCommand } from "./trace-command";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -54,16 +53,10 @@ export function spawnDetachedTraceSync(input: {
   env?: NodeJS.ProcessEnv;
 }): void {
   try {
-    const installedCommand = path.join(
-      input.homeDir ?? process.env.TRACE_HOME_DIR ?? os.homedir(),
-      ".local",
-      "bin",
-      "review",
-    );
-
-    const command =
-      process.env.REVIEW_TRACE_COMMAND ??
-      (existsSync(installedCommand) ? installedCommand : "review");
+    const command = resolveTraceCommand({
+      env: input.env,
+      homeDir: input.homeDir,
+    });
 
     const expectation = traceStorageExpectation({
       homeDir: input.homeDir,
@@ -71,8 +64,15 @@ export function spawnDetachedTraceSync(input: {
     });
 
     const child = spawn(
-      command,
-      ["trace", "sync", input.sessionId, "--expect-storage", expectation],
+      command.file,
+      [
+        ...(command.args ?? []),
+        "trace",
+        "sync",
+        input.sessionId,
+        "--expect-storage",
+        expectation,
+      ],
       { cwd: input.cwd, detached: true, stdio: "ignore" },
     );
 

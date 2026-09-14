@@ -187,6 +187,7 @@ review trace storage use s3 [--endpoint <url> --bucket <name> --key <id> --secre
 review trace storage use hosted [--origin <url>]
 review trace config migrate [--dry-run] [--keep-legacy]
 review trace list|show|pull|blame ... [--storage s3|hosted]
+review trace sessions [--limit <n>] [--cursor <session-id>] [--storage s3|hosted] [--json]
 review login [--origin <url>] [--no-browser]
 review logout
 review whoami
@@ -277,6 +278,19 @@ settings, or consent. `review trace status` names the effective store, the
 configuration sources in use, and the config file, without revealing
 secrets. On a hosted machine it also prints `Stored bytes`, the size of every
 completed upload in the repository's store.
+
+`review trace sessions` lists every published session of the current
+repository's hosted store, ordered by session id, 50 per page. `--limit`
+selects a different page size, from 1 to 200. Each line shows the session id,
+harness, update time, branch, and stored bytes. The last line names the
+`--cursor` value of the next page, and repeats `--limit` when you gave one.
+The command refuses a bad `--limit` or `--cursor` before it reads the store.
+It reads the store live and needs `review login` for the selected origin and
+GitHub read access to the repository; it does not need `review trace allow`.
+It never serves saved copies and prints no signed download URL. The hosted
+store is the only store it lists, so it refuses `--storage s3`. A store older
+than contract 0.3.0 answers "does not support listing every session yet"; use
+`review trace list --commit <sha>` there.
 
 ## Agent integration and migration
 

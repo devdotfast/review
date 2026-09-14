@@ -1,6 +1,6 @@
 /** Exercise Linux titlebar behavior in an isolated packaged app under a window manager. */
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -9,6 +9,9 @@ import { _electron as electron } from "playwright";
 if (process.platform !== "linux") throw new Error("Run this check on Linux");
 
 const packagedRoot = path.resolve(process.argv[2] ?? "apps/review-desktop/VSCode-linux-x64");
+const { applicationName } = JSON.parse(
+  await readFile(path.join(packagedRoot, "resources", "app", "product.json"), "utf8"),
+);
 
 const output = path.resolve(process.argv[3] ?? "apps/review-desktop/dist/linux-ui");
 
@@ -33,7 +36,7 @@ for (const [controls, theme, scale] of [["native", "Review Dark", 1], ["custom",
 
   try {
     app = await electron.launch({
-      executablePath: path.join(packagedRoot, "review"),
+      executablePath: path.join(packagedRoot, applicationName),
       args: ["--disable-dev-shm-usage", `--user-data-dir=${profile}`, `--extensions-dir=${path.join(profile, "extensions")}`, `--force-device-scale-factor=${scale}`],
       env,
       // Docker emulation cannot create Chromium namespaces. This opt-in is only

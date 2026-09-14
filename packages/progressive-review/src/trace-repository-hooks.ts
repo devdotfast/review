@@ -1,9 +1,8 @@
-import { execFile } from "node:child_process";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
+import { gitAt } from "@dev.fast/local-vcs";
 import {
   jsonArray,
   jsonString,
@@ -18,8 +17,6 @@ import {
   shellQuote,
   traceHomeDir,
 } from "./trace-command";
-
-const execFileAsync = promisify(execFile);
 
 const repositoryHookStateSchema = z.object({
   version: z.literal(1),
@@ -121,7 +118,7 @@ export async function enableTraceRepository(input: {
     prePushHook(previousHookDirectory, reviewCommand),
   );
   await writePrivateJson(statePath, state);
-  await runGit(resolved.root, [
+  await gitAt(resolved.root, [
     "config",
     "--local",
     "core.hooksPath",
@@ -181,17 +178,17 @@ export async function disableTraceRepository(input: {
     path.resolve(state.managedHooksPath)
   ) {
     if (state.previousWasConfigured) {
-      await runGit(resolved.root, [
+      await gitAt(resolved.root, [
         "config",
         "--local",
         "core.hooksPath",
         state.previousHooksPath,
       ]);
     } else {
-      await runGit(
+      await gitAt(
         resolved.root,
         ["config", "--local", "--unset", "core.hooksPath"],
-        true,
+        { allowFailure: true },
       );
     }
   }
@@ -263,12 +260,14 @@ export async function disableAllTraceRepositories(
 async function resolveRepository(
   cwd: string,
 ): Promise<{ root: string; commonDir: string } | null> {
-  const rootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"], true);
+  const rootResult = await gitAt(cwd, ["rev-parse", "--show-toplevel"], {
+    allowFailure: true,
+  });
 
-  const commonResult = await runGit(
+  const commonResult = await gitAt(
     cwd,
     ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    true,
+    { allowFailure: true },
   );
 
   if (!rootResult.ok || !commonResult.ok) return null;
@@ -282,10 +281,10 @@ async function resolveRepository(
 async function configuredHooksPath(
   root: string,
 ): Promise<{ configured: boolean; value: string }> {
-  const result = await runGit(
+  const result = await gitAt(
     root,
     ["config", "--local", "--get", "core.hooksPath"],
-    true,
+    { allowFailure: true },
   );
 
   return {
@@ -390,33 +389,4 @@ async function unregisterRepository(
     registryPath(homeDir),
     (await readRegistry(homeDir)).filter((entry) => entry !== root),
   );
-}
-
-async function runGit(
-  cwd: string,
-  args: string[],
-  allowFailure = false,
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      "git",
-      ["-C", cwd, ...args],
-      {
-        maxBuffer: 64 * 1024 * 1024,
-      },
-    );
-
-    return { ok: true, stdout, stderr };
-  } catch (cause) {
-    if (!allowFailure) throw cause;
-    // SAFETY: execFile rejects with an ExecFileException that carries the
-    // child's captured stdout and stderr as utf8 strings.
-    const error = cause as { stdout?: string; stderr?: string };
-
-    return {
-      ok: false,
-      stdout: error.stdout ?? "",
-      stderr: error.stderr ?? String(cause),
-    };
-  }
 }

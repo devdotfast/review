@@ -17,6 +17,7 @@ import {
   diffNameStatus,
   diffNameStatusTrees,
   diffTrees,
+  gitAt,
   gitCommonDir,
   gitCommonDirSync,
   listCommitRange,
@@ -30,6 +31,57 @@ import {
 } from ".";
 
 describe("local vcs", () => {
+  it("runs git in the linked worktree that owns the working directory", async () => {
+    const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-git-at-"));
+    const worktreePath = `${rootPath}-linked`;
+    execGit(rootPath, ["init"]);
+    execGit(rootPath, ["config", "user.email", "test@example.com"]);
+    execGit(rootPath, ["config", "user.name", "Test User"]);
+    writeFileSync(path.join(rootPath, "app.ts"), "one\n");
+    execGit(rootPath, ["add", "app.ts"]);
+    execGit(rootPath, ["commit", "-m", "base"]);
+    const linkedHead = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+    execGit(rootPath, ["worktree", "add", "--detach", worktreePath, "HEAD"]);
+
+    writeFileSync(path.join(rootPath, "app.ts"), "two\n");
+    execGit(rootPath, ["commit", "-am", "primary change"]);
+    const primaryHead = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+    writeFileSync(path.join(worktreePath, "linked.ts"), "linked\n");
+    execGit(worktreePath, ["add", "linked.ts"]);
+
+    expect(primaryHead).not.toBe(linkedHead);
+    await expect(gitAt(worktreePath, ["rev-parse", "HEAD"])).resolves.toEqual({
+      ok: true,
+      stdout: `${linkedHead}\n`,
+      stderr: "",
+    });
+
+    const toplevel = await gitAt(worktreePath, [
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+
+    expect(realpathSync(toplevel.stdout.trim())).toBe(
+      realpathSync(worktreePath),
+    );
+    await expect(
+      gitAt(worktreePath, ["diff", "--cached", "--name-only"]),
+    ).resolves.toEqual({ ok: true, stdout: "linked.ts\n", stderr: "" });
+
+    const missing = await gitAt(
+      worktreePath,
+      ["rev-parse", "--verify", "no-such-ref"],
+      { allowFailure: true },
+    );
+
+    expect(missing.ok).toBe(false);
+    expect(missing.stdout).toBe("");
+    expect(missing.stderr).toContain("fatal");
+    await expect(
+      gitAt(worktreePath, ["rev-parse", "--verify", "no-such-ref"]),
+    ).rejects.toThrow("Command failed");
+  });
+
   it("lists a Git commit range newest first with summary counts", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-git-log-"));
     execGit(rootPath, ["init"]);

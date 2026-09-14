@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -11,9 +10,8 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
-import { git } from "@dev.fast/local-vcs";
+import { git, gitAt } from "@dev.fast/local-vcs";
 import {
   type ReviewAgentTraceSession,
   type SessionMeta,
@@ -866,34 +864,6 @@ function legacyObjectKey(sessionId: string, traceName: string): string {
   return `by-session/${sessionId}/subagents/${fileName}`;
 }
 
-async function runGit(
-  cwd: string,
-  args: string[],
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      "git",
-      ["-C", cwd, ...args],
-      {
-        maxBuffer: 64 * 1024 * 1024,
-      },
-    );
-
-    return { ok: true, stdout, stderr };
-  } catch (error) {
-    // SAFETY: execFile rejects with an Error whose stdout and stderr fields
-    // hold the child's output as strings; both are read as optional so any
-    // other rejection still reports String(error).
-    const err = error as { stdout?: string; stderr?: string };
-
-    return {
-      ok: false,
-      stdout: err.stdout ?? "",
-      stderr: err.stderr ?? String(error),
-    };
-  }
-}
-
 // --- Lookup Commit & Session -----------------------------------------------
 
 export async function lookupReviewTraceCommit(input: {
@@ -1127,13 +1097,11 @@ export async function lookupReviewTraceBlame(input: {
       ? `${input.lines}:${input.file}`
       : `1,$:${input.file}`;
 
-    const res = await runGit(input.cwd, [
-      "log",
-      "-L",
-      spec,
-      "--format=%H",
-      "-s",
-    ]);
+    const res = await gitAt(
+      input.cwd,
+      ["log", "-L", spec, "--format=%H", "-s"],
+      { allowFailure: true },
+    );
 
     if (!res.ok) {
       throw new Error(
@@ -1150,7 +1118,7 @@ export async function lookupReviewTraceBlame(input: {
     }
 
     args.push("--", input.file);
-    const res = await runGit(input.cwd, args);
+    const res = await gitAt(input.cwd, args, { allowFailure: true });
 
     if (!res.ok) {
       throw new Error(
@@ -1559,12 +1527,16 @@ export async function readTrailerSessions(
 export async function listRepositoryTraceSessionIds(
   cwd: string,
 ): Promise<string[]> {
-  const result = await runGit(cwd, [
-    "log",
-    "--all",
-    "--no-show-signature",
-    "--format=%(trailers:key=Agent-Session,valueonly,separator=%x1f)",
-  ]);
+  const result = await gitAt(
+    cwd,
+    [
+      "log",
+      "--all",
+      "--no-show-signature",
+      "--format=%(trailers:key=Agent-Session,valueonly,separator=%x1f)",
+    ],
+    { allowFailure: true },
+  );
 
   if (!result.ok) return [];
 
@@ -1697,8 +1669,6 @@ export function codexSessionsRoot(): string {
   );
 }
 
-const execFileAsync = promisify(execFile);
-
 /** Subagent traces known locally or in the store, by name without ".jsonl". */
 export async function listSessionSubagents(
   sessionId: string,
@@ -1734,33 +1704,32 @@ export async function prScanTrailerSessions(
   commit: string,
   pr: number,
 ): Promise<string[]> {
-  const fetchRes = await runGit(cwd, [
-    "fetch",
-    "--quiet",
-    "origin",
-    `refs/pull/${pr}/head`,
-  ]);
+  const fetchRes = await gitAt(
+    cwd,
+    ["fetch", "--quiet", "origin", `refs/pull/${pr}/head`],
+    { allowFailure: true },
+  );
 
   if (!fetchRes.ok) return [];
 
-  let revListRes = await runGit(cwd, [
-    "rev-list",
-    "FETCH_HEAD",
-    "--not",
-    `${commit}^`,
-  ]);
+  let revListRes = await gitAt(
+    cwd,
+    ["rev-list", "FETCH_HEAD", "--not", `${commit}^`],
+    { allowFailure: true },
+  );
 
   if (!revListRes.ok) {
-    revListRes = await runGit(cwd, [
-      "rev-list",
-      "FETCH_HEAD",
-      "--not",
-      `${commit}~1`,
-    ]);
+    revListRes = await gitAt(
+      cwd,
+      ["rev-list", "FETCH_HEAD", "--not", `${commit}~1`],
+      { allowFailure: true },
+    );
   }
 
   if (!revListRes.ok) {
-    revListRes = await runGit(cwd, ["rev-list", "FETCH_HEAD"]);
+    revListRes = await gitAt(cwd, ["rev-list", "FETCH_HEAD"], {
+      allowFailure: true,
+    });
   }
 
   if (!revListRes.ok) return [];

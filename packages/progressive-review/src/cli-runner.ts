@@ -10,7 +10,14 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-import { Argument, Command, CommanderError, Option } from "commander";
+import { MAX_TRACE_SESSIONS_PAGE } from "@dev.fast/trace-shared";
+import {
+  Argument,
+  Command,
+  CommanderError,
+  InvalidArgumentError,
+  Option,
+} from "commander";
 
 import {
   type CliInputStream,
@@ -98,9 +105,11 @@ import {
   runReviewTraceSync,
 } from "./trace-cli";
 import {
+  DEFAULT_TRACE_SESSIONS_LIMIT,
   runReviewTraceAllow,
   runReviewTraceDeny,
   runReviewTraceOnboard,
+  runReviewTraceSessions,
 } from "./trace-hosted-cli";
 import {
   runReviewTraceConfigMigrate,
@@ -147,6 +156,7 @@ interface ProgressiveReviewCliRuntime {
   runReviewTraceStorageUse: typeof runReviewTraceStorageUse;
   runReviewTraceConfigMigrate: typeof runReviewTraceConfigMigrate;
   runReviewTraceOnboard: typeof runReviewTraceOnboard;
+  runReviewTraceSessions: typeof runReviewTraceSessions;
   runReviewTraceAllow: typeof runReviewTraceAllow;
   runReviewTraceDeny: typeof runReviewTraceDeny;
   runReviewLogin: typeof runReviewLogin;
@@ -1044,6 +1054,48 @@ export async function runProgressiveReviewCli(
 
   configureJsonOutput(
     trace
+      .command("sessions")
+      .description(
+        "List every published session of this repository's hosted trace store",
+      )
+      .option(
+        "--limit <n>",
+        `sessions per page (1-${MAX_TRACE_SESSIONS_PAGE}, default ${DEFAULT_TRACE_SESSIONS_LIMIT})`,
+        (value: string) => {
+          // The whole argument must be digits: parseInt would accept "50junk".
+          if (!/^\d+$/.test(value)) {
+            throw new InvalidArgumentError(
+              `--limit must be a whole number from 1 to ${MAX_TRACE_SESSIONS_PAGE}.`,
+            );
+          }
+
+          return Number(value);
+        },
+      )
+      .option("--cursor <session-id>", "continue after this session id")
+      .addOption(storageOption()),
+    "plain",
+  ).action(
+    async (options: {
+      limit?: number;
+      cursor?: string;
+      storage?: "s3" | "hosted";
+      json?: boolean;
+    }) => {
+      state.exitCode = await runtime.runReviewTraceSessions({
+        cwd,
+        limit: options.limit,
+        cursor: options.cursor,
+        storage: options.storage,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
+
+  configureJsonOutput(
+    trace
       .command("onboard [path]")
       .description("Create the hosted trace store for one repository"),
     "plain",
@@ -1661,6 +1713,7 @@ function progressiveReviewCliRuntime(
     runReviewTraceStorageUse,
     runReviewTraceConfigMigrate,
     runReviewTraceOnboard,
+    runReviewTraceSessions,
     runReviewTraceAllow,
     runReviewTraceDeny,
     runReviewLogin,

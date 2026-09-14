@@ -43,6 +43,7 @@ import {
   runReviewThreadsReply as runReviewThreadsReplyActual,
   runReviewThreadsResolve as runReviewThreadsResolveActual,
 } from "./threads-cli";
+import { runReviewTraceSessions as runReviewTraceSessionsActual } from "./trace-hosted-cli";
 
 describe("Review CLI", () => {
   it("routes explicit current-review repair and rejects implicit or historical selection", async () => {
@@ -759,6 +760,37 @@ describe("Review CLI", () => {
         stderr: outputStream(),
       }),
     ).resolves.toBe(1);
+  });
+
+  it("rejects a --limit that is not a whole number before the runtime runs", async () => {
+    const runReviewTraceSessions = vi.fn<typeof runReviewTraceSessionsActual>(
+      async () => 0,
+    );
+
+    for (const value of ["50junk", "1.5", "-1", ""]) {
+      const stderr = outputStream();
+      await expect(
+        runProgressiveReviewCli({
+          argv: ["trace", "sessions", "--limit", value],
+          stdout: outputStream(),
+          stderr,
+          runtime: { runReviewTraceSessions },
+        }),
+      ).resolves.toBe(1);
+      expect(runReviewTraceSessions).not.toHaveBeenCalled();
+    }
+
+    await expect(
+      runProgressiveReviewCli({
+        argv: ["trace", "sessions", "--limit", "50"],
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { runReviewTraceSessions },
+      }),
+    ).resolves.toBe(0);
+    expect(runReviewTraceSessions).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 50 }),
+    );
   });
 
   it("passes scaffold update options to the runtime", async () => {

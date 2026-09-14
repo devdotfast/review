@@ -1,6 +1,6 @@
 {
   "name": "@dev.fast/trace-shared",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Contract between the Review CLI and the hosted trace store.",
   "license": "MIT",
   "repository": {

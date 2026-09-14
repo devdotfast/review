@@ -1,6 +1,12 @@
 import type { Writable } from "node:stream";
 
 import { git } from "@dev.fast/local-vcs";
+import {
+  type ListSessionsResponse,
+  MAX_TRACE_SESSIONS_PAGE,
+  type StoreResponse,
+  sessionIdSchema,
+} from "@dev.fast/trace-shared";
 
 import {
   installClaudeTraceHook,
@@ -23,6 +29,9 @@ import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
 import { hostedOrigin, readTraceConfigFile } from "./trace-storage/config";
+import { traceNameFromObject } from "./trace-storage/hosted";
+import { selectTraceStorage } from "./trace-storage/resolve";
+import type { TraceStorageKind } from "./trace-storage/types";
 import {
   describeTraceSyncFailure,
   listTraceSyncFailures,
@@ -298,6 +307,257 @@ export async function runReviewTraceDeny(
       `Store deletion requested for ${name} (store ${deletion.storeId}). Uploaded objects are removed by a later operator cleanup.\n`,
     );
   }
+
+  return 0;
+}
+
+/** Sessions per page when `--limit` is not given. */
+export const DEFAULT_TRACE_SESSIONS_LIMIT = 50;
+
+/** One session as the CLI reports it: no signed URL, no expiry. */
+interface ListedTraceSession {
+  id: string;
+  harness: string;
+  updatedAt: string;
+  branch: string | null;
+  author: string | null;
+  generation: number;
+  commits: string[];
+  traces: string[];
+  bytes: number;
+}
+
+function listedSession(
+  session: ListSessionsResponse["sessions"][number],
+): ListedTraceSession {
+  let bytes = 0;
+
+  for (const object of session.objects) bytes += object.size;
+
+  return {
+    id: session.sessionId,
+    harness: session.harness,
+    updatedAt: session.updatedAt,
+    branch: session.branch ?? null,
+    author: session.author ?? null,
+    generation: session.generation,
+    commits: session.commits,
+    traces: session.objects.map((object) => traceNameFromObject(object.name)),
+    bytes,
+  };
+}
+
+/** A store failure as one sentence the user can act on. */
+function describeStoreFailure(
+  error: Error,
+  origin: string,
+  repository: string,
+): string {
+  if (!(error instanceof StoreApiError)) {
+    return `Could not reach the trace store at ${origin}: ${error.message}`;
+  }
+
+  switch (error.code) {
+    case "unauthorized":
+      return `The trace store at ${origin} rejected the login. Run \`review login --origin ${origin}\`.`;
+    case "forbidden":
+      return `You cannot read the traces of ${repository}: ${error.message}`;
+    case "store_deleted":
+      return `The trace store of ${repository} was deleted. Run \`review trace onboard\` to create a new one.`;
+    case "not_found":
+      return `${repository} is not onboarded. Run \`review trace onboard\` first.`;
+    default:
+      return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
+  }
+}
+
+/**
+ * Lists every published session of this checkout's hosted store, one page
+ * at a time. The command reads the store live: a missing login, a store
+ * that does not answer, or a refusal is a failure, never a saved copy.
+ * Reading needs no local publication consent; the store checks GitHub
+ * access itself.
+ */
+export async function runReviewTraceSessions(
+  input: CliJsonOutput &
+    HostedCommandScope & {
+      cwd: string;
+      limit?: number;
+      cursor?: string;
+      storage?: TraceStorageKind;
+      client?: StoreClient;
+    },
+): Promise<number> {
+  const fail = (message: string): number =>
+    failWithJsonError(input, "sessions", message);
+
+  // The store rejects a bad page size or cursor as `invalid_request`, which
+  // this command reads as an older store. Bound both flags here, so that
+  // answer can only mean the store is older than the unfiltered listing.
+  if (
+    input.limit !== undefined &&
+    (!Number.isInteger(input.limit) ||
+      input.limit < 1 ||
+      input.limit > MAX_TRACE_SESSIONS_PAGE)
+  ) {
+    return fail(
+      `--limit must be a whole number from 1 to ${MAX_TRACE_SESSIONS_PAGE}.`,
+    );
+  }
+
+  if (
+    input.cursor !== undefined &&
+    !sessionIdSchema.safeParse(input.cursor).success
+  ) {
+    return fail("--cursor must be a session id from a previous page.");
+  }
+
+  const selection = selectTraceStorage({
+    env: input.env,
+    homeDir: input.homeDir,
+  });
+
+  const mode = input.storage ?? selection.mode;
+
+  // The s3 refusal comes first. A machine that selects s3 then reads the
+  // store this command needs, not a bucket configuration error it cannot act
+  // on here.
+  if (mode === "s3") {
+    return fail(
+      "`review trace sessions` lists the hosted store only. Run `review trace storage use hosted`, or pass `--storage hosted`.",
+    );
+  }
+
+  // An override to hosted sidesteps an s3 configuration error, because the
+  // hosted store this command reads needs no bucket credentials. A malformed
+  // config names no hosted store, so it still fails with its own error.
+  if (selection.error && (mode !== "hosted" || !selection.hosted)) {
+    return fail(selection.error);
+  }
+
+  if (!selection.hosted) {
+    return fail(
+      "Hosted trace storage is not configured. Run `review trace allow .` or `review trace storage use hosted`.",
+    );
+  }
+
+  const origin = selection.hosted.origin;
+  let name: { owner: string; repo: string };
+
+  try {
+    name = await inferRepoFromGit(input.cwd);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+
+  const repository = traceRepoName(name);
+  let client = input.client;
+
+  if (!client) {
+    const auth = await readStoreAuth(input.env);
+
+    if (!auth || auth.origin !== origin) {
+      return fail(
+        auth
+          ? `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`review login --origin ${origin}\`.`
+          : `The trace store login is missing. Run \`review login --origin ${origin}\`.`,
+      );
+    }
+
+    client = new StoreClient({ origin, token: auth.token });
+  }
+
+  let store: StoreResponse | null;
+
+  try {
+    store = await client.findStore({ owner: name.owner, name: name.repo });
+  } catch (error) {
+    return fail(
+      describeStoreFailure(
+        error instanceof Error ? error : new Error(String(error)),
+        origin,
+        repository,
+      ),
+    );
+  }
+
+  if (!store) {
+    return fail(
+      `${repository} is not onboarded. Run \`review trace onboard\` first.`,
+    );
+  }
+
+  if (store.status !== "active") {
+    return fail(
+      `The trace store of ${store.displayName} was deleted. Run \`review trace onboard\` to create a new one.`,
+    );
+  }
+
+  const query =
+    input.cursor === undefined
+      ? { limit: input.limit ?? DEFAULT_TRACE_SESSIONS_LIMIT }
+      : {
+          limit: input.limit ?? DEFAULT_TRACE_SESSIONS_LIMIT,
+          cursor: input.cursor,
+        };
+
+  let page: ListSessionsResponse;
+
+  try {
+    page = await client.listSessions(store.repositoryId, query);
+  } catch (error) {
+    if (error instanceof StoreApiError && error.code === "invalid_request") {
+      return fail(
+        `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`review trace list --commit <sha>\`.`,
+      );
+    }
+
+    return fail(
+      describeStoreFailure(
+        error instanceof Error ? error : new Error(String(error)),
+        origin,
+        store.displayName,
+      ),
+    );
+  }
+
+  const sessions = page.sessions.map(listedSession);
+
+  emitJsonEvent(input, {
+    event: "trace.sessions",
+    repository: store.displayName,
+    repositoryId: store.repositoryId,
+    store: origin,
+    sessions,
+    nextCursor: page.nextCursor ?? null,
+  });
+
+  const stream = humanStream(input);
+
+  if (sessions.length === 0) {
+    stream.write(
+      `No published sessions in the trace store of ${store.displayName} at ${origin}.\n`,
+    );
+
+    return 0;
+  }
+
+  for (const session of sessions) {
+    stream.write(
+      `${session.id}  ${session.harness}  ${session.updatedAt}  ${session.branch ?? "-"}  ${session.bytes} bytes\n`,
+    );
+  }
+
+  // The next-page command repeats every flag this page was read with.
+  const nextPageFlags =
+    (input.limit === undefined ? "" : ` --limit ${input.limit}`) +
+    (input.storage === undefined ? "" : ` --storage ${input.storage}`);
+
+  stream.write(
+    page.nextCursor
+      ? `Sessions are ordered by id. More follow: run \`review trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
+      : "Sessions are ordered by id. This is the last page.\n",
+  );
 
   return 0;
 }

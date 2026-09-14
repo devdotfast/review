@@ -117,7 +117,7 @@ export function traceObjectName(traceName: string): TraceObjectName {
 }
 
 /** The trace name behind one store object name. */
-function traceNameFromObject(name: string): string {
+export function traceNameFromObject(name: string): string {
   if (name === "main.jsonl.gz") return "main";
 
   return name.slice("subagents/".length, -".jsonl.gz".length);

@@ -101,6 +101,12 @@ review trace list --commit <rev> --json
 review trace pull --commit <rev> --json
 ```
 
+When no commit anchors the investigation, page through every published session of the hosted store with `--cursor`. This command needs the hosted store; on a machine that selects s3, pass `--storage hosted`.
+
+```sh
+review trace sessions --json
+```
+
 Use `review trace show <session-id>` when the full session timeline helps explain the result.
 
 This flow is complete when you inspected the source events and checked the result against current code.

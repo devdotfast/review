@@ -1,10 +1,6 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { Writable } from "node:stream";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { StoreClient } from "./store-client";
 import { writeOwnUploadStatus } from "./trace-upload-status";
@@ -20,20 +16,10 @@ const confirmedAt = "2026-09-14T10:00:00.000Z";
 const sessionId = "my-upload-session";
 
 describe("own upload status", () => {
-  let cwd: string;
-  let devHome: string;
   let output: string;
   let stdout: Writable;
   let calls: URL[];
   beforeEach(() => {
-    cwd = mkdtempSync(path.join(tmpdir(), "own-upload-status-"));
-    devHome = path.join(cwd, "home");
-    execFileSync("git", ["init", "--quiet"], { cwd });
-    execFileSync(
-      "git",
-      ["remote", "add", "origin", "git@github.com:acme/app.git"],
-      { cwd },
-    );
     output = "";
     calls = [];
     stdout = new Writable({
@@ -43,7 +29,6 @@ describe("own upload status", () => {
       },
     });
   });
-  afterEach(() => rmSync(cwd, { recursive: true, force: true }));
 
   function client(reply: () => Response, token = "test-login") {
     return new StoreClient({
@@ -102,9 +87,7 @@ describe("own upload status", () => {
 
     expect(
       await writeOwnUploadStatus({
-        cwd,
-        devHome,
-        origin,
+        repo: { owner: "acme", repo: "app" },
         stdout,
         client: service,
         session: sessionId,
@@ -124,9 +107,7 @@ describe("own upload status", () => {
   it("distinguishes no attempts from an unavailable or older server", async () => {
     expect(
       await writeOwnUploadStatus({
-        cwd,
-        devHome,
-        origin,
+        repo: { owner: "acme", repo: "app" },
         stdout,
         client: client(() => Response.json({ storeId, uploads: [] })),
       }),
@@ -143,9 +124,7 @@ describe("own upload status", () => {
 
     expect(
       await writeOwnUploadStatus({
-        cwd,
-        devHome,
-        origin,
+        repo: { owner: "acme", repo: "app" },
         stdout,
         client: older,
       }),
@@ -178,9 +157,7 @@ describe("own upload status", () => {
 
       expect(
         await writeOwnUploadStatus({
-          cwd,
-          devHome,
-          origin,
+          repo: { owner: "acme", repo: "app" },
           stdout,
           client: service,
         }),
@@ -197,9 +174,7 @@ describe("own upload status", () => {
 
     expect(
       await writeOwnUploadStatus({
-        cwd,
-        devHome,
-        origin,
+        repo: { owner: "acme", repo: "app" },
         stdout,
         client: service,
       }),
@@ -212,9 +187,7 @@ describe("own upload status", () => {
   it("rejects invalid filters before contacting the store", async () => {
     expect(
       await writeOwnUploadStatus({
-        cwd,
-        devHome,
-        origin,
+        repo: { owner: "acme", repo: "app" },
         stdout,
         client: client(() => Response.json({})),
         limit: 0,

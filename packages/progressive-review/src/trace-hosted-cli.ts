@@ -25,7 +25,7 @@ import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
 import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
-import { inferRepoFromGit, traceRepoName } from "./trace-repo";
+import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
 import { hostedOrigin, readTraceConfigFile } from "./trace-storage/config";
@@ -600,17 +600,18 @@ export async function writeHostedTraceStatus(
     }
   }
 
-  let name: string | null = null;
+  let repo: TraceRepo | null = null;
 
   try {
-    name = traceRepoName(await inferRepoFromGit(input.cwd));
+    repo = await inferRepoFromGit(input.cwd);
   } catch {
-    name = null;
+    repo = null;
   }
 
-  if (name === null) {
+  if (repo === null) {
     stream.write("This directory has no GitHub remote to check.\n");
   } else {
+    const name = traceRepoName(repo);
     const entry = findTraceRepository(config, name);
 
     if (!entry) {
@@ -638,11 +639,11 @@ export async function writeHostedTraceStatus(
       stream.write(describeTraceSyncFailure(failure));
   }
 
-  if (name === null) return 1;
+  if (repo === null) return 1;
 
   return writeOwnUploadStatus({
     ...input,
-    devHome,
+    repo,
     client:
       input.client ??
       (auth && auth.origin === input.origin

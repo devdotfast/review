@@ -3,17 +3,11 @@ import type { Writable } from "node:stream";
 import { listUploadsQuerySchema } from "@dev.fast/trace-shared";
 
 import { StoreApiError, type StoreClient } from "./store-client";
-import { inferRepoFromGit } from "./trace-repo";
-import {
-  type TraceRepositoryTarget,
-  rememberTraceRepositoryTarget,
-} from "./trace-repository-target";
+import type { TraceRepo } from "./trace-repo";
 
 /** A live, writer-authorized check of recorded uploads. */
 export async function writeOwnUploadStatus(input: {
-  cwd: string;
-  origin: string;
-  devHome: string;
+  repo: TraceRepo;
   client: StoreClient | null;
   stdout: Writable;
   session?: string;
@@ -43,11 +37,9 @@ export async function writeOwnUploadStatus(input: {
   const client = input.client;
 
   try {
-    const repo = await inferRepoFromGit(input.cwd);
-
     const store = await client.findStore({
-      owner: repo.owner,
-      name: repo.repo,
+      owner: input.repo.owner,
+      name: input.repo.repo,
     });
 
     if (!store)
@@ -64,25 +56,11 @@ export async function writeOwnUploadStatus(input: {
         "This trace store was deleted.",
       );
 
-    const target: TraceRepositoryTarget = {
-      origin: input.origin,
-      repositoryId: store.repositoryId,
-      storeId: store.storeId,
-      name: store.displayName,
-    };
-
-    await rememberTraceRepositoryTarget({
-      cwd: input.cwd,
-      target,
-      checkout: `${repo.owner}/${repo.repo}`,
-      devHome: input.devHome,
-    }).catch(() => undefined);
-
     if (store.bytesStored !== undefined)
       input.stdout.write(`Stored bytes: ${store.bytesStored}\n`);
-    const page = await client.listOwnUploads(target.repositoryId, query.data);
+    const page = await client.listOwnUploads(store.repositoryId, query.data);
 
-    if (page.storeId !== target.storeId)
+    if (page.storeId !== store.storeId)
       throw new StoreApiError(
         "store_deleted",
         410,

@@ -38,10 +38,7 @@ import {
   sameS3Profile,
   writeTraceConfigFile,
 } from "./trace-storage/config";
-import {
-  type TraceStorageSelection,
-  selectTraceStorage,
-} from "./trace-storage/resolve";
+import { describeSelection, selectTraceStorage } from "./trace-storage/resolve";
 import { S3TraceStorage } from "./trace-storage/s3";
 import {
   type S3Credentials,
@@ -488,38 +485,6 @@ export async function runReviewTraceConfigMigrate(
       error instanceof Error ? error.message : String(error),
     );
   }
-}
-
-export function describeSelection(selection: TraceStorageSelection): string {
-  if (selection.error) return `error (${selection.error})`;
-
-  if (selection.mode === "hosted") {
-    return `hosted (${selection.hosted?.origin ?? "unknown origin"})`;
-  }
-
-  if (selection.mode === "none") return "none configured";
-  const setup = selection.s3;
-  const credentials = setup?.credentials;
-
-  const where = credentials
-    ? `bucket "${credentials.bucket}" at ${credentials.endpoint}`
-    : "mock bucket";
-
-  const source =
-    setup?.source === "profile"
-      ? "config.json profile"
-      : setup?.source === "legacy-file"
-        ? `legacy env file ${setup.envPath}`
-        : setup?.source === "process-env"
-          ? "process environment"
-          : "test mode";
-
-  const overrides =
-    setup && setup.overrides.length > 0 && setup.source !== "process-env"
-      ? `; environment overrides: ${setup.overrides.join(", ")}`
-      : "";
-
-  return `S3/R2 ${where} (${selection.explicit ? "selected" : "legacy configuration"}; credentials from ${source}${overrides})`;
 }
 
 async function requireReachable(

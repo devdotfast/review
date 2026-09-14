@@ -36,12 +36,12 @@ import {
   traceRepositoryStatus,
 } from "./trace-repository-hooks";
 import { TraceProvenanceError } from "./trace-session-provenance";
-import { describeSelection } from "./trace-storage-cli";
 import {
+  describeSelection,
+  resolveTraceStorage,
   selectTraceStorage,
   traceStorageExpectation,
 } from "./trace-storage/resolve";
-import { resolveTraceStorage } from "./trace-storage/resolve";
 import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
 import {
   clearTraceSyncFailure,

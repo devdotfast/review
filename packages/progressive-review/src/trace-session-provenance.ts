@@ -13,8 +13,8 @@ import path from "node:path";
 import { sessionIdSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import { devReviewHome } from "./review-storage";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import {
   type TraceRepositoryTarget,
   traceTargetKey,

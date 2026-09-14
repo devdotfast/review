@@ -35,6 +35,7 @@ import {
   repairTraceRepository,
   traceRepositoryStatus,
 } from "./trace-repository-hooks";
+import { TraceProvenanceError } from "./trace-session-provenance";
 import { describeSelection } from "./trace-storage-cli";
 import {
   selectTraceStorage,
@@ -44,6 +45,7 @@ import { resolveTraceStorage } from "./trace-storage/resolve";
 import type { TraceStorage, TraceStorageKind } from "./trace-storage/types";
 import {
   clearTraceSyncFailure,
+  describeTraceSyncFailure,
   listTraceSyncFailures,
   recordTraceSyncFailure,
 } from "./trace-sync-status";
@@ -105,11 +107,7 @@ export async function runReviewTraceStatus(input: {
   input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
 
   for (const failure of await listTraceSyncFailures()) {
-    input.stdout.write(
-      `Failed background sync: session ${failure.session}${
-        failure.repository ? ` of ${failure.repository}` : ""
-      } at ${failure.at}: ${failure.error} Retry with \`${failure.retry}\`.\n`,
-    );
+    input.stdout.write(describeTraceSyncFailure(failure));
   }
 
   if (!doctor.ok && !doctor.config) {
@@ -706,6 +704,7 @@ export async function runReviewTraceSync(input: {
         .then((repo) => `${repo.owner}/${repo.repo}`)
         .catch(() => null),
       error: message,
+      reason: error instanceof TraceProvenanceError ? error.reason : undefined,
     }).catch(() => undefined);
     throw error;
   }

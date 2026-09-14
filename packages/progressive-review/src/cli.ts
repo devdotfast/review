@@ -17,21 +17,29 @@ import {
 // to. Checkout runs execute src/cli.ts via tsx and therefore never delegate.
 // Delegation runs before the Node floor check on purpose: the app's
 // Electron-as-Node runtime can rescue a machine whose system Node is too old.
-const delegatedExitCode = maybeDelegateToDesktopCli(process.argv.slice(2));
+const argv = process.argv.slice(2);
 
-if (delegatedExitCode !== null) {
-  process.exitCode = delegatedExitCode;
-} else if (!supportedNodeRuntime()) {
-  process.stderr.write(
-    `Review needs Node.js 24 or newer; found ${process.versions.node}. ` +
-      "Update Node, or use the review command installed by Review Desktop.\n",
-  );
-  process.exitCode = 1;
-} else {
+const ownCliPath = fileURLToPath(import.meta.url);
+
+const delegatedExitCode = await maybeDelegateToDesktopCli(argv);
+
+process.exitCode = delegatedExitCode ?? (await runCli(ownCliPath));
+
+async function runCli(effectivePath: string): Promise<number> {
+  if (!supportedNodeRuntime()) {
+    process.stderr.write(
+      `Review needs Node.js 24 or newer; found ${process.versions.node}. ` +
+        "Update Node, or use the review command installed by Review Desktop.\n",
+    );
+
+    return 1;
+  }
+
   const { runProgressiveReviewCli } = await import("./cli-runner.js");
 
-  process.exitCode = await runProgressiveReviewCli({
-    argv: process.argv.slice(2),
+  return runProgressiveReviewCli({
+    argv,
+    cliPaths: { requestedPath: ownCliPath, effectivePath },
     stdin: process.stdin,
     stdout: process.stdout,
     stderr: process.stderr,
@@ -48,7 +56,9 @@ function supportedNodeRuntime(): boolean {
   return Number(process.versions.node.split(".")[0]) >= 24;
 }
 
-function maybeDelegateToDesktopCli(argv: string[]): number | null {
+async function maybeDelegateToDesktopCli(
+  argv: string[],
+): Promise<number | null> {
   const env = process.env;
 
   if (env.DEV_FAST_REVIEW_CLI_NO_DELEGATE || env.DEV_FAST_REVIEW_CLI_DELEGATED)
@@ -113,6 +123,14 @@ function maybeDelegateToDesktopCli(argv: string[]): number | null {
     ...env,
     DEV_FAST_REVIEW_CLI_DELEGATED: "1",
   };
+
+  // The current parser owns verbose diagnostics, including usage errors and
+  // help, even when the selected Desktop CLI predates this option.
+  const command = argv.filter((argument) => argument !== "--json");
+
+  if (command[0] === "version" && command.includes("--verbose")) {
+    return runCli(cliPath);
+  }
 
   if (runtimePath) childEnv.ELECTRON_RUN_AS_NODE = "1";
 

@@ -120,7 +120,14 @@ through a managed `~/.config/opencode/plugins/review-trace.ts` plugin. OpenCode
 keeps sessions in its own database, so `review trace sync` renders one with
 `opencode export` before upload.
 
-Use `review trace status` to inspect the machine and current repository. Use
+Use `review trace status` to inspect the machine, current repository, and your
+recent hosted uploads. Use `review trace status --session <id>` for one session.
+Repository writers can upload and check their own upload status. Repository
+admins can read transcript content. Download links expire after five minutes.
+Status reports the store's publication record; it does not repeat object integrity checks.
+Previously confirmed offline receipts include their confirmation time and do not
+imply that the upload is still current. Omitted files and failed attempts remain visible.
+Use
 `review trace enable`, `review trace disable`, or `review trace repair` only
 when you need to manage the current repository manually.
 

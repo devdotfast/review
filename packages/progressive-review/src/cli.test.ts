@@ -43,9 +43,41 @@ import {
   runReviewThreadsReply as runReviewThreadsReplyActual,
   runReviewThreadsResolve as runReviewThreadsResolveActual,
 } from "./threads-cli";
+import { runReviewTraceStatus as runReviewTraceStatusActual } from "./trace-cli";
 import { runReviewTraceSessions as runReviewTraceSessionsActual } from "./trace-hosted-cli";
 
 describe("Review CLI", () => {
+  it("routes own-upload status filters without requesting trace content", async () => {
+    const runReviewTraceStatus = vi.fn<typeof runReviewTraceStatusActual>(
+      async () => 0,
+    );
+
+    const code = await runProgressiveReviewCli({
+      argv: [
+        "trace",
+        "status",
+        "--session",
+        "my-upload-session",
+        "--limit",
+        "5",
+        "--cursor",
+        "cursor-value",
+      ],
+      stdout: outputStream(),
+      stderr: outputStream(),
+      runtime: { runReviewTraceStatus },
+    });
+
+    expect(code).toBe(0);
+    expect(runReviewTraceStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session: "my-upload-session",
+        limit: 5,
+        cursor: "cursor-value",
+      }),
+    );
+  });
+
   it("routes explicit current-review repair and rejects implicit or historical selection", async () => {
     const runReviewRepair = vi.fn<typeof runReviewRepairActual>(async () => 0);
     const uuid = "11111111-1111-4111-8111-111111111111";

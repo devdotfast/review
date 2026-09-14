@@ -8,6 +8,9 @@ export const TRACE_STORE_CLIENT_ID = "review-cli" as const;
 
 export const PRESIGNED_URL_TTL_SECONDS = 900 as const;
 
+/** Download links are shorter lived than upload links. */
+export const TRACE_DOWNLOAD_URL_TTL_SECONDS = 300 as const;
+
 /** Largest single trace object the store accepts. */
 export const MAX_TRACE_OBJECT_BYTES = 256 * 1024 * 1024;
 
@@ -242,6 +245,41 @@ export const listSessionsResponseSchema = z.object({
 });
 
 export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
+
+/** Operational receipts only. The server always filters by authenticated creator. */
+export const listUploadsQuerySchema = z
+  .object({
+    session: sessionIdSchema.optional(),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_TRACE_SESSIONS_PAGE)
+      .optional(),
+    cursor: z.string().min(1).max(2048).optional(),
+  })
+  .strict();
+
+export type ListUploadsQuery = z.infer<typeof listUploadsQuerySchema>;
+
+export const uploadStatusSchema = z.object({
+  sessionId: sessionIdSchema,
+  uploadId: uploadIdSchema,
+  createdAt: z.string().datetime(),
+  completedAt: z.string().datetime().nullable(),
+  status: z.enum(["pending", "complete"]),
+  current: z.boolean(),
+});
+
+export type UploadStatus = z.infer<typeof uploadStatusSchema>;
+
+export const listUploadsResponseSchema = z.object({
+  storeId: storeIdSchema,
+  uploads: z.array(uploadStatusSchema),
+  nextCursor: z.string().optional(),
+});
+
+export type ListUploadsResponse = z.infer<typeof listUploadsResponseSchema>;
 
 export const storeErrorCodeSchema = z.enum([
   "unauthorized",

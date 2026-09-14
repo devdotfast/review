@@ -36,6 +36,7 @@ import {
   describeTraceSyncFailure,
   listTraceSyncFailures,
 } from "./trace-sync-status";
+import { writeOwnUploadStatus } from "./trace-upload-status";
 import {
   allowTraceRepository,
   denyTraceRepository,
@@ -569,8 +570,11 @@ export async function writeHostedTraceStatus(
     origin: string;
     stdout: Writable;
     client?: StoreClient;
+    session?: string;
+    cursor?: string;
+    limit?: number;
   },
-): Promise<void> {
+): Promise<number> {
   const stream = input.stdout;
   stream.write(HOSTED_CAPTURE_SCOPE_DESCRIPTION);
   const devHome = devReviewHome(input.env, input.homeDir);
@@ -621,34 +625,30 @@ export async function writeHostedTraceStatus(
       stream.write(
         `This repository (${name}) is allowed to publish traces to ${input.origin}.\n`,
       );
-
-      const client =
-        input.client ??
-        (auth && auth.origin === input.origin
-          ? new StoreClient({ origin: auth.origin, token: auth.token })
-          : null);
-
-      if (client) {
-        const [owner = "", repo = ""] = name.split("/");
-
-        const store = await client
-          .findStore({ owner, name: repo })
-          .catch(() => null);
-
-        if (store?.bytesStored !== undefined) {
-          stream.write(`Stored bytes: ${store.bytesStored}\n`);
-        }
-      }
     }
   }
 
   for (const sessionId of await pendingTraceSessions(input.cwd)) {
+    if (input.session !== undefined && input.session !== sessionId) continue;
     stream.write(`Pending agent session: ${sessionId}\n`);
   }
 
   for (const failure of await listTraceSyncFailures(devHome)) {
-    stream.write(describeTraceSyncFailure(failure));
+    if (input.session === undefined || input.session === failure.session)
+      stream.write(describeTraceSyncFailure(failure));
   }
+
+  if (name === null) return 1;
+
+  return writeOwnUploadStatus({
+    ...input,
+    devHome,
+    client:
+      input.client ??
+      (auth && auth.origin === input.origin
+        ? new StoreClient({ origin: auth.origin, token: auth.token })
+        : null),
+  });
 }
 
 /** The agent sessions still marked active in this checkout. */

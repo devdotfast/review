@@ -25,12 +25,14 @@ import {
 } from "../trace-repository-target";
 import { requireTraceSessionProvenance } from "../trace-session-provenance";
 import {
+  TraceObjectHttpError,
   type TraceStoreSession,
   type TraceStoreTransport,
   createHttpTraceStoreTransport,
   gzipToTemp,
 } from "../trace-store-transport";
 import { clearTraceSyncFailure } from "../trace-sync-status";
+import { saveUploadReceipt } from "../trace-upload-receipts";
 import type {
   HostedStorageTarget,
   TraceCommitAssociation,
@@ -105,6 +107,7 @@ export interface HostedStorageParts {
   devHome?: string;
   offline?: boolean;
   onWarning?: TraceStoreWarning;
+  receiptScope?: string | null;
 }
 
 /** The object name the store uses for one trace of a session. */
@@ -135,6 +138,7 @@ export class HostedTraceStorage implements TraceStorage {
   private readonly transport: TraceStoreTransport;
   private readonly devHome: string;
   private readonly warn: TraceStoreWarning;
+  private readonly receiptScope: string | null;
   /** One listing per session per instance; an instance lives one operation. */
   private readonly lookups = new Map<string, Promise<StoreSessionLookup>>();
 
@@ -145,6 +149,7 @@ export class HostedTraceStorage implements TraceStorage {
     this.offline = parts.offline ?? false;
     this.devHome = parts.devHome ?? devReviewHome();
     this.warn = parts.onWarning ?? defaultWarning;
+    this.receiptScope = parts.receiptScope ?? null;
   }
 
   /** A storage over an already resolved target; tests use a memory transport. */
@@ -154,7 +159,7 @@ export class HostedTraceStorage implements TraceStorage {
 
   /**
    * The store for this checkout, or null when no store answers for it. A
-   * reader needs no consent entry: a login plus GitHub push access is enough
+   * reader needs no consent entry: a login plus GitHub admin access is enough
    * and the store enforces that. Without a login, or when the store does
    * not answer, the target this checkout resolved to earlier serves the
    * saved copies with `offline: true`. A write never falls back.
@@ -196,6 +201,7 @@ export class HostedTraceStorage implements TraceStorage {
 
       return new HostedTraceStorage({
         target,
+        receiptScope: client.receiptScope(),
         transport: input.transport ?? createHttpTraceStoreTransport(client),
         devHome,
         onWarning: input.onWarning,
@@ -340,8 +346,56 @@ export class HostedTraceStorage implements TraceStorage {
     );
 
     if (!object) return null;
-    // The transport verifies size and checksum before the file appears.
-    await this.transport.getObject(object, destinationPath);
+    let selected = object;
+    let refreshed = false;
+
+    const refresh = async () => {
+      refreshed = true;
+      this.lookups.delete(sessionId);
+      const fresh = await this.requireSession(sessionId);
+
+      const replacement = fresh?.objects.find(
+        (entry) => entry.name === object.name,
+      );
+
+      if (
+        !fresh ||
+        fresh.uploadId !== stored.uploadId ||
+        !replacement ||
+        replacement.sha256 !== object.sha256 ||
+        replacement.size !== object.size
+      ) {
+        throw new TraceStorageDeniedError(
+          "The trace changed while downloading. Run the read command again.",
+        );
+      }
+
+      return replacement;
+    };
+
+    if (Date.parse(selected.expiresAt) <= Date.now() + 30_000)
+      selected = await refresh();
+
+    try {
+      await this.transport.getObject(selected, destinationPath);
+    } catch (error) {
+      if (!(error instanceof TraceObjectHttpError) || error.status !== 403)
+        throw error;
+
+      if (refreshed) throw new TraceStorageDeniedError(error.message);
+      selected = await refresh();
+
+      try {
+        await this.transport.getObject(selected, destinationPath);
+      } catch (retryError) {
+        if (
+          retryError instanceof TraceObjectHttpError &&
+          retryError.status === 403
+        )
+          throw new TraceStorageDeniedError(retryError.message);
+        throw retryError;
+      }
+    }
 
     return { size: object.size, contentId: contentId(stored, object.sha256) };
   }
@@ -492,7 +546,7 @@ export class HostedTraceStorage implements TraceStorage {
       // commits to it and send nothing. Completing the current upload again
       // is additive for commits and returns its receipt.
       this.lookups.delete(input.sessionId);
-      const current = await this.lookupSession(input.sessionId);
+      const current = await this.lookupSessionLive(input.sessionId, true);
 
       if (
         current.status === "found" &&
@@ -510,12 +564,9 @@ export class HostedTraceStorage implements TraceStorage {
           () => undefined,
         );
 
-        return publishResult(
-          compressed,
-          "unchanged",
-          target,
-          completed,
-          omitted,
+        return this.recordPublication(
+          input.sessionId,
+          publishResult(compressed, "unchanged", target, completed, omitted),
         );
       }
 
@@ -554,7 +605,10 @@ export class HostedTraceStorage implements TraceStorage {
         () => undefined,
       );
 
-      return publishResult(compressed, "uploaded", target, completed, omitted);
+      return this.recordPublication(
+        input.sessionId,
+        publishResult(compressed, "uploaded", target, completed, omitted),
+      );
     } finally {
       for (const object of compressed) {
         await object.cleanup();
@@ -568,6 +622,31 @@ export class HostedTraceStorage implements TraceStorage {
   }
 
   // --- helpers -------------------------------------------------------------
+
+  private async recordPublication(
+    sessionId: string,
+    result: TracePublishResult,
+  ): Promise<TracePublishResult> {
+    const hosted = result.hosted;
+
+    if (this.receiptScope && hosted) {
+      await saveUploadReceipt({
+        scope: this.receiptScope,
+        target: this.repositoryTarget,
+        sessionId,
+        uploadId: hosted.uploadId,
+        confirmedAt: new Date().toISOString(),
+        omitted: hosted.omitted,
+        devHome: this.devHome,
+      }).catch(() =>
+        this.warn(
+          "Upload completed, but its local receipt could not be saved.",
+        ),
+      );
+    }
+
+    return result;
+  }
 
   private async requireSession(
     sessionId: string,
@@ -601,6 +680,7 @@ export class HostedTraceStorage implements TraceStorage {
 
   private async lookupSessionLive(
     sessionId: string,
+    publishing = false,
   ): Promise<StoreSessionLookup> {
     if (this.offline) return { status: "unreachable", error: null };
 
@@ -617,7 +697,15 @@ export class HostedTraceStorage implements TraceStorage {
       return session ? { status: "found", session } : { status: "absent" };
     } catch (error) {
       const cause = error instanceof Error ? error : new Error(String(error));
-      this.reportFailure(cause);
+
+      if (
+        !(
+          publishing &&
+          cause instanceof StoreApiError &&
+          cause.code === "forbidden"
+        )
+      )
+        this.reportFailure(cause);
 
       if (isStoreUnreachable(cause)) {
         return { status: "unreachable", error: cause };

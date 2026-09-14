@@ -12,5 +12,11 @@ as `trace-shared-v<version>`.
 Install the public package without registry-specific authentication:
 
 ```sh
-npm install @dev.fast/trace-shared@0.3.0
+npm install @dev.fast/trace-shared@0.4.0
 ```
+
+Version 0.4 adds `listUploadsQuerySchema`, `listUploadsResponseSchema`, and
+`storeRoutes.ownUploads(repositoryId)` for creator-scoped upload status.
+The server authenticates the creator; clients cannot select a different owner.
+This operation returns publication status, not transcript content or download links.
+Download links last five minutes; upload links retain their fifteen-minute window.

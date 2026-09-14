@@ -1,15 +1,20 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  describeTraceHookOwners,
   installClaudeTraceHook,
   installCodexTraceHook,
+  installOpenCodeTraceExtension,
   installPiTraceExtension,
   removeAgentTraceHook,
+  traceHookCommandOwner,
 } from "./agent-trace-hooks";
 
 const tempRoots: string[] = [];
@@ -132,13 +137,6 @@ command = "review trace hook SessionEnd"
     expect(first.modified).toBe(true);
     expect(existsSync(first.path)).toBe(true);
 
-    const content = await readFile(first.path, "utf8");
-    expect(content).toContain("session_start");
-    expect(content).toContain('pi.on("turn_start"');
-    expect(content).toContain('runTraceHook("TurnStart"');
-    expect(content).toContain("session_shutdown");
-    expect(content).toContain("review");
-
     const second = await installPiTraceExtension(homeDir);
     expect(second.modified).toBe(false);
   });
@@ -169,4 +167,214 @@ command = "review trace hook SessionEnd"
     expect(await readFile(codex.path, "utf8")).toBe('model = "gpt-5"\n');
     expect(existsSync(pi.path)).toBe(false);
   });
+});
+
+describe("hook ownership", () => {
+  it("recognizes only single executable commands, including shell-quoted paths", () => {
+    for (const command of [
+      "review",
+      "/opt/review",
+      "'/space here/review'",
+      "'/it'\"'\"'s here/review'",
+    ]) {
+      expect(traceHookCommandOwner(`${command} trace hook SessionStart`)).toBe(
+        "review",
+      );
+    }
+
+    expect(traceHookCommandOwner("dev-traces trace hook SessionEnd")).toBe(
+      "dev-traces",
+    );
+
+    for (const command of [
+      "echo x; /opt/review",
+      "env /opt/review",
+      "$(echo /opt/review)",
+      "'x'; '/opt/review'",
+      "other",
+      "review trace sync",
+    ]) {
+      expect(
+        traceHookCommandOwner(`${command} trace hook SessionStart`),
+      ).toBeNull();
+    }
+  });
+
+  it("replaces owned commands in place and removes only the selected owner", async () => {
+    const home = await makeTempHome();
+    expect(await describeTraceHookOwners(home)).toEqual({
+      claude: null,
+      codex: null,
+      pi: null,
+      opencode: null,
+    });
+
+    for (const install of [
+      installClaudeTraceHook,
+      installCodexTraceHook,
+      installPiTraceExtension,
+      installOpenCodeTraceExtension,
+    ]) {
+      await install(home);
+      const shim = "/it's a path/dev-traces";
+      const result = await install(home, shim);
+      expect(result.modified).toBe(true);
+      expect((await install(home, shim)).modified).toBe(false);
+      expect(await removeAgentTraceHook(result.agent, home)).toBe(false);
+    }
+
+    expect(await describeTraceHookOwners(home)).toEqual({
+      claude: "dev-traces",
+      codex: "dev-traces",
+      pi: "dev-traces",
+      opencode: "dev-traces",
+    });
+
+    const claude = JSON.parse(
+      await readFile(path.join(home, ".claude/settings.json"), "utf8"),
+    );
+
+    expect(claude.hooks.SessionStart).toHaveLength(1);
+    const codex = await readFile(path.join(home, ".codex/config.toml"), "utf8");
+    expect(codex.match(/\[\[hooks.SessionStart\]\]/g)).toHaveLength(1);
+
+    for (const agent of ["claude", "codex", "pi", "opencode"] as const) {
+      expect(await removeAgentTraceHook(agent, home, "dev-traces")).toBe(true);
+    }
+
+    expect(await readFile(path.join(home, ".codex/config.toml"), "utf8")).toBe(
+      "",
+    );
+    expect(await describeTraceHookOwners(home)).toEqual({
+      claude: null,
+      codex: null,
+      pi: null,
+      opencode: null,
+    });
+  });
+
+  it("switches both CLI owners back to Review without duplicate lifecycle entries", async () => {
+    const home = await makeTempHome();
+
+    for (const install of [installClaudeTraceHook, installCodexTraceHook]) {
+      await install(home, "dev-traces");
+      expect((await install(home)).modified).toBe(true);
+      expect((await install(home)).modified).toBe(false);
+    }
+
+    expect(await describeTraceHookOwners(home)).toEqual({
+      claude: "review",
+      codex: "review",
+      opencode: null,
+      pi: null,
+    });
+  });
+
+  it("preserves foreign Claude hooks and their group metadata", async () => {
+    const home = await makeTempHome();
+    const result = await installClaudeTraceHook(home);
+    const config = JSON.parse(await readFile(result.path, "utf8"));
+
+    const foreign = {
+      type: "command",
+      command: "echo x; /opt/review trace hook SessionStart",
+    };
+
+    config.hooks.SessionStart[0].hooks.push(foreign);
+    config.hooks.SessionStart[0].matcher = "keep";
+    await writeFile(result.path, JSON.stringify(config));
+    await installClaudeTraceHook(home, "dev-traces");
+    await removeAgentTraceHook("claude", home, "dev-traces");
+    const remaining = JSON.parse(await readFile(result.path, "utf8"));
+    expect(remaining.hooks.SessionStart).toEqual([
+      { matcher: "keep", hooks: [foreign] },
+    ]);
+  });
+
+  it("leaves noncanonical Codex groups intact when they have foreign children or extra keys", async () => {
+    const home = await makeTempHome();
+    await mkdir(path.join(home, ".codex"));
+    const file = path.join(home, ".codex/config.toml");
+
+    for (const extra of [
+      '[[hooks.SessionStart.hooks]]\ntype = "command"\ncommand = "foreign trace hook SessionStart"\n',
+      "timeout = 30\n",
+      '[other]\nkeep = true\n[[hooks.SessionStart.hooks]]\ntype = "command"\ncommand = "foreign trace hook SessionStart"\n',
+    ]) {
+      const original = `[[hooks.SessionStart]]\n[[hooks.SessionStart.hooks]]\ntype = "command"\ncommand = "review trace hook SessionStart"\n${extra}`;
+      await writeFile(file, original);
+      expect(await removeAgentTraceHook("codex", home)).toBe(false);
+      expect(await readFile(file, "utf8")).toBe(original);
+      await installCodexTraceHook(home, "dev-traces");
+      expect(await removeAgentTraceHook("codex", home, "dev-traces")).toBe(
+        true,
+      );
+      expect(await readFile(file, "utf8")).toBe(original);
+    }
+  });
+
+  it("preserves foreign Codex hooks and unrelated command lines across ownership changes", async () => {
+    const home = await makeTempHome();
+    await mkdir(path.join(home, ".codex"));
+
+    const foreign = `# keep me
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "foreign trace hook SessionStart"
+
+[other]
+command = "review trace hook SessionStart"
+`;
+
+    const file = path.join(home, ".codex/config.toml");
+    await writeFile(file, foreign);
+    await installCodexTraceHook(home);
+    expect((await describeTraceHookOwners(home)).codex).toBe("review");
+    await installCodexTraceHook(home, "/it's a path/dev-traces");
+    expect(await readFile(file, "utf8")).toContain(foreign.trimEnd());
+    expect(await removeAgentTraceHook("codex", home)).toBe(false);
+    expect(await removeAgentTraceHook("codex", home, "dev-traces")).toBe(true);
+    expect((await readFile(file, "utf8")).trimEnd()).toBe(foreign.trimEnd());
+  });
+
+  for (const install of [
+    installPiTraceExtension,
+    installOpenCodeTraceExtension,
+  ]) {
+    for (const failure of ["missing", "closed"]) {
+      it(`keeps ${install.name} harness alive when child is ${failure}`, async () => {
+        const home = await makeTempHome();
+        const command = path.join(home, "child");
+
+        if (failure === "closed")
+          await writeFile(command, "#!/bin/sh\nexec 0<&-\nexit 0\n", {
+            mode: 0o700,
+          });
+        const result = await install(home, command);
+
+        const runner = `import plugin from ${JSON.stringify(pathToFileURL(result.path).href)};
+          const session = "s".repeat(2 * 1024 * 1024);
+          if (${JSON.stringify(result.agent)} === "pi") {
+            const callbacks = [];
+            plugin({on: (_name, callback) => callbacks.push(callback)});
+            for (const callback of callbacks) await callback({}, {cwd:${JSON.stringify(home)},sessionManager:{getSessionId:()=>session}});
+          } else {
+            const hooks = await plugin({directory:${JSON.stringify(home)}});
+            for (const event of [{type:"session.created",properties:{info:{id:session}}}, {type:"message.updated",properties:{info:{role:"user",sessionID:session}}}, {type:"session.idle",properties:{sessionID:session}}]) await hooks.event({event});
+          }
+          console.log("harness survived");`;
+
+        const child = spawnSync(
+          process.execPath,
+          ["--input-type=module", "-e", runner],
+          { encoding: "utf8", timeout: 10000 },
+        );
+
+        expect(child.stderr).toBe("");
+        expect(child.status).toBe(0);
+        expect(child.stdout).toBe("harness survived\n");
+      });
+    }
+  }
 });

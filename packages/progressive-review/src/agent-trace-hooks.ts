@@ -26,6 +26,66 @@ const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
 
 const OPENCODE_TRACE_PLUGIN_MARKER = PI_EXTENSION_MARKER;
 
+export type TraceHookOwner = "review" | "dev-traces";
+
+function claudeSettingsPath(homeDir: string): string {
+  return path.join(homeDir, ".claude", "settings.json");
+}
+
+function codexConfigPath(homeDir: string): string {
+  return path.join(homeDir, ".codex", "config.toml");
+}
+
+function piExtensionPath(homeDir: string): string {
+  return path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts");
+}
+
+function openCodePluginPath(homeDir: string): string {
+  return path.join(
+    homeDir,
+    ".config",
+    "opencode",
+    "plugins",
+    "review-trace.ts",
+  );
+}
+
+function executableOwner(file: string): TraceHookOwner | null {
+  const base = path.basename(file);
+
+  return base === "review" || base === "dev-traces" ? base : null;
+}
+
+/** Identifies a single executable lifecycle command; never accepts shell compounds. */
+export function traceHookCommandOwner(
+  command: JsonValue | undefined,
+): TraceHookOwner | null {
+  const text = jsonString(command);
+
+  if (text === undefined) return null;
+
+  const match =
+    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(text);
+
+  if (!match) return null;
+  const prefix = match[1];
+
+  if (/^[a-zA-Z0-9_./-]+$/.test(prefix)) return executableOwner(prefix);
+  const decoded = prefix.slice(1, -1).replaceAll(`'"'"'`, "'");
+
+  return shellQuote(decoded) === prefix ? executableOwner(decoded) : null;
+}
+
+function extensionOwner(source: string): TraceHookOwner | null {
+  if (!source.trimStart().startsWith(`// ${PI_EXTENSION_MARKER}`)) return null;
+  const match = /spawn\(("(?:[^"\\]|\\.)*"), \["trace", "hook"/.exec(source);
+
+  if (!match) return null;
+  const file = jsonString(parseJsonText(match[1]));
+
+  return file === undefined ? null : executableOwner(file);
+}
+
 function piExtensionSource(reviewCommand: string): string {
   return `// ${PI_EXTENSION_MARKER}
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -62,6 +122,9 @@ function runTraceHook(eventName: string, sessionId: string, cwd: string) {
     stdio: ["pipe", "ignore", "ignore"],
   });
 
+  // Missing binaries and closed pipes must never crash the harness.
+  proc.on("error", () => {});
+  proc.stdin.on("error", () => {});
   proc.stdin.end(payload);
 }
 `;
@@ -147,6 +210,9 @@ function runTraceHook(eventName: string, sessionId: string, cwd: string) {
     stdio: ["pipe", "ignore", "ignore"],
   });
 
+  // Missing binaries and closed pipes must never crash the harness.
+  proc.on("error", () => {});
+  proc.stdin.on("error", () => {});
   proc.stdin.end(payload);
 }
 `;
@@ -160,7 +226,7 @@ export async function installClaudeTraceHook(
   reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const settingsDir = path.join(homeDir, ".claude");
-  const settingsPath = path.join(settingsDir, "settings.json");
+  const settingsPath = claudeSettingsPath(homeDir);
 
   let parsed: JsonObject = {};
 
@@ -190,28 +256,31 @@ export async function installClaudeTraceHook(
     "SessionEnd",
   ] as const) {
     const existing = hooks[eventName];
-    const existingGroup: JsonValue[] = isJsonArray(existing) ? existing : [];
+    const group: JsonValue[] = isJsonArray(existing) ? existing : [];
+    const wanted = hookCommand(eventName);
+    let found = false;
 
-    const hasHook = existingGroup.some((entry) => {
-      if (!isJsonObject(entry)) return false;
-      const subHooks = entry.hooks;
+    for (const entry of group) {
+      if (!isJsonObject(entry) || !isJsonArray(entry.hooks)) continue;
 
-      if (isJsonArray(subHooks)) {
-        return subHooks.some(
-          (h) => isJsonObject(h) && isReviewTraceHookCommand(h.command),
-        );
+      for (const hook of entry.hooks) {
+        if (!isJsonObject(hook) || traceHookCommandOwner(hook.command) === null)
+          continue;
+        found = true;
+
+        if (hook.command !== wanted.command) {
+          hook.command = wanted.command;
+          modified = true;
+        }
       }
+    }
 
-      return false;
-    });
-
-    if (!hasHook) {
-      existingGroup.push({
-        hooks: [hookCommand(eventName)],
-      });
-      hooks[eventName] = existingGroup;
+    if (!found) {
+      group.push({ hooks: [wanted] });
       modified = true;
     }
+
+    hooks[eventName] = group;
   }
 
   if (modified || !existsSync(settingsPath)) {
@@ -235,7 +304,7 @@ export async function installCodexTraceHook(
   reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const codexDir = path.join(homeDir, ".codex");
-  const configPath = path.join(codexDir, "config.toml");
+  const configPath = codexConfigPath(homeDir);
 
   let existing = "";
 
@@ -249,26 +318,31 @@ export async function installCodexTraceHook(
     "SessionEnd",
   ] as const;
 
-  const missingEvents = hookEvents.filter(
-    (eventName) => !existing.includes(` trace hook ${eventName}`),
-  );
+  const found = new Set<string>();
 
-  if (missingEvents.length === 0) {
-    return { agent: "codex", path: configPath, modified: false };
+  let next = transformCodexHooks(existing, (block, command, event) => {
+    if (traceHookCommandOwner(command) === null) return block;
+    found.add(event);
+
+    return block.replace(
+      /^command = .*$/m,
+      () =>
+        `command = ${JSON.stringify(`${shellCommand(reviewCommand)} trace hook ${event}`)}`,
+    );
+  });
+
+  const missing = hookEvents.filter((event) => !found.has(event));
+
+  if (missing.length > 0) {
+    next = existing
+      ? `${next.trimEnd()}\n\n${missing.map((event) => codexTraceHookToml(event, reviewCommand)).join("\n\n")}\n`
+      : codexHookBlock(reviewCommand).trimStart();
   }
 
-  const missingHookToml = missingEvents
-    .map((eventName) => codexTraceHookToml(eventName, reviewCommand))
-    .join("\n\n");
-
+  if (next === existing)
+    return { agent: "codex", path: configPath, modified: false };
   await mkdir(codexDir, { recursive: true });
-  await writeFile(
-    configPath,
-    existing
-      ? `${existing.trimEnd()}\n\n${missingHookToml.trim()}\n`
-      : codexHookBlock(reviewCommand).trimStart(),
-    "utf8",
-  );
+  await writeFile(configPath, next, "utf8");
 
   return { agent: "codex", path: configPath, modified: true };
 }
@@ -281,7 +355,7 @@ export async function installPiTraceExtension(
   reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const extensionsDir = path.join(homeDir, ".pi", "agent", "extensions");
-  const extensionPath = path.join(extensionsDir, "review-trace.ts");
+  const extensionPath = piExtensionPath(homeDir);
 
   let existing = "";
 
@@ -309,7 +383,7 @@ export async function installOpenCodeTraceExtension(
   reviewCommand = traceCliName(),
 ): Promise<AgentTraceHookInstallResult> {
   const pluginsDir = path.join(homeDir, ".config", "opencode", "plugins");
-  const pluginPath = path.join(pluginsDir, "review-trace.ts");
+  const pluginPath = openCodePluginPath(homeDir);
 
   let existing = "";
 
@@ -329,13 +403,14 @@ export async function installOpenCodeTraceExtension(
   return { agent: "opencode", path: pluginPath, modified: true };
 }
 
-/** Removes only lifecycle hooks that Review owns for one agent. */
+/** Removes only the selected CLI owner’s lifecycle hooks; preserves foreign hooks. */
 export async function removeAgentTraceHook(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
+  owner: TraceHookOwner = "review",
 ): Promise<boolean> {
   if (agent === "claude") {
-    const settingsPath = path.join(homeDir, ".claude", "settings.json");
+    const settingsPath = claudeSettingsPath(homeDir);
 
     if (!existsSync(settingsPath)) return false;
     let parsed: JsonValue;
@@ -367,7 +442,7 @@ export async function removeAgentTraceHook(
 
         const keptHooks = group.hooks.filter((hook) => {
           const command = isJsonObject(hook) ? hook.command : undefined;
-          const owned = isReviewTraceHookCommand(command);
+          const owned = traceHookCommandOwner(command) === owner;
 
           if (owned) changed = true;
 
@@ -393,20 +468,14 @@ export async function removeAgentTraceHook(
   }
 
   if (agent === "codex") {
-    const configPath = path.join(homeDir, ".codex", "config.toml");
+    const configPath = codexConfigPath(homeDir);
 
     if (!existsSync(configPath)) return false;
     const existing = await readFile(configPath, "utf8");
 
-    const marked =
-      /# review-trace-hooks:start\n[\s\S]*?# review-trace-hooks:end\n?/;
-
-    const withoutMarkedBlock = existing.replace(marked, "");
-
-    const removed = ["SessionStart", "UserPromptSubmit", "SessionEnd"].reduce(
-      (content, eventName) => removeCodexTraceHook(content, eventName),
-      withoutMarkedBlock,
-    );
+    const removed = transformCodexHooks(existing, (block, command) =>
+      traceHookCommandOwner(command) === owner ? "" : block,
+    ).replace(/# review-trace-hooks:start\n\s*# review-trace-hooks:end\n?/, "");
 
     if (removed === existing) return false;
     const next = removed.replace(/\n{3,}/g, "\n\n");
@@ -420,14 +489,12 @@ export async function removeAgentTraceHook(
   }
 
   const extensionPath =
-    agent === "pi"
-      ? path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts")
-      : path.join(homeDir, ".config", "opencode", "plugins", "review-trace.ts");
+    agent === "pi" ? piExtensionPath(homeDir) : openCodePluginPath(homeDir);
 
   if (!existsSync(extensionPath)) return false;
   const existing = await readFile(extensionPath, "utf8");
 
-  if (!existing.trimStart().startsWith(`// ${PI_EXTENSION_MARKER}`)) {
+  if (extensionOwner(existing) !== owner) {
     return false;
   }
 
@@ -438,19 +505,6 @@ export async function removeAgentTraceHook(
 
 function shellCommand(command: string): string {
   return command === traceCliName() ? command : shellQuote(command);
-}
-
-function isReviewTraceHookCommand(command: JsonValue | undefined): boolean {
-  const text = jsonString(command);
-
-  if (text === undefined) return false;
-
-  const match =
-    /^(.*) trace hook (SessionStart|UserPromptSubmit|SessionEnd)$/.exec(text);
-
-  if (!match) return false;
-
-  return match[1] === "review" || match[1].endsWith("/review'");
 }
 
 function codexTraceHookToml(
@@ -465,7 +519,7 @@ function codexTraceHookToml(
   return `[[hooks.${eventName}]]
 [[hooks.${eventName}.hooks]]
 type = "command"
-command = "${shellCommand(reviewCommand)} trace hook ${eventName}"${status}`;
+command = ${JSON.stringify(`${shellCommand(reviewCommand)} trace hook ${eventName}`)}${status}`;
 }
 
 /** The whole marked block, written when the Codex config is empty. */
@@ -477,17 +531,116 @@ function codexHookBlock(reviewCommand: string): string {
     .join("\n\n")}\n# review-trace-hooks:end\n`;
 }
 
-function removeCodexTraceHook(content: string, eventName: string): string {
-  const escapedEvent = eventName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Restrict edits to the lifecycle blocks we generate, never arbitrary TOML keys.
+// JSON basic strings are also valid TOML strings; parse the same emitted subset.
+function transformCodexHooks(
+  content: string,
+  transform: (block: string, command: string, event: string) => string,
+): string {
+  return content.replace(
+    /^\[\[hooks\.(SessionStart|UserPromptSubmit|SessionEnd)\]\]\n\[\[hooks\.\1\.hooks\]\]\ntype = "command"\ncommand = ("(?:[^"\\\n]|\\.)*")(?:\n|$)(?:statusMessage = "[^"\n]*"(?:\n|$))?/gm,
+    (block: string, event: string, encoded: string, offset: number) => {
+      // A generated prefix is not proof of an entire owned group. Extra keys
+      // and later child tables still depend on the parent header we remove.
+      let reachedOtherTable = false;
 
-  const pattern = new RegExp(
-    `(?:^|\\n)\\[\\[hooks\\.${escapedEvent}\\]\\]\\n` +
-      `\\[\\[hooks\\.${escapedEvent}\\.hooks\\]\\]\\n` +
-      `type = "command"\\n` +
-      `command = "[^"\\n]* trace hook ${escapedEvent}"\\n` +
-      `(?:statusMessage = "[^"\\n]*"\\n)?`,
-    "g",
+      for (const line of content.slice(offset + block.length).split("\n")) {
+        const trimmed = line.trim();
+
+        if (!trimmed || trimmed.startsWith("#")) continue;
+
+        if (!trimmed.startsWith("[")) {
+          if (!reachedOtherTable) return block;
+          continue;
+        }
+
+        const header = /^\[{1,2}([A-Za-z0-9_.-]+)\]{1,2}(?:\s*#.*)?$/.exec(
+          trimmed,
+        );
+
+        // Unrecognized table syntax is preserved rather than guessed at.
+        if (!header) return block;
+
+        if (trimmed === `[[hooks.${event}]]`) break;
+
+        if (
+          header[1] === `hooks.${event}` ||
+          header[1].startsWith(`hooks.${event}.`)
+        )
+          return block;
+        reachedOtherTable = true;
+      }
+
+      try {
+        const command = jsonString(parseJsonText(encoded));
+
+        if (!command?.endsWith(` trace hook ${event}`)) return block;
+
+        return transform(block, command, event);
+      } catch {
+        return block;
+      }
+    },
+  );
+}
+
+export interface TraceHookOwners {
+  claude: TraceHookOwner | null;
+  codex: TraceHookOwner | null;
+  opencode: TraceHookOwner | null;
+  pi: TraceHookOwner | null;
+}
+
+async function readTextOrEmpty(filePath: string): Promise<string> {
+  return existsSync(filePath) ? readFile(filePath, "utf8") : "";
+}
+
+/** Reports recognized SessionStart owners and extension owners without changing files. */
+export async function describeTraceHookOwners(
+  homeDir = os.homedir(),
+): Promise<TraceHookOwners> {
+  let claude: TraceHookOwner | null = null;
+
+  try {
+    const parsed = parseJsonText(
+      await readTextOrEmpty(claudeSettingsPath(homeDir)),
+    );
+
+    const hooks = isJsonObject(parsed) ? parsed.hooks : undefined;
+    const groups = isJsonObject(hooks) ? hooks.SessionStart : undefined;
+
+    for (const group of isJsonArray(groups) ? groups : []) {
+      if (!isJsonObject(group) || !isJsonArray(group.hooks)) continue;
+
+      for (const hook of group.hooks) {
+        const owner = isJsonObject(hook)
+          ? traceHookCommandOwner(hook.command)
+          : null;
+
+        if (owner) claude = owner;
+      }
+    }
+  } catch {
+    claude = null;
+  }
+
+  let codex: TraceHookOwner | null = null;
+  transformCodexHooks(
+    await readTextOrEmpty(codexConfigPath(homeDir)),
+    (block, command, event) => {
+      if (event === "SessionStart")
+        codex = traceHookCommandOwner(command) ?? codex;
+
+      return block;
+    },
   );
 
-  return content.replace(pattern, "\n");
+  return {
+    claude,
+    codex,
+    opencode: extensionOwner(
+      await readTextOrEmpty(openCodePluginPath(homeDir)),
+    ),
+    pi: extensionOwner(await readTextOrEmpty(piExtensionPath(homeDir))),
+  };
 }

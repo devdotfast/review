@@ -3,13 +3,13 @@ import path from "node:path";
 
 import type { ReviewRecord } from "@dev.fast/review-protocol";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import {
   type StoredReview,
   type StoredReviewRecord,
   parseStoredReviewRecord,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 
 /**
  * The reader-facing lifecycle: new -> viewed -> dismissed. It is a separate

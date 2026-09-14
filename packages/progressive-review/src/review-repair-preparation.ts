@@ -11,6 +11,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import { errorMessage as message } from "./error-message";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import {
@@ -44,7 +45,6 @@ import {
   readReviewThreadDatabaseFingerprint,
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import {
   bundleReviewSoftwareMap,
   readReviewSoftwareMapBundle,

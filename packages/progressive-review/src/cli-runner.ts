@@ -62,6 +62,7 @@ import {
   listReviews,
   sealReviewCandidate,
 } from "./review-home";
+import { reviewDesktopDiscoveryPath } from "./review-home-paths";
 import { runReviewInfo } from "./review-info";
 import { runReviewInternalTest } from "./review-internal-test";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
@@ -77,7 +78,6 @@ import { runReviewRepair } from "./review-repair";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
-import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
   DEFAULT_STORE_ORIGIN,

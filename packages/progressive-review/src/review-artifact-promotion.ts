@@ -3,8 +3,8 @@ import path from "node:path";
 
 import type { ReviewRecord } from "@dev.fast/review-protocol";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import { isMissingFileError } from "./native-agent/transcript-json";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 
 export async function promoteReviewArtifactFiles(input: {
   reviewDir: string;

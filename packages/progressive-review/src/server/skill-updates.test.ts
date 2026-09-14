@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { reviewCliInstallResyncRequest } from "../../../../apps/review-desktop/code-oss/src/vs/review/common/reviewCliInstall";
+import { writePrivateJsonAtomic } from "../atomic-write";
 import { collectingWritable } from "../cli-output";
 import { readSkillVersion, runInstall } from "../install";
 import {
@@ -23,7 +24,6 @@ import {
   installFingerprint,
   resolveCliInstallStatus,
 } from "./cli-install";
-import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFileAsync = promisify(execFile);
 

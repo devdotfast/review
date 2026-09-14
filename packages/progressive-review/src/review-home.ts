@@ -30,6 +30,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import {
   type SessionRef,
   authoringSessionKey,
@@ -59,7 +60,6 @@ import {
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { resolveReviewRepositoryIdentity } from "./server/repository-identity";
 import { withFileLock } from "./with-file-lock";
 

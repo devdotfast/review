@@ -13,6 +13,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import {
   authoringSessionKey,
   parseAuthoringSessionKey,
@@ -48,7 +49,6 @@ import {
   type ReviewThreadDbMigrationOptions,
   migrateReviewThreadDb,
 } from "./review-thread-store-backend";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import {
   type ReviewSoftwareMapBundle,
   bundleReviewSoftwareMap,

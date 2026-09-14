@@ -36,6 +36,7 @@ import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
+import { writePrivateJsonAtomic } from "../atomic-write";
 import {
   type ReviewAgentHarness,
   type SessionRef,
@@ -83,6 +84,7 @@ import {
   reviewsHomeDir,
   touchReviewAgentSession,
 } from "../review-home";
+import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import type { RunReviewInfoInput } from "../review-info";
 import {
   ReviewBusyError,
@@ -118,10 +120,6 @@ import {
   resolveInstalledReviewAgentStatus,
   skipCliInstall,
 } from "./cli-install";
-import {
-  reviewDesktopDiscoveryPath,
-  writePrivateJsonAtomic,
-} from "./desktop-paths";
 import {
   GlobalReviewDesktopVerbRelay,
   type ReviewDesktopVerbRelay,

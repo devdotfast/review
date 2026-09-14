@@ -22,6 +22,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import { emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { readDirectory } from "./fs-utils";
@@ -37,7 +38,6 @@ import {
 } from "./review-home";
 import { devReviewHome } from "./review-storage";
 import { reviewVcs } from "./review-vcs";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 import { migrateStoredReviewData } from "./stored-review-migration";
 

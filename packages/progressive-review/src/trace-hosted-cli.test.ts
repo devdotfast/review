@@ -367,6 +367,85 @@ describe("hosted trace commands", () => {
     );
   });
 
+  it("refuses a page size outside the store's bounds before any call", async () => {
+    await selectHosted();
+    const requests: string[] = [];
+    const err = collect();
+
+    const code = await runReviewTraceSessions({
+      cwd: repo,
+      env,
+      homeDir: home,
+      limit: 0,
+      stdout: collect().stream,
+      stderr: err.stream,
+      client: client((url) => {
+        requests.push(url);
+
+        throw new Error("the store must not be called");
+      }),
+    });
+
+    expect(code).toBe(1);
+    expect(err.text()).toContain(
+      "--limit must be a whole number from 1 to 200.",
+    );
+    expect(requests).toEqual([]);
+  });
+
+  it("refuses a cursor that is no session id before any call", async () => {
+    await selectHosted();
+    const requests: string[] = [];
+    const err = collect();
+
+    const code = await runReviewTraceSessions({
+      cwd: repo,
+      env,
+      homeDir: home,
+      cursor: "bad cursor!",
+      stdout: collect().stream,
+      stderr: err.stream,
+      client: client((url) => {
+        requests.push(url);
+
+        throw new Error("the store must not be called");
+      }),
+    });
+
+    expect(code).toBe(1);
+    expect(err.text()).toContain(
+      "--cursor must be a session id from a previous page.",
+    );
+    expect(requests).toEqual([]);
+  });
+
+  it("keeps the page size in the next-page command", async () => {
+    await selectHosted();
+    const out = collect();
+
+    const code = await runReviewTraceSessions({
+      cwd: repo,
+      env,
+      homeDir: home,
+      limit: 10,
+      stdout: out.stream,
+      stderr: collect().stream,
+      client: client((url) =>
+        url.includes("/stores?")
+          ? Response.json(STORE)
+          : Response.json({
+              sessions: [session("session-0001")],
+              nextCursor: "session-0001",
+            }),
+      ),
+    });
+
+    expect(code).toBe(0);
+    expect(out.text()).toContain(
+      "review trace sessions --limit 10 --cursor session-0001",
+    );
+  });
+
   it("deletes the store on request after withdrawing consent", async () => {
     await allowTraceRepository(
       { repositoryId: 7, name: "acme/app", origin: ORIGIN },

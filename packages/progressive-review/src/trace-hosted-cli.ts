@@ -1,7 +1,11 @@
 import type { Writable } from "node:stream";
 
 import { git } from "@dev.fast/local-vcs";
-import type { ListSessionsResponse } from "@dev.fast/trace-shared";
+import {
+  type ListSessionsResponse,
+  MAX_TRACE_SESSIONS_PAGE,
+  sessionIdSchema,
+} from "@dev.fast/trace-shared";
 
 import {
   installClaudeTraceHook,
@@ -386,12 +390,37 @@ export async function runReviewTraceSessions(
   const fail = (message: string): number =>
     failWithJsonError(input, "sessions", message);
 
+  // The store rejects a bad page size or cursor as `invalid_request`, which
+  // this command reads as an older store. Bound both flags here, so that
+  // answer can only mean the store is older than the unfiltered listing.
+  if (
+    input.limit !== undefined &&
+    (!Number.isInteger(input.limit) ||
+      input.limit < 1 ||
+      input.limit > MAX_TRACE_SESSIONS_PAGE)
+  ) {
+    return fail(
+      `--limit must be a whole number from 1 to ${MAX_TRACE_SESSIONS_PAGE}.`,
+    );
+  }
+
+  if (
+    input.cursor !== undefined &&
+    !sessionIdSchema.safeParse(input.cursor).success
+  ) {
+    return fail("--cursor must be a session id from a previous page.");
+  }
+
   const selection = selectTraceStorage({
     env: input.env,
     homeDir: input.homeDir,
   });
 
-  if (selection.error) return fail(selection.error);
+  // An explicit `--storage hosted` sidesteps an s3 configuration error: the
+  // hosted store this command reads needs no bucket credentials.
+  if (selection.error && !(input.storage === "hosted" && selection.hosted)) {
+    return fail(selection.error);
+  }
 
   const mode = input.storage ?? selection.mode;
 
@@ -514,9 +543,12 @@ export async function runReviewTraceSessions(
     );
   }
 
+  const nextPageLimit =
+    input.limit === undefined ? "" : ` --limit ${input.limit}`;
+
   stream.write(
     page.nextCursor
-      ? `Sessions are ordered by id. More follow: run \`review trace sessions --cursor ${page.nextCursor}\`.\n`
+      ? `Sessions are ordered by id. More follow: run \`review trace sessions${nextPageLimit} --cursor ${page.nextCursor}\`.\n`
       : "Sessions are ordered by id. This is the last page.\n",
   );
 

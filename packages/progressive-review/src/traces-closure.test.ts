@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
  * part of a bundle's eager graph.
  */
 const TRACE_ROOTS = [
+  "trace-commands.ts",
   "trace-capture-cli.ts",
   "trace-read-cli.ts",
   "store-auth.ts",

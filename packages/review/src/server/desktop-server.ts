@@ -2521,10 +2521,6 @@ function sessionWireFor(
     storageDir: review.dir,
     reviewPath: documentPath,
     agent: authoringAgent,
-    codexThreadId:
-      authoringAgent?.harness === "codex"
-        ? authoringAgent.sessionId
-        : undefined,
     startedAt: descriptor.startedAt,
   };
 

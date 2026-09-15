@@ -74,7 +74,6 @@ export type {
   TargetRef,
 };
 
-
 export type FieldSchema = SoftwareDataStoreFieldSchema;
 
 export type ForeignKeyRef = SoftwareDataStoreForeignKeyRef;

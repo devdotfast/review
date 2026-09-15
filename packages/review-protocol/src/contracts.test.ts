@@ -310,11 +310,7 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
       selection: null,
     },
   ],
-  [
-    "verb request",
-    ReviewVerbRequestSchema,
-    { name: "openFile", args: { path: "src/index.ts", line: 1 } },
-  ],
+  ["verb request", ReviewVerbRequestSchema, { name: "focusCanvas", args: {} }],
   ["verb response", ReviewVerbResponseSchema, { ok: true }],
   [
     "desktop verb frame",

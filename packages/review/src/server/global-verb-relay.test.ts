@@ -13,7 +13,7 @@ describe("global Review Desktop verb relay", () => {
     expect(relay.attached).toBe(true);
 
     const result = relay.dispatch("session-one", {
-      name: "state",
+      name: "focusCanvas",
       args: {},
     });
 
@@ -46,7 +46,7 @@ describe("global Review Desktop verb relay", () => {
     first.abort.abort();
     expect(relay.attached).toBe(false);
     await expect(
-      relay.dispatch("session-one", { name: "state", args: {} }),
+      relay.dispatch("session-one", { name: "focusCanvas", args: {} }),
     ).resolves.toEqual({
       ok: false,
       error: "No Review Desktop is attached.",
@@ -62,7 +62,7 @@ describe("global Review Desktop verb relay", () => {
       timeoutRelay.attach(timeoutWriter.writer);
 
       const timedOut = timeoutRelay.dispatch("session-one", {
-        name: "state",
+        name: "focusCanvas",
         args: {},
       });
 
@@ -77,7 +77,7 @@ describe("global Review Desktop verb relay", () => {
       disconnectRelay.attach(disconnectWriter.writer);
 
       const disconnected = disconnectRelay.dispatch("session-one", {
-        name: "state",
+        name: "focusCanvas",
         args: {},
       });
 
@@ -92,7 +92,7 @@ describe("global Review Desktop verb relay", () => {
       closedRelay.attach(closedWriter.writer);
 
       const closed = closedRelay.dispatch("session-one", {
-        name: "state",
+        name: "focusCanvas",
         args: {},
       });
 

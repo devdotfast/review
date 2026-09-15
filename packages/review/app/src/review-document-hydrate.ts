@@ -125,6 +125,7 @@ function hydrateNode(
       "data-review-column": _column,
       ...props
     } = node.props;
+
     return {
       ...node,
       props,

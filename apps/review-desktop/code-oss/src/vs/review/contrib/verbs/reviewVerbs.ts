@@ -12,7 +12,6 @@ import {
   isCodeEditor,
   isDiffEditor,
 } from "../../../editor/browser/editorBrowser.js";
-import { ICodeEditorService } from "../../../editor/browser/services/codeEditorService.js";
 import { Range } from "../../../editor/common/core/range.js";
 import type { IEditorDecorationsCollection } from "../../../editor/common/editorCommon.js";
 import {
@@ -27,10 +26,8 @@ import {
 } from "../../../workbench/services/layout/browser/layoutService.js";
 import { IHostService } from "../../../workbench/services/host/browser/host.js";
 import {
-  type ReviewDesktopState,
   type ReviewDiffSide,
   type JsonValue,
-  type ReviewOpenEditorWire,
   type ReviewSurfaceEvent,
   type ReviewVerbResponse,
   type ReviewView,
@@ -39,7 +36,6 @@ import {
 } from "../../common/reviewProtocol.js";
 import {
   IReviewCodeResourceService,
-  reviewResourceIdentity,
 } from "../../services/reviewCodeResourceService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import {
@@ -59,7 +55,6 @@ export interface IReviewVerbsService {
   readonly onDidEmitSurfaceEvent: Event<ReviewSurfaceEvent>;
   readonly onDidRequestCanvasFocus: Event<void>;
   dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse>;
-  state(): ReviewDesktopState;
   resetSession(): Promise<void>;
 }
 
@@ -86,7 +81,6 @@ export class ReviewVerbsService
     private readonly editorGroupsService: IEditorGroupsService,
     @IWorkbenchLayoutService
     private readonly layoutService: IWorkbenchLayoutService,
-    @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
     @IReviewCodeResourceService
     private readonly codeResources: IReviewCodeResourceService,
     @IReviewSessionModelService
@@ -114,9 +108,6 @@ export class ReviewVerbsService
       switch (request.name) {
         case "joinDiscord":
           await this.openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
-          break;
-        case "openFile":
-          await this.openFile(request.args);
           break;
         case "showReviewView":
           await this.showReviewView(request.args.view);
@@ -166,8 +157,6 @@ export class ReviewVerbsService
             request.args.active,
           );
           break;
-        case "state":
-          return { ok: true, result: this.state() };
       }
       return { ok: true };
     } catch (error) {
@@ -192,31 +181,6 @@ export class ReviewVerbsService
     }
   }
 
-  state(): ReviewDesktopState {
-    const session = this.requireSession();
-    const openEditors = this.codeEditorService
-      .listCodeEditors()
-      .map((editor) => this.editorIdentity(editor, session))
-      .filter((value): value is ReviewOpenEditorWire => value !== null);
-    const active = this.codeEditorService.getActiveCodeEditor();
-    const activeEditor = active ? this.editorIdentity(active, session) : null;
-    const selection = active?.getSelection();
-    return {
-      openEditors,
-      activeEditor,
-      selection:
-        activeEditor && selection
-          ? {
-              path: activeEditor.path,
-              startLine: selection.startLineNumber,
-              startColumn: selection.startColumn,
-              endLine: selection.endLineNumber,
-              endColumn: selection.endColumn,
-            }
-          : null,
-    };
-  }
-
   async resetSession(): Promise<void> {
     this.clearRevealDecoration();
     await Promise.all(
@@ -230,17 +194,6 @@ export class ReviewVerbsService
         ),
       ),
     );
-  }
-
-  private async openFile(args: {
-    path: string;
-    line?: number;
-    column?: number;
-    endLine?: number;
-    preserveFocus?: boolean;
-  }): Promise<void> {
-    const pane = await this.openFileEditor(args);
-    if (!pane) throw new Error(`Unable to open review file: ${args.path}`);
   }
 
   private async openFileEditor(args: {
@@ -373,15 +326,6 @@ export class ReviewVerbsService
   private clearRevealDecoration(): void {
     this.revealDecoration?.clear();
     this.revealDecoration = undefined;
-  }
-
-  private editorIdentity(
-    editor: ICodeEditor,
-    session: ReviewDesktopSession,
-  ): ReviewOpenEditorWire | null {
-    if (editor.isSimpleWidget) return null;
-    const uri = editor.getModel()?.uri;
-    return uri ? reviewResourceIdentity(session, uri) : null;
   }
 
   private requireSession(): ReviewDesktopSession {

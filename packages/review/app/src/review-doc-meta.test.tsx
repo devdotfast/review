@@ -50,6 +50,7 @@ describe("ReviewDocumentMetaLine", () => {
         },
       ),
     );
+
     const tree = (
       <ReviewSessionProvider session={session}>
         <ReviewDocumentMetaLine />
@@ -91,7 +92,9 @@ describe("ReviewDocumentMetaLine", () => {
             if (url.includes("/document-meta")) {
               return Response.json({ ok: true, pullRequestNumber: 20 });
             }
+
             expect(url).toContain("/stack");
+
             return Response.json({
               layers: [
                 {

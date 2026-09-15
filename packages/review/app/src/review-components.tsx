@@ -137,11 +137,7 @@ function ReviewPanelFrame({
           <CloseIcon />
         </button>
       </header>
-      <div
-        ref={bodyRef}
-        className="review-panel-body"
-        onScroll={onBodyScroll}
-      >
+      <div ref={bodyRef} className="review-panel-body" onScroll={onBodyScroll}>
         {children}
       </div>
       {floatingFooter}

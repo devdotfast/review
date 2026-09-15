@@ -52,6 +52,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
     reviewFetch("/document-meta", { signal: controller.signal })
       .then(async (response) => {
         const json: JsonValue = await response.json();
+
         if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
         setMeta(
           documentMetaState({

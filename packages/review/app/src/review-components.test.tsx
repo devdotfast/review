@@ -46,12 +46,8 @@ describe("ReviewSection", () => {
     act(() => {
       renderWithSession(
         <ReviewSection title="Testing" defaultCollapsed>
-          <p data-review-block-tag="p">
-            Persistence suites pass.
-          </p>
-          <p data-review-block-tag="p">
-            The CLI keeps working.
-          </p>
+          <p data-review-block-tag="p">Persistence suites pass.</p>
+          <p data-review-block-tag="p">The CLI keeps working.</p>
           <ol data-review-block-tag="ol">
             <li>Existing JSON reviews are never migrated.</li>
           </ol>
@@ -127,9 +123,7 @@ describe("ReviewSection", () => {
     act(() => {
       renderWithSession(
         <ReviewSection title="Interface change">
-          <MdxHeading data-review-block-tag="h2">
-            Interface change
-          </MdxHeading>
+          <MdxHeading data-review-block-tag="h2">Interface change</MdxHeading>
           <p>Body copy.</p>
         </ReviewSection>,
       );

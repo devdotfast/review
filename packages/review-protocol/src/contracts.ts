@@ -1402,15 +1402,6 @@ export type ReviewDesktopVerbResult = z.infer<
 
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
-    event: z.literal("activeEditorChanged"),
-    path: requiredString.nullable(),
-  }),
-  z.strictObject({
-    event: z.literal("editorSelectionChanged"),
-    path: requiredString,
-    range: ReviewRangeSchema,
-  }),
-  z.strictObject({
     event: z.literal("themeChanged"),
     theme: reviewThemeSchema,
   }),

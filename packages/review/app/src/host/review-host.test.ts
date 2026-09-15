@@ -49,7 +49,7 @@ describe("review surface", () => {
     );
 
     for (const listener of listeners) {
-      listener({ event: "activeEditorChanged", path: "src/new.ts" });
+      listener({ event: "themeChanged", theme: "dark" });
     }
 
     expect(ready).toHaveBeenCalledOnce();
@@ -70,9 +70,7 @@ describe("review surface", () => {
         },
       },
     ]);
-    expect(events).toEqual([
-      { event: "activeEditorChanged", path: "src/new.ts" },
-    ]);
+    expect(events).toEqual([{ event: "themeChanged", theme: "dark" }]);
     unsubscribe();
   });
 });

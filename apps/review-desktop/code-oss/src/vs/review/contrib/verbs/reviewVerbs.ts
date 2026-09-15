@@ -6,7 +6,7 @@
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
-import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
+import { Disposable } from "../../../base/common/lifecycle.js";
 import {
   type ICodeEditor,
   isCodeEditor,
@@ -37,7 +37,6 @@ import {
   parseReviewVerbRequest,
   REVIEW_DISCORD_URL,
 } from "../../common/reviewProtocol.js";
-import { reviewSelectionRange } from "../../common/reviewSelection.js";
 import {
   IReviewCodeResourceService,
   reviewResourceIdentity,
@@ -79,7 +78,6 @@ export class ReviewVerbsService
   );
   readonly onDidRequestCanvasFocus = this._onDidRequestCanvasFocus.event;
 
-  private readonly editorStores = new Map<string, DisposableStore>();
   private revealDecoration: IEditorDecorationsCollection | undefined;
 
   constructor(
@@ -105,16 +103,6 @@ export class ReviewVerbsService
     @IOpenerService private readonly openerService: IOpenerService,
   ) {
     super();
-    for (const editor of codeEditorService.listCodeEditors())
-      this.trackEditor(editor);
-    this._register(
-      codeEditorService.onCodeEditorAdd((editor) => this.trackEditor(editor)),
-    );
-    this._register(
-      codeEditorService.onCodeEditorRemove((editor) =>
-        this.untrackEditor(editor),
-      ),
-    );
   }
 
   async dispatch(
@@ -253,7 +241,6 @@ export class ReviewVerbsService
   }): Promise<void> {
     const pane = await this.openFileEditor(args);
     if (!pane) throw new Error(`Unable to open review file: ${args.path}`);
-    this.emitEditorState();
   }
 
   private async openFileEditor(args: {
@@ -295,7 +282,6 @@ export class ReviewVerbsService
   ): Promise<void> {
     const pane = await this.openDiffEditor({ filePath, previousPath });
     if (!pane) throw new Error(`Unable to open review diff: ${filePath}`);
-    this.emitEditorState();
   }
 
   /**
@@ -382,53 +368,11 @@ export class ReviewVerbsService
         },
       ]);
     }
-    this.emitEditorState(targetEditor);
   }
 
   private clearRevealDecoration(): void {
     this.revealDecoration?.clear();
     this.revealDecoration = undefined;
-  }
-
-  private trackEditor(editor: ICodeEditor): void {
-    if (editor.isSimpleWidget) return;
-    const id = editor.getId();
-    if (this.editorStores.has(id)) return;
-    const store = new DisposableStore();
-    store.add(editor.onDidFocusEditorText(() => this.emitEditorState(editor)));
-    store.add(
-      editor.onDidChangeCursorSelection(() => this.emitEditorState(editor)),
-    );
-    this.editorStores.set(id, store);
-    this._register(store);
-  }
-
-  private untrackEditor(editor: ICodeEditor): void {
-    this.editorStores.get(editor.getId())?.dispose();
-    this.editorStores.delete(editor.getId());
-  }
-
-  private emitEditorState(
-    editor = this.codeEditorService.getActiveCodeEditor(),
-  ): void {
-    const session = this.sessionModelService.activeModel?.session;
-    const identity =
-      editor && session ? this.editorIdentity(editor, session) : null;
-    this._onDidEmitSurfaceEvent.fire({
-      event: "activeEditorChanged",
-      path: identity?.path ?? null,
-    });
-    const selection = editor?.getSelection();
-    if (identity && selection) {
-      this._onDidEmitSurfaceEvent.fire({
-        event: "editorSelectionChanged",
-        path: identity.path,
-        range: reviewSelectionRange(
-          selection.getStartPosition(),
-          selection.getEndPosition(),
-        ),
-      });
-    }
   }
 
   private editorIdentity(

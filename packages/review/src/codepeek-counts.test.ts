@@ -6,9 +6,7 @@ import { join } from "node:path";
 import { reviewCodePeekRangeCounts } from "@dev.fast/review-protocol";
 import { expect, it } from "vitest";
 
-import { sliceReviewDiffFileToCodePeekRanges } from "./codepeek-symbol-diff";
-
-it("matches the existing high-context slicer at every boundary using small and zero-context corpus patches", () => {
+it("matches high-context counts at every boundary using small and zero-context corpus patches", () => {
   const directory = mkdtempSync(join(tmpdir(), "review-counts-"));
   const original = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
 
@@ -49,25 +47,11 @@ it("matches the existing high-context slicer at every boundary using small and z
 
       for (const side of ["base", "head"] as const) {
         for (let line = 1; line <= 34; line++) {
-          const file = {
-            path: "after",
-            previousPath: "before",
-            status: "renamed" as const,
-            additions: 0,
-            deletions: 0,
-            patch: patches[2],
-          };
-
-          const sliced = sliceReviewDiffFileToCodePeekRanges({
-            file,
-            ranges: [{ file: "before", fromLine: line, toLine: line }],
-            orientation: side,
-            contextLines: 0,
-          });
-
-          const expected = sliced
-            ? { additions: sliced.additions, deletions: sliced.deletions }
-            : undefined;
+          const expected = reviewCodePeekRangeCounts(
+            patches[2],
+            [{ startLine: line, endLine: line }],
+            side,
+          );
 
           for (const patch of patches.slice(0, 2)) {
             expect(

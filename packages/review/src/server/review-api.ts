@@ -33,16 +33,9 @@ import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
-import {
-  codePeekRootSourceRanges,
-  sliceReviewDiffFileToCodePeekRanges,
-} from "../codepeek-symbol-diff";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { resolveReviewCommitScope } from "../review-commits";
-import type {
-  ReviewDiffFile,
-  ReviewDiffFilesResult,
-} from "../review-diff-files";
+import type { ReviewDiffFilesResult } from "../review-diff-files";
 import {
   resolveReviewDiffFiles,
   resolveReviewFileContent,
@@ -63,8 +56,6 @@ import {
 } from "../review-worktree-target";
 import { materializeSoftwareMapAtRef } from "../software-map-artifact";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts";
-import type { SourceSnapshot } from "../source-code-types";
-import { resolveReviewSourceRange } from "../source-range-resolver";
 import { ReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
 import {
@@ -78,7 +69,6 @@ import {
   readBoundedRequestJson,
 } from "./hono-http";
 import {
-  parseCodePeekRoot,
   parseReviewBugReportInput,
   parseReviewDiffFilesInput,
   parseReviewTabTelemetryInput,
@@ -91,8 +81,6 @@ import {
   reviewSessionModeIsReadOnly,
   reviewSessionModeRecord,
 } from "./review-session-mode";
-
-const CODE_PEEK_DIFF_CONTEXT_LINES = 100_000;
 
 const defaultTelemetry = new ReviewTelemetry();
 
@@ -288,7 +276,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   app.post("/telemetry/bug-report", route("read", bugReport));
   app.get("/session", route("read", sessionInfo));
   app.post("/dismiss", route("write", reviewDismiss));
-  app.post("/code-peek/resolve", route("read", codePeekResolve));
   app.post(
     "/software-map/resolved-data",
     route("read", softwareMapResolvedData),
@@ -647,42 +634,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     return reviewApiJsonResponse(200, { ok: true });
   }
 
-  async function codePeekResolve(
-    context: Context<ReviewHonoEnv>,
-  ): Promise<Response> {
-    const body = await readJsonObject(context.req.raw);
-    const sourceTarget = await requestSourceTarget();
-    const baseSourceTarget = sourceTarget.preparedBase;
-    const graph = parseCodePeekGraph(body.graph);
-    const includeDiff = body.includeDiff === true;
-    const includeDiffSummary = body.includeDiffSummary === true;
-    const primaryTarget = graph === "base" ? baseSourceTarget : sourceTarget;
-
-    if (!primaryTarget) {
-      throw new Error("The pinned base worktree is unavailable.");
-    }
-
-    const snapshot = await resolveReviewSourceRange({
-      rootPath: primaryTarget.sourceRootPath,
-      root: parseCodePeekRoot(body.root),
-    });
-
-    const diff =
-      includeDiff || includeDiffSummary
-        ? await resolveCodePeekDiff({
-            snapshot,
-            sourceTarget,
-            graph,
-            includePatch: includeDiff,
-          })
-        : undefined;
-
-    return reviewApiJsonResponse(
-      200,
-      diff ? { ok: true, snapshot, diff } : { ok: true, snapshot },
-    );
-  }
-
   async function softwareMapResolvedData(
     context: Context<ReviewHonoEnv>,
   ): Promise<Response> {
@@ -950,18 +901,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   return { app };
 }
 
-function parseCodePeekGraph(value: JsonValue): "head" | "base" {
-  return value === "base" ? "base" : "head";
-}
-
-function parseCodePeekIncludeDiff(value: JsonValue): boolean {
-  return value === true;
-}
-
-function parseCodePeekIncludeDiffSummary(value: JsonValue): boolean {
-  return value === true;
-}
-
 function readReviewStatus(stateReviewPath: string): string {
   return readReviewStoreRecord(path.dirname(stateReviewPath)).status;
 }
@@ -1046,116 +985,6 @@ async function rematerializeReviewSoftwareMapArtifacts(input: {
   ]);
 
   return { status: "rematerialized", headCommit, artifactPath };
-}
-
-interface CodePeekDiffResponse {
-  baseRef?: string;
-  headRef?: string;
-  orientation: "head" | "base";
-  files: CodePeekDiffFile[];
-}
-
-interface CodePeekDiffFile {
-  path: string;
-  previousPath?: string;
-  status: ReviewDiffFile["status"];
-  additions: number;
-  deletions: number;
-  patch?: string;
-}
-
-async function resolveCodePeekDiff(input: {
-  snapshot: SourceSnapshot;
-  sourceTarget: ReviewSourceTarget;
-  graph: "head" | "base";
-  includePatch: boolean;
-}): Promise<CodePeekDiffResponse | undefined> {
-  if (!input.sourceTarget.baseRef) return undefined;
-
-  const ranges = codePeekRootSourceRanges(input.snapshot);
-  const paths = codePeekDiffRangeFiles(ranges);
-
-  if (paths.length === 0) return undefined;
-
-  const diffRootPath =
-    input.sourceTarget.baseRef || input.sourceTarget.headRef
-      ? input.sourceTarget.diffRootPath
-      : input.sourceTarget.sourceRootPath;
-
-  const diffFiles = await resolveCodePeekDiffFiles({
-    diffRootPath,
-    baseRef: input.sourceTarget.baseRef,
-    headRef: input.sourceTarget.headRef,
-    paths,
-  });
-
-  if (diffFiles.length === 0) return undefined;
-
-  const files = diffFiles
-    .map((file) =>
-      sliceReviewDiffFileToCodePeekRanges({
-        file,
-        ranges,
-        orientation: input.graph,
-        contextLines: 0,
-      }),
-    )
-    .filter((file): file is ReviewDiffFile => file !== null);
-
-  if (files.length === 0) return undefined;
-
-  return {
-    baseRef: input.sourceTarget.baseRef,
-    headRef: input.sourceTarget.headRef,
-    orientation: input.graph,
-    files: files.map((file) =>
-      serializeCodePeekDiffFile(file, input.includePatch),
-    ),
-  };
-}
-
-async function resolveCodePeekDiffFiles(input: {
-  diffRootPath: string;
-  baseRef?: string;
-  headRef?: string;
-  paths: string[];
-}): Promise<ReviewDiffFile[]> {
-  return resolveReviewDiffFiles({
-    rootPath: input.diffRootPath,
-    baseRef: input.baseRef,
-    headRef: input.headRef,
-    contextLines: CODE_PEEK_DIFF_CONTEXT_LINES,
-    paths: input.paths,
-  }).then((diff) => diff.files);
-}
-
-export function serializeCodePeekDiffFile(
-  file: ReviewDiffFile,
-  includePatch: boolean,
-): CodePeekDiffFile {
-  const serialized: CodePeekDiffFile = {
-    path: file.path,
-    previousPath: file.previousPath,
-    status: file.status,
-    additions: file.additions,
-    deletions: file.deletions,
-  };
-
-  if (includePatch) serialized.patch = file.patch ?? "";
-
-  return serialized;
-}
-
-function codePeekDiffRangeFiles(
-  ranges: ReturnType<typeof codePeekRootSourceRanges>,
-): string[] {
-  return [
-    ...new Set(
-      ranges
-        .map((range) => range.file)
-        .filter((file) => file.trim().length > 0),
-    ),
-  ].sort();
 }
 
 async function buildSoftwareMapResolvedData(input: {

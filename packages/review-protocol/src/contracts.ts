@@ -155,10 +155,6 @@ export interface ReviewInlineEditorSpec {
   countRanges?: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
   active: boolean;
-  diffStats?: {
-    additions: number;
-    deletions: number;
-  };
   onDidFocus?: () => void;
   onDidOpen?: () => void;
   onDidNavigate?: () => void;

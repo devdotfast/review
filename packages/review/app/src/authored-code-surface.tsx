@@ -4,7 +4,7 @@ import type { AnchorRef } from "../../src/authoring";
 
 /**
  * Authored inline code shown in a side peek or tour stop. Lines are numbered
- * from the anchor's resolved source when it has one, otherwise from 1.
+ * from the anchor's authored range when it has one, otherwise from 1.
  */
 export function AuthoredCodeSurface({
   anchor,
@@ -15,8 +15,7 @@ export function AuthoredCodeSurface({
   code: string;
   language?: string;
 }): ReactElement {
-  const resolution = anchor.peek?.resolution;
-  const firstLine = resolution ? resolvedSourceFirstLine(resolution) : 1;
+  const firstLine = anchor.peek?.props.fromLine ?? 1;
 
   return (
     <div className="panel-code-block">
@@ -44,17 +43,4 @@ export function AuthoredCodeSurface({
       </pre>
     </div>
   );
-}
-
-function resolvedSourceFirstLine(
-  resolution: NonNullable<NonNullable<AnchorRef["peek"]>["resolution"]>,
-): number {
-  const root = resolution.snapshot.roots[0];
-  const resolved = root ? resolution.snapshot.resolved[root.sourceId] : null;
-
-  if (!resolved) {
-    throw new Error("CodePeek resolution contains no resolved root source.");
-  }
-
-  return resolved.source.line;
 }

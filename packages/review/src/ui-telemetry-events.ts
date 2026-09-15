@@ -134,8 +134,6 @@ const REVIEW_DISMISSED_VIA = ["review_topbar", "home"] as const;
 // "open" is the implicit undo: opening a dismissed review brings it back.
 const REVIEW_RESTORED_VIA = ["home", "open"] as const;
 
-const PEEK_ROOT_KIND = ["symbol", "declaration", "range"] as const;
-
 const MAP_LEVEL = ["system", "container", "component", "code"] as const;
 
 const SOURCE_TREE_OPENED_VIA = ["topbar", "home"] as const;
@@ -256,14 +254,6 @@ export const UI_TELEMETRY_EVENTS = {
   peek_opened: {
     event: "review_peek_opened",
     properties: { via: PEEK_VIA },
-  },
-  peek_resolve_failed: {
-    event: "review_peek_resolve_failed",
-    properties: { root_kind: PEEK_ROOT_KIND },
-  },
-  peek_resolved: {
-    event: "review_peek_resolved",
-    properties: { root_kind: PEEK_ROOT_KIND },
   },
   tour_started: {
     event: "review_tour_started",

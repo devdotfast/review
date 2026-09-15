@@ -563,66 +563,7 @@ try {
   await page
     .getByRole("button", { name: "Review", exact: true, pressed: true })
     .waitFor();
-  let failedPeeks = 0;
-
-  const failBasePeek = async (route) => {
-    const request = route.request().postDataJSON();
-
-    if (request.graph === "base") {
-      failedPeeks++;
-      await route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: JSON.stringify({
-          ok: false,
-          error: "E2E base source temporarily unavailable",
-        }),
-      });
-    } else await route.continue();
-  };
-
-  await page.route("**/code-peek/resolve*", failBasePeek);
-  await page.reload();
-  await cli(["app", "pick", "--review", uuid, "--view", "review"]);
-  await page
-    .getByRole("button", { name: "Review", exact: true, pressed: true })
-    .waitFor();
-  await until(() => failedPeeks > 0, "injected base-peek failure");
-
-  const unavailablePeek = page
-    .locator(".peek-error")
-    .getByText("E2E base source temporarily unavailable", { exact: true })
-    .first();
-
-  await unavailablePeek.waitFor();
-  assert.ok(failedPeeks > 0);
-  await canvas
-    .getByRole("heading", { name: "Order persistence — café ☕", exact: true })
-    .waitFor();
-  assert.match(await page.locator("body").innerText(), /queued/);
-  await until(
-    async () =>
-      (await page.locator(".monaco-editor").allTextContents()).some((text) =>
-        text.includes("queued"),
-      ),
-    "unaffected head editor",
-  );
-  await unavailablePeek.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: path.join(root, "partial-peek-failure.png") });
-  await page.unroute("**/code-peek/resolve*", failBasePeek);
-  await page.reload();
-  await cli(["app", "pick", "--review", uuid, "--view", "review"]);
-  await page
-    .getByRole("button", { name: "Review", exact: true, pressed: true })
-    .waitFor();
-  await until(
-    async () => (await page.locator("body").innerText()).includes("draft"),
-    "recovered base peek",
-  );
-  assert.equal(await page.locator(".peek-error").count(), 0);
-  report.checks.push(
-    "partial base-peek failure preserves the document and head evidence; reopening retries successfully",
-  );
+  // Missing sources use the workbench onDidError path, covered by InlineCodeEditor.test.tsx.
   // Seal a deliberately damaged snapshot in this disposable fixture to force
   // repair through editable sources, rather than merely testing a healthy noop.
   await rm(path.join(dir, ".bundle/document"), {

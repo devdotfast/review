@@ -25,19 +25,6 @@ export function testCodePeekResolution(): CodePeekResolution {
         },
       },
     },
-    diff: {
-      orientation: "head",
-      files: [
-        {
-          path: "src/example.ts",
-          status: "modified",
-          additions: 1,
-          deletions: 1,
-          patch:
-            "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-export function example() {}\n+export function example() { return true; }",
-        },
-      ],
-    },
   };
 }
 

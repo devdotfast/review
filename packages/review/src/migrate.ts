@@ -58,10 +58,7 @@ const LEGACY_SKILL_NAMES = [
   "pr-review",
 ] as const;
 
-const CURRENT_SKILL_NAMES = [
-  "dev-review",
-  "trace-archaeology",
-] as const;
+const CURRENT_SKILL_NAMES = ["dev-review", "trace-archaeology"] as const;
 
 const execFilePromise = promisify(execFile);
 

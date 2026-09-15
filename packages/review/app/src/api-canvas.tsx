@@ -140,13 +140,16 @@ export function ApiCanvas({
         },
         (cause) => {
           setActivity("unknown");
+
           if (
             cause instanceof ReviewApiError &&
             [401, 403, 404].includes(cause.status)
           ) {
             setError(cause.message);
+
             return;
           }
+
           setError(
             `Connection lost. Reconnecting… ${cause instanceof Error ? cause.message : ""}`,
           );

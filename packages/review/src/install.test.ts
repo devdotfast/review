@@ -250,7 +250,14 @@ describe("runInstall", () => {
     const staleOldNameDest = path.join(homeDir, ".claude", "skills", "review");
     await mkdir(staleOldNameDest, { recursive: true });
     await writeFile(path.join(staleOldNameDest, "SKILL.md"), "# old-name\n");
-    const staleMapDest = path.join(homeDir, ".claude", "skills", "dev-review-map");
+
+    const staleMapDest = path.join(
+      homeDir,
+      ".claude",
+      "skills",
+      "dev-review-map",
+    );
+
     await mkdir(staleMapDest, { recursive: true });
     await writeFile(path.join(staleMapDest, "SKILL.md"), "# old-map\n");
 
@@ -469,10 +476,7 @@ describe("runInstall", () => {
     await writeSkill(packageRoot, "trace-archaeology");
     const invalidSkillDir = path.join(packageRoot, "skills", "dev-review");
     await mkdir(invalidSkillDir, { recursive: true });
-    await writeFile(
-      path.join(invalidSkillDir, "SKILL.md"),
-      "# dev-review\n",
-    );
+    await writeFile(path.join(invalidSkillDir, "SKILL.md"), "# dev-review\n");
     const homeDir = await makeTempDir();
     const streams = silentStreams();
 

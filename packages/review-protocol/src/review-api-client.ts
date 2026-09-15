@@ -247,6 +247,7 @@ class LiveConnection {
         if (!signal.aborted) disconnected(new Error("Connection closed."));
       } catch (error) {
         if (!signal.aborted) disconnected(error);
+
         if (
           error instanceof ReviewApiError &&
           [401, 403, 404].includes(error.status)

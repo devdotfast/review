@@ -381,6 +381,7 @@ function ReviewLayoutContent({
   useEffect(() => {
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
+
   // Unknown until the first answer, so a restored Trace tab survives the fetch.
   const [hasTraceSessions, setHasTraceSessions] = useState<boolean | null>(
     null,

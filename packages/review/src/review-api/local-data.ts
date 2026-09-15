@@ -481,7 +481,7 @@ function checkSourcePath(file: string) {
 }
 
 export function openLocalReviewStore(databasePath: string) {
-  const store = new ReviewStore(databasePath, {
+  const store: ReviewStore = new ReviewStore(databasePath, {
     validatePins: (pins) => data.validatePins(pins),
     validateSource: async (pins, source) => {
       await data.quote(pins, source);

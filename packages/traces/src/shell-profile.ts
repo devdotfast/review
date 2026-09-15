@@ -88,19 +88,24 @@ export interface EnsureShellProfilePathInput {
   platform?: NodeJS.Platform;
 }
 
-/**
- * Adds the shim directory to PATH in the login profile, once. Returns the one
- * human line the install prints, or an empty string when PATH already holds
- * the directory.
- */
+export interface EnsureShellProfilePathResult {
+  /** True only when this call wrote the block. */
+  added: boolean;
+  /** The one human line the install prints; empty when there is nothing to say. */
+  output: string;
+}
+
+/** Adds the shim directory to PATH in the login profile, once. */
 export async function ensureShellProfilePath(
   input: EnsureShellProfilePathInput,
-): Promise<string> {
-  if (pathContainsDirectory(input.env.PATH, input.shimDirectory)) return "";
+): Promise<EnsureShellProfilePathResult> {
+  if (pathContainsDirectory(input.env.PATH, input.shimDirectory)) {
+    return { added: false, output: "" };
+  }
 
   const name = profileFileName(input.env, input.platform ?? process.platform);
 
-  if (!name) return MANUAL_PATH_MESSAGE;
+  if (!name) return { added: false, output: MANUAL_PATH_MESSAGE };
 
   const profilePath = path.join(input.homeDir, name);
   const source = await readTextIfExists(profilePath);
@@ -108,12 +113,15 @@ export async function ensureShellProfilePath(
   // A profile that already reaches ~/.local/bin needs no second block, even
   // when another tool wrote the line.
   if (source.includes(PROFILE_MARKER) || source.includes(".local/bin")) {
-    return "";
+    return { added: false, output: "" };
   }
 
   await writeTextAtomic(profilePath, `${source}${PROFILE_BLOCK}`);
 
-  return `[ok] added ${input.shimDirectory} to PATH in ${profilePath}\n`;
+  return {
+    added: true,
+    output: `[ok] added ${input.shimDirectory} to PATH in ${profilePath}\n`,
+  };
 }
 
 /** Removes the block from every profile that has it; returns those paths. */

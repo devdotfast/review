@@ -36,10 +36,11 @@ describe("shell profile PATH block", () => {
   }
 
   it("writes the block to .zprofile for zsh", async () => {
-    const output = await ensure("/bin/zsh");
-    expect(output).toBe(
-      `[ok] added ${shimDirectory} to PATH in ${path.join(home, ".zprofile")}\n`,
-    );
+    const result = await ensure("/bin/zsh");
+    expect(result).toEqual({
+      added: true,
+      output: `[ok] added ${shimDirectory} to PATH in ${path.join(home, ".zprofile")}\n`,
+    });
     const profile = await readFile(path.join(home, ".zprofile"), "utf8");
     expect(profile).toContain(PROFILE_MARKER);
     expect(profile).toContain(PROFILE_EXPORT);
@@ -53,8 +54,9 @@ describe("shell profile PATH block", () => {
   });
 
   it("writes no block for fish and explains the manual step", async () => {
-    const output = await ensure("/usr/bin/fish");
-    expect(output).toContain("fish_add_path ~/.local/bin");
+    const result = await ensure("/usr/bin/fish");
+    expect(result.added).toBe(false);
+    expect(result.output).toContain("fish_add_path ~/.local/bin");
     await expect(
       readFile(path.join(home, ".zprofile"), "utf8"),
     ).rejects.toMatchObject({ code: "ENOENT" });
@@ -62,7 +64,7 @@ describe("shell profile PATH block", () => {
 
   it("writes the block once and removes it once", async () => {
     await ensure("/bin/zsh");
-    expect(await ensure("/bin/zsh")).toBe("");
+    expect(await ensure("/bin/zsh")).toEqual({ added: false, output: "" });
     const profilePath = path.join(home, ".zprofile");
     const profile = await readFile(profilePath, "utf8");
     expect(profile.split(PROFILE_MARKER).length - 1).toBe(1);
@@ -73,7 +75,10 @@ describe("shell profile PATH block", () => {
   });
 
   it("writes no block when PATH already reaches the directory", async () => {
-    expect(await ensure("/bin/zsh", `${shimDirectory}:/usr/bin`)).toBe("");
+    expect(await ensure("/bin/zsh", `${shimDirectory}:/usr/bin`)).toEqual({
+      added: false,
+      output: "",
+    });
     expect(
       pathContainsDirectory(`${shimDirectory}:/usr/bin`, shimDirectory),
     ).toBe(true);
@@ -82,7 +87,7 @@ describe("shell profile PATH block", () => {
   it("writes no block when the profile already names .local/bin", async () => {
     const profilePath = path.join(home, ".zprofile");
     await writeFile(profilePath, 'export PATH="$HOME/.local/bin:$PATH"\n');
-    expect(await ensure("/bin/zsh")).toBe("");
+    expect(await ensure("/bin/zsh")).toEqual({ added: false, output: "" });
     expect(await readFile(profilePath, "utf8")).not.toContain(PROFILE_MARKER);
   });
 });

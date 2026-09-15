@@ -1,6 +1,6 @@
 import {
-  chmod,
   cp,
+  lstat,
   mkdir,
   readdir,
   realpath,
@@ -14,6 +14,7 @@ import path from "node:path";
 import {
   type AgentTraceHookAgent,
   disableTraceRepository,
+  errorMessage,
   listTraceRepositoryRoots,
   removeAgentTraceHook,
   renderTraceCommand,
@@ -192,12 +193,43 @@ exec "$runtime" "$cli" "$@"
 
 async function writeShim(shim: string, execPath: string): Promise<void> {
   await mkdir(path.dirname(shim), { recursive: true });
+  // writeFileAtomicAsync chmods the staged file to `mode` before the rename.
   await writeFileAtomicAsync(shim, shimSource(execPath), {
     encoding: "utf8",
     mode: 0o755,
     replaceSymlink: true,
   });
-  await chmod(shim, 0o755);
+}
+
+/** True when a name is taken, even by a symlink with no target. */
+async function pathExists(filePath: string): Promise<boolean> {
+  return lstat(filePath).then(
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * Moves a command file this package did not write out of the way, so an
+ * install never destroys a file of the user's own. Returns the backup path, or
+ * null when the path is free or already holds a shim of ours.
+ */
+async function backupForeignShim(shim: string): Promise<string | null> {
+  if (!(await pathExists(shim))) return null;
+
+  if ((await readTextIfExists(shim)).includes(SHIM_MARKER)) return null;
+  const base = `${shim}.bak-${Math.floor(Date.now() / 1000)}`;
+  let backup = base;
+  let counter = 1;
+
+  while (await pathExists(backup)) {
+    backup = `${base}-${counter}`;
+    counter += 1;
+  }
+
+  await rename(shim, backup);
+
+  return backup;
 }
 
 /**
@@ -210,15 +242,32 @@ async function copyPackage(packageRoot: string, target: string): Promise<void> {
   const staging = `${target}.tmp-${process.pid}`;
   await rm(staging, { recursive: true, force: true });
 
+  const previous = `${target}.old-${process.pid}`;
+  await rm(previous, { recursive: true, force: true });
+
   try {
     await cp(packageRoot, staging, {
       recursive: true,
       filter: (source) => path.basename(source) !== "node_modules",
     });
-    await rm(target, { recursive: true, force: true });
-    await rename(staging, target);
+
+    // Two renames, never a delete: the target holds a complete copy at every
+    // point, so a kill here cannot leave `current` pointing at nothing.
+    const replaced = await rename(target, previous).then(
+      () => true,
+      () => false,
+    );
+
+    try {
+      await rename(staging, target);
+    } catch (error) {
+      if (replaced) await rename(previous, target).catch(() => undefined);
+
+      throw error;
+    }
   } finally {
     await rm(staging, { recursive: true, force: true });
+    await rm(previous, { recursive: true, force: true });
   }
 }
 
@@ -240,7 +289,7 @@ async function pruneVersions(devHome: string): Promise<string[]> {
   const candidates: { dir: string; name: string; mtimeMs: number }[] = [];
 
   for (const name of entries) {
-    if (name.includes(".tmp-")) continue;
+    if (name.includes(".tmp-") || name.includes(".old-")) continue;
     const dir = path.join(root, name);
 
     if ((await realpath(dir).catch(() => null)) === keep) continue;
@@ -295,16 +344,7 @@ export async function installSelf(
 
   await pointCurrent(input.devHome, version);
   await pruneVersions(input.devHome);
-
-  // Read PATH before the shim exists: a shim of ours never counts as a
-  // shadowing command, and the reader would otherwise find the new file.
-  const shadowing = await resolvePathCommand(
-    "dev-traces",
-    shim,
-    input.env,
-    SHIM_MARKER,
-  );
-
+  const backup = await backupForeignShim(shim);
   await writeShim(shim, input.execPath);
 
   const state: InstallState = {
@@ -316,11 +356,21 @@ export async function installSelf(
 
   await writePrivateJsonAtomic(installStatePath(input.devHome), state);
 
-  const profileOutput = await ensureShellProfilePath({
+  const profile = await ensureShellProfilePath({
     homeDir: input.homeDir,
     env: input.env,
     shimDirectory: path.dirname(shim),
   });
+
+  // A block this run added puts the shim directory first in PATH, so a new
+  // shell reads the shim before anything else and nothing shadows it.
+  const shadowing = profile.added
+    ? undefined
+    : await resolvePathCommand("dev-traces", shim, input.env, SHIM_MARKER);
+
+  const backupOutput = backup
+    ? `[warn] moved your existing ~/.local/bin/dev-traces to ${backup}\n`
+    : "";
 
   const shadowingOutput = shadowing
     ? `Warning: ${shadowing} currently shadows ${shim}. Move ${path.dirname(shim)} earlier in PATH.\n`
@@ -331,7 +381,7 @@ export async function installSelf(
     installedRoot: target,
     copied,
     shimPath: shim,
-    output: `[ok] dev-traces command -> ${shim}\n${profileOutput}${shadowingOutput}`,
+    output: `${backupOutput}[ok] dev-traces command -> ${shim}\n${profile.output}${shadowingOutput}`,
   };
 }
 
@@ -362,6 +412,7 @@ export async function uninstallSelf(
   // shim, and the ones whose state file names no command, lose their hooks.
   const ownCommand = renderTraceCommand({ file: shim });
   const repositoriesDisabled: string[] = [];
+  const warnings: string[] = [];
 
   for (const root of await listTraceRepositoryRoots(input.homeDir)) {
     const status = await traceRepositoryStatus(root).catch(() => null);
@@ -370,15 +421,26 @@ export async function uninstallSelf(
     if (!status?.managedHooksPath) continue;
 
     if (status.command !== undefined && status.command !== ownCommand) continue;
-    await disableTraceRepository({
+
+    const disabled = await disableTraceRepository({
       cwd: root,
       scope: {
         homeDir: input.homeDir,
         env: input.env,
         devHome: input.devHome,
       },
-    }).catch(() => undefined);
-    repositoriesDisabled.push(root);
+    }).then(
+      () => true,
+      (error) => {
+        warnings.push(
+          `[warn] could not disable the Git trace hooks in ${root}: ${errorMessage(error)}\n`,
+        );
+
+        return false;
+      },
+    );
+
+    if (disabled) repositoriesDisabled.push(root);
   }
 
   await rm(tracesDir(input.devHome), { recursive: true, force: true });
@@ -396,6 +458,7 @@ export async function uninstallSelf(
     ...repositoriesDisabled.map(
       (root) => `[ok] disabled the Git trace hooks in ${root}\n`,
     ),
+    ...warnings,
     `[ok] removed ${tracesDir(input.devHome)}\n`,
     "Kept: the trace store login, the repository consent, and the captured sessions.\n",
   ];

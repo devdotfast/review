@@ -13,6 +13,8 @@ import { IEditorWorkerService } from "../../editor/common/services/editorWorker.
 import { diffEditorDefaultOptions } from "../../editor/common/config/diffEditor.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
+import { EditorResourceAccessor, SideBySideEditor } from "../../workbench/common/editor.js";
+import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
 import type { IFileStat } from "../../platform/files/common/files.js";
 import { reviewPeekWindows, reviewPeekDiffWindows } from "../common/reviewPeek.js";
 import type {
@@ -23,6 +25,7 @@ import type {
   ReviewDiffViewFactory,
   ReviewSourceEntry,
   ReviewApiFeedbackContext,
+  ReviewApiSourceLocation,
   CodeThreadTarget,
 } from "../common/reviewProtocol.js";
 import { createGitLabTextDiffPosition, gitLabDiffPositionRows } from "../common/reviewProtocol.js";
@@ -35,12 +38,8 @@ import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffVi
 import { IReviewSessionService } from "./reviewSessionService.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 
-export interface ApiSourceTarget {
+export interface ApiSourceTarget extends ReviewApiSourceLocation {
   reviewId: string;
-  version: number;
-  file: string;
-  side: ReviewDiffSide;
-  commit?: string;
 }
 
 export const REVIEW_API_SOURCE_SCHEME = "review-api-source";
@@ -70,7 +69,7 @@ export interface IReviewApiSourceService {
   readonly _serviceBrand: undefined;
   readonly feedback: ReviewApiFeedbackContext | undefined;
   readonly onDidChangeFeedback: Event<void>;
-  bindFeedback(context: ReviewApiFeedbackContext): () => void;
+  bindFeedback(context: ReviewApiFeedbackContext, owner: EditorInput): () => void;
   commentTarget(resource: URI, range: ReviewInlineEditorRange): Promise<CodeThreadTarget | null>;
   commentRange(target: CodeThreadTarget, resource: URI): ReviewInlineEditorRange | undefined;
   open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void>;
@@ -91,16 +90,34 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
   declare readonly _serviceBrand: undefined;
   private readonly feedbackChanged = this._register(new Emitter<void>());
   readonly onDidChangeFeedback = this.feedbackChanged.event;
-  feedback: ReviewApiFeedbackContext | undefined;
+  private readonly feedbackBindings = new Map<EditorInput, ReviewApiFeedbackContext>();
+  private activeFeedback: ReviewApiFeedbackContext | undefined;
+  get feedback() { return this.activeFeedback; }
 
-  bindFeedback(context: ReviewApiFeedbackContext) {
-    this.feedback = context;
-    this.feedbackChanged.fire();
+  bindFeedback(context: ReviewApiFeedbackContext, owner: EditorInput) {
+    this.feedbackBindings.set(owner, context);
+    this.selectFeedback();
     return () => {
-      if (this.feedback !== context) return;
-      this.feedback = undefined;
-      this.feedbackChanged.fire();
+      if (this.feedbackBindings.get(owner) !== context) return;
+      this.feedbackBindings.delete(owner);
+      this.selectFeedback();
     };
+  }
+
+  private selectFeedback() {
+    const editor = this.editors.activeEditor;
+    let next = editor ? this.feedbackBindings.get(editor) : undefined;
+    const resource = EditorResourceAccessor.getOriginalUri(editor, { supportSideBySide: SideBySideEditor.PRIMARY });
+    if (!next && resource) {
+      next = [...this.feedbackBindings.values()].find(context =>
+        apiFeedbackSource(context, resource) ||
+        (resource.scheme === "devfast-review-canvas" && resource.authority === "api-source" &&
+          resource.path === `/${context.reviewId}/${context.version}`),
+      );
+    }
+    if (next === this.activeFeedback) return;
+    this.activeFeedback = next;
+    this.feedbackChanged.fire();
   }
 
   async commentTarget(resource: URI, range: ReviewInlineEditorRange): Promise<CodeThreadTarget | null> {
@@ -148,6 +165,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
     @IReviewCanvasEditorTabsService private readonly tabs: IReviewCanvasEditorTabsService,
   ) {
     super();
+    this._register(editors.onDidActiveEditorChange(() => this.selectFeedback()));
     this._register(
       models.registerTextModelContentProvider(REVIEW_API_SOURCE_SCHEME, {
         provideTextContent: async (resource) => {

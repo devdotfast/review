@@ -74,12 +74,83 @@ export function createReviewApi(
 
     return context.json(store.activity.update(id, input));
   });
-  app.get("/watch", () =>
-    watch(
+  app.get("/watch", (context) => {
+    const query = context.req.query("subscriptions");
+
+    if (query !== undefined) {
+      let input: unknown;
+
+      try {
+        input = JSON.parse(query);
+      } catch {
+        throw new ReviewInputError("Invalid subscriptions.");
+      }
+
+      const subscriptions = z
+        .array(
+          z.strictObject({
+            reviewId: z.string().min(1).nullable(),
+            part: z.enum(["document", "feedback"]),
+          }),
+        )
+        .parse(input);
+
+      return watch(
+        () =>
+          subscriptions.map(({ reviewId, part }) => {
+            try {
+              return {
+                value:
+                  reviewId === null
+                    ? store.list()
+                    : part === "feedback"
+                      ? store.feedback.read(reviewId)
+                      : {
+                          ...store.read(reviewId),
+                          activity: store.activity.read(reviewId),
+                        },
+              };
+            } catch (error) {
+              return {
+                error:
+                  error instanceof ReviewInputError
+                    ? error.message
+                    : "Could not read review.",
+              };
+            }
+          }),
+        (notify) => {
+          const interested = (id: string, part: string) =>
+            subscriptions.some(
+              (item) => item.reviewId === id && item.part === part,
+            );
+
+          const stops = [
+            store.subscribe((result) => {
+              if (interested(result.reviewId, "document")) notify();
+            }),
+            store.feedback.subscribe((id) => {
+              if (interested(id, "feedback")) notify();
+            }),
+            store.activity.subscribe((id) => {
+              if (interested(id, "document")) notify();
+            }),
+            store.subscribeCatalog(() => {
+              if (subscriptions.some((item) => item.reviewId === null))
+                notify();
+            }),
+          ];
+
+          return () => stops.forEach((stop) => stop());
+        },
+      );
+    }
+
+    return watch(
       () => store.list(),
       (notify) => store.subscribeCatalog(notify),
-    ),
-  );
+    );
+  });
   app.post("/:id/open", async (context) => {
     const review = store.read(context.req.param("id"));
 

@@ -2,9 +2,43 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { AgentMarkdown } from "./agent-markdown";
+import { AgentMarkdown, MarkdownContent } from "./agent-markdown";
 
 describe("agent markdown", () => {
+  it("routes document source links through the supplied peek renderer, including headings and reference links", () => {
+    const seen: string[] = [];
+
+    const html = renderToStaticMarkup(
+      createElement(MarkdownContent, {
+        source:
+          "# [**Save**][source]\n\n[old](review-source:base/file.ts#L1)\n\n[source]: review-source:head/file.ts#L2\n\n[web](https://example.com) [unsafe](javascript:alert(1))",
+        renderLink: (href, children) => {
+          if (!href.startsWith("review-source:")) return undefined;
+          seen.push(href);
+
+          return createElement("button", { type: "button" }, children);
+        },
+      }),
+    );
+
+    expect(seen).toEqual([
+      "review-source:head/file.ts#L2",
+      "review-source:base/file.ts#L1",
+    ]);
+    expect(html).toContain(
+      '<button type="button"><strong>Save</strong></button>',
+    );
+    expect(html).toContain('href="https://example.com"');
+    expect(html).not.toContain("javascript:");
+
+    const chat = renderToStaticMarkup(
+      createElement(AgentMarkdown, {
+        source: "[unvalidated](review-source:head/file.ts#L2)",
+      }),
+    );
+
+    expect(chat).not.toContain("href=");
+  });
   it("renders agent answers as GitHub-flavored markdown", () => {
     const html = renderToStaticMarkup(
       createElement(AgentMarkdown, {

@@ -117,7 +117,6 @@ import {
   ReviewOpenThreadsError,
   requireClosedThreadsForRepublish,
 } from "../review-publish-thread-gate";
-import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
 import {
   type ReviewSessionAgent,
@@ -1470,7 +1469,6 @@ export function createGlobalReviewServer(
           );
           successor.promoted = true;
           await startSessionTelemetry(successor);
-          await clearReopenPending(successor.review.review.worktreePath);
           broadcastGlobal({
             event: "review-status-changed",
             uuid: successor.review.review.uuid,
@@ -2090,12 +2088,6 @@ export function createGlobalReviewServer(
         open.map((session) => closeSession(session, "closed", false)),
       );
       await rm(dir, { recursive: true, force: true });
-      const worktreePath = open[0]?.review.review.worktreePath;
-
-      if (worktreePath) {
-        await clearReopenPending(worktreePath).catch(() => undefined);
-      }
-
       broadcastGlobal({ event: "review-deleted", uuid });
     });
   }
@@ -2121,7 +2113,6 @@ export function createGlobalReviewServer(
       reviewUuid: review.review.uuid,
     });
     await rm(review.dir, { recursive: true, force: true });
-    await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
 
@@ -2455,14 +2446,6 @@ export function createGlobalReviewServer(
           : "awaiting-agent-updates";
 
       active.review = await setReviewStatus(latest, status);
-
-      if (submission.decision === "request-changes") {
-        await markReopenPending(
-          active.review.review.worktreePath,
-          submission.createdAt,
-        );
-      }
-
       broadcastGlobal({
         event: "review-status-changed",
         uuid: active.review.review.uuid,
@@ -2500,7 +2483,6 @@ export function createGlobalReviewServer(
       }
 
       active.review = await dismissReview(latest);
-      await clearReopenPending(active.review.review.worktreePath);
       await broadcastReviewAttention(active.review, "dismissed");
       broadcastGlobal({
         event: "session-updated",
@@ -2607,9 +2589,6 @@ export function createGlobalReviewServer(
       try {
         await withReviewLock(uuid, async () => {
           await rm(stored.dir, { recursive: true, force: true });
-          await clearReopenPending(stored.review.worktreePath).catch(
-            () => undefined,
-          );
           broadcastGlobal({ event: "review-deleted", uuid });
         });
         console.info(

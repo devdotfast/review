@@ -78,10 +78,45 @@ describe("ReviewHistoryControl", () => {
     expect(historyButton().disabled).toBe(false);
   });
 
-  async function renderControl(tutorial?: ReviewCanvasTutorialBridge) {
+  it("distinguishes versions saved at the same time and opens the selected one", async () => {
+    const saved = [2, 3].map((revision) => ({
+      revision: String(revision),
+      sealedAt: Date.UTC(2026, 7, 19),
+      isCurrent: revision === 3,
+    }));
+
+    request.mockImplementation(async (url) =>
+      url.includes("/revisions")
+        ? jsonResponse({ ok: true, versions: saved })
+        : jsonResponse({ ok: true }),
+    );
+    const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
+    await renderControl(undefined, post);
+    await act(async () => historyButton().click());
+
+    const items = [
+      ...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ];
+
+    expect(items[0]!.textContent).toContain("Version 2 · ");
+    expect(items[1]!.textContent).toContain("Version 3 · ");
+    expect(items[1]!.disabled).toBe(true);
+    await act(async () => items[0]!.click());
+    expect(post).toHaveBeenCalledWith({
+      name: "openReviewRevision",
+      args: { revision: "2", sealedAt: saved[0]!.sealedAt },
+    });
+  });
+
+  async function renderControl(
+    tutorial?: ReviewCanvasTutorialBridge,
+    post?: ReturnType<typeof testReviewSession>["bridge"]["post"],
+  ) {
     await act(async () => {
       root.render(
-        <ReviewSessionProvider session={testReviewSession({}, { request })}>
+        <ReviewSessionProvider
+          session={testReviewSession({}, { request, post })}
+        >
           <ReviewProvider>
             <TutorialProvider tutorial={tutorial}>
               <ReviewHistoryControl />

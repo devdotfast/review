@@ -15,7 +15,7 @@ import {
   EditorPaneDescriptor,
   IEditorPaneRegistry,
 } from "../../../../workbench/browser/editor.js";
-import { EditorExtensions } from "../../../../workbench/common/editor.js";
+import { EditorExtensions, type IEditorFactoryRegistry } from "../../../../workbench/common/editor.js";
 import {
   IWorkbenchContribution,
   registerWorkbenchContribution2,
@@ -29,8 +29,12 @@ import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogServ
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import { ReviewCanvasEditorPane } from "./reviewCanvasPart.js";
+import { ReviewApiEditorSerializer } from "./reviewApiEditorSerializer.js";
 
 const OPEN_REVIEW_TABS_STORAGE_KEY = "review.canvas.openTabs";
+
+Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)
+  .registerEditorSerializer(ReviewCanvasEditorInput.ID, ReviewApiEditorSerializer);
 
 interface StoredReviewTabs {
   readonly open: readonly string[];
@@ -108,7 +112,8 @@ class ReviewCanvasEditorContribution
   }
 
   private async initialize(): Promise<void> {
-    await this.tabsService.openHome(true);
+    await this.editorGroupsService.whenRestored;
+    await this.tabsService.openHome(!this.editorService.activeEditor);
     await this.sessionService.initialize();
     await this.apiCatalog.initialize();
     await this.restoreTabs();
@@ -144,15 +149,7 @@ class ReviewCanvasEditorContribution
     }
     for (const reviewUuid of stored.open) {
       if (reviewUuid.startsWith("api:")) {
-        const review = this.apiCatalog.reviews.find(
-          (review) => review.uuid === reviewUuid.slice(4),
-        );
-        if (review && !review.dismissedAt)
-          await this.tabsService.openApiReview(
-            review.uuid,
-            review.title,
-            reviewUuid === stored.active,
-          );
+        // API tabs now restore through the workbench serializer.
         continue;
       }
       if (!available.has(reviewUuid)) continue;
@@ -208,7 +205,6 @@ class ReviewCanvasEditorContribution
     const key = (editor: unknown): string | undefined => {
       if (!(editor instanceof ReviewCanvasEditorInput)) return;
       if (editor.target.kind === "review") return editor.target.reviewUuid;
-      if (editor.target.kind === "api") return `api:${editor.target.reviewId}`;
       return undefined;
     };
     const open = group.editors.flatMap(editor => {

@@ -1053,6 +1053,13 @@ export interface ReviewApiFeedbackContext {
   comments: ReviewCommentStoreBridge;
 }
 
+export interface ReviewApiSourceLocation {
+  version: number;
+  file: string;
+  side: ReviewDiffSide;
+  commit?: string;
+}
+
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
@@ -1063,6 +1070,10 @@ export type ReviewCanvasContent =
       setTitle?(title: string): void;
       setVersion?(version: number): void;
       bindFeedback?(context: ReviewApiFeedbackContext): () => void;
+      openSource?(
+        source: ReviewApiSourceLocation,
+        range: ReviewInlineEditorRange,
+      ): Promise<void>;
     }
   | {
       kind: "error";

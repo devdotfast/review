@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 
-import { REVIEW_CANVAS_RESUME_EVENT } from "@dev.fast/review-protocol";
+import {
+  REVIEW_CANVAS_RESUME_EVENT,
+  createGitLabTextDiffPosition,
+} from "@dev.fast/review-protocol";
 import { type ReactNode, act, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -69,6 +72,69 @@ afterEach(async () => {
 });
 
 describe("Review panel host", () => {
+  it("opens original code from an outdated thread and reports unavailable source without hiding the conversation", async () => {
+    const localSession = testReviewSession();
+
+    const open = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("Pinned file unavailable."))
+      .mockResolvedValue(undefined);
+
+    localSession.openOriginalCode = open;
+
+    const position = createGitLabTextDiffPosition({
+      base_sha: "base",
+      start_sha: "base",
+      head_sha: "head",
+      old_path: "old.ts",
+      new_path: "old.ts",
+      start: { old_line: null, new_line: 3 },
+      end: { old_line: null, new_line: 5 },
+    });
+
+    await localSession.bridge.comments.saveComment({
+      threadId: "old-code",
+      messageId: "question",
+      body: "Why was this removed?",
+      target: {
+        kind: "code",
+        original_position: position,
+        position,
+        change_position: { ...position, head_sha: "new-head" },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () =>
+      root!.render(
+        <ReviewSessionProvider session={localSession}>
+          <ReviewDebugSettingsProvider>
+            <ReviewProvider>
+              <ReviewPanelProvider>
+                <OpenCommentPanel threadId="old-code" />
+                <ReviewPanelHost />
+              </ReviewPanelProvider>
+            </ReviewProvider>
+          </ReviewDebugSettingsProvider>
+        </ReviewSessionProvider>,
+      ),
+    );
+
+    const button = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "View original code",
+    )!;
+
+    await act(async () => button.click());
+    expect(open).toHaveBeenCalledWith("old-code");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Pinned file unavailable.",
+    );
+    expect(container.textContent).toContain("Why was this removed?");
+    await act(async () => button.click());
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("hides the new ask action for a historical review", async () => {
     vi.stubGlobal(
       "fetch",

@@ -1,3 +1,5 @@
+import type { JsonValue } from "@dev.fast/json";
+
 /** List metadata only: document contents and repository paths stay on the host. */
 export interface ReviewApiSummary {
   reviewId: string;
@@ -17,14 +19,20 @@ export interface ReviewSourceEntry {
   kind: "file" | "directory";
 }
 
+type Subscription = { reviewId: string | null; part: "document" | "feedback" };
+
+type Request = (url: string, init?: RequestInit) => Promise<Response>;
+
+const defaultRequest: Request = (url, init) => fetch(url, init);
+
+// One live connection per transport/server, shared by mounted canvases.
+const liveConnections = new WeakMap<Request, Map<string, LiveConnection>>();
+
 /** Shared by the canvas and thin agent clients; no filesystem or SQL access. */
 export class ReviewApiClient {
   constructor(
     readonly connection: { serverUrl: string; token: string },
-    private readonly request: (
-      url: string,
-      init?: RequestInit,
-    ) => Promise<Response> = (url, init) => fetch(url, init),
+    private readonly request: Request = defaultRequest,
   ) {}
   async response(route: string, init?: RequestInit) {
     const headers = new Headers(init?.headers);
@@ -65,14 +73,16 @@ export class ReviewApiClient {
     ).json();
   }
   async *watch<T = unknown>(
-    reviewId: string | null,
+    reviewId: string | null | Subscription[],
     signal: AbortSignal,
     part: "document" | "feedback" = "document",
   ): AsyncGenerator<T> {
     const response = await this.response(
-      reviewId === null
-        ? "/watch"
-        : `/${encodeURIComponent(reviewId)}/${part === "feedback" ? "feedback/" : ""}watch`,
+      Array.isArray(reviewId)
+        ? `/watch?subscriptions=${encodeURIComponent(JSON.stringify(reviewId))}`
+        : reviewId === null
+          ? "/watch"
+          : `/${encodeURIComponent(reviewId)}/${part === "feedback" ? "feedback/" : ""}watch`,
       { signal },
     );
 
@@ -98,7 +108,7 @@ export class ReviewApiClient {
         let end: number;
 
         while ((end = pending.indexOf("\n")) !== -1) {
-          // SAFETY: the authenticated host serializes the requested review snapshot.
+          // SAFETY: the authenticated host serializes the snapshot type requested by this caller.
           yield JSON.parse(pending.slice(0, end)) as T;
           pending = pending.slice(end + 1);
         }
@@ -116,10 +126,113 @@ export class ReviewApiClient {
     accept: (snapshot: T) => void | Promise<void>,
     disconnected: (cause: unknown) => void,
   ) {
+    if (signal.aborted) return;
+    let connections = liveConnections.get(this.request);
+
+    if (!connections)
+      liveConnections.set(this.request, (connections = new Map()));
+
+    const key = JSON.stringify([
+      this.connection.serverUrl,
+      this.connection.token,
+    ]);
+
+    let live = connections.get(key);
+
+    if (!live) {
+      live = new LiveConnection(this, () => connections.delete(key));
+      connections.set(key, live);
+    }
+
+    return live.add(
+      { reviewId, part },
+      signal,
+      // SAFETY: this listener requests the review/part whose snapshot type is T.
+      (value) => accept(value as T),
+      disconnected,
+    );
+  }
+}
+
+type Listener = {
+  subscription: Subscription;
+  accept(value: JsonValue | undefined): void | Promise<void>;
+  disconnected(cause: unknown): void;
+};
+
+class LiveConnection {
+  private readonly listeners = new Set<Listener>();
+  private abort = new AbortController();
+  private running = Promise.resolve();
+  constructor(
+    private readonly client: ReviewApiClient,
+    private readonly empty: () => void,
+  ) {}
+
+  add(
+    subscription: Subscription,
+    signal: AbortSignal,
+    accept: Listener["accept"],
+    disconnected: Listener["disconnected"],
+  ) {
+    const listener = { subscription, accept, disconnected };
+    this.listeners.add(listener);
+    this.restart();
+
+    return new Promise<void>((resolve) => {
+      const stop = () => {
+        signal.removeEventListener("abort", stop);
+        this.listeners.delete(listener);
+        this.restart();
+
+        if (!this.listeners.size) this.empty();
+        resolve();
+      };
+
+      signal.addEventListener("abort", stop, { once: true });
+
+      if (signal.aborted) stop();
+    });
+  }
+
+  private restart() {
+    this.abort.abort();
+    this.abort = new AbortController();
+    const { signal } = this.abort;
+    const listeners = [...this.listeners];
+    // Finish an in-flight render before delivering a replacement stream's state.
+    this.running = this.running.then(async () => {
+      if (listeners.length && !signal.aborted)
+        await this.run(listeners, signal);
+    });
+  }
+
+  private async run(listeners: Listener[], signal: AbortSignal) {
+    const disconnected = (cause: unknown) =>
+      listeners.forEach((listener) => listener.disconnected(cause));
+
     while (!signal.aborted) {
       try {
-        for await (const next of this.watch<T>(reviewId, signal, part))
-          await accept(next);
+        for await (const values of this.client.watch<
+          Array<{ value?: JsonValue; error?: string }>
+        >(
+          listeners.map((item) => item.subscription),
+          signal,
+        )) {
+          if (signal.aborted) break;
+          await Promise.all(
+            listeners.map(async (listener, index) => {
+              const result = values[index]!;
+
+              try {
+                if (result.error) throw new Error(result.error);
+                await listener.accept(result.value);
+              } catch (error) {
+                if (!signal.aborted) listener.disconnected(error);
+              }
+            }),
+          );
+        }
 
         if (!signal.aborted) disconnected(new Error("Connection closed."));
       } catch (error) {

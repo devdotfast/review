@@ -1845,6 +1845,9 @@ function ThreadChat({
   onAskNow: (body: string) => Promise<void>;
   onAddToReview: (body: string) => Promise<void>;
 }) {
+  const session = useReviewSession();
+  const [sourceError, setSourceError] = useState<string>();
+
   const targetState = useThreadTargetState(
     thread?.target ?? { kind: "document" },
   );
@@ -1855,7 +1858,28 @@ function ThreadChat({
         <i aria-hidden="true" />
         <span>{quote}</span>
         {targetState.state === "outdated" && <span>Outdated location</span>}
+        {thread?.target.kind === "code" &&
+          targetState.state === "outdated" &&
+          session.openOriginalCode && (
+            <button
+              type="button"
+              onClick={async () => {
+                setSourceError(undefined);
+
+                try {
+                  await session.openOriginalCode!(thread.threadId);
+                } catch (error) {
+                  setSourceError(
+                    error instanceof Error ? error.message : String(error),
+                  );
+                }
+              }}
+            >
+              View original code
+            </button>
+          )}
       </div>
+      {sourceError && <p role="alert">{sourceError}</p>}
       <div className="thread-chat-transcript">
         {thread?.messages.map((message) => {
           const caption = `${message.by} · ${threadRelativeTimeLabel(message.at)}`;

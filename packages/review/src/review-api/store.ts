@@ -19,6 +19,7 @@ import {
   editSchema,
   elements,
   pinsSchema,
+  sourceReferences,
   sourceSchema,
 } from "./document.js";
 import { ReviewFeedback, feedbackActionSchema } from "./feedback.js";
@@ -292,7 +293,7 @@ export class ReviewStore {
               )
               .get(summary.reviewId)!.count,
           ),
-          // SAFETY: feedback submissions validate the two decision literals on write.
+          // SAFETY: feedback submissions are validated against the two decision literals on write.
           decision: decision
             ? (String(decision) as "approve" | "request-changes")
             : null,
@@ -569,16 +570,9 @@ export class ReviewStore {
       const add = (source: Source) =>
         sources.set(JSON.stringify(source), source);
 
+      for (const { source } of sourceReferences(document)) add(source);
+
       for (const block of elements(document)) {
-        if ("source" in block && block.source) add(block.source);
-
-        if (block.type === "call_stack_diff")
-          for (const frame of [...block.base, ...block.head]) add(frame.source);
-
-        if (block.type === "database_lens")
-          for (const useCase of block.useCases)
-            for (const op of useCase.operations) add(op.source);
-
         if (
           block.type === "image" ||
           block.type === "trace_quote" ||

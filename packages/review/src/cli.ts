@@ -64,11 +64,8 @@ async function maybeDelegateToDesktopCli(
   if (env.DEV_FAST_REVIEW_CLI_NO_DELEGATE || env.DEV_FAST_REVIEW_CLI_DELEGATED)
     return null;
 
-  // stop-hook runs on every agent stop and must not pay a discovery read plus
-  // a second node spawn; internal-test must exercise this entry, not the
-  // app's.
+  // Internal commands must exercise this entry, not the app's.
   if (
-    argv[0] === "stop-hook" ||
     argv[0] === "internal-test" ||
     argv[0] === "wait-codex" ||
     argv[0] === "prepare-worktree"

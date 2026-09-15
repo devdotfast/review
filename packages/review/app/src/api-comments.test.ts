@@ -53,6 +53,64 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it.each(["head", "base", "commit"] as const)(
+  "opens the original %s location after repinning, not the current file",
+  async (side) => {
+    const client = new ReviewApiClient(
+      { serverUrl: "http://review", token: "test" },
+      async (url, init) => app.request(url, init),
+    );
+
+    comments = new ApiComments(
+      client,
+      reviewId,
+      () => store.read(reviewId).version,
+    );
+
+    const row = (line: number) => ({
+      old_line: side === "base" ? line : null,
+      new_line: side === "base" ? null : line,
+    });
+
+    const position = createGitLabTextDiffPosition({
+      base_sha: side === "commit" ? "parent" : "base",
+      start_sha: side === "commit" ? "parent" : "base",
+      // Selected final commit: same head but different comparison base.
+      head_sha: "head",
+      old_path: "old.ts",
+      new_path: "renamed.ts",
+      start: row(3),
+      end: row(5),
+    });
+
+    const question = {
+      ...input(),
+      target: { kind: "code" as const, original_position: position, position },
+    };
+
+    await comments.saveComment(question);
+    await command({
+      type: "repin",
+      reviewId,
+      pins: {
+        ...store.read(reviewId).pins,
+        base: "new-base",
+        head: "new-head",
+      },
+    });
+    await comments.refresh();
+    expect(await comments.originalSource(question.threadId)).toEqual({
+      source: {
+        version: 0,
+        side: side === "base" ? "base" : "head",
+        file: side === "base" ? "old.ts" : "renamed.ts",
+        commit: side === "commit" ? "head" : undefined,
+      },
+      range: { startLine: 3, endLine: 5 },
+    });
+  },
+);
+
 it("retries a lost save response against its original version without duplicating the question", async () => {
   let loseResponse = true;
 

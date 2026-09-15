@@ -202,6 +202,13 @@ export function ApiCanvas({
 
     const session = createReviewSession(bridge);
     session.keepsDismissedReviews = true;
+
+    if (content.openSource)
+      session.openOriginalCode = async (threadId) => {
+        const { source, range } = await comments.originalSource(threadId);
+        await content.openSource!(source, range);
+      };
+
     session.softwareMapData = (model) =>
       [...(dataRef.current?.maps.values() ?? [])].find((map) => map === model)
         ?.pinnedData;
@@ -321,6 +328,7 @@ export function ApiCanvas({
     client,
     content.bridge,
     content.reviewId,
+    content.openSource,
     version,
     comments,
     traceKey,
@@ -339,11 +347,6 @@ export function ApiCanvas({
         <TutorialProvider>
           {error && <p role="status">{error}</p>}
           {commentError && <p role="status">{commentError}</p>}
-          {version !== undefined && (
-            <button onClick={() => setVersion(undefined)}>
-              Back to latest version
-            </button>
-          )}
           <AuthoringActivityContext.Provider
             value={version === undefined ? activity : undefined}
           >

@@ -72,7 +72,6 @@ import type {
 	ReviewCanvasBridge,
 	ReviewCanvasDiagnostic,
 	ReviewCanvasContent,
-	ReviewApiFeedbackContext,
 	ReviewCanvasHandle,
 	ReviewCanvasOnboarding,
 	ReviewCanvasHomeSetup,
@@ -165,6 +164,7 @@ const detachedScrollRestoreDeadlineMs = 30_000;
 // Canvas content loading is keyed by promise identity. Metadata-only refreshes
 // must not remount the document and its native diff when maps are disabled.
 const disabledSoftwareMap = Promise.resolve(null);
+const requestReviewApi: typeof fetch = (url, init) => fetch(url, init);
 
 // The tutorial step list as it first shipped. Stored progress payloads
 // without a `steps` field date from this era.
@@ -223,7 +223,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private renderedInput: ReviewCanvasEditorInput | undefined;
 	private renderedModel: ReviewSessionModel | null = null;
 	private readyInput: ReviewCanvasEditorInput | undefined;
-	private apiFeedback: ReviewApiFeedbackContext | undefined;
 	private detachedScrollSnapshot: ReviewCanvasScrollSnapshot | undefined;
 	private detachedScrollRestoreFrame: number | null = null;
 	private detachedScrollRestoreDeadline: number | null = null;
@@ -437,7 +436,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		const warmModel = input.resolvedModel;
 		if (input.target.kind === "api" && this.readyInput === input && this.renderedInput === input) {
 			this.sessionModelService.setActiveModel(null);
-			if (this.apiFeedback) this.apiSource.bindFeedback(this.apiFeedback);
 			this.canvasMount?.dispatchEvent(new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT));
 			return;
 		}
@@ -534,14 +532,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					kind: "api", reviewId,
 					setTitle: title => input.setApiTitle(title),
 					setVersion: next => { version = next; },
-					bindFeedback: context => {
-						this.apiFeedback = context;
-						const release = this.apiSource.bindFeedback(context);
-						return () => {
-							release();
-							if (this.apiFeedback === context) this.apiFeedback = undefined;
-						};
-					},
+					bindFeedback: context => this.apiSource.bindFeedback(context, input),
+					openSource: (source, range) => this.apiSource.open({ reviewId, ...source }, range),
 					bridge: {
 						...source,
 						appSessionId: this.reviewTelemetryService.appSessionId,
@@ -551,7 +543,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							wasmUrl: assets.reviewWasmUrl,
 							appVersion: this.productService.reviewVersion ?? this.productService.version,
 						},
-						request: (url, init) => fetch(url, init),
+						request: requestReviewApi,
 						post: async request => {
 							if (request.name === "openSourceTree") {
 								await this.tabsService.openApiSource(reviewId, version, input.getName());

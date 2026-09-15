@@ -1,17 +1,20 @@
-import type {
-  CreateReviewCommentInput,
-  ReviewCommentAgentActivity,
-  ReviewCommentStoreBridge,
-  ReviewCommentStoreChange,
-  ReviewCommentStoreSnapshot,
-  ReviewCommentThreadRecord,
-  ReviewLocalCommentThread,
+import {
+  type CreateReviewCommentInput,
+  type ReviewApiSourceLocation,
+  type ReviewCommentAgentActivity,
+  type ReviewCommentStoreBridge,
+  type ReviewCommentStoreChange,
+  type ReviewCommentStoreSnapshot,
+  type ReviewCommentThreadRecord,
+  type ReviewInlineEditorRange,
+  type ReviewLocalCommentThread,
+  gitLabDiffPositionRows,
 } from "@dev.fast/review-protocol";
 
 import type { ReviewApiClient } from "../../src/review-api/client";
 import type { FeedbackSnapshot } from "../../src/review-api/feedback";
 import type { QuestionStatus } from "../../src/review-api/questions";
-import type { Result } from "../../src/review-api/store";
+import type { Result, Snapshot } from "../../src/review-api/store";
 import { createClientId } from "./review-context";
 
 /** Adapts server-owned feedback to the existing annotation UI. */
@@ -76,6 +79,42 @@ export class ApiComments implements ReviewCommentStoreBridge {
       .find((thread) => thread.id === threadId)
       ?.messages.some((message) => message.id === messageId && message.draft) ??
     false;
+
+  async originalSource(threadId: string): Promise<{
+    source: ReviewApiSourceLocation;
+    range: ReviewInlineEditorRange;
+  }> {
+    const thread = this.current.threads.find((item) => item.id === threadId);
+
+    if (thread?.target.kind !== "code")
+      throw new Error("This thread has no original code location.");
+    const position = thread.target.original_position;
+    const rows = gitLabDiffPositionRows(position)!;
+    const side = rows.start.new_line != null ? "head" : "base";
+
+    const snapshot = await this.client.read<Snapshot>(
+      `/${this.reviewId}?full=true&version=${thread.version}`,
+    );
+
+    return {
+      source: {
+        version: thread.version,
+        side,
+        file: (side === "head" ? position.new_path : position.old_path)!,
+        commit:
+          position.head_sha !== snapshot.pins.head ||
+          position.start_sha !== snapshot.pins.base
+            ? position.head_sha!
+            : undefined,
+      },
+      range: {
+        startLine: (side === "head"
+          ? rows.start.new_line
+          : rows.start.old_line)!,
+        endLine: (side === "head" ? rows.end.new_line : rows.end.old_line)!,
+      },
+    };
+  }
 
   async refresh() {
     const version = this.version();

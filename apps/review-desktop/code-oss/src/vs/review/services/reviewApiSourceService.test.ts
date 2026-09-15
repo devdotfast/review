@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { URI } from "../../base/common/uri.js";
+import { URI } from "../../base/common/uri.js";
+import { Emitter } from "../../base/common/event.js";
+import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
 import type { ITextModelContentProvider } from "../../editor/common/services/resolverService.js";
 import type { ReviewInlineSource } from "./reviewInlineEditorService.js";
 import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
@@ -10,6 +12,8 @@ import { apiSourceUri, ReviewApiSourceService } from "./reviewApiSourceService.j
 function setup() {
   let provider: ITextModelContentProvider;
   let disposed = 0;
+  const editorChanged = new Emitter<void>();
+  const editors = { activeEditor: undefined as EditorInput | undefined, onDidActiveEditorChange: editorChanged.event };
   const models = new Map<string, { uri: URI; text: string; getLineCount(): number }>();
   const service = new ReviewApiSourceService(
     {
@@ -35,10 +39,16 @@ function setup() {
     } as never,
     { createByFilepathOrFirstLine: () => ({ languageId: "typescript" }) } as never,
     { computeDiff: async () => ({ changes: [], quitEarly: false }) } as never,
-    {} as never,
+    editors as never,
     { registerReviewEditor() {} } as never,
   );
-  return { service, models, disposed: () => disposed };
+  return {
+    service, models, disposed: () => disposed,
+    activate(editor: EditorInput | undefined) {
+      editors.activeEditor = editor;
+      editorChanged.fire();
+    },
+  };
 }
 
 test("a native peek reads the pinned version through the authenticated API, not a working file", async (t) => {
@@ -187,10 +197,12 @@ test("tree entries retain version, side and selected commit when opening a child
 });
 
 test("comments retain the selected commit and rename side, and never project onto another review or version", async (t) => {
-  const { service } = setup();
+  const { service, activate } = setup();
   t.after(() => service.dispose());
   const context = { reviewId: "review-a", version: 3, pins: { base: "base", head: "head" }, comments: {} as never };
-  const release = service.bindFeedback(context);
+  const owner = {} as EditorInput;
+  activate(owner);
+  const release = service.bindFeedback(context, owner);
   t.mock.method(globalThis, "fetch", async (value: string) => {
     const url = new URL(value);
     return Response.json(url.pathname.endsWith("/commits")
@@ -211,9 +223,45 @@ test("comments retain the selected commit and rename side, and never project ont
   assert.equal(await service.commentTarget(apiSourceUri({ ...base, reviewId: "other" }), { startLine: 1, endLine: 1 }), null);
   assert.equal(await service.commentTarget(apiSourceUri(base, true), { startLine: 1, endLine: 1 }), null);
   const next = { ...context, version: 4 };
-  const releaseNext = service.bindFeedback(next);
+  const releaseNext = service.bindFeedback(next, owner);
   release();
   assert.equal(service.feedback, next);
   releaseNext();
+  assert.equal(service.feedback, undefined);
+});
+
+test("background canvas updates cannot take over the active review's code comments", async (t) => {
+  const { service, activate } = setup();
+  t.after(() => service.dispose());
+  t.mock.method(globalThis, "fetch", async () => Response.json([]));
+  const ownerA = {} as EditorInput;
+  const ownerB = {} as EditorInput;
+  const a = { reviewId: "review-a", version: 3, pins: { base: "base-a", head: "head-a" }, comments: {} as never };
+  const b = { ...a, reviewId: "review-b", pins: { base: "base-b", head: "head-b" }, comments: {} as never };
+  const sourceA = apiSourceUri({ reviewId: a.reviewId, version: a.version, side: "head", file: "a.ts" });
+  activate(ownerA);
+  const releaseA = service.bindFeedback(a, ownerA);
+  const releaseB = service.bindFeedback(b, ownerB);
+  assert.equal(service.feedback?.comments, a.comments);
+  assert.equal((await service.commentTarget(sourceA, { startLine: 2, endLine: 2 }))?.position.head_sha, "head-a");
+
+  activate(ownerB);
+  assert.equal(service.feedback?.comments, b.comments);
+  assert.equal(await service.commentTarget(sourceA, { startLine: 2, endLine: 2 }), null);
+  const updatedA = { ...a, comments: {} as never };
+  const releaseUpdatedA = service.bindFeedback(updatedA, ownerA);
+  releaseA();
+  assert.equal(service.feedback?.comments, b.comments);
+
+  // An Open file tab selects its own review, even if another canvas last updated.
+  activate({ resource: sourceA } as EditorInput);
+  assert.equal(service.feedback?.comments, updatedA.comments);
+  releaseB();
+  assert.equal(service.feedback?.comments, updatedA.comments);
+  activate({ resource: sourceA.with({ query: "version=4&side=head" }) } as EditorInput);
+  assert.equal(service.feedback, undefined);
+  activate({ resource: URI.from({ scheme: "devfast-review-canvas", authority: "api-source", path: "/review-a/3" }) } as EditorInput);
+  assert.equal(service.feedback, updatedA);
+  releaseUpdatedA();
   assert.equal(service.feedback, undefined);
 });

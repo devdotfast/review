@@ -40,6 +40,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id/activity` | Currently reported authoring work, not stored in document history |
 | `POST /:id/activity {action,leaseId}` | Begin, renew or end a working signal; return count and expiry |
 | `GET /watch` | NDJSON review summaries: initial list, then saved changes |
+| `GET /watch?subscriptions=…` | One NDJSON connection for multiple `{reviewId, part:"document"\|"feedback"}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results. |
 | `GET /:id`                                | Compact outline                                                        |
 | `GET /:id?targetId=step-3`                | Full block or sequence step                                            |
 | `GET /:id?full=true`                      | Full snapshot                                                          |
@@ -162,6 +163,13 @@ edited or discarded; posted messages and conversations cannot be deleted.
 The Review Add Comment shortcut uses the native composer for API source models.
 
 ## Validation and remaining work
+
+Markdown source links use `[label](review-source:head/src/save.ts#L10-L24)`
+(or `base`, or `#L10` for one line). Paths are repository-relative and URL-encoded
+where needed. Inline and reference-style links open the existing native side peek.
+The same Markdown parser feeds the host's source checks and the renderer, so code
+examples and unused definitions do not become source requests. Invalid paths or
+ranges reject the edit before saving. No extra node type or endpoint is needed.
 
 The component schema checks inputs; field patches are checked after merging
 with the target. A small relationship pass checks diagram actors, store fields,

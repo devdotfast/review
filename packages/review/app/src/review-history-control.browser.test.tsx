@@ -86,6 +86,7 @@ describe("ReviewHistoryControl", () => {
     );
     const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
     await renderControl(undefined, post);
+    await expect.poll(() => historyButton().disabled).toBe(false);
     await act(async () => historyButton().click());
 
     const items = [

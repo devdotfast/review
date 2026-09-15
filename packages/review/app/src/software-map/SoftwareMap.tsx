@@ -34,7 +34,6 @@ import { useReviewDebugSettings } from "../debug-settings";
 import { hasTextSelectionWithin } from "../diagram-text-selection";
 import { type ReviewSession, useReviewSession } from "../host/review-session";
 import { CloseIcon, RefreshIcon } from "../icons";
-import { useReviewInitialData } from "../review-initial-data-context";
 import { useRightPanelResize } from "../side-panel-resizer";
 import { captureUiEvent } from "../ui-telemetry";
 import {
@@ -326,8 +325,6 @@ function SoftwareMapWithModel({
     [session],
   );
 
-  const initialData = useReviewInitialData();
-
   const initialNavigation = restoreSoftwareMapNavigationState(
     session,
     navigationKey,
@@ -502,21 +499,6 @@ function SoftwareMapWithModel({
       return;
     }
 
-    const initialEntry = initialData?.softwareMapResolvedData.find(
-      (entry) => entry.key === resolvedDataKey,
-    );
-
-    if (initialEntry && refreshEpoch === 0) {
-      applyResolvedDataState({
-        key: initialEntry.key,
-        ...parseSoftwareMapResolvedDataResponse(
-          isJsonObject(initialEntry.response) ? initialEntry.response : null,
-        ),
-      });
-
-      return;
-    }
-
     let cancelled = false;
     setResolvedDataError(null);
     setPendingResolvedDataKey(resolvedDataKey);
@@ -549,7 +531,6 @@ function SoftwareMapWithModel({
       cancelled = true;
     };
   }, [
-    initialData,
     refreshEpoch,
     resolveDataWhenVisible,
     resolvedDataRequestPath,

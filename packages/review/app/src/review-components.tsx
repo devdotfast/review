@@ -137,12 +137,7 @@ function ReviewPanelFrame({
           <CloseIcon />
         </button>
       </header>
-      <div
-        ref={bodyRef}
-        className="review-panel-body"
-        data-review-scroll-owner="panel"
-        onScroll={onBodyScroll}
-      >
+      <div ref={bodyRef} className="review-panel-body" onScroll={onBodyScroll}>
         {children}
       </div>
       {floatingFooter}
@@ -309,7 +304,7 @@ function reviewSectionSummaryLabel(summary: ReviewSectionSummary): string {
   return parts.join(" · ");
 }
 
-export interface ProsePeekAnchorProps {
+interface ProsePeekAnchorProps {
   href: string;
   isOpen: boolean;
   onOpen: () => void;
@@ -418,7 +413,7 @@ export function a({
  * which can push the clicked anchor link out of the viewport. Once the panel
  * has slid in, scroll the link back into view if the reflow moved it away.
  */
-export function keepAnchorLinkVisible(link: HTMLElement) {
+function keepAnchorLinkVisible(link: HTMLElement) {
   window.setTimeout(() => {
     const rect = link.getBoundingClientRect();
 
@@ -661,7 +656,7 @@ function TraceQuotePeekPanel({
   );
 }
 
-export function ReviewPeekPanel({
+function ReviewPeekPanel({
   anchor,
   content,
   onClose,
@@ -1104,13 +1099,13 @@ function GuidedTourStopMain({
   );
 }
 
-export function ReviewPeekContentView({
+function ReviewPeekContentView({
   anchor,
   content,
   active,
   onNativeFocus,
 }: {
-  anchor?: AnchorRef;
+  anchor: AnchorRef;
   content: ReviewPeekContent;
   active?: boolean;
   onNativeFocus?: () => void;
@@ -1122,14 +1117,12 @@ export function ReviewPeekContentView({
         active={active}
         heightMode="content"
         onNativeFocus={onNativeFocus}
-        unifiedDiff={anchor !== undefined}
+        unifiedDiff
       />
     );
   }
 
   if (content.kind === "inline-code") {
-    if (!anchor) return null;
-
     return (
       <AuthoredCodeSurface
         anchor={anchor}

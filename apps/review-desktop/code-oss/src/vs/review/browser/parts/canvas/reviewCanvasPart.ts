@@ -276,10 +276,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		);
 		this._register(
 			verbs.onDidEmitSurfaceEvent((event) => {
-				if (this.targetDocument) {
-					this.targetDocument.body.dataset["reviewLastSurfaceEvent"] =
-						event.event;
-				}
 				this.surfaceEvents.fire(event);
 			}),
 		);

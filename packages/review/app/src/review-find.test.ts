@@ -7,7 +7,7 @@ import {
   compileReviewFindQuery,
   regularExpressionMatches,
 } from "./review-find-query";
-import { reviewFindRanges, reviewFindText } from "./review-find-text";
+import { reviewFindRanges } from "./review-find-text";
 
 function compile(overrides: Partial<ReviewFindQuery> = {}): RegExp {
   const result = compileReviewFindQuery({
@@ -62,28 +62,6 @@ describe("Review Find queries", () => {
 });
 
 describe("Review Find document text", () => {
-  it("keeps authored DOM and excludes Review-owned surfaces", () => {
-    const article = document.createElement("article");
-    article.className = "review-document";
-    article.innerHTML = `
-      <h1>Authored heading</h1>
-      <div><span>React component text</span></div>
-      <svg><text>Diagram label</text></svg>
-      <div class="review-doc-meta">metadata</div>
-      <div data-review-inline-editor="src/example.ts">hidden Monaco text</div>
-      <div class="review-find-widget">find chrome</div>
-    `;
-    document.body.append(article);
-
-    const text = reviewFindText(article);
-    expect(text).toContain("Authored heading");
-    expect(text).toContain("React component text");
-    expect(text).toContain("Diagram label");
-    expect(text).not.toContain("metadata");
-    expect(text).not.toContain("hidden Monaco text");
-    expect(text).not.toContain("find chrome");
-  });
-
   it("creates DOM ranges for each authored match", () => {
     const article = document.createElement("article");
     article.innerHTML = "<p>Needle one</p><p>Needle two</p>";

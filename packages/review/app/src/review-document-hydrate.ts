@@ -118,8 +118,17 @@ function hydrateNode(
   if (node.type === "text") return node;
 
   if (node.type === "element") {
+    const {
+      "data-review-block-index": _blockIndex,
+      "data-review-table": _table,
+      "data-review-row": _row,
+      "data-review-column": _column,
+      ...props
+    } = node.props;
+
     return {
       ...node,
+      props,
       children: node.children.map((child) => hydrateNode(child, anchors)),
     };
   }

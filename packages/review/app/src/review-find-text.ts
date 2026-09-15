@@ -58,10 +58,6 @@ interface FindTextIndex {
   segments: TextSegment[];
 }
 
-export function reviewFindText(article: HTMLElement): string {
-  return buildFindTextIndex(article).text;
-}
-
 export function reviewFindRanges(
   article: HTMLElement,
   expression: RegExp,

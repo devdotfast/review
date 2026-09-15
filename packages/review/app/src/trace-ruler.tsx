@@ -64,19 +64,6 @@ export function rulerBucketRange(
   return { start, end: Math.min(end, eventCount) };
 }
 
-export function rulerTickForEvent(
-  index: number,
-  tickCount: number,
-  eventCount: number,
-): number {
-  if (eventCount <= 0 || tickCount <= 0) return 0;
-  // Inverse of rulerBucketRange's floor boundaries: the tick whose
-  // half-open bucket contains the event index.
-  const tick = Math.ceil(((index + 1) * tickCount) / eventCount) - 1;
-
-  return Math.min(tickCount - 1, Math.max(0, tick));
-}
-
 /** Comb widths: the hovered tick is longest, neighbors taper back to rest. */
 export function rulerCombWidth(tick: number, hoverTick: number | null): number {
   if (hoverTick === null) return RULER_TICK_WIDTH;

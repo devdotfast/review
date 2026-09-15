@@ -39,7 +39,7 @@ describe("renderReviewNodes", () => {
         tag: "a",
         props: {
           href: "https://example.com/docs",
-          "data-review-block-index": 4,
+          "aria-label": "Documentation",
         },
         children: [{ type: "text", value: "Docs" }],
       },
@@ -50,7 +50,7 @@ describe("renderReviewNodes", () => {
     );
 
     expect(html).toContain('href="https://example.com/docs"');
-    expect(html).toContain('data-review-block-index="4"');
+    expect(html).toContain('aria-label="Documentation"');
     expect(html).toContain('target="_blank"');
   });
 

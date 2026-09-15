@@ -191,27 +191,6 @@ describe("review protocol parsers", () => {
     });
   });
 
-  it("parses open-file options at the one-based boundary", () => {
-    expect(
-      parseReviewVerbRequest({
-        name: "openFile",
-        args: {
-          path: "src/cli.ts",
-          line: 10,
-          column: 2,
-          endLine: 12,
-          preserveFocus: true,
-        },
-      }),
-    ).toMatchObject({ name: "openFile", args: { line: 10, endLine: 12 } });
-    expect(() =>
-      parseReviewVerbRequest({
-        name: "openFile",
-        args: { path: "src/cli.ts", line: 10, endLine: 9 },
-      }),
-    ).toThrow("must be >=");
-  });
-
   it("parses the authenticated session response", () => {
     expect(
       parseReviewSessionResponse({

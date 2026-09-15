@@ -6,13 +6,12 @@
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
-import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
+import { Disposable } from "../../../base/common/lifecycle.js";
 import {
   type ICodeEditor,
   isCodeEditor,
   isDiffEditor,
 } from "../../../editor/browser/editorBrowser.js";
-import { ICodeEditorService } from "../../../editor/browser/services/codeEditorService.js";
 import { Range } from "../../../editor/common/core/range.js";
 import type { IEditorDecorationsCollection } from "../../../editor/common/editorCommon.js";
 import {
@@ -27,20 +26,16 @@ import {
 } from "../../../workbench/services/layout/browser/layoutService.js";
 import { IHostService } from "../../../workbench/services/host/browser/host.js";
 import {
-  type ReviewDesktopState,
   type ReviewDiffSide,
   type JsonValue,
-  type ReviewOpenEditorWire,
   type ReviewSurfaceEvent,
   type ReviewVerbResponse,
   type ReviewView,
   parseReviewVerbRequest,
   REVIEW_DISCORD_URL,
 } from "../../common/reviewProtocol.js";
-import { reviewSelectionRange } from "../../common/reviewSelection.js";
 import {
   IReviewCodeResourceService,
-  reviewResourceIdentity,
 } from "../../services/reviewCodeResourceService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import {
@@ -60,7 +55,6 @@ export interface IReviewVerbsService {
   readonly onDidEmitSurfaceEvent: Event<ReviewSurfaceEvent>;
   readonly onDidRequestCanvasFocus: Event<void>;
   dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse>;
-  state(): ReviewDesktopState;
   resetSession(): Promise<void>;
 }
 
@@ -79,7 +73,6 @@ export class ReviewVerbsService
   );
   readonly onDidRequestCanvasFocus = this._onDidRequestCanvasFocus.event;
 
-  private readonly editorStores = new Map<string, DisposableStore>();
   private revealDecoration: IEditorDecorationsCollection | undefined;
 
   constructor(
@@ -88,7 +81,6 @@ export class ReviewVerbsService
     private readonly editorGroupsService: IEditorGroupsService,
     @IWorkbenchLayoutService
     private readonly layoutService: IWorkbenchLayoutService,
-    @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
     @IReviewCodeResourceService
     private readonly codeResources: IReviewCodeResourceService,
     @IReviewSessionModelService
@@ -105,16 +97,6 @@ export class ReviewVerbsService
     @IOpenerService private readonly openerService: IOpenerService,
   ) {
     super();
-    for (const editor of codeEditorService.listCodeEditors())
-      this.trackEditor(editor);
-    this._register(
-      codeEditorService.onCodeEditorAdd((editor) => this.trackEditor(editor)),
-    );
-    this._register(
-      codeEditorService.onCodeEditorRemove((editor) =>
-        this.untrackEditor(editor),
-      ),
-    );
   }
 
   async dispatch(
@@ -126,9 +108,6 @@ export class ReviewVerbsService
       switch (request.name) {
         case "joinDiscord":
           await this.openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
-          break;
-        case "openFile":
-          await this.openFile(request.args);
           break;
         case "showReviewView":
           await this.showReviewView(request.args.view);
@@ -178,8 +157,6 @@ export class ReviewVerbsService
             request.args.active,
           );
           break;
-        case "state":
-          return { ok: true, result: this.state() };
       }
       return { ok: true };
     } catch (error) {
@@ -204,31 +181,6 @@ export class ReviewVerbsService
     }
   }
 
-  state(): ReviewDesktopState {
-    const session = this.requireSession();
-    const openEditors = this.codeEditorService
-      .listCodeEditors()
-      .map((editor) => this.editorIdentity(editor, session))
-      .filter((value): value is ReviewOpenEditorWire => value !== null);
-    const active = this.codeEditorService.getActiveCodeEditor();
-    const activeEditor = active ? this.editorIdentity(active, session) : null;
-    const selection = active?.getSelection();
-    return {
-      openEditors,
-      activeEditor,
-      selection:
-        activeEditor && selection
-          ? {
-              path: activeEditor.path,
-              startLine: selection.startLineNumber,
-              startColumn: selection.startColumn,
-              endLine: selection.endLineNumber,
-              endColumn: selection.endColumn,
-            }
-          : null,
-    };
-  }
-
   async resetSession(): Promise<void> {
     this.clearRevealDecoration();
     await Promise.all(
@@ -242,18 +194,6 @@ export class ReviewVerbsService
         ),
       ),
     );
-  }
-
-  private async openFile(args: {
-    path: string;
-    line?: number;
-    column?: number;
-    endLine?: number;
-    preserveFocus?: boolean;
-  }): Promise<void> {
-    const pane = await this.openFileEditor(args);
-    if (!pane) throw new Error(`Unable to open review file: ${args.path}`);
-    this.emitEditorState();
   }
 
   private async openFileEditor(args: {
@@ -295,7 +235,6 @@ export class ReviewVerbsService
   ): Promise<void> {
     const pane = await this.openDiffEditor({ filePath, previousPath });
     if (!pane) throw new Error(`Unable to open review diff: ${filePath}`);
-    this.emitEditorState();
   }
 
   /**
@@ -382,62 +321,11 @@ export class ReviewVerbsService
         },
       ]);
     }
-    this.emitEditorState(targetEditor);
   }
 
   private clearRevealDecoration(): void {
     this.revealDecoration?.clear();
     this.revealDecoration = undefined;
-  }
-
-  private trackEditor(editor: ICodeEditor): void {
-    if (editor.isSimpleWidget) return;
-    const id = editor.getId();
-    if (this.editorStores.has(id)) return;
-    const store = new DisposableStore();
-    store.add(editor.onDidFocusEditorText(() => this.emitEditorState(editor)));
-    store.add(
-      editor.onDidChangeCursorSelection(() => this.emitEditorState(editor)),
-    );
-    this.editorStores.set(id, store);
-    this._register(store);
-  }
-
-  private untrackEditor(editor: ICodeEditor): void {
-    this.editorStores.get(editor.getId())?.dispose();
-    this.editorStores.delete(editor.getId());
-  }
-
-  private emitEditorState(
-    editor = this.codeEditorService.getActiveCodeEditor(),
-  ): void {
-    const session = this.sessionModelService.activeModel?.session;
-    const identity =
-      editor && session ? this.editorIdentity(editor, session) : null;
-    this._onDidEmitSurfaceEvent.fire({
-      event: "activeEditorChanged",
-      path: identity?.path ?? null,
-    });
-    const selection = editor?.getSelection();
-    if (identity && selection) {
-      this._onDidEmitSurfaceEvent.fire({
-        event: "editorSelectionChanged",
-        path: identity.path,
-        range: reviewSelectionRange(
-          selection.getStartPosition(),
-          selection.getEndPosition(),
-        ),
-      });
-    }
-  }
-
-  private editorIdentity(
-    editor: ICodeEditor,
-    session: ReviewDesktopSession,
-  ): ReviewOpenEditorWire | null {
-    if (editor.isSimpleWidget) return null;
-    const uri = editor.getModel()?.uri;
-    return uri ? reviewResourceIdentity(session, uri) : null;
   }
 
   private requireSession(): ReviewDesktopSession {

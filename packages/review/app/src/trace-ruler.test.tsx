@@ -15,7 +15,6 @@ import {
   rulerNearestTick,
   rulerPreview,
   rulerTickCount,
-  rulerTickForEvent,
   rulerTurnForEvent,
   rulerTurnStarts,
 } from "./trace-ruler";
@@ -53,18 +52,6 @@ describe("ruler geometry", () => {
     }
 
     expect(next).toBe(eventCount);
-  });
-
-  it("maps events back to the tick whose bucket contains them", () => {
-    const tickCount = 7;
-    const eventCount = 23;
-
-    for (let index = 0; index < eventCount; index += 1) {
-      const tick = rulerTickForEvent(index, tickCount, eventCount);
-      const { start, end } = rulerBucketRange(tick, tickCount, eventCount);
-      expect(index).toBeGreaterThanOrEqual(start);
-      expect(index).toBeLessThan(end);
-    }
   });
 
   it("elongates the hovered tick most and tapers to rest width", () => {

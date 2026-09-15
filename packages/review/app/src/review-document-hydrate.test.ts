@@ -62,6 +62,19 @@ function reviewDocumentData(): ReviewDocumentData {
     ],
     body: [
       {
+        type: "element",
+        tag: "h1",
+        props: {
+          "data-review-block-index": 0,
+          "data-review-table": 1,
+          "data-review-row": 2,
+          "data-review-column": 3,
+          "data-review-block-tag": "h1",
+          id: "orders-heading",
+        },
+        children: [{ type: "text", value: "Orders" }],
+      },
+      {
         type: "component",
         name: "CodePeek",
         props: { anchor },
@@ -93,9 +106,12 @@ function ready(data = reviewDocumentData(), contentHash = "document-hash") {
 
 describe("hydrateReviewDocument", () => {
   it("parses data, canonicalizes anchors, and rebuilds runtime-only handles", () => {
-    const document = hydrateReviewDocument(ready());
-    const codePeek = document.body[0] as HydratedReviewComponentNode;
-    const databaseLens = document.body[1] as HydratedReviewComponentNode;
+    const sealed = reviewDocumentData();
+    const sealedJson = JSON.stringify(sealed);
+    const document = hydrateReviewDocument(ready(sealed));
+    const heading = document.body[0];
+    const codePeek = document.body[1] as HydratedReviewComponentNode;
+    const databaseLens = document.body[2] as HydratedReviewComponentNode;
     const anchor = document.anchors.get("create-order");
 
     const stores = databaseLensPropsSchema.parse({
@@ -103,7 +119,26 @@ describe("hydrateReviewDocument", () => {
       children: [],
     }).stores;
 
+    if (heading.type !== "element") {
+      throw new Error("Expected the first hydrated node to remain an element.");
+    }
+
     expect(codePeek.props.anchor).toBe(anchor);
+    expect(heading.props).toEqual({
+      "data-review-block-tag": "h1",
+      id: "orders-heading",
+    });
+    expect(sealed.body[0]).toMatchObject({
+      props: {
+        "data-review-block-index": 0,
+        "data-review-table": 1,
+        "data-review-row": 2,
+        "data-review-column": 3,
+        "data-review-block-tag": "h1",
+        id: "orders-heading",
+      },
+    });
+    expect(JSON.stringify(sealed)).toBe(sealedJson);
     expect(collectionSchema(stores.db.tables!.orders)).toEqual({
       status: { type: "text" },
     });

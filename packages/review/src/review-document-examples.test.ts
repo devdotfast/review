@@ -317,16 +317,6 @@ describe("real authored document JSON conversion", () => {
         .join(""),
     ).toContain("Preserve & decode entities");
 
-    const indices = nodes.flatMap((node) =>
-      node.type === "element" &&
-      node.props["data-review-block-index"] !== undefined
-        ? [Number(node.props["data-review-block-index"])]
-        : [],
-    );
-
-    expect(indices).toEqual(
-      Array.from({ length: indices.length }, (_, index) => index),
-    );
     expect(JSON.stringify(document)).not.toContain('"resolution":{');
     expect(
       reviewDocumentDataSchema.parse(JSON.parse(JSON.stringify(document))),

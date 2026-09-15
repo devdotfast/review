@@ -3027,10 +3027,6 @@ button {
   white-space: nowrap;
 }
 
-.review-baton-chip--awaiting {
-  color: var(--rpc);
-}
-
 .review-baton-chip--changes-requested {
   color: var(--diff-modified);
 }
@@ -3039,7 +3035,7 @@ button {
   color: var(--diff-added);
 }
 
-.review-baton-chip--rejected {
+.review-baton-chip--dismissed {
   color: var(--diff-removed);
 }
 
@@ -3058,7 +3054,7 @@ button {
   stroke-width: 1.6;
 }
 
-.review-baton-chip--rejected .review-baton-glyph {
+.review-baton-chip--dismissed .review-baton-glyph {
   stroke-width: 1.4;
 }
 

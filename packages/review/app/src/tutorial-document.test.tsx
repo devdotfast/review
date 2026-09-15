@@ -109,13 +109,6 @@ describe("shipped tutorial JSON document", () => {
 
     const container = document.createElement("div");
     container.innerHTML = html;
-    const blocks = [...container.querySelectorAll("[data-review-block-index]")];
-    expect(blocks.length).toBeGreaterThan(0);
-    expect(
-      blocks.map((block) =>
-        Number(block.getAttribute("data-review-block-index")),
-      ),
-    ).toEqual(blocks.map((_block, index) => index));
     expect(container.querySelector(".tutorial-keymap-picker")).not.toBeNull();
     expect(
       container.querySelector(".tutorial-authoring-conversation"),

@@ -1078,7 +1078,6 @@ export const ReviewSessionSchema = z.strictObject({
   reviewPath: requiredString,
   codeGraphUrl: absoluteUrlSchema.optional(),
   agent: AuthoringAgentSessionSchema.optional(),
-  codexThreadId: requiredString.optional(),
   resolvedBaseRef: requiredString.nullable().optional(),
   reviewStatus: ReviewStatusSchema.optional(),
   historicalRevision: z
@@ -1269,34 +1268,6 @@ export const ReviewDesktopStateSchema = z.strictObject({
 
 export type ReviewDesktopState = z.infer<typeof ReviewDesktopStateSchema>;
 
-const openFileArgsSchema = z
-  .strictObject({
-    path: requiredString,
-    line: positiveInteger.optional(),
-    column: positiveInteger.optional(),
-    endLine: positiveInteger.optional(),
-    preserveFocus: z.boolean().optional(),
-  })
-  .superRefine((args, context) => {
-    if (args.line === undefined && args.endLine !== undefined) {
-      context.addIssue({
-        code: "custom",
-        message: "requires args.line",
-        path: ["endLine"],
-      });
-    } else if (
-      args.line !== undefined &&
-      args.endLine !== undefined &&
-      args.endLine < args.line
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "must be >= args.line",
-        path: ["endLine"],
-      });
-    }
-  });
-
 const revealArgsSchema = z
   .strictObject({
     path: requiredString,
@@ -1320,7 +1291,6 @@ export const REVIEW_DISCORD_URL = "https://discord.gg/wYvd2cpMQg";
 
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({ name: z.literal("joinDiscord"), args: z.strictObject({}) }),
-  z.strictObject({ name: z.literal("openFile"), args: openFileArgsSchema }),
   z.strictObject({
     name: z.literal("showReviewView"),
     args: z.strictObject({ view: reviewViewSchema }),
@@ -1366,7 +1336,6 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
     name: z.literal("validateCanvasMount"),
     args: z.strictObject({}),
   }),
-  z.strictObject({ name: z.literal("state"), args: z.strictObject({}) }),
 ]);
 
 export type ReviewVerbRequest = z.infer<typeof ReviewVerbRequestSchema>;
@@ -1400,15 +1369,6 @@ export type ReviewDesktopVerbResult = z.infer<
 >;
 
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
-  z.strictObject({
-    event: z.literal("activeEditorChanged"),
-    path: requiredString.nullable(),
-  }),
-  z.strictObject({
-    event: z.literal("editorSelectionChanged"),
-    path: requiredString,
-    range: ReviewRangeSchema,
-  }),
   z.strictObject({
     event: z.literal("themeChanged"),
     theme: reviewThemeSchema,

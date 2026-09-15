@@ -197,7 +197,6 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
             React.Fragment,
             null,
             React.createElement("h1", {
-              "data-review-block-index": 0,
               "data-review-block-tag": "h1",
             }, "Materialized"),
             React.createElement(components.CodePeek, {

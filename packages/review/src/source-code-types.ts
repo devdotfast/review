@@ -39,12 +39,3 @@ export interface SourceSnapshot {
   roots: SourcePane[];
   resolved: Record<string, ResolvedSourceRange>;
 }
-
-export interface SourceLineComment {
-  rootIndex: number;
-  path: string[];
-  file: string;
-  line: number;
-  sourceId?: string;
-  count: number;
-}

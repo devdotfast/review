@@ -1,6 +1,17 @@
 import { Range } from "../../editor/common/core/range.js";
+import { onUnexpectedError } from "../../base/common/errors.js";
+import { FileOperationError, FileOperationResult } from "../../platform/files/common/files.js";
 import type { IModelDeltaDecoration } from "../../editor/common/model.js";
 import type { ReviewUnifiedDiffRow } from "../common/reviewUnifiedDiff.js";
+
+/** Missing published source is a local unavailable state, not a product fault. */
+export function reportReviewUnifiedEditorError(error: unknown, showUnavailable: () => void): void {
+  if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+    showUnavailable();
+    return;
+  }
+  onUnexpectedError(error);
+}
 
 export function reviewUnifiedDiffDecorations(rows: readonly ReviewUnifiedDiffRow[]): IModelDeltaDecoration[] {
   return rows.flatMap((row) => {

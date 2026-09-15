@@ -37,21 +37,7 @@ describe("side-peek validation boundary", () => {
     );
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-
-        if (url.includes("/code-peek/resolve")) {
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              snapshot: { roots: [], resolved: {} },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-
-        return new Response(JSON.stringify({}));
-      }),
+      vi.fn(async () => new Response(JSON.stringify({}))),
     );
   });
 

@@ -162,7 +162,6 @@ describe("createReviewSessionHandler", () => {
         expect((await request("software-map")).status).toBe(200);
 
         for (const route of [
-          "code-peek/resolve",
           "software-map/resolved-data",
           "diff-files",
           "telemetry/tab",
@@ -437,7 +436,7 @@ describe("createReviewSessionHandler", () => {
 
     // Two stand-in "pinned checkouts". The fake resolver hands out the next
     // one on every call, so a re-resolution is observable both by count and
-    // by which root served the peek.
+    // by which root served the map.
     const roots = [
       path.join(rootPath, "head-1"),
       path.join(rootPath, "head-2"),
@@ -472,10 +471,10 @@ describe("createReviewSessionHandler", () => {
       },
     });
 
-    const resolvePeek = () =>
+    const resolveMap = () =>
       handler.handle(
         new Request(
-          "http://127.0.0.1:5570/__progressive-review/code-peek/resolve",
+          "http://127.0.0.1:5570/__progressive-review/software-map/resolved-data",
           {
             method: "POST",
             headers: {
@@ -483,10 +482,7 @@ describe("createReviewSessionHandler", () => {
               "content-type": "application/json",
             },
             body: JSON.stringify({
-              root: { kind: "range", file: "src.ts", fromLine: 1, toLine: 2 },
-              graph: "head",
-              includeDiff: false,
-              includeDiffSummary: false,
+              codeElements: [],
             }),
           },
         ),
@@ -494,7 +490,7 @@ describe("createReviewSessionHandler", () => {
 
     try {
       const responses = await Promise.all(
-        Array.from({ length: 5 }, () => resolvePeek()),
+        Array.from({ length: 5 }, () => resolveMap()),
       );
 
       for (const response of responses) {
@@ -505,7 +501,7 @@ describe("createReviewSessionHandler", () => {
       expect(resolutions).toBe(1);
 
       await rm(roots[0]!, { recursive: true, force: true });
-      const afterRemoval = await resolvePeek();
+      const afterRemoval = await resolveMap();
       expect(afterRemoval.status).toBe(200);
       expect(await afterRemoval.json()).toMatchObject({ ok: true });
       expect(resolutions).toBe(2);
@@ -550,10 +546,10 @@ describe("createReviewSessionHandler", () => {
       },
     });
 
-    const resolvePeek = () =>
+    const resolveMap = () =>
       handler.handle(
         new Request(
-          "http://127.0.0.1:5570/__progressive-review/code-peek/resolve",
+          "http://127.0.0.1:5570/__progressive-review/software-map/resolved-data",
           {
             method: "POST",
             headers: {
@@ -561,26 +557,23 @@ describe("createReviewSessionHandler", () => {
               "content-type": "application/json",
             },
             body: JSON.stringify({
-              root: { kind: "range", file: "src.ts", fromLine: 1, toLine: 1 },
-              graph: "head",
-              includeDiff: false,
-              includeDiffSummary: false,
+              codeElements: [],
             }),
           },
         ),
       );
 
     try {
-      const failed = await resolvePeek();
+      const failed = await resolveMap();
       expect(failed.status).not.toBe(200);
       expect(await failed.json()).toMatchObject({
         ok: false,
         error: "git is busy",
       });
-      const retried = await resolvePeek();
+      const retried = await resolveMap();
       expect(retried.status).toBe(200);
       expect(resolutions).toBe(2);
-      const cached = await resolvePeek();
+      const cached = await resolveMap();
       expect(cached.status).toBe(200);
       expect(resolutions).toBe(2);
     } finally {

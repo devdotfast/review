@@ -23,6 +23,7 @@ import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/
 import { ITextResourceConfigurationService } from '../../../../editor/common/services/textResourceConfiguration.js';
 import { localize } from '../../../../nls.js';
 import { ConfirmResult } from '../../../../platform/dialogs/common/dialogs.js';
+import { FileOperationError, FileOperationResult } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IEditorConfiguration } from '../../../browser/parts/editor/textEditor.js';
 import { DEFAULT_EDITOR_ASSOCIATION, EditorInputCapabilities, EditorInputWithOptions, GroupIdentifier, IEditorSerializer, IResourceMultiDiffEditorInput, IRevertOptions, ISaveOptions, IUntypedEditorInput } from '../../../common/editor.js';
@@ -202,13 +203,32 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 			const multiDiffItemStore = new DisposableStore();
 
 			try {
-				[original, modified] = await Promise.all([
+				const results = await Promise.allSettled([
 					r.originalUri ? this._textModelService.createModelReference(r.originalUri) : undefined,
 					r.modifiedUri ? this._textModelService.createModelReference(r.modifiedUri) : undefined,
 				]);
-				if (original) { multiDiffItemStore.add(original); }
-				if (modified) { multiDiffItemStore.add(modified); }
+				// Retain every successful reference before propagating a failure so
+				// a slower opposite side is also released by the error path.
+				for (const result of results) {
+					if (result.status === 'fulfilled' && result.value) { multiDiffItemStore.add(result.value); }
+				}
+				// Only classify the item as missing when every failure is missing.
+				// A permission or other fault on either side must still be reported.
+				const unexpected = results.find(result => result.status === 'rejected' && !(result.reason instanceof FileOperationError && result.reason.fileOperationResult === FileOperationResult.FILE_NOT_FOUND));
+				if (unexpected?.status === 'rejected') { throw unexpected.reason; }
+				const [originalResult, modifiedResult] = results;
+				if (originalResult.status === 'rejected') { throw originalResult.reason; }
+				if (modifiedResult.status === 'rejected') { throw modifiedResult.reason; }
+				original = originalResult.value;
+				modified = modifiedResult.value;
 			} catch (e) {
+				multiDiffItemStore.dispose();
+				// Published Review sources can disappear after publication. The
+				// canvas reports them locally; its background Files model skips the
+				// unavailable item without treating it as an unexpected fault.
+				if (this.multiDiffSource.scheme === 'devfast-review-files' && e instanceof FileOperationError && e.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+					return undefined;
+				}
 				// e.g. "File seems to be binary and cannot be opened as text"
 				console.error(e);
 				onUnexpectedError(e);

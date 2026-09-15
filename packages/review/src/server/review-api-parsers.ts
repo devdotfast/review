@@ -93,23 +93,6 @@ const optionalLineRangesSchema = z
   .array(SoftwareMapLineRangeInputSchema)
   .optional();
 
-export const CodePeekRootInputSchema = z
-  .strictObject({
-    kind: z.literal("range"),
-    file: nonEmptyStringSchema,
-    fromLine: positiveIntegerSchema,
-    toLine: positiveIntegerSchema,
-  })
-  .superRefine((range, context) => {
-    if (range.toLine < range.fromLine) {
-      context.addIssue({
-        code: "custom",
-        message: "must be at least fromLine",
-        path: ["toLine"],
-      });
-    }
-  });
-
 export const SoftwareMapCodeElementInputSchema = z.strictObject({
   path: nonEmptyStringSchema,
   label: nonEmptyStringSchema.optional(),
@@ -159,10 +142,6 @@ export const ReviewTabTelemetryInputSchema = z
 
 export function requestJsonErrorStatus(cause: unknown): number {
   return cause instanceof HttpJsonError ? cause.statusCode : 400;
-}
-
-export function parseCodePeekRoot(value: JsonValue) {
-  return parseZod(CodePeekRootInputSchema, value, "CodePeek root");
 }
 
 export function parseSoftwareMapCodeElements(value: JsonValue) {

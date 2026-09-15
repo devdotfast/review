@@ -112,19 +112,6 @@ describe("review app CodePeek rendering", () => {
             },
           },
         },
-        diff: {
-          orientation: "base",
-          files: [
-            {
-              path: "src/new.ts",
-              previousPath: "src/old.ts",
-              status: "renamed",
-              additions: 4,
-              deletions: 2,
-              patch: "SECRET_PATCH_SOURCE",
-            },
-          ],
-        },
       },
     });
 
@@ -137,7 +124,6 @@ describe("review app CodePeek rendering", () => {
     expect(html).not.toContain("src/old.ts → src/new.ts");
     expect(html).not.toContain("diff counts");
     expect(html).not.toContain("SECRET_SNAPSHOT_SOURCE");
-    expect(html).not.toContain("SECRET_PATCH_SOURCE");
   });
 
   it("renders a no-diff CodePeek without a duplicate React header", () => {

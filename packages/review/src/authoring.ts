@@ -130,25 +130,8 @@ export type CodePeekRoot = CodePeekRangeInput;
 
 export type CodePeekProps = z.infer<typeof codePeekPropsSchema>;
 
-export interface CodePeekDiffFile {
-  path: string;
-  previousPath?: string;
-  status: "added" | "modified" | "deleted" | "renamed" | "unchanged";
-  additions: number;
-  deletions: number;
-  patch?: string;
-}
-
-export interface CodePeekDiffPayload {
-  baseRef?: string;
-  headRef?: string;
-  orientation: "head" | "base";
-  files: CodePeekDiffFile[];
-}
-
 export interface CodePeekResolution {
   snapshot: SourceSnapshot;
-  diff?: CodePeekDiffPayload;
 }
 
 export const codePeekRefSchema = z.strictObject({

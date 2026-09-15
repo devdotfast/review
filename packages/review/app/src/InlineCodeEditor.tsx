@@ -24,7 +24,6 @@ export function InlineCodeEditor({
   side,
   ranges,
   heightMode,
-  diffStats,
   countRanges,
   active,
   onFocus,
@@ -38,7 +37,6 @@ export function InlineCodeEditor({
   ranges: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
   countRanges?: readonly ReviewInlineEditorRange[];
-  diffStats?: { additions: number; deletions: number };
   active: boolean;
   onFocus?: () => void;
   onOpen?: () => void;
@@ -72,10 +70,6 @@ export function InlineCodeEditor({
     .join(",");
 
   const countRangesKey = JSON.stringify(countRanges);
-
-  const diffStatsKey = diffStats
-    ? `${diffStats.additions}-${diffStats.deletions}`
-    : "";
 
   const [error, setError] = useState<string | null>(null);
   const handleRef = useRef<ReviewInlineEditorHandle | null>(null);
@@ -202,7 +196,6 @@ export function InlineCodeEditor({
         heightMode,
         active,
 
-        diffStats,
         countRanges,
         onDidFocus: handleFocus,
         onDidOpen: handleOpen,
@@ -239,7 +232,6 @@ export function InlineCodeEditor({
   }, [
     container,
     description,
-    diffStatsKey,
     countRangesKey,
     handleFocus,
     handleHover,

@@ -488,73 +488,6 @@ describe("desktop review document load states", () => {
     await act(async () => handle?.dispose());
   });
 
-  it("does not prepare a late obsolete document after replacement", async () => {
-    const oldDocument = Promise.withResolvers<ReviewDocumentLoad>();
-    const request = vi.fn<typeof requestStub>(requestStub);
-
-    const bridge = testReviewBridge(
-      { sessionId: "late-replacement" },
-      { request, diffView: { create: createDiffView } },
-    );
-
-    const container = document.createElement("div");
-    document.body.append(container);
-    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
-    await act(async () => {
-      handle = mountReviewCanvas(
-        container,
-        sessionContent(bridge, {
-          document: oldDocument.promise,
-          softwareMap: Promise.resolve(null),
-        }),
-      );
-    });
-
-    await act(async () => {
-      handle?.update(
-        sessionContent(bridge, {
-          document: Promise.resolve(codePeekDocument("current-document")),
-          softwareMap: Promise.resolve(null),
-        }),
-      );
-    });
-    await vi.waitFor(() => expect(codePeekRequestCount(request)).toBe(1));
-
-    await act(async () =>
-      oldDocument.resolve(codePeekDocument("old-document")),
-    );
-    expect(codePeekRequestCount(request)).toBe(1);
-    await act(async () => handle?.dispose());
-  });
-
-  it("does not prepare a late document after disposal", async () => {
-    const documentBundle = Promise.withResolvers<ReviewDocumentLoad>();
-    const request = vi.fn<typeof requestStub>(requestStub);
-
-    const bridge = testReviewBridge(
-      { sessionId: "late-disposal" },
-      { request, diffView: { create: createDiffView } },
-    );
-
-    const container = document.createElement("div");
-    document.body.append(container);
-    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
-    await act(async () => {
-      handle = mountReviewCanvas(
-        container,
-        sessionContent(bridge, {
-          document: documentBundle.promise,
-          softwareMap: Promise.resolve(null),
-        }),
-      );
-    });
-    await act(async () => handle?.dispose());
-    await act(async () =>
-      documentBundle.resolve(codePeekDocument("disposed-document")),
-    );
-    expect(codePeekRequestCount(request)).toBe(0);
-  });
-
   it("does not report an unchanged peer failure after one bundle is replaced", async () => {
     const reportDiagnostic =
       vi.fn<(diagnostic: ReviewCanvasDiagnostic) => void>();
@@ -716,7 +649,6 @@ describe("publication validation mounts", () => {
     "map-unavailable",
     "map-republish",
     "malformed-map",
-    "peek-failure",
     "render-failure",
     "absent-map",
   ] as const)("settles %s before publication", async (scenario) => {
@@ -725,15 +657,6 @@ describe("publication validation mounts", () => {
     const bridge = testReviewBridge(
       { sessionId: `validation-${scenario}` },
       {
-        request: (url) =>
-          scenario === "peek-failure" && url.includes("/code-peek/resolve")
-            ? Promise.resolve(
-                Response.json(
-                  { ok: false, error: "peek failed" },
-                  { status: 500 },
-                ),
-              )
-            : requestStub(url),
         ready: () => order.push("ready"),
         reportDiagnostic: (diagnostic) => {
           if (diagnostic.level === "error") order.push("error");
@@ -896,23 +819,7 @@ function codePeekDocument(contentHash: string): ReviewDocumentLoad {
   };
 }
 
-function codePeekRequestCount(request: ReturnType<typeof vi.fn>): number {
-  return request.mock.calls.filter(([url]) =>
-    String(url).includes("/code-peek/resolve"),
-  ).length;
-}
-
 async function requestStub(input: string): Promise<Response> {
-  if (input.includes("/code-peek/resolve")) {
-    return new Response(
-      JSON.stringify({
-        ok: true,
-        snapshot: { roots: [], resolved: {} },
-        diff: { orientation: "head", files: [] },
-      }),
-    );
-  }
-
   if (input.includes("/agent-traces")) {
     return new Response(JSON.stringify({ ok: true, sessions: [] }));
   }

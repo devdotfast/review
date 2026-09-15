@@ -13,7 +13,6 @@ import {
   type ReviewDocumentAppState,
   type ReviewSoftwareMapAppState,
 } from "./App";
-import { codePeekDiagnostics } from "./code-peek-resolution";
 import {
   type ReviewSession,
   ReviewSessionProvider,
@@ -21,7 +20,7 @@ import {
   useReviewSession,
 } from "./host/review-session";
 import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
-import { prepareReviewDocument } from "./review-document-prepare";
+import { hydrateReviewDocument } from "./review-document-hydrate";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome } from "./review-home-view";
 import {
@@ -89,17 +88,14 @@ function DesktopReviewApp({
 
   const documentState = useSettledLoad(
     documentBundle,
-    async (load): Promise<ReviewDocumentAppState> => {
+    (load): ReviewDocumentAppState => {
       if (load.state !== "ready") return load;
-      const document = await prepareReviewDocument(load, sessionRef.current);
+      const session = sessionRef.current;
+      let document = session.documents.get(load.contentHash);
 
-      if (purpose === "validation") {
-        for (const anchor of document.anchors.values()) {
-          if (anchor.peek && !anchor.peek.resolution)
-            throw new Error(
-              `Review document code peek ${anchor.id} could not be resolved.`,
-            );
-        }
+      if (!document) {
+        document = hydrateReviewDocument(load);
+        session.documents.set(load.contentHash, document);
       }
 
       return { state: "ready", document };
@@ -167,16 +163,6 @@ function DesktopReviewApp({
     purpose,
     settlementSession,
   ]);
-
-  useEffect(() => {
-    if (!container) return;
-    const { authoredCodePeekRequestCount } = codePeekDiagnostics;
-
-    if (authoredCodePeekRequestCount === 0) return;
-    container.dataset.reviewAuthoredCodePeekRequestCount = String(
-      authoredCodePeekRequestCount,
-    );
-  }, [container, documentState]);
 
   return (
     <div className="review-session-content">
@@ -537,8 +523,6 @@ export function mountReviewCanvas(
 }
 
 function resetSessionDiagnostics(container: HTMLElement): void {
-  codePeekDiagnostics.authoredCodePeekRequestCount = 0;
-  delete container.dataset.reviewAuthoredCodePeekRequestCount;
   delete container.dataset.reviewDiffSummaryRequestCount;
   delete container.dataset.reviewDiffSummaryReadyCount;
   delete container.dataset.reviewDiffSummaryStartedAfterMount;

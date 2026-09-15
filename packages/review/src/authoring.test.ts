@@ -45,19 +45,6 @@ function resolvedCodePeek(): CodePeekResolution {
         },
       },
     },
-    diff: {
-      orientation: "head",
-      files: [
-        {
-          path: "src/example.ts",
-          status: "modified",
-          additions: 1,
-          deletions: 1,
-          patch:
-            "diff --git a/src/example.ts b/src/example.ts\n--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-export function example() {}\n+export function example() { return true; }",
-        },
-      ],
-    },
   };
 }
 
@@ -293,7 +280,6 @@ describe("Review definition session", () => {
   it("allows anchors to use resolved source outside the diff", async () => {
     const map = reviewMap();
     const emptyResolution = resolvedCodePeek();
-    emptyResolution.diff = undefined;
 
     const session = createReviewDefinitionSession({
       softwareMap: map,

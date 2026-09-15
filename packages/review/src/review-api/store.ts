@@ -212,31 +212,33 @@ export class ReviewStore {
     return JSON.parse(String(row.snapshot)) as Snapshot;
   }
   list(): ReviewApiSummary[] {
+    // One query, and the document never leaves SQLite: every catalog watcher
+    // re-lists on every command.
     return this.db
-      .prepare("SELECT id FROM reviews ORDER BY rowid")
+      .prepare(
+        `SELECT json_remove(versions.snapshot,'$.document') AS summary,
+          review_attention.viewed_at, review_attention.dismissed_at, repositories.name AS repository_name
+        FROM reviews
+        JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
+        LEFT JOIN review_attention ON review_attention.review_id=reviews.id
+        LEFT JOIN repositories ON repositories.id=json_extract(versions.snapshot,'$.pins.repositoryId')
+        ORDER BY reviews.rowid`,
+      )
       .all()
       .map((row) => {
-        const { document: _, ...summary } = this.read(String(row.id));
-
-        const attention = this.db
-          .prepare(
-            "SELECT viewed_at,dismissed_at FROM review_attention WHERE review_id=?",
-          )
-          .get(summary.reviewId);
-
-        const repository = this.db
-          .prepare("SELECT name FROM repositories WHERE id=?")
-          .get(summary.pins.repositoryId);
+        // SAFETY: versions contains only snapshots validated by execute before committing.
+        const summary = JSON.parse(String(row.summary)) as Omit<
+          Snapshot,
+          "document"
+        >;
 
         return {
           ...summary,
-          repositoryName: repository
-            ? String(repository.name)
+          repositoryName: row.repository_name
+            ? String(row.repository_name)
             : summary.pins.repositoryId,
-          viewedAt: attention?.viewed_at ? String(attention.viewed_at) : null,
-          dismissedAt: attention?.dismissed_at
-            ? String(attention.dismissed_at)
-            : null,
+          viewedAt: row.viewed_at ? String(row.viewed_at) : null,
+          dismissedAt: row.dismissed_at ? String(row.dismissed_at) : null,
         };
       });
   }

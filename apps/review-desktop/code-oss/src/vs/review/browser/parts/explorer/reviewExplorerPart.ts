@@ -83,6 +83,21 @@ function accompaniesEditor(input: EditorInput | undefined): boolean {
 	return resource?.scheme === Schemas.file || resource?.scheme === REVIEW_API_SOURCE_SCHEME;
 }
 
+/**
+ * One tree per pinned version. Editors opened from that tree carry their own
+ * side and commit in the query, which must not re-root or hide the tree.
+ */
+function apiSourceRoot(target: { reviewId: string; version: number }): URI {
+	return apiSourceUri({ reviewId: target.reviewId, version: target.version, file: "", side: "head" });
+}
+
+function isSamePinnedTree(resource: URI, root: URI): boolean {
+	return resource.scheme === REVIEW_API_SOURCE_SCHEME
+		&& root.scheme === REVIEW_API_SOURCE_SCHEME
+		&& resource.authority === root.authority
+		&& new URLSearchParams(resource.query).get("version") === new URLSearchParams(root.query).get("version");
+}
+
 /** The Source tab browses the whole worktree, so it gets the workspace tree. */
 function isSourceTab(input: EditorInput | undefined): boolean {
 	return input instanceof ReviewCanvasEditorInput && (input.target.kind === "source" || input.target.kind === "api-source");
@@ -471,9 +486,10 @@ export class ReviewExplorerPart extends Part {
 		const input = this.editorService.activeEditor;
 		const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
 		const folder = input instanceof ReviewCanvasEditorInput && input.target.kind === "api-source"
-			? apiSourceUri({ ...input.target, file: "", side: "head" })
-			: resource?.scheme === REVIEW_API_SOURCE_SCHEME ? resource.with({ path: "/" })
-			: this.workspaceContextService.getWorkspace().folders[0]?.uri;
+			? apiSourceRoot(input.target)
+			: resource?.scheme === REVIEW_API_SOURCE_SCHEME
+				? apiSourceRoot({ reviewId: resource.authority, version: Number(new URLSearchParams(resource.query).get("version")) })
+				: this.workspaceContextService.getWorkspace().folders[0]?.uri;
 		if (folder && this.root && isEqual(folder, this.root)) {
 			return;
 		}
@@ -500,6 +516,10 @@ export class ReviewExplorerPart extends Part {
 	 */
 	revealResource(resource: URI | undefined): void {
 		const root = this.root;
+		if (resource && root && isSamePinnedTree(resource, root)) {
+			// A base-side or commit-scoped editor still belongs to the pinned tree.
+			resource = resource.with({ query: root.query });
+		}
 		if (!resource || !root || !isEqualOrParent(resource, root)) {
 			return;
 		}

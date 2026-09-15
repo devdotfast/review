@@ -37,6 +37,7 @@ import {
 import {
   IReviewCodeResourceService,
 } from "../../services/reviewCodeResourceService.js";
+import { IReviewApiCatalogService } from "../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import {
   IReviewSessionModelService,
@@ -95,6 +96,8 @@ export class ReviewVerbsService
     private readonly explorerParts: IReviewExplorerPartsService,
     @IHostService private readonly hostService: IHostService,
     @IOpenerService private readonly openerService: IOpenerService,
+    @IReviewApiCatalogService
+    private readonly apiCatalog: IReviewApiCatalogService,
   ) {
     super();
   }
@@ -151,12 +154,24 @@ export class ReviewVerbsService
           }
           break;
         }
-        case "openReview":
-          await this.tabsService.openReview(
-            request.args.reviewUuid,
-            request.args.active,
+        case "openReview": {
+          const api = this.apiCatalog.reviews.find(
+            (review) => review.uuid === request.args.reviewUuid,
           );
+          if (api) {
+            await this.tabsService.openApiReview(
+              api.uuid,
+              api.title,
+              request.args.active,
+            );
+          } else {
+            await this.tabsService.openReview(
+              request.args.reviewUuid,
+              request.args.active,
+            );
+          }
           break;
+        }
         case "openApiReview":
           await this.tabsService.openApiReview(request.args.reviewId, request.args.title);
           break;

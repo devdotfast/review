@@ -381,7 +381,11 @@ function ReviewLayoutContent({
   useEffect(() => {
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
-  const [hasTraceSessions, setHasTraceSessions] = useState(false);
+  // Unknown until the first answer, so a restored Trace tab survives the fetch.
+  const [hasTraceSessions, setHasTraceSessions] = useState<boolean | null>(
+    null,
+  );
+
   useEffect(() => {
     const controller = new AbortController();
     session
@@ -424,6 +428,7 @@ function ReviewLayoutContent({
       view,
       softwareMapEnabled,
       hasChangeRange,
+      hasTraceSessions !== false,
     );
 
     if (normalizedView !== "diff") setDiffScope(null);
@@ -438,12 +443,16 @@ function ReviewLayoutContent({
 
   useEffect(() => {
     if (
-      normalizeReviewView(activeView, softwareMapEnabled, hasChangeRange) !==
-      activeView
+      normalizeReviewView(
+        activeView,
+        softwareMapEnabled,
+        hasChangeRange,
+        hasTraceSessions !== false,
+      ) !== activeView
     ) {
       applyReviewView("review");
     }
-  }, [activeView, hasChangeRange, softwareMapEnabled]);
+  }, [activeView, hasChangeRange, hasTraceSessions, softwareMapEnabled]);
   useReviewTabTelemetry(activeView);
   useEffect(() => {
     if (traceSelection) {

@@ -167,7 +167,7 @@ export function createReviewApi(
         input.commit,
       );
 
-      return context.json(data.tree(pins, input.side, input.path));
+      return context.json(await data.tree(pins, input.side, input.path));
     });
     app.get("/:id/maps/:resourceId", async (context) => {
       const query = z

@@ -159,13 +159,18 @@ export function parseGitUnifiedDiffLineCounts(
     for (const hunk of parseUnifiedPatch(file, fileDiff.patch)) {
       let currentNewLine = Math.max(1, hunk.newStart);
       let currentOldLine = Math.max(1, hunk.oldStart);
+      // Base-side additions belong on the line the removed block occupied,
+      // mirroring how the head side places deletions on the replacing line.
+      let replacedOldLine: number | null = null;
 
       for (const line of hunk.lines) {
         if (line.kind === "add" && line.newLine !== null) {
           addLineCount(
             countsByFile,
             file,
-            side === "base" ? currentOldLine : line.newLine,
+            side === "base"
+              ? (replacedOldLine ?? currentOldLine)
+              : line.newLine,
             "additions",
             line,
           );
@@ -174,16 +179,20 @@ export function parseGitUnifiedDiffLineCounts(
         }
 
         if (line.kind === "remove") {
+          const oldLine = line.oldLine ?? currentOldLine;
           addLineCount(
             countsByFile,
             file,
-            side === "base" ? (line.oldLine ?? currentOldLine) : currentNewLine,
+            side === "base" ? oldLine : currentNewLine,
             "deletions",
             line,
           );
-          currentOldLine = (line.oldLine ?? currentOldLine) + 1;
+          replacedOldLine ??= oldLine;
+          currentOldLine = oldLine + 1;
           continue;
         }
+
+        replacedOldLine = null;
 
         if (line.newLine !== null) {
           currentNewLine = line.newLine + 1;

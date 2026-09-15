@@ -46,11 +46,15 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
   }
 
   initialize(): Promise<void> {
-    return (this.started ??= this.connect());
+    // A failed first list must not stick: Home and the next command retry it.
+    return (this.started ??= this.connect().catch((error) => {
+      this.started = undefined;
+      throw error;
+    }));
   }
 
   private async connect(): Promise<void> {
-    this.client = new ReviewApiClient(await this.session.getConnection());
+    const client = new ReviewApiClient(await this.session.getConnection());
     const abort = new AbortController();
     this._register(toDisposable(() => abort.abort()));
     const accept = (reviews: ReviewApiSummary[]) => {
@@ -63,26 +67,25 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
         repoKey: review.pins.repositoryId,
         repositoryLabel: review.repositoryName,
         sourceBranch: null,
-        baseCommit: review.pins.base,
-        sourceCommit: review.pins.head,
+        baseRef: review.pins.base,
+        headRef: review.pins.head,
         presentedDocumentRevision: String(review.version),
         lastPublishedAt: null,
         documentUpdatedAt: review.createdAt,
         viewedAt: review.viewedAt,
         dismissedAt: review.dismissedAt,
-      }));
+      } satisfies ReviewHomeItem));
       this.changed.fire();
       for (const review of previous) {
         const next = this.reviews.find(next => next.uuid === review.uuid);
         if (!next || (!review.dismissedAt && next.dismissedAt)) this.closed.fire(review.uuid);
       }
     };
-    try {
-      accept(await this.client.read<ReviewApiSummary[]>("", abort.signal));
-    } catch (error) {
-      this.log.warn("[Review] Could not load API reviews:", error);
-    }
-    void this.client.follow<ReviewApiSummary[]>(null, abort.signal, accept, (error) =>
+    // Surface a failed first list instead of reporting an empty catalog:
+    // tab restoration would otherwise drop every persisted API tab.
+    accept(await client.read<ReviewApiSummary[]>("", abort.signal));
+    this.client = client;
+    void client.follow<ReviewApiSummary[]>(null, abort.signal, accept, (error) =>
       this.log.warn("[Review] API review list disconnected:", error),
     );
   }

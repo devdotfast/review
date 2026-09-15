@@ -7,17 +7,12 @@ import {
   type ReviewDocumentVersionWire,
   type ReviewErrorDetail,
   type ReviewRecord,
-  type ReviewServerEvent,
   type ReviewSessionWire,
-  type ReviewThreadsCommit,
-  type ReviewVerbRequest,
   jsonString,
 } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
-import type { ReviewAgentHarness, SessionRef } from "../agent-session-ref";
-import type { AgentServer } from "../native-agent/native-session";
 import {
   type ReviewDocumentBundle,
   readReviewDocumentBundle,
@@ -29,7 +24,6 @@ import {
   readReviewSoftwareMapBundle,
 } from "../software-map-bundle";
 import type { ReviewTelemetry, ReviewTelemetryContext } from "../telemetry";
-import type { ReviewSubmissionEvent } from "../types";
 import {
   type ReviewHonoEnv,
   applyCorsHeaders,
@@ -37,11 +31,7 @@ import {
   isAuthorizedRequest,
   jsonResponse,
 } from "./hono-http";
-import {
-  type ReviewApi,
-  type ReviewApiOptions,
-  createReviewApi,
-} from "./review-api";
+import { type ReviewApiOptions, createReviewApi } from "./review-api";
 import {
   LIVE_REVIEW_SESSION_MODE,
   type ReviewSessionArtifacts,
@@ -80,44 +70,22 @@ export interface ReviewSessionHandlerInput {
   token?: string;
   sessionId?: string;
   reviewUuid?: string;
-  submitHook?: string;
   mode?: ReviewSessionMode;
   artifacts?: ReviewSessionArtifacts;
-  readOnlyThreadsPath?: string;
   listDocumentVersions?: () => Promise<ReviewDocumentVersionWire[]>;
   session: ReviewSessionWire;
   stderr?: Writable;
   getReviewStatus?: () => ReviewRecord["status"];
-  onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
   onReviewDataChange?: () => void;
-  onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
-  onAgentStatus?: (
-    threadId: string,
-    status: "running" | "idle" | "interrupted" | "failed",
-    error?: string,
-  ) => void;
-  runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   /** Test seam for live-session worktree resolution; see `ReviewApiOptions`. */
   resolveSourceTarget?: ReviewApiOptions["resolveSourceTarget"];
-  agentServer: (harness: ReviewAgentHarness) => AgentServer;
-  openNativeAgentTerminal: (
-    input: Extract<
-      ReviewVerbRequest,
-      { name: "openNativeAgentTerminal" }
-    >["args"],
-  ) => Promise<void>;
-  resolveQuestionSourceSession?: (
-    signal?: AbortSignal,
-  ) => Promise<SessionRef | undefined>;
-  onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
   telemetry?: ReviewTelemetry;
 }
 
 export interface ReviewSessionHandler {
   readonly token: string;
   handle(request: Request, env?: ReviewHonoEnv["Bindings"]): Promise<Response>;
-  findAgentThread: ReviewApi["findAgentThread"];
   close(): Promise<void>;
 }
 
@@ -220,12 +188,6 @@ export async function createReviewSessionHandler(
     );
 
     return softwareMapBundlePromise;
-  };
-
-  const broadcast = (event: ReviewServerEvent) => {
-    const frame = `data: ${JSON.stringify(event)}\n\n`;
-
-    for (const client of eventClients) client.write(frame);
   };
 
   const needsRepublishReviewUuid = (): string => {
@@ -478,7 +440,6 @@ export async function createReviewSessionHandler(
 
   const reviewApi = createReviewApi({
     mode,
-    readOnlyThreadsPath: input.readOnlyThreadsPath,
     sourceUnavailable: artifacts.source,
     reviewPath: input.reviewPath,
     reviewDocumentsDir: documentsDir,
@@ -487,29 +448,10 @@ export async function createReviewSessionHandler(
     toolingRoot: input.toolingRoot,
     stateReviewPath: input.stateReviewPath,
     telemetry: sessionTelemetry,
-    onSubmission: async (event) => {
-      broadcast({
-        event: "submitted",
-        submissionId: event.id,
-        decision: event.decision,
-      });
-      await input.onSubmission?.(event);
-    },
     onReviewDismiss: input.onReviewDismiss,
     onReviewDataChange: input.onReviewDataChange,
-    onAgentStatus: input.onAgentStatus,
-    onReviewThreadsCommit: (commit) => {
-      broadcast({ event: "review-threads-committed", commit });
-      input.onReviewThreadsCommit?.(commit);
-    },
-    runReviewThreadMutation: input.runReviewThreadMutation,
     resolveSourceTarget: input.resolveSourceTarget,
     reviewToken: token,
-    agentServer: input.agentServer,
-    openNativeAgentTerminal: input.openNativeAgentTerminal,
-    resolveQuestionSourceSession: input.resolveQuestionSourceSession,
-    onQuestionAgentSession: input.onQuestionAgentSession,
-    submitHook: input.submitHook,
     session,
   });
 
@@ -559,15 +501,12 @@ export async function createReviewSessionHandler(
 
   return {
     token,
-    findAgentThread: reviewApi.findAgentThread,
     async handle(request, env) {
       // The desktop proxy forwards its own node bindings so response-close
-      // hooks (submission acks, reject teardown) observe the real socket.
+      // hooks observe the real socket.
       return app.fetch(request, env);
     },
     close: async () => {
-      await reviewApi.close();
-
       for (const client of eventClients) client.close();
       eventClients.clear();
     },

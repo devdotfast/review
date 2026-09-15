@@ -57,7 +57,7 @@ Agents can edit only these Review files:
 - `review.mdx` is the presentation layer.
 - `data.ts` contains typed document inputs.
 
-Do not edit `review.json`, `review.db`, `.bundle/`, `.build/`, or the private Review `.git/` directory.
+Do not edit `review.json`, `.bundle/`, `.build/`, or the private Review `.git/` directory.
 
 Do not import runtime values from source repository files. Put document data in `data.ts`.
 

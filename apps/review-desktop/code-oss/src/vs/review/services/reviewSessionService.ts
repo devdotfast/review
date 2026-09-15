@@ -54,13 +54,6 @@ export type ReviewDataChangedEvent = Extract<
 	{ event: "review-data-changed" }
 >;
 
-export type ReviewThreadsCommittedEvent = Extract<
-	ReviewDesktopGlobalEvent,
-	{ event: "review-threads-committed" }
->;
-
-export type ReviewAgentStatusEvent = Extract<ReviewDesktopGlobalEvent, { event: "review-agent-status" }>;
-
 export interface ReviewSessionClosedEvent {
 	readonly session: ReviewSessionDescriptor;
 	readonly review: ReviewDescriptor | undefined;
@@ -85,8 +78,6 @@ export interface IReviewSessionService {
 	readonly _serviceBrand: undefined;
 	readonly onDidChangeLists: Event<void>;
 	readonly onDidChangeReviewData: Event<ReviewDataChangedEvent>;
-	readonly onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent>;
-	readonly onDidChangeAgentStatus: Event<ReviewAgentStatusEvent>;
 	readonly onDidCloseSession: Event<ReviewSessionClosedEvent>;
 	readonly onDidRegisterSession: Event<ReviewSessionRegisteredEvent>;
 	readonly onDidDismissReview: Event<string>;
@@ -150,13 +141,6 @@ export class ReviewSessionService
 		new Emitter<ReviewDataChangedEvent>(),
 	);
 	readonly onDidChangeReviewData = this._onDidChangeReviewData.event;
-	private readonly _onDidChangeAgentStatus = this._register(new Emitter<ReviewAgentStatusEvent>());
-	readonly onDidChangeAgentStatus = this._onDidChangeAgentStatus.event;
-
-	private readonly _onDidCommitReviewThreads = this._register(
-		new Emitter<ReviewThreadsCommittedEvent>(),
-	);
-	readonly onDidCommitReviewThreads = this._onDidCommitReviewThreads.event;
 	private readonly _onDidCloseSession = this._register(
 		new Emitter<ReviewSessionClosedEvent>(),
 	);
@@ -848,15 +832,6 @@ export class ReviewSessionService
 				const event = parseReviewDesktopGlobalEvent(value);
 				if (event.event === "review-data-changed") {
 					this._onDidChangeReviewData.fire(event);
-					return;
-				}
-				if (event.event === "review-agent-status") {
-					this._onDidChangeAgentStatus.fire(event);
-					return;
-				}
-				if (event.event === "review-threads-committed") {
-					this.patchReview(event.uuid, { commentCount: event.commentCount });
-					this._onDidCommitReviewThreads.fire(event);
 					return;
 				}
 				if (event.event === "session-registered") {

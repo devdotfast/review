@@ -8,8 +8,6 @@ import type {
 export interface C4MapNodeData extends Record<string, unknown> {
   node: SoftwareMapNodeSnapshot;
   selected: boolean;
-  diagram: string;
-  targetPath: string[];
   onSelect?: (node: SoftwareMapNodeSnapshot) => void;
   onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
   onCollapseNode?: (node: SoftwareMapNodeSnapshot) => void;
@@ -33,8 +31,6 @@ export interface C4MapEdgeData extends Record<string, unknown> {
   relationship: SoftwareMapRelationshipSnapshot;
   relationshipId: string;
   selectedNodeAttached?: boolean;
-  diagram: string;
-  targetPath: string[];
   sections?: C4ElkEdgeSection[];
   labelPosition?: C4ElkLabel;
   labelDimensions?: C4LabelDimensions;

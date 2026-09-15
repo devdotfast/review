@@ -6,9 +6,7 @@ import type {
   PeekPanel,
   ReviewPanel,
   ReviewPanelMotion,
-  ThreadsPage,
 } from "./review-panel-model";
-import { isDetailPanel } from "./review-panel-model";
 
 export interface ReviewPanelState {
   active: ReviewPanel | null;
@@ -22,13 +20,7 @@ export interface ReviewPanelActions {
   openCommitDiff: (panel: CommitDiffPanel) => void;
   restoreTour: (tour: GuidedTour, activeAnchor: string) => void;
   activateTourAnchor: (anchorId: string, options: { reveal: boolean }) => void;
-  openThreads: (page?: ThreadsPage) => void;
-  /** Moves within Threads while it is active; a no-op once another surface
-   *  (such as the agent terminal) has closed it. */
-  setThreadsPage: (page: ThreadsPage) => void;
-  restoreThreads: () => void;
   close: () => void;
-  closeForAgentTerminal: () => void;
   closeForDocumentChange: () => void;
 }
 
@@ -82,29 +74,8 @@ export function createReviewPanelStore() {
         };
       });
     },
-    openThreads: (page = { kind: "list" }) =>
-      set({ active: { kind: "threads", page }, motion: "live" }),
-    setThreadsPage: (page) =>
-      set((state) =>
-        state.active?.kind === "threads"
-          ? { active: { kind: "threads", page } }
-          : state,
-      ),
-    restoreThreads: () =>
-      set({
-        active: { kind: "threads", page: { kind: "list" } },
-        motion: "restored",
-      }),
     close: () => set({ active: null, motion: "live" }),
-    closeForAgentTerminal: () =>
-      set((state) =>
-        state.active?.kind === "threads"
-          ? { active: null, motion: "live" }
-          : state,
-      ),
     closeForDocumentChange: () =>
-      set((state) =>
-        isDetailPanel(state.active) ? { active: null, motion: "live" } : state,
-      ),
+      set((state) => (state.active ? { active: null, motion: "live" } : state)),
   }));
 }

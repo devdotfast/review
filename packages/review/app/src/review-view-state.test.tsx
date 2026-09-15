@@ -83,7 +83,7 @@ describe("review view state", () => {
     const session = testReviewSession();
     storeState(session, {
       scrollTop: 320,
-      panel: { thread: { kind: "threads" } },
+      panel: { kind: "tour", tourId: "flow", activeAnchor: "second" },
     });
 
     clearPersistedReviewViewState(session.config);
@@ -91,7 +91,7 @@ describe("review view state", () => {
     expect(readPersistedReviewViewState(session.config)).toEqual({});
   });
 
-  it("normalizes legacy layered panel state to one persisted panel", () => {
+  it("keeps the tour from legacy layered panel state", () => {
     const session = testReviewSession();
     storeState(session, {
       panel: {
@@ -101,7 +101,9 @@ describe("review view state", () => {
     });
 
     expect(readPersistedReviewViewState(session.config).panel).toEqual({
-      kind: "threads",
+      kind: "tour",
+      tourId: "flow",
+      activeAnchor: "second",
     });
   });
 
@@ -232,17 +234,12 @@ describe("review view state", () => {
     const store = createReviewPanelStore();
     renderViewState({ session, store });
 
-    act(() => store.getState().openThreads());
-    expect(readPersistedReviewViewState(session.config).panel).toEqual({
-      kind: "threads",
-    });
-
     act(() =>
-      store.getState().openThreads({ kind: "comment", threadId: "thread-7" }),
+      store.getState().openPeek({
+        kind: "peek",
+        content: { kind: "inline-code", text: "start();" },
+      }),
     );
-    expect(readPersistedReviewViewState(session.config).panel).toBeUndefined();
-
-    act(() => store.getState().openThreads({ kind: "new-ask" }));
     expect(readPersistedReviewViewState(session.config).panel).toBeUndefined();
 
     act(() => store.getState().openTour(tour, "second"));
@@ -253,18 +250,18 @@ describe("review view state", () => {
     });
   });
 
-  it("restores the thread list", () => {
-    const threadsSession = testReviewSession({ sessionId: "threads" });
-    const threadsStore = createReviewPanelStore();
-    storeState(threadsSession, {
+  it("ignores a persisted Threads panel from an older build", () => {
+    const legacySession = testReviewSession({ sessionId: "legacy-threads" });
+    const legacyStore = createReviewPanelStore();
+    storeState(legacySession, {
       panel: { kind: "threads" },
     });
-    renderViewState({ session: threadsSession, store: threadsStore });
+    renderViewState({ session: legacySession, store: legacyStore });
 
-    expect(threadsStore.getState().active).toEqual({
-      kind: "threads",
-      page: { kind: "list" },
-    });
+    expect(legacyStore.getState().active).toBeNull();
+    expect(readPersistedReviewViewState(legacySession.config).panel).toBe(
+      undefined,
+    );
   });
 
   it("lets the matching tour owner claim a restore exactly once", () => {

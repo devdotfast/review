@@ -2,7 +2,7 @@
 
 <!--
 Outline: Common flow -> JSON contract -> Command index -> Lifecycle commands
--> Threads -> Maps -> Agent installation and migration.
+-> Maps -> Agent installation and migration.
 -->
 
 The `review` command is the control surface shared by Review Desktop and coding
@@ -53,8 +53,7 @@ review version --json
 
 Stdout then contains newline-delimited JSON events only. Human progress moves
 to stderr, and failures emit a JSON error event. This is the recommended mode
-for coding agents and automation. Thread commands already return JSON.
-`review threads list` does not require a `--json` flag.
+for coding agents and automation.
 
 For example, the installed CLI reports its version as one JSONL event:
 
@@ -75,7 +74,6 @@ $ review version --json
 | `review publish`       | Validate and publish the Review document, optionally opening a chosen view. |
 | `review rebind`        | Move a Review to another branch, bookmark, or change ID.                    |
 | `review wait`          | Wait for reviewer activity or an agent-action state.                        |
-| `review threads`       | Read, reply to, and resolve Review threads.                                 |
 | `review map`           | Author, validate, publish, and share experimental software maps.            |
 | `review install`       | Install Review skills for supported coding agents.                          |
 | `review migrate apply` | Migrate supported legacy Review data.                                       |
@@ -92,7 +90,7 @@ review info --all
 ```
 
 `review app pick` opens an interactive picker when no UUID is given. `review
-info` reports titles, UUIDs, status, unresolved comments, and whether each
+info` reports titles, UUIDs, status, and whether each
 Review is in sync. It requires Review Desktop to be running. `--all` includes
 active Reviews for every worktree in the current repository.
 
@@ -140,20 +138,6 @@ and immediately re-pins the Review.
 when the Review is no longer waiting on the human. `--codex` registers a
 detached wait that resumes the current Codex task when reviewer activity
 arrives.
-
-## Threads
-
-```sh
-review threads list --review <uuid>
-review threads get <thread-id> --review <uuid>
-review threads reply <thread-id> --body <text> [--author <name>] --review <uuid>
-review threads resolve <thread-id> --review <uuid>
-```
-
-Thread commands return JSON. Replies are recorded as agent responses and use
-`Agent` as the author unless `--author` is provided. After addressing a
-submitted comment, reply with a concise disposition and then resolve it. Review
-owns the SQLite thread store; do not edit it directly.
 
 ## Software maps
 
@@ -332,7 +316,4 @@ review version
 
 The app normally installs and updates agent skills. Use `review install` for a
 headless environment. Migration is only for legacy Review state; use `--force`
-only to restart an interrupted migration and drop unrecoverable legacy code
-comments and drafts. The command reports dropped thread IDs and kinds, not
-comment text; historical questions are retained. Automatic migration never
-drops these records.
+only to restart an interrupted migration.

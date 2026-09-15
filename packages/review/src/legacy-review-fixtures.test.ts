@@ -1,17 +1,10 @@
 import { execFile } from "node:child_process";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 
-import {
-  ReviewCommentDraftThreadSchema,
-  ReviewCommentThreadRecordSchema,
-  jsonObject,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 import {
   extractLegacyReviewFixture,
@@ -31,10 +24,6 @@ import {
   readStoredReview,
   sealReviewCandidate,
 } from "./review-home";
-import {
-  REVIEW_THREAD_DB_SCHEMA_VERSION,
-  closeAllReviewThreadStores,
-} from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 import { readReviewSoftwareMapBundle } from "./software-map-bundle";
 
@@ -47,7 +36,6 @@ const tempRoots: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-  closeAllReviewThreadStores();
   await Promise.all(
     tempRoots
       .splice(0)
@@ -65,33 +53,6 @@ async function extract(name: string) {
 
 async function git(dir: string, args: string[]) {
   return (await execFilePromise("git", ["-C", dir, ...args])).stdout.trim();
-}
-
-function threadRows(dir: string) {
-  const db = new DatabaseSync(path.join(dir, "review.db"), { readOnly: true });
-
-  try {
-    const rows = (table: "comments" | "comment_drafts") =>
-      db
-        .prepare(`SELECT * FROM ${table} ORDER BY thread_id`)
-        .all()
-        .map((row) => {
-          return {
-            ...row,
-            record_json: parseJsonText(z.string().parse(row.record_json)),
-          };
-        });
-
-    return {
-      version: db
-        .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
-        .get(),
-      comments: rows("comments"),
-      drafts: rows("comment_drafts"),
-    };
-  } finally {
-    db.close();
-  }
 }
 
 it("includes the three approved public legacy fixtures", () => {
@@ -129,9 +90,9 @@ it("snapshots authored locks, databases, and managed metadata", async () => {
 });
 
 describe.each(fixtures)("legacy fixture $name", (fixture) => {
-  it("migrates to golden JSON while preserving metadata, threads and old history", async () => {
+  it("migrates to golden JSON while preserving metadata, stale files and old history", async () => {
     const { home, dir, uuid, originalRecord } = await extract(fixture.name);
-    const threadsBefore = threadRows(dir);
+    const staleDatabase = await readFile(path.join(dir, "review.db"));
     const oldCommits = (await git(dir, ["rev-list", "--all"])).split("\n");
 
     const oldRefs = (
@@ -219,12 +180,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       parentRevision = revision;
     }
 
-    const threadsAfter = threadRows(dir);
-    expect(threadsAfter.version).toEqual({
-      value: String(REVIEW_THREAD_DB_SCHEMA_VERSION),
-    });
-    expect(threadsAfter.comments).toEqual(threadsBefore.comments);
-    expect(threadsAfter.drafts).toEqual(threadsBefore.drafts);
+    expect(await readFile(path.join(dir, "review.db"))).toEqual(staleDatabase);
     const snapshot = await snapshotReviewTree(dir);
     expect(await readStoredReview(dir)).toEqual(loaded);
     expect(await listReviews()).toMatchObject({ errors: [] });
@@ -318,109 +274,4 @@ it("lists healthy reviews alongside a corrupt sealed presentation", async () => 
     reviewUuid: broken.uuid,
   });
   expect(await snapshotReviewTree(broken.dir)).toEqual(snapshot);
-});
-
-it("preserves seeded prose and code threads and a prose draft", async () => {
-  const { dir, originalRecord } = await extract("schema4-bug-report-dialog");
-
-  const target = {
-    kind: "text" as const,
-    surface: {
-      type: "block" as const,
-      tag: "p",
-      index: 0,
-      blockHash: "abc12345",
-    },
-    selection: { start: 0, length: 5, hash: "f55c314b", quote: "Hello" },
-  };
-
-  const proseThread = ReviewCommentThreadRecordSchema.parse({
-    threadId: "prose-thread",
-    target,
-    status: "open",
-    messages: [
-      {
-        id: "prose-message",
-        by: "Fixture reviewer",
-        at: "2026-09-05T00:00:00.000Z",
-        body: "Preserve prose",
-        agentInput: false,
-      },
-    ],
-  });
-
-  const draft = ReviewCommentDraftThreadSchema.parse({
-    thread: {
-      ...proseThread,
-      threadId: "draft-thread",
-      messages: [
-        {
-          ...proseThread.messages[0],
-          id: "draft-message",
-          body: "Preserve draft",
-        },
-      ],
-    },
-    inputs: [
-      {
-        threadId: "draft-thread",
-        messageId: "draft-message",
-        target,
-        body: "Preserve draft",
-      },
-    ],
-  });
-
-  const position = {
-    position_type: "text",
-    base_sha: originalRecord.baseCommit,
-    start_sha: originalRecord.baseCommit,
-    head_sha: originalRecord.sourceCommit,
-    old_path: "package.json",
-    new_path: "package.json",
-    old_line: 1,
-    new_line: 1,
-  };
-
-  const codeThread = ReviewCommentThreadRecordSchema.parse({
-    threadId: "code-thread",
-    target: { kind: "code", original_position: position, position },
-    status: "open",
-    messages: [
-      {
-        id: "code-message",
-        by: "Fixture reviewer",
-        at: "2026-09-05T00:00:00.000Z",
-        body: "Preserve code",
-        agentInput: false,
-      },
-    ],
-  });
-
-  const db = new DatabaseSync(path.join(dir, "review.db"));
-
-  try {
-    // Seed the legacy layout without using a current-schema runtime writer.
-    db.prepare(
-      "INSERT INTO comments(thread_id, record_json) VALUES (?, ?)",
-    ).run(proseThread.threadId, JSON.stringify(proseThread));
-    db.prepare(
-      "INSERT INTO comment_drafts(thread_id, record_json) VALUES (?, ?)",
-    ).run(draft.thread.threadId, JSON.stringify(draft));
-    db.prepare(
-      "INSERT INTO comments(thread_id, record_json) VALUES (?, ?)",
-    ).run(codeThread.threadId, JSON.stringify(codeThread));
-  } finally {
-    db.close();
-  }
-
-  const before = threadRows(dir);
-  expect(before.comments).toHaveLength(2);
-  expect(before.drafts).toHaveLength(1);
-  const loaded = await readStoredReview(dir);
-  expect("error" in loaded).toBe(false);
-  expect(threadRows(dir)).toEqual({
-    ...before,
-    version: { value: String(REVIEW_THREAD_DB_SCHEMA_VERSION) },
-  });
 });

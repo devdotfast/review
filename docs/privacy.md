@@ -26,7 +26,7 @@ Passive product telemetry never includes:
 - source code or changed-file diffs;
 - paths, repository names, Review titles, refs, revision hashes, symbols, or
   declarations;
-- review documents, comments, questions, or thread text;
+- review document text;
 - prompts or model output; or
 - email, username, hostname, machine identifier, raw Review UUID, or coding-agent
   session identifier.
@@ -116,8 +116,7 @@ complete or the report fails. Ancestor history is sent as far as Review can
 read it, and the report names any ancestor it omits. If the compressed report
 would exceed the upload limit, Review drops the trace and sends the rest.
 
-The report never attaches Review metadata, comment threads, or question
-threads. Review stores completed reports in a private /dev/fast Cloudflare R2
+The report never attaches Review metadata. Review stores completed reports in a private /dev/fast Cloudflare R2
 bucket and deletes them after 90 days.
 
 An explicit bug report is separate from passive telemetry and is sent even when

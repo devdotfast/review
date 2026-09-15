@@ -34,14 +34,6 @@ const itemTemplateSource = readFileSync(
   "utf8",
 );
 
-const commentThreadHeaderSource = readFileSync(
-  new URL(
-    "../code-oss/src/vs/workbench/contrib/comments/browser/commentThreadHeader.ts",
-    import.meta.url,
-  ),
-  "utf8",
-);
-
 const resourceHeaderSource = readFileSync(
   new URL(
     "../code-oss/src/vs/editor/browser/widget/multiDiffEditor/multiDiffEditorResourceHeader.ts",
@@ -81,44 +73,6 @@ const referencesControllerSource = readFileSync(
   ),
   "utf8",
 );
-
-test("authored CodePeeks use one unified native comment editor", () => {
-  assert.match(
-    source,
-    /if \(this\.spec\.commentsEnabled\) \{[\s\S]*?acquireUnifiedDiff\(/,
-  );
-  assert.match(source, /initializeUnifiedEditor\(/);
-  assert.match(source, /reviewInlineEditorContributions\(true\)/);
-  assert.match(source, /lineNumbers:\s*\(lineNumber\) =>/);
-  assert.match(source, /className:\s*added \? "line-insert" : "line-delete"/);
-});
-
-test("light-theme comments use light surfaces and preserve the diff tint", () => {
-  assert.match(
-    reviewStyles,
-    /\.monaco-workbench\.review-workbench\.vs\s*{[^}]*--review-comment-range:\s*rgb\(43 79 224 \/ 12%\);[^}]*--review-comment-range-active:\s*rgb\(43 79 224 \/ 18%\);/s,
-  );
-  assert.match(
-    reviewStyles,
-    /--review-comment-range-line-number:\s*var\([\s\S]*?--vscode-editorLineNumber-activeForeground/,
-  );
-  assert.match(
-    reviewStyles,
-    /color:\s*var\(--review-comment-range-line-number\)\s*!important;/,
-  );
-  assert.match(
-    reviewStyles,
-    /\.monaco-workbench\.review-workbench\.vs\s*{[^}]*--review-comment-surface:\s*var\(--vscode-editorWidget-background, #ffffff\);[^}]*--review-comment-footer:[^}]*--review-comment-shadow:\s*rgb\(0 0 0 \/ 12%\);/s,
-  );
-  assert.match(
-    reviewStyles,
-    /color:\s*var\(--review-comment-chip-ink\);/,
-  );
-  assert.match(
-    reviewStyles,
-    /box-shadow:\s*0 10px 28px var\(--review-comment-shadow\);/,
-  );
-});
 
 test("long authored ranges initially reveal their first line", () => {
   assert.match(
@@ -261,16 +215,4 @@ test("Files and every CodePeek reuse one native multi-diff resource header", () 
 
 test("review diff surfaces compute their multi-diff editor options via a shared helper", () => {
   assert.match(source, /computeMultiDiffEditorOptions/);
-});
-
-test("authored CodePeeks use the stock native comment contribution", () => {
-  assert.match(itemTemplateSource, /codeEditorWidgetOptions \?\? \{\}/);
-});
-
-test("native thread controls place a clear minimize action before delete", () => {
-  assert.match(commentThreadHeaderSource, /Codicon\.chromeMinimize/);
-  assert.match(
-    commentThreadHeaderSource,
-    /push\(\[this\._collapseAction, \.\.\.groups\]/,
-  );
 });

@@ -39,15 +39,9 @@ Read [Component API](references/component-api.md) before you write `data.ts`. It
 
 Read [Trace quoting](references/trace-quoting.md) when the scaffold event reports a non-empty `traces.paths` array, or when the compatibility fallback below reports an available session.
 
-Read [Lifecycle and storage](references/lifecycle-and-storage.md) when you must select or update the binding. It also defines publication, state, migration, and thread behavior.
+Read [Lifecycle and storage](references/lifecycle-and-storage.md) when you must select or update the binding. It also defines publication, state, and migration behavior.
 
 Read [Prepared worktrees](references/prepared-worktrees.md) only when pinned worktree dependencies or language-server navigation do not work.
-
-## In-app Ask replies
-
-When the prompt starts with `dev-review-thread-id: <id>`, answer that Review thread. Run `review threads get <id>` from the source worktree. Treat its target and complete message list as the canonical context. Read the Review document or repository files only when the question requires them.
-
-Do not modify files. Do not publish, resolve, or reply through the CLI. Review Desktop stores your returned text in the same thread. Return only the answer to the user message that follows the header.
 
 ## Workflow
 
@@ -100,7 +94,7 @@ Do not publish the Review document or software map.
 Return only after both `review map check <rev> --review <uuid>` commands pass.
 ```
 
-The worker owns only map scratch files and git notes. The main agent owns `review.mdx`, `data.ts`, both publish commands, and reviewer feedback.
+The worker owns only map scratch files and git notes. The main agent owns `review.mdx`, `data.ts`, and both publish commands.
 
 Continue document work while the worker runs. Do not author the map in the main-agent context.
 
@@ -150,9 +144,9 @@ This command updates only `presentedSoftwareMapRevision`. It preserves the docum
 
 If the worker fails, keep the valid document publication. Report the map failure and the smallest next action.
 
-### 7. Handle feedback
+### 7. Wait for the reader
 
-Wait for a status that requires agent action. Use the command for the current harness:
+Wait for the reader to finish with the Review. Use the command for the current harness:
 
 ```sh
 review wait --requires-agent --review <uuid>
@@ -161,11 +155,10 @@ review wait --requires-agent --codex --review <uuid>
 
 Use only one wait command.
 
-- For `awaiting-agent-updates`, read the threads with `review threads list`. Address every open thread. Reply to each addressed thread with `review threads reply <threadId> --body <text> --review <uuid>`, then mark it resolved with `review threads resolve <threadId> --review <uuid>`. A document re-publish requires zero open comment threads and a completed agent response for every current-round reviewer message. Update moved pins with `review scaffold --update` when required. If pins move, dispatch a new map worker with the new pins. Publish the document without waiting for the new map. Then publish the new map after both checks pass.
 - For `review-dismissed` or `review-deleted`, stop the loop.
-- While the status is `awaiting-review`, the reviewer owns the next action.
+- While the status is `awaiting-review`, the reader owns the next action.
 
-Read and change threads only through `review threads`. Do not edit `review.db`.
+When the user asks for changes, update the document, run `review scaffold --update` when the binding gained commits, and publish again. If pins move, dispatch a new map worker with the new pins. Publish the document without waiting for the new map. Then publish the new map after both checks pass.
 
 ## Architecture reviews
 
@@ -185,7 +178,7 @@ Complete the authoring turn only when all applicable conditions are true:
 - The map is published, or you reported why it is not published.
 - All document diagnostics are resolved.
 - Both map checks passed before map publication.
-- The Review is waiting on the reviewer, the reader dismissed it, or the Review was deleted.
+- The Review is waiting on the reader, the reader dismissed it, or the Review was deleted.
 
 ## Errata
 

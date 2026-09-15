@@ -1,7 +1,5 @@
 // @vitest-environment jsdom
 
-import { readFileSync } from "node:fs";
-
 import {
   type JsonObject,
   type ReviewCanvasTutorialBridge,
@@ -23,7 +21,6 @@ import { TutorialExperienceProvider } from "./tutorial-experience";
 const CHAPTER_TITLES = [
   "Welcome",
   "Commits and diffs",
-  "Comments are threads",
   "Interactive Diagrams",
   "Agent traces",
   "Get help",
@@ -234,8 +231,8 @@ describe("TutorialExperience", () => {
         ".review-section-toggle",
       )!;
 
-    act(() => toggle("Comments are threads").click());
-    expect(toggle("Comments are threads").getAttribute("aria-expanded")).toBe(
+    act(() => toggle("Interactive Diagrams").click());
+    expect(toggle("Interactive Diagrams").getAttribute("aria-expanded")).toBe(
       "false",
     );
     act(() => toggle("Welcome").click());
@@ -262,12 +259,12 @@ describe("TutorialExperience", () => {
       );
     });
 
-    expect(toggle("Comments are threads").getAttribute("aria-expanded")).toBe(
+    expect(toggle("Interactive Diagrams").getAttribute("aria-expanded")).toBe(
       "true",
     );
     expect(toggle("Welcome").getAttribute("aria-expanded")).toBe("false");
     expect(section("Welcome").dataset.tutorialChapterState).toBe("complete");
-    expect(card()?.textContent).toContain("Start a thread");
+    expect(card()?.textContent).toContain("Walk the sequence");
   });
 
   it("completes a button step from the real target click", () => {
@@ -310,22 +307,6 @@ describe("TutorialExperience", () => {
       canvasRoot.querySelector<HTMLElement>(".review-commit-open")?.dataset
         .tutorialTarget,
     ).toBe("openDiff");
-  });
-
-  it("places the guide without a scrim, spotlight, or measured position", () => {
-    const css = readFileSync("app/src/styles.css", "utf8");
-
-    expect(css).not.toContain(".tutorial-scrim");
-    expect(css).not.toContain(".tutorial-spotlight");
-    expect(css).not.toContain("--tutorial-guide-top");
-    expect(css).toContain("[data-tutorial-target]");
-    expect(css).toContain(`.view-line[data-tutorial-line],
-  [data-tutorial-target]
-    .margin-view-overlays
-    > div[data-tutorial-line]
-    > .comment-range-glyph.comment-diff-added::before {
-    animation: none;
-  }`);
   });
 
   it("coalesces target discovery after several DOM mutations", async () => {
@@ -378,7 +359,6 @@ describe("TutorialExperience", () => {
       "openPeek",
       "openCommits",
       "openDiff",
-      "leaveComment",
     ]);
 
     render(tutorial);
@@ -406,7 +386,6 @@ describe("TutorialExperience", () => {
       "openPeek",
       "openCommits",
       "openDiff",
-      "leaveComment",
       "openSequence",
     ]);
 
@@ -427,27 +406,6 @@ describe("TutorialExperience", () => {
     expect(tutorial.setStep).toHaveBeenCalledWith("openDatabase", true);
   });
 
-  it("completes the comment step once a thread exists", async () => {
-    const tutorial = tutorialBridge([
-      "chooseKeymap",
-      "showHover",
-      "gotoDefinition",
-      "openPeek",
-      "openCommits",
-      "openDiff",
-    ]);
-
-    await session.bridge.comments.saveComment({
-      threadId: "thread-1",
-      messageId: "message-1",
-      target: { kind: "document" },
-      body: "First thread",
-    });
-    render(tutorial);
-
-    expect(tutorial.setStep).toHaveBeenCalledWith("leaveComment", true);
-  });
-
   it("forces the tour forward with Next", () => {
     const tutorial = tutorialBridge([]);
     render(tutorial);
@@ -460,21 +418,6 @@ describe("TutorialExperience", () => {
     act(() => next?.click());
     expect(tutorial.setStep).toHaveBeenCalledWith("chooseKeymap", true);
     expect(tutorial.dismiss).not.toHaveBeenCalled();
-  });
-
-  it("folds to its header while a comment composer has focus", () => {
-    const tutorial = tutorialBridge([]);
-    render(tutorial);
-    const composer = document.createElement("form");
-    composer.className = "thread-compose";
-    const input = document.createElement("textarea");
-    composer.append(input);
-    section("Welcome").append(composer);
-
-    act(() => input.focus());
-    expect(card()?.classList.contains("tutorial-guide--folded")).toBe(true);
-    act(() => input.blur());
-    expect(card()?.classList.contains("tutorial-guide--folded")).toBe(false);
   });
 
   it("steps back to the previous chapter's last step", () => {
@@ -525,71 +468,6 @@ describe("TutorialExperience", () => {
     expect(targetScrolls).toHaveLength(1);
   });
 
-  it("marks the first declaration line and its gutter row on the comment step", async () => {
-    const tutorial = tutorialBridge([
-      "chooseKeymap",
-      "showHover",
-      "gotoDefinition",
-      "openPeek",
-      "openCommits",
-      "openDiff",
-    ]);
-
-    render(tutorial);
-    const editor = document.createElement("div");
-    editor.className = "review-inline-editor";
-    const lines = document.createElement("div");
-    lines.className = "view-lines";
-    const margins = document.createElement("div");
-    margins.className = "margin-view-overlays";
-
-    const rows = [
-      'import\u00a0type\u00a0{\u00a0CheckoutItem\u00a0}\u00a0from\u00a0"../orders/order.js";',
-      "",
-      "export\u00a0class\u00a0InventoryService\u00a0{",
-      "\u00a0\u00a0reserve(_items:\u00a0readonly\u00a0CheckoutItem[]):\u00a0void\u00a0{}",
-      "\u00a0\u00a0reserve(items:\u00a0readonly\u00a0CheckoutItem[]):\u00a0void\u00a0{",
-      "\u00a0\u00a0\u00a0\u00a0const\u00a0unavailable\u00a0=\u00a0items.find((item)\u00a0=>\u00a0item.quantity\u00a0<\u00a01);",
-    ];
-
-    // Reverse DOM order: Monaco does not keep rows in line order.
-    for (const [index, text] of [...rows.entries()].reverse()) {
-      const line = document.createElement("div");
-      line.className = "view-line";
-      line.style.top = `${index * 18}px`;
-      line.textContent = text;
-      lines.append(line);
-      const margin = document.createElement("div");
-      margin.style.top = `${index * 18}px`;
-      margins.append(margin);
-    }
-
-    editor.append(margins, lines);
-    await act(async () => {
-      section("Comments are threads")
-        .querySelector(".review-section-body")
-        ?.append(editor);
-      await Promise.resolve();
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve());
-      });
-    });
-
-    const marked = [
-      ...editor.querySelectorAll<HTMLElement>("[data-tutorial-line]"),
-    ];
-
-    expect(marked).toHaveLength(2);
-    expect(marked.map((element) => element.style.top)).toEqual([
-      "72px",
-      "72px",
-    ]);
-    expect(
-      marked.find((element) => element.classList.contains("view-line"))
-        ?.textContent,
-    ).toContain("reserve(items");
-  });
-
   it("finishes from the final Get help stop", () => {
     const tutorial = tutorialBridge([
       "chooseKeymap",
@@ -598,7 +476,6 @@ describe("TutorialExperience", () => {
       "openPeek",
       "openCommits",
       "openDiff",
-      "leaveComment",
       "openSequence",
       "openDatabase",
       "openTraceQuote",

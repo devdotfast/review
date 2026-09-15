@@ -62,7 +62,6 @@ export interface HydratedReviewDocument {
   contentHash: string;
   body: HydratedReviewNode[];
   anchors: ReadonlyMap<string, AnchorRef>;
-  anchorContents: ReadonlyMap<string, string>;
   documentSoftwareModels: NormalizedSoftwareModel[];
   routePath: string;
   filePath: string;
@@ -83,7 +82,6 @@ export function hydrateReviewDocument(
     contentHash: load.contentHash,
     body: data.body.map((node) => hydrateNode(node, anchors)),
     anchors,
-    anchorContents: new Map(Object.entries(data.anchorContents)),
     documentSoftwareModels: data.softwareModels.map(hydrateSoftwareModel),
     routePath: data.routePath,
     filePath: data.sourcePath,

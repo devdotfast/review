@@ -14,22 +14,21 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual, promisify } from "node:util";
 
 import {
   type JsonObject,
   type JsonValue,
-  ReviewCommentAgentSessionSchema,
-  isJsonObject,
   jsonObject,
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
-import { parseAuthoringSessionKey } from "./agent-session-ref";
+import {
+  authoringSessionKey,
+  parseAuthoringSessionKey,
+} from "./agent-session-ref";
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import { readReviewDocumentBundle } from "./review-bundle";
 import { isDerivedReviewPath } from "./review-derived-paths";
@@ -38,10 +37,6 @@ import {
   parseAnyStoredReviewRecord,
   readStoredReview,
 } from "./review-home";
-import {
-  REVIEW_THREAD_DB_SCHEMA_VERSION,
-  closeAllReviewThreadStores,
-} from "./review-thread-store-backend";
 import { readReviewSoftwareMapBundle } from "./software-map-bundle";
 import { migrateStoredReview } from "./stored-review-migration";
 
@@ -93,73 +88,6 @@ async function git(root: string, args: string[]): Promise<string> {
   }
 }
 
-function normalizedThread(value: JsonValue): JsonValue {
-  if (!isJsonObject(value)) return value;
-
-  if (isJsonObject(value.thread))
-    return { ...value, thread: normalizedThread(value.thread) };
-  const { agentSession, ...preserved } = value;
-
-  const session =
-    ReviewCommentAgentSessionSchema.strip().safeParse(agentSession);
-
-  const normalized: JsonObject = { ...preserved };
-
-  if (session.success) normalized.agentSession = session.data;
-
-  if (Array.isArray(value.messages))
-    normalized.messages = value.messages.map((message) => {
-      if (!isJsonObject(message)) return message;
-      const { native: _native, ...content } = message;
-
-      return { ...content, agentInput: message.agentInput === true };
-    });
-
-  return normalized;
-}
-
-const ThreadRowSchema = z.object({
-  thread_id: z.string(),
-  record_json: z.string(),
-});
-
-function threadRows(dir: string) {
-  const databasePath = path.join(dir, "review.db");
-
-  if (!existsSync(databasePath))
-    return { version: null, comments: [], drafts: [] };
-  const database = new DatabaseSync(databasePath, { readOnly: true });
-
-  try {
-    function rows(table: "comments" | "comment_drafts") {
-      return database
-        .prepare(
-          `SELECT thread_id, record_json FROM ${table} ORDER BY thread_id`,
-        )
-        .all()
-        .map((row) => {
-          const parsed = ThreadRowSchema.parse(row);
-
-          return {
-            threadId: parsed.thread_id,
-            record: normalizedThread(parseJsonText(parsed.record_json)),
-          };
-        });
-    }
-
-    return {
-      version:
-        database
-          .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
-          .get()?.value ?? null,
-      comments: rows("comments"),
-      drafts: rows("comment_drafts"),
-    };
-  } finally {
-    database.close();
-  }
-}
-
 function preservedMetadata(record: JsonObject): JsonObject {
   const {
     schemaVersion: _schema,
@@ -184,25 +112,6 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
 
     vi.stubEnv("DEV_REVIEW_HOME", home);
     const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const nativeSessionRoots: string[] = [];
-
-    const createSourceSession: NonNullable<
-      Parameters<typeof migrateStoredReview>[0]["createSourceSession"]
-    > = async (input) => {
-      const relative = path.relative(home, await realpath(input.rootPath));
-      expect(
-        relative.startsWith(`..${path.sep}`) ||
-          relative === ".." ||
-          path.isAbsolute(relative),
-      ).toBe(false);
-      nativeSessionRoots.push(input.rootPath);
-
-      return {
-        harness: input.agent.harness,
-        sessionId: `corpus-${input.reviewUuid}`,
-      };
-    };
-
     const source = path.resolve(corpus!);
     const clones = new Map<string, string>();
     const originals = new Map<string, string>();
@@ -279,8 +188,11 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
           recordPath,
           `${JSON.stringify({ ...original, worktreePath: clone }, null, 2)}\n`,
         );
-        const before = threadRows(dir);
-        const callsBefore = nativeSessionRoots.length;
+        const databasePath = path.join(dir, "review.db");
+
+        const staleDatabase = existsSync(databasePath)
+          ? await readFile(databasePath)
+          : null;
 
         const legacySession =
           original.schemaVersion === 2 || original.schemaVersion === 3;
@@ -290,12 +202,9 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
         );
 
         const expectedSession =
-          legacySession && session && validated.sourceCommit
-            ? `${session.harness}:corpus-${uuid}`
-            : undefined;
+          legacySession && session ? authoringSessionKey(session) : undefined;
 
-        if (legacySession)
-          await migrateStoredReview({ reviewDir: dir, createSourceSession });
+        if (legacySession) await migrateStoredReview({ reviewDir: dir });
         const loaded = await readStoredReview(dir);
 
         if ("error" in loaded) {
@@ -326,9 +235,6 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
           expect(
             isDeepStrictEqual(jsonObject(record.agentSessions)?.[key], session),
           ).toBe(true);
-        expect(nativeSessionRoots.length - callsBefore).toBe(
-          expectedSession ? 1 : 0,
-        );
         expect(record.sourceSession).toBe(
           legacySession
             ? (expectedSession ?? "disabled:review")
@@ -339,24 +245,15 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
           jsonObject(original.agentSessions) ?? {},
         );
 
-        if (expectedSession) expectedSessionKeys.push(expectedSession);
+        if (expectedSession && !expectedSessionKeys.includes(expectedSession))
+          expectedSessionKeys.push(expectedSession);
         expect(
           Object.keys(jsonObject(record.agentSessions) ?? {}).sort(),
         ).toEqual(expectedSessionKeys.sort());
-        const after = threadRows(dir);
-        expect(after.version).toBe(
-          before.version === null
-            ? null
-            : String(REVIEW_THREAD_DB_SCHEMA_VERSION),
-        );
         expect(
-          isDeepStrictEqual(after.comments, before.comments),
-          `${uuid}: comments preserved`,
-        ).toBe(true);
-        expect(
-          isDeepStrictEqual(after.drafts, before.drafts),
-          `${uuid}: drafts preserved`,
-        ).toBe(true);
+          existsSync(databasePath) ? await readFile(databasePath) : null,
+          `${uuid}: stale review.db untouched`,
+        ).toEqual(staleDatabase);
         let documentBytes = 0;
         let mapBytes = 0;
 
@@ -389,7 +286,6 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
             Buffer.byteLength(bundle.baseJson);
         }
 
-        closeAllReviewThreadStores();
         const snapshot = await snapshotReviewTree(dir);
         const repeated = await readStoredReview(dir);
         expect("error" in repeated).toBe(false);
@@ -407,7 +303,6 @@ describe.skipIf(!corpus)("legacy review corpus", () => {
       process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
       expect(failures).toEqual([]);
     } finally {
-      closeAllReviewThreadStores();
       warnings.mockRestore();
       vi.unstubAllEnvs();
 

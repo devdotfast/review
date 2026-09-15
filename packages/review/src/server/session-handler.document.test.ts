@@ -18,7 +18,6 @@ import { createReviewSessionHandler } from "./session-handler";
 import {
   NEEDS_REPUBLISH_ERROR,
   reviewDocument,
-  unusedAgentServices,
 } from "./session-handler-test-utils";
 
 afterEach(cleanupTempDirs);
@@ -30,7 +29,6 @@ describe("createReviewSessionHandler", () => {
     await writeFile(reviewPath, "# Review");
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -83,7 +81,6 @@ describe("createReviewSessionHandler", () => {
     ];
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -124,7 +121,6 @@ describe("createReviewSessionHandler", () => {
     await writeReviewDocumentBundle(rootPath, bundle);
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -259,7 +255,6 @@ describe("createReviewSessionHandler", () => {
         mapState === "unpublished" ? undefined : rootPath;
 
       const handler = await createReviewSessionHandler({
-        ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
         reviewPath,
@@ -302,7 +297,6 @@ describe("createReviewSessionHandler", () => {
     const token = "session-secret";
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,

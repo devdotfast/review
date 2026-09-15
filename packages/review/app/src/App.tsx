@@ -9,7 +9,6 @@ import {
   type CSSProperties,
   type ComponentType,
   type ReactElement,
-  type ReactNode,
   type RefObject,
   useEffect,
   useLayoutEffect,
@@ -18,7 +17,6 @@ import {
   useState,
 } from "react";
 
-import type { AnchorRef } from "../../src/authoring";
 import {
   type SoftwareMapTopologyDiff,
   diffSoftwareMaps,
@@ -31,26 +29,13 @@ import {
 } from "./debug-settings";
 import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
-import {
-  type SelectionTarget,
-  observeDocumentSelection,
-  selectionCommentTarget,
-} from "./document-selection";
 import { useReviewSession } from "./host/review-session";
-import {
-  CommentIcon,
-  SettingsSlidersIcon,
-  TerminalIcon,
-  ThreadsIcon,
-} from "./icons";
+import { SettingsSlidersIcon } from "./icons";
 import { repairInstruction } from "./repair-instruction";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
   type ReviewSubmissionOutcome,
-  commentDraftTargetForSurface,
-  isGlobalCommentDraft,
-  openThreadsWithDraftCleanup,
   useReview,
 } from "./review-context";
 import { ReviewCornerAction } from "./review-corner-action";
@@ -77,7 +62,6 @@ import {
   useSuppressPanelMotionOnCanvasResume,
 } from "./review-panel";
 import { ReviewRootsProvider } from "./review-root-context";
-import { targetQuote } from "./review-threads";
 import { ReviewToc } from "./review-toc";
 import {
   type ReviewView,
@@ -99,9 +83,6 @@ import type {
 } from "./software-map/model";
 import { SoftwareMapTopologyUnavailable } from "./software-map/software-map-absence";
 import { SoftwareMap } from "./software-map/SoftwareMap";
-import { ThreadAnnotations } from "./thread-annotations";
-import { ThreadDraftCard } from "./thread-card";
-import { ThreadTargetModelProvider } from "./thread-target-model";
 import { TutorialExperienceProvider } from "./tutorial-experience";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
@@ -113,10 +94,6 @@ const MIN_SIDE_PEEK_WIDTH = 360;
 const MAX_SIDE_PEEK_WIDTH = 920;
 
 const MIN_DOCUMENT_WIDTH = 560;
-
-const EMPTY_ANCHORS = new Map<string, AnchorRef>();
-
-const EMPTY_ANCHOR_CONTENTS = new Map<string, string>();
 
 export function App({
   documentState,
@@ -276,47 +253,41 @@ function ReviewLayout({
         documentKey={documentRevision}
         host={findHost}
       >
-        <ThreadTargetModelProvider
-          anchors={document?.anchors ?? EMPTY_ANCHORS}
-          anchorContents={document?.anchorContents ?? EMPTY_ANCHOR_CONTENTS}
-          documentRoute={documentRoute}
-        >
-          <ReviewDebugSettingsProvider>
-            <ReviewProvider
-              key={documentRoute}
-              documentRoute={documentRoute}
-              softwareMapEnabled={softwareMapEnabled}
-              openTraceSession={setTraceSelection}
-            >
-              <ReviewPanelProvider detailRevision={documentRevision}>
-                <ReviewLayoutContent
-                  appRef={appRef}
-                  shellRef={shellRef}
-                  scrollRegionRef={scrollRegionRef}
-                  articleRef={articleRef}
-                  documentState={documentState}
-                  documentRevision={documentRevision}
-                  softwareModels={[
-                    ...(softwareMap ? [softwareMap.head] : []),
-                    ...(document?.documentSoftwareModels ?? []),
-                  ]}
-                  softwareMapState={softwareMapState}
-                  repoSoftwareMap={softwareMap?.head ?? null}
-                  baseSoftwareMap={softwareMap?.base ?? null}
-                  softwareMapTopologyDiff={
-                    softwareMap
-                      ? diffSoftwareMaps(softwareMap.base, softwareMap.head)
-                      : null
-                  }
-                  softwareMapEnabled={softwareMapEnabled}
-                  range={range}
-                  commits={commits}
-                  traceSelection={traceSelection}
-                />
-              </ReviewPanelProvider>
-            </ReviewProvider>
-          </ReviewDebugSettingsProvider>
-        </ThreadTargetModelProvider>
+        <ReviewDebugSettingsProvider>
+          <ReviewProvider
+            key={documentRoute}
+            documentRoute={documentRoute}
+            softwareMapEnabled={softwareMapEnabled}
+            openTraceSession={setTraceSelection}
+          >
+            <ReviewPanelProvider detailRevision={documentRevision}>
+              <ReviewLayoutContent
+                appRef={appRef}
+                shellRef={shellRef}
+                scrollRegionRef={scrollRegionRef}
+                articleRef={articleRef}
+                documentState={documentState}
+                documentRevision={documentRevision}
+                softwareModels={[
+                  ...(softwareMap ? [softwareMap.head] : []),
+                  ...(document?.documentSoftwareModels ?? []),
+                ]}
+                softwareMapState={softwareMapState}
+                repoSoftwareMap={softwareMap?.head ?? null}
+                baseSoftwareMap={softwareMap?.base ?? null}
+                softwareMapTopologyDiff={
+                  softwareMap
+                    ? diffSoftwareMaps(softwareMap.base, softwareMap.head)
+                    : null
+                }
+                softwareMapEnabled={softwareMapEnabled}
+                range={range}
+                commits={commits}
+                traceSelection={traceSelection}
+              />
+            </ReviewPanelProvider>
+          </ReviewProvider>
+        </ReviewDebugSettingsProvider>
       </ReviewFindProvider>
     </ReviewRootsProvider>
   );
@@ -366,11 +337,6 @@ function ReviewLayoutContent({
     (state) => state.closeForDocumentChange,
   );
 
-  const closeForAgentTerminal = useReviewPanel(
-    (state) => state.closeForAgentTerminal,
-  );
-
-  const openThreads = useReviewPanel((state) => state.openThreads);
   const debugSettings = useReviewDebugSettings();
 
   const sidePeekResize = useRightPanelResize({
@@ -467,31 +433,6 @@ function ReviewLayoutContent({
     }
   }, [activeView, hasChangeRange, softwareMapEnabled]);
   useReviewTabTelemetry(activeView);
-  const threadCount = review.allCommentThreads().length;
-
-  const askPanelOpen =
-    activePanel?.kind === "threads" && activePanel.page.kind === "new-ask";
-
-  /* An open review batch means the next thing you write most likely joins it,
-     so every entry point says "Comment" rather than "Ask". */
-  const askOrCommentLabel =
-    review.pendingCommentCount > 0 ? "New comment" : "New ask";
-
-  const threadsPanelOpen =
-    activePanel?.kind === "threads" && activePanel.page.kind !== "new-ask";
-
-  useEffect(
-    () =>
-      session.surface.subscribe((event) => {
-        if (
-          event.event === "agentTerminalOpening" &&
-          event.sessionId === session.config.sessionId
-        ) {
-          closeForAgentTerminal();
-        }
-      }),
-    [closeForAgentTerminal, session],
-  );
   useEffect(() => {
     if (traceSelection) {
       applyReviewView("trace");
@@ -536,7 +477,6 @@ function ReviewLayoutContent({
   );
 
   const rightPanelOpen = activePanel !== null;
-  const mapOverlayOpen = useMapOverlayOpen(appRef);
 
   // SAFETY: `--side-peek-width` is a CSS custom property, which React forwards
   // to style.setProperty; the CSSProperties typings only omit custom names.
@@ -638,66 +578,6 @@ function ReviewLayoutContent({
               </button>
               <BugReportControl />
               <ReviewBatonChip outcome={review.submissionOutcome} />
-              <div
-                className={
-                  threadsPanelOpen || askPanelOpen
-                    ? "topbar-threads-split topbar-threads-split--active"
-                    : "topbar-threads-split"
-                }
-                role="group"
-                aria-label="Threads"
-              >
-                <button
-                  type="button"
-                  className={
-                    threadsPanelOpen
-                      ? "topbar-threads-button topbar-threads-button--active"
-                      : "topbar-threads-button"
-                  }
-                  onClick={() => {
-                    captureUiEvent(session, "threads_opened", {
-                      thread_count: threadCount,
-                    });
-                    session.surface.showThreads();
-                    openThreadsWithDraftCleanup({
-                      draftTarget: review.draftTarget,
-                      closeCommentDraft: review.closeCommentDraft,
-                      openThreads,
-                    });
-                  }}
-                  aria-pressed={threadsPanelOpen}
-                >
-                  <ThreadsIcon />
-                  <span>Threads</span>
-                  {threadCount > 0 && (
-                    <span className="topbar-threads-count">{threadCount}</span>
-                  )}
-                </button>
-                {!review.historicalRevision &&
-                  review.submissionOutcome !== "approved" &&
-                  review.submissionOutcome !== "dismissed" && (
-                    <button
-                      type="button"
-                      className={
-                        askPanelOpen
-                          ? "topbar-new-ask-button topbar-new-ask-button--active"
-                          : "topbar-new-ask-button"
-                      }
-                      aria-pressed={askPanelOpen}
-                      aria-label={askOrCommentLabel}
-                      title={askOrCommentLabel}
-                      onClick={() => {
-                        captureUiEvent(session, "new_ask_opened", {
-                          via: "topbar",
-                        });
-                        session.surface.showThreads();
-                        openThreads({ kind: "new-ask" });
-                      }}
-                    >
-                      <TerminalIcon />
-                    </button>
-                  )}
-              </div>
               <DiffLayoutControl />
               {!review.historicalRevision && !review.submissionOutcome && (
                 <div className="topbar-actions-divider" />
@@ -737,7 +617,7 @@ function ReviewLayoutContent({
               {documentState.state === "ready" ? (
                 <>
                   <ReviewToc />
-                  <ReviewDocumentSelectionSurface articleRef={articleRef}>
+                  <article ref={articleRef} className="review-document">
                     <ReviewDocumentBoundary
                       key={documentRevision}
                       session={session}
@@ -755,17 +635,7 @@ function ReviewLayoutContent({
                         />
                       </ReviewViewStateProvider>
                     </ReviewDocumentBoundary>
-                    <ThreadAnnotations
-                      articleRef={articleRef}
-                      onOpenInPanel={(thread) => {
-                        session.surface.showThreads();
-                        openThreads({
-                          kind: "comment",
-                          threadId: thread.threadId,
-                        });
-                      }}
-                    />
-                  </ReviewDocumentSelectionSurface>
+                  </article>
                 </>
               ) : (
                 <ReviewDocumentLoadState state={documentState} />
@@ -789,7 +659,6 @@ function ReviewLayoutContent({
                         height="100%"
                         showChrome={false}
                         showFloatingActions={!activePanel}
-                        registerTargets={false}
                       />
                       <MapSettingsControl />
                     </>
@@ -847,10 +716,6 @@ function ReviewLayoutContent({
       <div className="review-detail-host">
         <ReviewPanelHost />
       </div>
-      {commentDraftTargetForSurface(review.draftTarget, "document") &&
-        (isGlobalCommentDraft(review.draftTarget) ||
-          activeView !== "review" ||
-          mapOverlayOpen) && <FloatingDraftHost />}
     </div>
   );
 }
@@ -1025,83 +890,6 @@ function ReviewBatonChip({
   );
 }
 
-function useMapOverlayOpen(appRef: RefObject<HTMLDivElement | null>): boolean {
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const app = appRef.current;
-
-    if (!app) return;
-
-    const update = () =>
-      setOpen(Boolean(app.querySelector(".software-map-overlay")));
-
-    update();
-    const observer = new MutationObserver(update);
-    observer.observe(app, { childList: true, subtree: true });
-
-    return () => observer.disconnect();
-  }, [appRef]);
-
-  return open;
-}
-
-function FloatingDraftHost(): ReactElement | null {
-  const review = useReview();
-
-  const draftTarget = commentDraftTargetForSurface(
-    review.draftTarget,
-    "document",
-  );
-
-  if (!draftTarget) return null;
-  const draftQuote = draftTarget.title ?? targetQuote(draftTarget.target);
-
-  const submitDraft = (askAgent: boolean, body: string) => {
-    const {
-      draftSurface: _draftSurface,
-      placement: _placement,
-      title: _title,
-      intent: _intent,
-      messageId: _messageId,
-      ...input
-    } = draftTarget;
-
-    if (askAgent) {
-      void review.askAgent({
-        ...input,
-        messageId: draftTarget.messageId,
-        body,
-      });
-      review.closeCommentDraft();
-
-      return;
-    }
-
-    void review
-      .saveComment({
-        ...input,
-        messageId: draftTarget.messageId,
-        body,
-      })
-      .then(() => {
-        review.closeCommentDraft();
-      });
-  };
-
-  return (
-    <div className="review-floating-draft">
-      <ThreadDraftCard
-        quote={draftQuote}
-        variant="popover"
-        intent={draftTarget.intent}
-        onSubmitComment={(body) => submitDraft(false, body)}
-        onAskAgent={(body) => submitDraft(true, body)}
-        onCancel={() => review.closeCommentDraft()}
-      />
-    </div>
-  );
-}
-
 /**
  * Map settings, floating over the map canvas. They used to sit behind a topbar
  * gear that held nothing else, which put map-only controls in front of readers
@@ -1257,70 +1045,4 @@ export function applySoftwareMapTopologyStatuses(
     elements,
     elementsByPath: new Map(elements.map((element) => [element.path, element])),
   };
-}
-
-function SelectionCommentButton({
-  target,
-  clearTarget,
-}: {
-  target: SelectionTarget | null;
-  clearTarget: () => void;
-}) {
-  const review = useReview();
-
-  if (!target || review.historicalRevision) return null;
-
-  return (
-    <div
-      className="selection-action-buttons selection-action-buttons--anchored"
-      style={{ left: target.x, top: target.y }}
-    >
-      <button
-        type="button"
-        className="selection-action-segment selection-comment-button"
-        aria-label={
-          review.pendingCommentCount > 0
-            ? "Comment on selection"
-            : "Ask about selection"
-        }
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => {
-          review.openCommentDraft(selectionCommentTarget(target));
-          clearTarget();
-        }}
-      >
-        <CommentIcon />
-        <span>{review.pendingCommentCount > 0 ? "Comment" : "Ask"}</span>
-      </button>
-    </div>
-  );
-}
-
-function ReviewDocumentSelectionSurface({
-  articleRef,
-  children,
-}: {
-  articleRef: RefObject<HTMLElement | null>;
-  children: ReactNode;
-}) {
-  const [selectionTarget, setSelectionTarget] =
-    useState<SelectionTarget | null>(null);
-
-  useEffect(() => {
-    const article = articleRef.current;
-
-    if (!article) return;
-
-    return observeDocumentSelection(article, setSelectionTarget);
-  }, [articleRef]);
-
-  return (
-    <article ref={articleRef} className="review-document">
-      {children}
-      <SelectionCommentButton
-        target={selectionTarget}
-        clearTarget={() => setSelectionTarget(null)}
-      />
-    </article>
-  );
 }

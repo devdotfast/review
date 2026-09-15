@@ -101,6 +101,8 @@ const excluded = new Set([
   ".build",
   ".native-agent",
   ".mutation-lock",
+  "review.db",
+  "review.db-wal",
   "review.db-shm",
 ]);
 

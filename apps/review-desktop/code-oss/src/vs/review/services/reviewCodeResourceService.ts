@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable, type IReference } from "../../base/common/lifecycle.js";
-import { extUri } from "../../base/common/resources.js";
 import { URI } from "../../base/common/uri.js";
 import { ILanguageService } from "../../editor/common/languages/language.js";
 import type { ITextModel } from "../../editor/common/model.js";
@@ -25,11 +24,6 @@ import {
 } from "../common/reviewCodeResources.js";
 import {
   buildReviewUnifiedDiff,
-  reviewDiffPositionRowsForRange,
-  reviewDiffSideRangeForPositionRows,
-  reviewUnifiedPositionRowsForRange,
-  reviewUnifiedRangeForPositionRows,
-  reviewUnifiedRangeForTarget,
   reviewUnifiedRangesForSelections,
   reviewUnifiedTargetForRange,
   reviewUnifiedWindows,
@@ -54,15 +48,12 @@ import {
   type ReviewPeekWindow,
 } from "../common/reviewPeek.js";
 import type {
-  GitLabDiffPosition,
-  GitLabTextDiffRow,
   ReviewCommitScope,
   ReviewDiffFileWire,
   ReviewDiffSide,
   ReviewInlineEditorRange,
 } from "../common/reviewProtocol.js";
 import {
-  gitLabDiffPositionRows,
   parseReviewFileContentResponse,
 } from "../common/reviewProtocol.js";
 import {
@@ -101,17 +92,10 @@ export interface ReviewCodeDiffTarget {
   };
 }
 
-export interface ReviewCodePositionRows {
-  readonly diffFile: ReviewDiffFileWire;
-  readonly start: GitLabTextDiffRow;
-  readonly end: GitLabTextDiffRow;
-}
-
 export interface ReviewUnifiedResourceInfo {
   readonly path: string;
   readonly diffFile: ReviewDiffFileWire;
   readonly rows: readonly ReviewUnifiedDiffRow[];
-  readonly commentingRanges: readonly ReviewUnifiedLineRange[];
   targetForRange(
     startLine: number,
     endLine: number,
@@ -121,19 +105,6 @@ export interface ReviewUnifiedResourceInfo {
     readonly startLine: number;
     readonly endLine: number;
   } | null;
-  rangeForTarget(
-    side: ReviewDiffSide,
-    startLine: number,
-    endLine: number,
-  ): ReviewUnifiedLineRange | undefined;
-  positionRowsForRange(
-    startLine: number,
-    endLine: number,
-  ): { readonly start: GitLabTextDiffRow; readonly end: GitLabTextDiffRow } | null;
-  rangeForPositionRows(
-    start: GitLabTextDiffRow,
-    end: GitLabTextDiffRow,
-  ): ReviewUnifiedLineRange | undefined;
 }
 
 export interface ReviewUnifiedCodeModelReference {
@@ -177,15 +148,6 @@ export interface IReviewCodeResourceService {
     ranges: readonly ReviewInlineEditorRange[],
     scope?: ReviewCommitScope,
   ): Promise<ReviewCodeDiffTarget | undefined>;
-  positionRowsForResourceRange(
-    resource: URI,
-    startLine: number,
-    endLine: number,
-  ): Promise<ReviewCodePositionRows | null>;
-  projectPosition(
-    position: GitLabDiffPosition,
-    resource: URI,
-  ): Promise<ReviewUnifiedLineRange | undefined>;
   acquireUnifiedDiff(
     path: string,
     side: ReviewDiffSide,
@@ -385,95 +347,6 @@ export class ReviewCodeResourceService
     };
   }
 
-  private async positionRowsForRange(
-    path: string,
-    side: ReviewDiffSide,
-    startLine: number,
-    endLine: number,
-  ): Promise<{
-    readonly diffFile: ReviewDiffFileWire;
-    readonly start: GitLabTextDiffRow;
-    readonly end: GitLabTextDiffRow;
-  } | null> {
-    const target = await this.resolveDiff(path, side, []);
-    if (!target) return null;
-    return {
-      diffFile: target.diffFile,
-      ...reviewDiffPositionRowsForRange(
-        target.mappings,
-        side,
-        startLine,
-        endLine,
-      ),
-    };
-  }
-
-  private async rangeForPositionRows(
-    path: string,
-    side: ReviewDiffSide,
-    start: GitLabTextDiffRow,
-    end: GitLabTextDiffRow,
-  ): Promise<ReviewUnifiedLineRange | undefined> {
-    const target = await this.resolveDiff(path, side, []);
-    if (!target) return undefined;
-    return reviewDiffSideRangeForPositionRows(
-      target.mappings,
-      side,
-      start,
-      end,
-    );
-  }
-
-  async positionRowsForResourceRange(
-    resource: URI,
-    startLine: number,
-    endLine: number,
-  ): Promise<ReviewCodePositionRows | null> {
-    const unified = this.unifiedResource(resource);
-    if (unified) {
-      const rows = unified.positionRowsForRange(startLine, endLine);
-      return rows ? { diffFile: unified.diffFile, ...rows } : null;
-    }
-    const identity = this.resourceIdentity(resource);
-    if (!identity) return null;
-    return this.positionRowsForRange(
-      identity.path,
-      identity.side,
-      startLine,
-      endLine,
-    );
-  }
-
-  async projectPosition(
-    position: GitLabDiffPosition,
-    resource: URI,
-  ): Promise<ReviewUnifiedLineRange | undefined> {
-    const rows = gitLabDiffPositionRows(position);
-    if (!rows) return undefined;
-    const unified = this.unifiedResource(resource);
-    if (unified) {
-      if (
-        position.old_path !==
-          (unified.diffFile.previousPath ?? unified.diffFile.path) ||
-        position.new_path !== unified.diffFile.path
-      ) {
-        return undefined;
-      }
-      return unified.rangeForPositionRows(rows.start, rows.end);
-    }
-    const identity = this.resourceIdentity(resource);
-    if (!identity) return undefined;
-    const positionPath =
-      identity.side === "base" ? position.old_path : position.new_path;
-    if (positionPath !== identity.path) return undefined;
-    return this.rangeForPositionRows(
-      identity.path,
-      identity.side,
-      rows.start,
-      rows.end,
-    );
-  }
-
   async acquireUnifiedDiff(
     path: string,
     side: ReviewDiffSide,
@@ -548,36 +421,6 @@ export class ReviewCodeResourceService
 
   unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined {
     return this.unifiedResources.get(resource.toString())?.info;
-  }
-
-  private resourceIdentity(
-    resource: URI,
-  ): { readonly path: string; readonly side: ReviewDiffSide } | null {
-    const session = this.requireSession();
-    if (
-      resource.scheme === REVIEW_BASE_SCHEME ||
-      resource.scheme === REVIEW_HEAD_SCHEME
-    ) {
-      const query = new URLSearchParams(resource.query);
-      if (query.get("version") !== session.session.sessionId) return null;
-      const path = resource.path.replace(/^\/+/, "");
-      if (!path) return null;
-      return {
-        path,
-        side: resource.scheme === REVIEW_BASE_SCHEME ? "base" : "head",
-      };
-    }
-    if (resource.scheme !== "file") return null;
-    const roots: readonly [string | undefined, ReviewDiffSide][] = [
-      [session.session.headRootPath, "head"],
-      [session.session.baseRootPath, "base"],
-    ];
-    for (const [rootPath, side] of roots) {
-      if (!rootPath) continue;
-      const path = extUri.relativePath(URI.file(rootPath), resource);
-      if (path && !path.startsWith("../")) return { path, side };
-    }
-    return null;
   }
 
   reset(): void {
@@ -658,24 +501,8 @@ export class ReviewCodeResourceService
         path,
         diffFile: target.diffFile,
         rows: unified.rows,
-        commentingRanges: unified.commentingRanges,
         targetForRange: (startLine, endLine) =>
           reviewUnifiedTargetForRange(path, unified.rows, startLine, endLine),
-        rangeForTarget: (targetSide, startLine, endLine) =>
-          reviewUnifiedRangeForTarget(
-            unified.rows,
-            targetSide,
-            startLine,
-            endLine,
-          ),
-        positionRowsForRange: (startLine, endLine) =>
-          reviewUnifiedPositionRowsForRange(
-            unified.rows,
-            startLine,
-            endLine,
-          ),
-        rangeForPositionRows: (start, end) =>
-          reviewUnifiedRangeForPositionRows(unified.rows, start, end),
       },
       dispose: () => {
         if (disposed) return;

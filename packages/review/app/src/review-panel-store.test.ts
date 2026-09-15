@@ -30,12 +30,6 @@ describe("Review panel store", () => {
       content,
     });
 
-    store.getState().openThreads();
-    expect(store.getState().active).toEqual({
-      kind: "threads",
-      page: { kind: "list" },
-    });
-
     store.getState().openTour(tour, anchor.id);
     expect(store.getState().active).toMatchObject({
       kind: "tour",
@@ -48,51 +42,11 @@ describe("Review panel store", () => {
     const store = createReviewPanelStore();
 
     store.getState().openTour(tour, anchor.id);
-    store.getState().openThreads();
-    store.getState().openThreads({ kind: "comment", threadId: "thread-1" });
-    expect(store.getState().active).toEqual({
-      kind: "threads",
-      page: { kind: "comment", threadId: "thread-1" },
-    });
+    store.getState().openPeek({ kind: "peek", anchor, content });
+    expect(store.getState().active?.kind).toBe("peek");
 
     store.getState().close();
     expect(store.getState().active).toBeNull();
-  });
-
-  it("models thread navigation as pages within one Threads panel", () => {
-    const store = createReviewPanelStore();
-
-    store.getState().openThreads({ kind: "comment", threadId: "comment-1" });
-    expect(store.getState().active).toEqual({
-      kind: "threads",
-      page: { kind: "comment", threadId: "comment-1" },
-    });
-    store.getState().openThreads({ kind: "new-ask" });
-    expect(store.getState().active).toEqual({
-      kind: "threads",
-      page: { kind: "new-ask" },
-    });
-    store.getState().openThreads();
-    expect(store.getState().active).toEqual({
-      kind: "threads",
-      page: { kind: "list" },
-    });
-  });
-
-  it("keeps Threads closed when a page change lands after the terminal took over", () => {
-    const store = createReviewPanelStore();
-
-    store.getState().openThreads({ kind: "new-ask" });
-    store.getState().closeForAgentTerminal();
-    store.getState().setThreadsPage({ kind: "comment", threadId: "comment-1" });
-    expect(store.getState().active).toBeNull();
-
-    store.getState().openThreads({ kind: "new-ask" });
-    store.getState().setThreadsPage({ kind: "comment", threadId: "comment-1" });
-    expect(store.getState().active).toEqual({
-      kind: "threads",
-      page: { kind: "comment", threadId: "comment-1" },
-    });
   });
 
   it("distinguishes explicit tour reveals from focus-only activation", () => {
@@ -117,30 +71,8 @@ describe("Review panel store", () => {
     });
   });
 
-  it("only closes a panel when its owner matches the lifecycle event", () => {
-    const store = createReviewPanelStore();
-
-    store.getState().openThreads();
-    store.getState().closeForDocumentChange();
-    expect(store.getState().active?.kind).toBe("threads");
-    store.getState().closeForAgentTerminal();
-    expect(store.getState().active).toBeNull();
-
-    store.getState().openPeek({ kind: "peek", anchor, content });
-    store.getState().closeForAgentTerminal();
-    expect(store.getState().active?.kind).toBe("peek");
-    store.getState().closeForDocumentChange();
-    expect(store.getState().active).toBeNull();
-  });
-
   it("suppresses restored panel motion until the next live interaction", () => {
     const store = createReviewPanelStore();
-
-    store.getState().restoreThreads();
-    expect(store.getState().motion).toBe("restored");
-
-    store.getState().close();
-    expect(store.getState().motion).toBe("live");
 
     store.getState().restoreTour(tour, anchor.id);
     expect(store.getState().motion).toBe("restored");
@@ -152,7 +84,7 @@ describe("Review panel store", () => {
   it("suppresses a live panel when its cached canvas resumes", () => {
     const store = createReviewPanelStore();
 
-    store.getState().openThreads();
+    store.getState().openPeek({ kind: "peek", anchor, content });
     expect(store.getState().motion).toBe("live");
 
     store.getState().suppressMotion();

@@ -158,22 +158,8 @@ it("promotes fully prepared files and removes temporary state", async () => {
   expect((await readdir(root)).sort()).toEqual(["candidate", "review"]);
 });
 
-async function databaseFixture() {
-  const input = await fixture();
-
-  for (const name of ["review.db", "review.db-wal", "review.db-shm"])
-    await writeFile(path.join(input.reviewDir, name), `original ${name}`);
-  await writeFile(
-    path.join(input.candidateDir, "review.db"),
-    "upgraded database",
-  );
-
-  return { ...input, upgradeThreadDatabase: true };
-}
-
 async function preparedCommitFixture(
   input: Awaited<ReturnType<typeof fixture>>,
-  upgradeThreadDatabase = false,
 ) {
   const stagingDir = await mkdtemp(path.join(root, ".review-promotion-"));
   const prepared = path.join(stagingDir, "prepared");
@@ -185,12 +171,6 @@ async function preparedCommitFixture(
     await cp(path.join(input.candidateDir, name), path.join(prepared, name), {
       recursive: true,
     });
-
-  if (upgradeThreadDatabase)
-    await cp(
-      path.join(input.candidateDir, "review.db"),
-      path.join(prepared, "review.db"),
-    );
   await cp(
     path.join(input.reviewDir, "review.json"),
     path.join(backup, "review.json"),
@@ -198,59 +178,3 @@ async function preparedCommitFixture(
 
   return { stagingDir, prepared };
 }
-
-it("rolls back the database and its sidecars after promotion failure", async () => {
-  const input = await databaseFixture();
-  const { stagingDir, prepared } = await preparedCommitFixture(input, true);
-  const names = ["review.db", "review.db-wal", "review.db-shm"];
-
-  const originalInodes = new Map(
-    await Promise.all(
-      names.map(
-        async (name) =>
-          [name, (await stat(path.join(input.reviewDir, name))).ino] as const,
-      ),
-    ),
-  );
-
-  const originalRecord = await readFile(
-    path.join(input.reviewDir, "review.json"),
-    "utf8",
-  );
-
-  await expect(
-    commitReviewArtifactPromotion({
-      reviewDir: input.reviewDir,
-      stagingDir,
-      upgradeThreadDatabase: true,
-    }),
-  ).rejects.toMatchObject({
-    code: "ENOENT",
-    syscall: "rename",
-    path: path.join(prepared, "review.json"),
-  });
-
-  for (const name of names) {
-    expect(await readFile(path.join(input.reviewDir, name), "utf8")).toBe(
-      `original ${name}`,
-    );
-    expect((await stat(path.join(input.reviewDir, name))).ino).toBe(
-      originalInodes.get(name),
-    );
-  }
-
-  expect(
-    await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
-  ).toBe(originalRecord);
-  expect(existsSync(stagingDir)).toBe(false);
-});
-
-it("promotes the checkpointed database and retires original sidecars", async () => {
-  const input = await databaseFixture();
-  await promoteReviewArtifactFiles(input);
-  expect(await readFile(path.join(input.reviewDir, "review.db"), "utf8")).toBe(
-    "upgraded database",
-  );
-  expect(await readdir(input.reviewDir)).not.toContain("review.db-wal");
-  expect(await readdir(input.reviewDir)).not.toContain("review.db-shm");
-});

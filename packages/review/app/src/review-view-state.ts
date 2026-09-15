@@ -45,17 +45,13 @@ export interface PersistedReviewViewState {
   overlayTour?: { tourId: string; activeAnchor: string };
 }
 
-export interface PersistedThreadsPanel {
-  kind: "threads";
-}
-
 export interface PersistedTourPanel {
   kind: "tour";
   tourId: string;
   activeAnchor: string;
 }
 
-export type PersistedReviewPanel = PersistedThreadsPanel | PersistedTourPanel;
+export type PersistedReviewPanel = PersistedTourPanel;
 
 export interface ReviewTourRestore {
   tour: GuidedTour;
@@ -170,12 +166,6 @@ export function useReviewViewStateSync({
     },
     [persist],
   );
-
-  useLayoutEffect(() => {
-    if (initialState.panel?.kind === "threads") {
-      panelStore.getState().restoreThreads();
-    }
-  }, [initialState, panelStore]);
 
   useEffect(
     () =>
@@ -442,10 +432,6 @@ function useScrollCapture(
 function persistedPanelState(
   state: ReviewPanelState,
 ): PersistedReviewViewState["panel"] {
-  if (state.active?.kind === "threads" && state.active.page.kind === "list") {
-    return { kind: "threads" };
-  }
-
   if (state.active?.kind === "tour") {
     return {
       kind: "tour",
@@ -489,7 +475,10 @@ function parsePersistedReviewViewState(
   return state;
 }
 
-/** The persisted panel, also accepting the legacy layered `{ thread, tour }` form. */
+/**
+ * The persisted panel, also accepting the legacy layered `{ thread, tour }`
+ * form. A persisted Threads panel from an older build no longer restores.
+ */
 function parsePersistedPanel(
   panel: JsonObject | undefined,
 ): PersistedReviewPanel | undefined {
@@ -498,14 +487,6 @@ function parsePersistedPanel(
   const tour = parsePersistedTourState(panel);
 
   if (kind === "tour" && tour) return { kind: "tour", ...tour };
-  const legacyThread = jsonObject(jsonProperty(panel, "thread"));
-
-  if (
-    kind === "threads" ||
-    jsonString(legacyThread && jsonProperty(legacyThread, "kind")) === "threads"
-  ) {
-    return { kind: "threads" };
-  }
 
   const legacyTour = parsePersistedTourState(
     jsonObject(jsonProperty(panel, "tour")),

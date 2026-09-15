@@ -45,8 +45,6 @@ export class CommentThreadRangeDecorator extends Disposable {
 			isWholeLine: false,
 			zIndex: 20,
 			className: 'comment-thread-range',
-			lineNumberClassName: 'comment-thread-range-line-number',
-			marginClassName: 'comment-thread-range-margin',
 			shouldFillLineOnLineBreak: true
 		};
 
@@ -57,8 +55,6 @@ export class CommentThreadRangeDecorator extends Disposable {
 			isWholeLine: false,
 			zIndex: 20,
 			className: 'comment-thread-range-current',
-			lineNumberClassName: 'comment-thread-range-line-number-current',
-			marginClassName: 'comment-thread-range-margin-current',
 			shouldFillLineOnLineBreak: true
 		};
 

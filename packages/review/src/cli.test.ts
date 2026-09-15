@@ -39,11 +39,6 @@ import {
   type ReviewCommandTelemetry,
   ReviewTelemetry,
 } from "./review-telemetry";
-import {
-  runReviewThreadsList as runReviewThreadsListActual,
-  runReviewThreadsReply as runReviewThreadsReplyActual,
-  runReviewThreadsResolve as runReviewThreadsResolveActual,
-} from "./threads-cli";
 import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
 describe("Review CLI", () => {
@@ -890,53 +885,6 @@ describe("Review CLI", () => {
         stderr: outputStream(),
       }),
     ).resolves.toBe(1);
-  });
-
-  it("registers the threads verbs", async () => {
-    const runReviewThreadsList = vi.fn<typeof runReviewThreadsListActual>(
-      async () => 0,
-    );
-
-    const runReviewThreadsResolve = vi.fn<typeof runReviewThreadsResolveActual>(
-      async () => 0,
-    );
-
-    const runReviewThreadsReply = vi.fn<typeof runReviewThreadsReplyActual>(
-      async () => 0,
-    );
-
-    await runReviewCli({
-      argv: ["threads", "list", "--review", "review-uuid"],
-      stdout: outputStream(),
-      stderr: outputStream(),
-      runtime: { runReviewThreadsList },
-    });
-    await runReviewCli({
-      argv: ["threads", "resolve", "thread-1"],
-      stdout: outputStream(),
-      stderr: outputStream(),
-      runtime: { runReviewThreadsResolve },
-    });
-    await runReviewCli({
-      argv: ["threads", "reply", "thread-1", "--body", "Done."],
-      stdout: outputStream(),
-      stderr: outputStream(),
-      runtime: { runReviewThreadsReply },
-    });
-
-    expect(runReviewThreadsList).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid" }),
-    );
-    expect(runReviewThreadsResolve).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: "thread-1" }),
-    );
-    expect(runReviewThreadsReply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        threadId: "thread-1",
-        body: "Done.",
-        author: "Agent",
-      }),
-    );
   });
 
   it("rejects the removed tools ensure command", async () => {

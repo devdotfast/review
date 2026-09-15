@@ -38,17 +38,12 @@ interface TutorialExperienceState {
   steps: readonly TutorialStepDefinition[];
   totalSteps: number;
   hidden: boolean;
-  /** A comment composer has focus: the guide folds to its header. */
-  composing: boolean;
   onBack(): void;
   onNext(): void;
   onDismiss(): void;
   onFinish(): void;
   onClose(): void;
 }
-
-const COMPOSER_SELECTOR =
-  ".comment-form-container, .review-widget.compact-comment-thread, .thread-compose";
 
 /**
  * Drives the tutorial for the document shell it wraps. The guide card sits in
@@ -80,7 +75,6 @@ export function TutorialExperienceProvider({
     setRegion(scrollRegionRef?.current ?? null);
   }, [scrollRegionRef, shellRef]);
   const [targets, setTargets] = useState<readonly HTMLElement[]>([]);
-  const [composing, setComposing] = useState(false);
 
   const [diagramTourKind, setDiagramTourKind] =
     useState<DiagramTourKind | null>(null);
@@ -106,7 +100,6 @@ export function TutorialExperienceProvider({
     ? steps.findIndex((step) => step.id === activeStep.id)
     : steps.length;
 
-  const threadCount = review.allCommentThreads().length;
   const hidden = !tutorial || dismissed || diagramTourKind !== null;
 
   const completeStep = useCallback(
@@ -116,19 +109,6 @@ export function TutorialExperienceProvider({
     },
     [checked, tutorial],
   );
-
-  useEffect(() => {
-    if (
-      dismissed ||
-      !activeStep ||
-      activeStep.completion !== "comment" ||
-      threadCount === 0
-    ) {
-      return;
-    }
-
-    completeStep(activeStep);
-  }, [activeStep, completeStep, dismissed, threadCount]);
 
   useLayoutEffect(() => {
     const root = shell;
@@ -211,30 +191,6 @@ export function TutorialExperienceProvider({
     };
   }, [activeStep, completeStep, dismissed, shell]);
 
-  // Fold the guide while a comment composer has focus, so it never covers
-  // the text the reader is writing.
-  useEffect(() => {
-    const root = shell;
-
-    if (!root || hidden) return;
-
-    const update = () => {
-      const active = document.activeElement;
-      setComposing(
-        active instanceof Element && active.closest(COMPOSER_SELECTOR) !== null,
-      );
-    };
-
-    root.addEventListener("focusin", update);
-    root.addEventListener("focusout", update);
-    update();
-
-    return () => {
-      root.removeEventListener("focusin", update);
-      root.removeEventListener("focusout", update);
-    };
-  }, [hidden, shell]);
-
   // Bring a newly active chapter into view once. The section itself expands
   // through the section context; nothing collapses the other chapters.
   useLayoutEffect(() => {
@@ -272,18 +228,9 @@ export function TutorialExperienceProvider({
     let scheduledFrame: number | null = null;
 
     const apply = () => {
-      let next = [
+      const next = [
         ...root.querySelectorAll<HTMLElement>(activeStep.targetSelector),
       ];
-
-      // A line-marking step points at one code block: the first visible match.
-      if (activeStep.lineMatcher) {
-        const first = next.find(
-          (candidate) => candidate.closest("[hidden]") === null,
-        );
-
-        next = first ? [first] : [];
-      }
 
       for (const target of targets) {
         if (!next.includes(target)) delete target.dataset.tutorialTarget;
@@ -302,10 +249,6 @@ export function TutorialExperienceProvider({
           ? current
           : visible,
       );
-
-      if (activeStep.lineMatcher && visible[0]) {
-        markTutorialLine(root, visible[0], activeStep.lineMatcher);
-      }
 
       // Bring an off-screen target into view once per step. This is the only
       // measurement the tutorial makes, and it happens on a step change, not
@@ -350,7 +293,6 @@ export function TutorialExperienceProvider({
       if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
 
       for (const target of targets) delete target.dataset.tutorialTarget;
-      clearTutorialLine(root);
     };
   }, [activeStep, hidden, shell]);
 
@@ -381,7 +323,6 @@ export function TutorialExperienceProvider({
         steps,
         totalSteps: steps.length,
         hidden,
-        composing,
         onBack: goBack,
         onNext: goNext,
         onDismiss: tutorial.dismiss,
@@ -484,11 +425,7 @@ function TutorialGuide({
 
   return (
     <aside
-      className={
-        experience.composing
-          ? "tutorial-guide tutorial-guide--folded"
-          : "tutorial-guide"
-      }
+      className="tutorial-guide"
       aria-label="Tutorial guide"
       data-tutorial-step={activeStep?.id ?? "complete"}
     >
@@ -641,7 +578,7 @@ function useTargetRings(
 
     for (const target of targets) resizeObserver?.observe(target);
 
-    // Content above a target can grow (an editor mounts, a composer opens)
+    // Content above a target can grow (an editor mounts)
     // without the target itself resizing, so watch the region's content too.
     if (region) {
       for (const child of region.querySelectorAll(
@@ -695,42 +632,4 @@ function TutorialTargetRing({ ring }: { ring: TutorialRing }): ReactElement {
       ))}
     </>
   );
-}
-
-/**
- * Marks the first rendered code line whose text matches, plus the gutter
- * row at the same offset so its comment control can show. Monaco keeps rows
- * in visual order by their `top` style, not by DOM order.
- */
-function markTutorialLine(
-  root: HTMLElement,
-  editor: HTMLElement,
-  matcher: RegExp,
-): void {
-  clearTutorialLine(root);
-
-  const rows = [...editor.querySelectorAll<HTMLElement>(".view-line")].sort(
-    (left, right) => parseFloat(left.style.top) - parseFloat(right.style.top),
-  );
-
-  const row = rows.find((candidate) =>
-    matcher.test(candidate.textContent ?? ""),
-  );
-
-  if (!row) return;
-  row.dataset.tutorialLine = "";
-
-  for (const margin of editor.querySelectorAll<HTMLElement>(
-    ".margin-view-overlays > div",
-  )) {
-    if (margin.style.top === row.style.top) margin.dataset.tutorialLine = "";
-  }
-}
-
-function clearTutorialLine(root: HTMLElement): void {
-  for (const marked of root.querySelectorAll<HTMLElement>(
-    "[data-tutorial-line]",
-  )) {
-    delete marked.dataset.tutorialLine;
-  }
 }

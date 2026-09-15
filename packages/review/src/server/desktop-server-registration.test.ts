@@ -15,7 +15,6 @@ import {
 import { ensureReviewPinnedCheckout } from "../review-head-checkout";
 import { createReviewDir, sealReviewCandidate } from "../review-home";
 import { withReviewMutationLock } from "../review-mutation-lock";
-import { closeAllReviewThreadStores } from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import {
   type GlobalReviewServerInput,
@@ -26,7 +25,6 @@ import { createReviewSessionHandler } from "./session-handler";
 const roots: string[] = [];
 
 afterEach(async () => {
-  closeAllReviewThreadStores();
   vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),

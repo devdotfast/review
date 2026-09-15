@@ -150,10 +150,7 @@ describe("review migrate apply", () => {
             failedReviewUuids: [uuid],
             droppedLegacyPeekReviews: 0,
             droppedReviews: 0,
-            droppedComments: 0,
-            droppedQuestions: 0,
             legacyCheckoutsRemoved: 0,
-            upgradedThreadDatabases: 0,
           };
         },
         migrateJjReviewRepositories: jj,
@@ -194,10 +191,7 @@ describe("review migrate apply", () => {
           documents: 3,
           droppedLegacyPeekReviews: 0,
           droppedReviews: 1,
-          droppedComments: 2,
-          droppedQuestions: 1,
           legacyCheckoutsRemoved: 0,
-          upgradedThreadDatabases: 1,
         }),
         migrateJjReviewRepositories: async () => ({
           checked: 1,
@@ -229,8 +223,6 @@ describe("review migrate apply", () => {
     expect(code).toBe(1);
     expect(io.out.join("")).toContain("1 old Review dropped");
     expect(io.out.join("")).toContain("1 jj repository converted");
-    expect(io.out.join("")).toContain("1 thread database upgraded");
-    expect(io.out.join("")).toContain("3 state records migrated or dropped");
     expect(io.out.join("")).toContain("1 blocker");
     expect(io.err.join("")).toContain(
       "Desktop-managed review command is missing",
@@ -306,10 +298,7 @@ describe("review migrate apply", () => {
             documents: 2,
             droppedLegacyPeekReviews: 0,
             droppedReviews: 1,
-            droppedComments: 0,
-            droppedQuestions: 0,
             legacyCheckoutsRemoved: 0,
-            upgradedThreadDatabases: 0,
           };
         },
         migrateJjReviewRepositories: async () => ({

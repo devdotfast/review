@@ -50,10 +50,6 @@ describe("side-peek validation boundary", () => {
           );
         }
 
-        if (url.includes("/comments")) {
-          return new Response(JSON.stringify({ comments: {} }));
-        }
-
         return new Response(JSON.stringify({}));
       }),
     );

@@ -131,15 +131,11 @@ export async function runReviewMigration(input: {
       documents: 0,
       droppedLegacyPeekReviews: 0,
       droppedReviews: 0,
-      droppedComments: 0,
-      droppedQuestions: 0,
       legacyCheckoutsRemoved: 0,
-      upgradedThreadDatabases: 0,
     },
     () =>
       runtime.migrateStoredReviewData({
         reviewHome,
-        force: input.force,
         log: (message) => input.stderr.write(`${message}\n`),
         onBlocker: (message) => blockers.push(message),
       }),
@@ -244,7 +240,6 @@ export async function runReviewMigration(input: {
     );
   }
 
-  const stateChanged = stored.droppedComments + stored.droppedQuestions;
   human.write(
     [
       `Review migration: ${count(stored.documents, "document")} checked;`,
@@ -253,8 +248,6 @@ export async function runReviewMigration(input: {
       `${count(jj.migrated, "jj repository", "jj repositories")} converted;`,
       `${count(managedCheckouts.created, "managed checkout")} created;`,
       `${count(stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved, "legacy checkout")} removed;`,
-      `${count(stored.upgradedThreadDatabases, "thread database")} upgraded;`,
-      `${count(stateChanged, "state record")} migrated or dropped;`,
       `${count(catalog.removed, "catalog entry", "catalog entries")} removed;`,
       `${count(skills.removed, "skill")} removed;`,
       `${count(globalCli.removed, "global CLI installation")} removed;`,
@@ -275,7 +268,6 @@ export async function runReviewMigration(input: {
     managedCheckouts: managedCheckouts.created,
     legacyCheckouts:
       stored.legacyCheckoutsRemoved + managedCheckouts.legacyRemoved,
-    stateRecords: stateChanged,
     catalogEntries: catalog.removed,
     skills: skills.removed,
     globalCliInstallations: globalCli.removed,

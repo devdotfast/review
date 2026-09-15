@@ -65,11 +65,9 @@ export function failWithJsonError(
 }
 
 // Flags that take a separate value. A value can look exactly like a flag, as in
-// `threads reply t1 --body "--json"`, so the scan must skip it.
+// `wait --review "--json"`, so the scan must skip it.
 const VALUE_FLAGS = new Set([
-  "--author",
   "--base",
-  "--body",
   "--head",
   "--pr",
   "--review",

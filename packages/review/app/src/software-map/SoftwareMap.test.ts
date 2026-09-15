@@ -77,32 +77,6 @@ describe("SoftwareMap inline C4 helpers", () => {
     );
   });
 
-  it("stacks C4 groups below relationship edges and cards", () => {
-    const styles = readFileSync(
-      new URL("./styles.css", import.meta.url),
-      "utf8",
-    );
-
-    expect(styles).toMatch(
-      /\.software-map-c4-canvas \.react-flow__node-softwareMapC4Group\s*{[^}]*\bz-index:\s*0 !important;/s,
-    );
-    expect(styles).toMatch(
-      /\.software-map-c4-canvas \.react-flow__edges\s*{[^}]*\bz-index:\s*1;/s,
-    );
-    expect(styles).toMatch(
-      /\.software-map-c4-canvas \.react-flow__node-softwareMapC4\s*{[^}]*\bz-index:\s*2 !important;/s,
-    );
-    expect(styles).toMatch(
-      /\.software-map-c4-canvas\s*\.react-flow__node-softwareMapC4:has\(\s*\.software-map-c4-node-shell:hover > \.comment-hover-button\s*\)\s*{[^}]*\bz-index:\s*40 !important;/s,
-    );
-    expect(styles).not.toMatch(
-      /\.software-map-c4-canvas \.react-flow__node[^,{]*:hover\s*{[^}]*\bz-index:/s,
-    );
-    expect(styles).not.toMatch(
-      /\.react-flow__node-softwareMapC4Group:has\([^)]*comment-hover-button[^)]*\)\s*{[^}]*\bz-index:/s,
-    );
-  });
-
   it("uses shared map panel surfaces for expanded group shells", () => {
     const styles = readFileSync(
       new URL("./styles.css", import.meta.url),
@@ -671,28 +645,5 @@ describe("SoftwareMap inline C4 helpers", () => {
       "progressiveReview.reviewApp.removedComponent.removedSymbol",
     );
     expect(projection.relationships).toHaveLength(0);
-  });
-
-  it("keeps node comment buttons beside world-space nodes", () => {
-    const styles = readFileSync(new URL("./styles.css", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(styles).toMatch(
-      /\.software-map-c4-node-shell::after,\s*\.software-map-c4-group-shell::after\s*{[^}]*top:\s*50%;[^}]*right:\s*-34px;[^}]*width:\s*38px;[^}]*height:\s*48px;[^}]*transform:\s*translateY\(-50%\);/s,
-    );
-    expect(styles).toMatch(
-      /\.software-map-c4-node-shell > \.comment-hover-button,\s*\.software-map-c4-group-shell > \.comment-hover-button\s*{[^}]*top:\s*50%;[^}]*right:\s*auto;[^}]*left:\s*calc\(100% \+ 5px\);[^}]*z-index:\s*41;[^}]*width:\s*auto;[^}]*min-width:\s*30px;[^}]*height:\s*30px;[^}]*transform:\s*translateY\(-50%\);/s,
-    );
-    expect(styles).toMatch(
-      /\.software-map-c4-edge-comment-target\s*{[^}]*z-index:\s*40;/s,
-    );
-    expect(styles).toMatch(
-      /\.software-map-c4-edge-comment-target > \.comment-hover-button\s*{[^}]*z-index:\s*41;/s,
-    );
-    expect(styles).not.toContain("software-map-c4-compact-screen-scale");
-    expect(styles).toMatch(
-      /\.software-map-c4-node-shell:hover > \.comment-hover-button,\s*\.software-map-c4-group-shell:hover > \.comment-hover-button,/s,
-    );
   });
 });

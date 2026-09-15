@@ -7,7 +7,7 @@ import * as dom from '../../../../base/browser/dom.js';
 import { ActionBar } from '../../../../base/browser/ui/actionbar/actionbar.js';
 import { Action, ActionRunner } from '../../../../base/common/actions.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import * as strings from '../../../../base/common/strings.js';
 import * as languages from '../../../../editor/common/languages.js';
 import { IRange } from '../../../../editor/common/core/range.js';
@@ -25,8 +25,13 @@ import { StandardMouseEvent } from '../../../../base/browser/mouseEvent.js';
 import { MarshalledCommentThread } from '../../../common/comments.js';
 import { CommentCommandId } from '../common/commentCommandIds.js';
 
-const collapseIcon = registerIcon('review-comment-collapse', Codicon.chromeMinimize, nls.localize('collapseIcon', 'Icon to collapse a review comment.'));
+const collapseIcon = registerIcon('review-comment-collapse', Codicon.chevronUp, nls.localize('collapseIcon', 'Icon to collapse a review comment.'));
 const COLLAPSE_ACTION_CLASS = 'expand-review-action ' + ThemeIcon.asClassName(collapseIcon);
+const DELETE_ACTION_CLASS = 'expand-review-action ' + ThemeIcon.asClassName(Codicon.trashcan);
+
+function threadHasComments(comments: ReadonlyArray<languages.Comment> | undefined): comments is ReadonlyArray<languages.Comment> {
+	return !!comments && comments.length > 0;
+}
 
 export class CommentThreadHeader<T = IRange> extends Disposable {
 	private _headElement: HTMLElement;
@@ -64,7 +69,17 @@ export class CommentThreadHeader<T = IRange> extends Disposable {
 
 		this._register(this._actionbarWidget);
 
-		this._collapseAction = new Action(CommentCommandId.Hide, nls.localize('label.collapse', "Collapse"), COLLAPSE_ACTION_CLASS, true, () => this._delegate.collapse());
+		const collapseClass = threadHasComments(this._commentThread.comments) ? COLLAPSE_ACTION_CLASS : DELETE_ACTION_CLASS;
+		this._collapseAction = new Action(CommentCommandId.Hide, nls.localize('label.collapse', "Collapse"), collapseClass, true, () => this._delegate.collapse());
+		if (!threadHasComments(this._commentThread.comments)) {
+			const commentsChanged: MutableDisposable<IDisposable> = this._register(new MutableDisposable());
+			commentsChanged.value = this._commentThread.onDidChangeComments(() => {
+				if (threadHasComments(this._commentThread.comments)) {
+					this._collapseAction.class = COLLAPSE_ACTION_CLASS;
+					commentsChanged.clear();
+				}
+			});
+		}
 
 		const menu = this._commentMenus.getCommentThreadTitleActions(this._contextKeyService);
 		this._register(menu);
@@ -85,7 +100,7 @@ export class CommentThreadHeader<T = IRange> extends Disposable {
 	private setActionBarActions(menu: IMenu): void {
 		const groups = menu.getActions({ shouldForwardArgs: true }).reduce((r, [, actions]) => [...r, ...actions], <(MenuItemAction | SubmenuItemAction)[]>[]);
 		this._actionbarWidget.clear();
-		this._actionbarWidget.push([this._collapseAction, ...groups], { label: false, icon: true });
+		this._actionbarWidget.push([...groups, this._collapseAction], { label: false, icon: true });
 	}
 
 	updateCommentThread(commentThread: languages.CommentThread<T>) {

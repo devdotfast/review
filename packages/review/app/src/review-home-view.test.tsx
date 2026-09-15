@@ -135,10 +135,9 @@ describe("ReviewHome", () => {
     const reviews = [
       descriptor({
         uuid: uuid(1),
-        title: "Store review threads in SQLite",
+        title: "Store reviews in SQLite",
         pullRequestNumber: 636,
         diffStats: { fileCount: 18, additions: 804, deletions: 356 },
-        commentCount: 6,
         presentedDocumentRevision: "presented",
         presentedSoftwareMapRevision: null,
       }),
@@ -517,7 +516,6 @@ function descriptor(
     pullRequestNumber: null,
     pullRequestUrl: null,
     diffStats: null,
-    commentCount: 0,
     documentUpdatedAt: null,
     presentedDocumentRevision: null,
     presentedSoftwareMapRevision: null,

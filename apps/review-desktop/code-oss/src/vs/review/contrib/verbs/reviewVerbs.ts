@@ -3,42 +3,24 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ReviewAskLoadingInput } from "./reviewAskLoadingEditor.js";
-import { INativeHostService } from "../../../platform/native/common/native.js";
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
-import { Disposable, DisposableStore, MutableDisposable, toDisposable } from "../../../base/common/lifecycle.js";
+import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
 import {
   type ICodeEditor,
-  MouseTargetType,
   isCodeEditor,
   isDiffEditor,
 } from "../../../editor/browser/editorBrowser.js";
 import { ICodeEditorService } from "../../../editor/browser/services/codeEditorService.js";
 import { Range } from "../../../editor/common/core/range.js";
 import type { IEditorDecorationsCollection } from "../../../editor/common/editorCommon.js";
-import type { IModelDeltaDecoration } from "../../../editor/common/model.js";
-import {
-  MenuId,
-  MenuRegistry,
-} from "../../../platform/actions/common/actions.js";
-import { CommandsRegistry } from "../../../platform/commands/common/commands.js";
 import {
   createDecorator,
 } from "../../../platform/instantiation/common/instantiation.js";
 import type { IEditorPane } from "../../../workbench/common/editor.js";
-import {
-  type ITerminalInstance,
-  ITerminalEditorService,
-  ITerminalService,
-} from "../../../workbench/contrib/terminal/browser/terminal.js";
-import { editorGroupToColumn } from "../../../workbench/services/editor/common/editorGroupColumn.js";
 import { IEditorGroupsService } from "../../../workbench/services/editor/common/editorGroupsService.js";
-import {
-  IEditorService,
-  SIDE_GROUP,
-} from "../../../workbench/services/editor/common/editorService.js";
+import { IEditorService } from "../../../workbench/services/editor/common/editorService.js";
 import {
   IWorkbenchLayoutService,
   Parts,
@@ -50,20 +32,12 @@ import {
   type JsonValue,
   type ReviewOpenEditorWire,
   type ReviewSurfaceEvent,
-  type ReviewVerbRequest,
   type ReviewVerbResponse,
   type ReviewView,
   parseReviewVerbRequest,
   REVIEW_DISCORD_URL,
 } from "../../common/reviewProtocol.js";
-import {
-  ReviewDecorationAnchors,
-  reviewDecorationSessionId,
-} from "../../common/reviewDecorationAnchors.js";
-import {
-  reviewSelectionRange,
-  reviewSelectionSide,
-} from "../../common/reviewSelection.js";
+import { reviewSelectionRange } from "../../common/reviewSelection.js";
 import {
   IReviewCodeResourceService,
   reviewResourceIdentity,
@@ -71,22 +45,12 @@ import {
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import {
   IReviewSessionModelService,
-  reviewSessionApiRequest,
   type ReviewDesktopSession,
 } from "../../services/reviewSessionModelService.js";
 import { IReviewSessionService } from "../../services/reviewSessionService.js";
 import { IReviewDiffTabsService } from "../../services/reviewDiffTabs.js";
 import { ReviewCanvasEditorInput } from "../../browser/parts/canvas/reviewCanvasEditorInput.js";
 import { IReviewExplorerPartsService } from "../../browser/parts/explorer/reviewExplorerPart.js";
-
-MenuRegistry.appendMenuItem(MenuId.EditorContext, {
-  group: "review",
-  order: 1,
-  command: {
-    id: "devfast.review.addComment",
-    title: "Add Review Comment",
-  },
-});
 
 export const IReviewVerbsService =
   createDecorator<IReviewVerbsService>("reviewVerbsService");
@@ -115,16 +79,7 @@ export class ReviewVerbsService
   );
   readonly onDidRequestCanvasFocus = this._onDidRequestCanvasFocus.event;
 
-  private readonly anchorsByPath = new ReviewDecorationAnchors();
-  private readonly decorationIdsByModel = new Map<string, string[]>();
   private readonly editorStores = new Map<string, DisposableStore>();
-  private readonly agentSessionTerminals = new Map<string, ITerminalInstance>();
-  private readonly askPanes = new Map<string, {
-    input: ReviewAskLoadingInput;
-    startedAt: string;
-    opened: Promise<IEditorPane | undefined>;
-  }>();
-  private readonly commentSubscription = this._register(new MutableDisposable());
   private revealDecoration: IEditorDecorationsCollection | undefined;
 
   constructor(
@@ -134,9 +89,6 @@ export class ReviewVerbsService
     @IWorkbenchLayoutService
     private readonly layoutService: IWorkbenchLayoutService,
     @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
-    @ITerminalService private readonly terminalService: ITerminalService,
-    @ITerminalEditorService
-    private readonly terminalEditorService: ITerminalEditorService,
     @IReviewCodeResourceService
     private readonly codeResources: IReviewCodeResourceService,
     @IReviewSessionModelService
@@ -150,42 +102,9 @@ export class ReviewVerbsService
     @IReviewExplorerPartsService
     private readonly explorerParts: IReviewExplorerPartsService,
     @IHostService private readonly hostService: IHostService,
-    @INativeHostService private readonly nativeHostService: INativeHostService,
     @IOpenerService private readonly openerService: IOpenerService,
   ) {
     super();
-    const watchAsks = () => {
-      const model = this.sessionModelService.activeModel;
-      this.commentSubscription.clear();
-      if (!model) return;
-      const comments = model.comments;
-      this.commentSubscription.value = toDisposable(comments.subscribe(() => {
-        for (const [threadId, activity] of comments.getSnapshot().agentActivities) {
-          const pending = this.askPanes.get(activity.messageId);
-          if (activity.status === "failed") {
-            pending?.input.fail(activity.error);
-          } else if (activity.status === "starting" && pending?.startedAt !== activity.startedAt) {
-            pending?.input.dispose();
-            this._onDidEmitSurfaceEvent.fire({
-              event: "agentTerminalOpening",
-              sessionId: model.session.session.sessionId,
-            });
-            const input = new ReviewAskLoadingInput(activity.messageId);
-            this._register(input.onWillDispose(() => {
-              if (input.replaced) return;
-              void comments.terminalClosed(threadId, activity.messageId).catch(error => console.error("[Review] Could not interrupt Ask", error));
-            }));
-            console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: activity.messageId, stage: "loading.open-requested" }));
-            const opened = this.editorService.openEditor(input, { pinned: true }, SIDE_GROUP);
-            void opened.then(() => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: activity.messageId, stage: "loading.opened" })), () => {});
-            this.askPanes.set(activity.messageId, { input, opened, startedAt: activity.startedAt });
-            void opened.catch(error => input.fail(String(error)));
-          }
-        }
-      }));
-    };
-    this._register(this.sessionModelService.onDidChangeActiveModel(watchAsks));
-    watchAsks();
     for (const editor of codeEditorService.listCodeEditors())
       this.trackEditor(editor);
     this._register(
@@ -194,11 +113,6 @@ export class ReviewVerbsService
     this._register(
       codeEditorService.onCodeEditorRemove((editor) =>
         this.untrackEditor(editor),
-      ),
-    );
-    this._register(
-      CommandsRegistry.registerCommand("devfast.review.addComment", () =>
-        this.requestComment(),
       ),
     );
   }
@@ -234,21 +148,6 @@ export class ReviewVerbsService
         case "reveal":
           await this.revealCode(request.args);
           break;
-        case "decorateThreads":
-          this.anchorsByPath.set(
-            this.decorationSessionId(request.args.sessionId),
-            request.args.path,
-            request.args.anchors,
-          );
-          this.applyDecorations();
-          break;
-        case "clearDecorations":
-          this.anchorsByPath.clear(
-            this.decorationSessionId(request.args.sessionId),
-            request.args.path,
-          );
-          this.applyDecorations();
-          break;
         case "focusCanvas":
           this._onDidRequestCanvasFocus.fire();
           break;
@@ -279,15 +178,6 @@ export class ReviewVerbsService
             request.args.active,
           );
           break;
-        case "showThreads":
-          await this.showThreads();
-          break;
-        case "resumeAgentTerminal":
-          await this.resumeAgentTerminal(sessionId, request.args.threadId);
-          break;
-        case "openNativeAgentTerminal":
-          await this.openNativeAgentTerminal(request.args);
-          break;
         case "state":
           return { ok: true, result: this.state() };
       }
@@ -311,163 +201,6 @@ export class ReviewVerbsService
       };
     } catch {
       return undefined;
-    }
-  }
-
-  private async resumeAgentTerminal(sessionId: string, threadId: string): Promise<void> {
-    const model = this.sessionModelService.activeModel;
-    if (!model || model.session.session.sessionId !== sessionId) throw new Error("The requested Review is not active.");
-    const thread = model.comments.getSnapshot().commentThreads.get(threadId);
-    const binding = thread?.agentSession;
-    if (!binding) throw new Error("This thread has no agent terminal.");
-    const key = `native:${binding.harness}:${binding.sessionId}`;
-    const existing = this.agentSessionTerminals.get(key);
-    if (existing && !existing.isDisposed) {
-      this._onDidEmitSurfaceEvent.fire({ event: "agentTerminalOpening", sessionId });
-      await this.terminalEditorService.openEditor(existing);
-      await this.terminalEditorService.getInputFromResource(existing.resource).revert();
-      model.comments.terminalOpened(threadId);
-      this.terminalService.setActiveInstance(existing);
-      await existing.focusWhenReady(true);
-      return;
-    }
-    const response = await reviewSessionApiRequest(model.session, `/comments/${encodeURIComponent(threadId)}/agent-terminal`, { method: "POST" }, (url, init) => model.request(url, init));
-    if (!response.ok) throw new Error(await response.text());
-  }
-
-  private async openNativeAgentTerminal(
-    input: Extract<ReviewVerbRequest, { name: "openNativeAgentTerminal" }>["args"],
-  ): Promise<void> {
-    const timing = (stage: string) => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: input.askMessageId, harness: input.session.harness, stage }));
-    timing("terminal.verb-received");
-    this._onDidEmitSurfaceEvent.fire({
-      event: "agentTerminalOpening",
-      sessionId: this.requireSession().session.sessionId,
-    });
-    const comments = this.sessionModelService.activeModel?.comments;
-    if (!comments) throw new Error("No active Review comment store.");
-    const pending = input.askMessageId === null ? undefined : this.askPanes.get(input.askMessageId);
-    const pane = pending ? await pending.opened : undefined;
-    timing("terminal.loading-pane-ready");
-    // A closed loading tab is an explicit dismissal of this Ask's terminal.
-    if (pending?.input.isDisposed()) return;
-    const group = pane ? pane.group.id : SIDE_GROUP;
-    const finish = async () => {
-      if (!pending || !pane) return;
-      pending.input.replaced = true;
-      await pane.group.closeEditor(pending.input);
-      pending.input.dispose();
-    };
-    const key = `native:${input.session.harness}:${input.session.sessionId}`;
-    const existing = this.agentSessionTerminals.get(key);
-    if (existing && !existing.isDisposed) {
-      // The session already has a live terminal: bring it forward.
-      await this.terminalEditorService.openEditor(existing, {
-        viewColumn: group,
-      });
-      await this.terminalEditorService.getInputFromResource(existing.resource).revert();
-      comments.terminalOpened(input.threadId);
-      this.terminalService.setActiveInstance(existing);
-      await existing.focusWhenReady(true);
-      await finish();
-      return;
-    }
-    timing("terminal.create-start");
-    const instance = await this.terminalService.createTerminal({
-      config: {
-        executable: input.command.executable,
-        args: input.command.args,
-        cwd: input.command.cwd,
-        env: {
-          ...input.command.env,
-          CLICOLOR: "1",
-          CLICOLOR_FORCE: "1",
-          COLORTERM: "truecolor",
-          FORCE_COLOR: "3",
-          NO_COLOR: null,
-          TERM: "xterm-256color",
-        },
-        isTransient: true,
-        name: `${input.session.harness} · ${input.session.sessionId.slice(0, 8)}`,
-        useShellEnvironment: true,
-      },
-      // Terminal creation expects a visual column, while openEditor expects a group ID.
-      location: { viewColumn: pane ? editorGroupToColumn(this.editorGroupsService, pane.group) : SIDE_GROUP },
-    });
-    timing("terminal.created");
-    const firstData = instance.onData(() => {
-      timing("terminal.first-output");
-      firstData.dispose();
-    });
-    this._register(firstData);
-    this.agentSessionTerminals.set(key, instance);
-    let processId = instance.processId;
-    this._register(instance.onProcessIdReady(ready => { processId = ready.processId; timing("terminal.process-ready"); }));
-    let processExited = false;
-    this._register(instance.onExit(exit => {
-      // dispose() also emits an undefined synthetic exit before the process dies.
-      if (exit !== undefined) processExited = true;
-    }));
-    this._register(instance.onDisposed(() => {
-      if (this.agentSessionTerminals.get(key) === instance) {
-        this.agentSessionTerminals.delete(key);
-        void (async () => {
-          if (input.session.harness === "claude-code" || input.session.harness === "pi") {
-            const pid = processId;
-            if (pid !== undefined && !processExited) {
-              try {
-                await this.nativeHostService.killProcess(pid, "SIGKILL");
-              } catch (error) {
-                // The runner may have exited after the terminal requested shutdown.
-                if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
-              }
-            }
-          }
-          await comments.terminalClosed(input.threadId, null);
-        })().catch(error => console.error("[Review] Could not interrupt agent", error));
-      }
-    }));
-    if (pending?.input.isDisposed()) {
-      instance.dispose();
-      return;
-    }
-    timing("terminal.editor-open-start");
-    await this.terminalEditorService.openEditor(instance, {
-      viewColumn: group,
-    });
-    timing("terminal.editor-opened");
-    // Review owns cancellation; this input's revert disables only its close prompt.
-    await this.terminalEditorService.getInputFromResource(instance.resource).revert();
-    comments.terminalOpened(input.threadId);
-    this.terminalService.setActiveInstance(instance);
-    await instance.focusWhenReady(true);
-    timing("terminal.focus-ready");
-    await finish();
-    timing("terminal.loading-replaced");
-  }
-
-  private async showThreads(): Promise<void> {
-    const terminals = [...this.agentSessionTerminals.values()].filter(instance => !instance.isDisposed);
-    const terminalGroups = new Set(
-      terminals
-        .filter(instance => this.terminalEditorService.instances.includes(instance))
-        .map((instance) =>
-          this.terminalEditorService.getInputFromResource(instance.resource),
-        )
-        .map((input) => input.group)
-        .filter((group) => group !== undefined),
-    );
-    for (const instance of terminals) {
-      instance.dispose();
-    }
-    await Promise.resolve();
-    for (const group of terminalGroups) {
-      if (
-        group.count === 0 &&
-        this.editorGroupsService.getGroup(group.id) !== undefined
-      ) {
-        this.editorGroupsService.removeGroup(group);
-      }
     }
   }
 
@@ -498,15 +231,6 @@ export class ReviewVerbsService
 
   async resetSession(): Promise<void> {
     this.clearRevealDecoration();
-    this.anchorsByPath.clearAll();
-    for (const editor of this.codeEditorService.listCodeEditors()) {
-      if (editor.isSimpleWidget) continue;
-      const model = editor.getModel();
-      if (!model) continue;
-      const decorations = this.decorationIdsByModel.get(model.uri.toString());
-      if (decorations?.length) model.deltaDecorations(decorations, []);
-    }
-    this.decorationIdsByModel.clear();
     await Promise.all(
       this.editorGroupsService.parts.flatMap((part) =>
         part.groups.map((group) =>
@@ -666,25 +390,6 @@ export class ReviewVerbsService
     this.revealDecoration = undefined;
   }
 
-  private requestComment(): void {
-    const editor = this.codeEditorService.getActiveCodeEditor();
-    const session = this.sessionModelService.activeModel?.session;
-    const identity =
-      editor && session ? this.editorIdentity(editor, session) : null;
-    const selection = editor?.getSelection();
-    if (!editor || !identity || !selection) return;
-    this._onDidEmitSurfaceEvent.fire({
-      event: "commentRequested",
-      path: identity.path,
-      range: reviewSelectionRange(
-        selection.getStartPosition(),
-        selection.getEndPosition(),
-      ),
-      sideContext: reviewSelectionSide(editor.getModel()?.uri.scheme ?? "file"),
-    });
-    this._onDidRequestCanvasFocus.fire();
-  }
-
   private trackEditor(editor: ICodeEditor): void {
     if (editor.isSimpleWidget) return;
     const id = editor.getId();
@@ -694,34 +399,8 @@ export class ReviewVerbsService
     store.add(
       editor.onDidChangeCursorSelection(() => this.emitEditorState(editor)),
     );
-    store.add(editor.onDidChangeModel(() => this.applyDecorations()));
-    store.add(
-      editor.onMouseDown((event) => {
-        if (
-          event.target.type !== MouseTargetType.GUTTER_GLYPH_MARGIN ||
-          !event.target.position
-        )
-          return;
-        const session = this.sessionModelService.activeModel?.session;
-        const identity = session ? this.editorIdentity(editor, session) : null;
-        if (!identity || !session) return;
-        const anchor = this.anchorsByPath
-          .get(session.session.sessionId, identity.path)
-          ?.find(
-            (candidate) =>
-              event.target.position!.lineNumber >= candidate.startLine &&
-              event.target.position!.lineNumber <= candidate.endLine,
-          );
-        if (anchor)
-          this._onDidEmitSurfaceEvent.fire({
-            event: "threadDecorationClicked",
-            threadId: anchor.threadId,
-          });
-      }),
-    );
     this.editorStores.set(id, store);
     this._register(store);
-    this.applyDecorations();
   }
 
   private untrackEditor(editor: ICodeEditor): void {
@@ -750,48 +429,6 @@ export class ReviewVerbsService
         ),
       });
     }
-  }
-
-  private applyDecorations(): void {
-    const session = this.sessionModelService.activeModel?.session;
-    if (!session) return;
-    for (const editor of this.codeEditorService.listCodeEditors()) {
-      if (editor.isSimpleWidget) continue;
-      const model = editor.getModel();
-      const identity = this.editorIdentity(editor, session);
-      if (!model || !identity) continue;
-      const key = model.uri.toString();
-      const anchors =
-        this.anchorsByPath.get(session.session.sessionId, identity.path) ?? [];
-      const decorations: IModelDeltaDecoration[] = anchors.map((anchor) => ({
-        range: new Range(
-          anchor.startLine,
-          1,
-          anchor.endLine,
-          Number.MAX_SAFE_INTEGER,
-        ),
-        options: {
-          description: `Review thread ${anchor.threadId}`,
-          isWholeLine: true,
-          className: `review-thread-line review-thread-${anchor.kind}`,
-          glyphMarginClassName: `review-thread-glyph review-thread-${anchor.kind}`,
-          glyphMarginHoverMessage: { value: "Open review thread" },
-        },
-      }));
-      const ids = model.deltaDecorations(
-        this.decorationIdsByModel.get(key) ?? [],
-        decorations,
-      );
-      this.decorationIdsByModel.set(key, ids);
-      editor.render(true);
-    }
-  }
-
-  private decorationSessionId(requestSessionId?: string): string {
-    return reviewDecorationSessionId(
-      requestSessionId,
-      this.sessionModelService.activeModel?.session.session.sessionId,
-    );
   }
 
   private editorIdentity(

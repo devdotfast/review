@@ -35,7 +35,6 @@ sample repository to show:
 
 - explanations linked to live code;
 - hover, go-to-definition, and code peeks;
-- code comments and agent questions;
 - sequence and database views; and
 - the full architecture map.
 
@@ -63,7 +62,7 @@ You can add optional guidance for generated Review documents:
 
 Repository guidance takes precedence over user-level guidance.
 
-## 4. Read and respond
+## 4. Read the review
 
 Use the three main surfaces together:
 
@@ -71,11 +70,6 @@ Use the three main surfaces together:
 - **Map** lets you move from systems to containers, components, and code
   (experimental).
 - **Files** shows the underlying changed-file diff.
-
-Leave an anchored comment where something should change, or use **Ask now** for
-a question the agent can answer immediately. When you finish, choose **Approve**
-or **Request changes**. A request-changes round returns your comments to the
-authoring agent so it can update and republish the walkthrough.
 
 ## Verify the command-line setup
 

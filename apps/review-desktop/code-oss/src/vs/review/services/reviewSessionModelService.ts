@@ -19,7 +19,6 @@ import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
 	ReviewDocumentResponseSchema,
 	ReviewSoftwareMapResponseSchema,
-	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
 	type ReviewDocumentLoad,
 	type ReviewErrorResponse,
@@ -33,10 +32,7 @@ import {
 	type ReviewDataChangedEvent,
 	type ReviewSessionConnection,
 	type ReviewSessionClosedEvent,
-	type ReviewThreadsCommittedEvent,
-	type ReviewAgentStatusEvent,
 } from "./reviewSessionService.js";
-import { ReviewCommentStore } from "./reviewCommentStore.js";
 
 export interface ReviewDesktopSession {
 	readonly serverUrl: string;
@@ -95,10 +91,6 @@ export class ReviewSessionModel extends Disposable {
 	private documentRevision: string;
 	private readonly modules = new ReviewModuleCache();
 	private refreshPromise: Promise<void> | undefined;
-	private _comments: ReviewCommentStore;
-	get comments(): ReviewCommentStoreBridge {
-		return this._comments;
-	}
 	constructor(
 		readonly reviewUuid: string,
 		session: ReviewDesktopSession,
@@ -107,12 +99,9 @@ export class ReviewSessionModel extends Disposable {
 		onDidChangeReviewData: Event<ReviewDataChangedEvent> = Event.None,
 		onDidCloseSession: Event<ReviewSessionClosedEvent> = Event.None,
 		private readonly shouldRefresh: ReviewSessionRefreshPredicate = () => true,
-		onDidCommitReviewThreads: Event<ReviewThreadsCommittedEvent> = Event.None,
-		onDidChangeAgentStatus: Event<ReviewAgentStatusEvent> = Event.None,
 	) {
 		super();
 		this._session = session;
-		this._comments = this.createCommentStore();
 		this.documentRevision = reviewDocumentRevision(session);
 		this._register(
 			onDidChangeLists(() => {
@@ -135,30 +124,11 @@ export class ReviewSessionModel extends Disposable {
 				this._onDidChange.fire();
 			}),
 		);
-		this._register(onDidChangeAgentStatus(event => {
-			if (event.uuid !== this.reviewUuid || event.sessionId !== this._session.session.sessionId || this._state !== "active") return;
-			this._comments.applyAgentStatus(event.threadId, event.status, event.error);
-		}));
-
-		this._register(
-			onDidCommitReviewThreads((event) => {
-				if (
-					event.uuid !== this.reviewUuid ||
-					event.sessionId !== this._session.session.sessionId ||
-					this._state !== "active"
-				) {
-					return;
-				}
-				this._comments.applyCommit(event.commit);
-				this._onDidChange.fire();
-			}),
-		);
 		this._register(
 			onDidCloseSession((event) => {
 				if (event.session.sessionId !== this._session.session.sessionId) {
 					return;
 				}
-				this._comments.dispose();
 				if (event.review) {
 					this._session = { ...this._session, review: event.review };
 				}
@@ -181,19 +151,11 @@ export class ReviewSessionModel extends Disposable {
 		const refresh = this.resolveSession(preferredSessionId)
 			.then((session) => {
 				const previousState = this._state;
-				const previousSessionId = this._session.session.sessionId;
 				const previousModelRevision = reviewModelRevision(this._session);
 				const previousRevision = this.documentRevision;
 				this._session = session;
 				this._state = "active";
 				this._unavailableMessage = undefined;
-				if (
-					previousState !== "active" ||
-					previousSessionId !== session.session.sessionId
-				) {
-					this._comments.dispose();
-					this._comments = this.createCommentStore();
-				}
 				this.documentRevision = reviewDocumentRevision(session);
 				if (
 					previousState === "active" &&
@@ -253,41 +215,6 @@ export class ReviewSessionModel extends Disposable {
 	): Promise<ReviewSoftwareMapLoad | null> {
 		return loadReviewSessionSoftwareMap(this._session, loader);
 	}
-
-	private createCommentStore(): ReviewCommentStore {
-		return new ReviewCommentStore({
-			request: (endpoint, init = {}) =>
-				reviewSessionApiRequest(this._session, endpoint, init, (url, request) =>
-					this.request(url, request),
-				),
-		});
-	}
-
-	override dispose(): void {
-		this._comments.dispose();
-		super.dispose();
-	}
-}
-
-/**
- * Sends a Review API request scoped to `session`, adding the document route
- * and the session token. Callers that must not touch a model's request path
- * (the publish-gate validation mount) pass the session explicitly.
- */
-export function reviewSessionApiRequest(
-	session: ReviewDesktopSession,
-	endpoint: string,
-	init: RequestInit = {},
-	fetchImpl: (url: string, init: RequestInit) => Promise<Response> = fetch,
-): Promise<Response> {
-	const url = new URL(`${session.sessionUrl}/__progressive-review${endpoint}`);
-	const routePath = session.session.routePath ?? session.descriptor.routePath;
-	if (routePath && routePath !== "/") {
-		url.searchParams.set("document", routePath);
-	}
-	const headers = new Headers(init.headers);
-	headers.set("x-review-token", session.token);
-	return fetchImpl(url.href, { ...init, headers });
 }
 
 /** A review load that settled without a usable payload. */
@@ -613,8 +540,6 @@ export class ReviewSessionModelService
 			this.sessionService.onDidChangeReviewData,
 			this.sessionService.onDidCloseSession,
 			(current) => this.shouldRefreshModel(current),
-			this.sessionService.onDidCommitReviewThreads,
-			this.sessionService.onDidChangeAgentStatus,
 		);
 		this.models.set(key, model);
 		return model;

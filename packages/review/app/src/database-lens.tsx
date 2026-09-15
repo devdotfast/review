@@ -1,7 +1,6 @@
 import {
   type ChangeEvent,
   Children,
-  type MouseEvent,
   type ReactNode,
   isValidElement,
   useCallback,
@@ -40,8 +39,6 @@ import {
 } from "./CodePeek";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
-import { HoverCommentButton } from "./hover-comment-button";
-import { useReviewActions } from "./review-context";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
 import {
@@ -64,11 +61,6 @@ import {
   type SoftwareMapRelationshipSnapshot,
   type SoftwareMapResolvedSnapshot,
 } from "./software-map/SoftwareMap";
-import {
-  buildGraphTarget,
-  targetKey as threadTargetKey,
-} from "./target-fingerprint";
-import { useRegisterLiveDiagram } from "./thread-target-model";
 import { captureUiEvent } from "./ui-telemetry";
 
 type OperationKind = "read" | "write";
@@ -202,7 +194,6 @@ export function DatabaseLens(props: DatabaseLensProps) {
     children,
   } = databaseLensPropsSchema.parse(props);
 
-  const { openCommentDraft } = useReviewActions();
   const locatorScope = `db:${slugPart(title ?? "database")}`;
   const lensId = locatorScope;
 
@@ -218,23 +209,6 @@ export function DatabaseLens(props: DatabaseLensProps) {
   );
 
   const { peekInputs, useCases } = validatedInput;
-  const diagramLabel = title ?? "Database lens";
-  useRegisterLiveDiagram({
-    label: diagramLabel,
-    elements: useCases.map((useCase) =>
-      buildGraphTarget({
-        diagram: diagramLabel,
-        type: "node",
-        path: [useCase.label],
-        payload: {
-          label: useCase.label,
-          summary: useCase.summary,
-          stores: storesForUseCase(useCase),
-        },
-        quote: useCase.label,
-      }),
-    ),
-  });
 
   const [activeUseCaseId, setActiveUseCaseId] = useState<string | null>(
     () => useCases[0]?.id ?? null,
@@ -304,31 +278,6 @@ export function DatabaseLens(props: DatabaseLensProps) {
         ? { anchor: firstAnchor, revealRequest: state.revealRequest + 1 }
         : state,
     );
-  };
-
-  const activeUseCaseTarget = activeUseCase
-    ? buildGraphTarget({
-        diagram: diagramLabel,
-        type: "node",
-        path: [activeUseCase.label],
-        payload: {
-          label: activeUseCase.label,
-          summary: activeUseCase.summary,
-          stores: storesForUseCase(activeUseCase),
-        },
-        quote: activeUseCase.label,
-      })
-    : null;
-
-  const openActiveUseCaseComment = (event: MouseEvent<HTMLButtonElement>) => {
-    if (!activeUseCase || !activeUseCaseTarget) return;
-    event.preventDefault();
-    event.stopPropagation();
-    openCommentDraft({
-      target: activeUseCaseTarget,
-      title: activeUseCase.label,
-      body: "",
-    });
   };
 
   const handleUseCaseChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -408,16 +357,7 @@ export function DatabaseLens(props: DatabaseLensProps) {
         </div>
         <div className="diagram-header-actions">
           {activeUseCase && (
-            <div
-              className="database-use-case-select-target"
-              data-review-locator={
-                activeUseCaseTarget
-                  ? threadTargetKey(activeUseCaseTarget)
-                  : undefined
-              }
-              data-review-target-kind="db-access-pattern"
-              data-review-target-label={activeUseCase.label}
-            >
+            <div className="database-use-case-select-target">
               <select
                 className="database-use-case-select"
                 aria-label="Database use case"
@@ -430,7 +370,6 @@ export function DatabaseLens(props: DatabaseLensProps) {
                   </option>
                 ))}
               </select>
-              <HoverCommentButton onClick={openActiveUseCaseComment} />
             </div>
           )}
           {!stage && activeTourId && (
@@ -671,7 +610,6 @@ function DatabaseC4UseCaseDiagram({
         snapshot={frameSnapshot}
         hasResolvedSnapshot
         title={useCase.label}
-        viewName={`database:${useCase.id}`}
         height="100%"
         expanded={false}
         showChrome={false}

@@ -63,7 +63,7 @@ describe("TraceQuote", () => {
     expect(html).not.toContain("review-trace-quote--inert");
   });
 
-  it("replaces the Threads panel when opened", async () => {
+  it("replaces the active panel when opened", async () => {
     const storeRef: PanelStoreRef = { current: null };
 
     function TestConsumer() {
@@ -79,7 +79,12 @@ describe("TraceQuote", () => {
         </ReviewPanelProvider>,
       );
     });
-    act(() => storeRef.current?.getState().openThreads());
+    act(() =>
+      storeRef.current?.getState().openPeek({
+        kind: "peek",
+        content: { kind: "inline-code", text: "start();" },
+      }),
+    );
 
     await act(async () => {
       container

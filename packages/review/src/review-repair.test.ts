@@ -10,7 +10,6 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { Writable } from "node:stream";
 
 import { remoteNotesRef, writeNote } from "@dev.fast/local-vcs";
@@ -28,11 +27,6 @@ import {
 import { runReviewRepair } from "./review-repair";
 import { prepareReviewRepair } from "./review-repair-preparation";
 import { fingerprintReviewRepairInputs } from "./review-repair-state";
-import { appendReviewComment } from "./review-state-store";
-import {
-  closeAllReviewThreadStores,
-  readReviewThreadsReadOnly,
-} from "./review-thread-store-backend";
 import {
   bundleReviewSoftwareMap,
   writeReviewSoftwareMapBundle,
@@ -651,21 +645,10 @@ describe("prepareReviewRepair", () => {
   });
 });
 
-it("repairs broken sealed artifacts with a legacy DB by upgrading only the isolated thread snapshot", async () => {
+it("repairs broken sealed artifacts without copying a stale review.db", async () => {
   const stored = await fixture(true);
-  appendReviewComment(path.join(stored.dir, "review.mdx"), {
-    threadId: "kept",
-    messageId: "message",
-    target: { kind: "document" },
-    body: "Preserved comment",
-    author: "Reviewer",
-  });
-  closeAllReviewThreadStores();
   const dbPath = path.join(stored.dir, "review.db");
-  const db = new DatabaseSync(dbPath);
-  db.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
-  db.close();
-  const bytes = await readFile(dbPath);
+  await writeFile(dbPath, "stale thread database");
   await writeFile(
     path.join(stored.dir, ".bundle/document/review-document.js"),
     "throw new Error('broken sealed');",
@@ -679,9 +662,6 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
   await writeFile(
     path.join(stored.dir, "review.json"),
     JSON.stringify({ ...stored.record, presentedDocumentRevision: broken }),
-  );
-  await expect(migrateStoredReview({ reviewDir: stored.dir })).rejects.toThrow(
-    "no runtime import",
   );
   const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
   expect(prepared.kind).toBe("prepared");
@@ -690,55 +670,11 @@ it("repairs broken sealed artifacts with a legacy DB by upgrading only the isola
 
   try {
     expect(prepared.request.sourceFallback.document).toBe(true);
-    expect(prepared.request.expectedThreadDbFingerprint).toMatch(
-      /^[0-9a-f]{64}$/,
-    );
-    expect(await readFile(dbPath)).toEqual(bytes);
-
-    for (const suffix of ["-wal", "-shm"])
-      await expect(
-        readFile(path.join(prepared.request.stagingDir, `review.db${suffix}`)),
-      ).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(dbPath, "utf8")).toBe("stale thread database");
     expect(
-      readReviewThreadsReadOnly(
-        path.join(prepared.request.stagingDir, "review.mdx"),
-      ).comments.kept?.messages[0]?.body,
-    ).toBe("Preserved comment");
+      existsSync(path.join(prepared.request.stagingDir, "review.db")),
+    ).toBe(false);
   } finally {
     await prepared.cleanup();
   }
-});
-
-it("rejects changes to legacy threads while preparing artifact repair", async () => {
-  const stored = await fixture(true);
-  const dbPath = path.join(stored.dir, "review.db");
-  const db = new DatabaseSync(dbPath);
-  db.exec("UPDATE meta SET value = '5' WHERE key = 'schema_version'");
-  db.close();
-  await writeFile(
-    path.join(stored.dir, ".bundle/document/review-document.js"),
-    "throw new Error('broken sealed');",
-  );
-
-  const broken = await sealReviewCandidate(
-    stored.dir,
-    "Broken sealed document",
-  );
-
-  await writeFile(
-    path.join(stored.dir, "review.json"),
-    JSON.stringify({ ...stored.record, presentedDocumentRevision: broken }),
-  );
-  await expect(
-    prepareReviewRepair({
-      reviewDir: stored.dir,
-      warning: () => {
-        const writer = new DatabaseSync(dbPath);
-        writer.exec(
-          "INSERT OR REPLACE INTO meta(key,value) VALUES ('concurrent-write','changed')",
-        );
-        writer.close();
-      },
-    }),
-  ).rejects.toThrow("Review threads changed while preparing repair");
 });

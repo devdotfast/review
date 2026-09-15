@@ -11,13 +11,11 @@ import { type ReactNode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PeekableAnchorRef } from "../../src/authoring";
 import {
   CodePeek,
   CodePeekCard,
   CodePeekGroup,
   CodePeekView,
-  ReviewCodePeek,
   codePeekSubject,
   validatedCodePeekInputFromRef,
 } from "./CodePeek";
@@ -179,13 +177,11 @@ describe("CodePeek native editor", () => {
           { startLine: 50, endLine: 50, side: "base" },
         ],
         heightMode: "content",
-        commentsEnabled: true,
       },
       {
         path: "src/other.ts",
         ranges: [{ startLine: 4, endLine: 4 }],
         heightMode: "content",
-        commentsEnabled: true,
       },
     ]);
   });
@@ -283,14 +279,12 @@ describe("CodePeek native editor", () => {
         side: "base",
         title: "src/previous.ts:7-9",
         heightMode: "capped",
-        commentsEnabled: false,
       },
       {
         path: "src/current.ts",
         side: "head",
         title: "src/current.ts:20",
         heightMode: "capped",
-        commentsEnabled: false,
       },
     ]);
     expect(
@@ -318,35 +312,6 @@ describe("CodePeek native editor", () => {
         preserveFocus: false,
       },
     });
-  });
-
-  it("enables native comments only for an authored CodePeek", async () => {
-    const anchor: PeekableAnchorRef = {
-      __kind: "db-anchor-ref",
-      id: "authored-code",
-      title: "Authored code",
-      peek: {
-        __kind: "code-peek-ref",
-        props: {
-          file: "src/example.ts",
-          fromLine: 1,
-          toLine: 3,
-          graph: "head",
-        },
-        resolution: testCodePeekResolution(),
-      },
-    };
-
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-
-    await act(async () =>
-      renderWithSession(<ReviewCodePeek anchor={anchor} />),
-    );
-
-    expect(created).toHaveLength(1);
-    expect(created[0]?.commentsEnabled).toBe(true);
   });
 
   it("separates consecutive code peeks in document flow", () => {

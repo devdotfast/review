@@ -39,15 +39,10 @@ import {
   type SessionRef,
   authoringSessionKey,
   parseAuthoringSessionKey,
-  parseFreshSourceSessionHarness,
 } from "./agent-session-ref";
 import { isMissingFileError } from "./fs-utils";
 import { resolveReviewRepositoryIdentity } from "./repository-identity";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
-import {
-  remapReviewCodeDrafts,
-  remapReviewCodeThreads,
-} from "./review-code-target-remap";
 import { resolveReviewDiffFiles } from "./review-diff-files";
 import { devReviewHome } from "./review-home-paths";
 import {
@@ -55,14 +50,6 @@ import {
   assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
-import { readReviewComments } from "./review-state-store";
-import {
-  ReviewThreadDbVersionError,
-  checkReviewThreadDbVersion,
-  createReviewThreadDb,
-  readReviewThreadsReadOnly,
-  reviewThreadStoreBackend,
-} from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 
 export const UUID_PATTERN =
@@ -235,7 +222,6 @@ export async function createReviewDir(
       writeFile(path.join(dir, "review-test.mjs"), reviewTestShim, "utf8"),
       writeFile(path.join(dir, ".gitignore"), reviewGitignore, "utf8"),
     ]);
-    createReviewThreadDb(dir);
     await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
   } catch (error) {
     await rm(dir, { recursive: true, force: true });
@@ -302,82 +288,6 @@ export async function touchReviewAgentSession(
   if (!outcome.acquired) {
     throw new Error(
       `Timed out while updating agent sessions for Review ${review.review.uuid}.`,
-    );
-  }
-
-  return outcome.result;
-}
-
-/** Replaces a tutorial's fresh-session marker with the real source session.
-    The record and author attribution move together under the same lock so a
-    restart can never observe one without the other. */
-export async function bindReviewAuthorSession(
-  review: StoredReview,
-  session: SessionRef,
-  now = new Date().toISOString(),
-): Promise<StoredReview> {
-  const sessionKey = authoringSessionKey(session);
-  const recordPath = path.join(review.dir, "review.json");
-
-  const outcome = await withReviewMutationLock(review.dir, () =>
-    withFileLock(
-      path.join(review.dir, ".agent-sessions.lock"),
-      AGENT_SESSION_LOCK_OPTIONS,
-      async () => {
-        const current = parseStoredReviewRecord(
-          JSON.parse(await readFile(recordPath, "utf8")),
-        );
-
-        const freshHarness = parseFreshSourceSessionHarness(
-          current.sourceSession,
-        );
-
-        const boundSession = parseAuthoringSessionKey(current.sourceSession);
-
-        if (freshHarness && freshHarness !== session.harness) {
-          throw new Error(
-            `Review fresh-session harness ${freshHarness} does not match ${session.harness}.`,
-          );
-        }
-
-        if (
-          !freshHarness &&
-          (!boundSession || authoringSessionKey(boundSession) !== sessionKey)
-        ) {
-          throw new Error(
-            "Review is already bound to another authoring session.",
-          );
-        }
-
-        const prior = current.agentSessions?.[sessionKey];
-
-        const roles = prior?.roles.includes("author")
-          ? prior.roles
-          : [...(prior?.roles ?? []), "author" as const];
-
-        const updated: StoredReviewRecord = {
-          ...current,
-          sourceSession: sessionKey,
-          agentSessions: {
-            ...current.agentSessions,
-            [sessionKey]: {
-              roles,
-              firstSeenAt: prior?.firstSeenAt ?? now,
-              lastSeenAt: now,
-            },
-          },
-        };
-
-        await writePrivateJsonAtomic(recordPath, updated);
-
-        return { dir: review.dir, review: updated };
-      },
-    ),
-  );
-
-  if (!outcome.acquired) {
-    throw new Error(
-      `Timed out while binding the author session for Review ${review.review.uuid}.`,
     );
   }
 
@@ -455,39 +365,10 @@ async function updateReviewPinsLocked(
     review: { ...review.review, ...pins, ...sourceAttribution },
   };
 
-  const threadStore = reviewThreadStoreBackend(
-    path.join(refreshed.dir, "review.mdx"),
-  );
-
-  const drafts = threadStore.readCommentDrafts();
-
-  const comments = await remapReviewCodeThreads({
-    rootPath: refreshed.review.worktreePath,
-    comments: threadStore.readComments(),
-    from: {
-      baseCommit: review.review.baseCommit,
-      sourceCommit: review.review.sourceCommit,
-    },
-    to: {
-      baseCommit: refreshed.review.baseCommit,
-      sourceCommit: refreshed.review.sourceCommit,
-    },
-  });
-
-  const remappedDrafts = await remapReviewCodeDrafts({
-    rootPath: refreshed.review.worktreePath,
-    drafts,
-    to: {
-      baseCommit: refreshed.review.baseCommit,
-      sourceCommit: refreshed.review.sourceCommit,
-    },
-  });
-
   await writePrivateJsonAtomic(
     path.join(refreshed.dir, "review.json"),
     refreshed.review,
   );
-  threadStore.writeCommentState(comments, remappedDrafts);
 
   return refreshed;
 }
@@ -643,8 +524,6 @@ export async function reviewDescriptor(
   stored: StoredReview,
   options: {
     retentionDays?: DismissedRetentionDays;
-    /** "read-only" copies the thread database instead of opening it in place. */
-    threads?: "live" | "read-only";
   } = {},
 ): Promise<ReviewDescriptor> {
   // `null` is a real retention setting (never reap), so only an absent key defaults.
@@ -690,16 +569,6 @@ export async function reviewDescriptor(
       : [],
   ]);
 
-  /* A read-only count that cannot be taken is a real failure, not zero comments:
-     the caller decides whether to drop the descriptor. `countReviewComments` keeps
-     its own documented zero for the live path. */
-  const commentCount =
-    options.threads === "read-only"
-      ? Object.keys(readReviewThreadsReadOnly(documentPath).comments).length
-      : documentExists
-        ? countReviewComments(documentPath)
-        : 0;
-
   return {
     uuid: stored.review.uuid,
     title: stored.review.title,
@@ -713,7 +582,6 @@ export async function reviewDescriptor(
     pullRequestNumber: stored.review.pullRequestNumber ?? null,
     pullRequestUrl: stored.review.pullRequestUrl ?? null,
     diffStats,
-    commentCount,
     documentUpdatedAt: documentStats?.mtime.toISOString() ?? null,
     presentedDocumentRevision: stored.review.presentedDocumentRevision,
     presentedSoftwareMapRevision: stored.review.presentedSoftwareMapRevision,
@@ -723,14 +591,6 @@ export async function reviewDescriptor(
     dismissedAt: stored.review.dismissedAt ?? null,
     reapsAt: reviewReapsAt(stored.review, retentionDays),
   };
-}
-
-export function countReviewComments(reviewMdxPath: string): number {
-  try {
-    return Object.keys(readReviewComments(reviewMdxPath)).length;
-  } catch {
-    return 0;
-  }
 }
 
 export async function listReviews(
@@ -766,9 +626,6 @@ export async function listReviews(
     }
 
     if (!reviewMatchesFilter(entry.review, filter)) continue;
-    const migrationError = reviewThreadMigrationError(entry);
-
-    if (migrationError) result.errors.push(migrationError);
     result.reviews.push(entry);
   }
 
@@ -844,23 +701,6 @@ function unreadableReview(
   filter: ListReviewsFilter,
 ): Promise<StoredReview | { error: ReviewHomeError }> | null {
   return filter.reportUnreadableReviews ? readStoredReview(dir) : null;
-}
-
-function reviewThreadMigrationError(
-  stored: StoredReview,
-): ReviewHomeError | null {
-  try {
-    checkReviewThreadDbVersion(path.join(stored.dir, "review.mdx"));
-
-    return null;
-  } catch (error) {
-    if (!(error instanceof ReviewThreadDbVersionError)) return null;
-
-    return reviewHomeError(stored.dir, stored.review, {
-      code: "MIGRATION_REQUIRED",
-      message: error.message,
-    });
-  }
 }
 
 export async function computeSync(
@@ -987,15 +827,10 @@ async function migrateLegacyStoredReview(dir: string): Promise<void> {
     const { migrateStoredReview } = await import("./stored-review-migration");
     const uuid = path.basename(dir);
 
-    const outcome = await migrateStoredReview({
+    await migrateStoredReview({
       reviewDir: dir,
       log: (message) => console.warn(`Review ${uuid}: ${message}`),
     });
-
-    if (outcome.threadDbError)
-      console.warn(
-        `Review ${uuid}: thread database upgrade failed: ${outcome.threadDbError}`,
-      );
   });
 }
 
@@ -1150,9 +985,9 @@ function reviewPackageJson(uuid: string) {
   };
 }
 
-// The thread database (and sqlite's transient sidecars) must stay out of the
-// review VCS: sealed revisions would otherwise capture nondeterministic binary
-// state, and .build/ materializations would carry stale copies of it.
+// Keep build output and any review.db left by older versions (and sqlite's
+// transient sidecars) out of the review VCS: sealed revisions would otherwise
+// capture nondeterministic binary state.
 const reviewGitignore = [
   ".build/",
   "review.db",

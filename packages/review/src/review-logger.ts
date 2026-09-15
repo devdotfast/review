@@ -7,8 +7,6 @@ import {
 import pino from "pino";
 import pretty from "pino-pretty";
 
-import type { ReviewSubmissionEvent } from "./types";
-
 export type ReviewLogFormat = "ndjson" | "pretty";
 
 export type ReviewLifecyclePhaseName = "review_document" | "server";
@@ -55,7 +53,6 @@ export type ReviewLifecycleEvent =
       message: string;
       error?: ReviewLifecycleError;
     }
-  | { event: "submitted"; submission: ReviewSubmissionEvent }
   | { event: "dismissed"; reason: "canvas_closed" }
   | {
       event: "error";

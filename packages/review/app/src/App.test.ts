@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { CodePeekCard, validatedCodePeekInputFromRef } from "./CodePeek";
-import { commentAnnotationPositionsEqual } from "./comment-pins";
 import { a as ReviewMdxLink } from "./review-components";
 import {
   reviewSessionElement,
@@ -18,58 +17,6 @@ const testSession = testReviewSession();
 function renderWithTestSession(element: ReactElement): string {
   return renderToStaticMarkup(reviewSessionElement(testSession, element));
 }
-
-describe("review app comment annotations", () => {
-  it("detects unchanged annotation positions so observer passes can stay idle", () => {
-    const annotations = [
-      {
-        key: "thread-comment",
-        threadId: "thread-comment",
-        targetKey: "text:block:p:3:abc123:0:selection",
-        index: 1,
-        status: "persisted" as const,
-        kind: "comment" as const,
-        resolved: false,
-        rects: [{ x: 120, y: 48, width: 320, height: 18 }],
-        marker: { x: 810, y: 46 },
-        anchorY: 48,
-        blockRight: 800,
-      },
-      {
-        key: "thread-comment-2",
-        threadId: "thread-comment-2",
-        targetKey: "text:anchor:reviewRuntime:text:0:selection",
-        index: 1,
-        status: "draft" as const,
-        kind: "comment" as const,
-        resolved: false,
-        rects: [],
-        marker: { x: 640, y: 90 },
-        anchorY: 98,
-        blockRight: null,
-      },
-    ];
-
-    expect(commentAnnotationPositionsEqual(annotations, [...annotations])).toBe(
-      true,
-    );
-    expect(
-      commentAnnotationPositionsEqual(annotations, [
-        {
-          ...annotations[0],
-          rects: [{ ...annotations[0].rects[0], y: 49 }],
-        },
-        annotations[1],
-      ]),
-    ).toBe(false);
-    expect(
-      commentAnnotationPositionsEqual(annotations, [
-        annotations[0],
-        { ...annotations[1], marker: { x: 641, y: 90 } },
-      ]),
-    ).toBe(false);
-  });
-});
 
 describe("review app initial view", () => {
   it("closes side peeks when leaving the rendered review document", () => {

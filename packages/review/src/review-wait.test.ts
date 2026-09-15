@@ -42,8 +42,6 @@ const codexResult = {
   event: "review-status" as const,
   uuid: review.review.uuid,
   status: "awaiting-agent-updates" as const,
-  decision: "request-changes" as const,
-  openThreads: 2,
   occurredAtMs: 1234,
   review,
 };
@@ -89,7 +87,6 @@ function dependencies(
       token: "token",
       startedAt: 3,
     }),
-    readOpenReviewThreadCount: () => 2,
     resolvePublishReview: async () => overrides.review ?? review,
     resolveReviewRoot: async () => "/worktree",
   };
@@ -104,7 +101,6 @@ function statusEventStream(): ReadableStream<Uint8Array> {
             event: "review-status-changed",
             uuid: review.review.uuid,
             status: "awaiting-agent-updates",
-            decision: "request-changes",
           })}\n\n`,
         ),
       );
@@ -175,8 +171,6 @@ describe("Review wait", () => {
         event: "review-status",
         uuid: review.review.uuid,
         status: "awaiting-agent-updates",
-        decision: "request-changes",
-        openThreads: 2,
       })}\n`,
     );
   });
@@ -227,8 +221,6 @@ describe("Review wait", () => {
     ).resolves.toMatchObject({
       event: "review-status",
       status: "awaiting-agent-updates",
-      decision: "request-changes",
-      openThreads: 2,
       occurredAtMs: 1234,
     });
   });
@@ -268,9 +260,6 @@ describe("Review wait", () => {
     expect(codexReviewMessageId({ ...codexResult, occurredAtMs: 9999 })).toBe(
       codexReviewMessageId(codexResult),
     );
-    expect(codexReviewMessageId({ ...codexResult, decision: undefined })).toBe(
-      codexReviewMessageId(codexResult),
-    );
     expect(
       codexReviewMessageId({
         ...codexResult,
@@ -291,15 +280,12 @@ describe("Review wait", () => {
         event: "review-status",
         uuid: review.review.uuid,
         status: "awaiting-agent-updates",
-        decision: "request-changes",
-        openThreads: 2,
         occurredAtMs: 1234,
         review,
       }),
     ).toBe(`<automated_message>
 This is an automated message from dev.fast Review. Review 99d4519f-5a72-4684-9af4-98abaa2849cc ("Codex wake-up") requires your attention.
-Status: awaiting-agent-updates. Decision: request-changes. Open threads: 2.
-Run \`review threads list --review 99d4519f-5a72-4684-9af4-98abaa2849cc\`. Address every open thread and resolve each one with \`review threads resolve <threadId> --review 99d4519f-5a72-4684-9af4-98abaa2849cc\`. List the threads again. Re-publish only when no open threads remain.
+Status: awaiting-agent-updates.
 Run \`review wait --requires-agent --codex --review 99d4519f-5a72-4684-9af4-98abaa2849cc\` again if you need to block for the next reviewer action.
 </automated_message>`);
     expect(
@@ -323,7 +309,7 @@ Run \`review wait --requires-agent --codex --review 99d4519f-5a72-4684-9af4-98ab
       }),
     ).toBe(`<automated_message>
 This is an automated message from dev.fast Review. The reviewer deleted review 99d4519f-5a72-4684-9af4-98abaa2849cc ("Codex wake-up").
-The review and its threads no longer exist. Do not wait on or publish to this review again; continue without it.
+The review no longer exists. Do not wait on or publish to this review again; continue without it.
 </automated_message>`);
     expect(
       codexReviewWakePrompt({

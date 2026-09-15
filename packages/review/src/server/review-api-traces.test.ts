@@ -89,10 +89,6 @@ describe("agent trace routes", () => {
         startedAt: 1,
         agent: { harness: "claude-code", sessionId: "author" },
       },
-      agentServer: () => {
-        throw new Error("no agent server in this test");
-      },
-      openNativeAgentTerminal: async () => undefined,
     });
   }
 

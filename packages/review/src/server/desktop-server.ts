@@ -38,28 +38,17 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
 import {
-  type ReviewAgentHarness,
-  type SessionRef,
   authoringSessionKey,
   parseAuthoringSessionKey,
-  parseFreshSourceSessionHarness,
 } from "../agent-session-ref";
 import {
   applyCliInstall,
   declineCliInstall,
-  executableOnPath,
   removeCliInstall,
   resetCliInstall,
   resolveCliInstallStatus,
-  resolveInstalledReviewAgentStatus,
   skipCliInstall,
 } from "../cli-install";
-import { preferredInstalledReviewAgent } from "../installed-review-agent";
-import * as claudeCode from "../native-agent/claude-code";
-import * as codex from "../native-agent/codex";
-import type { AgentServer } from "../native-agent/native-session";
-import * as opencode from "../native-agent/opencode";
-import * as pi from "../native-agent/pi";
 import { readReviewPackageVersion } from "../package-paths";
 import {
   materializePublishRevision,
@@ -81,8 +70,6 @@ import {
   ReviewHomeScanError,
   type StoredReview,
   type StoredReviewRecord,
-  bindReviewAuthorSession,
-  countReviewComments,
   findReview,
   findReviewForRepair,
   listReviews,
@@ -107,20 +94,14 @@ import {
   readReviewPreferences,
   writeReviewPreferences,
 } from "../review-preferences";
-import {
-  ReviewOpenThreadsError,
-  requireClosedThreadsForRepublish,
-} from "../review-publish-thread-gate";
-import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
 import {
   type ReviewSessionAgent,
+  type ReviewSessionOutcome,
   type ReviewSourceKind,
   ReviewTelemetry,
 } from "../review-telemetry";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
-import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
-import type { ReviewSubmissionEvent } from "../types";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   isValidReviewAppSessionId,
@@ -198,9 +179,6 @@ interface ActiveReviewSession {
   telemetryEnded: boolean;
   appSessionId?: string;
   tutorialPreparation?: PreparedTutorial;
-  resolveQuestionSourceSession?: (
-    signal?: AbortSignal,
-  ) => Promise<SessionRef | undefined>;
 }
 
 interface RegisterSessionInput {
@@ -214,7 +192,6 @@ interface RegisterSessionInput {
   documentUnavailable?: string;
   softwareMapUnavailable?: string;
   repairValidation?: boolean;
-  readOnlyThreadsPath?: string;
   source?: ActiveReviewSession["source"];
   appSessionId?: string;
   promoted: boolean;
@@ -226,9 +203,6 @@ interface RegisterSessionInput {
   background?: boolean;
   checkoutRoots?: ReviewCheckoutRoots;
   tutorialPreparation?: PreparedTutorial;
-  resolveQuestionSourceSession?: (
-    signal?: AbortSignal,
-  ) => Promise<SessionRef | undefined>;
 }
 
 interface ReviewCheckoutRoots {
@@ -248,16 +222,6 @@ interface PreparedTutorial {
   documentPath: string;
   softwareMapRootPath: string;
   checkoutRoots: ReviewCheckoutRoots;
-  harness: ReviewAgentHarness;
-}
-
-interface TutorialAuthoringState {
-  attempts: number;
-  session?: SessionRef;
-  operation?: {
-    controller: AbortController;
-    promise: Promise<SessionRef | undefined>;
-  };
 }
 
 export interface GlobalReviewServerInput {
@@ -271,9 +235,6 @@ export interface GlobalReviewServerInput {
   discoveryPath?: string;
   sessionHandlerFactory?: typeof createReviewSessionHandler;
   pinnedCheckoutFactory?: typeof ensureReviewPinnedCheckout;
-  tutorialAuthoringSessionFactory?: typeof createTutorialAuthoringSession;
-  tutorialAuthorSessionBinder?: typeof bindReviewAuthorSession;
-  tutorialAgentResolver?: () => Promise<ReviewAgentHarness | undefined>;
   publishRuntime?: {
     materializePublishRevision: typeof materializePublishRevision;
   };
@@ -304,17 +265,6 @@ export function createGlobalReviewServer(
   const sessionHandlerFactory =
     input.sessionHandlerFactory ?? createReviewSessionHandler;
 
-  const tutorialAuthoringSessionFactory =
-    input.tutorialAuthoringSessionFactory ?? createTutorialAuthoringSession;
-
-  const tutorialAuthorSessionBinder =
-    input.tutorialAuthorSessionBinder ?? bindReviewAuthorSession;
-
-  const tutorialAgentResolver =
-    input.tutorialAgentResolver ??
-    (async () =>
-      preferredInstalledReviewAgent(await resolveInstalledReviewAgentStatus()));
-
   const publishRuntime = input.publishRuntime ?? {
     materializePublishRevision,
   };
@@ -331,72 +281,8 @@ export function createGlobalReviewServer(
   });
 
   let preparedTutorial: PreparedTutorial | null = null;
-  const tutorialAuthoringStates = new Map<string, TutorialAuthoringState>();
   let reviewReaper: ReturnType<typeof setInterval> | undefined;
   let closing = false;
-  let agentPreparation: Promise<void> | undefined;
-  const harnesses = { "claude-code": claudeCode, codex, opencode, pi } as const;
-  const agentServers = new Map<ReviewAgentHarness, AgentServer>();
-
-  const agentServerFor = (harness: ReviewAgentHarness): AgentServer => {
-    let server = agentServers.get(harness);
-
-    if (!server) {
-      server = harnesses[harness].server({
-        runtimeDirectory: path.join(devReviewHome(), "native-agent"),
-        reviewCliPath: discovery.cliPath,
-        reviewCliRuntimePath: discovery.cliRuntimePath,
-        desktopEndpoint: { baseUrl: urlForBoundPort(), token },
-      });
-      agentServers.set(harness, server);
-    }
-
-    return server;
-  };
-
-  async function prepareAgentServers(): Promise<void> {
-    const status = await resolveInstalledReviewAgentStatus();
-    await Promise.all(
-      (["codex", "opencode"] as const).map(async (harness) => {
-        // Installed here means the Review integration is enabled for this harness.
-        if (
-          !status.agents.some(
-            (agent) => agent.target === harness && agent.installed,
-          )
-        )
-          return;
-
-        if (!(await executableOnPath(harness)) || closing) return;
-        const startedAt = Date.now();
-
-        try {
-          await agentServerFor(harness).prepare?.();
-          console.info(
-            "[Review agent ready]",
-            JSON.stringify({ harness, elapsedMs: Date.now() - startedAt }),
-          );
-        } catch (error) {
-          console.error(`[Review] Could not prepare ${harness}`, error);
-        }
-      }),
-    );
-  }
-
-  const openNativeAgentTerminal = async (
-    reviewSessionId: string,
-    terminal: Extract<
-      ReviewVerbRequest,
-      { name: "openNativeAgentTerminal" }
-    >["args"],
-  ): Promise<void> => {
-    const opened = await relay.dispatch(reviewSessionId, {
-      name: "openNativeAgentTerminal",
-      args: terminal,
-    });
-
-    if (!opened.ok) throw new Error(opened.error);
-  };
-
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
 
   const discovery: ReviewDesktopDiscovery = {
@@ -441,22 +327,6 @@ export function createGlobalReviewServer(
     }
 
     await next();
-  });
-  // Native agents can read their draft before launch returns and a session is bound.
-  // Every lookup is authenticated by the desktop token above.
-  app.get("/agent-threads/:threadId", (context) => {
-    const threadId = context.req.param("threadId");
-
-    for (const session of sessions.values()) {
-      const found = session.handler.findAgentThread(threadId);
-
-      if (found) return globalJson(200, found);
-    }
-
-    return globalJson(404, {
-      ok: false,
-      error: `Comment thread not found: ${threadId}`,
-    });
   });
   app.post("/app/focus", async () => {
     const result = await relay.dispatch("review-desktop", {
@@ -920,14 +790,12 @@ export function createGlobalReviewServer(
 
     const referencesTutorial =
       preparedTutorial?.review.review.uuid === uuid ||
-      tutorialAuthoringStates.has(uuid) ||
       (await tutorial.referencesReview(uuid));
 
     if (referencesTutorial) {
       await withReviewLock(TUTORIAL_LIFECYCLE_LOCK_KEY, async () => {
         const stillReferencesTutorial =
           preparedTutorial?.review.review.uuid === uuid ||
-          tutorialAuthoringStates.has(uuid) ||
           (await tutorial.referencesReview(uuid));
 
         if (stillReferencesTutorial) {
@@ -1178,11 +1046,7 @@ export function createGlobalReviewServer(
 
     if (busyError) return globalJson(409, reviewBusyResponse(busyError));
 
-    const serverError =
-      error instanceof ReviewServerError ||
-      error instanceof ReviewOpenThreadsError
-        ? error
-        : undefined;
+    const serverError = error instanceof ReviewServerError ? error : undefined;
 
     const message = toError(error).message;
 
@@ -1409,7 +1273,6 @@ export function createGlobalReviewServer(
           if (!latest) throw new ReviewServerError("Review not found.", 404);
           rejectTerminalPublication(latest);
           rejectConcurrentPublication(latest, review);
-          requireClosedThreadsForRepublish(latest);
           successor.review = await promoteReview(
             latest,
             successor.revision,
@@ -1418,7 +1281,6 @@ export function createGlobalReviewServer(
           );
           successor.promoted = true;
           await startSessionTelemetry(successor);
-          await clearReopenPending(successor.review.review.worktreePath);
           broadcastGlobal({
             event: "review-status-changed",
             uuid: successor.review.review.uuid,
@@ -1646,28 +1508,16 @@ export function createGlobalReviewServer(
   }
 
   async function prepareTutorialLocked(): Promise<PreparedTutorial> {
-    const tutorialAgent = await tutorialAgentResolver();
-
-    if (!tutorialAgent) {
-      throw new ReviewServerError(
-        "Install Claude Code, Codex, or Pi before opening the tutorial.",
-        409,
-        "tutorial_agent_unavailable",
-      );
-    }
-
-    const cached = await validPreparedTutorial(tutorialAgent);
+    const cached = await validPreparedTutorial();
 
     if (cached) return cached;
-    const prepared = await prepareTutorialLocally(tutorialAgent);
+    const prepared = await prepareTutorialLocally();
     preparedTutorial = prepared;
 
     return prepared;
   }
 
-  async function validPreparedTutorial(
-    tutorialAgent: ReviewAgentHarness,
-  ): Promise<PreparedTutorial | null> {
+  async function validPreparedTutorial(): Promise<PreparedTutorial | null> {
     const cached = preparedTutorial;
 
     if (!cached) return null;
@@ -1694,11 +1544,9 @@ export function createGlobalReviewServer(
         cachedReview.presentedDocumentRevision ||
       currentReview.presentedSoftwareMapRevision !==
         cachedReview.presentedSoftwareMapRevision ||
-      cached.harness !== tutorialAgent ||
       !pathsExist
     ) {
       preparedTutorial = null;
-      await abortTutorialAuthoringState(cachedReview.uuid);
       await closeTutorialSessions();
 
       if (!documentExists) {
@@ -1720,17 +1568,13 @@ export function createGlobalReviewServer(
   }
 
   /* The Welcome page invokes only this local preparation path: materialize the
-     shipped Review and warm both managed Git checkouts. No agent command or
-     model turn starts until Open tutorial is clicked. */
-  async function prepareTutorialLocally(
-    tutorialAgent: ReviewAgentHarness,
-  ): Promise<PreparedTutorial> {
+     shipped Review and warm both managed Git checkouts. */
+  async function prepareTutorialLocally(): Promise<PreparedTutorial> {
     const startedAt = Date.now();
 
-    const review = await tutorial.prepare(tutorialAgent, {
+    const review = await tutorial.prepare({
       beforeReset: async () => {
         preparedTutorial = null;
-        await abortTutorialAuthoringStates();
         await closeTutorialSessions();
       },
     });
@@ -1774,22 +1618,15 @@ export function createGlobalReviewServer(
       documentPath: path.join(documentBuildDir, "review.mdx"),
       softwareMapRootPath,
       checkoutRoots,
-      harness: tutorialAgent,
     };
   }
 
-  /* Open mounts the already-prepared artifacts immediately, then starts one
-     shared native source-session handoff in the background. */
+  /* Open mounts the already-prepared artifacts immediately. */
   async function openTutorialLocked(): Promise<ReviewTutorialOpenResponse> {
     const prepared = await prepareTutorialLocked();
     let existing = activeSessionForReview(prepared.review.review.uuid);
 
-    if (
-      existing &&
-      (existing.tutorialPreparation !== prepared ||
-        (!parseAuthoringSessionKey(existing.review.review.sourceSession) &&
-          !existing.resolveQuestionSourceSession))
-    ) {
+    if (existing && existing.tutorialPreparation !== prepared) {
       await closeSession(existing, "replaced", false);
       existing = undefined;
     }
@@ -1801,9 +1638,6 @@ export function createGlobalReviewServer(
       });
     }
 
-    const resolveQuestionSourceSession = (signal?: AbortSignal) =>
-      ensureTutorialAuthoringSession(prepared, true, signal);
-
     const session =
       existing ??
       (await registerSerialized({
@@ -1813,12 +1647,9 @@ export function createGlobalReviewServer(
         softwareMapRootPath: prepared.softwareMapRootPath,
         checkoutRoots: prepared.checkoutRoots,
         tutorialPreparation: prepared,
-        resolveQuestionSourceSession,
         promoted: true,
         focusCanvas: true,
       }));
-
-    void ensureTutorialAuthoringSession(prepared, false);
 
     return {
       reviewUuid: session.review.review.uuid,
@@ -1829,185 +1660,8 @@ export function createGlobalReviewServer(
     };
   }
 
-  async function ensureTutorialAuthoringSession(
-    prepared: PreparedTutorial,
-    allowRetry: boolean,
-    signal?: AbortSignal,
-  ): Promise<SessionRef | undefined> {
-    if (signal?.aborted) return undefined;
-
-    const persisted = parseAuthoringSessionKey(
-      prepared.review.review.sourceSession,
-    );
-
-    if (persisted) return persisted;
-    const uuid = prepared.review.review.uuid;
-    let state = tutorialAuthoringStates.get(uuid);
-
-    if (!state) {
-      state = { attempts: 0 };
-      tutorialAuthoringStates.set(uuid, state);
-    }
-
-    while (true) {
-      if (signal?.aborted || tutorialAuthoringStates.get(uuid) !== state) {
-        return undefined;
-      }
-
-      if (state.session) return state.session;
-
-      if (state.operation) {
-        const session = await waitForTutorialAuthoringOperation(
-          state.operation.promise,
-          signal,
-        );
-
-        if (signal?.aborted || tutorialAuthoringStates.get(uuid) !== state) {
-          return undefined;
-        }
-
-        if (session) return session;
-        continue;
-      }
-
-      if (state.attempts > 0 && (!allowRetry || state.attempts >= 2)) {
-        return undefined;
-      }
-
-      if (signal?.aborted || tutorialAuthoringStates.get(uuid) !== state) {
-        return undefined;
-      }
-
-      const operation = startTutorialAuthoringAttempt(prepared, state);
-      state.operation = operation;
-    }
-  }
-
-  function startTutorialAuthoringAttempt(
-    prepared: PreparedTutorial,
-    state: TutorialAuthoringState,
-  ): NonNullable<TutorialAuthoringState["operation"]> {
-    const controller = new AbortController();
-    const attempt = ++state.attempts;
-    const startedAt = Date.now();
-
-    const operation: NonNullable<TutorialAuthoringState["operation"]> = {
-      controller,
-      promise: Promise.resolve(undefined),
-    };
-
-    const isCurrent = () =>
-      !controller.signal.aborted &&
-      tutorialAuthoringStates.get(prepared.review.review.uuid) === state;
-
-    operation.promise = (async (): Promise<SessionRef | undefined> => {
-      console.info(
-        `[Review tutorial] source-session handoff attempt ${attempt} started (${prepared.harness}).`,
-      );
-
-      try {
-        const session = await tutorialAuthoringSessionFactory({
-          harness: prepared.harness,
-          rootPath: prepared.checkoutRoots.headRootPath,
-          signal: controller.signal,
-        });
-
-        if (!isCurrent()) return undefined;
-
-        const updated = await withReviewLock(
-          prepared.review.review.uuid,
-          async () => {
-            if (!isCurrent()) return undefined;
-            const latest = await findReview(prepared.review.review.uuid);
-
-            if (!latest) return undefined;
-            const bound = await tutorialAuthorSessionBinder(latest, session);
-            prepared.review = bound;
-            prepared.canonicalRecord = bound.review;
-
-            for (const active of sessions.values()) {
-              if (active.review.review.uuid === bound.review.uuid) {
-                active.review = bound;
-              }
-            }
-
-            return bound;
-          },
-        );
-
-        if (!updated || !isCurrent()) return undefined;
-        state.session = session;
-        console.info(
-          `[Review tutorial] source-session handoff completed in ${Date.now() - startedAt}ms.`,
-        );
-
-        return session;
-      } catch {
-        const outcome = controller.signal.aborted ? "canceled" : "failed";
-
-        const fallback =
-          attempt < 2
-            ? "Ask now will retry once before falling back."
-            : "Ask now will start a fresh session.";
-
-        console.warn(
-          `[Review tutorial] source-session handoff ${outcome} after ${Date.now() - startedAt}ms; ${fallback}`,
-        );
-
-        return undefined;
-      } finally {
-        if (
-          tutorialAuthoringStates.get(prepared.review.review.uuid) === state &&
-          state.operation === operation
-        ) {
-          state.operation = undefined;
-        }
-      }
-    })();
-
-    return operation;
-  }
-
-  async function abortTutorialAuthoringState(uuid: string): Promise<void> {
-    const state = tutorialAuthoringStates.get(uuid);
-
-    if (!state) return;
-    tutorialAuthoringStates.delete(uuid);
-    state.operation?.controller.abort();
-
-    if (state.operation) await Promise.allSettled([state.operation.promise]);
-  }
-
-  async function waitForTutorialAuthoringOperation(
-    operation: Promise<SessionRef | undefined>,
-    signal?: AbortSignal,
-  ): Promise<SessionRef | undefined> {
-    if (!signal) return operation;
-
-    if (signal.aborted) return undefined;
-
-    return new Promise((resolve) => {
-      const aborted = () => resolve(undefined);
-      signal.addEventListener("abort", aborted, { once: true });
-      void operation
-        .then(resolve, () => resolve(undefined))
-        .finally(() => {
-          signal.removeEventListener("abort", aborted);
-        });
-    });
-  }
-
-  async function abortTutorialAuthoringStates(): Promise<void> {
-    await Promise.allSettled(
-      [...tutorialAuthoringStates.keys()].map((uuid) =>
-        abortTutorialAuthoringState(uuid),
-      ),
-    );
-  }
-
   async function deleteTutorialLocked(): Promise<void> {
     preparedTutorial = null;
-    await abortTutorialAuthoringStates();
     await closeTutorialSessions();
     await tutorial.cleanup();
   }
@@ -2038,12 +1692,6 @@ export function createGlobalReviewServer(
         open.map((session) => closeSession(session, "closed", false)),
       );
       await rm(dir, { recursive: true, force: true });
-      const worktreePath = open[0]?.review.review.worktreePath;
-
-      if (worktreePath) {
-        await clearReopenPending(worktreePath).catch(() => undefined);
-      }
-
       broadcastGlobal({ event: "review-deleted", uuid });
     });
   }
@@ -2069,7 +1717,6 @@ export function createGlobalReviewServer(
       reviewUuid: review.review.uuid,
     });
     await rm(review.dir, { recursive: true, force: true });
-    await clearReopenPending(review.review.worktreePath).catch(() => undefined);
     broadcastGlobal({ event: "review-deleted", uuid: review.review.uuid });
   }
 
@@ -2259,7 +1906,6 @@ export function createGlobalReviewServer(
       reviewPath: registration.documentPath,
       softwareMapRootPath: registration.softwareMapRootPath,
       stateReviewPath: path.join(registration.review.dir, "review.mdx"),
-      readOnlyThreadsPath: registration.readOnlyThreadsPath,
       routePath: "/",
       token,
       sessionId,
@@ -2293,7 +1939,6 @@ export function createGlobalReviewServer(
       },
       session: sessionWire,
       getReviewStatus: () => active.review.review.status,
-      onSubmission: (submission) => onSubmission(active, submission),
       onReviewDismiss: () => onReviewDismiss(active),
       onReviewDataChange: () => {
         broadcastGlobal({
@@ -2302,51 +1947,6 @@ export function createGlobalReviewServer(
           sessionId,
         });
       },
-      onAgentStatus: (threadId, status, error) => {
-        const event: Extract<
-          ReviewDesktopGlobalEvent,
-          { event: "review-agent-status" }
-        > = {
-          event: "review-agent-status",
-          uuid: registration.review.review.uuid,
-          sessionId,
-          threadId,
-          status,
-        };
-
-        if (error !== undefined) event.error = error;
-        broadcastGlobal(event);
-      },
-      onReviewThreadsCommit: (commit) => {
-        broadcastGlobal({
-          event: "review-threads-committed",
-          uuid: registration.review.review.uuid,
-          sessionId,
-          commit,
-          commentCount: countReviewComments(
-            path.join(registration.review.dir, "review.mdx"),
-          ),
-        });
-      },
-      runReviewThreadMutation: (operation) =>
-        withReviewLock(registration.review.review.uuid, async () =>
-          operation(),
-        ),
-      agentServer: agentServerFor,
-      openNativeAgentTerminal: (terminal) =>
-        openNativeAgentTerminal(sessionId, terminal),
-      resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
-      onQuestionAgentSession: (agent) =>
-        withReviewLock(registration.review.review.uuid, async () => {
-          const latest = await findReview(registration.review.review.uuid);
-
-          if (!latest) throw new Error("Review not found.");
-          active.review = await touchReviewAgentSession(
-            latest,
-            authoringSessionKey(agent),
-            "question",
-          );
-        }),
       telemetry,
     });
 
@@ -2366,63 +1966,9 @@ export function createGlobalReviewServer(
       telemetryEnded: false,
       appSessionId: registration.appSessionId,
       tutorialPreparation: registration.tutorialPreparation,
-      resolveQuestionSourceSession: registration.resolveQuestionSourceSession,
     };
 
     return active;
-  }
-
-  async function onSubmission(
-    active: ActiveReviewSession,
-    submission: ReviewSubmissionEvent,
-  ): Promise<void> {
-    if (!active.promoted) {
-      throw new Error("An unpromoted Review session cannot be submitted.");
-    }
-
-    await withReviewLock(active.review.review.uuid, async () => {
-      const latest = await findReview(active.review.review.uuid);
-
-      if (
-        !latest ||
-        active.closing ||
-        sessions.get(active.descriptor.sessionId) !== active ||
-        latest.review.status !== "awaiting-review"
-      ) {
-        throw new Error(
-          "Only a review awaiting human action can be submitted.",
-        );
-      }
-
-      active.review = latest;
-      active.terminal = true;
-
-      const status =
-        submission.decision === "approve"
-          ? "accepted"
-          : "awaiting-agent-updates";
-
-      active.review = await setReviewStatus(latest, status);
-
-      if (submission.decision === "request-changes") {
-        await markReopenPending(
-          active.review.review.worktreePath,
-          submission.createdAt,
-        );
-      }
-
-      broadcastGlobal({
-        event: "review-status-changed",
-        uuid: active.review.review.uuid,
-        status,
-        decision: submission.decision,
-      });
-      await endSessionTelemetry(active, submission.decision);
-      broadcastGlobal({
-        event: "session-updated",
-        session: active.descriptor,
-      });
-    });
   }
 
   /**
@@ -2448,7 +1994,6 @@ export function createGlobalReviewServer(
       }
 
       active.review = await dismissReview(latest);
-      await clearReopenPending(active.review.review.worktreePath);
       await broadcastReviewAttention(active.review, "dismissed");
       broadcastGlobal({
         event: "session-updated",
@@ -2555,9 +2100,6 @@ export function createGlobalReviewServer(
       try {
         await withReviewLock(uuid, async () => {
           await rm(stored.dir, { recursive: true, force: true });
-          await clearReopenPending(stored.review.worktreePath).catch(
-            () => undefined,
-          );
           broadcastGlobal({ event: "review-deleted", uuid });
         });
         console.info(
@@ -2577,7 +2119,7 @@ export function createGlobalReviewServer(
 
   async function endSessionTelemetry(
     active: ActiveReviewSession,
-    outcome: "approve" | "request-changes" | "dismissed",
+    outcome: ReviewSessionOutcome,
   ): Promise<void> {
     if (active.telemetryEnded || !active.telemetryStarted) return;
     active.telemetryEnded = true;
@@ -2731,12 +2273,6 @@ export function createGlobalReviewServer(
       boundPort = await listen(httpServer, input.port);
       discovery.url = urlForBoundPort();
       await writePrivateJsonAtomic(discoveryPath, discovery);
-      agentPreparation = prepareAgentServers().catch((error) =>
-        console.error(
-          "[Review] Could not inspect enabled agent integrations",
-          error,
-        ),
-      );
       void runReviewReaper().catch((error) =>
         console.error("Could not run Review cleanup:", error),
       );
@@ -2753,8 +2289,6 @@ export function createGlobalReviewServer(
       if (reviewReaper) clearInterval(reviewReaper);
       reviewReaper = undefined;
       await removeMatchingDiscovery(discoveryPath, discovery);
-      await abortTutorialAuthoringStates();
-      await agentPreparation;
       await Promise.all(
         [...sessions.values()].map((session) =>
           closeSession(session, "app-exit", false).catch(() => undefined),
@@ -2764,9 +2298,6 @@ export function createGlobalReviewServer(
 
       for (const client of globalClients) client.close();
       globalClients.clear();
-      await Promise.all(
-        [...agentServers.values()].map((server) => server.close()),
-      );
       await closeHttpServer(httpServer);
       await telemetry.shutdown(1_500);
     },
@@ -2799,13 +2330,6 @@ export function reviewAgentKind(
     latestAgentSessionWithRole(review, "author") ??
     review.sourceSession;
 
-  const freshHarness = parseFreshSourceSessionHarness(sessionKey);
-
-  if (freshHarness === "codex") return "codex";
-
-  if (freshHarness === "claude-code") return "claude";
-
-  if (freshHarness === "pi") return "pi";
   const kind = sessionKey?.split(":", 1)[0];
 
   if (kind === "codex") return "codex";
@@ -2980,10 +2504,6 @@ function sessionWireFor(
 
   const authoringAgent = parseAuthoringSessionKey(review.review.sourceSession);
 
-  const freshQuestionHarness = parseFreshSourceSessionHarness(
-    review.review.sourceSession,
-  );
-
   const wire: ReviewSessionWire = {
     sessionId: descriptor.sessionId,
     rootPath: review.review.worktreePath,
@@ -3001,7 +2521,6 @@ function sessionWireFor(
     storageDir: review.dir,
     reviewPath: documentPath,
     agent: authoringAgent,
-    freshQuestionHarness,
     codexThreadId:
       authoringAgent?.harness === "codex"
         ? authoringAgent.sessionId
@@ -3100,16 +2619,6 @@ function rejectConcurrentPublication(
       "review_publication_conflict",
     );
   }
-}
-
-async function setReviewStatus(
-  stored: StoredReview,
-  status: ReviewRecord["status"],
-): Promise<StoredReview> {
-  const review: StoredReviewRecord = { ...stored.review, status };
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
-
-  return { ...stored, review };
 }
 
 function httpJsonStatus(cause: unknown): number {

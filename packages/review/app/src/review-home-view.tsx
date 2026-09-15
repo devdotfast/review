@@ -313,7 +313,7 @@ function unavailableReviewGuidance(error: ReviewListError) {
     `Review directory: ${JSON.stringify(error.reviewDir)}.`,
     `Diagnostic: ${JSON.stringify(error.message)}.`,
     nextStep,
-    "Preserve reviews, comments, and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
+    "Preserve reviews and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
   ].join("\n");
 
   return {
@@ -655,7 +655,6 @@ function ReviewCard({
         </span>
         <span className="review-home-card-footer">
           <StatusPill review={review} />
-          <CommentCount count={review.commentCount ?? 0} compact />
         </span>
       </button>
       <DismissReviewButton review={review} />
@@ -1015,13 +1014,6 @@ const reviewListColumns: ColumnDef<ReviewDescriptor>[] = [
     cell: ({ row }) => <StatusPill review={row.original} />,
   },
   {
-    id: "comments",
-    accessorFn: (review) => review.commentCount ?? 0,
-    header: "Comments",
-    size: 72,
-    cell: ({ row }) => <CommentCount count={row.original.commentCount ?? 0} />,
-  },
-  {
     id: "updated",
     accessorFn: (review) => reviewUpdatedAtMs(review),
     header: "Updated",
@@ -1136,33 +1128,6 @@ function StatusIcon({ tone }: { tone: ReviewStatusDisplay["tone"] }) {
       <circle cx="6" cy="6" r="5" />
       <path d={path} />
     </svg>
-  );
-}
-
-function CommentCount({
-  count,
-  compact = false,
-}: {
-  count: number;
-  compact?: boolean;
-}) {
-  if (count === 0) {
-    return compact ? (
-      <span />
-    ) : (
-      <span className="review-home-no-comments">—</span>
-    );
-  }
-
-  return (
-    <span
-      className={
-        compact ? "review-home-comments is-compact" : "review-home-comments"
-      }
-    >
-      <CommentIcon />
-      <span>{count}</span>
-    </span>
   );
 }
 
@@ -1342,14 +1307,6 @@ function ListIcon() {
       <circle cx="3" cy="10" r="1" />
       <circle cx="3" cy="15" r="1" />
       <path d="M7 5h10M7 10h10M7 15h10" />
-    </svg>
-  );
-}
-
-function CommentIcon() {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5v-6Z" />
     </svg>
   );
 }

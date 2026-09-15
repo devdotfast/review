@@ -21,8 +21,6 @@ import {
 } from "./review-session-test-utils";
 
 const initialData: ReviewInitialData = {
-  comments: {},
-  sessionResolvedBaseRef: null,
   documentMeta: { updatedAtMs: Date.UTC(2026, 6, 22, 12, 0) },
   diffStats: { files: [{ additions: 2, deletions: 1 }] },
   softwareMapResolvedData: [],

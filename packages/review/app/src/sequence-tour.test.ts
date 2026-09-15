@@ -351,50 +351,6 @@ describe("sequence diagram guided tour", () => {
     ).toEqual(["request", "request--sequence-use-2"]);
   });
 
-  it("rejects ambiguous parallel edge label paths", () => {
-    expectZodIssue(
-      () =>
-        createSequence({
-          label: "Ambiguous edges",
-          messages: [
-            {
-              from: { label: "Browser" },
-              to: { label: "Worker" },
-              label: "Send",
-              code: "first",
-            },
-            {
-              from: { label: "Browser" },
-              to: { label: "Worker" },
-              label: "Send",
-              code: "second",
-            },
-          ],
-        }),
-      ["messages", 1, "label"],
-      "Label must be unique among parallel Browser→Worker messages",
-    );
-  });
-
-  it("rejects sibling participants with duplicate labels", () => {
-    expectZodIssue(
-      () =>
-        createSequence({
-          label: "Ambiguous nodes",
-          messages: [
-            {
-              from: { id: "first", label: "Worker" },
-              to: { id: "second", label: "Worker" },
-              label: "Calls",
-              code: "call",
-            },
-          ],
-        }),
-      ["messages"],
-      'has more than one participant labelled "Worker"',
-    );
-  });
-
   it("calculates scroll targets that reveal the active message participants", () => {
     const actors = defineActors({
       reviewer: { label: "Reviewer" },

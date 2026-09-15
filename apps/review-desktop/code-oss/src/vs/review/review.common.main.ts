@@ -281,14 +281,9 @@ import "./contrib/explorer/reviewFileTree.contribution.js";
 import "./contrib/workspace/reviewWorkspaceFolder.contribution.js";
 import "./browser/parts/canvas/reviewCanvasEditor.contribution.js";
 import "./browser/parts/canvas/reviewFind.contribution.js";
-import "../workbench/contrib/comments/browser/comments.contribution.js";
-import "./contrib/comments/reviewComments.contribution.js";
 import "../workbench/contrib/files/browser/fileActions.contribution.js";
 import "../workbench/contrib/files/browser/files.contribution.js";
 import "../workbench/contrib/bulkEdit/browser/bulkEditService.js";
-import "../workbench/contrib/terminal/browser/terminal.contribution.js";
-import "../workbench/contrib/terminal/common/environmentVariable.contribution.js";
-import "../workbench/contrib/terminal/common/terminalExtensionPoints.contribution.js";
 // editor.all instantiates RenameSymbolProcessor; keep its service-only peer.
 import "../workbench/contrib/inlineCompletions/browser/renameSymbolTrackerService.js";
 import "../workbench/contrib/search/browser/searchQuickAccess.contribution.js";

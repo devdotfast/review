@@ -32,13 +32,8 @@ import { withReviewMutationLock } from "../review-mutation-lock";
 import {
   type ReviewRepairReadyRequest,
   type ReviewRepairReadyResponse,
-  assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
-import {
-  checkReviewThreadDbVersion,
-  readReviewThreadDatabaseFingerprint,
-} from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { ReviewServerError } from "./http-json";
@@ -145,14 +140,6 @@ export async function assertReviewRepairInputsUnchanged(
     throw new Error(
       "Review changed while preparing repair; retry without changing its pinned commits or review status.",
     );
-  assertNoActiveReviewAgentWrites(dir);
-
-  if (
-    request.expectedThreadDbFingerprint &&
-    readReviewThreadDatabaseFingerprint(path.join(dir, "review.mdx")) !==
-      request.expectedThreadDbFingerprint
-  )
-    throw new Error("Review threads changed while preparing repair; retry.");
 }
 
 export async function readPreparedReviewRepairRecord(
@@ -212,14 +199,10 @@ export async function applyPreparedReviewRepair(
   return withReviewMutationLock(dir, async () => {
     await assertReviewRepairInputsUnchanged(dir, request);
     const next = await readPreparedReviewRepairRecord(request);
-
-    if (request.expectedThreadDbFingerprint)
-      checkReviewThreadDbVersion(path.join(request.stagingDir, "review.mdx"));
     await promoteReviewArtifactFiles({
       reviewDir: dir,
       candidateDir: request.stagingDir,
       record: next,
-      upgradeThreadDatabase: Boolean(request.expectedThreadDbFingerprint),
     });
 
     return next;
@@ -253,7 +236,6 @@ export async function promoteReviewRepair<
     revision: string;
     promoted: false;
     repairValidation: true;
-    readOnlyThreadsPath?: string;
   }) => Promise<Session>;
   withReviewLock: <T>(
     reviewUuid: string,
@@ -285,10 +267,6 @@ export async function promoteReviewRepair<
   await validateRepairStagingRepository(review.dir, stagingDir);
   const next = await readPreparedReviewRepairRecord(request);
   const stageFingerprint = await fingerprintReviewRepairInputs(stagingDir);
-
-  const stagedThreadDbFingerprint = request.expectedThreadDbFingerprint
-    ? readReviewThreadDatabaseFingerprint(path.join(stagingDir, "review.mdx"))
-    : undefined;
 
   const createdBuilds: string[] = [];
   let successor: Session | undefined;
@@ -387,9 +365,6 @@ export async function promoteReviewRepair<
       revision: request.newDocumentRevision,
       promoted: false,
       repairValidation: true,
-      readOnlyThreadsPath: request.expectedThreadDbFingerprint
-        ? path.join(stagingDir, "review.mdx")
-        : undefined,
     });
 
     const validation = await input.dispatch(successor.descriptor.sessionId, {
@@ -412,12 +387,7 @@ export async function promoteReviewRepair<
         throw new Error("Repair validation session closed before promotion.");
 
       if (
-        (await fingerprintReviewRepairInputs(stagingDir)) !==
-          stageFingerprint ||
-        (stagedThreadDbFingerprint !== undefined &&
-          readReviewThreadDatabaseFingerprint(
-            path.join(stagingDir, "review.mdx"),
-          ) !== stagedThreadDbFingerprint)
+        (await fingerprintReviewRepairInputs(stagingDir)) !== stageFingerprint
       )
         throw new Error(
           "Prepared repair changed after mount validation; retry.",
@@ -431,9 +401,9 @@ export async function promoteReviewRepair<
     // Once promoted, UI refresh failures cannot turn a committed repair into a failed command.
     await input.startSessionTelemetry(mounted).catch(() => undefined);
 
-    const descriptor = await reviewDescriptor(mounted.review, {
-      threads: "read-only",
-    }).catch(() => undefined);
+    const descriptor = await reviewDescriptor(mounted.review).catch(
+      () => undefined,
+    );
 
     input.broadcast({
       event: "session-registered",

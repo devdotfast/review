@@ -105,7 +105,6 @@ describe("tutorial review document data", () => {
         "ordersTable",
         "placeOrder",
         "ship",
-        "validateInventory",
       ]);
       expect(
         [...inlineAnchorIds].every((id) => id in evaluation.document!.anchors),

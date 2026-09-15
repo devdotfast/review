@@ -6,15 +6,13 @@ Outline: Product model -> Review contents -> Pins -> Publication -> Lifecycle ->
 
 Review separates authoring from reading. A coding agent studies a change and
 writes a guided document; Review Desktop gives the human reviewer live code,
-system views, and a structured feedback loop around that document.
+and system views around that document.
 
 ```mermaid
 flowchart LR
   A[Branch, change, or PR] --> B[Agent authors a Review]
   B --> C[CLI validates and publishes]
   C --> D[Reviewer reads in Review Desktop]
-  D --> E{Decision}
-  E -->|Request changes| B
 ```
 
 ## A Review is more than a diff
@@ -25,8 +23,7 @@ Each Review can combine:
 - source links and code peeks anchored to exact files and line ranges;
 - editor navigation such as hover and go-to-definition;
 - sequence diagrams and database access views;
-- a software map from systems down to code elements; and
-- comment and question threads attached to the relevant evidence.
+- a software map from systems down to code elements.
 
 The changed-file diff remains available in the Files tab, but it is supporting
 evidence rather than the only way to understand the change.
@@ -68,16 +65,13 @@ promotes that artifact independently.
 
 ## Reviews have an explicit lifecycle
 
-| State                    | What happens next                                          |
-| ------------------------ | ---------------------------------------------------------- |
-| `draft`                  | The agent authors and publishes the Review.                |
-| `awaiting-review`        | The reviewer reads, asks questions, comments, and decides. |
-| `awaiting-agent-updates` | The agent addresses submitted feedback and republishes.    |
-| `accepted`               | The Review is complete and cannot be republished.          |
-| `rejected`               | The Review is closed and cannot be republished.            |
+| State             | What happens next                                  |
+| ----------------- | -------------------------------------------------- |
+| `draft`           | The agent authors and publishes the Review.        |
+| `awaiting-review` | The reviewer reads the Review or dismisses it.     |
 
-An immediate question does not change the review state. **Request changes**
-starts another agent round; **Approve** completes the Review.
+Reviews created by earlier versions may also be `awaiting-agent-updates`,
+`accepted`, or `rejected`. Accepted and rejected Reviews cannot be republished.
 
 Explicit artifact repair is not a lifecycle transition. An accepted or rejected
 Review can have its current artifacts repaired while remaining terminal;
@@ -95,11 +89,7 @@ upgrade. Repeat reads need no further migration. `review migrate apply` runs
 the same per-review upgrade across the store and also performs repository-level
 cleanup.
 
-Migration validates and seals replacement artifacts before forking a legacy
-authoring session. A private sibling pending-binding file makes successful
-forks reusable if promotion fails. An interrupted fork with an unknown outcome
-blocks another automatic fork until its pending binding is inspected and
-recovered; migration does not guess whether the native provider persisted it.
+Migration validates and seals replacement artifacts before promoting them.
 Transient mutation contention is reported as retryable busy, not corruption or
 a reason to repair.
 
@@ -121,7 +111,7 @@ authoring files. Missing inputs remain an actionable failure.
 Repair requires Review Desktop to validate and mount all required artifacts
 before promotion. Failures
 retain the old presentation; concurrent changes and pending agent writes block
-repair. Successful migration or repair preserves status, pins, title, threads,
+repair. Successful migration or repair preserves status, pins, title,
 dismissal, viewed and publication timestamps, and old history. Opening a Review
 still applies the ordinary viewed and dismissal lifecycle after migration.
 Healthy current-schema
@@ -140,9 +130,9 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 ```
 
 The directory contains the document, supporting TypeScript, pinned state,
-thread database, sealed revisions, and disposable build output. Review owns the
+sealed revisions, and disposable build output. Review owns the
 infrastructure files; agents author `review.mdx` and `data.ts`, and use the CLI
-for publication and threads.
+for publication.
 
 `review.json` uses store schema 5 and records the independent document and map
 presentation pointers. Candidate JSON bundles live under `.bundle/`; private

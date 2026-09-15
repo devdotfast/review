@@ -39,7 +39,6 @@ import {
 } from "./review-home";
 import type { ReviewInfoEvent } from "./review-info";
 import { reviewInfoEvent } from "./review-info-resolver";
-import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   deleteReviewSourceHeadRef,
   pinReviewSourceHeadRef,
@@ -62,8 +61,6 @@ export interface RunReviewScaffoldInput {
   newReview?: boolean;
   background?: boolean;
   onReviewBound?: (uuid: string) => void | Promise<void>;
-  /** Forks the invoking agent session; defaults to the harness-native fork. */
-  createSourceAgentSession?: typeof createReviewSourceAgentSession;
 }
 
 // Scaffold's event carries pinned commits, managed checkouts, and normalized
@@ -188,31 +185,6 @@ async function createReview(
   );
 
   const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
-  let sourceAgentSession: string | null = null;
-
-  if (invokingAgent) {
-    if (!setup.headRootPath) {
-      throw new Error(
-        "Review scaffold cannot create a source session without its managed head checkout.",
-      );
-    }
-
-    // Narrowing does not survive into the span callback; pin the path first.
-    const headRootPath = setup.headRootPath;
-
-    const frozen = await span(
-      "scaffold: fork agent session",
-      () =>
-        (input.createSourceAgentSession ?? createReviewSourceAgentSession)({
-          agent: invokingAgent,
-          reviewUuid: uuid,
-          rootPath: headRootPath,
-        }),
-      invokingAgent.harness,
-    );
-
-    sourceAgentSession = authoringSessionKey(frozen);
-  }
 
   let created: StoredReview;
 
@@ -228,7 +200,9 @@ async function createReview(
         pullRequestNumber: source.subject.pullRequestNumber ?? null,
         pullRequestUrl: source.subject.pullRequestUrl ?? null,
         title: source.subject.pullRequestTitle ?? "Progressive Review",
-        sourceSession: sourceAgentSession ?? undefined,
+        sourceSession: invokingAgent
+          ? authoringSessionKey(invokingAgent)
+          : undefined,
       }),
     );
   } catch (error) {
@@ -345,34 +319,10 @@ export async function repinReview(
   );
 
   const invokingAgent = resolveAuthoringSessionRef(input.env ?? process.env);
-  let sourceSession = DISABLED_REVIEW_SOURCE_SESSION;
 
-  if (invokingAgent) {
-    if (!setup.headRootPath) {
-      throw new Error(
-        "Review update cannot create a source session without its managed head checkout.",
-      );
-    }
-
-    // The fork belongs to the same unit of work as the pin. A Review whose
-    // Ask Agent cannot answer is not a usable Review, so a failure here fails
-    // the update and leaves the stored pins untouched.
-    // Narrowing does not survive into the span callback; pin the path first.
-    const headRootPath = setup.headRootPath;
-
-    const frozen = await span(
-      "scaffold: fork agent session",
-      () =>
-        (input.createSourceAgentSession ?? createReviewSourceAgentSession)({
-          agent: invokingAgent,
-          reviewUuid: uuid,
-          rootPath: headRootPath,
-        }),
-      invokingAgent.harness,
-    );
-
-    sourceSession = authoringSessionKey(frozen);
-  }
+  const sourceSession = invokingAgent
+    ? authoringSessionKey(invokingAgent)
+    : DISABLED_REVIEW_SOURCE_SESSION;
 
   await pinReviewSourceHeadRef(root, reviewSourceHeadRef(uuid), headCommit);
 

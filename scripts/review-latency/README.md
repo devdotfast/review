@@ -52,8 +52,8 @@ for Claude Code.
   `authoring` (→ first `review publish`), `publish loop` (→ successful
   publish), `show` (→ `review app pick`).
 
-`summary.time_to_visible_s` is the headline metric. `review wait`, reviewer
-feedback, and Ask replies are out of scope.
+`summary.time_to_visible_s` is the headline metric. `review wait` is out of
+scope.
 
 ## Fork runs
 

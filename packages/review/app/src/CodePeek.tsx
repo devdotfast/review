@@ -6,7 +6,6 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  type AnchorRef,
   type CodePeekProps as AuthoringCodePeekProps,
   type CodePeekDiffPayload,
   type CodePeekRef,
@@ -230,7 +229,7 @@ export function CodePeekGroup({
               heightMode="content"
               diffStats={group.diffStats}
               active={false}
-              commentsEnabled
+              unifiedDiff
               collapsed={collapsed}
               onOpen={() =>
                 session.surface.revealAnchor(
@@ -279,17 +278,17 @@ export function ReviewCodePeek({ anchor }: ReviewCodePeekProps) {
     [anchor.peek],
   );
 
-  return <CodePeekView input={input} commentAnchor={anchor} />;
+  return <CodePeekView input={input} unifiedDiff />;
 }
 
 export function CodePeekView({
   input,
   heightMode = "capped",
-  commentAnchor,
+  unifiedDiff = false,
 }: {
   input: ValidatedCodePeekInput;
   heightMode?: ReviewInlineEditorHeightMode;
-  commentAnchor?: AnchorRef;
+  unifiedDiff?: boolean;
 }) {
   const { resolution, status, error } = useCodePeekResolution(input);
 
@@ -300,7 +299,7 @@ export function CodePeekView({
       status={status}
       error={error}
       heightMode={heightMode}
-      commentAnchor={commentAnchor}
+      unifiedDiff={unifiedDiff}
     />
   );
 }
@@ -436,7 +435,7 @@ export function CodePeekCard({
   active = false,
   heightMode = "capped",
   onNativeFocus,
-  commentAnchor,
+  unifiedDiff = false,
 }: {
   input: ValidatedCodePeekInput;
   resolution?: CodePeekResolveResult;
@@ -445,7 +444,7 @@ export function CodePeekCard({
   active?: boolean;
   heightMode?: ReviewInlineEditorHeightMode;
   onNativeFocus?: () => void;
-  commentAnchor?: AnchorRef;
+  unifiedDiff?: boolean;
 }) {
   const session = useReviewSession();
 
@@ -478,16 +477,7 @@ export function CodePeekCard({
           No code location is attached here yet.
         </div>
       ) : null}
-      {subject && commentAnchor ? (
-        <AuthoredCodePeekEditor
-          input={input}
-          subject={subject}
-          heightMode={heightMode}
-          diffStats={diffCounts}
-          active={active}
-          onNativeFocus={onNativeFocus}
-        />
-      ) : subject ? (
+      {subject ? (
         <InlineCodeEditor
           path={subject.file}
           title={subject.title}
@@ -496,6 +486,7 @@ export function CodePeekCard({
           heightMode={heightMode}
           diffStats={diffCounts}
           active={active}
+          unifiedDiff={unifiedDiff}
           onFocus={() => onNativeFocusRef.current?.()}
           onOpen={() =>
             session.surface.revealAnchor(
@@ -507,48 +498,6 @@ export function CodePeekCard({
         />
       ) : null}
     </section>
-  );
-}
-
-function AuthoredCodePeekEditor({
-  input,
-  subject,
-  heightMode,
-  diffStats,
-  active,
-  onNativeFocus,
-}: {
-  input: ValidatedCodePeekInput;
-  subject: CodePeekSubject;
-  heightMode: ReviewInlineEditorHeightMode;
-  diffStats?: { additions: number; deletions: number };
-  active: boolean;
-  onNativeFocus?: () => void;
-}) {
-  const session = useReviewSession();
-  const graph = input.props.graph ?? "head";
-
-  return (
-    <div>
-      <InlineCodeEditor
-        path={subject.file}
-        title={subject.title}
-        side={graph}
-        ranges={[{ startLine: subject.line, endLine: subject.endLine }]}
-        heightMode={heightMode}
-        diffStats={diffStats}
-        active={active}
-        onFocus={onNativeFocus}
-        onOpen={() =>
-          session.surface.revealAnchor(
-            subject.file,
-            { fromLine: subject.line, toLine: subject.endLine },
-            graph,
-          )
-        }
-        commentsEnabled
-      />
-    </div>
   );
 }
 

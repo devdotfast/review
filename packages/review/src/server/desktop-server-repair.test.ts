@@ -9,15 +9,11 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import {
   type JsonObject,
   type JsonValue,
-  type ReviewThreadsCommand,
-  ReviewThreadsCommandResponseSchema,
-  ReviewThreadsSnapshotResponseSchema,
   type ReviewVerbResponse,
   jsonObject,
 } from "@dev.fast/review-protocol";
@@ -34,11 +30,6 @@ import {
   type ReviewRepairReadyRequest,
   fingerprintReviewRepairInputs,
 } from "../review-repair-state";
-import { appendReviewCommentDraft } from "../review-state-store";
-import {
-  checkReviewThreadDbVersion,
-  closeAllReviewThreadStores,
-} from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import { createGlobalReviewServer } from "./desktop-server";
 import {
@@ -72,7 +63,6 @@ function recordingRelay(): ReviewDesktopVerbRelay {
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-  closeAllReviewThreadStores();
   dispatchVerb = async () => ({ ok: true });
 
   if (root) await rm(root, { recursive: true, force: true });
@@ -232,10 +222,7 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
 
   await server.listen();
 
-  const post = (
-    route: string,
-    body: ReviewRepairReadyRequest | ReviewThreadsCommand | JsonObject,
-  ) =>
+  const post = (route: string, body: ReviewRepairReadyRequest | JsonObject) =>
     fetch(`${server.url}${route}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-review-token": token },
@@ -254,48 +241,21 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
 }
 
 it.each(["success", "mount-failure", "live-change", "stage-change"])(
-  "repairs a legacy database with the document only after mount validation: %s",
+  "repairs a legacy review with the document only after mount validation: %s",
   async (outcome) => {
     const { stored, server, post, get } = await fixture();
-    const reviewPath = path.join(stored.dir, "review.mdx");
-    appendReviewCommentDraft(reviewPath, {
-      threadId: "preserved-draft",
-      messageId: "preserved-message",
-      target: { kind: "document" },
-      body: "Keep this draft",
-      author: "Reviewer",
-    });
-    closeAllReviewThreadStores();
-    const db = new DatabaseSync(path.join(stored.dir, "review.db"));
-    db.prepare(
-      "UPDATE meta SET value = '5' WHERE key = 'schema_version'",
-    ).run();
-    db.close();
     const before = await snapshotReviewTree(stored.dir);
     let expectedAfterFailure = before;
     const prepared = await prepareReviewRepair({ reviewDir: stored.dir });
 
     if (prepared.kind !== "prepared") throw new Error("Expected legacy repair");
-    expect(prepared.request.expectedThreadDbFingerprint).toBeDefined();
     expect(prepared.request.sourceFallback.document).toBe(true);
     let validated = false;
-    let refreshedDraftIds: string[] | undefined;
     dispatchVerb = async (sessionId, value) => {
       if (jsonObject(value)?.name !== "validateCanvasMount")
         return { ok: true };
       const prefix = `/sessions/${sessionId}/__progressive-review`;
       expect((await get(`${prefix}/session`)).status).toBe(200);
-      const response = await get(`${prefix}/comments`);
-      expect(response.status).toBe(200);
-
-      const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
-        await response.json(),
-      );
-
-      if (!snapshot.ok) throw new Error(snapshot.error);
-      expect(Object.keys(snapshot.snapshot.drafts)).toEqual([
-        "preserved-draft",
-      ]);
       const duringMount = await snapshotReviewTree(stored.dir);
       expect(
         Object.fromEntries(
@@ -309,30 +269,10 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
         const changedDir =
           outcome === "live-change" ? stored.dir : prepared.request.stagingDir;
 
-        if (outcome === "stage-change") {
-          appendReviewCommentDraft(path.join(changedDir, "review.mdx"), {
-            threadId: "concurrent-draft",
-            messageId: "concurrent-message",
-            target: { kind: "document" },
-            body: "Concurrent staged draft",
-            author: "Reviewer",
-          });
-
-          const refreshed = ReviewThreadsSnapshotResponseSchema.parse(
-            await (await get(`${prefix}/comments`)).json(),
-          );
-
-          if (!refreshed.ok) throw new Error(refreshed.error);
-          refreshedDraftIds = Object.keys(refreshed.snapshot.drafts).sort();
-        } else {
-          const changed = new DatabaseSync(path.join(changedDir, "review.db"));
-          changed
-            .prepare(
-              "INSERT INTO meta (key, value) VALUES ('concurrent-change', 'keep')",
-            )
-            .run();
-          changed.close();
-        }
+        await writeFile(
+          path.join(changedDir, "review.mdx"),
+          "# Concurrent change\n",
+        );
 
         if (outcome === "live-change") {
           const latest = await snapshotReviewTree(stored.dir);
@@ -344,11 +284,6 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
         }
       }
 
-      expect(refreshedDraftIds).toEqual(
-        outcome === "stage-change"
-          ? ["concurrent-draft", "preserved-draft"]
-          : undefined,
-      );
       validated = true;
 
       return outcome === "mount-failure"
@@ -369,141 +304,15 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
         return;
       }
 
-      checkReviewThreadDbVersion(reviewPath);
       const { sessionId } = await response.json();
       const prefix = `/sessions/${sessionId}/__progressive-review`;
-
-      const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
-        await (await get(`${prefix}/comments`)).json(),
-      );
-
-      if (!snapshot.ok) throw new Error(snapshot.error);
-      expect(Object.keys(snapshot.snapshot.drafts)).toEqual([
-        "preserved-draft",
-      ]);
-
-      const created = await post(`${prefix}/thread-commands`, {
-        command: "comment.create",
-        mutationId: "after-legacy-repair",
-        input: {
-          threadId: "new-thread",
-          messageId: "new-message",
-          target: { kind: "document" },
-          body: "Works after repair",
-        },
-      });
-
-      expect(created.status).toBe(200);
+      expect((await get(`${prefix}/document`)).status).toBe(200);
     } finally {
       await server.close();
       await prepared.cleanup();
     }
   },
 );
-
-it("switches repaired comments to live snapshots for resynchronization after promotion", async () => {
-  const { stored, record, request, server, post, get } = await fixture(5);
-
-  const comment = (index: number): ReviewThreadsCommand => ({
-    command: "comment.create",
-    mutationId: `repair-message-${index}`,
-    input: {
-      threadId: `repair-thread-${index}`,
-      messageId: `repair-message-${index}`,
-      target: { kind: "document" },
-      body: `Repair comment ${index}`,
-    },
-  });
-
-  const validationReads: Array<{ writeStatus: number; revision: number }> = [];
-  dispatchVerb = async (sessionId, value) => {
-    if (jsonObject(value)?.name !== "validateCanvasMount") return { ok: true };
-    const before = await snapshotReviewTree(stored.dir);
-    const prefix = `/sessions/${sessionId}/__progressive-review`;
-
-    const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
-      await (await get(`${prefix}/comments`)).json(),
-    );
-
-    if (!snapshot.ok) throw new Error(snapshot.error);
-    const blocked = await post(`${prefix}/thread-commands`, comment(0));
-    validationReads.push({
-      writeStatus: blocked.status,
-      revision: snapshot.snapshot.revision,
-    });
-    expect(await snapshotReviewTree(stored.dir)).toEqual(before);
-
-    return { ok: true };
-  };
-
-  try {
-    const repaired = await post("/repair-ready", request);
-    expect(repaired.status).toBe(201);
-    expect(validationReads).toEqual([{ writeStatus: 409, revision: 0 }]);
-    const { sessionId } = await repaired.json();
-    const prefix = `/sessions/${sessionId}/__progressive-review`;
-
-    const liveThreads = async () => {
-      const snapshot = ReviewThreadsSnapshotResponseSchema.parse(
-        await (await get(`${prefix}/comments`)).json(),
-      );
-
-      if (!snapshot.ok) throw new Error(snapshot.error);
-
-      return {
-        revision: snapshot.snapshot.revision,
-        threadIds: Object.keys(snapshot.snapshot.comments),
-      };
-    };
-
-    // The promoted session must own a fresh live store: revision 0, no
-    // carried-over threads, and one revision per accepted mutation.
-    expect(await liveThreads()).toEqual({ revision: 0, threadIds: [] });
-    const revisions: number[] = [];
-
-    for (const index of [1, 2, 3]) {
-      const response = await post(`${prefix}/thread-commands`, comment(index));
-      expect(response.status).toBe(200);
-
-      const result = ReviewThreadsCommandResponseSchema.parse(
-        await response.json(),
-      );
-
-      if (!result.ok) throw new Error(result.error);
-      revisions.push(result.commit.revision);
-      expect(await liveThreads()).toEqual({
-        revision: result.commit.revision,
-        threadIds: Array.from(
-          { length: index },
-          (_unused, offset) => `repair-thread-${offset + 1}`,
-        ),
-      });
-    }
-
-    expect(revisions).toEqual([1, 2, 3]);
-
-    const historical = await post(`/reviews/${record.uuid}/open`, {
-      revision: JSON.parse(request.expectedRecord).presentedDocumentRevision,
-    });
-
-    expect(historical.status).toBe(201);
-    const historicalPrefix = `/sessions/${(await historical.json()).sessionId}/__progressive-review`;
-    const beforeHistoricalRead = await snapshotReviewTree(stored.dir);
-
-    const historicalSnapshot = ReviewThreadsSnapshotResponseSchema.parse(
-      await (await get(`${historicalPrefix}/comments`)).json(),
-    );
-
-    if (!historicalSnapshot.ok) throw new Error(historicalSnapshot.error);
-    expect(historicalSnapshot.snapshot.revision).toBe(0);
-    expect(
-      (await post(`${historicalPrefix}/thread-commands`, comment(4))).status,
-    ).toBe(409);
-    expect(await snapshotReviewTree(stored.dir)).toEqual(beforeHistoricalRead);
-  } finally {
-    await server.close();
-  }
-});
 
 it.each([true, false])(
   "replaces only the repaired current-schema session when mount succeeds: %s",

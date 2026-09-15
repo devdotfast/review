@@ -44,7 +44,7 @@ describe("tutorial service", () => {
       });
 
       try {
-        const saved = await service.prepare("claude-code");
+        const saved = await service.prepare();
         expect((await service.status()).reviewUuid).toBe(saved.review.uuid);
 
         const documentPath = path.join(
@@ -85,7 +85,7 @@ describe("tutorial service", () => {
     });
 
     try {
-      const before = await service.prepare("claude-code");
+      const before = await service.prepare();
 
       const documentPath = path.join(
         ".bundle",
@@ -116,7 +116,7 @@ describe("tutorial service", () => {
         }),
       );
       expect((await service.status()).reviewUuid).toBeNull();
-      const after = await service.prepare("claude-code");
+      const after = await service.prepare();
       expect(after.review.uuid).not.toBe(before.review.uuid);
       expect(after.review.sourceCommit).toBe(before.review.sourceCommit);
       expect(await readFile(path.join(after.dir, documentPath), "utf8")).toBe(
@@ -139,13 +139,13 @@ describe("tutorial service", () => {
     });
 
     try {
-      const review = await service.prepare("claude-code");
+      const review = await service.prepare();
       const revision = review.review.presentedDocumentRevision;
 
       expect(review.dir).toBe(path.join(home, "reviews", review.review.uuid));
       expect(review.review).toMatchObject({
         visibility: "system",
-        sourceSession: "fresh:claude-code",
+        sourceSession: "disabled:review",
         status: "awaiting-review",
         presentedDocumentRevision: expect.stringMatching(/^[0-9a-f]{40}$/),
         presentedSoftwareMapRevision: revision,
@@ -182,29 +182,6 @@ describe("tutorial service", () => {
     }
   });
 
-  it("rebuilds a fresh marker when the installed harness changes", async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-"));
-    vi.stubEnv("DEV_REVIEW_HOME", home);
-
-    const service = createTutorialService({
-      packageRoot,
-      deleteReview: async (review) => {
-        await rm(review.dir, { recursive: true, force: true });
-      },
-    });
-
-    try {
-      const codex = await service.prepare("codex");
-      const pi = await service.prepare("pi");
-
-      expect(pi.review.uuid).not.toBe(codex.review.uuid);
-      expect(pi.review.sourceSession).toBe("fresh:pi");
-      await expect(findReview(codex.review.uuid)).resolves.toBeNull();
-    } finally {
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-
   it("fails closed when repository history is invalid or Git fails", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
@@ -219,7 +196,7 @@ describe("tutorial service", () => {
     const repository = path.join(home, "tutorial", "sample-service");
 
     try {
-      await service.prepare("codex");
+      await service.prepare();
       await execFilePromise("git", ["commit", "--allow-empty", "-m", "extra"], {
         cwd: repository,
         env: {
@@ -232,7 +209,7 @@ describe("tutorial service", () => {
       });
       await expect(service.find()).resolves.toBeNull();
 
-      await service.prepare("codex");
+      await service.prepare();
       const gitDir = path.join(repository, ".git");
       const hiddenGitDir = path.join(repository, ".git-unavailable");
       await rename(gitDir, hiddenGitDir);

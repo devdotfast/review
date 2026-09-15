@@ -67,11 +67,6 @@ import { emitReviewEvent, serializeReviewError } from "./review-logger";
 import { prepareReviewPinnedCheckout } from "./review-prepare";
 import { runReviewPublish } from "./review-publish";
 import { runReviewRebind } from "./review-rebind";
-import {
-  decideStopHook,
-  markReopenNudged,
-  readReopenMarker,
-} from "./review-reopen-marker";
 import { runReviewRepair } from "./review-repair";
 import { runReviewScaffold } from "./review-scaffold";
 import {
@@ -84,12 +79,6 @@ import {
 } from "./review-telemetry";
 import { runReviewWait, validateReviewWait } from "./review-wait";
 import { setTraceAttribute, span } from "./startup-trace";
-import {
-  runReviewThreadsGet,
-  runReviewThreadsList,
-  runReviewThreadsReply,
-  runReviewThreadsResolve,
-} from "./threads-cli";
 import {
   runTraceBlame,
   runTraceDisable,
@@ -114,10 +103,6 @@ interface ReviewCliRuntime {
   runReviewPublish: typeof runReviewPublish;
   runReviewRepair: typeof runReviewRepair;
   runReviewRebind: typeof runReviewRebind;
-  runReviewThreadsGet: typeof runReviewThreadsGet;
-  runReviewThreadsList: typeof runReviewThreadsList;
-  runReviewThreadsResolve: typeof runReviewThreadsResolve;
-  runReviewThreadsReply: typeof runReviewThreadsReply;
   runReviewWait: typeof runReviewWait;
   runReviewCodexWait: typeof runReviewCodexWait;
   startCodexWaitProcess(input: CodexWaitProcessInput): Promise<{
@@ -809,10 +794,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     migrate
       .command("apply")
       .description("Apply the legacy Review migration")
-      .option(
-        "--force",
-        "restart an interrupted migration and drop unrecoverable comment threads",
-      ),
+      .option("--force", "restart an interrupted migration"),
     "plain",
   ).action(async (options: { force?: boolean; json?: boolean }) => {
     state.exitCode = await runtime.runReviewMigration({
@@ -823,80 +805,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       stderr: input.stderr,
     });
   });
-
-  const threads = configureOutput(
-    program
-      .command("threads")
-      .description("Read and update review comment threads"),
-    "plain",
-  );
-
-  configureJsonOutput(
-    threads
-      .command("get <thread-id>")
-      .description("Print one comment thread as JSON")
-      .option("--review <uuid>", "review UUID"),
-    "plain",
-  ).action(async (threadId: string, options: { review?: string }) => {
-    state.exitCode = await runtime.runReviewThreadsGet({
-      cwd,
-      env,
-      reviewUuid: options.review,
-      threadId,
-      stdout: input.stdout,
-    });
-  });
-  configureOutput(
-    threads
-      .command("list")
-      .description("Print all comment threads as JSON")
-      .option("--review <uuid>", "review UUID"),
-    "plain",
-  ).action(async (options: { review?: string; json?: boolean }) => {
-    state.exitCode = await runtime.runReviewThreadsList({
-      cwd,
-      reviewUuid: options.review,
-      json: options.json,
-      stdout: input.stdout,
-    });
-  });
-  configureJsonOutput(
-    threads
-      .command("resolve <thread-id>")
-      .description("Mark a comment thread resolved")
-      .option("--review <uuid>", "review UUID"),
-    "plain",
-  ).action(async (threadId: string, options: { review?: string }) => {
-    state.exitCode = await runtime.runReviewThreadsResolve({
-      cwd,
-      reviewUuid: options.review,
-      threadId,
-      stdout: input.stdout,
-    });
-  });
-  configureJsonOutput(
-    threads
-      .command("reply <thread-id>")
-      .description("Append a reply message to a comment thread")
-      .requiredOption("--body <text>", "reply body")
-      .option("--author <name>", "message author", "Agent")
-      .option("--review <uuid>", "review UUID"),
-    "plain",
-  ).action(
-    async (
-      threadId: string,
-      options: { body: string; author?: string; review?: string },
-    ) => {
-      state.exitCode = await runtime.runReviewThreadsReply({
-        cwd,
-        reviewUuid: options.review,
-        threadId,
-        body: options.body,
-        author: options.author,
-        stdout: input.stdout,
-      });
-    },
-  );
 
   configureOutput(
     program
@@ -913,20 +821,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       await runtime.sealReviewCandidate(review.dir, "Review turn checkpoint");
     }
 
-    const decisionCwd = payload.cwd ?? cwd;
-    const marker = await readReopenMarker(decisionCwd);
-    const decision = decideStopHook(marker);
-
-    if (decision.markNudged && marker) {
-      await markReopenNudged(decisionCwd, marker);
-    }
-
-    if (decision.block) {
-      input.stdout.write(
-        `${JSON.stringify({ decision: "block", reason: decision.reason })}\n`,
-      );
-    }
-
+    // The checkpoint never blocks an agent from stopping.
     state.exitCode = 0;
   });
 
@@ -1331,10 +1226,6 @@ function reviewCliRuntime(
     runReviewPublish,
     runReviewRepair,
     runReviewRebind,
-    runReviewThreadsGet,
-    runReviewThreadsList,
-    runReviewThreadsResolve,
-    runReviewThreadsReply,
     runReviewWait,
     runReviewCodexWait,
     startCodexWaitProcess,
@@ -1685,14 +1576,6 @@ function telemetryCommandPath(
     return `app.${name}`;
   }
 
-  if (parent === "threads") {
-    if (name === "list" || name === "resolve" || name === "reply") {
-      return `threads.${name}`;
-    }
-
-    return "invalid";
-  }
-
   if (
     name === "version" ||
     name === "rebind" ||
@@ -1750,8 +1633,7 @@ function errorClassification(
     command === "publish" ||
     command === "wait" ||
     command === "rebind" ||
-    command === "info" ||
-    command.startsWith("threads.")
+    command === "info"
   ) {
     return { errorName: "review_state_error", errorCategory: "local_state" };
   }

@@ -18,7 +18,7 @@ Review is an open-source desktop app for understanding and reviewing
 agent-written code. Coding agents turn a branch or pull request into a guided,
 interactive Review connected to the exact code behind it.
 
-Explore architecture and data flow, inspect diffs, ask questions, and explore
+Explore architecture and data flow, inspect diffs, and explore
 coding traces from one interface.
 
 <p align="center">
@@ -138,7 +138,7 @@ they come in.
 ## Privacy
 
 Review runs against local checkouts. Anonymous telemetry does not include your
-code, diffs, Review text, comments, questions, prompts, or model output. Read
+code, diffs, Review text, prompts, or model output. Read
 the [privacy overview](docs/privacy.md), inspect the complete
 [telemetry reference](docs/telemetry.md), or turn telemetry off at any time.
 

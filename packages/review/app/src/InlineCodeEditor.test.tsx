@@ -97,10 +97,8 @@ function renderPeek(active: boolean) {
             revealFindMatch() {},
             clearActiveFindMatch() {},
             clearFind() {},
-            setCommentState() {},
             onDidChangeHeight: () => ({ dispose() {} }),
             onDidError: () => ({ dispose() {} }),
-            onDidChangeCommentCardGeometry: () => ({ dispose() {} }),
             dispose() {},
           };
         },
@@ -224,7 +222,7 @@ it("searches an offscreen peek without mounting Monaco", async () => {
         path: "src/offscreen.ts",
         side: "head",
         ranges: [{ startLine: 1, endLine: 3 }],
-        commentsEnabled: false,
+        unifiedDiff: false,
       },
       {
         text: "needle",
@@ -330,10 +328,8 @@ it("emits neutral hover and navigation interactions without remounting", () => {
             revealFindMatch() {},
             clearActiveFindMatch() {},
             clearFind() {},
-            setCommentState() {},
             onDidChangeHeight: () => ({ dispose() {} }),
             onDidError: () => ({ dispose() {} }),
-            onDidChangeCommentCardGeometry: () => ({ dispose() {} }),
             dispose() {
               disposed += 1;
             },

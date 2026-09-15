@@ -1,19 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  freshSourceSessionKey,
-  parseFreshSourceSessionHarness,
-  resolveAuthoringSessionRef,
-} from "./agent-session-ref";
-
-describe("fresh tutorial source sessions", () => {
-  it("round-trips supported harnesses and rejects other source sessions", () => {
-    expect(freshSourceSessionKey("claude-code")).toBe("fresh:claude-code");
-    expect(parseFreshSourceSessionHarness("fresh:codex")).toBe("codex");
-    expect(parseFreshSourceSessionHarness("fresh:pi:extra")).toBeUndefined();
-    expect(parseFreshSourceSessionHarness("codex:thread-id")).toBeUndefined();
-  });
-});
+import { resolveAuthoringSessionRef } from "./agent-session-ref";
 
 describe("resolveAuthoringSessionRef", () => {
   it("detects Codex sessions", () => {

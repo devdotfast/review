@@ -22,7 +22,6 @@ import {
 import { defineSoftwareMap } from "../software-map-model";
 import type { ReviewSessionMode } from "./review-session-mode";
 import { createReviewSessionHandler } from "./session-handler";
-import { unusedAgentServices } from "./session-handler-test-utils";
 
 const readOnlyRecord: ReviewRecord = {
   schemaVersion: REVIEW_SCHEMA_VERSION,
@@ -51,7 +50,6 @@ describe("createReviewSessionHandler", () => {
     const reviewUuid = "11111111-1111-4111-8111-111111111111";
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -116,7 +114,6 @@ describe("createReviewSessionHandler", () => {
       { kind: "historical", revision: "c".repeat(40), record: readOnlyRecord },
     ] satisfies ReviewSessionMode[]) {
       const handler = await createReviewSessionHandler({
-        ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
         reviewPath,
@@ -178,10 +175,6 @@ describe("createReviewSessionHandler", () => {
         expect((await request("telemetry/unknown", "POST")).status).toBe(404);
 
         for (const [route, method] of [
-          ["thread-commands", "POST"],
-          ["agent-runs", "POST"],
-          ["submissions", "POST"],
-          ["comments/test", "DELETE"],
           ["software-map/artifacts/refresh", "POST"],
         ]) {
           expect((await request(route!, method)).status).toBe(409);
@@ -196,9 +189,10 @@ describe("createReviewSessionHandler", () => {
               : "review_read_only",
         });
         promoted = mode.kind === "repairValidation";
-        expect((await request("thread-commands", "POST")).status === 409).toBe(
-          mode.kind === "historical",
-        );
+        expect(
+          (await request("software-map/artifacts/refresh", "POST")).status ===
+            409,
+        ).toBe(mode.kind === "historical");
       } finally {
         await handler.close();
       }
@@ -211,7 +205,6 @@ describe("createReviewSessionHandler", () => {
     const reviewUuid = readOnlyRecord.uuid;
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -275,7 +268,6 @@ describe("createReviewSessionHandler", () => {
     });
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -354,7 +346,6 @@ describe("createReviewSessionHandler", () => {
     const token = "session-secret";
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -376,34 +367,16 @@ describe("createReviewSessionHandler", () => {
 
     try {
       const write = await handler.handle(
-        new Request(
-          new URL("/__progressive-review/comments/thread-1", sessionUrl),
-          {
-            method: "POST",
-            headers: {
-              "x-review-token": token,
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({}),
-          },
-        ),
+        new Request(new URL("/__progressive-review/dismiss", sessionUrl), {
+          method: "POST",
+          headers: { "x-review-token": token },
+        }),
       );
 
       expect(write.status).toBe(409);
       await expect(write.json()).resolves.toMatchObject({
         ok: false,
         code: "historical_revision",
-      });
-
-      const read = await handler.handle(
-        new Request(new URL("/__progressive-review/comments", sessionUrl), {
-          headers: { "x-review-token": token },
-        }),
-      );
-
-      expect(read.status).toBe(400);
-      expect(await read.json()).toMatchObject({
-        error: "The review thread database is unavailable.",
       });
     } finally {
       await handler.close();
@@ -419,7 +392,6 @@ describe("createReviewSessionHandler", () => {
 
     const handler = await createReviewSessionHandler(
       {
-        ...unusedAgentServices,
         rootPath,
         toolingRoot: rootPath,
         reviewPath,
@@ -458,67 +430,6 @@ describe("createReviewSessionHandler", () => {
     }
   });
 
-  it("acknowledges a submission before the submit hook exits", async () => {
-    const rootPath = await tempDir("review-session-handler-");
-    const reviewPath = path.join(rootPath, "review.mdx");
-    const sessionUrl = "http://127.0.0.1:5570/sessions/test-session";
-    const token = "session-secret";
-    await writeFile(reviewPath, "# Test review\n");
-
-    const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
-      rootPath,
-      toolingRoot: rootPath,
-      reviewPath,
-      routePath: "/",
-      token,
-      submitHook: "sleep 1",
-      session: {
-        rootPath,
-        baseRef: "HEAD",
-        appUrl: sessionUrl,
-        reviewPath,
-        startedAt: Date.now(),
-      },
-    });
-
-    try {
-      const response = await Promise.race([
-        handler.handle(
-          new Request(
-            new URL("/__progressive-review/submissions", sessionUrl),
-            {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "x-review-token": token,
-              },
-              body: JSON.stringify({
-                submissionId: "submission-1",
-                decision: "approve",
-                comments: [],
-              }),
-            },
-          ),
-        ),
-        new Promise<never>((_, reject) => {
-          setTimeout(
-            () => reject(new Error("Submission response waited for its hook.")),
-            250,
-          );
-        }),
-      ]);
-
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({
-        ok: true,
-        hook: { configured: true },
-      });
-    } finally {
-      await handler.close();
-    }
-  });
-
   it("resolves the live source target once per session and again when a checkout root disappears", async () => {
     const rootPath = await tempDir("review-live-source-target-");
     const reviewPath = path.join(rootPath, "review.mdx");
@@ -540,7 +451,6 @@ describe("createReviewSessionHandler", () => {
     let resolutions = 0;
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,
@@ -614,7 +524,6 @@ describe("createReviewSessionHandler", () => {
     let resolutions = 0;
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath,
       toolingRoot: rootPath,
       reviewPath,

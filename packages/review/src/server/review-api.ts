@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -12,12 +10,9 @@ import {
 import {
   type JsonObject,
   type JsonValue,
-  type ReviewCommentThreadRecord,
   type ReviewRecord,
   type ReviewSessionWire,
   type ReviewStackResponse,
-  type ReviewThreadsCommit,
-  type ReviewVerbRequest,
   isJsonObject,
   jsonString,
   parseReviewFileContentRequest,
@@ -39,18 +34,10 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
 import {
-  type ReviewAgentHarness,
-  type SessionRef,
-  resolveAuthoringSessionRef,
-} from "../agent-session-ref";
-import {
   codePeekRootSourceRanges,
   sliceReviewDiffFileToCodePeekRanges,
 } from "../codepeek-symbol-diff";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
-import { NativeMessageMirror } from "../native-agent/native-message-mirror";
-import type { AgentServer, LaunchInput } from "../native-agent/native-session";
-import { reviewCommentPrompt } from "../review-comment-agent";
 import { resolveReviewCommitScope } from "../review-commits";
 import type {
   ReviewDiffFile,
@@ -67,13 +54,6 @@ import {
 import { listReviews } from "../review-home";
 import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
 import { resolveReviewStackLayers } from "../review-stack";
-import { saveReviewSubmissionAudit } from "../review-state-store";
-import {
-  type ReviewThreadsReadOnlySnapshot,
-  readReviewThreadsReadOnly,
-  reviewThreadDbSnapshotToken,
-} from "../review-thread-store-backend";
-import { ReviewThreadsService } from "../review-threads-service";
 import {
   type ReviewSourceTarget,
   readReviewStoreRecord,
@@ -87,7 +67,6 @@ import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
 import { ReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
-import type { CreateReviewCommentInput, ReviewSubmissionEvent } from "../types";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   sanitizeUiTelemetryEvent,
@@ -101,14 +80,10 @@ import {
 import {
   parseCodePeekRoot,
   parseReviewBugReportInput,
-  parseReviewCommentInput,
   parseReviewDiffFilesInput,
-  parseReviewSubmissionInput,
   parseReviewTabTelemetryInput,
-  parseReviewThreadsCommand,
   parseSoftwareMapCodeElements,
   parseSoftwareMapCoverageClaims,
-  parseUpdateReviewCommentInput,
   requestJsonErrorStatus,
 } from "./review-api-parsers";
 import {
@@ -116,10 +91,6 @@ import {
   reviewSessionModeIsReadOnly,
   reviewSessionModeRecord,
 } from "./review-session-mode";
-
-const REVIEW_SUBMIT_HOOK_ENV = "DEV_FAST_REVIEW_SUBMIT_HOOK";
-
-export const TUTORIAL_QUESTION_SOURCE_WAIT_MS = 5_000;
 
 const CODE_PEEK_DIFF_CONTEXT_LINES = 100_000;
 
@@ -231,7 +202,6 @@ export async function captureSanitizedUiTelemetry(
 
 export interface ReviewApiOptions {
   mode: ReviewSessionMode;
-  readOnlyThreadsPath?: string;
   sourceUnavailable?: string;
   reviewPath: string;
   reviewDocumentsDir: string;
@@ -240,34 +210,14 @@ export interface ReviewApiOptions {
   toolingRoot: string;
   stateReviewPath?: string;
   telemetry?: ReviewTelemetryCapture;
-  onSubmission?: (event: ReviewSubmissionEvent) => void | Promise<void>;
   onReviewDismiss?: () => void | Promise<void>;
   onReviewDataChange?: () => void;
-  onReviewThreadsCommit?: (commit: ReviewThreadsCommit) => void;
-  onAgentStatus?: (
-    threadId: string,
-    status: "running" | "idle" | "interrupted" | "failed",
-    error?: string,
-  ) => void;
-  runReviewThreadMutation?: <T>(operation: () => T | Promise<T>) => Promise<T>;
   /** Resolves the pinned head/base worktrees for a live session. Tests
    * inject a stub; production uses `resolveReviewSourceTarget`. */
   resolveSourceTarget?: (input: {
     reviewRootPath: string;
   }) => Promise<ReviewSourceTarget>;
   reviewToken: string;
-  agentServer: (harness: ReviewAgentHarness) => AgentServer;
-  openNativeAgentTerminal: (
-    input: Extract<
-      ReviewVerbRequest,
-      { name: "openNativeAgentTerminal" }
-    >["args"],
-  ) => Promise<void>;
-  resolveQuestionSourceSession?: (
-    signal?: AbortSignal,
-  ) => Promise<SessionRef | undefined>;
-  onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
-  submitHook?: string;
   session: ReviewSessionWire;
 }
 
@@ -275,28 +225,9 @@ type ReviewApiHandler = (
   context: Context<ReviewHonoEnv>,
 ) => Promise<Response> | Response;
 
-export interface AgentThreadLookup {
-  review: string;
-  state: "draft" | "submitted";
-  comment: ReturnType<ReviewThreadsService["snapshot"]>["comments"][string];
-}
-
 export interface ReviewApi {
   app: Hono<ReviewHonoEnv>;
-  /** An existing comment or draft, available before a native session is bound. */
-  findAgentThread(threadId: string): AgentThreadLookup | undefined;
-  close(): Promise<void>;
 }
-
-interface ActiveAgentRun {
-  messageId: string;
-  canceled: boolean;
-  binding?: SessionRef;
-}
-
-const AgentInterruptRequestSchema = z.strictObject({
-  messageId: z.string().min(1).nullable(),
-});
 
 export function createReviewApi(options: ReviewApiOptions): ReviewApi {
   const readOnlyReview = reviewSessionModeRecord(options.mode);
@@ -313,90 +244,12 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     reviewDocumentsDir,
     rootPath,
     telemetry = defaultTelemetry,
-    onSubmission,
     onReviewDismiss,
-    onReviewThreadsCommit,
-    runReviewThreadMutation = async (operation) => operation(),
-    agentServer,
-    openNativeAgentTerminal,
-    resolveQuestionSourceSession,
-    onQuestionAgentSession,
-    submitHook,
     stateReviewPath,
     session,
   } = options;
 
-  const agentRootPath = session.headRootPath ?? rootPath;
-  const threadServices = new Map<string, ReviewThreadsService>();
-  const agentMirrors = new Map<string, NativeMessageMirror>();
-  const launchedAgentMessageIds = new Set<string>();
-  const canceledAgentMessageIds = new Set<string>();
-  const activeRuns = new Map<string, ActiveAgentRun>();
   const diffCorpora = new Map<string, Promise<ReviewDiffFilesResult>>();
-
-  let readOnlyThreads: {
-    key: string;
-    snapshot: ReviewThreadsReadOnlySnapshot;
-  } | null = null;
-
-  const readOnlyThreadsSnapshot = (
-    writableReviewPath: string,
-  ): ReviewThreadsReadOnlySnapshot => {
-    const readOnlyThreadsPath =
-      options.readOnlyThreadsPath ?? writableReviewPath;
-
-    const key = `${readOnlyThreadsPath}|${reviewThreadDbSnapshotToken(readOnlyThreadsPath)}`;
-
-    if (readOnlyThreads?.key !== key) {
-      readOnlyThreads = {
-        key,
-        snapshot: readReviewThreadsReadOnly(readOnlyThreadsPath),
-      };
-    }
-
-    return readOnlyThreads.snapshot;
-  };
-
-  const startMirror = (
-    writableReviewPath: string,
-    service: ReviewThreadsService,
-  ): NativeMessageMirror => {
-    const mirror = new NativeMessageMirror({
-      updates: (binding) =>
-        agentServer(binding.harness).updates(binding.sessionId),
-      service,
-      onStatus: (threadId, update) =>
-        options.onAgentStatus?.(threadId, update.status, update.error),
-    });
-
-    agentMirrors.set(writableReviewPath, mirror);
-
-    return mirror;
-  };
-
-  const threadsFor = (writableReviewPath: string): ReviewThreadsService => {
-    let service = threadServices.get(writableReviewPath);
-
-    if (!service) {
-      service = new ReviewThreadsService({
-        reviewPath: writableReviewPath,
-        author: process.env.USER ?? "Reviewer",
-        onCommit: onReviewThreadsCommit,
-      });
-      threadServices.set(writableReviewPath, service);
-    }
-
-    return service;
-  };
-
-  const mirrorFor = (writableReviewPath: string): NativeMessageMirror => {
-    const service = threadsFor(writableReviewPath);
-
-    return (
-      agentMirrors.get(writableReviewPath) ??
-      startMirror(writableReviewPath, service)
-    );
-  };
 
   // Every handler answers through the same catch, so a thrown parse or state
   // error becomes the route's JSON error response instead of a 500.
@@ -430,66 +283,11 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       }
     };
 
-  // Resolve the document once for routes that operate on its stored state.
-  const documentRoute = (
-    access: "read" | "write",
-    handler: (
-      context: Context<ReviewHonoEnv>,
-      writableReviewPath: string,
-    ) => Promise<Response> | Response,
-  ): ReviewApiHandler =>
-    route(access, (context) => {
-      const writableReviewPath =
-        stateReviewPath ??
-        resolveWritableReviewPath(new URL(context.req.url), {
-          reviewPath,
-          reviewDocumentsDir,
-        });
-
-      if (!writableReviewPath) {
-        return reviewApiJsonResponse(404, {
-          ok: false,
-          error: "Review document not found.",
-        });
-      }
-
-      return handler(context, writableReviewPath);
-    });
-
-  const threadMutation = (
-    handler: (
-      context: Context<ReviewHonoEnv>,
-      writableReviewPath: string,
-    ) => Promise<Response> | Response,
-  ): ReviewApiHandler =>
-    documentRoute("write", (context, writableReviewPath) =>
-      runReviewThreadMutation(() => handler(context, writableReviewPath)),
-    );
-
   app.post("/telemetry/tab", route("read", telemetryTab));
   app.post("/telemetry/event", route("read", telemetryEvent));
   app.post("/telemetry/bug-report", route("read", bugReport));
   app.get("/session", route("read", sessionInfo));
-  app.get("/comments", documentRoute("read", commentsList));
-  app.post("/thread-commands", threadMutation(threadCommand));
-  app.post("/agent-runs", documentRoute("write", agentRunCreate));
-  app.post(
-    "/comments/:threadId/agent-interrupt",
-    documentRoute("write", agentRunInterrupt),
-  );
-  app.post(
-    "/comments/:threadId/agent-terminal",
-    documentRoute("write", agentTerminalOpen),
-  );
-  app.post("/submissions", documentRoute("write", submissionCreate));
   app.post("/dismiss", route("write", reviewDismiss));
-  app.delete(
-    "/comments/:threadId/messages/:messageId",
-    threadMutation(commentMessageDelete),
-  );
-  app.post("/comments/:threadId", threadMutation(commentCreate));
-  app.patch("/comments/:threadId", threadMutation(commentUpdate));
-  app.delete("/comments/:threadId", threadMutation(commentDelete));
   app.post("/code-peek/resolve", route("read", codePeekResolve));
   app.post(
     "/software-map/resolved-data",
@@ -827,186 +625,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     });
   }
 
-  function commentsList(
-    _context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Response {
-    return reviewApiJsonResponse(200, {
-      ok: true,
-      snapshot: reviewSessionModeIsReadOnly(options.mode)
-        ? readOnlyThreadsSnapshot(writableReviewPath)
-        : threadsFor(writableReviewPath).snapshot(),
-    });
-  }
-
-  async function threadCommand(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Promise<Response> {
-    const command = parseReviewThreadsCommand(await readJson(context.req.raw));
-    const commit = threadsFor(writableReviewPath).dispatch(command);
-
-    return reviewApiJsonResponse(
-      commit ? 200 : 404,
-      commit
-        ? { ok: true, commit }
-        : { ok: false, error: "Comment thread not found." },
-    );
-  }
-
-  async function agentRunCreate(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Promise<Response> {
-    const comment = parseReviewCommentInput(await readJson(context.req.raw));
-    const service = threadsFor(writableReviewPath);
-    const draft = service.snapshot().drafts[comment.threadId];
-
-    if (!draft?.inputs.some((input) => input.messageId === comment.messageId)) {
-      return reviewApiJsonResponse(409, {
-        ok: false,
-        error: "The Review agent comment is not in the durable draft store.",
-      });
-    }
-
-    if (launchedAgentMessageIds.has(comment.messageId)) {
-      return reviewApiJsonResponse(202, { ok: true });
-    }
-
-    if (canceledAgentMessageIds.has(comment.messageId))
-      return reviewApiJsonResponse(202, { ok: true });
-
-    if (activeRuns.has(comment.threadId))
-      return reviewApiJsonResponse(409, {
-        ok: false,
-        error: "Close the current terminal before asking again.",
-      });
-    launchedAgentMessageIds.add(comment.messageId);
-
-    const run: ActiveAgentRun = {
-      messageId: comment.messageId,
-      canceled: false,
-    };
-
-    activeRuns.set(comment.threadId, run);
-    const mirror = mirrorFor(writableReviewPath);
-
-    try {
-      await answerReviewComment({
-        comment,
-        rootPath: agentRootPath,
-        session,
-        service,
-        mirror,
-        agentServer,
-        openNativeAgentTerminal,
-        resolveQuestionSourceSession,
-        onQuestionAgentSession,
-        onLaunched: async (binding) => {
-          run.binding = binding;
-
-          if (!run.canceled) return true;
-          await agentServer(binding.harness).interrupt(binding.sessionId);
-          activeRuns.delete(comment.threadId);
-
-          return false;
-        },
-      });
-    } catch (error) {
-      launchedAgentMessageIds.delete(comment.messageId);
-      activeRuns.delete(comment.threadId);
-      options.onAgentStatus?.(comment.threadId, "failed", String(error));
-      throw error;
-    }
-
-    return reviewApiJsonResponse(202, { ok: true });
-  }
-
-  async function agentRunInterrupt(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Promise<Response> {
-    const threadId = context.req.param("threadId");
-
-    if (!threadId) throw new Error("A comment thread ID is required.");
-
-    const body = AgentInterruptRequestSchema.parse(
-      await readJson(context.req.raw),
-    );
-
-    if (body.messageId !== null) canceledAgentMessageIds.add(body.messageId);
-    const run = activeRuns.get(threadId);
-
-    if (run && body.messageId !== null && run.messageId !== body.messageId)
-      return reviewApiJsonResponse(409, {
-        ok: false,
-        error: "This terminal belongs to another Ask.",
-      });
-
-    if (run) run.canceled = true;
-    const snapshot = threadsFor(writableReviewPath).snapshot();
-
-    const thread =
-      snapshot.drafts[threadId]?.thread ?? snapshot.comments[threadId];
-
-    const binding = run ? run.binding : thread?.agentSession;
-
-    if (binding) {
-      await agentServer(binding.harness).interrupt(binding.sessionId);
-      activeRuns.delete(threadId);
-    }
-
-    options.onAgentStatus?.(threadId, "interrupted");
-
-    return reviewApiJsonResponse(200, { ok: true });
-  }
-
-  async function agentTerminalOpen(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Promise<Response> {
-    const threadId = context.req.param("threadId");
-
-    if (!threadId) {
-      return reviewApiJsonResponse(400, {
-        ok: false,
-        error: "Thread ID is required.",
-      });
-    }
-
-    const snapshot = threadsFor(writableReviewPath).snapshot();
-
-    const agentSession =
-      snapshot.drafts[threadId]?.thread.agentSession ??
-      snapshot.comments[threadId]?.agentSession;
-
-    if (!agentSession) {
-      return reviewApiJsonResponse(404, {
-        ok: false,
-        error: "This thread has no agent terminal.",
-      });
-    }
-
-    // SAFETY: thread records store agent sessions through the review
-    // protocol schema, whose harness enum is the ReviewAgentHarness union.
-    const binding = agentSession as SessionRef;
-
-    const { command } = await agentServer(binding.harness).launch({
-      session: { resume: binding.sessionId },
-      cwd: agentRootPath,
-    });
-
-    await mirrorFor(writableReviewPath).watch(threadId, binding);
-    await openNativeAgentTerminal({
-      session: binding,
-      threadId,
-      command,
-      askMessageId: null,
-    });
-
-    return reviewApiJsonResponse(200, { ok: true });
-  }
-
   function reviewDismiss(context: Context<ReviewHonoEnv>): Response {
     // Respond first so the canvas receives its acknowledgment before the
     // desktop updates the durable review status.
@@ -1027,147 +645,6 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     });
 
     return reviewApiJsonResponse(200, { ok: true });
-  }
-
-  async function submissionCreate(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Promise<Response> {
-    const url = new URL(context.req.url);
-    const body = parseReviewSubmissionInput(await readJson(context.req.raw));
-    await runReviewThreadMutation(() =>
-      threadsFor(writableReviewPath).submitDrafts(
-        body.submissionId,
-        body.comments,
-      ),
-    );
-
-    const event = buildReviewSubmissionEvent({
-      submission: body,
-      rootPath,
-      reviewPath: writableReviewPath,
-      documentRoute: normalizeReviewRoutePath(url.searchParams.get("document")),
-      session,
-    });
-
-    // Durable audit trail (best-effort — a write failure must never discard
-    // an otherwise-valid submission).
-    try {
-      saveReviewSubmissionAudit(event.reviewPath, event);
-    } catch (error) {
-      console.error(error);
-    }
-
-    // Resolve the in-memory desktop submission before the response so a
-    // browser tab close cannot race the durable review status.
-    await onSubmission?.(event);
-    await captureSanitizedUiTelemetry(
-      telemetry,
-      context.req.raw,
-      "review_submitted",
-      {
-        decision: body.decision,
-        comment_count: body.comments.length,
-      },
-      recordClientError,
-    );
-
-    const response = reviewApiJsonResponse(200, {
-      ok: true,
-      event,
-      hook: { configured: Boolean(submitHook?.trim()) },
-    });
-
-    void runReviewSubmissionHook(event, submitHook).then((hook) => {
-      if (hook.error) console.error(hook.error);
-    });
-
-    return response;
-  }
-
-  function commentMessageDelete(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Response {
-    const commit = threadsFor(writableReviewPath).dispatch({
-      command: "comment-message.delete",
-      mutationId: randomUUID(),
-      threadId: context.req.param("threadId") ?? "",
-      messageId: context.req.param("messageId") ?? "",
-    });
-
-    return reviewApiJsonResponse(
-      commit ? 200 : 404,
-      commit
-        ? { ok: true, commit }
-        : { ok: false, error: "Comment message not found." },
-    );
-  }
-
-  async function commentCreate(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Promise<Response> {
-    const threadId = context.req.param("threadId") ?? "";
-    const body = parseReviewCommentInput(await readJson(context.req.raw));
-
-    if (threadId !== body.threadId) {
-      throw new Error("Comment path threadId must match body threadId.");
-    }
-
-    const commit = threadsFor(writableReviewPath).dispatch({
-      command: "comment.create",
-      mutationId: body.messageId,
-      input: body,
-    });
-
-    if (!commit) {
-      throw new Error("The comment could not be created.");
-    }
-
-    return reviewApiJsonResponse(200, { ok: true, commit });
-  }
-
-  async function commentUpdate(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Promise<Response> {
-    const threadId = context.req.param("threadId") ?? "";
-    const body = parseUpdateReviewCommentInput(await readJson(context.req.raw));
-
-    const commit = threadsFor(writableReviewPath).dispatch({
-      command: "comment.update",
-      mutationId: randomUUID(),
-      threadId,
-      update: body,
-    });
-
-    return reviewApiJsonResponse(
-      commit ? 200 : 404,
-      commit
-        ? { ok: true, commit }
-        : { ok: false, error: "Comment thread not found." },
-    );
-  }
-
-  function commentDelete(
-    context: Context<ReviewHonoEnv>,
-    writableReviewPath: string,
-  ): Response {
-    const threadId = context.req.param("threadId") ?? "";
-
-    const commit = threadsFor(writableReviewPath).dispatch({
-      command: "comment.delete",
-      mutationId: randomUUID(),
-      threadId,
-    });
-
-    return reviewApiJsonResponse(
-      commit ? 200 : 404,
-      commit
-        ? { ok: true, commit }
-        : { ok: false, error: "Comment thread not found." },
-    );
   }
 
   async function codePeekResolve(
@@ -1470,29 +947,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     };
   }
 
-  return {
-    app,
-    findAgentThread: (threadId) => {
-      if (!stateReviewPath) return undefined;
-      const snapshot = threadsFor(stateReviewPath).snapshot();
-      const draft = snapshot.drafts[threadId];
-      const thread = draft?.thread ?? snapshot.comments[threadId];
-
-      if (!thread) return undefined;
-
-      return {
-        review: path.basename(path.dirname(stateReviewPath)),
-        state: draft ? "draft" : "submitted",
-        comment: thread,
-      };
-    },
-    close: async () => {
-      await Promise.allSettled(
-        [...agentMirrors.values()].map((mirror) => mirror.close()),
-      );
-      agentMirrors.clear();
-    },
-  };
+  return { app };
 }
 
 function parseCodePeekGraph(value: JsonValue): "head" | "base" {
@@ -1529,17 +984,7 @@ interface ReviewApiStatusBody {
   ok: boolean;
 }
 
-/** The native-agent thread lookup answers with the thread record itself. */
-interface ReviewApiThreadBody {
-  review: string;
-  state: "draft" | "submitted";
-  comment: ReviewCommentThreadRecord;
-}
-
-type ReviewApiResponseBody =
-  | ReviewApiStatusBody
-  | ReviewApiThreadBody
-  | ReviewStackResponse;
+type ReviewApiResponseBody = ReviewApiStatusBody | ReviewStackResponse;
 
 function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
   status: number,
@@ -1551,295 +996,6 @@ function reviewApiJsonResponse<T extends ReviewApiResponseBody>(
     contentType: "application/json",
     newline: false,
   });
-}
-
-async function answerReviewComment(input: {
-  onLaunched(binding: SessionRef): Promise<boolean>;
-  comment: CreateReviewCommentInput;
-  rootPath: string;
-  session: ReviewSessionWire;
-  service: ReviewThreadsService;
-  mirror: NativeMessageMirror;
-  agentServer: (harness: ReviewAgentHarness) => AgentServer;
-  openNativeAgentTerminal: ReviewApiOptions["openNativeAgentTerminal"];
-  resolveQuestionSourceSession?: (
-    signal?: AbortSignal,
-  ) => Promise<SessionRef | undefined>;
-  onQuestionAgentSession?: (agent: SessionRef) => Promise<void>;
-}): Promise<void> {
-  const timing = (stage: string) =>
-    console.warn(
-      "[Review Ask timing]",
-      JSON.stringify({
-        at: Date.now(),
-        messageId: input.comment.messageId,
-        stage,
-      }),
-    );
-
-  timing("backend.answer-start");
-  const snapshot = input.service.snapshot();
-
-  const storedSession =
-    snapshot.drafts[input.comment.threadId]?.thread.agentSession ??
-    snapshot.comments[input.comment.threadId]?.agentSession;
-
-  const launch = await resolveReviewQuestionLaunch({
-    storedSession,
-    agent: input.session.agent,
-    freshQuestionHarness: input.session.freshQuestionHarness,
-    resolveQuestionSourceSession: input.resolveQuestionSourceSession,
-  });
-
-  if (!launch) {
-    throw new Error("This Review has no authoring agent session.");
-  }
-
-  timing("backend.source-resolved");
-
-  const launchInput: LaunchInput = {
-    prompt: {
-      id: input.comment.messageId,
-      text: reviewCommentPrompt(input.comment),
-    },
-    cwd: input.rootPath,
-  };
-
-  if (launch.session) launchInput.session = launch.session;
-
-  const { sessionId, command } = await input
-    .agentServer(launch.harness)
-    .launch(launchInput);
-
-  timing("backend.adapter-returned");
-  const binding: SessionRef = { harness: launch.harness, sessionId };
-
-  const commit = input.service.setAgentSession({
-    mutationId: randomUUID(),
-    threadId: input.comment.threadId,
-    agentSession: binding,
-  });
-
-  if (!commit) {
-    throw new Error(
-      `Review comment thread ${input.comment.threadId} no longer exists.`,
-    );
-  }
-
-  await input.mirror.watch(input.comment.threadId, binding);
-  timing("backend.mirror-attached");
-
-  if (!(await input.onLaunched(binding))) return;
-  timing("backend.terminal-dispatch");
-  await input.openNativeAgentTerminal({
-    session: binding,
-    threadId: input.comment.threadId,
-    command,
-    askMessageId: input.comment.messageId,
-  });
-  timing("backend.terminal-returned");
-  await input.onQuestionAgentSession?.(binding);
-}
-
-export interface ReviewQuestionLaunch {
-  harness: ReviewAgentHarness;
-  session?: LaunchInput["session"];
-}
-
-export async function resolveReviewQuestionLaunch(input: {
-  storedSession?: SessionRef;
-  agent?: SessionRef;
-  freshQuestionHarness?: ReviewSessionWire["freshQuestionHarness"];
-  resolveQuestionSourceSession?: (
-    signal?: AbortSignal,
-  ) => Promise<SessionRef | undefined>;
-}): Promise<ReviewQuestionLaunch> {
-  if (input.storedSession) {
-    return {
-      harness: input.storedSession.harness,
-      session: { resume: input.storedSession.sessionId },
-    };
-  }
-
-  if (input.agent) {
-    return {
-      harness: input.agent.harness,
-      session: { forkOf: input.agent.sessionId },
-    };
-  }
-
-  if (input.resolveQuestionSourceSession) {
-    const preparedSource = await resolveQuestionSourceWithinBudget(
-      input.resolveQuestionSourceSession,
-    );
-
-    return {
-      harness: preparedSource.harness,
-      session: { forkOf: preparedSource.sessionId },
-    };
-  }
-
-  if (input.freshQuestionHarness)
-    return { harness: input.freshQuestionHarness };
-  throw new Error("This Review has no authoring agent session.");
-}
-
-async function resolveQuestionSourceWithinBudget(
-  resolveSource: (signal?: AbortSignal) => Promise<SessionRef | undefined>,
-): Promise<SessionRef> {
-  const signal = AbortSignal.timeout(TUTORIAL_QUESTION_SOURCE_WAIT_MS);
-
-  const timedOut = new Promise<never>((_resolve, reject) => {
-    signal.addEventListener(
-      "abort",
-      () =>
-        reject(
-          new Error("Timed out waiting for the Review authoring session."),
-        ),
-      { once: true },
-    );
-  });
-
-  const source = await Promise.race([resolveSource(signal), timedOut]);
-
-  if (!source) throw new Error("The Review authoring session is not ready.");
-
-  return source;
-}
-
-function buildReviewSubmissionEvent(input: {
-  submission: ReturnType<typeof parseReviewSubmissionInput>;
-  rootPath: string;
-  reviewPath: string;
-  documentRoute: string;
-  session?: ReviewSessionWire;
-}): ReviewSubmissionEvent {
-  const session = input.session;
-  const agent = session?.agent ?? resolveAuthoringSessionRef(process.env);
-
-  return {
-    id: input.submission.submissionId,
-    decision: input.submission.decision,
-    createdAt: new Date().toISOString(),
-    rootPath: input.rootPath,
-    reviewPath: input.reviewPath,
-    documentRoute: input.documentRoute,
-    appUrl: session?.appUrl,
-    baseRef: session?.baseRef,
-    headRef: session?.headRef,
-    pullRequestNumber: session?.pullRequestNumber,
-    agent,
-    codexThreadId:
-      session?.codexThreadId ??
-      (agent?.harness === "codex"
-        ? agent.sessionId
-        : process.env.CODEX_THREAD_ID),
-    comments: input.submission.comments,
-    prompt: reviewSubmissionPrompt({
-      rootPath: input.rootPath,
-      reviewPath: input.reviewPath,
-      appUrl: session?.appUrl,
-      comments: input.submission.comments,
-    }),
-  };
-}
-
-function reviewSubmissionPrompt(input: {
-  rootPath: string;
-  reviewPath: string;
-  appUrl?: string;
-  comments: CreateReviewCommentInput[];
-}): string {
-  const commentLines = input.comments
-    .map((comment, index) => {
-      return `${index + 1}. Thread ${comment.threadId} targeting ${JSON.stringify(comment.target)}: ${comment.body}`;
-    })
-    .join("\n");
-
-  return `The reviewer submitted comments in the progressive review.
-
-Repo root: ${input.rootPath}
-Review document: ${input.reviewPath}
-Review app: ${input.appUrl ?? "unknown"}
-
-Read the review document, inspect the submitted comments, and make the requested code or review changes. Use \`review threads list\` (run in the repo root) as canonical thread state, and mark addressed threads with \`review threads resolve <threadId>\`. Do not edit the thread storage beside the review document by hand.
-
-You must close every open comment thread before you re-publish. Run \`review threads list\` again after you resolve the addressed threads. Do not run \`review publish\` while any comment thread is open.
-
-Submitted comments:
-${commentLines}`;
-}
-
-async function runReviewSubmissionHook(
-  event: ReviewSubmissionEvent,
-  configuredCommand?: string,
-): Promise<{
-  configured: boolean;
-  exitCode?: number;
-  error?: string;
-}> {
-  const command = configuredCommand?.trim();
-
-  if (!command) return { configured: false };
-
-  return new Promise((resolve) => {
-    const child = spawn(command, {
-      cwd: event.rootPath,
-      env: process.env,
-      shell: true,
-      stdio: ["pipe", "ignore", "pipe"],
-    });
-
-    let stderr = "";
-    let settled = false;
-    let timeout: ReturnType<typeof setTimeout>;
-
-    const finish = (result: {
-      configured: boolean;
-      exitCode?: number;
-      error?: string;
-    }) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve(result);
-    };
-
-    timeout = setTimeout(() => {
-      child.kill();
-      finish({
-        configured: true,
-        error: `${REVIEW_SUBMIT_HOOK_ENV} timed out after 10s`,
-      });
-    }, 10_000);
-    child.stderr?.setEncoding("utf8");
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.once("error", (error) => {
-      finish({ configured: true, error: error.message });
-    });
-    child.once("close", (code) => {
-      const result: Parameters<typeof finish>[0] = {
-        configured: true,
-        exitCode: code ?? 1,
-      };
-
-      if (code !== 0) {
-        result.error = stderr.trim() || `${REVIEW_SUBMIT_HOOK_ENV} failed`;
-      }
-
-      finish(result);
-    });
-    child.stdin?.end(`${JSON.stringify(event)}\n`);
-  });
-}
-
-function resolveWritableReviewPath(
-  url: URL,
-  input: { reviewPath: string; reviewDocumentsDir: string },
-): string | null {
-  return resolveReviewDocumentPath(url, input);
 }
 
 async function rematerializeReviewSoftwareMapArtifacts(input: {

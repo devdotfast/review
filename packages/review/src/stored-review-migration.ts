@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -25,12 +24,8 @@ import {
   readReviewDocumentBundle,
   writeReviewDocumentBundle,
 } from "./review-bundle";
-import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import { isAuthoringInput } from "./review-derived-paths";
-import {
-  ensureReviewPinnedCheckout,
-  removeLegacyReviewCheckouts,
-} from "./review-head-checkout";
+import { removeLegacyReviewCheckouts } from "./review-head-checkout";
 import {
   DISABLED_REVIEW_SOURCE_SESSION,
   type StoredReviewRecord,
@@ -42,12 +37,7 @@ import {
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
-import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import { reviewSourcePins } from "./review-source-pins";
-import {
-  type ReviewThreadDbMigrationOptions,
-  migrateReviewThreadDb,
-} from "./review-thread-store-backend";
 import {
   type ReviewSoftwareMapBundle,
   bundleReviewSoftwareMap,
@@ -62,38 +52,27 @@ import {
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export interface StoredReviewMigrationResult extends DroppedLegacyReviewState {
+export interface StoredReviewMigrationResult {
   failedReviewUuids?: string[];
   documents: number;
   droppedLegacyPeekReviews: number;
   droppedReviews: number;
   legacyCheckoutsRemoved: number;
-  upgradedThreadDatabases: number;
-}
-
-interface DroppedLegacyReviewState {
-  droppedComments: number;
-  droppedQuestions: number;
 }
 
 export interface StoredReviewMigrationOutcome {
   record: StoredReviewRecord;
   migrated: boolean;
-  upgradedThreadDb: boolean;
-  threadDbError?: string;
 }
 
 interface StoredReviewMigrationInput {
   reviewDir: string;
   log?: (message: string) => void;
-  createSourceSession?: typeof createReviewSourceAgentSession;
-  force?: boolean;
-  onDropLegacyCodeRecord?: ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"];
 }
 
-/** One review: record normalization, sealed artifact conversion, thread DB
- * upgrade. Shared by the CLI sweep and the store loader. Repo-level cleanup
- * (legacy checkouts, `repos/`) stays in the sweep. */
+/** One review: record normalization and sealed artifact conversion. Shared by
+ * the CLI sweep and the store loader. Repo-level cleanup (legacy checkouts,
+ * `repos/`) stays in the sweep. */
 export async function migrateStoredReview(
   input: StoredReviewMigrationInput,
 ): Promise<StoredReviewMigrationOutcome> {
@@ -105,8 +84,6 @@ export async function migrateStoredReview(
 async function migrateStoredReviewLocked(
   input: StoredReviewMigrationInput,
 ): Promise<StoredReviewMigrationOutcome> {
-  const reviewPath = path.join(input.reviewDir, "review.mdx");
-
   const value = jsonObject(
     parseJsonText(
       await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
@@ -145,34 +122,11 @@ async function migrateStoredReviewLocked(
         schemaVersion: Number(schemaVersion),
       }),
       log: input.log,
-      finalizeSource: async (record) => {
-        if (schemaVersion !== 2 && schemaVersion !== 3) return record;
-
-        const migrated = await migratePendingReviewSourceSession({
-          reviewDir: input.reviewDir,
-          value,
-          createSourceSession:
-            input.createSourceSession ?? createReviewSourceAgentSession,
-          onWarning: input.log,
-        });
-
-        return {
-          ...record,
-          sourceSession: migrated.sourceSession,
-          agentSessions: migrated.agentSessions,
-        };
-      },
+      finalizeSource: async (record) =>
+        schemaVersion === 2 || schemaVersion === 3
+          ? migrateLegacyReviewSourceSession(record, value, input.log)
+          : record,
     }));
-
-  if (schemaVersion === 2 || schemaVersion === 3) {
-    try {
-      await rm(sourceMigrationStatePath(input.reviewDir), { force: true });
-    } catch (error) {
-      input.log?.(
-        `Review source binding migrated, but pending state cleanup failed: ${errorMessage(error)}`,
-      );
-    }
-  }
 
   const record = parseStoredReviewRecord(
     parseJsonText(
@@ -180,46 +134,11 @@ async function migrateStoredReviewLocked(
     ),
   );
 
-  const dropped: Array<
-    Parameters<
-      NonNullable<ReviewThreadDbMigrationOptions["onDropLegacyCodeRecord"]>
-    >[0]
-  > = [];
-
-  const threadDbMigration: ReviewThreadDbMigrationOptions = {
-    force: input.force ?? false,
-    preserveLegacyQuestions: true,
-    onDropLegacyCodeRecord: (record) => dropped.push(record),
-  };
-
-  if (record.sourceCommit) {
-    threadDbMigration.migrateLegacyCodeRecord = createLegacyCodeRecordMigrator({
-      rootPath: record.worktreePath,
-      baseCommit: record.baseCommit,
-      headCommit: record.sourceCommit,
-    });
-  }
-
-  let upgradedThreadDb = false;
-  let threadDbError: string | undefined;
-
-  try {
-    upgradedThreadDb =
-      (await migrateReviewThreadDb(reviewPath, threadDbMigration)) ===
-      "upgraded";
-  } catch (error) {
-    threadDbError = errorMessage(error);
-  }
-
-  if (upgradedThreadDb)
-    for (const record of dropped) input.onDropLegacyCodeRecord?.(record);
-
-  return { record, migrated, upgradedThreadDb, threadDbError };
+  return { record, migrated };
 }
 
 export async function migrateStoredReviewData(input: {
   reviewHome: string;
-  force?: boolean;
   log?: (message: string) => void;
   onBlocker?: (message: string) => void;
 }): Promise<StoredReviewMigrationResult> {
@@ -231,12 +150,9 @@ export async function migrateStoredReviewData(input: {
   const total: StoredReviewMigrationResult = {
     failedReviewUuids: [],
     documents: 0,
-    droppedComments: 0,
     droppedLegacyPeekReviews: 0,
-    droppedQuestions: 0,
     droppedReviews: 0,
     legacyCheckoutsRemoved: 0,
-    upgradedThreadDatabases: 0,
   };
 
   const reviewsRoot = path.join(input.reviewHome, "reviews");
@@ -258,13 +174,6 @@ export async function migrateStoredReviewData(input: {
       const outcome = await migrateStoredReview({
         reviewDir,
         log: input.log,
-        force: input.force,
-        onDropLegacyCodeRecord: ({ threadId, kind }) => {
-          total.droppedComments += 1;
-          input.log?.(
-            `Dropped legacy ${kind} ${JSON.stringify(threadId)} from Review ${entry.name}.`,
-          );
-        },
       });
 
       const worktreePath = outcome.record.worktreePath;
@@ -277,17 +186,6 @@ export async function migrateStoredReviewData(input: {
         });
       }
 
-      if (outcome.upgradedThreadDb) {
-        total.upgradedThreadDatabases += 1;
-        input.log?.(
-          `Upgraded Review database ${entry.name} to the current schema.`,
-        );
-      }
-
-      if (outcome.threadDbError)
-        input.onBlocker?.(
-          `Review ${entry.name} database migration failed: ${outcome.threadDbError}`,
-        );
       total.documents += 1;
     } catch (error) {
       total.failedReviewUuids?.push(entry.name);
@@ -300,181 +198,37 @@ export async function migrateStoredReviewData(input: {
   return total;
 }
 
-const sourceMigrationStateSchema = z.discriminatedUnion("state", [
-  z.object({
-    version: z.literal(1),
-    key: z.string(),
-    state: z.literal("started"),
-  }),
-  z.object({
-    version: z.literal(1),
-    key: z.string(),
-    state: z.literal("ready"),
-    sourceSession: z
-      .string()
-      .refine(
-        (value) =>
-          value === "disabled:review" ||
-          parseAuthoringSessionKey(value) !== undefined,
-      ),
-    boundAt: z.iso.datetime(),
-  }),
-]);
+/** Schema 2 and 3 records named the authoring session `agentSession`. It
+ * becomes the source session as-is; a record without a usable session keeps
+ * the disabled marker. */
+function migrateLegacyReviewSourceSession(
+  record: StoredReviewRecord,
+  original: JsonObject,
+  log?: (message: string) => void,
+): StoredReviewRecord {
+  const source = parseAuthoringSessionKey(jsonString(original.agentSession));
 
-function sourceMigrationStatePath(reviewDir: string): string {
-  return `${reviewDir}.source-migration.json`;
-}
-
-async function migratePendingReviewSourceSession(input: {
-  reviewDir: string;
-  onWarning?: (message: string) => void;
-  createSourceSession: typeof createReviewSourceAgentSession;
-  value: JsonObject;
-}): Promise<StoredReviewRecord> {
-  const key = createHash("sha256")
-    .update(
-      JSON.stringify([
-        input.value.uuid,
-        input.value.schemaVersion,
-        input.value.agentSession,
-        input.value.sourceIdentity,
-        input.value.worktreePath,
-        input.value.baseRef,
-        input.value.baseCommit,
-        input.value.sourceCommit,
-        input.value.presentedDocumentRevision,
-        input.value.presentedRevision,
-        input.value.presentedSoftwareMapRevision,
-      ]),
-    )
-    .digest("hex");
-
-  const statePath = sourceMigrationStatePath(input.reviewDir);
-  let pending: z.infer<typeof sourceMigrationStateSchema> | undefined;
-
-  try {
-    pending = sourceMigrationStateSchema.parse(
-      parseJsonText(await readFile(statePath, "utf8")),
-    );
-  } catch (error) {
-    if (!isMissingFileError(error))
-      throw new Error(
-        `Cannot read source migration binding ${statePath}. Inspect and recover this file before retrying; no new native fork was created.`,
-        { cause: error },
-      );
-  }
-
-  if (pending && pending.key !== key) {
-    throw new Error(
-      `Source migration binding ${statePath} belongs to different Review pins. Inspect and reconcile the pending binding before retrying; no new native fork was created.`,
-    );
-  }
-
-  if (pending?.state === "started") {
-    throw new Error(
-      `Source migration binding ${statePath} was interrupted after starting a native fork. Inspect the native session and recover the pending binding before retrying; no new native fork was created.`,
-    );
-  }
-
-  if (!pending) {
-    await writePrivateJsonAtomic(statePath, {
-      version: 1,
-      key,
-      state: "started",
-    });
-    const migrated = await migrateReviewSourceSession(input);
-    pending = {
-      version: 1,
-      key,
-      state: "ready",
-      sourceSession: parseAnyStoredReviewRecord(migrated).sourceSession,
-      boundAt: new Date().toISOString(),
-    };
-    await writePrivateJsonAtomic(statePath, pending);
-  }
-
-  const { agentSession: _agentSession, ...record } = input.value;
-  const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
-
-  return parseAnyStoredReviewRecord({
-    ...record,
-    sourceSession: pending.sourceSession,
-    agentSessions:
-      pending.sourceSession === "disabled:review"
-        ? priorAgentSessions
-        : {
-            ...priorAgentSessions,
-            [pending.sourceSession]: {
-              firstSeenAt: pending.boundAt,
-              lastSeenAt: pending.boundAt,
-              roles: ["author"],
-            },
-          },
-  });
-}
-
-async function migrateReviewSourceSession(input: {
-  onWarning?: (message: string) => void;
-  createSourceSession: typeof createReviewSourceAgentSession;
-  value: JsonObject;
-}): Promise<JsonObject> {
-  const source = parseAuthoringSessionKey(jsonString(input.value.agentSession));
-  const uuid = jsonString(input.value.uuid) ?? null;
-  const worktreePath = jsonString(input.value.worktreePath) ?? null;
-  const sourceCommit = jsonString(input.value.sourceCommit) ?? null;
-  const { agentSession: _agentSession, ...record } = input.value;
-
-  if (!source || !uuid || !worktreePath || !sourceCommit) {
-    input.onWarning?.(
-      `Review ${uuid ?? "with unknown UUID"} has no usable authoring session. Ask Agent is disabled, but the Review was preserved.`,
+  if (!source) {
+    log?.(
+      `Review ${record.uuid} has no usable authoring session; the Review was preserved.`,
     );
 
-    return { ...record, sourceSession: "disabled:review" };
+    return { ...record, sourceSession: DISABLED_REVIEW_SOURCE_SESSION };
   }
 
-  try {
-    const checkout = await ensureReviewPinnedCheckout({
-      rootPath: worktreePath,
-      ref: sourceCommit,
-      reviewUuid: uuid,
-      role: "head",
-    });
+  const sourceSession = authoringSessionKey(source);
 
-    if (!checkout) {
-      throw new Error("the pinned head checkout is unavailable");
-    }
-
-    const frozen = await input.createSourceSession({
-      agent: source,
-      reviewUuid: uuid,
-      rootPath: checkout,
-    });
-
-    const sourceSession = authoringSessionKey(frozen);
-    const now = new Date().toISOString();
-    const priorAgentSessions = jsonObject(record.agentSessions) ?? {};
-
-    return {
-      ...record,
-      agentSessions: {
-        ...priorAgentSessions,
-        [sourceSession]: {
-          firstSeenAt: now,
-          lastSeenAt: now,
-          roles: ["author"],
-        },
-      },
-      sourceSession,
-    };
-  } catch (error) {
-    input.onWarning?.(
-      `Review ${uuid} source session migration failed: ${errorMessage(error)}. Ask Agent is disabled, but the Review was preserved.`,
-    );
-  }
+  if (record.agentSessions?.[sourceSession])
+    return { ...record, sourceSession };
+  const now = new Date().toISOString();
 
   return {
     ...record,
-    sourceSession: "disabled:review",
+    sourceSession,
+    agentSessions: {
+      ...record.agentSessions,
+      [sourceSession]: { firstSeenAt: now, lastSeenAt: now, roles: ["author"] },
+    },
   };
 }
 

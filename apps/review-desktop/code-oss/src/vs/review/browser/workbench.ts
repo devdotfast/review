@@ -1181,8 +1181,8 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 
 		const finishTabDrag = () => this.mainContainer.classList.remove('review-tab-dragging');
 
-		// Every top-row group shares window dragging, including Ask Agent's
-		// terminal group. Only the leftmost group needs the navigation inset.
+		// Every top-row group shares window dragging. Only the leftmost group
+		// needs the navigation inset.
 		for (const { group, rect } of visibleGroups) {
 			if (Math.abs(rect.top - topLeftRect.top) > 1) {
 				continue;

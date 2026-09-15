@@ -1,13 +1,7 @@
-import {
-  type JsonValue,
-  isJsonObject,
-  jsonString,
-} from "@dev.fast/review-protocol";
 import type {
   CSSProperties,
   ComponentPropsWithoutRef,
   ReactElement,
-  MouseEvent as ReactMouseEvent,
   ReactNode,
   Ref,
 } from "react";
@@ -30,56 +24,25 @@ import {
   anchorLinkPropsSchema,
   reviewSectionPropsSchema,
 } from "../../src/authoring";
-import type { ThreadTarget } from "../../src/types";
-import {
-  AgentChatAgentMessage,
-  AgentChatStatusRow,
-  AgentChatUserMessage,
-} from "./agent-chat";
-import { AgentMarkdown } from "./agent-markdown";
+import { AuthoredCodeSurface } from "./authored-code-surface";
 import { CodePeekCard, validatedCodePeekInputFromRef } from "./CodePeek";
-import { chipPositionClearOf } from "./document-selection";
 import { findWhitespaceNormalizedSpan } from "./highlighted-text";
 import {
   useOptionalReviewSession,
   useReviewSession,
 } from "./host/review-session";
-import {
-  CloseIcon,
-  CommentIcon,
-  MapPinIcon,
-  RefreshIcon,
-  ResolveIcon,
-  TerminalIcon,
-  TrashIcon,
-} from "./icons";
+import { CloseIcon, MapPinIcon } from "./icons";
 import { newTabLinkProps } from "./link-props";
-import { createClientId, useReview, useReviewActions } from "./review-context";
+import { useReviewActions } from "./review-context";
 import { useOptionalReviewPanelStore, useReviewPanel } from "./review-panel";
 import type {
   GuidedTour,
   GuidedTourStop,
   ReviewPeekContent,
-  ThreadsPanel,
 } from "./review-panel-model";
 import { useReviewRoots } from "./review-root-context";
-import {
-  type ThreadView,
-  commentThreadView,
-  targetQuote,
-  threadListStatus,
-  threadRelativeTimeLabel,
-} from "./review-threads";
 import { useReviewUiState } from "./review-ui-state";
 import { useBottomSheetResize } from "./side-panel-resizer";
-import {
-  PanelAuthoredCodeSurface,
-  panelEscapeAction,
-  usePanelThreadController,
-} from "./sidepeek-thread-ui";
-import { buildAnchorTextTarget, targetKey } from "./target-fingerprint";
-import { ThreadComposer } from "./thread-card";
-import { useThreadTargetState } from "./thread-target-model";
 import { TraceDocument, extractEventText } from "./trace-document";
 import { useTutorialSection } from "./tutorial-section-context";
 import { captureUiEvent } from "./ui-telemetry";
@@ -89,23 +52,17 @@ const TOUR_ACTIVE_TOP_SLACK_PX = 18;
 
 /**
  * Shared shell for everything that docks into the right panel slot: side
- * peeks, guided tours, and the threads panel. Provides the uniform header
- * (kicker, title, count, close button), closes on Escape, and slides in with
+ * peeks, commit diffs, and guided tours. Provides the uniform header (kicker,
+ * title, close button), closes on Escape, and slides in with
  * the same animation everywhere. The panel occupies a grid column, so the
  * document reflows next to it instead of being overlaid.
  */
 function ReviewPanelFrame({
   label,
   title,
-  count,
   onClose,
   closeLabel,
-  headerStart,
   titleAccessory,
-  afterHeader,
-  titleSelectionStamp,
-  onMouseUp,
-  selectionAction,
   floatingFooter,
   bodyRef,
   onBodyScroll,
@@ -114,15 +71,9 @@ function ReviewPanelFrame({
 }: {
   label: string;
   title?: string;
-  count?: number;
   onClose: () => void;
   closeLabel: string;
-  headerStart?: ReactNode;
   titleAccessory?: ReactNode;
-  afterHeader?: ReactNode;
-  titleSelectionStamp?: PanelSelectionStamp;
-  onMouseUp?: (event: ReactMouseEvent<HTMLElement>) => void;
-  selectionAction?: ReactNode;
   floatingFooter?: ReactNode;
   bodyRef?: Ref<HTMLDivElement>;
   onBodyScroll?: () => void;
@@ -140,26 +91,7 @@ function ReviewPanelFrame({
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      const app = appRef?.current;
-
-      if (!app) return;
-
-      // A comment draft popover stacked above the panel wins the Escape.
-      if (app.querySelector(".thread-popover")) return;
-
-      const panelDraftOpen =
-        app.querySelector(".side-panel .thread-card--draft") !== null;
-
-      const action = panelEscapeAction({
-        menuOpen:
-          app.querySelector('.side-panel .thread-card [role="menu"]') !== null,
-        draftHasText: panelDraftOpen ? false : null,
-        threadExpanded:
-          app.querySelector(".side-panel .panel-thread-active-card") !== null,
-      });
-
-      if (action !== "close-panel") return;
+      if (event.key !== "Escape" || !appRef?.current) return;
       event.preventDefault();
       onClose();
     };
@@ -187,18 +119,13 @@ function ReviewPanelFrame({
         .join(" ")}
       role="complementary"
       aria-label={title ?? label}
-      onMouseUp={onMouseUp}
       style={panelStyle}
     >
       <div className="side-panel-sheet-resizer" {...sheet.separatorProps} />
       <header className="side-panel-header">
         <div className="side-panel-title">
-          {headerStart}
           <span className="side-panel-kicker">{label}</span>
-          {title && (
-            <h2 {...panelSelectionStamp(titleSelectionStamp)}>{title}</h2>
-          )}
-          {count !== undefined && count > 0 && <em>{count}</em>}
+          {title && <h2>{title}</h2>}
           {titleAccessory}
         </div>
         <button
@@ -216,11 +143,9 @@ function ReviewPanelFrame({
         data-review-scroll-owner="panel"
         onScroll={onBodyScroll}
       >
-        {afterHeader}
         {children}
       </div>
       {floatingFooter}
-      {selectionAction}
     </aside>
   );
 }
@@ -257,8 +182,7 @@ export function ReviewSection(props: ReviewSectionProps) {
   const tutorialSection = useTutorialSection(title);
 
   // The active tutorial chapter opens itself. Other chapters keep the
-  // reader's own collapse state, so a thread or answer created during a
-  // completed chapter stays visible.
+  // reader's own collapse state.
   useEffect(() => {
     if (tutorialSection.state === "active") setCollapsed(false);
   }, [setCollapsed, tutorialSection.state]);
@@ -392,7 +316,6 @@ export interface ProsePeekAnchorProps {
   onAlreadyOpen?: () => void;
   className?: string;
   anchorId?: string;
-  locator?: string;
   inertFallback?: ReactNode;
   children: ReactNode;
 }
@@ -408,7 +331,6 @@ export function ProsePeekAnchor({
   onAlreadyOpen,
   className,
   anchorId,
-  locator,
   inertFallback,
   children,
 }: ProsePeekAnchorProps) {
@@ -425,7 +347,6 @@ export function ProsePeekAnchor({
       className={className}
       data-review-anchor-id={anchorId}
       data-review-anchor-open={isOpen ? "true" : undefined}
-      data-review-locator={locator}
       onClick={(event) => {
         event.preventDefault();
 
@@ -458,18 +379,11 @@ export function AnchorLink(props: AnchorLinkProps) {
       state.active?.kind === "peek" && state.active.anchor?.id === anchor.id,
   );
 
-  const target = buildAnchorTextTarget({
-    anchorId: anchor.id,
-    field: "title",
-    text: anchor.title,
-  });
-
   return (
     <ProsePeekAnchor
       href={`#review-anchor-${anchor.id}`}
       anchorId={anchor.id}
       isOpen={peekOpen}
-      locator={targetKey(target)}
       onOpen={() => {
         openPeek({
           kind: "peek",
@@ -520,212 +434,7 @@ export function keepAnchorLinkVisible(link: HTMLElement) {
   }, 240);
 }
 
-type PanelSelectionField = "title" | "detail" | "code";
-
-function isPanelSelectionField(
-  value: string | undefined,
-): value is PanelSelectionField {
-  return value === "title" || value === "detail" || value === "code";
-}
-
-interface PanelSelectionStamp {
-  anchorId: string;
-  field: PanelSelectionField;
-}
-
-interface PanelSelectionSource {
-  anchor: AnchorRef;
-  field: PanelSelectionField;
-  text: string;
-}
-
-interface PanelSelectionTarget {
-  x: number;
-  y: number;
-  target: ThreadTarget;
-  quote: string;
-}
-
-function panelSelectionStamp(
-  stamp?: PanelSelectionStamp,
-): Record<string, string> {
-  return stamp
-    ? {
-        "data-panel-selection-anchor": stamp.anchorId,
-        "data-panel-selection-field": stamp.field,
-      }
-    : {};
-}
-
-function panelSelectionSources(
-  sources: PanelSelectionSource[],
-): ReadonlyMap<string, PanelSelectionSource> {
-  return new Map(
-    sources.map((source) => [`${source.anchor.id}:${source.field}`, source]),
-  );
-}
-
-function handlePanelSelectionMouseUp(
-  event: ReactMouseEvent<HTMLElement>,
-  sources: ReadonlyMap<string, PanelSelectionSource>,
-  setTarget: (target: PanelSelectionTarget | null) => void,
-): void {
-  const selection = window.getSelection();
-
-  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
-    setTarget(null);
-
-    return;
-  }
-
-  const range = selection.getRangeAt(0);
-
-  const startSurface = panelSelectionSurface(
-    range.startContainer,
-    event.currentTarget,
-  );
-
-  const endSurface = panelSelectionSurface(
-    range.endContainer,
-    event.currentTarget,
-  );
-
-  if (!startSurface || startSurface !== endSurface) {
-    setTarget(null);
-
-    return;
-  }
-
-  const anchorId = startSurface.dataset.panelSelectionAnchor;
-  const field = startSurface.dataset.panelSelectionField;
-
-  if (!anchorId || !isPanelSelectionField(field)) {
-    setTarget(null);
-
-    return;
-  }
-
-  if (field === "code") {
-    setTarget(null);
-
-    return;
-  }
-
-  const source = sources.get(`${anchorId}:${field}`);
-
-  if (!source) {
-    setTarget(null);
-
-    return;
-  }
-
-  const selectedText = selection.toString();
-
-  if (!selectedText) {
-    setTarget(null);
-
-    return;
-  }
-
-  const prefix = document.createRange();
-  prefix.selectNodeContents(startSurface);
-  prefix.setEnd(range.startContainer, range.startOffset);
-  const mappedStart = prefix.toString().length;
-  const start = source.text.indexOf(selectedText, Math.max(0, mappedStart - 1));
-
-  if (start < 0) {
-    throw new Error(
-      "Unable to map the panel selection into its stamped surface.",
-    );
-  }
-
-  const target = buildAnchorTextTarget({
-    anchorId,
-    field,
-    text: source.text,
-    start,
-    length: selectedText.length,
-  });
-
-  const rect = range.getBoundingClientRect();
-  /* The chip stays fixed, so it is placed in the coordinate space of
-     `.review-canvas-root` — that box sets `contain: layout` and is therefore
-     the containing block for fixed descendants. Raw viewport coords land the
-     chip on the highlight. */
-  const root = event.currentTarget.closest<HTMLElement>(".review-canvas-root");
-
-  const rootRect = root?.getBoundingClientRect() ?? {
-    left: 0,
-    top: 0,
-    width: event.currentTarget.ownerDocument.documentElement.clientWidth,
-  };
-
-  setTarget({
-    ...chipPositionClearOf(rect, rootRect),
-    target,
-    quote: selectedText,
-  });
-}
-
-function panelSelectionSurface(
-  node: Node,
-  panel: HTMLElement,
-): HTMLElement | null {
-  const element = node instanceof HTMLElement ? node : node.parentElement;
-
-  const surface = element?.closest<HTMLElement>(
-    "[data-panel-selection-anchor][data-panel-selection-field]",
-  );
-
-  return surface && panel.contains(surface) ? surface : null;
-}
-
-function PanelSelectionCommentButton({
-  target,
-  clearTarget,
-}: {
-  target: PanelSelectionTarget | null;
-  clearTarget: () => void;
-}): ReactNode {
-  const review = useReview();
-
-  if (!target) return null;
-
-  return (
-    <div
-      className="selection-action-buttons panel-selection-action"
-      style={{ left: target.x, top: target.y }}
-    >
-      <button
-        type="button"
-        className="selection-action-segment selection-comment-button"
-        aria-label={
-          review.pendingCommentCount > 0
-            ? "Comment on selection"
-            : "Ask about selection"
-        }
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => {
-          review.openCommentDraft({
-            target: target.target,
-            title:
-              target.quote.length > 72
-                ? `${target.quote.slice(0, 69).trimEnd()}...`
-                : target.quote,
-            body: "",
-            draftSurface: "panel",
-          });
-          clearTarget();
-        }}
-      >
-        <CommentIcon />
-        <span>{review.pendingCommentCount > 0 ? "Comment" : "Ask"}</span>
-      </button>
-    </div>
-  );
-}
-
-/** The only top-level renderer for Review's detail and thread panel modes. */
+/** The only top-level renderer for Review's detail panel modes. */
 export function ReviewPanelHost() {
   const activePanel = useReviewPanel((state) => state.active);
   const close = useReviewPanel((state) => state.close);
@@ -750,7 +459,7 @@ export function ReviewPanelHost() {
           file={activePanel.file}
           onClose={close}
         />
-      ) : activePanel.kind === "tour" ? (
+      ) : (
         <GuidedTourPanel
           tour={activePanel.tour}
           activeAnchor={activePanel.activeAnchor}
@@ -758,8 +467,6 @@ export function ReviewPanelHost() {
           onActiveAnchorChange={activateTourAnchor}
           onClose={close}
         />
-      ) : (
-        <ThreadPanelInner panel={activePanel} onClose={close} />
       )}
     </>
   );
@@ -994,56 +701,19 @@ function CodeReviewPeekPanel({
   >;
   onClose: () => void;
 }) {
-  const {
-    softwareMapEnabled,
-    openSoftwareMapElement,
-    openCommentDraft,
-    createAnchorCommentTarget,
-  } = useReviewActions();
-
-  const titleThreadController = usePanelThreadController({
-    anchor,
-    threadHost: "title",
-  });
-
-  const [selectionTarget, setSelectionTarget] =
-    useState<PanelSelectionTarget | null>(null);
-
-  const selectionSources = panelSelectionSources([
-    { anchor, field: "title", text: anchor.title },
-    ...(content.kind === "inline-code"
-      ? [{ anchor, field: "code" as const, text: content.text }]
-      : []),
-  ]);
+  const { softwareMapEnabled, openSoftwareMapElement } = useReviewActions();
 
   return (
     <ReviewPanelFrame
       className="side-peek"
       label="Peek"
       title={anchor.title}
-      titleSelectionStamp={{ anchorId: anchor.id, field: "title" }}
-      titleAccessory={titleThreadController.renderTitleMarker()}
-      afterHeader={
-        <div className="panel-title-thread-host">
-          {titleThreadController.renderThreadArea()}
-          {titleThreadController.renderThreadFooter()}
-        </div>
-      }
       onClose={onClose}
       closeLabel="Close side peek"
-      onMouseUp={(event) =>
-        handlePanelSelectionMouseUp(event, selectionSources, setSelectionTarget)
-      }
-      selectionAction={
-        <PanelSelectionCommentButton
-          target={selectionTarget}
-          clearTarget={() => setSelectionTarget(null)}
-        />
-      }
     >
       <div className="side-peek-body">
-        <div className="peek-actions">
-          {softwareMapEnabled && anchor.softwareMapPath ? (
+        {softwareMapEnabled && anchor.softwareMapPath ? (
+          <div className="peek-actions">
             <button
               type="button"
               onClick={() => {
@@ -1055,21 +725,8 @@ function CodeReviewPeekPanel({
             >
               <MapPinIcon />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() =>
-              openCommentDraft({
-                ...createAnchorCommentTarget(anchor),
-                draftSurface: "panel",
-              })
-            }
-            className="icon-button icon-button--comment"
-            aria-label="Comment on side peek"
-          >
-            <CommentIcon />
-          </button>
-        </div>
+          </div>
+        ) : null}
 
         <div className="peek-content">
           <ReviewPeekContentView anchor={anchor} content={content} />
@@ -1108,41 +765,6 @@ export function GuidedTourPanel({
   const tailRef = useRef<HTMLDivElement | null>(null);
   const [tailHeight, setTailHeight] = useState(0);
   const [hasScrolled, setHasScrolled] = useState(false);
-
-  const [selectionTarget, setSelectionTarget] =
-    useState<PanelSelectionTarget | null>(null);
-
-  const selectionSources = panelSelectionSources(
-    tour.stops.flatMap((stop) => [
-      ...(stop.label === stop.anchor.title
-        ? [
-            {
-              anchor: stop.anchor,
-              field: "title" as const,
-              text: stop.anchor.title,
-            },
-          ]
-        : []),
-      ...(stop.detail && stop.detail === stop.anchor.detail
-        ? [
-            {
-              anchor: stop.anchor,
-              field: "detail" as const,
-              text: stop.anchor.detail,
-            },
-          ]
-        : []),
-      ...(stop.content.kind === "inline-code"
-        ? [
-            {
-              anchor: stop.anchor,
-              field: "code" as const,
-              text: stop.content.text,
-            },
-          ]
-        : []),
-    ]),
-  );
 
   useEffect(() => {
     completedTourIdRef.current = null;
@@ -1324,15 +946,6 @@ export function GuidedTourPanel({
       title={tour.title ?? "Guided tour"}
       onClose={onClose}
       closeLabel="Close guided tour"
-      onMouseUp={(event) =>
-        handlePanelSelectionMouseUp(event, selectionSources, setSelectionTarget)
-      }
-      selectionAction={
-        <PanelSelectionCommentButton
-          target={selectionTarget}
-          clearTarget={() => setSelectionTarget(null)}
-        />
-      }
       floatingFooter={
         tour.stops.length > 0 ? (
           <div className="tour-floating-footer">
@@ -1448,17 +1061,7 @@ function GuidedTourStopMain({
   onNativeFocus: () => void;
   onClose: () => void;
 }): ReactElement {
-  const {
-    openCommentDraft,
-    createAnchorCommentTarget,
-    softwareMapEnabled,
-    openSoftwareMapElement,
-  } = useReviewActions();
-
-  const titleThreadController = usePanelThreadController({
-    anchor: stop.anchor,
-    threadHost: "title",
-  });
+  const { softwareMapEnabled, openSoftwareMapElement } = useReviewActions();
 
   return (
     <div className="tour-stop-main">
@@ -1468,48 +1071,12 @@ function GuidedTourStopMain({
             Step {index + 1} of {total}
           </div>
           <div className="tour-stop-title-row">
-            <h3
-              {...panelSelectionStamp(
-                stop.label === stop.anchor.title
-                  ? { anchorId: stop.anchor.id, field: "title" }
-                  : undefined,
-              )}
-            >
-              {stop.label}
-            </h3>
-            {titleThreadController.renderTitleMarker()}
+            <h3>{stop.label}</h3>
           </div>
-          <div className="panel-title-thread-host">
-            {titleThreadController.renderThreadArea()}
-            {titleThreadController.renderThreadFooter()}
-          </div>
-          {stop.detail && (
-            <p
-              {...panelSelectionStamp(
-                stop.detail === stop.anchor.detail
-                  ? { anchorId: stop.anchor.id, field: "detail" }
-                  : undefined,
-              )}
-            >
-              {stop.detail}
-            </p>
-          )}
+          {stop.detail && <p>{stop.detail}</p>}
         </div>
-        <div className="peek-actions">
-          <button
-            type="button"
-            className="icon-button icon-button--comment"
-            aria-label={`Comment on ${stop.label}`}
-            onClick={() =>
-              openCommentDraft({
-                ...createAnchorCommentTarget(stop.anchor),
-                draftSurface: "panel",
-              })
-            }
-          >
-            <CommentIcon />
-          </button>
-          {softwareMapEnabled && stop.anchor.softwareMapPath ? (
+        {softwareMapEnabled && stop.anchor.softwareMapPath ? (
+          <div className="peek-actions">
             <button
               type="button"
               className="icon-button icon-button--map"
@@ -1521,8 +1088,8 @@ function GuidedTourStopMain({
             >
               <MapPinIcon />
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </header>
 
       <div className="peek-content">
@@ -1555,7 +1122,7 @@ export function ReviewPeekContentView({
         active={active}
         heightMode="content"
         onNativeFocus={onNativeFocus}
-        commentAnchor={anchor}
+        unifiedDiff={anchor !== undefined}
       />
     );
   }
@@ -1564,449 +1131,13 @@ export function ReviewPeekContentView({
     if (!anchor) return null;
 
     return (
-      <PanelAuthoredCodeSurface
+      <AuthoredCodeSurface
         anchor={anchor}
         code={content.text}
         language={content.language}
-        selectionStamp={panelSelectionStamp({
-          anchorId: anchor.id,
-          field: "code",
-        })}
       />
     );
   }
 
   return null;
-}
-
-/**
- * The side panel shows one comment thread, a new document-level thread, or
- * the list of all review threads.
- */
-function ThreadPanelInner({
-  panel,
-  onClose,
-}: {
-  panel: ThreadsPanel;
-  onClose: () => void;
-}) {
-  const review = useReview();
-  const session = useReviewSession();
-  const openThreads = useReviewPanel((state) => state.openThreads);
-  const setThreadsPage = useReviewPanel((state) => state.setThreadsPage);
-
-  const newAskTargetRef = useRef<{
-    threadId: string;
-    target: ThreadTarget;
-    title: string;
-  }>({
-    threadId: createClientId(),
-    target: { kind: "document" },
-    title: "Entire document",
-  });
-
-  const commentThreadId =
-    panel.page.kind === "comment" ? panel.page.threadId : null;
-
-  const target = panel.page.kind === "new-ask" ? newAskTargetRef.current : null;
-
-  const commentThread = commentThreadId
-    ? ([...review.allCommentThreads(), ...review.resolvedCommentThreads()].find(
-        (candidate) => candidate.threadId === commentThreadId,
-      ) ?? null)
-    : null;
-
-  const thread = commentThread ? commentThreadView(commentThread) : null;
-
-  const listThreads = review
-    .allCommentThreads()
-    .map(commentThreadView)
-    .sort(
-      (left, right) =>
-        (Date.parse(right.latestAt) || 0) - (Date.parse(left.latestAt) || 0),
-    );
-
-  const resolvedThreads = review
-    .resolvedCommentThreads()
-    .map(commentThreadView)
-    .sort(
-      (left, right) =>
-        (Date.parse(right.latestAt) || 0) - (Date.parse(left.latestAt) || 0),
-    );
-
-  const askNow = async (body: string) => {
-    const destination = commentThread ?? target;
-
-    if (!destination) return;
-    await review.askAgent({
-      threadId: destination.threadId,
-      messageId: createClientId(),
-      target: destination.target,
-      body,
-    });
-
-    // The native terminal may already have closed Threads by the time the
-    // ask resolves; only move within the panel if it is still open.
-    if (panel.page.kind === "new-ask") {
-      setThreadsPage({ kind: "comment", threadId: destination.threadId });
-    }
-  };
-
-  const resumeInTerminal = (item: ThreadView) => {
-    return session.surface.post({
-      name: "resumeAgentTerminal",
-      args: { threadId: item.threadId },
-    });
-  };
-
-  const addToReview = async (body: string) => {
-    const destination = commentThread ?? target;
-
-    if (!destination) return;
-    await review.saveComment({
-      threadId: destination.threadId,
-      messageId: createClientId(),
-      target: destination.target,
-      body,
-    });
-    setThreadsPage(
-      panel.page.kind === "new-ask"
-        ? { kind: "list" }
-        : { kind: "comment", threadId: destination.threadId },
-    );
-  };
-
-  const selectListThread = (item: ThreadView) => {
-    // Scroll to and highlight the anchor, but keep the detail here in the
-    // sidebar (highlight-only focus, no inline surface).
-    review.focusThread(item.threadId, { scroll: true, inline: false });
-    openThreads({ kind: "comment", threadId: item.threadId });
-  };
-
-  return (
-    <ReviewPanelFrame
-      className="question-panel"
-      label={panel.page.kind === "list" ? "Threads" : ""}
-      count={panel.page.kind === "list" ? listThreads.length : undefined}
-      onClose={onClose}
-      closeLabel="Close threads"
-      headerStart={
-        panel.page.kind !== "list" ? (
-          <button
-            type="button"
-            className="thread-chat-back"
-            aria-label="Show all threads"
-            onClick={() => openThreads()}
-          >
-            <svg viewBox="0 0 12 10" width="12" height="10" aria-hidden="true">
-              <path d="M5 1 1 5l4 4M1 5h10" />
-            </svg>
-            <span>Threads</span>
-            <em>{listThreads.length}</em>
-          </button>
-        ) : undefined
-      }
-      titleAccessory={
-        panel.page.kind === "list" ? (
-          !review.historicalRevision ? (
-            <button
-              type="button"
-              className="threads-new-ask"
-              onClick={() => {
-                captureUiEvent(session, "new_ask_opened", {
-                  via: "threads_panel",
-                });
-                openThreads({ kind: "new-ask" });
-              }}
-            >
-              + New ask
-            </button>
-          ) : undefined
-        ) : thread && !review.historicalRevision ? (
-          <>
-            <button
-              type="button"
-              className={`thread-resolve-toggle${
-                thread.resolved ? " thread-resolve-toggle--resolved" : ""
-              }`}
-              aria-pressed={thread.resolved}
-              onClick={() =>
-                void review.setCommentResolved(
-                  thread.threadId,
-                  !thread.resolved,
-                )
-              }
-            >
-              {thread.resolved ? <RefreshIcon /> : <ResolveIcon />}
-              <span>{thread.resolved ? "Unresolve" : "Resolve"}</span>
-            </button>
-            {thread.clientStatus === "draft" && (
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="Delete thread"
-                title="Delete thread"
-                onClick={async () => {
-                  await review.deleteComment(thread.threadId);
-                  review.blurThread();
-                  setThreadsPage({ kind: "list" });
-                }}
-              >
-                <TrashIcon />
-              </button>
-            )}
-            {thread.agentSession && (
-              <button
-                type="button"
-                className="thread-resume-terminal"
-                aria-label="Resume in terminal"
-                title="Resume in terminal"
-                onClick={() => void resumeInTerminal(thread)}
-              >
-                <TerminalIcon />
-              </button>
-            )}
-          </>
-        ) : undefined
-      }
-    >
-      {panel.page.kind !== "list" ? (
-        <ThreadChat
-          thread={thread}
-          quote={
-            thread?.quote ??
-            target?.title ??
-            (target ? targetQuote(target.target) : "Entire document")
-          }
-          newAsk={panel.page.kind === "new-ask"}
-          readOnly={Boolean(review.historicalRevision)}
-          onAskNow={askNow}
-          onAddToReview={addToReview}
-        />
-      ) : (
-        <>
-          <ThreadPanelList
-            threads={listThreads}
-            activeLocator={review.focusedThreadId}
-            onSelect={selectListThread}
-            onResumeInTerminal={resumeInTerminal}
-            readOnly={Boolean(review.historicalRevision)}
-            emptyState={
-              resolvedThreads.length > 0
-                ? {
-                    title: "No open threads",
-                    description: "Resolved threads are listed below.",
-                  }
-                : undefined
-            }
-          />
-          {resolvedThreads.length > 0 && (
-            <details className="thread-resolved-section">
-              <summary>
-                Resolved
-                <span>{resolvedThreads.length}</span>
-              </summary>
-              <ThreadPanelList
-                threads={resolvedThreads}
-                activeLocator={review.focusedThreadId}
-                onSelect={selectListThread}
-                onResumeInTerminal={resumeInTerminal}
-                readOnly={Boolean(review.historicalRevision)}
-              />
-            </details>
-          )}
-        </>
-      )}
-    </ReviewPanelFrame>
-  );
-}
-
-function ThreadChat({
-  thread,
-  quote,
-  newAsk,
-  readOnly,
-  onAskNow,
-  onAddToReview,
-}: {
-  thread: ThreadView | null;
-  quote: string;
-  newAsk: boolean;
-  readOnly: boolean;
-  onAskNow: (body: string) => Promise<void>;
-  onAddToReview: (body: string) => Promise<void>;
-}) {
-  return (
-    <div className="thread-chat">
-      <div className="thread-chat-context">
-        <i aria-hidden="true" />
-        <span>{quote}</span>
-      </div>
-      <div className="thread-chat-transcript">
-        {thread?.messages.map((message) => {
-          const caption = `${message.by} · ${threadRelativeTimeLabel(message.at)}`;
-
-          const body = message.agentMarkdown ? (
-            <AgentMarkdown source={message.body} />
-          ) : (
-            message.body
-          );
-
-          // A running agent turn renders as a transcript status row, the
-          // same register as the trace document's worked separator.
-          if (message.running) {
-            return (
-              <AgentChatStatusRow key={message.id} tone="running">
-                {message.body}
-              </AgentChatStatusRow>
-            );
-          }
-
-          return message.userAuthored ? (
-            <AgentChatUserMessage key={message.id} caption={caption}>
-              {body}
-            </AgentChatUserMessage>
-          ) : (
-            <AgentChatAgentMessage key={message.id} caption={caption}>
-              {body}
-            </AgentChatAgentMessage>
-          );
-        })}
-      </div>
-      {!readOnly && (
-        <div className="thread-chat-composer">
-          <ThreadComposer
-            kind="new-thread"
-            placeholder={
-              newAsk ? "Ask or add to review..." : "Reply or add to review..."
-            }
-            autoFocus={newAsk}
-            onAskNow={onAskNow}
-            onAddToReview={onAddToReview}
-          />
-          {thread?.resolved && (
-            // A reply on a resolved thread reopens it (the comment store
-            // resets the status on append); say so before the reviewer types.
-            <p className="thread-chat-reopen-hint">
-              Submitting reopens this thread.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ThreadPanelList({
-  threads,
-  activeLocator,
-  onSelect,
-  onResumeInTerminal,
-  readOnly,
-  emptyState,
-}: {
-  threads: ThreadView[];
-  activeLocator: string | null;
-  onSelect: (thread: ThreadView) => void;
-  onResumeInTerminal: (thread: ThreadView) => Promise<void>;
-  readOnly: boolean;
-  /** Copy for the empty list; the default assumes no threads exist at all. */
-  emptyState?: { title: string; description: string };
-}) {
-  if (threads.length === 0) {
-    return (
-      <div className="question-sidebar-list question-sidebar-list--empty">
-        <CommentIcon />
-        <strong>{emptyState?.title ?? "No threads yet"}</strong>
-        <p>
-          {emptyState?.description ??
-            "Comment on or ask about highlighted review text."}
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="question-sidebar-list">
-      {threads.map((thread) => (
-        <ThreadPanelListRow
-          key={thread.key}
-          thread={thread}
-          active={thread.threadId === activeLocator}
-          onSelect={onSelect}
-          onResumeInTerminal={onResumeInTerminal}
-          readOnly={readOnly}
-        />
-      ))}
-    </div>
-  );
-}
-
-function ThreadPanelListRow({
-  thread,
-  active,
-  onSelect,
-  onResumeInTerminal,
-  readOnly,
-}: {
-  thread: ThreadView;
-  active: boolean;
-  onSelect: (thread: ThreadView) => void;
-  onResumeInTerminal: (thread: ThreadView) => Promise<void>;
-  readOnly: boolean;
-}) {
-  const targetState = useThreadTargetState(thread.target);
-  const status = threadListStatus(thread);
-
-  return (
-    <div
-      className={[
-        "question-thread-row",
-        active ? "question-thread-row--active" : "",
-        thread.resolved ? "question-thread-row--resolved" : "",
-        "question-thread-row--comment",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      <button
-        type="button"
-        className="question-thread-row-select"
-        onClick={() => onSelect(thread)}
-      >
-        <span className="question-thread-row-quote">
-          <i aria-hidden="true" />
-          <strong>{thread.quote}</strong>
-        </span>
-        <span className="question-thread-row-preview">
-          {thread.messages.at(-1)?.body}
-        </span>
-        <span className="question-thread-row-status">
-          <strong className={`question-thread-status--${status}`}>
-            {status}
-          </strong>
-          <span>
-            {status === "pending"
-              ? "sends with finish review"
-              : targetState.state === "outdated"
-                ? "outdated"
-                : thread.messages.length === 1
-                  ? "1 message"
-                  : `${thread.messages.length} messages`}
-          </span>
-        </span>
-      </button>
-      {thread.agentSession && !readOnly && (
-        <button
-          type="button"
-          className="icon-button question-thread-row-open"
-          aria-label={`Resume ${thread.quote} in terminal`}
-          title="Resume in terminal"
-          onClick={() => void onResumeInTerminal(thread)}
-        >
-          <TerminalIcon />
-        </button>
-      )}
-    </div>
-  );
 }

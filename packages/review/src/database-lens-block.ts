@@ -9,6 +9,7 @@ import {
   actorRefSchema,
   peekableAnchorRefSchema,
   resolvedTargetRefSchema,
+  storeRefDataSchema,
 } from "./authoring";
 import type {
   DatabaseActor,
@@ -55,6 +56,12 @@ export const legacyDbWriteSchema = z.strictObject({
   to: resolvedTargetRefSchema,
   label: nonEmpty,
   anchor: peekableAnchorRefSchema,
+});
+
+export const legacyDatabaseLensPropsSchema = z.strictObject({
+  title: nonEmpty.optional(),
+  stores: z.record(nonEmpty, storeRefDataSchema),
+  height: z.number().positive().optional(),
 });
 
 export interface LegacyDatabaseLensProps {

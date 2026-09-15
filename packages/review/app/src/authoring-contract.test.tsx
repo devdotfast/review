@@ -35,7 +35,12 @@ const { defineActors, defineAnchors, defineStores } = definitionSession;
 // moves the rest of the registry to document props too.
 const runtimeRegistry = reviewAuthoringComponents satisfies Omit<
   ReviewAuthoringComponentRegistry,
-  "CallStackDiff" | "SequenceDiagram"
+  | "CallStackDiff"
+  | "SequenceDiagram"
+  | "DatabaseLens"
+  | "DbRead"
+  | "DbUseCase"
+  | "DbWrite"
 >;
 
 const actors = defineActors({
@@ -190,9 +195,6 @@ describe("review authoring contract", () => {
       "CallStackDiff",
       "CodePeek",
       "DatabaseLens",
-      "DbRead",
-      "DbUseCase",
-      "DbWrite",
       "ReviewSection",
       "SequenceDiagram",
       "TraceQuote",

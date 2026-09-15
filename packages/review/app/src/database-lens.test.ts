@@ -2,18 +2,22 @@ import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
 import {
-  type ActorRef,
   type StoreInput,
   type StoreRef,
   collectionSchema,
   defineCollections,
   resolveTargetRef,
+  storeRefData,
 } from "../../src/authoring";
-import { sourceAnchor } from "./api-document";
+import { databaseLensBlockFromLegacy } from "../../src/database-lens-block";
+import type { DatabaseOperation } from "../../src/review-api/document";
 import {
+  type LensStores,
+  type ResolvedOperation,
   databaseC4Snapshot,
   databaseTourStopDetail,
   initialDatabaseC4ExpandedNodeIds,
+  lensTarget,
   seedDatabaseC4DefaultExpandedNodeIds,
   selectDatabaseOperationHighlights,
 } from "./database-lens";
@@ -22,6 +26,44 @@ import { c4LayoutSignature } from "./software-map/c4-layout-geometry";
 import { defineSoftwareModel } from "./software-map/model";
 
 const { defineSoftwareStores } = createTestReviewDefinitionSession();
+
+/** Legacy store handles reach the renderer through the server lowering. */
+function canonicalStores(stores: Record<string, StoreRef>): LensStores {
+  return databaseLensBlockFromLegacy(
+    {
+      stores: Object.fromEntries(
+        Object.entries(stores).map(([id, store]) => [id, storeRefData(store)]),
+      ),
+    },
+    [],
+  ).stores;
+}
+
+const source = {
+  side: "head",
+  file: "app.ts",
+  fromLine: 1,
+  toLine: 1,
+} as const;
+
+function operation(
+  stores: LensStores,
+  input: Pick<DatabaseOperation, "store" | "collection" | "field"> & {
+    id: string;
+    kind: "read" | "write";
+    actor: string;
+    label?: string;
+  },
+): ResolvedOperation {
+  return {
+    id: input.id,
+    kind: input.kind,
+    actor: { id: input.actor, label: input.actor },
+    target: lensTarget(stores, input),
+    label: input.label ?? input.id,
+    source,
+  };
+}
 
 describe("software map backed database lenses", () => {
   it("connects a field to the referenced store, including a document collection", () => {
@@ -48,7 +90,7 @@ describe("software map backed database lenses", () => {
       },
     } satisfies Record<string, StoreInput>;
 
-    const stores: Record<string, StoreRef> = Object.fromEntries(
+    const handles: Record<string, StoreRef> = Object.fromEntries(
       Object.entries(inputs).map(([id, input]) => {
         const kind = input.kind === "relational" ? "tables" : "documents";
 
@@ -70,37 +112,29 @@ describe("software map backed database lenses", () => {
       }),
     );
 
-    const actor: ActorRef = {
-      __kind: "db-actor-ref",
-      id: "reader",
-      label: "Reader",
-    };
-
-    const anchor = sourceAnchor(
-      "source",
-      { file: "app.ts", side: "head", fromLine: 1, toLine: 1 },
-      "Read",
-    );
-
-    const targets = [
-      resolveTargetRef(stores.orders!.tables!.orders!.owner)!,
-      resolveTargetRef(stores.identity!.documents!.users!.id)!,
-    ];
+    const stores = canonicalStores(handles);
 
     const snapshot = databaseC4Snapshot({
-      useCase: { id: "read", label: "Read", operations: [] },
+      useCase: { id: "read", label: "Read" },
       stores,
-      resolvedOperations: targets.map((target) => ({
-        actor,
-        target,
-        operation: {
+      resolvedOperations: [
+        operation(stores, {
+          id: "readOwner",
           kind: "read",
-          from: target,
-          to: actor,
-          label: "Read",
-          anchor,
-        },
-      })),
+          actor: "reader",
+          store: "orders",
+          collection: "orders",
+          field: "owner",
+        }),
+        operation(stores, {
+          id: "readUser",
+          kind: "read",
+          actor: "reader",
+          store: "identity",
+          collection: "users",
+          field: "id",
+        }),
+      ],
       highlights: selectDatabaseOperationHighlights([], null),
       selectedNodeId: null,
       expandedNodeIds: new Set(["store:orders", "store:identity"]),
@@ -226,6 +260,21 @@ describe("software map backed database lenses", () => {
       label: "Default database",
       softwareMapPath: "product.defaultDb",
     });
+
+    // The lowering carries the map path and data-store kind into the block.
+    expect(canonicalStores(stores).appDb).toMatchObject({
+      storage: "relational",
+      dataStoreKind: "database",
+      softwareMapPath: "product.appDb",
+      collections: {
+        reviews: {
+          fields: {
+            id: { dataType: "text", primaryKey: true },
+            body: { dataType: "text" },
+          },
+        },
+      },
+    });
   });
 
   it("keeps collection metadata renderable when table fields collide with id and label", () => {
@@ -252,44 +301,24 @@ describe("software map backed database lenses", () => {
       },
     });
 
-    const stores = defineSoftwareStores(model, {
-      graphDb: { path: "product.graphDb" },
-    });
-
-    const fieldRef = stores.graphDb.tables?.nodes.label;
-    expect(resolveTargetRef(fieldRef)).toMatchObject({
-      __kind: "db-target-ref",
-      path: ["label"],
-    });
-
-    const actor = {
-      __kind: "db-actor-ref",
-      id: "reader",
-      label: "Reader",
-    };
-
-    const target = stores.graphDb.tables?.nodes.label;
+    const stores = canonicalStores(
+      defineSoftwareStores(model, { graphDb: { path: "product.graphDb" } }),
+    );
 
     const snapshot = databaseC4Snapshot({
-      useCase: {
-        id: "inspect",
-        label: "Inspect graph",
-        operations: [],
-      } as never,
+      useCase: { id: "inspect", label: "Inspect graph" },
       stores,
       resolvedOperations: [
-        {
-          operation: {
-            kind: "read",
-            from: target,
-            to: actor,
-            label: "reads labels",
-            anchor: { id: "readLabels", title: "Read labels" },
-          },
-          actor,
-          target,
-        },
-      ] as never,
+        operation(stores, {
+          id: "readLabels",
+          kind: "read",
+          actor: "reader",
+          store: "graphDb",
+          collection: "nodes",
+          field: "label",
+          label: "reads labels",
+        }),
+      ],
       highlights: selectDatabaseOperationHighlights([], null),
       selectedNodeId: null,
       expandedNodeIds: new Set(["store:graphDb"]),
@@ -337,47 +366,33 @@ describe("software map backed database lenses", () => {
       },
     });
 
-    const stores = defineSoftwareStores(model, {
-      graphDb: { path: "product.graphDb" },
-    });
-
-    const actor = {
-      __kind: "db-actor-ref",
-      id: "writer",
-      label: "Writer",
-    };
+    const stores = canonicalStores(
+      defineSoftwareStores(model, { graphDb: { path: "product.graphDb" } }),
+    );
 
     const operations = [
-      {
-        operation: {
-          kind: "write",
-          from: actor,
-          to: stores.graphDb.tables?.nodes.id,
-          label: "writes node ids",
-          anchor: { id: "writeNodes", title: "Write nodes" },
-        },
-        actor,
-        target: stores.graphDb.tables?.nodes.id,
-      },
-      {
-        operation: {
-          kind: "write",
-          from: actor,
-          to: stores.graphDb.tables?.edges.from_id,
-          label: "writes edge endpoints",
-          anchor: { id: "writeEdges", title: "Write edges" },
-        },
-        actor,
-        target: stores.graphDb.tables?.edges.from_id,
-      },
-    ] as never;
+      operation(stores, {
+        id: "writeNodes",
+        kind: "write",
+        actor: "writer",
+        store: "graphDb",
+        collection: "nodes",
+        field: "id",
+        label: "writes node ids",
+      }),
+      operation(stores, {
+        id: "writeEdges",
+        kind: "write",
+        actor: "writer",
+        store: "graphDb",
+        collection: "edges",
+        field: "from_id",
+        label: "writes edge endpoints",
+      }),
+    ];
 
     const snapshot = databaseC4Snapshot({
-      useCase: {
-        id: "publish",
-        label: "Publish graph",
-        operations: [],
-      } as never,
+      useCase: { id: "publish", label: "Publish graph" },
       stores,
       resolvedOperations: operations,
       highlights: selectDatabaseOperationHighlights([], null),
@@ -466,40 +481,30 @@ describe("software map backed database lenses", () => {
       },
     });
 
-    const stores = defineSoftwareStores(model, {
-      graphDb: { path: "product.graphDb" },
-    });
-
-    const actor = {
-      __kind: "db-actor-ref",
-      id: "reader",
-      label: "Reader",
-    };
+    const stores = canonicalStores(
+      defineSoftwareStores(model, { graphDb: { path: "product.graphDb" } }),
+    );
 
     const operations = [
-      {
-        operation: {
-          kind: "read",
-          from: stores.graphDb.tables?.nodes.id,
-          to: actor,
-          label: "reads node ids",
-          anchor: { id: "readNodes", title: "Read nodes" },
-        },
-        actor,
-        target: stores.graphDb.tables?.nodes.id,
-      },
-      {
-        operation: {
-          kind: "read",
-          from: stores.graphDb.tables?.edges.from_id,
-          to: actor,
-          label: "reads edge endpoints",
-          anchor: { id: "readEdges", title: "Read edges" },
-        },
-        actor,
-        target: stores.graphDb.tables?.edges.from_id,
-      },
-    ] as never;
+      operation(stores, {
+        id: "readNodes",
+        kind: "read",
+        actor: "reader",
+        store: "graphDb",
+        collection: "nodes",
+        field: "id",
+        label: "reads node ids",
+      }),
+      operation(stores, {
+        id: "readEdges",
+        kind: "read",
+        actor: "reader",
+        store: "graphDb",
+        collection: "edges",
+        field: "from_id",
+        label: "reads edge endpoints",
+      }),
+    ];
 
     const highlightInputs = [
       {
@@ -513,11 +518,7 @@ describe("software map backed database lenses", () => {
     ];
 
     const nodesSnapshot = databaseC4Snapshot({
-      useCase: {
-        id: "inspect",
-        label: "Inspect graph",
-        operations: [],
-      } as never,
+      useCase: { id: "inspect", label: "Inspect graph" },
       stores,
       resolvedOperations: operations,
       highlights: selectDatabaseOperationHighlights(
@@ -529,11 +530,7 @@ describe("software map backed database lenses", () => {
     });
 
     const edgesSnapshot = databaseC4Snapshot({
-      useCase: {
-        id: "inspect",
-        label: "Inspect graph",
-        operations: [],
-      } as never,
+      useCase: { id: "inspect", label: "Inspect graph" },
       stores,
       resolvedOperations: operations,
       highlights: selectDatabaseOperationHighlights(

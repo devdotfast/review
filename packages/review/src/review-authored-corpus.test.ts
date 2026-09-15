@@ -8,7 +8,10 @@ import { parseJsonText } from "@dev.fast/review-protocol";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import { hydrateReviewDocument } from "../app/src/review-document-hydrate";
-import { reviewAuthoringPropsSchemas } from "./authoring";
+import {
+  reviewAuthoringPropsSchemas,
+  reviewComponentDataSchemas,
+} from "./authoring";
 import { patchChangedLines } from "./call-stack-diff";
 import { buildReviewDocument } from "./document/build";
 import {
@@ -42,7 +45,7 @@ const roots: string[] = [];
 const exercisedComponents = new Set<string>();
 
 afterAll(() => {
-  const missing = Object.keys(reviewAuthoringPropsSchemas).filter(
+  const missing = Object.keys(reviewComponentDataSchemas).filter(
     (name) => !exercisedComponents.has(name),
   );
 

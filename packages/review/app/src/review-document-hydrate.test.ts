@@ -1,12 +1,7 @@
 import { parseJsonText } from "@dev.fast/review-protocol";
 import { describe, expect, it } from "vitest";
 
-import {
-  collectionSchema,
-  createReviewDefinitionSession,
-  databaseLensPropsSchema,
-  storeRefData,
-} from "../../src/authoring";
+import { createReviewDefinitionSession } from "../../src/authoring";
 import type { ReviewDocumentData } from "../../src/review-document-data";
 import { reviewDocumentDataSchema } from "../../src/review-document-data";
 import {
@@ -23,19 +18,6 @@ function reviewDocumentData(): ReviewDocumentData {
   const definition = createReviewDefinitionSession({
     softwareMap: null,
     baseSoftwareMap: null,
-  });
-
-  const stores = definition.defineStores({
-    db: {
-      kind: "relational",
-      label: "Orders DB",
-      tables: {
-        orders: {
-          label: "orders",
-          schema: { status: { type: "text" } },
-        },
-      },
-    },
   });
 
   const anchor = {
@@ -81,9 +63,21 @@ function reviewDocumentData(): ReviewDocumentData {
         type: "component",
         name: "DatabaseLens",
         props: {
-          stores: parseJsonText(
-            JSON.stringify({ db: storeRefData(stores.db) }),
-          ),
+          id: "db:orders",
+          actors: {},
+          stores: {
+            db: {
+              label: "Orders DB",
+              storage: "relational",
+              collections: {
+                orders: {
+                  label: "orders",
+                  fields: { status: { label: "status", dataType: "text" } },
+                },
+              },
+            },
+          },
+          useCases: [],
         },
         children: [],
       },
@@ -155,7 +149,7 @@ describe("hydrateReviewDocument", () => {
     expect(JSON.stringify(data)).toBe(saved);
   });
 
-  it("parses data, canonicalizes anchors, and rebuilds runtime-only handles", () => {
+  it("parses data and canonicalizes anchors", () => {
     const sealed = reviewDocumentData();
     const sealedJson = JSON.stringify(sealed);
     const document = hydrateReviewDocument(ready(sealed));
@@ -163,11 +157,6 @@ describe("hydrateReviewDocument", () => {
     const codePeek = document.body[1] as HydratedReviewComponentNode;
     const databaseLens = document.body[2] as HydratedReviewComponentNode;
     const anchor = document.anchors.get("create-order");
-
-    const stores = databaseLensPropsSchema.parse({
-      ...databaseLens.props,
-      children: [],
-    }).stores;
 
     if (heading.type !== "element") {
       throw new Error("Expected the first hydrated node to remain an element.");
@@ -189,9 +178,12 @@ describe("hydrateReviewDocument", () => {
       },
     });
     expect(JSON.stringify(sealed)).toBe(sealedJson);
-    expect(collectionSchema(stores.db.tables!.orders)).toEqual({
-      status: { type: "text" },
-    });
+    // Lens props are plain document data; hydration passes them through.
+    const sealedLens = sealed.body[2];
+
+    if (sealedLens?.type !== "component")
+      throw new Error("Expected the sealed lens node.");
+    expect(databaseLens.props).toEqual(sealedLens.props);
     expect(document.documentSoftwareModels[0]?.elementsByPath).toBeInstanceOf(
       Map,
     );

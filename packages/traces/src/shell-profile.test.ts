@@ -392,6 +392,17 @@ describe("shell profile PATH setup", () => {
     expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\n");
   });
 
+  it("keeps a foreign line whose path only ends in traces/env", async () => {
+    const foreign =
+      '. "/home/u/mytraces/env"\nsource "/home/u/mytraces/env.fish"\n';
+
+    await writeFile(file(".profile"), `export A=1\n${foreign}`);
+    expect(await remove()).toEqual([]);
+    expect(await readFile(file(".profile"), "utf8")).toBe(
+      `export A=1\n${foreign}`,
+    );
+  });
+
   it("escapes a custom trace home inside the quoted rc line", async () => {
     const odd = path.join(home, 'we$ird "home"`x`\\y');
     const line = posixSourceLine(odd, home);

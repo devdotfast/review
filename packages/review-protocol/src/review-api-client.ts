@@ -122,6 +122,7 @@ export class ReviewApiClient {
     disconnected: (cause: unknown) => void,
   ) {
     let delay = 1000;
+
     while (!signal.aborted) {
       try {
         for await (const next of this.watch<T>(reviewId, signal)) {
@@ -132,6 +133,7 @@ export class ReviewApiClient {
         if (!signal.aborted) disconnected(new Error("Connection closed."));
       } catch (error) {
         if (!signal.aborted) disconnected(error);
+
         if (
           error instanceof ReviewApiError &&
           [401, 403, 404].includes(error.status)

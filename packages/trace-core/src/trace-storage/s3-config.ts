@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { jsonString, parseJsonText } from "@dev.fast/json";
 
+import { traceCommandPrefix } from "../trace-command";
 import {
   type S3Profile,
   TraceConfigurationError,
@@ -248,6 +249,11 @@ export interface S3SetupReport {
 }
 
 /** Describes the resolved direct-bucket setup without testing the network. */
+/** The message a machine with no trace configuration reads, in either CLI. */
+export function noTraceConfigurationMessage(): string {
+  return `No trace configuration found. Run \`${traceCommandPrefix()} allow .\` to configure trace capture.`;
+}
+
 export function describeS3Setup(
   env: NodeJS.ProcessEnv = process.env,
 ): S3SetupReport {
@@ -277,7 +283,7 @@ export function describeS3Setup(
       envPath,
       error: anyInput
         ? "Configuration is missing one or more required S3/R2 values."
-        : "No trace configuration found. Use Review Agent Setup to configure trace capture.",
+        : noTraceConfigurationMessage(),
     };
   }
 

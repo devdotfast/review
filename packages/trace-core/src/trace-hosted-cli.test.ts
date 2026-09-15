@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -863,6 +864,62 @@ describe("hosted trace commands", () => {
     expect(out.text()).toBe(
       `Traces from acme/app may be published to ${ORIGIN}.\n`,
     );
+  });
+
+  it("writes a harness hook only for a harness this machine holds", async () => {
+    await login();
+    mkdirSync(path.join(home, ".claude"), { recursive: true });
+    const out = collect();
+
+    expect(
+      await runTraceAllow({
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        client: client(() => Response.json(STORE)),
+        stdout: out.stream,
+        stderr: out.stream,
+      }),
+    ).toBe(0);
+    expect(existsSync(path.join(home, ".claude", "settings.json"))).toBe(true);
+    expect(existsSync(path.join(home, ".codex", "config.toml"))).toBe(false);
+    expect(existsSync(path.join(home, ".pi", "agent", "extensions"))).toBe(
+      false,
+    );
+    expect(existsSync(path.join(home, ".config", "opencode", "plugins"))).toBe(
+      false,
+    );
+    expect(out.text()).toContain(
+      "Skipped the codex, opencode, pi hooks: this machine has no such harness.",
+    );
+  });
+
+  it("writes every harness hook under --all-harnesses", async () => {
+    await login();
+    const out = collect();
+
+    expect(
+      await runTraceAllow({
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        allHarnesses: true,
+        client: client(() => Response.json(STORE)),
+        stdout: out.stream,
+        stderr: out.stream,
+      }),
+    ).toBe(0);
+    expect(existsSync(path.join(home, ".claude", "settings.json"))).toBe(true);
+    expect(existsSync(path.join(home, ".codex", "config.toml"))).toBe(true);
+    expect(
+      existsSync(
+        path.join(home, ".pi", "agent", "extensions", "review-trace.ts"),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(
+        path.join(home, ".config", "opencode", "plugins", "review-trace.ts"),
+      ),
+    ).toBe(true);
+    expect(out.text()).not.toContain("Skipped the");
   });
 
   it("names the login's origin when no hosted entry exists", async () => {

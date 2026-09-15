@@ -118,11 +118,19 @@ export function registerTraceCaptureCommands(
       .option(
         "--no-harness-hooks",
         "skip the Claude, Codex, OpenCode, and pi hook installers",
+      )
+      .option(
+        "--all-harnesses",
+        "write every harness hook, even for a harness this machine lacks",
       ),
   ).action(
     async (
       repoPath: string | undefined,
-      options: { json?: boolean; harnessHooks?: boolean },
+      options: {
+        json?: boolean;
+        harnessHooks?: boolean;
+        allHarnesses?: boolean;
+      },
     ) => {
       settings.setExitCode(
         await runtime.runTraceAllow({
@@ -130,6 +138,7 @@ export function registerTraceCaptureCommands(
           cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
           json: options.json,
           harnessHooks: options.harnessHooks,
+          allHarnesses: options.allHarnesses,
           traceCommand,
           stdout: settings.stdout,
           stderr: settings.stderr,

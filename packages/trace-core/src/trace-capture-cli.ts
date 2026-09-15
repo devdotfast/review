@@ -90,10 +90,11 @@ export async function runTraceStatus(input: {
     return 1;
   }
 
-  const [{ S3TraceStorage }, { describeS3Setup }] = await Promise.all([
-    import("./trace-storage/s3"),
-    import("./trace-storage/s3-config"),
-  ]);
+  const [{ S3TraceStorage }, { describeS3Setup, noTraceConfigurationMessage }] =
+    await Promise.all([
+      import("./trace-storage/s3"),
+      import("./trace-storage/s3-config"),
+    ]);
 
   const setup = describeS3Setup(input.scope.env);
   input.stdout.write(`Checking trace configuration (${setup.envPath})…\n`);
@@ -104,7 +105,7 @@ export async function runTraceStatus(input: {
 
   if (!setup.config) {
     input.stderr.write(
-      `trace status: ${setup.error ?? "No trace configuration found. Use Review Agent Setup to configure trace capture."}\n`,
+      `trace status: ${setup.error ?? noTraceConfigurationMessage()}\n`,
     );
 
     return 1;
@@ -146,7 +147,7 @@ export async function runTraceEnable(input: {
 }): Promise<number> {
   if (!(await traceMachineStatus(input.scope)).enabled) {
     input.stderr.write(
-      "trace enable: Trace capture is not enabled. Use Review Agent Setup first.\n",
+      `trace enable: Trace capture is not enabled. Run \`${traceCommandPrefix()} allow .\`\n`,
     );
 
     return 1;
@@ -188,7 +189,7 @@ export async function runTraceRepair(input: {
 }): Promise<number> {
   if (!(await traceMachineStatus(input.scope)).enabled) {
     input.stderr.write(
-      "trace repair: Trace capture is not enabled. Use Review Agent Setup first.\n",
+      `trace repair: Trace capture is not enabled. Run \`${traceCommandPrefix()} allow .\`\n`,
     );
 
     return 1;

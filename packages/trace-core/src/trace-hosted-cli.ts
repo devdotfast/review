@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { Writable } from "node:stream";
 
 import { git } from "@dev.fast/local-vcs";
@@ -9,6 +10,10 @@ import {
 } from "@dev.fast/trace-protocol";
 
 import {
+  AGENT_TRACE_HOOK_AGENTS,
+  type AgentTraceHookAgent,
+  type AgentTraceHookInstallResult,
+  agentTraceHomeDirectory,
   describeTraceHookOwners,
   installClaudeTraceHook,
   installCodexTraceHook,
@@ -249,11 +254,49 @@ export async function runTraceOnboard(
   });
 }
 
+/** The installer of one harness hook, keyed by the harness. */
+const HARNESS_HOOK_INSTALLERS: Record<
+  AgentTraceHookAgent,
+  (homeDir: string, command?: string) => Promise<AgentTraceHookInstallResult>
+> = {
+  claude: installClaudeTraceHook,
+  codex: installCodexTraceHook,
+  opencode: installOpenCodeTraceExtension,
+  pi: installPiTraceExtension,
+};
+
+/**
+ * Writes the hook of every harness this machine holds a directory for, and
+ * returns the harnesses it left alone. `allHarnesses` writes all four.
+ */
+async function installHarnessTraceHooks(input: {
+  homeDir: string;
+  hookExecutable?: string;
+  allHarnesses: boolean;
+}): Promise<AgentTraceHookAgent[]> {
+  const skipped: AgentTraceHookAgent[] = [];
+
+  for (const agent of AGENT_TRACE_HOOK_AGENTS) {
+    const present = existsSync(agentTraceHomeDirectory(agent, input.homeDir));
+
+    if (!input.allHarnesses && !present) {
+      skipped.push(agent);
+      continue;
+    }
+
+    await HARNESS_HOOK_INSTALLERS[agent](input.homeDir, input.hookExecutable);
+  }
+
+  return skipped;
+}
+
 export async function runTraceAllow(
   input: CliJsonOutput & { scope: TraceScope } & {
     cwd: string;
     client?: StoreClient;
     harnessHooks?: boolean;
+    /** Write every harness hook, even for a harness this machine lacks. */
+    allHarnesses?: boolean;
     /** The executable the installed hooks run; the CLI name when absent. */
     traceCommand?: TraceCommand;
   },
@@ -280,10 +323,17 @@ export async function runTraceAllow(
     const hookExecutable = input.traceCommand?.file;
 
     if (input.harnessHooks !== false) {
-      await installClaudeTraceHook(input.scope.homeDir, hookExecutable);
-      await installCodexTraceHook(input.scope.homeDir, hookExecutable);
-      await installOpenCodeTraceExtension(input.scope.homeDir, hookExecutable);
-      await installPiTraceExtension(input.scope.homeDir, hookExecutable);
+      const skipped = await installHarnessTraceHooks({
+        homeDir: input.scope.homeDir,
+        hookExecutable,
+        allHarnesses: input.allHarnesses === true,
+      });
+
+      if (skipped.length > 0) {
+        humanStream(input).write(
+          `Skipped the ${skipped.join(", ")} hook${skipped.length === 1 ? "" : "s"}: this machine has no such harness. Use --all-harnesses to write them anyway.\n`,
+        );
+      }
     }
 
     await enableTraceRepository({

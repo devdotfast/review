@@ -16,6 +16,14 @@ import { shellQuote, traceCliName } from "./trace-command";
 
 export type AgentTraceHookAgent = "claude" | "codex" | "opencode" | "pi";
 
+/** Every harness whose trace hook this package writes, in report order. */
+export const AGENT_TRACE_HOOK_AGENTS: readonly AgentTraceHookAgent[] = [
+  "claude",
+  "codex",
+  "opencode",
+  "pi",
+];
+
 export interface AgentTraceHookInstallResult {
   agent: AgentTraceHookAgent;
   path: string;
@@ -595,6 +603,26 @@ async function readTextOrEmpty(filePath: string): Promise<string> {
   return existsSync(filePath) ? readFile(filePath, "utf8") : "";
 }
 
+/**
+ * The directory one harness keeps its own configuration in. A machine without
+ * that directory does not run the harness, so an install writes it no hook.
+ */
+export function agentTraceHomeDirectory(
+  agent: AgentTraceHookAgent,
+  homeDir = os.homedir(),
+): string {
+  if (agent === "claude") return path.join(homeDir, ".claude");
+
+  if (agent === "codex") return path.join(homeDir, ".codex");
+
+  if (agent === "opencode") return path.join(homeDir, ".config", "opencode");
+
+  if (agent === "pi") return path.join(homeDir, ".pi");
+  const _exhaustive: never = agent;
+
+  throw new Error(`Unknown trace hook agent: ${String(_exhaustive)}`);
+}
+
 /** The file one harness reads its trace hook from. */
 export function agentTraceHookPath(
   agent: AgentTraceHookAgent,
@@ -606,7 +634,10 @@ export function agentTraceHookPath(
 
   if (agent === "opencode") return openCodePluginPath(homeDir);
 
-  return piExtensionPath(homeDir);
+  if (agent === "pi") return piExtensionPath(homeDir);
+  const _exhaustive: never = agent;
+
+  throw new Error(`Unknown trace hook agent: ${String(_exhaustive)}`);
 }
 
 /** Reports recognized SessionStart owners and extension owners without changing files. */

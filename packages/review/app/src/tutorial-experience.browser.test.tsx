@@ -50,6 +50,7 @@ afterEach(async () => {
   root = null;
   document.body.replaceChildren();
   delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -303,9 +304,6 @@ describe("TutorialExperience", () => {
   });
 
   it("coalesces target discovery after several DOM mutations", async () => {
-    render(tutorialBridge([]));
-    await act(async () => Promise.resolve());
-
     const frames: FrameRequestCallback[] = [];
 
     const requestFrame = vi.fn<(callback: FrameRequestCallback) => number>(
@@ -316,8 +314,45 @@ describe("TutorialExperience", () => {
       },
     );
 
+    class TestMutationObserver implements MutationObserver {
+      static readonly instances: TestMutationObserver[] = [];
+
+      observedOptions: MutationObserverInit | undefined;
+
+      constructor(readonly callback: MutationCallback) {
+        TestMutationObserver.instances.push(this);
+      }
+
+      disconnect(): void {}
+
+      observe(_target: Node, options?: MutationObserverInit): void {
+        this.observedOptions = options;
+      }
+
+      takeRecords(): MutationRecord[] {
+        return [];
+      }
+
+      notify(): void {
+        this.callback([], this);
+      }
+    }
+
     vi.stubGlobal("requestAnimationFrame", requestFrame);
     vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.stubGlobal("MutationObserver", TestMutationObserver);
+
+    render(tutorialBridge([]));
+    await act(async () => Promise.resolve());
+
+    const targetDiscoveryObserver = TestMutationObserver.instances.find(
+      ({ observedOptions }) =>
+        observedOptions?.attributeFilter?.includes("hidden"),
+    );
+
+    expect(targetDiscoveryObserver).toBeDefined();
+    requestFrame.mockClear();
+    frames.length = 0;
 
     const firstTarget = document.createElement("div");
     firstTarget.className = "tutorial-keymap-picker";
@@ -326,10 +361,11 @@ describe("TutorialExperience", () => {
     await act(async () => {
       section("Welcome").append(firstTarget);
       section("Welcome").append(secondTarget);
-      await Promise.resolve();
+      targetDiscoveryObserver?.notify();
+      targetDiscoveryObserver?.notify();
     });
 
-    await vi.waitFor(() => expect(requestFrame).toHaveBeenCalledOnce());
+    expect(requestFrame).toHaveBeenCalledOnce();
     act(() => frames[0]?.(0));
     expect(firstTarget.dataset.tutorialTarget).toBe("chooseKeymap");
     expect(secondTarget.dataset.tutorialTarget).toBe("chooseKeymap");

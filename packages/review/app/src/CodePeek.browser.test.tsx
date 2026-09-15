@@ -90,7 +90,7 @@ describe("CodePeek native editor", () => {
       );
     });
 
-    expect(created).toHaveLength(2);
+    await vi.waitFor(() => expect(created).toHaveLength(2));
     expect(created).toMatchObject([
       {
         path: "src/current.ts",
@@ -175,20 +175,22 @@ describe("CodePeek native editor", () => {
         </>,
       ),
     );
-    expect(created).toMatchObject([
-      {
-        path: "src/previous.ts",
-        side: "base",
-        title: "src/previous.ts:7-9",
-        heightMode: "capped",
-      },
-      {
-        path: "src/current.ts",
-        side: "head",
-        title: "src/current.ts:20",
-        heightMode: "capped",
-      },
-    ]);
+    await vi.waitFor(() => {
+      expect(created).toMatchObject([
+        {
+          path: "src/previous.ts",
+          side: "base",
+          title: "src/previous.ts:7-9",
+          heightMode: "capped",
+        },
+        {
+          path: "src/current.ts",
+          side: "head",
+          title: "src/current.ts:20",
+          heightMode: "capped",
+        },
+      ]);
+    });
     expect(
       [...container.querySelectorAll("[data-review-inline-editor]")].every(
         (placeholder) =>
@@ -231,11 +233,13 @@ describe("CodePeek native editor", () => {
       renderWithSession(<CodePeekCard input={input} heightMode="content" />),
     );
 
-    expect(created[0]).toMatchObject({
-      path: "src/example.ts",
-      ranges: [{ startLine: 1, endLine: 3 }],
-      title: "src/example.ts:1-3",
-      heightMode: "content",
+    await vi.waitFor(() => {
+      expect(created[0]).toMatchObject({
+        path: "src/example.ts",
+        ranges: [{ startLine: 1, endLine: 3 }],
+        title: "src/example.ts:1-3",
+        heightMode: "content",
+      });
     });
   });
 
@@ -257,6 +261,7 @@ describe("CodePeek native editor", () => {
       });
 
       await act(async () => renderWithSession(<CodePeekCard input={input} />));
+      await vi.waitFor(() => expect(created).toHaveLength(index + 1));
     }
 
     expect(created).toHaveLength(50);
@@ -289,13 +294,15 @@ describe("CodePeek native editor", () => {
     root = createRoot(container);
 
     await act(async () => renderWithSession(<CodePeekCard input={input} />));
-    expect(created).toHaveLength(1);
+    await vi.waitFor(() => expect(created).toHaveLength(1));
 
     session = createTestSession("next-session");
     await act(async () => renderWithSession(<CodePeekCard input={input} />));
 
-    expect(disposed).toHaveLength(1);
-    expect(created).toHaveLength(2);
+    await vi.waitFor(() => {
+      expect(disposed).toHaveLength(1);
+      expect(created).toHaveLength(2);
+    });
   });
 });
 

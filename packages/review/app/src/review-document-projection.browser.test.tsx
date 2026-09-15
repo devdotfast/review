@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { parseJsonText } from "@dev.fast/json";
 import type { ReviewCanvasTutorialBridge } from "@dev.fast/review-protocol";
 import { StrictMode, act } from "react";

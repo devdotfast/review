@@ -70,7 +70,9 @@ describe("ReviewDocumentMetaLine", () => {
     ).not.toEqual(
       expect.arrayContaining([expect.stringContaining("Hydration failed")]),
     );
-    expect(container.textContent).toContain("updated 5 min ago");
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("updated 5 min ago"),
+    );
   });
 
   it("opens an available later Review in a background tab", async () => {

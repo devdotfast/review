@@ -1,12 +1,12 @@
 {
-  "name": "@dev.fast/trace-shared",
-  "version": "0.4.0",
+  "name": "@dev.fast/trace-protocol",
+  "version": "0.5.0",
   "description": "Contract between the Review CLI and the hosted trace store.",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/devdotfast/review.git",
-    "directory": "packages/trace-shared"
+    "directory": "packages/trace-protocol"
   },
   "files": [
     "dist"
@@ -24,9 +24,9 @@
     "registry": "https://registry.npmjs.org"
   },
   "scripts": {
-    "build": "pnpm -w exec tsc -p packages/trace-shared/tsconfig.build.json",
+    "build": "pnpm -w exec tsc -p packages/trace-protocol/tsconfig.build.json",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "pnpm -w exec tsc -p packages/trace-shared/tsconfig.json --noEmit",
+    "typecheck": "pnpm -w exec tsc -p packages/trace-protocol/tsconfig.json --noEmit",
     "prepublishOnly": "pnpm run build && pnpm run test"
   },
   "dependencies": {

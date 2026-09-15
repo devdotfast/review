@@ -62,7 +62,7 @@ export {
   commitShaSchema,
   sessionIdSchema,
   sessionMetaSchema,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 
 export interface ReviewCliInstallResyncRequest {
   readonly targets: readonly ReviewCliInstallTarget[];

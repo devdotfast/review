@@ -1,5 +1,5 @@
 import type { JsonValue } from "@dev.fast/json";
-import { storeRoutes } from "@dev.fast/trace-shared";
+import { storeRoutes } from "@dev.fast/trace-protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import {

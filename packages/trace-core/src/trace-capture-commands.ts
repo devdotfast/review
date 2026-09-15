@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { MAX_TRACE_SESSIONS_PAGE } from "@dev.fast/trace-shared";
+import { MAX_TRACE_SESSIONS_PAGE } from "@dev.fast/trace-protocol";
 import { InvalidArgumentError } from "commander";
 import type { Command } from "commander";
 

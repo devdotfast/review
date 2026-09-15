@@ -32,7 +32,7 @@ import {
   type ListSessionsResponse,
   type PresignedUpload,
   type StoredObject,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 
 import { StoreApiError, type StoreClient } from "./store-client";
 

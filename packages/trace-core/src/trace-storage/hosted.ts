@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { git } from "@dev.fast/local-vcs";
-import { type SessionMeta, commitShaSchema } from "@dev.fast/trace-shared";
+import { type SessionMeta, commitShaSchema } from "@dev.fast/trace-protocol";
 import {
   type CompleteUploadResponse,
   MAX_TRACE_COMMITS,
@@ -9,7 +9,7 @@ import {
   type TraceObjectName,
   traceObjectNameSchema,
   uploadManifestMismatch,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 
 import { readStoreAuth } from "../store-auth";
 import { StoreApiError, StoreClient } from "../store-client";

@@ -15,7 +15,7 @@ import {
 import {
   type ReviewAgentTraceEvent,
   type ReviewAgentTraceSession,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 
 export const AGENT_TRACE_PARSER_VERSION = "1";
 

@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { isStringValue, parseJsonText } from "@dev.fast/json";
 import { git, gitAt } from "@dev.fast/local-vcs";
-import { sessionIdSchema } from "@dev.fast/trace-shared";
+import { sessionIdSchema } from "@dev.fast/trace-protocol";
 
 import {
   AGENT_TRACE_PARSER_VERSION,

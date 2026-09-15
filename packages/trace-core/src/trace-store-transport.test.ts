@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 
-import { type StoredObject, traceObjectKey } from "@dev.fast/trace-shared";
+import { type StoredObject, traceObjectKey } from "@dev.fast/trace-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 

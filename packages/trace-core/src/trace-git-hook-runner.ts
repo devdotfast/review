@@ -1,7 +1,7 @@
 import type { Writable } from "node:stream";
 
 import { git } from "@dev.fast/local-vcs";
-import { sessionIdSchema } from "@dev.fast/trace-shared";
+import { sessionIdSchema } from "@dev.fast/trace-protocol";
 
 import {
   readTrailerSessions,

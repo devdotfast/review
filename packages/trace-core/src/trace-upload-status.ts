@@ -1,6 +1,6 @@
 import type { Writable } from "node:stream";
 
-import { listUploadsQuerySchema } from "@dev.fast/trace-shared";
+import { listUploadsQuerySchema } from "@dev.fast/trace-protocol";
 
 import { StoreApiError, type StoreClient } from "./store-client";
 import type { TraceRepo } from "./trace-repo";

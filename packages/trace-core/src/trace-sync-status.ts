@@ -8,7 +8,7 @@
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { sessionIdSchema } from "@dev.fast/trace-shared";
+import { sessionIdSchema } from "@dev.fast/trace-protocol";
 import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";

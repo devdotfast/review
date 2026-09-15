@@ -1,4 +1,4 @@
-import { commitShaSchema, sessionIdSchema } from "@dev.fast/trace-shared";
+import { commitShaSchema, sessionIdSchema } from "@dev.fast/trace-protocol";
 
 import { readRepoMetaFields, readSubjectPullNumber } from "./trace-corpus";
 import { findLocalTrace } from "./trace-local-sessions";

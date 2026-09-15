@@ -207,9 +207,9 @@ importers:
       '@dev.fast/trace-core':
         specifier: workspace:*
         version: link:../trace-core
-      '@dev.fast/trace-shared':
+      '@dev.fast/trace-protocol':
         specifier: workspace:*
-        version: link:../trace-shared
+        version: link:../trace-protocol
       '@types/estree':
         specifier: 1.0.8
         version: 1.0.8
@@ -258,9 +258,9 @@ importers:
       '@dev.fast/json':
         specifier: workspace:*
         version: link:../json
-      '@dev.fast/trace-shared':
+      '@dev.fast/trace-protocol':
         specifier: workspace:*
-        version: link:../trace-shared
+        version: link:../trace-protocol
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -280,9 +280,9 @@ importers:
       '@dev.fast/local-vcs':
         specifier: workspace:0.1.0
         version: link:../local-vcs
-      '@dev.fast/trace-shared':
+      '@dev.fast/trace-protocol':
         specifier: workspace:*
-        version: link:../trace-shared
+        version: link:../trace-protocol
       commander:
         specifier: 14.0.3
         version: 14.0.3
@@ -306,7 +306,7 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@24.12.2)(esbuild@0.28.1)(jsdom@29.1.1)(tsx@4.21.0)
 
-  packages/trace-shared:
+  packages/trace-protocol:
     dependencies:
       zod:
         specifier: 4.4.3

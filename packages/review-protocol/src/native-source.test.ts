@@ -121,7 +121,7 @@ describe("native Review Protocol source generation", () => {
     }
 
     await copyFile(
-      path.join(packageRoot, "..", "trace-shared", "src", "contracts.ts"),
+      path.join(packageRoot, "..", "trace-protocol", "src", "contracts.ts"),
       path.join(sourceRoot, "trace-contracts.ts"),
     );
 

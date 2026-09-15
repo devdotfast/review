@@ -66,7 +66,7 @@ export default defineConfig({
       /^@dev\.fast\/json$/,
       /^@dev\.fast\/local-vcs$/,
       /^@dev\.fast\/review-protocol$/,
-      /^@dev\.fast\/trace-shared$/,
+      /^@dev\.fast\/trace-protocol$/,
       /^isomorphic-git$/,
     ],
     // Re-inlining core's public declaration graph exhausts the default Node heap.

@@ -89,7 +89,7 @@ const traceContractsPath =
         path.dirname(fileURLToPath(import.meta.url)),
         "..",
         "..",
-        "trace-shared",
+        "trace-protocol",
         "src",
         "contracts.ts",
       )

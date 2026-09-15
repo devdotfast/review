@@ -6,7 +6,7 @@ import {
   MAX_TRACE_SESSIONS_PAGE,
   type StoreResponse,
   sessionIdSchema,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 
 import {
   describeTraceHookOwners,

@@ -26,7 +26,7 @@ import {
   byCommitSchema,
   commitShaSchema,
   sessionMetaSchema,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 
 import { errorMessage } from "../error-message";
 import {

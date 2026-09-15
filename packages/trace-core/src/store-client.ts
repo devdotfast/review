@@ -25,7 +25,7 @@ import {
   storeErrorEnvelopeSchema,
   storeResponseSchema,
   storeRoutes,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -163,7 +163,7 @@ export class StoreClient {
 
     // SAFETY: a 2xx from the device token endpoint carries the OAuth
     // device-flow success body, which this client does not validate against
-    // a zod schema because it is not part of the trace-shared contract.
+    // a zod schema because it is not part of the trace-protocol contract.
     return (await response.json()) as { access_token: string };
   }
 
@@ -329,7 +329,7 @@ export class StoreClient {
 
     if (!schema) {
       // SAFETY: only session() omits a schema. The caller defines that private
-      // response because it is not part of the trace-shared contract.
+      // response because it is not part of the trace-protocol contract.
       return raw as T;
     }
 

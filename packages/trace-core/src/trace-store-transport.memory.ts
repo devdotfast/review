@@ -14,7 +14,7 @@ import {
   type TraceHarness,
   type TraceObjectName,
   traceObjectKey,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 
 import { StoreApiError } from "./store-client";
 import {

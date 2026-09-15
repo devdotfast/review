@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { sessionIdSchema } from "@dev.fast/trace-shared";
+import { sessionIdSchema } from "@dev.fast/trace-protocol";
 
 import {
   exportOpenCodeTrace,

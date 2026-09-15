@@ -16,7 +16,7 @@
     }
   },
   "scripts": {
-    "build:workspace-deps": "pnpm --filter @dev.fast/json --filter @dev.fast/local-vcs --filter @dev.fast/trace-shared build",
+    "build:workspace-deps": "pnpm --filter @dev.fast/json --filter @dev.fast/local-vcs --filter @dev.fast/trace-protocol build",
     "prebuild": "pnpm run build:workspace-deps",
     "build": "tsdown",
     "pretest": "pnpm run build:workspace-deps",
@@ -27,7 +27,7 @@
   "dependencies": {
     "@dev.fast/json": "workspace:*",
     "@dev.fast/local-vcs": "workspace:*",
-    "@dev.fast/trace-shared": "workspace:*",
+    "@dev.fast/trace-protocol": "workspace:*",
     "commander": "14.0.3",
     "zod": "4.4.3"
   },

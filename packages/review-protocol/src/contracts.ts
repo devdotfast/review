@@ -2,7 +2,7 @@ import { type JsonValue, isJsonObject } from "@dev.fast/json";
 import {
   ReviewAgentTraceEventSchema,
   ReviewAgentTraceSessionSchema,
-} from "@dev.fast/trace-shared";
+} from "@dev.fast/trace-protocol";
 import { z } from "zod";
 
 // Version 3: `review publish` owns validation, bundling, and sealing; the

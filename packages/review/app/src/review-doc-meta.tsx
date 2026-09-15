@@ -85,7 +85,8 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
     return () => controller.abort();
   }, [meta?.pullRequestNumber, reviewFetch]);
 
-  const diff = diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : null;
+  const diff =
+    diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : null;
 
   const updatedLabel =
     meta?.updatedAtMs != null && relativeTimeNowMs != null

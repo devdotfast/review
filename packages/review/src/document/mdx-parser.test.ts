@@ -10,7 +10,7 @@ describe("review MDX transform", () => {
     expect(reviewHelperImports()).toContain("defineSoftwareStores");
   });
 
-  it("preserves GFM table cells, alignment, and block identities", async () => {
+  it("preserves GFM table cells, alignment, and block tags", async () => {
     const parsed = await parseReviewDocument(
       "# Heading\n\n| Left | Right |\n| :--- | ---: |\n| A | B |\n\nParagraph.\n\n```ts\nconst value = 1;\n```\n",
     );
@@ -20,10 +20,7 @@ describe("review MDX transform", () => {
     for (const value of [
       "table",
       "th",
-      "data-review-table",
-      "data-review-row",
-      "data-review-column",
-      "data-review-block-index",
+      "data-review-block-tag",
       "h1",
       "p",
       "pre",

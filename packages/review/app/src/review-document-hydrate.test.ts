@@ -62,6 +62,15 @@ function reviewDocumentData(): ReviewDocumentData {
     ],
     body: [
       {
+        type: "element",
+        tag: "h1",
+        props: {
+          "data-review-block-index": 0,
+          "data-review-block-tag": "h1",
+        },
+        children: [{ type: "text", value: "Orders" }],
+      },
+      {
         type: "component",
         name: "CodePeek",
         props: { anchor },
@@ -94,8 +103,9 @@ function ready(data = reviewDocumentData(), contentHash = "document-hash") {
 describe("hydrateReviewDocument", () => {
   it("parses data, canonicalizes anchors, and rebuilds runtime-only handles", () => {
     const document = hydrateReviewDocument(ready());
-    const codePeek = document.body[0] as HydratedReviewComponentNode;
-    const databaseLens = document.body[1] as HydratedReviewComponentNode;
+    const heading = document.body[0];
+    const codePeek = document.body[1] as HydratedReviewComponentNode;
+    const databaseLens = document.body[2] as HydratedReviewComponentNode;
     const anchor = document.anchors.get("create-order");
 
     const stores = databaseLensPropsSchema.parse({
@@ -104,6 +114,10 @@ describe("hydrateReviewDocument", () => {
     }).stores;
 
     expect(codePeek.props.anchor).toBe(anchor);
+    expect(heading).toMatchObject({
+      type: "element",
+      props: { "data-review-block-tag": "h1" },
+    });
     expect(collectionSchema(stores.db.tables!.orders)).toEqual({
       status: { type: "text" },
     });

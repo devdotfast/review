@@ -171,7 +171,6 @@ describe("materializeReviewDocument", () => {
         return react.jsx(FRAGMENT, {
           children: [
             react.jsx("h1", {
-              "data-review-block-index": 0,
               "data-review-block-tag": "h1",
               children: "Title",
             }),
@@ -179,7 +178,6 @@ describe("materializeReviewDocument", () => {
               title: "Part",
               children: [
                 react.jsx("h2", {
-                  "data-review-block-index": 1,
                   "data-review-block-tag": "h2",
                   children: "Part",
                 }),
@@ -196,7 +194,6 @@ describe("materializeReviewDocument", () => {
       type: "element",
       tag: "h1",
       props: {
-        "data-review-block-index": 0,
         "data-review-block-tag": "h1",
       },
       children: [{ type: "text", value: "Title" }],

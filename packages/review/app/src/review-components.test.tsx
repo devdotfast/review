@@ -46,13 +46,13 @@ describe("ReviewSection", () => {
     act(() => {
       renderWithSession(
         <ReviewSection title="Testing" defaultCollapsed>
-          <p data-review-block-index="4" data-review-block-tag="p">
+          <p data-review-block-tag="p">
             Persistence suites pass.
           </p>
-          <p data-review-block-index="5" data-review-block-tag="p">
+          <p data-review-block-tag="p">
             The CLI keeps working.
           </p>
-          <ol data-review-block-index="6" data-review-block-tag="ol">
+          <ol data-review-block-tag="ol">
             <li>Existing JSON reviews are never migrated.</li>
           </ol>
         </ReviewSection>,
@@ -65,8 +65,6 @@ describe("ReviewSection", () => {
     expect(heading?.querySelector("h2")?.textContent).toBe("Testing");
     expect(heading?.querySelector("p, ol")).toBeNull();
     expect(body?.querySelectorAll(":scope > p, :scope > ol")).toHaveLength(3);
-    expect(body?.querySelector("p")?.dataset.reviewBlockIndex).toBe("4");
-    expect(body?.querySelector("ol")?.dataset.reviewBlockIndex).toBe("6");
     expect(body).toHaveProperty("hidden", true);
     expect(container.querySelector(".review-section-meta")?.textContent).toBe(
       "2 paragraphs",
@@ -96,14 +94,10 @@ describe("ReviewSection", () => {
     act(() => {
       renderWithSession(
         <ReviewSection title="Decision log">
-          <h2
-            id="decision-log"
-            data-review-block-index="8"
-            data-review-block-tag="h2"
-          >
+          <h2 id="decision-log" data-review-block-tag="h2">
             Decision log
           </h2>
-          <p data-review-block-index="9" data-review-block-tag="p">
+          <p data-review-block-tag="p">
             Existing JSON reviews are never migrated.
           </p>
         </ReviewSection>,
@@ -115,9 +109,7 @@ describe("ReviewSection", () => {
 
     expect(container.querySelectorAll("h2")).toHaveLength(1);
     expect(heading?.id).toBe("decision-log");
-    expect(heading?.getAttribute("data-review-block-index")).toBe("8");
     expect(body?.querySelector("h2")).toBeNull();
-    expect(body?.querySelector("p")?.dataset.reviewBlockIndex).toBe("9");
   });
 
   it("recognizes an MDX heading component by its stamped block tag", () => {
@@ -135,7 +127,7 @@ describe("ReviewSection", () => {
     act(() => {
       renderWithSession(
         <ReviewSection title="Interface change">
-          <MdxHeading data-review-block-index="2" data-review-block-tag="h2">
+          <MdxHeading data-review-block-tag="h2">
             Interface change
           </MdxHeading>
           <p>Body copy.</p>
@@ -147,7 +139,6 @@ describe("ReviewSection", () => {
     const body = container.querySelector(".review-section-body");
 
     expect(heading?.textContent).toBe("Interface change");
-    expect(heading?.getAttribute("data-review-block-index")).toBe("2");
     expect(body?.textContent).toBe("Body copy.");
   });
 });

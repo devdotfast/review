@@ -115,6 +115,15 @@ function materializeChildren(
       const elementProps: ReviewElementProps = {};
 
       for (const [name, value] of Object.entries(props)) {
+        if (
+          name === "data-review-block-index" ||
+          name === "data-review-table" ||
+          name === "data-review-row" ||
+          name === "data-review-column"
+        ) {
+          continue;
+        }
+
         // MDX emits GFM table alignment as a style object. Keep that one
         // semantic value as a scalar; arbitrary authored styles remain invalid.
         if (

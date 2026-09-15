@@ -604,9 +604,6 @@ function ReviewLayoutContent({
           <section
             ref={scrollRegionRef}
             className={`review-view-region review-view-region--${activeView}`}
-            data-review-scroll-owner={
-              activeView === "review" ? "document" : undefined
-            }
           >
             <div
               className="review-document-view"

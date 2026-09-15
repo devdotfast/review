@@ -8,7 +8,6 @@
       "type": "element",
       "tag": "h1",
       "props": {
-        "data-review-block-index": "0",
         "data-review-block-tag": "h1"
       },
       "children": [
@@ -30,7 +29,6 @@
       "type": "element",
       "tag": "p",
       "props": {
-        "data-review-block-index": "1",
         "data-review-block-tag": "p"
       },
       "children": [
@@ -138,7 +136,6 @@
           "type": "element",
           "tag": "h2",
           "props": {
-            "data-review-block-index": "2",
             "data-review-block-tag": "h2"
           },
           "children": [
@@ -152,7 +149,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "3",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -175,7 +171,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "4",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -242,7 +237,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "5",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -339,7 +333,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "6",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -412,7 +405,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "7",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -454,7 +446,6 @@
           "type": "element",
           "tag": "h2",
           "props": {
-            "data-review-block-index": "8",
             "data-review-block-tag": "h2"
           },
           "children": [
@@ -468,7 +459,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "9",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -512,7 +502,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "10",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -656,7 +645,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "11",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -685,7 +673,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "12",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -780,7 +767,6 @@
           "type": "element",
           "tag": "h2",
           "props": {
-            "data-review-block-index": "13",
             "data-review-block-tag": "h2"
           },
           "children": [
@@ -794,7 +780,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "14",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -903,7 +888,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "15",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -933,7 +917,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "16",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -966,7 +949,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "17",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -1029,7 +1011,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "18",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -1092,7 +1073,6 @@
           "type": "element",
           "tag": "h2",
           "props": {
-            "data-review-block-index": "19",
             "data-review-block-tag": "h2"
           },
           "children": [
@@ -1106,7 +1086,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "20",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -1136,7 +1115,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "21",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -1169,7 +1147,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "22",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -1189,7 +1166,6 @@
           "type": "element",
           "tag": "p",
           "props": {
-            "data-review-block-index": "23",
             "data-review-block-tag": "p"
           },
           "children": [
@@ -1219,7 +1195,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "24",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -1237,7 +1212,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "25",
                 "data-review-block-tag": "li"
               },
               "children": [
@@ -1285,7 +1259,6 @@
               "type": "element",
               "tag": "li",
               "props": {
-                "data-review-block-index": "26",
                 "data-review-block-tag": "li"
               },
               "children": [

@@ -140,7 +140,6 @@ function ReviewPanelFrame({
       <div
         ref={bodyRef}
         className="review-panel-body"
-        data-review-scroll-owner="panel"
         onScroll={onBodyScroll}
       >
         {children}

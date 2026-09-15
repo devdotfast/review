@@ -11,9 +11,7 @@ import {
   createReviewSession,
 } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
-import {
-  testReviewBridge,
-} from "./review-session-test-utils";
+import { testReviewBridge } from "./review-session-test-utils";
 
 let root: Root | null = null;
 
@@ -41,13 +39,16 @@ describe("ReviewDocumentMetaLine", () => {
     now.mockReturnValue(Date.UTC(2026, 6, 22, 12, 1));
 
     const session = createReviewSession(
-      testReviewBridge({}, {
-        request: async () =>
-          Response.json({
-            ok: true,
-            updatedAtMs: Date.UTC(2026, 6, 22, 12, 0),
-          }),
-      }),
+      testReviewBridge(
+        {},
+        {
+          request: async () =>
+            Response.json({
+              ok: true,
+              updatedAtMs: Date.UTC(2026, 6, 22, 12, 0),
+            }),
+        },
+      ),
     );
     const tree = (
       <ReviewSessionProvider session={session}>

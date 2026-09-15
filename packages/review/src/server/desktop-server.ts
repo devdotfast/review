@@ -65,6 +65,9 @@ import {
   materializePublishRevision,
   reviewWithPresentedDocumentPins,
 } from "../publish-stage";
+import { createReviewApi } from "../review-api/http.js";
+import type { LocalReviewData } from "../review-api/local-data.js";
+import type { ReviewStore } from "../review-api/store.js";
 import {
   dismissReview,
   markReviewViewed,
@@ -261,6 +264,9 @@ interface TutorialAuthoringState {
 }
 
 export interface GlobalReviewServerInput {
+  /** The desktop host owns this shared database and closes it after the server. */
+  reviewStore?: ReviewStore;
+  reviewData?: LocalReviewData;
   appPid: number;
   packageRoot: string;
   toolingRoot: string;
@@ -442,6 +448,12 @@ export function createGlobalReviewServer(
 
     await next();
   });
+
+  if (input.reviewStore)
+    app.route(
+      "/reviews-api",
+      createReviewApi(input.reviewStore, input.reviewData),
+    );
   // Native agents can read their draft before launch returns and a session is bound.
   // Every lookup is authenticated by the desktop token above.
   app.get("/agent-threads/:threadId", (context) => {

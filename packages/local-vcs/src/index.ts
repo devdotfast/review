@@ -1007,6 +1007,8 @@ export async function diffTrees(input: {
   headRef: string;
   contextLines?: number;
   paths?: string[];
+  /** Treat supplied paths as exact filenames, not Git/jj patterns. */
+  literalPaths?: boolean;
 }): Promise<string> {
   const vcs = await detectLocalVcs(input.rootPath);
 
@@ -1221,6 +1223,7 @@ async function diffForKind(input: {
   paths?: string[];
   mergeBase?: boolean;
   kind: LocalVcsKind;
+  literalPaths?: boolean;
 }): Promise<string> {
   if (input.kind === "jj") {
     return readJjDiff(input).catch((cause: unknown) => {
@@ -1822,6 +1825,7 @@ async function readGitDiff(input: {
   nameOnly?: boolean;
   paths?: string[];
   mergeBase?: boolean;
+  literalPaths?: boolean;
 }): Promise<string> {
   const paths = normalizeDiffPaths(input.paths);
 
@@ -1832,6 +1836,7 @@ async function readGitDiff(input: {
     : [input.baseRef];
 
   const args = [
+    ...(input.literalPaths ? ["--literal-pathspecs"] : []),
     "-C",
     input.rootPath,
     "diff",
@@ -1917,6 +1922,7 @@ async function readJjDiff(input: {
   contextLines?: number;
   nameOnly?: boolean;
   paths?: string[];
+  literalPaths?: boolean;
 }): Promise<string> {
   const paths = normalizeDiffPaths(input.paths);
 
@@ -1935,7 +1941,9 @@ async function readJjDiff(input: {
     input.baseRef,
     ...(input.headRef ? ["--to", input.headRef] : []),
     "--ignore-working-copy",
-    ...paths,
+    ...(input.literalPaths
+      ? paths.map((file) => `root-file:${JSON.stringify(file)}`)
+      : paths),
   ];
 
   const { stdout } = await execFileAsync("jj", args, {

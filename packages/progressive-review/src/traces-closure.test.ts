@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ModuleResolutionKind,
   ScriptKind,
   ScriptTarget,
   createSourceFile,
@@ -11,7 +12,8 @@ import {
   isNamedExports,
   isNamedImports,
   isStringLiteral,
-  isTypeOnlyImportOrExportDeclaration,
+  resolveModuleName,
+  sys,
 } from "typescript";
 import { describe, expect, it } from "vitest";
 
@@ -54,25 +56,15 @@ const FORBIDDEN_PACKAGES = ["isomorphic-git", "react", "node:sqlite"];
 const SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 function resolveRelativeImport(fromFile: string, specifier: string): string {
-  const base = path.resolve(path.dirname(fromFile), specifier);
+  const resolved = resolveModuleName(
+    specifier,
+    fromFile,
+    { moduleResolution: ModuleResolutionKind.Bundler },
+    sys,
+  ).resolvedModule;
 
-  const candidates = [
-    base,
-    `${base}.ts`,
-    `${base}.tsx`,
-    path.join(path.dirname(base), path.basename(base, path.extname(base))),
-    `${path.join(path.dirname(base), path.basename(base, path.extname(base)))}.ts`,
-    `${path.join(path.dirname(base), path.basename(base, path.extname(base)))}.tsx`,
-    path.join(base, "index.ts"),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
-  }
-
-  throw new Error(
-    `Cannot resolve ${specifier} from ${path.relative(SRC_DIR, fromFile)}`,
-  );
+  if (resolved) return resolved.resolvedFileName;
+  throw new Error(`Cannot resolve ${specifier} from ${fromFile}`);
 }
 
 /** Static import specifiers of one file; type-only imports are skipped. */
@@ -88,39 +80,34 @@ function staticImportSpecifiers(file: string): string[] {
   const specifiers: string[] = [];
 
   for (const statement of sourceFile.statements) {
-    if (isImportDeclaration(statement)) {
-      const clause = statement.importClause;
-
-      if (
-        !isStringLiteral(statement.moduleSpecifier) ||
-        clause?.isTypeOnly ||
-        isTypeOnlyImportOrExportDeclaration(statement) ||
-        (!clause?.name &&
-          clause?.namedBindings &&
-          isNamedImports(clause.namedBindings) &&
-          clause.namedBindings.elements.length > 0 &&
-          clause.namedBindings.elements.every((element) => element.isTypeOnly))
-      ) {
-        continue;
-      }
-
-      specifiers.push(statement.moduleSpecifier.text);
+    if (
+      !(isImportDeclaration(statement) || isExportDeclaration(statement)) ||
+      !statement.moduleSpecifier ||
+      !isStringLiteral(statement.moduleSpecifier)
+    )
       continue;
-    }
 
-    if (!isExportDeclaration(statement) || !statement.moduleSpecifier) continue;
+    const clause = isImportDeclaration(statement)
+      ? statement.importClause
+      : statement;
+
+    if (clause?.isTypeOnly) continue;
+
+    const bindings = isImportDeclaration(statement)
+      ? statement.importClause?.namedBindings
+      : statement.exportClause;
+
+    const hasDefault =
+      isImportDeclaration(statement) && statement.importClause?.name;
 
     if (
-      !isStringLiteral(statement.moduleSpecifier) ||
-      statement.isTypeOnly ||
-      isTypeOnlyImportOrExportDeclaration(statement) ||
-      (statement.exportClause &&
-        isNamedExports(statement.exportClause) &&
-        statement.exportClause.elements.length > 0 &&
-        statement.exportClause.elements.every((element) => element.isTypeOnly))
-    ) {
+      !hasDefault &&
+      bindings &&
+      (isNamedImports(bindings) || isNamedExports(bindings)) &&
+      bindings.elements.length > 0 &&
+      bindings.elements.every((element) => element.isTypeOnly)
+    )
       continue;
-    }
 
     specifiers.push(statement.moduleSpecifier.text);
   }
@@ -128,35 +115,25 @@ function staticImportSpecifiers(file: string): string[] {
   return specifiers;
 }
 
-interface ImportClosure {
-  modules: string[];
-  packages: string[];
-}
-
-function staticImportClosure(roots: string[]): ImportClosure {
-  const seen = new Set<string>();
+function staticImportClosure(roots: string[]) {
+  const modules = new Set(roots.map((root) => path.join(SRC_DIR, root)));
   const packages = new Set<string>();
-  const queue = roots.map((root) => path.join(SRC_DIR, root));
 
-  while (queue.length > 0) {
-    const file = queue.shift();
-
-    if (file === undefined || seen.has(file)) continue;
-    seen.add(file);
-
+  // Set iteration also visits dependencies added during the walk.
+  for (const file of modules) {
     for (const specifier of staticImportSpecifiers(file)) {
-      if (!specifier.startsWith(".")) {
+      if (specifier.startsWith(".")) {
+        modules.add(resolveRelativeImport(file, specifier));
+      } else {
         packages.add(specifier);
-        continue;
       }
-
-      queue.push(resolveRelativeImport(file, specifier));
     }
   }
 
-  const modules = [...seen].map((file) => path.relative(SRC_DIR, file)).sort();
-
-  return { modules, packages: [...packages].sort() };
+  return {
+    modules: [...modules].map((file) => path.relative(SRC_DIR, file)).sort(),
+    packages: [...packages].sort(),
+  };
 }
 
 describe("trace surface import closure", () => {

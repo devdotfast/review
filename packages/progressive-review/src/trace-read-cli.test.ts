@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -19,29 +25,23 @@ describe("trace-read-cli", () => {
   let searchDir: string;
 
   beforeEach(() => {
-    tempDir = path.join(
-      tmpdir(),
-      `trace-read-cli-test-${process.pid}-${Math.random().toString(36).slice(2)}`,
-    );
+    tempDir = mkdtempSync(path.join(tmpdir(), "trace-read-cli-"));
     mockR2Dir = path.join(tempDir, "mock-r2");
     searchDir = path.join(tempDir, "trace-search");
-    mkdirSync(mockR2Dir, { recursive: true });
-    mkdirSync(searchDir, { recursive: true });
-    process.env.TRACE_ENV_FILE = path.join(tempDir, "env");
-    vi.stubEnv("DEV_REVIEW_HOME", path.join(tempDir, ".dev"));
-    process.env.TRACE_SETTINGS_FILE = path.join(tempDir, "settings.json");
-    process.env.TRACE_R2_MODE = "mock";
-    process.env.TRACE_R2_MOCK_DIR = mockR2Dir;
-    process.env.REVIEW_TEST_TRACE_SEARCH_DIR = searchDir;
+
+    for (const [name, value] of Object.entries({
+      TRACE_ENV_FILE: path.join(tempDir, "env"),
+      DEV_REVIEW_HOME: path.join(tempDir, ".dev"),
+      TRACE_SETTINGS_FILE: path.join(tempDir, "settings.json"),
+      TRACE_R2_MODE: "mock",
+      TRACE_R2_MOCK_DIR: mockR2Dir,
+      REVIEW_TEST_TRACE_SEARCH_DIR: searchDir,
+    }))
+      vi.stubEnv(name, value);
     clearTraceEnvCache();
   });
 
   afterEach(() => {
-    delete process.env.TRACE_ENV_FILE;
-    delete process.env.TRACE_SETTINGS_FILE;
-    delete process.env.TRACE_R2_MODE;
-    delete process.env.TRACE_R2_MOCK_DIR;
-    delete process.env.REVIEW_TEST_TRACE_SEARCH_DIR;
     clearTraceEnvCache();
     vi.unstubAllEnvs();
     rmSync(tempDir, { recursive: true, force: true });
@@ -70,17 +70,25 @@ describe("trace-read-cli", () => {
       headCommit,
     };
 
-    const jsonOut: string[] = [];
+    async function listReview(
+      headCommit: string,
+      json = false,
+    ): Promise<string> {
+      const out: string[] = [];
 
-    const jsonCode = await runReviewTraceList({
-      cwd: gitDir,
-      scope: { review },
-      json: true,
-      stdout: collectingWritable(jsonOut),
-    });
+      const code = await runReviewTraceList({
+        cwd: gitDir,
+        scope: { review: { ...review, headCommit } },
+        json,
+        stdout: collectingWritable(out),
+      });
 
-    expect(jsonCode).toBe(0);
-    expect(JSON.parse(jsonOut.join("").trim())).toEqual({
+      expect(code).toBe(0);
+
+      return out.join("");
+    }
+
+    expect(JSON.parse(await listReview(headCommit, true))).toEqual({
       review: review.uuid,
       sessions: [
         {
@@ -93,29 +101,11 @@ describe("trace-read-cli", () => {
       ],
     });
 
-    const textOut: string[] = [];
-
-    const textCode = await runReviewTraceList({
-      cwd: gitDir,
-      scope: { review },
-      stdout: collectingWritable(textOut),
-    });
-
-    expect(textCode).toBe(0);
-    expect(textOut.join("")).toBe(
+    expect(await listReview(headCommit)).toBe(
       `${sessionId}  (unknown, not synced)\n  commit ${headCommit.slice(0, 9)}  Add app\n`,
     );
 
-    const emptyOut: string[] = [];
-
-    const emptyCode = await runReviewTraceList({
-      cwd: gitDir,
-      scope: { review: { ...review, headCommit: baseCommit } },
-      stdout: collectingWritable(emptyOut),
-    });
-
-    expect(emptyCode).toBe(0);
-    expect(emptyOut.join("")).toBe(
+    expect(await listReview(baseCommit)).toBe(
       `No agent sessions recorded for review ${review.uuid}.\n`,
     );
   });

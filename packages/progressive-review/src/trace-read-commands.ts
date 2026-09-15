@@ -45,7 +45,7 @@ export function registerTraceReadCommands(
       }
 
       settings.setExitCode(
-        await runtime.runReviewTraceList({
+        await runtime.runTraceList({
           cwd,
           reviewUuid: options.review,
           commitSha: options.commit,
@@ -85,7 +85,7 @@ export function registerTraceReadCommands(
       },
     ) => {
       settings.setExitCode(
-        await runtime.runReviewTraceShow({
+        await runtime.runTraceShow({
           cwd,
           sessionId,
           trace: options.trace,
@@ -133,7 +133,7 @@ export function registerTraceReadCommands(
       }
 
       settings.setExitCode(
-        await runtime.runReviewTracePull({
+        await runtime.runTracePull({
           cwd,
           repo: options.repo,
           reviewUuid: options.review,
@@ -171,7 +171,7 @@ export function registerTraceReadCommands(
       },
     ) => {
       settings.setExitCode(
-        await runtime.runReviewTraceBlame({
+        await runtime.runTraceBlame({
           cwd,
           file,
           lines: options.lines,

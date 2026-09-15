@@ -17,6 +17,9 @@
       "@dev.fast/review/authoring": [
         "./packages/progressive-review/src/authoring.ts"
       ],
+      "@dev.fast/review/traces": [
+        "./packages/progressive-review/src/traces-runtime.ts"
+      ],
       "@dev.fast/*": ["./packages/*/src"]
     }
   },

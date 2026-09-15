@@ -15,15 +15,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectingWritable } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import {
-  runReviewTraceDoctor,
-  runReviewTraceEnable,
-  runReviewTraceList,
-  runReviewTraceLookupBlame,
-  runReviewTraceLookupCommit,
-  runReviewTraceLookupSession,
-  runReviewTracePull,
-  runReviewTraceShow,
-  runReviewTraceSync,
+  runTraceDoctor,
+  runTraceEnable,
+  runTraceList,
+  runTraceLookupBlame,
+  runTraceLookupCommit,
+  runTraceLookupSession,
+  runTracePull,
+  runTraceShow,
+  runTraceSync,
 } from "./trace-cli";
 import { traceScope } from "./trace-command";
 import { configureTraceMachine } from "./trace-machine-setup";
@@ -144,7 +144,7 @@ describe("trace-cli", () => {
       },
     });
 
-    const exitCode = await runReviewTraceEnable({
+    const exitCode = await runTraceEnable({
       scope: traceScope(),
       cwd: tempDir,
       stdout: stdout as any,
@@ -183,7 +183,7 @@ describe("trace-cli", () => {
     });
     const stderr = new PassThrough();
 
-    const exitCode = await runReviewTraceDoctor({
+    const exitCode = await runTraceDoctor({
       scope: traceScope(),
       cwd: tempDir,
       stdout: stdout as any,
@@ -219,7 +219,7 @@ describe("trace-cli", () => {
       jsonOut += d.toString();
     });
 
-    const exitCodeJson = await runReviewTraceLookupCommit({
+    const exitCodeJson = await runTraceLookupCommit({
       cwd: tempDir,
       sha,
       json: true,
@@ -239,7 +239,7 @@ describe("trace-cli", () => {
       textOut += d.toString();
     });
 
-    const exitCodeText = await runReviewTraceLookupCommit({
+    const exitCodeText = await runTraceLookupCommit({
       cwd: tempDir,
       sha,
       stdout: stdoutText as any,
@@ -273,7 +273,7 @@ describe("trace-cli", () => {
       jsonOut += d.toString();
     });
 
-    const exitCode = await runReviewTraceLookupSession({
+    const exitCode = await runTraceLookupSession({
       cwd: tempDir,
       sessionId,
       json: true,
@@ -295,7 +295,7 @@ describe("trace-cli", () => {
       missingOut += d.toString();
     });
 
-    const missingCode = await runReviewTraceLookupSession({
+    const missingCode = await runTraceLookupSession({
       cwd: tempDir,
       sessionId: "99999999-aaaa-bbbb-cccc-000000000099",
       json: true,
@@ -324,7 +324,7 @@ describe("trace-cli", () => {
       jsonOut += d.toString();
     });
 
-    const exitCode = await runReviewTraceSync({
+    const exitCode = await runTraceSync({
       scope: traceScope(),
       cwd: tempDir,
       sessionId,
@@ -351,7 +351,7 @@ describe("trace-cli", () => {
     stdoutText.on("data", (d) => {
       textOut += d.toString();
     });
-    await runReviewTraceSync({
+    await runTraceSync({
       scope: traceScope(),
       cwd: tempDir,
       sessionId,
@@ -390,7 +390,7 @@ describe("trace-cli", () => {
     try {
       const out: string[] = [];
 
-      const code = await runReviewTraceShow({
+      const code = await runTraceShow({
         cwd: tempDir,
         sessionId,
         storage: "s3",
@@ -408,7 +408,7 @@ describe("trace-cli", () => {
       // Hosted is not configured on this machine: the override is an error,
       // not a silent fall back to the bucket.
       await expect(
-        runReviewTraceShow({
+        runTraceShow({
           cwd: tempDir,
           sessionId,
           storage: "hosted",
@@ -424,7 +424,7 @@ describe("trace-cli", () => {
 
   it("reports an invalid storage override before looking up a Review", async () => {
     await expect(
-      runReviewTraceList({
+      runTraceList({
         cwd: tempDir,
         reviewUuid: "missing-review",
         storage: "hosted",
@@ -434,7 +434,7 @@ describe("trace-cli", () => {
 
     const errors: string[] = [];
 
-    const code = await runReviewTracePull({
+    const code = await runTracePull({
       cwd: tempDir,
       reviewUuid: "missing-review",
       storage: "hosted",
@@ -459,7 +459,7 @@ describe("trace-cli", () => {
         error: "upload failed earlier",
       });
       const status: string[] = [];
-      await runReviewTraceDoctor({
+      await runTraceDoctor({
         scope: traceScope(),
         cwd: tempDir,
         stdout: collectingWritable(status),
@@ -474,7 +474,7 @@ describe("trace-cli", () => {
         JSON.stringify({ type: "session", id: sessionId }) + "\n",
       );
 
-      const code = await runReviewTraceSync({
+      const code = await runTraceSync({
         scope: traceScope(),
         cwd: tempDir,
         sessionId,
@@ -501,7 +501,7 @@ describe("trace-cli", () => {
 
     try {
       await expect(
-        runReviewTraceSync({
+        runTraceSync({
           scope: traceScope(),
           cwd: tempDir,
           sessionId,
@@ -553,7 +553,7 @@ describe("trace-cli", () => {
       jsonOut += d.toString();
     });
 
-    const exitCodeJson = await runReviewTraceLookupBlame({
+    const exitCodeJson = await runTraceLookupBlame({
       cwd: gitDir,
       file: "app.ts",
       lines: "1,2",
@@ -578,7 +578,7 @@ describe("trace-cli", () => {
       textOut += d.toString();
     });
 
-    const exitCodeText = await runReviewTraceLookupBlame({
+    const exitCodeText = await runTraceLookupBlame({
       cwd: gitDir,
       file: "app.ts",
       stdout: stdoutText as any,

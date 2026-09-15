@@ -35,7 +35,7 @@ export function registerTraceCaptureCommands(
   ).action(
     async (options: { session?: string; cursor?: string; limit?: number }) => {
       settings.setExitCode(
-        await runtime.runReviewTraceStatus({
+        await runtime.runTraceStatus({
           scope,
           cwd,
           session: options.session,
@@ -79,7 +79,7 @@ export function registerTraceCaptureCommands(
       json?: boolean;
     }) => {
       settings.setExitCode(
-        await runtime.runReviewTraceSessions({
+        await runtime.runTraceSessions({
           scope,
           cwd,
           limit: options.limit,
@@ -100,7 +100,7 @@ export function registerTraceCaptureCommands(
   ).action(
     async (repoPath: string | undefined, options: { json?: boolean }) => {
       settings.setExitCode(
-        await runtime.runReviewTraceOnboard({
+        await runtime.runTraceOnboard({
           scope,
           cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
           json: options.json,
@@ -125,7 +125,7 @@ export function registerTraceCaptureCommands(
       options: { json?: boolean; harnessHooks?: boolean },
     ) => {
       settings.setExitCode(
-        await runtime.runReviewTraceAllow({
+        await runtime.runTraceAllow({
           scope,
           cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
           json: options.json,
@@ -154,7 +154,7 @@ export function registerTraceCaptureCommands(
       options: { json?: boolean; deleteStore?: boolean },
     ) => {
       settings.setExitCode(
-        await runtime.runReviewTraceDeny({
+        await runtime.runTraceDeny({
           scope,
           cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
           json: options.json,
@@ -172,7 +172,7 @@ export function registerTraceCaptureCommands(
       .description("Enable trace hooks for one Git repository"),
   ).action(async (repoPath?: string) => {
     settings.setExitCode(
-      await runtime.runReviewTraceEnable({
+      await runtime.runTraceEnable({
         scope,
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         stdout: settings.stdout,
@@ -188,7 +188,7 @@ export function registerTraceCaptureCommands(
       .description("Disable Review trace hooks for one Git repository"),
   ).action(async (repoPath?: string) => {
     settings.setExitCode(
-      await runtime.runReviewTraceDisable({
+      await runtime.runTraceDisable({
         scope,
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         stdout: settings.stdout,
@@ -202,7 +202,7 @@ export function registerTraceCaptureCommands(
       .description("Repair Review trace hooks for one Git repository"),
   ).action(async (repoPath?: string) => {
     settings.setExitCode(
-      await runtime.runReviewTraceRepair({
+      await runtime.runTraceRepair({
         scope,
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         stdout: settings.stdout,

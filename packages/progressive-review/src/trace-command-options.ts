@@ -4,22 +4,22 @@ import type { Command } from "commander";
 
 import type { CliInputStream } from "./cli-output";
 import type {
-  runReviewTraceDisable,
-  runReviewTraceEnable,
-  runReviewTraceGitHook,
-  runReviewTraceHook,
-  runReviewTraceRepair,
-  runReviewTraceStatus,
-  runReviewTraceSync,
+  runTraceDisable,
+  runTraceEnable,
+  runTraceGitHook,
+  runTraceHook,
+  runTraceRepair,
+  runTraceStatus,
+  runTraceSync,
 } from "./trace-capture-cli";
 import type { TraceCommand, TraceScope } from "./trace-command";
 import type {
-  runReviewTraceAllow,
-  runReviewTraceDeny,
-  runReviewTraceOnboard,
-  runReviewTraceSessions,
+  runTraceAllow,
+  runTraceDeny,
+  runTraceOnboard,
+  runTraceSessions,
 } from "./trace-hosted-cli";
-import type { runReviewTraceBlame, runReviewTraceShow } from "./trace-read-cli";
+import type { runTraceBlame, runTraceShow } from "./trace-read-cli";
 import type { TraceStorageKind } from "./trace-storage/types";
 
 /** `trace list` as the CLI calls it; the review shape resolves `reviewUuid`. */
@@ -47,21 +47,21 @@ export interface TracePullCommandInput {
 
 /** The trace subset of a CLI runtime; both CLIs satisfy it structurally. */
 export interface TraceCommandRuntime {
-  runReviewTraceStatus: typeof runReviewTraceStatus;
-  runReviewTraceEnable: typeof runReviewTraceEnable;
-  runReviewTraceDisable: typeof runReviewTraceDisable;
-  runReviewTraceRepair: typeof runReviewTraceRepair;
-  runReviewTraceList: (input: TraceListCommandInput) => Promise<number>;
-  runReviewTraceShow: typeof runReviewTraceShow;
-  runReviewTracePull: (input: TracePullCommandInput) => Promise<number>;
-  runReviewTraceBlame: typeof runReviewTraceBlame;
-  runReviewTraceHook: typeof runReviewTraceHook;
-  runReviewTraceGitHook: typeof runReviewTraceGitHook;
-  runReviewTraceSync: typeof runReviewTraceSync;
-  runReviewTraceOnboard: typeof runReviewTraceOnboard;
-  runReviewTraceSessions: typeof runReviewTraceSessions;
-  runReviewTraceAllow: typeof runReviewTraceAllow;
-  runReviewTraceDeny: typeof runReviewTraceDeny;
+  runTraceStatus: typeof runTraceStatus;
+  runTraceEnable: typeof runTraceEnable;
+  runTraceDisable: typeof runTraceDisable;
+  runTraceRepair: typeof runTraceRepair;
+  runTraceList: (input: TraceListCommandInput) => Promise<number>;
+  runTraceShow: typeof runTraceShow;
+  runTracePull: (input: TracePullCommandInput) => Promise<number>;
+  runTraceBlame: typeof runTraceBlame;
+  runTraceHook: typeof runTraceHook;
+  runTraceGitHook: typeof runTraceGitHook;
+  runTraceSync: typeof runTraceSync;
+  runTraceOnboard: typeof runTraceOnboard;
+  runTraceSessions: typeof runTraceSessions;
+  runTraceAllow: typeof runTraceAllow;
+  runTraceDeny: typeof runTraceDeny;
 }
 
 export interface RegisterTraceCommandsOptions {

@@ -129,7 +129,7 @@ async function defaultOpenUrl(url: string): Promise<void> {
   child.unref();
 }
 
-export async function runReviewLogin(input: {
+export async function runStoreLogin(input: {
   origin?: string;
   noBrowser?: boolean;
   json?: boolean;
@@ -249,7 +249,7 @@ export async function runReviewLogin(input: {
   return 0;
 }
 
-export async function runReviewLogout(input: {
+export async function runStoreLogout(input: {
   stdout: Writable;
   env?: NodeJS.ProcessEnv;
 }): Promise<number> {
@@ -262,7 +262,7 @@ export async function runReviewLogout(input: {
   return 0;
 }
 
-export async function runReviewWhoami(input: {
+export async function runStoreWhoami(input: {
   json?: boolean;
   stdout: Writable;
   stderr: Writable;

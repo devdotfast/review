@@ -34,6 +34,10 @@
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js"
     },
+    "./traces": {
+      "types": "./dist/traces.d.ts",
+      "import": "./dist/traces.js"
+    },
     "./desktop-server": {
       "types": "./dist/desktop-server.d.ts",
       "import": "./dist/desktop-server.js"

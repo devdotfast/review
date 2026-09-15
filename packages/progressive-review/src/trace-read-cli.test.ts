@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
-import { runReviewTraceList, runReviewTracePull } from "./trace-read-cli";
+import { runTraceList, runTracePull } from "./trace-read-cli";
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -76,7 +76,7 @@ describe("trace-read-cli", () => {
     ): Promise<string> {
       const out: string[] = [];
 
-      const code = await runReviewTraceList({
+      const code = await runTraceList({
         cwd: gitDir,
         scope: { review: { ...review, headCommit } },
         json,
@@ -134,7 +134,7 @@ describe("trace-read-cli", () => {
     const out: string[] = [];
     const err: string[] = [];
 
-    const code = await runReviewTracePull({
+    const code = await runTracePull({
       cwd: tempDir,
       scope: { session: sessionId },
       repo: "acme/widgets",
@@ -169,7 +169,7 @@ describe("trace-read-cli", () => {
 
     const missingErr: string[] = [];
 
-    const missingCode = await runReviewTracePull({
+    const missingCode = await runTracePull({
       cwd: tempDir,
       scope: { session: "99999999-aaaa-bbbb-cccc-000000000099" },
       repo: "acme/widgets",

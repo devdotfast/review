@@ -18,10 +18,10 @@ import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
 import { traceScope } from "./trace-command";
 import {
-  runReviewTraceAllow,
-  runReviewTraceDeny,
-  runReviewTraceOnboard,
-  runReviewTraceSessions,
+  runTraceAllow,
+  runTraceDeny,
+  runTraceOnboard,
+  runTraceSessions,
   writeHostedTraceStatus,
 } from "./trace-hosted-cli";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -183,7 +183,7 @@ describe("hosted trace commands", () => {
       const out = collect();
       const err = collect();
 
-      const code = await runReviewTraceAllow({
+      const code = await runTraceAllow({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         client: injected ? client(() => Response.json(STORE)) : undefined,
@@ -209,7 +209,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     const err = collect();
     expect(
-      await runReviewTraceAllow({
+      await runTraceAllow({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         json: true,
@@ -253,8 +253,8 @@ describe("hosted trace commands", () => {
 
       expect(
         await (stage === "onboard"
-          ? runReviewTraceOnboard(input)
-          : runReviewTraceSessions(input)),
+          ? runTraceOnboard(input)
+          : runTraceSessions(input)),
       ).toBe(0);
       expect(JSON.parse(out.text())).toEqual(
         stage === "onboard"
@@ -305,10 +305,10 @@ describe("hosted trace commands", () => {
 
       const run =
         stage === "onboard"
-          ? runReviewTraceOnboard
+          ? runTraceOnboard
           : stage === "allow"
-            ? runReviewTraceAllow
-            : runReviewTraceSessions;
+            ? runTraceAllow
+            : runTraceSessions;
 
       expect(await run(input)).toBe(1);
 
@@ -331,7 +331,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     const err = collect();
     expect(
-      await runReviewTraceSessions({
+      await runTraceSessions({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         client: client((url) =>
@@ -367,7 +367,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     const err = collect();
     expect(
-      await runReviewTraceDeny({
+      await runTraceDeny({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         json: true,
@@ -391,7 +391,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     const err = collect();
 
-    const code = await runReviewTraceSessions({
+    const code = await runTraceSessions({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       stdout: out.stream,
@@ -429,7 +429,7 @@ describe("hosted trace commands", () => {
     const requests: string[] = [];
     const out = collect();
 
-    const code = await runReviewTraceSessions({
+    const code = await runTraceSessions({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       json: true,
@@ -477,7 +477,7 @@ describe("hosted trace commands", () => {
     await selectHosted();
     const out = collect();
 
-    const code = await runReviewTraceSessions({
+    const code = await runTraceSessions({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       stdout: out.stream,
@@ -496,7 +496,7 @@ describe("hosted trace commands", () => {
   it("refuses the s3 store and a missing hosted configuration", async () => {
     const err = collect();
     expect(
-      await runReviewTraceSessions({
+      await runTraceSessions({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
@@ -508,7 +508,7 @@ describe("hosted trace commands", () => {
     await selectHosted();
     const s3 = collect();
     expect(
-      await runReviewTraceSessions({
+      await runTraceSessions({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         storage: "s3",
@@ -529,7 +529,7 @@ describe("hosted trace commands", () => {
     const err = collect();
 
     expect(
-      await runReviewTraceSessions({
+      await runTraceSessions({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
@@ -561,7 +561,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     const err = collect();
 
-    const code = await runReviewTraceSessions({
+    const code = await runTraceSessions({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       storage: "hosted",
@@ -595,7 +595,7 @@ describe("hosted trace commands", () => {
     );
     const err = collect();
     expect(
-      await runReviewTraceSessions({
+      await runTraceSessions({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
@@ -614,7 +614,7 @@ describe("hosted trace commands", () => {
     const run = async (handler: (url: string) => Response) => {
       const err = collect();
 
-      const code = await runReviewTraceSessions({
+      const code = await runTraceSessions({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         json: true,
@@ -669,7 +669,7 @@ describe("hosted trace commands", () => {
     const requests: string[] = [];
     const err = collect();
 
-    const code = await runReviewTraceSessions({
+    const code = await runTraceSessions({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       limit: 0,
@@ -694,7 +694,7 @@ describe("hosted trace commands", () => {
     const requests: string[] = [];
     const err = collect();
 
-    const code = await runReviewTraceSessions({
+    const code = await runTraceSessions({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       cursor: "bad cursor!",
@@ -718,7 +718,7 @@ describe("hosted trace commands", () => {
     await selectHosted();
     const out = collect();
 
-    const code = await runReviewTraceSessions({
+    const code = await runTraceSessions({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       limit: 10,
@@ -759,7 +759,7 @@ describe("hosted trace commands", () => {
     const calls: string[] = [];
     const out = collect();
 
-    const code = await runReviewTraceDeny({
+    const code = await runTraceDeny({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       deleteStore: true,
@@ -823,7 +823,7 @@ describe("hosted trace commands", () => {
     });
     const out = collect();
 
-    const code = await runReviewTraceAllow({
+    const code = await runTraceAllow({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,
@@ -870,7 +870,7 @@ describe("hosted trace commands", () => {
     const out = collect();
 
     expect(
-      await runReviewTraceAllow({
+      await runTraceAllow({
         cwd: repo,
         scope: traceScope({ homeDir: home, env }),
         harnessHooks: false,
@@ -902,7 +902,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     const err = collect();
 
-    const code = await runReviewTraceAllow({
+    const code = await runTraceAllow({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,

@@ -10,21 +10,21 @@ import {
 } from "./trace-commands";
 
 const runtime: TraceCommandRuntime = {
-  runReviewTraceStatus: async () => 0,
-  runReviewTraceEnable: async () => 0,
-  runReviewTraceDisable: async () => 0,
-  runReviewTraceRepair: async () => 0,
-  runReviewTraceList: async () => 0,
-  runReviewTraceShow: async () => 0,
-  runReviewTracePull: async () => 0,
-  runReviewTraceBlame: async () => 0,
-  runReviewTraceHook: async () => 0,
-  runReviewTraceGitHook: async () => 0,
-  runReviewTraceSync: async () => 0,
-  runReviewTraceOnboard: async () => 0,
-  runReviewTraceSessions: async () => 0,
-  runReviewTraceAllow: async () => 0,
-  runReviewTraceDeny: async () => 0,
+  runTraceStatus: async () => 0,
+  runTraceEnable: async () => 0,
+  runTraceDisable: async () => 0,
+  runTraceRepair: async () => 0,
+  runTraceList: async () => 0,
+  runTraceShow: async () => 0,
+  runTracePull: async () => 0,
+  runTraceBlame: async () => 0,
+  runTraceHook: async () => 0,
+  runTraceGitHook: async () => 0,
+  runTraceSync: async () => 0,
+  runTraceOnboard: async () => 0,
+  runTraceSessions: async () => 0,
+  runTraceAllow: async () => 0,
+  runTraceDeny: async () => 0,
 };
 
 const scope = traceScope({ homeDir: "/task17-home", env: {} });
@@ -82,7 +82,7 @@ function build(
 describe("shared trace command parsing", () => {
   it("forwards hosted status filters with explicit scope and preserves runtime output and exit code", async () => {
     const fixture = build("review", true, {
-      runReviewTraceStatus: async (input) => {
+      runTraceStatus: async (input) => {
         expect(input).toEqual({
           scope,
           cwd: "/repo",
@@ -118,7 +118,7 @@ describe("shared trace command parsing", () => {
     "forwards commit list in %s audience",
     async (reads) => {
       const fixture = build(reads, true, {
-        runReviewTraceList: async (input) => {
+        runTraceList: async (input) => {
           expect(input).toMatchObject({
             cwd: "/repo",
             commitSha: "HEAD~2",
@@ -148,7 +148,7 @@ describe("shared trace command parsing", () => {
   );
   it("retains Review selection and pull wrapper inputs", async () => {
     const fixture = build("review", true, {
-      runReviewTracePull: async (input) => {
+      runTracePull: async (input) => {
         expect(input).toMatchObject({
           cwd: "/repo",
           repo: "owner/repo",
@@ -207,7 +207,7 @@ describe("shared trace command parsing", () => {
   });
   it("preserves hosted pagination parsing and errors", async () => {
     const fixture = build("repository", true, {
-      runReviewTraceSessions: async (input) => {
+      runTraceSessions: async (input) => {
         expect(input).toMatchObject({
           scope,
           cwd: "/repo",
@@ -242,7 +242,7 @@ describe("shared trace command parsing", () => {
     "preserves allow path and harness default (%s)",
     async (harnessHooks) => {
       const fixture = build("repository", false, {
-        runReviewTraceAllow: async (input) => {
+        runTraceAllow: async (input) => {
           expect(input).toMatchObject({
             scope,
             cwd: "/repo/child",
@@ -264,7 +264,7 @@ describe("shared trace command parsing", () => {
   );
   it("passes hidden hook arguments and stdin without changing the command", async () => {
     const fixture = build("repository", false, {
-      runReviewTraceGitHook: async (input) => {
+      runTraceGitHook: async (input) => {
         expect(input).toMatchObject({
           scope,
           cwd: "/repo",

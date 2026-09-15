@@ -81,7 +81,7 @@ export function spawnDetachedTraceSync(input: {
   }
 }
 
-export interface RunReviewTraceHookInput {
+export interface RunTraceHookInput {
   cwd: string;
   event: string;
   sessionId?: string;
@@ -91,9 +91,7 @@ export interface RunReviewTraceHookInput {
   traceCommand?: TraceCommand;
 }
 
-export async function runReviewTraceHook(
-  input: RunReviewTraceHookInput,
-): Promise<number> {
+export async function runTraceHook(input: RunTraceHookInput): Promise<number> {
   if (input.scope.env.TRACE_DISABLE === "1") {
     return 0;
   }

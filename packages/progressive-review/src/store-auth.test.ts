@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   browserOpenCommand,
   readStoreAuth,
-  runReviewLogin,
+  runStoreLogin,
   writeStoreAuth,
 } from "./store-auth";
 
@@ -79,7 +79,7 @@ describe("store-auth", () => {
       errors += chunk.toString();
     });
 
-    const code = await runReviewLogin({
+    const code = await runStoreLogin({
       origin: "http://store.example.com",
       stdout,
       stderr,
@@ -116,7 +116,7 @@ describe("store-auth", () => {
 
     const opened: string[] = [];
 
-    const code = await runReviewLogin({
+    const code = await runStoreLogin({
       stdout,
       stderr,
       fetch,

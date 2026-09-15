@@ -6,8 +6,8 @@ import {
   type TraceScope,
   traceCliName,
 } from "./trace-command";
-import { runReviewTraceGitHook } from "./trace-git-hook-runner";
-import { runReviewTraceHook } from "./trace-hook-runner";
+import { runTraceGitHook } from "./trace-git-hook-runner";
+import { runTraceHook } from "./trace-hook-runner";
 import { writeHostedTraceStatus } from "./trace-hosted-cli";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
@@ -34,9 +34,9 @@ import {
  * detached sync. Nothing here reads the Review store.
  */
 
-export { runReviewTraceGitHook, runReviewTraceHook };
+export { runTraceGitHook, runTraceHook };
 
-export async function runReviewTraceStatus(input: {
+export async function runTraceStatus(input: {
   scope: TraceScope;
   cwd: string;
   session?: string;
@@ -135,7 +135,7 @@ export async function runReviewTraceStatus(input: {
   return 1;
 }
 
-export async function runReviewTraceEnable(input: {
+export async function runTraceEnable(input: {
   scope: TraceScope;
   cwd: string;
   stdout: Writable;
@@ -162,7 +162,7 @@ export async function runReviewTraceEnable(input: {
   return result.enabled ? 0 : 1;
 }
 
-export async function runReviewTraceDisable(input: {
+export async function runTraceDisable(input: {
   scope: TraceScope;
   cwd: string;
   stdout: Writable;
@@ -177,7 +177,7 @@ export async function runReviewTraceDisable(input: {
   return result.repository ? 0 : 1;
 }
 
-export async function runReviewTraceRepair(input: {
+export async function runTraceRepair(input: {
   scope: TraceScope;
   cwd: string;
   stdout: Writable;
@@ -204,9 +204,9 @@ export async function runReviewTraceRepair(input: {
   return result.enabled ? 0 : 1;
 }
 
-export const runReviewTraceDoctor = runReviewTraceStatus;
+export const runTraceDoctor = runTraceStatus;
 
-export async function runReviewTraceSync(input: {
+export async function runTraceSync(input: {
   scope: TraceScope;
   cwd: string;
   sessionId: string;

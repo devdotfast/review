@@ -41,6 +41,7 @@ export default defineConfig({
     "native-agent/pi-bridge-extension":
       "src/native-agent/pi-bridge-extension.ts",
     runtime: "src/runtime.ts",
+    traces: "src/traces-runtime.ts",
     "desktop-server": "src/server/desktop-server.ts",
     "server/desktop-host": "src/server/desktop-host.ts",
     "software-map-model": "src/software-map-model.ts",

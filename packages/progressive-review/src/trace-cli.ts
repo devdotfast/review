@@ -7,8 +7,8 @@ import {
   type TraceListScope,
   type TracePullScope,
   type TraceReviewScope,
-  runReviewTraceList as listWithScope,
-  runReviewTracePull as pullWithScope,
+  runTraceList as listWithScope,
+  runTracePull as pullWithScope,
   resolveTraceReadStorage,
 } from "./trace-read-cli";
 import type { TraceStorageKind } from "./trace-storage/types";
@@ -20,25 +20,25 @@ import type { TraceStorageKind } from "./trace-storage/types";
  */
 
 export {
-  runReviewTraceDisable,
-  runReviewTraceDoctor,
-  runReviewTraceEnable,
-  runReviewTraceGitHook,
-  runReviewTraceHook,
-  runReviewTraceRepair,
-  runReviewTraceStatus,
-  runReviewTraceSync,
+  runTraceDisable,
+  runTraceDoctor,
+  runTraceEnable,
+  runTraceGitHook,
+  runTraceHook,
+  runTraceRepair,
+  runTraceStatus,
+  runTraceSync,
 } from "./trace-capture-cli";
 
 export {
   type TraceListScope,
   type TracePullScope,
   type TraceReviewScope,
-  runReviewTraceBlame,
-  runReviewTraceLookupBlame,
-  runReviewTraceLookupCommit,
-  runReviewTraceLookupSession,
-  runReviewTraceShow,
+  runTraceBlame,
+  runTraceLookupBlame,
+  runTraceLookupCommit,
+  runTraceLookupSession,
+  runTraceShow,
 } from "./trace-read-cli";
 
 export async function resolveTraceReviewScope(
@@ -56,7 +56,7 @@ export async function resolveTraceReviewScope(
   };
 }
 
-export async function runReviewTraceList(input: {
+export async function runTraceList(input: {
   cwd: string;
   reviewUuid?: string;
   commitSha?: string;
@@ -84,7 +84,7 @@ export async function runReviewTraceList(input: {
   });
 }
 
-export async function runReviewTracePull(input: {
+export async function runTracePull(input: {
   cwd: string;
   repo?: string;
   reviewUuid?: string;

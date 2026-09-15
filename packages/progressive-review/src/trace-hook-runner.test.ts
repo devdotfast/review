@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeStoreAuth } from "./store-auth";
 import { TRACE_SESSION_TTL_MS } from "./trace-agent-sessions";
 import { traceScope } from "./trace-command";
-import { runReviewTraceGitHook } from "./trace-git-hook-runner";
-import { runReviewTraceHook } from "./trace-hook-runner";
+import { runTraceGitHook } from "./trace-git-hook-runner";
+import { runTraceHook } from "./trace-hook-runner";
 import { configureTraceMachine } from "./trace-machine-setup";
 import { traceTargetKey } from "./trace-repository-target";
 import { readTraceSessionProvenance } from "./trace-session-provenance";
@@ -73,7 +73,7 @@ async function makeGitRepo(): Promise<string> {
   return dir;
 }
 
-describe("runReviewTraceHook", () => {
+describe("runTraceHook", () => {
   it("re-enters the injected command from the git hooks and detached sync", async () => {
     const repo = await makeGitRepo();
     const log = path.join(repo, "hook-calls.log");
@@ -84,7 +84,7 @@ describe("runReviewTraceHook", () => {
     const traceCommand = { file: script, args: ["--flag"] };
     const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
 
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId,
@@ -102,7 +102,7 @@ describe("runReviewTraceHook", () => {
 
     expect(prePush).toContain(`'${script}' '--flag' trace git-hook pre-push`);
 
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "SessionEnd",
       sessionId,
@@ -125,7 +125,7 @@ describe("runReviewTraceHook", () => {
     vi.spyOn(Date, "now").mockReturnValue(now);
 
     // 1. SessionStart via CLI args
-    const startCode = await runReviewTraceHook({
+    const startCode = await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId,
@@ -145,7 +145,7 @@ describe("runReviewTraceHook", () => {
 
     // 2. Another session joins
     const secondSessionId = "02b015e4-0477-7055-a0fd-21a0f72a4ec7";
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId: secondSessionId,
@@ -159,7 +159,7 @@ describe("runReviewTraceHook", () => {
     );
 
     // 3. First session ends
-    const endCode = await runReviewTraceHook({
+    const endCode = await runTraceHook({
       cwd: repo,
       event: "SessionEnd",
       sessionId,
@@ -175,7 +175,7 @@ describe("runReviewTraceHook", () => {
     );
 
     // 4. Second session ends (file should be deleted)
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "SessionEnd",
       sessionId: secondSessionId,
@@ -200,7 +200,7 @@ describe("runReviewTraceHook", () => {
 
     const stdinStart = Readable.from([startPayload]);
 
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "unknown",
       stdin: stdinStart,
@@ -223,7 +223,7 @@ describe("runReviewTraceHook", () => {
 
     const stdinEnd = Readable.from([endPayload]);
 
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "unknown",
       stdin: stdinEnd,
@@ -244,7 +244,7 @@ describe("runReviewTraceHook", () => {
     const heartbeatAt = startedAt + TRACE_SESSION_TTL_MS + 1;
     const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
 
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId: staleSessionId,
@@ -254,7 +254,7 @@ describe("runReviewTraceHook", () => {
       }),
     });
     now.mockReturnValue(heartbeatAt);
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId: activeSessionId,
@@ -270,7 +270,7 @@ describe("runReviewTraceHook", () => {
     );
 
     now.mockReturnValue(heartbeatAt + 1_000);
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "turn_start",
       sessionId: activeSessionId,
@@ -290,7 +290,7 @@ describe("runReviewTraceHook", () => {
     const startedAt = 1_800_000_000_000;
     const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
 
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId,
@@ -302,7 +302,7 @@ describe("runReviewTraceHook", () => {
     now.mockReturnValue(startedAt + TRACE_SESSION_TTL_MS + 1);
     const messagePath = path.join(repo, ".git", "COMMIT_EDITMSG");
     await writeFile(messagePath, "Test commit\n");
-    await runReviewTraceGitHook({
+    await runTraceGitHook({
       cwd: repo,
       hook: "prepare-commit-msg",
       args: [messagePath],
@@ -316,7 +316,7 @@ describe("runReviewTraceHook", () => {
     expect(await readFile(messagePath, "utf8")).toBe("Test commit\n");
     expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
 
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId,
@@ -326,7 +326,7 @@ describe("runReviewTraceHook", () => {
       }),
     });
     await writeFile(messagePath, "Fresh commit\n");
-    await runReviewTraceGitHook({
+    await runTraceGitHook({
       cwd: repo,
       hook: "prepare-commit-msg",
       args: [messagePath],
@@ -351,7 +351,7 @@ describe("runReviewTraceHook", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
 
     for (const sessionId of [firstSessionId, secondSessionId]) {
-      await runReviewTraceHook({
+      await runTraceHook({
         cwd: repo,
         event: "SessionStart",
         sessionId,
@@ -378,7 +378,7 @@ describe("runReviewTraceHook", () => {
     );
 
     now.mockReturnValue(startedAt + TRACE_SESSION_TTL_MS + 1);
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId: firstSessionId,
@@ -406,7 +406,7 @@ describe("runReviewTraceHook", () => {
   it("ignores invalid or malformed session IDs safely", async () => {
     const repo = await makeGitRepo();
 
-    const code = await runReviewTraceHook({
+    const code = await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId: "invalid!@#$%",
@@ -443,7 +443,7 @@ async function commandAvailable(command: string): Promise<boolean> {
     .catch(() => false);
 }
 
-describe("runReviewTraceHook with hosted storage", () => {
+describe("runTraceHook with hosted storage", () => {
   const origin = "https://app.dev.fast";
 
   async function hostedRepo(input: {
@@ -493,7 +493,7 @@ describe("runReviewTraceHook with hosted storage", () => {
 
     const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec9";
 
-    const code = await runReviewTraceHook({
+    const code = await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId,
@@ -519,7 +519,7 @@ describe("runReviewTraceHook with hosted storage", () => {
     });
 
     const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId,
@@ -544,7 +544,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       env,
     );
     const other = "02b015e4-0477-7055-a0fd-21a0f72a4ec7";
-    await runReviewTraceHook({
+    await runTraceHook({
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId: other,
@@ -573,7 +573,7 @@ describe("runReviewTraceHook with hosted storage", () => {
     );
     const sessionId = "03c015e4-0477-7055-a0fd-21a0f72a4ec8";
 
-    const code = await runReviewTraceHook({
+    const code = await runTraceHook({
       cwd: repo,
       event: "SessionStart",
       sessionId,

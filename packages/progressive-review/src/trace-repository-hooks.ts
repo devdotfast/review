@@ -12,6 +12,7 @@ import {
   renderTraceCommand,
   resolveTraceCommand,
   shellQuote,
+  traceHomeDir,
 } from "./trace-command";
 
 const repositoryHookStateSchema = z.object({
@@ -356,6 +357,11 @@ async function writePrivateJson(
 
 function registryPath(homeDir: string): string {
   return path.join(homeDir, ".config", "dev-trace", "repositories.json");
+}
+
+/** Returns the registered repository roots; never scans repositories or changes hooks. */
+export function listTraceRepositoryRoots(homeDir?: string): Promise<string[]> {
+  return readRegistry(homeDir ?? traceHomeDir());
 }
 
 async function readRegistry(homeDir: string): Promise<string[]> {

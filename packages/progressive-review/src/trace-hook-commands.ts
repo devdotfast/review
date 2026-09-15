@@ -38,7 +38,7 @@ export function registerTraceHookCommands(
       },
     ) => {
       settings.setExitCode(
-        await runtime.runReviewTraceSync({
+        await runtime.runTraceSync({
           scope,
           cwd,
           sessionId,
@@ -69,7 +69,7 @@ export function registerTraceHookCommands(
       },
     ) => {
       settings.setExitCode(
-        await runtime.runReviewTraceHook({
+        await runtime.runTraceHook({
           scope,
           cwd,
           event,
@@ -87,7 +87,7 @@ export function registerTraceHookCommands(
       .description("Run a package-owned Git trace hook"),
   ).action(async (hook: string, args: string[]) => {
     settings.setExitCode(
-      await runtime.runReviewTraceGitHook({
+      await runtime.runTraceGitHook({
         scope,
         cwd,
         hook,

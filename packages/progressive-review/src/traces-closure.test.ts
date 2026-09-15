@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
  * part of a bundle's eager graph.
  */
 const TRACE_ROOTS = [
+  "traces-runtime.ts",
   "trace-commands.ts",
   "trace-capture-cli.ts",
   "trace-read-cli.ts",
@@ -140,6 +141,11 @@ function staticImportClosure(roots: string[]) {
 describe("trace surface import closure", () => {
   const closure = staticImportClosure(TRACE_ROOTS);
   process.stdout.write(`trace closure: ${closure.modules.length} modules\n`);
+
+  if (process.env.TRACE_CLOSURE_PRINT === "1") {
+    // Eager imports only; lazy runtime dependencies need a separate inventory.
+    process.stdout.write(`${closure.modules.join("\n")}\n`);
+  }
 
   it("does not reach the Review app's store, VCS engine, or installer", () => {
     const reached = FORBIDDEN_MODULES.filter((module) =>

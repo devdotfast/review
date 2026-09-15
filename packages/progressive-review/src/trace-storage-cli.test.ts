@@ -21,8 +21,8 @@ import { StoreClient } from "./store-client";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
   legacyRetiredPath,
-  runReviewTraceConfigMigrate,
-  runReviewTraceStorageUse,
+  runTraceConfigMigrate,
+  runTraceStorageUse,
 } from "./trace-storage-cli";
 import { readTraceConfigFile, traceConfigPath } from "./trace-storage/config";
 import { selectTraceStorage } from "./trace-storage/resolve";
@@ -104,7 +104,7 @@ describe("trace storage commands", () => {
     const out: string[] = [];
     const err: string[] = [];
 
-    const code = await runReviewTraceConfigMigrate({
+    const code = await runTraceConfigMigrate({
       ...options,
       homeDir: home,
       env,
@@ -331,7 +331,7 @@ describe("trace storage commands", () => {
       const out: string[] = [];
       const err: string[] = [];
 
-      const code = await runReviewTraceStorageUse({
+      const code = await runTraceStorageUse({
         ...input,
         cwd: home,
         homeDir: home,

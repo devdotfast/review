@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearTraceEnvCache } from "./review-agent-traces";
 import { traceScope } from "./trace-command";
-import { runReviewTraceGitHook } from "./trace-git-hook-runner";
+import { runTraceGitHook } from "./trace-git-hook-runner";
 import * as hookRunner from "./trace-hook-runner";
 import { traceConfigPath } from "./trace-storage/config";
 import { allowTraceRepository } from "./trace-user-config";
@@ -24,7 +24,7 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
-describe("runReviewTraceGitHook", () => {
+describe("runTraceGitHook", () => {
   let repo: string;
   let devHome: string;
   let stderrText: string;
@@ -79,7 +79,7 @@ describe("runReviewTraceGitHook", () => {
 
   function prePush(traceCommand?: { file: string }): Promise<number> {
     return git(repo, ["rev-parse", "HEAD"]).then((sha) =>
-      runReviewTraceGitHook({
+      runTraceGitHook({
         cwd: repo,
         hook: "pre-push",
         args: ["origin", "git@github.com:acme/app.git"],

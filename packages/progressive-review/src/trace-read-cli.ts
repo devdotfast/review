@@ -70,7 +70,7 @@ async function listSessionsForReviewScope(
   });
 }
 
-export async function runReviewTraceList(input: {
+export async function runTraceList(input: {
   cwd: string;
   scope: TraceListScope;
   storage?: TraceStorageKind;
@@ -158,7 +158,7 @@ export async function runReviewTraceList(input: {
   return 0;
 }
 
-export async function runReviewTraceShow(input: {
+export async function runTraceShow(input: {
   cwd: string;
   sessionId: string;
   trace?: string;
@@ -270,7 +270,7 @@ type TracePullReport =
   | { session: string }
   | { repository: string };
 
-export async function runReviewTracePull(input: {
+export async function runTracePull(input: {
   cwd: string;
   scope: TracePullScope;
   repo?: string;
@@ -373,7 +373,7 @@ export async function runReviewTracePull(input: {
   }
 }
 
-export async function runReviewTraceLookupCommit(input: {
+export async function runTraceLookupCommit(input: {
   cwd: string;
   sha: string;
   storage?: TraceStorageKind;
@@ -397,7 +397,7 @@ export async function runReviewTraceLookupCommit(input: {
   return result.sessions.length === 0 ? 1 : 0;
 }
 
-export async function runReviewTraceBlame(input: {
+export async function runTraceBlame(input: {
   cwd: string;
   file: string;
   lines?: string;
@@ -450,9 +450,9 @@ export async function runReviewTraceBlame(input: {
   return hasAnySessions ? 0 : 1;
 }
 
-export const runReviewTraceLookupBlame = runReviewTraceBlame;
+export const runTraceLookupBlame = runTraceBlame;
 
-export async function runReviewTraceLookupSession(input: {
+export async function runTraceLookupSession(input: {
   cwd: string;
   sessionId: string;
   storage?: TraceStorageKind;

@@ -21,7 +21,7 @@ import { selectTraceStorage } from "./trace-storage/resolve";
 
 const ZERO_OID = /^0+$/;
 
-export async function runReviewTraceGitHook(input: {
+export async function runTraceGitHook(input: {
   cwd: string;
   hook: string;
   args: string[];

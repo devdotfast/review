@@ -204,7 +204,7 @@ async function requireActiveStore(
  * hosted` does that explicitly.
  */
 
-export async function runReviewTraceOnboard(
+export async function runTraceOnboard(
   input: CliJsonOutput & {
     scope: TraceScope;
     cwd: string;
@@ -249,7 +249,7 @@ export async function runReviewTraceOnboard(
   });
 }
 
-export async function runReviewTraceAllow(
+export async function runTraceAllow(
   input: CliJsonOutput & { scope: TraceScope } & {
     cwd: string;
     client?: StoreClient;
@@ -341,7 +341,7 @@ async function enableHostedCapture(
   });
 }
 
-export async function runReviewTraceDeny(
+export async function runTraceDeny(
   input: CliJsonOutput & { scope: TraceScope } & {
     cwd: string;
     /** Also delete the hosted store (repository admins only). */
@@ -476,7 +476,7 @@ function listedSession(
  * Reading needs no local publication consent; the store checks GitHub
  * access itself.
  */
-export async function runReviewTraceSessions(
+export async function runTraceSessions(
   input: CliJsonOutput & { scope: TraceScope } & {
     cwd: string;
     limit?: number;

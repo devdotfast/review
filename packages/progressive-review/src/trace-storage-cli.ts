@@ -76,7 +76,7 @@ export interface RunReviewTraceStorageUseInput
   region?: string;
 }
 
-export async function runReviewTraceStorageUse(
+export async function runTraceStorageUse(
   input: RunReviewTraceStorageUseInput,
 ): Promise<number> {
   const stage = "trace.storage.use";
@@ -309,7 +309,7 @@ export function legacyRetiredPath(filePath: string): string {
  * Copies the effective legacy bucket setup into the version-2 config.
  * Configuration moves; bucket objects, paths, and formats do not.
  */
-export async function runReviewTraceConfigMigrate(
+export async function runTraceConfigMigrate(
   input: RunReviewTraceConfigMigrateInput,
 ): Promise<number> {
   const stage = "trace.config.migrate";

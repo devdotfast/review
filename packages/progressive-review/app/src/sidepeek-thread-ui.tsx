@@ -1142,9 +1142,9 @@ export function usePanelThreadController({
     changeLineSelection: setDragRange,
     endLineSelection,
     renderThreadInjection,
-    renderThreadArea,
-    renderThreadFooter,
-    renderTitleMarker,
+    renderThreadArea: () => null,
+    renderThreadFooter: () => null,
+    renderTitleMarker: () => null,
   };
 }
 

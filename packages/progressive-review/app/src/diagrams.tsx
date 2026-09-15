@@ -38,6 +38,7 @@ import type {
   SequenceMessageInput,
 } from "../../src/authoring";
 import { validatedCodePeekInputFromRef } from "./CodePeek";
+import { useCodexSelection } from "./codex-context";
 import { useReviewDebugSettings } from "./debug-settings";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
@@ -581,6 +582,7 @@ function SequenceDiagramFigure({
    * its Tour button for a close control and message dots show stop numbers. */
   onCloseTour?: () => void;
 }) {
+  const selectForCodex = useCodexSelection();
   const sequenceScrollRef = useRef<HTMLDivElement | null>(null);
   const panelMotion = useReviewPanel((state) => state.motion);
   const [availableWidth, setAvailableWidth] = useState(0);
@@ -673,7 +675,30 @@ function SequenceDiagramFigure({
   ) => {
     event.stopPropagation();
 
-    if (edge.data) openTour(edge.data.message.anchor.id);
+    if (edge.data) {
+      const target = sequenceTargetElements(sequence).find(
+        (t) =>
+          t.element.type === "edge" &&
+          t.element.quote === edge.data?.message.label &&
+          t.element.path.join("/") === edge.data.path.join("/"),
+      );
+
+      if (target)
+        selectForCodex({
+          target,
+          title: `${sequence.label}: ${edge.data.message.label}`,
+          detail: JSON.stringify(
+            {
+              from: edge.data.message.from.label,
+              to: edge.data.message.to.label,
+              code: edge.data.message.code,
+            },
+            null,
+            2,
+          ),
+        });
+      openTour(edge.data.message.anchor.id);
+    }
   };
 
   const scrollSequenceHorizontally = useCallback((event: WheelEvent) => {
@@ -879,6 +904,8 @@ function SequenceParticipantNode({
 }: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
   const { openCommentDraft } = useReviewActions();
 
+  const selectForCodex = useCodexSelection();
+
   const { participant, diagram, height, messages, messageGap, messageTop } =
     data;
 
@@ -910,16 +937,31 @@ function SequenceParticipantNode({
       className="sequence-participant-node"
       style={{ height }}
       data-review-locator={targetKey(target)}
-      onContextMenu={openParticipantComment}
     >
       <div className="sequence-participant-comment-target">
         <span
           className="sequence-participant-label"
           title={participant.label}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              selectForCodex({
+                target,
+                title: `${diagram}: ${participant.label}`,
+                detail: JSON.stringify(participant, null, 2),
+              });
+            }
+          }}
           onClick={(event) => {
             event.stopPropagation();
+            selectForCodex({
+              target,
+              title: `${diagram}: ${participant.label}`,
+              detail: JSON.stringify(participant, null, 2),
+            });
           }}
-          onContextMenu={openParticipantComment}
         >
           {participant.label}
         </span>
@@ -1002,6 +1044,7 @@ function SequenceMessageEdge(
 ) {
   const { openCommentDraft } = useReviewActions();
   const [isHoveringEdge, setIsHoveringEdge] = useState(false);
+  const selectForCodex = useCodexSelection();
   const data = props.data;
 
   if (!data) return null;
@@ -1047,6 +1090,21 @@ function SequenceMessageEdge(
     quote: data.message.label,
   });
 
+  const shareMessage = () =>
+    selectForCodex({
+      target,
+      title: `${data.diagram}: ${data.message.label}`,
+      detail: JSON.stringify(
+        {
+          from: data.message.from.label,
+          to: data.message.to.label,
+          code: data.message.code,
+        },
+        null,
+        2,
+      ),
+    });
+
   const openMessageComment = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1074,6 +1132,7 @@ function SequenceMessageEdge(
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          shareMessage();
           data.openTour(data.message.anchor.id);
         }}
       />
@@ -1092,9 +1151,9 @@ function SequenceMessageEdge(
           }}
           data-review-anchor-id={data.message.anchor.id}
           data-review-locator={targetKey(target)}
-          onContextMenu={openMessageComment}
           onClick={(event) => {
             event.stopPropagation();
+            shareMessage();
             data.openTour(data.message.anchor.id);
           }}
           aria-label={data.message.label}
@@ -1127,12 +1186,14 @@ function SequenceMessageEdge(
               event.stopPropagation();
 
               if (hasTextSelectionWithin(event.currentTarget)) return;
+              shareMessage();
               data.openTour(data.message.anchor.id);
             }}
             onKeyDown={(event) => {
               if (event.key !== "Enter" && event.key !== " ") return;
               event.preventDefault();
               event.stopPropagation();
+              shareMessage();
               data.openTour(data.message.anchor.id);
             }}
           >

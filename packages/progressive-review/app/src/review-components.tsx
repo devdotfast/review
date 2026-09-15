@@ -680,49 +680,11 @@ function panelSelectionSurface(
   return surface && panel.contains(surface) ? surface : null;
 }
 
-function PanelSelectionCommentButton({
-  target,
-  clearTarget,
-}: {
+function PanelSelectionCommentButton(_props: {
   target: PanelSelectionTarget | null;
   clearTarget: () => void;
 }): ReactNode {
-  const review = useReview();
-
-  if (!target) return null;
-
-  return (
-    <div
-      className="selection-action-buttons panel-selection-action"
-      style={{ left: target.x, top: target.y }}
-    >
-      <button
-        type="button"
-        className="selection-action-segment selection-comment-button"
-        aria-label={
-          review.pendingCommentCount > 0
-            ? "Comment on selection"
-            : "Ask about selection"
-        }
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => {
-          review.openCommentDraft({
-            target: target.target,
-            title:
-              target.quote.length > 72
-                ? `${target.quote.slice(0, 69).trimEnd()}...`
-                : target.quote,
-            body: "",
-            draftSurface: "panel",
-          });
-          clearTarget();
-        }}
-      >
-        <CommentIcon />
-        <span>{review.pendingCommentCount > 0 ? "Comment" : "Ask"}</span>
-      </button>
-    </div>
-  );
+  return null;
 }
 
 /** The only top-level renderer for Review's detail and thread panel modes. */
@@ -1056,19 +1018,6 @@ function CodeReviewPeekPanel({
               <MapPinIcon />
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() =>
-              openCommentDraft({
-                ...createAnchorCommentTarget(anchor),
-                draftSurface: "panel",
-              })
-            }
-            className="icon-button icon-button--comment"
-            aria-label="Comment on side peek"
-          >
-            <CommentIcon />
-          </button>
         </div>
 
         <div className="peek-content">
@@ -1496,19 +1445,6 @@ function GuidedTourStopMain({
           )}
         </div>
         <div className="peek-actions">
-          <button
-            type="button"
-            className="icon-button icon-button--comment"
-            aria-label={`Comment on ${stop.label}`}
-            onClick={() =>
-              openCommentDraft({
-                ...createAnchorCommentTarget(stop.anchor),
-                draftSurface: "panel",
-              })
-            }
-          >
-            <CommentIcon />
-          </button>
           {softwareMapEnabled && stop.anchor.softwareMapPath ? (
             <button
               type="button"

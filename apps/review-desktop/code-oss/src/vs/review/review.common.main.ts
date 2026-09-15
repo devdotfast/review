@@ -282,7 +282,7 @@ import "./contrib/workspace/reviewWorkspaceFolder.contribution.js";
 import "./browser/parts/canvas/reviewCanvasEditor.contribution.js";
 import "./browser/parts/canvas/reviewFind.contribution.js";
 import "../workbench/contrib/comments/browser/comments.contribution.js";
-import "./contrib/comments/reviewComments.contribution.js";
+// Inline Review commenting is disabled for the Codex selection experiment.
 import "../workbench/contrib/files/browser/fileActions.contribution.js";
 import "../workbench/contrib/files/browser/files.contribution.js";
 import "../workbench/contrib/bulkEdit/browser/bulkEditService.js";

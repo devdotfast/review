@@ -10535,3 +10535,46 @@ button.review-stack-row:disabled .review-stack-relation {
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
 }
+
+/* Kept visible when switching from the Review document to an agent. */
+.codex-context-control {
+  position: fixed;
+  right: 16px;
+  bottom: 12px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  max-width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 6px 10px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: var(--vscode-editor-background, Canvas);
+  color: var(--vscode-editor-foreground, CanvasText);
+  font-size: 12px;
+}
+.codex-context-control label {
+  white-space: nowrap;
+}
+.codex-context-control span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-context-control .codex-context-preview {
+  flex: 0 0 100%;
+  min-width: 0;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--vscode-widget-border, GrayText);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

@@ -39,6 +39,8 @@ export class ReviewDiffViewService
   extends Disposable
   implements ReviewDiffViewFactory
 {
+  private readonly _onDidFocusFile = this._register(new Emitter<ReviewDiffFileWire>());
+  readonly onDidFocusFile = this._onDidFocusFile.event;
   private overflowWidgetsDomNode: HTMLElement | undefined;
   private readonly handles = new Set<DiffViewHandle>();
   readonly diffLayout: ReviewDiffLayoutSetting;
@@ -79,6 +81,7 @@ export class ReviewDiffViewService
       this.diffLayout,
       this.viewStates,
       () => this.handles.delete(handle),
+      file => this._onDidFocusFile.fire(file),
     );
     this.handles.add(handle);
     return handle;
@@ -120,6 +123,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     private readonly diffLayout: ReviewDiffLayoutSetting,
     private readonly viewStates: Map<string, IMultiDiffEditorViewState>,
     private readonly onDispose: () => void,
+    private readonly onFocusFile: (file: ReviewDiffFileWire) => void,
   ) {
     super();
     void this.initialize();
@@ -173,6 +177,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
         ),
       );
       this.view = view;
+      store.add(view.onDidFocusFile(this.onFocusFile));
       store.add(
         view.onDidChangeActiveControl(() => this.bindActiveControl(view)),
       );

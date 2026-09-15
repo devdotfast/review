@@ -185,6 +185,8 @@ export class ReviewFilesDiffView extends Disposable {
   private viewModel: MultiDiffEditorViewModel | undefined;
   private input: ReviewFilesEditorInput | undefined;
   private inlineCommentOpen = false;
+  private readonly _onDidFocusFile = this._register(new Emitter<ReviewDiffFileWire>());
+  readonly onDidFocusFile = this._onDidFocusFile.event;
 
   constructor(
     private readonly container: HTMLElement,
@@ -301,6 +303,7 @@ export class ReviewFilesDiffView extends Disposable {
           (entry) => entry.file.path === file.path,
         );
         if (!element) return;
+        this._onDidFocusFile.fire(element.file);
         this.reveal({
           original: element.original,
           modified: element.modified,
@@ -416,6 +419,7 @@ export class ReviewFilesDiffView extends Disposable {
     );
     if (index === -1) return;
     this.changedFilesTree.setActiveFile(input.entries[index].file.path);
+    this._onDidFocusFile.fire(input.entries[index].file);
   }
 }
 function sameResource(left: URI | undefined, right: URI | undefined): boolean {

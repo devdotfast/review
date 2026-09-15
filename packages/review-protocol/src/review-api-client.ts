@@ -17,7 +17,10 @@ export interface ReviewSourceEntry {
 
 /** A non-2xx reply; the status tells a caller whether retrying can help. */
 export class ReviewApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
     super(message);
     this.name = "ReviewApiError";
   }

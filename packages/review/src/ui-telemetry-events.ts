@@ -140,7 +140,14 @@ const MAP_LEVEL = ["system", "container", "component", "code"] as const;
 
 const SOURCE_TREE_OPENED_VIA = ["topbar", "home"] as const;
 
-const TAB = ["review", "commits", "map", "files", "trace"] as const;
+/** Tab names the dwell beacon reports. Shared with its request parser. */
+export const REVIEW_TELEMETRY_TABS = [
+  "review",
+  "commits",
+  "map",
+  "files",
+  "trace",
+] as const;
 
 const COMMIT_DIFF_VIA = ["row", "file", "footer"] as const;
 
@@ -245,10 +252,6 @@ export const UI_TELEMETRY_EVENTS = {
   app_opened: {
     event: "review_app_opened",
     properties: {},
-  },
-  tab_viewed: {
-    event: "review_tab_viewed",
-    properties: { tab: TAB },
   },
   peek_opened: {
     event: "review_peek_opened",

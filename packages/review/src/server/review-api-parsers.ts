@@ -7,6 +7,7 @@ import {
 import { z } from "zod";
 
 import type { ReviewTabTelemetryEvent } from "../telemetry";
+import { REVIEW_TELEMETRY_TABS } from "../ui-telemetry-events";
 import { HttpJsonError } from "./http-json";
 
 const MIN_REVIEW_TAB_DWELL_MS = 250;
@@ -133,7 +134,7 @@ export const SoftwareMapCoverageClaimInputSchema = z.strictObject({
 
 export const ReviewTabTelemetryInputSchema = z
   .strictObject({
-    tab: z.enum(["review", "commits", "map", "files", "trace"], {
+    tab: z.enum(REVIEW_TELEMETRY_TABS, {
       error: "must be review, commits, map, files, or trace",
     }),
     reason: z.enum(["tab_change", "visibility_hidden", "pagehide", "unmount"], {

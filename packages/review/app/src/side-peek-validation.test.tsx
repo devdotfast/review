@@ -8,10 +8,7 @@ import { ReviewDebugSettingsProvider } from "./debug-settings";
 import { ReviewSessionProvider } from "./host/review-session";
 import { AnchorLink, ReviewPanelHost } from "./review-components";
 import { ReviewProvider } from "./review-context";
-import {
-  createTestReviewDefinitionSession,
-  testCodePeekResolution,
-} from "./review-definition-test-utils";
+import { createTestReviewDefinitionSession } from "./review-definition-test-utils";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { ReviewPanelProvider } from "./review-panel";
 import { testReviewSession } from "./review-session-test-utils";
@@ -57,10 +54,8 @@ describe("side-peek validation boundary", () => {
 
     const definitions = createTestReviewDefinitionSession({
       softwareMap: model,
-      resolveCodePeek: async (props) => {
+      validateCodePeek: async (props) => {
         validatedRoots.push(props.file);
-
-        return testCodePeekResolution();
       },
     });
 

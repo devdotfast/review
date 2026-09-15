@@ -18,7 +18,6 @@ import {
   type ReviewSession,
   ReviewSessionProvider,
 } from "./host/review-session";
-import { testCodePeekResolution } from "./review-definition-test-utils";
 import { ReviewDiffFilesProvider } from "./review-diff-files-context";
 import { testReviewSession } from "./review-session-test-utils";
 
@@ -149,25 +148,17 @@ describe("CodePeek native editor", () => {
 
   it("mounts each editor without a React header and opens from the native action", async () => {
     const input = validatedCodePeekInputFromRef({
-      __kind: "code-peek-ref",
-      props: {
-        file: "src/previous.ts",
-        fromLine: 7,
-        toLine: 9,
-        graph: "base",
-      },
-      resolution: { snapshot: { roots: [], resolved: {} } },
+      side: "base",
+      file: "src/previous.ts",
+      fromLine: 7,
+      toLine: 9,
     });
 
     const secondInput = validatedCodePeekInputFromRef({
-      __kind: "code-peek-ref",
-      props: {
-        file: "src/current.ts",
-        fromLine: 20,
-        toLine: 20,
-        graph: "head",
-      },
-      resolution: { snapshot: { roots: [], resolved: {} } },
+      side: "head",
+      file: "src/current.ts",
+      fromLine: 20,
+      toLine: 20,
     });
 
     const container = document.createElement("div");
@@ -225,9 +216,10 @@ describe("CodePeek native editor", () => {
 
   it("gives range side peeks a source title and content height policy", async () => {
     const input = validatedCodePeekInputFromRef({
-      __kind: "code-peek-ref",
-      props: { file: "src/example.ts", fromLine: 1, toLine: 3, graph: "head" },
-      resolution: testCodePeekResolution(),
+      side: "head",
+      file: "src/example.ts",
+      fromLine: 1,
+      toLine: 3,
     });
 
     const container = document.createElement("div");
@@ -253,14 +245,10 @@ describe("CodePeek native editor", () => {
 
     for (let index = 0; index < 50; index += 1) {
       const input = validatedCodePeekInputFromRef({
-        __kind: "code-peek-ref",
-        props: {
-          file: `src/target-${index}.ts`,
-          fromLine: index + 1,
-          toLine: index + 1,
-          graph: "head",
-        },
-        resolution: { snapshot: { roots: [], resolved: {} } },
+        side: "head",
+        file: `src/target-${index}.ts`,
+        fromLine: index + 1,
+        toLine: index + 1,
       });
 
       await act(async () => renderWithSession(<CodePeekCard input={input} />));
@@ -281,14 +269,10 @@ describe("CodePeek native editor", () => {
 
   it("recreates a native editor when the Review session changes", async () => {
     const input = validatedCodePeekInputFromRef({
-      __kind: "code-peek-ref",
-      props: {
-        file: "src/current.ts",
-        fromLine: 20,
-        toLine: 20,
-        graph: "head",
-      },
-      resolution: { snapshot: { roots: [], resolved: {} } },
+      side: "head",
+      file: "src/current.ts",
+      fromLine: 20,
+      toLine: 20,
     });
 
     const container = document.createElement("div");

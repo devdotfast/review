@@ -88,31 +88,10 @@ describe("review app links", () => {
 describe("review app CodePeek rendering", () => {
   it("leaves resolved CodePeek identity and stats to the native editor header", () => {
     const input = validatedCodePeekInputFromRef({
-      __kind: "code-peek-ref",
-      props: { file: "src/example.ts", fromLine: 1, toLine: 3, graph: "base" },
-      resolution: {
-        snapshot: {
-          roots: [
-            {
-              kind: "source",
-              sourceId: "source-range:src/old.ts:12-14",
-            },
-          ],
-          resolved: {
-            "source-range:src/old.ts:12-14": {
-              source: {
-                id: "source-range:src/old.ts:12-14",
-                name: "old.ts L12-L14",
-                kind: "source-range",
-                file: "src/old.ts",
-                line: 12,
-                endLine: 14,
-              },
-              lines: [[{ t: "SECRET_SNAPSHOT_SOURCE", k: "t" }]],
-            },
-          },
-        },
-      },
+      side: "base",
+      file: "src/example.ts",
+      fromLine: 1,
+      toLine: 3,
     });
 
     const html = renderWithTestSession(createElement(CodePeekCard, { input }));
@@ -128,9 +107,10 @@ describe("review app CodePeek rendering", () => {
 
   it("renders a no-diff CodePeek without a duplicate React header", () => {
     const input = validatedCodePeekInputFromRef({
-      __kind: "code-peek-ref",
-      props: { file: "src/unchanged.ts", fromLine: 8, toLine: 8 },
-      resolution: { snapshot: { roots: [], resolved: {} } },
+      side: "head",
+      file: "src/unchanged.ts",
+      fromLine: 8,
+      toLine: 8,
     });
 
     const html = renderWithTestSession(createElement(CodePeekCard, { input }));

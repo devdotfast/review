@@ -9,7 +9,7 @@ import {
   type SoftwareDataStoreFieldSchema,
   type SoftwareDataStoreKind,
 } from "./software-map-model";
-import type { SourceSnapshot } from "./source-code-types";
+import { type Source, sourceSchema } from "./source";
 
 export { defineSoftwareMap as defineSoftwareModel } from "./software-map-model";
 
@@ -38,13 +38,13 @@ export interface ReviewDefinitionEnvironment {
   softwareMap: NormalizedSoftwareModel | null;
   baseSoftwareMap: NormalizedSoftwareModel | null;
   mapDependentComponents?: readonly string[];
-  resolveCodePeek?(
+  validateCodePeek?(
     props: CodePeekProps,
-    context?: CodePeekResolutionContext,
-  ): Promise<CodePeekResolution>;
+    context?: CodePeekValidationContext,
+  ): Promise<void>;
 }
 
-export interface CodePeekResolutionContext {
+export interface CodePeekValidationContext {
   anchorId: string;
 }
 
@@ -126,21 +126,18 @@ export type CodePeekRangeInput = z.infer<typeof codePeekRangeInputSchema>;
 
 export const codePeekPropsSchema = codePeekRangeInputSchema;
 
-export type CodePeekRoot = CodePeekRangeInput;
-
 export type CodePeekProps = z.infer<typeof codePeekPropsSchema>;
 
-export interface CodePeekResolution {
-  snapshot: SourceSnapshot;
+/** The authoring input names the diff side `graph`; the document names it
+ * `side`. `theme` was never rendered and is not carried. */
+export function codePeekSource(props: CodePeekProps): Source {
+  return {
+    side: props.graph ?? "head",
+    file: props.file,
+    fromLine: props.fromLine,
+    toLine: props.toLine,
+  };
 }
-
-export const codePeekRefSchema = z.strictObject({
-  __kind: z.literal("code-peek-ref"),
-  props: codePeekPropsSchema,
-  resolution: z.custom<CodePeekResolution>().nullable(),
-});
-
-export type CodePeekRef = z.infer<typeof codePeekRefSchema>;
 
 export const anchorInputSchema = z.strictObject({
   title: nonEmptyStringSchema,
@@ -173,14 +170,14 @@ export const anchorRefSchema = z.strictObject({
   id: nonEmptyStringSchema,
   title: nonEmptyStringSchema,
   detail: optionalNonEmptyStringSchema,
-  peek: codePeekRefSchema.optional(),
+  peek: sourceSchema.optional(),
   softwareMapPath: optionalNonEmptyStringSchema,
 });
 
 export type AnchorRef = z.infer<typeof anchorRefSchema>;
 
 export const peekableAnchorRefSchema = anchorRefSchema.extend({
-  peek: codePeekRefSchema,
+  peek: sourceSchema,
 });
 
 export type PeekableAnchorRef = z.infer<typeof peekableAnchorRefSchema>;
@@ -225,9 +222,7 @@ export function isPeekableAnchorRef(
 }
 
 export type AnchorRefFor<T extends AnchorInputMap[string]> = AnchorRef &
-  (T extends { peek: infer Peek extends CodePeekProps }
-    ? { peek: CodePeekRef & { props: Peek } }
-    : unknown);
+  (T extends { peek: CodePeekProps } ? { peek: Source } : unknown);
 
 export const reviewCodePeekPropsSchema = z.strictObject({
   anchor: peekableAnchorRefSchema,
@@ -554,7 +549,7 @@ export const callStackDiffPropsSchema = z
     value.head.forEach((entry, index) => {
       const anchor = callStackEntryAnchor(entry);
 
-      if (anchor.peek.props.graph === "base") {
+      if (anchor.peek.side === "base") {
         context.addIssue({
           code: "custom",
           path: ["head", index],
@@ -565,7 +560,7 @@ export const callStackDiffPropsSchema = z
     value.base.forEach((entry, index) => {
       const anchor = callStackEntryAnchor(entry);
 
-      if (anchor.peek.props.graph !== "base" && !headIds.has(anchor.id)) {
+      if (anchor.peek.side !== "base" && !headIds.has(anchor.id)) {
         context.addIssue({
           code: "custom",
           path: ["base", index],
@@ -827,27 +822,16 @@ export const storeRefDataSchema: z.ZodType<StoreRefData> = z.strictObject({
 });
 
 // The JSON form of each registry component's props, as a published document
-// stores them: `children` is gone (the document keeps its own child nodes),
-// store handles are their data projection, and code-peek resolutions are
-// stripped. review-document-materialize.ts writes exactly this.
-export const documentCodePeekRefSchema = codePeekRefSchema.extend({
-  resolution: z.null(),
-});
-
-export const documentAnchorRefSchema = anchorRefSchema.extend({
-  peek: documentCodePeekRefSchema.optional(),
-});
-
-export const documentPeekableAnchorRefSchema = anchorRefSchema.extend({
-  peek: documentCodePeekRefSchema,
-});
-
+// stores them: `children` is gone (the document keeps its own child nodes) and
+// store handles are their data projection. Anchors are stored as-is: their
+// peek is already a plain source range. review-document-materialize.ts writes
+// exactly this.
 const documentCallStackEntrySchema = z.union([
-  documentPeekableAnchorRefSchema,
+  peekableAnchorRefSchema,
   z.strictObject({
     __kind: z.literal("call-assertion"),
-    parent: documentPeekableAnchorRefSchema,
-    child: documentPeekableAnchorRefSchema,
+    parent: peekableAnchorRefSchema,
+    child: peekableAnchorRefSchema,
     reason: optionalNonEmptyStringSchema,
   }),
 ]);
@@ -861,29 +845,29 @@ const documentSequenceMessageFields = {
 const documentSequenceMessageSchema = z.union([
   z.strictObject({
     ...documentSequenceMessageFields,
-    anchor: documentPeekableAnchorRefSchema,
+    anchor: peekableAnchorRefSchema,
     code: sequenceMessageCodeInputSchema.optional(),
   }),
   z.strictObject({
     ...documentSequenceMessageFields,
-    anchor: documentAnchorRefSchema.optional(),
+    anchor: anchorRefSchema.optional(),
     code: sequenceMessageCodeInputSchema,
   }),
 ]);
 
 const documentDbOperationFields = {
   label: nonEmptyStringSchema,
-  anchor: documentPeekableAnchorRefSchema,
+  anchor: peekableAnchorRefSchema,
 };
 
 export const reviewComponentDataSchemas = {
-  AnchorLink: z.strictObject({ anchor: documentPeekableAnchorRefSchema }),
+  AnchorLink: z.strictObject({ anchor: peekableAnchorRefSchema }),
   CallStackDiff: z.strictObject({
     title: optionalNonEmptyStringSchema,
     base: z.array(documentCallStackEntrySchema),
     head: z.array(documentCallStackEntrySchema),
   }),
-  CodePeek: z.strictObject({ anchor: documentPeekableAnchorRefSchema }),
+  CodePeek: z.strictObject({ anchor: peekableAnchorRefSchema }),
   DatabaseLens: z.strictObject({
     title: optionalNonEmptyStringSchema,
     stores: z.record(nonEmptyStringSchema, storeRefDataSchema),
@@ -1148,30 +1132,15 @@ function defineAnchors<T extends AnchorInputMap>(
         [id, "softwareMapPath"],
         reportMissingSoftwareMap,
       );
-      let peek: CodePeekRef | undefined;
+      let peek: Source | undefined;
 
       if (anchor.peek) {
         const props = validateCodePeekProps(anchor.peek);
-        peek = {
-          __kind: "code-peek-ref",
-          props,
-          resolution: null,
-        };
-        const resolveCodePeek = environment.resolveCodePeek;
+        peek = codePeekSource(props);
+        const validateCodePeek = environment.validateCodePeek;
 
-        if (resolveCodePeek) {
-          const resolution = resolveCodePeek(props, { anchorId: id }).then(
-            (resolved) => {
-              if (!codePeekResolutionHasSource(resolved)) {
-                throwAuthoringIssue(
-                  [id, "peek"],
-                  "Code reference resolved without source",
-                );
-              }
-
-              peek!.resolution = resolved;
-              Object.freeze(peek);
-            },
+        if (validateCodePeek) {
+          const validation = validateCodePeek(props, { anchorId: id }).catch(
             (cause: unknown) => {
               throwAuthoringIssue(
                 [id, "peek"],
@@ -1184,8 +1153,8 @@ function defineAnchors<T extends AnchorInputMap>(
           // readiness barrier awaits them. A fast rejection in that gap must
           // remain observable by ready() without becoming a process-level
           // unhandled rejection.
-          void resolution.catch(() => undefined);
-          pending.push(resolution);
+          void validation.catch(() => undefined);
+          pending.push(validation);
         }
       }
 
@@ -1200,16 +1169,6 @@ function defineAnchors<T extends AnchorInputMap>(
       ];
     }),
   ) as { [K in keyof T]: AnchorRefFor<T[K]> };
-}
-
-function codePeekResolutionHasSource(resolution: CodePeekResolution): boolean {
-  return resolution.snapshot.roots.some((root) => {
-    const source = resolution.snapshot.resolved[root.sourceId];
-
-    return source?.lines.some((line) =>
-      line.some((token) => token.t.trim().length > 0),
-    );
-  });
 }
 
 function defineStores<T extends StoreInputMap>(
@@ -1330,9 +1289,6 @@ function defineSoftwareStores<T extends SoftwareStoreInputMap>(
     {
       softwareMap: model,
       baseSoftwareMap: model,
-      resolveCodePeek: async () => {
-        throw new Error("defineSoftwareStores does not resolve code peeks");
-      },
     },
     () => {},
   ) as { [K in keyof T]: SoftwareStoreRefFor<T[K]> };

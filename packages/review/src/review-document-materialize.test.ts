@@ -37,11 +37,7 @@ const anchor = {
   __kind: "db-anchor-ref",
   id: "a",
   title: "A",
-  peek: {
-    __kind: "code-peek-ref",
-    props: { file: "x.ts", fromLine: 1, toLine: 2 },
-    resolution: null,
-  },
+  peek: { side: "head", file: "x.ts", fromLine: 1, toLine: 2 },
 } as const;
 
 describe("materializeReviewDocument", () => {

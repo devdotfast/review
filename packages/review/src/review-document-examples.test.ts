@@ -304,7 +304,7 @@ describe("real authored document JSON conversion", () => {
       "previous",
       "unused",
     ]);
-    expect(document.anchors.previous?.peek?.props.graph).toBe("base");
+    expect(document.anchors.previous?.peek?.side).toBe("base");
     expect(result.rangePeeks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ anchorId: "previous", graph: "base" }),

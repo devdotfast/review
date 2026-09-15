@@ -63,7 +63,7 @@ export function ResolvedCallStackDiff(
               role="listitem"
               className={`call-stack-row call-stack-${row.change}`}
               data-review-anchor-id={anchor.id}
-              title={`${rowTooltip(row.entry)} — ${anchor.peek.props.file}:${anchor.peek.props.fromLine}`}
+              title={`${rowTooltip(row.entry)} — ${anchor.peek.file}:${anchor.peek.fromLine}`}
               onClick={() => {
                 captureUiEvent(session, "peek_opened", {
                   via: "call_stack_frame",
@@ -90,10 +90,7 @@ export function ResolvedCallStackDiff(
               ) : null}
               <span className="call-stack-spacer" />
               <span className="call-stack-loc">
-                {locationLabel(
-                  anchor.peek.props.file,
-                  anchor.peek.props.fromLine,
-                )}
+                {locationLabel(anchor.peek.file, anchor.peek.fromLine)}
               </span>
             </button>
           );

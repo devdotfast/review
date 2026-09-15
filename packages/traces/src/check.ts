@@ -354,6 +354,7 @@ export async function runTracesCheck(
         );
         // A store that answered can answer the repository read too; only an
         // expired login cannot.
+
         if (error.code === "unauthorized") client = null;
       } else {
         checks.push(

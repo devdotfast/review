@@ -11,7 +11,6 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 import type { ReviewSourceEntry } from "@dev.fast/review-protocol";
-import sharp from "sharp";
 import { z } from "zod";
 
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
@@ -64,11 +63,46 @@ export const uploadSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/** Git/jj reads committed objects, never follows a working-copy symlink. */
+function checkRelativePath(file: string) {
+  if (
+    file === "" ||
+    file.endsWith("/") ||
+    path.posix.isAbsolute(file) ||
+    file.includes("\\") ||
+    file.split("/").some((part) => part === ".." || part === ".") ||
+    /[\u0000-\u001f]/.test(file)
+  )
+    throw new ReviewInputError(
+      "Source file must be a repository-relative path.",
+    );
+}
+
+// Same counting as resolveSourceRange and `review map check`: a trailing newline yields a final empty line.
+function sliceRange(file: { commit: string; text: string }, source: Source) {
+  const lines = file.text.split(/\r?\n/);
+
+  if (source.toLine > lines.length)
+    throw new ReviewInputError("Source range exceeds the pinned file.");
+
+  return {
+    ...source,
+    commit: file.commit,
+    text: lines.slice(source.fromLine - 1, source.toLine).join("\n"),
+  };
+}
+
 /** Local implementation of the host's source/resource boundary. No client gets a filesystem path. */
 export class LocalReviewData {
   constructor(private readonly store: ReviewStore) {}
   async register(root: string) {
-    const vcs = await detectLocalVcs(await realpath(root));
+    const resolved = await realpath(root).catch(() => {
+      throw new ReviewInputError(
+        "Repository path does not exist or is not readable.",
+      );
+    });
+
+    const vcs = await detectLocalVcs(resolved);
 
     if (!vcs) throw new ReviewInputError("Choose a Git or jj repository.");
 
@@ -104,8 +138,7 @@ export class LocalReviewData {
       );
   }
   async file(pins: Pins, side: "base" | "head", file: string) {
-    // Git/jj reads committed objects, never follows a working-copy symlink.
-    checkSourcePath(file);
+    checkRelativePath(file);
 
     const result = await readFileAtRevision({
       rootPath: this.store.repositoryPath(pins.repositoryId),
@@ -113,7 +146,12 @@ export class LocalReviewData {
       relativePath: file,
     });
 
-    if (!result || result.commit !== pins[side])
+    // `git show <commit>:<dir>` prints a "tree <commit>:<dir>" listing instead of failing.
+    if (
+      !result ||
+      result.commit !== pins[side] ||
+      result.source.startsWith(`tree ${result.commit}:`)
+    )
       throw new ReviewInputError(
         "File is unavailable at the pinned commit.",
         404,
@@ -159,21 +197,12 @@ export class LocalReviewData {
   }
   async quote(pins: Pins, source: Source) {
     source = sourceSchema.parse(source);
-    const file = await this.file(pins, source.side, source.file);
-    const lines = file.text.split(/\r?\n/);
 
-    if (file.text.endsWith("\n")) lines.pop();
-
-    if (file.text === "" || source.toLine > lines.length)
-      throw new ReviewInputError("Source range exceeds the pinned file.");
-
-    return {
-      ...source,
-      commit: file.commit,
-      text: lines.slice(source.fromLine - 1, source.toLine).join("\n"),
-    };
+    return sliceRange(await this.file(pins, source.side, source.file), source);
   }
   async changes(pins: Pins, file?: string) {
+    if (file !== undefined) checkRelativePath(file);
+
     const input = {
       rootPath: this.store.repositoryPath(pins.repositoryId),
       baseRef: pins.base,
@@ -249,6 +278,9 @@ export class LocalReviewData {
 
     switch (input.kind) {
       case "image": {
+        // Load the native decoder only here, so a missing platform binary fails one upload, not host startup.
+        const { default: sharp } = await import("sharp");
+
         try {
           const decoder = sharp(Buffer.from(input.base64, "base64"), {
             limitInputPixels: 20_000_000,
@@ -298,9 +330,24 @@ export class LocalReviewData {
           );
         }
 
-        for (const element of model.elements)
-          for (const source of element.sourceRanges ?? [])
-            await this.quote(input.pins, { ...source, side: input.side });
+        // Read each pinned file once, then check every range against it concurrently.
+        const files = new Map<string, ReturnType<LocalReviewData["file"]>>();
+
+        await Promise.all(
+          model.elements.flatMap((element) =>
+            (element.sourceRanges ?? []).map(async (source) => {
+              const range = sourceSchema.parse({ ...source, side: input.side });
+              let read = files.get(range.file);
+
+              if (!read)
+                files.set(
+                  range.file,
+                  (read = this.file(input.pins, range.side, range.file)),
+                );
+              sliceRange(await read, range);
+            }),
+          ),
+        );
         data = Buffer.from(
           JSON.stringify({
             commit: input.pins[input.side],

@@ -264,7 +264,7 @@ export const collectionKindSchema = z.enum(["tables", "documents"]);
 
 export type CollectionKind = z.infer<typeof collectionKindSchema>;
 
-const resolvedTargetRefSchema = z.strictObject({
+export const resolvedTargetRefSchema = z.strictObject({
   __kind: z.literal("db-target-ref"),
   storeId: nonEmptyStringSchema,
   storeKind: storeKindSchema,

@@ -177,7 +177,7 @@ export async function requireTraceSessionProvenance(
   if (records.length === 0) {
     throw new TraceProvenanceError(
       "provenance_missing",
-      `Review did not capture this session in ${target.name}. Start a new agent session there after \`${traceCommandPrefix()} allow .\`; a commit trailer does not authorize publication.`,
+      `This session was not captured in ${target.name}. Start a new agent session there after \`${traceCommandPrefix()} allow .\`; a commit trailer does not authorize publication.`,
     );
   }
 

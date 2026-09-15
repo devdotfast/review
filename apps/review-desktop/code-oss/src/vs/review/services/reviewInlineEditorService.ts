@@ -84,6 +84,20 @@ interface InlineFindMatch {
 /** The existing widgets also accept source loaded from the review API. */
 export interface ReviewInlineSource {
   snippet(): Promise<ReviewCodeModelReference>;
+  diff(): Promise<import("./reviewCodeResourceService.js").ReviewCodeDiffTarget | undefined>;
+}
+
+/** API sources feed the same unified diff builder as legacy sources. */
+async function acquireUnifiedFromSource(
+  resources: IReviewCodeResourceService,
+  spec: Pick<ReviewInlineFindSpec, "path" | "side" | "ranges">,
+  source: ReviewInlineSource,
+) {
+  const target = await source.diff();
+  return (
+    target &&
+    resources.acquireUnifiedDiffForTarget(spec.path, spec.side, spec.ranges, target)
+  );
 }
 
 export class ReviewInlineEditorService
@@ -276,12 +290,10 @@ export class ReviewInlineEditorService
     source?: ReviewInlineSource,
   ): Promise<ReviewInlineFindResult> {
     if (!query.text) return { matchCount: 0 };
-    if (!source) {
-      const unified = await this.resources.acquireUnifiedDiff(
-        spec.path,
-        spec.side,
-        spec.ranges,
-      );
+    {
+      const unified = source
+        ? await acquireUnifiedFromSource(this.resources, spec, source)
+        : await this.resources.acquireUnifiedDiff(spec.path, spec.side, spec.ranges);
       if (unified) {
         try {
           return {
@@ -546,12 +558,14 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 
   private async initialize(): Promise<void> {
     try {
-      if (!this.source) {
-        const unifiedReference = await this.resources.acquireUnifiedDiff(
-          this.spec.path,
-          this.spec.side,
-          this.spec.ranges,
-        );
+      {
+        const unifiedReference = this.source
+          ? await acquireUnifiedFromSource(this.resources, this.spec, this.source)
+          : await this.resources.acquireUnifiedDiff(
+              this.spec.path,
+              this.spec.side,
+              this.spec.ranges,
+            );
         if (unifiedReference) {
           if (this.disposed) {
             unifiedReference.dispose();

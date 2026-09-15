@@ -67,6 +67,11 @@ export interface Result {
   deleted?: true;
 }
 
+export interface ReviewChange extends Result {
+  /** The committed snapshot, serialized once for every subscriber. */
+  serialized: string;
+}
+
 export interface ReviewProviders {
   validatePins(pins: Pins): Promise<void>;
   validateSource(pins: Pins, source: Source): Promise<void>;

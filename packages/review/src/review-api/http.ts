@@ -6,7 +6,7 @@ import { HttpJsonError } from "../server/http-json.js";
 import { authoringTools } from "./authoring-tools.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
-import type { ReviewStore } from "./store.js";
+import type { ReviewChange, ReviewStore } from "./store.js";
 
 // `?version=` must mean "current", not `Number("") === 0`.
 const version = z.preprocess(

@@ -6,7 +6,7 @@ import {
   diffFileSummariesTrees,
   diffTrees,
   listCommitRange,
-  listTrackedFilesSync,
+  listTrackedFiles,
   readFileAtRevision,
   resolveRevision,
 } from "@dev.fast/local-vcs";
@@ -94,6 +94,8 @@ function sliceRange(file: { commit: string; text: string }, source: Source) {
 
 /** Local implementation of the host's source/resource boundary. No client gets a filesystem path. */
 export class LocalReviewData {
+  // A commit's tree never changes, so one listing serves every folder expansion.
+  private readonly trackedFiles = new Map<string, Promise<string[]>>();
   constructor(private readonly store: ReviewStore) {}
   async register(root: string) {
     const resolved = await realpath(root).catch(() => {
@@ -165,19 +167,19 @@ export class LocalReviewData {
     return { file, side, commit: result.commit, text: result.source };
   }
 
-  tree(
+  async tree(
     pins: Pins,
     side: "base" | "head",
     directory: string,
-  ): ReviewSourceEntry[] {
+  ): Promise<ReviewSourceEntry[]> {
     checkSourcePath(directory);
     const prefix = directory ? directory.replace(/\/$/, "") + "/" : "";
     const entries = new Map<string, ReviewSourceEntry>();
 
-    for (const file of listTrackedFilesSync({
-      rootPath: this.store.repositoryPath(pins.repositoryId),
-      ref: pins[side],
-    })) {
+    for (const file of await this.trackedFilesAt(
+      pins.repositoryId,
+      pins[side],
+    )) {
       if (!file.startsWith(prefix)) continue;
       const relative = file.slice(prefix.length);
       const name = relative.split("/", 1)[0]!;
@@ -194,6 +196,19 @@ export class LocalReviewData {
       );
 
     return [...entries.values()];
+  }
+  private trackedFilesAt(repositoryId: string, ref: string) {
+    const rootPath = this.store.repositoryPath(repositoryId);
+    const key = `${repositoryId}\0${ref}`;
+    let files = this.trackedFiles.get(key);
+
+    if (!files) {
+      files = listTrackedFiles({ rootPath, ref });
+      this.trackedFiles.set(key, files);
+      files.catch(() => this.trackedFiles.delete(key));
+    }
+
+    return files;
   }
   async quote(pins: Pins, source: Source) {
     source = sourceSchema.parse(source);

@@ -815,7 +815,12 @@ export function databaseC4Snapshot({
     view: `database:${useCase.id}`,
     viewType: "inlineC4",
     nodes: [...nodes.values()],
-    relationships,
+    // A referenced store joins the snapshot only through its own operations.
+    relationships: relationships.filter(
+      (relationship) =>
+        relationship.semanticKind !== "foreign key" ||
+        nodes.has(relationship.to),
+    ),
     selectedNodeId:
       selectedNodeId ?? (activeTarget ? storeNodeId(activeTarget) : undefined),
   };

@@ -170,20 +170,31 @@ export function registerTraceCaptureCommands(
       .option(
         "--no-harness-hooks",
         "skip the Claude, Codex, OpenCode, and pi hook installers",
+      )
+      .option(
+        "--all-harnesses",
+        "write every harness hook, even for a harness this machine lacks",
       ),
-  ).action(async (options: { json?: boolean; harnessHooks?: boolean }) => {
-    settings.setExitCode(
-      await runtime.runTraceInstallMachine({
-        scope,
-        json: options.json,
-        harnessHooks: options.harnessHooks,
-        traceCommand,
-        installMachine: settings.installMachine,
-        stdout: settings.stdout,
-        stderr: settings.stderr,
-      }),
-    );
-  });
+  ).action(
+    async (options: {
+      json?: boolean;
+      harnessHooks?: boolean;
+      allHarnesses?: boolean;
+    }) => {
+      settings.setExitCode(
+        await runtime.runTraceInstallMachine({
+          scope,
+          json: options.json,
+          harnessHooks: options.harnessHooks,
+          allHarnesses: options.allHarnesses,
+          traceCommand,
+          installMachine: settings.installMachine,
+          stdout: settings.stdout,
+          stderr: settings.stderr,
+        }),
+      );
+    },
+  );
 
   configureJsonOutput(
     trace

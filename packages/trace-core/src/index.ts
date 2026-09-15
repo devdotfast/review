@@ -81,6 +81,7 @@ export {
   installClaudeTraceHook,
   installCodexTraceHook,
   installHarnessHooks,
+  skippedHarnessesLine,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
 } from "./agent-trace-hooks";

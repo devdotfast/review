@@ -255,15 +255,62 @@ export async function installHarnessHooks(input: {
   executable?: string;
   /** False skips every installer. */
   harnessHooks?: boolean;
-}): Promise<AgentTraceHookInstallResult[]> {
-  if (input.harnessHooks === false) return [];
+  /** True writes every hook, even for a harness this machine lacks. */
+  allHarnesses?: boolean;
+  env?: NodeJS.ProcessEnv;
+}): Promise<{
+  installed: AgentTraceHookInstallResult[];
+  skipped: AgentTraceHookAgent[];
+}> {
+  const installed: AgentTraceHookInstallResult[] = [];
+  const skipped: AgentTraceHookAgent[] = [];
 
-  return [
-    await installClaudeTraceHook(input.homeDir, input.executable),
-    await installCodexTraceHook(input.homeDir, input.executable),
-    await installOpenCodeTraceExtension(input.homeDir, input.executable),
-    await installPiTraceExtension(input.homeDir, input.executable),
-  ];
+  if (input.harnessHooks === false) return { installed, skipped };
+
+  const env = input.env ?? process.env;
+
+  for (const agent of AGENT_TRACE_HOOK_AGENTS) {
+    const present = existsSync(
+      agentTraceHomeDirectory(agent, input.homeDir, env),
+    );
+
+    if (input.allHarnesses !== true && !present) {
+      skipped.push(agent);
+      continue;
+    }
+
+    installed.push(
+      await HARNESS_HOOK_INSTALLERS[agent](
+        input.homeDir,
+        input.executable,
+        env,
+      ),
+    );
+  }
+
+  return { installed, skipped };
+}
+
+/** The installer of one harness hook, keyed by the harness. */
+const HARNESS_HOOK_INSTALLERS: Record<
+  AgentTraceHookAgent,
+  (
+    homeDir: string,
+    command?: string,
+    env?: NodeJS.ProcessEnv,
+  ) => Promise<AgentTraceHookInstallResult>
+> = {
+  claude: installClaudeTraceHook,
+  codex: installCodexTraceHook,
+  opencode: installOpenCodeTraceExtension,
+  pi: installPiTraceExtension,
+};
+
+/** One line that names the harnesses an install left alone. */
+export function skippedHarnessesLine(
+  skipped: readonly AgentTraceHookAgent[],
+): string {
+  return `Skipped the ${skipped.join(", ")} hook${skipped.length === 1 ? "" : "s"}: this machine has no such harness. Use --all-harnesses to write them anyway.\n`;
 }
 
 /**

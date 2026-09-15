@@ -49,6 +49,7 @@ import {
 } from "../install";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
 import { reviewDesktopStateDir } from "../review-home-paths";
+import { traceScope } from "../trace-command";
 import {
   type TraceCredentialsInput,
   disableTraceMachine,
@@ -523,7 +524,7 @@ async function removeCliInstallUnlocked(
   }
 
   if (input.trace) {
-    await disableAllTraceRepositories(homeDir);
+    await disableAllTraceRepositories(traceScope({ homeDir, env }));
     await disableTraceMachine({ homeDir, env });
 
     // Disabling capture also retires the per-agent pieces that exist only

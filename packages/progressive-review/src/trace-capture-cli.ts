@@ -1,7 +1,11 @@
 import type { Writable } from "node:stream";
 
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
-import { type TraceCommand, traceCliName } from "./trace-command";
+import {
+  type TraceCommand,
+  type TraceScope,
+  traceCliName,
+} from "./trace-command";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { writeHostedTraceStatus } from "./trace-hosted-cli";
@@ -33,6 +37,7 @@ import {
 export { runReviewTraceGitHook, runReviewTraceHook };
 
 export async function runReviewTraceStatus(input: {
+  scope: TraceScope;
   cwd: string;
   session?: string;
   cursor?: string;
@@ -40,9 +45,9 @@ export async function runReviewTraceStatus(input: {
   stdout: Writable;
   stderr: Writable;
 }): Promise<number> {
-  const machine = await traceMachineStatus();
+  const machine = await traceMachineStatus(input.scope);
   const repository = await traceRepositoryStatus(input.cwd);
-  const selection = selectTraceStorage();
+  const selection = selectTraceStorage(input.scope);
   input.stdout.write(
     `Trace capture: ${machine.enabled ? "enabled" : "disabled"}\n`,
   );
@@ -64,6 +69,7 @@ export async function runReviewTraceStatus(input: {
 
   if (selection.mode === "hosted") {
     return writeHostedTraceStatus({
+      scope: input.scope,
       cwd: input.cwd,
       origin: selection.hosted?.origin ?? "",
       stdout: input.stdout,
@@ -88,10 +94,10 @@ export async function runReviewTraceStatus(input: {
     import("./trace-storage/s3-config"),
   ]);
 
-  const setup = describeS3Setup();
+  const setup = describeS3Setup(input.scope.env);
   input.stdout.write(`Checking trace configuration (${setup.envPath})…\n`);
 
-  for (const failure of await listTraceSyncFailures()) {
+  for (const failure of await listTraceSyncFailures(input.scope.devHome)) {
     input.stdout.write(describeTraceSyncFailure(failure));
   }
 
@@ -107,7 +113,9 @@ export async function runReviewTraceStatus(input: {
   input.stdout.write(`  Bucket:   ${setup.config.bucket}\n`);
   input.stdout.write(`  Key:      ${setup.config.accessKeyId.slice(0, 6)}…\n`);
 
-  const readiness = (await S3TraceStorage.fromEnvironment()?.readiness()) ?? {
+  const readiness = (await S3TraceStorage.fromEnvironment(
+    input.scope,
+  )?.readiness()) ?? {
     ready: false,
     reason: "unknown error",
   };
@@ -128,13 +136,14 @@ export async function runReviewTraceStatus(input: {
 }
 
 export async function runReviewTraceEnable(input: {
+  scope: TraceScope;
   cwd: string;
   stdout: Writable;
   stderr: Writable;
   /** The command installed in the repository hooks. */
   traceCommand?: TraceCommand;
 }): Promise<number> {
-  if (!(await traceMachineStatus()).enabled) {
+  if (!(await traceMachineStatus(input.scope)).enabled) {
     input.stderr.write(
       "trace enable: Trace capture is not enabled. Use Review Agent Setup first.\n",
     );
@@ -144,6 +153,7 @@ export async function runReviewTraceEnable(input: {
 
   const result = await enableTraceRepository({
     cwd: input.cwd,
+    scope: input.scope,
     reviewCommand: input.traceCommand,
   });
 
@@ -153,23 +163,29 @@ export async function runReviewTraceEnable(input: {
 }
 
 export async function runReviewTraceDisable(input: {
+  scope: TraceScope;
   cwd: string;
   stdout: Writable;
 }): Promise<number> {
-  const result = await disableTraceRepository({ cwd: input.cwd });
+  const result = await disableTraceRepository({
+    cwd: input.cwd,
+    scope: input.scope,
+  });
+
   input.stdout.write(`${result.message}\n`);
 
   return result.repository ? 0 : 1;
 }
 
 export async function runReviewTraceRepair(input: {
+  scope: TraceScope;
   cwd: string;
   stdout: Writable;
   stderr: Writable;
   /** The command installed in the repository hooks. */
   traceCommand?: TraceCommand;
 }): Promise<number> {
-  if (!(await traceMachineStatus()).enabled) {
+  if (!(await traceMachineStatus(input.scope)).enabled) {
     input.stderr.write(
       "trace repair: Trace capture is not enabled. Use Review Agent Setup first.\n",
     );
@@ -179,6 +195,7 @@ export async function runReviewTraceRepair(input: {
 
   const result = await repairTraceRepository({
     cwd: input.cwd,
+    scope: input.scope,
     reviewCommand: input.traceCommand,
   });
 
@@ -190,6 +207,7 @@ export async function runReviewTraceRepair(input: {
 export const runReviewTraceDoctor = runReviewTraceStatus;
 
 export async function runReviewTraceSync(input: {
+  scope: TraceScope;
   cwd: string;
   sessionId: string;
   repo?: string;
@@ -207,7 +225,7 @@ export async function runReviewTraceSync(input: {
 
   try {
     if (input.expectStorage !== undefined) {
-      const current = traceStorageExpectation();
+      const current = traceStorageExpectation(input.scope);
 
       if (current !== input.expectStorage) {
         throw new Error(
@@ -232,12 +250,16 @@ export async function runReviewTraceSync(input: {
         .catch(() => null),
       error: message,
       reason: error instanceof TraceProvenanceError ? error.reason : undefined,
+      devHome: input.scope.devHome,
     }).catch(() => undefined);
     throw error;
   }
 
   // A successful sync clears its own failure record in every store.
-  await clearTraceSyncFailure(input.sessionId.trim()).catch(() => undefined);
+  await clearTraceSyncFailure(
+    input.sessionId.trim(),
+    input.scope.devHome,
+  ).catch(() => undefined);
 
   if (input.json) {
     input.stdout.write(`${JSON.stringify(result)}\n`);

@@ -104,7 +104,7 @@ import {
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
-import { resolveTraceCommand, traceHomeDir } from "./trace-command";
+import { resolveTraceCommand, traceHomeDir, traceScope } from "./trace-command";
 import {
   DEFAULT_TRACE_SESSIONS_LIMIT,
   runReviewTraceAllow,
@@ -229,6 +229,8 @@ export async function runProgressiveReviewCli(
     env,
     homeDir: traceHomeDir(env),
   });
+
+  const scope = traceScope({ env, homeDir: traceHomeDir(env) });
 
   const cliVersion =
     input.cliVersion ?? readProgressiveReviewPackageVersion(import.meta.url);
@@ -1011,6 +1013,7 @@ export async function runProgressiveReviewCli(
   ).action(
     async (options: { session?: string; cursor?: string; limit?: number }) => {
       state.exitCode = await runtime.runReviewTraceStatus({
+        scope,
         cwd,
         session: options.session,
         cursor: options.cursor,
@@ -1099,6 +1102,7 @@ export async function runProgressiveReviewCli(
       json?: boolean;
     }) => {
       state.exitCode = await runtime.runReviewTraceSessions({
+        scope,
         cwd,
         limit: options.limit,
         cursor: options.cursor,
@@ -1118,6 +1122,7 @@ export async function runProgressiveReviewCli(
   ).action(
     async (repoPath: string | undefined, options: { json?: boolean }) => {
       state.exitCode = await runtime.runReviewTraceOnboard({
+        scope,
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         json: options.json,
         stdout: input.stdout,
@@ -1141,6 +1146,7 @@ export async function runProgressiveReviewCli(
       options: { json?: boolean; harnessHooks?: boolean },
     ) => {
       state.exitCode = await runtime.runReviewTraceAllow({
+        scope,
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         json: options.json,
         harnessHooks: options.harnessHooks,
@@ -1168,6 +1174,7 @@ export async function runProgressiveReviewCli(
       options: { json?: boolean; deleteStore?: boolean },
     ) => {
       state.exitCode = await runtime.runReviewTraceDeny({
+        scope,
         cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
         json: options.json,
         deleteStore: options.deleteStore,
@@ -1217,6 +1224,7 @@ export async function runProgressiveReviewCli(
     "plain",
   ).action(async (repoPath?: string) => {
     state.exitCode = await runtime.runReviewTraceEnable({
+      scope,
       cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
       stdout: input.stdout,
       stderr: input.stderr,
@@ -1231,6 +1239,7 @@ export async function runProgressiveReviewCli(
     "plain",
   ).action(async (repoPath?: string) => {
     state.exitCode = await runtime.runReviewTraceDisable({
+      scope,
       cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
       stdout: input.stdout,
     });
@@ -1243,6 +1252,7 @@ export async function runProgressiveReviewCli(
     "plain",
   ).action(async (repoPath?: string) => {
     state.exitCode = await runtime.runReviewTraceRepair({
+      scope,
       cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
       stdout: input.stdout,
       stderr: input.stderr,
@@ -1420,6 +1430,7 @@ export async function runProgressiveReviewCli(
       },
     ) => {
       state.exitCode = await runtime.runReviewTraceSync({
+        scope,
         cwd,
         sessionId,
         repo: options.repo,
@@ -1445,6 +1456,7 @@ export async function runProgressiveReviewCli(
       },
     ) => {
       state.exitCode = await runtime.runReviewTraceHook({
+        scope,
         cwd,
         event,
         sessionId: options.session,
@@ -1461,6 +1473,7 @@ export async function runProgressiveReviewCli(
     "plain",
   ).action(async (hook: string, args: string[]) => {
     state.exitCode = await runtime.runReviewTraceGitHook({
+      scope,
       cwd,
       hook,
       args,

@@ -16,6 +16,7 @@ import { installClaudeTraceHook } from "./agent-trace-hooks";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
+import { traceScope } from "./trace-command";
 import {
   runReviewTraceAllow,
   runReviewTraceDeny,
@@ -190,8 +191,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       stdout: out.stream,
       stderr: err.stream,
       client: client((url) => {
@@ -229,8 +229,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       json: true,
       limit: 2,
       cursor: "session-0002",
@@ -278,8 +277,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       stdout: out.stream,
       stderr: collect().stream,
       client: client((url) =>
@@ -298,8 +296,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
         stderr: err.stream,
       }),
@@ -311,8 +308,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         storage: "s3",
         stdout: collect().stream,
         stderr: s3.stream,
@@ -333,8 +329,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
         stderr: err.stream,
       }),
@@ -366,8 +361,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       storage: "hosted",
       stdout: out.stream,
       stderr: err.stream,
@@ -401,8 +395,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
         stderr: err.stream,
       }),
@@ -421,8 +414,7 @@ describe("hosted trace commands", () => {
 
       const code = await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         json: true,
         stdout: collect().stream,
         stderr: err.stream,
@@ -477,8 +469,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       limit: 0,
       stdout: collect().stream,
       stderr: err.stream,
@@ -503,8 +494,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       cursor: "bad cursor!",
       stdout: collect().stream,
       stderr: err.stream,
@@ -528,8 +518,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       limit: 10,
       stdout: out.stream,
       stderr: collect().stream,
@@ -570,8 +559,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceDeny({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       deleteStore: true,
       client: client((url, init) => {
         calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
@@ -601,8 +589,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     await writeHostedTraceStatus({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       origin: ORIGIN,
       stdout: out.stream,
       client: client(() =>
@@ -636,8 +623,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceAllow({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,
       traceCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
       client: client(() => Response.json(STORE)),
@@ -684,8 +670,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceAllow({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         harnessHooks: false,
         client: client(() => Response.json(STORE)),
         stdout: out.stream,
@@ -717,8 +702,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceAllow({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,
       json: true,
       stdout: out.stream,
@@ -742,15 +726,14 @@ describe("hosted trace commands", () => {
     await installClaudeTraceHook(home);
     await enableTraceRepository({
       cwd: repo,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       reviewCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
     });
     const out = collect();
 
     await writeHostedTraceStatus({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       origin: ORIGIN,
       stdout: out.stream,
     });

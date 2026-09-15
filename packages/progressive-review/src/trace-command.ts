@@ -4,6 +4,25 @@ import path from "node:path";
 
 import { isStringValue } from "@dev.fast/review-protocol";
 
+import { devReviewHome } from "./review-storage";
+
+/** Where one CLI run reads its machine state; built once at the entry. */
+export interface TraceScope {
+  homeDir: string;
+  env: NodeJS.ProcessEnv;
+  devHome: string;
+}
+
+/** Resolves the machine paths and environment shared by one CLI run. */
+export function traceScope(
+  input: { homeDir?: string; env?: NodeJS.ProcessEnv } = {},
+): TraceScope {
+  const env = input.env ?? process.env;
+  const homeDir = input.homeDir ?? os.homedir();
+
+  return { homeDir, env, devHome: devReviewHome(env, homeDir) };
+}
+
 /** The executable a hook re-enters, plus the leading arguments it needs. */
 export interface TraceCommand {
   file: string;

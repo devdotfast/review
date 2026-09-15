@@ -10,6 +10,7 @@ import {
   setTraceCliName,
   traceCliName,
   traceHomeDir,
+  traceScope,
 } from "./trace-command";
 
 const roots: string[] = [];
@@ -92,5 +93,20 @@ describe("renderTraceCommand", () => {
         args: ["/x/cli.js", "it's"],
       }),
     ).toBe(`'/opt/dev traces/node' '/x/cli.js' 'it'"'"'s'`);
+  });
+});
+
+describe("traceScope", () => {
+  it("derives the Review home from the environment and home directory", () => {
+    const env = {};
+    expect(traceScope({ homeDir: "/h", env })).toEqual({
+      homeDir: "/h",
+      env,
+      devHome: path.join("/h", ".dev"),
+    });
+    expect(
+      traceScope({ homeDir: "/h", env: { DEV_REVIEW_HOME: "/d" } }).devHome,
+    ).toBe(path.resolve("/d"));
+    expect(traceScope().homeDir).toBe(os.homedir());
   });
 });

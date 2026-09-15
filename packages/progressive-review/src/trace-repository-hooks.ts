@@ -1,5 +1,4 @@
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import { gitAt } from "@dev.fast/local-vcs";
@@ -13,10 +12,10 @@ import { z } from "zod";
 import { writeFileAtomicAsync } from "./atomic-write";
 import {
   type TraceCommand,
+  type TraceScope,
   renderTraceCommand,
   resolveTraceCommand,
   shellQuote,
-  traceHomeDir,
 } from "./trace-command";
 
 const repositoryHookStateSchema = z.object({
@@ -44,7 +43,7 @@ export interface TraceRepositoryStatus {
 
 export async function enableTraceRepository(input: {
   cwd: string;
-  homeDir?: string;
+  scope: TraceScope;
   reviewCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   const resolved = await resolveRepository(input.cwd);
@@ -93,10 +92,14 @@ export async function enableTraceRepository(input: {
       resolveHooksPath(resolved.root, previousHooksPath))
     : previousHooksPath;
 
-  const homeDir = input.homeDir ?? traceHomeDir();
+  const homeDir = input.scope.homeDir;
 
   const reviewCommand = renderTraceCommand(
-    resolveTraceCommand({ explicit: input.reviewCommand, homeDir }),
+    resolveTraceCommand({
+      explicit: input.reviewCommand,
+      env: input.scope.env,
+      homeDir,
+    }),
   );
 
   const state: RepositoryHookState = {
@@ -140,7 +143,7 @@ export async function enableTraceRepository(input: {
 
 export async function repairTraceRepository(input: {
   cwd: string;
-  homeDir?: string;
+  scope: TraceScope;
   reviewCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   return enableTraceRepository(input);
@@ -148,7 +151,7 @@ export async function repairTraceRepository(input: {
 
 export async function disableTraceRepository(input: {
   cwd: string;
-  homeDir?: string;
+  scope: TraceScope;
 }): Promise<TraceRepositoryStatus> {
   const resolved = await resolveRepository(input.cwd);
 
@@ -195,7 +198,7 @@ export async function disableTraceRepository(input: {
   }
 
   await rm(stateDir, { recursive: true, force: true });
-  await unregisterRepository(input.homeDir ?? traceHomeDir(), resolved.root);
+  await unregisterRepository(input.scope.homeDir, resolved.root);
 
   return {
     repository: true,
@@ -249,12 +252,12 @@ export async function traceRepositoryStatus(
 }
 
 export async function disableAllTraceRepositories(
-  homeDir = os.homedir(),
+  scope: TraceScope,
 ): Promise<void> {
-  const registry = await readRegistry(homeDir);
+  const registry = await readRegistry(scope.homeDir);
 
   for (const root of registry) {
-    await disableTraceRepository({ cwd: root, homeDir }).catch(() => undefined);
+    await disableTraceRepository({ cwd: root, scope }).catch(() => undefined);
   }
 }
 

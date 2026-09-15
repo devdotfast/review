@@ -12,7 +12,7 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
-import type { TraceCommand } from "./trace-command";
+import type { TraceCommand, TraceScope } from "./trace-command";
 // The namespace import keeps the detached spawn observable to tests, which
 // intercept it through the module namespace.
 import * as hookRunner from "./trace-hook-runner";
@@ -27,17 +27,15 @@ export async function runReviewTraceGitHook(input: {
   args: string[];
   stdin?: NodeJS.ReadableStream;
   stderr: Writable;
-  /** The machine scope; the real home and environment when absent. */
-  homeDir?: string;
-  env?: NodeJS.ProcessEnv;
+  /** The resolved machine state for this CLI run. */
+  scope: TraceScope;
   /** The command used for detached hosted sync. */
   traceCommand?: TraceCommand;
 }): Promise<number> {
-  if (process.env.TRACE_DISABLE === "1") return 0;
+  if (input.scope.env.TRACE_DISABLE === "1") return 0;
   // The machine switch owns every capture path, including the git hooks.
-  const scope = { homeDir: input.homeDir, env: input.env };
 
-  if (!(await traceMachineEnabled(scope))) return 0;
+  if (!(await traceMachineEnabled(input.scope))) return 0;
 
   try {
     if (input.hook === "prepare-commit-msg") {
@@ -111,8 +109,7 @@ async function runPrePush(input: {
   cwd: string;
   stdin?: NodeJS.ReadableStream;
   stderr: Writable;
-  homeDir?: string;
-  env?: NodeJS.ProcessEnv;
+  scope: TraceScope;
   traceCommand?: TraceCommand;
 }): Promise<void> {
   const raw = await readStdin(input.stdin);
@@ -178,8 +175,7 @@ async function runPrePush(input: {
     }
   }
 
-  const scope = { homeDir: input.homeDir, env: input.env };
-  const selection = selectTraceStorage(scope);
+  const selection = selectTraceStorage(input.scope);
 
   for (const [sessionId, values] of sessionCommits) {
     if (selection.mode === "hosted") {
@@ -188,7 +184,7 @@ async function runPrePush(input: {
       hookRunner.spawnDetachedTraceSync({
         sessionId,
         cwd: input.cwd,
-        ...scope,
+        scope: input.scope,
         command: input.traceCommand,
       });
       continue;

@@ -253,3 +253,104 @@ it("keeps sequence step identities and supports explanation/code steps without i
     { kind: "inline-code", text: "return ok", language: "ts" },
   ]);
 });
+
+it("saves and submits feedback through the existing canvas without replacing its document", async () => {
+  const review = await command({
+    type: "create",
+    title: "Comment workflow",
+    pins,
+  });
+
+  await command({
+    type: "edit",
+    reviewId: review.reviewId,
+    edit: {
+      type: "insert",
+      content: { type: "markdown", markdown: "Keep this explanation mounted." },
+    },
+  });
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+
+  const bridge = testReviewBridge(
+    {},
+    {
+      request: async (url, init) => app.request(url, init),
+      diffView: {
+        files: async () => [],
+        create: () => {
+          throw new Error("Diff is not used here.");
+        },
+      },
+    },
+  );
+
+  const container = document.createElement("div");
+  document.body.append(container);
+  await act(async () => {
+    canvas = mount(container, {
+      kind: "api",
+      reviewId: review.reviewId,
+      bridge,
+    });
+  });
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Keep this explanation mounted."),
+    );
+  });
+  const heading = container.querySelector("h1");
+  const initialVersion = store.read(review.reviewId).version;
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="New ask"]')!
+      .click(),
+  );
+  const textarea = container.querySelector("textarea")!;
+  expect(textarea).toBeTruthy();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )!.set!.call(textarea, "Explain the ownership change.");
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(store.feedback.read(review.reviewId).threads).toEqual([]);
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('[aria-label="Choose ask action"]')!
+      .click(),
+  );
+
+  const add = [
+    ...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+  ].find((button) => button.textContent?.includes("Add to review"))!;
+
+  await act(async () => add.click());
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(
+        store.feedback.read(review.reviewId).threads[0]?.messages[0]?.draft,
+      ).toBe(true),
+    );
+  });
+  expect(container.textContent).toContain("Explain the ownership change.");
+  expect(container.querySelector("h1")).toBe(heading);
+
+  const submit = container.querySelector<HTMLButtonElement>(
+    ".review-corner-submit",
+  )!;
+
+  expect(submit.textContent).toContain("Submit review");
+  await act(async () => submit.click());
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(store.feedback.read(review.reviewId).submissions).toHaveLength(1),
+    );
+  });
+  expect(
+    store.feedback.read(review.reviewId).threads[0]!.messages[0]!.draft,
+  ).toBe(false);
+  expect(store.read(review.reviewId).version).toBe(initialVersion);
+  expect(container.querySelector("h1")).toBe(heading);
+});

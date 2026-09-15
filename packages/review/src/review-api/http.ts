@@ -29,50 +29,28 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
   app.get("/", (context) => context.json(store.list()));
   app.get("/:id/watch", (context) => {
     const id = context.req.param("id");
-    store.read(id); // Return a normal 404 before opening the response.
-    let stop = () => {};
 
-    let dirty = true;
-    const encoder = new TextEncoder();
+    return watch(
+      () => store.read(id),
+      (notify) =>
+        store.subscribe((result) => {
+          if (result.reviewId === id) notify();
+        }),
+    );
+  });
+  app.get("/:id/feedback", (context) =>
+    context.json(store.feedback.read(context.req.param("id"))),
+  );
+  app.get("/:id/feedback/watch", (context) => {
+    const id = context.req.param("id");
 
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const send = () => {
-          if (controller.desiredSize === null || controller.desiredSize <= 0)
-            return;
-          controller.enqueue(
-            encoder.encode(JSON.stringify(store.read(id)) + "\n"),
-          );
-          dirty = false;
-        };
-
-        stop = store.subscribe((result) => {
-          if (result.reviewId === id) {
-            dirty = true;
-            send();
-          }
-        });
-        send();
-      },
-      pull(controller) {
-        if (dirty) {
-          controller.enqueue(
-            encoder.encode(JSON.stringify(store.read(id)) + "\n"),
-          );
-          dirty = false;
-        }
-      },
-      cancel() {
-        stop();
-      },
-    });
-
-    return new Response(body, {
-      headers: {
-        "content-type": "application/x-ndjson",
-        "cache-control": "no-store",
-      },
-    });
+    return watch(
+      () => store.feedback.read(id),
+      (notify) =>
+        store.feedback.subscribe((changed) => {
+          if (changed === id) notify();
+        }),
+    );
   });
 
   if (data) {
@@ -208,4 +186,48 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
   );
 
   return app;
+}
+
+/** Send committed state, coalescing updates when the reader falls behind. */
+function watch<T>(
+  read: () => T,
+  subscribe: (notify: () => void) => () => void,
+) {
+  read(); // Return a normal 404 before opening the response.
+  let stop = () => {};
+
+  let dirty = true;
+  const encoder = new TextEncoder();
+
+  const send = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if (
+      !dirty ||
+      controller.desiredSize === null ||
+      controller.desiredSize <= 0
+    )
+      return;
+    controller.enqueue(encoder.encode(JSON.stringify(read()) + "\n"));
+    dirty = false;
+  };
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stop = subscribe(() => {
+        dirty = true;
+        send(controller);
+      });
+      send(controller);
+    },
+    pull: send,
+    cancel() {
+      stop();
+    },
+  });
+
+  return new Response(body, {
+    headers: {
+      "content-type": "application/x-ndjson",
+      "cache-control": "no-store",
+    },
+  });
 }

@@ -471,7 +471,7 @@ export function mountReviewCanvas(
     themeSubscription?.dispose();
     themeSubscription = null;
 
-    if (content.kind === "session" || content.kind === "api") {
+    if (content.kind === "session") {
       resetSessionDiagnostics(container);
 
       if (session?.bridge !== content.bridge) {

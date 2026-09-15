@@ -19,7 +19,6 @@ import { ReviewModuleCache } from "../common/reviewModuleCache.js";
 import {
 	ReviewDocumentResponseSchema,
 	ReviewSoftwareMapResponseSchema,
-	type ReviewCommentStoreBridge,
 	type ReviewDescriptor,
 	type ReviewDocumentLoad,
 	type ReviewErrorResponse,
@@ -96,7 +95,7 @@ export class ReviewSessionModel extends Disposable {
 	private readonly modules = new ReviewModuleCache();
 	private refreshPromise: Promise<void> | undefined;
 	private _comments: ReviewCommentStore;
-	get comments(): ReviewCommentStoreBridge {
+	get comments(): ReviewCommentStore {
 		return this._comments;
 	}
 	constructor(

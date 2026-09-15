@@ -820,7 +820,7 @@ export function ThreadAnnotations({
       closeCommentDraft();
       draftHasTextRef.current = false;
       setPreferredFocusedKey(draftTarget.threadId);
-      focusThread(draftTarget.threadId);
+      focusThread(draftTarget.threadId, { scroll: false });
       onThreadActivated?.(draftTarget.threadId);
     });
   };

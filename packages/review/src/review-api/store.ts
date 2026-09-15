@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 
+import { gitLabDiffPositionRows } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import {
@@ -14,13 +15,20 @@ import {
   editSchema,
   elements,
   pinsSchema,
+  sourceSchema,
 } from "./document.js";
+import { ReviewFeedback, feedbackActionSchema } from "./feedback.js";
 
 const reviewId = z.string().min(1);
 
 export const commandSchema = z.strictObject({
   commandId: z.uuid(),
   operation: z.discriminatedUnion("type", [
+    z.strictObject({
+      type: z.literal("feedback"),
+      reviewId,
+      action: feedbackActionSchema,
+    }),
     z.strictObject({
       type: z.literal("create"),
       title: z.string().trim().min(1),
@@ -54,6 +62,7 @@ export interface Result {
   reviewId: string;
   version: number;
   targetId?: string;
+  feedback?: true;
 }
 
 export interface ReviewProviders {
@@ -68,6 +77,7 @@ export interface ReviewProviders {
  */
 export class ReviewStore {
   private readonly db: DatabaseSync;
+  readonly feedback: ReviewFeedback;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
   private readonly listeners = new Set<(result: Result) => void>();
@@ -92,6 +102,43 @@ export class ReviewStore {
       .exec(`CREATE TABLE IF NOT EXISTS repositories(id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id),
         kind TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);`);
+    this.feedback = new ReviewFeedback(
+      this.db,
+      (id, version) => this.read(id, version),
+      async (snapshot, target) => {
+        if (target.kind !== "code") return;
+        const position = target.position;
+        const rows = gitLabDiffPositionRows(position)!;
+
+        // CodeThreadTargetSchema requires both commit identities. A unified
+        // selection may start on a deleted line and end on an added line.
+        const pins = {
+          ...snapshot.pins,
+          base: position.start_sha!,
+          head: position.head_sha!,
+        };
+
+        await this.providers.validatePins(pins);
+
+        for (const side of ["base", "head"] as const) {
+          const key = side === "head" ? "new_line" : "old_line";
+
+          const first = rows.start[key],
+            last = rows.end[key];
+
+          if (first === null && last === null) continue;
+          await this.providers.validateSource(
+            pins,
+            sourceSchema.parse({
+              side,
+              file: side === "head" ? position.new_path : position.old_path,
+              fromLine: first ?? last,
+              toLine: last ?? first,
+            }),
+          );
+        }
+      },
+    );
   }
   registerRepository(root: string) {
     this.db
@@ -158,6 +205,7 @@ export class ReviewStore {
     this.closing = true;
     await this.pending;
     this.listeners.clear();
+    this.feedback.close();
     this.db.close();
   }
   read(id: string, version?: number): Snapshot {
@@ -252,6 +300,22 @@ export class ReviewStore {
       }
 
       const op = command.operation;
+
+      if (op.type === "feedback") {
+        const change = await this.feedback.prepare(op.reviewId, op.action);
+
+        const result: Result = {
+          reviewId: op.reviewId,
+          version: this.read(op.reviewId).version,
+          feedback: true,
+          targetId: change.targetId,
+        };
+
+        this.commitCommand(command.commandId, request, result, change.apply);
+
+        return result;
+      }
+
       const id = op.type === "create" ? randomUUID() : op.reviewId;
       const previous = op.type === "create" ? undefined : this.read(id);
 
@@ -317,9 +381,7 @@ export class ReviewStore {
         targetId,
       };
 
-      this.db.exec("BEGIN IMMEDIATE");
-
-      try {
+      this.commitCommand(command.commandId, request, result, () => {
         this.db
           .prepare(
             "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
@@ -330,18 +392,7 @@ export class ReviewStore {
             "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
           )
           .run(id, snapshot.version, JSON.stringify(snapshot));
-        this.db
-          .prepare(
-            "INSERT INTO receipts(command_id,request,response) VALUES(?,?,?)",
-          )
-          .run(command.commandId, request, JSON.stringify(result));
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
-
-      for (const listener of this.listeners) listener(result);
+      });
 
       return result;
     });
@@ -349,6 +400,30 @@ export class ReviewStore {
     this.pending = run.catch(() => {});
 
     return run;
+  }
+  private commitCommand(
+    commandId: string,
+    request: string,
+    result: Result,
+    apply: () => void,
+  ) {
+    this.db.exec("BEGIN IMMEDIATE");
+
+    try {
+      apply();
+      this.db
+        .prepare(
+          "INSERT INTO receipts(command_id,request,response) VALUES(?,?,?)",
+        )
+        .run(commandId, request, JSON.stringify(result));
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+
+    if (result.feedback) this.feedback.changed(result.reviewId);
+    else for (const listener of this.listeners) listener(result);
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
     const references = (document: Block[]) => {

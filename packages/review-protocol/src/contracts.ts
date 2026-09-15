@@ -744,13 +744,7 @@ export interface ReviewCommentStoreChange {
 }
 
 export interface ReviewCommentStoreBridge {
-  terminalOpened(threadId: string): void;
-  terminalClosed(threadId: string, messageId: string | null): Promise<void>;
-  applyAgentStatus(
-    threadId: string,
-    status: "running" | "idle" | "interrupted" | "failed",
-    error?: string,
-  ): void;
+  canEditMessage?(threadId: string, messageId: string): boolean;
   subscribe(listener: (change: ReviewCommentStoreChange) => void): () => void;
   getSnapshot(): ReviewCommentStoreSnapshot;
   saveComment(input: CreateReviewCommentInput): Promise<void>;
@@ -1057,7 +1051,7 @@ export type ReviewCanvasContent =
       kind: "api";
       reviewId: string;
       version?: number;
-      bridge: ReviewCanvasBridge;
+      bridge: Omit<ReviewCanvasBridge, "comments">;
       setTitle?(title: string): void;
     }
   | {

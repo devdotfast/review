@@ -96,9 +96,6 @@ function createTestCommentStore(): ReviewCommentStoreBridge {
   }
 
   return {
-    terminalOpened() {},
-    async terminalClosed() {},
-    applyAgentStatus() {},
     subscribe(listener) {
       listeners.add(listener);
 

@@ -13,6 +13,8 @@ untouched. Tests can inject a store and data provider into the desktop server.
 - `receipts`: command inputs and responses, committed with the saved version.
 - `repositories`: server-only local paths; clients receive an ID and display name.
 - `resources`: immutable image, trace and software-map bytes, scoped to a repository.
+- `feedback_threads`: conversations and saved drafts, separate from document history.
+- `feedback_submissions`: the decision and message IDs from an explicit review submission.
 
 One desktop-owned store serializes writes, including asynchronous validation.
 Reads see the last committed snapshot. Multiple API callers are supported;
@@ -38,6 +40,8 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id?version=2&full=true`            | Historical snapshot                                                    |
 | `GET /:id/history`                        | Saved versions with titles and timestamps                              |
 | `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
+| `GET /:id/feedback` | Threads, saved drafts, and submitted decisions |
+| `GET /:id/feedback/watch` | Current feedback immediately, then committed changes; independent of document updates |
 | `POST /commands`                          | Apply one command; return review ID, version, and edited target ID     |
 | `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
@@ -71,7 +75,7 @@ Commands: `create {title,pins}`, `edit {reviewId,edit}`, `rename {reviewId,title
 `repin {reviewId,pins}`, `restore {reviewId,version}`. Pins contain
 `{repositoryId,base,head}` and must identify immutable commits.
 Repinning creates a blank snapshot. Restore restores title, pins, and content;
-comments are not implemented here and are not implicitly rolled back.
+comments and submitted decisions are separate and are not rolled back.
 
 Edits: `insert {content,parentId?,afterId?}`, `update {targetId,changes}`,
 `move {targetId,parentId?,afterId?}`, `remove {targetId}`,
@@ -82,6 +86,26 @@ edits or replacement. Use fresh content without IDs for insert/replace.
 
 There is no expected-version parameter. Later same-field edits win. Reuse the
 same command ID and input when retrying a lost response; it will not edit twice.
+
+Feedback uses the same command envelope with
+`operation: {type:"feedback", reviewId, action}`:
+
+- `save {threadId,messageId,version,target?,body}` explicitly saves a draft.
+- `post {threadId,messageId,version,target?,body}` posts a question immediately.
+- `reply {threadId,messageId,version,body,by:"user"|"agent"}` adds a posted follow-up.
+- `edit-draft {threadId,messageId,body}` and `discard-draft {threadId,messageId?}` affect only unposted messages.
+- `resolve {threadId,resolved}` changes thread status.
+- `submit {version,decision:"approve"|"request-changes",messageIds}` posts exactly the selected drafts and records the decision in one transaction.
+
+Bodies must contain text. A target is required for a new thread; subsequent
+messages keep the original target. Posted messages are immutable. A thread retains its
+original version and target; replies record the version they concern. Targets
+reuse the current annotation UI's document, text, graph, and code shapes.
+Code selections are checked against their pinned source before a thread is
+saved. Threads are read from the shared database, not a server projection cache.
+Feedback writes do not create document versions or trigger document streams.
+The storage/API is implemented; the UI adapter and agent execution remain to
+be connected. These submission records are not a background job/run framework.
 
 ## Validation and remaining work
 
@@ -116,7 +140,7 @@ Native code-peek and diff widgets can now consume API-backed read-only models,
 including renamed files and absent diff sides. Native opening still needs to
 supply that adapter to the API canvas; it is not yet an end-to-end desktop path.
 
-Native desktop opening/source-tree integration, MCP/CLI, comments, Ask,
+Native desktop opening/source-tree integration, MCP/CLI, comment UI, Ask,
 review deletion and profile migration remain later work. The rich-node adapters
 still need computer-use verification with real native source editors and maps.
 

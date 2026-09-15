@@ -15,6 +15,7 @@ import {
 import { flushSync } from "react-dom";
 
 import { AgentMarkdown, markdownExcerpt } from "./agent-markdown";
+import { useOptionalReviewSession } from "./host/review-session";
 import {
   AddToReviewIcon,
   CloseIcon,
@@ -71,6 +72,15 @@ export function ThreadCard({
   onDeleteMessage?: (messageId: string) => void | Promise<void>;
 }): ReactElement {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+
+  const editAllowed =
+    useOptionalReviewSession()?.bridge.comments.canEditMessage;
+
+  const canEdit = (messageId: string) =>
+    editAllowed?.(thread.threadId, messageId) ?? true;
+
+  if (editAllowed && !thread.messages.every((message) => canEdit(message.id)))
+    onDelete = undefined;
   const currentTargetState = useThreadTargetState(thread.target);
   const targetState = thread.targetState ?? currentTargetState;
   const outdated = targetState.state === "outdated";
@@ -212,7 +222,9 @@ export function ThreadCard({
           </div>
         )}
         {thread.messages.map((message, index) =>
-          editingMessageId === message.id && onEditMessage ? (
+          editingMessageId === message.id &&
+          onEditMessage &&
+          canEdit(message.id) ? (
             <ThreadMessageEditView
               key={`${message.id}:edit`}
               message={message}
@@ -229,6 +241,7 @@ export function ThreadCard({
               headSlot={
                 <>
                   {message.userAuthored &&
+                  canEdit(message.id) &&
                   (onEditMessage || onDeleteMessage) ? (
                     <ThreadMessageActions
                       onEdit={

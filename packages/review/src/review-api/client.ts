@@ -46,12 +46,13 @@ export class ReviewApiClient {
       })
     ).json();
   }
-  async *watch(
+  async *watch<T = Snapshot>(
     reviewId: string,
     signal: AbortSignal,
-  ): AsyncGenerator<Snapshot> {
+    part: "document" | "feedback" = "document",
+  ): AsyncGenerator<T> {
     const response = await this.response(
-      `/${encodeURIComponent(reviewId)}/watch`,
+      `/${encodeURIComponent(reviewId)}/${part === "feedback" ? "feedback/" : ""}watch`,
       { signal },
     );
 
@@ -59,6 +60,13 @@ export class ReviewApiClient {
       .body!.pipeThrough(new TextDecoderStream())
       .getReader();
 
+    const cancel = () => {
+      void reader.cancel().catch(() => {});
+    };
+
+    signal.addEventListener("abort", cancel, { once: true });
+
+    if (signal.aborted) cancel();
     let pending = "";
 
     try {
@@ -71,13 +79,44 @@ export class ReviewApiClient {
 
         while ((end = pending.indexOf("\n")) !== -1) {
           // SAFETY: the authenticated host serializes the requested review snapshot.
-          yield JSON.parse(pending.slice(0, end)) as Snapshot;
+          yield JSON.parse(pending.slice(0, end)) as T;
           pending = pending.slice(end + 1);
         }
       }
     } finally {
+      signal.removeEventListener("abort", cancel);
       await reader.cancel().catch(() => {});
       reader.releaseLock();
+    }
+  }
+  async follow<T>(
+    reviewId: string,
+    signal: AbortSignal,
+    part: "document" | "feedback",
+    accept: (snapshot: T) => void | Promise<void>,
+    disconnected: (cause: unknown) => void,
+  ) {
+    while (!signal.aborted) {
+      try {
+        for await (const next of this.watch<T>(reviewId, signal, part))
+          await accept(next);
+
+        if (!signal.aborted) disconnected(new Error("Connection closed."));
+      } catch (error) {
+        if (!signal.aborted) disconnected(error);
+      }
+
+      if (!signal.aborted)
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", done);
+            resolve();
+          };
+
+          const timer = setTimeout(done, 1000);
+          signal.addEventListener("abort", done, { once: true });
+        });
     }
   }
 }

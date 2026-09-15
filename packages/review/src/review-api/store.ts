@@ -74,8 +74,10 @@ export class ReviewStore {
     databasePath: string,
     private readonly providers: ReviewProviders,
   ) {
-    this.db = new DatabaseSync(databasePath);
-    this.db.exec(`PRAGMA foreign_keys=ON;
+    // WAL plus a busy timeout: another host on the same home waits instead of failing.
+    this.db = new DatabaseSync(databasePath, { timeout: 5000 });
+    this.db.exec(`PRAGMA journal_mode=WAL;
+      PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS reviews(id TEXT PRIMARY KEY, version INTEGER NOT NULL, next_id INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS versions(review_id TEXT REFERENCES reviews(id), version INTEGER, snapshot TEXT NOT NULL,
         PRIMARY KEY(review_id,version));
@@ -373,12 +375,17 @@ export class ReviewStore {
         : [],
     );
 
+    // Independent reads of immutable commits: run them concurrently.
+    const checks: Promise<void>[] = [];
+
     for (const [key, source] of current.sources)
       if (!retained.sources.has(key))
-        await this.providers.validateSource(snapshot.pins, source);
+        checks.push(this.providers.validateSource(snapshot.pins, source));
 
     for (const [key, block] of current.resources)
       if (!retained.resources.has(key))
-        await this.providers.validateResource(snapshot.pins, block);
+        checks.push(this.providers.validateResource(snapshot.pins, block));
+
+    await Promise.all(checks);
   }
 }

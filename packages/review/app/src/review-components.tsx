@@ -239,17 +239,24 @@ interface ReviewSectionSummary {
  * Collapse state persists per document+section in localStorage; sections
  * marked `[collapsed]` in the MDX start collapsed for first-time readers.
  */
-export function ReviewSection(props: ReviewSectionProps) {
+export function ReviewSection({
+  stateKey,
+  ...props
+}: ReviewSectionProps & { stateKey?: string }) {
   const {
     title,
     defaultCollapsed = false,
     children,
   } = reviewSectionPropsSchema.parse(props);
 
-  const [collapsed, setCollapsed] = useReviewUiState(title, defaultCollapsed, {
-    scope: "session",
-    namespace: "section",
-  });
+  const [collapsed, setCollapsed] = useReviewUiState(
+    stateKey ?? title,
+    defaultCollapsed,
+    {
+      scope: "session",
+      namespace: "section",
+    },
+  );
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [summary, setSummary] = useState<ReviewSectionSummary | null>(null);
@@ -990,7 +997,7 @@ function CodeReviewPeekPanel({
   anchor: AnchorRef;
   content: Extract<
     ReviewPeekContent,
-    { kind: "resolved-code" | "inline-code" }
+    { kind: "resolved-code" | "inline-code" | "explanation" }
   >;
   onClose: () => void;
 }) {
@@ -1548,6 +1555,8 @@ export function ReviewPeekContentView({
   active?: boolean;
   onNativeFocus?: () => void;
 }) {
+  if (content.kind === "explanation") return <p>{content.text}</p>;
+
   if (content.kind === "resolved-code") {
     return (
       <CodePeekCard

@@ -70,6 +70,14 @@ export class ReviewStore {
   private readonly db: DatabaseSync;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
+  private readonly listeners = new Set<(result: Result) => void>();
+  subscribe(listener: (result: Result) => void) {
+    this.listeners.add(listener);
+
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
   constructor(
     databasePath: string,
     private readonly providers: ReviewProviders,
@@ -149,6 +157,7 @@ export class ReviewStore {
   async close() {
     this.closing = true;
     await this.pending;
+    this.listeners.clear();
     this.db.close();
   }
   read(id: string, version?: number): Snapshot {
@@ -183,10 +192,14 @@ export class ReviewStore {
   history(id: string) {
     return this.db
       .prepare(
-        "SELECT version FROM versions WHERE review_id=? ORDER BY version",
+        "SELECT version,json_extract(snapshot,'$.title') AS title,json_extract(snapshot,'$.createdAt') AS created_at FROM versions WHERE review_id=? ORDER BY version",
       )
       .all(id)
-      .map((row) => Number(row.version));
+      .map((row) => ({
+        version: Number(row.version),
+        title: String(row.title),
+        createdAt: String(row.created_at),
+      }));
   }
   inspect(id: string, targetId?: string, version?: number) {
     const snapshot = this.read(id, version);
@@ -327,6 +340,8 @@ export class ReviewStore {
         this.db.exec("ROLLBACK");
         throw error;
       }
+
+      for (const listener of this.listeners) listener(result);
 
       return result;
     });

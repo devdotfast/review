@@ -101,6 +101,12 @@ interface InlineFindMatch {
   readonly range: Range;
 }
 
+/** The existing widgets also accept source loaded from the review API. */
+export interface ReviewInlineSource {
+  snippet(): Promise<ReviewCodeModelReference>;
+  diff(): Promise<ReviewCodeDiffTarget | undefined>;
+}
+
 export class ReviewInlineEditorService
   extends Disposable
   implements ReviewInlineEditorFactory, ICompositeCodeEditor
@@ -249,7 +255,7 @@ export class ReviewInlineEditorService
     this.overflowWidgetsDomNode = node;
   }
 
-  create(spec: ReviewInlineEditorSpec): ReviewInlineEditorHandle {
+  create(spec: ReviewInlineEditorSpec, source?: ReviewInlineSource): ReviewInlineEditorHandle {
     const handle = new InlineEditorHandle(
       spec,
       this.instantiationService,
@@ -281,6 +287,7 @@ export class ReviewInlineEditorService
         });
       },
       (control) => this.handlesByEditor.set(control, handle),
+      source,
     );
     this.handles.add(handle);
     this.updateMetrics(spec.container.ownerDocument);
@@ -290,9 +297,10 @@ export class ReviewInlineEditorService
   async find(
     spec: ReviewInlineFindSpec,
     query: ReviewFindQuery,
+    source?: ReviewInlineSource,
   ): Promise<ReviewInlineFindResult> {
     if (!query.text) return { matchCount: 0 };
-    if (spec.commentsEnabled) {
+    if (!source && spec.commentsEnabled) {
       const unified = await this.resources.acquireUnifiedDiff(
         spec.path,
         spec.side,
@@ -312,7 +320,7 @@ export class ReviewInlineEditorService
         }
       }
     }
-    const diff = await this.resources.resolveDiff(
+    const diff = source ? await source.diff() : await this.resources.resolveDiff(
       spec.path,
       spec.side,
       spec.ranges,
@@ -340,7 +348,7 @@ export class ReviewInlineEditorService
         modified.dispose();
       }
     }
-    const snippet = await this.resources.acquireSnippet(
+    const snippet = source ? await source.snippet() : await this.resources.acquireSnippet(
       spec.path,
       spec.side,
       spec.ranges,
@@ -478,6 +486,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     private readonly onDidFocusControl: (control: ICodeEditor) => void,
     private readonly onDidBlurControl: () => void,
     private readonly onDidBindControl: (control: ICodeEditor) => void,
+    private readonly source?: ReviewInlineSource,
   ) {
     super();
     if (spec.ranges.length === 0) {
@@ -643,7 +652,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 
   private async initialize(): Promise<void> {
     try {
-      if (this.spec.commentsEnabled) {
+      if (!this.source && this.spec.commentsEnabled) {
         const unifiedReference = await this.resources.acquireUnifiedDiff(
           this.spec.path,
           this.spec.side,
@@ -658,7 +667,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
           return;
         }
       }
-      const diffTarget = await this.resources.resolveDiff(
+      const diffTarget = this.source ? await this.source.diff() : await this.resources.resolveDiff(
         this.spec.path,
         this.spec.side,
         this.spec.ranges,
@@ -668,7 +677,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
         await this.initializeMultiDiffEditor(diffTarget);
         return;
       }
-      const modelReference = await this.resources.acquireSnippet(
+      const modelReference = this.source ? await this.source.snippet() : await this.resources.acquireSnippet(
         this.spec.path,
         this.spec.side,
         this.spec.ranges,

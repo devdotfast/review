@@ -5,6 +5,7 @@ import {
   detectLocalVcs,
   diffFileSummariesTrees,
   diffTrees,
+  listCommitRange,
   readFileAtRevision,
   resolveRevision,
 } from "@dev.fast/local-vcs";
@@ -153,6 +154,28 @@ export class LocalReviewData {
     return file === undefined
       ? diffFileSummariesTrees(input)
       : diffTrees({ ...input, paths: [file], literalPaths: true });
+  }
+  commits(pins: Pins) {
+    return listCommitRange({
+      rootPath: this.store.repositoryPath(pins.repositoryId),
+      baseRef: pins.base,
+      headRef: pins.head,
+    });
+  }
+  async comparison(pins: Pins, commit?: string): Promise<Pins> {
+    if (!commit) return pins;
+
+    const selected = (await this.commits(pins)).find(
+      (item) => item.commit === commit,
+    );
+
+    if (!selected)
+      throw new ReviewInputError(
+        "The selected commit is not part of this review version.",
+        404,
+      );
+
+    return { ...pins, base: selected.parentCommit, head: selected.commit };
   }
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Upload boundary: uploadSchema.parse below validates incoming JSON.
   async upload(value: unknown) {

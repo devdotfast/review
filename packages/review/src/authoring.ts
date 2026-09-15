@@ -1369,7 +1369,7 @@ function authoredCollections(
   );
 }
 
-function defineCollections(
+export function defineCollections(
   storeId: string,
   store: StoreInput,
   collectionKind: CollectionKind,

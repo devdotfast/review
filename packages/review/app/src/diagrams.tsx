@@ -56,6 +56,7 @@ import "@xyflow/react/dist/style.css";
 type SequenceParticipantNodeData = {
   participant: ActorRef;
   diagram: string;
+  stableItemIds?: boolean;
   height: number;
   messages: SequenceMessage[];
   messageGap: number;
@@ -126,10 +127,13 @@ export interface SequenceMessage {
   label: string;
   anchor: AnchorRef;
   code?: SequenceMessageCodeBlock;
+  explanation?: string;
+  style?: "call" | "return" | "async";
 }
 
 export interface SequenceRef {
   __kind: "review-sequence-ref";
+  stableItemIds?: boolean;
   id: string;
   label: string;
   participants: ActorRef[];
@@ -367,10 +371,12 @@ export function createSequenceTourEntry(sequence: SequenceRef): GuidedTour {
             kind: "inline-code" as const,
             ...message.code,
           }
-        : {
-            kind: "resolved-code" as const,
-            input: validatedCodePeekInputFromRef(message.anchor.peek!),
-          },
+        : message.anchor.peek
+          ? {
+              kind: "resolved-code" as const,
+              input: validatedCodePeekInputFromRef(message.anchor.peek),
+            }
+          : { kind: "explanation" as const, text: message.explanation },
     })),
   };
 }
@@ -450,16 +456,24 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
 }
 
 export function SequenceDiagram(input: SequenceInput) {
-  const session = useReviewSession();
-  const { theme } = useReviewDebugSettings();
-
   const sequence = useMemo(
     () => createSequence(input),
     [input.label, input.messages],
   );
 
+  return <ResolvedSequenceDiagram sequence={sequence} />;
+}
+
+/** Same UI, with accepted JSON data instead of MDX props. */
+export function ResolvedSequenceDiagram({
+  sequence,
+}: {
+  sequence: SequenceRef;
+}) {
+  const session = useReviewSession();
+  const { theme } = useReviewDebugSettings();
   useRegisterLiveDiagram({
-    label: sequence.label,
+    label: sequence.stableItemIds ? sequence.id : sequence.label,
     elements: sequenceTargetElements(sequence),
   });
   const tour = useMemo(() => createSequenceTourEntry(sequence), [sequence]);
@@ -618,7 +632,8 @@ function SequenceDiagramFigure({
         height,
         data: {
           participant,
-          diagram: sequence.label,
+          diagram: sequence.stableItemIds ? sequence.id : sequence.label,
+          stableItemIds: sequence.stableItemIds,
           height,
           messages: sequence.messages,
           messageGap,
@@ -644,17 +659,25 @@ function SequenceDiagramFigure({
           sourceHandle: sequenceHandleId(message.id, "source"),
           targetHandle: sequenceHandleId(message.id, "target"),
           markerEnd: {
-            type: MarkerType.ArrowClosed,
+            type:
+              message.style === "async"
+                ? MarkerType.Arrow
+                : MarkerType.ArrowClosed,
             color,
           },
-          style: { stroke: color },
+          style: {
+            stroke: color,
+            strokeDasharray: message.style === "return" ? "6 4" : undefined,
+          },
           data: {
             message,
             index,
             width,
             active: isActive,
-            diagram: sequence.label,
-            path: sequenceEdgePath(sequence.messages, message),
+            diagram: sequence.stableItemIds ? sequence.id : sequence.label,
+            path: sequence.stableItemIds
+              ? [message.id]
+              : sequenceEdgePath(sequence.messages, message),
             openTour,
             stepNumber: onCloseTour ? index + 1 : null,
           },
@@ -821,18 +844,20 @@ export function sequenceTargetElements(
   return [
     ...sequence.participants.map((participant) =>
       buildGraphTarget({
-        diagram: sequence.label,
+        diagram: sequence.stableItemIds ? sequence.id : sequence.label,
         type: "node",
-        path: [participant.label],
+        path: [sequence.stableItemIds ? participant.id : participant.label],
         payload: participant,
         quote: participant.label,
       }),
     ),
     ...sequence.messages.map((message) =>
       buildGraphTarget({
-        diagram: sequence.label,
+        diagram: sequence.stableItemIds ? sequence.id : sequence.label,
         type: "edge",
-        path: sequenceEdgePath(sequence.messages, message),
+        path: sequence.stableItemIds
+          ? [message.id]
+          : sequenceEdgePath(sequence.messages, message),
         payload: {
           from: message.from.label,
           to: message.to.label,
@@ -885,7 +910,7 @@ function SequenceParticipantNode({
   const target = buildGraphTarget({
     diagram,
     type: "node",
-    path: [participant.label],
+    path: [data.stableItemIds ? participant.id : participant.label],
     payload: participant,
     quote: participant.label,
   });

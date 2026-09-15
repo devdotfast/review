@@ -71,8 +71,8 @@ const REVIEW_FILES_DIFF_EDITOR_OPTIONS = {
 
 export interface ReviewFilesEditorEntry {
   readonly file: ReviewDiffFileWire;
-  readonly original: URI;
-  readonly modified: URI;
+  readonly original: URI | undefined;
+  readonly modified: URI | undefined;
   readonly goToFileResource: URI;
 }
 

@@ -1054,6 +1054,13 @@ export type ReviewSoftwareMapLoad =
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
+      kind: "api";
+      reviewId: string;
+      version?: number;
+      bridge: ReviewCanvasBridge;
+      setTitle?(title: string): void;
+    }
+  | {
       kind: "error";
       message: string;
       reviewErrors?: readonly ReviewListError[];
@@ -1336,7 +1343,8 @@ export type ReviewSessionDescriptor = z.infer<
 >;
 
 export const ReviewDocumentVersionSchema = z.strictObject({
-  revision: z.string().regex(/^[0-9a-f]{40}$/),
+  // Presentation identity: legacy Git revisions or API snapshot versions.
+  revision: z.string().min(1),
   /** Unix milliseconds when the version was sealed. */
   sealedAt: positiveInteger,
   isCurrent: z.boolean(),

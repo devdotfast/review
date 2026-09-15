@@ -2,7 +2,8 @@
 
 Desktop startup owns one `review-api.db` under `DEV_REVIEW_HOME`. Its routes use
 the existing desktop token authentication and bounded JSON request reader.
-The existing MDX canvas is not switched over yet; its saved reviews remain
+The canvas accepts an API-backed content mode using the existing components;
+native desktop opening is not switched over yet. Existing saved reviews remain
 untouched. Tests can inject a store and data provider into the desktop server.
 
 ## Storage and ownership
@@ -28,22 +29,24 @@ child IDs. Restoring an old snapshot does not roll back the ID counter.
 
 All paths below are relative to `/reviews-api`.
 
-| Request | Result |
-|---|---|
-| `GET /` | Current review summaries |
-| `GET /:id` | Compact outline |
-| `GET /:id?targetId=step-3` | Full block or sequence step |
-| `GET /:id?full=true` | Full snapshot |
-| `GET /:id?version=2&full=true` | Historical snapshot |
-| `GET /:id/history` | Saved version numbers |
-| `POST /commands` | Apply one command; return review ID, version, and edited target ID |
-| `POST /repositories {path}` | Register a local Git/jj repository; return ID/name |
-| `POST /pins {repositoryId,base,head}` | Resolve revisions to immutable commit IDs |
-| `POST /resources` | Upload an image, trace, or map; return resource ID/kind/MIME type |
-| `GET /resources/:resourceId` | Read retained bytes; desktop authentication required |
-| `POST /:id/source {source,version?}` | Read an exact pinned code range |
-| `GET /:id/file?side=head&file=src/app.ts` | Read a complete pinned source file; optional version |
-| `GET /:id/diff` | Changed-file summaries; optional file for patch text and version |
+| Request                                   | Result                                                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| `GET /`                                   | Current review summaries                                               |
+| `GET /:id`                                | Compact outline                                                        |
+| `GET /:id?targetId=step-3`                | Full block or sequence step                                            |
+| `GET /:id?full=true`                      | Full snapshot                                                          |
+| `GET /:id?version=2&full=true`            | Historical snapshot                                                    |
+| `GET /:id/history`                        | Saved versions with titles and timestamps                              |
+| `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
+| `POST /commands`                          | Apply one command; return review ID, version, and edited target ID     |
+| `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
+| `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
+| `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type      |
+| `GET /resources/:resourceId`              | Read retained bytes; desktop authentication required                   |
+| `POST /:id/source {source,version?}`      | Read an exact pinned code range                                        |
+| `GET /:id/file?side=head&file=src/app.ts` | Read a complete pinned source file; optional version                   |
+| `GET /:id/commits?version=0`              | List commits and their first-parent statistics for that review version |
+| `GET /:id/diff`                           | Changed-file summaries; optional file for patch text and version       |
 
 Example request:
 
@@ -55,7 +58,10 @@ Example request:
     "reviewId": "<returned by create>",
     "edit": {
       "type": "insert",
-      "content": { "type": "markdown", "markdown": "# Summary\n\nWhat changed." }
+      "content": {
+        "type": "markdown",
+        "markdown": "# Summary\n\nWhat changed."
+      }
     }
   }
 }
@@ -95,8 +101,24 @@ and pinned source-range checks. Uploads take `{id,repositoryId,kind,...}` with
 `base64` for images, `trace:{label,events:[{id,role,text}]}` for traces, or
 `pins,side,model` for maps. Reusing an upload ID requires identical content.
 
-Incremental canvas notifications, renderer adapters, MCP/CLI, comments, Ask,
-review deletion and profile migration remain later work.
+The canvas preserves React identities during updates. The stream coalesces
+updates when a reader falls behind; reconnecting starts with the current saved
+snapshot. Historical views read a fixed snapshot and do not follow live edits.
+Call-stack frames can supply a component-local `key` to align the same frame
+across base/head despite moved source ranges. Without a key, matching uses the
+file and range. This is separate from each frame's durable comment identity.
+
+File and diff reads also accept `commit` to compare one listed commit against
+its first parent. It must belong to the requested review version; an unrelated
+commit returns 404. Without it, the comparison is the review's base and head.
+
+Native code-peek and diff widgets can now consume API-backed read-only models,
+including renamed files and absent diff sides. Native opening still needs to
+supply that adapter to the API canvas; it is not yet an end-to-end desktop path.
+
+Native desktop opening/source-tree integration, MCP/CLI, comments, Ask,
+review deletion and profile migration remain later work. The rich-node adapters
+still need computer-use verification with real native source editors and maps.
 
 The focused test file exercises all twelve block kinds, edits and identity,
 history/restart, retries, asynchronous validation, isolation, and the actual

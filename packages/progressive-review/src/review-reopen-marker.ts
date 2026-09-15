@@ -7,7 +7,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { isMissingFileError } from "./fs-utils";
 import { reviewDir } from "./review-file";
 
 // A "pending reopen" marker records that the reviewer requested changes that

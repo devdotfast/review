@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
 
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { isMissingFileError } from "./fs-utils";
 import { evaluateReviewDocumentBundleForPublish } from "./review-publish-evaluate";
 
 /** Evaluates the JavaScript document bundle sealed into a materialized review

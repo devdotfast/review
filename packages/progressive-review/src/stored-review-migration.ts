@@ -18,7 +18,7 @@ import {
   authoringSessionKey,
   parseAuthoringSessionKey,
 } from "./authoring-session";
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { isMissingFileError } from "./fs-utils";
 import { promoteReviewArtifactFiles } from "./review-artifact-promotion";
 import {
   bundleReviewDocument,

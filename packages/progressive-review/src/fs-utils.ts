@@ -1,6 +1,9 @@
 import { readdir, stat } from "node:fs/promises";
 
-import { isMissingFileError } from "./native-agent/transcript-json";
+/** Whether a thrown filesystem error reports a missing file (ENOENT). */
+export function isMissingFileError(cause: unknown): boolean {
+  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+}
 
 /** Entries of a directory that may not exist yet. */
 export async function readDirectory(directory: string) {

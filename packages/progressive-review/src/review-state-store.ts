@@ -13,7 +13,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { writeFileAtomic } from "@dev.fast/trace-core";
 
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { isMissingFileError } from "./fs-utils";
 import {
   reviewStateDir,
   reviewThreadStoreBackend,

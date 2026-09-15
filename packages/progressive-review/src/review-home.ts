@@ -41,7 +41,7 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "./authoring-session";
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { isMissingFileError } from "./fs-utils";
 import { resolveReviewRepositoryIdentity } from "./repository-identity";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import {

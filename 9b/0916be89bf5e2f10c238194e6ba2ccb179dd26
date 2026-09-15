@@ -1,0 +1,82 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    reviewer: { label: "Reviewer", description: "Reads the narrative, pinned source comparison, and software maps." },
+    author: { label: "Authoring agent", description: "Builds a progressive Review through the CLI and authoring guidance." },
+  },
+  systems: {
+    review: {
+      label: "Review Desktop",
+      description: "Local-first review application binding a narrative document, code comparison, software map, to pinned commits.",
+      containers: {
+        cli: {
+          label: "Review CLI",
+          components: {
+            commands: { label: "Review lifecycle commands", description: "Scaffolds, pins, checks, and publishes reviews.", coverage: { files: ["packages/review/src/cli-runner.ts"] } },
+            traceCommands: { label: "Trace capture and lookup commands", coverage: { files: ["packages/review/src/trace-cli.ts", "packages/trace-core/src/trace-machine-setup.ts"] } },
+            guidance: { label: "Authoring contract", coverage: { globs: ["packages/review/skills/dev-review/**", "docs/**"] } },
+          },
+        },
+        backend: {
+          label: "Local Review server",
+          components: {
+            server: { label: "Authenticated session and publication API", coverage: { files: ["packages/review/src/server/desktop-server.ts", "packages/review/src/server/review-api.ts", "packages/review/src/server/session-handler.ts", "packages/review/src/server/tutorial-service.ts"] } },
+            lifecycle: { label: "Review discovery and migration", coverage: { files: ["packages/review/src/review-home.ts", "packages/review/src/review-attention.ts", "packages/review/src/migrate.ts", "packages/review/src/stored-review-migration.ts"] } },
+            publication: { label: "MDX compilation and publication", coverage: { files: ["packages/review/src/review-publication-preparation.ts", "packages/review/src/publish-stage.ts"] } },
+            maps: { label: "Pinned software maps", coverage: { globs: ["packages/review/src/software-map-*.ts"] } },
+            traces: { label: "Trace discovery, configured storage, and search corpus", description: "Discovers local harness transcripts, resolves commit session associations, and transfers traces through configured hosted or S3-compatible storage.", coverage: { files: ["packages/trace-core/src/review-agent-traces.ts", "packages/trace-core/src/agent-trace-parser.ts", "packages/review/src/agent-fff.ts"] } },
+            capture: { label: "Agent and Git capture hooks", coverage: { files: ["packages/trace-core/src/trace-hook-runner.ts", "packages/trace-core/src/trace-git-hook-runner.ts", "packages/trace-core/src/trace-agent-sessions.ts", "packages/trace-core/src/trace-repository-hooks.ts"] } },
+            installation: { label: "CLI and managed skill installation", coverage: { files: ["packages/review/src/install.ts", "packages/review/src/install-directory.ts", "packages/review/src/skill-install-lock.ts", "packages/review/src/cli-install.ts"] } },
+          },
+        },
+        desktop: {
+          label: "Electron workbench and canvas",
+          components: {
+            selectionSurfaces: { label: "Document and diagram interaction", description: "Renders narrative, diagrams, database lenses, and authored navigation.", coverage: { files: ["packages/review/app/src/App.tsx", "packages/review/app/src/review-context.tsx", "packages/review/app/src/diagrams.tsx", "packages/review/app/src/database-lens.tsx"] } },
+            nativeSelection: { label: "Native diff selection and editor bridge", description: "Monaco renders pinned diffs and authored code peeks with native text selection.", coverage: { files: ["apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffViewService.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewFilesDiffView.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewInlineEditorService.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewUnifiedFilesEditor.ts", "apps/review-desktop/code-oss/src/vs/review/review.common.main.ts"] } },
+            session: { label: "Session model and document loader", coverage: { files: ["apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts", "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts"] } },
+            traceView: { label: "Trace viewer and capture setup", coverage: { files: ["packages/review/app/src/ReviewTraceView.tsx", "packages/review/app/src/use-agent-trace.ts", "packages/review/app/src/trace-capture-section.tsx"] } },
+            canvas: { label: "Compiled React review canvas", coverage: { files: ["packages/review/app/src/desktop-entry.tsx", "packages/review/app/src/styles.css"] } },
+          },
+        },
+        protocol: { label: "Typed transport contracts", coverage: { globs: ["packages/review-protocol/src/**"] } },
+        vcs: { label: "Pinned local VCS access", coverage: { globs: ["packages/local-vcs/src/**"] } },
+      },
+      dataStores: {
+        documents: { label: "Review files and publication artifacts", description: "Per-review review.json metadata, author-edited MDX/data files, and immutable compiled builds.", kind: "fileStore" },
+        traceFiles: { label: "Local agent transcripts and trace corpus", description: "Harness session files and the materialized local search corpus.", kind: "fileStore" },
+        traceSettings: { label: "Machine trace credentials and capture settings", kind: "fileStore" },
+        notes: { label: "Git notes", description: "Commit-addressed software maps and agent trace associations.", kind: "artifactStore" },
+      },
+    },
+    traceStorage: { label: "Configured S3-compatible trace storage", external: true, dataStores: { objects: { label: "Trace and commit-index objects", kind: "objectStore" } } },
+  },
+  relationships: [
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.installation", label: "Installs CLI and managed agent skills" },
+    { kind: "semantic", from: "review.cli.traceCommands", to: "review.backend.traces", label: "Looks up and syncs traces" },
+    { kind: "semantic", from: "review.cli.traceCommands", to: "review.traceSettings", label: "Configures machine capture" },
+    { kind: "semantic", from: "review.backend.capture", to: "review.backend.traces", label: "Syncs sessions and commit mappings" },
+    { kind: "semantic", from: "review.backend.traces", to: "review.traceFiles", label: "Discovers and materializes transcripts" },
+    { kind: "semantic", from: "review.backend.traces", to: "traceStorage.objects", label: "Reads and writes traces directly" },
+    { kind: "semantic", from: "review.backend.traces", to: "review.traceSettings", label: "Loads object storage credentials" },
+    { kind: "semantic", from: "review.desktop.traceView", to: "review.backend.server", label: "Loads trace sessions and capture status" },
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.traces", label: "Serves trace lookups" },
+    { kind: "semantic", from: "review.desktop.nativeSelection", to: "review.protocol", label: "Uses typed surface and navigation events" },
+    { kind: "semantic", from: "review.desktop.nativeSelection", to: "review.desktop.session", label: "Bridges pinned diff editors to canvas" },
+    { kind: "semantic", from: "reviewer", to: "review.desktop", label: "Reads and navigates" },
+    { kind: "semantic", from: "author", to: "review.cli", label: "Authors and publishes" },
+    { kind: "semantic", from: "author", to: "review.documents", label: "Edits MDX inputs directly" },
+    { kind: "semantic", from: "review.cli", to: "review.backend.server", label: "Calls lifecycle API" },
+    { kind: "semantic", from: "review.desktop.session", to: "review.backend.server", label: "HTTP requests and SSE events" },
+    { kind: "semantic", from: "review.desktop.session", to: "review.desktop.canvas", label: "Mounts compiled documents" },
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.lifecycle", label: "Resolves reviews" },
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.publication", label: "Publishes artifacts" },
+    { kind: "semantic", from: "review.backend.lifecycle", to: "review.documents", label: "Discovers metadata" },
+    { kind: "semantic", from: "review.backend.publication", to: "review.documents", label: "Compiles and stages" },
+    { kind: "semantic", from: "review.backend.maps", to: "review.notes", label: "Saves pinned models" },
+    { kind: "semantic", from: "review.backend.maps", to: "review.vcs", label: "Inspects pinned code" },
+    { kind: "semantic", from: "review.backend.server", to: "review.protocol", label: "Validates wire contracts" },
+    { kind: "semantic", from: "review.cli.guidance", to: "review.cli.commands", label: "Guides agent workflow" },
+  ],
+});

@@ -2,7 +2,7 @@ import { isObjectValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import type { ComponentType, ReactNode } from "react";
 import { z } from "zod";
 
-import { frameSchema } from "./review-api/document";
+import { frameSchema, sequenceSchema } from "./review-api/document";
 import {
   type NormalizedSoftwareModel,
   type SoftwareDataStoreCollectionInput,
@@ -827,25 +827,6 @@ export const storeRefDataSchema: z.ZodType<StoreRefData> = z.strictObject({
 // store handles are their data projection. Anchors are stored as-is: their
 // peek is already a plain source range. review-document-materialize.ts writes
 // exactly this.
-const documentSequenceMessageFields = {
-  from: sequenceActorInputSchema,
-  to: sequenceActorInputSchema,
-  label: nonEmptyStringSchema,
-};
-
-const documentSequenceMessageSchema = z.union([
-  z.strictObject({
-    ...documentSequenceMessageFields,
-    anchor: peekableAnchorRefSchema,
-    code: sequenceMessageCodeInputSchema.optional(),
-  }),
-  z.strictObject({
-    ...documentSequenceMessageFields,
-    anchor: anchorRefSchema.optional(),
-    code: sequenceMessageCodeInputSchema,
-  }),
-]);
-
 const documentDbOperationFields = {
   label: nonEmptyStringSchema,
   anchor: peekableAnchorRefSchema,
@@ -884,8 +865,10 @@ export const reviewComponentDataSchemas = {
     defaultCollapsed: z.boolean().optional(),
   }),
   SequenceDiagram: z.strictObject({
-    label: nonEmptyStringSchema,
-    messages: z.array(documentSequenceMessageSchema).min(1),
+    id: nonEmptyStringSchema,
+    title: sequenceSchema.shape.title,
+    actors: sequenceSchema.shape.actors,
+    steps: sequenceSchema.shape.steps,
   }),
   TraceQuote: z.strictObject({
     sessionId: nonEmptyStringSchema,

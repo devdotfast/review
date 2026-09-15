@@ -69,9 +69,27 @@ export function createReviewApi(
         )
         .parse(input);
 
+      // Only entries whose review (or the catalog) changed are re-read and re-sent.
+      const dirty = new Set(subscriptions.keys());
+
+      const mark = (id: string | null) => {
+        let marked = false;
+
+        subscriptions.forEach((item, index) => {
+          if (item.reviewId === id) {
+            dirty.add(index);
+            marked = true;
+          }
+        });
+
+        return marked;
+      };
+
       return watch(
         () =>
-          subscriptions.map(({ reviewId }) => {
+          subscriptions.map(({ reviewId }, index) => {
+            if (!dirty.delete(index)) return null;
+
             try {
               return {
                 value:
@@ -92,24 +110,22 @@ export function createReviewApi(
             }
           }),
         (notify) => {
-          const interested = (id: string) =>
-            subscriptions.some((item) => item.reviewId === id);
-
           const stops = [
             store.subscribe((result) => {
-              if (interested(result.reviewId)) notify();
+              if (mark(result.reviewId)) notify();
             }),
             store.activity.subscribe((id) => {
-              if (interested(id)) notify();
+              if (mark(id)) notify();
             }),
             store.subscribeCatalog(() => {
-              if (subscriptions.some((item) => item.reviewId === null))
-                notify();
+              if (mark(null)) notify();
             }),
           ];
 
           return () => stops.forEach((stop) => stop());
         },
+        // A missing review is an {error} entry here, never a 404.
+        () => {},
       );
     }
 
@@ -308,8 +324,9 @@ export function createReviewApi(
 function watch<T>(
   read: () => T,
   subscribe: (notify: () => void) => () => void,
+  probe: () => void = read,
 ) {
-  read(); // Return a normal 404 before opening the response.
+  probe(); // Return a normal 404 before opening the response.
   let stop = () => {};
 
   let dirty = true;

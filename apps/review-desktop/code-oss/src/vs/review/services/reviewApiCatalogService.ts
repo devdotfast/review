@@ -20,6 +20,8 @@ export const IReviewApiCatalogService =
 export interface IReviewApiCatalogService {
   readonly _serviceBrand: undefined;
   readonly reviews: readonly ReviewHomeItem[];
+  /** True once the first list arrived; an empty list is then real, not a failed load. */
+  readonly loaded: boolean;
   readonly onDidChange: Event<void>;
   readonly onDidCloseReview: Event<string>;
   initialize(): Promise<void>;
@@ -35,6 +37,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
   private readonly closed = this._register(new Emitter<string>());
   readonly onDidCloseReview = this.closed.event;
   reviews: ReviewHomeItem[] = [];
+  loaded = false;
   private client?: ReviewApiClient;
   private started?: Promise<void>;
 
@@ -75,6 +78,7 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
         viewedAt: review.viewedAt,
         dismissedAt: review.dismissedAt,
       } satisfies ReviewHomeItem));
+      this.loaded = true;
       this.changed.fire();
       for (const review of previous) {
         const next = this.reviews.find(next => next.uuid === review.uuid);

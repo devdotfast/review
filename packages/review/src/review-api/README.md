@@ -38,7 +38,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id/activity` | Currently reported authoring work, not stored in document history |
 | `POST /:id/activity {action,leaseId}` | Begin, renew or end a working signal; return count and expiry |
 | `GET /watch` | NDJSON review summaries: initial list, then saved changes |
-| `GET /watch?subscriptions=…` | One NDJSON connection for multiple `{reviewId}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results. |
+| `GET /watch?subscriptions=…` | One NDJSON connection for multiple `{reviewId}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results, with `null` where a subscription is unchanged since the previous line. |
 | `GET /:id`                                | Compact outline                                                        |
 | `GET /:id?targetId=step-3`                | Full block or sequence step                                            |
 | `GET /:id?full=true`                      | Full snapshot                                                          |

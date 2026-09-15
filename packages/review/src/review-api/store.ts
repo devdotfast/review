@@ -492,14 +492,15 @@ export class ReviewStore {
       }
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
-    const references = (document: Block[]) => {
+    const references = (document: Block[], tolerant = false) => {
       const sources = new Map<string, Source>();
       const resources = new Map<string, Block>();
 
       const add = (source: Source) =>
         sources.set(JSON.stringify(source), source);
 
-      for (const { source } of sourceReferences(document)) add(source);
+      for (const { source } of sourceReferences(document, { tolerant }))
+        add(source);
 
       for (const block of elements(document)) {
         if (
@@ -515,11 +516,14 @@ export class ReviewStore {
 
     const current = references(snapshot.document);
 
+    // Stored content is not re-validated: an edit may fix a link that the
+    // current rules reject.
     const retained = references(
       previous &&
         JSON.stringify(previous.pins) === JSON.stringify(snapshot.pins)
         ? previous.document
         : [],
+      true,
     );
 
     // Independent reads of immutable commits: run them concurrently.

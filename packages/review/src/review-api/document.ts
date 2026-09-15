@@ -195,10 +195,20 @@ export type Step = z.infer<typeof stepSchema>;
 
 export type Element = Block | Step;
 
-/** Source-bearing items share their owning element's stable identity. */
+/**
+ * Source-bearing items share their owning element's stable identity.
+ * `tolerant` skips malformed Markdown source links instead of rejecting, for
+ * content that is already stored.
+ */
 export function sourceReferences(
   document: Block[],
+  { tolerant = false }: { tolerant?: boolean } = {},
 ): { id: string; source: Source; label?: string }[] {
+  const reject = (message: string): [] => {
+    if (tolerant) return [];
+    throw new ReviewInputError(message);
+  };
+
   return elements(document).flatMap((element) => {
     if (element.type === "markdown")
       return [...markdownNodes(parseMarkdown(element.markdown))].flatMap(
@@ -212,7 +222,7 @@ export function sourceReferences(
             );
 
           if (!match)
-            throw new ReviewInputError(
+            return reject(
               "Use review-source:head/path#L10-L24 (or base) for a source link.",
             );
           let file: string;
@@ -220,20 +230,22 @@ export function sourceReferences(
           try {
             file = decodeURIComponent(match[2]!);
           } catch {
-            throw new ReviewInputError("Invalid URL encoding in source link.");
+            return reject("Invalid URL encoding in source link.");
           }
 
-          return [
-            {
-              id: `${element.id}:${node.url}`,
-              source: sourceSchema.parse({
-                side: match[1]!.toLowerCase(),
-                file,
-                fromLine: Number(match[3]),
-                toLine: Number(match[4] ?? match[3]),
-              }),
-            },
-          ];
+          const source = sourceSchema.safeParse({
+            side: match[1]!.toLowerCase(),
+            file,
+            fromLine: Number(match[3]),
+            toLine: Number(match[4] ?? match[3]),
+          });
+
+          if (!source.success) {
+            if (tolerant) return [];
+            throw source.error;
+          }
+
+          return [{ id: `${element.id}:${node.url}`, source: source.data }];
         },
       );
 

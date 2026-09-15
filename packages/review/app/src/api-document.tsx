@@ -96,7 +96,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
         maps: new Map(),
       };
 
-      for (const { id, source, label } of sourceReferences(snapshot.document)) {
+      for (const { id, source, label } of sourceReferences(snapshot.document, { tolerant: true })) {
         data.anchors.set(
           id,
           sourceAnchor(

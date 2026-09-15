@@ -79,8 +79,7 @@ export class ReviewCanvasEditorTabsService
 
 	async openHome(active: boolean): Promise<ReviewCanvasEditorInput> {
 		const input = await this.openSingleton({ kind: "home" }, active);
-		const group = this.editorGroupsService.groups.find(group => group.contains(input))!;
-		group.stickEditor(input);
+		this.editorGroupsService.groups.find(group => group.contains(input))?.stickEditor(input);
 		return input;
 	}
 

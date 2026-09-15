@@ -20,7 +20,10 @@ import type { RenderedReviewDocument } from "./App";
 import {
   ReviewSessionProvider,
   createReviewSession,
+  useReviewSession,
 } from "./host/review-session";
+import { ReviewDocumentBoundary } from "./review-document-boundary";
+import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
 import { TutorialProvider } from "./tutorial-context";
 
@@ -30,8 +33,25 @@ const DocumentData = createContext<ApiDocumentData | null>(null);
 
 // A stable component type keeps sections, diagram tours and selections mounted.
 function DocumentBody() {
-  return <ApiDocument data={useContext(DocumentData)!} />;
+  const data = useContext(DocumentData)!;
+  const session = useReviewSession();
+
+  // App keys its boundary on the review id; this one recovers on the next version.
+  return (
+    <ReviewDocumentBoundary
+      session={session}
+      revision={`${data.snapshot.reviewId}:${data.snapshot.version}`}
+      onError={(_revision, error) =>
+        reportReviewDocumentRenderError(session, error)
+      }
+    >
+      <ApiDocument data={data} />
+    </ReviewDocumentBoundary>
+  );
 }
+
+const message = (cause: unknown) =>
+  cause instanceof Error ? cause.message : String(cause);
 
 export function ApiCanvas({
   content,
@@ -57,12 +77,17 @@ export function ApiCanvas({
     setData(undefined);
 
     const show = async (snapshot: Snapshot) => {
-      const next = await loader.load(snapshot);
+      try {
+        const next = await loader.load(snapshot);
 
-      if (!abort.signal.aborted) {
+        if (abort.signal.aborted) return;
         setData(next);
         setError(undefined);
         content.setTitle?.(snapshot.title);
+      } catch (cause) {
+        // A missing quote or resource is a document problem, not a lost stream.
+        if (!abort.signal.aborted)
+          setError(`Could not load this version. ${message(cause)}`);
       }
     };
 
@@ -76,7 +101,7 @@ export function ApiCanvas({
             ),
           );
         } catch (cause) {
-          if (!abort.signal.aborted) setError(String(cause));
+          if (!abort.signal.aborted) setError(message(cause));
         }
 
         return;
@@ -134,7 +159,7 @@ export function ApiCanvas({
     };
 
     const session = createReviewSession(bridge);
-    const fetch = session.fetch;
+    const sessionFetch = session.fetch;
     // The old views consume these small view models. Their data came from the API.
     session.fetch = async (route, init, options) => {
       const snapshot = dataRef.current?.snapshot;
@@ -170,7 +195,7 @@ export function ApiCanvas({
         });
       }
 
-      return fetch(route, init, options);
+      return sessionFetch(route, init, options);
     };
 
     return session;

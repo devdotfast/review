@@ -176,12 +176,26 @@ export class LocalReviewData {
       ? diffFileSummariesTrees(input)
       : diffTrees({ ...input, paths: [file], literalPaths: true });
   }
+  // Pins are immutable commit ids, so a listed range never changes.
+  private readonly commitLists = new Map<
+    string,
+    ReturnType<typeof listCommitRange>
+  >();
   commits(pins: Pins) {
-    return listCommitRange({
-      rootPath: this.store.repositoryPath(pins.repositoryId),
-      baseRef: pins.base,
-      headRef: pins.head,
-    });
+    const key = JSON.stringify([pins.repositoryId, pins.base, pins.head]);
+    let commits = this.commitLists.get(key);
+
+    if (!commits) {
+      commits = listCommitRange({
+        rootPath: this.store.repositoryPath(pins.repositoryId),
+        baseRef: pins.base,
+        headRef: pins.head,
+      });
+      commits.catch(() => this.commitLists.delete(key));
+      this.commitLists.set(key, commits);
+    }
+
+    return commits;
   }
   async comparison(pins: Pins, commit?: string): Promise<Pins> {
     if (!commit) return pins;

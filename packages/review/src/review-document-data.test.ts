@@ -296,15 +296,15 @@ describe("review document data", () => {
           props: {
             base: [
               {
-                __kind: "db-anchor-ref",
                 id: "a",
-                title: "A",
-                peek: {
+                key: "a",
+                source: {
                   side: "head",
                   file: "src/a.ts",
                   fromLine: 2,
                   toLine: 4,
                 },
+                label: "A",
               },
             ],
           },

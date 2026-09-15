@@ -14,6 +14,8 @@ import {
   reviewAuthoringPropsSchemas,
   storeRefData,
 } from "./authoring";
+import { callStackFrames } from "./call-stack-frames";
+import type { Frame } from "./review-api/document";
 import {
   type ReviewElementProps,
   type ReviewTextNode,
@@ -39,16 +41,22 @@ type AuthoringProps<Name extends ReviewAuthoringComponentName> = z.infer<
   (typeof reviewAuthoringPropsSchemas)[Name]
 >;
 
+type ProjectedComponentName = "DatabaseLens" | "CallStackDiff";
+
 export type MaterializedComponentProps =
   | (Omit<AuthoringProps<"DatabaseLens">, "children" | "stores"> & {
       stores: Record<string, StoreRefData>;
     })
+  | (Omit<AuthoringProps<"CallStackDiff">, "children" | "base" | "head"> & {
+      base: Frame[];
+      head: Frame[];
+    })
   | {
-      [Name in Exclude<ReviewAuthoringComponentName, "DatabaseLens">]: Omit<
-        AuthoringProps<Name>,
-        "children"
-      >;
-    }[Exclude<ReviewAuthoringComponentName, "DatabaseLens">];
+      [Name in Exclude<
+        ReviewAuthoringComponentName,
+        ProjectedComponentName
+      >]: Omit<AuthoringProps<Name>, "children">;
+    }[Exclude<ReviewAuthoringComponentName, ProjectedComponentName>];
 
 export interface MaterializedComponentNode {
   type: "component";
@@ -197,6 +205,16 @@ function materializeComponentProps(
       stores: Object.fromEntries(
         Object.entries(stores).map(([id, store]) => [id, storeRefData(store)]),
       ),
+    };
+  }
+
+  if (audited.name === "CallStackDiff") {
+    const { children: _children, base, head, ...props } = audited.props;
+
+    return {
+      ...props,
+      base: callStackFrames(base),
+      head: callStackFrames(head),
     };
   }
 

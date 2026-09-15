@@ -6,7 +6,6 @@ import {
   type PeekableAnchorRef,
   type StoreInput,
   type StoreRef,
-  callStackEntryAnchor,
   defineCollections,
 } from "../../src/authoring";
 import type { ReviewApiClient } from "../../src/review-api/client";
@@ -20,7 +19,7 @@ import type { LocalReviewData } from "../../src/review-api/local-data";
 import type { Snapshot } from "../../src/review-api/store";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { MarkdownContent, markdownHasTitle } from "./agent-markdown";
-import { ResolvedCallStackDiff } from "./call-stack-diff";
+import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
 import { ResolvedDatabaseLens } from "./database-lens";
@@ -277,41 +276,11 @@ const DocumentNode = memo(function DocumentNode({
     case "sequence":
       content = <ApiSequence node={node} data={data} />;
       break;
-    case "call_stack_diff": {
-      const entries = (frames: typeof node.base) =>
-        frames.map((frame, index) =>
-          frame.via && index > 0
-            ? {
-                __kind: "call-assertion" as const,
-                parent: data.anchors.get(frames[index - 1]!.id!)!,
-                child: data.anchors.get(frame.id!)!,
-                reason: `${frame.via.kind}: ${frame.via.reason}`,
-              }
-            : data.anchors.get(frame.id!)!,
-        );
-
-      const keys = new Map(
-        [...node.base, ...node.head].map((frame) => [
-          frame.id!,
-          frame.key ??
-            JSON.stringify([
-              frame.source.file,
-              frame.source.fromLine,
-              frame.source.toLine,
-            ]),
-        ]),
-      );
-
+    case "call_stack_diff":
       content = (
-        <ResolvedCallStackDiff
-          title={node.title}
-          base={entries(node.base)}
-          head={entries(node.head)}
-          identity={(entry) => keys.get(callStackEntryAnchor(entry).id)!}
-        />
+        <CallStackDiff title={node.title} base={node.base} head={node.head} />
       );
       break;
-    }
 
     case "database_lens":
       content = <ApiDatabase node={node} data={data} />;

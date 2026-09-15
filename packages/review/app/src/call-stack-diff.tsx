@@ -1,33 +1,29 @@
-import {
-  type CallStackDiffProps,
-  type CallStackEntry,
-  callStackDiffPropsSchema,
-  callStackEntryAnchor,
-  isCallsAssertion,
-} from "../../src/authoring";
+import type { AnchorRef } from "../../src/authoring";
 import {
   callStackConnectorPrefix,
   diffCallStacks,
 } from "../../src/call-stack-diff";
+import { frameIdentity, frameName } from "../../src/call-stack-frames";
+import type { Frame } from "../../src/review-api/document";
 import { useReviewSession } from "./host/review-session";
 import { useReviewPanel } from "./review-panel";
 import { captureUiEvent } from "./ui-telemetry";
 
 // A unified diff over a tree: a hunk header, tree-util connectors for
 // continuity, a -/+ gutter and row tints for the change. Every frame is a
-// live link — a click opens the anchor's peek, exactly like a prose link.
-// There is nothing to fetch: the authored lists are the data.
+// live link — a click opens the frame's source, exactly like a prose link.
+// There is nothing to fetch: the frame lists are the data.
 
-export function CallStackDiff(props: CallStackDiffProps) {
-  return <ResolvedCallStackDiff {...callStackDiffPropsSchema.parse(props)} />;
+export interface CallStackDiffProps {
+  title?: string;
+  base: readonly Frame[];
+  head: readonly Frame[];
 }
 
-export function ResolvedCallStackDiff(
-  parsed: CallStackDiffProps & { identity?: (entry: CallStackEntry) => string },
-) {
+export function CallStackDiff({ title, base, head }: CallStackDiffProps) {
   const session = useReviewSession();
   const openPeek = useReviewPanel((state) => state.openPeek);
-  const rows = diffCallStacks(parsed.base, parsed.head, parsed.identity);
+  const rows = diffCallStacks(base, head);
   const added = rows.filter((row) => row.change === "added").length;
   const removed = rows.filter((row) => row.change === "removed").length;
 
@@ -35,9 +31,7 @@ export function ResolvedCallStackDiff(
     <div className="call-stack-diff" data-review-call-stack="ready">
       <div className="call-stack-hunk">
         <span className="call-stack-hunk-label">
-          {parsed.title
-            ? `@@ ${parsed.title} · base → head @@`
-            : "@@ base → head @@"}
+          {title ? `@@ ${title} · base → head @@` : "@@ base → head @@"}
         </span>
         <span className="call-stack-hunk-counts">
           {added > 0 ? (
@@ -50,30 +44,30 @@ export function ResolvedCallStackDiff(
       </div>
       <div className="call-stack-body" role="list">
         {rows.map((row, index) => {
-          const anchor = callStackEntryAnchor(row.entry);
+          const { frame } = row;
+          const name = frameName(frame);
+          const stack = row.change === "removed" ? base : head;
+          const parent = stack[row.depth - 1];
 
           const marker =
             row.change === "added" ? "+" : row.change === "removed" ? "-" : " ";
 
           return (
             <button
-              key={`${anchor.id}-${index}`}
+              key={`${frame.id ?? frameIdentity(frame)}-${index}`}
               type="button"
               role="listitem"
               className={`call-stack-row call-stack-${row.change}`}
-              data-review-anchor-id={anchor.id}
-              title={`${rowTooltip(row.entry)} — ${anchor.peek.file}:${anchor.peek.fromLine}`}
+              data-review-anchor-id={frame.id ?? frameIdentity(frame)}
+              title={`${rowTooltip(frame, parent)} — ${frame.source.file}:${frame.source.fromLine}`}
               onClick={() => {
                 captureUiEvent(session, "peek_opened", {
                   via: "call_stack_frame",
                 });
                 openPeek({
                   kind: "peek",
-                  anchor,
-                  content: {
-                    kind: "source",
-                    source: anchor.peek,
-                  },
+                  anchor: panelAnchor(frame),
+                  content: { kind: "source", source: frame.source },
                 });
               }}
             >
@@ -81,15 +75,15 @@ export function ResolvedCallStackDiff(
               <span className="call-stack-tree">
                 {callStackConnectorPrefix(rows, index)}
               </span>
-              <span className="call-stack-name">{anchor.title}</span>
-              {isCallsAssertion(row.entry) ? (
+              <span className="call-stack-name">{name}</span>
+              {frame.via ? (
                 <span className="call-stack-asserted">
-                  ≈ {row.entry.reason ?? "asserted"}
+                  ≈ {relationshipLabel(frame.via)}
                 </span>
               ) : null}
               <span className="call-stack-spacer" />
               <span className="call-stack-loc">
-                {locationLabel(anchor.peek.file, anchor.peek.fromLine)}
+                {locationLabel(frame.source.file, frame.source.fromLine)}
               </span>
             </button>
           );
@@ -99,11 +93,26 @@ export function ResolvedCallStackDiff(
   );
 }
 
-function rowTooltip(entry: CallStackEntry): string {
-  if (!isCallsAssertion(entry)) return entry.title;
-  const reason = entry.reason ? `: ${entry.reason}` : "";
+/** The side panel keys its state by anchor; a frame is its own anchor. */
+function panelAnchor(frame: Frame): AnchorRef {
+  return {
+    __kind: "db-anchor-ref",
+    id: frame.id ?? frameIdentity(frame),
+    title: frameName(frame),
+    peek: frame.source,
+  };
+}
 
-  return `${entry.parent.title} → ${entry.child.title}${reason}`;
+function relationshipLabel(via: NonNullable<Frame["via"]>): string {
+  return via.kind === "call" ? via.reason : `${via.kind}: ${via.reason}`;
+}
+
+function rowTooltip(frame: Frame, parent: Frame | undefined): string {
+  const name = frameName(frame);
+
+  if (!frame.via) return name;
+
+  return `${parent ? frameName(parent) : "…"} → ${name}: ${relationshipLabel(frame.via)}`;
 }
 
 // Rows show only the file name; the full repository path lives in the row

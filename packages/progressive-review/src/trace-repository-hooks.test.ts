@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { traceScope } from "./trace-command";
 import {
   disableTraceRepository,
   enableTraceRepository,
@@ -28,7 +29,7 @@ describe("trace repository hooks", () => {
 
     const enabled = await enableTraceRepository({
       cwd: repo,
-      homeDir,
+      scope: traceScope({ homeDir }),
       reviewCommand: {
         file: "/opt/dev traces/dev-traces",
         args: ["--home", "/x"],
@@ -52,7 +53,7 @@ describe("trace repository hooks", () => {
 
     const repaired = await enableTraceRepository({
       cwd: repo,
-      homeDir,
+      scope: traceScope({ homeDir }),
       reviewCommand: "review",
     });
 
@@ -68,13 +69,13 @@ describe("trace repository hooks", () => {
 
     const first = await enableTraceRepository({
       cwd: repo,
-      homeDir,
+      scope: traceScope({ homeDir }),
       reviewCommand: "/opt/review/bin/review",
     });
 
     const second = await enableTraceRepository({
       cwd: repo,
-      homeDir,
+      scope: traceScope({ homeDir }),
       reviewCommand: "/opt/review/bin/review",
     });
 
@@ -88,7 +89,7 @@ describe("trace repository hooks", () => {
     ).toContain(".husky/_/pre-push");
     expect((await traceRepositoryStatus(repo)).enabled).toBe(true);
 
-    await disableTraceRepository({ cwd: repo, homeDir });
+    await disableTraceRepository({ cwd: repo, scope: traceScope({ homeDir }) });
 
     expect(await runGit(repo, ["config", "--get", "core.hooksPath"])).toBe(
       ".husky/_",
@@ -99,7 +100,7 @@ describe("trace repository hooks", () => {
     const { homeDir, repo } = await makeRepository();
     await enableTraceRepository({
       cwd: repo,
-      homeDir,
+      scope: traceScope({ homeDir }),
       reviewCommand: "review",
     });
     await runGit(repo, [
@@ -109,7 +110,7 @@ describe("trace repository hooks", () => {
       ".custom-hooks",
     ]);
 
-    await disableTraceRepository({ cwd: repo, homeDir });
+    await disableTraceRepository({ cwd: repo, scope: traceScope({ homeDir }) });
 
     expect(await runGit(repo, ["config", "--get", "core.hooksPath"])).toBe(
       ".custom-hooks",

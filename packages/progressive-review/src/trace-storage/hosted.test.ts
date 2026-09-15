@@ -31,11 +31,11 @@ import {
   recordTraceSessionProvenance,
   traceCaptureIdentity,
 } from "../trace-session-provenance";
+import { TraceObjectHttpError } from "../trace-store-transport";
 import {
-  TraceObjectHttpError,
   createMemoryTraceStoreTransport,
   seedMemoryTraceSession,
-} from "../trace-store-transport";
+} from "../trace-store-transport.memory";
 import { allowTraceRepository } from "../trace-user-config";
 import { traceConfigPath } from "./config";
 import { HostedTraceStorage } from "./hosted";

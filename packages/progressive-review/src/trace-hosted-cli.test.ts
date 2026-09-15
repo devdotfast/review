@@ -16,9 +16,11 @@ import { installClaudeTraceHook } from "./agent-trace-hooks";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
+import { traceScope } from "./trace-command";
 import {
   runReviewTraceAllow,
   runReviewTraceDeny,
+  runReviewTraceOnboard,
   runReviewTraceSessions,
   writeHostedTraceStatus,
 } from "./trace-hosted-cli";
@@ -153,15 +155,7 @@ describe("hosted trace commands", () => {
       { repositoryId: 7, name: "acme/app", origin: ORIGIN },
       devHome,
     );
-    await writeStoreAuth(
-      {
-        origin: ORIGIN,
-        token: "token",
-        login: "dev",
-        savedAt: "2026-09-01T00:00:00.000Z",
-      },
-      env,
-    );
+    await login();
   }
 
   async function login(): Promise<void> {
@@ -182,6 +176,215 @@ describe("hosted trace commands", () => {
     writeFileSync(filePath, JSON.stringify(config));
   }
 
+  it.each([false, true])(
+    "requires saved login for allow before bucket refusal (injected client: %s)",
+    async (injected) => {
+      writeConfig({ version: 2, "current-store": "s3" });
+      const out = collect();
+      const err = collect();
+
+      const code = await runReviewTraceAllow({
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        client: injected ? client(() => Response.json(STORE)) : undefined,
+        json: true,
+        stdout: out.stream,
+        stderr: err.stream,
+      });
+
+      expect(code).toBe(1);
+      expect(JSON.parse(out.text())).toEqual({
+        event: "error",
+        stage: "allow",
+        message: "Run `review login` first.",
+      });
+      expect(err.text()).toBe("Run `review login` first.\n");
+      expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
+    },
+  );
+
+  it("reports the missing remote before missing login and bucket configuration", async () => {
+    execFileSync("git", ["remote", "remove", "origin"], { cwd: repo });
+    writeConfig({ version: 2, "current-store": "s3" });
+    const out = collect();
+    const err = collect();
+    expect(
+      await runReviewTraceAllow({
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        json: true,
+        stdout: out.stream,
+        stderr: err.stream,
+      }),
+    ).toBe(1);
+    const message = "Could not infer GitHub repository from origin remote.";
+    expect(JSON.parse(out.text())).toEqual({
+      event: "error",
+      stage: "allow",
+      message,
+    });
+    expect(err.text()).toBe(`${message}\n`);
+  });
+
+  // SAFETY: The tuple fixes the two commands that accept an injected login.
+  it.each(["onboard", "sessions"] as const)(
+    "accepts an injected client without saved login for %s",
+    async (stage) => {
+      writeConfig({
+        version: 2,
+        "current-store": "hosted",
+        stores: { hosted: { origin: ORIGIN } },
+      });
+      const out = collect();
+      const err = collect();
+
+      const input = {
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        client: client((url) =>
+          url.includes("/sessions")
+            ? Response.json({ sessions: [] })
+            : Response.json(STORE),
+        ),
+        json: true,
+        stdout: out.stream,
+        stderr: err.stream,
+      };
+
+      expect(
+        await (stage === "onboard"
+          ? runReviewTraceOnboard(input)
+          : runReviewTraceSessions(input)),
+      ).toBe(0);
+      expect(JSON.parse(out.text())).toEqual(
+        stage === "onboard"
+          ? {
+              event: "trace.onboard",
+              repositoryId: 7,
+              displayName: "acme/app",
+              created: false,
+            }
+          : {
+              event: "trace.sessions",
+              repository: "acme/app",
+              repositoryId: 7,
+              store: ORIGIN,
+              sessions: [],
+              nextCursor: null,
+            },
+      );
+    },
+  );
+
+  // SAFETY: The tuple fixes the three command stages used below.
+  it.each(["onboard", "allow", "sessions"] as const)(
+    "preserves the unauthorized store message for %s",
+    async (stage) => {
+      await login();
+      writeConfig({
+        version: 2,
+        "current-store": "hosted",
+        stores: { hosted: { origin: ORIGIN } },
+      });
+      const out = collect();
+      const err = collect();
+
+      const input = {
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        client: client(() =>
+          Response.json(
+            { error: { code: "unauthorized", message: "expired token" } },
+            { status: 401 },
+          ),
+        ),
+        json: true,
+        stdout: out.stream,
+        stderr: err.stream,
+      };
+
+      const run =
+        stage === "onboard"
+          ? runReviewTraceOnboard
+          : stage === "allow"
+            ? runReviewTraceAllow
+            : runReviewTraceSessions;
+
+      expect(await run(input)).toBe(1);
+
+      const message =
+        stage === "sessions"
+          ? `The trace store at ${ORIGIN} rejected the login. Run \`review login --origin ${ORIGIN}\`.`
+          : "expired token";
+
+      expect(JSON.parse(out.text())).toEqual({
+        event: "error",
+        stage,
+        message,
+      });
+      expect(err.text()).toBe(`${message}\n`);
+    },
+  );
+
+  it("names the resolved store on session-list refusal after a repository rename", async () => {
+    await selectHosted();
+    const out = collect();
+    const err = collect();
+    expect(
+      await runReviewTraceSessions({
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        client: client((url) =>
+          url.includes("/stores?")
+            ? Response.json({ ...STORE, displayName: "acme/renamed" })
+            : Response.json(
+                { error: { code: "forbidden", message: "access revoked" } },
+                { status: 403 },
+              ),
+        ),
+        json: true,
+        stdout: out.stream,
+        stderr: err.stream,
+      }),
+    ).toBe(1);
+
+    const message =
+      "You cannot read the traces of acme/renamed: access revoked";
+
+    expect(JSON.parse(out.text())).toEqual({
+      event: "error",
+      stage: "sessions",
+      message,
+    });
+    expect(err.text()).toBe(`${message}\n`);
+  });
+
+  it("withdraws consent offline without a saved login", async () => {
+    await allowTraceRepository(
+      { repositoryId: 7, name: "acme/app", origin: ORIGIN },
+      devHome,
+    );
+    const out = collect();
+    const err = collect();
+    expect(
+      await runReviewTraceDeny({
+        cwd: repo,
+        scope: traceScope({ homeDir: home, env }),
+        json: true,
+        stdout: out.stream,
+        stderr: err.stream,
+      }),
+    ).toBe(0);
+    expect(JSON.parse(out.text())).toEqual({
+      event: "trace.deny",
+      name: "acme/app",
+      removed: true,
+      storeDeleted: false,
+    });
+    expect(err.text()).toBe("acme/app will no longer publish traces.\n");
+    expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
+  });
+
   it("lists every published session with bytes and no signed URL", async () => {
     await selectHosted();
     const requests: string[] = [];
@@ -190,8 +393,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       stdout: out.stream,
       stderr: err.stream,
       client: client((url) => {
@@ -229,8 +431,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       json: true,
       limit: 2,
       cursor: "session-0002",
@@ -278,8 +479,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       stdout: out.stream,
       stderr: collect().stream,
       client: client((url) =>
@@ -298,8 +498,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
         stderr: err.stream,
       }),
@@ -311,8 +510,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         storage: "s3",
         stdout: collect().stream,
         stderr: s3.stream,
@@ -333,8 +531,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
         stderr: err.stream,
       }),
@@ -366,8 +563,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       storage: "hosted",
       stdout: out.stream,
       stderr: err.stream,
@@ -401,8 +597,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         stdout: collect().stream,
         stderr: err.stream,
       }),
@@ -421,8 +616,7 @@ describe("hosted trace commands", () => {
 
       const code = await runReviewTraceSessions({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         json: true,
         stdout: collect().stream,
         stderr: err.stream,
@@ -477,8 +671,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       limit: 0,
       stdout: collect().stream,
       stderr: err.stream,
@@ -503,8 +696,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       cursor: "bad cursor!",
       stdout: collect().stream,
       stderr: err.stream,
@@ -528,8 +720,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceSessions({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       limit: 10,
       stdout: out.stream,
       stderr: collect().stream,
@@ -570,8 +761,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceDeny({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       deleteStore: true,
       client: client((url, init) => {
         calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
@@ -601,8 +791,7 @@ describe("hosted trace commands", () => {
     const out = collect();
     await writeHostedTraceStatus({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       origin: ORIGIN,
       stdout: out.stream,
       client: client(() =>
@@ -636,8 +825,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceAllow({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,
       traceCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
       client: client(() => Response.json(STORE)),
@@ -684,8 +872,7 @@ describe("hosted trace commands", () => {
     expect(
       await runReviewTraceAllow({
         cwd: repo,
-        env,
-        homeDir: home,
+        scope: traceScope({ homeDir: home, env }),
         harnessHooks: false,
         client: client(() => Response.json(STORE)),
         stdout: out.stream,
@@ -717,8 +904,7 @@ describe("hosted trace commands", () => {
 
     const code = await runReviewTraceAllow({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,
       json: true,
       stdout: out.stream,
@@ -742,15 +928,14 @@ describe("hosted trace commands", () => {
     await installClaudeTraceHook(home);
     await enableTraceRepository({
       cwd: repo,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       reviewCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
     });
     const out = collect();
 
     await writeHostedTraceStatus({
       cwd: repo,
-      env,
-      homeDir: home,
+      scope: traceScope({ homeDir: home, env }),
       origin: ORIGIN,
       stdout: out.stream,
     });

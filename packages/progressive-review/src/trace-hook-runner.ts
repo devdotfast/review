@@ -10,13 +10,16 @@ import {
 } from "@dev.fast/review-protocol";
 
 import type { CliInputStream } from "./cli-output";
-import { devReviewHome } from "./review-storage";
 import { readStoreAuth } from "./store-auth";
 import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
-import { type TraceCommand, resolveTraceCommand } from "./trace-command";
+import {
+  type TraceCommand,
+  type TraceScope,
+  resolveTraceCommand,
+} from "./trace-command";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -49,22 +52,18 @@ const SESSION_ID_REGEX = /^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$/;
 export function spawnDetachedTraceSync(input: {
   sessionId: string;
   cwd: string;
-  homeDir?: string;
-  env?: NodeJS.ProcessEnv;
+  scope: TraceScope;
   /** The binary to re-enter; the resolved default when absent. */
   command?: TraceCommand;
 }): void {
   try {
     const command = resolveTraceCommand({
       explicit: input.command,
-      env: input.env,
-      homeDir: input.homeDir,
+      env: input.scope.env,
+      homeDir: input.scope.homeDir,
     });
 
-    const expectation = traceStorageExpectation({
-      homeDir: input.homeDir,
-      env: input.env,
-    });
+    const expectation = traceStorageExpectation(input.scope);
 
     const child = spawn(
       command.file,
@@ -91,8 +90,7 @@ export interface RunReviewTraceHookInput {
   event: string;
   sessionId?: string;
   stdin?: CliInputStream;
-  homeDir?: string;
-  env?: NodeJS.ProcessEnv;
+  scope: TraceScope;
   /** The command installed in repository hooks and used for detached sync. */
   traceCommand?: TraceCommand;
 }
@@ -100,26 +98,18 @@ export interface RunReviewTraceHookInput {
 export async function runReviewTraceHook(
   input: RunReviewTraceHookInput,
 ): Promise<number> {
-  if (process.env.TRACE_DISABLE === "1") {
+  if (input.scope.env.TRACE_DISABLE === "1") {
     return 0;
   }
 
   // The machine switch comes first and has one owner. Hosted capture is
   // gated again per repository below, after the session is known, because
   // provenance must be recorded either way.
-  const selection = selectTraceStorage({
-    homeDir: input.homeDir,
-    env: input.env,
-  });
+  const selection = selectTraceStorage(input.scope);
 
   if (selection.error || selection.mode === "none") return 0;
 
-  if (
-    !(await traceMachineEnabled({
-      homeDir: input.homeDir,
-      env: input.env,
-    }))
-  ) {
+  if (!(await traceMachineEnabled(input.scope))) {
     return 0;
   }
 
@@ -151,7 +141,7 @@ export async function runReviewTraceHook(
     }
   }
 
-  sessionId = (sessionId || process.env.AGENT_SESSION_ID || "").trim();
+  sessionId = (sessionId || input.scope.env.AGENT_SESSION_ID || "").trim();
 
   if (!sessionId || !SESSION_ID_REGEX.test(sessionId)) {
     return 0;
@@ -174,19 +164,14 @@ export async function runReviewTraceHook(
     // repository from one that also ran somewhere the user did not allow.
     const origin = selection.hosted?.origin ?? "";
 
-    const entry = await resolveAllowedTraceRepository(
-      input.cwd,
-      input.env,
-      input.homeDir,
-    );
+    const entry = await resolveAllowedTraceRepository(input.cwd, input.scope);
 
     await recordCaptureProvenance({
       cwd: input.cwd,
       sessionId,
       entry,
       origin,
-      env: input.env,
-      homeDir: input.homeDir,
+      scope: input.scope,
     }).catch(() => undefined);
 
     if (!entry || !entry.enabledOrigins.includes(origin)) return 0;
@@ -195,7 +180,7 @@ export async function runReviewTraceHook(
   if (isStart) {
     await enableTraceRepository({
       cwd: input.cwd,
-      homeDir: input.homeDir,
+      scope: input.scope,
       reviewCommand: input.traceCommand,
     }).catch(() => undefined);
   }
@@ -278,8 +263,7 @@ export async function runReviewTraceHook(
     spawnDetachedTraceSync({
       sessionId,
       cwd: input.cwd,
-      homeDir: input.homeDir,
-      env: input.env,
+      scope: input.scope,
       command: input.traceCommand,
     });
   }
@@ -293,8 +277,7 @@ export async function runReviewTraceHook(
  */
 export async function resolveAllowedTraceRepository(
   cwd: string,
-  env: NodeJS.ProcessEnv = process.env,
-  homeDir?: string,
+  scope: TraceScope,
 ): Promise<TraceRepositoryConsent | null> {
   let name: string;
 
@@ -304,7 +287,7 @@ export async function resolveAllowedTraceRepository(
     return null;
   }
 
-  const config = await readTraceUserConfig(devReviewHome(env, homeDir));
+  const config = await readTraceUserConfig(scope.devHome);
 
   return findTraceRepository(config, name);
 }
@@ -319,10 +302,9 @@ async function recordCaptureProvenance(input: {
   sessionId: string;
   entry: TraceRepositoryConsent | null;
   origin: string;
-  env?: NodeJS.ProcessEnv;
-  homeDir?: string;
+  scope: TraceScope;
 }): Promise<void> {
-  const auth = await readStoreAuth(input.env);
+  const auth = await readStoreAuth(input.scope.env);
   let identity: TraceCaptureIdentity;
 
   if (
@@ -353,7 +335,7 @@ async function recordCaptureProvenance(input: {
   await recordTraceSessionProvenance({
     sessionId: input.sessionId,
     ...identity,
-    devHome: devReviewHome(input.env, input.homeDir),
+    devHome: input.scope.devHome,
   });
 }
 

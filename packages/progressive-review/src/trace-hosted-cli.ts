@@ -1,4 +1,3 @@
-import os from "node:os";
 import type { Writable } from "node:stream";
 
 import { git } from "@dev.fast/local-vcs";
@@ -22,12 +21,15 @@ import {
   failWithJsonError,
   humanStream,
 } from "./cli-output";
-import { devReviewHome } from "./review-storage";
 import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
 import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
-import { type TraceCommand, traceCliName } from "./trace-command";
+import {
+  type TraceCommand,
+  type TraceScope,
+  traceCliName,
+} from "./trace-command";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import {
   enableTraceRepository,
@@ -35,6 +37,7 @@ import {
 } from "./trace-repository-hooks";
 import { readCachedTraceRepositoryTarget } from "./trace-repository-target";
 import {
+  DEFAULT_HOSTED_ORIGIN,
   emptyTraceConfig,
   hostedCaptureEnabled,
   hostedOrigin,
@@ -56,6 +59,144 @@ import {
   readTraceUserConfig,
 } from "./trace-user-config";
 
+/** A store failure as one sentence the user can act on. */
+function describeStoreFailure(
+  error: Error,
+  origin: string,
+  repository: string,
+): string {
+  if (!(error instanceof StoreApiError)) {
+    return `Could not reach the trace store at ${origin}: ${error.message}`;
+  }
+
+  switch (error.code) {
+    case "unauthorized":
+      return `The trace store at ${origin} rejected the login. Run \`${traceCliName()} login --origin ${origin}\`.`;
+    case "forbidden":
+      return `You cannot read the traces of ${repository}: ${error.message}`;
+    case "store_deleted":
+      return `The trace store of ${repository} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`;
+    case "not_found":
+      return `${repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`;
+    default:
+      return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
+  }
+}
+
+/** A failure a hosted command reports on both channels, then exits 1. */
+class HostedCommandFailure extends Error {}
+
+interface HostedRepositoryContext {
+  name: TraceRepo;
+  repository: string;
+  origin: string;
+  client: StoreClient;
+  stage: "onboard" | "allow" | "sessions";
+}
+
+/** Shares repository inference without changing each command's login policy. */
+async function withHostedRepository(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    cwd: string;
+    client?: StoreClient;
+    origin?: string;
+  },
+  stage: HostedRepositoryContext["stage"],
+  fn: (ctx: HostedRepositoryContext) => Promise<number>,
+): Promise<number> {
+  const fail = (message: string): number =>
+    failWithJsonError(input, stage, message);
+
+  let name: TraceRepo;
+
+  try {
+    name = await inferRepoFromGit(input.cwd);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : String(error));
+  }
+
+  let origin = input.origin ?? DEFAULT_HOSTED_ORIGIN;
+  let client = input.client;
+
+  if (stage === "onboard") {
+    try {
+      client ??= await requireStoreClient(input.scope.env);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+  } else if (stage === "allow" || !client) {
+    // Consent always needs the saved destination, even with an injected client.
+    const auth = await readStoreAuth(input.scope.env);
+
+    if (!auth) {
+      return fail(
+        stage === "allow"
+          ? `Run \`${traceCliName()} login\` first.`
+          : `The trace store login is missing. Run \`${traceCliName()} login --origin ${origin}\`.`,
+      );
+    }
+
+    origin = input.origin ?? auth.origin;
+
+    if (auth.origin !== origin) {
+      return fail(
+        `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`${traceCliName()} login --origin ${origin}\`.`,
+      );
+    }
+
+    client ??= new StoreClient({ origin, token: auth.token });
+  }
+
+  try {
+    return await fn({
+      name,
+      repository: traceRepoName(name),
+      origin,
+      client,
+      stage,
+    });
+  } catch (error) {
+    if (error instanceof HostedCommandFailure) return fail(error.message);
+    throw error;
+  }
+}
+
+/** Requires an active store, preserving the command's store-error wording. */
+async function requireActiveStore(
+  ctx: HostedRepositoryContext,
+): Promise<StoreResponse> {
+  let store: StoreResponse | null;
+
+  try {
+    store = await ctx.client.findStore({
+      owner: ctx.name.owner,
+      name: ctx.name.repo,
+    });
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    throw new HostedCommandFailure(
+      ctx.stage === "sessions"
+        ? describeStoreFailure(failure, ctx.origin, ctx.repository)
+        : failure.message,
+    );
+  }
+
+  if (!store) {
+    throw new HostedCommandFailure(
+      `${ctx.repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`,
+    );
+  }
+
+  if (store.status !== "active") {
+    throw new HostedCommandFailure(
+      `The trace store of ${store.displayName} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`,
+    );
+  }
+
+  return store;
+}
+
 /**
  * Hosted consent commands: onboarding creates a repository store, allow
  * records publication consent bound to the login's origin, deny withdraws
@@ -63,197 +204,115 @@ import {
  * hosted` does that explicitly.
  */
 
-interface HostedCommandScope {
-  homeDir?: string;
-  env?: NodeJS.ProcessEnv;
-}
-
 export async function runReviewTraceOnboard(
-  input: CliJsonOutput &
-    HostedCommandScope & { cwd: string; client?: StoreClient },
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    cwd: string;
+    client?: StoreClient;
+  },
 ): Promise<number> {
-  let name: { owner: string; repo: string };
+  return withHostedRepository(input, "onboard", async (ctx) => {
+    let store: Awaited<ReturnType<StoreClient["createStore"]>>;
 
-  try {
-    name = await inferRepoFromGit(input.cwd);
-  } catch (error) {
-    return failWithJsonError(
-      input,
-      "onboard",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+    try {
+      store = await ctx.client.createStore({
+        owner: ctx.name.owner,
+        name: ctx.name.repo,
+      });
+    } catch (error) {
+      if (error instanceof StoreApiError && error.code === "forbidden") {
+        throw new HostedCommandFailure(
+          `You need write access to ${ctx.repository} to onboard it.`,
+        );
+      }
 
-  let client: StoreClient;
-
-  try {
-    client = input.client ?? (await requireStoreClient(input.env));
-  } catch (error) {
-    return failWithJsonError(
-      input,
-      "onboard",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  let store: Awaited<ReturnType<StoreClient["createStore"]>>;
-
-  try {
-    store = await client.createStore({ owner: name.owner, name: name.repo });
-  } catch (error) {
-    if (error instanceof StoreApiError && error.code === "forbidden") {
-      return failWithJsonError(
-        input,
-        "onboard",
-        `You need write access to ${traceRepoName(name)} to onboard it.`,
+      throw new HostedCommandFailure(
+        error instanceof Error ? error.message : String(error),
       );
     }
 
-    return failWithJsonError(
-      input,
-      "onboard",
-      error instanceof Error ? error.message : String(error),
+    emitJsonEvent(input, {
+      event: "trace.onboard",
+      repositoryId: store.repositoryId,
+      displayName: store.displayName,
+      created: store.created === true,
+    });
+    const stream = humanStream(input);
+    stream.write(
+      `Onboarded ${store.displayName} (id ${store.repositoryId}).\n`,
     );
-  }
+    stream.write(
+      `Run \`${traceCliName()} trace allow .\` to send traces from this repository.\n`,
+    );
 
-  emitJsonEvent(input, {
-    event: "trace.onboard",
-    repositoryId: store.repositoryId,
-    displayName: store.displayName,
-    created: store.created === true,
+    return 0;
   });
-  const stream = humanStream(input);
-  stream.write(`Onboarded ${store.displayName} (id ${store.repositoryId}).\n`);
-  stream.write(
-    `Run \`${traceCliName()} trace allow .\` to send traces from this repository.\n`,
-  );
-
-  return 0;
 }
 
 export async function runReviewTraceAllow(
-  input: CliJsonOutput &
-    HostedCommandScope & {
-      cwd: string;
-      client?: StoreClient;
-      harnessHooks?: boolean;
-      /** The executable the installed hooks run; the CLI name when absent. */
-      traceCommand?: TraceCommand;
-    },
+  input: CliJsonOutput & { scope: TraceScope } & {
+    cwd: string;
+    client?: StoreClient;
+    harnessHooks?: boolean;
+    /** The executable the installed hooks run; the CLI name when absent. */
+    traceCommand?: TraceCommand;
+  },
 ): Promise<number> {
-  let name: { owner: string; repo: string };
+  return withHostedRepository(input, "allow", async (ctx) => {
+    // Consent is hosted-only. A machine that sends traces to a bucket keeps
+    // doing so until the user selects the hosted store explicitly.
+    const selection = selectTraceStorage(input.scope);
 
-  try {
-    name = await inferRepoFromGit(input.cwd);
-  } catch (error) {
-    return failWithJsonError(
-      input,
-      "allow",
-      error instanceof Error ? error.message : String(error),
+    if (selection.error)
+      return failWithJsonError(input, "allow", selection.error);
+
+    if (selection.mode === "s3") {
+      return failWithJsonError(
+        input,
+        "allow",
+        `This machine sends traces to a bucket. Run \`${traceCliName()} trace storage use hosted\` first.`,
+      );
+    }
+
+    const storeOrigin = ctx.origin;
+    const store = await requireActiveStore(ctx);
+
+    const hookExecutable = input.traceCommand?.file;
+
+    if (input.harnessHooks !== false) {
+      await installClaudeTraceHook(input.scope.homeDir, hookExecutable);
+      await installCodexTraceHook(input.scope.homeDir, hookExecutable);
+      await installOpenCodeTraceExtension(input.scope.homeDir, hookExecutable);
+      await installPiTraceExtension(input.scope.homeDir, hookExecutable);
+    }
+
+    await enableTraceRepository({
+      cwd: input.cwd,
+      scope: input.scope,
+      reviewCommand: input.traceCommand,
+    });
+    await enableHostedCapture(input.scope.devHome, storeOrigin);
+    await allowTraceRepository(
+      {
+        repositoryId: store.repositoryId,
+        name: store.displayName,
+        origin: storeOrigin,
+      },
+      input.scope.devHome,
     );
-  }
 
-  // The allow entry records the exact destination, so a login is required
-  // before the user can allow anything.
-  const auth = await readStoreAuth(input.env);
-
-  if (!auth) {
-    return failWithJsonError(
-      input,
-      "allow",
-      `Run \`${traceCliName()} login\` first.`,
-    );
-  }
-
-  // Consent is hosted-only. A machine that sends traces to a bucket keeps
-  // doing so until the user selects the hosted store explicitly.
-  const selection = selectTraceStorage({
-    env: input.env,
-    homeDir: input.homeDir,
-  });
-
-  if (selection.error)
-    return failWithJsonError(input, "allow", selection.error);
-
-  if (selection.mode === "s3") {
-    return failWithJsonError(
-      input,
-      "allow",
-      `This machine sends traces to a bucket. Run \`${traceCliName()} trace storage use hosted\` first.`,
-    );
-  }
-
-  const storeOrigin = auth.origin;
-
-  const client =
-    input.client ?? new StoreClient({ origin: storeOrigin, token: auth.token });
-
-  let store: Awaited<ReturnType<StoreClient["findStore"]>>;
-
-  try {
-    store = await client.findStore({ owner: name.owner, name: name.repo });
-  } catch (error) {
-    return failWithJsonError(
-      input,
-      "allow",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  if (!store) {
-    return failWithJsonError(
-      input,
-      "allow",
-      `${traceRepoName(name)} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`,
-    );
-  }
-
-  if (store.status !== "active") {
-    return failWithJsonError(
-      input,
-      "allow",
-      `The trace store of ${store.displayName} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`,
-    );
-  }
-
-  const hookExecutable = input.traceCommand?.file;
-
-  if (input.harnessHooks !== false) {
-    await installClaudeTraceHook(input.homeDir, hookExecutable);
-    await installCodexTraceHook(input.homeDir, hookExecutable);
-    await installOpenCodeTraceExtension(input.homeDir, hookExecutable);
-    await installPiTraceExtension(input.homeDir, hookExecutable);
-  }
-
-  await enableTraceRepository({
-    cwd: input.cwd,
-    homeDir: input.homeDir,
-    reviewCommand: input.traceCommand,
-  });
-  await enableHostedCapture(
-    devReviewHome(input.env, input.homeDir),
-    storeOrigin,
-  );
-  await allowTraceRepository(
-    {
+    emitJsonEvent(input, {
+      event: "trace.allow",
       repositoryId: store.repositoryId,
       name: store.displayName,
-      origin: storeOrigin,
-    },
-    devReviewHome(input.env, input.homeDir),
-  );
+      store: storeOrigin,
+    });
+    humanStream(input).write(
+      `Traces from ${store.displayName} may be published to ${storeOrigin}.\n`,
+    );
 
-  emitJsonEvent(input, {
-    event: "trace.allow",
-    repositoryId: store.repositoryId,
-    name: store.displayName,
-    store: storeOrigin,
+    return 0;
   });
-  humanStream(input).write(
-    `Traces from ${store.displayName} may be published to ${storeOrigin}.\n`,
-  );
-
-  return 0;
 }
 
 /**
@@ -283,13 +342,12 @@ async function enableHostedCapture(
 }
 
 export async function runReviewTraceDeny(
-  input: CliJsonOutput &
-    HostedCommandScope & {
-      cwd: string;
-      /** Also delete the hosted store (repository admins only). */
-      deleteStore?: boolean;
-      client?: StoreClient;
-    },
+  input: CliJsonOutput & { scope: TraceScope } & {
+    cwd: string;
+    /** Also delete the hosted store (repository admins only). */
+    deleteStore?: boolean;
+    client?: StoreClient;
+  },
 ): Promise<number> {
   let name: string;
 
@@ -303,7 +361,7 @@ export async function runReviewTraceDeny(
     );
   }
 
-  const devHome = devReviewHome(input.env, input.homeDir);
+  const devHome = input.scope.devHome;
 
   // The id this checkout resolved to earlier, if any, so a renamed
   // repository is still found. No network is needed to deny.
@@ -321,39 +379,30 @@ export async function runReviewTraceDeny(
   let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>> | null = null;
 
   if (input.deleteStore) {
-    let client: StoreClient;
-
     try {
-      client = input.client ?? (await requireStoreClient(input.env));
-    } catch (error) {
-      return failWithJsonError(
-        input,
-        "deny",
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+      const client =
+        input.client ?? (await requireStoreClient(input.scope.env));
 
-    const repositoryId = cached?.repositoryId ?? null;
+      const repositoryId = cached?.repositoryId ?? null;
 
-    if (repositoryId === null) {
-      return failWithJsonError(
-        input,
-        "deny",
-        `${name} has no resolved hosted store on this machine. Run \`${traceCliName()} trace allow .\` once, then deny with --delete-store.`,
-      );
-    }
-
-    try {
-      deletion = await client.deleteStore(repositoryId);
-    } catch (error) {
-      if (error instanceof StoreApiError && error.code === "forbidden") {
-        return failWithJsonError(
-          input,
-          "deny",
-          `Deleting the store of ${name} needs admin access to the repository.`,
+      if (repositoryId === null) {
+        throw new HostedCommandFailure(
+          `${name} has no resolved hosted store on this machine. Run \`${traceCliName()} trace allow .\` once, then deny with --delete-store.`,
         );
       }
 
+      try {
+        deletion = await client.deleteStore(repositoryId);
+      } catch (error) {
+        if (error instanceof StoreApiError && error.code === "forbidden") {
+          throw new HostedCommandFailure(
+            `Deleting the store of ${name} needs admin access to the repository.`,
+          );
+        }
+
+        throw error;
+      }
+    } catch (error) {
       return failWithJsonError(
         input,
         "deny",
@@ -420,30 +469,6 @@ function listedSession(
   };
 }
 
-/** A store failure as one sentence the user can act on. */
-function describeStoreFailure(
-  error: Error,
-  origin: string,
-  repository: string,
-): string {
-  if (!(error instanceof StoreApiError)) {
-    return `Could not reach the trace store at ${origin}: ${error.message}`;
-  }
-
-  switch (error.code) {
-    case "unauthorized":
-      return `The trace store at ${origin} rejected the login. Run \`${traceCliName()} login --origin ${origin}\`.`;
-    case "forbidden":
-      return `You cannot read the traces of ${repository}: ${error.message}`;
-    case "store_deleted":
-      return `The trace store of ${repository} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`;
-    case "not_found":
-      return `${repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`;
-    default:
-      return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
-  }
-}
-
 /**
  * Lists every published session of this checkout's hosted store, one page
  * at a time. The command reads the store live: a missing login, a store
@@ -452,14 +477,13 @@ function describeStoreFailure(
  * access itself.
  */
 export async function runReviewTraceSessions(
-  input: CliJsonOutput &
-    HostedCommandScope & {
-      cwd: string;
-      limit?: number;
-      cursor?: string;
-      storage?: TraceStorageKind;
-      client?: StoreClient;
-    },
+  input: CliJsonOutput & { scope: TraceScope } & {
+    cwd: string;
+    limit?: number;
+    cursor?: string;
+    storage?: TraceStorageKind;
+    client?: StoreClient;
+  },
 ): Promise<number> {
   const fail = (message: string): number =>
     failWithJsonError(input, "sessions", message);
@@ -485,10 +509,7 @@ export async function runReviewTraceSessions(
     return fail("--cursor must be a session id from a previous page.");
   }
 
-  const selection = selectTraceStorage({
-    env: input.env,
-    homeDir: input.homeDir,
-  });
+  const selection = selectTraceStorage(input.scope);
 
   const mode = input.storage ?? selection.mode;
 
@@ -514,130 +535,90 @@ export async function runReviewTraceSessions(
     );
   }
 
-  const origin = selection.hosted.origin;
-  let name: { owner: string; repo: string };
+  return withHostedRepository(
+    { ...input, origin: selection.hosted.origin },
+    "sessions",
+    async (ctx) => {
+      const store = await requireActiveStore(ctx);
+      const origin = ctx.origin;
 
-  try {
-    name = await inferRepoFromGit(input.cwd);
-  } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error));
-  }
+      const query =
+        input.cursor === undefined
+          ? { limit: input.limit ?? DEFAULT_TRACE_SESSIONS_LIMIT }
+          : {
+              limit: input.limit ?? DEFAULT_TRACE_SESSIONS_LIMIT,
+              cursor: input.cursor,
+            };
 
-  const repository = traceRepoName(name);
-  let client = input.client;
+      let page: ListSessionsResponse;
 
-  if (!client) {
-    const auth = await readStoreAuth(input.env);
+      try {
+        page = await ctx.client.listSessions(store.repositoryId, query);
+      } catch (error) {
+        if (
+          error instanceof StoreApiError &&
+          error.code === "invalid_request"
+        ) {
+          throw new HostedCommandFailure(
+            `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`${traceCliName()} trace list --commit <sha>\`.`,
+          );
+        }
 
-    if (!auth || auth.origin !== origin) {
-      return fail(
-        auth
-          ? `You are logged in to ${auth.origin}, not the selected store ${origin}. Run \`${traceCliName()} login --origin ${origin}\`.`
-          : `The trace store login is missing. Run \`${traceCliName()} login --origin ${origin}\`.`,
+        throw new HostedCommandFailure(
+          describeStoreFailure(
+            error instanceof Error ? error : new Error(String(error)),
+            origin,
+            store.displayName,
+          ),
+        );
+      }
+
+      const sessions = page.sessions.map(listedSession);
+
+      emitJsonEvent(input, {
+        event: "trace.sessions",
+        repository: store.displayName,
+        repositoryId: store.repositoryId,
+        store: origin,
+        sessions,
+        nextCursor: page.nextCursor ?? null,
+      });
+
+      const stream = humanStream(input);
+
+      if (sessions.length === 0) {
+        stream.write(
+          `No published sessions in the trace store of ${store.displayName} at ${origin}.\n`,
+        );
+
+        return 0;
+      }
+
+      for (const session of sessions) {
+        stream.write(
+          `${session.id}  ${session.harness}  ${session.updatedAt}  ${session.branch ?? "-"}  ${session.bytes} bytes\n`,
+        );
+      }
+
+      // The next-page command repeats every flag this page was read with.
+      const nextPageFlags =
+        (input.limit === undefined ? "" : ` --limit ${input.limit}`) +
+        (input.storage === undefined ? "" : ` --storage ${input.storage}`);
+
+      stream.write(
+        page.nextCursor
+          ? `Sessions are ordered by id. More follow: run \`${traceCliName()} trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
+          : "Sessions are ordered by id. This is the last page.\n",
       );
-    }
 
-    client = new StoreClient({ origin, token: auth.token });
-  }
-
-  let store: StoreResponse | null;
-
-  try {
-    store = await client.findStore({ owner: name.owner, name: name.repo });
-  } catch (error) {
-    return fail(
-      describeStoreFailure(
-        error instanceof Error ? error : new Error(String(error)),
-        origin,
-        repository,
-      ),
-    );
-  }
-
-  if (!store) {
-    return fail(
-      `${repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`,
-    );
-  }
-
-  if (store.status !== "active") {
-    return fail(
-      `The trace store of ${store.displayName} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`,
-    );
-  }
-
-  const query =
-    input.cursor === undefined
-      ? { limit: input.limit ?? DEFAULT_TRACE_SESSIONS_LIMIT }
-      : {
-          limit: input.limit ?? DEFAULT_TRACE_SESSIONS_LIMIT,
-          cursor: input.cursor,
-        };
-
-  let page: ListSessionsResponse;
-
-  try {
-    page = await client.listSessions(store.repositoryId, query);
-  } catch (error) {
-    if (error instanceof StoreApiError && error.code === "invalid_request") {
-      return fail(
-        `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`${traceCliName()} trace list --commit <sha>\`.`,
-      );
-    }
-
-    return fail(
-      describeStoreFailure(
-        error instanceof Error ? error : new Error(String(error)),
-        origin,
-        store.displayName,
-      ),
-    );
-  }
-
-  const sessions = page.sessions.map(listedSession);
-
-  emitJsonEvent(input, {
-    event: "trace.sessions",
-    repository: store.displayName,
-    repositoryId: store.repositoryId,
-    store: origin,
-    sessions,
-    nextCursor: page.nextCursor ?? null,
-  });
-
-  const stream = humanStream(input);
-
-  if (sessions.length === 0) {
-    stream.write(
-      `No published sessions in the trace store of ${store.displayName} at ${origin}.\n`,
-    );
-
-    return 0;
-  }
-
-  for (const session of sessions) {
-    stream.write(
-      `${session.id}  ${session.harness}  ${session.updatedAt}  ${session.branch ?? "-"}  ${session.bytes} bytes\n`,
-    );
-  }
-
-  // The next-page command repeats every flag this page was read with.
-  const nextPageFlags =
-    (input.limit === undefined ? "" : ` --limit ${input.limit}`) +
-    (input.storage === undefined ? "" : ` --storage ${input.storage}`);
-
-  stream.write(
-    page.nextCursor
-      ? `Sessions are ordered by id. More follow: run \`${traceCliName()} trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
-      : "Sessions are ordered by id. This is the last page.\n",
+      return 0;
+    },
   );
-
-  return 0;
 }
 
 /** The hosted trace status lines: login, consent, and pending work. */
 export async function writeHostedTraceStatus(
-  input: HostedCommandScope & {
+  input: { scope: TraceScope } & {
     cwd: string;
     origin: string;
     stdout: Writable;
@@ -649,8 +630,8 @@ export async function writeHostedTraceStatus(
 ): Promise<number> {
   const stream = input.stdout;
   stream.write(HOSTED_CAPTURE_SCOPE_DESCRIPTION);
-  const devHome = devReviewHome(input.env, input.homeDir);
-  const auth = await readStoreAuth(input.env);
+  const devHome = input.scope.devHome;
+  const auth = await readStoreAuth(input.scope.env);
   const config = await readTraceUserConfig(devHome);
   stream.write(
     auth
@@ -665,7 +646,7 @@ export async function writeHostedTraceStatus(
     `Capture switch: ${hostedCaptureEnabled(readTraceConfigFile({ devHome }).config) ? "on" : "off"}\n`,
   );
 
-  const owners = await describeTraceHookOwners(input.homeDir ?? os.homedir());
+  const owners = await describeTraceHookOwners(input.scope.homeDir);
   stream.write(
     `Harness hooks: claude -> ${owners.claude ?? "none"}, codex -> ${owners.codex ?? "none"}, opencode -> ${owners.opencode ?? "none"}, pi -> ${owners.pi ?? "none"}\n`,
   );

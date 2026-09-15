@@ -25,6 +25,7 @@ import {
   runReviewTraceShow,
   runReviewTraceSync,
 } from "./trace-cli";
+import { traceScope } from "./trace-command";
 import { configureTraceMachine } from "./trace-machine-setup";
 import {
   listTraceSyncFailures,
@@ -144,6 +145,7 @@ describe("trace-cli", () => {
     });
 
     const exitCode = await runReviewTraceEnable({
+      scope: traceScope(),
       cwd: tempDir,
       stdout: stdout as any,
       stderr: stderr as any,
@@ -182,6 +184,7 @@ describe("trace-cli", () => {
     const stderr = new PassThrough();
 
     const exitCode = await runReviewTraceDoctor({
+      scope: traceScope(),
       cwd: tempDir,
       stdout: stdout as any,
       stderr: stderr as any,
@@ -322,6 +325,7 @@ describe("trace-cli", () => {
     });
 
     const exitCode = await runReviewTraceSync({
+      scope: traceScope(),
       cwd: tempDir,
       sessionId,
       repo: "acme/widgets",
@@ -348,6 +352,7 @@ describe("trace-cli", () => {
       textOut += d.toString();
     });
     await runReviewTraceSync({
+      scope: traceScope(),
       cwd: tempDir,
       sessionId,
       repo: "acme/widgets",
@@ -455,6 +460,7 @@ describe("trace-cli", () => {
       });
       const status: string[] = [];
       await runReviewTraceDoctor({
+        scope: traceScope(),
         cwd: tempDir,
         stdout: collectingWritable(status),
         stderr: collectingWritable([]),
@@ -469,6 +475,7 @@ describe("trace-cli", () => {
       );
 
       const code = await runReviewTraceSync({
+        scope: traceScope(),
         cwd: tempDir,
         sessionId,
         repo: "acme/widgets",
@@ -495,6 +502,7 @@ describe("trace-cli", () => {
     try {
       await expect(
         runReviewTraceSync({
+          scope: traceScope(),
           cwd: tempDir,
           sessionId,
           repo: "acme/widgets",

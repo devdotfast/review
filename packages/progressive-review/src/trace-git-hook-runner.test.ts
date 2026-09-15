@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearTraceEnvCache } from "./review-agent-traces";
+import { traceScope } from "./trace-command";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import * as hookRunner from "./trace-hook-runner";
 import { traceConfigPath } from "./trace-storage/config";
@@ -86,6 +87,7 @@ describe("runReviewTraceGitHook", () => {
           `refs/heads/main ${sha} refs/heads/main ${"0".repeat(40)}\n`,
         ]),
         stderr,
+        scope: traceScope({ homeDir: repo, env: process.env }),
         traceCommand,
       }),
     );

@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { writeStoreAuth } from "./store-auth";
 import { TRACE_SESSION_TTL_MS } from "./trace-agent-sessions";
+import { traceScope } from "./trace-command";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { configureTraceMachine } from "./trace-machine-setup";
@@ -87,8 +88,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
       traceCommand,
     });
 
@@ -103,8 +106,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionEnd",
       sessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
       traceCommand,
     });
 
@@ -124,8 +129,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
 
     expect(startCode).toBe(0);
@@ -142,8 +149,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId: secondSessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     expect(await readFile(agentSessionFile, "utf8")).toBe(
       `${sessionId}\t${now}\n${secondSessionId}\t${now}\n`,
@@ -154,8 +163,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionEnd",
       sessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
 
     expect(endCode).toBe(0);
@@ -168,8 +179,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionEnd",
       sessionId: secondSessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     expect(existsSync(agentSessionFile)).toBe(false);
   });
@@ -191,8 +204,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "unknown",
       stdin: stdinStart,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
 
     const agentSessionFile = path.join(repo, ".git", "agent-session");
@@ -212,8 +227,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "unknown",
       stdin: stdinEnd,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
 
     expect(existsSync(agentSessionFile)).toBe(false);
@@ -231,16 +248,20 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId: staleSessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     now.mockReturnValue(heartbeatAt);
     await runReviewTraceHook({
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId: activeSessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
 
     const agentSessionFile = path.join(repo, ".git", "agent-session");
@@ -253,8 +274,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "turn_start",
       sessionId: activeSessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     expect(await readFile(agentSessionFile, "utf8")).toBe(
       `${activeSessionId}\t${heartbeatAt + 1_000}\n`,
@@ -271,8 +294,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     now.mockReturnValue(startedAt + TRACE_SESSION_TTL_MS + 1);
     const messagePath = path.join(repo, ".git", "COMMIT_EDITMSG");
@@ -282,8 +307,10 @@ describe("runReviewTraceHook", () => {
       hook: "prepare-commit-msg",
       args: [messagePath],
       stderr: process.stderr,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
 
     expect(await readFile(messagePath, "utf8")).toBe("Test commit\n");
@@ -293,8 +320,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     await writeFile(messagePath, "Fresh commit\n");
     await runReviewTraceGitHook({
@@ -302,8 +331,10 @@ describe("runReviewTraceHook", () => {
       hook: "prepare-commit-msg",
       args: [messagePath],
       stderr: process.stderr,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     expect(await readFile(messagePath, "utf8")).toContain(
       `Agent-Session: ${sessionId}`,
@@ -324,8 +355,10 @@ describe("runReviewTraceHook", () => {
         cwd: repo,
         event: "SessionStart",
         sessionId,
-        homeDir: repo,
-        env: { TRACE_R2_MODE: "mock" },
+        scope: traceScope({
+          homeDir: repo,
+          env: { TRACE_R2_MODE: "mock" },
+        }),
       });
     }
 
@@ -349,8 +382,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId: firstSessionId,
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
     await runJj(repo, ["describe", "-m", "Fresh trace work"]);
 
@@ -375,8 +410,10 @@ describe("runReviewTraceHook", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId: "invalid!@#$%",
-      homeDir: repo,
-      env: { TRACE_R2_MODE: "mock" },
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
     });
 
     expect(code).toBe(0);
@@ -460,8 +497,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId,
-      homeDir: repo,
-      env,
+      scope: traceScope({ homeDir: repo, env }),
     });
 
     expect(code).toBe(0);
@@ -487,8 +523,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId,
-      homeDir: repo,
-      env,
+      scope: traceScope({ homeDir: repo, env }),
     });
     expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
       expect.objectContaining({
@@ -513,8 +548,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       cwd: repo,
       event: "UserPromptSubmit",
       sessionId: other,
-      homeDir: repo,
-      env,
+      scope: traceScope({ homeDir: repo, env }),
     });
     expect(await readTraceSessionProvenance(other, devHome)).toEqual([
       expect.objectContaining({
@@ -543,8 +577,7 @@ describe("runReviewTraceHook with hosted storage", () => {
       cwd: repo,
       event: "SessionStart",
       sessionId,
-      homeDir: repo,
-      env,
+      scope: traceScope({ homeDir: repo, env }),
     });
 
     expect(code).toBe(0);

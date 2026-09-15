@@ -10,14 +10,7 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-import { MAX_TRACE_SESSIONS_PAGE } from "@dev.fast/trace-shared";
-import {
-  Argument,
-  Command,
-  CommanderError,
-  InvalidArgumentError,
-  Option,
-} from "commander";
+import { Argument, Command, CommanderError, Option } from "commander";
 
 import {
   type CliInputStream,
@@ -104,9 +97,9 @@ import {
   runReviewTraceStatus,
   runReviewTraceSync,
 } from "./trace-cli";
-import { resolveTraceCommand, traceHomeDir } from "./trace-command";
+import { resolveTraceCommand, traceHomeDir, traceScope } from "./trace-command";
+import { registerTraceCommands } from "./trace-commands";
 import {
-  DEFAULT_TRACE_SESSIONS_LIMIT,
   runReviewTraceAllow,
   runReviewTraceDeny,
   runReviewTraceOnboard,
@@ -230,6 +223,8 @@ export async function runProgressiveReviewCli(
     homeDir: traceHomeDir(env),
   });
 
+  const scope = traceScope({ env, homeDir: traceHomeDir(env) });
+
   const cliVersion =
     input.cliVersion ?? readProgressiveReviewPackageVersion(import.meta.url);
 
@@ -286,14 +281,6 @@ export async function runProgressiveReviewCli(
     configureOutput(command, surface).addOption(
       new Option("--json", "print machine-readable JSON events on stdout"),
     );
-
-  // A read-only source override for trace reads. It never changes the
-  // persisted selection, capture settings, or consent.
-  const storageOption = () =>
-    new Option(
-      "--storage <mode>",
-      "read from the s3 or hosted store instead of the selected one",
-    ).choices(["s3", "hosted"]);
 
   const viewOption = () =>
     new Option("--view <view>", "view to show after opening").choices([
@@ -1000,26 +987,23 @@ export async function runProgressiveReviewCli(
     "plain",
   );
 
-  configureOutput(
-    trace
-      .command("status")
-      .description("Check trace storage and your hosted uploads")
-      .option("--session <id>", "Check uploads of one session")
-      .option("--cursor <cursor>", "Continue an upload status page")
-      .option("--limit <count>", "Uploads per page", Number),
-    "plain",
-  ).action(
-    async (options: { session?: string; cursor?: string; limit?: number }) => {
-      state.exitCode = await runtime.runReviewTraceStatus({
-        cwd,
-        session: options.session,
-        cursor: options.cursor,
-        limit: options.limit,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
+  registerTraceCommands(trace, {
+    runtime,
+    cliName: "review",
+    reads: "review",
+    storageOverride: true,
+    traceCommand,
+    scope,
+    cwd,
+    stdin: input.stdin,
+    stdout: input.stdout,
+    stderr: input.stderr,
+    configureOutput: (command) => configureOutput(command, "plain"),
+    configureJsonOutput: (command) => configureJsonOutput(command, "plain"),
+    setExitCode: (code) => {
+      state.exitCode = code;
     },
-  );
+  });
 
   // Storage selection and configuration migration write only the shared
   // trace config; legacy files and remote objects are never touched.
@@ -1068,115 +1052,6 @@ export async function runProgressiveReviewCli(
     },
   );
 
-  configureJsonOutput(
-    trace
-      .command("sessions")
-      .description(
-        "List every published session of this repository's hosted trace store",
-      )
-      .option(
-        "--limit <n>",
-        `sessions per page (1-${MAX_TRACE_SESSIONS_PAGE}, default ${DEFAULT_TRACE_SESSIONS_LIMIT})`,
-        (value: string) => {
-          // The whole argument must be digits: parseInt would accept "50junk".
-          if (!/^\d+$/.test(value)) {
-            throw new InvalidArgumentError(
-              `--limit must be a whole number from 1 to ${MAX_TRACE_SESSIONS_PAGE}.`,
-            );
-          }
-
-          return Number(value);
-        },
-      )
-      .option("--cursor <session-id>", "continue after this session id")
-      .addOption(storageOption()),
-    "plain",
-  ).action(
-    async (options: {
-      limit?: number;
-      cursor?: string;
-      storage?: "s3" | "hosted";
-      json?: boolean;
-    }) => {
-      state.exitCode = await runtime.runReviewTraceSessions({
-        cwd,
-        limit: options.limit,
-        cursor: options.cursor,
-        storage: options.storage,
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
-  configureJsonOutput(
-    trace
-      .command("onboard [path]")
-      .description("Create the hosted trace store for one repository"),
-    "plain",
-  ).action(
-    async (repoPath: string | undefined, options: { json?: boolean }) => {
-      state.exitCode = await runtime.runReviewTraceOnboard({
-        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
-  configureJsonOutput(
-    trace
-      .command("allow [path]")
-      .description("Allow one repository to publish traces to the hosted store")
-      .option(
-        "--no-harness-hooks",
-        "skip the Claude, Codex, OpenCode, and pi hook installers",
-      ),
-    "plain",
-  ).action(
-    async (
-      repoPath: string | undefined,
-      options: { json?: boolean; harnessHooks?: boolean },
-    ) => {
-      state.exitCode = await runtime.runReviewTraceAllow({
-        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-        json: options.json,
-        harnessHooks: options.harnessHooks,
-        traceCommand,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
-  configureJsonOutput(
-    trace
-      .command("deny [path]")
-      .description(
-        "Stop publishing traces from one repository to the hosted store",
-      )
-      .option(
-        "--delete-store",
-        "also delete the hosted store; needs repository admin access",
-      ),
-    "plain",
-  ).action(
-    async (
-      repoPath: string | undefined,
-      options: { json?: boolean; deleteStore?: boolean },
-    ) => {
-      state.exitCode = await runtime.runReviewTraceDeny({
-        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-        json: options.json,
-        deleteStore: options.deleteStore,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
   const traceConfig = configureOutput(
     trace.command("config").description("Manage trace storage configuration"),
     "plain",
@@ -1210,264 +1085,19 @@ export async function runProgressiveReviewCli(
     },
   );
 
-  configureOutput(
-    trace
-      .command("enable [path]")
-      .description("Enable trace hooks for one Git repository"),
-    "plain",
-  ).action(async (repoPath?: string) => {
-    state.exitCode = await runtime.runReviewTraceEnable({
-      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-      stdout: input.stdout,
-      stderr: input.stderr,
-      traceCommand,
-    });
-  });
+  // Keep the established Review help order while app-only commands stay here.
+  const traceHelp = trace.createHelp();
 
-  configureOutput(
-    trace
-      .command("disable [path]")
-      .description("Disable Review trace hooks for one Git repository"),
-    "plain",
-  ).action(async (repoPath?: string) => {
-    state.exitCode = await runtime.runReviewTraceDisable({
-      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-      stdout: input.stdout,
-    });
-  });
+  trace.configureHelp({
+    visibleCommands: (command) => {
+      const commands = traceHelp.visibleCommands(command);
+      commands.splice(commands.indexOf(traceStorage), 1);
+      commands.splice(1, 0, traceStorage);
+      commands.splice(commands.indexOf(traceConfig), 1);
+      commands.splice(6, 0, traceConfig);
 
-  configureOutput(
-    trace
-      .command("repair [path]")
-      .description("Repair Review trace hooks for one Git repository"),
-    "plain",
-  ).action(async (repoPath?: string) => {
-    state.exitCode = await runtime.runReviewTraceRepair({
-      cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
-      stdout: input.stdout,
-      stderr: input.stderr,
-      traceCommand,
-    });
-  });
-
-  configureJsonOutput(
-    trace
-      .command("list")
-      .description("List agent sessions for a Review or commit")
-      .option("--review <uuid>", "review UUID")
-      .option("--commit <sha>", "commit or revision")
-      .addOption(storageOption()),
-    "plain",
-  ).action(
-    async (options: {
-      review?: string;
-      commit?: string;
-      storage?: "s3" | "hosted";
-      json?: boolean;
-    }) => {
-      if (options.review && options.commit) {
-        throw new Error("Use either --review or --commit, not both.");
-      }
-
-      state.exitCode = await runtime.runReviewTraceList({
-        cwd,
-        reviewUuid: options.review,
-        commitSha: options.commit,
-        storage: options.storage,
-        json: options.json,
-        stdout: input.stdout,
-      });
+      return commands;
     },
-  );
-
-  configureJsonOutput(
-    trace
-      .command("show <session-id>")
-      .description("Survey a trace or show an exact event")
-      .option("--trace <name>", "trace name; omit for the main trace")
-      .option(
-        "--event <index>",
-        "print the complete text of one event",
-        (value: string) => Number.parseInt(value, 10),
-      )
-      .option("--kind <kind>", "only list user|assistant|tool|separator rows")
-      .addOption(storageOption()),
-    "plain",
-  ).action(
-    async (
-      sessionId: string,
-      options: {
-        trace?: string;
-        event?: number;
-        kind?: string;
-        storage?: "s3" | "hosted";
-        json?: boolean;
-      },
-    ) => {
-      state.exitCode = await runtime.runReviewTraceShow({
-        cwd,
-        sessionId,
-        trace: options.trace,
-        eventIndex: options.event,
-        kind: options.kind,
-        storage: options.storage,
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
-  configureJsonOutput(
-    trace
-      .command("pull")
-      .description("Pull traces into the local FFF search corpus")
-      .option("--repo <owner/repo>", "repository for the corpus path")
-      .option("--review <uuid>", "pull sessions for one Review")
-      .option("--commit <sha>", "pull sessions for one commit or revision")
-      .option("--session <id>", "pull one session")
-      .option("--main-only", "exclude subagent traces")
-      .addOption(storageOption()),
-    "plain",
-  ).action(
-    async (options: {
-      repo?: string;
-      review?: string;
-      commit?: string;
-      session?: string;
-      mainOnly?: boolean;
-      storage?: "s3" | "hosted";
-      json?: boolean;
-    }) => {
-      const selectors = [
-        options.review,
-        options.commit,
-        options.session,
-      ].filter(Boolean);
-
-      if (selectors.length > 1) {
-        throw new Error("Use only one of --review, --commit, or --session.");
-      }
-
-      state.exitCode = await runtime.runReviewTracePull({
-        cwd,
-        repo: options.repo,
-        reviewUuid: options.review,
-        commitSha: options.commit,
-        session: options.session,
-        mainOnly: options.mainOnly,
-        storage: options.storage,
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
-  configureJsonOutput(
-    trace
-      .command("blame <file>")
-      .description("Blame lines in a file to agent sessions")
-      .option("-L, --lines <range>", "start,end line range")
-      .option(
-        "--history",
-        "use git log -L to include every commit that shaped the lines",
-      )
-      .addOption(storageOption()),
-    "plain",
-  ).action(
-    async (
-      file: string,
-      options: {
-        lines?: string;
-        history?: boolean;
-        storage?: "s3" | "hosted";
-        json?: boolean;
-      },
-    ) => {
-      state.exitCode = await runtime.runReviewTraceBlame({
-        cwd,
-        file,
-        lines: options.lines,
-        history: options.history,
-        storage: options.storage,
-        json: options.json,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
-  configureJsonOutput(
-    trace
-      .command("sync <session-id>")
-      .description("Upload a local session trace and its metadata")
-      .option("--repo <repo>", "GitHub owner/repo")
-      .addOption(
-        new Option(
-          "--expect-storage <selection>",
-          "abort when the storage selection changed since capture",
-        ).hideHelp(),
-      ),
-    "plain",
-  ).action(
-    async (
-      sessionId: string,
-      options: {
-        repo?: string;
-        json?: boolean;
-        expectStorage?: string;
-      },
-    ) => {
-      state.exitCode = await runtime.runReviewTraceSync({
-        cwd,
-        sessionId,
-        repo: options.repo,
-        json: options.json,
-        expectStorage: options.expectStorage,
-        stdout: input.stdout,
-        stderr: input.stderr,
-      });
-    },
-  );
-
-  configureOutput(
-    trace
-      .command("hook <event>", { hidden: true })
-      .description("Handle agent session lifecycle hooks")
-      .option("--session <id>", "Agent session ID"),
-    "plain",
-  ).action(
-    async (
-      event: string,
-      options: {
-        session?: string;
-      },
-    ) => {
-      state.exitCode = await runtime.runReviewTraceHook({
-        cwd,
-        event,
-        sessionId: options.session,
-        stdin: input.stdin,
-        traceCommand,
-      });
-    },
-  );
-
-  configureOutput(
-    trace
-      .command("git-hook <hook> [args...]", { hidden: true })
-      .description("Run a package-owned Git trace hook"),
-    "plain",
-  ).action(async (hook: string, args: string[]) => {
-    state.exitCode = await runtime.runReviewTraceGitHook({
-      cwd,
-      hook,
-      args,
-      stdin: input.stdin,
-      stderr: input.stderr,
-      traceCommand,
-    });
   });
 
   // The map surface is owned by map-cli.ts: git-notes storage with

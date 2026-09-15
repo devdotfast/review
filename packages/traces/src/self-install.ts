@@ -366,7 +366,15 @@ export async function installSelf(
   // shell reads the shim before anything else and nothing shadows it.
   const shadowing = profile.added
     ? undefined
-    : await resolvePathCommand("dev-traces", shim, input.env, SHIM_MARKER);
+    : await resolvePathCommand(
+        "dev-traces",
+        shim,
+        input.env,
+        SHIM_MARKER,
+        await realpath(path.join(input.packageRoot, "dist", "cli.js")).catch(
+          () => undefined,
+        ),
+      );
 
   const backupOutput = backup
     ? `[warn] moved your existing ~/.local/bin/dev-traces to ${backup}\n`
@@ -409,7 +417,8 @@ export async function uninstallSelf(
   }
 
   // Git hooks of another owner stay: only the repositories that re-enter this
-  // shim, and the ones whose state file names no command, lose their hooks.
+  // shim lose their hooks. A state file without a command came from an older
+  // `review`, so it stays as well.
   const ownCommand = renderTraceCommand({ file: shim });
   const repositoriesDisabled: string[] = [];
   const warnings: string[] = [];
@@ -420,7 +429,7 @@ export async function uninstallSelf(
     // No state file means no managed hooks, so there is nothing to remove.
     if (!status?.managedHooksPath) continue;
 
-    if (status.command !== undefined && status.command !== ownCommand) continue;
+    if (status.command !== ownCommand) continue;
 
     const disabled = await disableTraceRepository({
       cwd: root,

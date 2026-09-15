@@ -123,6 +123,7 @@ describe("dev-traces check", () => {
   /** Installs the package, the Claude hook, and the Git hooks of this repo. */
   async function installEverything(
     execPath: string = process.execPath,
+    commands: { claude?: string; git?: string } = {},
   ): Promise<void> {
     const packageRoot = path.join(home, "pkg");
     await mkdir(path.join(packageRoot, "dist"), { recursive: true });
@@ -143,9 +144,10 @@ describe("dev-traces check", () => {
     });
 
     const shim = shimPath(home);
+    const claudeCommand = commands.claude ?? `'${shim}' trace hook`;
 
     const hook = (event: string) => ({
-      hooks: [{ type: "command", command: `'${shim}' trace hook ${event}` }],
+      hooks: [{ type: "command", command: `${claudeCommand} ${event}` }],
     });
 
     await mkdir(path.join(home, ".claude"), { recursive: true });
@@ -164,8 +166,23 @@ describe("dev-traces check", () => {
     await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
-      reviewCommand: { file: shim },
+      reviewCommand: { file: commands.git ?? shim },
     });
+  }
+
+  /** The hooks check of one JSON run. */
+  async function hooksCheck(): Promise<{
+    code: number;
+    check: CheckEvent["checks"][number];
+  }> {
+    const result = check(healthyClient(), true);
+    const code = await result.code;
+    const event: CheckEvent = JSON.parse(result.out().trim());
+    const entry = event.checks.find((each) => each.name === "hooks");
+
+    if (!entry) throw new Error("no hooks check");
+
+    return { code, check: entry };
   }
 
   function check(
@@ -233,6 +250,44 @@ describe("dev-traces check", () => {
     expect(event.checks[6]?.detail).toContain(`newest published ${SESSION_ID}`);
     expect(result.err()).not.toContain("FAIL");
     expect(result.err()).toContain("All checks passed.");
+  });
+
+  it("passes a harness hook that review owns", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything(process.execPath, {
+      claude: "'/usr/local/bin/review' trace hook",
+    });
+
+    const { code, check: hooks } = await hooksCheck();
+    expect(code).toBe(0);
+    expect(hooks.ok).toBe(true);
+    expect(hooks.detail).toContain("claude -> review");
+  });
+
+  it("passes Git hooks that call review", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything(process.execPath, {
+      git: "/usr/local/bin/review",
+    });
+
+    const { code, check: hooks } = await hooksCheck();
+    expect(code).toBe(0);
+    expect(hooks.ok).toBe(true);
+    expect(hooks.detail).toContain("git -> review ('/usr/local/bin/review')");
+  });
+
+  it("fails a present harness hook file that neither command owns", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything(process.execPath, { claude: "echo" });
+
+    const { code, check: hooks } = await hooksCheck();
+    expect(code).toBe(1);
+    expect(hooks.ok).toBe(false);
+    expect(hooks.detail).toContain("claude -> none");
+    expect(hooks.fix).toBe("dev-traces allow .");
   });
 
   it("fails without consent and names allow", async () => {

@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -120,5 +128,41 @@ describe("shadowing commands", () => {
     expect(
       await resolvePathCommand("dev-traces", shim, { PATH: other }, "# ours"),
     ).toBeUndefined();
+  });
+
+  it("ignores the npx .bin link to the running package", async () => {
+    const shim = path.join(home, ".local", "bin", "dev-traces");
+    const packageRoot = path.join(home, "npx-cache", "node_modules", "pkg");
+    const cli = path.join(packageRoot, "dist", "cli.js");
+    await mkdir(path.dirname(cli), { recursive: true });
+    await writeFile(cli, "#!/usr/bin/env node\n", { mode: 0o755 });
+
+    const bin = path.join(home, "npx-cache", "node_modules", ".bin");
+    await mkdir(bin, { recursive: true });
+    await symlink(cli, path.join(bin, "dev-traces"));
+
+    // The install passes the resolved path; on macOS the temp directory is
+    // itself a link.
+    const ownRealPath = await realpath(cli);
+    const env = { PATH: `${bin}:${path.dirname(shim)}` };
+    expect(
+      await resolvePathCommand("dev-traces", shim, env, "# ours", ownRealPath),
+    ).toBeUndefined();
+
+    const foreign = path.join(home, "foreign");
+    await mkdir(foreign);
+    await writeFile(path.join(foreign, "dev-traces"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+
+    expect(
+      await resolvePathCommand(
+        "dev-traces",
+        shim,
+        { PATH: `${foreign}:${bin}:${path.dirname(shim)}` },
+        "# ours",
+        ownRealPath,
+      ),
+    ).toBe(path.join(foreign, "dev-traces"));
   });
 });

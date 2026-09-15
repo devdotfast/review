@@ -136,7 +136,8 @@ Under `--json` it prints one `trace.check` event.
 - The sync status and the captured sessions.
 
 One machine can run both commands. The owner of a harness hook is the command
-that wrote it last. `check` reports the owner of each harness hook.
+that wrote it last. `check` reports the owner of each harness hook and of the
+Git hooks. A hook that either command owns passes the check.
 
 These reads work the same in both commands: `sessions`, `list --commit <sha>`,
 `show`, `pull --commit|--session`, and `blame`. These options stay in `review`:

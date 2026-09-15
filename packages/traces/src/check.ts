@@ -11,6 +11,7 @@ import {
   type CliJsonOutput,
   StoreApiError,
   StoreClient,
+  type TraceHookOwner,
   type TraceScope,
   type TraceSyncFailure,
   agentTraceHookPath,
@@ -28,7 +29,6 @@ import {
   readStoreAuth,
   readTraceConfigFile,
   readTraceUserConfig,
-  renderTraceCommand,
   selectTraceStorage,
   traceRepoName,
   traceRepositoryStatus,
@@ -84,6 +84,31 @@ async function executable(filePath: string): Promise<boolean> {
     () => true,
     () => false,
   );
+}
+
+/**
+ * The command a Git hook state file names, when it is `review` or
+ * `dev-traces`. The state stores the rendered command, so the executable is
+ * its first shell-quoted word.
+ */
+function gitHookCommandOwner(
+  command: string | undefined,
+): TraceHookOwner | null {
+  if (command === undefined) return null;
+
+  const quoted = /^'((?:[^']|'"'"')*)'(?:\s|$)/.exec(command);
+  const bare = /^([^\s']+)(?:\s|$)/.exec(command);
+
+  const file = quoted
+    ? quoted[1]!.replaceAll(`'"'"'`, "'")
+    : bare
+      ? bare[1]!
+      : undefined;
+
+  if (file === undefined) return null;
+  const base = path.basename(file);
+
+  return base === "review" || base === "dev-traces" ? base : null;
 }
 
 async function present(filePath: string): Promise<boolean> {
@@ -425,7 +450,9 @@ export async function runTracesCheck(
     }
   }
 
-  // 6. The harness hooks and the Git hooks.
+  // 6. The harness hooks and the Git hooks. `review` and `dev-traces` capture
+  // to the same store, so a hook either command owns passes. Only a hook file
+  // that neither command wrote is foreign.
   const owners = await describeTraceHookOwners(scope.homeDir);
   const ownerParts: string[] = [];
   const foreign: string[] = [];
@@ -434,7 +461,7 @@ export async function runTracesCheck(
     const owner = owners[agent];
     ownerParts.push(`${agent} -> ${owner ?? "none"}`);
 
-    if (owner === "dev-traces") continue;
+    if (owner !== null) continue;
 
     if (await present(agentTraceHookPath(agent, scope.homeDir))) {
       foreign.push(agent);
@@ -442,13 +469,11 @@ export async function runTracesCheck(
   }
 
   const repositoryHooks = await traceRepositoryStatus(input.cwd);
-  const expectedCommand = renderTraceCommand({ file: shim });
-
-  const gitHooksOk =
-    repositoryHooks.enabled && repositoryHooks.command === expectedCommand;
+  const gitOwner = gitHookCommandOwner(repositoryHooks.command);
+  const gitHooksOk = repositoryHooks.enabled && gitOwner !== null;
 
   const gitDetail = gitHooksOk
-    ? `git hooks call ${shim}`
+    ? `git -> ${gitOwner} (${repositoryHooks.command})`
     : repositoryHooks.enabled
       ? `git hooks call ${repositoryHooks.command ?? "an unknown command"}`
       : "git hooks are not enabled";

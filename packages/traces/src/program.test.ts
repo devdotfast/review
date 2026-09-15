@@ -1,9 +1,18 @@
+import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 
-import { collectingWritable } from "@dev.fast/trace-core";
+import {
+  StoreClient,
+  allowTraceRepository,
+  clearTraceEnvCache,
+  collectingWritable,
+  runTraceSessions,
+  traceCommandPrefix,
+  writeStoreAuth,
+} from "@dev.fast/trace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type TracesCliRuntime, runTracesCli } from "./program";
@@ -45,6 +54,7 @@ describe("dev-traces program", () => {
   });
 
   afterEach(async () => {
+    clearTraceEnvCache();
     await rm(home, { recursive: true, force: true });
   });
 
@@ -284,6 +294,71 @@ describe("dev-traces program", () => {
     expect(await result.code).toBe(1);
     expect(result.err()).toBe("dev-traces supports macOS and Linux only.\n");
     expect(calls).toEqual([]);
+  });
+
+  it("names its own root-level commands in the library hints", async () => {
+    // The trailer comes from the library's real `runTraceSessions`; only the
+    // store is faked.
+    const origin = "https://app.dev.fast";
+    execFileSync("git", ["init", "--quiet", home]);
+    execFileSync(
+      "git",
+      ["remote", "add", "origin", "git@github.com:acme/app.git"],
+      { cwd: home },
+    );
+    clearTraceEnvCache();
+
+    await writeStoreAuth(
+      { origin, token: "token", login: "dev", savedAt: "2026-09-01T00:00:00Z" },
+      env,
+    );
+    await allowTraceRepository(
+      { repositoryId: 7, name: "acme/app", origin },
+      path.join(home, ".dev"),
+    );
+
+    const client = new StoreClient({
+      origin,
+      token: "token",
+      fetch: vi.fn<typeof fetch>(async (url) =>
+        String(url).includes("/sessions")
+          ? Response.json({
+              sessions: [
+                {
+                  sessionId: "01a015e4-0477-7055-a0fd-21a0f72a4ec6",
+                  harness: "claude",
+                  uploadId: "fedcba9876543210fedcba9876543210",
+                  generation: 1,
+                  updatedAt: "2026-09-02T12:00:00.000Z",
+                  commits: ["a".repeat(40)],
+                  branch: "main",
+                  author: "dev",
+                  objects: [],
+                },
+              ],
+              nextCursor: "01a015e4-0477-7055-a0fd-21a0f72a4ec6",
+            })
+          : Response.json({
+              repositoryId: 7,
+              storeId: "0123456789abcdef0123456789abcdef",
+              displayName: "acme/app",
+              status: "active",
+              createdAt: "2026-09-01T00:00:00.000Z",
+            }),
+      ),
+    });
+
+    const result = run(["sessions", "--limit", "1"], {
+      runTraceSessions: (sessionsInput) =>
+        runTraceSessions({ ...sessionsInput, client }),
+    });
+
+    expect(await result.code).toBe(0);
+    expect(traceCommandPrefix()).toBe("dev-traces");
+    expect(result.out()).toContain(
+      "run `dev-traces sessions --limit 1 --cursor ",
+    );
+    expect(result.out()).not.toContain("dev-traces trace");
   });
 
   it("prints the install status before the trace status", async () => {

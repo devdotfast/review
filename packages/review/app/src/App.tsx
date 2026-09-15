@@ -47,6 +47,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { reviewTocEntries } from "./review-document-headings";
 import type { HydratedReviewDocument } from "./review-document-hydrate";
+import { useReviewDocumentProjection } from "./review-document-projection";
 import { ReviewDocumentContent } from "./review-document-surface";
 import { ReviewUnavailable } from "./review-empty-state";
 import {
@@ -83,6 +84,7 @@ import type {
 } from "./software-map/model";
 import { SoftwareMapTopologyUnavailable } from "./software-map/software-map-absence";
 import { SoftwareMap } from "./software-map/SoftwareMap";
+import { useTutorial } from "./tutorial-context";
 import { TutorialExperienceProvider } from "./tutorial-experience";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
@@ -445,12 +447,19 @@ function ReviewLayoutContent({
   const applyReviewViewRef = useRef(applyReviewView);
   applyReviewViewRef.current = applyReviewView;
 
+  const tutorial = useTutorial() !== null;
+
+  const sourceBody =
+    documentState.state === "ready" ? documentState.document.body : null;
+
+  const projectedBody = useReviewDocumentProjection(sourceBody, {
+    tutorial,
+    softwareMapEnabled,
+  });
+
   const tocEntries = useMemo(
-    () =>
-      documentState.state === "ready"
-        ? reviewTocEntries(documentState.document.body)
-        : [],
-    [documentState],
+    () => reviewTocEntries(projectedBody),
+    [projectedBody],
   );
 
   // Subscribe before the canvas signals ready so a reveal immediately after
@@ -635,9 +644,7 @@ function ReviewLayoutContent({
                         tourRestore={viewStateSync.tourRestore}
                         persistOverlayTour={viewStateSync.persistOverlayTour}
                       >
-                        <ReviewDocumentContent
-                          body={documentState.document.body}
-                        />
+                        <ReviewDocumentContent body={projectedBody} />
                       </ReviewViewStateProvider>
                     </ReviewDocumentBoundary>
                   </article>

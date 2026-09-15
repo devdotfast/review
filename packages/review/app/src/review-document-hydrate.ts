@@ -10,6 +10,7 @@ import {
   type AnchorRef,
   type StoreRef,
   hydrateStoreRef,
+  tutorialAuthoringConversationPropsSchema,
 } from "../../src/authoring";
 import {
   type ReviewAuthoringComponentName,
@@ -33,6 +34,8 @@ export interface HydratedReviewElementNode extends Omit<
   "children"
 > {
   children: HydratedReviewNode[];
+  /** Runtime provenance: projected visibility may require new slug allocation. */
+  generatedHeadingId?: boolean;
 }
 
 export interface HydratedReviewComponentNode {
@@ -40,6 +43,10 @@ export interface HydratedReviewComponentNode {
   name: ReviewAuthoringComponentName;
   props: HydratedReviewComponentProps;
   children: HydratedReviewNode[];
+  /** Paragraphs generated from props rather than authored child nodes. */
+  renderedParagraphs?: number;
+  /** Text supplied by a component after its authored children. */
+  renderedTextSuffix?: string;
 }
 
 export type HydratedReviewPropValue =
@@ -162,12 +169,23 @@ function hydrateComponentNode<K extends ReviewAuthoringComponentName>(
 
   const hydrate = componentHydrators[node.name];
 
-  return {
+  const hydrated: HydratedReviewComponentNode = {
     type: "component",
     name: node.name,
     props: hydrate ? hydrate(node, walked, children) : walked,
     children,
   };
+
+  if (node.name === "TutorialViewButton") hydrated.renderedTextSuffix = "→";
+
+  if (node.name === "TutorialAuthoringConversation") {
+    hydrated.renderedParagraphs =
+      tutorialAuthoringConversationPropsSchema.parse(
+        node.props,
+      ).conversation.messages.length;
+  }
+
+  return hydrated;
 }
 
 function hydrateComponentProps(

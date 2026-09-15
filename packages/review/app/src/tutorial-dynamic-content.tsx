@@ -6,17 +6,21 @@ import type {
 } from "../../src/authoring";
 import { useReviewActions } from "./review-context";
 import { useTutorial } from "./tutorial-context";
+import {
+  tutorialFeatureVisible,
+  tutorialViewVisible,
+} from "./tutorial-render-visibility";
 
 export function TutorialFeature({
-  feature,
   children,
 }: TutorialFeatureProps): ReactElement | null {
   const tutorial = useTutorial();
   const { softwareMapEnabled } = useReviewActions();
 
-  if (!tutorial) return null;
-
-  if (feature === "softwareMap" && !softwareMapEnabled) return null;
+  if (
+    !tutorialFeatureVisible({ tutorial: tutorial !== null, softwareMapEnabled })
+  )
+    return null;
 
   return <>{children}</>;
 }
@@ -28,9 +32,13 @@ export function TutorialViewButton({
   const tutorial = useTutorial();
   const { softwareMapEnabled } = useReviewActions();
 
-  if (!tutorial) return null;
-
-  if (view === "map" && !softwareMapEnabled) return null;
+  if (
+    !tutorialViewVisible(
+      { tutorial: tutorial !== null, softwareMapEnabled },
+      view,
+    )
+  )
+    return null;
 
   return (
     <button

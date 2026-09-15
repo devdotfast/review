@@ -18,6 +18,8 @@ export function reviewSectionSummary(children: HydratedReviewNode[]) {
     if (node.type === "text") return;
 
     if (node.type === "component") {
+      summary.paragraphs += node.renderedParagraphs ?? 0;
+
       if (DIAGRAMS.has(node.name)) summary.diagrams += 1;
 
       if (CODE_REFS.has(node.name)) summary.codeRefs += 1;

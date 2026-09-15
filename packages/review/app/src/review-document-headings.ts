@@ -34,7 +34,8 @@ function headingNodes(
 function nodeText(node: HydratedReviewNode): string {
   return node.type === "text"
     ? node.value
-    : node.children.map(nodeText).join("");
+    : node.children.map(nodeText).join("") +
+        (node.type === "component" ? (node.renderedTextSuffix ?? "") : "");
 }
 
 function normalizeHeadingText(text: string): string {
@@ -78,6 +79,7 @@ export function assignReviewHeadingIds(body: HydratedReviewNode[]): void {
     if (!text || headingId(node)) continue;
     const id = uniqueHeadingId(slugifyHeading(text), usedIds);
     node.props.id = id;
+    node.generatedHeadingId = true;
     usedIds.add(id);
   }
 }

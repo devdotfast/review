@@ -1,3 +1,4 @@
+import { isStringValue } from "@dev.fast/review-protocol";
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
 import { type ReactNode, memo, useLayoutEffect, useMemo, useRef } from "react";
 
@@ -414,7 +415,14 @@ function ApiDatabase({
             path: op.field ? [op.field] : [],
           };
 
-          const from = actor(`${node.id}:${op.actor}`, node.actors[op.actor]!);
+          const actorDefinition = node.actors[op.actor]!;
+
+          const from = actor(
+            `${node.id}:${op.actor}`,
+            isStringValue(actorDefinition)
+              ? actorDefinition
+              : actorDefinition.label,
+          );
 
           return {
             kind: op.kind,

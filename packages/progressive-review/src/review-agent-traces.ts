@@ -1,19 +1,15 @@
-import { execFile } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
-import { git } from "@dev.fast/local-vcs";
+import { git, gitAt } from "@dev.fast/local-vcs";
 import {
   type ReviewAgentTraceSession,
   type SessionMeta,
@@ -31,6 +27,7 @@ import {
   extractTraceEventText,
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
+import { writeFileAtomic } from "./atomic-write";
 import {
   exportOpenCodeTrace,
   isOpenCodeSessionId,
@@ -42,10 +39,7 @@ import {
   parseRepo,
   traceRepoName,
 } from "./trace-repo";
-import {
-  isTraceStorageConfigured,
-  resolveTraceStorage,
-} from "./trace-storage/resolve";
+import { resolveTraceStorage } from "./trace-storage/resolve";
 import {
   clearTraceEnvCache as clearS3EnvCache,
   traceEnvValue as s3EnvValue,
@@ -153,10 +147,6 @@ export interface ReviewTraceSyncResult {
 }
 
 const lastCheckedTimes = new Map<string, number>();
-
-export function isTraceR2Configured(): boolean {
-  return isTraceStorageConfigured();
-}
 
 /**
  * The store to read from or publish to: an explicit override, or the
@@ -585,22 +575,11 @@ function writeNormalizedTraceAtomic(
   targetPath: string,
   trace: NormalizedTrace,
 ): void {
-  mkdirSync(path.dirname(targetPath), { recursive: true });
-
-  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}-${Math.random()
-    .toString(36)
-    .slice(2)}`;
-
   const content = [trace.metadata, ...trace.events]
     .map((record) => JSON.stringify(record))
     .join("\n");
 
-  try {
-    writeFileSync(tempPath, `${content}\n`, "utf8");
-    renameSync(tempPath, targetPath);
-  } finally {
-    rmSync(tempPath, { force: true });
-  }
+  writeFileAtomic(targetPath, `${content}\n`, "utf8");
 }
 
 /**
@@ -866,34 +845,6 @@ function legacyObjectKey(sessionId: string, traceName: string): string {
   return `by-session/${sessionId}/subagents/${fileName}`;
 }
 
-async function runGit(
-  cwd: string,
-  args: string[],
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      "git",
-      ["-C", cwd, ...args],
-      {
-        maxBuffer: 64 * 1024 * 1024,
-      },
-    );
-
-    return { ok: true, stdout, stderr };
-  } catch (error) {
-    // SAFETY: execFile rejects with an Error whose stdout and stderr fields
-    // hold the child's output as strings; both are read as optional so any
-    // other rejection still reports String(error).
-    const err = error as { stdout?: string; stderr?: string };
-
-    return {
-      ok: false,
-      stdout: err.stdout ?? "",
-      stderr: err.stderr ?? String(error),
-    };
-  }
-}
-
 // --- Lookup Commit & Session -----------------------------------------------
 
 export async function lookupReviewTraceCommit(input: {
@@ -1127,13 +1078,11 @@ export async function lookupReviewTraceBlame(input: {
       ? `${input.lines}:${input.file}`
       : `1,$:${input.file}`;
 
-    const res = await runGit(input.cwd, [
-      "log",
-      "-L",
-      spec,
-      "--format=%H",
-      "-s",
-    ]);
+    const res = await gitAt(
+      input.cwd,
+      ["log", "-L", spec, "--format=%H", "-s"],
+      { allowFailure: true },
+    );
 
     if (!res.ok) {
       throw new Error(
@@ -1150,7 +1099,7 @@ export async function lookupReviewTraceBlame(input: {
     }
 
     args.push("--", input.file);
-    const res = await runGit(input.cwd, args);
+    const res = await gitAt(input.cwd, args, { allowFailure: true });
 
     if (!res.ok) {
       throw new Error(
@@ -1509,10 +1458,7 @@ interface CommitWithSessions extends ReviewTraceCommitRef {
   sessions: string[];
 }
 
-export async function resolveCommitSha(
-  cwd: string,
-  rev: string,
-): Promise<string> {
+async function resolveCommitSha(cwd: string, rev: string): Promise<string> {
   const result = await git(
     cwd,
     ["rev-parse", "--verify", "--end-of-options", rev],
@@ -1559,12 +1505,16 @@ export async function readTrailerSessions(
 export async function listRepositoryTraceSessionIds(
   cwd: string,
 ): Promise<string[]> {
-  const result = await runGit(cwd, [
-    "log",
-    "--all",
-    "--no-show-signature",
-    "--format=%(trailers:key=Agent-Session,valueonly,separator=%x1f)",
-  ]);
+  const result = await gitAt(
+    cwd,
+    [
+      "log",
+      "--all",
+      "--no-show-signature",
+      "--format=%(trailers:key=Agent-Session,valueonly,separator=%x1f)",
+    ],
+    { allowFailure: true },
+  );
 
   if (!result.ok) return [];
 
@@ -1576,7 +1526,7 @@ export async function listRepositoryTraceSessionIds(
   );
 }
 
-export async function readSubjectPullNumber(
+async function readSubjectPullNumber(
   cwd: string,
   rev: string,
 ): Promise<number | null> {
@@ -1591,13 +1541,13 @@ export async function readSubjectPullNumber(
   return subjectPullNumber(result.stdout.trim());
 }
 
-export function subjectPullNumber(subject: string): number | null {
+function subjectPullNumber(subject: string): number | null {
   const match = /\(#(\d+)\)$/.exec(subject);
 
   return match ? Number(match[1]) : null;
 }
 
-export async function readRepoMetaFields(
+async function readRepoMetaFields(
   cwd: string,
 ): Promise<{ author: string | null; branch: string | null }> {
   const insideResult = await git(cwd, ["rev-parse", "--is-inside-work-tree"], {
@@ -1697,10 +1647,8 @@ export function codexSessionsRoot(): string {
   );
 }
 
-const execFileAsync = promisify(execFile);
-
 /** Subagent traces known locally or in the store, by name without ".jsonl". */
-export async function listSessionSubagents(
+async function listSessionSubagents(
   sessionId: string,
   storage?: TraceStorage | null,
 ): Promise<string[]> {
@@ -1729,38 +1677,37 @@ export async function listSessionSubagents(
   return [...subagents].sort();
 }
 
-export async function prScanTrailerSessions(
+async function prScanTrailerSessions(
   cwd: string,
   commit: string,
   pr: number,
 ): Promise<string[]> {
-  const fetchRes = await runGit(cwd, [
-    "fetch",
-    "--quiet",
-    "origin",
-    `refs/pull/${pr}/head`,
-  ]);
+  const fetchRes = await gitAt(
+    cwd,
+    ["fetch", "--quiet", "origin", `refs/pull/${pr}/head`],
+    { allowFailure: true },
+  );
 
   if (!fetchRes.ok) return [];
 
-  let revListRes = await runGit(cwd, [
-    "rev-list",
-    "FETCH_HEAD",
-    "--not",
-    `${commit}^`,
-  ]);
+  let revListRes = await gitAt(
+    cwd,
+    ["rev-list", "FETCH_HEAD", "--not", `${commit}^`],
+    { allowFailure: true },
+  );
 
   if (!revListRes.ok) {
-    revListRes = await runGit(cwd, [
-      "rev-list",
-      "FETCH_HEAD",
-      "--not",
-      `${commit}~1`,
-    ]);
+    revListRes = await gitAt(
+      cwd,
+      ["rev-list", "FETCH_HEAD", "--not", `${commit}~1`],
+      { allowFailure: true },
+    );
   }
 
   if (!revListRes.ok) {
-    revListRes = await runGit(cwd, ["rev-list", "FETCH_HEAD"]);
+    revListRes = await gitAt(cwd, ["rev-list", "FETCH_HEAD"], {
+      allowFailure: true,
+    });
   }
 
   if (!revListRes.ok) return [];

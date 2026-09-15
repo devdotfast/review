@@ -9,9 +9,9 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import type { DismissedRetentionDays } from "./review-attention";
 import { devReviewHome } from "./review-storage";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 
 /**
  * Machine-wide Review preferences the server itself needs. Workbench settings

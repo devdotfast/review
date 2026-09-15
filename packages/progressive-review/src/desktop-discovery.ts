@@ -11,7 +11,7 @@ import {
   parseReviewDesktopDiscovery,
 } from "@dev.fast/review-protocol";
 
-import { reviewDesktopDiscoveryPath } from "./server/desktop-paths";
+import { reviewDesktopDiscoveryPath } from "./review-home-paths";
 
 export class ReviewDesktopProtocolMismatchError extends Error {
   readonly name = "ReviewDesktopProtocolMismatchError";

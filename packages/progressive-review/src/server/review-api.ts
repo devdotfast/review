@@ -39,7 +39,6 @@ import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
 import type { AgentServer, LaunchInput } from "../native-agent/native-session";
 import {
-  isTraceR2Configured,
   listReviewTraceSessions,
   loadReviewAgentTrace,
 } from "../review-agent-traces";
@@ -82,6 +81,7 @@ import { ProgressiveReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
 import { TraceConfigurationError } from "../trace-storage/config";
 import {
+  isTraceStorageConfigured,
   resolveTraceStorage,
   selectTraceStorage,
 } from "../trace-storage/resolve";
@@ -614,7 +614,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     const answerNothing = (storageError: string) =>
       reviewApiJsonResponse(200, {
         ok: true,
-        configured: isTraceR2Configured(),
+        configured: isTraceStorageConfigured(),
         storage,
         sources,
         storageError,
@@ -641,7 +641,7 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
 
     return reviewApiJsonResponse(200, {
       ok: true,
-      configured: isTraceR2Configured(),
+      configured: isTraceStorageConfigured(),
       storage,
       sources,
       sessions,

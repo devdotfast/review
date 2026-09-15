@@ -21,6 +21,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import { writePrivateJsonAtomic } from "../atomic-write";
 import {
   type ReviewAgentHarness,
   freshSourceSessionKey,
@@ -42,7 +43,6 @@ import {
   reviewSourceHeadRef,
 } from "../review-source-ref";
 import { devReviewHome } from "../review-storage";
-import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const execFilePromise = promisify(execFile);
 

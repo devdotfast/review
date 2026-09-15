@@ -1,6 +1,4 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -18,6 +16,7 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
+import { type TraceCommand, resolveTraceCommand } from "./trace-command";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -32,7 +31,7 @@ import {
   traceStorageExpectation,
 } from "./trace-storage/resolve";
 import {
-  type TraceRepositoryEntry,
+  type TraceRepositoryConsent,
   findTraceRepository,
   readTraceUserConfig,
 } from "./trace-user-config";
@@ -52,18 +51,15 @@ export function spawnDetachedTraceSync(input: {
   cwd: string;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
+  /** The binary to re-enter; the resolved default when absent. */
+  command?: TraceCommand;
 }): void {
   try {
-    const installedCommand = path.join(
-      input.homeDir ?? process.env.TRACE_HOME_DIR ?? os.homedir(),
-      ".local",
-      "bin",
-      "review",
-    );
-
-    const command =
-      process.env.REVIEW_TRACE_COMMAND ??
-      (existsSync(installedCommand) ? installedCommand : "review");
+    const command = resolveTraceCommand({
+      explicit: input.command,
+      env: input.env,
+      homeDir: input.homeDir,
+    });
 
     const expectation = traceStorageExpectation({
       homeDir: input.homeDir,
@@ -71,8 +67,15 @@ export function spawnDetachedTraceSync(input: {
     });
 
     const child = spawn(
-      command,
-      ["trace", "sync", input.sessionId, "--expect-storage", expectation],
+      command.file,
+      [
+        ...(command.args ?? []),
+        "trace",
+        "sync",
+        input.sessionId,
+        "--expect-storage",
+        expectation,
+      ],
       { cwd: input.cwd, detached: true, stdio: "ignore" },
     );
 
@@ -90,6 +93,8 @@ export interface RunReviewTraceHookInput {
   stdin?: CliInputStream;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
+  /** The command installed in repository hooks and used for detached sync. */
+  traceCommand?: TraceCommand;
 }
 
 export async function runReviewTraceHook(
@@ -191,6 +196,7 @@ export async function runReviewTraceHook(
     await enableTraceRepository({
       cwd: input.cwd,
       homeDir: input.homeDir,
+      reviewCommand: input.traceCommand,
     }).catch(() => undefined);
   }
 
@@ -274,6 +280,7 @@ export async function runReviewTraceHook(
       cwd: input.cwd,
       homeDir: input.homeDir,
       env: input.env,
+      command: input.traceCommand,
     });
   }
 
@@ -288,7 +295,7 @@ export async function resolveAllowedTraceRepository(
   cwd: string,
   env: NodeJS.ProcessEnv = process.env,
   homeDir?: string,
-): Promise<TraceRepositoryEntry | null> {
+): Promise<TraceRepositoryConsent | null> {
   let name: string;
 
   try {
@@ -310,7 +317,7 @@ export async function resolveAllowedTraceRepository(
 async function recordCaptureProvenance(input: {
   cwd: string;
   sessionId: string;
-  entry: TraceRepositoryEntry | null;
+  entry: TraceRepositoryConsent | null;
   origin: string;
   env?: NodeJS.ProcessEnv;
   homeDir?: string;

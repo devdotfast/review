@@ -1,6 +1,7 @@
 import type { Writable } from "node:stream";
 
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
+import { type TraceCommand, traceCliName } from "./trace-command";
 import { runReviewTraceGitHook } from "./trace-git-hook-runner";
 import { runReviewTraceHook } from "./trace-hook-runner";
 import { writeHostedTraceStatus } from "./trace-hosted-cli";
@@ -82,43 +83,46 @@ export async function runReviewTraceStatus(input: {
     return 1;
   }
 
-  const { checkReviewTraceDoctor } = await import("./trace-doctor");
-  const doctor = await checkReviewTraceDoctor({ cwd: input.cwd });
-  input.stdout.write(`Checking trace configuration (${doctor.envPath})…\n`);
+  const [{ S3TraceStorage }, { describeS3Setup }] = await Promise.all([
+    import("./trace-storage/s3"),
+    import("./trace-storage/s3-config"),
+  ]);
+
+  const setup = describeS3Setup();
+  input.stdout.write(`Checking trace configuration (${setup.envPath})…\n`);
 
   for (const failure of await listTraceSyncFailures()) {
     input.stdout.write(describeTraceSyncFailure(failure));
   }
 
-  if (!doctor.ok && !doctor.config) {
+  if (!setup.config) {
     input.stderr.write(
-      `trace status: ${doctor.error ?? "No trace configuration found. Use Review Agent Setup to configure trace capture."}\n`,
+      `trace status: ${setup.error ?? "No trace configuration found. Use Review Agent Setup to configure trace capture."}\n`,
     );
 
     return 1;
   }
 
-  if (doctor.config) {
-    input.stdout.write(`  Endpoint: ${doctor.config.endpoint}\n`);
-    input.stdout.write(`  Bucket:   ${doctor.config.bucket}\n`);
-    input.stdout.write(
-      `  Key:      ${doctor.config.accessKeyId.slice(0, 6)}…\n`,
-    );
-  }
+  input.stdout.write(`  Endpoint: ${setup.config.endpoint}\n`);
+  input.stdout.write(`  Bucket:   ${setup.config.bucket}\n`);
+  input.stdout.write(`  Key:      ${setup.config.accessKeyId.slice(0, 6)}…\n`);
 
-  if (doctor.reachable && doctor.config) {
+  const readiness = (await S3TraceStorage.fromEnvironment()?.readiness()) ?? {
+    ready: false,
+    reason: "unknown error",
+  };
+
+  if (readiness.ready) {
     input.stdout.write(
-      `✓ S3/R2 bucket "${doctor.config.bucket}" is reachable.\n`,
+      `✓ S3/R2 bucket "${setup.config.bucket}" is reachable.\n`,
     );
 
     return 0;
   }
 
-  if (doctor.config) {
-    input.stderr.write(
-      `✗ Cannot reach S3/R2 bucket "${doctor.config.bucket}": ${doctor.error ?? "unknown error"}\n`,
-    );
-  }
+  input.stderr.write(
+    `✗ Cannot reach S3/R2 bucket "${setup.config.bucket}": ${readiness.reason ?? "unknown error"}\n`,
+  );
 
   return 1;
 }
@@ -127,6 +131,8 @@ export async function runReviewTraceEnable(input: {
   cwd: string;
   stdout: Writable;
   stderr: Writable;
+  /** The command installed in the repository hooks. */
+  traceCommand?: TraceCommand;
 }): Promise<number> {
   if (!(await traceMachineStatus()).enabled) {
     input.stderr.write(
@@ -136,7 +142,11 @@ export async function runReviewTraceEnable(input: {
     return 1;
   }
 
-  const result = await enableTraceRepository({ cwd: input.cwd });
+  const result = await enableTraceRepository({
+    cwd: input.cwd,
+    reviewCommand: input.traceCommand,
+  });
+
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
 
   return result.enabled ? 0 : 1;
@@ -156,6 +166,8 @@ export async function runReviewTraceRepair(input: {
   cwd: string;
   stdout: Writable;
   stderr: Writable;
+  /** The command installed in the repository hooks. */
+  traceCommand?: TraceCommand;
 }): Promise<number> {
   if (!(await traceMachineStatus()).enabled) {
     input.stderr.write(
@@ -165,7 +177,11 @@ export async function runReviewTraceRepair(input: {
     return 1;
   }
 
-  const result = await repairTraceRepository({ cwd: input.cwd });
+  const result = await repairTraceRepository({
+    cwd: input.cwd,
+    reviewCommand: input.traceCommand,
+  });
+
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
 
   return result.enabled ? 0 : 1;
@@ -195,7 +211,7 @@ export async function runReviewTraceSync(input: {
 
       if (current !== input.expectStorage) {
         throw new Error(
-          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`review trace sync ${input.sessionId}\` to publish to the current selection.`,
+          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCliName()} trace sync ${input.sessionId}\` to publish to the current selection.`,
         );
       }
     }
@@ -208,7 +224,7 @@ export async function runReviewTraceSync(input: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // The SessionEnd hook runs this command detached. The record is what
-    // `review trace status` shows, so the failure is not lost.
+    // the trace status command shows, so the failure is not lost.
     await recordTraceSyncFailure({
       sessionId: input.sessionId.trim(),
       repository: await inferRepoFromGit(input.cwd)

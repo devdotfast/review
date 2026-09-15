@@ -16,9 +16,10 @@ import { writePrivateJsonAtomic } from "./atomic-write";
 import { devReviewHome } from "./review-storage";
 import { StoreApiError, type StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
+import { traceCliName } from "./trace-command";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import {
-  type TraceRepositoryEntry,
+  type TraceRepositoryConsent,
   findTraceRepository,
   readTraceUserConfig,
 } from "./trace-user-config";
@@ -214,7 +215,7 @@ export async function resolveTraceRepositoryTarget(input: {
     throw new StoreApiError(
       "not_found",
       404,
-      "This repository has no active hosted trace store. Run `review trace onboard`.",
+      `This repository has no active hosted trace store. Run \`${traceCliName()} trace onboard\`.`,
     );
   }
 
@@ -250,7 +251,7 @@ export async function resolveTraceRepositoryTarget(input: {
 export async function requireTraceConsent(
   target: TraceRepositoryTarget,
   devHome?: string,
-): Promise<TraceRepositoryEntry> {
+): Promise<TraceRepositoryConsent> {
   const config = await readTraceUserConfig(devHome);
 
   // The id is the identity. A display name can be reused by another
@@ -263,11 +264,11 @@ export async function requireTraceConsent(
 
   if (entry) {
     throw new Error(
-      `${entry.name} is allowed to publish traces to ${entry.enabledOrigins.join(", ")}, not ${target.origin}. Run \`review trace allow .\` while logged in there.`,
+      `${entry.name} is allowed to publish traces to ${entry.enabledOrigins.join(", ")}, not ${target.origin}. Run \`${traceCliName()} trace allow .\` while logged in there.`,
     );
   }
 
   throw new Error(
-    "This repository is not allowed for trace publication. Run `review trace allow .`.",
+    `This repository is not allowed for trace publication. Run \`${traceCliName()} trace allow .\`.`,
   );
 }

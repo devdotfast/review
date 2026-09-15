@@ -8,8 +8,8 @@
 import { devReviewHome } from "./review-storage";
 import { normalizeStoreOrigin } from "./store-origin";
 import type {
-  TraceRepositoryEntry as ConfigEntry,
   TraceConfigFile,
+  TraceRepositoryEntry,
 } from "./trace-storage/config";
 import {
   TRACE_CONFIG_VERSION,
@@ -22,7 +22,7 @@ import {
 } from "./trace-storage/config";
 
 /** One consent with its origins resolved (the default when none is written). */
-export interface TraceRepositoryEntry {
+export interface TraceRepositoryConsent {
   repositoryId: number;
   name: string;
   enabledOrigins: string[];
@@ -31,7 +31,7 @@ export interface TraceRepositoryEntry {
 
 export interface TraceUserConfig {
   version: typeof TRACE_CONFIG_VERSION;
-  repositories: TraceRepositoryEntry[];
+  repositories: TraceRepositoryConsent[];
 }
 
 export function traceUserConfigPath(devHome = devReviewHome()): string {
@@ -74,7 +74,7 @@ async function readTraceUserConfigFile(
 // concurrent allow/deny runs cannot silently drop each other's change.
 async function writeRepositories(
   file: TraceConfigFile,
-  repositories: ConfigEntry[],
+  repositories: TraceRepositoryEntry[],
 ): Promise<void> {
   await writeTraceConfigFile(file, {
     ...(file.config ?? emptyTraceConfig()),
@@ -82,8 +82,8 @@ async function writeRepositories(
   });
 }
 
-function toConfigEntry(entry: TraceRepositoryEntry): ConfigEntry {
-  const written: ConfigEntry = {
+function toConfigEntry(entry: TraceRepositoryConsent): TraceRepositoryEntry {
+  const written: TraceRepositoryEntry = {
     repositoryId: entry.repositoryId,
     name: entry.name,
     enabledOrigins: entry.enabledOrigins,
@@ -115,7 +115,7 @@ export async function allowTraceRepository(
     (candidate) => candidate.repositoryId === entry.repositoryId,
   );
 
-  const merged: TraceRepositoryEntry = {
+  const merged: TraceRepositoryConsent = {
     repositoryId: entry.repositoryId,
     name: entry.name,
     enabledOrigins: [...new Set([...(existing?.enabledOrigins ?? []), origin])],
@@ -164,7 +164,7 @@ export async function denyTraceRepository(
 export function findTraceRepository(
   config: TraceUserConfig,
   name: string,
-): TraceRepositoryEntry | null {
+): TraceRepositoryConsent | null {
   return (
     config.repositories.find(
       (entry) => entry.name.toLowerCase() === name.toLowerCase(),

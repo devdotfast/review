@@ -18,7 +18,6 @@ import { collectingWritable } from "./cli-output";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
-import { checkReviewTraceDoctor } from "./trace-doctor";
 import { traceMachineStatus } from "./trace-machine-setup";
 import {
   legacyRetiredPath,
@@ -27,8 +26,7 @@ import {
 } from "./trace-storage-cli";
 import { readTraceConfigFile, traceConfigPath } from "./trace-storage/config";
 import { selectTraceStorage } from "./trace-storage/resolve";
-import { S3TraceStorage } from "./trace-storage/s3";
-import { resolveS3Setup } from "./trace-storage/s3-config";
+import { describeS3Setup, resolveS3Setup } from "./trace-storage/s3-config";
 import { allowTraceRepository } from "./trace-user-config";
 
 /** Runs `action` with process.env and HOME temporarily replaced by `env`. */
@@ -194,16 +192,11 @@ describe("trace storage commands", () => {
       credentialsSource: "profile",
       storageMode: "s3",
     });
-    // The doctor reports the profile as its source once the legacy files
+    // The status report names the profile as its source once the legacy files
     // are gone, instead of demanding the env file.
     delete env.TRACE_R2_MODE;
-    vi.spyOn(S3TraceStorage.prototype, "doctor").mockResolvedValue({
-      reachable: true,
-    });
-    const doctor = await withProcessEnv(env, () => checkReviewTraceDoctor());
-    expect(doctor).toMatchObject({
-      ok: true,
-      reachable: true,
+    const report = await withProcessEnv(env, async () => describeS3Setup());
+    expect(report).toMatchObject({
       envPath: configPath,
       config: { bucket: "legacy-traces" },
     });
@@ -302,10 +295,14 @@ describe("trace storage commands", () => {
   it("writes nothing when the bucket is unreachable", async () => {
     writeLegacy();
     delete env.TRACE_R2_MODE;
-    vi.spyOn(S3TraceStorage.prototype, "doctor").mockResolvedValue({
-      reachable: false,
-      error: "head-bucket failed",
-    });
+    const binDir = path.join(home, "bin");
+    mkdirSync(binDir);
+    writeFileSync(
+      path.join(binDir, "aws"),
+      "#!/bin/sh\necho 'head-bucket failed' >&2\nexit 1\n",
+      { mode: 0o755 },
+    );
+    env.PATH = `${binDir}${path.delimiter}${process.env.PATH}`;
     const result = await migrate();
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Cannot reach S3/R2 bucket");

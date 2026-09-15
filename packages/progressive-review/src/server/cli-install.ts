@@ -35,7 +35,7 @@ import {
   removeFffRegistration,
 } from "../agent-fff";
 import { removeAgentTraceHook } from "../agent-trace-hooks";
-import { writeFileAtomicAsync } from "../atomic-write";
+import { writeFileAtomicAsync, writePrivateJsonAtomic } from "../atomic-write";
 import { collectingWritable } from "../cli-output";
 import { isDirectory, isFile } from "../fs-utils";
 import {
@@ -48,6 +48,7 @@ import {
   runInstall,
 } from "../install";
 import { readProgressiveReviewPackageVersion } from "../package-paths";
+import { reviewDesktopStateDir } from "../review-home-paths";
 import {
   type TraceCredentialsInput,
   disableTraceMachine,
@@ -55,7 +56,6 @@ import {
 } from "../trace-machine-setup";
 import { disableAllTraceRepositories } from "../trace-repository-hooks";
 import { withFileLock } from "../with-file-lock";
-import { reviewDesktopStateDir, writePrivateJsonAtomic } from "./desktop-paths";
 
 const installErrors = new Map<string, string>();
 

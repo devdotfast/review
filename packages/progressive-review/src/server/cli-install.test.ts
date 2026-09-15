@@ -5,6 +5,7 @@ import path from "node:path";
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { writePrivateJsonAtomic } from "../atomic-write";
 import {
   applyCliInstall,
   cliInstallStampPath,
@@ -16,7 +17,6 @@ import {
   resolveInstalledReviewAgentStatus,
   skipCliInstall,
 } from "./cli-install";
-import { writePrivateJsonAtomic } from "./desktop-paths";
 
 const temporaryDirectories: string[] = [];
 

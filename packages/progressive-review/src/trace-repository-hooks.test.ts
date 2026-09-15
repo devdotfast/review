@@ -23,6 +23,45 @@ afterEach(async () => {
 });
 
 describe("trace repository hooks", () => {
+  it("renders a file with arguments as separate words and records the command", async () => {
+    const { homeDir, repo } = await makeRepository();
+
+    const enabled = await enableTraceRepository({
+      cwd: repo,
+      homeDir,
+      reviewCommand: {
+        file: "/opt/dev traces/dev-traces",
+        args: ["--home", "/x"],
+      },
+    });
+
+    const rendered = "'/opt/dev traces/dev-traces' '--home' '/x'";
+    expect(enabled.command).toBe(rendered);
+    expect(
+      await readFile(path.join(enabled.managedHooksPath!, "pre-push"), "utf8"),
+    ).toContain(`${rendered} trace git-hook pre-push "$@"`);
+    expect(
+      JSON.parse(
+        await readFile(
+          path.join(repo, ".git", "dev-fast", "trace-hooks", "state.json"),
+          "utf8",
+        ),
+      ).command,
+    ).toBe(rendered);
+    expect((await traceRepositoryStatus(repo)).command).toBe(rendered);
+
+    const repaired = await enableTraceRepository({
+      cwd: repo,
+      homeDir,
+      reviewCommand: "review",
+    });
+
+    expect(repaired.command).toBe("'review'");
+    expect(
+      await readFile(path.join(enabled.managedHooksPath!, "pre-push"), "utf8"),
+    ).toContain(`'review' trace git-hook pre-push`);
+  });
+
   it("chains and restores the repository's existing hook path", async () => {
     const { homeDir, repo } = await makeRepository();
     await runGit(repo, ["config", "--local", "core.hooksPath", ".husky/_"]);

@@ -336,6 +336,41 @@ export async function git(
   }
 }
 
+/**
+ * Run git from a working directory, as `git -C <cwd>` does. Unlike `git()`,
+ * which pins the shared git dir, this resolves HEAD, the index, and local
+ * config for the worktree that owns `cwd`.
+ */
+export async function gitAt(
+  cwd: string,
+  args: string[],
+  options: { allowFailure?: boolean; signal?: AbortSignal } = {},
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      "git",
+      ["-C", cwd, ...args],
+      { maxBuffer: 64 * 1024 * 1024, signal: options.signal },
+    );
+
+    return { ok: true, stdout, stderr };
+  } catch (error) {
+    if (options.allowFailure) {
+      // SAFETY: execFile rejects with an ExecFileException that carries the
+      // child's captured stdout and stderr as utf8 strings.
+      const err = error as { stdout?: string; stderr?: string };
+
+      return {
+        ok: false,
+        stdout: err.stdout ?? "",
+        stderr: err.stderr ?? String(error),
+      };
+    }
+
+    throw error;
+  }
+}
+
 function createLocalVcs(kind: LocalVcsKind, rootPath: string): LocalVcs {
   return {
     kind,

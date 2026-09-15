@@ -1,21 +1,34 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { installClaudeTraceHook } from "./agent-trace-hooks";
 import { clearTraceEnvCache } from "./review-agent-traces";
 import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
 import {
+  runReviewTraceAllow,
   runReviewTraceDeny,
   runReviewTraceSessions,
   writeHostedTraceStatus,
 } from "./trace-hosted-cli";
+import { enableTraceRepository } from "./trace-repository-hooks";
 import { rememberTraceRepositoryTarget } from "./trace-repository-target";
-import { traceConfigPath } from "./trace-storage/config";
+import {
+  type TraceConfig,
+  readTraceConfigFile,
+  traceConfigPath,
+} from "./trace-storage/config";
 import { allowTraceRepository, readTraceUserConfig } from "./trace-user-config";
 
 const ORIGIN = "https://app.dev.fast";
@@ -149,6 +162,24 @@ describe("hosted trace commands", () => {
       },
       env,
     );
+  }
+
+  async function login(): Promise<void> {
+    await writeStoreAuth(
+      {
+        origin: ORIGIN,
+        token: "token",
+        login: "dev",
+        savedAt: "2026-09-01T00:00:00.000Z",
+      },
+      env,
+    );
+  }
+
+  function writeConfig(config: TraceConfig & { preserved?: string }): void {
+    const filePath = traceConfigPath({ devHome });
+    mkdirSync(path.dirname(filePath), { recursive: true });
+    writeFileSync(filePath, JSON.stringify(config));
   }
 
   it("lists every published session with bytes and no signed URL", async () => {
@@ -586,5 +617,149 @@ describe("hosted trace commands", () => {
       ),
     });
     expect(out.text()).toContain("Stored bytes: 2048");
+  });
+
+  it("allows a repository, writes the hook command, and switches capture back on", async () => {
+    await login();
+    writeConfig({
+      preserved: "value",
+      version: 2,
+      "current-store": "hosted",
+      stores: {
+        hosted: {
+          origin: "https://traces.example.com",
+          capture: { enabled: false },
+        },
+      },
+    });
+    const out = collect();
+
+    const code = await runReviewTraceAllow({
+      cwd: repo,
+      env,
+      homeDir: home,
+      harnessHooks: false,
+      traceCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
+      client: client(() => Response.json(STORE)),
+      stdout: out.stream,
+      stderr: out.stream,
+    });
+
+    expect(code).toBe(0);
+    expect(readTraceConfigFile({ devHome })).toMatchObject({
+      extra: { preserved: "value" },
+      config: {
+        "current-store": "hosted",
+        stores: {
+          hosted: {
+            origin: "https://traces.example.com",
+            capture: { enabled: true },
+          },
+        },
+      },
+    });
+    expect((await readTraceUserConfig(devHome)).repositories).toEqual([
+      {
+        repositoryId: 7,
+        name: "acme/app",
+        enabledOrigins: [ORIGIN],
+        allowedAt: expect.any(String),
+      },
+    ]);
+    expect(
+      readFileSync(
+        path.join(repo, ".git", "dev-fast", "trace-hooks", "hooks", "pre-push"),
+        "utf8",
+      ),
+    ).toContain("'/opt/dev-traces/bin/dev-traces' trace git-hook pre-push");
+    expect(out.text()).toBe(
+      `Traces from acme/app may be published to ${ORIGIN}.\n`,
+    );
+  });
+
+  it("names the login's origin when no hosted entry exists", async () => {
+    await login();
+    const out = collect();
+
+    expect(
+      await runReviewTraceAllow({
+        cwd: repo,
+        env,
+        homeDir: home,
+        harnessHooks: false,
+        client: client(() => Response.json(STORE)),
+        stdout: out.stream,
+        stderr: out.stream,
+      }),
+    ).toBe(0);
+    expect(readTraceConfigFile({ devHome }).config?.stores?.hosted).toEqual({
+      origin: ORIGIN,
+      capture: { enabled: true },
+    });
+  });
+
+  it("refuses to allow while a bucket is selected", async () => {
+    await login();
+    writeConfig({
+      version: 2,
+      "current-store": "s3",
+      stores: {
+        s3: {
+          endpoint: "https://s3.test",
+          bucket: "b",
+          accessKeyId: "k",
+          secretAccessKey: "s",
+        },
+      },
+    });
+    const out = collect();
+    const err = collect();
+
+    const code = await runReviewTraceAllow({
+      cwd: repo,
+      env,
+      homeDir: home,
+      harnessHooks: false,
+      json: true,
+      stdout: out.stream,
+      stderr: err.stream,
+    });
+
+    expect(code).toBe(1);
+    expect(JSON.parse(out.text())).toEqual({
+      event: "error",
+      stage: "allow",
+      message:
+        "This machine sends traces to a bucket. Run `review trace storage use hosted` first.",
+    });
+    expect(err.text()).toBe(
+      "This machine sends traces to a bucket. Run `review trace storage use hosted` first.\n",
+    );
+    expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
+  });
+
+  it("prints the capture switch, harness owners, and git hook command", async () => {
+    await installClaudeTraceHook(home);
+    await enableTraceRepository({
+      cwd: repo,
+      homeDir: home,
+      reviewCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
+    });
+    const out = collect();
+
+    await writeHostedTraceStatus({
+      cwd: repo,
+      env,
+      homeDir: home,
+      origin: ORIGIN,
+      stdout: out.stream,
+    });
+
+    expect(out.text().split("\n").slice(1, 5)).toEqual([
+      `Login: none. Run \`review login --origin ${ORIGIN}\`.`,
+      "Capture switch: on",
+      "Harness hooks: claude -> review, codex -> none, opencode -> none, pi -> none",
+      "Git hooks: '/opt/dev-traces/bin/dev-traces'",
+    ]);
   });
 });

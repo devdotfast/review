@@ -11,6 +11,7 @@ import {
   ReviewCliInstallApplyResponseSchema,
   type ReviewCliInstallStatus,
   ReviewCliInstallStatusSchema,
+  type ReviewCliInstallTarget,
   type ReviewDesktopDiscovery,
   ReviewDesktopDiscoverySchema,
   type ReviewDesktopGlobalEvent,
@@ -51,6 +52,32 @@ export * from "./json.js";
 export * from "./runtime-value.js";
 
 export * from "./contracts.js";
+
+export interface ReviewCliInstallResyncRequest {
+  readonly targets: readonly ReviewCliInstallTarget[];
+  readonly shim: boolean;
+  readonly autoUpdate: true;
+}
+
+/** Returns the previously consented install scope when a stale install needs to be reapplied. */
+export function reviewCliInstallResyncRequest(
+  status: ReviewCliInstallStatus,
+): ReviewCliInstallResyncRequest | undefined {
+  if (status.stamp?.consent !== "granted") return undefined;
+
+  const targets =
+    status.stamp.targets !== undefined
+      ? status.stamp.targets
+      : status.agents.flatMap((agent) =>
+          agent.installed ? [agent.target] : [],
+        );
+
+  const shim = Boolean(status.stamp.shimPath);
+
+  return targets.length > 0 || shim
+    ? { targets, shim, autoUpdate: true }
+    : undefined;
+}
 
 export function parseReviewDesktopDiscovery(
   value: JsonValue,

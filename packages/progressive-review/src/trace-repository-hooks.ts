@@ -1,10 +1,8 @@
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
+import { gitAt } from "@dev.fast/local-vcs";
 import {
   jsonArray,
   jsonString,
@@ -12,7 +10,14 @@ import {
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-const execFileAsync = promisify(execFile);
+import { writeFileAtomicAsync } from "./atomic-write";
+import {
+  type TraceCommand,
+  renderTraceCommand,
+  resolveTraceCommand,
+  shellQuote,
+  traceHomeDir,
+} from "./trace-command";
 
 const repositoryHookStateSchema = z.object({
   version: z.literal(1),
@@ -21,6 +26,7 @@ const repositoryHookStateSchema = z.object({
   previousHooksPath: z.string(),
   previousHookDirectory: z.string(),
   previousWasConfigured: z.boolean(),
+  command: z.string().optional(),
 });
 
 type RepositoryHookState = z.infer<typeof repositoryHookStateSchema>;
@@ -31,13 +37,15 @@ export interface TraceRepositoryStatus {
   root?: string;
   managedHooksPath?: string;
   previousHooksPath?: string;
+  /** The rendered hook command, when hooks are installed. */
+  command?: string;
   message: string;
 }
 
 export async function enableTraceRepository(input: {
   cwd: string;
   homeDir?: string;
-  reviewCommand?: string;
+  reviewCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   const resolved = await resolveRepository(input.cwd);
 
@@ -85,6 +93,12 @@ export async function enableTraceRepository(input: {
       resolveHooksPath(resolved.root, previousHooksPath))
     : previousHooksPath;
 
+  const homeDir = input.homeDir ?? traceHomeDir();
+
+  const reviewCommand = renderTraceCommand(
+    resolveTraceCommand({ explicit: input.reviewCommand, homeDir }),
+  );
+
   const state: RepositoryHookState = {
     version: 1,
     root: resolved.root,
@@ -92,15 +106,8 @@ export async function enableTraceRepository(input: {
     previousHooksPath,
     previousHookDirectory,
     previousWasConfigured,
+    command: reviewCommand,
   };
-
-  const homeDir = input.homeDir ?? traceHomeDir();
-  const installedCommand = path.join(homeDir, ".local", "bin", "review");
-
-  const reviewCommand =
-    input.reviewCommand ??
-    process.env.REVIEW_TRACE_COMMAND ??
-    (existsSync(installedCommand) ? installedCommand : "review");
 
   await mkdir(hooksPath, { recursive: true });
   await writeHook(
@@ -112,7 +119,7 @@ export async function enableTraceRepository(input: {
     prePushHook(previousHookDirectory, reviewCommand),
   );
   await writePrivateJson(statePath, state);
-  await runGit(resolved.root, [
+  await gitAt(resolved.root, [
     "config",
     "--local",
     "core.hooksPath",
@@ -126,6 +133,7 @@ export async function enableTraceRepository(input: {
     root: resolved.root,
     managedHooksPath: hooksPath,
     previousHooksPath,
+    command: reviewCommand,
     message: "Review trace hooks are enabled for this repository.",
   };
 }
@@ -133,7 +141,7 @@ export async function enableTraceRepository(input: {
 export async function repairTraceRepository(input: {
   cwd: string;
   homeDir?: string;
-  reviewCommand?: string;
+  reviewCommand?: string | TraceCommand;
 }): Promise<TraceRepositoryStatus> {
   return enableTraceRepository(input);
 }
@@ -171,17 +179,17 @@ export async function disableTraceRepository(input: {
     path.resolve(state.managedHooksPath)
   ) {
     if (state.previousWasConfigured) {
-      await runGit(resolved.root, [
+      await gitAt(resolved.root, [
         "config",
         "--local",
         "core.hooksPath",
         state.previousHooksPath,
       ]);
     } else {
-      await runGit(
+      await gitAt(
         resolved.root,
         ["config", "--local", "--unset", "core.hooksPath"],
-        true,
+        { allowFailure: true },
       );
     }
   }
@@ -233,6 +241,8 @@ export async function traceRepositoryStatus(
   if (state) {
     status.managedHooksPath = state.managedHooksPath;
     status.previousHooksPath = state.previousHooksPath;
+
+    if (state.command !== undefined) status.command = state.command;
   }
 
   return status;
@@ -248,19 +258,17 @@ export async function disableAllTraceRepositories(
   }
 }
 
-function traceHomeDir(): string {
-  return process.env.TRACE_HOME_DIR ?? os.homedir();
-}
-
 async function resolveRepository(
   cwd: string,
 ): Promise<{ root: string; commonDir: string } | null> {
-  const rootResult = await runGit(cwd, ["rev-parse", "--show-toplevel"], true);
+  const rootResult = await gitAt(cwd, ["rev-parse", "--show-toplevel"], {
+    allowFailure: true,
+  });
 
-  const commonResult = await runGit(
+  const commonResult = await gitAt(
     cwd,
     ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    true,
+    { allowFailure: true },
   );
 
   if (!rootResult.ok || !commonResult.ok) return null;
@@ -274,10 +282,10 @@ async function resolveRepository(
 async function configuredHooksPath(
   root: string,
 ): Promise<{ configured: boolean; value: string }> {
-  const result = await runGit(
+  const result = await gitAt(
     root,
     ["config", "--local", "--get", "core.hooksPath"],
-    true,
+    { allowFailure: true },
   );
 
   return {
@@ -288,10 +296,6 @@ async function configuredHooksPath(
 
 function resolveHooksPath(root: string, hooksPath: string): string {
   return path.isAbsolute(hooksPath) ? hooksPath : path.resolve(root, hooksPath);
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function previousHookSetup(pathValue: string, name: string): string {
@@ -310,14 +314,14 @@ function prepareCommitMessageHook(
   reviewCommand: string,
 ): string {
   const previous = previousHookSetup(previousPath, "prepare-commit-msg");
-  const review = shellQuote(reviewCommand);
+  const review = reviewCommand;
 
   return `#!/bin/sh\n${previous}\nif [ -x "$previous" ]; then\n  "$previous" "$@" || exit $?\nfi\n${review} trace git-hook prepare-commit-msg "$@" || true\nexit 0\n`;
 }
 
 function prePushHook(previousPath: string, reviewCommand: string): string {
   const previous = previousHookSetup(previousPath, "pre-push");
-  const review = shellQuote(reviewCommand);
+  const review = reviewCommand;
 
   return `#!/bin/sh\n${previous}\ntmp="$(mktemp "\${TMPDIR:-/tmp}/review-pre-push.XXXXXX")" || exit 0\ntrap 'rm -f "$tmp"' EXIT HUP INT TERM\ncat > "$tmp"\nif [ -x "$previous" ]; then\n  "$previous" "$@" < "$tmp" || exit $?\nfi\n${review} trace git-hook pre-push "$@" < "$tmp" || true\nexit 0\n`;
 }
@@ -345,11 +349,10 @@ async function writePrivateJson(
   filePath: string,
   value: RepositoryHookState | string[],
 ): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+  await writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
     mode: 0o600,
   });
-  await chmod(filePath, 0o600);
 }
 
 function registryPath(homeDir: string): string {
@@ -386,33 +389,4 @@ async function unregisterRepository(
     registryPath(homeDir),
     (await readRegistry(homeDir)).filter((entry) => entry !== root),
   );
-}
-
-async function runGit(
-  cwd: string,
-  args: string[],
-  allowFailure = false,
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await execFileAsync(
-      "git",
-      ["-C", cwd, ...args],
-      {
-        maxBuffer: 64 * 1024 * 1024,
-      },
-    );
-
-    return { ok: true, stdout, stderr };
-  } catch (cause) {
-    if (!allowFailure) throw cause;
-    // SAFETY: execFile rejects with an ExecFileException that carries the
-    // child's captured stdout and stderr as utf8 strings.
-    const error = cause as { stdout?: string; stderr?: string };
-
-    return {
-      ok: false,
-      stdout: error.stdout ?? "",
-      stderr: error.stderr ?? String(cause),
-    };
-  }
 }

@@ -1,3 +1,4 @@
+import { traceCliName } from "../trace-command";
 import {
   type TraceConfigFile,
   TraceConfigurationError,
@@ -105,8 +106,7 @@ export function selectTraceStorage(
         config,
         s3,
         hosted,
-        error:
-          "S3 trace storage is selected but no bucket credentials are configured. Run `review trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>` or Review Agent Setup.",
+        error: `S3 trace storage is selected but no bucket credentials are configured. Run \`${traceCliName()} trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>\` or Review Agent Setup.`,
       };
     }
 
@@ -158,7 +158,7 @@ export async function resolveTraceStorage(
 
 /**
  * Names the destination a capture attempt was started for, so a detached
- * `review trace sync` can refuse to run once the selection changed.
+ * trace sync can refuse to run once the selection changed.
  */
 export function traceStorageExpectation(scope: S3ConfigScope = {}): string {
   const selection = selectTraceStorage(scope);
@@ -242,7 +242,7 @@ async function hostedStorage(
 
   if (!origin) {
     throw new TraceConfigurationError(
-      "Hosted trace storage is not configured. Run `review trace allow .` or `review trace storage use hosted`.",
+      `Hosted trace storage is not configured. Run \`${traceCliName()} trace allow .\` or \`${traceCliName()} trace storage use hosted\`.`,
     );
   }
 
@@ -259,7 +259,7 @@ async function hostedStorage(
 
   if (!storage) {
     throw new TraceConfigurationError(
-      "Hosted trace storage needs a login and a GitHub checkout with an onboarded store. Run `review login`, `review trace onboard`, and `review trace allow .`.",
+      `Hosted trace storage needs a login and a GitHub checkout with an onboarded store. Run \`${traceCliName()} login\`, \`${traceCliName()} trace onboard\`, and \`${traceCliName()} trace allow .\`.`,
     );
   }
 

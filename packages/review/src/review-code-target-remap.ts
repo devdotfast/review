@@ -12,7 +12,6 @@ import {
 
 import type {
   ReviewCommentDraftThreadMap,
-  ReviewCommentThreadMap,
   ReviewCommentThreadRecord,
 } from "./types";
 import { type DiffHunk, parseUnifiedPatch } from "./unified-diff";
@@ -34,12 +33,14 @@ interface CodeLocation {
   span: CodeSpan;
 }
 
-export async function remapReviewCodeThreads(input: {
+export async function remapReviewCodeThreads<
+  T extends Pick<ReviewCommentThreadRecord, "target">,
+>(input: {
   rootPath: string;
-  comments: ReviewCommentThreadMap;
+  comments: Record<string, T>;
   from: ReviewPins;
   to: ReviewPins;
-}): Promise<ReviewCommentThreadMap> {
+}): Promise<Record<string, T>> {
   const comments = { ...input.comments };
   const sourceCommit = input.to.sourceCommit;
 
@@ -139,13 +140,15 @@ export async function remapReviewCodeDrafts(input: {
   return drafts;
 }
 
-async function remapCodeThread(input: {
+async function remapCodeThread<
+  T extends Pick<ReviewCommentThreadRecord, "target">,
+>(input: {
   rootPath: string;
-  thread: ReviewCommentThreadRecord;
+  thread: T;
   to: ReviewPins & { sourceCommit: string };
   transitions: Map<"base" | "head", { fromCommit: string; toCommit: string }>;
   summaries: Map<"base" | "head", LocalVcsDiffFileSummary[]>;
-}): Promise<ReviewCommentThreadRecord> {
+}): Promise<T> {
   const target = input.thread.target;
 
   if (target.kind !== "code") return input.thread;
@@ -167,9 +170,7 @@ async function remapCodeThread(input: {
   }
 
   if (!gitLabDiffPositionRows(target.position)) {
-    throw new Error(
-      `Code thread ${input.thread.threadId} has an invalid text position.`,
-    );
+    throw new Error("Code thread has an invalid text position.");
   }
 
   let position: GitLabDiffPosition = { ...target.position, ...nextRefs };
@@ -371,6 +372,7 @@ async function mapCodeLocation(input: {
     baseRef: input.location.commit,
     headRef: input.toCommit,
     paths: [...new Set([input.location.path, newPath])],
+    literalPaths: true,
   });
 
   const newSpan = mapCodeSpanThroughHunks(

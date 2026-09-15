@@ -68,6 +68,8 @@ import {
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
+import { answerWithAgent } from "../review-api/question-agent.js";
+import { ReviewQuestions } from "../review-api/questions.js";
 import type { ReviewStore } from "../review-api/store.js";
 import {
   dismissReview,
@@ -361,6 +363,31 @@ export function createGlobalReviewServer(
     return server;
   };
 
+  const questions = input.reviewStore
+    ? new ReviewQuestions(input.reviewStore, async (question) => {
+        const harness = await tutorialAgentResolver();
+
+        if (!harness)
+          throw new ReviewInputError(
+            "Choose an installed agent in Review settings before asking a question.",
+            409,
+          );
+
+        return answerWithAgent(
+          agentServerFor(harness),
+          question,
+          async (args) => {
+            const result = await relay.dispatch("review-desktop", {
+              name: "openNativeAgentTerminal",
+              args,
+            });
+
+            if (!result.ok) throw new ReviewInputError(result.error, 409);
+          },
+        );
+      })
+    : undefined;
+
   async function prepareAgentServers(): Promise<void> {
     const status = await resolveInstalledReviewAgentStatus();
     await Promise.all(
@@ -453,14 +480,19 @@ export function createGlobalReviewServer(
   if (input.reviewStore)
     app.route(
       "/reviews-api",
-      createReviewApi(input.reviewStore, input.reviewData, async (review) => {
-        const result = await relay.dispatch("review-desktop", {
-          name: "openApiReview",
-          args: review,
-        });
+      createReviewApi(
+        input.reviewStore,
+        input.reviewData,
+        async (review) => {
+          const result = await relay.dispatch("review-desktop", {
+            name: "openApiReview",
+            args: review,
+          });
 
-        if (!result.ok) throw new ReviewInputError(result.error, 409);
-      }),
+          if (!result.ok) throw new ReviewInputError(result.error, 409);
+        },
+        questions,
+      ),
     );
   // Native agents can read their draft before launch returns and a session is bound.
   // Every lookup is authenticated by the desktop token above.
@@ -2780,6 +2812,7 @@ export function createGlobalReviewServer(
           closeSession(session, "app-exit", false).catch(() => undefined),
         ),
       );
+      questions?.close();
       relay.close();
 
       for (const client of globalClients) client.close();

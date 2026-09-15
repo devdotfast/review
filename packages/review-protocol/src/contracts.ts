@@ -1045,6 +1045,14 @@ export type ReviewSoftwareMapLoad =
   | { state: "needs-republish"; reviewUuid: string }
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
+export interface ReviewApiFeedbackContext {
+  reviewId: string;
+  /** Source-model snapshot, retained across prose edits with identical pins. */
+  version: number;
+  pins: { base: string; head: string };
+  comments: ReviewCommentStoreBridge;
+}
+
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
@@ -1054,6 +1062,7 @@ export type ReviewCanvasContent =
       bridge: Omit<ReviewCanvasBridge, "comments">;
       setTitle?(title: string): void;
       setVersion?(version: number): void;
+      bindFeedback?(context: ReviewApiFeedbackContext): () => void;
     }
   | {
       kind: "error";
@@ -2139,6 +2148,8 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openNativeAgentTerminal"),
     args: z.strictObject({
+      /** API reviews have no legacy session/comment store. */
+      reviewId: requiredString.optional(),
       threadId: requiredString,
       /** The native session the terminal runs; the app keys terminals by it. */
       session: AuthoringAgentSessionSchema,

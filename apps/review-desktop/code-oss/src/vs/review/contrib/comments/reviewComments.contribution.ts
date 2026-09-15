@@ -65,8 +65,12 @@ import {
   type ReviewCommentStoreSnapshot,
   type ReviewCommentThreadRecord,
   type ReviewDiffFileWire,
+  type ReviewApiFeedbackContext,
 } from "../../common/reviewProtocol.js";
-import { IReviewCodeResourceService } from "../../services/reviewCodeResourceService.js";
+import { IReviewApiSourceService, REVIEW_API_SOURCE_SCHEME, apiSourceUri, apiFeedbackSource } from "../../services/reviewApiSourceService.js";
+import {
+  IReviewCodeResourceService,
+} from "../../services/reviewCodeResourceService.js";
 import {
   IReviewSessionModelService,
   type ReviewSessionModel,
@@ -128,6 +132,7 @@ interface BaseThreadProjection {
 }
 
 interface CommentThreadProjection extends BaseThreadProjection {
+  readonly canEditMessage?: (threadId: string, messageId: string) => boolean;
   readonly record: ReviewCommentThreadRecord;
   readonly draft: boolean;
   readonly agentActivity: ReviewCommentAgentActivity | undefined;
@@ -301,6 +306,7 @@ class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
       : projection.record.status === "resolved"
         ? REVIEW_COMMENT_THREAD_RESOLVED
         : REVIEW_COMMENT_THREAD_OPEN;
+    if (projection.canEditMessage && projection.record.messages.some(message => !projection.canEditMessage!(projection.threadId, message.id))) this.contextValue += ".posted";
     this.applicability = projection.outdated
       ? CommentThreadApplicability.Outdated
       : CommentThreadApplicability.Current;
@@ -337,23 +343,22 @@ class ReviewCommentThread extends Disposable implements CommentThread<IRange> {
   private renderComments(): void {
     const projection = this.projection;
     if (!projection) return;
-    const comments: Comment[] = projection.record.messages.map(
-      (message, index) => {
-        const uniqueIdInThread = index + 1;
-        const editing = uniqueIdInThread === this.editingComment;
-        return {
-          uniqueIdInThread,
-          body: message.body,
-          userName: message.by,
-          contextValue: editing
-            ? REVIEW_COMMENT_MESSAGE_EDITING
-            : REVIEW_COMMENT_MESSAGE,
-          mode: editing ? CommentMode.Editing : CommentMode.Preview,
-          state: projection.draft ? CommentState.Draft : CommentState.Published,
-          timestamp: message.at,
-        };
-      },
-    );
+    const comments: Comment[] = projection.record.messages.map((message, index) => {
+      const uniqueIdInThread = index + 1;
+      const editing = uniqueIdInThread === this.editingComment;
+      return {
+        uniqueIdInThread,
+        body: message.body,
+        userName: message.by,
+        contextValue: editing
+          ? REVIEW_COMMENT_MESSAGE_EDITING
+          : projection.canEditMessage && !projection.canEditMessage(projection.threadId, message.id)
+            ? "devfastReviewPostedMessage" : REVIEW_COMMENT_MESSAGE,
+        mode: editing ? CommentMode.Editing : CommentMode.Preview,
+        state: projection.draft ? CommentState.Draft : CommentState.Published,
+        timestamp: message.at,
+      };
+    });
     if (projection.agentActivity) {
       const activity = projection.agentActivity;
       comments.push({
@@ -402,6 +407,7 @@ export class ReviewCommentController
     new MutableDisposable<{ dispose(): void }>(),
   );
   private model: ReviewSessionModel | null = null;
+  private api: ReviewApiFeedbackContext | undefined;
   private commentStore: ReviewCommentStoreBridge | null = null;
   private threads = new Map<string, ReviewCommentThread>();
   private resourceThreads = new Map<string, ReviewCommentThread>();
@@ -424,6 +430,7 @@ export class ReviewCommentController
     @IReviewSessionService
     private readonly sessionService: IReviewSessionService,
     @IContextKeyService contextKeyService: IContextKeyService,
+    private readonly apiSource?: IReviewApiSourceService,
   ) {
     super();
     this.canAddToReview =
@@ -445,6 +452,7 @@ export class ReviewCommentController
       ),
     );
     this.bindModel(this.sessionModelService.activeModel);
+    if (apiSource) this._register(apiSource.onDidChangeFeedback(() => this.bindModel(this.sessionModelService.activeModel)));
   }
 
   private rangeLabel(
@@ -505,8 +513,9 @@ export class ReviewCommentController
     editorId?: string,
   ): Promise<void> {
     const resource = URI.revive(resourceComponents);
+    const comments = this.commentStore;
     const target = await this.targetForResource(resource, range);
-    if (!target || !range) return;
+    if (!target || !range || this.commentStore !== comments) return;
     const threadId = generateUuid();
     const normalizedRange = wholeLineRange(range);
     const thread = new ReviewCommentThread(
@@ -541,7 +550,7 @@ export class ReviewCommentController
     thread.range = wholeLineRange(range);
     const resource = URI.parse(thread.resource);
     const target = await this.targetForResource(resource, range);
-    if (target) {
+    if (target && this.threads.get(thread.threadId) === thread) {
       this.targets.set(thread.threadId, target);
       thread.updateLabel(this.rangeLabel(target, resource, range));
     }
@@ -577,7 +586,7 @@ export class ReviewCommentController
     const unified = this.codeResources.unifiedResource(resource);
     const identity = this.resourceIdentity(resource);
     const surface = unified ? "diff" : identity?.side;
-    const authorable = !!surface && this.model?.state === "active";
+    const authorable = !!surface && (!!this.api || this.model?.state === "active");
     const threads: ReviewCommentThread[] = [];
     for (const thread of this.threads.values()) {
       if (thread.isDisposed) continue;
@@ -587,7 +596,7 @@ export class ReviewCommentController
       }
       const projection = this.projections.get(thread.threadId);
       if (!projection || projection.outdated) continue;
-      const projectedRange = await this.codeResources.projectPosition(
+      const projectedRange = this.api ? this.apiSource!.commentRange(projection.target, resource) : await this.codeResources.projectPosition(
         projection.target.position,
         resource,
       );
@@ -648,12 +657,12 @@ export class ReviewCommentController
   async addToReview(context: ReviewCommentReplyContext): Promise<void> {
     const body = context.text.trim();
     if (!body) return;
-    const model = this.model;
+    const comments = this.commentStore;
     const target = this.targets.get(context.thread.threadId);
-    if (!model || model.state !== "active" || !target) {
+    if (!comments || (!this.api && this.model?.state !== "active") || !target) {
       throw new Error("The active review no longer owns this comment.");
     }
-    await model.comments.saveComment({
+    await comments.saveComment({
       threadId: context.thread.threadId,
       messageId: generateUuid(),
       target,
@@ -664,14 +673,14 @@ export class ReviewCommentController
   async askNow(context: ReviewCommentReplyContext): Promise<void> {
     const body = context.text.trim();
     if (!body) return Promise.resolve();
-    const model = this.model;
+    const comments = this.commentStore;
     const target = this.targets.get(context.thread.threadId);
-    if (!model || model.state !== "active" || !target) {
+    if (!comments || (!this.api && this.model?.state !== "active") || !target) {
       throw new Error("The active review no longer owns this comment.");
     }
     const thread = context.thread as ReviewCommentThread;
     const messageId = generateUuid();
-    const submitted = model.comments.askAgent({
+    const submitted = comments.askAgent({
       messageId,
       threadId: thread.threadId,
       target,
@@ -683,7 +692,7 @@ export class ReviewCommentController
     try {
       await submitted;
     } catch (error) {
-      const saved = model.comments.getSnapshot().commentThreads.get(thread.threadId);
+      const saved = comments.getSnapshot().commentThreads.get(thread.threadId);
       if (!saved?.messages.some((message) => message.id === messageId) && thread.input?.value === "") {
         thread.setInputValue(context.text);
       }
@@ -706,21 +715,21 @@ export class ReviewCommentController
     if (!body) return;
     const thread = context.thread as ReviewCommentThread;
     const messageId = thread.messageId(context.commentUniqueId);
-    if (!messageId || !this.model) return;
+    if (!messageId || !this.commentStore) return;
     thread.finishEdit();
-    await this.model.comments.updateComment(thread.threadId, body, messageId);
+    await this.commentStore.updateComment(thread.threadId, body, messageId);
   }
 
   async deleteMessage(context: ReviewCommentNodeContext): Promise<void> {
     const thread = context.thread as ReviewCommentThread;
     const messageId = thread.messageId(context.commentUniqueId);
-    if (!messageId || !this.model) return;
-    await this.model.comments.deleteCommentMessage(thread.threadId, messageId);
+    if (!messageId || !this.commentStore) return;
+    await this.commentStore.deleteCommentMessage(thread.threadId, messageId);
   }
 
   async setResolved(thread: CommentThread, resolved: boolean): Promise<void> {
-    if (!this.model || thread.isTemplate) return;
-    await this.model.comments.setCommentResolved(thread.threadId, resolved);
+    if (!this.commentStore || thread.isTemplate) return;
+    await this.commentStore.setCommentResolved(thread.threadId, resolved);
   }
 
   async deleteThread(thread: CommentThread): Promise<void> {
@@ -728,8 +737,8 @@ export class ReviewCommentController
       this.deleteCommentThreadMain(thread.threadId);
       return;
     }
-    if (!this.model) return;
-    await this.model.comments.deleteComment(thread.threadId);
+    if (!this.commentStore) return;
+    await this.commentStore.deleteComment(thread.threadId);
   }
 
   override dispose(): void {
@@ -741,12 +750,14 @@ export class ReviewCommentController
   }
 
   private bindModel(model: ReviewSessionModel | null): void {
+    this.api = model ? undefined : this.apiSource?.feedback;
     this.canAddToReview.set(
-      model !== null &&
+      !!this.api || model !== null &&
         model.reviewUuid !== this.sessionService.tutorialReview?.uuid,
     );
-    const commentStore = model?.comments ?? null;
+    const commentStore = model?.comments ?? this.api?.comments ?? null;
     if (this.model === model && this.commentStore === commentStore) {
+      if (this.api) this.syncThreads();
       this.updateCommentingRanges();
       return;
     }
@@ -754,7 +765,7 @@ export class ReviewCommentController
     this.model = model;
     this.commentStore = commentStore;
     this.storeSubscription.clear();
-    if (!model || !commentStore) {
+    if (!commentStore) {
       this.updateCommentingRanges();
       return;
     }
@@ -769,9 +780,8 @@ export class ReviewCommentController
   }
 
   private syncThreads(changedThreadIds?: ReadonlySet<string>): void {
-    const model = this.model;
-    if (!model) return;
-    const snapshot = model.comments.getSnapshot();
+    if (!this.commentStore) return;
+    const snapshot = this.commentStore.getSnapshot();
     const projections = this.buildProjections(snapshot);
     const previous = this.threads;
     const next = new Map<string, ReviewCommentThread>();
@@ -881,7 +891,7 @@ export class ReviewCommentController
   private updateCommentingRanges(): void {
     const model = this.model;
     const state = model?.state;
-    const sessionId = model?.session.session.sessionId;
+    const sessionId = this.api ? `${this.api.reviewId}/${this.api.version}` : model?.session.session.sessionId;
     if (
       this.commentingRangesModel === model &&
       this.commentingRangesState === state &&
@@ -894,13 +904,14 @@ export class ReviewCommentController
     this.commentingRangesSessionId = sessionId;
     this.commentService.updateCommentingRanges(
       this.owner,
-      model
+      model || this.api
         ? {
             schemes: [
               "file",
               REVIEW_BASE_SCHEME,
               REVIEW_HEAD_SCHEME,
               REVIEW_UNIFIED_SCHEME,
+              REVIEW_API_SOURCE_SCHEME,
             ],
           }
         : undefined,
@@ -911,7 +922,7 @@ export class ReviewCommentController
     snapshot: ReviewCommentStoreSnapshot,
   ): ThreadProjection[] {
     const model = this.model;
-    if (!model) return [];
+    if (!model && !this.api) return [];
     const projections: ThreadProjection[] = [];
     for (const record of snapshot.commentThreads.values()) {
       if (record.target.kind !== "code") continue;
@@ -921,9 +932,10 @@ export class ReviewCommentController
       const outdated =
         !!target.change_position ||
         !rows ||
-        target.position.base_sha !== model.session.session.resolvedBaseRef ||
-        target.position.start_sha !== model.session.session.resolvedBaseRef ||
-        target.position.head_sha !== model.session.session.headRef;
+        (!this.api && (
+          target.position.base_sha !== model!.session.session.resolvedBaseRef ||
+          target.position.start_sha !== model!.session.session.resolvedBaseRef ||
+          target.position.head_sha !== model!.session.session.headRef));
       projections.push({
         threadId: record.threadId,
         target,
@@ -934,12 +946,18 @@ export class ReviewCommentController
         draft: snapshot.localComments.has(record.threadId),
         agentActivity,
         terminalOpen: snapshot.terminalThreadIds.has(record.threadId),
+        canEditMessage: this.commentStore?.canEditMessage,
       });
     }
     return projections;
   }
 
   private workspaceResourceForTarget(target: CodeThreadTarget): URI {
+    if (this.api) return apiSourceUri({
+      reviewId: this.api.reviewId, version: this.api.version,
+      file: target.position.new_path ?? target.position.old_path ?? "unknown", side: "head",
+      ...(target.position.head_sha !== this.api.pins.head ? { commit: target.position.head_sha! } : {}),
+    });
     const model = this.model!;
     const path =
       target.position.new_path ?? target.position.old_path ?? "unknown";
@@ -959,6 +977,10 @@ export class ReviewCommentController
     resource: URI,
     range: IRange | undefined,
   ): Promise<CodeThreadTarget | null> {
+    if (this.api && range) return this.apiSource!.commentTarget(resource, {
+      startLine: Math.min(range.startLineNumber, range.endLineNumber),
+      endLine: Math.max(range.startLineNumber, range.endLineNumber),
+    });
     const model = this.model;
     if (!model || model.state !== "active" || !range) return null;
     const rows = await this.codeResources.positionRowsForResourceRange(
@@ -994,6 +1016,7 @@ export class ReviewCommentController
   }
 
   private resourceIdentity(resource: URI): ReviewCodeResourceIdentity | null {
+    if (this.api) return apiFeedbackSource(this.api, resource) ?? null;
     const model = this.model;
     if (!model) return null;
     if (
@@ -1086,6 +1109,7 @@ class ReviewCommentsContribution
     @IReviewCodeResourceService codeResources: IReviewCodeResourceService,
     @IReviewSessionService sessionService: IReviewSessionService,
     @IContextKeyService contextKeyService: IContextKeyService,
+    @IReviewApiSourceService apiSource: IReviewApiSourceService,
   ) {
     super();
     this._register(
@@ -1095,6 +1119,7 @@ class ReviewCommentsContribution
         codeResources,
         sessionService,
         contextKeyService,
+        apiSource,
       ),
     );
   }
@@ -1112,7 +1137,7 @@ const reviewCommentWhen = (value: string) =>
 const reviewThreadWhen = (value: string) =>
   ContextKeyExpr.and(
     reviewControllerWhen,
-    ContextKeyExpr.equals("commentThread", value),
+    ContextKeyExpr.regex("commentThread", new RegExp(`^${value}(?:\\.posted)?$`)),
   );
 /* Outside the tutorial a draft thread gets the split control: "Ask now" with
    "Add to review" behind the chevron. The tutorial has only one verb, so it
@@ -1384,7 +1409,7 @@ registerAction2(
           id: MenuId.CommentThreadTitle,
           group: "inline",
           order: 20,
-          when: reviewControllerWhen,
+          when: ContextKeyExpr.and(reviewControllerWhen, ContextKeyExpr.regex("commentThread", /\.posted$/).negate()),
         },
       });
     }

@@ -14,6 +14,7 @@ import type { ReviewSourceEntry } from "@dev.fast/review-protocol";
 import sharp from "sharp";
 import { z } from "zod";
 
+import { remapReviewCodeThreads } from "../review-code-target-remap.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
   type NormalizedSoftwareModel,
@@ -27,6 +28,7 @@ import {
   pinsSchema,
   sourceSchema,
 } from "./document.js";
+import type { FeedbackThread } from "./feedback.js";
 import { mapInputSchema } from "./map-input.js";
 import { ReviewStore } from "./store.js";
 
@@ -67,6 +69,73 @@ export const uploadSchema = z.discriminatedUnion("kind", [
 /** Local implementation of the host's source/resource boundary. No client gets a filesystem path. */
 export class LocalReviewData {
   constructor(private readonly store: ReviewStore) {}
+  async feedback(reviewId: string, version: number) {
+    const { pins } = this.store.read(reviewId, version);
+    const feedback = this.store.feedback.read(reviewId);
+
+    const groups = new Map<
+      string,
+      {
+        from: { baseCommit: string; sourceCommit: string };
+        comments: Record<string, FeedbackThread>;
+      }
+    >();
+
+    const mapped: Record<string, FeedbackThread> = Object.create(null);
+
+    for (const thread of feedback.threads) {
+      if (thread.target.kind !== "code") continue;
+      const origin = this.store.read(reviewId, thread.version).pins;
+
+      // A selected-commit comment keeps that location while viewing its own pins.
+      if (origin.repositoryId !== pins.repositoryId) {
+        mapped[thread.id] = {
+          ...thread,
+          target: {
+            ...thread.target,
+            change_position: {
+              ...thread.target.position,
+              base_sha: pins.base,
+              start_sha: pins.base,
+              head_sha: pins.head,
+            },
+          },
+        };
+        continue;
+      }
+
+      if (origin.base === pins.base && origin.head === pins.head) continue;
+      const position = thread.target.position;
+
+      const from = {
+        baseCommit: (position.base_sha ?? position.start_sha)!,
+        sourceCommit: position.head_sha!,
+      };
+
+      const key = `${from.baseCommit}:${from.sourceCommit}`;
+      const group = groups.get(key) ?? { from, comments: Object.create(null) };
+      group.comments[thread.id] = thread;
+      groups.set(key, group);
+    }
+
+    for (const { from, comments } of groups.values()) {
+      Object.assign(
+        mapped,
+        await remapReviewCodeThreads({
+          rootPath: this.store.repositoryPath(pins.repositoryId),
+          comments,
+          from,
+          to: { baseCommit: pins.base, sourceCommit: pins.head },
+        }),
+      );
+    }
+
+    // Projection only: history and future reads still start from the saved anchors.
+    return {
+      ...feedback,
+      threads: feedback.threads.map((thread) => mapped[thread.id] ?? thread),
+    };
+  }
   async register(root: string) {
     const vcs = await detectLocalVcs(await realpath(root));
 

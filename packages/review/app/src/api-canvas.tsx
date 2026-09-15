@@ -60,6 +60,10 @@ export function ApiCanvas({
   const [data, setData] = useState<ApiDocumentData>();
   const dataRef = useRef(data);
   dataRef.current = data;
+  // Source models may keep an earlier document version with identical pins.
+  // Prose edits must not rebuild native editors or detach their comments.
+  const sourceRef = useRef<{ key: string; version: number }>(undefined);
+  const sourceVersion = sourceRef.current?.version;
   const [error, setError] = useState<string>();
   const [commentError, setCommentError] = useState<string>();
 
@@ -84,6 +88,23 @@ export function ApiCanvas({
     return () => comments.dispose();
   }, [comments]);
   useEffect(() => {
+    if (!data) return;
+    void comments.refresh().catch((cause) => setCommentError(String(cause)));
+
+    return content.bindFeedback?.({
+      reviewId: content.reviewId,
+      version: sourceVersion!,
+      pins: data.snapshot.pins,
+      comments,
+    });
+  }, [
+    content.bindFeedback,
+    content.reviewId,
+    data?.snapshot.version,
+    sourceVersion,
+    comments,
+  ]);
+  useEffect(() => {
     const abort = new AbortController();
     const loader = createDocumentLoader(client);
     setData(undefined);
@@ -94,7 +115,11 @@ export function ApiCanvas({
 
       if (!abort.signal.aborted) {
         // Native source widgets must use these pins on their first mount.
-        content.setVersion?.(snapshot.version);
+        const key = JSON.stringify([snapshot.reviewId, snapshot.pins]);
+
+        if (sourceRef.current?.key !== key)
+          sourceRef.current = { key, version: snapshot.version };
+        content.setVersion?.(sourceRef.current.version);
         setData(next);
         setError(undefined);
         content.setTitle?.(snapshot.title);
@@ -147,9 +172,18 @@ export function ApiCanvas({
 
   const traceKey = JSON.stringify([...(data?.traces.keys() ?? [])]);
 
+  const nativeSources = useMemo(
+    () => ({
+      inlineEditors: { ...content.bridge.inlineEditors },
+      diffView: { ...content.bridge.diffView },
+    }),
+    [content.bridge, sourceVersion],
+  );
+
   const session = useMemo(() => {
     const bridge = {
       ...content.bridge,
+      ...nativeSources,
       comments,
       post: async (request: Parameters<ApiContent["bridge"]["post"]>[0]) => {
         if (request.name === "openReviewRevision") {
@@ -283,7 +317,15 @@ export function ApiCanvas({
     };
 
     return session;
-  }, [client, content.bridge, content.reviewId, version, comments, traceKey]);
+  }, [
+    client,
+    content.bridge,
+    content.reviewId,
+    version,
+    comments,
+    traceKey,
+    nativeSources,
+  ]);
 
   useEffect(() => {
     if (data) content.bridge.ready();

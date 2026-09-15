@@ -4,11 +4,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { createGitLabTextDiffPosition } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { ReviewApiClient } from "../../src/review-api/client";
 import { createReviewApi } from "../../src/review-api/http";
+import { ReviewQuestions } from "../../src/review-api/questions";
 import { ReviewStore } from "../../src/review-api/store";
 import { ApiComments } from "./api-comments";
 
@@ -36,7 +38,11 @@ beforeEach(async () => {
   ({ reviewId } = await command({
     type: "create",
     title: "Comments",
-    pins: { repositoryId: "repo", base: "base", head: "head" },
+    pins: {
+      repositoryId: store.registerRepository(directory).id,
+      base: "base",
+      head: "head",
+    },
   }));
   app = new Hono().route("/reviews-api", createReviewApi(store));
 });
@@ -101,7 +107,7 @@ it("does not replace a submitted conversation with an older delayed read", async
     async (url, init) => {
       const response = await app.request(url, init);
 
-      if (delayRead && url.endsWith("/feedback")) {
+      if (delayRead && new URL(url).pathname.endsWith("/feedback")) {
         delayRead = false;
         captured();
         await new Promise<void>((resolve) => {
@@ -132,4 +138,125 @@ it("does not replace a submitted conversation with an older delayed read", async
   expect(
     comments.getSnapshot().commentThreads.get(question.threadId)?.messages,
   ).toHaveLength(1);
+});
+
+it("reprojects unchanged feedback on a version switch and ignores a delayed old-version response", async () => {
+  let version = 0;
+  let delayRead = false;
+  let release = () => {};
+
+  let captured = () => {};
+
+  const capture = new Promise<void>((resolve) => {
+    captured = resolve;
+  });
+
+  const client = new ReviewApiClient(
+    { serverUrl: "http://review", token: "test" },
+    async (url, init) => {
+      const response = await app.request(url, init);
+
+      if (!new URL(url).pathname.endsWith("/feedback")) return response;
+      const body = await response.json();
+
+      const position = createGitLabTextDiffPosition({
+        base_sha: "base",
+        start_sha: "base",
+        head_sha: "head",
+        old_path: "file.ts",
+        new_path: "file.ts",
+        start: {
+          old_line: null,
+          new_line: Number(new URL(url).searchParams.get("version")) + 1,
+        },
+        end: {
+          old_line: null,
+          new_line: Number(new URL(url).searchParams.get("version")) + 1,
+        },
+      });
+
+      body.threads[0].target = {
+        kind: "code",
+        position,
+        original_position: position,
+      };
+
+      if (delayRead) {
+        delayRead = false;
+        captured();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+
+      return Response.json(body);
+    },
+  );
+
+  comments = new ApiComments(client, reviewId, () => version);
+  const question = input();
+  await comments.saveComment(question);
+  await command({ type: "rename", reviewId, title: "Next version" });
+  await comments.refresh();
+  delayRead = true;
+  const oldRead = comments.refresh();
+  await capture;
+  version = 1;
+  await comments.refresh();
+  release();
+  await oldRead;
+  expect(
+    comments.getSnapshot().commentThreads.get(question.threadId)?.target,
+  ).toMatchObject({ position: { new_line: 2 } });
+  version = 0;
+  await comments.refresh();
+  expect(
+    comments.getSnapshot().commentThreads.get(question.threadId)?.target,
+  ).toMatchObject({ position: { new_line: 1 } });
+  expect(comments.getSnapshot().pendingCommentCount).toBe(1);
+});
+
+it("launches request-changes with the saved submission ID and receives its thread answer", async () => {
+  const question = input();
+
+  const questions = new ReviewQuestions(store, async () =>
+    JSON.stringify({
+      replies: [
+        { threadId: question.threadId, body: "Here is the explanation." },
+      ],
+    }),
+  );
+
+  try {
+    app = new Hono().route(
+      "/reviews-api",
+      createReviewApi(store, undefined, undefined, questions),
+    );
+
+    const client = new ReviewApiClient(
+      { serverUrl: "http://review", token: "test" },
+      async (url, init) => app.request(url, init),
+    );
+
+    let error: string | undefined;
+
+    const failure = (message?: string) => {
+      error = message;
+    };
+
+    comments = new ApiComments(client, reviewId, () => 0, failure);
+    await comments.saveComment(question);
+    await comments.submit("request-changes", randomUUID(), [question]);
+    await vi.waitFor(() =>
+      expect(store.feedback.read(reviewId).threads[0]!.messages).toHaveLength(
+        2,
+      ),
+    );
+    expect(error).toBeUndefined();
+    expect(
+      store.feedback.read(reviewId).threads[0]!.messages.at(-1),
+    ).toMatchObject({ by: "agent", body: "Here is the explanation." });
+  } finally {
+    questions.close();
+  }
 });

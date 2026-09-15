@@ -23,7 +23,8 @@ import {
   MenuId,
   MenuRegistry,
 } from "../../../platform/actions/common/actions.js";
-import { CommandsRegistry } from "../../../platform/commands/common/commands.js";
+import { CommandsRegistry, ICommandService } from "../../../platform/commands/common/commands.js";
+import { REVIEW_API_SOURCE_SCHEME } from "../../services/reviewApiSourceService.js";
 import {
   createDecorator,
 } from "../../../platform/instantiation/common/instantiation.js";
@@ -197,9 +198,11 @@ export class ReviewVerbsService
       ),
     );
     this._register(
-      CommandsRegistry.registerCommand("devfast.review.addComment", () =>
-        this.requestComment(),
-      ),
+      CommandsRegistry.registerCommand("devfast.review.addComment", accessor => {
+        if (this.codeEditorService.getActiveCodeEditor()?.getModel()?.uri.scheme === REVIEW_API_SOURCE_SCHEME)
+          return accessor.get(ICommandService).executeCommand("workbench.action.addComment");
+        return this.requestComment();
+      }),
     );
   }
 
@@ -343,12 +346,12 @@ export class ReviewVerbsService
   ): Promise<void> {
     const timing = (stage: string) => console.warn("[Review Ask timing]", JSON.stringify({ at: Date.now(), messageId: input.askMessageId, harness: input.session.harness, stage }));
     timing("terminal.verb-received");
-    this._onDidEmitSurfaceEvent.fire({
+    if (!input.reviewId) this._onDidEmitSurfaceEvent.fire({
       event: "agentTerminalOpening",
       sessionId: this.requireSession().session.sessionId,
     });
-    const comments = this.sessionModelService.activeModel?.comments;
-    if (!comments) throw new Error("No active Review comment store.");
+    const comments = input.reviewId ? undefined : this.sessionModelService.activeModel?.comments;
+    if (!input.reviewId && !comments) throw new Error("No active Review comment store.");
     const pending = input.askMessageId === null ? undefined : this.askPanes.get(input.askMessageId);
     const pane = pending ? await pending.opened : undefined;
     timing("terminal.loading-pane-ready");
@@ -369,7 +372,7 @@ export class ReviewVerbsService
         viewColumn: group,
       });
       await this.terminalEditorService.getInputFromResource(existing.resource).revert();
-      comments.terminalOpened(input.threadId);
+      comments?.terminalOpened(input.threadId);
       this.terminalService.setActiveInstance(existing);
       await existing.focusWhenReady(true);
       await finish();
@@ -426,7 +429,7 @@ export class ReviewVerbsService
               }
             }
           }
-          await comments.terminalClosed(input.threadId, null);
+          await comments?.terminalClosed(input.threadId, null);
         })().catch(error => console.error("[Review] Could not interrupt agent", error));
       }
     }));
@@ -441,7 +444,7 @@ export class ReviewVerbsService
     timing("terminal.editor-opened");
     // Review owns cancellation; this input's revert disables only its close prompt.
     await this.terminalEditorService.getInputFromResource(instance.resource).revert();
-    comments.terminalOpened(input.threadId);
+    comments?.terminalOpened(input.threadId);
     this.terminalService.setActiveInstance(instance);
     await instance.focusWhenReady(true);
     timing("terminal.focus-ready");

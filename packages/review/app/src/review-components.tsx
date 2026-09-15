@@ -1845,11 +1845,16 @@ function ThreadChat({
   onAskNow: (body: string) => Promise<void>;
   onAddToReview: (body: string) => Promise<void>;
 }) {
+  const targetState = useThreadTargetState(
+    thread?.target ?? { kind: "document" },
+  );
+
   return (
     <div className="thread-chat">
       <div className="thread-chat-context">
         <i aria-hidden="true" />
         <span>{quote}</span>
+        {targetState.state === "outdated" && <span>Outdated location</span>}
       </div>
       <div className="thread-chat-transcript">
         {thread?.messages.map((message) => {
@@ -1995,10 +2000,10 @@ function ThreadPanelListRow({
             {status}
           </strong>
           <span>
-            {status === "pending"
-              ? "sends with finish review"
-              : targetState.state === "outdated"
-                ? "outdated"
+            {targetState.state === "outdated"
+              ? "outdated location"
+              : status === "pending"
+                ? "sends with finish review"
                 : thread.messages.length === 1
                   ? "1 message"
                   : `${thread.messages.length} messages`}

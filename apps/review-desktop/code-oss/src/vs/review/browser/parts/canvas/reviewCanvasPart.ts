@@ -72,6 +72,7 @@ import type {
 	ReviewCanvasBridge,
 	ReviewCanvasDiagnostic,
 	ReviewCanvasContent,
+	ReviewApiFeedbackContext,
 	ReviewCanvasHandle,
 	ReviewCanvasOnboarding,
 	ReviewCanvasHomeSetup,
@@ -222,6 +223,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private renderedInput: ReviewCanvasEditorInput | undefined;
 	private renderedModel: ReviewSessionModel | null = null;
 	private readyInput: ReviewCanvasEditorInput | undefined;
+	private apiFeedback: ReviewApiFeedbackContext | undefined;
 	private detachedScrollSnapshot: ReviewCanvasScrollSnapshot | undefined;
 	private detachedScrollRestoreFrame: number | null = null;
 	private detachedScrollRestoreDeadline: number | null = null;
@@ -353,7 +355,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
 		this.sessionService.attachControl(async (sessionId, value) => {
 			const request = parseReviewVerbRequest(value);
-			if (request.name === "openApiReview") {
+			if (request.name === "openApiReview" || (request.name === "openNativeAgentTerminal" && request.args.reviewId)) {
 				return this.verbs.dispatch(sessionId, request);
 			}
 			if (request.name === "focusWindow") {
@@ -434,6 +436,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		}
 		const warmModel = input.resolvedModel;
 		if (input.target.kind === "api" && this.readyInput === input && this.renderedInput === input) {
+			this.sessionModelService.setActiveModel(null);
+			if (this.apiFeedback) this.apiSource.bindFeedback(this.apiFeedback);
 			this.canvasMount?.dispatchEvent(new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT));
 			return;
 		}
@@ -530,6 +534,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					kind: "api", reviewId,
 					setTitle: title => input.setApiTitle(title),
 					setVersion: next => { version = next; },
+					bindFeedback: context => {
+						this.apiFeedback = context;
+						const release = this.apiSource.bindFeedback(context);
+						return () => {
+							release();
+							if (this.apiFeedback === context) this.apiFeedback = undefined;
+						};
+					},
 					bridge: {
 						...source,
 						appSessionId: this.reviewTelemetryService.appSessionId,

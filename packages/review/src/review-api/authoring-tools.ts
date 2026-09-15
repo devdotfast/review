@@ -90,8 +90,8 @@ export function authoringTools() {
     ),
     tool(
       "threads",
-      "Read saved comments and review submissions.",
-      z.strictObject(review),
+      "Read saved comments and review submissions. Supply version to map code locations onto that version's pins; omit it for the original saved locations.",
+      z.strictObject({ ...review, version }),
       "GET",
       "/:reviewId/feedback",
     ),

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { ReviewApiFeedbackContext } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -54,6 +55,111 @@ afterEach(async () => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
   rmSync(directory, { recursive: true, force: true });
+});
+
+it("refreshes native source on repin but preserves it through prose and comment edits", async () => {
+  const { reviewId } = await command({
+    type: "create",
+    title: "Source lifecycle",
+    pins,
+  });
+
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  let sourceVersion = -1;
+  let shownTitle = "";
+  let feedback!: ReviewApiFeedbackContext;
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  const bridge = testReviewBridge(
+    {},
+    {
+      request: async (url, init) => app.request(url, init),
+      diffView: {
+        files: async () => [],
+        create: ({ container: host }) => {
+          const source = document.createElement("div");
+          source.textContent = `Native source version ${sourceVersion}`;
+          host.append(source);
+
+          return {
+            focus: () => source.focus(),
+            dispose: () => source.remove(),
+            onDidError: () => ({ dispose() {} }),
+          };
+        },
+      },
+    },
+  );
+
+  await act(async () => {
+    canvas = mount(container, {
+      kind: "api",
+      reviewId,
+      bridge,
+      setVersion: (version) => {
+        sourceVersion = version;
+      },
+      setTitle: (title) => {
+        shownTitle = title;
+      },
+      bindFeedback: (context) => {
+        feedback = context;
+
+        return () => {};
+      },
+    });
+  });
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Source lifecycle"),
+    );
+  });
+  await act(async () => {
+    container
+      .querySelector<HTMLButtonElement>('button[aria-label="Diff"]')!
+      .click();
+  });
+
+  const native = [...container.querySelectorAll("div")].find(
+    (node) =>
+      node.textContent === "Native source version 0" &&
+      node.childElementCount === 0,
+  )!;
+
+  expect(native).toBeTruthy();
+  await act(async () => {
+    await command({ type: "rename", reviewId, title: "Prose changed" });
+  });
+  await act(async () => {
+    await vi.waitFor(() => expect(shownTitle).toBe("Prose changed"));
+  });
+  await act(async () => {
+    await feedback.comments.saveComment({
+      threadId: randomUUID(),
+      messageId: randomUUID(),
+      target: { kind: "document" },
+      body: "Saved after the prose edit",
+    });
+  });
+  expect(store.feedback.read(reviewId).threads[0]?.version).toBe(1);
+  expect(feedback.version).toBe(0);
+  expect(native.isConnected).toBe(true);
+  await act(async () => {
+    await command({
+      type: "repin",
+      reviewId,
+      pins: { ...pins, head: "new-head" },
+    });
+  });
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Native source version 2"),
+    );
+  });
+  expect(native.isConnected).toBe(false);
+  expect(feedback.version).toBe(2);
 });
 
 it("mounts the existing canvas and preserves a section's DOM and collapsed state through live edits", async () => {

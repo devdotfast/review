@@ -47,8 +47,11 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id/history`                        | Saved versions with titles and timestamps                              |
 | `POST /:id/open` | Open the review in the attached Desktop; report an error when none is attached |
 | `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
-| `GET /:id/feedback` | Threads, saved drafts, and submitted decisions |
+| `GET /:id/feedback?version?` | Threads, saved drafts, and submitted decisions; optional version maps code locations onto that version's pins |
 | `GET /:id/feedback/watch` | Current feedback immediately, then committed changes; independent of document updates |
+| `POST /:id/ask {threadId,messageId}` | Start a fresh agent for a posted question; return running/completed |
+| `POST /:id/respond {submissionId}` | Answer a saved request-changes submission; use the submit command's returned `targetId`, not its retry ID |
+| `GET /:id/runs/:requestId` | Read transient running/completed/failed status; request ID is the posted question ID or saved submission ID |
 | `POST /commands`                          | Apply one command; return review ID, version, and edited target ID     |
 | `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
@@ -128,8 +131,35 @@ Feedback writes do not create document versions or trigger document streams.
 The existing comment UI saves drafts and submits decisions through this API.
 Posted messages have no edit/delete controls. A monotonically increasing read
 revision prevents delayed feedback responses from replacing newer client state;
-it is not a write precondition. Ask and request-changes agent execution still
-need connecting. These submission records are not a background job/run framework.
+it is not a write precondition.
+
+Without `version`, feedback reads and the feedback stream return saved anchors.
+With `version`, the host maps unchanged code ranges through line shifts and
+renames using the existing conservative remapper. Changed/deleted ranges carry
+`change_position` (outdated), not a guessed location. Saved targets are never
+rewritten. The canvas rereads this projection when its displayed version or
+feedback changes, discarding delayed responses for a previous version. Historical
+views retain all conversations, not just messages posted at that version.
+Native source widgets refresh when pins change, not for prose or feedback edits.
+Their source version can be an earlier snapshot with identical pins; new comments
+still record the displayed document version. Outdated locations are labelled in
+the thread list and conversation, including drafts.
+
+Ask/request-changes reuse the installed agent adapters and native terminal, without
+an author transcript or fork. The agent receives the saved question/version and
+reads context through the checkout API. Ask is prompted read-only; request changes
+may edit the review. The host saves completed answers; batched replies name each
+selected thread. Terminal follow-ups are saved in the terminal's associated thread
+(the first selected thread for a batch). No partial answers or Stop UI are added.
+Repeated starts do not duplicate a saved answer. Failures leave submitted comments
+intact; the same endpoint can retry them. Execution status is in memory and is not
+restored after restart. These submissions are not a durable background-job system.
+
+Native source/diff comments use the canvas's same API comment store and the
+existing native comment widgets. Targets retain source commit, file, side and
+range, including rename paths and selected-commit comparisons. Drafts can be
+edited or discarded; posted messages and conversations cannot be deleted.
+The Review Add Comment shortcut uses the native composer for API source models.
 
 ## Validation and remaining work
 

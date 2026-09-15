@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from "../../base/common/lifecycle.js";
+import { Emitter, type Event } from "../../base/common/event.js";
 import { URI } from "../../base/common/uri.js";
 import { ILanguageService } from "../../editor/common/languages/language.js";
 import { IModelService } from "../../editor/common/services/model.js";
@@ -21,7 +22,10 @@ import type {
   ReviewInlineEditorFactory,
   ReviewDiffViewFactory,
   ReviewSourceEntry,
+  ReviewApiFeedbackContext,
+  CodeThreadTarget,
 } from "../common/reviewProtocol.js";
+import { createGitLabTextDiffPosition, gitLabDiffPositionRows } from "../common/reviewProtocol.js";
 import type {
   ReviewCodeModelReference,
   ReviewCodeDiffTarget,
@@ -40,6 +44,14 @@ export interface ApiSourceTarget {
 }
 
 export const REVIEW_API_SOURCE_SCHEME = "review-api-source";
+export function apiFeedbackSource(context: ReviewApiFeedbackContext | undefined, resource: URI) {
+  if (!context || resource.scheme !== REVIEW_API_SOURCE_SCHEME || resource.authority !== context.reviewId) return;
+  const query = new URLSearchParams(resource.query);
+  const side = query.get("side");
+  if (Number(query.get("version")) !== context.version || query.has("empty") || (side !== "base" && side !== "head")) return;
+  return { context, side, path: resource.path.slice(1), commit: query.get("commit") ?? undefined } as const;
+}
+
 export function apiSourceUri(target: ApiSourceTarget, empty = false): URI {
   const query = new URLSearchParams({ version: String(target.version), side: target.side });
   if (target.commit) query.set("commit", target.commit);
@@ -56,6 +68,11 @@ export const IReviewApiSourceService =
   createDecorator<IReviewApiSourceService>("reviewApiSourceService");
 export interface IReviewApiSourceService {
   readonly _serviceBrand: undefined;
+  readonly feedback: ReviewApiFeedbackContext | undefined;
+  readonly onDidChangeFeedback: Event<void>;
+  bindFeedback(context: ReviewApiFeedbackContext): () => void;
+  commentTarget(resource: URI, range: ReviewInlineEditorRange): Promise<CodeThreadTarget | null>;
+  commentRange(target: CodeThreadTarget, resource: URI): ReviewInlineEditorRange | undefined;
   open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void>;
   children(resource: URI): Promise<IFileStat[]>;
   canvas(
@@ -72,6 +89,54 @@ export interface IReviewApiSourceService {
 /** Pinned, read-only native models. Only the desktop API reads repository files. */
 export class ReviewApiSourceService extends Disposable implements IReviewApiSourceService {
   declare readonly _serviceBrand: undefined;
+  private readonly feedbackChanged = this._register(new Emitter<void>());
+  readonly onDidChangeFeedback = this.feedbackChanged.event;
+  feedback: ReviewApiFeedbackContext | undefined;
+
+  bindFeedback(context: ReviewApiFeedbackContext) {
+    this.feedback = context;
+    this.feedbackChanged.fire();
+    return () => {
+      if (this.feedback !== context) return;
+      this.feedback = undefined;
+      this.feedbackChanged.fire();
+    };
+  }
+
+  async commentTarget(resource: URI, range: ReviewInlineEditorRange): Promise<CodeThreadTarget | null> {
+    const source = apiFeedbackSource(this.feedback, resource);
+    if (!source) return null;
+    const { context, side, path, commit } = source;
+    let pins = context.pins;
+    if (commit) {
+      const commits = await this.read<{ commit: string; parentCommit: string }[]>(context.reviewId, "/commits", { version: context.version });
+      const selected = commits.find(item => item.commit === commit);
+      if (!selected) return null;
+      pins = { base: selected.parentCommit, head: selected.commit };
+    }
+    const files = await this.read<ReviewDiffFileWire[]>(context.reviewId, "/diff", { version: context.version, commit });
+    const file = files.find(file => (side === "head" ? file.path : file.previousPath ?? file.path) === path);
+    const row = (line: number) => ({ old_line: side === "base" ? line : null, new_line: side === "head" ? line : null });
+    const position = createGitLabTextDiffPosition({
+      base_sha: pins.base, start_sha: pins.base, head_sha: pins.head,
+      old_path: file?.previousPath ?? file?.path ?? path, new_path: file?.path ?? path,
+      start: row(range.startLine), end: row(range.endLine),
+    });
+    return { kind: "code", original_position: position, position };
+  }
+
+  commentRange(target: CodeThreadTarget, resource: URI): ReviewInlineEditorRange | undefined {
+    const source = apiFeedbackSource(this.feedback, resource);
+    if (!source || target.change_position) return;
+    const { context, side, commit } = source;
+    if (commit ? target.position.head_sha !== commit : target.position.head_sha !== context.pins.head || target.position.start_sha !== context.pins.base) return;
+    const path = side === "base" ? target.position.old_path : target.position.new_path;
+    if (path !== source.path) return;
+    const rows = gitLabDiffPositionRows(target.position);
+    const start = side === "base" ? rows?.start.old_line : rows?.start.new_line;
+    const end = side === "base" ? rows?.end.old_line : rows?.end.new_line;
+    return start != null && end != null ? { startLine: start, endLine: end } : undefined;
+  }
 
   constructor(
     @IReviewSessionService private readonly session: IReviewSessionService,

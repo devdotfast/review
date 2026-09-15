@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createGitLabTextDiffPosition } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -80,6 +81,153 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it("projects comments through renames and line shifts without changing saved anchors", async () => {
+  const lines = Array.from(
+    { length: 12 },
+    (_, index) => `export const value${index} = ${index};`,
+  );
+
+  writeFileSync(path.join(repository, "before.ts"), lines.join("\n") + "\n");
+  git("add", "before.ts");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Comment source");
+
+  const originalPins = await local.data.resolvePins(
+    pins.repositoryId,
+    "HEAD",
+    "HEAD",
+  );
+
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Remapping", pins: originalPins }),
+  );
+
+  for (const [id, side, line] of [
+    ["__proto__", "head", 3],
+    ["base", "base", 3],
+    ["changed", "head", 5],
+  ] as const) {
+    const position = createGitLabTextDiffPosition({
+      base_sha: originalPins.base,
+      start_sha: originalPins.base,
+      head_sha: originalPins.head,
+      old_path: "before.ts",
+      new_path: "before.ts",
+      start: {
+        old_line: side === "base" ? line : null,
+        new_line: side === "head" ? line : null,
+      },
+      end: {
+        old_line: side === "base" ? line : null,
+        new_line: side === "head" ? line : null,
+      },
+    });
+
+    await local.store.execute(
+      command({
+        type: "feedback",
+        reviewId,
+        action: {
+          type: "save",
+          version: 0,
+          threadId: id,
+          messageId: id,
+          body: `Question about ${id}`,
+          target: { kind: "code", position, original_position: position },
+        },
+      }),
+    );
+  }
+
+  const original = local.store.feedback.read(reviewId).threads;
+  git("mv", "before.ts", "after.ts");
+  const changed = [...lines];
+  changed[4] = "export const replacement = false;";
+  writeFileSync(
+    path.join(repository, "after.ts"),
+    ["// inserted", ...changed].join("\n") + "\n",
+  );
+  git("add", "after.ts");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Move and change source");
+
+  const nextPins = await local.data.resolvePins(
+    pins.repositoryId,
+    "HEAD",
+    "HEAD",
+  );
+
+  await local.store.execute(
+    command({ type: "repin", reviewId, pins: nextPins }),
+  );
+
+  const app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(local.store, local.data),
+  );
+
+  const read = async (query: string) =>
+    (await app.request(`/reviews-api/${reviewId}/feedback${query}`)).json();
+
+  const projected = await read("?version=1");
+  expect(projected.threads[0].target.position).toMatchObject({
+    new_path: "after.ts",
+    new_line: 4,
+    head_sha: nextPins.head,
+  });
+  expect(projected.threads[1].target.position).toMatchObject({
+    old_path: "after.ts",
+    old_line: 4,
+    base_sha: nextPins.base,
+  });
+  expect(projected.threads[2].target.change_position).toMatchObject({
+    head_sha: nextPins.head,
+  });
+  expect(projected.threads[0].target.original_position).toEqual(
+    original[0]!.target.kind === "code" &&
+      original[0]!.target.original_position,
+  );
+  expect((await read("?version=0")).threads).toEqual(original);
+  expect((await read("")).threads).toEqual(original);
+  expect(local.store.read(reviewId).document).toEqual([]);
+
+  git("rm", "after.ts");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Remove source");
+  await local.store.execute(
+    command({
+      type: "repin",
+      reviewId,
+      pins: await local.data.resolvePins(pins.repositoryId, "HEAD", "HEAD"),
+    }),
+  );
+  expect(
+    (await read("?version=2")).threads.every(
+      (thread: { target: { change_position?: unknown } }) =>
+        thread.target.change_position,
+    ),
+  ).toBe(true);
+  await local.store.execute(command({ type: "restore", reviewId, version: 0 }));
+  expect((await read("?version=3")).threads).toEqual(original);
+  expect(local.store.feedback.read(reviewId).threads).toEqual(original);
+  expect(
+    (await app.request(`/reviews-api/${reviewId}/feedback?version=99`)).status,
+  ).toBe(404);
+  const otherRepository = path.join(directory, "other-repository");
+  git("clone", "--quiet", repository, otherRepository);
+  const other = await local.data.register(otherRepository);
+  await local.store.execute(
+    command({
+      type: "repin",
+      reviewId,
+      pins: { ...originalPins, repositoryId: other.id },
+    }),
+  );
+  expect(
+    (await read("?version=4")).threads.every(
+      (thread: { target: { change_position?: unknown } }) =>
+        thread.target.change_position,
+    ),
+  ).toBe(true);
+});
+
 it("lists the version's commits and reads a selected commit's diff against its parent", async () => {
   const firstHead = pins.head;
   writeFileSync(
@@ -132,6 +280,34 @@ it("lists the version's commits and reads a selected commit's diff against its p
   expect((await app.request(`${route}/diff?commit=${pins.base}`)).status).toBe(
     404,
   );
+
+  const position = createGitLabTextDiffPosition({
+    base_sha: pins.base,
+    start_sha: pins.base,
+    head_sha: firstHead,
+    old_path: source.file,
+    new_path: source.file,
+    start: { old_line: null, new_line: 2 },
+    end: { old_line: null, new_line: 2 },
+  });
+
+  await local.store.execute(
+    command({
+      type: "feedback",
+      reviewId: review.reviewId,
+      action: {
+        type: "save",
+        version: 0,
+        threadId: "selected",
+        messageId: "selected",
+        body: "This line exists in the first commit only.",
+        target: { kind: "code", position, original_position: position },
+      },
+    }),
+  );
+  expect(
+    (await local.data.feedback(review.reviewId, 0)).threads[0]!.target,
+  ).toMatchObject({ position });
   await local.store.execute(
     command({
       type: "repin",
@@ -143,6 +319,9 @@ it("lists the version's commits and reads a selected commit's diff against its p
     404,
   );
   expect((await app.request(`${route}/diff?${selected}`)).status).toBe(200);
+  expect(
+    (await local.data.feedback(review.reviewId, 1)).threads[0]!.target,
+  ).toMatchObject({ change_position: { head_sha: updatedPins.head } });
 });
 
 it("browses committed directories, including history, without listing untracked files", async () => {

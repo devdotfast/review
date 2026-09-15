@@ -185,3 +185,35 @@ test("tree entries retain version, side and selected commit when opening a child
   assert.equal(file!.readonly, true);
   assert.equal(folder!.isDirectory, true);
 });
+
+test("comments retain the selected commit and rename side, and never project onto another review or version", async (t) => {
+  const { service } = setup();
+  t.after(() => service.dispose());
+  const context = { reviewId: "review-a", version: 3, pins: { base: "base", head: "head" }, comments: {} as never };
+  const release = service.bindFeedback(context);
+  t.mock.method(globalThis, "fetch", async (value: string) => {
+    const url = new URL(value);
+    return Response.json(url.pathname.endsWith("/commits")
+      ? [{ commit: "middle", parentCommit: "parent" }]
+      : [{ path: "new.ts", previousPath: "old.ts", status: "renamed", additions: 0, deletions: 0 }]);
+  });
+  const base = { reviewId: "review-a", version: 3, file: "old.ts", side: "base" as const, commit: "middle" };
+  const uri = apiSourceUri(base);
+  const target = await service.commentTarget(uri, { startLine: 2, endLine: 4 });
+  assert.ok(target);
+  assert.equal(target.position.start_sha, "parent");
+  assert.equal(target.position.head_sha, "middle");
+  assert.equal(target.position.old_path, "old.ts");
+  assert.equal(target.position.new_path, "new.ts");
+  assert.deepEqual(service.commentRange(target, uri), { startLine: 2, endLine: 4 });
+  assert.equal(service.commentRange(target, apiSourceUri({ ...base, side: "head", file: "new.ts" })), undefined);
+  assert.equal(service.commentRange(target, apiSourceUri({ ...base, version: 4 })), undefined);
+  assert.equal(await service.commentTarget(apiSourceUri({ ...base, reviewId: "other" }), { startLine: 1, endLine: 1 }), null);
+  assert.equal(await service.commentTarget(apiSourceUri(base, true), { startLine: 1, endLine: 1 }), null);
+  const next = { ...context, version: 4 };
+  const releaseNext = service.bindFeedback(next);
+  release();
+  assert.equal(service.feedback, next);
+  releaseNext();
+  assert.equal(service.feedback, undefined);
+});

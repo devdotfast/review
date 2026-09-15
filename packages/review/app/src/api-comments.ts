@@ -10,6 +10,8 @@ import type {
 
 import type { ReviewApiClient } from "../../src/review-api/client";
 import type { FeedbackSnapshot } from "../../src/review-api/feedback";
+import type { QuestionStatus } from "../../src/review-api/questions";
+import type { Result } from "../../src/review-api/store";
 import { createClientId } from "./review-context";
 
 /** Adapts server-owned feedback to the existing annotation UI. */
@@ -32,6 +34,8 @@ export class ApiComments implements ReviewCommentStoreBridge {
   private readonly pending = new Map<string, unknown>();
   private readonly abort = new AbortController();
   private submitting = false;
+  private displayedVersion?: number;
+  private acceptedVersion?: number;
   private readonly activities = new Map<string, ReviewCommentAgentActivity>();
   constructor(
     private readonly client: ReviewApiClient,
@@ -45,8 +49,9 @@ export class ApiComments implements ReviewCommentStoreBridge {
       this.reviewId,
       this.abort.signal,
       "feedback",
-      (next) => {
-        this.accept(next);
+      async (next) => {
+        if (this.displayedVersion === undefined) this.accept(next);
+        else await this.refresh();
         this.connectionError();
       },
       () => this.connectionError("Comment connection lost. Reconnecting…"),
@@ -73,16 +78,29 @@ export class ApiComments implements ReviewCommentStoreBridge {
     false;
 
   async refresh() {
+    const version = this.version();
+    this.displayedVersion = version;
     this.accept(
       await this.client.read<FeedbackSnapshot>(
-        `/${this.reviewId}/feedback`,
+        `/${this.reviewId}/feedback?version=${version}`,
         this.abort.signal,
       ),
+      version,
     );
+
+    if (!this.abort.signal.aborted && version === this.displayedVersion)
+      this.connectionError();
   }
-  private accept(next: FeedbackSnapshot) {
-    if (this.abort.signal.aborted || next.revision <= this.current.revision)
+  private accept(next: FeedbackSnapshot, version?: number) {
+    if (
+      this.abort.signal.aborted ||
+      version !== this.displayedVersion ||
+      next.revision < this.current.revision ||
+      (next.revision === this.current.revision &&
+        version === this.acceptedVersion)
+    )
       return;
+    this.acceptedVersion = version;
     this.current = next;
     this.publish();
   }
@@ -166,13 +184,17 @@ export class ApiComments implements ReviewCommentStoreBridge {
         commandId,
         operation: { type: "feedback", reviewId: this.reviewId, action },
       });
-    await this.client.post(
+
+    const result = await this.client.post<Result>(
       "/commands",
       this.pending.get(commandId),
       this.abort.signal,
     );
+
     await this.refresh();
     this.pending.delete(commandId);
+
+    return result;
   }
   async saveComment(input: CreateReviewCommentInput) {
     if (
@@ -228,6 +250,7 @@ export class ApiComments implements ReviewCommentStoreBridge {
         this.abort.signal,
       );
       await this.refresh();
+      void this.followRun(input.messageId, input.threadId);
     } catch (error) {
       this.activities.set(input.threadId, {
         messageId: input.messageId,
@@ -241,6 +264,42 @@ export class ApiComments implements ReviewCommentStoreBridge {
   }
   async deleteLocalComment(threadId: string) {
     await this.send({ type: "discard-draft", threadId });
+  }
+  private async followRun(requestId: string, threadId?: string) {
+    try {
+      while (!this.abort.signal.aborted) {
+        const result = await this.client.read<QuestionStatus>(
+          `/${this.reviewId}/runs/${encodeURIComponent(requestId)}`,
+          this.abort.signal,
+        );
+
+        if (result.status === "failed") throw new Error(result.error);
+
+        if (result.status === "completed") {
+          await this.refresh();
+
+          if (threadId) this.activities.delete(threadId);
+          this.publish();
+
+          return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      if (this.abort.signal.aborted) return;
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (threadId) {
+        this.activities.set(threadId, {
+          messageId: requestId,
+          startedAt: new Date().toISOString(),
+          status: "failed",
+          error: message,
+        });
+        this.publish();
+      } else this.connectionError(message);
+    }
   }
   async deleteComment(threadId: string) {
     if (
@@ -287,7 +346,7 @@ export class ApiComments implements ReviewCommentStoreBridge {
     submissionId: string,
     inputs: CreateReviewCommentInput[],
   ) {
-    await this.send(
+    const result = await this.send(
       {
         type: "submit",
         version: this.version(),
@@ -296,5 +355,20 @@ export class ApiComments implements ReviewCommentStoreBridge {
       },
       submissionId,
     );
+
+    if (decision === "request-changes") {
+      try {
+        await this.client.post(
+          `/${this.reviewId}/respond`,
+          { submissionId: result.targetId },
+          this.abort.signal,
+        );
+        void this.followRun(result.targetId!);
+      } catch (error) {
+        this.connectionError(
+          `Your review was submitted, but the agent could not start: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
   }
 }

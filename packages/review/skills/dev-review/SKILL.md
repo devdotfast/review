@@ -44,6 +44,6 @@ While authoring, call `review_activity({reviewId,action:"begin",leaseId})` with 
 
 Use `review_threads` to read saved conversations and submissions, and `review_feedback` to reply or resolve an addressed thread. Posted messages are immutable; corrections are follow-ups. Draft saves and review submissions are explicit user actions, not something an author should perform on a reviewer's behalf.
 
-Automatic Ask/request-changes execution is not connected in this checkout yet. Do not claim a submission launches an agent. Legacy `review scaffold/publish/threads/map` commands do not operate on JSON reviews.
+Ask starts a fresh installed local agent from saved review/question context. Request changes starts one agent for the submitted comments; it may edit the review through the API. The host saves completed answers, including terminal follow-ups. Running work is not resumed after Desktop restarts; saved questions and answers remain. Legacy `review scaffold/publish/threads/map` commands do not operate on JSON reviews.
 
 Do not run repository tests, typechecks or lints merely to write a review unless the user requested those checks. Explain the code and cite evidence; do not turn authoring into an unrelated implementation task.

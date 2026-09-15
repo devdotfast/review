@@ -6,6 +6,7 @@ import { HttpJsonError } from "../server/http-json.js";
 import { authoringTools } from "./authoring-tools.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
+import type { ReviewQuestions } from "./questions.js";
 import type { ReviewStore } from "./store.js";
 
 /** Mounted behind the desktop server's existing token authentication. */
@@ -13,6 +14,7 @@ export function createReviewApi(
   store: ReviewStore,
   data?: LocalReviewData,
   open?: (review: { reviewId: string; title: string }) => Promise<void>,
+  questions?: ReviewQuestions,
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -33,6 +35,32 @@ export function createReviewApi(
   });
   app.get("/", (context) => context.json(store.list()));
   app.get("/authoring", (context) => context.json(authoringTools()));
+
+  if (questions) {
+    app.post("/:id/ask", async (context) => {
+      const input = z
+        .strictObject({
+          threadId: z.string().min(1),
+          messageId: z.string().min(1),
+        })
+        .parse(await readBoundedRequestJson(context.req.raw));
+
+      return context.json(questions.start(context.req.param("id"), input), 202);
+    });
+    app.post("/:id/respond", async (context) => {
+      const input = z
+        .strictObject({ submissionId: z.string().min(1) })
+        .parse(await readBoundedRequestJson(context.req.raw));
+
+      return context.json(questions.start(context.req.param("id"), input), 202);
+    });
+    app.get("/:id/runs/:requestId", (context) =>
+      context.json(
+        questions.read(context.req.param("id"), context.req.param("requestId")),
+      ),
+    );
+  }
+
   app.get("/:id/activity", (context) => {
     const id = context.req.param("id");
     store.read(id);
@@ -81,9 +109,23 @@ export function createReviewApi(
       },
     );
   });
-  app.get("/:id/feedback", (context) =>
-    context.json(store.feedback.read(context.req.param("id"))),
-  );
+  app.get("/:id/feedback", async (context) => {
+    const { version } = z
+      .strictObject({
+        version: z.coerce.number().int().nonnegative().optional(),
+      })
+      .parse(context.req.query());
+
+    const id = context.req.param("id");
+
+    if (!data && version !== undefined) store.read(id, version);
+
+    return context.json(
+      data && version !== undefined
+        ? await data.feedback(id, version)
+        : store.feedback.read(id),
+    );
+  });
   app.get("/:id/feedback/watch", (context) => {
     const id = context.req.param("id");
 

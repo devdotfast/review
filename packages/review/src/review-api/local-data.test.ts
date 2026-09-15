@@ -167,7 +167,7 @@ it("reads pinned Git objects, rejects invalid evidence before saving, and retain
   await expect(
     insert(review.reviewId, {
       type: "code_peek",
-      source: { ...source, toLine: 3 },
+      source: { ...source, toLine: 4 },
     }),
   ).rejects.toThrow(/exceeds/);
   await expect(local.data.file(pins, "head", "../outside.ts")).rejects.toThrow(

@@ -1,13 +1,12 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import {
   type AgentTraceHookAgent,
-  type CliInputStream,
   type CliJsonOutput,
   StoreApiError,
   StoreClient,
@@ -73,7 +72,6 @@ export interface RunTracesCheckInput {
   json?: boolean;
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
-  stdin?: CliInputStream;
   client?: StoreClient;
   /** How long the runtime probe waits. Tests shorten it. */
   probeTimeoutMs?: number;
@@ -84,6 +82,18 @@ async function executable(filePath: string): Promise<boolean> {
     () => true,
     () => false,
   );
+}
+
+/**
+ * True when the path is a file this process can run. A directory named `node`
+ * passes the executable bit, and `command -v` in the shim would skip it.
+ */
+async function executableFile(filePath: string): Promise<boolean> {
+  const info = await stat(filePath).catch(() => null);
+
+  if (!info?.isFile()) return false;
+
+  return executable(filePath);
 }
 
 /**
@@ -124,7 +134,7 @@ async function nodeOnPath(env: NodeJS.ProcessEnv): Promise<string | null> {
     if (!entry) continue;
     const candidate = path.join(entry, "node");
 
-    if (await executable(candidate)) return candidate;
+    if (await executableFile(candidate)) return candidate;
   }
 
   return null;
@@ -350,13 +360,15 @@ export async function runTracesCheck(
                 `${origin} refused the check: ${error.code}: ${error.message}`,
               ),
         );
+        // A store that answered can answer the repository read too; only an
+        // expired login cannot.
+        if (error.code === "unauthorized") client = null;
       } else {
         checks.push(
           fail("login", `Could not reach ${origin}: ${errorMessage(error)}`),
         );
+        client = null;
       }
-
-      client = null;
     }
   }
 
@@ -425,14 +437,31 @@ export async function runTracesCheck(
   if (!repository) {
     checks.push(fail("consent", "skipped: no repository"));
   } else {
-    const consent = findTraceRepository(
-      await readTraceUserConfig(scope.devHome),
-      repository,
-    );
+    // readTraceUserConfig throws on a malformed config file, while
+    // selectTraceStorage reports the same fault as `selection.error`. The
+    // catch keeps both faults on this line instead of ending the report.
+    let allowed = false;
+    let consentError: string | null = null;
 
-    const allowed = consent?.enabledOrigins.includes(origin) ?? false;
+    try {
+      const consent = findTraceRepository(
+        await readTraceUserConfig(scope.devHome),
+        repository,
+      );
 
-    if (!allowed) {
+      allowed = consent?.enabledOrigins.includes(origin) ?? false;
+    } catch (error) {
+      consentError = errorMessage(error);
+    }
+
+    if (consentError) {
+      checks.push(
+        fail(
+          "consent",
+          `the trace configuration is unreadable: ${selection.error ?? consentError}`,
+        ),
+      );
+    } else if (!allowed) {
       checks.push(
         fail("consent", `${repository} is not allowed at ${origin}`, ALLOW_FIX),
       );

@@ -29,3 +29,19 @@ test("ignores a type-only import that a template string holds", () => {
 
   assert.deepEqual(findForeignSpecifiers(source), []);
 });
+
+test("ignores a package name a line comment holds", () => {
+  const source = [
+    '// The bundler inlines this, so nothing imports "chalk" at runtime.',
+    'var value = 1; // require("lodash")',
+    'import { chunk } from "./chunk.js";',
+  ].join("\n");
+
+  assert.deepEqual(findForeignSpecifiers(source), []);
+});
+
+test("keeps a specifier that follows a URL in the same line", () => {
+  const source = 'var u = "https://example.com/x"; import "zod";';
+
+  assert.deepEqual(findForeignSpecifiers(source), ["zod"]);
+});

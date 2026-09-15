@@ -1,6 +1,12 @@
 // node: imports only. This module runs before the bundle loads, so it must
 // never pull the library in.
 
+/**
+ * The oldest Node this package runs on. Three files carry this number, and a
+ * change has to reach all three: `package.json` `engines.node`, the `target`
+ * in `tsdown.config.ts`, and this constant. `node-floor.test.ts` compares the
+ * first one with this value.
+ */
 export const NODE_FLOOR_MAJOR = 22;
 
 /** True when a `process.versions.node` value meets the floor. */

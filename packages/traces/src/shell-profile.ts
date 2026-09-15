@@ -2,7 +2,7 @@
 // Review app has the same helpers, but the standalone package cannot bundle
 // app code, so it keeps its own copy with its own marker.
 
-import { access, constants, readFile, stat } from "node:fs/promises";
+import { access, constants, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { writeFileAtomicAsync } from "@dev.fast/trace-core";
@@ -145,13 +145,16 @@ export async function removeShellProfilePath(
 /**
  * The executable named `command` that PATH reaches before `shimPath`, or
  * undefined when nothing shadows the shim. A file that carries `ownMarker` is
- * one of ours and never shadows.
+ * one of ours and never shadows. Neither does a file that resolves to
+ * `ignoreRealPath`: under npx the cache puts a `.bin` link to the running
+ * package on PATH, and that link runs the same code as the shim.
  */
 export async function resolvePathCommand(
   command: string,
   shimPath: string,
   env: NodeJS.ProcessEnv,
   ownMarker: string,
+  ignoreRealPath?: string,
 ): Promise<string | undefined> {
   const entries = (env.PATH ?? "").split(path.delimiter);
   const shimDirectory = path.resolve(path.dirname(shimPath));
@@ -165,6 +168,13 @@ export async function resolvePathCommand(
 
     if (!(await isExecutableFile(candidate))) continue;
 
+    if (
+      ignoreRealPath !== undefined &&
+      (await realPathOrNull(candidate)) === ignoreRealPath
+    ) {
+      continue;
+    }
+
     if ((await readTextIfExists(candidate)).includes(ownMarker)) {
       return undefined;
     }
@@ -175,4 +185,8 @@ export async function resolvePathCommand(
   }
 
   return undefined;
+}
+
+async function realPathOrNull(filePath: string): Promise<string | null> {
+  return realpath(filePath).catch(() => null);
 }

@@ -163,7 +163,8 @@ function ensureTrailingNewline(value: string): string {
 }
 
 export async function runTracesCli(input: TracesCliInput): Promise<number> {
-  setTraceCliName(CLI_NAME);
+  // The subcommands live at the root, so a hint names `dev-traces allow .`.
+  setTraceCliName(CLI_NAME, CLI_NAME);
   const env = input.env ?? process.env;
   const cwd = input.cwd ?? process.cwd();
   const homeDir = input.homeDir ?? os.homedir();
@@ -385,14 +386,14 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     runTraceEnable: async (enableInput) => {
       if (platform === "win32") return refuseWindows();
 
-      const traceCommand = await hookTraceCommand();
+      const traceCommand = await hookTraceCommand(state.json);
 
       return runtime.runTraceEnable({ ...enableInput, traceCommand });
     },
     runTraceRepair: async (repairInput) => {
       if (platform === "win32") return refuseWindows();
 
-      const traceCommand = await hookTraceCommand();
+      const traceCommand = await hookTraceCommand(state.json);
 
       return runtime.runTraceRepair({ ...repairInput, traceCommand });
     },

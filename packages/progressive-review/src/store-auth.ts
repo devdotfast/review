@@ -10,6 +10,7 @@ import type { Writable } from "node:stream";
 
 import { z } from "zod";
 
+import { writePrivateJsonAtomic } from "./atomic-write";
 import {
   type CliJsonOutput,
   emitJsonEvent,
@@ -17,7 +18,6 @@ import {
   humanStream,
 } from "./cli-output";
 import { devReviewHome } from "./review-storage";
-import { writePrivateJsonAtomic } from "./server/desktop-paths";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";

@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -7,11 +8,19 @@ import {
 
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import type { StoredReview } from "./review-home";
-import { readOpenReviewThreadCount } from "./review-storage";
+import { readReviewComments } from "./review-state-store";
 import { resolveReviewRoot } from "./runtime";
 import { resolvePublishReview } from "./server/publish-preparation";
 
 const DEFAULT_TIMEOUT_SECONDS = 3600;
+
+/** Count open comment threads stored for a UUID Review directory. */
+function readOpenReviewThreadCount(reviewDir: string): number {
+  const threads = readReviewComments(path.join(reviewDir, "review.mdx"));
+
+  return Object.values(threads).filter((thread) => thread.status === "open")
+    .length;
+}
 
 type ReviewStatus = StoredReview["review"]["status"];
 

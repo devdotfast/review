@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import writeFileAtomicPackage from "write-file-atomic";
@@ -45,4 +46,19 @@ export async function writeFileAtomicAsync(
     contents instanceof Uint8Array ? Buffer.from(contents) : contents,
     options,
   );
+}
+
+/**
+ * Write JSON with owner-only permissions on the file and on a directory
+ * this call creates. Login tokens and consent files use it.
+ */
+export async function writePrivateJsonAtomic<T>(
+  filePath: string,
+  value: T,
+): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  await writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }

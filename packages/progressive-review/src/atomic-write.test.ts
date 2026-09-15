@@ -13,7 +13,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { writeFileAtomic } from "./atomic-write";
+import { writeFileAtomic, writePrivateJsonAtomic } from "./atomic-write";
 
 describe("writeFileAtomic", () => {
   it("writes contents and overwrites an existing file without leaving temp files", async () => {
@@ -83,6 +83,25 @@ describe("writeFileAtomic", () => {
       expect(realpathSync(path.dirname(tmpfile ?? ""))).toBe(realpathSync(dir));
       expect(readFileSync(target, "utf8")).toBe("old contents");
       expect(readdirSync(dir)).toEqual(["review.mdx"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("writePrivateJsonAtomic", () => {
+  it("writes pretty JSON with owner-only file and directory modes", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "atomic-write-"));
+    const target = path.join(dir, "nested", "auth.json");
+
+    try {
+      await writePrivateJsonAtomic(target, { token: "secret", n: 1 });
+
+      expect(readFileSync(target, "utf8")).toBe(
+        '{\n  "token": "secret",\n  "n": 1\n}\n',
+      );
+      expect(statSync(target).mode & 0o777).toBe(0o600);
+      expect(statSync(path.dirname(target)).mode & 0o777).toBe(0o700);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

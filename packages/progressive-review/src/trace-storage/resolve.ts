@@ -8,13 +8,15 @@ import {
   s3Store,
 } from "./config";
 import { HostedTraceStorage } from "./hosted";
-import { S3TraceStorage } from "./s3";
 import {
   type S3ConfigScope,
+  type S3Credentials,
   type S3Setup,
   clearTraceEnvCache,
   isS3MockMode,
   resolveS3Setup,
+  s3CacheIdentity,
+  s3MockRoot,
 } from "./s3-config";
 import type { TraceStorage, TraceStorageKind } from "./types";
 
@@ -167,18 +169,14 @@ export function traceStorageExpectation(scope: S3ConfigScope = {}): string {
     return `hosted:${selection.hosted?.origin ?? ""}`;
   }
 
-  const storage = s3Storage(selection, scope);
-
-  return `s3:${storage?.cacheIdentity() ?? ""}`;
-}
-
-function s3Storage(
-  selection: TraceStorageSelection,
-  scope: S3ConfigScope,
-): TraceStorage | null {
   const env = scope.env ?? process.env;
 
-  if (isS3MockMode(env)) return S3TraceStorage.fromEnvironment(scope);
+  if (isS3MockMode(env)) return `s3:${s3CacheIdentity(null, s3MockRoot(env))}`;
+
+  return `s3:${s3CacheIdentity(requireS3Credentials(selection), null)}`;
+}
+
+function requireS3Credentials(selection: TraceStorageSelection): S3Credentials {
   const credentials = selection.s3?.credentials;
 
   if (!credentials) {
@@ -187,7 +185,53 @@ function s3Storage(
     );
   }
 
-  return S3TraceStorage.fromCredentials(credentials, env);
+  return credentials;
+}
+
+/** One human line for `trace status` and `trace storage use`. */
+export function describeSelection(selection: TraceStorageSelection): string {
+  if (selection.error) return `error (${selection.error})`;
+
+  if (selection.mode === "hosted") {
+    return `hosted (${selection.hosted?.origin ?? "unknown origin"})`;
+  }
+
+  if (selection.mode === "none") return "none configured";
+  const setup = selection.s3;
+  const credentials = setup?.credentials;
+
+  const where = credentials
+    ? `bucket "${credentials.bucket}" at ${credentials.endpoint}`
+    : "mock bucket";
+
+  const source =
+    setup?.source === "profile"
+      ? "config.json profile"
+      : setup?.source === "legacy-file"
+        ? `legacy env file ${setup.envPath}`
+        : setup?.source === "process-env"
+          ? "process environment"
+          : "test mode";
+
+  const overrides =
+    setup && setup.overrides.length > 0 && setup.source !== "process-env"
+      ? `; environment overrides: ${setup.overrides.join(", ")}`
+      : "";
+
+  return `S3/R2 ${where} (${selection.explicit ? "selected" : "legacy configuration"}; credentials from ${source}${overrides})`;
+}
+
+/** The bucket store; its module loads only when a bucket is selected. */
+async function s3Storage(
+  selection: TraceStorageSelection,
+  scope: S3ConfigScope,
+): Promise<TraceStorage | null> {
+  const env = scope.env ?? process.env;
+  const { S3TraceStorage } = await import("./s3");
+
+  if (isS3MockMode(env)) return S3TraceStorage.fromEnvironment(scope);
+
+  return S3TraceStorage.fromCredentials(requireS3Credentials(selection), env);
 }
 
 async function hostedStorage(

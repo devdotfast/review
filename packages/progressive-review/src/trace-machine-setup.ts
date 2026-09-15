@@ -22,7 +22,6 @@ import {
   type TraceStorageMode,
   selectTraceStorage,
 } from "./trace-storage/resolve";
-import { S3TraceStorage } from "./trace-storage/s3";
 import {
   type S3CredentialsSource,
   type S3Setup,
@@ -277,6 +276,8 @@ export async function configureTraceMachine(input: {
     if (env.TRACE_R2_MODE === "mock") {
       verifiedAt = new Date().toISOString();
     } else {
+      const { S3TraceStorage } = await import("./trace-storage/s3");
+
       const doctor = await S3TraceStorage.fromCredentials(
         {
           endpoint: credentials.endpoint,

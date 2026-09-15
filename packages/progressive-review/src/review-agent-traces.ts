@@ -46,10 +46,8 @@ import {
   isTraceStorageConfigured,
   resolveTraceStorage,
 } from "./trace-storage/resolve";
-import { S3TraceStorage } from "./trace-storage/s3";
 import {
   clearTraceEnvCache as clearS3EnvCache,
-  resolveS3Setup,
   traceEnvValue as s3EnvValue,
 } from "./trace-storage/s3-config";
 import {
@@ -58,7 +56,6 @@ import {
   TraceStorageDeniedError,
   TraceStorageUnavailableError,
 } from "./trace-storage/types";
-import { TUTORIAL_TRACE_SESSION_ID, loadTutorialTrace } from "./tutorial-trace";
 
 export { type TraceRepo, inferRepoFromGit, parseRepo, traceRepoName };
 
@@ -76,6 +73,9 @@ const FIELD_SEPARATOR = "\u001f";
 const STORE_COMMIT_LOOKUP_LIMIT = 30;
 
 const REMOTE_HEAD_TTL_MS = 15_000;
+
+// Reserved sample ID: the tutorial works offline without trace capture setup.
+export const TUTORIAL_TRACE_SESSION_ID = "review-tutorial-checkout";
 
 export interface ReviewTraceCommitRef {
   sha: string;
@@ -150,14 +150,6 @@ export interface ReviewTraceSyncResult {
   uploads: ReviewTraceSyncUpload[];
   /** Present after a hosted publication. */
   hosted?: HostedPublishDetails;
-}
-
-export interface ReviewTraceDoctorResult {
-  ok: boolean;
-  envPath: string;
-  config?: { endpoint: string; bucket: string; accessKeyId: string };
-  reachable: boolean;
-  error?: string;
 }
 
 const lastCheckedTimes = new Map<string, number>();
@@ -281,7 +273,10 @@ export async function loadReviewAgentTrace(input: {
   const { sessionId, trace } = input;
 
   if (sessionId === TUTORIAL_TRACE_SESSION_ID) {
-    return !trace || trace === "main" ? loadTutorialTrace() : null;
+    if (trace && trace !== "main") return null;
+    const { loadTutorialTrace } = await import("./tutorial-trace");
+
+    return loadTutorialTrace();
   }
 
   if (!sessionIdSchema.safeParse(sessionId).success) return null;
@@ -1506,67 +1501,6 @@ export async function writeReviewTraceCommitMapping(input: {
       pr: await readSubjectPullNumber(input.cwd, commit),
     }),
   });
-}
-
-export async function checkReviewTraceDoctor(input?: {
-  cwd?: string;
-}): Promise<ReviewTraceDoctorResult> {
-  void input;
-  const setup = resolveS3Setup();
-  // The path reported is the source the credentials came from: the
-  // version-2 profile when it supplies them, otherwise the legacy env file.
-  const envPath = setup.source === "profile" ? setup.configPath : setup.envPath;
-
-  if (process.env.TRACE_R2_MODE === "mock") {
-    return {
-      ok: true,
-      envPath,
-      config: {
-        endpoint: "mock://endpoint",
-        bucket: "mock-bucket",
-        accessKeyId: "mock-key",
-      },
-      reachable: true,
-    };
-  }
-
-  const config = setup.credentials;
-
-  if (!config) {
-    const anyInput =
-      setup.profile !== null ||
-      existsSync(setup.envPath) ||
-      Boolean(process.env.TRACE_R2_BUCKET);
-
-    return {
-      ok: false,
-      envPath,
-      reachable: false,
-      error: anyInput
-        ? "Configuration is missing one or more required S3/R2 values."
-        : "No trace configuration found. Use Review Agent Setup to configure trace capture.",
-    };
-  }
-
-  const summary = {
-    endpoint: config.endpoint,
-    bucket: config.bucket,
-    accessKeyId: config.accessKeyId,
-  };
-
-  const doctor = await S3TraceStorage.fromCredentials(config).doctor();
-
-  if (doctor.reachable) {
-    return { ok: true, envPath, config: summary, reachable: true };
-  }
-
-  return {
-    ok: false,
-    envPath,
-    config: summary,
-    reachable: false,
-    error: doctor.error,
-  };
 }
 
 // --- Commit trailer resolution ---------------------------------------------

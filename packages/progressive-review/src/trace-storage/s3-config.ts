@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -248,4 +249,31 @@ export function s3MockRoot(
 
 export function isS3MockMode(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.TRACE_R2_MODE === "mock";
+}
+
+/** Secret-free identity of the destination; the same bucket keys the same cache. */
+export function s3CacheIdentity(
+  config: S3Credentials | null,
+  mockRoot: string | null,
+): string {
+  if (!config) return `s3:mock:${mockRoot ?? ""}`;
+
+  const digest = createHash("sha256")
+    .update(`${normalizeS3Endpoint(config.endpoint)}\n${config.bucket}`)
+    .digest("hex")
+    .slice(0, 16);
+
+  return `s3:${digest}`;
+}
+
+function normalizeS3Endpoint(endpoint: string): string {
+  try {
+    const url = new URL(endpoint);
+    url.hash = "";
+    url.search = "";
+
+    return url.toString().replace(/\/+$/, "").toLowerCase();
+  } catch {
+    return endpoint.trim().replace(/\/+$/, "").toLowerCase();
+  }
 }

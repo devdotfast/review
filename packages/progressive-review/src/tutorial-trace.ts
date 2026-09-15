@@ -1,8 +1,8 @@
 import { AGENT_TRACE_PARSER_VERSION } from "./agent-trace-parser";
-import type { LoadedReviewAgentTrace } from "./review-agent-traces";
-
-// Reserved sample ID: the tutorial works offline without trace capture setup.
-export const TUTORIAL_TRACE_SESSION_ID = "review-tutorial-checkout";
+import {
+  type LoadedReviewAgentTrace,
+  TUTORIAL_TRACE_SESSION_ID,
+} from "./review-agent-traces";
 
 export function loadTutorialTrace(): LoadedReviewAgentTrace {
   return {

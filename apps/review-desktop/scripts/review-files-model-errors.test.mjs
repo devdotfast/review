@@ -42,14 +42,17 @@ test("Review Files handles missing source locally and releases partial models", 
     console.error = error => logged.push(error);
     setUnexpectedErrorHandler(error => reported.push(error));
     try {
-      for (const [scheme, result, expectedReports] of [
+      for (const [scheme, result, expectedReports, otherResult] of [
         ["devfast-review-files", FileOperationResult.FILE_NOT_FOUND, 0],
         ["devfast-review-files", FileOperationResult.FILE_PERMISSION_DENIED, 1],
         ["multi-diff-editor", FileOperationResult.FILE_NOT_FOUND, 1],
+        ["devfast-review-files", FileOperationResult.FILE_NOT_FOUND, 1, FileOperationResult.FILE_PERMISSION_DENIED],
+        ["devfast-review-files", FileOperationResult.FILE_NOT_FOUND, 0, FileOperationResult.FILE_NOT_FOUND],
       ]) {
         for (const missingSide of ["base", "head"]) {
           logged.length = reported.length = 0;
           const error = new FileOperationError("source unavailable", result);
+          const otherError = new FileOperationError("other source unavailable", otherResult);
           let fail = true;
           let open = 0;
           let released = 0;
@@ -61,6 +64,7 @@ test("Review Files handles missing source locally and releases partial models", 
             { async createModelReference(resource) {
               if (fail && resource.path === "/" + missingSide) throw error;
               if (fail) await ready;
+              if (fail && otherResult !== undefined) throw otherError;
               open++;
               return { object: { textEditorModel: { uri: resource }, isReadonly: () => true }, dispose() { open--; released++; } };
             } },
@@ -78,12 +82,13 @@ test("Review Files handles missing source locally and releases partial models", 
             await new Promise(resolve => setImmediate(resolve));
             assert.equal(model.documents.value.length, 0);
             assert.equal(open, 0);
-            assert.equal(released, 1);
+            assert.equal(released, otherResult === undefined ? 1 : 0);
             assert.equal(logged.length, expectedReports);
             assert.equal(reported.length, expectedReports);
             if (expectedReports) {
-              assert.strictEqual(logged[0], error);
-              assert.strictEqual(reported[0], error);
+              const expectedError = otherResult === undefined ? error : otherError;
+              assert.strictEqual(logged[0], expectedError);
+              assert.strictEqual(reported[0], expectedError);
             }
             model.dispose();
             model = undefined;

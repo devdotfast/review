@@ -212,6 +212,10 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 				for (const result of results) {
 					if (result.status === 'fulfilled' && result.value) { multiDiffItemStore.add(result.value); }
 				}
+				// Only classify the item as missing when every failure is missing.
+				// A permission or other fault on either side must still be reported.
+				const unexpected = results.find(result => result.status === 'rejected' && !(result.reason instanceof FileOperationError && result.reason.fileOperationResult === FileOperationResult.FILE_NOT_FOUND));
+				if (unexpected?.status === 'rejected') { throw unexpected.reason; }
 				const [originalResult, modifiedResult] = results;
 				if (originalResult.status === 'rejected') { throw originalResult.reason; }
 				if (modifiedResult.status === 'rejected') { throw modifiedResult.reason; }

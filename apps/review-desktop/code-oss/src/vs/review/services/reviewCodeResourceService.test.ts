@@ -336,6 +336,23 @@ for (const missingSide of ["base", "head"] as const) {
       harness.service.dispose();
     }
   });
+
+  test(`a missing ${missingSide} does not hide an unexpected failure on the other side`, async () => {
+    const missing = new FileOperationError("Pinned source missing", FileOperationResult.FILE_NOT_FOUND);
+    const unexpected = new FileOperationError("Access denied", FileOperationResult.FILE_PERMISSION_DENIED);
+    const harness = createUnifiedHarness(async (resource) => {
+      throw resource.path.includes(`/review-${missingSide}/`) ? missing : unexpected;
+    });
+    try {
+      await assert.rejects(
+        harness.service.acquireUnifiedDiff("src/example.ts", "head", []),
+        (error) => error === unexpected,
+      );
+      assert.equal(harness.openReferences(), 0);
+    } finally {
+      harness.service.dispose();
+    }
+  });
 }
 
 test("unified rows resolve back to the pinned base and head checkouts", async () => {

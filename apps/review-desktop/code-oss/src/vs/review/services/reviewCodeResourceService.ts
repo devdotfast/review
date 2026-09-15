@@ -13,6 +13,7 @@ import {
   type IResolvedTextEditorModel,
 } from "../../editor/common/services/resolverService.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
+import { FileOperationError, FileOperationResult } from "../../platform/files/common/files.js";
 import {
   REVIEW_BASE_SCHEME,
   REVIEW_HEAD_SCHEME,
@@ -439,6 +440,10 @@ export class ReviewCodeResourceService
     // finishes loading after the failure. Preserve the resolver's error.
     if (original.status === "rejected") {
       if (modified.status === "fulfilled") modified.value.dispose();
+      // A missing base must not hide an unexpected failure on the head.
+      if (modified.status === "rejected" && original.reason instanceof FileOperationError && original.reason.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+        throw modified.reason;
+      }
       throw original.reason;
     }
     if (modified.status === "rejected") {

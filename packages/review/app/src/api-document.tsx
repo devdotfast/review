@@ -22,7 +22,7 @@ import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { MarkdownContent, markdownHasTitle } from "./agent-markdown";
 import { ResolvedCallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
-import { ReviewCodePeek } from "./CodePeek";
+import { CodePeekCard } from "./CodePeek";
 import { ResolvedDatabaseLens } from "./database-lens";
 import { ResolvedSequenceDiagram, type SequenceRef } from "./diagrams";
 import { AnchorLink, ReviewSection } from "./review-components";
@@ -182,21 +182,7 @@ export function sourceAnchor(
   source: Source,
   title: string,
 ): PeekableAnchorRef {
-  return {
-    __kind: "db-anchor-ref",
-    id,
-    title,
-    peek: {
-      __kind: "code-peek-ref",
-      props: {
-        file: source.file,
-        fromLine: source.fromLine,
-        toLine: source.toLine,
-        graph: source.side,
-      },
-      resolution: null,
-    },
-  };
+  return { __kind: "db-anchor-ref", id, title, peek: source };
 }
 
 export function ApiDocument({ data }: { data: ApiDocumentData }) {
@@ -271,7 +257,7 @@ function DocumentNode({ node, data }: { node: Block; data: ApiDocumentData }) {
       );
       break;
     case "code_peek":
-      content = <ReviewCodePeek anchor={data.anchors.get(node.id!)!} />;
+      content = <CodePeekCard source={node.source} />;
       break;
     case "sequence":
       content = <ResolvedSequenceDiagram sequence={sequenceFor(node, data)} />;

@@ -9,7 +9,6 @@ import {
   callStackConnectorPrefix,
   diffCallStacks,
 } from "../../src/call-stack-diff";
-import { validatedCodePeekInputFromRef } from "./CodePeek";
 import { useReviewSession } from "./host/review-session";
 import { useReviewPanel } from "./review-panel";
 import { captureUiEvent } from "./ui-telemetry";
@@ -72,8 +71,8 @@ export function ResolvedCallStackDiff(
                   kind: "peek",
                   anchor,
                   content: {
-                    kind: "resolved-code",
-                    input: validatedCodePeekInputFromRef(anchor.peek),
+                    kind: "source",
+                    source: anchor.peek,
                   },
                 });
               }}

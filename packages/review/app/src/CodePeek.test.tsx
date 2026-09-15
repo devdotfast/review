@@ -8,12 +8,7 @@ import { type ReactNode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  CodePeek,
-  CodePeekCard,
-  CodePeekGroup,
-  validatedCodePeekInputFromRef,
-} from "./CodePeek";
+import { CodePeek, CodePeekCard, CodePeekGroup } from "./CodePeek";
 import {
   type ReviewSession,
   ReviewSessionProvider,
@@ -65,31 +60,31 @@ describe("CodePeek native editor", () => {
               file: "src/current.ts",
               fromLine: 20,
               toLine: 24,
-              graph: "head",
+              side: "head",
             },
             {
               file: "src/current.ts",
               fromLine: 22,
               toLine: 23,
-              graph: "head",
+              side: "head",
             },
             {
               file: "src/current.ts",
               fromLine: 80,
               toLine: 82,
-              graph: "head",
+              side: "head",
             },
             {
               file: "src/current.ts",
               fromLine: 50,
               toLine: 50,
-              graph: "base",
+              side: "base",
             },
             {
               file: "src/other.ts",
               fromLine: 4,
               toLine: 4,
-              graph: "head",
+              side: "head",
             },
           ]}
         />,
@@ -147,19 +142,19 @@ describe("CodePeek native editor", () => {
   });
 
   it("mounts each editor without a React header and opens from the native action", async () => {
-    const input = validatedCodePeekInputFromRef({
+    const input = {
       side: "base",
       file: "src/previous.ts",
       fromLine: 7,
       toLine: 9,
-    });
+    } as const;
 
-    const secondInput = validatedCodePeekInputFromRef({
+    const secondInput = {
       side: "head",
       file: "src/current.ts",
       fromLine: 20,
       toLine: 20,
-    });
+    } as const;
 
     const container = document.createElement("div");
     document.body.append(container);
@@ -168,8 +163,8 @@ describe("CodePeek native editor", () => {
     await act(async () =>
       renderWithSession(
         <>
-          <CodePeekCard input={input} />
-          <CodePeekCard input={secondInput} />
+          <CodePeekCard source={input} />
+          <CodePeekCard source={secondInput} />
         </>,
       ),
     );
@@ -215,19 +210,19 @@ describe("CodePeek native editor", () => {
   });
 
   it("gives range side peeks a source title and content height policy", async () => {
-    const input = validatedCodePeekInputFromRef({
+    const input = {
       side: "head",
       file: "src/example.ts",
       fromLine: 1,
       toLine: 3,
-    });
+    } as const;
 
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     await act(async () =>
-      renderWithSession(<CodePeekCard input={input} heightMode="content" />),
+      renderWithSession(<CodePeekCard source={input} heightMode="content" />),
     );
 
     expect(created[0]).toMatchObject({
@@ -244,14 +239,14 @@ describe("CodePeek native editor", () => {
     root = createRoot(container);
 
     for (let index = 0; index < 50; index += 1) {
-      const input = validatedCodePeekInputFromRef({
+      const input = {
         side: "head",
         file: `src/target-${index}.ts`,
         fromLine: index + 1,
         toLine: index + 1,
-      });
+      } as const;
 
-      await act(async () => renderWithSession(<CodePeekCard input={input} />));
+      await act(async () => renderWithSession(<CodePeekCard source={input} />));
     }
 
     expect(created).toHaveLength(50);
@@ -268,25 +263,47 @@ describe("CodePeek native editor", () => {
   });
 
   it("recreates a native editor when the Review session changes", async () => {
-    const input = validatedCodePeekInputFromRef({
+    const input = {
       side: "head",
       file: "src/current.ts",
       fromLine: 20,
       toLine: 20,
-    });
+    } as const;
 
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
-    await act(async () => renderWithSession(<CodePeekCard input={input} />));
+    await act(async () => renderWithSession(<CodePeekCard source={input} />));
     expect(created).toHaveLength(1);
 
     session = createTestSession("next-session");
-    await act(async () => renderWithSession(<CodePeekCard input={input} />));
+    await act(async () => renderWithSession(<CodePeekCard source={input} />));
 
     expect(disposed).toHaveLength(1);
     expect(created).toHaveLength(2);
+  });
+
+  it("renders a canonical source range on its pinned side", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      renderWithSession(
+        <CodePeekCard
+          source={{ side: "base", file: "src/old.ts", fromLine: 7, toLine: 9 }}
+        />,
+      );
+    });
+
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({
+      path: "src/old.ts",
+      title: "src/old.ts:7-9",
+      side: "base",
+      ranges: [{ startLine: 7, endLine: 9 }],
+    });
   });
 });
 

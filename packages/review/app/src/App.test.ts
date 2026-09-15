@@ -2,7 +2,7 @@ import { type ReactElement, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { CodePeekCard, validatedCodePeekInputFromRef } from "./CodePeek";
+import { CodePeekCard } from "./CodePeek";
 import { a as ReviewMdxLink } from "./review-components";
 import {
   reviewSessionElement,
@@ -87,14 +87,16 @@ describe("review app links", () => {
 
 describe("review app CodePeek rendering", () => {
   it("leaves resolved CodePeek identity and stats to the native editor header", () => {
-    const input = validatedCodePeekInputFromRef({
+    const input = {
       side: "base",
       file: "src/example.ts",
       fromLine: 1,
       toLine: 3,
-    });
+    } as const;
 
-    const html = renderWithTestSession(createElement(CodePeekCard, { input }));
+    const html = renderWithTestSession(
+      createElement(CodePeekCard, { source: input }),
+    );
 
     expect(html).toContain('data-code-rendering="inline-editor"');
     expect(html).not.toContain("code-peek-card");
@@ -106,14 +108,16 @@ describe("review app CodePeek rendering", () => {
   });
 
   it("renders a no-diff CodePeek without a duplicate React header", () => {
-    const input = validatedCodePeekInputFromRef({
+    const input = {
       side: "head",
       file: "src/unchanged.ts",
       fromLine: 8,
       toLine: 8,
-    });
+    } as const;
 
-    const html = renderWithTestSession(createElement(CodePeekCard, { input }));
+    const html = renderWithTestSession(
+      createElement(CodePeekCard, { source: input }),
+    );
 
     expect(html).toContain('data-review-inline-editor="src/unchanged.ts"');
     expect(html).not.toContain("code-peek-card");

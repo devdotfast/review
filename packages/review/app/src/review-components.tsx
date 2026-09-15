@@ -25,7 +25,7 @@ import {
   reviewSectionPropsSchema,
 } from "../../src/authoring";
 import { AuthoredCodeSurface } from "./authored-code-surface";
-import { CodePeekCard, validatedCodePeekInputFromRef } from "./CodePeek";
+import { CodePeekCard } from "./CodePeek";
 import { findWhitespaceNormalizedSpan } from "./highlighted-text";
 import {
   useOptionalReviewSession,
@@ -363,7 +363,6 @@ export function ProsePeekAnchor({
 
 export function AnchorLink(props: AnchorLinkProps) {
   const { anchor, children } = anchorLinkPropsSchema.parse(props);
-  const input = validatedCodePeekInputFromRef(anchor.peek);
   const openPeek = useReviewPanel((state) => state.openPeek);
 
   const peekOpen = useReviewPanel(
@@ -380,7 +379,7 @@ export function AnchorLink(props: AnchorLinkProps) {
         openPeek({
           kind: "peek",
           anchor,
-          content: { kind: "resolved-code", input },
+          content: { kind: "source", source: anchor.peek },
         });
       }}
     >
@@ -689,7 +688,7 @@ function CodeReviewPeekPanel({
   anchor: AnchorRef;
   content: Extract<
     ReviewPeekContent,
-    { kind: "resolved-code" | "inline-code" | "explanation" }
+    { kind: "source" | "inline-code" | "explanation" }
   >;
   onClose: () => void;
 }) {
@@ -1109,10 +1108,10 @@ function ReviewPeekContentView({
 }) {
   if (content.kind === "explanation") return <p>{content.text}</p>;
 
-  if (content.kind === "resolved-code") {
+  if (content.kind === "source") {
     return (
       <CodePeekCard
-        input={content.input}
+        source={content.source}
         active={active}
         heightMode="content"
         onNativeFocus={onNativeFocus}

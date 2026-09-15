@@ -33,10 +33,8 @@ import {
   resolveTargetRef,
   throwAuthoringIssue,
 } from "../../src/authoring";
-import {
-  type ValidatedCodePeekInput,
-  validatedCodePeekInputFromRef,
-} from "./CodePeek";
+import type { Source } from "../../src/source";
+import {} from "./CodePeek";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import type { GuidedTour } from "./review-panel-model";
@@ -233,10 +231,7 @@ export function ResolvedDatabaseLens({
         useCases.flatMap((useCase) =>
           useCase.operations.map(
             (operation) =>
-              [
-                operation.anchor.id,
-                validatedCodePeekInputFromRef(operation.anchor.peek),
-              ] as const,
+              [operation.anchor.id, operation.anchor.peek] as const,
           ),
         ),
       ),
@@ -266,8 +261,8 @@ export function ResolvedDatabaseLens({
             anchorDetail: operation.anchor.detail,
           }),
           content: {
-            kind: "resolved-code" as const,
-            input: peekInputs.get(operation.anchor.id)!,
+            kind: "source" as const,
+            source: peekInputs.get(operation.anchor.id)!,
           },
         })),
       })),
@@ -1096,11 +1091,11 @@ function validateDatabaseLensProps(props: DatabaseLensProps) {
     labels.add(useCase.label);
   }
 
-  const peekInputs = new Map<string, ValidatedCodePeekInput>();
+  const peekInputs = new Map<string, Source>();
 
   const validateAnchor = (anchor: PeekableAnchorRef) => {
     if (!peekInputs.has(anchor.id)) {
-      peekInputs.set(anchor.id, validatedCodePeekInputFromRef(anchor.peek));
+      peekInputs.set(anchor.id, anchor.peek);
     }
   };
 

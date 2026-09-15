@@ -90,19 +90,19 @@ describe("sequence diagram guided tour", () => {
         anchor: { id: "authUserWrite" },
         label: "write user",
         detail: "Better Auth -> Web D1",
-        content: { kind: "resolved-code" },
+        content: { kind: "source" },
       },
       {
         anchor: { id: "orgCreate" },
         label: "create organization",
         detail: "Organization helper -> Web D1",
-        content: { kind: "resolved-code" },
+        content: { kind: "source" },
       },
       {
         anchor: { id: "settingsOrgRead" },
         label: "read organization",
         detail: "Web D1 -> Settings page",
-        content: { kind: "resolved-code" },
+        content: { kind: "source" },
       },
     ]);
     expect(sequence.participants.map((participant) => participant.id)).toEqual([

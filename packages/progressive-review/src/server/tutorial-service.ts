@@ -25,7 +25,7 @@ import {
   freshSourceSessionKey,
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
-} from "../authoring-session";
+} from "../agent-session-ref";
 import { readReviewDocumentBundle } from "../review-bundle";
 import {
   type StoredReview,

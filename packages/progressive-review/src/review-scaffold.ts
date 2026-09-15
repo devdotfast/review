@@ -24,7 +24,7 @@ import {
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
-} from "./authoring-session";
+} from "./agent-session-ref";
 import { buildReviewDocument } from "./document/build";
 import { isPositionalChangeIdentity } from "./review-change-scope";
 import { removeReviewManagedCheckouts } from "./review-head-checkout";

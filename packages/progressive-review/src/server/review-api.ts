@@ -42,7 +42,7 @@ import {
   type ReviewAgentHarness,
   type SessionRef,
   resolveAuthoringSessionRef,
-} from "../authoring-session";
+} from "../agent-session-ref";
 import {
   codePeekRootSourceRanges,
   sliceReviewDiffFileToCodePeekRanges,

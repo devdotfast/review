@@ -7,7 +7,7 @@ import type {
 import { type CliJsonEvent, emitJsonEvent } from "@dev.fast/trace-core";
 import { z } from "zod";
 
-import { resolveAuthoringSessionRef } from "./authoring-session";
+import { resolveAuthoringSessionRef } from "./agent-session-ref";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import type { ReviewDocumentDiagnostic } from "./document/diagnostics";
 import { prepareReviewPublish } from "./publish-preparation";

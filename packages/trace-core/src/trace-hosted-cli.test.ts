@@ -17,6 +17,7 @@ import { clearTraceEnvCache } from "./review-agent-traces";
 import { writeStoreAuth } from "./store-auth";
 import { StoreClient } from "./store-client";
 import { traceScope } from "./trace-command";
+import { allowTraceRepository, readTraceUserConfig } from "./trace-consent";
 import {
   runTraceAllow,
   runTraceDeny,
@@ -31,7 +32,6 @@ import {
   readTraceConfigFile,
   traceConfigPath,
 } from "./trace-storage/config";
-import { allowTraceRepository, readTraceUserConfig } from "./trace-user-config";
 
 const ORIGIN = "https://app.dev.fast";
 

@@ -9,10 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearTraceEnvCache } from "./review-agent-traces";
 import { traceScope } from "./trace-command";
+import { allowTraceRepository } from "./trace-consent";
 import { runTraceGitHook } from "./trace-git-hook-runner";
 import * as hookRunner from "./trace-hook-runner";
 import { traceConfigPath } from "./trace-storage/config";
-import { allowTraceRepository } from "./trace-user-config";
 
 const execFilePromise = promisify(execFile);
 

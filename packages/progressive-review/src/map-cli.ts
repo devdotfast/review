@@ -25,7 +25,7 @@ import { Argument, Command, CommanderError, Option } from "commander";
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
-} from "./authoring-session";
+} from "./agent-session-ref";
 import { resolvePublishReview } from "./publish-preparation";
 import { touchReviewAgentSession } from "./review-home";
 import { runReviewMapPublish } from "./review-map-publish";

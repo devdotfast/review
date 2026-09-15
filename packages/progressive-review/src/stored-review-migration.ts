@@ -17,7 +17,7 @@ import { z } from "zod";
 import {
   authoringSessionKey,
   parseAuthoringSessionKey,
-} from "./authoring-session";
+} from "./agent-session-ref";
 import { isMissingFileError } from "./fs-utils";
 import { promoteReviewArtifactFiles } from "./review-artifact-promotion";
 import {

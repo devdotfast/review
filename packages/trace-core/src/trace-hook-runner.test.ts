@@ -11,13 +11,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeStoreAuth } from "./store-auth";
 import { TRACE_SESSION_TTL_MS } from "./trace-agent-sessions";
 import { traceScope } from "./trace-command";
+import { allowTraceRepository } from "./trace-consent";
 import { runTraceGitHook } from "./trace-git-hook-runner";
 import { runTraceHook } from "./trace-hook-runner";
 import { configureTraceMachine } from "./trace-machine-setup";
 import { traceTargetKey } from "./trace-repository-target";
 import { readTraceSessionProvenance } from "./trace-session-provenance";
 import { traceConfigPath } from "./trace-storage/config";
-import { allowTraceRepository } from "./trace-user-config";
 
 const execFilePromise = promisify(execFile);
 

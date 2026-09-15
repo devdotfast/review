@@ -3,7 +3,7 @@ import type {
   ReviewCliInstallTarget,
 } from "@dev.fast/review-protocol";
 
-import type { ReviewAgentHarness } from "./authoring-session";
+import type { ReviewAgentHarness } from "./agent-session-ref";
 
 const LAUNCHABLE_HARNESS: Partial<
   Record<ReviewCliInstallTarget, ReviewAgentHarness>

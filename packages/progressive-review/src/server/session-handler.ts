@@ -16,7 +16,7 @@ import {
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 
-import type { ReviewAgentHarness, SessionRef } from "../authoring-session";
+import type { ReviewAgentHarness, SessionRef } from "../agent-session-ref";
 import type { AgentServer } from "../native-agent/native-session";
 import {
   type ReviewDocumentBundle,

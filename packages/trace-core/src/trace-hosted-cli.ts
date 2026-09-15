@@ -30,6 +30,12 @@ import {
   type TraceScope,
   traceCliName,
 } from "./trace-command";
+import {
+  allowTraceRepository,
+  denyTraceRepository,
+  findTraceRepository,
+  readTraceUserConfig,
+} from "./trace-consent";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import {
   enableTraceRepository,
@@ -52,12 +58,6 @@ import {
   listTraceSyncFailures,
 } from "./trace-sync-status";
 import { writeOwnUploadStatus } from "./trace-upload-status";
-import {
-  allowTraceRepository,
-  denyTraceRepository,
-  findTraceRepository,
-  readTraceUserConfig,
-} from "./trace-user-config";
 
 /** A store failure as one sentence the user can act on. */
 function describeStoreFailure(

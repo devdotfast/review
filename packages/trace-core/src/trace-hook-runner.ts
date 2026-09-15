@@ -16,6 +16,11 @@ import {
   type TraceScope,
   resolveTraceCommand,
 } from "./trace-command";
+import {
+  type TraceRepositoryConsent,
+  findTraceRepository,
+  readTraceUserConfig,
+} from "./trace-consent";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -29,11 +34,6 @@ import {
   selectTraceStorage,
   traceStorageExpectation,
 } from "./trace-storage/resolve";
-import {
-  type TraceRepositoryConsent,
-  findTraceRepository,
-  readTraceUserConfig,
-} from "./trace-user-config";
 
 const execFileAsync = promisify(execFile);
 

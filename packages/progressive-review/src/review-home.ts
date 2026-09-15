@@ -40,7 +40,7 @@ import {
   authoringSessionKey,
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
-} from "./authoring-session";
+} from "./agent-session-ref";
 import { isMissingFileError } from "./fs-utils";
 import { resolveReviewRepositoryIdentity } from "./repository-identity";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";

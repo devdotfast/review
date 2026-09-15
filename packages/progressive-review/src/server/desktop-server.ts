@@ -43,7 +43,7 @@ import {
   authoringSessionKey,
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
-} from "../authoring-session";
+} from "../agent-session-ref";
 import {
   applyCliInstall,
   declineCliInstall,

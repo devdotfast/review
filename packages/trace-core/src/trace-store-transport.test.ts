@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import { pullReviewTraceCorpus, syncReviewTrace } from "./review-agent-traces";
 import { StoreApiError, StoreClient } from "./store-client";
+import { allowTraceRepository, denyTraceRepository } from "./trace-consent";
 import {
   type TraceRepositoryTarget,
   traceTargetKey,
@@ -41,7 +42,6 @@ import {
   memoryTraceSessionKey,
   seedMemoryTraceSession,
 } from "./trace-store-transport.memory";
-import { allowTraceRepository, denyTraceRepository } from "./trace-user-config";
 
 const REPOSITORY_ID = 123;
 

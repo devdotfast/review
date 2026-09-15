@@ -8,7 +8,7 @@ import { z } from "zod";
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
-} from "./authoring-session";
+} from "./agent-session-ref";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { resolvePublishReview } from "./publish-preparation";
 import { materializePublishRevision } from "./publish-stage";

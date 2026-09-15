@@ -87,6 +87,39 @@ Read exact source with `review_source({reviewId,version?,source:{side,file,fromL
 
 A `code_peek` contains its source range directly. For a prose link, use `[save logic](review-source:head/src/save.ts#L10-L24)` (or `base`). A single line uses `#L10`; URL-encode spaces and reserved characters in the repository-relative path. The host validates the range before saving, and the link opens the existing native side peek at that version's pins. Reference-style Markdown links work too. Ordinary web links still open externally.
 
-Upload retained resources with `review_upload`. Images take base64 bytes; traces take a provenance label and `{id,role,text}` events; maps take pins, side and the existing nested model. Use the schema to see exact shapes. A trace quote references the returned resource ID, an event ID and an exact excerpt. Use only supplied evidence; do not invent a transcript or provenance.
+Upload retained resources with `review_upload`. Set `kind` to `"image"` with `base64`, `"trace"` with `trace:{label,events:[{id,role,text}]}`, or `"map"` with `pins`, `side` and `model`. A trace quote references the returned resource ID, an event ID and an exact excerpt. Use only supplied evidence; do not invent a transcript or provenance.
 
 The host checks component shape, relationships and changed source/resource references before saving. Rejected edits leave the previous version intact. Read the returned validation details and correct the input. Nothing compiles MDX or TypeScript; there is no separate client validation, publish or render acknowledgment.
+
+### Software-map uploads
+
+Call `review_upload({id,repositoryId,kind:"map",pins,side:"head",model})`, using a fresh UUID for `id` and resolved pins for the same repository. For example, `model` can be:
+
+```json
+{
+  "people": { "user": { "label": "User" } },
+  "systems": {
+    "app": {
+      "label": "App",
+      "containers": {
+        "api": { "components": { "handler": {} } },
+        "db": {}
+      },
+      "relationships": [
+        { "kind": "semantic", "from": "api", "to": "db", "label": "Stores data" }
+      ]
+    }
+  },
+  "relationships": [
+    { "kind": "semantic", "from": "user", "to": "app", "label": "Uses" },
+    { "kind": "semantic", "from": "app.api.handler", "to": "app.db" }
+  ]
+}
+```
+
+- Object keys supply local IDs. Nesting builds full paths: `app`, `app.api`, `app.api.handler`. Do not repeat the parent path in a child's ID. IDs must be unique among siblings. Arrays also work; give entries explicit local `id` values so paths do not depend on array positions.
+- Relationship endpoints must resolve to existing elements or data-store schema paths. Within an element's `relationships`, lookup tries that element's path plus the endpoint, then its parent's path plus the endpoint, then the endpoint as a full path. `"."` refers to the containing element. Full paths are usually clearest; relative names such as `api` and `db` above also work.
+- Root `relationships` use full paths, including the single-segment IDs of people and systems. External systems belong in `systems` with `external:true`. Endpoints need not be direct children or at the same level; the second root relationship above crosses levels.
+- A map element's code ranges go in `codeElements` with `sourceRanges:[{file,fromLine,toLine}]`. Files are repository-relative; line numbers are positive, inclusive, ordered and checked at `pins[side]`.
+
+Insert a `software_map` node referencing the returned resource ID. Rejected uploads save nothing: fix the reported input and retry with the same ID. After a successful upload, that ID is immutable; changed content needs a new upload ID so old review versions keep their original map.

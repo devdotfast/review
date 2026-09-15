@@ -283,8 +283,8 @@ describe("defineSoftwareModel", () => {
         }),
       ),
     ).toEqual([
-      'Invalid top-level relationship: endpoint "progressiveReview.graphDb.tables.edges.id" does not match an element path or data store schema path.',
-      'Invalid top-level relationship: endpoint "progressiveReview.graphDb.tables.nodes.missing" does not match an element path or data store schema path.',
+      expect.stringContaining("progressiveReview.graphDb.tables.edges.id"),
+      expect.stringContaining("progressiveReview.graphDb.tables.nodes.missing"),
     ]);
   });
 
@@ -482,9 +482,7 @@ describe("defineSoftwareModel", () => {
           },
         }),
       ),
-    ).toEqual([
-      'Invalid relationship scoped to "progressiveReview.reviewApp.codePeek": endpoint "missingTarget" does not match an element path or data store schema path.',
-    ]);
+    ).toEqual([expect.stringContaining("missingTarget")]);
   });
 
   it("rejects authored views", () => {

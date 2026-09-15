@@ -1,5 +1,6 @@
 import type { Readable, Writable } from "node:stream";
 
+import { isStringValue } from "@dev.fast/json";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -77,7 +78,17 @@ export async function serveReviewMcp(
         extra.signal,
       );
 
-      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              tool.name === "review_get" && isStringValue(result)
+                ? result
+                : JSON.stringify(result),
+          },
+        ],
+      };
     } catch (error) {
       return {
         isError: true,

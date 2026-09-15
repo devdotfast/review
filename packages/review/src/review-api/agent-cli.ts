@@ -21,7 +21,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
   try {
     const [mode, ...rest] = input.argv;
 
-    // --json is accepted everywhere; these commands already write only JSON.
+    // --json requests raw data for review_get; other tools already return JSON.
     const [name, json, ...extra] = rest.filter(
       (argument) => argument !== "--json",
     );
@@ -79,8 +79,14 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
 
     if (!isJsonObject(args))
       throw new Error("Tool input must be a JSON object.");
+
+    if (name === "review_get" && rest.includes("--json")) args.format = "json";
     const result = await callAuthoringTool(client, tool, args);
-    input.stdout.write(JSON.stringify(result) + "\n");
+    input.stdout.write(
+      (name === "review_get" && isStringValue(result)
+        ? result
+        : JSON.stringify(result)) + "\n",
+    );
 
     return 0;
   } catch (error) {
@@ -92,4 +98,4 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
   }
 }
 
-import { isJsonObject, parseJsonText } from "@dev.fast/json";
+import { isJsonObject, isStringValue, parseJsonText } from "@dev.fast/json";

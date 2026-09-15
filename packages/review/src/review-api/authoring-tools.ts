@@ -3,7 +3,7 @@ import { z } from "zod";
 import { activitySchema } from "./activity.js";
 import { sourceSchema } from "./document.js";
 import { uploadSchema } from "./local-data.js";
-import { readQuerySchemas } from "./read-schemas.js";
+import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import { commandSchema } from "./store.js";
 
 /** The host publishes its actual input schemas; adapters do not validate documents. */
@@ -71,10 +71,10 @@ export function authoringTools() {
     tool("list", "List saved reviews.", z.strictObject({}), "GET", ""),
     tool(
       "get",
-      "Read a compact outline, one target, or the full snapshot. IDs in the result can be used for edits.",
-      read("get"),
+      "Read a readable, nested text outline with editable IDs. targetId reads one component in full; full:true reads all content. Use format:json for raw node data or snapshots instead of text.",
+      z.strictObject({ ...review, ...inspectQuerySchema.shape }),
       "GET",
-      "/:reviewId",
+      "/:reviewId/inspect",
     ),
     tool(
       "history",
@@ -106,7 +106,7 @@ export function authoringTools() {
     ),
     tool(
       "upload",
-      "Retain an image, trace or pinned software map. Reusing an upload ID requires identical content.",
+      'Retain a resource. kind must be "image" (base64), "trace" (trace), or "map" (pins, side, model). Reusing an upload ID requires identical content; rejected uploads are not saved.',
       uploadSchema,
       "POST",
       "/resources",

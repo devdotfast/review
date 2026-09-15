@@ -185,7 +185,7 @@ export function registerTraceCaptureCommands(
   configureOutput(
     trace
       .command("disable [path]")
-      .description("Disable Review trace hooks for one Git repository"),
+      .description("Disable the trace hooks of one Git repository"),
   ).action(async (repoPath?: string) => {
     settings.setExitCode(
       await runtime.runTraceDisable({
@@ -199,7 +199,7 @@ export function registerTraceCaptureCommands(
   configureOutput(
     trace
       .command("repair [path]")
-      .description("Repair Review trace hooks for one Git repository"),
+      .description("Repair the trace hooks of one Git repository"),
   ).action(async (repoPath?: string) => {
     settings.setExitCode(
       await runtime.runTraceRepair({

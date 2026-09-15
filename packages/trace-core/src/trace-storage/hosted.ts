@@ -13,7 +13,7 @@ import {
 
 import { readStoreAuth } from "../store-auth";
 import { StoreApiError, StoreClient } from "../store-client";
-import { traceCliName } from "../trace-command";
+import { traceCliName, traceCommandPrefix } from "../trace-command";
 import { devReviewHome } from "../trace-home";
 import { traceRepoName } from "../trace-repo";
 import {
@@ -577,7 +577,7 @@ export class HostedTraceStorage implements TraceStorage {
 
       if (begun.storeId !== target.storeId) {
         throw new Error(
-          `The trace store changed while this session was being resolved. Run \`${traceCliName()} trace allow .\` again.`,
+          `The trace store changed while this session was being resolved. Run \`${traceCommandPrefix()} allow .\` again.`,
         );
       }
 
@@ -809,7 +809,7 @@ function publishResult(
 function syncStoreError(error: StoreApiError, sessionId: string): Error {
   if (error.code === "stale_upload") {
     return new Error(
-      `Another upload of this session finished first. Run \`${traceCliName()} trace sync ${sessionId}\` again to publish the newer transcript.`,
+      `Another upload of this session finished first. Run \`${traceCommandPrefix()} sync ${sessionId}\` again to publish the newer transcript.`,
     );
   }
 

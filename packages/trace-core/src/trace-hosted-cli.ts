@@ -30,6 +30,7 @@ import {
   type TraceCommand,
   type TraceScope,
   traceCliName,
+  traceCommandPrefix,
 } from "./trace-command";
 import {
   allowTraceRepository,
@@ -76,9 +77,9 @@ function describeStoreFailure(
     case "forbidden":
       return `You cannot read the traces of ${repository}: ${error.message}`;
     case "store_deleted":
-      return `The trace store of ${repository} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`;
+      return `The trace store of ${repository} was deleted. Run \`${traceCommandPrefix()} onboard\` to create a new one.`;
     case "not_found":
-      return `${repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`;
+      return `${repository} is not onboarded. Run \`${traceCommandPrefix()} onboard\` first.`;
     default:
       return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
   }
@@ -185,13 +186,13 @@ async function requireActiveStore(
 
   if (!store) {
     throw new HostedCommandFailure(
-      `${ctx.repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`,
+      `${ctx.repository} is not onboarded. Run \`${traceCommandPrefix()} onboard\` first.`,
     );
   }
 
   if (store.status !== "active") {
     throw new HostedCommandFailure(
-      `The trace store of ${store.displayName} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`,
+      `The trace store of ${store.displayName} was deleted. Run \`${traceCommandPrefix()} onboard\` to create a new one.`,
     );
   }
 
@@ -241,7 +242,7 @@ export async function runTraceOnboard(
       `Onboarded ${store.displayName} (id ${store.repositoryId}).\n`,
     );
     stream.write(
-      `Run \`${traceCliName()} trace allow .\` to send traces from this repository.\n`,
+      `Run \`${traceCommandPrefix()} allow .\` to send traces from this repository.\n`,
     );
 
     return 0;
@@ -269,7 +270,7 @@ export async function runTraceAllow(
       return failWithJsonError(
         input,
         "allow",
-        `This machine sends traces to a bucket. Run \`${traceCliName()} trace storage use hosted\` first.`,
+        `This machine sends traces to a bucket. Run \`review trace storage use hosted\` first.`,
       );
     }
 
@@ -382,7 +383,7 @@ export async function runTraceDeny(
 
       if (repositoryId === null) {
         throw new HostedCommandFailure(
-          `${name} has no resolved hosted store on this machine. Run \`${traceCliName()} trace allow .\` once, then deny with --delete-store.`,
+          `${name} has no resolved hosted store on this machine. Run \`${traceCommandPrefix()} allow .\` once, then deny with --delete-store.`,
         );
       }
 
@@ -509,7 +510,7 @@ export async function runTraceSessions(
   // on here.
   if (mode === "s3") {
     return fail(
-      `\`${traceCliName()} trace sessions\` lists the hosted store only. Run \`${traceCliName()} trace storage use hosted\`, or pass \`--storage hosted\`.`,
+      `\`${traceCommandPrefix()} sessions\` lists the hosted store only. Run \`review trace storage use hosted\`, or pass \`--storage hosted\`.`,
     );
   }
 
@@ -522,7 +523,7 @@ export async function runTraceSessions(
 
   if (!selection.hosted) {
     return fail(
-      `Hosted trace storage is not configured. Run \`${traceCliName()} trace allow .\` or \`${traceCliName()} trace storage use hosted\`.`,
+      `Hosted trace storage is not configured. Run \`${traceCommandPrefix()} allow .\` or \`review trace storage use hosted\`.`,
     );
   }
 
@@ -551,7 +552,7 @@ export async function runTraceSessions(
           error.code === "invalid_request"
         ) {
           throw new HostedCommandFailure(
-            `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`${traceCliName()} trace list --commit <sha>\`.`,
+            `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`${traceCommandPrefix()} list --commit <sha>\`.`,
           );
         }
 
@@ -598,7 +599,7 @@ export async function runTraceSessions(
 
       stream.write(
         page.nextCursor
-          ? `Sessions are ordered by id. More follow: run \`${traceCliName()} trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
+          ? `Sessions are ordered by id. More follow: run \`${traceCommandPrefix()} sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
           : "Sessions are ordered by id. This is the last page.\n",
       );
 
@@ -649,7 +650,7 @@ export async function writeHostedTraceStatus(
 
   if (config.repositories.length === 0) {
     stream.write(
-      `Allowed repositories: none. Run \`${traceCliName()} trace allow .\`.\n`,
+      `Allowed repositories: none. Run \`${traceCommandPrefix()} allow .\`.\n`,
     );
   } else {
     for (const repository of config.repositories) {
@@ -675,11 +676,11 @@ export async function writeHostedTraceStatus(
 
     if (!entry) {
       stream.write(
-        `This repository (${name}) is not allowed. Run \`${traceCliName()} trace allow .\`.\n`,
+        `This repository (${name}) is not allowed. Run \`${traceCommandPrefix()} allow .\`.\n`,
       );
     } else if (!entry.enabledOrigins.includes(input.origin)) {
       stream.write(
-        `This repository (${name}) is allowed at ${entry.enabledOrigins.join(", ")}, not the selected ${input.origin}. Run \`${traceCliName()} trace allow .\` while logged in there.\n`,
+        `This repository (${name}) is allowed at ${entry.enabledOrigins.join(", ")}, not the selected ${input.origin}. Run \`${traceCommandPrefix()} allow .\` while logged in there.\n`,
       );
     } else {
       stream.write(

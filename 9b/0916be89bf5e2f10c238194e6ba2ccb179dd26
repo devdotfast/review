@@ -53,6 +53,7 @@ export default defineSoftwareMap({
     traceStorage: { label: "Configured S3-compatible trace storage", external: true, dataStores: { objects: { label: "Trace and commit-index objects", kind: "objectStore" } } },
   },
   relationships: [
+    { kind: "semantic", from: "review.desktop.canvas", to: "review.desktop.selectionSurfaces", label: "Renders document and diagram surfaces" },
     { kind: "semantic", from: "review.backend.server", to: "review.backend.installation", label: "Installs CLI and managed agent skills" },
     { kind: "semantic", from: "review.cli.traceCommands", to: "review.backend.traces", label: "Looks up and syncs traces" },
     { kind: "semantic", from: "review.cli.traceCommands", to: "review.traceSettings", label: "Configures machine capture" },

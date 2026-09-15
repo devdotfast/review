@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -338,10 +339,59 @@ describe("shell profile PATH setup", () => {
     expect(await remove()).toEqual([]);
   });
 
-  it("keeps a bash login shell reading .profile", async () => {
+  it("deletes the legacy .bash_profile after an upgrade, and keeps one the user made", async () => {
+    // An old install created .bash_profile for its block; the upgrade ran in
+    // the same shell and appended the new line under it.
+    const legacyBlock = `\n${LEGACY_PROFILE_MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n`;
+    await writeFile(file(".bash_profile"), legacyBlock);
+    await ensure({ SHELL: "/bin/bash" });
+    expect(await readFile(file(".bash_profile"), "utf8")).toBe(
+      `${legacyBlock}${posixLine}\n`,
+    );
+    await remove();
+    expect(await exists(file(".bash_profile"))).toBe(false);
+
+    // A file that was empty before the install never held the block; it
+    // stays, empty again.
+    await writeFile(file(".bash_profile"), "");
+    await ensure({ SHELL: "/bin/bash" });
+    expect(await readFile(file(".bash_profile"), "utf8")).toBe(
+      `${posixLine}\n`,
+    );
+    await remove();
+    expect(await readFile(file(".bash_profile"), "utf8")).toBe("");
+  });
+
+  it("recognises the line in a CRLF file", async () => {
+    await writeFile(file(".profile"), `export A=1\r\n${posixLine}\r\n`);
+    const result = await ensure({ SHELL: "/bin/sh" });
+    expect(result.added).toEqual([]);
+    expect(
+      await shellProfilesWithPathSetup({ homeDir: home, devHome, env: {} }),
+    ).toEqual([file(".profile")]);
+    await remove();
+    expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\r\n");
+  });
+
+  it("warns about a file it cannot write and goes on", async (context) => {
+    // Root writes through any mode bit.
+    if (process.getuid?.() === 0) context.skip();
+    await writeFile(file(".profile"), "# locked\n");
+    await chmod(file(".profile"), 0o444);
+    await writeFile(file(".bashrc"), "# bashrc\n");
+    const result = await ensure({ SHELL: "/bin/bash" });
+    expect(result.added).toEqual([file(".bashrc")]);
+    expect(result.output).toContain(
+      `[warn] could not update ${file(".profile")}: `,
+    );
+    expect(await readFile(file(".profile"), "utf8")).toBe("# locked\n");
+    expect(await exists(envFilePath(devHome))).toBe(true);
+  });
+
+  it("keeps a bash login shell reading .profile", async (context) => {
     const bash = await findOnPath("bash");
 
-    if (!bash) return;
+    if (!bash) return context.skip();
     await writeDebianHome();
     await ensure({ SHELL: bash });
 
@@ -356,10 +406,10 @@ describe("shell profile PATH setup", () => {
     expect(fromProfile).toBe("1");
   });
 
-  it("puts the shim directory on PATH in a zsh login shell", async () => {
+  it("puts the shim directory on PATH in a zsh login shell", async (context) => {
     const zsh = await findOnPath("zsh");
 
-    if (!zsh) return;
+    if (!zsh) return context.skip();
     await writeFile(file(".zprofile"), "export FROM_ZPROFILE=1\n");
     await ensure({ SHELL: zsh, ZDOTDIR: home });
 

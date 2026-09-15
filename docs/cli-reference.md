@@ -166,7 +166,7 @@ review login [--origin <url>] [--no-browser]
 review logout
 review whoami
 review trace onboard [path]
-review trace allow [path] [--no-harness-hooks]
+review trace allow [path] [--no-harness-hooks] [--all-harnesses]
 review trace deny [path] [--delete-store]
 ```
 
@@ -278,6 +278,11 @@ then `npx @dev.fast/traces onboard` in the repository, then
 `npx @dev.fast/traces allow .`, then `dev-traces check`. `allow` copies the
 package to `$DEV_REVIEW_HOME/traces/` and installs `~/.local/bin/dev-traces`,
 which the hooks call by absolute path.
+
+`allow` writes a harness hook only for a harness this machine holds a
+directory for: `~/.claude`, `~/.codex`, `~/.pi`, or `~/.config/opencode`. One
+line names the harnesses it skipped. `--all-harnesses` writes all four, and
+`--no-harness-hooks` writes none. Both flags work in `review trace allow` too.
 
 `dev-traces` offers `login`, `logout`, `whoami`, `onboard`, `allow`, `deny`,
 `enable`, `disable`, `repair`, `status`, `sessions`, `sync`, and the

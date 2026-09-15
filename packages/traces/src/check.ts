@@ -6,7 +6,7 @@ import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import {
-  type AgentTraceHookAgent,
+  AGENT_TRACE_HOOK_AGENTS,
   type CliJsonOutput,
   StoreApiError,
   StoreClient,
@@ -38,14 +38,6 @@ import { NODE_FLOOR_MAJOR, supportedNodeRuntime } from "./node-floor.js";
 import { selfInstallStatus, shimPath } from "./self-install.js";
 
 const exec = promisify(execFile);
-
-/** The harnesses whose hooks this package owns, in report order. */
-const HOOK_AGENTS: AgentTraceHookAgent[] = [
-  "claude",
-  "codex",
-  "opencode",
-  "pi",
-];
 
 const INSTALL_FIX = "npx @dev.fast/traces install";
 
@@ -493,7 +485,7 @@ export async function runTracesCheck(
   const ownerParts: string[] = [];
   const foreign: string[] = [];
 
-  for (const agent of HOOK_AGENTS) {
+  for (const agent of AGENT_TRACE_HOOK_AGENTS) {
     const owner = owners[agent];
     ownerParts.push(`${agent} -> ${owner ?? "none"}`);
 

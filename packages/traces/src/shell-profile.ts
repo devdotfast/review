@@ -113,23 +113,43 @@ export function fishEnvFilePath(devHome: string): string {
  * `DEV_REVIEW_HOME` is written in full, because a login shell has not read
  * that variable yet.
  */
-function envPathText(devHome: string, homeDir: string, name: string): string {
+function envPathText(
+  devHome: string,
+  homeDir: string,
+  name: string,
+  escape: (value: string) => string,
+): string {
   const isDefaultHome =
     path.resolve(devHome) === path.resolve(path.join(homeDir, ".dev"));
 
+  // `$HOME/...` is the one expansion the line wants, so the default home is
+  // written as is. Any other path is data, and every character a double-quoted
+  // word acts on is escaped.
   return isDefaultHome
     ? `$HOME/.dev/traces/${name}`
-    : path.join(devHome, "traces", name);
+    : escape(path.join(devHome, "traces", name));
+}
+
+/** Escapes the characters `/bin/sh` acts on inside a double-quoted word. */
+function shEscape(value: string): string {
+  return value.replaceAll(/[\\$"`]/g, (each) => `\\${each}`);
+}
+
+/** Escapes the characters fish acts on inside a double-quoted word. */
+function fishEscape(value: string): string {
+  // fish reads no command substitution from a backtick, and a backslash before
+  // one would stay in the value.
+  return value.replaceAll(/[\\$"]/g, (each) => `\\${each}`);
 }
 
 /** The one line the install appends to a POSIX shell file. */
 export function posixSourceLine(devHome: string, homeDir: string): string {
-  return `. "${envPathText(devHome, homeDir, "env")}"`;
+  return `. "${envPathText(devHome, homeDir, "env", shEscape)}"`;
 }
 
 /** The one line the install writes to the fish drop-in. */
 export function fishSourceLine(devHome: string, homeDir: string): string {
-  return `source "${envPathText(devHome, homeDir, "env.fish")}"`;
+  return `source "${envPathText(devHome, homeDir, "env.fish", fishEscape)}"`;
 }
 
 function zshenvPath(homeDir: string, env: NodeJS.ProcessEnv): string {
@@ -295,6 +315,7 @@ export async function ensureShellProfilePath(
   const added: string[] = [];
   const created: string[] = [];
   const lines: string[] = [];
+  let failed = 0;
 
   for (const target of targets) {
     const result = await appendLineOnce(target.file, target.line);
@@ -302,6 +323,7 @@ export async function ensureShellProfilePath(
     if (result.status === "unchanged") continue;
 
     if (result.status === "failed") {
+      failed += 1;
       lines.push(`[warn] could not update ${target.file}: ${result.message}\n`);
       continue;
     }
@@ -315,7 +337,9 @@ export async function ensureShellProfilePath(
     }
   }
 
-  if (added.length > 0) {
+  // The hint is the only way out of a run that reached no file at all, so it
+  // prints when every target failed as well.
+  if (added.length > 0 || failed === targets.length) {
     lines.push(
       bashNote,
       `To set up PATH in another shell, run: ${posixLine}\n`,
@@ -338,17 +362,24 @@ function candidateFiles(
     ".zprofile",
   ];
 
+  const zshenvFiles = new Set([
+    zshenvPath(input.homeDir, input.env),
+    // A `ZDOTDIR` the user set after the install would otherwise hide the
+    // line an earlier run wrote to the home directory.
+    path.join(input.homeDir, ".zshenv"),
+  ]);
+
   return [
     ...names.map((name) => ({
       file: path.join(input.homeDir, name),
       line: posixLine,
       dropIn: false,
     })),
-    {
-      file: zshenvPath(input.homeDir, input.env),
+    ...[...zshenvFiles].map((file) => ({
+      file,
       line: posixLine,
       dropIn: false,
-    },
+    })),
     {
       file: fishDropInPath(input.homeDir, input.env),
       line: fishSourceLine(input.devHome, input.homeDir),
@@ -374,6 +405,24 @@ export async function shellProfilesWithPathSetup(
   return found;
 }
 
+/** A `. "…/traces/env"` line, or the fish `source` form of it. */
+const POSIX_ENV_SOURCE_LINE = /^\.\s+"(?:[^"]*\/)?traces\/env"$/;
+
+const FISH_ENV_SOURCE_LINE = /^source\s+"(?:[^"]*\/)?traces\/env\.fish"$/;
+
+/**
+ * True when one line sources a trace env file. The match reads the path
+ * suffix, not the current trace home: a user who changed `DEV_REVIEW_HOME`
+ * between the install and the uninstall would otherwise strand the line.
+ */
+function sourcesTraceEnvFile(line: string, dropIn: boolean): boolean {
+  const trimmed = line.replace(/\r$/, "").trim();
+
+  return dropIn
+    ? FISH_ENV_SOURCE_LINE.test(trimmed)
+    : POSIX_ENV_SOURCE_LINE.test(trimmed);
+}
+
 /**
  * Removes the source line, and the block of the earlier implementation, from
  * every shell file that holds one; then deletes the env files. Returns the
@@ -392,17 +441,25 @@ export async function removeShellProfilePath(
 
     if (source === null) continue;
 
-    const next = source
+    // The legacy block is one LF-joined text, so a CRLF file is normalized
+    // first and written back with LF endings.
+    const normalized = source.replaceAll("\r\n", "\n");
+
+    const next = normalized
       .split("\n")
-      .filter((line) => line.replace(/\r$/, "") !== candidate.line)
+      .filter(
+        (line) =>
+          line.replace(/\r$/, "") !== candidate.line &&
+          !sourcesTraceEnvFile(line, candidate.dropIn),
+      )
       .join("\n")
       .replaceAll(LEGACY_PROFILE_BLOCK, "");
 
-    if (next === source) continue;
+    if (next === normalized) continue;
 
     const ownFile =
       next.trim() === "" &&
-      (candidate.dropIn || source.includes(LEGACY_PROFILE_BLOCK));
+      (candidate.dropIn || normalized.includes(LEGACY_PROFILE_BLOCK));
 
     if (ownFile) {
       await rm(candidate.file, { force: true });

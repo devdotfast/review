@@ -216,9 +216,6 @@ describe("real authored document JSON conversion", () => {
       "CallStackDiff",
       "CodePeek",
       "DatabaseLens",
-      "DbRead",
-      "DbUseCase",
-      "DbWrite",
       "ReviewSection",
       "SequenceDiagram",
     ]);
@@ -280,21 +277,27 @@ describe("real authored document JSON conversion", () => {
           }),
         }),
         expect.objectContaining({
-          name: "DbRead",
+          name: "DatabaseLens",
           props: expect.objectContaining({
-            from: expect.objectContaining({
-              path: ["status"],
-              collectionId: "orders",
-            }),
-          }),
-        }),
-        expect.objectContaining({
-          name: "DbWrite",
-          props: expect.objectContaining({
-            to: expect.objectContaining({
-              path: ["status"],
-              collectionId: "orders",
-            }),
+            useCases: [
+              expect.objectContaining({
+                id: "persist",
+                operations: [
+                  expect.objectContaining({
+                    kind: "read",
+                    collection: "orders",
+                    field: "status",
+                    actor: "service",
+                  }),
+                  expect.objectContaining({
+                    kind: "write",
+                    collection: "orders",
+                    field: "status",
+                    actor: "service",
+                  }),
+                ],
+              }),
+            ],
           }),
         }),
       ]),

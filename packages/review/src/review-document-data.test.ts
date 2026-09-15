@@ -111,48 +111,6 @@ describe("review document data", () => {
     }
   });
 
-  it("rejects DatabaseLens stores that lost their collection schema or target", () => {
-    for (const collection of [
-      {},
-      {
-        target: {
-          __kind: "db-target-ref",
-          storeId: "db",
-          storeKind: "relational",
-          storeLabel: "DB",
-          collectionKind: "tables",
-          collectionId: "orders",
-          collectionLabel: "orders",
-          path: [],
-        },
-      },
-      { schema: { id: { type: "text" } } },
-    ]) {
-      const body = [
-        {
-          type: "component",
-          name: "DatabaseLens",
-          props: {
-            stores: {
-              db: {
-                __kind: "db-store-ref",
-                id: "db",
-                kind: "relational",
-                label: "DB",
-                tables: { orders: collection },
-              },
-            },
-          },
-          children: [],
-        },
-      ];
-
-      expect(
-        reviewDocumentDataSchema.safeParse({ ...base, body }).success,
-      ).toBe(false);
-    }
-  });
-
   it("rejects registry component props that do not match their schema", () => {
     for (const body of [
       [
@@ -332,13 +290,13 @@ describe("review document data", () => {
       [
         {
           type: "component",
-          name: "DatabaseLens",
-          props: { stores: {} },
+          name: "ReviewSection",
+          props: { title: "Create" },
           children: [
             {
               type: "component",
-              name: "DbUseCase",
-              props: { id: "create", label: "Create" },
+              name: "ReviewSection",
+              props: { title: "Inner" },
               children: [],
             },
           ],
@@ -351,6 +309,6 @@ describe("review document data", () => {
       },
     );
 
-    expect(seen).toEqual(["root>DatabaseLens", "DatabaseLens>DbUseCase"]);
+    expect(seen).toEqual(["root>ReviewSection", "ReviewSection>ReviewSection"]);
   });
 });

@@ -5,9 +5,7 @@ import {
   type StoreRefData,
   collectionSchema,
   createReviewDefinitionSession,
-  hydrateStoreRef,
   resolveTargetRef,
-  storeRefData,
 } from "./authoring";
 import { defineSoftwareMap } from "./software-map-model";
 
@@ -25,50 +23,6 @@ function reviewMap() {
 }
 
 describe("Review definition session", () => {
-  it("round-trips store handles through JSON data", () => {
-    const session = createReviewDefinitionSession({
-      softwareMap: null,
-      baseSoftwareMap: null,
-    });
-
-    const stores = session.defineStores({
-      db: {
-        kind: "relational",
-        label: "DB",
-        tables: {
-          orders: {
-            label: "orders",
-            schema: {
-              id: { type: "text", pk: true },
-              status: { type: "text" },
-            },
-          },
-        },
-      },
-    });
-
-    const data = JSON.parse(
-      JSON.stringify(storeRefData(stores.db)),
-    ) as StoreRefData;
-
-    expect(data.tables?.orders?.target).toMatchObject({
-      __kind: "db-target-ref",
-      storeId: "db",
-      collectionId: "orders",
-      path: [],
-    });
-
-    const hydrated = hydrateStoreRef(data);
-    expect(collectionSchema(hydrated.tables!.orders!)).toEqual({
-      id: { type: "text", pk: true },
-      status: { type: "text" },
-    });
-    expect(resolveTargetRef(hydrated.tables!.orders!.status)).toMatchObject({
-      collectionId: "orders",
-      path: ["status"],
-    });
-  });
-
   it("reports map-dependent document components when no map is materialized", async () => {
     const session = createReviewDefinitionSession({
       softwareMap: null,

@@ -4,7 +4,7 @@ import {
   type ReactElement,
 } from "react";
 
-import type { ReviewAuthoringComponentName } from "../../src/review-document-data";
+import type { ReviewDocumentComponentName } from "../../src/review-document-data";
 import { MarkdownCodeBlock } from "./code-block";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { a } from "./review-components";
@@ -25,7 +25,7 @@ export const reviewDocumentComponents: ReviewDocumentComponents = {
   // hydrated props carried by a node with its own name.
   components: reviewAuthoringComponents as typeof reviewAuthoringComponents &
     Record<
-      ReviewAuthoringComponentName,
+      ReviewDocumentComponentName,
       FunctionComponent<HydratedReviewComponentProps>
     >,
   elementOverrides: {

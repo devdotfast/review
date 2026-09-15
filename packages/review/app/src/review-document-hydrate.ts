@@ -9,12 +9,11 @@ import {
 import {
   type AnchorRef,
   type StoreRef,
-  hydrateStoreRef,
   tutorialAuthoringConversationPropsSchema,
 } from "../../src/authoring";
 import {
-  type ReviewAuthoringComponentName,
   type ReviewComponentNode,
+  type ReviewDocumentComponentName,
   type ReviewElementNode,
   type ReviewNode,
   type ReviewTextNode,
@@ -40,7 +39,7 @@ export interface HydratedReviewElementNode extends Omit<
 
 export interface HydratedReviewComponentNode {
   type: "component";
-  name: ReviewAuthoringComponentName;
+  name: ReviewDocumentComponentName;
   props: HydratedReviewComponentProps;
   children: HydratedReviewNode[];
   /** Paragraphs generated from props rather than authored child nodes. */
@@ -60,8 +59,8 @@ export interface HydratedReviewComponentProps {
   [name: string]: HydratedReviewPropValue;
 }
 
-// DatabaseLens stores regain symbol-backed collection refs, so hydrated
-// component props have an explicit runtime type distinct from sealed JSON.
+// Hydrated component props are the sealed JSON props with anchor refs
+// canonicalized to the document's shared anchor objects.
 export type HydratedReviewNode =
   | HydratedReviewTextNode
   | HydratedReviewElementNode
@@ -104,7 +103,7 @@ export function hydrateReviewDocument(
  * componentPropsSchema. A component with no entry keeps the walked props.
  */
 type ComponentHydrators = {
-  [K in ReviewAuthoringComponentName]?: (
+  [K in ReviewDocumentComponentName]?: (
     node: Extract<ReviewComponentNode, { name: K }>,
     props: HydratedReviewComponentProps,
     children: HydratedReviewNode[],
@@ -124,15 +123,6 @@ const componentHydrators: ComponentHydrators = {
 
     return { ...props, summary: reviewSectionSummary(children) };
   },
-  DatabaseLens: (node, props) => ({
-    ...props,
-    stores: Object.fromEntries(
-      Object.entries(node.props.stores).map(([id, store]) => [
-        id,
-        hydrateStoreRef(store),
-      ]),
-    ),
-  }),
 };
 
 function hydrateNode(
@@ -160,7 +150,7 @@ function hydrateNode(
   return hydrateComponentNode(node, anchors);
 }
 
-function hydrateComponentNode<K extends ReviewAuthoringComponentName>(
+function hydrateComponentNode<K extends ReviewDocumentComponentName>(
   node: Extract<ReviewComponentNode, { name: K }>,
   anchors: ReadonlyMap<string, AnchorRef>,
 ): HydratedReviewComponentNode {

@@ -80,7 +80,7 @@ describe("renderReviewNodes", () => {
     expect(html).toContain("const answer = 42;");
   });
 
-  it("preserves ReviewSection and DatabaseLens child function identity", () => {
+  it("preserves ReviewSection and DatabaseLens component identity", () => {
     const nodes: HydratedReviewNode[] = [
       {
         type: "component",
@@ -98,15 +98,8 @@ describe("renderReviewNodes", () => {
       {
         type: "component",
         name: "DatabaseLens",
-        props: { stores: {} },
-        children: [
-          {
-            type: "component",
-            name: "DbUseCase",
-            props: { id: "create", label: "Create" },
-            children: [],
-          },
-        ],
+        props: { id: "db:data", actors: {}, stores: {}, useCases: [] },
+        children: [],
       },
     ];
 
@@ -134,12 +127,8 @@ describe("renderReviewNodes", () => {
       section.props.children as ReactNode,
     )[0];
 
-    const useCase = Children.toArray(lens.props.children as ReactNode)[0];
     expect(isValidElement(sectionHeading) ? sectionHeading.type : null).toBe(
       "h2",
-    );
-    expect(isValidElement(useCase) ? useCase.type : null).toBe(
-      reviewAuthoringComponents.DbUseCase,
     );
   });
 });

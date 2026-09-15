@@ -7,7 +7,7 @@ import {
 
 import {
   type ProseTag,
-  type ReviewAuthoringComponentName,
+  type ReviewDocumentComponentName,
   type ReviewElementProps,
   tableAlignSchema,
 } from "../../src/review-document-data";
@@ -23,7 +23,7 @@ export type ProseElementComponent = FunctionComponent<
 
 export interface ReviewDocumentComponents {
   components: Record<
-    ReviewAuthoringComponentName,
+    ReviewDocumentComponentName,
     FunctionComponent<HydratedReviewComponentProps>
   >;
   elementOverrides: Partial<Record<ProseTag, ProseElementComponent>>;

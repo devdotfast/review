@@ -9,12 +9,22 @@ import { z } from "zod";
 import {
   type AnchorRef,
   type ReviewAuthoringComponentName,
+  type ReviewDocumentComponentName,
   anchorRefSchema,
   callStackEntrySchema,
   reviewComponentDataSchemas,
   sequenceDiagramPropsSchema,
 } from "./authoring";
 import { callStackFrames } from "./call-stack-frames";
+import {
+  type LegacyDbOperationNode,
+  type LegacyDbUseCaseNode,
+  databaseLensBlockFromLegacy,
+  legacyDatabaseLensPropsSchema,
+  legacyDbReadSchema,
+  legacyDbUseCaseSchema,
+  legacyDbWriteSchema,
+} from "./database-lens-block";
 import { sequenceBlockFromProps } from "./sequence-steps";
 import {
   type SoftwareModelData,
@@ -23,7 +33,10 @@ import {
 
 export const REVIEW_DOCUMENT_FORMAT = "review-document/1";
 
-export type { ReviewAuthoringComponentName } from "./authoring";
+export type {
+  ReviewAuthoringComponentName,
+  ReviewDocumentComponentName,
+} from "./authoring";
 
 export const PROSE_TAGS = [
   "p",
@@ -121,7 +134,7 @@ export interface ReviewElementNode {
   children: ReviewNode[];
 }
 
-interface ReviewComponentNodeOf<Name extends ReviewAuthoringComponentName> {
+interface ReviewComponentNodeOf<Name extends ReviewDocumentComponentName> {
   type: "component";
   name: Name;
   props: z.infer<(typeof reviewComponentDataSchemas)[Name]>;
@@ -129,8 +142,8 @@ interface ReviewComponentNodeOf<Name extends ReviewAuthoringComponentName> {
 }
 
 export type ReviewComponentNode = {
-  [Name in ReviewAuthoringComponentName]: ReviewComponentNodeOf<Name>;
-}[ReviewAuthoringComponentName];
+  [Name in ReviewDocumentComponentName]: ReviewComponentNodeOf<Name>;
+}[ReviewDocumentComponentName];
 
 export type ReviewNode =
   | ReviewTextNode
@@ -188,7 +201,7 @@ const reviewElementNodeSchema = z
   });
 
 const componentNodeSchema = <
-  Name extends ReviewAuthoringComponentName,
+  Name extends ReviewDocumentComponentName,
   Props extends z.ZodType,
 >(
   name: Name,
@@ -220,9 +233,6 @@ export const reviewComponentNodeSchema = z.discriminatedUnion("name", [
   ),
   componentNodeSchema("CodePeek", reviewComponentDataSchemas.CodePeek),
   componentNodeSchema("DatabaseLens", reviewComponentDataSchemas.DatabaseLens),
-  componentNodeSchema("DbRead", reviewComponentDataSchemas.DbRead),
-  componentNodeSchema("DbUseCase", reviewComponentDataSchemas.DbUseCase),
-  componentNodeSchema("DbWrite", reviewComponentDataSchemas.DbWrite),
   componentNodeSchema(
     "ReviewSection",
     reviewComponentDataSchemas.ReviewSection,
@@ -316,6 +326,66 @@ export function upgradeReviewDocumentJson(value: JsonValue): JsonValue {
     return { ...upgraded, props };
   }
 
+  // Lenses once carried store handles and DbUseCase/DbRead/DbWrite children;
+  // they now store one canonical block.
+  if (
+    upgraded.type === "component" &&
+    upgraded.name === "DatabaseLens" &&
+    isJsonObject(upgraded.props) &&
+    isLegacyStoreMap(upgraded.props.stores)
+  ) {
+    const children = Array.isArray(upgraded.children) ? upgraded.children : [];
+
+    const useCases = children.flatMap((child): LegacyDbUseCaseNode[] =>
+      isJsonObject(child) &&
+      child.type === "component" &&
+      child.name === "DbUseCase"
+        ? [
+            {
+              props: legacyDbUseCaseSchema.parse(child.props),
+              operations: (Array.isArray(child.children)
+                ? child.children
+                : []
+              ).flatMap((operation): LegacyDbOperationNode[] =>
+                isJsonObject(operation) &&
+                operation.type === "component" &&
+                operation.name === "DbRead"
+                  ? [
+                      {
+                        name: "DbRead" as const,
+                        props: legacyDbReadSchema.parse(operation.props),
+                      },
+                    ]
+                  : isJsonObject(operation) &&
+                      operation.type === "component" &&
+                      operation.name === "DbWrite"
+                    ? [
+                        {
+                          name: "DbWrite" as const,
+                          props: legacyDbWriteSchema.parse(operation.props),
+                        },
+                      ]
+                    : [],
+              ),
+            },
+          ]
+        : [],
+    );
+
+    return {
+      ...upgraded,
+      props: parseJsonText(
+        JSON.stringify(
+          databaseLensBlockFromLegacy(
+            legacyDatabaseLensPropsSchema.parse(upgraded.props),
+            useCases,
+          ),
+        ),
+      ),
+      children: [],
+    };
+  }
+
   // Sequences once listed messages between actor refs; they now store steps.
   if (
     upgraded.type === "component" &&
@@ -335,6 +405,15 @@ export function upgradeReviewDocumentJson(value: JsonValue): JsonValue {
     };
 
   return upgraded;
+}
+
+function isLegacyStoreMap(value: JsonValue | undefined): boolean {
+  return (
+    isJsonObject(value) &&
+    Object.values(value).some(
+      (store) => isJsonObject(store) && store.__kind === "db-store-ref",
+    )
+  );
 }
 
 function isLegacyCallStackEntry(value: JsonValue): boolean {

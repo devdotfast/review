@@ -22,8 +22,8 @@ On first launch, Review opens the welcome screen. It detects supported coding
 agents and offers to install:
 
 - the `review` command in `~/.local/bin`;
-- the `dev-review` skill for authoring reviews; and
-- the `dev-review-map` skill for generating architecture maps.
+- the `dev-review` skill for authoring reviews and software maps; and
+- the Review MCP connection for Codex and Claude Code.
 
 Choose **Install** for the agents you use. Review keeps the app-managed command
 and skills in sync after updates.

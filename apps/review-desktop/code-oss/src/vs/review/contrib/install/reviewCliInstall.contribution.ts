@@ -161,7 +161,7 @@ class UninstallReviewDesktopAction extends Action2 {
 		const removalTargets = [...new Set([...targets, ...fffTargets])];
 		const detail = [
 			targets.length > 0
-				? localize('review.uninstall.skills', "Removes the Review skills for {0}.", formatTargets(targets))
+				? localize('review.uninstall.skills', "Removes the Review skills and unchanged app-managed MCP connections for {0}.", formatTargets(targets))
 				: localize('review.uninstall.noSkills', "No agent skills are installed."),
 			status.stamp?.shimPath
 				? localize('review.uninstall.shim', "Removes the review terminal command at {0}.", status.stamp.shimPath)
@@ -298,8 +298,8 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 		const message = request.targets.length === 0
 			? localize('review.cliInstall.resyncedCli', "Review updated the installed CLI.")
 			: request.shim
-				? localize('review.cliInstall.resynced', "Review updated the installed CLI and agent skills.")
-				: localize('review.cliInstall.resyncedSkills', "Review updated the installed agent skills.");
+				? localize('review.cliInstall.resynced', "Review updated the CLI, agent skills, and MCP connections. Restart your agent or reconnect MCP to load the changes.")
+				: localize('review.cliInstall.resyncedSkills', "Review updated the agent skills and MCP connections. Restart your agent or reconnect MCP to load the changes.");
 		this.notificationService.status(
 			message,
 			{ hideAfter: 10_000 },

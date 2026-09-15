@@ -184,7 +184,7 @@ event includes only `reason`, `count`, and the random installation identifier.
 | `review_telemetry_dropped`     | `reason`, `count`                                                                                            | The queue drops one or more events      |
 
 `command_path` is a closed enum for all public commands. It includes `help`,
-`version`, `app.launch`, `app.pick`, `rebind`, `publish`, `wait`, `info`,
+`version`, `app.launch`, `app.pick`, `rebind`, `publish`, `info`,
 `scaffold`, `install`, `migrate.apply`, `map.open`, `map.check`, `map.prune`,
 `map.publish`, `map.push`, `map.fetch`, `login`, `logout`, `whoami`,
 `trace.onboard`, `trace.allow`, `trace.deny`, `trace.storage.use`,

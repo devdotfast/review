@@ -258,44 +258,6 @@ describe("Review CLI", () => {
     expect(output).toBe("1.2.3\n");
   });
 
-  it("reports when a Codex Review wait reuses the active process", async () => {
-    const stdout = outputStream();
-    let output = "";
-    stdout.on("data", (chunk) => (output += String(chunk)));
-
-    const review = {
-      dir: "/tmp/reviews/99d4519f-5a72-4684-9af4-98abaa2849cc",
-      review: { uuid: "99d4519f-5a72-4684-9af4-98abaa2849cc" },
-    } as StoredReview;
-
-    const runtime = {
-      validateReviewWait: async () => review,
-      startCodexWaitProcess: async () => ({
-        pid: 123,
-        reused: true,
-        reviewUuid: review.review.uuid,
-        threadId: "thread-1",
-      }),
-    };
-
-    await expect(
-      runReviewCli({
-        argv: ["wait", "--codex", "--review", review.review.uuid],
-        env: { CODEX_THREAD_ID: "thread-1" },
-        stdout,
-        stderr: outputStream(),
-        runtime,
-      }),
-    ).resolves.toBe(0);
-
-    expect(JSON.parse(output)).toMatchObject({
-      event: "codex-wait",
-      pid: 123,
-      reused: true,
-      waiting: true,
-    });
-  });
-
   it("registers app pick, info, scaffold, and publish without the removed start command", async () => {
     const runReviewApp = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app" as const,

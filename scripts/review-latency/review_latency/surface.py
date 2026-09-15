@@ -20,7 +20,7 @@ INSTALLED_SKILLS = {
 }
 DOCS_DIR = REPO_ROOT / "docs"
 AUTHORING_TYPES = [PACKAGE / "src" / "authoring.ts"]
-CLI_SUBCOMMANDS = ["", "scaffold", "publish", "info", "app", "map", "wait", "rebind"]
+CLI_SUBCOMMANDS = ["", "scaffold", "publish", "info", "app", "map", "rebind"]
 
 
 def hash_paths(paths: list[Path]) -> str:

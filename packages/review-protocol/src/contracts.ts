@@ -1039,8 +1039,7 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     event: z.literal("review-deleted"),
     uuid: z.uuid({ error: "must be a UUID" }),
   }),
-  /* Dismissal is the reader's terminal action. `review wait` treats it as an
-     end state, the same way it treats a deletion. */
+  /* Dismissal is the reader's terminal action. */
   z.strictObject({
     event: z.literal("review-attention-changed"),
     uuid: z.uuid({ error: "must be a UUID" }),

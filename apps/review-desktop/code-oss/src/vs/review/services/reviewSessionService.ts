@@ -1044,7 +1044,7 @@ function reviewReapsAt(
 	).toISOString();
 }
 
-async function reviewResponseError(
+export async function reviewResponseError(
 	response: Response,
 	fallback: string,
 ): Promise<Error> {

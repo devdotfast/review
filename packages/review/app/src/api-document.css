@@ -1,0 +1,26 @@
+.api-document-node {
+  display: contents;
+}
+.review-document
+  .api-document-node
+  > :is(
+    p,
+    h2,
+    h3,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    .code-peek,
+    .review-trace-quote-container,
+    .review-image
+  ) {
+  width: min(100%, var(--review-prose-max-width));
+  max-width: calc(100cqi - 2 * var(--review-document-padding-inline));
+  margin-inline: auto;
+}
+.review-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

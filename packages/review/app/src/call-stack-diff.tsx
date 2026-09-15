@@ -20,10 +20,15 @@ import { captureUiEvent } from "./ui-telemetry";
 // There is nothing to fetch: the authored lists are the data.
 
 export function CallStackDiff(props: CallStackDiffProps) {
+  return <ResolvedCallStackDiff {...callStackDiffPropsSchema.parse(props)} />;
+}
+
+export function ResolvedCallStackDiff(
+  parsed: CallStackDiffProps & { identity?: (entry: CallStackEntry) => string },
+) {
   const session = useReviewSession();
-  const parsed = callStackDiffPropsSchema.parse(props);
   const openPeek = useReviewPanel((state) => state.openPeek);
-  const rows = diffCallStacks(parsed.base, parsed.head);
+  const rows = diffCallStacks(parsed.base, parsed.head, parsed.identity);
   const added = rows.filter((row) => row.change === "added").length;
   const removed = rows.filter((row) => row.change === "removed").length;
 

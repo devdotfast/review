@@ -5,7 +5,7 @@ import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
-import type { ReviewStore } from "./store.js";
+import type { ReviewChange, ReviewStore } from "./store.js";
 
 // `?version=` must mean "current", not `Number("") === 0`.
 const version = z.preprocess(
@@ -33,6 +33,53 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
     return context.json({ error: "Review operation failed." }, 500);
   });
   app.get("/", (context) => context.json(store.list()));
+  app.get("/:id/watch", (context) => {
+    const id = context.req.param("id");
+    store.read(id); // Return a normal 404 before opening the response.
+    let stop = () => {};
+
+    let dirty = true;
+    const encoder = new TextEncoder();
+
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const send = () => {
+          if (controller.desiredSize === null || controller.desiredSize <= 0)
+            return;
+          controller.enqueue(
+            encoder.encode(JSON.stringify(store.read(id)) + "\n"),
+          );
+          dirty = false;
+        };
+
+        stop = store.subscribe((result) => {
+          if (result.reviewId === id) {
+            dirty = true;
+            send();
+          }
+        });
+        send();
+      },
+      pull(controller) {
+        if (dirty) {
+          controller.enqueue(
+            encoder.encode(JSON.stringify(store.read(id)) + "\n"),
+          );
+          dirty = false;
+        }
+      },
+      cancel() {
+        stop();
+      },
+    });
+
+    return new Response(body, {
+      headers: {
+        "content-type": "application/x-ndjson",
+        "cache-control": "no-store",
+      },
+    });
+  });
 
   if (data) {
     app.post("/repositories", async (context) => {
@@ -91,6 +138,7 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
       const input = z
         .strictObject({
           version,
+          commit: z.string().min(1).optional(),
           side: z.enum(["base", "head"]),
           file: z.string(),
         })
@@ -98,7 +146,10 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
 
       return context.json(
         await data.file(
-          store.read(context.req.param("id"), input.version).pins,
+          await data.comparison(
+            store.read(context.req.param("id"), input.version).pins,
+            input.commit,
+          ),
           input.side,
           input.file,
         ),
@@ -108,14 +159,31 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
       const input = z
         .strictObject({
           version,
+          commit: z.string().min(1).optional(),
           file: z.string().optional(),
         })
         .parse(context.req.query());
 
       return context.json(
         await data.changes(
-          store.read(context.req.param("id"), input.version).pins,
+          await data.comparison(
+            store.read(context.req.param("id"), input.version).pins,
+            input.commit,
+          ),
           input.file,
+        ),
+      );
+    });
+    app.get("/:id/commits", async (context) => {
+      const input = z
+        .strictObject({
+          version: z.coerce.number().int().nonnegative().optional(),
+        })
+        .parse(context.req.query());
+
+      return context.json(
+        await data.commits(
+          store.read(context.req.param("id"), input.version).pins,
         ),
       );
     });

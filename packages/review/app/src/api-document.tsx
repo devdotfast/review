@@ -1,0 +1,517 @@
+import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
+import { type ReactNode, memo, useLayoutEffect, useMemo, useRef } from "react";
+
+import {
+  type ActorRef,
+  type PeekableAnchorRef,
+  type StoreInput,
+  type StoreRef,
+  callStackEntryAnchor,
+  defineCollections,
+} from "../../src/authoring";
+import type { ReviewApiClient } from "../../src/review-api/client";
+import {
+  type Block,
+  type Source,
+  elements,
+  sourceReferences,
+} from "../../src/review-api/document";
+import type { Snapshot } from "../../src/review-api/store";
+import type { NormalizedSoftwareModel } from "../../src/software-map-model";
+import { MarkdownContent, markdownHasTitle } from "./agent-markdown";
+import { ResolvedCallStackDiff } from "./call-stack-diff";
+import { RenderedCodeBlock } from "./code-block";
+import { ReviewCodePeek } from "./CodePeek";
+import { ResolvedDatabaseLens } from "./database-lens";
+import { ResolvedSequenceDiagram, type SequenceRef } from "./diagrams";
+import { ReviewSection } from "./review-components";
+import { ReviewDocumentTitle } from "./review-document-surface";
+import { SoftwareMap } from "./software-map/SoftwareMap";
+import { TraceQuote } from "./trace-quote";
+
+import "./api-document.css";
+
+interface Trace {
+  label: string;
+  events: { id: string; role: string; text: string }[];
+}
+
+export interface ApiDocumentData {
+  snapshot: Snapshot;
+  commits: ReviewCommitSummary[];
+  anchors: Map<string, PeekableAnchorRef>;
+  images: Map<string, string>;
+  traces: Map<string, Trace>;
+  maps: Map<string, NormalizedSoftwareModel>;
+}
+
+/** Cache only immutable resources and commit-addressed quotes, for this canvas. */
+export function createDocumentLoader(client: ReviewApiClient) {
+  const cache = new Map<string, Promise<unknown>>();
+  const urls = new Set<string>();
+  let disposed = false;
+
+  const once = <T,>(key: string, read: () => Promise<T>): Promise<T> => {
+    if (!cache.has(key))
+      cache.set(
+        key,
+        read().catch((error) => {
+          cache.delete(key);
+          throw error;
+        }),
+      );
+
+    // SAFETY: each key identifies one immutable resource and its loader's result type.
+    return cache.get(key) as Promise<T>;
+  };
+
+  return {
+    dispose() {
+      disposed = true;
+
+      for (const url of urls) URL.revokeObjectURL(url);
+      cache.clear();
+    },
+    async load(snapshot: Snapshot): Promise<ApiDocumentData> {
+      const data: ApiDocumentData = {
+        snapshot,
+        commits: await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
+          client.read<ReviewCommitSummary[]>(
+            `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
+          ),
+        ),
+        anchors: new Map(),
+        images: new Map(),
+        traces: new Map(),
+        maps: new Map(),
+      };
+
+      for (const { id, source, label } of sourceReferences(snapshot.document)) {
+        data.anchors.set(
+          id,
+          sourceAnchor(
+            id,
+            source,
+            label ?? `${source.file}:${source.fromLine}`,
+          ),
+        );
+      }
+
+      await Promise.all(
+        elements(snapshot.document).map(async (node) => {
+          if (node.type === "image") {
+            const url = await once(`image:${node.assetId}`, async () => {
+              const blob = await (
+                await client.response(
+                  `/resources/${encodeURIComponent(node.assetId)}`,
+                )
+              ).blob();
+
+              if (disposed) throw new Error("Canvas closed.");
+              const url = URL.createObjectURL(blob);
+              urls.add(url);
+
+              return url;
+            });
+
+            data.images.set(node.assetId, url);
+          }
+
+          if (node.type === "trace_quote")
+            data.traces.set(
+              node.traceId,
+              await once(`trace:${node.traceId}`, () =>
+                client.read<Trace>(
+                  `/resources/${encodeURIComponent(node.traceId)}`,
+                ),
+              ),
+            );
+
+          if (node.type === "software_map") {
+            const model = await once(`map:${node.mapVersionId}`, async () => {
+              const saved = await client.read<
+                Pick<NormalizedSoftwareModel, "elements" | "relationships">
+              >(`/resources/${encodeURIComponent(node.mapVersionId)}`);
+
+              return {
+                ...saved,
+                elementsByPath: new Map(
+                  saved.elements.map((element) => [element.path, element]),
+                ),
+              };
+            });
+
+            data.maps.set(node.mapVersionId, model);
+          }
+        }),
+      );
+
+      return data;
+    },
+  };
+}
+
+export function sourceAnchor(
+  id: string,
+  source: Source,
+  title: string,
+): PeekableAnchorRef {
+  return {
+    __kind: "db-anchor-ref",
+    id,
+    title,
+    peek: {
+      __kind: "code-peek-ref",
+      props: {
+        file: source.file,
+        fromLine: source.fromLine,
+        toLine: source.toLine,
+        graph: source.side,
+      },
+      resolution: null,
+    },
+  };
+}
+
+export function ApiDocument({ data }: { data: ApiDocumentData }) {
+  const hasTitle = useMemo(
+    () =>
+      elements(data.snapshot.document).some(
+        (node) => node.type === "markdown" && markdownHasTitle(node.markdown),
+      ),
+    [data.snapshot.document],
+  );
+
+  return (
+    <>
+      {!hasTitle && (
+        <ReviewDocumentTitle>{data.snapshot.title}</ReviewDocumentTitle>
+      )}
+      {data.snapshot.document.map((node) => (
+        <DocumentNode key={node.id} node={node} data={data} />
+      ))}
+    </>
+  );
+}
+
+// Memoized: unrelated App renders must not rebuild every block's view models.
+const DocumentNode = memo(function DocumentNode({
+  node,
+  data,
+}: {
+  node: Block;
+  data: ApiDocumentData;
+}) {
+  const revision = useMemo(() => JSON.stringify(node), [node]);
+
+  const children = (nodes: Block[]) =>
+    nodes.map((child) => (
+      <DocumentNode key={child.id} node={child} data={data} />
+    ));
+
+  let content: ReactNode;
+
+  switch (node.type) {
+    case "markdown":
+      content = (
+        <MarkdownContent source={node.markdown} h1={ReviewDocumentTitle} />
+      );
+      break;
+    case "code":
+      content = (
+        <>
+          <RenderedCodeBlock code={node.text} language={node.language} />
+          {node.caption && <p>{node.caption}</p>}
+        </>
+      );
+      break;
+    case "divider":
+      content = <hr />;
+      break;
+    case "section":
+      content = (
+        <ReviewSection
+          stateKey={`${data.snapshot.reviewId}:${node.id}`}
+          title={node.title}
+          defaultCollapsed={node.defaultCollapsed}
+        >
+          {children(node.children)}
+        </ReviewSection>
+      );
+      break;
+    case "callout":
+      content = (
+        <blockquote data-tone={node.tone}>
+          {node.title && <strong>{node.title}</strong>}
+          {children(node.children)}
+        </blockquote>
+      );
+      break;
+    case "code_peek":
+      content = <ReviewCodePeek anchor={data.anchors.get(node.id!)!} />;
+      break;
+    case "sequence":
+      content = <ApiSequence node={node} data={data} />;
+      break;
+    case "call_stack_diff": {
+      const entries = (frames: typeof node.base) =>
+        frames.map((frame, index) =>
+          frame.via && index > 0
+            ? {
+                __kind: "call-assertion" as const,
+                parent: data.anchors.get(frames[index - 1]!.id!)!,
+                child: data.anchors.get(frame.id!)!,
+                reason: `${frame.via.kind}: ${frame.via.reason}`,
+              }
+            : data.anchors.get(frame.id!)!,
+        );
+
+      const keys = new Map(
+        [...node.base, ...node.head].map((frame) => [
+          frame.id!,
+          frame.key ??
+            JSON.stringify([
+              frame.source.file,
+              frame.source.fromLine,
+              frame.source.toLine,
+            ]),
+        ]),
+      );
+
+      content = (
+        <ResolvedCallStackDiff
+          title={node.title}
+          base={entries(node.base)}
+          head={entries(node.head)}
+          identity={(entry) => keys.get(callStackEntryAnchor(entry).id)!}
+        />
+      );
+      break;
+    }
+
+    case "database_lens":
+      content = <ApiDatabase node={node} data={data} />;
+      break;
+    case "image":
+      content = (
+        <figure className="review-image">
+          <img src={data.images.get(node.assetId)} alt={node.alt} />
+          {node.caption && <figcaption>{node.caption}</figcaption>}
+        </figure>
+      );
+      break;
+    case "trace_quote":
+      content = (
+        <TraceQuote
+          sessionId={node.traceId}
+          event={data.traces
+            .get(node.traceId)!
+            .events.findIndex((event) => event.id === node.eventId)}
+        >
+          {node.text}
+        </TraceQuote>
+      );
+      break;
+    case "software_map":
+      content = (
+        <SoftwareMap
+          model={data.maps.get(node.mapVersionId)}
+          view={node.focusElementId}
+        />
+      );
+      break;
+  }
+
+  return (
+    <NodeReveal id={node.id!} revision={revision}>
+      {content}
+    </NodeReveal>
+  );
+});
+
+function ApiSequence({
+  node,
+  data,
+}: {
+  node: Extract<Block, { type: "sequence" }>;
+  data: ApiDocumentData;
+}) {
+  // A stable ref keeps the diagram's tour and layout memos valid between snapshots.
+  const sequence = useMemo(() => sequenceFor(node, data), [node, data.anchors]);
+
+  return <ResolvedSequenceDiagram sequence={sequence} />;
+}
+
+export function sequenceFor(
+  node: Extract<Block, { type: "sequence" }>,
+  data: Pick<ApiDocumentData, "anchors">,
+): SequenceRef {
+  const actors = Object.fromEntries(
+    Object.entries(node.actors).map(([name, label]) => [
+      name,
+      actor(`${node.id}:${name}`, label),
+    ]),
+  );
+
+  return {
+    __kind: "review-sequence-ref",
+    stableItemIds: true,
+    id: node.id!,
+    label: node.title,
+    participants: Object.values(actors),
+    messages: node.steps.map((step) => ({
+      id: step.id!,
+      from: actors[step.from]!,
+      to: actors[step.to]!,
+      label: step.label,
+      anchor: data.anchors.get(step.id!) ?? {
+        __kind: "db-anchor-ref",
+        id: step.id!,
+        title: step.label,
+      },
+      code: step.code,
+      explanation: step.explanation,
+      style: step.style,
+    })),
+  };
+}
+
+const actor = (id: string, label: string): ActorRef => ({
+  __kind: "db-actor-ref",
+  id,
+  label,
+});
+
+function ApiDatabase({
+  node,
+  data,
+}: {
+  node: Extract<Block, { type: "database_lens" }>;
+  data: ApiDocumentData;
+}) {
+  const stores = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(node.stores).map(([name, store]) => {
+          const kind = store.storage === "relational" ? "tables" : "documents";
+          const input: StoreInput = { kind: store.storage, label: store.label };
+
+          const collections = Object.fromEntries(
+            Object.entries(store.collections).map(([name, collection]) => [
+              name,
+              {
+                label: collection.label,
+                schema: Object.fromEntries(
+                  Object.entries(collection.fields).map(([name, field]) => [
+                    name,
+                    {
+                      type: field.dataType + (field.nullable ? "?" : ""),
+                      pk: field.primaryKey,
+                      fk: field.references
+                        ? {
+                            table: field.references.collection,
+                            field: field.references.field,
+                          }
+                        : undefined,
+                    },
+                  ]),
+                ),
+              },
+            ]),
+          );
+
+          return [
+            name,
+            {
+              __kind: "db-store-ref",
+              id: name,
+              kind: input.kind,
+              label: input.label,
+              [kind]: defineCollections(name, input, kind, collections),
+            } satisfies StoreRef,
+          ];
+        }),
+      ),
+    [node.stores],
+  );
+
+  // Stable between snapshots: the lens re-applies its restored tour whenever these change.
+  const useCases = useMemo(
+    () =>
+      node.useCases.map((useCase) => ({
+        ...useCase,
+        id: useCase.id!,
+        operations: useCase.operations.map((op) => {
+          const store = node.stores[op.store]!;
+
+          const target = {
+            __kind: "db-target-ref" as const,
+            storeId: op.store,
+            storeKind: store.storage,
+            storeLabel: store.label,
+            collectionKind:
+              store.storage === "relational"
+                ? ("tables" as const)
+                : ("documents" as const),
+            collectionId: op.collection,
+            collectionLabel: store.collections[op.collection]!.label,
+            path: op.field ? [op.field] : [],
+          };
+
+          const from = actor(`${node.id}:${op.actor}`, node.actors[op.actor]!);
+
+          return {
+            kind: op.kind,
+            from: op.kind === "read" ? target : from,
+            to: op.kind === "read" ? from : target,
+            label: op.label,
+            anchor: data.anchors.get(op.id!)!,
+          };
+        }),
+      })),
+    [node, data.anchors],
+  );
+
+  return (
+    <ResolvedDatabaseLens
+      id={node.id}
+      title={node.title}
+      stores={stores}
+      useCases={useCases}
+    />
+  );
+}
+
+function NodeReveal({
+  id,
+  revision,
+  children,
+}: {
+  id: string;
+  revision: string;
+  children: ReactNode;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    // Clip each content box; no overlay can spill onto adjacent document content.
+    const animations = [...(root.current?.children ?? [])].map((element) =>
+      element.animate?.(
+        [
+          { opacity: 0.35, clipPath: "inset(0 0 100% 0)" },
+          { opacity: 1, clipPath: "inset(0)" },
+        ],
+        { duration: 200, easing: "ease-out" },
+      ),
+    );
+
+    return () => animations.forEach((animation) => animation?.cancel());
+  }, [revision]);
+
+  return (
+    <div className="api-document-node" data-review-node-id={id} ref={root}>
+      {children}
+    </div>
+  );
+}

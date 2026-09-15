@@ -58,6 +58,8 @@ const stepSchema = z
 
 const frameSchema = z.strictObject({
   ...identity,
+  // Optional component-local name for the same frame on both sides (even if moved).
+  key: label.optional(),
   source: sourceSchema,
   label: label.optional(),
   via: z
@@ -184,6 +186,38 @@ export type Block =
 export type Step = z.infer<typeof stepSchema>;
 
 export type Element = Block | Step;
+
+/** Source-bearing items share their owning element's stable identity. */
+export function sourceReferences(
+  document: Block[],
+): { id: string; source: Source; label?: string }[] {
+  return elements(document).flatMap((element) => {
+    if (element.type === "call_stack_diff")
+      return [...element.base, ...element.head].map((frame) => ({
+        ...frame,
+        id: frame.id!,
+      }));
+
+    if (element.type === "database_lens")
+      return element.useCases.flatMap((useCase) =>
+        useCase.operations.map((operation) => ({
+          ...operation,
+          id: operation.id!,
+        })),
+      );
+
+    if ("source" in element && element.source)
+      return [
+        {
+          id: element.id!,
+          source: element.source,
+          label: element.type === "step" ? element.label : element.caption,
+        },
+      ];
+
+    return [];
+  });
+}
 
 export const blockSchema: z.ZodType<Block> = z.lazy(() =>
   z.union([
@@ -424,10 +458,20 @@ export function checkReferences(document: Block[]): void {
       }
 
     if (block.type === "call_stack_diff")
-      for (const side of ["base", "head"] as const)
+      for (const side of ["base", "head"] as const) {
+        const keys = block[side].flatMap((frame) =>
+          frame.key ? [frame.key] : [],
+        );
+
+        if (new Set(keys).size !== keys.length)
+          throw new ReviewInputError(
+            `Frame keys must be unique within ${side}.`,
+          );
+
         for (const frame of block[side])
           if (frame.source.side !== side)
             throw new ReviewInputError(`A ${side} frame needs ${side} source.`);
+      }
 
     if (block.type === "database_lens") {
       const field = (store: string, collection: string, name?: string) => {

@@ -31,7 +31,7 @@ export type Pins = z.infer<typeof pinsSchema>;
 
 const code = z.strictObject({ language: text.default("text"), text });
 
-const stepSchema = z
+export const stepSchema = z
   .strictObject({
     ...identity,
     type: z.literal("step").default("step"),
@@ -65,6 +65,16 @@ export const frameSchema = z.strictObject({
 });
 
 export type Frame = z.infer<typeof frameSchema>;
+
+export const sequenceSchema = z.strictObject({
+  ...identity,
+  type: z.literal("sequence"),
+  title: label,
+  actors: z.record(text, label),
+  steps: z.array(stepSchema),
+});
+
+export type SequenceBlock = z.infer<typeof sequenceSchema>;
 
 const fieldSchema = z.strictObject({
   label,
@@ -117,13 +127,7 @@ const leafSchema = z.discriminatedUnion("type", [
     source: sourceSchema,
     caption: text.optional(),
   }),
-  z.strictObject({
-    ...identity,
-    type: z.literal("sequence"),
-    title: label,
-    actors: z.record(text, label),
-    steps: z.array(stepSchema),
-  }),
+  sequenceSchema,
   z.strictObject({
     ...identity,
     type: z.literal("call_stack_diff"),

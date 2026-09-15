@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { traceScope } from "./trace-command";
 import {
+  disableAllTraceRepositories,
   disableTraceRepository,
   enableTraceRepository,
   traceRepositoryStatus,
@@ -115,6 +116,41 @@ describe("trace repository hooks", () => {
     expect(await runGit(repo, ["config", "--get", "core.hooksPath"])).toBe(
       ".custom-hooks",
     );
+  });
+
+  it("leaves the repositories of the other CLI enabled when an owner is named", async () => {
+    const { homeDir, repo: reviewRepo } = await makeRepository();
+
+    const tracesRepo = await mkdtemp(
+      path.join(os.tmpdir(), "trace-hooks-repo-"),
+    );
+
+    roots.push(tracesRepo);
+    await runGit(tracesRepo, ["init", "-b", "main"]);
+    const scope = traceScope({ homeDir });
+
+    await enableTraceRepository({
+      cwd: reviewRepo,
+      scope,
+      reviewCommand: "/opt/review/review",
+    });
+    await enableTraceRepository({
+      cwd: tracesRepo,
+      scope,
+      reviewCommand: "/opt/traces/dev-traces",
+    });
+
+    const { kept } = await disableAllTraceRepositories(scope, {
+      owner: "review",
+    });
+
+    expect(kept).toEqual([(await traceRepositoryStatus(tracesRepo)).root]);
+    expect((await traceRepositoryStatus(reviewRepo)).enabled).toBe(false);
+    expect((await traceRepositoryStatus(tracesRepo)).enabled).toBe(true);
+
+    await disableAllTraceRepositories(scope);
+
+    expect((await traceRepositoryStatus(tracesRepo)).enabled).toBe(false);
   });
 });
 

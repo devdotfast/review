@@ -163,8 +163,12 @@ Under `--json` it prints one `trace.check` event.
 - The sync status and the captured sessions.
 
 One machine can run both commands. The owner of a harness hook is the command
-that wrote it last. `check` reports the owner of each harness hook and of the
-Git hooks. A hook that either command owns passes the check.
+that wrote it first. A later install of the other command keeps a hook whose
+command file still exists, and replaces a hook whose command file is gone. The
+Git hooks of one repository call the command that ran `allow`, `enable`, or
+`repair` there last. Each uninstall removes only the hooks it owns. `check`
+reports the owner of each harness hook and of the Git hooks. A hook that either
+command owns passes the check.
 
 These reads work the same in both commands: `sessions`, `list --commit <sha>`,
 `show`, `pull --commit|--session`, and `blame`. These options stay in `review`:

@@ -1,6 +1,10 @@
 import type { Writable } from "node:stream";
 
-import { installHarnessHooks, skippedHarnessesLine } from "./agent-trace-hooks";
+import {
+  installHarnessHooks,
+  keptHarnessesLine,
+  skippedHarnessesLine,
+} from "./agent-trace-hooks";
 import { type CliJsonOutput, emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
@@ -197,7 +201,7 @@ export async function runTraceInstallMachine(
     ? await input.installMachine(output)
     : input.traceCommand;
 
-  const { installed, skipped } = await installHarnessHooks({
+  const { installed, skipped, kept } = await installHarnessHooks({
     homeDir: input.scope.homeDir,
     env: input.scope.env,
     executable: traceCommand?.file,
@@ -219,6 +223,8 @@ export async function runTraceInstallMachine(
   }
 
   if (skipped.length > 0) stream.write(skippedHarnessesLine(skipped));
+
+  if (kept.length > 0) stream.write(keptHarnessesLine(kept));
 
   return 0;
 }

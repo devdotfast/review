@@ -70,6 +70,7 @@ export {
 
 export {
   type AgentTraceHookAgent,
+  type AgentTraceHookInstallResult,
   type TraceHookOwner,
   type TraceHookOwners,
   AGENT_TRACE_HOOK_AGENTS,
@@ -77,6 +78,9 @@ export {
   agentTraceHookPath,
   describeTraceHookOwners,
   removeAgentTraceHook,
+  keptHarnessesLine,
+  keptTraceHookOwner,
+  traceGitHookCommandOwner,
   traceHookCommandOwner,
   installClaudeTraceHook,
   installCodexTraceHook,

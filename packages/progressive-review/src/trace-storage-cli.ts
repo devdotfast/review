@@ -20,6 +20,7 @@ import {
   describeSelection,
   emitJsonEvent,
   emptyTraceConfig,
+  errorMessage,
   failWithJsonError,
   humanStream,
   isS3MockMode,
@@ -158,11 +159,7 @@ export async function runTraceStorageUse(
 
     return 0;
   } catch (error) {
-    return failWithJsonError(
-      input,
-      stage,
-      error instanceof Error ? error.message : String(error),
-    );
+    return failWithJsonError(input, stage, errorMessage(error));
   }
 }
 
@@ -270,11 +267,7 @@ async function useHosted(
 
     return 0;
   } catch (error) {
-    return failWithJsonError(
-      input,
-      stage,
-      error instanceof Error ? error.message : String(error),
-    );
+    return failWithJsonError(input, stage, errorMessage(error));
   }
 }
 
@@ -474,11 +467,7 @@ export async function runTraceConfigMigrate(
 
     return 0;
   } catch (error) {
-    return failWithJsonError(
-      input,
-      stage,
-      error instanceof Error ? error.message : String(error),
-    );
+    return failWithJsonError(input, stage, errorMessage(error));
   }
 }
 

@@ -3,6 +3,7 @@ import type { Writable } from "node:stream";
 import { git } from "@dev.fast/local-vcs";
 import { sessionIdSchema } from "@dev.fast/trace-protocol";
 
+import { errorMessage } from "./error-message";
 import {
   readTrailerSessions,
   syncReviewTrace,
@@ -48,9 +49,7 @@ export async function runTraceGitHook(input: {
       return 0;
     }
   } catch (cause) {
-    input.stderr.write(
-      `trace-sync: warning: ${cause instanceof Error ? cause.message : String(cause)}\n`,
-    );
+    input.stderr.write(`trace-sync: warning: ${errorMessage(cause)}\n`);
   }
 
   return 0;
@@ -226,7 +225,5 @@ async function readStdin(
 }
 
 function warn(stderr: Writable, cause: unknown): void {
-  stderr.write(
-    `trace-sync: warning: ${cause instanceof Error ? cause.message : String(cause)}\n`,
-  );
+  stderr.write(`trace-sync: warning: ${errorMessage(cause)}\n`);
 }

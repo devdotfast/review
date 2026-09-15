@@ -15,6 +15,7 @@ import {
   extractTraceEventText,
   parseAgentTraceJsonl,
 } from "./agent-trace-parser";
+import { errorMessage } from "./error-message";
 import {
   type CommitWithSessions,
   type NormalizedTrace,
@@ -436,9 +437,9 @@ async function materializeNormalizedTrace(input: {
       // A failed or corrupt transfer leaves no file and no cache change.
       if (error instanceof TraceStorageUnavailableError) return null;
       process.stderr.write(
-        `Trace store download failed for ${input.traceName}: ${
-          error instanceof Error ? error.message : String(error)
-        }\n`,
+        `Trace store download failed for ${input.traceName}: ${errorMessage(
+          error,
+        )}\n`,
       );
 
       return null;

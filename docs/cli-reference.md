@@ -270,6 +270,26 @@ download URL. The hosted store is the only store it lists, so it refuses
 A store older than contract 0.3.0 answers "does not support listing every
 session yet"; use `review trace list --commit <sha>` there.
 
+### Standalone `dev-traces` command
+
+`npx @dev.fast/traces allow .` installs `dev-traces`, a capture-only CLI for a
+machine without Review Desktop. The quick start is `npx @dev.fast/traces login`,
+then `npx @dev.fast/traces onboard` in the repository, then
+`npx @dev.fast/traces allow .`, then `dev-traces check`. `allow` copies the
+package to `$DEV_REVIEW_HOME/traces/` and installs `~/.local/bin/dev-traces`,
+which the hooks call by absolute path.
+
+`dev-traces` offers `login`, `logout`, `whoami`, `onboard`, `allow`, `deny`,
+`enable`, `disable`, `repair`, `status`, `sessions`, `sync`, and the
+repository-scoped reads `list --commit`, `show`, `pull`, and `blame`. The
+option names and the `--json` events match the `review trace` forms. Its own
+`check` command reports the runtime, the install, the login, the repository
+store, the consent, the hooks, and the recent activity on one line each, and
+exits 1 when one check fails. `--review <uuid>`, `--storage`, `storage use`,
+and `config migrate` stay in `review`. Both commands read and write the same
+login, consent, and captured sessions under `$DEV_REVIEW_HOME`. See
+`packages/traces/README.md`.
+
 ## Environment variables
 
 These variables support legacy trace configuration, isolated Desktop launches,

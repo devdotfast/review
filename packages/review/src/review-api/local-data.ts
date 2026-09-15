@@ -20,6 +20,12 @@ import {
   defineSoftwareMap,
 } from "../software-map-model.js";
 import {
+  SourceRangeError,
+  checkSourcePath,
+  requireVisibleSource,
+  sliceSourceRange,
+} from "../source.js";
+import {
   type Block,
   type Pins,
   ReviewInputError,
@@ -105,7 +111,7 @@ export class LocalReviewData {
   }
   async file(pins: Pins, side: "base" | "head", file: string) {
     // Git/jj reads committed objects, never follows a working-copy symlink.
-    checkSourcePath(file);
+    inputError(() => checkSourcePath(file));
 
     const result = await readFileAtRevision({
       rootPath: this.store.repositoryPath(pins.repositoryId),
@@ -132,7 +138,7 @@ export class LocalReviewData {
     side: "base" | "head",
     directory: string,
   ): ReviewSourceEntry[] {
-    checkSourcePath(directory);
+    inputError(() => checkSourcePath(directory));
     const prefix = directory ? directory.replace(/\/$/, "") + "/" : "";
     const entries = new Map<string, ReviewSourceEntry>();
 
@@ -160,18 +166,20 @@ export class LocalReviewData {
   async quote(pins: Pins, source: Source) {
     source = sourceSchema.parse(source);
     const file = await this.file(pins, source.side, source.file);
-    const lines = file.text.split(/\r?\n/);
-
-    if (file.text.endsWith("\n")) lines.pop();
-
-    if (file.text === "" || source.toLine > lines.length)
-      throw new ReviewInputError("Source range exceeds the pinned file.");
 
     return {
       ...source,
       commit: file.commit,
-      text: lines.slice(source.fromLine - 1, source.toLine).join("\n"),
+      text: inputError(() => sliceSourceRange(file.text, source)),
     };
+  }
+  /** Every source reference must exist at the pins; only code peeks must also
+   * show something. */
+  async validateSource(pins: Pins, source: Source, options: { peek: boolean }) {
+    const quote = await this.quote(pins, source);
+
+    if (options.peek)
+      inputError(() => requireVisibleSource(quote.text, source));
   }
   async changes(pins: Pins, file?: string) {
     const input = {
@@ -391,24 +399,22 @@ export class LocalReviewData {
   }
 }
 
-function checkSourcePath(file: string) {
-  if (
-    path.posix.isAbsolute(file) ||
-    file.includes("\\") ||
-    file.split("/").some((part) => part === ".." || part === ".") ||
-    /[\u0000-\u001f]/.test(file)
-  )
-    throw new ReviewInputError(
-      "Source file must be a repository-relative path.",
-    );
+/** The pure source checks throw their own error; API clients see it as input. */
+function inputError<T>(run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    if (error instanceof SourceRangeError)
+      throw new ReviewInputError(error.message);
+    throw error;
+  }
 }
 
 export function openLocalReviewStore(databasePath: string) {
   const store = new ReviewStore(databasePath, {
     validatePins: (pins) => data.validatePins(pins),
-    validateSource: async (pins, source) => {
-      await data.quote(pins, source);
-    },
+    validateSource: (pins, source, options) =>
+      data.validateSource(pins, source, options),
     validateResource: (pins, block) => data.validateResource(pins, block),
   });
 

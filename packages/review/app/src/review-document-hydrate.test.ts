@@ -13,6 +13,7 @@ import {
   defineSoftwareMap,
   softwareModelData,
 } from "../../src/software-map-model";
+import { reviewTocEntries } from "./review-document-headings";
 import {
   type HydratedReviewComponentNode,
   hydrateReviewDocument,
@@ -105,6 +106,59 @@ function ready(data = reviewDocumentData(), contentHash = "document-hash") {
 }
 
 describe("hydrateReviewDocument", () => {
+  it("includes synthesized section headings in navigation without changing saved data", () => {
+    const data = reviewDocumentData();
+    data.body = [
+      {
+        type: "component",
+        name: "ReviewSection",
+        props: { title: "Data flow" },
+        children: [
+          {
+            type: "element",
+            tag: "p",
+            props: {},
+            children: [{ type: "text", value: "The body stays intact." }],
+          },
+          {
+            type: "element",
+            tag: "h3",
+            props: {},
+            children: [{ type: "text", value: "Details" }],
+          },
+        ],
+      },
+      {
+        type: "component",
+        name: "ReviewSection",
+        props: { title: "Data flow" },
+        children: [
+          {
+            type: "element",
+            tag: "h2",
+            props: {},
+            children: [{ type: "text", value: "Data flow" }],
+          },
+        ],
+      },
+    ];
+    const saved = JSON.stringify(data);
+    const hydrated = hydrateReviewDocument(ready(data));
+    expect(reviewTocEntries(hydrated.body)).toEqual([
+      { id: "data-flow", text: "Data flow", level: "h2" },
+      { id: "details", text: "Details", level: "h3" },
+      { id: "data-flow-2", text: "Data flow", level: "h2" },
+    ]);
+    const section = hydrated.body[0] as HydratedReviewComponentNode;
+    expect(section.props.summary).toEqual({
+      diagrams: 0,
+      codeRefs: 0,
+      paragraphs: 1,
+    });
+    expect(section.children).toHaveLength(3);
+    expect(JSON.stringify(data)).toBe(saved);
+  });
+
   it("parses data, canonicalizes anchors, and rebuilds runtime-only handles", () => {
     const sealed = reviewDocumentData();
     const sealedJson = JSON.stringify(sealed);

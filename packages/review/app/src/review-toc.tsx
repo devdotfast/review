@@ -1,15 +1,8 @@
 import { type ReactElement, useEffect, useState } from "react";
 
 import { ContentsIcon } from "./icons";
+import type { ReviewTocEntry } from "./review-document-headings";
 import { useReviewRoots } from "./review-root-context";
-
-type ReviewTocLevel = "h2" | "h3";
-
-interface ReviewTocEntry {
-  id: string;
-  text: string;
-  level: ReviewTocLevel;
-}
 
 interface NumberedReviewTocEntry extends ReviewTocEntry {
   number: string;
@@ -29,12 +22,15 @@ const TOC_RAIL_MIN_SHELL_WIDTH = 1360;
 /** How far below the scroll viewport's top edge a heading counts as reached. */
 const ACTIVE_HEADING_TOP_SLACK_PX = 24;
 
-export function ReviewToc(): ReactElement | null {
+export function ReviewToc({
+  entries,
+}: {
+  entries: readonly ReviewTocEntry[];
+}): ReactElement | null {
   const roots = useReviewRoots();
   const shellRef = roots?.shellRef;
   const scrollRegionRef = roots?.scrollRegionRef;
   const articleRef = roots?.articleRef;
-  const [entries, setEntries] = useState<ReviewTocEntry[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -112,70 +108,12 @@ export function ReviewToc(): ReactElement | null {
   }, [isDrawerOpen]);
 
   useEffect(() => {
-    let disposed = false;
-    let frame: number | null = null;
-    const timeouts: number[] = [];
-    const shell = shellRef?.current;
-
-    const collect = () => {
-      if (disposed) return;
-      const article = articleRef?.current;
-
-      if (!article) {
-        setEntries([]);
-        setActive(null);
-
-        return;
-      }
-
-      const nextEntries = collectHeadingEntries(article);
-      setEntries((currentEntries) =>
-        tocEntriesEqual(currentEntries, nextEntries)
-          ? currentEntries
-          : nextEntries,
-      );
-      setActive((currentActive) =>
-        nextEntries.some((entry) => entry.id === currentActive)
-          ? currentActive
-          : (nextEntries[0]?.id ?? null),
-      );
-    };
-
-    const scheduleCollect = () => {
-      if (frame !== null) return;
-      frame = requestAnimationFrame(() => {
-        frame = null;
-        collect();
-      });
-    };
-
-    scheduleCollect();
-    timeouts.push(
-      window.setTimeout(scheduleCollect, 80),
-      window.setTimeout(scheduleCollect, 300),
+    setActive((current) =>
+      entries.some((entry) => entry.id === current)
+        ? current
+        : (entries[0]?.id ?? null),
     );
-
-    // Observe a node that outlives the document. Watching `.review-document`
-    // itself stranded the observer on a detached node whenever a session
-    // switch or a live recompile replaced the article, leaving Contents empty
-    // for the rest of the session.
-    const mutationRoot = shell ?? document.body;
-    const mutationObserver = new MutationObserver(scheduleCollect);
-    mutationObserver.observe(mutationRoot, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    return () => {
-      disposed = true;
-
-      if (frame !== null) cancelAnimationFrame(frame);
-
-      for (const timeout of timeouts) window.clearTimeout(timeout);
-      mutationObserver.disconnect();
-    };
-  }, [articleRef, shellRef]);
+  }, [entries]);
 
   useEffect(() => {
     if (entries.length < 2) {
@@ -374,7 +312,7 @@ export function ReviewToc(): ReactElement | null {
 }
 
 function numberReviewTocEntries(
-  entries: ReviewTocEntry[],
+  entries: readonly ReviewTocEntry[],
 ): NumberedReviewTocEntry[] {
   let sectionIndex = 0;
   let subsectionIndex = 0;
@@ -394,82 +332,6 @@ function numberReviewTocEntries(
       number: `${sectionIndex}.${subsectionIndex}`,
     };
   });
-}
-
-function collectHeadingEntries(article: HTMLElement): ReviewTocEntry[] {
-  const headings = [...article.querySelectorAll<HTMLHeadingElement>("h2, h3")];
-
-  const usedIds = new Set(
-    headings
-      .values()
-      .map((heading) => heading.id.trim())
-      .filter((id) => id.length > 0),
-  );
-
-  return headings.flatMap((heading) => {
-    const text = normalizeHeadingText(heading.textContent ?? "");
-
-    if (!text) return [];
-
-    if (!heading.id) {
-      const id = uniqueHeadingId(slugifyHeading(text), usedIds);
-      heading.id = id;
-      usedIds.add(id);
-    }
-
-    return [
-      {
-        id: heading.id,
-        text,
-        level: heading.tagName === "H3" ? "h3" : "h2",
-      },
-    ];
-  });
-}
-
-function uniqueHeadingId(baseId: string, usedIds: Set<string>): string {
-  const base = baseId || "section";
-  let candidate = base;
-  let index = 2;
-
-  while (usedIds.has(candidate)) {
-    candidate = `${base}-${index}`;
-    index += 1;
-  }
-
-  return candidate;
-}
-
-function slugifyHeading(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/['"]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function normalizeHeadingText(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function tocEntriesEqual(
-  leftEntries: ReviewTocEntry[],
-  rightEntries: ReviewTocEntry[],
-): boolean {
-  return (
-    leftEntries.length === rightEntries.length &&
-    leftEntries.every((leftEntry, index) => {
-      const rightEntry = rightEntries[index];
-
-      return (
-        rightEntry !== undefined &&
-        leftEntry.id === rightEntry.id &&
-        leftEntry.text === rightEntry.text &&
-        leftEntry.level === rightEntry.level
-      );
-    })
-  );
 }
 
 function isVisibleHeadingForActiveTracking(heading: HTMLElement): boolean {

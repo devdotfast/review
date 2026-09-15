@@ -22,17 +22,13 @@ function renderArticle(headings: string[]): HTMLElement {
   const article = document.createElement("article");
   article.className = "review-document";
   article.innerHTML = headings
-    .map((heading) => `<h2>${heading}</h2><p>body</p>`)
+    .map(
+      (heading, index) =>
+        `<h2 id="heading-${index}">${heading}</h2><p>body</p>`,
+    )
     .join("");
 
   return article;
-}
-
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
 }
 
 function tocLabels(): string[] {
@@ -78,7 +74,7 @@ describe("ReviewToc", () => {
     document.body.innerHTML = "";
   });
 
-  it("re-collects headings after the document element is replaced", async () => {
+  it("renders supplied navigation entries with section numbers", () => {
     const firstArticle = renderArticle([
       "Interface change",
       "Scheduling sequence",
@@ -91,11 +87,15 @@ describe("ReviewToc", () => {
     act(() => {
       root.render(
         <ReviewRootsProvider roots={reviewRoots}>
-          <ReviewToc />
+          <ReviewToc
+            entries={[
+              { id: "heading-0", text: "Interface change", level: "h2" },
+              { id: "heading-1", text: "Scheduling sequence", level: "h2" },
+            ]}
+          />
         </ReviewRootsProvider>,
       );
     });
-    await settle();
     expect(tocLabels()).toEqual(["Interface change", "Scheduling sequence"]);
     expect(
       document.querySelector(".review-toc-toggle-number")?.textContent?.trim(),
@@ -103,24 +103,5 @@ describe("ReviewToc", () => {
     expect(
       document.querySelector(".review-toc-toggle")?.textContent,
     ).not.toContain("§");
-
-    // A session switch or live recompile replaces the article node. Observing
-    // the article itself strands the MutationObserver on the detached node, so
-    // Contents stays empty for the rest of the session.
-    firstArticle.remove();
-    reviewRoots.articleRef.current = null;
-    await settle();
-
-    const secondArticle = renderArticle([
-      "Database lens",
-      "Topology",
-      "Evidence",
-    ]);
-
-    reviewRoots.articleRef.current = secondArticle;
-    view.append(secondArticle);
-    await settle();
-
-    expect(tocLabels()).toEqual(["Database lens", "Topology", "Evidence"]);
   });
 });

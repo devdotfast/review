@@ -21,9 +21,10 @@ export interface CallStackDiffRow {
 export function diffCallStacks(
   base: readonly CallStackEntry[],
   head: readonly CallStackEntry[],
+  identity = (entry: CallStackEntry) => callStackEntryAnchor(entry).id,
 ): CallStackDiffRow[] {
-  const baseIds = base.map((entry) => callStackEntryAnchor(entry).id);
-  const headIds = head.map((entry) => callStackEntryAnchor(entry).id);
+  const baseIds = base.map(identity);
+  const headIds = head.map(identity);
 
   // Longest-common-subsequence table; lists are author-curated and short.
   const lcs: number[][] = Array.from({ length: base.length + 1 }, () =>

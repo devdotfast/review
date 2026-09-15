@@ -114,10 +114,13 @@ export interface SequenceMessage {
   label: string;
   anchor: AnchorRef;
   code?: SequenceMessageCodeBlock;
+  explanation?: string;
+  style?: "call" | "return" | "async";
 }
 
 export interface SequenceRef {
   __kind: "review-sequence-ref";
+  stableItemIds?: boolean;
   id: string;
   label: string;
   participants: ActorRef[];
@@ -318,10 +321,12 @@ export function createSequenceTourEntry(sequence: SequenceRef): GuidedTour {
             kind: "inline-code" as const,
             ...message.code,
           }
-        : {
-            kind: "resolved-code" as const,
-            input: validatedCodePeekInputFromRef(message.anchor.peek!),
-          },
+        : message.anchor.peek
+          ? {
+              kind: "resolved-code" as const,
+              input: validatedCodePeekInputFromRef(message.anchor.peek),
+            }
+          : { kind: "explanation" as const, text: message.explanation },
     })),
   };
 }
@@ -401,14 +406,22 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
 }
 
 export function SequenceDiagram(input: SequenceInput) {
-  const session = useReviewSession();
-  const { theme } = useReviewDebugSettings();
-
   const sequence = useMemo(
     () => createSequence(input),
     [input.label, input.messages],
   );
 
+  return <ResolvedSequenceDiagram sequence={sequence} />;
+}
+
+/** Same UI, with accepted JSON data instead of MDX props. */
+export function ResolvedSequenceDiagram({
+  sequence,
+}: {
+  sequence: SequenceRef;
+}) {
+  const session = useReviewSession();
+  const { theme } = useReviewDebugSettings();
   const tour = useMemo(() => createSequenceTourEntry(sequence), [sequence]);
 
   // The tour IS the fullscreen mode: the inline figure becomes the stage
@@ -590,10 +603,16 @@ function SequenceDiagramFigure({
           sourceHandle: sequenceHandleId(message.id, "source"),
           targetHandle: sequenceHandleId(message.id, "target"),
           markerEnd: {
-            type: MarkerType.ArrowClosed,
+            type:
+              message.style === "async"
+                ? MarkerType.Arrow
+                : MarkerType.ArrowClosed,
             color,
           },
-          style: { stroke: color },
+          style: {
+            stroke: color,
+            strokeDasharray: message.style === "return" ? "6 4" : undefined,
+          },
           data: {
             message,
             index,

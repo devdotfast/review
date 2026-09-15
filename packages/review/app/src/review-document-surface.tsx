@@ -35,7 +35,7 @@ export const reviewDocumentComponents: ReviewDocumentComponents = {
   },
 };
 
-function ReviewDocumentTitle({
+export function ReviewDocumentTitle({
   children,
   ...props
 }: ComponentProps<"h1">): ReactElement {

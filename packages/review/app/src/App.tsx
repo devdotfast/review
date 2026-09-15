@@ -135,9 +135,17 @@ export interface PublishedSoftwareMap {
   base: NormalizedSoftwareModel;
 }
 
+export type RenderedReviewDocument = Omit<
+  HydratedReviewDocument,
+  "body" | "contentHash"
+> & { render: ComponentType; key: string };
+
 export type ReviewDocumentAppState =
   | { state: "loading" }
-  | { state: "ready"; document: HydratedReviewDocument }
+  | {
+      state: "ready";
+      document: HydratedReviewDocument | RenderedReviewDocument;
+    }
   | {
       state: "needs-republish";
       reviewUuid: string;
@@ -164,7 +172,7 @@ export type ReviewSoftwareMapAppState =
     };
 
 interface ResolvedReviewDocument {
-  document: HydratedReviewDocument | null;
+  document: HydratedReviewDocument | RenderedReviewDocument | null;
   routePath: string;
   filePath: string;
   /** Identity of what the panes render: content hash, or the load state. */
@@ -188,7 +196,11 @@ function useResolvedReviewDocument(
       document,
       routePath,
       filePath,
-      revision: document?.contentHash ?? `${documentState.state}:${routePath}`,
+      revision: document
+        ? "render" in document
+          ? document.key
+          : document.contentHash
+        : `${documentState.state}:${routePath}`,
       diffDocumentKey: [routePath, filePath].join("\0"),
     };
   }, [documentState, session]);
@@ -449,8 +461,11 @@ function ReviewLayoutContent({
 
   const tutorial = useTutorial() !== null;
 
+  // A rendered (JSON) document draws itself; only hydrated bodies project.
   const sourceBody =
-    documentState.state === "ready" ? documentState.document.body : null;
+    documentState.state === "ready" && !("render" in documentState.document)
+      ? documentState.document.body
+      : null;
 
   const projectedBody = useReviewDocumentProjection(sourceBody, {
     tutorial,
@@ -644,7 +659,11 @@ function ReviewLayoutContent({
                         tourRestore={viewStateSync.tourRestore}
                         persistOverlayTour={viewStateSync.persistOverlayTour}
                       >
-                        <ReviewDocumentContent body={projectedBody} />
+                        {"render" in documentState.document ? (
+                          <documentState.document.render />
+                        ) : (
+                          <ReviewDocumentContent body={projectedBody} />
+                        )}
                       </ReviewViewStateProvider>
                     </ReviewDocumentBoundary>
                   </article>

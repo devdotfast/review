@@ -77,9 +77,9 @@ function describeStoreFailure(
     case "forbidden":
       return `You cannot read the traces of ${repository}: ${error.message}`;
     case "store_deleted":
-      return `The trace store of ${repository} was deleted. Run \`${traceCommandPrefix()} onboard\` to create a new one.`;
+      return `The trace store of ${repository} was deleted. Run \`${traceCommandPrefix()} store create\` to create a new one.`;
     case "not_found":
-      return `${repository} is not onboarded. Run \`${traceCommandPrefix()} onboard\` first.`;
+      return `${repository} is not onboarded. Run \`${traceCommandPrefix()} store create\` first.`;
     default:
       return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
   }
@@ -93,7 +93,7 @@ interface HostedRepositoryContext {
   repository: string;
   origin: string;
   client: StoreClient;
-  stage: "onboard" | "allow" | "sessions";
+  stage: "onboard" | "allow" | "sessions" | "store";
 }
 
 /** Shares repository inference without changing each command's login policy. */
@@ -186,13 +186,13 @@ async function requireActiveStore(
 
   if (!store) {
     throw new HostedCommandFailure(
-      `${ctx.repository} is not onboarded. Run \`${traceCommandPrefix()} onboard\` first.`,
+      `${ctx.repository} is not onboarded. Run \`${traceCommandPrefix()} store create\` first.`,
     );
   }
 
   if (store.status !== "active") {
     throw new HostedCommandFailure(
-      `The trace store of ${store.displayName} was deleted. Run \`${traceCommandPrefix()} onboard\` to create a new one.`,
+      `The trace store of ${store.displayName} was deleted. Run \`${traceCommandPrefix()} store create\` to create a new one.`,
     );
   }
 
@@ -224,7 +224,7 @@ export async function runTraceOnboard(
     } catch (error) {
       if (error instanceof StoreApiError && error.code === "forbidden") {
         throw new HostedCommandFailure(
-          `You need write access to ${ctx.repository} to onboard it.`,
+          `You need push access to ${ctx.repository} to create its trace store.`,
         );
       }
 
@@ -239,10 +239,108 @@ export async function runTraceOnboard(
     });
     const stream = humanStream(input);
     stream.write(
-      `Onboarded ${store.displayName} (id ${store.repositoryId}).\n`,
+      `Created the trace store of ${store.displayName} (id ${store.repositoryId}).\n`,
     );
     stream.write(
       `Run \`${traceCommandPrefix()} allow .\` to send traces from this repository.\n`,
+    );
+
+    return 0;
+  });
+}
+
+/** Reports the hosted store of one repository, or exits 1 without one. */
+export async function runTraceStoreInfo(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    cwd: string;
+    client?: StoreClient;
+  },
+): Promise<number> {
+  return withHostedRepository(input, "store", async (ctx) => {
+    let store: StoreResponse | null;
+
+    try {
+      store = await ctx.client.findStore({
+        owner: ctx.name.owner,
+        name: ctx.name.repo,
+      });
+    } catch (error) {
+      throw new HostedCommandFailure(
+        describeStoreFailure(
+          error instanceof Error ? error : new Error(String(error)),
+          ctx.origin,
+          ctx.repository,
+        ),
+      );
+    }
+
+    if (!store) {
+      throw new HostedCommandFailure(
+        `${ctx.repository} is not onboarded. Run \`${traceCommandPrefix()} store create\` first.`,
+      );
+    }
+
+    emitJsonEvent(input, {
+      event: "trace.store",
+      repository: store.displayName,
+      repositoryId: store.repositoryId,
+      storeId: store.storeId,
+      status: store.status,
+      bytesStored: store.bytesStored ?? null,
+    });
+    const stream = humanStream(input);
+    stream.write(
+      `Repository: ${store.displayName} (id ${store.repositoryId})\n`,
+    );
+    stream.write(`Store: ${store.storeId} (${store.status})\n`);
+
+    if (store.bytesStored !== undefined) {
+      stream.write(`Stored bytes: ${store.bytesStored}\n`);
+    }
+
+    return 0;
+  });
+}
+
+/**
+ * Deletes the hosted store of one repository. The deletion is logical: the
+ * store stops every read and write at once, and an operator removes the
+ * objects later. The consent of this machine stays; `deny` removes that.
+ */
+export async function runTraceStoreDelete(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    cwd: string;
+    client?: StoreClient;
+  },
+): Promise<number> {
+  return withHostedRepository(input, "store", async (ctx) => {
+    const store = await requireActiveStore(ctx);
+
+    let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>>;
+
+    try {
+      deletion = await ctx.client.deleteStore(store.repositoryId);
+    } catch (error) {
+      if (error instanceof StoreApiError && error.code === "forbidden") {
+        throw new HostedCommandFailure(
+          `Deleting the store of ${ctx.repository} needs admin access to the repository.`,
+        );
+      }
+
+      throw new HostedCommandFailure(errorMessage(error));
+    }
+
+    emitJsonEvent(input, {
+      event: "trace.store.delete",
+      repository: store.displayName,
+      repositoryId: deletion.repositoryId,
+      storeId: deletion.storeId,
+      status: deletion.status,
+    });
+    humanStream(input).write(
+      `Store deletion requested for ${store.displayName} (store ${deletion.storeId}). Uploaded objects are removed by a later operator cleanup.\n`,
     );
 
     return 0;
@@ -308,7 +406,7 @@ export async function runTraceAllow(
       store: storeOrigin,
     });
     humanStream(input).write(
-      `Traces from ${store.displayName} may be published to ${storeOrigin}.\n`,
+      `Traces from ${store.displayName} may be published to ${storeOrigin}. Run \`${traceCommandPrefix()} check\` to verify.\n`,
     );
 
     return 0;
@@ -344,9 +442,6 @@ async function enableHostedCapture(
 export async function runTraceDeny(
   input: CliJsonOutput & { scope: TraceScope } & {
     cwd: string;
-    /** Also delete the hosted store (repository admins only). */
-    deleteStore?: boolean;
-    client?: StoreClient;
   },
 ): Promise<number> {
   let name: string;
@@ -372,55 +467,12 @@ export async function runTraceDeny(
     devHome,
   );
 
-  let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>> | null = null;
-
-  if (input.deleteStore) {
-    try {
-      const client =
-        input.client ?? (await requireStoreClient(input.scope.env));
-
-      const repositoryId = cached?.repositoryId ?? null;
-
-      if (repositoryId === null) {
-        throw new HostedCommandFailure(
-          `${name} has no resolved hosted store on this machine. Run \`${traceCommandPrefix()} allow .\` once, then deny with --delete-store.`,
-        );
-      }
-
-      try {
-        deletion = await client.deleteStore(repositoryId);
-      } catch (error) {
-        if (error instanceof StoreApiError && error.code === "forbidden") {
-          throw new HostedCommandFailure(
-            `Deleting the store of ${name} needs admin access to the repository.`,
-          );
-        }
-
-        throw error;
-      }
-    } catch (error) {
-      return failWithJsonError(input, "deny", errorMessage(error));
-    }
-  }
-
-  emitJsonEvent(input, {
-    event: "trace.deny",
-    name,
-    removed,
-    storeDeleted: deletion !== null,
-  });
-  const stream = humanStream(input);
-  stream.write(
+  emitJsonEvent(input, { event: "trace.deny", name, removed });
+  humanStream(input).write(
     removed
       ? `${name} will no longer publish traces.\n`
       : `${name} was not allowed to publish traces.\n`,
   );
-
-  if (deletion) {
-    stream.write(
-      `Store deletion requested for ${name} (store ${deletion.storeId}). Uploaded objects are removed by a later operator cleanup.\n`,
-    );
-  }
 
   return 0;
 }

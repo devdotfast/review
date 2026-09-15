@@ -23,10 +23,11 @@ import {
   runTraceDeny,
   runTraceOnboard,
   runTraceSessions,
+  runTraceStoreDelete,
+  runTraceStoreInfo,
   writeHostedTraceStatus,
 } from "./trace-hosted-cli";
 import { enableTraceRepository } from "./trace-repository-hooks";
-import { rememberTraceRepositoryTarget } from "./trace-repository-target";
 import {
   type TraceConfig,
   readTraceConfigFile,
@@ -379,7 +380,6 @@ describe("hosted trace commands", () => {
       event: "trace.deny",
       name: "acme/app",
       removed: true,
-      storeDeleted: false,
     });
     expect(err.text()).toBe("acme/app will no longer publish traces.\n");
     expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
@@ -740,47 +740,136 @@ describe("hosted trace commands", () => {
     );
   });
 
-  it("deletes the store on request after withdrawing consent", async () => {
+  it("deletes the store and keeps the consent of this machine", async () => {
+    await login();
     await allowTraceRepository(
       { repositoryId: 7, name: "acme/app", origin: ORIGIN },
       devHome,
     );
-    await rememberTraceRepositoryTarget({
-      cwd: repo,
-      target: {
-        origin: ORIGIN,
-        repositoryId: 7,
-        storeId: STORE_ID,
-        name: "acme/app",
-      },
-      checkout: "acme/app",
-      devHome,
-    });
     const calls: string[] = [];
     const out = collect();
 
-    const code = await runTraceDeny({
+    const code = await runTraceStoreDelete({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
-      deleteStore: true,
       client: client((url, init) => {
         calls.push(`${init?.method ?? "GET"} ${new URL(url).pathname}`);
 
-        return Response.json({
-          repositoryId: 7,
-          storeId: STORE_ID,
-          status: "deleting",
-          deletedAt: "2026-09-09T00:00:00.000Z",
-        });
+        return init?.method === "DELETE"
+          ? Response.json({
+              repositoryId: 7,
+              storeId: STORE_ID,
+              status: "deleting",
+              deletedAt: "2026-09-09T00:00:00.000Z",
+            })
+          : Response.json(STORE);
       }),
       stdout: out.stream,
       stderr: out.stream,
     });
 
     expect(code).toBe(0);
-    expect(calls).toEqual(["DELETE /api/trace/v1/stores/7"]);
-    expect((await readTraceUserConfig(devHome)).repositories).toEqual([]);
+    expect(calls).toEqual([
+      "GET /api/trace/v1/stores",
+      "DELETE /api/trace/v1/stores/7",
+    ]);
     expect(out.text()).toContain("deletion requested");
+    expect((await readTraceUserConfig(devHome)).repositories).toHaveLength(1);
+  });
+
+  it("refuses a store deletion without admin access", async () => {
+    await login();
+    const err = collect();
+
+    const code = await runTraceStoreDelete({
+      cwd: repo,
+      scope: traceScope({ homeDir: home, env }),
+      client: client((url, init) =>
+        init?.method === "DELETE"
+          ? Response.json(
+              { error: { code: "forbidden", message: "admins only" } },
+              { status: 403 },
+            )
+          : Response.json(STORE),
+      ),
+      stdout: collect().stream,
+      stderr: err.stream,
+    });
+
+    expect(code).toBe(1);
+    expect(err.text()).toBe(
+      "Deleting the store of acme/app needs admin access to the repository.\n",
+    );
+  });
+
+  it("reports the hosted store of this repository", async () => {
+    await login();
+    const out = collect();
+
+    const code = await runTraceStoreInfo({
+      cwd: repo,
+      scope: traceScope({ homeDir: home, env }),
+      client: client(() => Response.json({ ...STORE, bytesStored: 2048 })),
+      stdout: out.stream,
+      stderr: collect().stream,
+    });
+
+    expect(code).toBe(0);
+    expect(out.text()).toBe(
+      [
+        "Repository: acme/app (id 7)",
+        `Store: ${STORE_ID} (active)`,
+        "Stored bytes: 2048",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("prints one store event under --json", async () => {
+    await login();
+    const out = collect();
+
+    const code = await runTraceStoreInfo({
+      cwd: repo,
+      scope: traceScope({ homeDir: home, env }),
+      json: true,
+      client: client(() => Response.json(STORE)),
+      stdout: out.stream,
+      stderr: collect().stream,
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(out.text())).toEqual({
+      event: "trace.store",
+      repository: "acme/app",
+      repositoryId: 7,
+      storeId: STORE_ID,
+      status: "active",
+      bytesStored: null,
+    });
+  });
+
+  it("names store create when this repository has no store", async () => {
+    await login();
+    const err = collect();
+
+    const code = await runTraceStoreInfo({
+      cwd: repo,
+      scope: traceScope({ homeDir: home, env }),
+      client: client(() =>
+        Response.json(
+          { error: { code: "not_found", message: "no store" } },
+          { status: 404 },
+        ),
+      ),
+      stdout: collect().stream,
+      stderr: err.stream,
+    });
+
+    expect(code).toBe(1);
+    expect(err.text()).toBe(
+      "acme/app is not onboarded. Run `review trace store create` first.\n",
+    );
   });
 
   it("prints the stored bytes of this repository's store", async () => {
@@ -861,7 +950,7 @@ describe("hosted trace commands", () => {
       ),
     ).toContain("'/opt/dev-traces/bin/dev-traces' trace git-hook pre-push");
     expect(out.text()).toBe(
-      `Traces from acme/app may be published to ${ORIGIN}.\n`,
+      `Traces from acme/app may be published to ${ORIGIN}. Run \`review trace check\` to verify.\n`,
     );
   });
 

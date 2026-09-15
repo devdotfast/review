@@ -215,7 +215,7 @@ export async function resolveTraceRepositoryTarget(input: {
     throw new StoreApiError(
       "not_found",
       404,
-      `This repository has no active hosted trace store. Run \`${traceCommandPrefix()} onboard\`.`,
+      `This repository has no active hosted trace store. Run \`${traceCommandPrefix()} store create\`.`,
     );
   }
 

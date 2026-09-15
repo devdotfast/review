@@ -1,5 +1,13 @@
 import type { Writable } from "node:stream";
 
+import {
+  type AgentTraceHookInstallResult,
+  installClaudeTraceHook,
+  installCodexTraceHook,
+  installOpenCodeTraceExtension,
+  installPiTraceExtension,
+} from "./agent-trace-hooks";
+import { type CliJsonOutput, emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
 import {
@@ -161,6 +169,62 @@ export async function runTraceEnable(input: {
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
 
   return result.enabled ? 0 : 1;
+}
+
+/**
+ * Installs the machine parts of trace capture: the harness hooks of every
+ * agent, and the CLI itself when the CLI passes an installer. The command
+ * touches no repository; `allow` keeps the consent and the Git hooks.
+ *
+ * The CLI install runs first, because it reports the command file the
+ * harness hooks must call.
+ */
+export async function runTraceInstallMachine(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    /** False skips the four harness hook installers. */
+    harnessHooks?: boolean;
+    /** The command the harness hooks run; the CLI name when absent. */
+    traceCommand?: TraceCommand;
+    /** Installs the CLI itself and reports the command the hooks call. */
+    installMachine?: (output: CliJsonOutput) => Promise<TraceCommand>;
+  },
+): Promise<number> {
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+
+  const traceCommand = input.installMachine
+    ? await input.installMachine(output)
+    : input.traceCommand;
+
+  const stream = humanStream(output);
+
+  if (input.harnessHooks === false) {
+    emitJsonEvent(output, { event: "trace.install", hooks: [] });
+    stream.write("Harness hooks: skipped.\n");
+
+    return 0;
+  }
+
+  const executable = traceCommand?.file;
+
+  const hooks: AgentTraceHookInstallResult[] = [
+    await installClaudeTraceHook(input.scope.homeDir, executable),
+    await installCodexTraceHook(input.scope.homeDir, executable),
+    await installOpenCodeTraceExtension(input.scope.homeDir, executable),
+    await installPiTraceExtension(input.scope.homeDir, executable),
+  ];
+
+  emitJsonEvent(output, { event: "trace.install", hooks });
+
+  for (const hook of hooks) {
+    stream.write(`Harness hook: ${hook.agent} -> ${hook.path}\n`);
+  }
+
+  return 0;
 }
 
 export async function runTraceDisable(input: {

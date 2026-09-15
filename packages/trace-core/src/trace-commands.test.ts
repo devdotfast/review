@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { traceScope } from "./trace-command";
 import {
+  type RegisterTraceCommandsOptions,
   type TraceCommandRuntime,
   registerTraceCommands,
 } from "./trace-commands";
@@ -22,6 +23,9 @@ const runtime: TraceCommandRuntime = {
   runTraceGitHook: async () => 0,
   runTraceSync: async () => 0,
   runTraceOnboard: async () => 0,
+  runTraceStoreDelete: async () => 0,
+  runTraceStoreInfo: async () => 0,
+  runTraceInstallMachine: async () => 0,
   runTraceSessions: async () => 0,
   runTraceAllow: async () => 0,
   runTraceDeny: async () => 0,
@@ -35,6 +39,7 @@ function build(
   reads: "review" | "repository" = "review",
   storageOverride = true,
   overrides: Partial<TraceCommandRuntime> = {},
+  installMachine?: RegisterTraceCommandsOptions["installMachine"],
 ) {
   const parent = new Command("trace").exitOverride();
   const stdout = new PassThrough();
@@ -67,6 +72,7 @@ function build(
     setExitCode: (code) => {
       result.code = code;
     },
+    installMachine,
   });
 
   return {
@@ -280,6 +286,109 @@ describe("shared trace command parsing", () => {
 
     await fixture.parse(["git-hook", "post-checkout", "old", "new", "1"]);
     expect(fixture.result.code).toBe(0);
+  });
+
+  it.each<"review" | "repository">(["review", "repository"])(
+    "registers the store group and install in the %s audience",
+    async (reads) => {
+      const fixture = build(reads, reads === "review");
+      const help = fixture.parent.helpInformation();
+      expect(help).toContain("store");
+      expect(help).toContain("install");
+      expect(help).not.toContain("onboard");
+
+      const store = fixture.parent.commands.find(
+        (command) => command.name() === "store",
+      );
+
+      expect(store?.commands.map((command) => command.name())).toEqual([
+        "create",
+        "delete",
+        "info",
+      ]);
+    },
+  );
+  it("runs the store verbs against the given path", async () => {
+    const seen: string[] = [];
+
+    const fixture = build("repository", false, {
+      runTraceOnboard: async (input) => {
+        seen.push(`create ${input.cwd}`);
+
+        return 0;
+      },
+      runTraceStoreDelete: async (input) => {
+        seen.push(`delete ${input.cwd}`);
+
+        return 0;
+      },
+      runTraceStoreInfo: async (input) => {
+        seen.push(`info ${input.cwd} json=${input.json === true}`);
+
+        return 2;
+      },
+    });
+
+    await fixture.parse(["store", "create", "child"]);
+    await fixture.parse(["store", "delete"]);
+    await fixture.parse(["store", "info", "--json"]);
+    expect(seen).toEqual([
+      "create /repo/child",
+      "delete /repo",
+      "info /repo json=true",
+    ]);
+    expect(fixture.result.code).toBe(2);
+  });
+  it("keeps onboard as a hidden alias that names store create", async () => {
+    const calls: string[] = [];
+
+    const fixture = build("repository", false, {
+      runTraceOnboard: async (input) => {
+        calls.push(input.cwd);
+
+        return 0;
+      },
+    });
+
+    await fixture.parse(["onboard", "child"]);
+    expect(calls).toEqual(["/repo/child"]);
+    expect(fixture.result.err).toBe(
+      "onboard is now `review trace store create`.\n",
+    );
+  });
+  it("refuses the removed deny option", async () => {
+    const fixture = build("repository", false);
+    await expect(fixture.parse(["deny", "--delete-store"])).rejects.toThrow(
+      "unknown option",
+    );
+    expect(fixture.result.code).toBe(-1);
+  });
+  it("hands the machine installer to the install action", async () => {
+    const machineCommand = { file: "/home/dev/.local/bin/dev-traces" };
+    const calls: string[] = [];
+
+    const fixture = build(
+      "repository",
+      false,
+      {
+        runTraceInstallMachine: async (input) => {
+          calls.push(`harnessHooks=${input.harnessHooks === false}`);
+          expect(await input.installMachine?.(input)).toEqual(machineCommand);
+
+          return 0;
+        },
+      },
+      async () => machineCommand,
+    );
+
+    await fixture.parse(["install", "--no-harness-hooks"]);
+    expect(calls).toEqual(["harnessHooks=true"]);
+    expect(fixture.result.code).toBe(0);
+    expect(
+      fixture.parent.commands
+        .find((command) => command.name() === "install")
+        ?.description(),
+    ).toContain("~/.local/bin");
   });
   it("renders repository help and hides hook commands", () => {
     const fixture = build("repository", false);

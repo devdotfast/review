@@ -260,7 +260,7 @@ async function hostedStorage(
 
   if (!storage) {
     throw new TraceConfigurationError(
-      `Hosted trace storage needs a login and a GitHub checkout with an onboarded store. Run \`${traceCliName()} login\`, \`${traceCommandPrefix()} onboard\`, and \`${traceCommandPrefix()} allow .\`.`,
+      `Hosted trace storage needs a login and a GitHub checkout with an onboarded store. Run \`${traceCliName()} login\`, \`${traceCommandPrefix()} store create\`, and \`${traceCommandPrefix()} allow .\`.`,
     );
   }
 

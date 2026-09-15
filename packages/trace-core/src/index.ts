@@ -17,6 +17,8 @@ export {
   runTraceDeny,
   runTraceOnboard,
   runTraceSessions,
+  runTraceStoreDelete,
+  runTraceStoreInfo,
   writeHostedTraceStatus,
 } from "./trace-hosted-cli";
 
@@ -25,6 +27,7 @@ export {
   runTraceEnable,
   runTraceGitHook,
   runTraceHook,
+  runTraceInstallMachine,
   runTraceRepair,
   runTraceStatus,
   runTraceSync,

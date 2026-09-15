@@ -5,7 +5,7 @@ import type { ReviewCanvasTutorialBridge } from "@dev.fast/review-protocol";
 import { StrictMode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewProvider } from "./review-context";
@@ -183,7 +183,8 @@ it("retains visible IDs through feature toggles and leaves the source and specul
   );
 });
 
-it("keeps rendered heading IDs stable through Strict Mode feature updates", () => {
+it("keeps rendered heading IDs stable through Strict Mode feature updates", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const body = source();
   const container = document.createElement("div");
   const root = createRoot(container);
@@ -206,7 +207,7 @@ it("keeps rendered heading IDs stable through Strict Mode feature updates", () =
   }
 
   try {
-    act(() =>
+    await act(() =>
       root.render(
         <StrictMode>
           <Content enabled={false} />
@@ -216,7 +217,7 @@ it("keeps rendered heading IDs stable through Strict Mode feature updates", () =
     expect(
       [...container.querySelectorAll("h3")].map((heading) => heading.id),
     ).toEqual(["shared", "reserved"]);
-    act(() =>
+    await act(() =>
       root.render(
         <StrictMode>
           <Content enabled />
@@ -228,7 +229,7 @@ it("keeps rendered heading IDs stable through Strict Mode feature updates", () =
         heading.textContent === "Shared" ? [heading.id] : [],
       ),
     ).toEqual(["shared-2", "shared"]);
-    act(() =>
+    await act(() =>
       root.render(
         <StrictMode>
           <Content enabled={false} />
@@ -239,6 +240,7 @@ it("keeps rendered heading IDs stable through Strict Mode feature updates", () =
       [...container.querySelectorAll("h3")].map((heading) => heading.id),
     ).toEqual(["shared", "reserved"]);
   } finally {
-    act(() => root.unmount());
+    await act(() => root.unmount());
+    vi.unstubAllGlobals();
   }
 });

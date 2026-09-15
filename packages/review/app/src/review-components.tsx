@@ -1109,7 +1109,6 @@ function ReviewPeekContentView({
         active={active}
         heightMode="content"
         onNativeFocus={onNativeFocus}
-        unifiedDiff
       />
     );
   }

@@ -142,12 +142,6 @@ export interface IReviewCodeResourceService {
     side: ReviewDiffSide,
     ranges: readonly ReviewInlineEditorRange[],
   ): Promise<ReviewCodeModelReference>;
-  resolveDiff(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewCodeDiffTarget | undefined>;
   acquireUnifiedDiff(
     path: string,
     side: ReviewDiffSide,
@@ -305,7 +299,7 @@ export class ReviewCodeResourceService
     };
   }
 
-  async resolveDiff(
+  private async resolveDiff(
     path: string,
     side: ReviewDiffSide,
     ranges: readonly ReviewInlineEditorRange[],

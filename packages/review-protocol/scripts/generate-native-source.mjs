@@ -105,6 +105,7 @@ const MODULE_PATHS = [
   path.join(jsonSourceRoot, "json.ts"),
   traceContractsPath,
   path.join(sourceRoot, "contracts.ts"),
+  path.join(sourceRoot, "code-peek-diff.ts"),
   path.join(sourceRoot, "index.ts"),
 ];
 

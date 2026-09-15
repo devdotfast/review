@@ -5,7 +5,6 @@
 
 import { Button } from "../../base/browser/ui/button/button.js";
 import { Codicon } from "../../base/common/codicons.js";
-import type { IObservable } from "../../base/common/observable.js";
 import { isEqual } from "../../base/common/resources.js";
 import { URI } from "../../base/common/uri.js";
 import type {
@@ -40,9 +39,6 @@ export class ReviewMultiDiffUIElementFactory
     private readonly entries: () => readonly ReviewMultiDiffHeaderEntry[],
     readonly horizontalScrollbar: "auto" | "hidden",
     readonly overflowWidgetsDomNode: HTMLElement | undefined,
-    readonly scrollRange:
-      | IObservable<{ start: number; endExclusive: number } | undefined>
-      | undefined,
     readonly hideResourceHeader = false,
     readonly codeEditorWidgetOptions: IDiffCodeEditorWidgetOptions | undefined,
     @IInstantiationService

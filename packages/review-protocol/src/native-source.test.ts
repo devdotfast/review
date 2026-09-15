@@ -106,7 +106,12 @@ describe("native Review Protocol source generation", () => {
     const sourceRoot = path.join(directory, "src");
     await mkdir(sourceRoot, { recursive: true });
 
-    for (const name of ["contracts.ts", "index.ts", "bug-report.ts"]) {
+    for (const name of [
+      "contracts.ts",
+      "code-peek-diff.ts",
+      "index.ts",
+      "bug-report.ts",
+    ]) {
       await copyFile(
         path.join(packageRoot, "src", name),
         path.join(sourceRoot, name),
@@ -187,6 +192,7 @@ describe("native Review Protocol source generation", () => {
     await writeFile(path.join(sourceRoot, "runtime-value.ts"), "");
     await writeFile(path.join(sourceRoot, "json.ts"), "");
     await writeFile(path.join(sourceRoot, "trace-contracts.ts"), "");
+    await writeFile(path.join(sourceRoot, "code-peek-diff.ts"), "");
     await writeFile(
       path.join(sourceRoot, "contracts.ts"),
       [

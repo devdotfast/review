@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Dimension } from "../../base/browser/dom.js";
 import { Emitter } from "../../base/common/event.js";
 import {
   Disposable,
@@ -13,20 +12,14 @@ import {
 import { autorun, observableValue } from "../../base/common/observable.js";
 import { URI } from "../../base/common/uri.js";
 import type { IEditorConstructionOptions } from "../../editor/browser/config/editorConfiguration.js";
-import { ElementSizeObserver } from "../../editor/browser/config/elementSizeObserver.js";
-import type {
-  ICodeEditor,
-  IDiffEditor,
-} from "../../editor/browser/editorBrowser.js";
+import type { ICodeEditor } from "../../editor/browser/editorBrowser.js";
 import { ICodeEditorService } from "../../editor/browser/services/codeEditorService.js";
 import { CodeEditorWidget } from "../../editor/browser/widget/codeEditor/codeEditorWidget.js";
 import { EditorExtensionsRegistry } from "../../editor/browser/editorExtensions.js";
-import { MultiDiffEditorWidget } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidget.js";
 import {
   MULTI_DIFF_RESOURCE_HEADER_HEIGHT,
   MultiDiffEditorResourceHeader,
 } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorResourceHeader.js";
-import type { IDiffEditorOptions } from "../../editor/common/config/editorOptions.js";
 import { Range } from "../../editor/common/core/range.js";
 import { USUAL_WORD_SEPARATORS } from "../../editor/common/core/wordHelper.js";
 import type {
@@ -38,7 +31,6 @@ import { getHoversPromise } from "../../editor/contrib/hover/browser/getHover.js
 import type { ITextModel } from "../../editor/common/model.js";
 import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
-import { ITextResourceConfigurationService } from "../../editor/common/services/textResourceConfiguration.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import type { ITextResourceEditorInput } from "../../platform/editor/common/editor.js";
 import { REVIEW_UNIFIED_SCHEME } from "../common/reviewCodeResources.js";
@@ -47,7 +39,6 @@ import {
   REVIEW_PEEK_MAX_VISIBLE_LINES,
   reviewPeekCappedHeight,
   reviewPeekHiddenAreas,
-  reviewPeekMultiDiffBodyHeightLimit,
   reviewPeekWindowsLineCount,
   reviewPeekWindowsRenderedHeight,
   type ReviewPeekWindow,
@@ -62,7 +53,6 @@ import type {
 } from "../common/reviewProtocol.js";
 import {
   IReviewCodeResourceService,
-  type ReviewCodeDiffTarget,
   type ReviewCodeModelReference,
   type ReviewUnifiedCodeModelReference,
 } from "./reviewCodeResourceService.js";
@@ -76,24 +66,15 @@ import {
   provideReviewUnifiedDefinition,
   provideReviewUnifiedHover,
 } from "./reviewUnifiedDefinition.js";
-import {
-  computeMultiDiffEditorOptions,
-  MultiDiffEditorInput,
-} from "../../workbench/contrib/multiDiffEditor/browser/multiDiffEditorInput.js";
-import { MultiDiffEditorItem } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffSourceResolverService.js";
 import { ContentHoverController } from "../../editor/contrib/hover/browser/contentHoverController.js";
 import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
+
+import { reviewUnifiedDiffDecorations, reviewUnifiedLineNumbers } from "./reviewUnifiedEditor.js";
+import { reviewCodePeekRangeCounts } from "../common/reviewProtocol.js";
 
 const INLINE_HEADER_HEIGHT = MULTI_DIFF_RESOURCE_HEADER_HEIGHT;
 const CONTENT_HEIGHT_EPSILON = 0.5;
 const reviewInlineEditors = new WeakSet<ICodeEditor>();
-
-interface InlineDiffModel {
-  readonly original: ITextModel;
-  readonly modified: ITextModel;
-  readonly originalWindows: readonly ReviewPeekWindow[];
-  readonly modifiedWindows: readonly ReviewPeekWindow[];
-}
 
 interface InlineFindMatch {
   readonly editor: ICodeEditor;
@@ -132,8 +113,6 @@ export class ReviewInlineEditorService
     private readonly instantiationService: IInstantiationService,
     @IReviewCodeResourceService
     private readonly resources: IReviewCodeResourceService,
-    @ITextResourceConfigurationService
-    private readonly textResourceConfigurationService: ITextResourceConfigurationService,
     @ICodeEditorService
     private readonly codeEditorService: ICodeEditorService,
     @ILanguageFeaturesService
@@ -253,7 +232,6 @@ export class ReviewInlineEditorService
       spec,
       this.instantiationService,
       this.resources,
-      this.textResourceConfigurationService,
       this.overflowWidgetsDomNode,
       () => {
         this.handles.delete(handle);
@@ -291,7 +269,7 @@ export class ReviewInlineEditorService
     query: ReviewFindQuery,
   ): Promise<ReviewInlineFindResult> {
     if (!query.text) return { matchCount: 0 };
-    if (spec.unifiedDiff) {
+    {
       const unified = await this.resources.acquireUnifiedDiff(
         spec.path,
         spec.side,
@@ -309,34 +287,6 @@ export class ReviewInlineEditorService
         } finally {
           unified.dispose();
         }
-      }
-    }
-    const diff = await this.resources.resolveDiff(
-      spec.path,
-      spec.side,
-      spec.ranges,
-    );
-    if (diff) {
-      const [original, modified] = await Promise.all([
-        this.textModelService.createModelReference(diff.original),
-        this.textModelService.createModelReference(diff.modified),
-      ]);
-      try {
-        const originalModel = original.object.textEditorModel;
-        const modifiedModel = modified.object.textEditorModel;
-        if (!originalModel || !modifiedModel) return { matchCount: 0 };
-        const windows = diff.windows(
-          originalModel.getLineCount(),
-          modifiedModel.getLineCount(),
-        );
-        return {
-          matchCount:
-            findModelRanges(originalModel, windows.original, query).length +
-            findModelRanges(modifiedModel, windows.modified, query).length,
-        };
-      } finally {
-        original.dispose();
-        modified.dispose();
       }
     }
     const snippet = await this.resources.acquireSnippet(
@@ -407,23 +357,14 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   private readonly _onDidError = this._register(new Emitter<string>());
   readonly onDidError = this._onDidError.event;
   private readonly editorStore = this._register(new DisposableStore());
-  private readonly activeDiffEditorStore = this._register(
-    new DisposableStore(),
-  );
   private readonly collapsed = observableValue(this, false);
   private readonly header: MultiDiffEditorResourceHeader;
   private readonly body: HTMLElement;
   private headerEntry: ReviewMultiDiffHeaderEntry | undefined;
   private editor: CodeEditorWidget | undefined;
-  private multiDiffEditor: MultiDiffEditorWidget | undefined;
   private modelReference: ReviewCodeModelReference | undefined;
   private unifiedModelReference: ReviewUnifiedCodeModelReference | undefined;
-  private diffModel: InlineDiffModel | undefined;
   private decoration: IEditorDecorationsCollection | undefined;
-  private readonly diffRangeDecorations = new Map<
-    ICodeEditor,
-    IEditorDecorationsCollection
-  >();
   private diffDecoration: IEditorDecorationsCollection | undefined;
   private readonly findDecorations = new Map<
     ICodeEditor,
@@ -436,18 +377,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   private active: boolean;
   private _height: number;
   private expandedHeight: number;
-  /**
-   * Confines the widget's scroll space to the peek window. Alignment view
-   * zones for hidden out-of-window hunks inflate the widget's content
-   * height; without the range the widget would scroll into that filler,
-   * trap the wheel there, and size the scrollbar against unreachable room.
-   * With it, scrollTop 0 is the window top, Monaco releases the wheel to
-   * the document at both boundaries, and the Auto scrollbar hides itself
-   * when the window fits.
-   */
-  private readonly scrollRange = observableValue<
-    { start: number; endExclusive: number } | undefined
-  >(this, undefined);
   private readonly startedAt = performance.now();
 
   get height(): number {
@@ -455,14 +384,13 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   }
 
   get hasWidget(): boolean {
-    return this.editor !== undefined || this.multiDiffEditor !== undefined;
+    return this.editor !== undefined;
   }
 
   get hasModel(): boolean {
     return (
       this.modelReference !== undefined ||
-      this.unifiedModelReference !== undefined ||
-      this.diffModel !== undefined
+      this.unifiedModelReference !== undefined
     );
   }
 
@@ -470,7 +398,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     private readonly spec: ReviewInlineEditorSpec,
     private readonly instantiationService: IInstantiationService,
     private readonly resources: IReviewCodeResourceService,
-    private readonly textResourceConfigurationService: ITextResourceConfigurationService,
     private readonly overflowWidgetsDomNode: HTMLElement | undefined,
     private readonly onDispose: () => void,
     private readonly onStateChange: () => void,
@@ -499,7 +426,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       ReviewMultiDiffUIElementFactory,
       () => (this.headerEntry ? [this.headerEntry] : []),
       "hidden",
-      undefined,
       undefined,
       false,
       undefined,
@@ -531,19 +457,13 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   }
 
   hasTextFocus(): boolean {
-    if (this.editor?.hasTextFocus()) return true;
-    const diffEditor = this.multiDiffEditor?.getActiveControl();
-    return Boolean(
-      diffEditor?.getOriginalEditor().hasTextFocus() ||
-        diffEditor?.getModifiedEditor().hasTextFocus(),
-    );
+    return this.editor?.hasTextFocus() ?? false;
   }
 
   setActive(active: boolean): void {
     if (this.active === active) return;
     this.active = active;
-    if (this.multiDiffEditor && active) this.applyRange();
-    else this.updateDecoration();
+    this.updateDecoration();
   }
 
   setCollapsed(collapsed: boolean): void {
@@ -576,24 +496,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
           query,
         ),
       );
-    } else if (this.diffModel) {
-      const diffEditor = this.multiDiffEditor?.getActiveControl();
-      if (diffEditor) {
-        matches.push(
-          ...this.findModelMatches(
-            diffEditor.getOriginalEditor(),
-            this.diffModel.original,
-            this.diffModel.originalWindows,
-            query,
-          ),
-          ...this.findModelMatches(
-            diffEditor.getModifiedEditor(),
-            this.diffModel.modified,
-            this.diffModel.modifiedWindows,
-            query,
-          ),
-        );
-      }
     }
     if (requestGeneration !== this.findGeneration) return { matchCount: 0 };
     this.findMatches = matches;
@@ -625,10 +527,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     this.disposed = true;
     this.clearFind();
     this.decoration?.clear();
-    for (const collection of this.diffRangeDecorations.values()) {
-      collection.clear();
-    }
-    this.diffRangeDecorations.clear();
     this.diffDecoration?.clear();
     this.editorStore.dispose();
     this.spec.container.replaceChildren();
@@ -642,7 +540,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 
   private async initialize(): Promise<void> {
     try {
-      if (this.spec.unifiedDiff) {
+      {
         const unifiedReference = await this.resources.acquireUnifiedDiff(
           this.spec.path,
           this.spec.side,
@@ -656,16 +554,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
           this.initializeUnifiedEditor(unifiedReference);
           return;
         }
-      }
-      const diffTarget = await this.resources.resolveDiff(
-        this.spec.path,
-        this.spec.side,
-        this.spec.ranges,
-      );
-      if (diffTarget) {
-        if (this.disposed) return;
-        await this.initializeMultiDiffEditor(diffTarget);
-        return;
       }
       const modelReference = await this.resources.acquireSnippet(
         this.spec.path,
@@ -718,6 +606,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       reference.target.modified,
       labelUris.original,
       labelUris.modified,
+      reviewCodePeekRangeCounts(reference.target.diffFile.patch, this.spec.countRanges ?? this.spec.ranges, this.spec.side),
     );
     this.unifiedModelReference = reference;
     this.editorStore.add(reference);
@@ -726,8 +615,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       this.body,
       {
         ...inlineEditorOptions(this.overflowWidgetsDomNode),
-        lineNumbers: (lineNumber) =>
-          String(reference.rows[lineNumber - 1]?.authorLine ?? lineNumber),
+        lineNumbers: reviewUnifiedLineNumbers(reference.rows),
       },
       {
         telemetryData: { source: "reviewInlineUnifiedCodeEditor" },
@@ -742,29 +630,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     editor.setModel(reference.model);
     this.diffDecoration = editor.createDecorationsCollection();
     this.diffDecoration.set(
-      reference.rows.flatMap((row) => {
-        if (row.kind === "unchanged") return [];
-        const added = row.kind === "added";
-        return [
-          {
-            range: new Range(
-              row.lineNumber,
-              1,
-              row.lineNumber,
-              Number.MAX_SAFE_INTEGER,
-            ),
-            options: {
-              description: `Review unified ${row.kind} line`,
-              isWholeLine: true,
-              className: added ? "line-insert" : "line-delete",
-              marginClassName: added ? "gutter-insert" : "gutter-delete",
-              lineNumberClassName: added
-                ? "review-unified-line-number-added"
-                : "review-unified-line-number-deleted",
-            },
-          },
-        ];
-      }),
+      reviewUnifiedDiffDecorations(reference.rows),
     );
     this.bindFocus(editor);
     this.trackScroll(
@@ -780,181 +646,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     this.markCreated();
   }
 
-  private async initializeMultiDiffEditor(
-    target: ReviewCodeDiffTarget,
-  ): Promise<void> {
-    const labelUris = reviewMultiDiffLabelUris(target.diffFile);
-    this.setHeader(
-      target.original,
-      target.modified,
-      labelUris.original,
-      labelUris.modified,
-    );
-    const options = inlineDiffEditorOptions(
-      computeMultiDiffEditorOptions(
-        this.textResourceConfigurationService.getValue(
-          labelUris.modified ?? labelUris.original,
-        ),
-      ),
-    );
-    const input = this.instantiationService.createInstance(
-      MultiDiffEditorInput,
-      URI.from({
-        scheme: "devfast-review-code-peek",
-        path: `/${this.spec.path}`,
-        query: `${this.spec.side}:${this.spec.ranges
-          .map(
-            (range) =>
-              `${range.side ?? this.spec.side}:${range.startLine}-${range.endLine}`,
-          )
-          .join(",")}`,
-      }),
-      this.spec.title,
-      [
-        new MultiDiffEditorItem(
-          target.original,
-          target.modified,
-          this.spec.side === "base" ? target.original : target.modified,
-          undefined,
-          undefined,
-          labelUris,
-          options,
-          {
-            name: this.spec.title,
-            description: this.spec.description,
-            resource: labelUris.modified ?? labelUris.original,
-          },
-        ),
-      ],
-      true,
-    );
-    let viewModel: Awaited<ReturnType<MultiDiffEditorInput["getViewModel"]>>;
-    try {
-      viewModel = await input.getViewModel();
-    } catch (error) {
-      input.dispose();
-      throw error;
-    }
-    if (this.disposed) {
-      input.dispose();
-      return;
-    }
-    this.editorStore.add(input);
-    const document = viewModel.items.get()[0]?.documentDiffItem;
-    if (!document?.original || !document.modified) {
-      throw new Error(
-        `Native diff could not resolve text content: ${this.spec.path}`,
-      );
-    }
-    const windows = target.windows(
-      document.original.getLineCount(),
-      document.modified.getLineCount(),
-    );
-    this.diffModel = {
-      original: document.original,
-      modified: document.modified,
-      originalWindows: windows.original,
-      modifiedWindows: windows.modified,
-    };
-    const widget = this.instantiationService.createInstance(
-      MultiDiffEditorWidget,
-      this.body,
-      this.instantiationService.createInstance(
-        ReviewMultiDiffUIElementFactory,
-        () => [
-          this.headerEntry!,
-        ],
-        "hidden",
-        this.overflowWidgetsDomNode,
-        this.scrollRange,
-        true,
-        reviewInlineDiffEditorContributions(),
-      ),
-      options,
-    );
-    this.multiDiffEditor = widget;
-    this.spec.container.dataset["reviewInlineEditorKind"] = "multi-diff";
-    this.editorStore.add(widget);
-    const sizeObserver = this.editorStore.add(
-      new ElementSizeObserver(this.spec.container, undefined),
-    );
-    this.editorStore.add(
-      sizeObserver.onDidChange(() => this.layoutMultiDiffToContent()),
-    );
-    sizeObserver.startObserving();
-    this.trackScroll(
-      () => widget.getScrollTop(),
-      (listener) => widget.onDidScroll(listener),
-    );
-    this.editorStore.add(
-      widget.onDidChangeActiveControl(() => this.bindActiveDiffEditor()),
-    );
-    this.editorStore.add(
-      widget.onDidChangeContentHeight(() => this.layoutMultiDiffToContent()),
-    );
-    widget.setViewModel(viewModel, {
-      preserveFocus: true,
-      initialScrollPosition: "top",
-    });
-    this.applyRange();
-    this.bindActiveDiffEditor();
-    this.markCreated();
-  }
-
-  private bindActiveDiffEditor(): void {
-    this.activeDiffEditorStore.clear();
-    this.diffRangeDecorations.clear();
-    const diffEditor = this.multiDiffEditor?.getActiveControl();
-    if (diffEditor && this.diffModel) {
-      const originalEditor = diffEditor.getOriginalEditor();
-      const modifiedEditor = diffEditor.getModifiedEditor();
-      for (const editor of [originalEditor, modifiedEditor]) {
-        reviewInlineEditors.add(editor);
-        this.bindFocus(editor, this.activeDiffEditorStore);
-      }
-      this.activeDiffEditorStore.add(
-        diffEditor.onDidUpdateDiff(() => this.applyRange()),
-      );
-      // Diff view zones can change after the outer widget lays out. Track the
-      // inner editors so the peek height and scroll range stay current.
-      this.activeDiffEditorStore.add(
-        diffEditor.onDidContentSizeChange(() =>
-          this.layoutMultiDiffToContent(),
-        ),
-      );
-    }
-    this.applyRange();
-  }
-
   private applyRange(): void {
-    const multiDiffEditor = this.multiDiffEditor;
-    const diffModel = this.diffModel;
-    if (multiDiffEditor && diffModel) {
-      const diffEditor = multiDiffEditor.getActiveControl();
-      this.spec.container.dataset["reviewInlineEditorRangeRestricted"] =
-        "true";
-      if (diffEditor) {
-        this.applyWindows(
-          diffEditor.getOriginalEditor(),
-          diffModel.originalWindows,
-        );
-        this.applyWindows(
-          diffEditor.getModifiedEditor(),
-          diffModel.modifiedWindows,
-        );
-        this.updateDiffDecorations(diffEditor);
-        // reveal() scrolls the widget to the top of the item, which for a
-        // windowed peek can be alignment view zones for hidden hunks. It
-        // must run before layoutMultiDiffToContent(), whose scroll pin
-        // repositions the viewport at the window's rendered top.
-        multiDiffEditor.reveal({
-          original: diffModel.original.uri,
-          modified: diffModel.modified.uri,
-        });
-      }
-      this.layoutMultiDiffToContent();
-      return;
-    }
     const codeEditor = this.editor;
     const modelReference = this.unifiedModelReference ?? this.modelReference;
     if (!codeEditor || !modelReference) return;
@@ -1000,144 +692,18 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     });
   }
 
-  private layoutMultiDiffToContent(): void {
-    const multiDiffEditor = this.multiDiffEditor;
-    if (!multiDiffEditor) return;
-    const bodyHeight = this.multiDiffBodyHeight(multiDiffEditor);
-    this.setExpandedHeight(bodyHeight + INLINE_HEADER_HEIGHT);
-    multiDiffEditor.layout(
-      new Dimension(
-        Math.max(1, this.spec.container.clientWidth),
-        bodyHeight,
-      ),
-    );
-    this.applyMultiDiffScrollRange(multiDiffEditor, bodyHeight);
-  }
-
-  /**
-   * The peek window's offsets inside the widget's content space. Hunks
-   * before the window leave alignment view zones ABOVE its lines, so the
-   * window's rendered top is a real content offset, not 0. Recomputed on
-   * every layout — word wrap resolves asynchronously and grows both the
-   * offset and the rendered height after the first measure.
-   */
-  private applyMultiDiffScrollRange(
-    multiDiffEditor: MultiDiffEditorWidget,
-    bodyHeight: number,
-  ): void {
-    const diffEditor = multiDiffEditor.getActiveControl();
-    const diffModel = this.diffModel;
-    if (!diffEditor || !diffModel) return;
-    const modifiedEditor = diffEditor.getModifiedEditor();
-    const firstModifiedWindow = diffModel.modifiedWindows[0];
-    if (!modifiedEditor.getModel() || !firstModifiedWindow) return;
-    const top = modifiedEditor.getTopForLineNumber(
-      firstModifiedWindow.startLine,
-    );
-    if (top < 0) return;
-    const rendered = reviewPeekWindowsRenderedHeight(
-      modifiedEditor,
-      diffModel.modifiedWindows,
-    );
-    this.scrollRange.set(
-      { start: top, endExclusive: top + Math.max(rendered ?? 0, bodyHeight) },
-      undefined,
-    );
-  }
-
-  /**
-   * All bounds are computed here, at layout time, from current state — this
-   * runs from size and content-height events in any order relative to
-   * applyRange(), so cached limits would go stale. A rendered-window
-   * measurement is used as-is (wrap-aware, exact); anything else — no active
-   * control, model-less inner editors — is clamped to the window-derived
-   * bound so the widget's getContentHeight(), which alignment view zones for
-   * hidden out-of-window hunks inflate permanently, can never reach the DOM
-   * unbounded.
-   */
-  private multiDiffBodyHeight(
-    multiDiffEditor: MultiDiffEditorWidget,
-  ): number {
-    const heightMode = this.spec.heightMode;
-    const cap = REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT;
-    const rendered = this.multiDiffWindowContentHeight();
-    if (rendered !== undefined && rendered > CONTENT_HEIGHT_EPSILON) {
-      if (heightMode === "content") return Math.ceil(rendered);
-      return this.cappedMultiDiffWindowContentHeight() ?? cap;
-    }
-    const diffModel = this.diffModel;
-    const windowBound = diffModel
-      ? reviewPeekMultiDiffBodyHeightLimit(
-          heightMode,
-          diffModel.originalWindows,
-          diffModel.modifiedWindows,
-        )
-      : cap;
-    const measured = multiDiffEditor.getContentHeight();
-    return measured > CONTENT_HEIGHT_EPSILON
-      ? Math.min(windowBound, Math.ceil(measured))
-      : windowBound;
-  }
-
-  /**
-   * Height of the peek windows as actually rendered: includes wrapped lines
-   * and the in-window diff zones, excludes the alignment view zones the diff
-   * editor creates for hidden out-of-window hunks. Those zones survive
-   * setHiddenAreas and count toward getContentHeight(), so the widget
-   * measurement over-reports by the size of every hunk outside the window.
-   */
-  private multiDiffWindowContentHeight(): number | undefined {
-    const diffEditor = this.multiDiffEditor?.getActiveControl();
-    const diffModel = this.diffModel;
-    if (!diffEditor || !diffModel) return undefined;
-    const original = reviewPeekWindowsRenderedHeight(
-      diffEditor.getOriginalEditor(),
-      diffModel.originalWindows,
-    );
-    const modified = reviewPeekWindowsRenderedHeight(
-      diffEditor.getModifiedEditor(),
-      diffModel.modifiedWindows,
-    );
-    if (original === undefined && modified === undefined) return undefined;
-    return Math.max(original ?? 0, modified ?? 0);
-  }
-
-  private cappedMultiDiffWindowContentHeight(): number | undefined {
-    const diffEditor = this.multiDiffEditor?.getActiveControl();
-    const diffModel = this.diffModel;
-    if (!diffEditor || !diffModel) return undefined;
-    const originalEditor = diffEditor.getOriginalEditor();
-    const modifiedEditor = diffEditor.getModifiedEditor();
-    const original = reviewPeekWindowsRenderedHeight(
-      originalEditor,
-      diffModel.originalWindows,
-    );
-    const modified = reviewPeekWindowsRenderedHeight(
-      modifiedEditor,
-      diffModel.modifiedWindows,
-    );
-    if (original === undefined && modified === undefined) return undefined;
-    return Math.max(
-      original === undefined
-        ? 0
-        : reviewPeekCappedHeight(Math.ceil(original)),
-      modified === undefined
-        ? 0
-        : reviewPeekCappedHeight(Math.ceil(modified)),
-    );
-  }
-
   private setHeader(
     original: URI | undefined,
     modified: URI | undefined,
     originalLabelUri = original,
     modifiedLabelUri = modified,
+    counts?: { additions: number; deletions: number },
   ): void {
     this.headerEntry = {
       original,
       modified,
-      additions: this.spec.diffStats?.additions,
-      deletions: this.spec.diffStats?.deletions,
+      additions: counts?.additions,
+      deletions: counts?.deletions,
       onDidOpen: this.spec.onDidOpen,
     };
     this.header.setData({
@@ -1198,11 +764,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   }
 
   private updateDecoration(): void {
-    const diffEditor = this.multiDiffEditor?.getActiveControl();
-    if (diffEditor) {
-      this.updateDiffDecorations(diffEditor);
-      return;
-    }
     const editor = this.editor;
     if (!editor) return;
     this.decoration ??= editor.createDecorationsCollection();
@@ -1253,39 +814,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
               }]
             : [],
         ),
-      );
-    }
-  }
-
-  private updateDiffDecorations(diffEditor: IDiffEditor): void {
-    const defaultSide = this.spec.side;
-    const editors: readonly (readonly ["base" | "head", ICodeEditor])[] = [
-      ["base", diffEditor.getOriginalEditor()],
-      ["head", diffEditor.getModifiedEditor()],
-    ];
-    for (const [side, editor] of editors) {
-      let collection = this.diffRangeDecorations.get(editor);
-      if (!collection) {
-        collection = editor.createDecorationsCollection();
-        this.diffRangeDecorations.set(editor, collection);
-      }
-      collection.set(
-        this.spec.ranges
-          .filter((range) => (range.side ?? defaultSide) === side)
-          .map((range) => ({
-            range: new Range(
-              range.startLine,
-              1,
-              range.endLine,
-              Number.MAX_SAFE_INTEGER,
-            ),
-            options: {
-              description: "Review inline CodePeek authored range",
-              isWholeLine: true,
-              className: this.rangeClassName(),
-              lineNumberClassName: "review-inline-code-lineno",
-            },
-          })),
       );
     }
   }
@@ -1448,35 +976,5 @@ function inlineEditorOptions(
     },
     fixedOverflowWidgets: true,
     automaticLayout: true,
-  };
-}
-
-function reviewInlineDiffEditorContributions() {
-  const contributions = EditorExtensionsRegistry.getEditorContributions();
-  return {
-    originalEditor: { contributions },
-    modifiedEditor: { contributions },
-  };
-}
-
-function inlineDiffEditorOptions(
-  nativeOptions: IDiffEditorOptions,
-): IDiffEditorOptions {
-  return {
-    ...nativeOptions,
-    ...inlineEditorOptions(),
-    renderSideBySide: nativeOptions.renderSideBySide,
-    useInlineViewWhenSpaceIsLimited: true,
-    renderSideBySideInlineBreakpoint: 720,
-    compactMode: true,
-    renderMarginRevertIcon: false,
-    renderGutterMenu: false,
-    originalEditable: false,
-    diffCodeLens: false,
-    renderOverviewRuler: false,
-    diffWordWrap: "off",
-    hideUnchangedRegions: {
-      enabled: false,
-    },
   };
 }

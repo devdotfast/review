@@ -1,6 +1,16 @@
 import type { JsonValue } from "@dev.fast/json";
 import { z } from "zod";
 
+export {
+  parseReviewCodePeekPatch,
+  reviewCodePeekRowAnchorLine,
+  reviewCodePeekRangeCounts,
+  type ReviewCodePeekPatch,
+  type ReviewCodePeekHunk,
+  type ReviewCodePeekHunkRow,
+  type ReviewCodePeekOrientation,
+} from "./code-peek-diff.js";
+
 import {
   type ReviewAgentTraceListResponse,
   ReviewAgentTraceListResponseSchema,

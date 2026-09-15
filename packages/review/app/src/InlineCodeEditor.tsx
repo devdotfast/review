@@ -25,11 +25,11 @@ export function InlineCodeEditor({
   ranges,
   heightMode,
   diffStats,
+  countRanges,
   active,
   onFocus,
   onOpen,
   collapsed = false,
-  unifiedDiff = false,
 }: {
   path: string;
   title: string;
@@ -37,12 +37,12 @@ export function InlineCodeEditor({
   side: ReviewDiffSide;
   ranges: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
+  countRanges?: readonly ReviewInlineEditorRange[];
   diffStats?: { additions: number; deletions: number };
   active: boolean;
   onFocus?: () => void;
   onOpen?: () => void;
   collapsed?: boolean;
-  unifiedDiff?: boolean;
 }) {
   const session = useReviewSession();
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
@@ -70,6 +70,8 @@ export function InlineCodeEditor({
   const rangesKey = ranges
     .map((range) => `${range.side ?? side}:${range.startLine}-${range.endLine}`)
     .join(",");
+
+  const countRangesKey = JSON.stringify(countRanges);
 
   const diffStatsKey = diffStats
     ? `${diffStats.additions}-${diffStats.deletions}`
@@ -114,12 +116,9 @@ export function InlineCodeEditor({
 
       if (handle) return handle.setFindQuery(query);
 
-      return inlineEditorFactory.find(
-        { path, side, ranges, unifiedDiff },
-        query,
-      );
+      return inlineEditorFactory.find({ path, side, ranges }, query);
     },
-    [inlineEditorFactory, path, rangesKey, side, unifiedDiff],
+    [inlineEditorFactory, path, rangesKey, side],
   );
 
   const revealFindMatch = useCallback(
@@ -202,8 +201,9 @@ export function InlineCodeEditor({
         ranges,
         heightMode,
         active,
-        unifiedDiff,
+
         diffStats,
+        countRanges,
         onDidFocus: handleFocus,
         onDidOpen: handleOpen,
         onDidNavigate: handleNavigation,
@@ -240,6 +240,7 @@ export function InlineCodeEditor({
     container,
     description,
     diffStatsKey,
+    countRangesKey,
     handleFocus,
     handleHover,
     handleNavigation,
@@ -252,7 +253,6 @@ export function InlineCodeEditor({
     shouldMount,
     side,
     title,
-    unifiedDiff,
   ]);
 
   useLayoutEffect(() => {

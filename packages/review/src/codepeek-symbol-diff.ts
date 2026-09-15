@@ -1,3 +1,11 @@
+import {
+  type ReviewCodePeekHunk,
+  type ReviewCodePeekHunkRow,
+  type ReviewCodePeekOrientation,
+  parseReviewCodePeekPatch,
+  reviewCodePeekRowAnchorLine,
+} from "@dev.fast/review-protocol";
+
 import type { ReviewDiffFile } from "./review-diff-files";
 import type { SourceSnapshot } from "./source-code-types";
 
@@ -5,31 +13,6 @@ export interface CodePeekDiffRange {
   file: string;
   fromLine: number;
   toLine: number;
-}
-
-type DiffOrientation = "head" | "base";
-
-interface ParsedPatch {
-  headerLines: string[];
-  hunks: ParsedHunk[];
-}
-
-interface ParsedHunk {
-  header: string;
-  oldStart: number;
-  newStart: number;
-  section: string;
-  rows: ParsedHunkRow[];
-}
-
-interface ParsedHunkRow {
-  marker: " " | "+" | "-";
-  text: string;
-  oldLine: number | null;
-  newLine: number | null;
-  oldCursor: number;
-  newCursor: number;
-  noNewlineMarker?: string;
 }
 
 export function codePeekRootSourceRanges(
@@ -55,7 +38,7 @@ export function codePeekRootSourceRanges(
 export function sliceReviewDiffFileToCodePeekRanges(input: {
   file: ReviewDiffFile;
   ranges: CodePeekDiffRange[];
-  orientation: DiffOrientation;
+  orientation: ReviewCodePeekOrientation;
   contextLines?: number;
 }): ReviewDiffFile | null {
   const fileRanges = mergeCodePeekDiffRanges(
@@ -66,7 +49,7 @@ export function sliceReviewDiffFileToCodePeekRanges(input: {
 
   if (!input.file.patch) return null;
 
-  const parsed = parsePatch(input.file.patch);
+  const parsed = parseReviewCodePeekPatch(input.file.patch);
   const contextLines = input.contextLines ?? 3;
   const hunkSections: string[] = [];
   let additions = 0;
@@ -101,16 +84,20 @@ export function sliceReviewDiffFileToCodePeekRanges(input: {
 }
 
 function sliceHunkToRanges(input: {
-  hunk: ParsedHunk;
+  hunk: ReviewCodePeekHunk;
   ranges: CodePeekDiffRange[];
-  orientation: DiffOrientation;
+  orientation: ReviewCodePeekOrientation;
   contextLines: number;
-}): ParsedHunkRow[][] {
+}): ReviewCodePeekHunkRow[][] {
   const relevantIndexes = new Set<number>();
   let hasChangedRowInRange = false;
 
   input.hunk.rows.forEach((row, index) => {
-    const anchorLine = rowAnchorLine(input.hunk.rows, index, input.orientation);
+    const anchorLine = reviewCodePeekRowAnchorLine(
+      input.hunk.rows,
+      index,
+      input.orientation,
+    );
 
     if (anchorLine === null) return;
 
@@ -138,90 +125,9 @@ function sliceHunkToRanges(input: {
   );
 }
 
-function parsePatch(patch: string): ParsedPatch {
-  const lines = patch.split(/\r?\n/);
-  const headerLines: string[] = [];
-  const hunks: ParsedHunk[] = [];
-  let current: ParsedHunk | null = null;
-  let oldCursor = 0;
-  let newCursor = 0;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const header = parseHunkHeader(line);
-
-    if (header) {
-      current = {
-        ...header,
-        header: line,
-        rows: [],
-      };
-      oldCursor = header.oldStart;
-      newCursor = header.newStart;
-      hunks.push(current);
-      continue;
-    }
-
-    if (!current) {
-      headerLines.push(line);
-      continue;
-    }
-
-    if (line.startsWith("\\ No newline at end of file")) {
-      const previous = current.rows.at(-1);
-
-      if (previous) previous.noNewlineMarker = line;
-      continue;
-    }
-
-    const marker = line[0];
-
-    if (marker !== " " && marker !== "+" && marker !== "-") continue;
-
-    const row: ParsedHunkRow = {
-      marker,
-      text: line.slice(1),
-      oldLine: marker === "+" ? null : oldCursor,
-      newLine: marker === "-" ? null : newCursor,
-      oldCursor,
-      newCursor,
-    };
-
-    current.rows.push(row);
-
-    if (marker !== "+") oldCursor += 1;
-
-    if (marker !== "-") newCursor += 1;
-  }
-
-  return {
-    headerLines: trimTrailingBlankHeaderLine(headerLines),
-    hunks,
-  };
-}
-
-function parseHunkHeader(line: string): {
-  oldStart: number;
-  newStart: number;
-  section: string;
-} | null {
-  const match =
-    /^@@ -(?<oldStart>\d+)(?:,(?<oldLines>\d+))? \+(?<newStart>\d+)(?:,(?<newLines>\d+))? @@(?<section>.*)$/.exec(
-      line,
-    );
-
-  if (!match?.groups) return null;
-
-  return {
-    oldStart: Number(match.groups.oldStart),
-    newStart: Number(match.groups.newStart),
-    section: match.groups.section,
-  };
-}
-
 function formatHunkSegment(
-  hunk: ParsedHunk,
-  rows: ParsedHunkRow[],
+  hunk: ReviewCodePeekHunk,
+  rows: ReviewCodePeekHunkRow[],
 ): string | null {
   if (rows.length === 0) return null;
 
@@ -244,7 +150,7 @@ function formatHunkSegment(
 }
 
 function hunkRangeStart(
-  rows: ParsedHunkRow[],
+  rows: ReviewCodePeekHunkRow[],
   side: "old" | "new",
   count: number,
 ): number {
@@ -270,44 +176,6 @@ function formatHunkRange(start: number, count: number): string {
   if (count === 1) return String(start);
 
   return `${start},${count}`;
-}
-
-function rowAnchorLine(
-  rows: ParsedHunkRow[],
-  index: number,
-  orientation: DiffOrientation,
-): number | null {
-  const row = rows[index];
-
-  if (orientation === "head") {
-    if (row.newLine !== null) return row.newLine;
-
-    return adjacentLine(rows, index, "newLine");
-  }
-
-  if (row.oldLine !== null) return row.oldLine;
-
-  return adjacentLine(rows, index, "oldLine");
-}
-
-function adjacentLine(
-  rows: ParsedHunkRow[],
-  index: number,
-  key: "oldLine" | "newLine",
-): number | null {
-  for (let i = index + 1; i < rows.length; i += 1) {
-    const line = rows[i][key];
-
-    if (line !== null) return line;
-  }
-
-  for (let i = index - 1; i >= 0; i -= 1) {
-    const line = rows[i][key];
-
-    if (line !== null) return line + 1;
-  }
-
-  return 1;
 }
 
 function contiguousSegments(indexes: number[]): number[][] {
@@ -375,10 +243,4 @@ function lineIntersectsRange(
   toLine: number,
 ): boolean {
   return line >= fromLine && line <= toLine;
-}
-
-function trimTrailingBlankHeaderLine(lines: string[]): string[] {
-  if (lines.at(-1) === "") return lines.slice(0, -1);
-
-  return lines;
 }

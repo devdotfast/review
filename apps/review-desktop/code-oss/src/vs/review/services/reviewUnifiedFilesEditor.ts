@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { reviewUnifiedDiffDecorations, reviewUnifiedLineNumbers } from "./reviewUnifiedEditor.js";
 import { Disposable } from "../../base/common/lifecycle.js";
 import { onUnexpectedError } from "../../base/common/errors.js";
 import { CodeEditorWidget } from "../../editor/browser/widget/codeEditor/codeEditorWidget.js";
@@ -66,8 +67,7 @@ export class ReviewUnifiedFilesEditor extends Disposable {
         }
         this._register(reference);
         this.editor.updateOptions({
-          lineNumbers: (line) =>
-            String(reference.rows[line - 1]?.authorLine ?? line),
+          lineNumbers: reviewUnifiedLineNumbers(reference.rows),
         });
         this.editor.setModel(reference.model);
         for (const row of reference.rows) {
@@ -83,34 +83,7 @@ export class ReviewUnifiedFilesEditor extends Disposable {
           }
         }
         this.editor.createDecorationsCollection(
-          reference.rows.flatMap((row) =>
-            row.kind === "unchanged"
-              ? []
-              : [
-                  {
-                    range: new Range(
-                      row.lineNumber,
-                      1,
-                      row.lineNumber,
-                      Number.MAX_SAFE_INTEGER,
-                    ),
-                    options: {
-                      description: `Review unified ${row.kind} line`,
-                      isWholeLine: true,
-                      className:
-                        row.kind === "added" ? "line-insert" : "line-delete",
-                      marginClassName:
-                        row.kind === "added"
-                          ? "gutter-insert"
-                          : "gutter-delete",
-                      lineNumberClassName:
-                        row.kind === "added"
-                          ? "review-unified-line-number-added"
-                          : "review-unified-line-number-deleted",
-                    },
-                  },
-                ],
-          ),
+          reviewUnifiedDiffDecorations(reference.rows),
         );
         // Keep context around each change. Each omitted region can be expanded
         // without replacing the model or losing the base/head row mapping.

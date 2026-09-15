@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
-import { ReviewApiClient } from "../../src/review-api/client";
+import { ReviewApiClient, ReviewApiError } from "../../src/review-api/client";
 import type { Snapshot } from "../../src/review-api/store";
 import {
   ApiDocument,
@@ -83,20 +83,14 @@ export function ApiCanvas({
     setActivity(undefined);
 
     const show = async (snapshot: Snapshot) => {
-      try {
-        const next = await loader.load(snapshot);
+      const next = await loader.load(snapshot);
 
-        if (abort.signal.aborted) return;
-        // Native source widgets must use these pins on their first mount.
-        content.setVersion?.(snapshot.version);
-        setData(next);
-        setError(undefined);
-        content.setTitle?.(snapshot.title);
-      } catch (cause) {
-        // A missing quote or resource is a document problem, not a lost stream.
-        if (!abort.signal.aborted)
-          setError(`Could not load this version. ${message(cause)}`);
-      }
+      if (abort.signal.aborted) return;
+      // Native source widgets must use these pins on their first mount.
+      content.setVersion?.(snapshot.version);
+      setData(next);
+      setError(undefined);
+      content.setTitle?.(snapshot.title);
     };
 
     void (async () => {
@@ -122,13 +116,31 @@ export function ApiCanvas({
         async (snapshot) => {
           setActivity(snapshot.activity);
 
-          if (shownVersion !== snapshot.version) {
+          if (shownVersion === snapshot.version) {
+            setError(undefined);
+
+            return;
+          }
+
+          try {
             await show(snapshot);
             shownVersion = snapshot.version;
-          } else setError(undefined);
+          } catch (cause) {
+            // A failed resource or source fetch is a document problem. The
+            // stream and the activity signal are still healthy, so do not
+            // reconnect or report unknown activity.
+            if (!abort.signal.aborted) setError(String(cause));
+          }
         },
         (cause) => {
           setActivity("unknown");
+          if (
+            cause instanceof ReviewApiError &&
+            [401, 403, 404].includes(cause.status)
+          ) {
+            setError(cause.message);
+            return;
+          }
           setError(
             `Connection lost. Reconnecting… ${cause instanceof Error ? cause.message : ""}`,
           );
@@ -247,7 +259,17 @@ export function ApiCanvas({
     if (data) content.bridge.ready();
   }, [Boolean(data), content.bridge]);
 
-  if (!data) return <p role="status">{error ?? "Loading review…"}</p>;
+  if (!data)
+    return (
+      <>
+        <p role="status">{error ?? "Loading review…"}</p>
+        {version !== undefined && (
+          <button onClick={() => setVersion(undefined)}>
+            Back to latest version
+          </button>
+        )}
+      </>
+    );
 
   return (
     <ReviewSessionProvider session={session}>

@@ -64,13 +64,15 @@ async function maybeDelegateToDesktopCli(
   if (env.DEV_FAST_REVIEW_CLI_NO_DELEGATE || env.DEV_FAST_REVIEW_CLI_DELEGATED)
     return null;
 
-  // stop-hook runs on every agent stop and must not pay a discovery read plus
-  // a second node spawn; internal-test must exercise this entry, not the
-  // app's.
+  // Internal commands must exercise this entry, not the app's.
+  // api and mcp are thin HTTP clients whose tool catalog comes from the
+  // server, so they cannot skew from it and must not be handed to a bundled
+  // CLI that predates them.
   if (
-    argv[0] === "stop-hook" ||
     argv[0] === "internal-test" ||
-    argv[0] === "prepare-worktree"
+    argv[0] === "prepare-worktree" ||
+    argv[0] === "api" ||
+    argv[0] === "mcp"
   )
     return null;
   const ownPath = fileURLToPath(import.meta.url);

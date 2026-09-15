@@ -15,6 +15,14 @@ export interface ReviewSourceEntry {
   kind: "file" | "directory";
 }
 
+/** A non-2xx reply; the status tells a caller whether retrying can help. */
+export class ReviewApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ReviewApiError";
+  }
+}
+
 /** Shared by the canvas and thin agent clients; no filesystem or SQL access. */
 export class ReviewApiClient {
   constructor(
@@ -37,9 +45,9 @@ export class ReviewApiClient {
 
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      throw new Error(
-        (body?.error ?? `Review request failed (${response.status}).`) +
-          (body?.issues ? `\n${JSON.stringify(body.issues)}` : ""),
+      throw new ReviewApiError(
+        body?.error ?? `Review request failed (${response.status}).`,
+        response.status,
       );
     }
 
@@ -110,14 +118,22 @@ export class ReviewApiClient {
     accept: (snapshot: T) => void | Promise<void>,
     disconnected: (cause: unknown) => void,
   ) {
+    let delay = 1000;
     while (!signal.aborted) {
       try {
-        for await (const next of this.watch<T>(reviewId, signal))
+        for await (const next of this.watch<T>(reviewId, signal)) {
+          delay = 1000;
           await accept(next);
+        }
 
         if (!signal.aborted) disconnected(new Error("Connection closed."));
       } catch (error) {
         if (!signal.aborted) disconnected(error);
+        if (
+          error instanceof ReviewApiError &&
+          [401, 403, 404].includes(error.status)
+        )
+          return;
       }
 
       if (!signal.aborted)
@@ -128,9 +144,10 @@ export class ReviewApiClient {
             resolve();
           };
 
-          const timer = setTimeout(done, 1000);
+          const timer = setTimeout(done, delay);
           signal.addEventListener("abort", done, { once: true });
         });
+      delay = Math.min(delay * 2, 30_000);
     }
   }
 }

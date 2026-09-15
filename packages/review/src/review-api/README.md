@@ -145,8 +145,9 @@ The thin agent clients use `review api <tool-name> '<json>'` (or `-` for stdin)
 and `review mcp` (stdio). `review api tools` lists the host's tool schemas.
 Both adapters use existing desktop discovery/authentication and the same HTTP
 routes as the canvas. Neither imports the store or validates document content.
-Command/resource schemas come from the server's existing Zod definitions; the
-MCP SDK handles framing. The checkout skill describes this JSON workflow while
+Command/resource schemas come from the server's existing Zod definitions and
+the read routes share their query schemas with the catalog (`read-schemas.ts`);
+the MCP SDK handles framing. The checkout skill describes this JSON workflow while
 preserving the writing guidance. No integration is installed automatically.
 
 Activity uses a caller-chosen lease UUID and no command receipt. Begin/renew
@@ -155,7 +156,8 @@ finished. Different agents have independent leases, so one cannot accidentally
 end another's signal. Repeating begin/end is safe. Restart clears this ephemeral
 state; deletion clears its timers. It is not a write lock or proof of completion.
 The existing document stream includes an `activity` snapshot and also sends on
-activity changes; the canvas only loads document data when its version changes.
+activity changes; activity-only sends reuse the loaded document, and the canvas
+only loads document data when its version changes.
 This avoids another long-lived browser connection. The badge is hidden while
 idle or viewing history, and reports unknown activity on a lost connection.
 There is no applying-update state. CLI/MCP expose this as `review_activity`.

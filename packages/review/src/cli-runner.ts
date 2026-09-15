@@ -44,6 +44,7 @@ import {
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
 import { runReviewMigration } from "./migrate";
 import { readReviewPackageVersion } from "./package-paths";
+import { reviewAgentCliHelp } from "./review-api/agent-cli";
 import { type ReviewAppEvent, runReviewAppPick } from "./review-app";
 import {
   type ReviewAppLaunchEvent,
@@ -162,12 +163,6 @@ interface CliRunState {
 }
 
 export async function runReviewCli(input: ReviewCliInput): Promise<number> {
-  if (input.argv[0] === "api" || input.argv[0] === "mcp") {
-    const { runReviewAgentCli } = await import("./review-api/agent-cli.js");
-
-    return runReviewAgentCli(input);
-  }
-
   const env = input.env ?? process.env;
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
 
@@ -263,11 +258,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     .enablePositionalOptions()
     .version(cliVersion)
     .description("Create, publish, and open dev.fast Reviews.")
-    .addHelpText("after", reviewTopLevelHelp())
-    .addHelpText(
-      "after",
-      "\nJSON reviews: review api --help\nMCP adapter: review mcp\n",
-    );
+    .addHelpText("after", reviewTopLevelHelp());
 
   // Tolerate the leading form (`review --json scaffold`) as well as the usual
   // trailing one. Never give this a .default(): optsWithGlobals merges globals
@@ -906,6 +897,34 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
 
   map.action((mapArgs: string[]) => executeMap(mapArgs));
 
+  // The JSON authoring surface is owned by review-api/agent-cli.ts. Commander
+  // passes the tool name and JSON payload through untouched, so these commands
+  // share the top-level help, the leading `--json` form, and the telemetry
+  // hooks without a separate parser.
+  for (const [name, description] of [
+    ["api", "Call a JSON Review authoring tool on the running Desktop"],
+    ["mcp", "Serve the JSON Review authoring tools over stdio MCP"],
+  ] as const) {
+    configureOutput(
+      program
+        .command(name)
+        .description(description)
+        .argument("[args...]", "tool name and JSON input")
+        .allowUnknownOption()
+        .allowExcessArguments()
+        .helpOption(false)
+        .passThroughOptions()
+        .addHelpText("after", `\n${reviewAgentCliHelp}`),
+      "plain",
+    ).action(async (args: string[]) => {
+      const { runReviewAgentCli } = await import("./review-api/agent-cli.js");
+      state.exitCode = await runReviewAgentCli({
+        ...input,
+        argv: [name, ...args],
+      });
+    });
+  }
+
   program.hook("preAction", async (_command, actionCommand) => {
     // The parsed option is authoritative once parsing succeeds. The argv scan
     // that seeded state.json only has to cover parse failures.
@@ -1455,6 +1474,8 @@ function telemetryCommandPath(
   if (parent === "config" && name === "migrate") return "trace.config.migrate";
 
   if (name === "login" || name === "logout" || name === "whoami") return name;
+
+  if (name === "api" || name === "mcp") return name;
 
   if (parent === "app" && (name === "launch" || name === "pick")) {
     return `app.${name}`;

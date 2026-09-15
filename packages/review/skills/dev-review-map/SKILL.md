@@ -1,6 +1,6 @@
 ---
 name: dev-review-map
-description: Author and save the pinned base and head software maps for a Review.
+description: Author and save the pinned base and head software maps for a legacy MDX Review through git notes. JSON Reviews upload maps through the dev-review skill instead.
 metadata:
   review-managed-by: "Review Desktop"
   review-generated: "Do not edit. Review automatically replaces this skill directory on updates."
@@ -8,6 +8,8 @@ metadata:
 ---
 
 # Review software-map worker
+
+This worker serves legacy MDX Reviews only. A JSON Review (authored through `review api` or the Review MCP tools) takes its maps through `review_upload` followed by a `software_map` node, as the dev-review skill describes; the git-notes commands below do not update it. When the dispatch names a JSON review, stop and report that instead of running these commands.
 
 Author and save two commit-addressed software maps. Work on the base first. Then update that structure for the head diff.
 

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -279,6 +279,71 @@ describe("dev-traces program", () => {
       expect(await grouped.code).toBe(0);
       expect(onOneLine(grouped.out())).toBe(onOneLine(direct.out()));
     }
+  });
+
+  it("install writes the command file first, then the harness hooks", async () => {
+    const calls: string[] = [];
+    const runtime = stubs(calls);
+    const result = run(["install"], runtime);
+    expect(await result.code).toBe(0);
+    expect(calls).toEqual(["installSelf"]);
+    expect(runtime.installSelf).toHaveBeenCalledWith(
+      expect.objectContaining({ force: false }),
+    );
+
+    const claudeSettings = path.join(home, ".claude", "settings.json");
+    const text = result.out();
+    expect(text.indexOf("[ok] installed")).toBeLessThan(
+      text.indexOf("Harness hook: claude"),
+    );
+
+    expect(text).toContain(`Harness hook: claude -> ${claudeSettings}`);
+    expect(text).toContain("Harness hook: codex -> ");
+    expect(text).toContain("Harness hook: opencode -> ");
+    expect(text).toContain("Harness hook: pi -> ");
+
+    // The hooks must name the installed command file, never the npx cache.
+    expect(await readFile(claudeSettings, "utf8")).toContain(installedShim);
+    expect(text).not.toContain(ownCliPath);
+  });
+
+  it("install --force copies the running version again", async () => {
+    const runtime = stubs([]);
+    expect(await run(["install", "--force"], runtime).code).toBe(0);
+    expect(runtime.installSelf).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
+    );
+  });
+
+  it("install --no-harness-hooks writes no hook", async () => {
+    const calls: string[] = [];
+    const result = run(["install", "--no-harness-hooks"], stubs(calls));
+    expect(await result.code).toBe(0);
+    expect(calls).toEqual(["installSelf"]);
+    expect(result.out()).toContain("Harness hooks: skipped.");
+    expect(result.out()).not.toContain("Harness hook: claude");
+  });
+
+  it("store create runs the onboarding action under the new name", async () => {
+    const calls: string[] = [];
+
+    const runtime: Partial<TracesCliRuntime> = {
+      ...stubs(calls),
+      runTraceOnboard: vi.fn<TracesCliRuntime["runTraceOnboard"]>(async () => {
+        calls.push("runTraceOnboard");
+
+        return 0;
+      }),
+    };
+
+    expect(await run(["store", "create"], runtime).code).toBe(0);
+    expect(calls).toEqual(["runTraceOnboard"]);
+
+    const aliased = run(["onboard"], runtime);
+    expect(await aliased.code).toBe(0);
+    expect(aliased.err()).toContain(
+      "onboard is now `dev-traces store create`.",
+    );
   });
 
   it("refuses allow on Windows", async () => {

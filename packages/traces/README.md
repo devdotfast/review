@@ -18,15 +18,15 @@ its traces.
 ```sh
 npx @dev.fast/traces login
 cd <repo>
-npx @dev.fast/traces onboard
+npx @dev.fast/traces store create
 npx @dev.fast/traces allow .
 dev-traces check
 ```
 
 1. `login` starts a GitHub device login. Add `--no-browser` on a machine with
    no browser.
-2. `onboard` creates the hosted store of one repository. Run it one time for
-   each repository. It needs push access to that repository.
+2. `store create` creates the hosted store of one repository. Run it one time
+   for each repository. It needs push access to that repository.
 3. `allow` records your consent, installs the `dev-traces` command, and writes
    the hooks.
 4. `check` prints one line for each precondition. Every line must say `ok`.
@@ -67,9 +67,11 @@ Open a new shell after the first install. The harness hooks and the Git hooks
 call `~/.local/bin/dev-traces` by absolute path, so a session never depends on
 the npx cache. Pass `--no-install` to write the hooks without the install.
 
-`install` does the copy and the command file, and touches no hook. It moves a
-command file of the same name that this package did not write to
-`~/.local/bin/dev-traces.bak-<timestamp>`, and prints a warning.
+`install` sets up this machine: the copy, the command file, and the harness
+hooks of Claude, Codex, OpenCode, and pi. It touches no repository, so no
+consent and no Git hook. Pass `--no-harness-hooks` for the command file alone.
+The install moves a command file of the same name that this package did not
+write to `~/.local/bin/dev-traces.bak-<timestamp>`, and prints a warning.
 
 The command file picks the runtime in this order:
 
@@ -105,11 +107,14 @@ first to withdraw the consent of one repository.
 | Command | What it does |
 | --- | --- |
 | `login [--origin <url>] [--no-browser]`, `logout`, `whoami` | Manage the hosted store login |
-| `onboard [path]` | Create the hosted store of one repository |
+| `store create [path]` | Create the hosted store of one repository; needs push access |
+| `store info [path]` | Show the hosted store of one repository |
+| `store delete [path]` | Delete the hosted store of one repository; admins only |
 | `allow [path] [--no-harness-hooks] [--no-install]` | Record consent, install, and write the hooks |
-| `deny [path] [--delete-store]` | Withdraw consent; `--delete-store` asks the store to delete the hosted copies |
+| `deny [path]` | Withdraw the consent of one repository |
 | `enable [path]`, `disable [path]`, `repair [path]` | Manage the Git trace hooks of one repository |
-| `install [--force]`, `uninstall` | Manage the `~/.local/bin/dev-traces` install |
+| `install [--no-harness-hooks] [--force]` | Install the command file and the harness hooks of this machine |
+| `uninstall` | Remove the `~/.local/bin/dev-traces` install |
 | `check` | Check seven preconditions |
 | `status [--session <id>] [--limit <n>] [--cursor <cursor>]` | Print the install block, the selected store, and your uploads |
 | `sessions [--limit <n>] [--cursor <session-id>]` | List the published sessions of this repository |

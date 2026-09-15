@@ -165,9 +165,10 @@ review trace sessions [--limit <n>] [--cursor <session-id>] [--storage s3|hosted
 review login [--origin <url>] [--no-browser]
 review logout
 review whoami
-review trace onboard [path]
+review trace store create|delete|info [path]
+review trace install [--no-harness-hooks]
 review trace allow [path] [--no-harness-hooks]
-review trace deny [path] [--delete-store]
+review trace deny [path]
 ```
 
 Review stores traces in one selected place per machine: an **s3** store (an
@@ -230,11 +231,18 @@ their originals so the new file is the only active source; pass
 `--keep-legacy` to leave them in place. To roll back, rename them back and
 delete the config file.
 
+`review trace store` manages the hosted store of one repository. `store create`
+creates it, one time for each repository, and needs push access. `store info`
+reports the store id, the status, and the stored bytes. `store delete` asks the
+store to delete the hosted copies, which a repository admin may do; the consent
+of this machine stays until `review trace deny` removes it. `review trace
+install` installs the harness hooks of this machine and touches no repository.
+
 `review trace storage use hosted` requires `review login` for the origin,
 a store that answers the current contract, and `review trace allow` for the
 checkout's repository at that origin; only then does it persist the
 selection. Bucket credentials stay saved and inactive. Logging in or
-onboarding never selects hosted storage by itself, a legacy bucket always
+creating a store never selects hosted storage by itself, a legacy bucket always
 outranks consent, and a commit trailer alone never authorizes a publication.
 Hosted uploads that fail never fall back to the bucket.
 
@@ -274,13 +282,14 @@ session yet"; use `review trace list --commit <sha>` there.
 
 `npx @dev.fast/traces allow .` installs `dev-traces`, a capture-only CLI for a
 machine without Review Desktop. The quick start is `npx @dev.fast/traces login`,
-then `npx @dev.fast/traces onboard` in the repository, then
+then `npx @dev.fast/traces store create` in the repository, then
 `npx @dev.fast/traces allow .`, then `dev-traces check`. `allow` copies the
 package to `$DEV_REVIEW_HOME/traces/` and installs `~/.local/bin/dev-traces`,
 which the hooks call by absolute path.
 
-`dev-traces` offers `login`, `logout`, `whoami`, `onboard`, `allow`, `deny`,
-`enable`, `disable`, `repair`, `status`, `sessions`, `sync`, and the
+`dev-traces` offers `login`, `logout`, `whoami`, `store create|delete|info`,
+`install`, `allow`, `deny`, `enable`, `disable`, `repair`, `status`,
+`sessions`, `sync`, and the
 repository-scoped reads `list --commit`, `show`, `pull`, and `blame`. The
 option names and the `--json` events match the `review trace` forms. Its own
 `check` command reports the runtime, the install, the login, the repository

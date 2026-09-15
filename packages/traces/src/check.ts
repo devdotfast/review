@@ -389,8 +389,8 @@ export async function runTracesCheck(
         checks.push(
           fail(
             "repository",
-            `${repository} has no trace store; onboarding needs push access`,
-            "dev-traces onboard",
+            `${repository} has no trace store; creating one needs push access`,
+            "dev-traces store create",
           ),
         );
       } else if (store.status !== "active") {
@@ -398,7 +398,7 @@ export async function runTracesCheck(
           fail(
             "repository",
             `${repository} store is ${store.status}`,
-            "dev-traces onboard",
+            "dev-traces store create",
           ),
         );
       } else {
@@ -416,7 +416,7 @@ export async function runTracesCheck(
       checks.push(
         forbidden
           ? fail("repository", `no read access to ${repository}`)
-          : fail("repository", errorMessage(error), "dev-traces onboard"),
+          : fail("repository", errorMessage(error), "dev-traces store create"),
       );
     }
   }

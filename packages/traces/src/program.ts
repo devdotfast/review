@@ -26,6 +26,7 @@ import {
   runTraceEnable,
   runTraceGitHook,
   runTraceHook,
+  runTraceInstallMachine,
   runTraceList,
   runTraceOnboard,
   runTracePull,
@@ -33,6 +34,8 @@ import {
   runTraceSessions,
   runTraceShow,
   runTraceStatus,
+  runTraceStoreDelete,
+  runTraceStoreInfo,
   runTraceSync,
   setTraceCliName,
   traceScope,
@@ -112,7 +115,10 @@ export function tracesCliRuntime(
     runTraceHook,
     runTraceGitHook,
     runTraceSync,
+    runTraceInstallMachine,
     runTraceOnboard,
+    runTraceStoreDelete,
+    runTraceStoreInfo,
     runTraceSessions,
     runTraceAllow,
     runTraceDeny,
@@ -187,6 +193,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     json: jsonRequestedInArgv(input.argv),
     parserErrorOutput: "",
     installBeforeHooks: true,
+    installForce: false,
   };
 
   const configureOutput = <T extends Command>(command: T): T => {
@@ -295,36 +302,6 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
 
   configureOutput(
     program
-      .command("install")
-      .description(
-        "Install the dev-traces command under ~/.local/bin without touching hooks",
-      )
-      .option(
-        "--force",
-        "Copy the running version again even when it is installed",
-      ),
-  ).action(async (options: { force?: boolean }) => {
-    if (platform === "win32") {
-      state.exitCode = refuseWindows();
-
-      return;
-    }
-
-    const result = await runtime.installSelf({
-      packageRoot,
-      homeDir,
-      env,
-      devHome: scope.devHome,
-      execPath,
-      force: options.force === true,
-    });
-
-    input.stdout.write(result.output);
-    state.exitCode = 0;
-  });
-
-  configureOutput(
-    program
       .command("uninstall")
       .description(
         "Remove the dev-traces command, its hooks, and the installed versions; keep the login and the consent",
@@ -358,7 +335,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
       env,
       devHome: scope.devHome,
       execPath,
-      force: false,
+      force: state.installForce,
     });
 
     humanStream({
@@ -382,6 +359,11 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
       const traceCommand = await hookTraceCommand(allowInput.json);
 
       return runtime.runTraceAllow({ ...allowInput, traceCommand });
+    },
+    runTraceInstallMachine: async (installInput) => {
+      if (platform === "win32") return refuseWindows();
+
+      return runtime.runTraceInstallMachine(installInput);
     },
     runTraceEnable: async (enableInput) => {
       if (platform === "win32") return refuseWindows();
@@ -459,6 +441,17 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     },
   };
 
+  /** One command the shared builder must have registered at the root. */
+  const requireRegistered = (name: string): Command => {
+    const command = program.commands.find((each) => each.name() === name);
+
+    if (!command) {
+      throw new Error(`registerTraceCommands did not register ${name}.`);
+    }
+
+    return command;
+  };
+
   registerTraceCommands(program, {
     runtime: traceRuntime,
     cliName: CLI_NAME,
@@ -475,16 +468,20 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     setExitCode: (code) => {
       state.exitCode = code;
     },
+    // `install` is the machine setup of this CLI: the command file first, then
+    // the harness hooks that call it.
+    installMachine: ({ json }) => hookTraceCommand(json),
   });
 
+  // A standalone-only option on a shared command: the copy belongs to this
+  // CLI's own install, not to the harness hooks.
+  requireRegistered("install").option(
+    "--force",
+    "Copy the running version again even when it is installed",
+  );
+
   for (const name of HOOK_WRITERS) {
-    const command = program.commands.find((each) => each.name() === name);
-
-    if (!command) {
-      throw new Error(`registerTraceCommands did not register ${name}.`);
-    }
-
-    command.option(
+    requireRegistered(name).option(
       "--no-install",
       "Skip installing dev-traces under ~/.local/bin before the hooks are written",
     );
@@ -537,6 +534,10 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
 
     if (HOOK_WRITERS.includes(actionCommand.name())) {
       state.installBeforeHooks = actionCommand.opts().install !== false;
+    }
+
+    if (actionCommand.name() === "install") {
+      state.installForce = actionCommand.opts().force === true;
     }
   });
 

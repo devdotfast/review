@@ -357,6 +357,27 @@ describe("dev-traces check", () => {
     expect(result.out()).toContain("FAIL  repository: skipped: no login");
   });
 
+  it("names store create when this repository has no store", async () => {
+    await writeLogin();
+
+    const result = check(
+      client((url) =>
+        url.includes("/api/auth/get-session")
+          ? Response.json({ user: { name: "dev" } })
+          : Response.json(
+              { error: { code: "not_found", message: "no store" } },
+              { status: 404 },
+            ),
+      ),
+    );
+
+    expect(await result.code).toBe(1);
+    expect(result.out()).toContain(
+      "FAIL  repository: acme/app has no trace store; creating one needs push access",
+    );
+    expect(result.out()).toContain("      fix: dev-traces store create\n");
+  });
+
   it("fails the activity check on a recorded sync failure", async () => {
     await writeLogin();
     await writeConsent();

@@ -187,7 +187,8 @@ event includes only `reason`, `count`, and the random installation identifier.
 `version`, `app.launch`, `app.pick`, `rebind`, `publish`, `info`,
 `scaffold`, `install`, `migrate.apply`, `map.open`, `map.check`, `map.prune`,
 `map.publish`, `map.push`, `map.fetch`, `login`, `logout`, `whoami`,
-`trace.onboard`, `trace.allow`, `trace.deny`, `trace.storage.use`,
+`trace.store.create`, `trace.store.delete`, `trace.store.info`,
+`trace.install`, `trace.allow`, `trace.deny`, `trace.storage.use`,
 `trace.config.migrate`, and `invalid`. Review sends no arguments, refs,
 tokens, or storage credentials.
 

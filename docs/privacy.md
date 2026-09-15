@@ -150,7 +150,7 @@ repository public does not widen access. Deleting a store is admin-only and is
 a logical deletion followed by operator cleanup; issued download links and
 retained object versions expire on a bounded schedule rather than instantly.
 `review trace deny` stops future publication and does not erase prior uploads;
-`review trace deny --delete-store` additionally asks the store to delete the
+`review trace store delete` additionally asks the store to delete the
 repository's hosted copies, which a repository admin may do.
 `review logout` forgets the local login only.
 The standalone `dev-traces` command publishes the same data to the same origin

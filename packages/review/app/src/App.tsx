@@ -152,8 +152,8 @@ export function App({
 }
 
 export interface PublishedSoftwareMap {
-  head: NormalizedSoftwareModel;
-  base: NormalizedSoftwareModel;
+  head: NormalizedSoftwareModel | null;
+  base: NormalizedSoftwareModel | null;
 }
 
 export type RenderedReviewDocument = Omit<
@@ -309,14 +309,14 @@ function ReviewLayout({
                   documentState={documentState}
                   documentRevision={documentRevision}
                   softwareModels={[
-                    ...(softwareMap ? [softwareMap.head] : []),
+                    ...(softwareMap?.head ? [softwareMap.head] : []),
                     ...(document?.documentSoftwareModels ?? []),
                   ]}
                   softwareMapState={softwareMapState}
                   repoSoftwareMap={softwareMap?.head ?? null}
                   baseSoftwareMap={softwareMap?.base ?? null}
                   softwareMapTopologyDiff={
-                    softwareMap
+                    softwareMap?.base && softwareMap.head
                       ? diffSoftwareMaps(softwareMap.base, softwareMap.head)
                       : null
                   }
@@ -427,9 +427,7 @@ function ReviewLayoutContent({
             ? jsonArray(data.sessions)
             : undefined;
 
-        if (sessions !== undefined && sessions.length > 0) {
-          setHasTraceSessions(true);
-        }
+        setHasTraceSessions((sessions?.length ?? 0) > 0);
       })
       .catch(() => {});
 
@@ -801,6 +799,11 @@ function ReviewLayoutContent({
                       />
                       <SoftwareMap
                         model={activeSoftwareMap ?? undefined}
+                        pinnedData={
+                          activeSoftwareMapSource
+                            ? session.softwareMapData?.(activeSoftwareMapSource)
+                            : undefined
+                        }
                         focusRequest={review.softwareMapFocusRequest}
                         height="100%"
                         showChrome={false}
@@ -1003,16 +1006,13 @@ function ReviewBatonChip({
 
   const label =
     outcome === "changes-requested"
-      ? "agent is updating"
+      ? "changes requested"
       : outcome === "approved"
         ? "approved"
         : "dismissed";
 
   return (
     <span className={`review-baton-chip review-baton-chip--${outcome}`}>
-      {outcome === "changes-requested" && (
-        <span className="review-baton-dot" aria-hidden="true" />
-      )}
       {outcome === "approved" && (
         <svg
           className="review-baton-glyph"

@@ -46,12 +46,12 @@ export interface CodePeekSubject {
   endLine: number;
 }
 
-interface CodePeekResolveResult {
+export interface CodePeekResolveResult {
   snapshot: SourceSnapshot;
   diff?: CodePeekDiffPayload;
 }
 
-interface CodePeekResolveInput {
+export interface CodePeekResolveInput {
   root: CodePeekRootSpec;
   graph: CodePeekGraph;
   includeDiff: false;
@@ -729,6 +729,8 @@ async function fetchCodePeekResult(
   input: CodePeekResolveInput,
   requestPath: string,
 ): Promise<CodePeekResolveResult> {
+  if (session.resolveCodePeek) return session.resolveCodePeek(input);
+
   const response = await session.fetchUrl(requestPath, {
     method: "POST",
     headers: { "content-type": "application/json" },

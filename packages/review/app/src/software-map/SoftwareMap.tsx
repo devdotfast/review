@@ -40,6 +40,7 @@ import {
   useReviewActions,
 } from "../review-context";
 import { useReviewInitialData } from "../review-initial-data-context";
+import { useReviewContainer } from "../review-root-context";
 import { useRightPanelResize } from "../side-panel-resizer";
 import { buildGraphTarget, targetKey } from "../target-fingerprint";
 import { useRegisterLiveDiagram } from "../thread-target-model";
@@ -171,8 +172,15 @@ const MAX_CODE_INSPECTOR_WIDTH = 760;
 
 const MIN_SOFTWARE_MAP_CANVAS_WIDTH = 420;
 
+export type PinnedSoftwareMapData = SoftwareMapResolvedDataPayload & {
+  side: "base" | "head";
+  diagramId?: string;
+};
+
 interface SoftwareMapProps {
+  diagramId?: string;
   model?: NormalizedSoftwareModel;
+  pinnedData?: PinnedSoftwareMapData;
   title?: string;
   view?: string;
   focusRequest?: { requestId: number; elementPath: string } | null;
@@ -189,6 +197,7 @@ interface SoftwareMapProps {
 }
 
 interface SoftwareMapFrameProps {
+  diagramId?: string;
   snapshot: SoftwareMapResolvedSnapshot;
   hasResolvedSnapshot: boolean;
   title: string;
@@ -301,6 +310,8 @@ export function SoftwareMap(props: SoftwareMapProps) {
 
 function SoftwareMapWithModel({
   model,
+  pinnedData,
+  diagramId = pinnedData?.diagramId,
   title,
   view,
   focusRequest,
@@ -316,8 +327,16 @@ function SoftwareMapWithModel({
   registerTargets = true,
 }: SoftwareMapProps) {
   const session = useReviewSession();
+  const portalTarget = useReviewContainer();
   const debugSettings = useReviewDebugSettings();
-  const { showModifiedOnly, showRemovedNodes } = debugSettings;
+  const { showRemovedNodes } = debugSettings;
+
+  // A pinned map with no mapped changes is still useful as an architecture view.
+  const showModifiedOnly =
+    debugSettings.showModifiedOnly &&
+    (!pinnedData ||
+      pinnedData.counts.size > 0 ||
+      pinnedData.unmappedByElementPath.size > 0);
 
   const modelKey = useMemo(
     () =>
@@ -331,7 +350,7 @@ function SoftwareMapWithModel({
   );
 
   const navigationKey = softwareMapNavigationKey({
-    title,
+    title: diagramId ?? title,
     view,
     placeholderLabel,
   });
@@ -498,6 +517,12 @@ function SoftwareMapWithModel({
       return;
     }
 
+    if (pinnedData) {
+      applyResolvedDataState({ key: resolvedDataKey, ...pinnedData });
+
+      return;
+    }
+
     if (!softwareMapResolvedDataInputHasWork(softwareMapResolvedDataInput)) {
       applyResolvedDataState({
         key: resolvedDataKey,
@@ -565,6 +590,7 @@ function SoftwareMapWithModel({
     };
   }, [
     initialData,
+    pinnedData,
     refreshEpoch,
     resolveDataWhenVisible,
     resolvedDataRequestPath,
@@ -702,6 +728,7 @@ function SoftwareMapWithModel({
         model: projectionModel,
         elementPath: inspectedNode.path,
         changeSummaries,
+        sourceSide: pinnedData?.side,
       });
     }
 
@@ -716,7 +743,7 @@ function SoftwareMapWithModel({
         graph,
       } satisfies SoftwareMapNodeDiffPeek,
     ];
-  }, [changeSummaries, inspectedNode, projectionModel]);
+  }, [changeSummaries, inspectedNode, projectionModel, pinnedData?.side]);
 
   const targetModelSnapshot = useMemo(() => {
     if (!projectionModel) return mapSnapshot;
@@ -748,8 +775,14 @@ function SoftwareMapWithModel({
   const frameView = mapSnapshot.view ?? view ?? "inline-c4";
 
   const liveDiagram = useMemo(
-    () => softwareMapLiveDiagram(frameTitle, frameView, targetModelSnapshot),
-    [frameTitle, frameView, targetModelSnapshot],
+    () =>
+      softwareMapLiveDiagram(
+        frameTitle,
+        frameView,
+        targetModelSnapshot,
+        diagramId,
+      ),
+    [frameTitle, frameView, targetModelSnapshot, diagramId],
   );
 
   useRegisterLiveDiagram(registerTargets ? liveDiagram : null);
@@ -919,6 +952,7 @@ function SoftwareMapWithModel({
 
   const frame = (
     <SoftwareMapFrame
+      diagramId={diagramId}
       snapshot={mapSnapshot}
       hasResolvedSnapshot={hasResolvedSnapshot}
       title={frameTitle}
@@ -931,7 +965,7 @@ function SoftwareMapWithModel({
       showChrome={showChrome}
       showFloatingActions={showFloatingActions}
       interactionMode={showChrome ? "inline" : "standalone"}
-      onRefresh={handleRefreshSoftwareMap}
+      onRefresh={pinnedData ? undefined : handleRefreshSoftwareMap}
       onExpand={() => setExpanded(true)}
       onCloseCodeInspector={handleCloseCodeInspector}
       inspectedNode={inspectedNode}
@@ -962,7 +996,7 @@ function SoftwareMapWithModel({
       {/* The desktop build wraps every canvas rule in
           @scope (.review-canvas-root), so the overlay must portal INSIDE the
           canvas root or it renders unstyled. */}
-      {expanded && typeof document !== "undefined"
+      {expanded && portalTarget
         ? createPortal(
             <div
               className={overlayClassName}
@@ -971,6 +1005,7 @@ function SoftwareMapWithModel({
               aria-label={`${frameTitle} expanded`}
             >
               <SoftwareMapFrame
+                diagramId={diagramId}
                 snapshot={mapSnapshot}
                 hasResolvedSnapshot={hasResolvedSnapshot}
                 title={frameTitle}
@@ -982,7 +1017,7 @@ function SoftwareMapWithModel({
                 showChrome
                 showFloatingActions={showFloatingActions}
                 interactionMode="standalone"
-                onRefresh={handleRefreshSoftwareMap}
+                onRefresh={pinnedData ? undefined : handleRefreshSoftwareMap}
                 onClose={() => setExpanded(false)}
                 onCloseCodeInspector={handleCloseCodeInspector}
                 inspectedNode={inspectedNode}
@@ -1004,7 +1039,7 @@ function SoftwareMapWithModel({
                 }}
               />
             </div>,
-            document.body,
+            portalTarget,
           )
         : null}
     </section>
@@ -1041,6 +1076,7 @@ async function fetchSoftwareMapResolvedDataUncached(
 
 export function SoftwareMapFrame({
   snapshot,
+  diagramId,
   hasResolvedSnapshot,
   title,
   viewName,
@@ -1092,9 +1128,9 @@ export function SoftwareMapFrame({
   const viewType = snapshot.viewType ?? "inlineC4";
 
   const viewTarget = buildGraphTarget({
-    diagram: title,
+    diagram: diagramId ?? title,
     type: "node",
-    path: [title],
+    path: [diagramId ?? title],
     payload: { title, viewName, viewType },
     quote: title,
   });
@@ -1263,7 +1299,8 @@ export function SoftwareMapFrame({
           <C4MapCanvas
             snapshot={snapshot}
             viewName={viewName}
-            diagram={title}
+            diagram={diagramId ?? title}
+            stableTargetPaths={Boolean(diagramId)}
             expanded={expanded}
             interactionMode={interactionMode}
             onSelectNode={selectNodeWithTelemetry}
@@ -1395,6 +1432,7 @@ function C4MapCanvas({
   snapshot,
   viewName,
   diagram,
+  stableTargetPaths,
   expanded,
   interactionMode,
   onSelectNode,
@@ -1412,6 +1450,7 @@ function C4MapCanvas({
   snapshot: SoftwareMapResolvedSnapshot;
   viewName: string;
   diagram: string;
+  stableTargetPaths?: boolean;
   expanded: boolean;
   interactionMode: C4MapInteractionMode;
   onSelectNode?: (node: SoftwareMapNodeSnapshot) => void;
@@ -1622,6 +1661,7 @@ function C4MapCanvas({
         ? createC4MapFlowFromLayout(displayedSnapshot, layout, {
             viewName,
             diagram,
+            stableTargetPaths,
             onSelectNode,
             onExpandNode,
             onCollapseNode,
@@ -1633,6 +1673,7 @@ function C4MapCanvas({
         : null,
     [
       diagram,
+      stableTargetPaths,
       drillNode,
       layout,
       nodeDimensions,

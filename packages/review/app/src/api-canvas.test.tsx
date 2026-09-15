@@ -75,6 +75,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   const app = new Hono().route("/reviews-api", createReviewApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
   const ready = vi.fn<() => void>();
+  const displayedVersion = vi.fn<(version: number) => void>();
 
   const bridge = testReviewBridge(
     {},
@@ -97,6 +98,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       kind: "api",
       reviewId: review.reviewId,
       bridge,
+      setVersion: displayedVersion,
     });
   });
   await act(async () => {
@@ -105,6 +107,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     );
   });
   expect(ready).toHaveBeenCalled();
+  expect(displayedVersion).toHaveBeenLastCalledWith(inserted.version);
   expect(container.querySelector("h1")?.textContent).toBe("Live review");
 
   const node = container.querySelector(
@@ -254,6 +257,149 @@ it("keeps sequence step identities and supports explanation/code steps without i
   ]);
 });
 
+it("dismisses through the API without changing the document or promising automatic deletion", async () => {
+  const { reviewId } = await command({
+    type: "create",
+    title: "Dismiss me",
+    pins,
+  });
+
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+
+  const bridge = testReviewBridge(
+    {},
+    { request: async (url, init) => app.request(url, init) },
+  );
+
+  const container = document.createElement("div");
+  document.body.append(container);
+  await act(async () => {
+    canvas = mount(container, { kind: "api", reviewId, bridge });
+  });
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(container.querySelector("h1")?.textContent).toBe("Dismiss me"),
+    );
+  });
+
+  const dismiss = [
+    ...container.querySelectorAll<HTMLButtonElement>("button"),
+  ].find((button) => button.textContent === "Dismiss")!;
+
+  await act(async () => dismiss.click());
+
+  const dialog = container.querySelector(
+    '[role="dialog"][aria-label="Dismiss this review"]',
+  )!;
+
+  expect(dialog.textContent).toContain("stays saved");
+  await act(async () =>
+    dialog.querySelector<HTMLButtonElement>("button")!.click(),
+  );
+  await vi.waitFor(() =>
+    expect(store.list()[0]?.dismissedAt).toEqual(expect.any(String)),
+  );
+  expect(store.read(reviewId).version).toBe(0);
+});
+
+it("adds a retained trace live and opens its full conversation in the existing Trace tab", async () => {
+  const review = await command({
+    type: "create",
+    title: "Retained conversation",
+    pins,
+  });
+
+  const traceId = randomUUID();
+
+  const trace = {
+    label: "Imported authoring conversation",
+    events: [
+      { id: "question", role: "user", text: "Keep the original components." },
+      {
+        id: "answer",
+        role: "assistant",
+        text: "The source remains pinned while the canvas changes.",
+      },
+      { id: "result", role: "tool", text: "Saved successfully." },
+    ],
+  };
+
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  app.get(`/reviews-api/resources/${traceId}`, (context) =>
+    context.json(trace),
+  );
+
+  const bridge = testReviewBridge(
+    {},
+    {
+      request: async (url, init) => app.request(url, init),
+      diffView: {
+        files: async () => [],
+        create: () => {
+          throw new Error("Diff is not used here.");
+        },
+      },
+    },
+  );
+
+  const container = document.createElement("div");
+  document.body.append(container);
+  await act(async () => {
+    canvas = mount(container, {
+      kind: "api",
+      reviewId: review.reviewId,
+      bridge,
+    });
+  });
+
+  const traceTab = () =>
+    [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "Trace",
+    );
+
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(container.querySelector("h1")?.textContent).toBe(
+        "Retained conversation",
+      ),
+    );
+  });
+  expect(traceTab()).toBeUndefined();
+  await act(async () => {
+    await command({
+      type: "edit",
+      reviewId: review.reviewId,
+      edit: {
+        type: "insert",
+        content: {
+          type: "trace_quote",
+          traceId,
+          eventId: "answer",
+          text: "source remains pinned",
+        },
+      },
+    });
+  });
+  await act(async () => {
+    await vi.waitFor(() => expect(traceTab()).toBeTruthy());
+  });
+  await act(async () => traceTab()!.click());
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(
+        "Imported authoring conversation",
+      ),
+    );
+  });
+  expect(container.textContent).toContain("Keep the original components.");
+  expect(container.textContent).toContain(
+    "The source remains pinned while the canvas changes.",
+  );
+  expect(container.textContent).not.toContain("Unable to load trace");
+});
+
 it("saves and submits feedback through the existing canvas without replacing its document", async () => {
   const review = await command({
     type: "create",
@@ -353,4 +499,6 @@ it("saves and submits feedback through the existing canvas without replacing its
   ).toBe(false);
   expect(store.read(review.reviewId).version).toBe(initialVersion);
   expect(container.querySelector("h1")).toBe(heading);
+  expect(container.textContent).toContain("changes requested");
+  expect(container.textContent).not.toContain("agent is updating");
 });

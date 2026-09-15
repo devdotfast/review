@@ -239,6 +239,7 @@ export function createC4MapFlowFromLayout(
   options: {
     viewName?: string;
     diagram?: string;
+    stableTargetPaths?: boolean;
     onSelectNode?: (node: SoftwareMapNodeSnapshot) => void;
     onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
     onCollapseNode?: (node: SoftwareMapNodeSnapshot) => void;
@@ -271,7 +272,9 @@ export function createC4MapFlowFromLayout(
           node: renderNode,
           selected: snapshot.selectedNodeId === renderNode.id,
           diagram,
-          targetPath: softwareMapNodeLabelPath(renderNode, latestNodesById),
+          targetPath: options.stableTargetPaths
+            ? [renderNode.id]
+            : softwareMapNodeLabelPath(renderNode, latestNodesById),
           onSelect: options.onSelectNode,
           onExpandNode: options.onExpandNode,
           onCollapseNode: options.onCollapseNode,
@@ -409,11 +412,13 @@ export function createC4MapFlowFromLayout(
             relationshipId,
             selectedNodeAttached: attachedToSelectedNode,
             diagram,
-            targetPath: softwareMapRelationshipLabelPath(
-              relationship,
-              snapshot.relationships ?? [],
-              latestNodesById,
-            ),
+            targetPath: options.stableTargetPaths
+              ? [relationshipId]
+              : softwareMapRelationshipLabelPath(
+                  relationship,
+                  snapshot.relationships ?? [],
+                  latestNodesById,
+                ),
             sections,
             labelPosition: layout.edgeLabels.get(edgeId),
             labelDimensions,

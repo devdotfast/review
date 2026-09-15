@@ -16,6 +16,7 @@ import {
   elements,
   sourceReferences,
 } from "../../src/review-api/document";
+import type { LocalReviewData } from "../../src/review-api/local-data";
 import type { Snapshot } from "../../src/review-api/store";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { MarkdownContent, markdownHasTitle } from "./agent-markdown";
@@ -26,6 +27,7 @@ import { ResolvedDatabaseLens } from "./database-lens";
 import { ResolvedSequenceDiagram, type SequenceRef } from "./diagrams";
 import { ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
+import type { SoftwareMapResolvedDataPayload } from "./software-map/software-map-snapshot";
 import { SoftwareMap } from "./software-map/SoftwareMap";
 import { TraceQuote } from "./trace-quote";
 
@@ -42,7 +44,15 @@ export interface ApiDocumentData {
   anchors: Map<string, PeekableAnchorRef>;
   images: Map<string, string>;
   traces: Map<string, Trace>;
-  maps: Map<string, NormalizedSoftwareModel>;
+  maps: Map<
+    string,
+    NormalizedSoftwareModel & {
+      pinnedData: SoftwareMapResolvedDataPayload & {
+        side: "base" | "head";
+        diagramId?: string;
+      };
+    }
+  >;
 }
 
 /** Cache only immutable resources and commit-addressed quotes, for this canvas. */
@@ -141,20 +151,36 @@ export function createDocumentLoader(client: ReviewApiClient) {
             );
 
           if (node.type === "software_map") {
-            const model = await once(`map:${node.mapVersionId}`, async () => {
-              const saved = await client.read<
-                Pick<NormalizedSoftwareModel, "elements" | "relationships">
-              >(`/resources/${encodeURIComponent(node.mapVersionId)}`);
+            const model = await once(
+              `map:${node.mapVersionId}:${JSON.stringify(snapshot.pins)}`,
+              async () => {
+                const saved = await client.read<
+                  Awaited<ReturnType<LocalReviewData["map"]>>
+                >(
+                  `/${snapshot.reviewId}/maps/${encodeURIComponent(node.mapVersionId)}?version=${snapshot.version}`,
+                );
 
-              return {
-                ...saved,
-                elementsByPath: new Map(
-                  saved.elements.map((element) => [element.path, element]),
-                ),
-              };
-            });
+                return {
+                  ...saved,
+                  pinnedData: {
+                    side: saved.side,
+                    counts: new Map(Object.entries(saved.countsByElementPath)),
+                    unmappedByElementPath: new Map(
+                      Object.entries(saved.unmappedByElementPath),
+                    ),
+                  },
+                  elementsByPath: new Map(
+                    saved.elements.map((element) => [element.path, element]),
+                  ),
+                };
+              },
+            );
 
-            data.maps.set(node.mapVersionId, model);
+            if (!data.maps.has(node.mapVersionId))
+              data.maps.set(node.mapVersionId, {
+                ...model,
+                pinnedData: { ...model.pinnedData, diagramId: node.id },
+              });
           }
         }),
       );
@@ -333,7 +359,9 @@ function DocumentNode({ node, data }: { node: Block; data: ApiDocumentData }) {
     case "software_map":
       content = (
         <SoftwareMap
+          diagramId={node.id}
           model={data.maps.get(node.mapVersionId)}
+          pinnedData={data.maps.get(node.mapVersionId)?.pinnedData}
           view={node.focusElementId}
         />
       );
@@ -414,6 +442,7 @@ function ApiDatabase({
                       pk: field.primaryKey,
                       fk: field.references
                         ? {
+                            store: field.references.store,
                             table: field.references.collection,
                             field: field.references.field,
                           }

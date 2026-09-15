@@ -95,10 +95,12 @@ export function softwareMapNodeDiffPeeks({
   model,
   elementPath,
   changeSummaries,
+  sourceSide,
 }: {
   model: NormalizedSoftwareModel;
   elementPath: string;
   changeSummaries: ReadonlyMap<string, SoftwareMapChangeSummary>;
+  sourceSide?: "base" | "head";
 }): SoftwareMapNodeDiffPeek[] {
   const result: SoftwareMapNodeDiffPeek[] = [];
   const seen = new Set<string>();
@@ -116,8 +118,10 @@ export function softwareMapNodeDiffPeeks({
     const summary = changeSummaries.get(path);
 
     if (element.type === "codeElement" && element.sourceRanges?.length) {
-      if (summary?.changeStatus === "unchanged") return;
-      const graph = summary?.changeStatus === "removed" ? "base" : "head";
+      if (!sourceSide && summary?.changeStatus === "unchanged") return;
+
+      const graph =
+        sourceSide ?? (summary?.changeStatus === "removed" ? "base" : "head");
 
       for (const range of element.sourceRanges) {
         append(

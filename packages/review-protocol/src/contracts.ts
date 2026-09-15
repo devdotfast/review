@@ -1053,6 +1053,7 @@ export type ReviewCanvasContent =
       version?: number;
       bridge: Omit<ReviewCanvasBridge, "comments">;
       setTitle?(title: string): void;
+      setVersion?(version: number): void;
     }
   | {
       kind: "error";
@@ -1066,7 +1067,7 @@ export type ReviewCanvasContent =
   | { kind: "source"; error?: string }
   | {
       kind: "home";
-      reviews: readonly ReviewDescriptor[];
+      reviews: readonly ReviewHomeItem[];
       reviewErrors: readonly ReviewListError[];
       openReview(uuid: string): void;
       // Deletes the review and closes its canvas. Absent when the host does
@@ -1318,6 +1319,15 @@ export const ReviewDescriptorSchema = z.strictObject({
 });
 
 export type ReviewDescriptor = z.infer<typeof ReviewDescriptorSchema>;
+
+/** Home needs display metadata, not a client-accessible checkout path. */
+export type ReviewHomeItem = Omit<
+  ReviewDescriptor,
+  "worktreePath" | "presentedSoftwareMapRevision"
+> & {
+  worktreePath?: string;
+  repositoryLabel?: string;
+};
 
 export const ReviewSessionDescriptorSchema = z.strictObject({
   sessionId: requiredString,
@@ -2116,6 +2126,10 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
       reviewUuid: z.uuid({ error: "must be a UUID" }),
       active: z.boolean(),
     }),
+  }),
+  z.strictObject({
+    name: z.literal("openApiReview"),
+    args: z.strictObject({ reviewId: z.uuid(), title: requiredString }),
   }),
   z.strictObject({ name: z.literal("showThreads"), args: z.strictObject({}) }),
   z.strictObject({

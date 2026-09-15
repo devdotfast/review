@@ -145,6 +145,63 @@ it("lists the version's commits and reads a selected commit's diff against its p
   expect((await app.request(`${route}/diff?${selected}`)).status).toBe(200);
 });
 
+it("browses committed directories, including history, without listing untracked files", async () => {
+  mkdirSync(path.join(repository, "nested", "deeper"), { recursive: true });
+  writeFileSync(
+    path.join(repository, "nested", "deeper", "file.ts"),
+    "pinned text\n",
+  );
+  git("add", "nested");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Nested file");
+
+  const nestedPins = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.base,
+    "HEAD",
+  );
+
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Tree", pins: nestedPins }),
+  );
+
+  writeFileSync(path.join(repository, "untracked.ts"), "Not in the review\n");
+  writeFileSync(
+    path.join(repository, "nested", "deeper", "file.ts"),
+    "dirty text\n",
+  );
+
+  const app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(local.store, local.data),
+  );
+
+  const route = `/reviews-api/${reviewId}/tree`;
+  const root = await (await app.request(route)).json();
+  expect(root).toContainEqual({ path: "nested", kind: "directory" });
+  expect(root).not.toContainEqual(
+    expect.objectContaining({ path: "untracked.ts" }),
+  );
+  expect(await (await app.request(`${route}?path=nested`)).json()).toEqual([
+    { path: "nested/deeper", kind: "directory" },
+  ]);
+  expect(
+    await (await app.request(`${route}?path=nested/deeper`)).json(),
+  ).toEqual([{ path: "nested/deeper/file.ts", kind: "file" }]);
+  expect(
+    await local.data.file(nestedPins, "head", "nested/deeper/file.ts"),
+  ).toMatchObject({ text: "pinned text\n" });
+  expect((await app.request(`${route}?side=base&path=nested`)).status).toBe(
+    404,
+  );
+  expect((await app.request(`${route}?path=../outside`)).status).toBe(400);
+  expect((await app.request(`${route}?path=example.ts`)).status).toBe(404);
+  await local.store.execute(command({ type: "repin", reviewId, pins }));
+  expect((await app.request(`${route}?path=nested`)).status).toBe(404);
+  expect((await app.request(`${route}?version=0&path=nested`)).status).toBe(
+    200,
+  );
+});
+
 it("reads pinned Git objects, rejects invalid evidence before saving, and retains registrations across restart", async () => {
   const review = await local.store.execute(
     command({ type: "create", title: "Pinned", pins }),
@@ -304,6 +361,27 @@ it("decodes images and checks trace/map evidence before accepting components", a
   };
 
   await local.data.upload(map);
+
+  const app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(local.store, local.data),
+  );
+
+  const resolved = await app.request(
+    `/reviews-api/${review.reviewId}/maps/${map.id}?version=0`,
+  );
+
+  expect(resolved.status).toBe(200);
+  expect(await resolved.json()).toMatchObject({
+    side: "head",
+    commit: pins.head,
+    countsByElementPath: {
+      "app.api.example.value": { additions: 2, deletions: 1 },
+    },
+  });
+  await expect(
+    local.data.map({ ...pins, head: pins.base }, map.id),
+  ).rejects.toThrow(/does not match/);
   await expect(
     local.data.upload({
       ...map,

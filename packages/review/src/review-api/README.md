@@ -3,7 +3,8 @@
 Desktop startup owns one `review-api.db` under `DEV_REVIEW_HOME`. Its routes use
 the existing desktop token authentication and bounded JSON request reader.
 The canvas accepts an API-backed content mode using the existing components;
-native desktop opening is not switched over yet. Existing saved reviews remain
+`POST /:id/open` opens it in Desktop without a legacy review session. Home lists
+API reviews alongside legacy reviews; API tabs reopen after restart. Existing saved reviews remain
 untouched. Tests can inject a store and data provider into the desktop server.
 
 ## Storage and ownership
@@ -15,6 +16,7 @@ untouched. Tests can inject a store and data provider into the desktop server.
 - `resources`: immutable image, trace and software-map bytes, scoped to a repository.
 - `feedback_threads`: conversations and saved drafts, separate from document history.
 - `feedback_submissions`: the decision and message IDs from an explicit review submission.
+- `review_attention`: viewed/dismissed timestamps, separate from document history.
 
 One desktop-owned store serializes writes, including asynchronous validation.
 Reads see the last committed snapshot. Multiple API callers are supported;
@@ -34,11 +36,13 @@ All paths below are relative to `/reviews-api`.
 | Request                                   | Result                                                                 |
 | ----------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /`                                   | Current review summaries                                               |
+| `GET /watch` | NDJSON review summaries: initial list, then saved changes |
 | `GET /:id`                                | Compact outline                                                        |
 | `GET /:id?targetId=step-3`                | Full block or sequence step                                            |
 | `GET /:id?full=true`                      | Full snapshot                                                          |
 | `GET /:id?version=2&full=true`            | Historical snapshot                                                    |
 | `GET /:id/history`                        | Saved versions with titles and timestamps                              |
+| `POST /:id/open` | Open the review in the attached Desktop; report an error when none is attached |
 | `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
 | `GET /:id/feedback` | Threads, saved drafts, and submitted decisions |
 | `GET /:id/feedback/watch` | Current feedback immediately, then committed changes; independent of document updates |
@@ -47,8 +51,10 @@ All paths below are relative to `/reviews-api`.
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
 | `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type      |
 | `GET /resources/:resourceId`              | Read retained bytes; desktop authentication required                   |
+| `GET /:id/maps/:resourceId?version=0` | Read a pinned map with source-change counts for that review version |
 | `POST /:id/source {source,version?}`      | Read an exact pinned code range                                        |
 | `GET /:id/file?side=head&file=src/app.ts` | Read a complete pinned source file; optional version                   |
+| `GET /:id/tree?path=src&side=head` | Immediate committed directory entries; path defaults to root, side to head; optional version/commit |
 | `GET /:id/commits?version=0`              | List commits and their first-parent statistics for that review version |
 | `GET /:id/diff`                           | Changed-file summaries; optional file for patch text and version       |
 
@@ -77,6 +83,18 @@ Commands: `create {title,pins}`, `edit {reviewId,edit}`, `rename {reviewId,title
 Repinning creates a blank snapshot. Restore restores title, pins, and content;
 comments and submitted decisions are separate and are not rolled back.
 
+`attention {reviewId,action:"view"|"dismiss"|"restore"}` records viewing or
+reversible dismissal without creating a document version. Home summaries include
+the repository name, attention timestamps, thread count, and latest decision for
+the current version. New document versions do not inherit an earlier approval.
+The list stream is separate from document and feedback streams. Dismissal closes
+the native tab and can be undone from Home. Dismissed API reviews stay saved;
+`delete {reviewId}` permanently removes their versions and feedback. Old command
+inputs are erased but their IDs remain, so delayed retries cannot resurrect content.
+Repository resources remain shared. Home and the canvas open a pinned, read-only
+source tree. Each source tab names its review version; files opened from it use
+the same version and side through the API, without a client-side checkout path.
+
 Edits: `insert {content,parentId?,afterId?}`, `update {targetId,changes}`,
 `move {targetId,parentId?,afterId?}`, `remove {targetId}`,
 `replace {targetId,content}`. Omitted placement appends to the root. Steps require
@@ -104,8 +122,11 @@ reuse the current annotation UI's document, text, graph, and code shapes.
 Code selections are checked against their pinned source before a thread is
 saved. Threads are read from the shared database, not a server projection cache.
 Feedback writes do not create document versions or trigger document streams.
-The storage/API is implemented; the UI adapter and agent execution remain to
-be connected. These submission records are not a background job/run framework.
+The existing comment UI saves drafts and submits decisions through this API.
+Posted messages have no edit/delete controls. A monotonically increasing read
+revision prevents delayed feedback responses from replacing newer client state;
+it is not a write precondition. Ask and request-changes agent execution still
+need connecting. These submission records are not a background job/run framework.
 
 ## Validation and remaining work
 
@@ -137,12 +158,21 @@ its first parent. It must belong to the requested review version; an unrelated
 commit returns 404. Without it, the comparison is the review's base and head.
 
 Native code-peek and diff widgets can now consume API-backed read-only models,
-including renamed files and absent diff sides. Native opening still needs to
-supply that adapter to the API canvas; it is not yet an end-to-end desktop path.
+including renamed files and absent diff sides. Native opening supplies this
+adapter to the API canvas. Inline maps use the same pinned-source API for their
+code inspectors, including unchanged mapped ranges. Immutable map resources
+change through document edits, so these maps do not expose the old artifact
+refresh action. Fullscreen uses the existing canvas-root overlay.
+The Map tab uses the retained head/base maps and updates as they arrive. Map
+comment targets use saved block/element IDs, so duplicate display titles are
+safe. The Trace tab and quote side panels read retained trace resources; imported
+labels are preserved without claiming a harness, commit association, or timestamps.
 
-Native desktop opening/source-tree integration, MCP/CLI, comment UI, Ask,
-review deletion and profile migration remain later work. The rich-node adapters
-still need computer-use verification with real native source editors and maps.
+MCP/CLI,
+Ask execution and profile migration remain later work.
+Computer use has verified native opening, source previews, comment save/submit,
+inline-map fullscreen/source inspection, live base/head map comparison, and
+trace quote/full-trace navigation, not every rich-node interaction.
 
 The focused test file exercises all twelve block kinds, edits and identity,
 history/restart, retries, asynchronous validation, isolation, and the actual

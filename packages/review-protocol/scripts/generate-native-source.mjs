@@ -97,7 +97,13 @@ const traceContractsPath =
 
 const jsonSourceRoot =
   sourceRootFlag === -1
-    ? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "json", "src")
+    ? path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "json",
+        "src",
+      )
     : sourceRoot;
 
 const MODULE_PATHS = [
@@ -105,6 +111,7 @@ const MODULE_PATHS = [
   path.join(jsonSourceRoot, "json.ts"),
   traceContractsPath,
   path.join(sourceRoot, "contracts.ts"),
+  path.join(sourceRoot, "review-api-client.ts"),
   path.join(sourceRoot, "index.ts"),
 ];
 

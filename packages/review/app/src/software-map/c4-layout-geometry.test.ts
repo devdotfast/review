@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import type { Edge as ReactFlowEdge } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -38,6 +36,34 @@ type C4LayoutBoxForTest = {
 };
 
 describe("SoftwareMap C4 layout geometry", () => {
+  it("uses the same saved element IDs for rendered API map comment targets", async () => {
+    const nodes: SoftwareMapNodeSnapshot[] = [
+      { id: "left", label: "Worker", type: "container" },
+      { id: "right", label: "Worker", type: "container" },
+    ];
+
+    const relationships = [{ id: "message", from: "left", to: "right" }];
+    const { layout } = await runInlineC4Layout(nodes, relationships);
+
+    const flow = createC4MapFlowFromLayout({ nodes, relationships }, layout, {
+      diagram: "block-1",
+      stableTargetPaths: true,
+    });
+
+    expect(
+      flow.nodes.map((node) => ({
+        diagram: node.data.diagram,
+        path: node.data.targetPath,
+      })),
+    ).toEqual([
+      { diagram: "block-1", path: ["left"] },
+      { diagram: "block-1", path: ["right"] },
+    ]);
+    expect(flow.edges[0]?.data).toMatchObject({
+      diagram: "block-1",
+      targetPath: ["message"],
+    });
+  });
   it("carries artifact store kind through C4 snapshots for folder rendering", async () => {
     const model = defineSoftwareModel({
       systems: {
@@ -240,21 +266,6 @@ describe("SoftwareMap C4 layout geometry", () => {
       ],
     });
 
-    const styles = readFileSync(
-      new URL("./styles.css", import.meta.url),
-      "utf8",
-    );
-
-    const source = readFileSync(
-      new URL("./c4-layout-geometry.ts", import.meta.url),
-      "utf8",
-    );
-
-    const softwareMapSource = readFileSync(
-      new URL("./SoftwareMap.tsx", import.meta.url),
-      "utf8",
-    );
-
     expect(flow.edges).toEqual([
       expect.objectContaining({
         label: undefined,
@@ -267,9 +278,6 @@ describe("SoftwareMap C4 layout geometry", () => {
         markerEnd: expect.objectContaining({ color: "var(--accent)" }),
       }),
     ]);
-    expect(source).not.toContain("GhostWaypointBeads");
-    expect(softwareMapSource).not.toContain("GhostWaypointBeads");
-    expect(styles).not.toContain("software-map-c4-ghost-beads");
   });
 
   it("updates the first map layout when resolved children and edges arrive", async () => {

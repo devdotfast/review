@@ -9,6 +9,41 @@ import {
 import type { SoftwareMapNodeSnapshot } from "./software-map-snapshot";
 
 describe("SoftwareMap thread-target paths", () => {
+  it("uses saved IDs to distinguish API map targets with identical labels", () => {
+    const snapshot = {
+      nodes: [
+        { id: "left", label: "Worker", type: "container" as const },
+        { id: "right", label: "Worker", type: "container" as const },
+      ],
+      relationships: [{ id: "message", from: "left", to: "right" }],
+    };
+
+    const first = softwareMapLiveDiagram(
+      "Software map",
+      "inline-c4",
+      snapshot,
+      "block-1",
+    );
+
+    const second = softwareMapLiveDiagram(
+      "Software map",
+      "inline-c4",
+      snapshot,
+      "block-2",
+    );
+
+    expect(first.label).toBe("block-1");
+    expect(second.label).toBe("block-2");
+    expect(first.elements.map((target) => target.element.path)).toEqual([
+      ["block-1"],
+      ["left"],
+      ["right"],
+      ["message"],
+    ]);
+    expect(first.elements.every((target) => target.diagram === "block-1")).toBe(
+      true,
+    );
+  });
   it("builds stable SoftwareMap label paths", () => {
     const parent = {
       id: "system",

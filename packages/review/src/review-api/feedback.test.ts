@@ -140,6 +140,28 @@ it("saves explicit drafts, submits them atomically, and keeps posted questions a
   expect(store.feedback.read(reviewId)).toEqual(saved);
 });
 
+it("lists comments and only the decision for the current document version", async () => {
+  await feedback({ type: "save", ...question });
+  await feedback({
+    type: "submit",
+    version: 0,
+    decision: "approve",
+    messageIds: [question.messageId],
+  });
+  expect(store.list()[0]).toMatchObject({
+    commentCount: 1,
+    decision: "approve",
+  });
+  await store.execute(
+    command({
+      type: "edit",
+      reviewId,
+      edit: { type: "insert", content: { type: "divider" } },
+    }),
+  );
+  expect(store.list()[0]).toMatchObject({ commentCount: 1, decision: null });
+});
+
 it("retains original comment context through repin and restore, with new replies tied to their own versions", async () => {
   await feedback({ type: "post", ...question });
   await store.execute(

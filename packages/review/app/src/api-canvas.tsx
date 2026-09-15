@@ -18,7 +18,9 @@ import {
   ApiDocument,
   type ApiDocumentData,
   createDocumentLoader,
+  sourceAnchor,
 } from "./api-document";
+import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
 import {
@@ -86,6 +88,8 @@ export function ApiCanvas({
       const next = await loader.load(snapshot);
 
       if (!abort.signal.aborted) {
+        // Native source widgets must use these pins on their first mount.
+        content.setVersion?.(snapshot.version);
         setData(next);
         setError(undefined);
         content.setTitle?.(snapshot.title);
@@ -126,6 +130,8 @@ export function ApiCanvas({
     };
   }, [client, content.reviewId, version]);
 
+  const traceKey = JSON.stringify([...(data?.traces.keys() ?? [])]);
+
   const session = useMemo(() => {
     const bridge = {
       ...content.bridge,
@@ -146,10 +152,69 @@ export function ApiCanvas({
     };
 
     const session = createReviewSession(bridge);
+    session.keepsDismissedReviews = true;
+    session.softwareMapData = (model) =>
+      [...(dataRef.current?.maps.values() ?? [])].find((map) => map === model)
+        ?.pinnedData;
+    session.resolveCodePeek = async ({ root, graph }) => {
+      const snapshot = dataRef.current!.snapshot;
+
+      const source = {
+        file: root.file,
+        fromLine: root.fromLine,
+        toLine: root.toLine,
+        side: graph,
+      };
+
+      const quote = await client.post<{ text: string }>(
+        `/${content.reviewId}/source`,
+        {
+          version: snapshot.version,
+          source,
+        },
+      );
+
+      return sourceAnchor(JSON.stringify(source), source, root.file, quote.text)
+        .peek.resolution!;
+    };
+
     const fetch = session.fetch;
     // The old views consume these small view models. Their data came from the API.
     session.fetch = async (route, init, options) => {
       const snapshot = dataRef.current?.snapshot;
+
+      if (route === "/dismiss") {
+        await client.post("/commands", {
+          commandId: crypto.randomUUID(),
+          operation: {
+            type: "attention",
+            reviewId: content.reviewId,
+            action: "dismiss",
+          },
+        });
+
+        return Response.json({ ok: true });
+      }
+
+      if (route === "/agent-traces")
+        return Response.json({
+          ok: true,
+          sessions: [...(dataRef.current?.traces ?? [])].map(
+            ([id, trace]) => retainedTrace(id, trace).session,
+          ),
+        });
+
+      if (route.startsWith("/agent-traces/")) {
+        const id = decodeURIComponent(route.slice("/agent-traces/".length));
+        const trace = dataRef.current?.traces.get(id);
+
+        return trace
+          ? Response.json(retainedTrace(id, trace))
+          : Response.json(
+              { ok: false, error: "Trace is not part of this review version." },
+              { status: 404 },
+            );
+      }
 
       if (route === "/submissions") {
         // SAFETY: the existing ReviewPanel creates this in-process submission envelope.
@@ -203,7 +268,7 @@ export function ApiCanvas({
     };
 
     return session;
-  }, [client, content.bridge, content.reviewId, version, comments]);
+  }, [client, content.bridge, content.reviewId, version, comments, traceKey]);
 
   useEffect(() => {
     if (data) content.bridge.ready();
@@ -237,7 +302,19 @@ export function ApiCanvas({
           )}
           <App
             documentState={{ state: "ready", document }}
-            softwareMapState={{ state: "absent" }}
+            softwareMapState={{
+              state: "ready",
+              softwareMap: {
+                head:
+                  [...data.maps.values()].find(
+                    (map) => map.pinnedData.side === "head",
+                  ) ?? null,
+                base:
+                  [...data.maps.values()].find(
+                    (map) => map.pinnedData.side === "base",
+                  ) ?? null,
+              },
+            }}
             softwareMapEnabled={data.maps.size > 0}
             range={{
               baseRef: snapshot.pins.base,

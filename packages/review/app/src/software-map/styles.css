@@ -1557,11 +1557,8 @@
 .software-map-overlay {
   position: fixed;
   inset: 0;
-  /* Match the topbar's layer: the overlay portals to the end of <body>, so an
-     equal z-index paints it above the sticky topbar (which otherwise covers
-     the expanded map's close button). The literal fallback matters: the
-     variable is defined on .review-app, which the body-level portal never
-     inherits from. */
+  /* The overlay lives inside the canvas root, outside .review-app where this
+     variable is defined. Keep the fallback above the sticky topbar. */
   z-index: var(--review-debug-layer, 2147483000);
   display: grid;
   box-sizing: border-box;

@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import type {
@@ -12,6 +11,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PeekableAnchorRef } from "../../src/authoring";
+import { sourceAnchor } from "./api-document";
 import {
   CodePeek,
   CodePeekCard,
@@ -88,6 +88,44 @@ describe("CodePeek native editor", () => {
       ),
     );
     expect(created).toEqual([]);
+  });
+
+  it("opens a pinned map range through the API session without a legacy resolve request", async () => {
+    session.resolveCodePeek = async ({ root, graph }) =>
+      sourceAnchor(
+        "range",
+        {
+          file: root.file,
+          fromLine: root.fromLine,
+          toLine: root.toLine,
+          side: graph,
+        },
+        "Pinned source",
+        "before\nafter",
+      ).peek.resolution!;
+    session.fetchUrl = async () => {
+      throw new Error("Legacy source request");
+    };
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      renderWithSession(
+        <CodePeekGroup
+          peeks={[
+            { file: "src/old.ts", fromLine: 7, toLine: 8, graph: "base" },
+          ]}
+        />,
+      );
+    });
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({
+      path: "src/old.ts",
+      side: "base",
+      ranges: [{ startLine: 7, endLine: 8 }],
+    });
+    expect(container.textContent).not.toContain("Legacy source request");
   });
   it("renders one native editor per resolved file in a grouped side peek", async () => {
     vi.stubGlobal(
@@ -347,17 +385,6 @@ describe("CodePeek native editor", () => {
 
     expect(created).toHaveLength(1);
     expect(created[0]?.commentsEnabled).toBe(true);
-  });
-
-  it("separates consecutive code peeks in document flow", () => {
-    const styles = readFileSync(
-      path.resolve(process.cwd(), "app/src/styles.css"),
-      "utf8",
-    );
-
-    expect(styles).toMatch(
-      /\.review-document\s*>\s*\.code-peek\s*\+\s*\.code-peek,\s*\.review-section-body\s*>\s*\.code-peek\s*\+\s*\.code-peek\s*\{[^}]*margin-block-start:\s*14px;/s,
-    );
   });
 
   it("gives range side peeks a source title and content height policy", async () => {

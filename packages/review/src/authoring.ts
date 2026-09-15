@@ -639,6 +639,7 @@ export type ReviewAuthoringComponentName =
 const softwareDataStoreForeignKeyRefSchema = z.union([
   nonEmptyStringSchema,
   z.strictObject({
+    store: optionalNonEmptyStringSchema,
     table: nonEmptyStringSchema,
     field: nonEmptyStringSchema,
     label: optionalNonEmptyStringSchema,

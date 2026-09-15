@@ -51,6 +51,8 @@ export * from "@dev.fast/json";
 
 export * from "./contracts.js";
 
+export * from "./review-api-client.js";
+
 export {
   type ByCommitEntry,
   type ReviewAgentTraceEvent,

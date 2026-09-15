@@ -38,39 +38,43 @@ export function softwareMapLiveDiagram(
   label: string,
   viewName: string,
   snapshot: SoftwareMapResolvedSnapshot,
+  diagramId?: string,
 ): LiveDiagramTarget {
   const nodes = snapshot.nodes ?? [];
   const relationships = snapshot.relationships ?? [];
-  validateSoftwareMapTargetPaths(label, nodes, relationships);
+
+  if (!diagramId) validateSoftwareMapTargetPaths(label, nodes, relationships);
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const viewType = snapshot.viewType ?? "inlineC4";
 
   const elements: LiveDiagramTarget["elements"] = [
     buildGraphTarget({
-      diagram: label,
+      diagram: diagramId ?? label,
       type: "node",
-      path: [label],
+      path: [diagramId ?? label],
       payload: { title: label, viewName, viewType },
       quote: label,
     }),
     ...nodes.map((node) =>
       buildGraphTarget({
-        diagram: label,
+        diagram: diagramId ?? label,
         type: "node",
-        path: softwareMapNodeLabelPath(node, nodesById),
+        path: diagramId ? [node.id] : softwareMapNodeLabelPath(node, nodesById),
         payload: softwareMapNodeTargetPayload(node),
         quote: node.label,
       }),
     ),
     ...relationships.map((relationship) =>
       buildGraphTarget({
-        diagram: label,
+        diagram: diagramId ?? label,
         type: "edge",
-        path: softwareMapRelationshipLabelPath(
-          relationship,
-          relationships,
-          nodesById,
-        ),
+        path: diagramId
+          ? [relationship.id!]
+          : softwareMapRelationshipLabelPath(
+              relationship,
+              relationships,
+              nodesById,
+            ),
         payload: softwareMapRelationshipTargetPayload(relationship),
         quote:
           (relationship.hideLabel
@@ -82,9 +86,9 @@ export function softwareMapLiveDiagram(
     ),
   ];
 
-  validateGraphElementPaths(label, elements);
+  if (!diagramId) validateGraphElementPaths(label, elements);
 
-  return { label, elements };
+  return { label: diagramId ?? label, elements };
 }
 
 export function softwareMapNodeTargetPayload(node: SoftwareMapNodeSnapshot) {

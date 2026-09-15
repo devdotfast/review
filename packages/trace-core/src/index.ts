@@ -151,6 +151,7 @@ export {
 } from "./trace-consent";
 
 export {
+  type TraceSyncFailure,
   describeTraceSyncFailure,
   listTraceSyncFailures,
   recordTraceSyncFailure,

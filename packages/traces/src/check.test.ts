@@ -121,7 +121,9 @@ describe("dev-traces check", () => {
   }
 
   /** Installs the package, the Claude hook, and the Git hooks of this repo. */
-  async function installEverything(): Promise<void> {
+  async function installEverything(
+    execPath: string = process.execPath,
+  ): Promise<void> {
     const packageRoot = path.join(home, "pkg");
     await mkdir(path.join(packageRoot, "dist"), { recursive: true });
 
@@ -136,7 +138,7 @@ describe("dev-traces check", () => {
       homeDir: home,
       env,
       devHome,
-      execPath: process.execPath,
+      execPath,
       force: false,
     });
 
@@ -166,7 +168,11 @@ describe("dev-traces check", () => {
     });
   }
 
-  function check(storeClient: StoreClient, json = false) {
+  function check(
+    storeClient: StoreClient,
+    json = false,
+    probeTimeoutMs = 5000,
+  ) {
     const out: string[] = [];
     const err: string[] = [];
 
@@ -177,6 +183,7 @@ describe("dev-traces check", () => {
         ownCliPath: path.join(home, "pkg", "dist", "cli.js"),
         runningVersion: "0.1.0",
         json,
+        probeTimeoutMs,
         stdout: collectingWritable(out),
         stderr: collectingWritable(err),
         client: storeClient,
@@ -184,6 +191,24 @@ describe("dev-traces check", () => {
       out: () => out.join(""),
       err: () => err.join(""),
     };
+  }
+
+  /** Writes one executable script and returns its path. */
+  async function writeScript(
+    directory: string,
+    name: string,
+    body: string,
+  ): Promise<string> {
+    await mkdir(directory, { recursive: true });
+    const filePath = path.join(directory, name);
+    await writeFile(filePath, body, { mode: 0o755 });
+
+    return filePath;
+  }
+
+  /** The runtime line of one run. */
+  function runtimeLine(text: string): string {
+    return text.split("\n").find((line) => line.includes("runtime:")) ?? "";
   }
 
   it("passes every check on a machine that is set up", async () => {
@@ -263,5 +288,86 @@ describe("dev-traces check", () => {
     expect(result.out()).toContain(
       `      fix: dev-traces sync ${SESSION_ID}\n`,
     );
+  });
+
+  it("names the PATH node when the installed runtime is gone", async () => {
+    await writeLogin();
+    await writeConsent();
+    const binDirectory = path.join(home, "bin");
+
+    const pathNode = await writeScript(
+      binDirectory,
+      "node",
+      `#!/bin/sh\nexec '${process.execPath}' "$@"\n`,
+    );
+
+    env.PATH = `${binDirectory}:${env.PATH ?? ""}`;
+    await installEverything(path.join(home, "missing-node"));
+    const result = check(healthyClient());
+    expect(await result.code).toBe(0);
+    expect(runtimeLine(result.out())).toContain(
+      `ok    runtime: ${pathNode} (Node `,
+    );
+  });
+
+  it("names DEV_TRACES_NODE when it is executable", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything(path.join(home, "missing-node"));
+    env.DEV_TRACES_NODE = process.execPath;
+    const result = check(healthyClient());
+    expect(await result.code).toBe(0);
+
+    expect(runtimeLine(result.out())).toContain(
+      `ok    runtime: ${process.execPath} (Node `,
+    );
+  });
+
+  it("fails when no runtime is executable", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything(path.join(home, "missing-node"));
+    env.PATH = path.join(home, ".local", "bin");
+    const result = check(healthyClient());
+    expect(await result.code).toBe(1);
+    expect(runtimeLine(result.out())).toContain("FAIL  runtime: no runtime:");
+    expect(result.out()).toContain("      fix: npx @dev.fast/traces install\n");
+  });
+
+  it("gives up on a runtime that hangs", async () => {
+    await writeLogin();
+    await writeConsent();
+
+    const slow = await writeScript(
+      path.join(home, "bin"),
+      "slow-node",
+      "#!/bin/sh\nexec sleep 30\n",
+    );
+
+    await installEverything(slow);
+    const started = Date.now();
+    const result = check(healthyClient(), false, 200);
+    expect(await result.code).toBe(1);
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(runtimeLine(result.out())).toContain(`${slow} did not run`);
+  });
+
+  it("reports a store it cannot reach without a login fix", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything();
+
+    const result = check(
+      client(() => {
+        throw new TypeError("fetch failed");
+      }),
+    );
+
+    expect(await result.code).toBe(1);
+
+    expect(result.out()).toContain(
+      `FAIL  login: Could not reach ${ORIGIN}: fetch failed`,
+    );
+    expect(result.out()).not.toContain("fix: dev-traces login");
   });
 });

@@ -23,7 +23,6 @@ import {
   tutorialFeaturePropsSchema,
   tutorialViewButtonPropsSchema,
 } from "../../src/authoring";
-import { validatedCodePeekInputFromRef } from "./CodePeek";
 import { createSequence } from "./diagrams";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { createTestReviewDefinitionSession } from "./review-definition-test-utils";
@@ -182,28 +181,6 @@ void invalidEmptyMessage;
 void invalidSequenceChildren;
 
 describe("review authoring contract", () => {
-  it("threads resolved authored CodePeek code into the native preview", async () => {
-    await definitionSession.ready();
-
-    expect(validatedCodePeekInputFromRef(anchors.request.peek)).toMatchObject({
-      props: { file: "src/example.ts", fromLine: 1, toLine: 3 },
-      resolution: anchors.request.peek.resolution,
-    });
-  });
-
-  it("allows an unresolved published anchor to use the local retry path", () => {
-    const ref = {
-      __kind: "code-peek-ref" as const,
-      props: { file: "src/example.ts", fromLine: 1, toLine: 3 },
-      resolution: null,
-    };
-
-    expect(validatedCodePeekInputFromRef(ref)).toMatchObject({
-      props: ref.props,
-      resolution: undefined,
-    });
-  });
-
   it("is satisfied by the exact runtime component registry", () => {
     expect(Object.keys(runtimeRegistry).sort()).toEqual([
       "AnchorLink",

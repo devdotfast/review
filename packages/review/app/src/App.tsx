@@ -45,6 +45,7 @@ import {
 } from "./review-diff-files-context";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
+import { reviewTocEntries } from "./review-document-headings";
 import type { HydratedReviewDocument } from "./review-document-hydrate";
 import { ReviewDocumentContent } from "./review-document-surface";
 import { ReviewUnavailable } from "./review-empty-state";
@@ -443,6 +444,15 @@ function ReviewLayoutContent({
   }, [review.softwareMapFocusRequest, softwareMapEnabled]);
   const applyReviewViewRef = useRef(applyReviewView);
   applyReviewViewRef.current = applyReviewView;
+
+  const tocEntries = useMemo(
+    () =>
+      documentState.state === "ready"
+        ? reviewTocEntries(documentState.document.body)
+        : [],
+    [documentState],
+  );
+
   // Subscribe before the canvas signals ready so a reveal immediately after
   // mounting cannot outrun the listener.
   useLayoutEffect(() => {
@@ -611,7 +621,7 @@ function ReviewLayoutContent({
             >
               {documentState.state === "ready" ? (
                 <>
-                  <ReviewToc />
+                  <ReviewToc entries={tocEntries} />
                   <article ref={articleRef} className="review-document">
                     <ReviewDocumentBoundary
                       key={documentRevision}

@@ -23,6 +23,8 @@ import {
   type NormalizedSoftwareModel,
   hydrateSoftwareModel,
 } from "../../src/software-map-model";
+import { assignReviewHeadingIds } from "./review-document-headings";
+import { reviewSectionSummary } from "./review-section-summary";
 
 export type HydratedReviewTextNode = ReviewTextNode;
 
@@ -77,10 +79,12 @@ export function hydrateReviewDocument(
 ): HydratedReviewDocument {
   const data = reviewDocumentDataSchema.parse(load.data);
   const anchors = new Map(Object.entries(data.anchors));
+  const body = data.body.map((node) => hydrateNode(node, anchors));
+  assignReviewHeadingIds(body);
 
   return {
     contentHash: load.contentHash,
-    body: data.body.map((node) => hydrateNode(node, anchors)),
+    body,
     anchors,
     documentSoftwareModels: data.softwareModels.map(hydrateSoftwareModel),
     routePath: data.routePath,
@@ -96,10 +100,23 @@ type ComponentHydrators = {
   [K in ReviewAuthoringComponentName]?: (
     node: Extract<ReviewComponentNode, { name: K }>,
     props: HydratedReviewComponentProps,
+    children: HydratedReviewNode[],
   ) => HydratedReviewComponentProps;
 };
 
 const componentHydrators: ComponentHydrators = {
+  ReviewSection: (node, props, children) => {
+    if (!(children[0]?.type === "element" && children[0].tag === "h2")) {
+      children.unshift({
+        type: "element",
+        tag: "h2",
+        props: {},
+        children: [{ type: "text", value: node.props.title }],
+      });
+    }
+
+    return { ...props, summary: reviewSectionSummary(children) };
+  },
   DatabaseLens: (node, props) => ({
     ...props,
     stores: Object.fromEntries(
@@ -141,13 +158,15 @@ function hydrateComponentNode<K extends ReviewAuthoringComponentName>(
   anchors: ReadonlyMap<string, AnchorRef>,
 ): HydratedReviewComponentNode {
   const walked = hydrateComponentProps(node.props, anchors);
+  const children = node.children.map((child) => hydrateNode(child, anchors));
+
   const hydrate = componentHydrators[node.name];
 
   return {
     type: "component",
     name: node.name,
-    props: hydrate ? hydrate(node, walked) : walked,
-    children: node.children.map((child) => hydrateNode(child, anchors)),
+    props: hydrate ? hydrate(node, walked, children) : walked,
+    children,
   };
 }
 

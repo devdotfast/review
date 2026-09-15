@@ -45,7 +45,11 @@ describe("ReviewSection", () => {
 
     act(() => {
       renderWithSession(
-        <ReviewSection title="Testing" defaultCollapsed>
+        <ReviewSection
+          title="Testing"
+          defaultCollapsed
+          summary={{ diagrams: 0, codeRefs: 0, paragraphs: 2 }}
+        >
           <p data-review-block-tag="p">Persistence suites pass.</p>
           <p data-review-block-tag="p">The CLI keeps working.</p>
           <ol data-review-block-tag="ol">

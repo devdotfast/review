@@ -9,11 +9,11 @@ import {
   Children,
   isValidElement,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { z } from "zod";
 
 import type {
   AnchorLinkProps,
@@ -41,6 +41,7 @@ import type {
   ReviewPeekContent,
 } from "./review-panel-model";
 import { useReviewRoots } from "./review-root-context";
+import type { ReviewSectionSummary } from "./review-section-summary";
 import { useReviewUiState } from "./review-ui-state";
 import { useBottomSheetResize } from "./side-panel-resizer";
 import { TraceDocument, extractEventText } from "./trace-document";
@@ -145,11 +146,15 @@ function ReviewPanelFrame({
   );
 }
 
-interface ReviewSectionSummary {
-  diagrams: number;
-  codeRefs: number;
-  paragraphs: number;
-}
+const reviewSectionRenderPropsSchema = reviewSectionPropsSchema.extend({
+  summary: z
+    .object({
+      diagrams: z.number(),
+      codeRefs: z.number(),
+      paragraphs: z.number(),
+    })
+    .optional(),
+});
 
 /**
  * Collapsible document section produced by the remark-review-sections plugin:
@@ -159,12 +164,15 @@ interface ReviewSectionSummary {
  * Collapse state persists per document+section in localStorage; sections
  * marked `[collapsed]` in the MDX start collapsed for first-time readers.
  */
-export function ReviewSection(props: ReviewSectionProps) {
+export function ReviewSection(
+  props: ReviewSectionProps & { summary?: ReviewSectionSummary },
+) {
   const {
     title,
     defaultCollapsed = false,
     children,
-  } = reviewSectionPropsSchema.parse(props);
+    summary,
+  } = reviewSectionRenderPropsSchema.parse(props);
 
   const [collapsed, setCollapsed] = useReviewUiState(title, defaultCollapsed, {
     scope: "session",
@@ -172,7 +180,6 @@ export function ReviewSection(props: ReviewSectionProps) {
   });
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const [summary, setSummary] = useState<ReviewSectionSummary | null>(null);
   const { heading, body } = reviewSectionContent(title, children);
   const tutorialSection = useTutorialSection(title);
 
@@ -183,21 +190,6 @@ export function ReviewSection(props: ReviewSectionProps) {
   }, [setCollapsed, tutorialSection.state]);
 
   const toggleCollapsed = () => setCollapsed((current) => !current);
-
-  useLayoutEffect(() => {
-    const bodyElement = bodyRef.current;
-
-    if (!bodyElement) return;
-    setSummary({
-      diagrams: bodyElement.querySelectorAll(
-        ".sequence-diagram, .database-lens, .software-map",
-      ).length,
-      codeRefs: bodyElement.querySelectorAll(
-        "a[data-review-anchor-id], .code-peek",
-      ).length,
-      paragraphs: bodyElement.querySelectorAll("p").length,
-    });
-  }, [children]);
 
   // The table of contents (and anchor navigation) expands a collapsed
   // section before scrolling to a heading inside it.

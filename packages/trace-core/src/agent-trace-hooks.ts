@@ -595,6 +595,20 @@ async function readTextOrEmpty(filePath: string): Promise<string> {
   return existsSync(filePath) ? readFile(filePath, "utf8") : "";
 }
 
+/** The file one harness reads its trace hook from. */
+export function agentTraceHookPath(
+  agent: AgentTraceHookAgent,
+  homeDir = os.homedir(),
+): string {
+  if (agent === "claude") return claudeSettingsPath(homeDir);
+
+  if (agent === "codex") return codexConfigPath(homeDir);
+
+  if (agent === "opencode") return openCodePluginPath(homeDir);
+
+  return piExtensionPath(homeDir);
+}
+
 /** Reports recognized SessionStart owners and extension owners without changing files. */
 export async function describeTraceHookOwners(
   homeDir = os.homedir(),

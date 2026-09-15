@@ -68,6 +68,7 @@ export {
   type AgentTraceHookAgent,
   type TraceHookOwner,
   type TraceHookOwners,
+  agentTraceHookPath,
   describeTraceHookOwners,
   removeAgentTraceHook,
   traceHookCommandOwner,

@@ -9,10 +9,6 @@ import {
   findScopedReview,
   listReviews,
 } from "./review-home";
-import {
-  requireClosedThreadsForRepublish,
-  requireCompletedAgentResponsesForRepublish,
-} from "./review-publish-thread-gate";
 
 export interface PreparedReviewPublish {
   review: StoredReview;
@@ -29,8 +25,6 @@ export async function prepareReviewPublish(input: {
 }): Promise<PreparedReviewPublish> {
   const review = await resolvePublishReview(input.cwd, input.reviewUuid);
   await input.onReviewBound?.(review.review.uuid);
-  requireClosedThreadsForRepublish(review);
-  requireCompletedAgentResponsesForRepublish(review);
   const sourceBranch = requireSourceBranch(review);
   // Publish presents the stored pins; it never moves them, and the checkout's
   // position is irrelevant: sessions read the pinned-head worktree, not the

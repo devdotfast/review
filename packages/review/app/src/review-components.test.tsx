@@ -50,7 +50,7 @@ describe("ReviewSection", () => {
             Persistence suites pass.
           </p>
           <p data-review-block-index="5" data-review-block-tag="p">
-            The threads CLI keeps working.
+            The CLI keeps working.
           </p>
           <ol data-review-block-index="6" data-review-block-tag="ol">
             <li>Existing JSON reviews are never migrated.</li>

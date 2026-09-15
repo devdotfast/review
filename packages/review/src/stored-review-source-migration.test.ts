@@ -1,13 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -18,8 +10,6 @@ import {
   readStoredReview,
   sealReviewCandidate,
 } from "./review-home";
-import type { createReviewSourceAgentSession } from "./review-source-agent-session";
-import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 import { migrateStoredReview } from "./stored-review-migration";
 
@@ -28,23 +18,15 @@ const roots: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-  closeAllReviewThreadStores();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
 
 it.each(["document", "seal"])(
-  "does not fork before %s validation succeeds",
+  "keeps the record unchanged until %s validation succeeds",
   async (failure) => {
     const { review, original } = await fixture(failure === "document");
-
-    const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-      async () => ({
-        harness: "codex" as const,
-        sessionId: "frozen",
-      }),
-    );
 
     const failedSeal =
       failure === "seal"
@@ -53,223 +35,29 @@ it.each(["document", "seal"])(
             .mockRejectedValue(new Error("candidate seal failed"))
         : undefined;
 
-    for (const attempt of [1, 2]) {
-      await expect(
-        migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-        `failed scan ${attempt}`,
-      ).rejects.toThrow(
-        failure === "document" ? "broken document" : "candidate seal failed",
-      );
-    }
-
-    expect(createSourceSession).not.toHaveBeenCalled();
+    await expect(
+      migrateStoredReview({ reviewDir: review.dir }),
+    ).rejects.toThrow(
+      failure === "document" ? "broken document" : "candidate seal failed",
+    );
     expect(await readFile(path.join(review.dir, "review.json"), "utf8")).toBe(
       original,
     );
-    expect(existsSync(`${review.dir}.source-migration.json`)).toBe(false);
     failedSeal?.mockRestore();
-
-    if (failure === "document") {
-      await writeFile(
-        path.join(review.dir, ".bundle/document/review-document.js"),
-        legacyDocument,
-      );
-
-      const revision = await sealReviewCandidate(
-        review.dir,
-        "Repaired fixture",
-      );
-
-      await writeFile(
-        path.join(review.dir, "review.json"),
-        JSON.stringify({
-          ...JSON.parse(original),
-          presentedDocumentRevision: revision,
-        }),
-      );
-    }
-
-    const migrated = await migrateStoredReview({
-      reviewDir: review.dir,
-      createSourceSession,
-    });
-
-    expect(migrated.record.sourceSession).toBe("codex:frozen");
-    expect(createSourceSession).toHaveBeenCalledTimes(1);
   },
 );
 
-it("reuses a durable fork after record promotion fails", async () => {
-  const { review, original } = await fixture();
-  const displaced = `${review.dir}.displaced`;
-
-  const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-    async () => {
-      await rename(review.dir, displaced);
-
-      return {
-        harness: "codex" as const,
-        sessionId: "frozen",
-      };
-    },
-  );
-
-  try {
-    await expect(
-      migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-    ).rejects.toThrow("ENOENT");
-  } finally {
-    await rename(displaced, review.dir);
-  }
-
-  expect(createSourceSession).toHaveBeenCalledTimes(1);
-  expect(await readFile(path.join(review.dir, "review.json"), "utf8")).toBe(
-    original,
-  );
-  expect(
-    JSON.parse(await readFile(`${review.dir}.source-migration.json`, "utf8")),
-  ).toMatchObject({ state: "ready", sourceSession: "codex:frozen" });
-
-  const migrated = await migrateStoredReview({
-    reviewDir: review.dir,
-    createSourceSession,
-  });
-
-  expect(migrated.record.sourceSession).toBe("codex:frozen");
-  expect(createSourceSession).toHaveBeenCalledTimes(1);
-  expect(existsSync(`${review.dir}.source-migration.json`)).toBe(false);
-});
-
-it("serializes concurrent direct migration and loader before creating a fork", async () => {
+it("binds the legacy authoring session as the source session", async () => {
   const { review } = await fixture();
-  const entered = Promise.withResolvers<void>();
-  const release = Promise.withResolvers<void>();
+  const migrated = await migrateStoredReview({ reviewDir: review.dir });
 
-  const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-    async () => {
-      entered.resolve();
-      await release.promise;
-
-      return { harness: "codex" as const, sessionId: "frozen" };
-    },
-  );
-
-  const first = migrateStoredReview({
-    reviewDir: review.dir,
-    createSourceSession,
+  expect(migrated.record.sourceSession).toBe("codex:original");
+  expect(migrated.record.agentSessions?.["codex:original"]?.roles).toEqual([
+    "author",
+  ]);
+  expect(await readStoredReview(review.dir)).toMatchObject({
+    review: { sourceSession: "codex:original" },
   });
-
-  await entered.promise;
-
-  const second = migrateStoredReview({
-    reviewDir: review.dir,
-    createSourceSession,
-  });
-
-  const loaded = readStoredReview(review.dir);
-  release.resolve();
-  const results = await Promise.all([first, second, loaded]);
-  expect(createSourceSession).toHaveBeenCalledTimes(1);
-  expect(results[0].record.sourceSession).toBe("codex:frozen");
-  expect(results[1].record.sourceSession).toBe("codex:frozen");
-  expect(results[2]).toMatchObject({
-    review: { sourceSession: "codex:frozen" },
-  });
-});
-
-it.each(["started", "different pins"])(
-  "fails closed for a pending binding with %s",
-  async (state) => {
-    const { review } = await fixture();
-    const displaced = `${review.dir}.displaced`;
-
-    const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-      async () => {
-        await rename(review.dir, displaced);
-
-        return {
-          harness: "codex" as const,
-          sessionId: "frozen",
-        };
-      },
-    );
-
-    try {
-      await expect(
-        migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-      ).rejects.toThrow("ENOENT");
-    } finally {
-      await rename(displaced, review.dir);
-    }
-
-    const statePath = `${review.dir}.source-migration.json`;
-    const pending = JSON.parse(await readFile(statePath, "utf8"));
-    await writeFile(
-      statePath,
-      JSON.stringify(
-        state === "started"
-          ? { version: 1, key: pending.key, state: "started" }
-          : { ...pending, key: "different" },
-      ),
-    );
-    await expect(
-      migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-    ).rejects.toThrow(
-      state === "started" ? "was interrupted" : "different Review pins",
-    );
-    expect(createSourceSession).toHaveBeenCalledTimes(1);
-  },
-);
-
-it("preserves disabled-source behavior for a native provider failure", async () => {
-  const { review } = await fixture();
-
-  const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-    async () => {
-      throw new Error("provider unavailable");
-    },
-  );
-
-  const log = vi.fn<(message: string) => void>();
-
-  const migrated = await migrateStoredReview({
-    reviewDir: review.dir,
-    createSourceSession,
-    log,
-  });
-
-  expect(migrated.record.sourceSession).toBe("disabled:review");
-  expect(log.mock.calls.flat().join(" ")).toContain("provider unavailable");
-  await migrateStoredReview({ reviewDir: review.dir, createSourceSession });
-  expect(createSourceSession).toHaveBeenCalledTimes(1);
-});
-
-it("does not turn a binding persistence failure into disabled success or another fork", async () => {
-  const { review, original } = await fixture();
-  const statePath = `${review.dir}.source-migration.json`;
-
-  const createSourceSession = vi.fn<typeof createReviewSourceAgentSession>(
-    async () => {
-      expect(JSON.parse(await readFile(statePath, "utf8"))).toMatchObject({
-        state: "started",
-      });
-      await rm(statePath);
-      await mkdir(statePath);
-
-      return { harness: "codex", sessionId: "frozen" };
-    },
-  );
-
-  await expect(
-    migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-  ).rejects.toThrow(/EISDIR|EEXIST/);
-  await expect(
-    migrateStoredReview({ reviewDir: review.dir, createSourceSession }),
-  ).rejects.toThrow("Cannot read source migration binding");
-  expect(createSourceSession).toHaveBeenCalledTimes(1);
-  expect(await readFile(path.join(review.dir, "review.json"), "utf8")).toBe(
-    original,
-  );
 });
 
 async function fixture(broken = false) {

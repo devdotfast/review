@@ -1,4 +1,3 @@
-import type { JsonObject } from "@dev.fast/review-protocol";
 import { createContext, useContext } from "react";
 
 /**
@@ -18,8 +17,6 @@ export interface SoftwareMapInitialResolvedData {
 }
 
 export interface ReviewInitialData {
-  comments: JsonObject | null;
-  sessionResolvedBaseRef: string | null;
   documentMeta: {
     updatedAtMs?: number;
     pullRequestNumber?: number;

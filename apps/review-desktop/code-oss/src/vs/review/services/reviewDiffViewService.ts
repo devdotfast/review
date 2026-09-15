@@ -188,9 +188,9 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
   }
 
   /**
-   * Joins the embedded diff's inner editors to the canvas composite. Find, the
-   * editor context keys, and the comment commands all act on the composite's
-   * active editor, so a focused inner editor has to become that editor.
+   * Joins the embedded diff's inner editors to the canvas composite. Find and
+   * the editor context keys act on the composite's active editor, so a focused
+   * inner editor has to become that editor.
    */
   private bindActiveControl(view: ReviewFilesDiffView): void {
     this.activeControlStore.clear();

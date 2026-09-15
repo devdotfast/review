@@ -9,7 +9,6 @@ import {
   listReviews,
 } from "./review-home";
 import { type ReviewInfoEvent, type RunReviewInfoInput } from "./review-info";
-import { readReviewComments } from "./review-state-store";
 import { resolveReviewRoot } from "./runtime";
 
 export async function resolveReviewInfo(
@@ -71,18 +70,10 @@ export async function reviewInfoEvent(
           change: stored.review.sourceIdentity?.name ?? null,
           inSync,
           matchesCheckout,
-          unresolvedComments: countUnresolvedComments(stored.dir),
           status: stored.review.status,
           title: stored.review.title,
         };
       }),
     ),
   };
-}
-
-function countUnresolvedComments(dir: string): number {
-  const comments = readReviewComments(path.join(dir, "review.mdx"));
-
-  return Object.values(comments).filter((thread) => thread.status === "open")
-    .length;
 }

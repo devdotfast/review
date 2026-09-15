@@ -118,22 +118,20 @@ describe("sanitizeUiTelemetryEvent", () => {
     expect(hashed("Cannot read plan")).toBeUndefined();
   });
 
-  it("allows submitted decisions and a private app session id", () => {
+  it("allows enum properties and a private app session id", () => {
     expect(
       sanitizeUiTelemetryEvent({
-        name: "review_submitted",
+        name: "review_dismissed",
         properties: {
-          decision: "approve",
-          comment_count: 2,
+          via: "home",
           app_session_id: "session-1234567890",
           review_text: "private",
         },
       }),
     ).toEqual({
-      event: "review_review_submitted",
+      event: "review_review_dismissed",
       properties: {
-        decision: "approve",
-        comment_count: 2,
+        via: "home",
         app_session_id: "session-1234567890",
       },
     });

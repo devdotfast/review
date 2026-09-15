@@ -28,8 +28,8 @@ export function InlineCodeEditor({
   active,
   onFocus,
   onOpen,
-  commentsEnabled = false,
   collapsed = false,
+  unifiedDiff = false,
 }: {
   path: string;
   title: string;
@@ -41,8 +41,8 @@ export function InlineCodeEditor({
   active: boolean;
   onFocus?: () => void;
   onOpen?: () => void;
-  commentsEnabled?: boolean;
   collapsed?: boolean;
+  unifiedDiff?: boolean;
 }) {
   const session = useReviewSession();
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
@@ -115,11 +115,11 @@ export function InlineCodeEditor({
       if (handle) return handle.setFindQuery(query);
 
       return inlineEditorFactory.find(
-        { path, side, ranges, commentsEnabled },
+        { path, side, ranges, unifiedDiff },
         query,
       );
     },
-    [commentsEnabled, inlineEditorFactory, path, rangesKey, side],
+    [inlineEditorFactory, path, rangesKey, side, unifiedDiff],
   );
 
   const revealFindMatch = useCallback(
@@ -202,12 +202,12 @@ export function InlineCodeEditor({
         ranges,
         heightMode,
         active,
+        unifiedDiff,
         diffStats,
         onDidFocus: handleFocus,
         onDidOpen: handleOpen,
         onDidNavigate: handleNavigation,
         onDidShowHover: handleHover,
-        commentsEnabled,
       });
     } catch (caught) {
       creationFailedRef.current = true;
@@ -238,7 +238,6 @@ export function InlineCodeEditor({
     };
   }, [
     container,
-    commentsEnabled,
     description,
     diffStatsKey,
     handleFocus,
@@ -253,6 +252,7 @@ export function InlineCodeEditor({
     shouldMount,
     side,
     title,
+    unifiedDiff,
   ]);
 
   useLayoutEffect(() => {

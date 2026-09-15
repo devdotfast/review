@@ -3,7 +3,6 @@ import type { TutorialStepId } from "@dev.fast/review-protocol";
 export type TutorialChapterId =
   | "welcome"
   | "commits"
-  | "comments"
   | "diagrams"
   | "traces"
   | "finish";
@@ -13,7 +12,6 @@ export type TutorialStepCompletion =
   | "click"
   | "inline-hover"
   | "inline-navigation"
-  | "comment"
   | "finish";
 
 export interface TutorialChapterDefinition {
@@ -28,21 +26,12 @@ export interface TutorialStepDefinition {
   instruction: string;
   completion: TutorialStepCompletion;
   targetSelector: string;
-  /** Marks the first code line in the target that matches, with its gutter
-      comment control shown, so the reader sees where to start. */
-  lineMatcher?: RegExp;
   requiresSoftwareMap?: boolean;
 }
-
-/* A function or method signature that opens a body, or a const/let/var
-   declaration. `\s` also covers the non-breaking spaces Monaco renders. */
-const DECLARATION_LINE =
-  /^\s*(?:export\s+)?(?:async\s+)?(?:function\b|const\b|let\b|var\b)|^\s*(?:(?:public|private|protected|static|async|readonly)\s+)*[A-Za-z_$][\w$]*\s*\([^)]*\)\s*(?::\s*[^{]+)?\{\s*$/;
 
 export const TUTORIAL_CHAPTERS: readonly TutorialChapterDefinition[] = [
   { id: "welcome", title: "Welcome" },
   { id: "commits", title: "Commits and diffs" },
-  { id: "comments", title: "Comments are threads" },
   { id: "diagrams", title: "Interactive Diagrams" },
   { id: "traces", title: "Agent traces" },
   { id: "finish", title: "Get help" },
@@ -103,22 +92,6 @@ const tutorialSteps: readonly TutorialStepDefinition[] = [
       "Open the sample commit's diff to inspect only the change it introduced.",
     completion: "click",
     targetSelector: ".review-commit-open",
-  },
-  {
-    id: "leaveComment",
-    chapter: "comments",
-    title: "Start a thread",
-    instruction:
-      "Move over the code, use the comment control in the left gutter, and write a note.",
-    completion: "comment",
-    // The reader arrives here from the commit diff, so the open Diff view's
-    // editors count as well as the document's code block. Only the visible
-    // one is marked.
-    targetSelector: [
-      '[data-review-section="Comments are threads"] .review-inline-editor',
-      ".review-diff-view:not(.review-diff-view--preloaded) .monaco-diff-editor .editor.modified",
-    ].join(", "),
-    lineMatcher: DECLARATION_LINE,
   },
   {
     id: "openSequence",

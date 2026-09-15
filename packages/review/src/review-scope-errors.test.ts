@@ -26,15 +26,12 @@ import {
 } from "./review-home";
 import { resolveReviewInfo } from "./review-info-resolver";
 import { runReviewScaffold } from "./review-scaffold";
-import { closeAllReviewThreadStores } from "./review-thread-store-backend";
-import { runReviewThreadsList } from "./threads-cli";
 
 const execFilePromise = promisify(execFile);
 
 const roots: string[] = [];
 
 afterEach(async () => {
-  closeAllReviewThreadStores();
   vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -178,9 +175,6 @@ describe("scoped review diagnostics", () => {
       await expect(
         resolvePublishReview(other.root, healthy.stored.review.uuid),
       ).rejects.toThrow("Active review not found");
-      await expect(
-        runReviewThreadsList({ cwd: healthy.root, stdout: new PassThrough() }),
-      ).resolves.toBe(0);
 
       const stdin = new PassThrough();
       stdin.end(JSON.stringify({ cwd: healthy.stored.dir }));
@@ -233,13 +227,6 @@ describe("scoped review diagnostics", () => {
       );
       await expect(
         resolvePublishReview(other.root, other.stored.review.uuid),
-      ).rejects.toBeInstanceOf(ReviewHomeScanError);
-      await expect(
-        runReviewThreadsList({
-          cwd: other.root,
-          reviewUuid: other.stored.review.uuid,
-          stdout: new PassThrough(),
-        }),
       ).rejects.toBeInstanceOf(ReviewHomeScanError);
       await expect(findReview(unknownUuid)).rejects.toBeInstanceOf(
         ReviewHomeScanError,

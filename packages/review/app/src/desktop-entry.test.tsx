@@ -393,7 +393,7 @@ describe("desktop review document load states", () => {
     expect(container.textContent).toContain("Commits");
     expect(container.textContent).toContain("Diff");
     expect(container.textContent).toContain("Map");
-    expect(container.textContent).toContain("Threads");
+    expect(container.textContent).toContain("Open source tree");
     expect(order.slice(0, 2)).toEqual(["ready", "diagnostic"]);
 
     await act(async () => {
@@ -652,7 +652,7 @@ describe("desktop review document load states", () => {
 
       expect(ready).toHaveBeenCalledTimes(1);
       expect(reportDiagnostic).not.toHaveBeenCalled();
-      expect(container.textContent).toContain("Threads");
+      expect(container.textContent).toContain("Open source tree");
       expect(container.textContent).toContain("Commits");
       expect(container.textContent).toContain("Diff");
       expect(container.querySelector(".review-republish")).toBeNull();
@@ -666,9 +666,7 @@ describe("desktop review document load states", () => {
       );
       expect(
         container.querySelector(".review-empty-state")?.textContent,
-      ).toContain(
-        "repair keeps the review status, pinned commits, and threads",
-      );
+      ).toContain("repair keeps the review status and pinned commits");
       expect(
         container
           .querySelector(".review-empty-state")
@@ -820,7 +818,7 @@ describe("publication validation mounts", () => {
         });
       });
       expect(order).toEqual(scenario === "absent-map" ? ["ready"] : ["error"]);
-      expect(container.textContent).toContain("Threads");
+      expect(container.textContent).toContain("Open source tree");
     } finally {
       await act(async () => handle?.dispose());
     }

@@ -70,7 +70,6 @@ describe("Review Find document text", () => {
       <div><span>React component text</span></div>
       <svg><text>Diagram label</text></svg>
       <div class="review-doc-meta">metadata</div>
-      <div class="selection-action-buttons">comment action</div>
       <div data-review-inline-editor="src/example.ts">hidden Monaco text</div>
       <div class="review-find-widget">find chrome</div>
     `;
@@ -81,7 +80,6 @@ describe("Review Find document text", () => {
     expect(text).toContain("React component text");
     expect(text).toContain("Diagram label");
     expect(text).not.toContain("metadata");
-    expect(text).not.toContain("comment action");
     expect(text).not.toContain("hidden Monaco text");
     expect(text).not.toContain("find chrome");
   });

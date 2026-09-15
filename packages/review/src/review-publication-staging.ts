@@ -18,10 +18,6 @@ import {
   prepareReviewDocumentBundle,
 } from "./review-publication-preparation";
 import {
-  requireClosedThreadsForRepublish,
-  requireCompletedAgentResponsesForRepublish,
-} from "./review-publish-thread-gate";
-import {
   type ReviewTreeOptions,
   copyReviewTree,
   fingerprintReviewTree,
@@ -107,8 +103,6 @@ export async function sealReviewDocumentPublication(input: {
       (await fingerprintAuthoring(input.review.dir))
     )
       throw authoringChanged();
-    requireClosedThreadsForRepublish(input.review);
-    requireCompletedAgentResponsesForRepublish(input.review);
     await writeReviewDocumentBundle(input.review.dir, input.document.bundle);
 
     return sealReviewCandidate(

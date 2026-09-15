@@ -30,7 +30,6 @@ export async function runReviewRebind(input: {
   progress?: (message: string) => void;
   env?: NodeJS.ProcessEnv;
   stdout: Writable;
-  createSourceAgentSession?: RunReviewScaffoldInput["createSourceAgentSession"];
 }): Promise<number> {
   const reviewRoot = await resolveReviewRoot(input.cwd);
   const review = await resolvePublishReview(reviewRoot, input.reviewUuid);
@@ -62,7 +61,6 @@ export async function runReviewRebind(input: {
       toolingRoot: input.toolingRoot,
       progress: input.progress,
       env: input.env,
-      createSourceAgentSession: input.createSourceAgentSession,
     },
     sourceIdentity,
   );

@@ -254,7 +254,7 @@ describe("ReviewTelemetry", () => {
     await telemetry.captureSessionStarted({ mode: "refs" });
     await telemetry.captureSessionEnded({
       mode: "refs",
-      outcome: "accepted",
+      outcome: "dismissed",
       durationMs: 250,
     });
 
@@ -269,7 +269,7 @@ describe("ReviewTelemetry", () => {
     expect(events[1].properties).toMatchObject({
       source_kind: "git_branch",
       agent_kind: "codex",
-      outcome: "approve",
+      outcome: "dismissed",
       duration_ms: 250,
     });
     expect(JSON.stringify(events)).not.toContain("secret-agent-session-id");

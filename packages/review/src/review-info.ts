@@ -25,7 +25,6 @@ export interface ReviewInfoEvent {
     change: string | null;
     inSync: boolean;
     matchesCheckout: boolean;
-    unresolvedComments: number;
     status: StoredReview["review"]["status"];
     title: string;
   }>;
@@ -41,7 +40,6 @@ const ReviewInfoEventSchema: z.ZodType<ReviewInfoEvent> = z.object({
       change: z.string().nullable(),
       inSync: z.boolean(),
       matchesCheckout: z.boolean(),
-      unresolvedComments: z.number(),
       status: ReviewStatusSchema,
       title: z.string(),
     }),

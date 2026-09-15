@@ -20,12 +20,6 @@ import {
 } from "@dev.fast/review-protocol";
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 
-import {
-  type ReviewAgentHarness,
-  freshSourceSessionKey,
-  parseAuthoringSessionKey,
-  parseFreshSourceSessionHarness,
-} from "../agent-session-ref";
 import { readReviewDocumentBundle } from "../review-bundle";
 import {
   type StoredReview,
@@ -67,10 +61,7 @@ export interface TutorialService {
   /** Returns the ready-to-mount tutorial Review. Materializes the shipped
       repo and a sealed revision when absent or invalid. Compilation remains
       unnecessary because the document and map bundles ship precompiled. */
-  prepare(
-    agent: ReviewAgentHarness,
-    options?: { beforeReset(): Promise<void> },
-  ): Promise<StoredReview>;
+  prepare(options?: { beforeReset(): Promise<void> }): Promise<StoredReview>;
   cleanup(): Promise<void>;
 }
 
@@ -91,9 +82,7 @@ export function createTutorialService(input: {
     return loaded?.review.visibility === "system" ? loaded : null;
   };
 
-  const readValidState = async (
-    expectedHarness?: ReviewAgentHarness,
-  ): Promise<{
+  const readValidState = async (): Promise<{
     stamp: TutorialStamp;
     review: StoredReview;
   } | null> => {
@@ -102,10 +91,7 @@ export function createTutorialService(input: {
     if (!stamp) return null;
     const review = await findTutorialReview(stamp.reviewUuid).catch(() => null);
 
-    if (
-      !review ||
-      !(await isValidTutorialReview(review, sampleRoot, expectedHarness))
-    ) {
+    if (!review || !(await isValidTutorialReview(review, sampleRoot))) {
       return null;
     }
 
@@ -180,8 +166,8 @@ export function createTutorialService(input: {
       return state?.review ?? null;
     },
 
-    async prepare(agent, options) {
-      const current = await readValidState(agent);
+    async prepare(options) {
+      const current = await readValidState();
 
       if (current) return current.review;
 
@@ -214,7 +200,6 @@ export function createTutorialService(input: {
         reviewSourceHeadRef(uuid),
         head.commit,
       );
-      const sourceSession = freshSourceSessionKey(agent);
 
       const created = await createReviewDir({
         uuid,
@@ -224,7 +209,6 @@ export function createTutorialService(input: {
         baseCommit: manifest.baseCommit,
         sourceCommit: head.commit,
         sourceIdentity: { kind: "git-branch", name: "main" },
-        sourceSession,
         title: await reviewTitleFromDocument(
           path.join(assetsRoot, "review.mdx"),
         ),
@@ -356,7 +340,6 @@ async function readShippedMapManifest(
 async function isValidTutorialReview(
   review: StoredReview,
   sampleRoot: string,
-  expectedHarness?: ReviewAgentHarness,
 ): Promise<boolean> {
   if (!(await isManagedTutorialPath(review.review.worktreePath, sampleRoot))) {
     return false;
@@ -364,21 +347,12 @@ async function isValidTutorialReview(
 
   if (
     review.review.visibility !== "system" ||
-    !(
-      parseFreshSourceSessionHarness(review.review.sourceSession) ||
-      parseAuthoringSessionKey(review.review.sourceSession)
-    ) ||
     !review.review.presentedDocumentRevision ||
     !review.review.presentedSoftwareMapRevision
   ) {
     return false;
   }
 
-  const storedHarness =
-    parseAuthoringSessionKey(review.review.sourceSession)?.harness ??
-    parseFreshSourceSessionHarness(review.review.sourceSession);
-
-  if (expectedHarness && storedHarness !== expectedHarness) return false;
   const sourceCommit = review.review.sourceCommit;
 
   if (!sourceCommit || review.review.baseCommit === sourceCommit) return false;

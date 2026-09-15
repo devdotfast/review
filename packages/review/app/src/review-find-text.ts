@@ -1,10 +1,7 @@
-import { ANNOTATION_CONTAINER_SELECTOR } from "./comment-pins";
 import { regularExpressionMatches } from "./review-find-query";
 
 const NON_FIND_TEXT_SELECTOR = [
-  ANNOTATION_CONTAINER_SELECTOR,
   ".review-doc-meta",
-  ".selection-action-buttons",
   ".review-find-widget",
   "[data-review-inline-editor]",
   ".side-panel",

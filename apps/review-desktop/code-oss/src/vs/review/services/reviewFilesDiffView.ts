@@ -56,11 +56,6 @@ const FILE_TREE_MINIMUM_WIDTH = 180;
 const DIFF_MINIMUM_WIDTH = 320;
 const FILE_TREE_COLLAPSE_WIDTH =
   FILE_TREE_MINIMUM_WIDTH + DIFF_MINIMUM_WIDTH;
-const INLINE_COMMENT_WIDTH_RESERVE = 480;
-const OPEN_INLINE_COMMENT_SELECTOR = [
-  ".review-widget.compact-comment-thread:not(:has(.review-comment))",
-  ".review-widget.compact-comment-thread:has(.comment-form-container.expand)",
-].join(", ");
 const REVIEW_FILES_DIFF_EDITOR_OPTIONS = {
   hideUnchangedRegions: { enabled: true },
   originalEditable: false,
@@ -184,7 +179,6 @@ export class ReviewFilesDiffView extends Disposable {
   private readonly widget: MultiDiffEditorWidget;
   private viewModel: MultiDiffEditorViewModel | undefined;
   private input: ReviewFilesEditorInput | undefined;
-  private inlineCommentOpen = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -273,22 +267,6 @@ export class ReviewFilesDiffView extends Disposable {
         this.syncFileSelectionFromWidget(),
       ),
     );
-    const commentObserver = new MutationObserver(() => {
-      const inlineCommentOpen = Boolean(
-        diffContainer.querySelector(OPEN_INLINE_COMMENT_SELECTOR),
-      );
-      if (this.inlineCommentOpen === inlineCommentOpen) return;
-      this.inlineCommentOpen = inlineCommentOpen;
-      this.layout();
-    });
-    commentObserver.observe(diffContainer, {
-      attributes: true,
-      attributeFilter: ["class"],
-      childList: true,
-      subtree: true,
-    });
-    this._register(toDisposable(() => commentObserver.disconnect()));
-
     this.changedFilesTree = this._register(
       this.reviewInstantiationService.createInstance(
         ReviewChangedFilesTree,
@@ -389,9 +367,7 @@ export class ReviewFilesDiffView extends Disposable {
     const height = this.container.clientHeight;
     if (width <= 0 || height <= 0) return;
 
-    const availableWidth =
-      width - (this.inlineCommentOpen ? INLINE_COMMENT_WIDTH_RESERVE : 0);
-    const fileTreeVisible = availableWidth >= FILE_TREE_COLLAPSE_WIDTH;
+    const fileTreeVisible = width >= FILE_TREE_COLLAPSE_WIDTH;
     if (this.splitView.isViewVisible(0) !== fileTreeVisible) {
       this.splitView.setViewVisible(0, fileTreeVisible);
     }

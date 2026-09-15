@@ -18,8 +18,8 @@ import { useRightPanelResize } from "./side-panel-resizer";
  * figure as the stage on the left, the standard GuidedTourPanel on the
  * right, and the side-panel resizer between them. The shell owns layout
  * only — the stage is whatever the document already renders inline, and
- * the panel is the same component that hosts document tours, so scrolling,
- * selection, and comments behave identically everywhere.
+ * the panel is the same component that hosts document tours, so scrolling
+ * and selection behave identically everywhere.
  */
 export function DiagramTourOverlay({
   tour,

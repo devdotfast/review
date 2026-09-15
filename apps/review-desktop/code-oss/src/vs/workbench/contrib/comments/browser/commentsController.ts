@@ -133,10 +133,6 @@ class CommentingRangeDecorator {
 		const hoverDecorationOptions: IModelDecorationOptions = {
 			description: CommentingRangeDecorator.description,
 			isWholeLine: true,
-			className: 'comment-range-selection-current',
-			lineNumberClassName: 'comment-range-selection-line-number-current',
-			marginClassName: 'comment-range-selection-margin-current',
-			shouldFillLineOnLineBreak: true,
 			linesDecorationsClassName: `comment-range-glyph line-hover`
 		};
 
@@ -145,10 +141,6 @@ class CommentingRangeDecorator {
 		const multilineDecorationOptions: IModelDecorationOptions = {
 			description: CommentingRangeDecorator.description,
 			isWholeLine: true,
-			className: 'comment-range-selection',
-			lineNumberClassName: 'comment-range-selection-line-number',
-			marginClassName: 'comment-range-selection-margin',
-			shouldFillLineOnLineBreak: true,
 			linesDecorationsClassName: `comment-range-glyph multiline-add`
 		};
 

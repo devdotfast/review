@@ -11,7 +11,6 @@ import { createReviewDir } from "../review-home";
 import { CANONICAL_SOFTWARE_MAP_MODEL_IMPORT } from "../software-map-artifact";
 import { SOFTWARE_MAP_NOTES_REF } from "../software-map-paths";
 import { createReviewSessionHandler } from "./session-handler";
-import { unusedAgentServices } from "./session-handler-test-utils";
 
 it("refreshes note artifacts without executing authored code in the server", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "review-map-refresh-"));
@@ -58,16 +57,12 @@ it("refreshes note artifacts without executing authored code in the server", asy
     const reviewPath = path.join(stored.dir, "review.mdx");
 
     const handler = await createReviewSessionHandler({
-      ...unusedAgentServices,
       rootPath: root,
       toolingRoot: root,
       reviewPath,
       reviewRootPath: stored.dir,
       routePath: "/",
       token: "secret",
-      openNativeAgentTerminal: async () => {
-        throw new Error("Refresh must not launch an agent.");
-      },
       session: {
         rootPath: root,
         baseRef: base,

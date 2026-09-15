@@ -2339,11 +2339,6 @@ export interface CommentOptions {
 	 * An optional string to show as placeholder in the comment input box when it's focused.
 	 */
 	placeHolder?: string;
-
-	/**
-	 * Use the compact inline thread presentation.
-	 */
-	compactThreadWidget?: boolean;
 }
 
 /**

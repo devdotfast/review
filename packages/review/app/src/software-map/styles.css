@@ -52,15 +52,6 @@
   min-width: 0;
 }
 
-.software-map-view-comment-target {
-  padding-right: 20px;
-}
-
-.software-map-view-comment-target > .comment-hover-button {
-  top: 2px;
-  right: -6px;
-}
-
 .software-map-header figcaption {
   margin-top: 2px;
   overflow: hidden;
@@ -612,13 +603,6 @@
   z-index: 2 !important;
 }
 
-.software-map-c4-canvas
-  .react-flow__node-softwareMapC4:has(
-    .software-map-c4-node-shell:hover > .comment-hover-button
-  ) {
-  z-index: 40 !important;
-}
-
 .software-map-c4-canvas .react-flow__edge {
   z-index: 1;
 }
@@ -663,7 +647,7 @@
   stroke: var(--selection);
 }
 
-.software-map-c4-edge-comment-target {
+.software-map-c4-edge-label-anchor {
   position: absolute;
   z-index: 40;
   display: inline-flex;
@@ -672,12 +656,6 @@
   min-width: 20px;
   min-height: 20px;
   pointer-events: all;
-}
-
-.software-map-c4-edge-comment-target > .comment-hover-button {
-  top: -12px;
-  right: -12px;
-  z-index: 41;
 }
 
 .software-map-c4-edge-label {
@@ -753,32 +731,6 @@
   width: 100%;
   height: 100%;
   animation: software-map-c4-card-bloom 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.software-map-c4-node-shell::after,
-.software-map-c4-group-shell::after {
-  position: absolute;
-  top: 50%;
-  right: -34px;
-  z-index: 8;
-  width: 38px;
-  height: 48px;
-  background: var(--transparent);
-  content: "";
-  transform: translateY(-50%);
-}
-
-.software-map-c4-node-shell > .comment-hover-button,
-.software-map-c4-group-shell > .comment-hover-button {
-  top: 50%;
-  right: auto;
-  left: calc(100% + 5px);
-  z-index: 41;
-  width: auto;
-  min-width: 30px;
-  height: 30px;
-  transform: translateY(-50%);
-  transform-origin: left center;
 }
 
 .software-map-c4-node-shell > .software-map-node {
@@ -902,34 +854,6 @@
     opacity: 1;
     transform: scale(1);
   }
-}
-
-/* A map labels every node, group, and edge, so rest-visible chips stack up as
-   clutter — the same reason sequence diagrams gate theirs (see styles.css).
-   Each chip shows only while its own target is hovered. The reveal selectors
-   below outrank this rest rule on specificity, so they hold regardless of
-   source order. */
-.software-map-frame .comment-hover-button {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.software-map-view-comment-target:hover > .comment-hover-button,
-.software-map-c4-node-shell:hover > .comment-hover-button,
-.software-map-c4-group-shell:hover > .comment-hover-button,
-.software-map-c4-edge-comment-target:hover > .comment-hover-button,
-.software-map-frame .comment-target-hovered > .comment-hover-button {
-  background: var(--accent);
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* The chip hangs outside its target's box, so keep it up while the pointer
-   rests on the chip itself and while it holds keyboard focus. */
-.software-map-frame .comment-hover-button:hover,
-.software-map-frame .comment-hover-button:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .software-map-c4-handle {

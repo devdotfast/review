@@ -113,14 +113,12 @@ import {
 import { reviewTelemetryEventRequest } from "../../../common/reviewTelemetryRequest.js";
 import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
 import { IReviewSessionService } from "../../../services/reviewSessionService.js";
-import { ReviewCommentStore } from "../../../services/reviewCommentStore.js";
 import {
 	IReviewSessionModelService,
 	loadReviewSessionDocument,
 	loadReviewSessionSoftwareMap,
 	type ReviewDesktopSession,
 	type ReviewSessionModel,
-	reviewSessionApiRequest,
 } from "../../../services/reviewSessionModelService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
@@ -280,9 +278,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			verbs.onDidEmitSurfaceEvent((event) => {
 				if (this.targetDocument) {
 					this.targetDocument.body.dataset["reviewLastSurfaceEvent"] =
-						event.event === "threadDecorationClicked"
-							? `${event.event}:${event.threadId}`
-							: event.event;
+						event.event;
 				}
 				this.surfaceEvents.fire(event);
 			}),
@@ -1433,7 +1429,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		return {
 			appSessionId: this.reviewTelemetryService.appSessionId,
 			config,
-			comments: model.comments,
 			inlineEditors: this.inlineEditors,
 			diffView: this.diffViews,
 			request: (url, init) => model.request(url, init),
@@ -1517,7 +1512,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		}
 		let container: HTMLElement | undefined;
 		let handle: ReviewCanvasHandle | undefined;
-		let comments: ReviewCommentStore | undefined;
 		let loadTimeout: ReturnType<typeof setTimeout> | undefined;
 		// Each step of the off-screen mount reports its wall-clock interval back
 		// to the server, which folds it into the publish timings the CLI shows.
@@ -1539,10 +1533,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			const softwareMapPromise = timed("fetch + load software map", () =>
 				loadReviewSessionSoftwareMap(session, loadReviewSoftwareMaps),
 			);
-			comments = new ReviewCommentStore({
-				request: (endpoint, init) =>
-					reviewSessionApiRequest(session, endpoint, init),
-			});
 			let finished = false;
 			let mountedAt = Date.now();
 			let finishMount!: (error: Error | null) => void;
@@ -1556,7 +1546,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			const bridge: ReviewCanvasBridge = {
 				appSessionId: this.reviewTelemetryService.appSessionId,
 				config: this.reviewRuntimeConfig(session, assets),
-				comments,
 				inlineEditors: this.inlineEditors,
 				// A validation mount must build no diff widgets off-screen and
 				// must not write the visible pane's view-state cache.
@@ -1643,7 +1632,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			if (loadTimeout) clearTimeout(loadTimeout);
 			handle?.dispose();
 			container?.remove();
-			comments?.dispose();
 		}
 	}
 

@@ -137,13 +137,11 @@ export function reviewPeekMultiDiffBodyHeightLimit(
   );
 }
 
-export function reviewPeekCappedHeight(
-  measuredHeight: number,
-  commentZoneHeight: number,
-): number {
-  const cap = REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT;
-  const contentHeight = Math.max(0, measuredHeight - commentZoneHeight);
-  return Math.min(cap, contentHeight) + commentZoneHeight;
+export function reviewPeekCappedHeight(measuredHeight: number): number {
+  return Math.min(
+    REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT,
+    Math.max(0, measuredHeight),
+  );
 }
 
 /** The subset of ICodeEditor that window measurement needs. */
@@ -167,9 +165,8 @@ export function reviewPeekWindowsRenderedHeight(
   if (!editor.getModel() || windows.length === 0) return undefined;
   let height = 0;
   for (const window of windows) {
-    // Monaco excludes view zones by default. Comment composers are view
-    // zones, so omitting this flag leaves their DOM mounted inside an editor
-    // whose host never grows tall enough to reveal them.
+    // Monaco excludes view zones by default. Inline diffs render deleted
+    // lines as view zones, so they must count toward the window height.
     const top = editor.getTopForLineNumber(window.startLine, true);
     const bottom = editor.getBottomForLineNumber(window.endLine, true);
     if (bottom <= top) return undefined;

@@ -8,7 +8,6 @@ import type {
 } from "@dev.fast/review-protocol";
 
 export interface ReviewSurface {
-  showThreads(): void;
   openFileDiff(file: ReviewDiffFileWire): void;
   revealAnchor(
     path: string,
@@ -21,9 +20,6 @@ export interface ReviewSurface {
 
 export function createReviewSurface(bridge: ReviewCanvasBridge): ReviewSurface {
   return {
-    showThreads() {
-      void bridge.post({ name: "showThreads", args: {} });
-    },
     openFileDiff(file) {
       void bridge.post({
         name: "openDiff",

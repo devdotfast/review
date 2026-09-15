@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { cp, lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -21,7 +20,6 @@ import {
   readReviewDocumentBundle,
   writeReviewDocumentBundle,
 } from "./review-bundle";
-import { createLegacyCodeRecordMigrator } from "./review-code-target-migration";
 import { isDerivedReviewPath } from "./review-derived-paths";
 import {
   type StoredReviewRecord,
@@ -34,18 +32,10 @@ import { withReviewMutationLock } from "./review-mutation-lock";
 import { prepareReviewDocumentBundle } from "./review-publication-preparation";
 import {
   type ReviewRepairReadyRequest,
-  assertNoActiveReviewAgentWrites,
   fingerprintReviewRepairInputs,
 } from "./review-repair-state";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { reviewSourcePins } from "./review-source-pins";
-import {
-  type ReviewThreadDbMigrationOptions,
-  copyReviewThreadDatabaseSnapshot,
-  migrateReviewThreadDb,
-  readReviewThreadDatabaseFingerprint,
-  reviewThreadDbPath,
-} from "./review-thread-store-backend";
 import {
   bundleReviewSoftwareMap,
   readReviewSoftwareMapBundle,
@@ -70,7 +60,6 @@ interface ReviewRepairSnapshot {
   expectedRecord: string;
   expectedFingerprint: string;
   schemaVersion: number;
-  threadDbFingerprint?: string;
 }
 
 interface RepairedDocument {
@@ -107,25 +96,6 @@ export async function prepareReviewRepair(input: {
     const snapshot = await snapshotReviewForRepair(input.reviewDir, stagingDir);
     const { review } = snapshot;
 
-    const threadDbMigration: ReviewThreadDbMigrationOptions = {
-      preserveLegacyQuestions: true,
-    };
-
-    if (review.sourceCommit)
-      threadDbMigration.migrateLegacyCodeRecord =
-        createLegacyCodeRecordMigrator({
-          rootPath: review.worktreePath,
-          baseCommit: review.baseCommit,
-          headCommit: review.sourceCommit,
-        });
-
-    const threadDbUpgraded =
-      snapshot.threadDbFingerprint !== undefined &&
-      (await migrateReviewThreadDb(
-        path.join(stagingDir, "review.mdx"),
-        threadDbMigration,
-      )) === "upgraded";
-
     const document = await repairPresentedDocument({
       reviewDir: input.reviewDir,
       stagingDir,
@@ -150,19 +120,8 @@ export async function prepareReviewRepair(input: {
       : unchangedPresentedMap(document);
 
     if (
-      snapshot.threadDbFingerprint !== undefined &&
-      readReviewThreadDatabaseFingerprint(
-        path.join(input.reviewDir, "review.mdx"),
-      ) !== snapshot.threadDbFingerprint
-    )
-      throw new Error(
-        "Review threads changed while preparing repair; retry after active writes finish.",
-      );
-
-    if (
       !document.changed &&
       !map.changed &&
-      !threadDbUpgraded &&
       map.revision === presentedMapRevision &&
       snapshot.schemaVersion === REVIEW_SCHEMA_VERSION
     ) {
@@ -192,9 +151,6 @@ export async function prepareReviewRepair(input: {
         map: map.usedEditableSources,
       },
     };
-
-    if (threadDbUpgraded)
-      request.expectedThreadDbFingerprint = snapshot.threadDbFingerprint;
 
     return { kind: "prepared", review, cleanup, request };
   } catch (error) {
@@ -272,7 +228,6 @@ async function snapshotReviewForRepair(
 ): Promise<ReviewRepairSnapshot> {
   return withReviewMutationLock(reviewDir, async () => {
     await assertIsolatedRepairInternals(reviewDir);
-    await assertNoActiveReviewAgentWrites(reviewDir);
 
     const expectedRecord = await readFile(
       path.join(reviewDir, "review.json"),
@@ -307,22 +262,12 @@ async function snapshotReviewForRepair(
         "Review authoring changed while preparing repair. Retry after active writes finish.",
       );
 
-    const threadDbFingerprint = existsSync(
-      reviewThreadDbPath(path.join(reviewDir, "review.mdx")),
-    )
-      ? copyReviewThreadDatabaseSnapshot(
-          path.join(reviewDir, "review.mdx"),
-          path.join(stagingDir, "review.mdx"),
-        )
-      : undefined;
-
     return {
       review,
       documentRevision,
       expectedRecord,
       expectedFingerprint,
       schemaVersion: Number(jsonObject(expectedValue)?.schemaVersion),
-      threadDbFingerprint,
     };
   });
 }

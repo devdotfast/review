@@ -43,10 +43,6 @@ import {
   softwareMapKeyboardNodeDomAttributes,
 } from "./software-map-keyboard-navigation";
 import {
-  softwareMapNodeLabelPath,
-  softwareMapRelationshipLabelPath,
-} from "./software-map-paths";
-import {
   type SoftwareMapElementType,
   type SoftwareMapNodeSnapshot,
   type SoftwareMapRelationshipKind,
@@ -209,8 +205,6 @@ function inlineLayoutFromC4Layout(
 export async function createC4MapFlow(
   snapshot: SoftwareMapResolvedSnapshot,
   options: {
-    viewName?: string;
-    diagram?: string;
     onSelectNode?: (node: SoftwareMapNodeSnapshot) => void;
     onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
     onCollapseNode?: (node: SoftwareMapNodeSnapshot) => void;
@@ -237,8 +231,6 @@ export function createC4MapFlowFromLayout(
   snapshot: SoftwareMapResolvedSnapshot,
   layout: C4LayoutResult,
   options: {
-    viewName?: string;
-    diagram?: string;
     onSelectNode?: (node: SoftwareMapNodeSnapshot) => void;
     onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
     onCollapseNode?: (node: SoftwareMapNodeSnapshot) => void;
@@ -248,9 +240,6 @@ export function createC4MapFlowFromLayout(
     onOpenRelationship?: (relationshipId: string) => void;
   } = {},
 ): C4MapFlow {
-  const viewName = options.viewName ?? snapshot.view ?? "unresolved";
-  const diagram = options.diagram ?? viewName;
-
   const latestNodesById = new Map(
     (snapshot.nodes ?? []).map((node) => [node.id, node]),
   );
@@ -270,8 +259,6 @@ export function createC4MapFlowFromLayout(
         data: {
           node: renderNode,
           selected: snapshot.selectedNodeId === renderNode.id,
-          diagram,
-          targetPath: softwareMapNodeLabelPath(renderNode, latestNodesById),
           onSelect: options.onSelectNode,
           onExpandNode: options.onExpandNode,
           onCollapseNode: options.onCollapseNode,
@@ -408,12 +395,6 @@ export function createC4MapFlowFromLayout(
             relationship,
             relationshipId,
             selectedNodeAttached: attachedToSelectedNode,
-            diagram,
-            targetPath: softwareMapRelationshipLabelPath(
-              relationship,
-              snapshot.relationships ?? [],
-              latestNodesById,
-            ),
             sections,
             labelPosition: layout.edgeLabels.get(edgeId),
             labelDimensions,

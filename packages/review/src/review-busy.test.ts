@@ -13,7 +13,6 @@ import {
   withReviewMutationLock,
 } from "./review-mutation-lock";
 import { runReviewPublish } from "./review-publish";
-import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { createGlobalReviewServer } from "./server/desktop-server";
 import { createReviewSessionHandler } from "./server/session-handler";
 
@@ -21,7 +20,6 @@ const roots: string[] = [];
 
 afterEach(async () => {
   vi.unstubAllEnvs();
-  closeAllReviewThreadStores();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -172,63 +170,51 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
   });
 }, 20_000);
 
-it.each(["thread-commands", "revisions"])(
-  "returns a retryable HTTP conflict for busy %s requests",
-  async (route) => {
-    const root = await mkdtemp(path.join(tmpdir(), "review-busy-session-"));
-    roots.push(root);
-    const reviewPath = path.join(root, "review.mdx");
-    await writeFile(reviewPath, "# Review\n");
+it("returns a retryable HTTP conflict for busy revisions requests", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "review-busy-session-"));
+  roots.push(root);
+  const reviewPath = path.join(root, "review.mdx");
+  await writeFile(reviewPath, "# Review\n");
 
-    const handler = await createReviewSessionHandler({
+  const handler = await createReviewSessionHandler({
+    rootPath: root,
+    reviewPath,
+    toolingRoot: root,
+    routePath: "/",
+    token: "busy-token",
+    session: {
       rootPath: root,
       reviewPath,
-      toolingRoot: root,
-      routePath: "/",
-      token: "busy-token",
-      session: {
-        rootPath: root,
-        reviewPath,
-        baseRef: "HEAD",
-        appUrl: "http://127.0.0.1:5570",
-        startedAt: Date.now(),
-      },
-      agentServer: () => {
-        throw new Error("No native agent in this test");
-      },
-      openNativeAgentTerminal: async () => {
-        throw new Error("No terminal in this test");
-      },
-      runReviewThreadMutation: async () => {
-        throw new ReviewBusyError(root);
-      },
-      listDocumentVersions: async () => {
-        throw new ReviewBusyError(root);
-      },
+      baseRef: "HEAD",
+      appUrl: "http://127.0.0.1:5570",
+      startedAt: Date.now(),
+    },
+    listDocumentVersions: async () => {
+      throw new ReviewBusyError(root);
+    },
+  });
+
+  try {
+    const response = await handler.handle(
+      new Request("http://127.0.0.1:5570/__progressive-review/revisions", {
+        method: "GET",
+        headers: {
+          "x-review-token": "busy-token",
+          "content-type": "application/json",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "review_busy",
+      retryable: true,
+      error: expect.stringContaining(
+        "Retry after its current operation completes",
+      ),
     });
-
-    try {
-      const response = await handler.handle(
-        new Request(`http://127.0.0.1:5570/__progressive-review/${route}`, {
-          method: route === "thread-commands" ? "POST" : "GET",
-          headers: {
-            "x-review-token": "busy-token",
-            "content-type": "application/json",
-          },
-        }),
-      );
-
-      expect(response.status).toBe(409);
-      expect(await response.json()).toMatchObject({
-        ok: false,
-        code: "review_busy",
-        retryable: true,
-        error: expect.stringContaining(
-          "Retry after its current operation completes",
-        ),
-      });
-    } finally {
-      await handler.close();
-    }
-  },
-);
+  } finally {
+    await handler.close();
+  }
+});

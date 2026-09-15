@@ -1,6 +1,6 @@
 import { isNumberValue, isStringValue } from "@dev.fast/review-protocol";
 // Deliberately separate from the MDX document pipeline: this renderer walks the
-// mdast of untrusted runtime strings (agent/thread message bodies) and never
+// mdast of untrusted runtime strings (agent trace message bodies) and never
 // evaluates them, whereas MDX compilation produces executable code and must
 // only ever see trusted authored review documents.
 import { fromMarkdown } from "mdast-util-from-markdown";
@@ -59,34 +59,6 @@ export function AgentMarkdown({
       {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
     </div>
   );
-}
-
-/**
- * Plain-text excerpt of a markdown message for clamped previews (Notion-style):
- * formatting is dropped and only text content kept, so a preview never shows
- * raw `**` syntax nor fights a line clamp with block layout and code chips.
- */
-export function markdownExcerpt(source: string): string {
-  const tree = parseMarkdown(source);
-  const parts: string[] = [];
-
-  const walk = (node: MarkdownNode) => {
-    if (
-      node.type === "text" ||
-      node.type === "inlineCode" ||
-      node.type === "code"
-    ) {
-      if (node.value) parts.push(node.value);
-
-      return;
-    }
-
-    node.children?.forEach(walk);
-  };
-
-  walk(tree);
-
-  return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
 function renderMarkdownChildren(

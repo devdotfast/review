@@ -44,16 +44,16 @@ An anchor without `peek` can label things but cannot open code. `AnchorLink` and
 
 ```ts
 export const stores = defineStores({
-  reviewDb: {
+  ordersDb: {
     kind: "relational",                  // "relational" | "document"
-    label: "review.db",
+    label: "orders.db",
     tables: {                            // or `documents` for kind "document"
-      threads: {
-        label: "threads",                // optional
+      orders: {
+        label: "orders",                 // optional
         key: "id",                       // optional
         schema: {
           id: { type: "text", pk: true },
-          body: { type: "text" },
+          status: { type: "text" },
         },
       },
     },
@@ -152,12 +152,12 @@ Rules:
 Persisted-state structure and operations. Add this model only when a storage diagram materially helps the reader.
 
 ```mdx
-<DatabaseLens title="Thread storage" stores={{ reviewDb: stores.reviewDb }}>
-  <DbUseCase id="resolve" label="Resolve a thread">
-    <DbRead from={stores.reviewDb.tables.threads} to={actors.agent}
-      label="load open threads" anchor={anchors.loadThreads} />
-    <DbWrite from={actors.agent} to={stores.reviewDb.tables.threads}
-      label="mark resolved" anchor={anchors.markResolved} />
+<DatabaseLens title="Order storage" stores={{ ordersDb: stores.ordersDb }}>
+  <DbUseCase id="ship" label="Ship an order">
+    <DbRead from={stores.ordersDb.tables.orders} to={actors.server}
+      label="load pending orders" anchor={anchors.loadOrders} />
+    <DbWrite from={actors.server} to={stores.ordersDb.tables.orders}
+      label="mark shipped" anchor={anchors.markShipped} />
   </DbUseCase>
 </DatabaseLens>
 ```
@@ -172,8 +172,8 @@ Direction is part of the schema: a read flows store → actor, a write flows act
 Use a collection reference for an operation on the full collection. Select a specific field directly by name:
 
 ```mdx
-<DbRead from={stores.reviewDb.tables.threads.body} to={actors.agent}
-  label="load thread body" anchor={anchors.loadThreads} />
+<DbRead from={stores.ordersDb.tables.orders.status} to={actors.server}
+  label="load order status" anchor={anchors.loadOrders} />
 ```
 
 ### TraceQuote

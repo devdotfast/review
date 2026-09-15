@@ -400,7 +400,7 @@ Known limits:
 - Imported bindings for commands Review does not register (for example Git,
   terminal, task, or debug commands) remain inert.
 - The Review canvas is an iframe, so Vim and Emacs keymaps apply to workbench
-  file, diff, and multi-diff editors, not the canvas's inline comment editors.
+  file, diff, and multi-diff editors, not text fields inside the canvas.
 
 ## Development and validation
 

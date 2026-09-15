@@ -30,7 +30,7 @@ def review_verbs(command: str) -> list[str]:
         verb, sub = match.group(1), match.group(2)
         if verb == "present":
             verb = "publish"
-        if verb in ("map", "app", "threads", "trace") and sub and not sub.startswith("-"):
+        if verb in ("map", "app", "trace") and sub and not sub.startswith("-"):
             verb = f"{verb} {sub}"
         if verb not in verbs:
             verbs.append(verb)

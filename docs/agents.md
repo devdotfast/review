@@ -2,7 +2,7 @@
 
 <!--
 Outline: Built-in setup -> Installed skills -> Change review -> Architecture review
--> Feedback loop -> Headless install -> Provider boundary.
+-> Headless install -> Provider boundary.
 -->
 
 Review works with Claude Code, Codex, and other coding agents. The desktop app
@@ -75,19 +75,6 @@ critical code paths in this repository. Open it in Review when it is ready.
 Specific context produces a better Review. Tell the agent what you already
 believe, which risks you care about, and where you want sequence or database
 views.
-
-## Send feedback to the agent
-
-Review threads have two modes:
-
-- **Ask now** sends a question to the authoring agent immediately and keeps the
-  answer in the same thread.
-- **Add to review** holds a comment for the review decision. Choosing
-  **Request changes** sends the submitted set back for another authoring round.
-
-The agent updates the Review document, responds to the exact threads it
-addressed, and publishes another validated revision. **Approve** and dismissal
-are terminal states.
 
 ## Install from the terminal
 

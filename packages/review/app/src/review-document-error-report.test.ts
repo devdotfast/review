@@ -24,16 +24,14 @@ describe("reviewDocumentErrorReport", () => {
       {
         code: "custom",
         path: ["messages", 1, "label"],
-        message: "Label must be unique among parallel A→B messages",
+        message: "Sequence message label is required",
         input: undefined,
       },
     ]);
 
     const report = reviewDocumentErrorReport(zodError);
     expect(report.name).toBe("ZodError");
-    expect(report.message).toContain(
-      "Label must be unique among parallel A→B messages",
-    );
+    expect(report.message).toContain("Sequence message label is required");
   });
 
   it("falls back to a stringified value for a non-Error throw", () => {

@@ -47,9 +47,6 @@ export type ReviewCliCommandPath =
   | "scaffold"
   | "install"
   | "migrate.apply"
-  | "threads.list"
-  | "threads.resolve"
-  | "threads.reply"
   | "map.open"
   | "map.check"
   | "map.publish"
@@ -94,11 +91,9 @@ export type ReviewSourceKind =
 
 export type ReviewSessionAgent = "codex" | "claude" | "pi" | "other";
 
-export type ReviewSessionOutcome =
-  | "approve"
-  | "request-changes"
-  // Replaced "rejected": the reader dismisses a review instead of rejecting it.
-  | "dismissed";
+// The reader dismisses a review; approve and request-changes left with the
+// comment submission loop.
+export type ReviewSessionOutcome = "dismissed";
 
 export type ReviewTelemetryTab =
   | "review"
@@ -155,7 +150,7 @@ export interface ReviewSessionStartedInput {
 }
 
 export interface ReviewSessionEndedInput extends ReviewSessionStartedInput {
-  outcome: ReviewSessionOutcome | "accepted";
+  outcome: ReviewSessionOutcome;
   durationMs: number;
 }
 
@@ -357,7 +352,7 @@ export class ReviewTelemetry {
         {
           source_kind: sourceKind(input),
           agent_kind: input.agentKind ?? this.sessionAgent(),
-          outcome: input.outcome === "accepted" ? "approve" : input.outcome,
+          outcome: input.outcome,
           duration_ms: input.durationMs,
         },
         input.appSessionId,

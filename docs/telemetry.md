@@ -17,7 +17,7 @@ Last checked against this repository: 2026-08-18.
   categories, booleans, counts, durations, versions, and opaque identifiers.
 - Passive telemetry never includes your code, diffs, file paths, repository
   name, Review title, refs, revision hashes, raw Review UUID, coding-agent
-  session ID, Review text, comments, questions, prompts, or model output.
+  session ID, Review text, prompts, or model output.
 - Review uses a random installation ID. It does not use your email, username,
   hostname, or a hardware identifier, and it does not create a PostHog person
   profile.
@@ -65,7 +65,7 @@ dialog. Bug reports do not pass through the passive telemetry system.
 | CLI usage       | Command category, success or failure, duration            | Command arguments, refs, process output, or exception text      |
 | Code navigation | Feature category, language category, editor surface       | Symbols, declarations, search text, or source code              |
 | Extensions      | An allowlisted extension ID, install outcome and duration | Extension version, configuration, or extension data             |
-| Review outcome  | Approve, request changes, dismiss, comment count          | Comments, questions, thread text, or reviewer identity          |
+| Review outcome  | Dismiss or restore                                        | Review text or reviewer identity                                |
 | Reliability     | Error class, cleaned message, Review-only stack frames    | User paths, repository frames, secrets, or authored Review text |
 
 Every event is checked against an allowlist on your machine. Unknown events,
@@ -177,7 +177,7 @@ event includes only `reason`, `count`, and the random installation identifier.
 | `review_command_succeeded`     | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, optional `review_id`, and closed command flags | A public CLI command succeeds           |
 | `review_command_failed`        | The success properties plus `error_name` and `error_category` closed enums                                   | A public CLI command fails              |
 | `review_session_started`       | `source_kind`, `agent_kind`, `review_id`, `presentation_id`, optional `app_session_id`                       | A Desktop review session opens          |
-| `review_session_ended`         | Start properties plus `outcome`, `duration_ms`                                                               | A review submits or is dismissed        |
+| `review_session_ended`         | Start properties plus `outcome`, `duration_ms`                                                               | A review is dismissed                   |
 | `review_review_deleted`        | None                                                                                                         | A user deletes a stored review          |
 | `review_review_reaped`         | `retention_days`                                                                                             | Retention deletes a dismissed review    |
 | `review_publish_gate_rejected` | `gate` in publish_ready, map_publish_ready                                                                   | A publish readiness gate rejects        |
@@ -185,8 +185,7 @@ event includes only `reason`, `count`, and the random installation identifier.
 
 `command_path` is a closed enum for all public commands. It includes `help`,
 `version`, `app.launch`, `app.pick`, `rebind`, `publish`, `wait`, `info`,
-`scaffold`, `install`, `migrate.apply`, `threads.list`,
-`threads.resolve`, `threads.reply`, `map.open`, `map.check`, `map.prune`,
+`scaffold`, `install`, `migrate.apply`, `map.open`, `map.check`, `map.prune`,
 `map.publish`, `map.push`, `map.fetch`, `login`, `logout`, `whoami`,
 `trace.onboard`, `trace.allow`, `trace.deny`, `trace.storage.use`,
 `trace.config.migrate`, and `invalid`. Review sends no arguments, refs,
@@ -214,8 +213,8 @@ text, and only as described in "Error reports".
 - Queue drop reasons: `queue_full`, `expired`, `corrupt`,
   `permanent_rejection`, and `storage_failure`.
 - Session sources: `pull_request`, `git_branch`, `jj_bookmark`, and
-  `jj_change`. Agent kinds are `codex`, `claude`, `pi`, and `other`. Outcomes
-  are `approve`, `request-changes`, and `dismissed`.
+  `jj_change`. Agent kinds are `codex`, `claude`, `pi`, and `other`. The session
+  outcome is `dismissed`.
 
 ### Desktop and canvas events
 
@@ -226,7 +225,7 @@ The server checks all properties in this table against
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `review_app_opened`               | None                                                                                                                                                           | The canvas app opens                         |
 | `review_tab_viewed`               | `tab` in review, commits, map, files; `duration_ms`; `reason` in tab_change, visibility_hidden, pagehide, unmount                                              | A tab dwell period ends                      |
-| `review_peek_opened`              | `via` in prose_link, diagram, marker, map, db_lens                                                                                                             | A user opens a code peek                     |
+| `review_peek_opened`              | `via` in prose_link, diagram, map, db_lens                                                                                                                     | A user opens a code peek                     |
 | `review_peek_resolved`            | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek resolves                         |
 | `review_peek_resolve_failed`      | `root_kind` in symbol, declaration, range                                                                                                                      | A code peek does not resolve                 |
 | `review_tour_started`             | `steps`                                                                                                                                                        | A user starts a tour                         |
@@ -236,13 +235,7 @@ The server checks all properties in this table against
 | `review_map_expanded`             | `level` in system, container, component, code                                                                                                                  | A user expands a map element                 |
 | `review_commit_expanded`          | `expanded`                                                                                                                                                     | A user expands or collapses a commit         |
 | `review_commit_diff_opened`       | `via` in row, file, footer                                                                                                                                     | A user opens a commit diff                   |
-| `review_thread_draft_opened`      | `intent` in comment, ask-agent                                                                                                                                 | A user opens a thread draft                  |
-| `review_threads_opened`           | `thread_count`                                                                                                                                                 | A user opens the Threads panel               |
-| `review_new_ask_opened`           | `via` in topbar, threads_panel                                                                                                                                 | A user opens the new-ask composer            |
 | `review_source_tree_opened`       | `via` in topbar, home                                                                                                                                          | A user opens the source tree                 |
-| `review_comment_created`          | `is_reply`                                                                                                                                                     | A user creates a comment                     |
-| `review_agent_run_started`        | None                                                                                                                                                           | A user starts an agent run                   |
-| `review_thread_resolved`          | `kind: comment`                                                                                                                                                | A user resolves a comment                    |
 | `review_client_error`             | See "Error reports"                                                                                                                                            | A part of Review reports an error            |
 | `review_update_started`           | Random `update_attempt_id`, `target_version`                                                                                                                   | An update is downloaded and ready to install |
 | `review_update_completed`         | Start properties plus `duration_ms`                                                                                                                            | The downloaded target launches after restart |
@@ -255,9 +248,7 @@ The server checks all properties in this table against
 | `review_review_presented`         | `review_id`, `presentation_id`                                                                                                                                 | A visible canvas loads and signals ready     |
 | `review_home_empty_state_viewed`  | None                                                                                                                                                           | The empty Home state opens                   |
 
-The server emits `review_review_submitted` after it stores a submission. Its
-properties are `decision` and `comment_count`. The server emits
-`review_review_dismissed` after it stores a dismissal. Its property is `via` in
+The server emits `review_review_dismissed` after it stores a dismissal. Its property is `via` in
 review_topbar, home.
 
 The server emits `review_review_restored` when a dismissal ends. Its property
@@ -429,7 +420,7 @@ The report never sends these review files:
 
 - `review.json`, which holds a local directory path and the pull request URL
 - the compiled document in `.bundle/`, and the build output in `.build/`
-- `review.db`, which holds the comment threads and the questions
+- `review.db`, a local database that earlier versions kept beside the review
 
 Trace attachment consent is independent of passive telemetry and trace sync.
 Neither setting enables trace attachment for a bug report. If the user opts in,

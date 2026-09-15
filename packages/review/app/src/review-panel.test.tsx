@@ -13,10 +13,9 @@ import { ReviewProvider } from "./review-context";
 import {
   ReviewPanelProvider,
   useReviewPanel,
-  useReviewPanelStore,
   useSuppressPanelMotionOnCanvasResume,
 } from "./review-panel";
-import type { ReviewPanelStore } from "./review-panel-store";
+import type { GuidedTour } from "./review-panel-model";
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: ReturnType<typeof createRoot> | undefined;
@@ -37,15 +36,7 @@ beforeEach(() => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-
-      if (url.includes("/comments")) {
-        return new Response(JSON.stringify({ comments: {} }));
-      }
-
-      return new Response(JSON.stringify({}));
-    }),
+    vi.fn(async () => new Response(JSON.stringify({}))),
   );
   Object.defineProperty(HTMLElement.prototype, "scrollTo", {
     configurable: true,
@@ -69,219 +60,7 @@ afterEach(async () => {
 });
 
 describe("Review panel host", () => {
-  it("hides the new ask action for a historical review", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-
-        if (url.includes("/comments")) {
-          return new Response(JSON.stringify({ comments: {} }));
-        }
-
-        if (url.includes("/__progressive-review/session")) {
-          return new Response(
-            JSON.stringify({
-              session: { historicalRevision: "a".repeat(40) },
-            }),
-          );
-        }
-
-        return new Response(JSON.stringify({}));
-      }),
-    );
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-
-    await act(async () => {
-      renderWithSession(
-        <ReviewDebugSettingsProvider>
-          <ReviewProvider>
-            <ReviewPanelProvider>
-              <OpenThreadsPanel />
-              <ReviewPanelHost />
-            </ReviewPanelProvider>
-          </ReviewProvider>
-        </ReviewDebugSettingsProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain("Threads");
-    await vi.waitFor(() => {
-      expect(container.querySelector(".threads-new-ask")).toBeNull();
-    });
-  });
-
-  it("stays closed when the agent terminal takes over during Ask now", async () => {
-    let panelStore: ReviewPanelStore | undefined;
-    const askAgent = vi.spyOn(session.bridge.comments, "askAgent");
-    askAgent.mockImplementation(async () => {
-      // The desktop fires agentTerminalOpening before the ask resolves.
-      panelStore!.getState().closeForAgentTerminal();
-    });
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-
-    await act(async () => {
-      renderWithSession(
-        <ReviewDebugSettingsProvider>
-          <ReviewProvider>
-            <ReviewPanelProvider>
-              <CaptureStore onStore={(store) => (panelStore = store)} />
-              <OpenNewAskPanel />
-              <ReviewPanelHost />
-            </ReviewPanelProvider>
-          </ReviewProvider>
-        </ReviewDebugSettingsProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    const textarea = container.querySelector<HTMLTextAreaElement>(
-      ".thread-compose textarea",
-    );
-
-    expect(textarea).not.toBeNull();
-    await act(async () => {
-      const setValue = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!;
-
-      setValue.call(textarea, "hi");
-      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      container
-        .querySelector<HTMLFormElement>(".thread-compose")!
-        .requestSubmit();
-      await Promise.resolve();
-    });
-
-    expect(askAgent).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => {
-      expect(panelStore!.getState().active).toBeNull();
-      expect(container.querySelectorAll(".side-panel")).toHaveLength(0);
-    });
-  });
-
-  it("toggles a thread between resolved and open from its header", async () => {
-    await session.bridge.comments.saveComment({
-      threadId: "thread-1",
-      messageId: "message-1",
-      target: { kind: "document" },
-      body: "is this anchor still right?",
-    });
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-
-    await act(async () => {
-      renderWithSession(
-        <ReviewDebugSettingsProvider>
-          <ReviewProvider>
-            <ReviewPanelProvider>
-              <OpenCommentPanel threadId="thread-1" />
-              <ReviewPanelHost />
-            </ReviewPanelProvider>
-          </ReviewProvider>
-        </ReviewDebugSettingsProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    const toggle = () =>
-      container.querySelector<HTMLButtonElement>(".thread-resolve-toggle");
-
-    expect(toggle()?.textContent).toBe("Resolve");
-    expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
-
-    await act(async () => {
-      toggle()!.click();
-      await Promise.resolve();
-    });
-    expect(toggle()?.textContent).toBe("Unresolve");
-    expect(toggle()?.getAttribute("aria-pressed")).toBe("true");
-    expect(
-      toggle()?.classList.contains("thread-resolve-toggle--resolved"),
-    ).toBe(true);
-
-    // The composer stays available on a resolved thread and warns that a
-    // reply reopens it; submitting one flips the toggle back.
-    expect(
-      container.querySelector(".thread-chat-reopen-hint")?.textContent,
-    ).toBe("Submitting reopens this thread.");
-    await act(async () => {
-      container
-        .querySelector<HTMLButtonElement>(
-          ".thread-chat-composer .thread-reply-row",
-        )!
-        .click();
-    });
-
-    const textarea = container.querySelector<HTMLTextAreaElement>(
-      ".thread-chat-composer textarea",
-    );
-
-    expect(textarea).not.toBeNull();
-    await act(async () => {
-      const setValue = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!;
-
-      setValue.call(textarea, "one more thing");
-      textarea!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      container
-        .querySelector<HTMLFormElement>(".thread-compose")!
-        .requestSubmit();
-      await Promise.resolve();
-    });
-    expect(toggle()?.textContent).toBe("Resolve");
-    expect(container.querySelector(".thread-chat-reopen-hint")).toBeNull();
-  });
-
-  it("lists only-resolved threads under a compact empty state", async () => {
-    await session.bridge.comments.saveComment({
-      threadId: "thread-1",
-      messageId: "message-1",
-      target: { kind: "document" },
-      body: "is this anchor still right?",
-    });
-    await session.bridge.comments.setCommentResolved("thread-1", true);
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-
-    await act(async () => {
-      renderWithSession(
-        <ReviewDebugSettingsProvider>
-          <ReviewProvider>
-            <ReviewPanelProvider>
-              <OpenThreadsPanel />
-              <ReviewPanelHost />
-            </ReviewPanelProvider>
-          </ReviewProvider>
-        </ReviewDebugSettingsProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    const body = container.querySelector(".review-panel-body")!;
-    expect(
-      body.querySelector(".question-sidebar-list--empty strong")?.textContent,
-    ).toBe("No open threads");
-    const resolved = body.querySelector(".thread-resolved-section");
-    expect(resolved).not.toBeNull();
-    expect(resolved!.querySelectorAll(".question-thread-row")).toHaveLength(1);
-  });
-
-  it("replaces Threads when a document peek opens", async () => {
+  it("replaces the active panel when a document peek opens", async () => {
     const addEventListener = vi.spyOn(document, "addEventListener");
     const container = document.createElement("div");
     document.body.append(container);
@@ -306,7 +85,7 @@ describe("Review panel host", () => {
     expect(
       container.querySelectorAll(".side-panel-sheet-resizer"),
     ).toHaveLength(1);
-    expect(container.textContent).not.toContain("Threads");
+    expect(container.textContent).not.toContain("Guided tour");
     expect(container.textContent).toContain("Startup detail");
     expect(
       addEventListener.mock.calls.filter(([type]) => type === "keydown"),
@@ -320,50 +99,6 @@ describe("Review panel host", () => {
     expect(container.querySelectorAll(".review-panel-body")).toHaveLength(0);
   });
 
-  it("preserves Threads across a document reload", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-
-    await act(async () => {
-      renderWithSession(
-        <ReviewDebugSettingsProvider>
-          <ReviewProvider>
-            <ReviewPanelProvider detailRevision="document-1">
-              <OpenThreadsPanel />
-              <ReviewPanelHost />
-            </ReviewPanelProvider>
-          </ReviewProvider>
-        </ReviewDebugSettingsProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain("Threads");
-
-    await act(async () => {
-      renderWithSession(
-        <ReviewDebugSettingsProvider>
-          <ReviewProvider>
-            <ReviewPanelProvider detailRevision="document-2">
-              <OpenThreadsPanel />
-              <ReviewPanelHost />
-            </ReviewPanelProvider>
-          </ReviewProvider>
-        </ReviewDebugSettingsProvider>,
-      );
-      await Promise.resolve();
-    });
-
-    expect(container.textContent).toContain("Threads");
-
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".side-panel-close")!.click();
-    });
-
-    expect(container.querySelectorAll(".side-panel")).toHaveLength(0);
-  });
-
   it("marks a restored panel so its entrance motion can be suppressed", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -374,7 +109,7 @@ describe("Review panel host", () => {
         <ReviewDebugSettingsProvider>
           <ReviewProvider>
             <ReviewPanelProvider>
-              <RestoreThreadsPanel />
+              <RestoreTourPanel />
               <ReviewPanelHost />
             </ReviewPanelProvider>
           </ReviewProvider>
@@ -399,7 +134,7 @@ describe("Review panel host", () => {
         <ReviewDebugSettingsProvider>
           <ReviewProvider>
             <ReviewPanelProvider>
-              <OpenThreadsPanel />
+              <OpenTourPanel />
               <ResumeMotionListener />
               <ReviewPanelHost />
             </ReviewPanelProvider>
@@ -536,86 +271,52 @@ describe("Review panel host", () => {
 
 function OpenReplacingPanel() {
   const openPeek = useReviewPanel((state) => state.openPeek);
-  const openThreads = useReviewPanel((state) => state.openThreads);
+  const openTour = useReviewPanel((state) => state.openTour);
   useEffect(() => {
-    openThreads();
+    openTour(tourFixture(), "first");
     openPeek({
       kind: "peek",
       anchor: { id: "startup", title: "Startup detail" } as AnchorRef,
       content: { kind: "inline-code", text: "start();" },
     });
-  }, [openPeek, openThreads]);
-
-  return null;
-}
-
-function OpenThreadsPanel() {
-  const openThreads = useReviewPanel((state) => state.openThreads);
-  useEffect(() => openThreads(), [openThreads]);
-
-  return null;
-}
-
-function OpenCommentPanel({ threadId }: { threadId: string }) {
-  const openThreads = useReviewPanel((state) => state.openThreads);
-  useEffect(
-    () => openThreads({ kind: "comment", threadId }),
-    [openThreads, threadId],
-  );
-
-  return null;
-}
-
-function OpenNewAskPanel() {
-  const openThreads = useReviewPanel((state) => state.openThreads);
-  useEffect(() => openThreads({ kind: "new-ask" }), [openThreads]);
-
-  return null;
-}
-
-function CaptureStore({
-  onStore,
-}: {
-  onStore: (store: ReviewPanelStore) => void;
-}) {
-  onStore(useReviewPanelStore());
+  }, [openPeek, openTour]);
 
   return null;
 }
 
 function OpenTourPanel() {
   const openTour = useReviewPanel((state) => state.openTour);
-  useEffect(() => {
-    const first = { id: "first", title: "First" } as AnchorRef;
-    const second = { id: "second", title: "Second" } as AnchorRef;
-    openTour(
-      {
-        id: "tour",
-        stops: [
-          {
-            anchor: first,
-            label: "First",
-            content: { kind: "inline-code", text: "first();" },
-          },
-          {
-            anchor: second,
-            label: "Second",
-            content: { kind: "inline-code", text: "second();" },
-          },
-        ],
-      },
-      first.id,
-    );
-  }, [openTour]);
+  useEffect(() => openTour(tourFixture(), "first"), [openTour]);
 
   return null;
 }
 
-function RestoreThreadsPanel() {
-  const restoreThreads = useReviewPanel((state) => state.restoreThreads);
-  useEffect(() => restoreThreads(), [restoreThreads]);
+function RestoreTourPanel() {
+  const restoreTour = useReviewPanel((state) => state.restoreTour);
+  useEffect(() => restoreTour(tourFixture(), "first"), [restoreTour]);
 
   return null;
+}
+
+function tourFixture(): GuidedTour {
+  const first = { id: "first", title: "First" } as AnchorRef;
+  const second = { id: "second", title: "Second" } as AnchorRef;
+
+  return {
+    id: "tour",
+    stops: [
+      {
+        anchor: first,
+        label: "First",
+        content: { kind: "inline-code", text: "first();" },
+      },
+      {
+        anchor: second,
+        label: "Second",
+        content: { kind: "inline-code", text: "second();" },
+      },
+    ],
+  };
 }
 
 function ResumeMotionListener() {

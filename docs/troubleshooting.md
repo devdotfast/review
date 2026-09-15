@@ -94,8 +94,7 @@ Common causes include:
 
 - an MDX or TypeScript error in the authored Review;
 - a source path or line range that does not exist in the pinned checkout;
-- a Review that needs to be updated after its source moved; or
-- unresolved submitted feedback that the agent has not addressed.
+- a Review that needs to be updated after its source moved.
 
 The scaffolded Review directory contains its own validation command:
 

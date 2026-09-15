@@ -5,7 +5,7 @@ import { actors, anchors, authoringConversation, checkoutSequence, stores } from
 ## Welcome
 
 A Review is a guided, interactive explanation of a code change. The document
-keeps the important code, system views, and feedback in one place.
+keeps the important code and system views in one place.
 
 <TutorialAuthoringConversation conversation={authoringConversation} />
 
@@ -37,23 +37,6 @@ Choose **Review** when you are ready to return to this tour.
 <TutorialViewButton view="commits">
   Explore the sample commits
 </TutorialViewButton>
-
-## Comments are threads
-
-You can attach a thread to any part of the canvas. Move the pointer over the
-code below, select the comment control in the left gutter, and write a note.
-
-<CodePeek anchor={anchors.validateInventory} />
-
-Choose **Ask now**. The app starts an agent turn in a read-only checkout and
-puts its answer in the same thread. You can continue the conversation there.
-
-The other standard choice, **Add to review**, holds feedback for the next
-authoring round. This tour uses **Ask now** so you can see the agent reply
-immediately.
-
-Every comment is a thread anchored to one part of the Review. Use the **+**
-button in the toolbar to start a thread about the whole Review instead.
 
 ## Interactive Diagrams
 

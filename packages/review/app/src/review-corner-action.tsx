@@ -4,22 +4,20 @@ import { useReviewActions, useReviewState } from "./review-context";
 import { useTutorial } from "./tutorial-context";
 
 /**
- * The single end-of-review control in the topbar. It never shows two actions at
- * once: with pending comments it submits them, otherwise it dismisses.
+ * The single end-of-review control in the topbar: it dismisses the review, or
+ * closes the tutorial.
  *
  * Dismissal confirms once. Closing the review tab does nothing to the review,
  * so the confirmation is the only place that names the difference.
  */
 export function ReviewCornerAction(): ReactElement | null {
-  const { submitPendingComments, dismissReview } = useReviewActions();
-  const { pendingCommentCount, submissionOutcome } = useReviewState();
+  const { dismissReview } = useReviewActions();
+  const { submissionOutcome } = useReviewState();
   const tutorial = useTutorial();
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-
-  const pending = pendingCommentCount;
 
   useEffect(() => {
     if (!confirming) return;
@@ -85,30 +83,6 @@ export function ReviewCornerAction(): ReactElement | null {
     }
   };
 
-  if (pending > 0) {
-    return (
-      <div ref={controlRef} className="review-corner-action">
-        <button
-          type="button"
-          className="review-corner-submit"
-          disabled={busy}
-          onClick={() =>
-            void run(() => submitPendingComments("request-changes"))
-          }
-        >
-          <SendIcon />
-          <span>Submit review</span>
-          <strong>{pending}</strong>
-        </button>
-        {failed ? (
-          <span className="review-corner-error" role="alert">
-            Could not submit. Your comments are still pending.
-          </span>
-        ) : null}
-      </div>
-    );
-  }
-
   return (
     <div ref={controlRef} className="review-corner-action">
       <button
@@ -159,14 +133,6 @@ export function ReviewCornerAction(): ReactElement | null {
         </div>
       )}
     </div>
-  );
-}
-
-function SendIcon(): ReactElement {
-  return (
-    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
-      <path d="M2.2 8.1 13.6 2.7 9.3 13.9 7.6 9.3 2.2 8.1Z" />
-    </svg>
   );
 }
 

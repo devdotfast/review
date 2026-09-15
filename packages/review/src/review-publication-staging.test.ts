@@ -26,21 +26,18 @@ import {
   sealReviewDocumentPublication,
   stageReviewDocumentPublication,
 } from "./review-publication-staging";
-import { appendReviewComment, readReviewComments } from "./review-state-store";
-import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 
 const roots: string[] = [];
 
 afterEach(async () => {
   vi.unstubAllEnvs();
-  closeAllReviewThreadStores();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
 
-it("prepares outside the live lock while preserving viewed and comment updates", async () => {
+it("prepares outside the live lock while preserving viewed updates", async () => {
   const { review, home } = await fixture();
 
   const dependency = path.join(
@@ -80,13 +77,6 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     holderReady.resolve();
     await beginUpdates.promise;
     await markReviewViewed(review, new Date("2026-09-05T12:00:00Z"));
-    appendReviewComment(path.join(review.dir, "review.mdx"), {
-      threadId: "during-compile",
-      messageId: "message",
-      target: { kind: "document" },
-      body: "Preserve this",
-      author: "Reviewer",
-    });
     updatesComplete.resolve();
     await releaseHolder.promise;
     holderReleased = true;
@@ -124,10 +114,6 @@ it("prepares outside the live lock while preserving viewed and comment updates",
     JSON.parse(await readFile(path.join(review.dir, "review.json"), "utf8"))
       .viewedAt,
   ).toBe("2026-09-05T12:00:00.000Z");
-  expect(
-    readReviewComments(path.join(review.dir, "review.mdx"))["during-compile"]
-      .messages,
-  ).toHaveLength(1);
   const materializedBundle = await readReviewDocumentBundle(materialized, "/");
 
   if (!materializedBundle) throw new Error("Missing materialized bundle");
@@ -270,36 +256,6 @@ it.each([
     expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
   },
 );
-
-it("rechecks new open threads before sealing a prepared republication", async () => {
-  const fixtureValue = await fixture();
-
-  const review = {
-    ...fixtureValue.review,
-    review: {
-      ...fixtureValue.review.review,
-      presentedDocumentRevision: "a".repeat(40),
-    },
-  };
-
-  await writeFile(
-    path.join(review.dir, "review.json"),
-    JSON.stringify(review.review),
-  );
-  const document = await stageReviewDocumentPublication({ review });
-  appendReviewComment(path.join(review.dir, "review.mdx"), {
-    threadId: "new-thread",
-    messageId: "message",
-    target: { kind: "document" },
-    body: "Review this",
-    author: "Reviewer",
-  });
-  await expect(
-    sealReviewDocumentPublication({ review, document }),
-  ).rejects.toMatchObject({ code: "review_open_threads" });
-  expect(await reviewVcs.log(review.dir)).toEqual([]);
-  expect(existsSync(path.join(review.dir, ".bundle"))).toBe(false);
-});
 
 it.skipIf(process.platform === "win32")(
   "refuses authoring symlinks instead of following mutable external inputs",

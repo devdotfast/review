@@ -29,10 +29,10 @@ describe("ReviewSessionProvider", () => {
 
     const session = testReviewSession({}, { request });
 
-    await session.fetch("/comments");
+    await session.fetch("/revisions");
 
     expect(request).toHaveBeenCalledWith(
-      "http://127.0.0.1:5570/sessions/test-session/__progressive-review/comments?document=%2Freview.mdx",
+      "http://127.0.0.1:5570/sessions/test-session/__progressive-review/revisions?document=%2Freview.mdx",
       expect.objectContaining({
         headers: expect.any(Headers),
       }),

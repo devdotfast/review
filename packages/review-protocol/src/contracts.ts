@@ -136,640 +136,6 @@ export interface ReviewDisposable {
   dispose(): void;
 }
 
-const threadTargetNonEmptyStringSchema = z
-  .string({ error: "must be a non-empty string" })
-  .min(1, "must be a non-empty string");
-
-const threadTargetNonNegativeIntegerSchema = z.coerce
-  .number({ error: "must be a non-negative integer" })
-  .int("must be a non-negative integer")
-  .nonnegative("must be a non-negative integer");
-
-const threadTargetPositiveIntegerSchema = z.coerce
-  .number({ error: "must be a positive integer" })
-  .int("must be a positive integer")
-  .positive("must be a positive integer");
-
-const ThreadSelectionSchema = z.strictObject({
-  start: threadTargetNonNegativeIntegerSchema,
-  length: threadTargetPositiveIntegerSchema,
-  hash: threadTargetNonEmptyStringSchema,
-  quote: threadTargetNonEmptyStringSchema,
-});
-
-export type ThreadSelection = z.infer<typeof ThreadSelectionSchema>;
-
-const TextSurfaceSchema = z.discriminatedUnion(
-  "type",
-  [
-    z.strictObject({
-      type: z.literal("document"),
-      documentHash: threadTargetNonEmptyStringSchema,
-    }),
-    z.strictObject({
-      type: z.literal("block"),
-      tag: threadTargetNonEmptyStringSchema,
-      index: threadTargetNonNegativeIntegerSchema,
-      blockHash: threadTargetNonEmptyStringSchema,
-    }),
-    z.strictObject({
-      type: z.literal("table-cell"),
-      table: threadTargetNonNegativeIntegerSchema,
-      row: threadTargetNonNegativeIntegerSchema,
-      column: threadTargetNonNegativeIntegerSchema,
-    }),
-    z.strictObject({
-      type: z.literal("anchor"),
-      anchorId: threadTargetNonEmptyStringSchema,
-      part: z.strictObject({
-        type: z.literal("text"),
-        field: z.enum(["title", "detail"], {
-          error: "must be title or detail",
-        }),
-      }),
-    }),
-  ],
-  "must be document, block, table-cell, or anchor",
-);
-
-export type TextSurface = z.infer<typeof TextSurfaceSchema>;
-
-const gitLabPositionNullableString = (maxLength: number) =>
-  z.string().max(maxLength).nullable().optional();
-
-const gitLabPositionNullableInteger = z.number().int().nullable().optional();
-
-export const GitLabDiffLinePositionSchema = z.strictObject({
-  // Identifies one rendered diff row as <SHA1(path)>_<old line>_<new line>.
-  line_code: z.string().max(100),
-  // Selects which side owns the range boundary. Unchanged rows use null.
-  type: z.enum(["old", "new"]).nullable(),
-  old_line: gitLabPositionNullableInteger,
-  new_line: gitLabPositionNullableInteger,
-});
-
-export type GitLabDiffLinePosition = z.infer<
-  typeof GitLabDiffLinePositionSchema
->;
-
-export const GitLabDiffPositionSchema = z.strictObject({
-  base_sha: gitLabPositionNullableString(64),
-  start_sha: gitLabPositionNullableString(64),
-  head_sha: gitLabPositionNullableString(64),
-  // Identifies the diff file when paths alone are ambiguous.
-  file_identifier_hash: gitLabPositionNullableString(40),
-  old_path: gitLabPositionNullableString(1000),
-  new_path: gitLabPositionNullableString(1000),
-  position_type: z.enum(["text", "image", "file"]).nullable().optional(),
-  old_line: gitLabPositionNullableInteger,
-  new_line: gitLabPositionNullableInteger,
-  line_range: z
-    .strictObject({
-      start: GitLabDiffLinePositionSchema,
-      end: GitLabDiffLinePositionSchema,
-    })
-    .nullable()
-    .optional(),
-  // These fields support image comments.
-  width: z
-    .union([z.number().int(), z.string().max(10)])
-    .nullable()
-    .optional(),
-  height: z
-    .union([z.number().int(), z.string().max(10)])
-    .nullable()
-    .optional(),
-  x: z
-    .union([z.number().int(), z.string().max(10)])
-    .nullable()
-    .optional(),
-  y: z
-    .union([z.number().int(), z.string().max(10)])
-    .nullable()
-    .optional(),
-  ignore_whitespace_change: z.boolean().nullable().optional(),
-});
-
-export type GitLabDiffPosition = z.infer<typeof GitLabDiffPositionSchema>;
-
-export interface GitLabTextDiffRow {
-  old_line: number | null;
-  new_line: number | null;
-}
-
-export interface CreateGitLabTextDiffPositionInput {
-  base_sha: string | null;
-  start_sha: string;
-  head_sha: string;
-  old_path: string | null;
-  new_path: string | null;
-  file_path_hash?: string;
-  file_identifier_hash?: string | null;
-  start: GitLabTextDiffRow;
-  end: GitLabTextDiffRow;
-  ignore_whitespace_change?: boolean;
-}
-
-export function createGitLabTextDiffPosition(
-  input: CreateGitLabTextDiffPositionInput,
-): GitLabDiffPosition {
-  const path = input.new_path ?? input.old_path;
-
-  if (!path) throw new Error("A GitLab diff position must have a file path.");
-  const filePathHash = input.file_path_hash ?? gitLabLineCodePathHash(path);
-  const start = gitLabDiffLinePosition(filePathHash, input.start);
-  const end = gitLabDiffLinePosition(filePathHash, input.end);
-
-  return {
-    base_sha: input.base_sha,
-    start_sha: input.start_sha,
-    head_sha: input.head_sha,
-    file_identifier_hash: input.file_identifier_hash ?? null,
-    old_path: input.old_path,
-    new_path: input.new_path,
-    position_type: "text",
-    old_line: input.end.old_line,
-    new_line: input.end.new_line,
-    line_range: { start, end },
-    ignore_whitespace_change: input.ignore_whitespace_change ?? false,
-  };
-}
-
-export function gitLabLineCodePathHash(value: string): string {
-  const source = new TextEncoder().encode(value);
-  const length = Math.ceil((source.length + 9) / 64) * 64;
-  const bytes = new Uint8Array(length);
-  bytes.set(source);
-  bytes[source.length] = 0x80;
-  const view = new DataView(bytes.buffer);
-  const bitLength = source.length * 8;
-  view.setUint32(length - 8, Math.floor(bitLength / 0x1_0000_0000), false);
-  view.setUint32(length - 4, bitLength >>> 0, false);
-
-  let h0 = 0x67452301;
-  let h1 = 0xefcdab89;
-  let h2 = 0x98badcfe;
-  let h3 = 0x10325476;
-  let h4 = 0xc3d2e1f0;
-  const words = new Uint32Array(80);
-
-  for (let offset = 0; offset < length; offset += 64) {
-    for (let index = 0; index < 16; index += 1) {
-      words[index] = view.getUint32(offset + index * 4, false);
-    }
-
-    for (let index = 16; index < 80; index += 1) {
-      words[index] = rotateLeft(
-        words[index - 3]! ^
-          words[index - 8]! ^
-          words[index - 14]! ^
-          words[index - 16]!,
-        1,
-      );
-    }
-
-    let a = h0;
-    let b = h1;
-    let c = h2;
-    let d = h3;
-    let e = h4;
-
-    for (let index = 0; index < 80; index += 1) {
-      const group = Math.floor(index / 20);
-
-      const f =
-        group === 0
-          ? (b & c) | (~b & d)
-          : group === 2
-            ? (b & c) | (b & d) | (c & d)
-            : b ^ c ^ d;
-
-      const k = [0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xca62c1d6][group]!;
-      const next = (rotateLeft(a, 5) + f + e + k + words[index]!) >>> 0;
-      e = d;
-      d = c;
-      c = rotateLeft(b, 30);
-      b = a;
-      a = next;
-    }
-
-    h0 = (h0 + a) >>> 0;
-    h1 = (h1 + b) >>> 0;
-    h2 = (h2 + c) >>> 0;
-    h3 = (h3 + d) >>> 0;
-    h4 = (h4 + e) >>> 0;
-  }
-
-  return [h0, h1, h2, h3, h4]
-    .map((word) => word.toString(16).padStart(8, "0"))
-    .join("");
-}
-
-export function gitLabDiffPositionPath(
-  position: GitLabDiffPosition,
-): string | null {
-  return position.new_path ?? position.old_path ?? null;
-}
-
-export function gitLabDiffPositionRows(
-  position: GitLabDiffPosition,
-): { start: GitLabTextDiffRow; end: GitLabTextDiffRow } | null {
-  if (position.position_type !== "text") return null;
-
-  if (position.line_range) {
-    return {
-      start: {
-        old_line: position.line_range.start.old_line ?? null,
-        new_line: position.line_range.start.new_line ?? null,
-      },
-      end: {
-        old_line: position.line_range.end.old_line ?? null,
-        new_line: position.line_range.end.new_line ?? null,
-      },
-    };
-  }
-
-  const row = {
-    old_line: position.old_line ?? null,
-    new_line: position.new_line ?? null,
-  };
-
-  return row.old_line === null && row.new_line === null
-    ? null
-    : { start: row, end: row };
-}
-
-function gitLabDiffLinePosition(
-  filePathHash: string,
-  row: GitLabTextDiffRow,
-): GitLabDiffLinePosition {
-  if (row.old_line === null && row.new_line === null) {
-    throw new Error("A GitLab text diff row must have an old or new line.");
-  }
-
-  return {
-    line_code: `${filePathHash}_${row.old_line ?? 0}_${row.new_line ?? 0}`,
-    type:
-      row.old_line !== null && row.new_line !== null
-        ? null
-        : row.new_line !== null
-          ? "new"
-          : "old",
-    old_line: row.old_line,
-    new_line: row.new_line,
-  };
-}
-
-function rotateLeft(value: number, bits: number): number {
-  return ((value << bits) | (value >>> (32 - bits))) >>> 0;
-}
-
-export const CodeThreadTargetSchema = z
-  .strictObject({
-    kind: z.literal("code"),
-    original_position: GitLabDiffPositionSchema,
-    position: GitLabDiffPositionSchema,
-    change_position: GitLabDiffPositionSchema.optional(),
-  })
-  .superRefine((target, context) => {
-    for (const key of ["original_position", "position"] as const) {
-      if (!isCompleteReviewCodePosition(target[key])) {
-        context.addIssue({
-          code: "custom",
-          path: [key],
-          message: "must be a complete text diff position",
-        });
-      }
-    }
-
-    if (
-      target.change_position &&
-      !isCompleteReviewCodePosition(target.change_position)
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["change_position"],
-        message: "must be a complete text diff position",
-      });
-    }
-  });
-
-export type CodeThreadTarget = z.infer<typeof CodeThreadTargetSchema>;
-
-export const ThreadTargetSchema = z.discriminatedUnion(
-  "kind",
-  [
-    // Historical document targets can contain ignored surface and selection keys.
-    z.object({ kind: z.literal("document") }),
-    CodeThreadTargetSchema,
-    z.strictObject({
-      kind: z.literal("text"),
-      surface: TextSurfaceSchema,
-      selection: ThreadSelectionSchema,
-    }),
-    z.strictObject({
-      kind: z.literal("graph"),
-      diagram: threadTargetNonEmptyStringSchema,
-      element: z.strictObject({
-        type: z.enum(["node", "edge"], {
-          error: "type must be node or edge",
-        }),
-        path: z
-          .array(threadTargetNonEmptyStringSchema)
-          .min(1, "must be a non-empty array"),
-        hash: threadTargetNonEmptyStringSchema,
-        quote: threadTargetNonEmptyStringSchema,
-      }),
-    }),
-  ],
-  "must be document, code, text, or graph",
-);
-
-export type ThreadTarget = z.infer<typeof ThreadTargetSchema>;
-
-export const CreateReviewCommentInputSchema = z.strictObject({
-  threadId: threadTargetNonEmptyStringSchema,
-  messageId: threadTargetNonEmptyStringSchema,
-  target: ThreadTargetSchema,
-  body: threadTargetNonEmptyStringSchema,
-  agentInput: z.boolean().optional(),
-});
-
-export type CreateReviewCommentInput = z.infer<
-  typeof CreateReviewCommentInputSchema
->;
-
-export const ReviewCommentAgentSessionSchema = z.strictObject({
-  harness: z.enum(["codex", "claude-code", "opencode", "pi"]),
-  sessionId: threadTargetNonEmptyStringSchema,
-});
-
-export type ReviewCommentAgentSession = z.infer<
-  typeof ReviewCommentAgentSessionSchema
->;
-
-export const ReviewCommentThreadRecordSchema = z.strictObject({
-  threadId: threadTargetNonEmptyStringSchema,
-  target: ThreadTargetSchema,
-  status: z.enum(["open", "resolved"]),
-  agentSession: ReviewCommentAgentSessionSchema.optional(),
-  messages: z.array(
-    z.strictObject({
-      id: threadTargetNonEmptyStringSchema,
-      by: threadTargetNonEmptyStringSchema,
-      at: threadTargetNonEmptyStringSchema,
-      body: z.string(),
-      role: z.enum(["reviewer", "agent"]).optional(),
-      format: z.enum(["plain", "markdown"]).optional(),
-      agentInput: z.boolean().default(false),
-    }),
-  ),
-});
-
-export type ReviewCommentThreadRecord = z.infer<
-  typeof ReviewCommentThreadRecordSchema
->;
-
-export type ReviewCommentMessage =
-  ReviewCommentThreadRecord["messages"][number];
-
-function isCompleteReviewCodePosition(position: GitLabDiffPosition): boolean {
-  return (
-    position.position_type === "text" &&
-    Boolean(position.start_sha) &&
-    Boolean(position.head_sha) &&
-    Boolean(position.old_path || position.new_path) &&
-    (position.old_line !== null && position.old_line !== undefined
-      ? position.old_line > 0
-      : position.new_line !== null &&
-        position.new_line !== undefined &&
-        position.new_line > 0)
-  );
-}
-
-export const ReviewCommentThreadMapSchema = z
-  .record(threadTargetNonEmptyStringSchema, ReviewCommentThreadRecordSchema)
-  .superRefine((comments, context) => {
-    for (const [threadId, comment] of Object.entries(comments)) {
-      if (comment.threadId !== threadId) {
-        context.addIssue({
-          code: "custom",
-          path: [threadId, "threadId"],
-          message: "must match the storage key",
-        });
-      }
-    }
-  });
-
-export type ReviewCommentThreadMap = z.infer<
-  typeof ReviewCommentThreadMapSchema
->;
-
-export const ReviewCommentDraftThreadSchema = z.strictObject({
-  thread: ReviewCommentThreadRecordSchema,
-  inputs: z.array(CreateReviewCommentInputSchema).min(1),
-});
-
-export type ReviewCommentDraftThread = z.infer<
-  typeof ReviewCommentDraftThreadSchema
->;
-
-export const ReviewCommentDraftThreadMapSchema = z
-  .record(threadTargetNonEmptyStringSchema, ReviewCommentDraftThreadSchema)
-  .superRefine((drafts, context) => {
-    for (const [threadId, draft] of Object.entries(drafts)) {
-      if (draft.thread.threadId !== threadId) {
-        context.addIssue({
-          code: "custom",
-          path: [threadId, "thread", "threadId"],
-          message: "must match the storage key",
-        });
-      }
-
-      for (const [index, input] of draft.inputs.entries()) {
-        if (input.threadId !== threadId) {
-          context.addIssue({
-            code: "custom",
-            path: [threadId, "inputs", index, "threadId"],
-            message: "must match the storage key",
-          });
-        }
-      }
-    }
-  });
-
-export type ReviewCommentDraftThreadMap = z.infer<
-  typeof ReviewCommentDraftThreadMapSchema
->;
-
-export function parseStoredReviewCommentThreadMap(
-  value: JsonValue,
-): ReviewCommentThreadMap {
-  return ReviewCommentThreadMapSchema.parse(value);
-}
-
-export function parseReviewCommentThreadMap(
-  value: JsonValue,
-): ReviewCommentThreadMap {
-  if (!isJsonObject(value)) return {};
-  const comments: ReviewCommentThreadMap = {};
-
-  for (const [threadId, candidate] of Object.entries(value)) {
-    const parsed = ReviewCommentThreadRecordSchema.safeParse(candidate);
-
-    if (parsed.success && parsed.data.threadId === threadId) {
-      comments[threadId] = parsed.data;
-    }
-  }
-
-  return comments;
-}
-
-export const ReviewThreadsSnapshotSchema = z.strictObject({
-  revision: threadTargetNonNegativeIntegerSchema,
-  /** Present only on a snapshot taken from a copy: it can be read, never advanced. */
-  readOnly: z.literal(true).optional(),
-  comments: ReviewCommentThreadMapSchema,
-  drafts: ReviewCommentDraftThreadMapSchema,
-});
-
-export type ReviewThreadsSnapshot = z.infer<typeof ReviewThreadsSnapshotSchema>;
-
-export const ReviewThreadsCommitSchema = z.strictObject({
-  mutationId: threadTargetNonEmptyStringSchema,
-  revision: threadTargetNonNegativeIntegerSchema,
-  upsertedThreads: z.array(ReviewCommentThreadRecordSchema),
-  deletedThreadIds: z.array(threadTargetNonEmptyStringSchema),
-  upsertedDrafts: z.array(
-    z.strictObject({
-      threadId: threadTargetNonEmptyStringSchema,
-      draft: ReviewCommentDraftThreadSchema,
-    }),
-  ),
-  deletedDraftThreadIds: z.array(threadTargetNonEmptyStringSchema),
-});
-
-export type ReviewThreadsCommit = z.infer<typeof ReviewThreadsCommitSchema>;
-
-const ReviewCommentUpdateSchema = z.strictObject({
-  status: z.enum(["open", "resolved"]).optional(),
-  body: z.string().optional(),
-  messageId: threadTargetNonEmptyStringSchema.optional(),
-});
-
-export const ReviewThreadsCommandSchema = z.discriminatedUnion("command", [
-  z.strictObject({
-    command: z.literal("comment.create"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    input: CreateReviewCommentInputSchema,
-  }),
-  z.strictObject({
-    command: z.literal("comment.update"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    threadId: threadTargetNonEmptyStringSchema,
-    update: ReviewCommentUpdateSchema,
-  }),
-  z.strictObject({
-    command: z.literal("comment.delete"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    threadId: threadTargetNonEmptyStringSchema,
-  }),
-  z.strictObject({
-    command: z.literal("comment-message.delete"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    threadId: threadTargetNonEmptyStringSchema,
-    messageId: threadTargetNonEmptyStringSchema,
-  }),
-  z.strictObject({
-    command: z.literal("comment-draft.create"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    input: CreateReviewCommentInputSchema,
-  }),
-  z.strictObject({
-    command: z.literal("comment-draft.update"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    threadId: threadTargetNonEmptyStringSchema,
-    update: ReviewCommentUpdateSchema,
-  }),
-  z.strictObject({
-    command: z.literal("comment-draft.delete"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    threadId: threadTargetNonEmptyStringSchema,
-  }),
-  z.strictObject({
-    command: z.literal("comment-draft-message.delete"),
-    mutationId: threadTargetNonEmptyStringSchema,
-    threadId: threadTargetNonEmptyStringSchema,
-    messageId: threadTargetNonEmptyStringSchema,
-  }),
-]);
-
-export type ReviewThreadsCommand = z.infer<typeof ReviewThreadsCommandSchema>;
-
-export interface ReviewLocalCommentThread {
-  clientStatus: "draft" | "submitting";
-  thread: ReviewCommentThreadRecord;
-  inputs: CreateReviewCommentInput[];
-}
-
-export type ReviewCommentAgentActivity =
-  | {
-      messageId: string;
-      startedAt: string;
-      status: "interrupting";
-      error?: string;
-    }
-  | {
-      messageId: string;
-      startedAt: string;
-      status: "starting" | "running";
-    }
-  | {
-      messageId: string;
-      startedAt: string;
-      status: "failed";
-      error: string;
-    };
-
-export interface ReviewCommentStoreSnapshot {
-  commentThreads: ReadonlyMap<string, ReviewCommentThreadRecord>;
-  localComments: ReadonlyMap<string, ReviewLocalCommentThread>;
-  agentActivities: ReadonlyMap<string, ReviewCommentAgentActivity>;
-  terminalThreadIds: ReadonlySet<string>;
-  pendingCommentCount: number;
-}
-
-export interface ReviewCommentStoreChange {
-  threadIds: ReadonlySet<string>;
-}
-
-export interface ReviewCommentStoreBridge {
-  terminalOpened(threadId: string): void;
-  terminalClosed(threadId: string, messageId: string | null): Promise<void>;
-  applyAgentStatus(
-    threadId: string,
-    status: "running" | "idle" | "interrupted" | "failed",
-    error?: string,
-  ): void;
-  subscribe(listener: (change: ReviewCommentStoreChange) => void): () => void;
-  getSnapshot(): ReviewCommentStoreSnapshot;
-  saveComment(input: CreateReviewCommentInput): Promise<void>;
-  askAgent(input: CreateReviewCommentInput): Promise<void>;
-  deleteLocalComment(threadId: string): Promise<void>;
-  updateComment(
-    threadId: string,
-    body: string,
-    messageId?: string,
-  ): Promise<void>;
-  deleteComment(threadId: string): Promise<void>;
-  deleteCommentMessage(threadId: string, messageId: string): Promise<void>;
-  setCommentResolved(threadId: string, resolved: boolean): Promise<void>;
-  flushPendingComments(): Promise<CreateReviewCommentInput[]>;
-  persistComment(input: CreateReviewCommentInput): Promise<void>;
-  resetPendingComments(): void;
-  completeHumanReviewRound(): void;
-}
-
 export type ReviewInlineEditorHeightMode = "capped" | "content";
 
 export interface ReviewInlineEditorRange {
@@ -787,6 +153,8 @@ export interface ReviewInlineEditorSpec {
   ranges: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
   active: boolean;
+  /** Render the one-column unified diff instead of the layout-following diff. */
+  unifiedDiff?: boolean;
   diffStats?: {
     additions: number;
     deletions: number;
@@ -795,7 +163,6 @@ export interface ReviewInlineEditorSpec {
   onDidOpen?: () => void;
   onDidNavigate?: () => void;
   onDidShowHover?: () => void;
-  commentsEnabled?: boolean;
 }
 
 export interface ReviewFindQuery {
@@ -813,7 +180,7 @@ export interface ReviewInlineFindSpec {
   path: string;
   side: ReviewDiffSide;
   ranges: readonly ReviewInlineEditorRange[];
-  commentsEnabled?: boolean;
+  unifiedDiff?: boolean;
 }
 
 export interface ReviewInlineEditorHandle extends ReviewDisposable {
@@ -871,7 +238,6 @@ export interface ReviewCanvasDiagnostic {
 export interface ReviewCanvasBridge {
   readonly appSessionId?: string;
   readonly config: ReviewRuntimeConfig;
-  readonly comments: ReviewCommentStoreBridge;
   readonly inlineEditors: ReviewInlineEditorFactory;
   readonly diffView: ReviewDiffViewFactory;
   request(url: string, init?: RequestInit): Promise<Response>;
@@ -963,7 +329,6 @@ export const REVIEW_TUTORIAL_STEP_IDS = [
   "showHover",
   "openCommits",
   "openDiff",
-  "leaveComment",
   "openSequence",
   "openMap",
   "openDatabase",
@@ -1303,7 +668,6 @@ export const ReviewDescriptorSchema = z.strictObject({
     })
     .nullable()
     .optional(),
-  commentCount: nonNegativeInteger.optional(),
   documentUpdatedAt: requiredString.nullable().optional(),
   presentedDocumentRevision: requiredString.nullable(),
   presentedSoftwareMapRevision: requiredString.nullable(),
@@ -1387,30 +751,6 @@ export const ReviewErrorResponseSchema = z
   });
 
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
-
-export const ReviewThreadsSnapshotResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    snapshot: ReviewThreadsSnapshotSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-
-export type ReviewThreadsSnapshotResponse = z.infer<
-  typeof ReviewThreadsSnapshotResponseSchema
->;
-
-export const ReviewThreadsCommandResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    commit: ReviewThreadsCommitSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-
-export type ReviewThreadsCommandResponse = z.infer<
-  typeof ReviewThreadsCommandResponseSchema
->;
 
 export const ReviewOpenResponseSchema = z.strictObject({
   sessionId: requiredString,
@@ -1646,32 +986,8 @@ export type ReviewPublishReadyRequest = z.infer<
   typeof ReviewPublishReadyRequestSchema
 >;
 
-export const ReviewSubmissionWireSchema = z.strictObject({
-  id: requiredString,
-  decision: z.enum(["approve", "request-changes"]),
-  createdAt: requiredString,
-  rootPath: requiredString,
-  reviewPath: requiredString,
-  documentRoute: requiredString,
-  appUrl: requiredString.optional(),
-  baseRef: requiredString.optional(),
-  headRef: requiredString.optional(),
-  pullRequestNumber: positiveInteger.optional(),
-  agent: AuthoringAgentSessionSchema.optional(),
-  codexThreadId: requiredString.optional(),
-  comments: z.array(z.unknown()),
-  prompt: stringAllowEmpty,
-});
-
-export type ReviewSubmissionWire = z.infer<typeof ReviewSubmissionWireSchema>;
-
 export const ReviewSessionLifecycleEventSchema = z.discriminatedUnion("event", [
   z.strictObject({ event: z.literal("ready"), sessionId: requiredString }),
-  z.strictObject({
-    event: z.literal("submitted"),
-    sessionId: requiredString,
-    submission: ReviewSubmissionWireSchema,
-  }),
   z.strictObject({
     event: z.literal("dismissed"),
     sessionId: requiredString,
@@ -1710,21 +1026,6 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     sessionId: requiredString,
   }),
   z.strictObject({
-    event: z.literal("review-agent-status"),
-    uuid: z.uuid(),
-    sessionId: requiredString,
-    threadId: requiredString,
-    status: z.enum(["running", "idle", "interrupted", "failed"]),
-    error: z.string().optional(),
-  }),
-  z.strictObject({
-    event: z.literal("review-threads-committed"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-    sessionId: requiredString,
-    commit: ReviewThreadsCommitSchema,
-    commentCount: nonNegativeInteger,
-  }),
-  z.strictObject({
     event: z.literal("session-closed"),
     sessionId: requiredString,
     reason: requiredString,
@@ -1733,7 +1034,6 @@ export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
     event: z.literal("review-status-changed"),
     uuid: z.uuid({ error: "must be a UUID" }),
     status: ReviewStatusSchema,
-    decision: z.enum(["approve", "request-changes"]).optional(),
   }),
   z.strictObject({
     event: z.literal("review-deleted"),
@@ -1779,7 +1079,6 @@ export const ReviewSessionSchema = z.strictObject({
   reviewPath: requiredString,
   codeGraphUrl: absoluteUrlSchema.optional(),
   agent: AuthoringAgentSessionSchema.optional(),
-  freshQuestionHarness: AuthoringAgentSessionSchema.shape.harness.optional(),
   codexThreadId: requiredString.optional(),
   resolvedBaseRef: requiredString.nullable().optional(),
   reviewStatus: ReviewStatusSchema.optional(),
@@ -1923,15 +1222,6 @@ export const ReviewServerEventSchema = z.discriminatedUnion("event", [
     event: z.literal("session-updated"),
     session: ReviewSessionSchema,
   }),
-  z.strictObject({
-    event: z.literal("submitted"),
-    submissionId: requiredString,
-    decision: z.enum(["approve", "request-changes"]),
-  }),
-  z.strictObject({
-    event: z.literal("review-threads-committed"),
-    commit: ReviewThreadsCommitSchema,
-  }),
 ]);
 
 export type ReviewServerEvent = z.infer<typeof ReviewServerEventSchema>;
@@ -1979,35 +1269,6 @@ export const ReviewDesktopStateSchema = z.strictObject({
 });
 
 export type ReviewDesktopState = z.infer<typeof ReviewDesktopStateSchema>;
-
-const reviewThreadDecorationKindSchema = z.enum([
-  "comment",
-  "draft",
-  "resolved",
-]);
-
-export type ReviewThreadDecorationKind = z.infer<
-  typeof reviewThreadDecorationKindSchema
->;
-
-export const ReviewThreadAnchorSchema = z
-  .strictObject({
-    startLine: positiveInteger,
-    endLine: positiveInteger,
-    threadId: requiredString,
-    kind: reviewThreadDecorationKindSchema,
-  })
-  .superRefine((anchor, context) => {
-    if (anchor.endLine < anchor.startLine) {
-      context.addIssue({
-        code: "custom",
-        message: "must be >= startLine",
-        path: ["endLine"],
-      });
-    }
-  });
-
-export type ReviewThreadAnchorWire = z.infer<typeof ReviewThreadAnchorSchema>;
 
 const openFileArgsSchema = z
   .strictObject({
@@ -2077,21 +1338,6 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
     }),
   }),
   z.strictObject({ name: z.literal("reveal"), args: revealArgsSchema }),
-  z.strictObject({
-    name: z.literal("decorateThreads"),
-    args: z.strictObject({
-      sessionId: requiredString.optional(),
-      path: requiredString,
-      anchors: z.array(ReviewThreadAnchorSchema),
-    }),
-  }),
-  z.strictObject({
-    name: z.literal("clearDecorations"),
-    args: z.strictObject({
-      sessionId: requiredString.optional(),
-      path: requiredString.optional(),
-    }),
-  }),
   z.strictObject({ name: z.literal("focusCanvas"), args: z.strictObject({}) }),
   z.strictObject({ name: z.literal("focusWindow"), args: z.strictObject({}) }),
   z.strictObject({
@@ -2113,27 +1359,6 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
     args: z.strictObject({
       reviewUuid: z.uuid({ error: "must be a UUID" }),
       active: z.boolean(),
-    }),
-  }),
-  z.strictObject({ name: z.literal("showThreads"), args: z.strictObject({}) }),
-  z.strictObject({
-    name: z.literal("resumeAgentTerminal"),
-    args: z.strictObject({ threadId: requiredString }),
-  }),
-  z.strictObject({
-    name: z.literal("openNativeAgentTerminal"),
-    args: z.strictObject({
-      threadId: requiredString,
-      /** The native session the terminal runs; the app keys terminals by it. */
-      session: AuthoringAgentSessionSchema,
-      /** Null for a manual resume; otherwise replaces this Ask’s local loading pane. */
-      askMessageId: requiredString.nullable(),
-      command: z.strictObject({
-        cwd: requiredString,
-        executable: requiredString,
-        args: z.array(z.string()),
-        env: z.record(requiredString, z.string()),
-      }),
     }),
   }),
   // Server-to-app only: mount the (unpromoted) session's document off-screen
@@ -2184,20 +1409,6 @@ export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
     event: z.literal("editorSelectionChanged"),
     path: requiredString,
     range: ReviewRangeSchema,
-  }),
-  z.strictObject({
-    event: z.literal("commentRequested"),
-    path: requiredString,
-    range: ReviewRangeSchema,
-    sideContext: reviewDiffSideSchema,
-  }),
-  z.strictObject({
-    event: z.literal("threadDecorationClicked"),
-    threadId: requiredString,
-  }),
-  z.strictObject({
-    event: z.literal("agentTerminalOpening"),
-    sessionId: requiredString,
   }),
   z.strictObject({
     event: z.literal("themeChanged"),

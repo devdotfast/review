@@ -29,8 +29,7 @@ The command creates verified UUID Reviews. It removes obsolete Review-owned
 state. It drops UUID Reviews whose `data.ts` still defines removed `symbol` or
 `declarationId` peeks. It preserves range-only Reviews. It reports items that
 need an agent. Correct each reported item and run the command again. Use
-`--force` to restart interrupted state and drop only code comment threads whose
-pinned positions cannot be recovered.
+`--force` to restart interrupted state.
 
 ## Usage
 

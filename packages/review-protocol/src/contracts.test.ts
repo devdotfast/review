@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
 
 import {
-  CreateReviewCommentInputSchema,
   REVIEW_DESKTOP_DISCOVERY_VERSION,
   REVIEW_SCHEMA_VERSION,
   ReviewCliInstallStampSchema,
-  ReviewCommentThreadMapSchema,
   ReviewDescriptorSchema,
   ReviewDesktopDiscoverySchema,
   ReviewDesktopGlobalEventSchema,
@@ -35,14 +33,9 @@ import {
   ReviewSessionLifecycleEventSchema,
   ReviewSessionResponseSchema,
   ReviewSessionSchema,
-  ReviewSubmissionWireSchema,
   ReviewSurfaceEventSchema,
-  ReviewThreadAnchorSchema,
-  ReviewThreadsSnapshotSchema,
   ReviewVerbRequestSchema,
   ReviewVerbResponseSchema,
-  ThreadTargetSchema,
-  createGitLabTextDiffPosition,
   reviewViewSchema,
   summarizeReviewDiffFiles,
 } from "./contracts.js";
@@ -109,7 +102,6 @@ const reviewDescriptor = {
   pullRequestNumber: 673,
   pullRequestUrl: "https://github.com/Fix-Fast/dev/pull/673",
   diffStats: { fileCount: 3, additions: 58, deletions: 12 },
-  commentCount: 2,
   documentUpdatedAt: "2026-07-29T12:00:00.000Z",
   presentedDocumentRevision: reviewRecord.presentedDocumentRevision,
   presentedSoftwareMapRevision: reviewRecord.presentedSoftwareMapRevision,
@@ -127,26 +119,7 @@ const session = {
   appUrl: "http://127.0.0.1:5570/",
   sessionUrl: "http://127.0.0.1:5570/sessions/session-1",
   reviewPath: "/tmp/repo/review.mdx",
-  freshQuestionHarness: "codex",
   startedAt: 1,
-};
-
-const submission = {
-  id: "submission-1",
-  decision: "request-changes",
-  createdAt: "2026-07-23T00:00:00.000Z",
-  rootPath: "/tmp/repo",
-  reviewPath: "/tmp/repo/review.mdx",
-  documentRoute: "/",
-  comments: [],
-  prompt: "",
-};
-
-const anchor = {
-  startLine: 1,
-  endLine: 2,
-  threadId: "thread-1",
-  kind: "comment",
 };
 
 const contracts: Array<[string, ZodType, JsonObject]> = [
@@ -215,15 +188,10 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     ReviewListResponseSchema,
     { reviews: [reviewDescriptor], errors: [] },
   ],
-  ["submission wire", ReviewSubmissionWireSchema, submission],
   [
     "session lifecycle event",
     ReviewSessionLifecycleEventSchema,
-    {
-      event: "submitted",
-      sessionId: "session-1",
-      submission,
-    },
+    { event: "ready", sessionId: "session-1" },
   ],
   [
     "desktop global event",
@@ -342,7 +310,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
       selection: null,
     },
   ],
-  ["thread anchor", ReviewThreadAnchorSchema, anchor],
   [
     "verb request",
     ReviewVerbRequestSchema,
@@ -543,93 +510,6 @@ describe("review source identity", () => {
         ...legacyRecord,
         sourceBranch: "rknkrlsrsmuu",
       }).success,
-    ).toBe(false);
-  });
-});
-
-describe("canonical comment contracts", () => {
-  const position = createGitLabTextDiffPosition({
-    base_sha: "0".repeat(40),
-    start_sha: "0".repeat(40),
-    head_sha: "1".repeat(40),
-    old_path: "src/example.ts",
-    new_path: "src/example.ts",
-    start: { old_line: null, new_line: 3 },
-    end: { old_line: null, new_line: 5 },
-  });
-
-  const target = {
-    kind: "code" as const,
-    original_position: position,
-    position,
-  } as const;
-
-  it("accepts canonical code targets and comment records", () => {
-    expect(ThreadTargetSchema.parse(target)).toEqual(target);
-    expect(
-      CreateReviewCommentInputSchema.parse({
-        threadId: "thread-1",
-        messageId: "message-1",
-        target,
-        body: "Check this range",
-      }),
-    ).toMatchObject({ target });
-    expect(
-      ReviewCommentThreadMapSchema.safeParse({
-        "thread-1": {
-          threadId: "thread-1",
-          target,
-          status: "open",
-          messages: [],
-        },
-      }).success,
-    ).toBe(true);
-  });
-
-  it("rejects incomplete positions and mismatched map keys", () => {
-    expect(
-      ThreadTargetSchema.safeParse({
-        ...target,
-        position: { ...position, start_sha: null },
-      }).success,
-    ).toBe(false);
-    expect(
-      ReviewCommentThreadMapSchema.safeParse({
-        "thread-1": {
-          threadId: "thread-2",
-          target,
-          status: "open",
-          messages: [],
-        },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("requires the immutable original position inside code targets", () => {
-    const { original_position: _originalPosition, ...incompleteTarget } =
-      target;
-
-    expect(
-      ReviewCommentThreadMapSchema.safeParse({
-        "thread-1": {
-          threadId: "thread-1",
-          target: incompleteTarget,
-          status: "open",
-          messages: [],
-        },
-      }).success,
-    ).toBe(false);
-  });
-});
-
-describe("review thread snapshots", () => {
-  it("accepts only the read-only marker on copied snapshots", () => {
-    const snapshot = { revision: 0, readOnly: true, comments: {}, drafts: {} };
-
-    expect(ReviewThreadsSnapshotSchema.parse(snapshot)).toEqual(snapshot);
-    expect(
-      ReviewThreadsSnapshotSchema.safeParse({ ...snapshot, readOnly: false })
-        .success,
     ).toBe(false);
   });
 });

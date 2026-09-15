@@ -19,7 +19,6 @@ import {
 } from "../src/review-bundle";
 import type { ReviewDocumentData } from "../src/review-document-data";
 import { materializeReviewRevision } from "../src/review-home";
-import { closeAllReviewThreadStores } from "../src/review-thread-store-backend";
 import {
   type ReviewSoftwareMapBundle,
   readReviewSoftwareMapBundle,
@@ -88,7 +87,6 @@ for (const fixture of listLegacyReviewFixtures()) {
 
     console.log(`${fixture.name}: goldens written`);
   } finally {
-    closeAllReviewThreadStores();
     await rm(home, { recursive: true, force: true });
   }
 }

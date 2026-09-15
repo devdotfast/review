@@ -15,7 +15,6 @@ import {
 } from "@xyflow/react";
 import {
   type CSSProperties,
-  type MouseEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -25,10 +24,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import {
-  sequenceDiagramPropsSchema,
-  throwAuthoringIssue,
-} from "../../src/authoring";
+import { sequenceDiagramPropsSchema } from "../../src/authoring";
 import type {
   ActorRef,
   AnchorRef,
@@ -42,20 +38,15 @@ import { useReviewDebugSettings } from "./debug-settings";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
-import { HoverCommentButton } from "./hover-comment-button";
-import { useReviewActions } from "./review-context";
 import { useReviewPanel } from "./review-panel";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
-import { buildGraphTarget, targetKey } from "./target-fingerprint";
-import { useRegisterLiveDiagram } from "./thread-target-model";
 import { captureUiEvent } from "./ui-telemetry";
 
 import "@xyflow/react/dist/style.css";
 
 type SequenceParticipantNodeData = {
   participant: ActorRef;
-  diagram: string;
   height: number;
   messages: SequenceMessage[];
   messageGap: number;
@@ -72,8 +63,6 @@ type SequenceMessageEdgeData = {
   index: number;
   width: number;
   active: boolean;
-  diagram: string;
-  path: string[];
   openTour: (anchor?: string) => void;
   stepNumber: number | null;
 };
@@ -113,7 +102,6 @@ interface UncheckedSequenceInput {
   messages: UncheckedSequenceMessageInput[];
 }
 
-// A type alias so message code can travel inside a graph target payload.
 export type SequenceMessageCodeBlock = {
   language?: string;
   text: string;
@@ -145,7 +133,6 @@ export function createSequence(input: UncheckedSequenceInput): SequenceRef {
 
   const id = `sequence-${slugSequenceActorLabel(input.label)}`;
   const participants = participantsForMessages(messages);
-  validateSequenceTargetPaths(input.label, participants, messages);
 
   return Object.freeze({
     __kind: "review-sequence-ref",
@@ -194,42 +181,6 @@ function uniqueSequenceMessageAnchors(
       anchor: Object.freeze({ ...message.anchor, id }),
     };
   });
-}
-
-function validateSequenceTargetPaths(
-  diagram: string,
-  participants: readonly ActorRef[],
-  messages: readonly SequenceMessage[],
-): void {
-  const participantLabels = new Set<string>();
-
-  for (const participant of participants) {
-    if (participantLabels.has(participant.label)) {
-      throwAuthoringIssue(
-        ["messages"],
-        `SequenceDiagram "${diagram}" has more than one participant labelled "${participant.label}"`,
-      );
-    }
-
-    participantLabels.add(participant.label);
-  }
-
-  const parallelLabels = new Map<string, Set<string>>();
-
-  for (const [index, message] of messages.entries()) {
-    const segment = `${message.from.label}→${message.to.label}`;
-    const labels = parallelLabels.get(segment) ?? new Set<string>();
-
-    if (labels.has(message.label)) {
-      throwAuthoringIssue(
-        ["messages", index, "label"],
-        `Label must be unique among parallel ${segment} messages`,
-      );
-    }
-
-    labels.add(message.label);
-    parallelLabels.set(segment, labels);
-  }
 }
 
 function normalizeSequenceMessages(
@@ -458,10 +409,6 @@ export function SequenceDiagram(input: SequenceInput) {
     [input.label, input.messages],
   );
 
-  useRegisterLiveDiagram({
-    label: sequence.label,
-    elements: sequenceTargetElements(sequence),
-  });
   const tour = useMemo(() => createSequenceTourEntry(sequence), [sequence]);
 
   // The tour IS the fullscreen mode: the inline figure becomes the stage
@@ -618,7 +565,6 @@ function SequenceDiagramFigure({
         height,
         data: {
           participant,
-          diagram: sequence.label,
           height,
           messages: sequence.messages,
           messageGap,
@@ -653,8 +599,6 @@ function SequenceDiagramFigure({
             index,
             width,
             active: isActive,
-            diagram: sequence.label,
-            path: sequenceEdgePath(sequence.messages, message),
             openTour,
             stepNumber: onCloseTour ? index + 1 : null,
           },
@@ -815,36 +759,6 @@ function SequenceDiagramFigure({
   );
 }
 
-export function sequenceTargetElements(
-  sequence: SequenceRef,
-): Extract<ReturnType<typeof buildGraphTarget>, { kind: "graph" }>[] {
-  return [
-    ...sequence.participants.map((participant) =>
-      buildGraphTarget({
-        diagram: sequence.label,
-        type: "node",
-        path: [participant.label],
-        payload: participant,
-        quote: participant.label,
-      }),
-    ),
-    ...sequence.messages.map((message) =>
-      buildGraphTarget({
-        diagram: sequence.label,
-        type: "edge",
-        path: sequenceEdgePath(sequence.messages, message),
-        payload: {
-          from: message.from.label,
-          to: message.to.label,
-          label: message.label,
-          code: message.code,
-        },
-        quote: message.label,
-      }),
-    ),
-  ];
-}
-
 export function sequenceDiagramClassName(isTourActive: boolean): string {
   return isTourActive
     ? "sequence-diagram sequence-tour sequence-tour--active"
@@ -877,53 +791,25 @@ function DiagramHeader({
 function SequenceParticipantNode({
   data,
 }: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
-  const { openCommentDraft } = useReviewActions();
-
-  const { participant, diagram, height, messages, messageGap, messageTop } =
-    data;
-
-  const target = buildGraphTarget({
-    diagram,
-    type: "node",
-    path: [participant.label],
-    payload: participant,
-    quote: participant.label,
-  });
+  const { participant, height, messages, messageGap, messageTop } = data;
 
   const activeMessages = messages.filter(
     (message) =>
       message.from.id === participant.id || message.to.id === participant.id,
   );
 
-  const openParticipantComment = (event: MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    openCommentDraft({
-      target,
-      title: participant.label,
-      body: "",
-    });
-  };
-
   return (
-    <div
-      className="sequence-participant-node"
-      style={{ height }}
-      data-review-locator={targetKey(target)}
-      onContextMenu={openParticipantComment}
-    >
-      <div className="sequence-participant-comment-target">
+    <div className="sequence-participant-node" style={{ height }}>
+      <div className="sequence-participant-label-anchor">
         <span
           className="sequence-participant-label"
           title={participant.label}
           onClick={(event) => {
             event.stopPropagation();
           }}
-          onContextMenu={openParticipantComment}
         >
           {participant.label}
         </span>
-        <HoverCommentButton onClick={openParticipantComment} />
       </div>
       <div className="sequence-lifeline" />
       {activeMessages.flatMap((message, index) => {
@@ -1000,8 +886,6 @@ export function sequenceSelfMessagePath(input: {
 function SequenceMessageEdge(
   props: ReactFlowEdgeProps<SequenceMessageFlowEdge>,
 ) {
-  const { openCommentDraft } = useReviewActions();
-  const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
 
   if (!data) return null;
@@ -1034,29 +918,6 @@ function SequenceMessageEdge(
     ? "sequence-message clickable active"
     : "sequence-message clickable";
 
-  const target = buildGraphTarget({
-    diagram: data.diagram,
-    type: "edge",
-    path: data.path,
-    payload: {
-      from: data.message.from.label,
-      to: data.message.to.label,
-      label: data.message.label,
-      code: data.message.code,
-    },
-    quote: data.message.label,
-  });
-
-  const openMessageComment = (event: MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    openCommentDraft({
-      target,
-      title: data.message.label,
-      body: "",
-    });
-  };
-
   return (
     <>
       <BaseEdge
@@ -1069,8 +930,6 @@ function SequenceMessageEdge(
       <path
         d={edgePath}
         className="sequence-message-hit-area"
-        onMouseEnter={() => setIsHoveringEdge(true)}
-        onMouseLeave={() => setIsHoveringEdge(false)}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -1091,8 +950,6 @@ function SequenceMessageEdge(
             transform: `translate(-50%, -50%) translate(${props.sourceX}px,${props.sourceY}px)`,
           }}
           data-review-anchor-id={data.message.anchor.id}
-          data-review-locator={targetKey(target)}
-          onContextMenu={openMessageComment}
           onClick={(event) => {
             event.stopPropagation();
             data.openTour(data.message.anchor.id);
@@ -1102,11 +959,7 @@ function SequenceMessageEdge(
           {data.stepNumber}
         </button>
         <div
-          className={
-            isHoveringEdge
-              ? "sequence-message-comment-target comment-target-hovered"
-              : "sequence-message-comment-target"
-          }
+          className="sequence-message-label-anchor"
           style={{
             transform: `translate(-50%, -100%) translate(${labelX}px,${labelY}px)`,
           }}
@@ -1120,9 +973,6 @@ function SequenceMessageEdge(
                 : "sequence-message-label clickable"
             }
             data-review-anchor-id={data.message.anchor.id}
-            data-review-locator={targetKey(target)}
-            onMouseEnter={() => setIsHoveringEdge(true)}
-            onMouseLeave={() => setIsHoveringEdge(false)}
             onClick={(event) => {
               event.stopPropagation();
 
@@ -1138,7 +988,6 @@ function SequenceMessageEdge(
           >
             {data.message.label}
           </span>
-          <HoverCommentButton onClick={openMessageComment} />
         </div>
       </EdgeLabelRenderer>
     </>
@@ -1304,19 +1153,4 @@ function sequenceHandleId(
   handleType: "source" | "target",
 ): string {
   return `${handleType}-${messageId}`;
-}
-
-function sequenceEdgePath(
-  messages: readonly SequenceMessage[],
-  message: SequenceMessage,
-): string[] {
-  const segment = `${message.from.label}→${message.to.label}`;
-
-  const parallelCount = messages.filter(
-    (candidate) =>
-      candidate.from.id === message.from.id &&
-      candidate.to.id === message.to.id,
-  ).length;
-
-  return parallelCount > 1 ? [segment, message.label] : [segment];
 }

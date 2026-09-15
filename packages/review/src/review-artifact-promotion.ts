@@ -10,7 +10,6 @@ export async function promoteReviewArtifactFiles(input: {
   reviewDir: string;
   candidateDir: string;
   record: ReviewRecord;
-  upgradeThreadDatabase?: boolean;
 }): Promise<void> {
   const staging = await mkdtemp(
     path.join(
@@ -32,11 +31,6 @@ export async function promoteReviewArtifactFiles(input: {
       });
     }
 
-    if (input.upgradeThreadDatabase)
-      await cp(
-        path.join(input.candidateDir, "review.db"),
-        path.join(prepared, "review.db"),
-      );
     await writePrivateJsonAtomic(
       path.join(prepared, "review.json"),
       input.record,
@@ -53,25 +47,19 @@ export async function promoteReviewArtifactFiles(input: {
   await commitReviewArtifactPromotion({
     reviewDir: input.reviewDir,
     stagingDir: staging,
-    upgradeThreadDatabase: input.upgradeThreadDatabase,
   });
 }
 
 export async function commitReviewArtifactPromotion(input: {
   reviewDir: string;
   stagingDir: string;
-  upgradeThreadDatabase?: boolean;
 }): Promise<void> {
   const prepared = path.join(input.stagingDir, "prepared");
   const backup = path.join(input.stagingDir, "backup");
   const replacements: Array<{ name: string; hadOriginal: boolean }> = [];
-  const replacementNames = [".bundle", ".git"];
-
-  if (input.upgradeThreadDatabase)
-    replacementNames.push("review.db", "review.db-wal", "review.db-shm");
 
   try {
-    for (const name of replacementNames) {
+    for (const name of [".bundle", ".git"]) {
       let hadOriginal = true;
 
       try {
@@ -82,14 +70,7 @@ export async function commitReviewArtifactPromotion(input: {
       }
 
       replacements.push({ name, hadOriginal });
-
-      // The upgraded database is checkpointed; retire its old WAL/SHM
-      // together with the database and restore all three on failure.
-      if (name !== "review.db-wal" && name !== "review.db-shm")
-        await rename(
-          path.join(prepared, name),
-          path.join(input.reviewDir, name),
-        );
+      await rename(path.join(prepared, name), path.join(input.reviewDir, name));
     }
 
     await rename(

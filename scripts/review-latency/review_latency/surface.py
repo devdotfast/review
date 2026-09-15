@@ -19,8 +19,8 @@ INSTALLED_SKILLS = {
     "agents": [Path.home() / ".agents" / "skills" / "dev-review", Path.home() / ".agents" / "skills" / "dev-review-map"],
 }
 DOCS_DIR = REPO_ROOT / "docs"
-AUTHORING_TYPES = [PACKAGE / "src" / "authoring.ts", PACKAGE / "src" / "review-comment-schema.ts"]
-CLI_SUBCOMMANDS = ["", "scaffold", "publish", "info", "app", "map", "threads", "wait", "rebind"]
+AUTHORING_TYPES = [PACKAGE / "src" / "authoring.ts"]
+CLI_SUBCOMMANDS = ["", "scaffold", "publish", "info", "app", "map", "wait", "rebind"]
 
 
 def hash_paths(paths: list[Path]) -> str:

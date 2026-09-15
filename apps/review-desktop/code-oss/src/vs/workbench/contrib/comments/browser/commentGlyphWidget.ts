@@ -30,16 +30,14 @@ export class CommentGlyphWidget extends Disposable {
 	private _editor: ICodeEditor;
 	private _threadState: CommentThreadState | undefined;
 	private _threadHasDraft: boolean = false;
-	private _isCommenting: boolean;
 	private readonly _commentsDecorations: IEditorDecorationsCollection;
 	private _commentsOptions: ModelDecorationOptions;
 
 	private readonly _onDidChangeLineNumber = this._register(new Emitter<number>());
 	public readonly onDidChangeLineNumber = this._onDidChangeLineNumber.event;
 
-	constructor(editor: ICodeEditor, lineNumber: number, isCommenting: boolean = false) {
+	constructor(editor: ICodeEditor, lineNumber: number) {
 		super();
-		this._isCommenting = isCommenting;
 		this._commentsOptions = this.createDecorationOptions();
 		this._editor = editor;
 		this._commentsDecorations = this._editor.createDecorationsCollection();
@@ -57,9 +55,7 @@ export class CommentGlyphWidget extends Disposable {
 	private createDecorationOptions(): ModelDecorationOptions {
 		// Priority: draft > unresolved > resolved
 		let className: string;
-		if (this._isCommenting) {
-			className = 'comment-range-glyph line-hover comment-thread-template';
-		} else if (this._threadHasDraft) {
+		if (this._threadHasDraft) {
 			className = 'comment-range-glyph comment-thread-draft';
 		} else {
 			const unresolved = this._threadState === CommentThreadState.Unresolved;
@@ -85,14 +81,6 @@ export class CommentGlyphWidget extends Disposable {
 		if (this._threadState !== state || this._threadHasDraft !== hasDraft) {
 			this._threadState = state;
 			this._threadHasDraft = hasDraft;
-			this._commentsOptions = this.createDecorationOptions();
-			this._updateDecorations();
-		}
-	}
-
-	setIsCommenting(isCommenting: boolean): void {
-		if (this._isCommenting !== isCommenting) {
-			this._isCommenting = isCommenting;
 			this._commentsOptions = this.createDecorationOptions();
 			this._updateDecorations();
 		}

@@ -81,7 +81,6 @@ import {
   MultiDiffEditorInput,
 } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffEditorInput.js";
 import { MultiDiffEditorItem } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffSourceResolverService.js";
-import { ID as COMMENT_EDITOR_CONTRIBUTION_ID } from "../../workbench/contrib/comments/browser/commentsController.js";
 import { ContentHoverController } from "../../editor/contrib/hover/browser/contentHoverController.js";
 import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
 
@@ -292,7 +291,7 @@ export class ReviewInlineEditorService
     query: ReviewFindQuery,
   ): Promise<ReviewInlineFindResult> {
     if (!query.text) return { matchCount: 0 };
-    if (spec.commentsEnabled) {
+    if (spec.unifiedDiff) {
       const unified = await this.resources.acquireUnifiedDiff(
         spec.path,
         spec.side,
@@ -365,8 +364,8 @@ export class ReviewInlineEditorService
 
   /**
    * Makes an editor this service did not build — today an inner editor of the
-   * in-tab diff — the composite's active one. Find, the editor context keys,
-   * and the comment commands all read the composite.
+   * in-tab diff — the composite's active one. Find and the editor context
+   * keys read the composite.
    *
    * These editors deliberately stay out of `reviewInlineEditors`. That set
    * marks an editor as an inline peek, and the LSP telemetry reports its
@@ -643,7 +642,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 
   private async initialize(): Promise<void> {
     try {
-      if (this.spec.commentsEnabled) {
+      if (this.spec.unifiedDiff) {
         const unifiedReference = await this.resources.acquireUnifiedDiff(
           this.spec.path,
           this.spec.side,
@@ -685,9 +684,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
         inlineEditorOptions(this.overflowWidgetsDomNode),
         {
           telemetryData: { source: "reviewInlineCodeEditor" },
-          contributions: reviewInlineEditorContributions(
-            this.spec.commentsEnabled === true,
-          ),
+          contributions: EditorExtensionsRegistry.getEditorContributions(),
         },
       );
       this.editor = editor;
@@ -734,7 +731,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       },
       {
         telemetryData: { source: "reviewInlineUnifiedCodeEditor" },
-        contributions: reviewInlineEditorContributions(true),
+        contributions: EditorExtensionsRegistry.getEditorContributions(),
       },
     );
     this.editor = editor;
@@ -871,9 +868,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
         this.overflowWidgetsDomNode,
         this.scrollRange,
         true,
-        reviewInlineDiffEditorContributions(
-          this.spec.commentsEnabled === true,
-        ),
+        reviewInlineDiffEditorContributions(),
       ),
       options,
     );
@@ -985,10 +980,9 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
       rendered !== undefined && rendered > CONTENT_HEIGHT_EPSILON
         ? Math.ceil(rendered)
         : estimated;
-    // A comment composer is a Monaco view zone. The editor's content-size
-    // event is the authoritative post-relayout measurement; line geometry
-    // can still reflect the pre-zone layout during that callback and would
-    // leave the real composer mounted behind the fixed-height host.
+    // The editor's content-size event is the authoritative post-relayout
+    // measurement; line geometry can still reflect the pre-zone layout during
+    // that callback.
     const measured = Math.max(
       renderedHeight,
       contentHeight !== undefined && contentHeight > CONTENT_HEIGHT_EPSILON
@@ -998,10 +992,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     const height =
       this.spec.heightMode === "content"
         ? measured
-        : reviewPeekCappedHeight(
-            measured,
-            this.commentViewZoneHeight(codeEditor),
-          );
+        : reviewPeekCappedHeight(measured);
     this.setExpandedHeight(height + INLINE_HEADER_HEIGHT);
     codeEditor.layout({
       width: Math.max(1, this.spec.container.clientWidth),
@@ -1129,29 +1120,11 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     return Math.max(
       original === undefined
         ? 0
-        : reviewPeekCappedHeight(
-            Math.ceil(original),
-            this.commentViewZoneHeight(originalEditor),
-          ),
+        : reviewPeekCappedHeight(Math.ceil(original)),
       modified === undefined
         ? 0
-        : reviewPeekCappedHeight(
-            Math.ceil(modified),
-            this.commentViewZoneHeight(modifiedEditor),
-          ),
+        : reviewPeekCappedHeight(Math.ceil(modified)),
     );
-  }
-
-  private commentViewZoneHeight(editor: ICodeEditor): number {
-    const editorNode = editor.getDomNode();
-    if (!editorNode) return 0;
-    let height = 0;
-    for (const zone of editorNode.querySelectorAll<HTMLElement>(
-      ".review-widget.compact-comment-thread[monaco-view-zone]",
-    )) {
-      height += zone.getBoundingClientRect().height;
-    }
-    return height;
   }
 
   private setHeader(
@@ -1478,17 +1451,8 @@ function inlineEditorOptions(
   };
 }
 
-function reviewInlineEditorContributions(commentsEnabled: boolean) {
+function reviewInlineDiffEditorContributions() {
   const contributions = EditorExtensionsRegistry.getEditorContributions();
-  return commentsEnabled
-    ? contributions
-    : contributions.filter(
-        (contribution) => contribution.id !== COMMENT_EDITOR_CONTRIBUTION_ID,
-      );
-}
-
-function reviewInlineDiffEditorContributions(commentsEnabled: boolean) {
-  const contributions = reviewInlineEditorContributions(commentsEnabled);
   return {
     originalEditor: { contributions },
     modifiedEditor: { contributions },

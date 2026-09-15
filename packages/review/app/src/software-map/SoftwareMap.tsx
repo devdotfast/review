@@ -33,16 +33,9 @@ import { CodePeekGroup } from "../CodePeek";
 import { useReviewDebugSettings } from "../debug-settings";
 import { hasTextSelectionWithin } from "../diagram-text-selection";
 import { type ReviewSession, useReviewSession } from "../host/review-session";
-import { HoverCommentButton } from "../hover-comment-button";
 import { CloseIcon, RefreshIcon } from "../icons";
-import {
-  type CommentDraftPlacement,
-  useReviewActions,
-} from "../review-context";
 import { useReviewInitialData } from "../review-initial-data-context";
 import { useRightPanelResize } from "../side-panel-resizer";
-import { buildGraphTarget, targetKey } from "../target-fingerprint";
-import { useRegisterLiveDiagram } from "../thread-target-model";
 import { captureUiEvent } from "../ui-telemetry";
 import {
   c4EdgeLabelPoint,
@@ -123,11 +116,6 @@ import {
 } from "./software-map-navigation-state";
 import { refreshSoftwareMapArtifacts } from "./software-map-patch-client";
 import {
-  softwareMapLiveDiagram,
-  softwareMapNodeTargetPayload,
-  softwareMapRelationshipTargetPayload,
-} from "./software-map-paths";
-import {
   type SoftwareMapResolvedDataInput,
   shouldApplySoftwareMapModifiedOnly,
   softwareMapModelKey,
@@ -185,14 +173,12 @@ interface SoftwareMapProps {
   placeholderLabel?: string;
   showChrome?: boolean;
   showFloatingActions?: boolean;
-  registerTargets?: boolean;
 }
 
 interface SoftwareMapFrameProps {
   snapshot: SoftwareMapResolvedSnapshot;
   hasResolvedSnapshot: boolean;
   title: string;
-  viewName: string;
   height?: number | string;
   status?: string | null;
   error?: string | null;
@@ -313,7 +299,6 @@ function SoftwareMapWithModel({
   placeholderLabel = "Software map",
   showChrome = true,
   showFloatingActions = true,
-  registerTargets = true,
 }: SoftwareMapProps) {
   const session = useReviewSession();
   const debugSettings = useReviewDebugSettings();
@@ -718,21 +703,6 @@ function SoftwareMapWithModel({
     ];
   }, [changeSummaries, inspectedNode, projectionModel]);
 
-  const targetModelSnapshot = useMemo(() => {
-    if (!projectionModel) return mapSnapshot;
-
-    return softwareMapSnapshotFromInlineC4Projection({
-      projection: projectInlineC4({
-        model: projectionModel,
-        expandedNodeIds: new Set(
-          projectionModel.elements.map((element) => element.path),
-        ),
-        showRemovedNodes: true,
-      }),
-      changeSummaries,
-    });
-  }, [changeSummaries, mapSnapshot, projectionModel]);
-
   useEffect(() => {
     const nextSelectedNodeId = selectedSoftwareMapNodeIdForNodes({
       nodes: mapSnapshot.nodes ?? [],
@@ -745,14 +715,6 @@ function SoftwareMapWithModel({
   }, [mapSnapshot.nodes, selectedNodeId]);
 
   const frameTitle = title ?? mapSnapshot.title ?? placeholderLabel;
-  const frameView = mapSnapshot.view ?? view ?? "inline-c4";
-
-  const liveDiagram = useMemo(
-    () => softwareMapLiveDiagram(frameTitle, frameView, targetModelSnapshot),
-    [frameTitle, frameView, targetModelSnapshot],
-  );
-
-  useRegisterLiveDiagram(registerTargets ? liveDiagram : null);
 
   const statusMessage =
     status ??
@@ -922,7 +884,6 @@ function SoftwareMapWithModel({
       snapshot={mapSnapshot}
       hasResolvedSnapshot={hasResolvedSnapshot}
       title={frameTitle}
-      viewName={frameView}
       height={height}
       status={statusMessage}
       error={errorMessage}
@@ -974,7 +935,6 @@ function SoftwareMapWithModel({
                 snapshot={mapSnapshot}
                 hasResolvedSnapshot={hasResolvedSnapshot}
                 title={frameTitle}
-                viewName={frameView}
                 status={statusMessage}
                 error={errorMessage}
                 refreshing={refreshingModelData}
@@ -1043,7 +1003,6 @@ export function SoftwareMapFrame({
   snapshot,
   hasResolvedSnapshot,
   title,
-  viewName,
   height,
   status,
   error,
@@ -1071,7 +1030,6 @@ export function SoftwareMapFrame({
   onViewportFocusComplete,
 }: SoftwareMapFrameProps) {
   const session = useReviewSession();
-  const { openCommentDraft } = useReviewActions();
   const frameRef = useRef<HTMLElement | null>(null);
 
   const codeInspectorResize = useRightPanelResize({
@@ -1090,14 +1048,6 @@ export function SoftwareMapFrame({
   });
 
   const viewType = snapshot.viewType ?? "inlineC4";
-
-  const viewTarget = buildGraphTarget({
-    diagram: title,
-    type: "node",
-    path: [title],
-    payload: { title, viewName, viewType },
-    quote: title,
-  });
 
   // SAFETY: React passes "--*" keys through to style.setProperty; CSSProperties
   // only lacks an index signature for custom properties.
@@ -1158,26 +1108,14 @@ export function SoftwareMapFrame({
         .filter(Boolean)
         .join(" ")}
       style={style}
-      data-review-locator={targetKey(viewTarget)}
     >
       {showChrome && (
         <header className="software-map-header">
-          <div className="diagram-header-main software-map-title-block software-map-view-comment-target">
+          <div className="diagram-header-main software-map-title-block">
             <span className="diagram-kind-badge software-map-kind-badge">
               {VIEW_TYPE_LABELS[viewType]}
             </span>
             <figcaption className="diagram-header-title">{title}</figcaption>
-            <HoverCommentButton
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                openCommentDraft({
-                  target: viewTarget,
-                  title,
-                  body: "",
-                });
-              }}
-            />
           </div>
           <div className="software-map-actions">
             {onRefresh ? (
@@ -1262,8 +1200,6 @@ export function SoftwareMapFrame({
 
           <C4MapCanvas
             snapshot={snapshot}
-            viewName={viewName}
-            diagram={title}
             expanded={expanded}
             interactionMode={interactionMode}
             onSelectNode={selectNodeWithTelemetry}
@@ -1393,8 +1329,6 @@ function mapExpansionLevelForNode(
 
 function C4MapCanvas({
   snapshot,
-  viewName,
-  diagram,
   expanded,
   interactionMode,
   onSelectNode,
@@ -1410,8 +1344,6 @@ function C4MapCanvas({
   onViewportFocusComplete,
 }: {
   snapshot: SoftwareMapResolvedSnapshot;
-  viewName: string;
-  diagram: string;
   expanded: boolean;
   interactionMode: C4MapInteractionMode;
   onSelectNode?: (node: SoftwareMapNodeSnapshot) => void;
@@ -1620,8 +1552,6 @@ function C4MapCanvas({
     () =>
       layout
         ? createC4MapFlowFromLayout(displayedSnapshot, layout, {
-            viewName,
-            diagram,
             onSelectNode,
             onExpandNode,
             onCollapseNode,
@@ -1632,7 +1562,6 @@ function C4MapCanvas({
           })
         : null,
     [
-      diagram,
       drillNode,
       layout,
       nodeDimensions,
@@ -1642,7 +1571,6 @@ function C4MapCanvas({
       onOpenRelationship,
       relationshipStateById,
       displayedSnapshot,
-      viewName,
     ],
   );
 
@@ -2083,9 +2011,7 @@ function C4NodeMeasurementLayer({
 function SoftwareMapC4Edge(
   props: ReactFlowEdgeProps<ReactFlowEdge<C4MapEdgeData>>,
 ) {
-  const { openCommentDraft } = useReviewActions();
   const hoveredNodeId = useContext(C4HoveredNodeContext);
-  const [isHoveringEdge, setIsHoveringEdge] = useState(false);
   const data = props.data;
 
   const label = data?.relationship.hideLabel
@@ -2108,17 +2034,6 @@ function SoftwareMapC4Edge(
     c4EdgeLabelPoint(data?.labelPosition, data?.labelDimensions, points);
 
   const relationshipId = data?.relationshipId ?? props.id;
-  const commentLabel = label ?? relationshipId;
-
-  const target = data
-    ? buildGraphTarget({
-        diagram: data.diagram,
-        type: "edge",
-        path: data.targetPath,
-        payload: softwareMapRelationshipTargetPayload(data.relationship),
-        quote: commentLabel,
-      })
-    : null;
 
   const openRelationship = (
     event: ReactMouseEvent<Element> | ReactKeyboardEvent<Element>,
@@ -2134,17 +2049,6 @@ function SoftwareMapC4Edge(
     event.preventDefault();
     event.stopPropagation();
     data.onOpenRelationship(relationshipId);
-  };
-
-  const openEdgeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (!target) return;
-    event.preventDefault();
-    event.stopPropagation();
-    openCommentDraft({
-      target,
-      title: commentLabel,
-      body: "",
-    });
   };
 
   return (
@@ -2168,8 +2072,6 @@ function SoftwareMapC4Edge(
       <path
         d={path}
         className="software-map-c4-edge-hit-area"
-        onMouseEnter={() => setIsHoveringEdge(true)}
-        onMouseLeave={() => setIsHoveringEdge(false)}
         onClick={openRelationship}
       />
       <EdgeLabelRenderer>
@@ -2190,17 +2092,10 @@ function SoftwareMapC4Edge(
           />
         ))}
         <div
-          className={
-            isHoveringEdge
-              ? "software-map-c4-edge-comment-target comment-target-hovered nodrag nopan"
-              : "software-map-c4-edge-comment-target nodrag nopan"
-          }
+          className="software-map-c4-edge-label-anchor nodrag nopan"
           style={{
             transform: `translate(-50%, -50%) translate(${labelPoint.x}px, ${labelPoint.y}px)`,
           }}
-          onMouseEnter={() => setIsHoveringEdge(true)}
-          onMouseLeave={() => setIsHoveringEdge(false)}
-          data-review-locator={target ? targetKey(target) : undefined}
         >
           {label ? (
             data?.onOpenRelationship ? (
@@ -2243,21 +2138,10 @@ function SoftwareMapC4Edge(
               </span>
             )
           ) : null}
-          <HoverCommentButton onClick={openEdgeComment} />
         </div>
       </EdgeLabelRenderer>
     </>
   );
-}
-
-function c4NodeCommentPlacement(button: HTMLElement): CommentDraftPlacement {
-  const rect = button.getBoundingClientRect();
-
-  return {
-    x: rect.right + 8,
-    y: rect.top - 4,
-    side: "right",
-  };
 }
 
 function c4PolylinePath(points: C4ElkPoint[]): string {
@@ -2274,27 +2158,6 @@ function c4PolylinePath(points: C4ElkPoint[]): string {
 function SoftwareMapC4GroupNode({
   data,
 }: ReactFlowNodeProps<C4MapFlowGroupNode>) {
-  const { openCommentDraft } = useReviewActions();
-
-  const target = buildGraphTarget({
-    diagram: data.diagram,
-    type: "node",
-    path: data.targetPath,
-    payload: softwareMapNodeTargetPayload(data.node),
-    quote: data.node.label,
-  });
-
-  const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    openCommentDraft({
-      target,
-      title: data.node.label,
-      body: "",
-      placement: c4NodeCommentPlacement(event.currentTarget),
-    });
-  };
-
   return (
     <div
       className={[
@@ -2307,7 +2170,6 @@ function SoftwareMapC4GroupNode({
       ]
         .filter(Boolean)
         .join(" ")}
-      data-review-locator={targetKey(target)}
       onClick={(event) => {
         if (hasTextSelectionWithin(event.currentTarget)) {
           event.stopPropagation();
@@ -2358,7 +2220,6 @@ function SoftwareMapC4GroupNode({
           deletions={data.node.deletions}
         />
       </div>
-      <HoverCommentButton onClick={openNodeComment} />
       <Handle
         id="source-right"
         type="source"
@@ -2388,33 +2249,11 @@ function SoftwareMapC4GroupNode({
 }
 
 function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
-  const { openCommentDraft } = useReviewActions();
-
-  const target = buildGraphTarget({
-    diagram: data.diagram,
-    type: "node",
-    path: data.targetPath,
-    payload: softwareMapNodeTargetPayload(data.node),
-    quote: data.node.label,
-  });
-
-  const openNodeComment = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    openCommentDraft({
-      target,
-      title: data.node.label,
-      body: "",
-      placement: c4NodeCommentPlacement(event.currentTarget),
-    });
-  };
-
   return (
     <div
       className={["software-map-c4-node-shell", "nodrag", "nopan"]
         .filter(Boolean)
         .join(" ")}
-      data-review-locator={targetKey(target)}
       onDoubleClickCapture={(event) => {
         if (hasTextSelectionWithin(event.currentTarget)) {
           event.stopPropagation();
@@ -2462,7 +2301,6 @@ function SoftwareMapC4Node({ data }: ReactFlowNodeProps<C4MapFlowNode>) {
         onSelect={data.onSelect}
         onExpandNode={data.onExpandNode}
       />
-      <HoverCommentButton onClick={openNodeComment} />
       <Handle
         id="source-right"
         type="source"

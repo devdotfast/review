@@ -18,11 +18,6 @@ import {
 } from "../review-bundle";
 import { reviewDocumentDataSchema } from "../review-document-data";
 import { createReviewDir, reviewTitleFromDocument } from "../review-home";
-import { appendReviewComment } from "../review-state-store";
-import {
-  closeAllReviewThreadStores,
-  createReviewThreadDb,
-} from "../review-thread-store-backend";
 import { reviewVcs } from "../review-vcs";
 import {
   type ReviewAgentSessionSource,
@@ -96,13 +91,6 @@ describe("reviewAgentKind", () => {
       }),
     ).toBe("codex");
     expect(reviewAgentKind({ ...review, agentSessions: undefined })).toBe("pi");
-    expect(
-      reviewAgentKind({
-        ...review,
-        sourceSession: "fresh:pi",
-        agentSessions: undefined,
-      }),
-    ).toBe("pi");
   });
 });
 
@@ -195,15 +183,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
     );
-    createReviewThreadDb(dir);
-    appendReviewComment(path.join(dir, "review.mdx"), {
-      threadId: "recovery-thread",
-      messageId: "recovery-message",
-      target: { kind: "document" },
-      body: "Keep this thread",
-      author: "Reviewer",
-    });
-    closeAllReviewThreadStores();
+    await writeFile(path.join(dir, "review.db"), "stale thread database");
 
     const files = [
       "review.json",
@@ -265,11 +245,6 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       expect(listed.reviews[0]).not.toHaveProperty("recovery");
       const prefix = `/sessions/${opened.sessionId}/__progressive-review`;
       expect((await request(`${prefix}/document`)).status).toBe(200);
-      const comments = await request(`${prefix}/comments`);
-      expect(comments.status).toBe(200);
-      expect(
-        (await comments.json()).snapshot.comments["recovery-thread"].messages,
-      ).toHaveLength(1);
 
       const historical = await request(`/reviews/${uuid}/open`, {
         revision: oldRevision,
@@ -431,15 +406,7 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       path.join(dir, "review.json"),
       JSON.stringify({ ...record, presentedDocumentRevision: currentRevision }),
     );
-    createReviewThreadDb(dir);
-    appendReviewComment(path.join(dir, "review.mdx"), {
-      threadId: "recovery-thread",
-      messageId: "recovery-message",
-      target: { kind: "document" },
-      body: "Keep this thread",
-      author: "Reviewer",
-    });
-    closeAllReviewThreadStores();
+    await writeFile(path.join(dir, "review.db"), "stale thread database");
 
     const files = [
       "review.json",
@@ -740,7 +707,6 @@ describe("real legacy fixtures open end to end", () => {
             ? { ok: true, contentHash: (mapGolden as JsonObject).contentHash }
             : { ok: false, error: "Software map is not published" },
         );
-        expect((await request(`${prefix}/comments`)).status).toBe(200);
         const diff = await request(`${prefix}/diff-files`, {});
         expect(await diff.json()).toMatchObject({ ok: true });
         const listed = await (await request("/reviews")).json();
@@ -750,7 +716,6 @@ describe("real legacy fixtures open end to end", () => {
         expect(listed.reviews[0]).not.toHaveProperty("recovery");
       } finally {
         await server.close();
-        closeAllReviewThreadStores();
         vi.unstubAllEnvs();
       }
     }, 60_000);

@@ -1,14 +1,10 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import {
-  REVIEW_SCHEMA_VERSION,
-  createGitLabTextDiffPosition,
-  gitLabDiffPositionRows,
-} from "@dev.fast/review-protocol";
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolvePublishReview } from "./publish-preparation";
@@ -19,7 +15,6 @@ import {
 import {
   ReviewHomeScanError,
   type StoredReview,
-  bindReviewAuthorSession,
   computeSync,
   createReviewDir,
   findReview,
@@ -32,10 +27,8 @@ import {
   reviewsHomeDir,
   sealReviewCandidate,
   touchReviewAgentSession,
-  updateReviewPins,
 } from "./review-home";
 import { withReviewMutationLock } from "./review-mutation-lock";
-import { appendReviewComment, readReviewComments } from "./review-state-store";
 import {
   cleanupTempDirs,
   gitRepository,
@@ -43,16 +36,11 @@ import {
   tempDir,
   writeLegacyDocument,
 } from "./review-test-utils";
-import {
-  closeAllReviewThreadStores,
-  reviewThreadDbPath,
-} from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
 
 const execFilePromise = promisify(execFile);
 
 afterEach(async () => {
-  closeAllReviewThreadStores();
   vi.restoreAllMocks();
   await cleanupTempDirs();
 });
@@ -156,39 +144,6 @@ describe("review home", () => {
     ).toThrow(/unexpected/);
   });
 
-  it("atomically replaces a fresh marker with the durable author session", async () => {
-    const root = await gitRepository();
-    await reviewHome();
-    const commit = await git(root, ["rev-parse", "HEAD"]);
-
-    const created = await createReviewDir({
-      worktreePath: root,
-      baseRef: "main",
-      baseCommit: commit,
-      sourceCommit: commit,
-      sourceSession: "fresh:codex",
-    });
-
-    const bound = await bindReviewAuthorSession(
-      created,
-      { harness: "codex", sessionId: "tutorial-source" },
-      "2026-08-26T10:00:00.000Z",
-    );
-
-    expect(bound.review.sourceSession).toBe("codex:tutorial-source");
-    expect(bound.review.agentSessions?.["codex:tutorial-source"]).toEqual({
-      roles: ["author"],
-      firstSeenAt: "2026-08-26T10:00:00.000Z",
-      lastSeenAt: "2026-08-26T10:00:00.000Z",
-    });
-    await expect(
-      bindReviewAuthorSession(bound, {
-        harness: "codex",
-        sessionId: "another-source",
-      }),
-    ).rejects.toThrow("already bound");
-  });
-
   it("upserts agent roles and timestamps without changing the legacy field", async () => {
     const root = await gitRepository();
     await reviewHome();
@@ -266,7 +221,7 @@ describe("review home", () => {
     await expect(
       readFile(path.join(created.dir, "package.json"), "utf8"),
     ).resolves.toContain('"test": "node review-test.mjs"');
-    expect(existsSync(path.join(created.dir, "review.db"))).toBe(true);
+    expect(existsSync(path.join(created.dir, "review.db"))).toBe(false);
     expect(existsSync(path.join(created.dir, "comments.json"))).toBe(false);
     expect(existsSync(path.join(created.dir, "questions.json"))).toBe(false);
     await expect(
@@ -350,7 +305,7 @@ describe("review home", () => {
     ).resolves.toContain('"pullRequestNumber": 673');
   });
 
-  it("describes pull request, diff, and comment metadata for the home view", async () => {
+  it("describes pull request and diff metadata for the home view", async () => {
     const root = await gitRepository();
     await reviewHome();
 
@@ -368,14 +323,6 @@ describe("review home", () => {
       sourceIdentity: { kind: "git-branch", name: "feature/home" },
       pullRequestNumber: 673,
       pullRequestUrl: "https://github.com/Fix-Fast/dev/pull/673",
-    });
-
-    appendReviewComment(path.join(created.dir, "review.mdx"), {
-      threadId: "thread-1",
-      messageId: "message-1",
-      target: { kind: "document" },
-      body: "Review this.",
-      author: "reviewer",
     });
 
     const documentUpdatedAt = (
@@ -398,29 +345,7 @@ describe("review home", () => {
       pullRequestNumber: 673,
       pullRequestUrl: "https://github.com/Fix-Fast/dev/pull/673",
       diffStats: { fileCount: 1, additions: 1, deletions: 0 },
-      commentCount: 1,
       documentUpdatedAt,
-    });
-  });
-
-  it("rejects a read-only descriptor when the review has no thread database", async () => {
-    const root = await gitRepository();
-    await reviewHome();
-    const baseCommit = await git(root, ["rev-parse", "HEAD"]);
-
-    const created = await createReviewDir({
-      worktreePath: root,
-      baseRef: baseCommit,
-      baseCommit,
-      sourceCommit: baseCommit,
-    });
-
-    await rm(reviewThreadDbPath(path.join(created.dir, "review.mdx")));
-    await expect(
-      reviewDescriptor(created, { threads: "read-only" }),
-    ).rejects.toThrow("thread database is unavailable");
-    await expect(reviewDescriptor(created)).resolves.toMatchObject({
-      commentCount: 0,
     });
   });
 
@@ -478,137 +403,6 @@ describe("review home", () => {
     await expect(reviewDescriptor(samePin)).resolves.toMatchObject({
       diffStats: null,
       commits: [],
-    });
-  });
-
-  it("remaps code threads when the pinned head moves and keeps outdated threads detached", async () => {
-    const root = await gitRepository();
-    await reviewHome();
-
-    await writeFile(
-      path.join(root, "example.ts"),
-      "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
-    );
-    await git(root, ["add", "."]);
-    await git(root, ["commit", "-m", "add example"]);
-    const originalCommit = await git(root, ["rev-parse", "HEAD"]);
-
-    const created = await createReviewDir({
-      worktreePath: root,
-      baseRef: "main",
-      baseCommit: originalCommit,
-      sourceCommit: originalCommit,
-      sourceIdentity: { kind: "git-branch", name: "main" },
-    });
-
-    const reviewPath = path.join(created.dir, "review.mdx");
-
-    const originalPosition = createGitLabTextDiffPosition({
-      base_sha: originalCommit,
-      start_sha: originalCommit,
-      head_sha: originalCommit,
-      old_path: "example.ts",
-      new_path: "example.ts",
-      start: { old_line: null, new_line: 8 },
-      end: { old_line: null, new_line: 9 },
-    });
-
-    const originalTarget = {
-      kind: "code" as const,
-      original_position: originalPosition,
-      position: originalPosition,
-    };
-
-    appendReviewComment(reviewPath, {
-      threadId: "thread-1",
-      messageId: "message-1",
-      target: originalTarget,
-      body: "Keep this range",
-      author: "Reviewer",
-    });
-
-    await git(root, ["mv", "example.ts", "renamed.ts"]);
-    await writeFile(
-      path.join(root, "renamed.ts"),
-      "one\ninserted one\ninserted two\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
-    );
-    await git(root, ["add", "."]);
-    await git(root, ["commit", "-m", "insert lines"]);
-    const movedCommit = await git(root, ["rev-parse", "HEAD"]);
-
-    const movedReview = await updateReviewPins(created, {
-      baseRef: "main",
-      baseCommit: originalCommit,
-      sourceCommit: movedCommit,
-      sourceIdentity: { kind: "git-branch", name: "main" },
-      sourceSession: created.review.sourceSession,
-    });
-
-    const moved = readReviewComments(reviewPath)["thread-1"]!;
-
-    if (moved.target.kind !== "code") throw new Error("Expected code target.");
-    expect(moved.target.original_position).toEqual(originalPosition);
-    expect(moved.target.position).toMatchObject({
-      head_sha: movedCommit,
-      new_path: "renamed.ts",
-    });
-    expect(gitLabDiffPositionRows(moved.target.position)).toEqual({
-      start: { old_line: null, new_line: 10 },
-      end: { old_line: null, new_line: 11 },
-    });
-
-    await writeFile(
-      path.join(root, "renamed.ts"),
-      "one\ninserted one\ninserted two\ntwo\nthree\nfour\nfive\nsix\nseven\nchanged\nnine\nten\n",
-    );
-    await git(root, ["add", "."]);
-    await git(root, ["commit", "-m", "change selected line"]);
-    const changedCommit = await git(root, ["rev-parse", "HEAD"]);
-
-    const outdatedReview = await updateReviewPins(movedReview, {
-      baseRef: "main",
-      baseCommit: originalCommit,
-      sourceCommit: changedCommit,
-      sourceIdentity: { kind: "git-branch", name: "main" },
-      sourceSession: movedReview.review.sourceSession,
-    });
-
-    const outdated = readReviewComments(reviewPath)["thread-1"]!;
-
-    if (outdated.target.kind !== "code") {
-      throw new Error("Expected code target.");
-    }
-
-    expect(outdated.target.position).toEqual(moved.target.position);
-    expect(outdated.target.change_position).toMatchObject({
-      head_sha: changedCommit,
-      new_path: "renamed.ts",
-    });
-
-    await writeFile(
-      path.join(root, "renamed.ts"),
-      "one\ninserted one\ninserted two\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
-    );
-    await git(root, ["add", "."]);
-    await git(root, ["commit", "-m", "restore selected line"]);
-    const restoredCommit = await git(root, ["rev-parse", "HEAD"]);
-    await updateReviewPins(outdatedReview, {
-      baseRef: "main",
-      baseCommit: originalCommit,
-      sourceCommit: restoredCommit,
-      sourceIdentity: { kind: "git-branch", name: "main" },
-      sourceSession: outdatedReview.review.sourceSession,
-    });
-    const stillOutdated = readReviewComments(reviewPath)["thread-1"]!;
-
-    if (stillOutdated.target.kind !== "code") {
-      throw new Error("Expected code target.");
-    }
-
-    expect(stillOutdated.target.position).toEqual(moved.target.position);
-    expect(stillOutdated.target.change_position).toMatchObject({
-      head_sha: restoredCommit,
-      new_path: "renamed.ts",
     });
   });
 

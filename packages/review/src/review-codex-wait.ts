@@ -97,7 +97,7 @@ export function codexReviewWakePrompt(result: ReviewWaitResult): string {
     return [
       "<automated_message>",
       `This is an automated message from dev.fast Review. The reviewer deleted review ${result.uuid} (\"${result.review.review.title}\").`,
-      "The review and its threads no longer exist. Do not wait on or publish to this review again; continue without it.",
+      "The review no longer exists. Do not wait on or publish to this review again; continue without it.",
       "</automated_message>",
     ].join("\n");
   }
@@ -114,8 +114,7 @@ export function codexReviewWakePrompt(result: ReviewWaitResult): string {
   return [
     "<automated_message>",
     `This is an automated message from dev.fast Review. Review ${result.uuid} (\"${result.review.review.title}\") requires your attention.`,
-    `Status: ${result.status}. Decision: ${result.decision ?? "none"}. Open threads: ${result.openThreads}.`,
-    `Run \`review threads list --review ${result.uuid}\`. Address every open thread and resolve each one with \`review threads resolve <threadId> --review ${result.uuid}\`. List the threads again. Re-publish only when no open threads remain.`,
+    `Status: ${result.status}.`,
     `Run \`review wait --requires-agent --codex --review ${result.uuid}\` again if you need to block for the next reviewer action.`,
     "</automated_message>",
   ].join("\n");

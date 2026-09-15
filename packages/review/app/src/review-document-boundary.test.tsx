@@ -61,7 +61,7 @@ describe("ReviewDocumentBoundary", () => {
     await act(async () => {
       root.render(
         <StrictMode>
-          <div data-testid="shell">Files Map Threads</div>
+          <div data-testid="shell">Files Map Trace</div>
           <ReviewDocumentBoundary
             key="bad-1"
             revision="bad-1"
@@ -75,7 +75,7 @@ describe("ReviewDocumentBoundary", () => {
     });
 
     expect(container.querySelector('[data-testid="shell"]')?.textContent).toBe(
-      "Files Map Threads",
+      "Files Map Trace",
     );
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
       "Your coding agent is writing the canvas now",
@@ -99,7 +99,7 @@ describe("ReviewDocumentBoundary", () => {
     await act(async () => {
       root.render(
         <StrictMode>
-          <div data-testid="shell">Files Map Threads</div>
+          <div data-testid="shell">Files Map Trace</div>
           <ReviewDocumentBoundary
             key="good-2"
             revision="good-2"

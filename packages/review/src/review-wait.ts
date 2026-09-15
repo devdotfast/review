@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { Writable } from "node:stream";
 
 import {
@@ -9,18 +8,9 @@ import {
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { resolvePublishReview } from "./publish-preparation";
 import type { StoredReview } from "./review-home";
-import { readReviewComments } from "./review-state-store";
 import { resolveReviewRoot } from "./runtime";
 
 const DEFAULT_TIMEOUT_SECONDS = 3600;
-
-/** Count open comment threads stored for a UUID Review directory. */
-function readOpenReviewThreadCount(reviewDir: string): number {
-  const threads = readReviewComments(path.join(reviewDir, "review.mdx"));
-
-  return Object.values(threads).filter((thread) => thread.status === "open")
-    .length;
-}
 
 type ReviewStatus = StoredReview["review"]["status"];
 
@@ -51,8 +41,6 @@ export type ReviewWaitResult =
       event: "review-status";
       uuid: string;
       status: ReviewStatus;
-      decision?: ReviewStatusChange["decision"];
-      openThreads: number;
       occurredAtMs: number;
       review: StoredReview;
     }
@@ -80,7 +68,6 @@ export interface ReviewWaitDependencies {
   fetch: typeof fetch;
   now(): number;
   readDesktopDiscovery: typeof readReviewDesktopDiscovery;
-  readOpenReviewThreadCount: typeof readOpenReviewThreadCount;
   resolvePublishReview: typeof resolvePublishReview;
   resolveReviewRoot: typeof resolveReviewRoot;
 }
@@ -89,7 +76,6 @@ const defaultReviewWaitDependencies: ReviewWaitDependencies = {
   fetch,
   now: Date.now,
   readDesktopDiscovery: readReviewDesktopDiscovery,
-  readOpenReviewThreadCount,
   resolvePublishReview,
   resolveReviewRoot,
 };
@@ -99,8 +85,6 @@ interface ReviewWaitJsonOutput {
   event: string;
   uuid: string;
   status: ReviewStatus;
-  decision?: ReviewStatusChange["decision"];
-  openThreads: number;
 }
 
 export async function runReviewWait(
@@ -193,7 +177,6 @@ export async function waitForReviewAction(
       event: "review-status",
       uuid: review.review.uuid,
       status: review.review.status,
-      openThreads: await dependencies.readOpenReviewThreadCount(review.dir),
       occurredAtMs: dependencies.now(),
       review,
     };
@@ -229,7 +212,6 @@ export async function waitForReviewAction(
   }
 
   if (result.event === "review-deleted") {
-    // The review directory is gone; do not read thread state from it.
     return {
       event: "review-deleted",
       uuid: result.uuid,
@@ -247,18 +229,13 @@ export async function waitForReviewAction(
     };
   }
 
-  const status: ReviewWaitResult = {
+  return {
     event: "review-status",
     uuid: result.uuid,
     status: result.status,
-    openThreads: await dependencies.readOpenReviewThreadCount(review.dir),
     occurredAtMs: dependencies.now(),
     review,
   };
-
-  if (result.decision) status.decision = result.decision;
-
-  return status;
 }
 
 export function reviewRequiresAgentAction(status: ReviewStatus): boolean {
@@ -310,14 +287,10 @@ function writeWaitResult(stdout: Writable, result: ReviewWaitResult): void {
     return;
   }
 
-  // JSON.stringify omits an undefined decision; the key order is the CLI's
-  // documented output shape.
   const output: ReviewWaitJsonOutput = {
     event: result.event,
     uuid: result.uuid,
     status: result.status,
-    decision: result.decision,
-    openThreads: result.openThreads,
   };
 
   stdout.write(`${JSON.stringify(output)}\n`);

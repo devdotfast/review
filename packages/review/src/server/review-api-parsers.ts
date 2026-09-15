@@ -1,21 +1,12 @@
 import {
-  CreateReviewCommentInputSchema,
   type JsonValue,
   ReviewBugReportRequestSchema,
   ReviewDiffFilesRequestSchema,
-  ReviewThreadsCommandSchema,
-  ThreadTargetSchema,
   parseZod,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import type { ReviewTabTelemetryEvent } from "../telemetry";
-import type {
-  CreateReviewCommentInput,
-  CreateReviewSubmissionInput,
-  ThreadTarget,
-  UpdateReviewCommentInput,
-} from "../types";
 import { HttpJsonError } from "./http-json";
 
 const MIN_REVIEW_TAB_DWELL_MS = 250;
@@ -140,12 +131,6 @@ export const SoftwareMapCoverageClaimInputSchema = z.strictObject({
   globs: z.array(z.string()).optional(),
 });
 
-export const ReviewSubmissionInputSchema = z.strictObject({
-  submissionId: nonEmptyStringSchema,
-  decision: z.enum(["approve", "request-changes"]),
-  comments: z.array(CreateReviewCommentInputSchema),
-});
-
 export const ReviewTabTelemetryInputSchema = z
   .strictObject({
     tab: z.enum(["review", "commits", "map", "files", "trace"], {
@@ -170,16 +155,6 @@ export const ReviewTabTelemetryInputSchema = z
     durationMs: event.duration_ms,
     appSessionId: event.app_session_id,
   }));
-
-export const UpdateReviewCommentInputSchema = z.strictObject({
-  status: z
-    .enum(["open", "resolved"], {
-      error: "status must be open or resolved",
-    })
-    .optional(),
-  body: z.string({ error: "body must be a string" }).optional(),
-  messageId: nonEmptyStringSchema.optional(),
-});
 
 export function requestJsonErrorStatus(cause: unknown): number {
   return cause instanceof HttpJsonError ? cause.statusCode : 400;
@@ -215,12 +190,6 @@ export function parseSoftwareMapCoverageClaims(value: JsonValue | undefined) {
   );
 }
 
-export function parseReviewSubmissionInput(
-  value: JsonValue,
-): CreateReviewSubmissionInput {
-  return parseZod(ReviewSubmissionInputSchema, value, "Review submission");
-}
-
 export function parseReviewTabTelemetryInput(
   value: JsonValue,
 ): ReviewTabTelemetryEvent {
@@ -239,42 +208,4 @@ export function parseReviewDiffFilesInput(value: JsonValue) {
     paths: input.paths,
     commit: input.commit,
   };
-}
-
-export function parseReviewCommentInput(
-  value: JsonValue,
-): CreateReviewCommentInput {
-  return parseZod(CreateReviewCommentInputSchema, value, "Review comment");
-}
-
-export function parseReviewThreadsCommand(value: JsonValue) {
-  return parseZod(ReviewThreadsCommandSchema, value, "Review thread command");
-}
-
-export function parseUpdateReviewCommentInput(
-  value: JsonValue,
-): UpdateReviewCommentInput {
-  return parseZod(UpdateReviewCommentInputSchema, value, "Comment update");
-}
-
-export function parseReviewCommentMessagePath(
-  pathname: string,
-): { threadId: string; messageId: string } | null {
-  const match = pathname.match(
-    /^\/__progressive-review\/comments\/([^/]+)\/messages\/([^/]+)$/,
-  );
-
-  if (!match) return null;
-
-  return {
-    threadId: decodeURIComponent(match[1]),
-    messageId: decodeURIComponent(match[2]),
-  };
-}
-
-export function parseThreadTarget(
-  value: JsonValue,
-  label: string,
-): ThreadTarget {
-  return parseZod(ThreadTargetSchema, value, label, true);
 }

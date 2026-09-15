@@ -56,7 +56,7 @@ export interface UiTelemetryEventSpec {
   readonly properties: Readonly<Record<string, UiTelemetryPropertySpec>>;
 }
 
-const PEEK_VIA = ["prose_link", "diagram", "marker", "map", "db_lens"] as const;
+const PEEK_VIA = ["prose_link", "diagram", "map", "db_lens"] as const;
 
 export const LSP_FEATURE = [
   "hover",
@@ -138,13 +138,7 @@ const PEEK_ROOT_KIND = ["symbol", "declaration", "range"] as const;
 
 const MAP_LEVEL = ["system", "container", "component", "code"] as const;
 
-const THREAD_INTENT = ["comment", "ask-agent"] as const;
-
-const NEW_ASK_VIA = ["topbar", "threads_panel"] as const;
-
 const SOURCE_TREE_OPENED_VIA = ["topbar", "home"] as const;
-
-const THREAD_RESOLUTION_KIND = ["comment"] as const;
 
 const TAB = ["review", "commits", "map", "files", "trace"] as const;
 
@@ -288,18 +282,6 @@ export const UI_TELEMETRY_EVENTS = {
     event: "review_commit_diff_opened",
     properties: { via: COMMIT_DIFF_VIA },
   },
-  thread_draft_opened: {
-    event: "review_thread_draft_opened",
-    properties: { intent: THREAD_INTENT },
-  },
-  threads_opened: {
-    event: "review_threads_opened",
-    properties: { thread_count: "number" },
-  },
-  new_ask_opened: {
-    event: "review_new_ask_opened",
-    properties: { via: NEW_ASK_VIA },
-  },
   source_tree_opened: {
     event: "review_source_tree_opened",
     properties: { via: SOURCE_TREE_OPENED_VIA },
@@ -307,18 +289,6 @@ export const UI_TELEMETRY_EVENTS = {
   diff_layout_changed: {
     event: "review_diff_layout_changed",
     properties: { layout: REVIEW_DIFF_LAYOUTS },
-  },
-  comment_created: {
-    event: "review_comment_created",
-    properties: { is_reply: "boolean" },
-  },
-  agent_run_started: {
-    event: "review_agent_run_started",
-    properties: {},
-  },
-  thread_resolved: {
-    event: "review_thread_resolved",
-    properties: { kind: THREAD_RESOLUTION_KIND },
   },
   // Dismissal replaced the old reject decision: the reader is finished with the
   // review, whether or not they liked the change.
@@ -330,13 +300,6 @@ export const UI_TELEMETRY_EVENTS = {
   review_restored: {
     event: "review_review_restored",
     properties: { via: REVIEW_RESTORED_VIA },
-  },
-  review_submitted: {
-    event: "review_review_submitted",
-    properties: {
-      decision: ["approve", "request-changes"],
-      comment_count: "number",
-    },
   },
   client_error: {
     event: "review_client_error",

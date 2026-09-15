@@ -612,7 +612,7 @@ describe("migrateStoredReviewData", () => {
     ).resolves.toBeDefined();
   });
 
-  it("preserves a legacy draft and legacy thread files", async () => {
+  it("preserves a legacy draft and untouched legacy files", async () => {
     const reviewHome = await tempDir("review-migration-");
     const sourceRoot = await gitRepository();
 
@@ -660,8 +660,6 @@ describe("migrateStoredReviewData", () => {
       documents: 1,
       droppedLegacyPeekReviews: 0,
       droppedReviews: 0,
-      droppedComments: 0,
-      droppedQuestions: 0,
     });
     await expect(
       readFile(path.join(created.dir, "review.json"), "utf8"),
@@ -858,7 +856,6 @@ describe("migrateStoredReviewData", () => {
     const repeated = await migrateStoredReviewData({ reviewHome });
     expect(repeated).toMatchObject({
       documents: 1,
-      upgradedThreadDatabases: 0,
       droppedReviews: 0,
     });
     expect(materialize).not.toHaveBeenCalled();
@@ -1031,7 +1028,6 @@ describe("migrateStoredReview", () => {
     const first = await migrateStoredReview({ reviewDir: created.dir });
 
     expect(first.migrated).toBe(true);
-    expect(first.threadDbError).toBeUndefined();
     const record = await readReviewRecord(created.dir);
     expect(record).toMatchObject({
       schemaVersion: 5,

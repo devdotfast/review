@@ -334,7 +334,10 @@ one of these entries:
   Finally, it does not register `IAgentNetworkFilterService`,
   `IWebContentExtractorService`, or the `webContentExtractor` IPC channel. No
   Review surface reaches them, and leaving the channel registered exposes a
-  service with no consumer.
+  service with no consumer. Nor does it register `ILocalPtyService` (the
+  `PtyHostService` and its `ElectronPtyHostStarter`) or the `localPty` IPC
+  channel: Review's workbench loads no terminal contribution, so nothing would
+  ever request a pty host connection.
 - `src/vs/code/electron-utility/sharedProcess/sharedProcessMain.ts`: does not
   register `ISharedWebContentExtractorService`, the `sharedWebContentExtractor`
   channel, or the `playwright` channel and the network filter it is constructed

@@ -29,9 +29,6 @@ const TOC_RAIL_MIN_SHELL_WIDTH = 1360;
 /** How far below the scroll viewport's top edge a heading counts as reached. */
 const ACTIVE_HEADING_TOP_SLACK_PX = 24;
 
-const REVIEW_LAYER_SELECTOR =
-  ".review-annotations, .review-margin-threads, .thread-popover";
-
 export function ReviewToc(): ReactElement | null {
   const roots = useReviewRoots();
   const shellRef = roots?.shellRef;
@@ -400,9 +397,7 @@ function numberReviewTocEntries(
 }
 
 function collectHeadingEntries(article: HTMLElement): ReviewTocEntry[] {
-  const headings = [
-    ...article.querySelectorAll<HTMLHeadingElement>("h2, h3"),
-  ].filter((heading) => !heading.closest(REVIEW_LAYER_SELECTOR));
+  const headings = [...article.querySelectorAll<HTMLHeadingElement>("h2, h3")];
 
   const usedIds = new Set(
     headings

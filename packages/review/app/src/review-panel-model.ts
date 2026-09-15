@@ -50,36 +50,6 @@ export interface CommitDiffPanel {
   file: ReviewDiffFileWire;
 }
 
-export interface ThreadsListPage {
-  kind: "list";
-}
-
-export interface NewAskPage {
-  kind: "new-ask";
-}
-
-export interface CommentThreadPage {
-  kind: "comment";
-  threadId: string;
-}
-
-export type ThreadsPage = ThreadsListPage | NewAskPage | CommentThreadPage;
-
-export interface ThreadsPanel {
-  kind: "threads";
-  page: ThreadsPage;
-}
-
-export type ReviewPanel =
-  | PeekPanel
-  | TourPanel
-  | CommitDiffPanel
-  | ThreadsPanel;
+export type ReviewPanel = PeekPanel | TourPanel | CommitDiffPanel;
 
 export type ReviewPanelMotion = "live" | "restored";
-
-export function isDetailPanel(
-  panel: ReviewPanel | null,
-): panel is PeekPanel | TourPanel | CommitDiffPanel {
-  return panel !== null && panel.kind !== "threads";
-}

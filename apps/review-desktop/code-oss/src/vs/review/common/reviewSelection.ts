@@ -21,7 +21,3 @@ export function reviewSelectionRange(
 		toLine: Math.max(start.lineNumber, endLine)
 	};
 }
-
-export function reviewSelectionSide(scheme: string): 'base' | 'head' {
-	return scheme === 'devfast-review-base' ? 'base' : 'head';
-}

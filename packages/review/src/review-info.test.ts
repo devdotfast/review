@@ -9,45 +9,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareReviewPublish } from "./publish-preparation";
 import { createReviewDir } from "./review-home";
 import { resolveReviewInfo } from "./review-info-resolver";
-import { runReviewRebind as rebindReview } from "./review-rebind";
-import {
-  type RunReviewScaffoldInput,
-  runReviewScaffold as scaffoldReview,
-} from "./review-scaffold";
-import type { createReviewSourceAgentSession } from "./review-source-agent-session";
+import { runReviewRebind } from "./review-rebind";
+import { runReviewScaffold } from "./review-scaffold";
 import { reviewSourceHeadRef } from "./review-source-ref";
-import { appendReviewComment, updateReviewComment } from "./review-state-store";
 import {
   cleanupTempDirs,
   gitRepository,
   reviewHome,
   tempDir,
 } from "./review-test-utils";
-import { closeAllReviewThreadStores } from "./review-thread-store-backend";
 
 const execFilePromise = promisify(execFile);
 
 afterEach(async () => {
-  closeAllReviewThreadStores();
   await cleanupTempDirs();
 });
-
-// The native fork needs a live harness transcript; stand in a deterministic
-// fork so scaffold and rebind can bind a source session from env alone.
-const createSourceAgentSession = vi.fn<typeof createReviewSourceAgentSession>(
-  async ({ agent }) => ({
-    harness: agent.harness,
-    sessionId: `${agent.sessionId}-fork`,
-  }),
-);
-
-function runReviewScaffold(input: RunReviewScaffoldInput) {
-  return scaffoldReview({ ...input, createSourceAgentSession });
-}
-
-function runReviewRebind(input: Parameters<typeof rebindReview>[0]) {
-  return rebindReview({ ...input, createSourceAgentSession });
-}
 
 describe("review info", () => {
   it("returns an empty list without creating a review", async () => {
@@ -69,7 +45,7 @@ describe("review info", () => {
     });
   });
 
-  it("scaffolds a distinct UUID review and info reports it with comment state", async () => {
+  it("scaffolds a distinct UUID review and info reports it", async () => {
     const root = await gitRepository();
     await reviewHome();
 
@@ -86,7 +62,6 @@ describe("review info", () => {
           change: expect.any(String),
           inSync: true,
           matchesCheckout: true,
-          unresolvedComments: 0,
           status: "draft",
           title: "Progressive Review",
         },
@@ -97,32 +72,17 @@ describe("review info", () => {
       await readFile(path.join(created.reviews[0]!.dir, "review.json"), "utf8"),
     );
 
-    expect(reviewJson.sourceSession).toBe("codex:thread-1-fork");
+    expect(reviewJson.sourceSession).toBe("codex:thread-1");
     expect(reviewJson.baseRef).toEqual(expect.any(String));
     expect(created.reviews[0]?.change).toBe(reviewJson.sourceIdentity?.name);
     await expect(
       git(root, ["rev-parse", reviewSourceHeadRef(created.reviews[0]!.uuid)]),
     ).resolves.toBe(reviewJson.sourceCommit);
-    const document = path.join(created.reviews[0]!.dir, "review.mdx");
-
-    for (const threadId of ["open-thread", "resolved-thread"]) {
-      appendReviewComment(document, {
-        threadId,
-        messageId: `${threadId}-message`,
-        target: { kind: "document" },
-        body: "Please take a look.",
-        author: "Reviewer",
-      });
-    }
-
-    updateReviewComment(document, "resolved-thread", { status: "resolved" });
-
     const reused = await resolveReviewInfo({ cwd: root });
     expect(reused.reviews).toHaveLength(1);
     expect(reused.reviews[0]).toMatchObject({
       uuid: created.reviews[0]?.uuid,
       dir: created.reviews[0]?.dir,
-      unresolvedComments: 1,
     });
   });
 
@@ -434,7 +394,7 @@ describe("review info", () => {
     expect(reviewJson.sourceCommit).toBe(movedHead);
     expect(reviewJson.baseCommit).toBe(forkPoint);
     expect(reviewJson.baseRef).toBe("main");
-    expect(reviewJson.sourceSession).toBe("claude-code:update-1-fork");
+    expect(reviewJson.sourceSession).toBe("claude-code:update-1");
 
     const rebased = await runReviewScaffold({
       cwd: root,
@@ -675,86 +635,46 @@ describe("review info", () => {
     ).resolves.toBe(refBefore);
   });
 
-  it.each([false, true])(
-    "rebind re-pins the review unless its identity changes concurrently=%s",
-    async (concurrentChange) => {
-      const root = await gitRepository();
-      await reviewHome();
+  it("rebind re-pins the review", async () => {
+    const root = await gitRepository();
+    await reviewHome();
 
-      await git(root, ["checkout", "-b", "feature"]);
-      await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
-      await git(root, ["commit", "-am", "feature"]);
+    await git(root, ["checkout", "-b", "feature"]);
+    await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
+    await git(root, ["commit", "-am", "feature"]);
 
-      const created = await runReviewScaffold({
-        cwd: root,
-        baseRef: "main",
-        headRef: "feature",
-      });
+    const created = await runReviewScaffold({
+      cwd: root,
+      baseRef: "main",
+      headRef: "feature",
+    });
 
-      await git(root, ["checkout", "main"]);
-      await git(root, ["checkout", "-b", "other"]);
-      await writeFile(path.join(root, "other.txt"), "other\n", "utf8");
-      await git(root, ["add", "."]);
-      await git(root, ["commit", "-m", "other"]);
-      const otherTip = await git(root, ["rev-parse", "HEAD"]);
-      const recordPath = path.join(created.reviews[0]!.dir, "review.json");
-      const original = JSON.parse(await readFile(recordPath, "utf8"));
+    await git(root, ["checkout", "main"]);
+    await git(root, ["checkout", "-b", "other"]);
+    await writeFile(path.join(root, "other.txt"), "other\n", "utf8");
+    await git(root, ["add", "."]);
+    await git(root, ["commit", "-m", "other"]);
+    const otherTip = await git(root, ["rev-parse", "HEAD"]);
 
-      if (concurrentChange) {
-        createSourceAgentSession.mockImplementationOnce(async ({ agent }) => {
-          await writeFile(
-            recordPath,
-            JSON.stringify({
-              ...original,
-              sourceIdentity: { kind: "git-branch", name: "competing" },
-            }),
-          );
+    await runReviewRebind({
+      cwd: root,
+      change: "other",
+      reviewUuid: created.reviews[0]!.uuid,
+      env: { CODEX_THREAD_ID: "rebind-1" },
+      stdout: nullStream(),
+    });
 
-          return {
-            harness: agent.harness,
-            sessionId: `${agent.sessionId}-fork`,
-          };
-        });
-      }
+    const reviewJson = JSON.parse(
+      await readFile(path.join(created.reviews[0]!.dir, "review.json"), "utf8"),
+    );
 
-      const rebinding = runReviewRebind({
-        cwd: root,
-        change: "other",
-        reviewUuid: created.reviews[0]!.uuid,
-        env: { CODEX_THREAD_ID: "rebind-1" },
-        stdout: nullStream(),
-      });
-
-      const outcome = await rebinding.then(
-        () => "rebound",
-        (error) => String(error),
-      );
-
-      expect(outcome).toMatch(
-        concurrentChange
-          ? /Review changed while preparing publication/
-          : /^rebound$/,
-      );
-
-      const reviewJson = JSON.parse(
-        await readFile(
-          path.join(created.reviews[0]!.dir, "review.json"),
-          "utf8",
-        ),
-      );
-
-      expect(reviewJson.sourceIdentity).toEqual({
-        kind: "git-branch",
-        name: concurrentChange ? "competing" : "other",
-      });
-      expect(reviewJson.sourceCommit).toBe(
-        concurrentChange ? original.sourceCommit : otherTip,
-      );
-      expect(reviewJson.sourceSession).toBe(
-        concurrentChange ? original.sourceSession : "codex:rebind-1-fork",
-      );
-    },
-  );
+    expect(reviewJson.sourceIdentity).toEqual({
+      kind: "git-branch",
+      name: "other",
+    });
+    expect(reviewJson.sourceCommit).toBe(otherTip);
+    expect(reviewJson.sourceSession).toBe("codex:rebind-1");
+  });
 
   it("rebind failure leaves review.json untouched when the merge base is missing", async () => {
     const root = await gitRepository();
@@ -813,63 +733,6 @@ describe("review info", () => {
     expect(prepared.sourceCommit).toBe(featureTip);
     expect(prepared.sourceBranch).toBe("feature");
     expect(prepared).not.toHaveProperty("warnings");
-  });
-
-  it("rebind failure leaves review.json untouched when agent session creation fails", async () => {
-    const root = await gitRepository();
-    await reviewHome();
-
-    await git(root, ["checkout", "-b", "feature"]);
-    await writeFile(path.join(root, "README.md"), "# Feature\n", "utf8");
-    await git(root, ["commit", "-am", "feature"]);
-    const featureTip = await git(root, ["rev-parse", "feature"]);
-    const mainTip = await git(root, ["rev-parse", "main"]);
-
-    const created = await runReviewScaffold({
-      cwd: root,
-      baseRef: "main",
-      headRef: "feature",
-    });
-
-    const uuid = created.reviews[0]!.uuid;
-    const reviewDir = created.reviews[0]!.dir;
-
-    const before = JSON.parse(
-      await readFile(path.join(reviewDir, "review.json"), "utf8"),
-    );
-
-    await git(root, ["checkout", "main"]);
-    await git(root, ["checkout", "-b", "other"]);
-    await writeFile(path.join(root, "other.txt"), "other\n", "utf8");
-    await git(root, ["add", "."]);
-    await git(root, ["commit", "-m", "other"]);
-
-    createSourceAgentSession.mockRejectedValueOnce(
-      new Error("agent session creation failed"),
-    );
-
-    await expect(
-      runReviewRebind({
-        cwd: root,
-        change: "other",
-        reviewUuid: uuid,
-        env: { CODEX_THREAD_ID: "rebind-fail-session" },
-        stdout: nullStream(),
-      }),
-    ).rejects.toThrow(/agent session creation failed/);
-
-    const after = JSON.parse(
-      await readFile(path.join(reviewDir, "review.json"), "utf8"),
-    );
-
-    expect(after.sourceIdentity).toEqual({
-      kind: "git-branch",
-      name: "feature",
-    });
-    expect(after.sourceCommit).toBe(before.sourceCommit);
-    expect(after.baseCommit).toBe(before.baseCommit);
-    expect(after.sourceCommit).toBe(featureTip);
-    expect(after.baseCommit).toBe(mainTip);
   });
 
   it("fails loudly when base and head share no ancestor", async () => {

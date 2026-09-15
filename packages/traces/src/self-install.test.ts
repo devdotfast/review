@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -232,6 +233,79 @@ describe("self install", () => {
     const second = await uninstallSelf({ homeDir: home, env, devHome });
     expect(second).toMatchObject({ removedShim: false, keptForeignShim: true });
     expect(await readFile(shimPath(home), "utf8")).toContain("someone else");
+  });
+
+  it("backs up a command file it did not write", async () => {
+    const foreign = "#!/bin/sh\necho someone else\n";
+    const binDir = path.dirname(shimPath(home));
+    await mkdir(binDir, { recursive: true });
+    await writeFile(shimPath(home), foreign, { mode: 0o755 });
+
+    const result = await install();
+
+    const backups = (await readdir(binDir)).filter((name) =>
+      name.startsWith("dev-traces.bak-"),
+    );
+
+    expect(backups).toHaveLength(1);
+    const backup = path.join(binDir, backups[0]!);
+    expect(await readFile(backup, "utf8")).toBe(foreign);
+    expect(result.output).toContain(
+      `[warn] moved your existing ~/.local/bin/dev-traces to ${backup}\n`,
+    );
+    expect(await readFile(shimPath(home), "utf8")).toContain(SHIM_MARKER);
+
+    // A shim of ours is never backed up, so a second install keeps one backup.
+    await install();
+    expect(
+      (await readdir(binDir)).filter((name) =>
+        name.startsWith("dev-traces.bak-"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the installed entry in place through a force reinstall", async () => {
+    await install();
+    expect((await install(true)).copied).toBe(true);
+    await expect(
+      stat(path.join(currentLink(devHome), "dist", "cli.js")),
+    ).resolves.toBeDefined();
+
+    const entries = await readdir(path.join(devHome, "traces", "versions"));
+    expect(
+      entries.some((name) => name.includes(".old-") || name.includes(".tmp-")),
+    ).toBe(false);
+  });
+
+  it("runs through the baked runtime when DEV_TRACES_NODE is absent", async () => {
+    // The quote in the directory name proves the shim quotes the baked path.
+    const runtimeDir = path.join(home, "run'time");
+    await mkdir(runtimeDir, { recursive: true });
+    const runtime = path.join(runtimeDir, "node");
+    await writeFile(runtime, `#!/bin/sh\nexec '${process.execPath}' "$@"\n`, {
+      mode: 0o755,
+    });
+    await chmod(runtime, 0o755);
+
+    await installSelf({
+      packageRoot,
+      homeDir: home,
+      env,
+      devHome,
+      execPath: runtime,
+      force: false,
+    });
+
+    const log = path.join(home, "baked.log");
+    await run("/bin/sh", [shimPath(home), "whoami"], {
+      env: {
+        HOME: home,
+        DEV_REVIEW_HOME: devHome,
+        PATH: path.join(home, "no-node"),
+        TRACE_TEST_LOG: log,
+      },
+    });
+    expect(await readFile(log, "utf8")).toBe("whoami\n");
   });
 
   it("reports the install state", async () => {

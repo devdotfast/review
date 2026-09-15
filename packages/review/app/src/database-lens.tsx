@@ -50,7 +50,6 @@ import {
   isDataStoreFieldLeaf,
 } from "./software-map/c4-projection";
 import type {
-  SoftwareDataStoreFieldLeaf,
   SoftwareDataStoreFieldSchema,
   SoftwareDataStoreForeignKeyRef,
 } from "./software-map/model";
@@ -75,7 +74,6 @@ export type {
   TargetRef,
 };
 
-export type FieldLeaf = SoftwareDataStoreFieldLeaf;
 
 export type FieldSchema = SoftwareDataStoreFieldSchema;
 
@@ -1133,21 +1131,6 @@ function resolveOperations(useCase: ParsedUseCase): ResolvedOperation[] {
 
 function actorNodeId(actor: ActorRef): string {
   return `actor:${actor.id}`;
-}
-
-function storesForUseCase(useCase: ParsedUseCase): string[] {
-  const stores = new Set<string>();
-
-  for (const operation of useCase.operations) {
-    const target =
-      operation.kind === "write"
-        ? targetRef(operation.to)
-        : targetRef(operation.from);
-
-    if (target) stores.add(target.collectionLabel);
-  }
-
-  return [...stores];
 }
 
 function actorRef(value: ActorRef | TargetRef): ActorRef | null {

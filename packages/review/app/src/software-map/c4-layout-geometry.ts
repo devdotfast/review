@@ -202,26 +202,6 @@ function inlineLayoutFromC4Layout(
   };
 }
 
-export async function createC4MapFlow(
-  snapshot: SoftwareMapResolvedSnapshot,
-  options: {
-    onSelectNode?: (node: SoftwareMapNodeSnapshot) => void;
-    onExpandNode?: (node: SoftwareMapNodeSnapshot) => void;
-    onCollapseNode?: (node: SoftwareMapNodeSnapshot) => void;
-    onDrillNode?: (node: SoftwareMapNodeSnapshot) => void;
-    nodeDimensions?: ReadonlyMap<string, C4NodeDimensions>;
-    relationshipStateById?: ReadonlyMap<string, "active" | "inactive">;
-  } = {},
-): Promise<{ nodes: C4MapAnyFlowNode[]; edges: ReactFlowEdge[] }> {
-  const { layout } = await runInlineC4Layout(
-    snapshot.nodes ?? [],
-    snapshot.relationships ?? [],
-    options.nodeDimensions,
-  );
-
-  return createC4MapFlowFromLayout(snapshot, layout, options);
-}
-
 export interface C4MapFlow {
   nodes: C4MapAnyFlowNode[];
   edges: ReactFlowEdge[];

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { markdownNodes, parseMarkdown } from "../markdown.js";
+
 /** Deliberately safe to show to API clients, unlike filesystem/provider errors. */
 export class ReviewInputError extends Error {
   constructor(
@@ -101,7 +103,13 @@ const operationSchema = z.strictObject({
 });
 
 const leafSchema = z.discriminatedUnion("type", [
-  z.strictObject({ ...identity, type: z.literal("markdown"), markdown: text }),
+  z.strictObject({
+    ...identity,
+    type: z.literal("markdown"),
+    markdown: text.describe(
+      "Safe Markdown. Use [label](review-source:head/path#L10-L24) or base for a validated native source peek.",
+    ),
+  }),
   z.strictObject({
     ...identity,
     type: z.literal("code"),
@@ -192,6 +200,43 @@ export function sourceReferences(
   document: Block[],
 ): { id: string; source: Source; label?: string }[] {
   return elements(document).flatMap((element) => {
+    if (element.type === "markdown")
+      return [...markdownNodes(parseMarkdown(element.markdown))].flatMap(
+        (node) => {
+          if (node.type !== "link" || !/^review-source:/i.test(node.url ?? ""))
+            return [];
+
+          const match =
+            /^review-source:(base|head)\/(.+)#L(\d+)(?:-L(\d+))?$/i.exec(
+              node.url!,
+            );
+
+          if (!match)
+            throw new ReviewInputError(
+              "Use review-source:head/path#L10-L24 (or base) for a source link.",
+            );
+          let file: string;
+
+          try {
+            file = decodeURIComponent(match[2]!);
+          } catch {
+            throw new ReviewInputError("Invalid URL encoding in source link.");
+          }
+
+          return [
+            {
+              id: `${element.id}:${node.url}`,
+              source: sourceSchema.parse({
+                side: match[1]!.toLowerCase(),
+                file,
+                fromLine: Number(match[3]),
+                toLine: Number(match[4] ?? match[3]),
+              }),
+            },
+          ];
+        },
+      );
+
     if (element.type === "call_stack_diff")
       return [...element.base, ...element.head].map((frame) => ({
         ...frame,

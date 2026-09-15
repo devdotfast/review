@@ -16,6 +16,7 @@ import {
   editSchema,
   elements,
   pinsSchema,
+  sourceReferences,
 } from "./document.js";
 
 const reviewId = z.string().min(1);
@@ -479,16 +480,9 @@ export class ReviewStore {
       const add = (source: Source) =>
         sources.set(JSON.stringify(source), source);
 
+      for (const { source } of sourceReferences(document)) add(source);
+
       for (const block of elements(document)) {
-        if ("source" in block && block.source) add(block.source);
-
-        if (block.type === "call_stack_diff")
-          for (const frame of [...block.base, ...block.head]) add(frame.source);
-
-        if (block.type === "database_lens")
-          for (const useCase of block.useCases)
-            for (const op of useCase.operations) add(op.source);
-
         if (
           block.type === "image" ||
           block.type === "trace_quote" ||

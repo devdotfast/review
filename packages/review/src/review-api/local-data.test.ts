@@ -80,6 +80,31 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it("validates Markdown source links against the pinned files before saving", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Links", pins }),
+  );
+
+  await insert(reviewId, {
+    type: "markdown",
+    markdown:
+      "[base](review-source:base/example.ts#L1) and [head](review-source:head/example.ts#L1-L2)",
+  });
+  const saved = local.store.read(reviewId);
+
+  for (const href of [
+    "review-source:base/example.ts#L2",
+    "review-source:head/missing.ts#L1",
+    "review-source:head/../secret.ts#L1",
+    "review-source:head/%2Fetc%2Fpasswd#L1",
+  ]) {
+    await expect(
+      insert(reviewId, { type: "markdown", markdown: `[bad](${href})` }),
+    ).rejects.toThrow(Error);
+    expect(local.store.read(reviewId)).toEqual(saved);
+  }
+});
+
 it("lists the version's commits and reads a selected commit's diff against its parent", async () => {
   const firstHead = pins.head;
   writeFileSync(

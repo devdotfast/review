@@ -25,7 +25,7 @@ import { RenderedCodeBlock } from "./code-block";
 import { ReviewCodePeek } from "./CodePeek";
 import { ResolvedDatabaseLens } from "./database-lens";
 import { ResolvedSequenceDiagram, type SequenceRef } from "./diagrams";
-import { ReviewSection } from "./review-components";
+import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import type { SoftwareMapResolvedDataPayload } from "./software-map/software-map-snapshot";
 import { SoftwareMap } from "./software-map/SoftwareMap";
@@ -227,7 +227,17 @@ function DocumentNode({ node, data }: { node: Block; data: ApiDocumentData }) {
   switch (node.type) {
     case "markdown":
       content = (
-        <MarkdownContent source={node.markdown} h1={ReviewDocumentTitle} />
+        <MarkdownContent
+          source={node.markdown}
+          h1={ReviewDocumentTitle}
+          renderLink={(href, children) => {
+            const anchor = data.anchors.get(`${node.id}:${href}`);
+
+            return anchor ? (
+              <AnchorLink anchor={anchor}>{children}</AnchorLink>
+            ) : undefined;
+          }}
+        />
       );
       break;
     case "code":

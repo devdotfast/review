@@ -3,9 +3,8 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { reviewUnifiedDiffDecorations, reviewUnifiedLineNumbers } from "./reviewUnifiedEditor.js";
+import { reportReviewUnifiedEditorError, reviewUnifiedDiffDecorations, reviewUnifiedLineNumbers } from "./reviewUnifiedEditor.js";
 import { Disposable } from "../../base/common/lifecycle.js";
-import { onUnexpectedError } from "../../base/common/errors.js";
 import { CodeEditorWidget } from "../../editor/browser/widget/codeEditor/codeEditorWidget.js";
 import { EditorOption } from "../../editor/common/config/editorOptions.js";
 import { Range } from "../../editor/common/core/range.js";
@@ -128,7 +127,13 @@ export class ReviewUnifiedFilesEditor extends Disposable {
         });
       })
       .catch((error) => {
-        if (!this._store.isDisposed) onUnexpectedError(error);
+        if (this._store.isDisposed) return;
+        reportReviewUnifiedEditorError(error, () => {
+          const status = container.ownerDocument.createElement("div");
+          status.setAttribute("role", "status");
+          status.textContent = "Inline preview unavailable";
+          container.replaceChildren(status);
+        });
       });
   }
 }

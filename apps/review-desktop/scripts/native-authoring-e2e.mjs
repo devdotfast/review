@@ -563,7 +563,7 @@ try {
   await page
     .getByRole("button", { name: "Review", exact: true, pressed: true })
     .waitFor();
-  // Missing sources use the workbench onDidError path, covered by InlineCodeEditor.test.tsx.
+  // InlineCodeEditor.test.tsx covers the unavailable state; missing-source integration uses the separate live smoke.
   // Seal a deliberately damaged snapshot in this disposable fixture to force
   // repair through editable sources, rather than merely testing a healthy noop.
   await rm(path.join(dir, ".bundle/document"), {

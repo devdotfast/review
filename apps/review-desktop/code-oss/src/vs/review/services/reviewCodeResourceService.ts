@@ -431,10 +431,22 @@ export class ReviewCodeResourceService
     resource: URI,
     target: ReviewCodeDiffTarget,
   ): Promise<ReviewUnifiedResourceEntry> {
-    const [originalReference, modifiedReference] = await Promise.all([
+    const [original, modified] = await Promise.allSettled([
       this.textModelService.createModelReference(target.original),
       this.textModelService.createModelReference(target.modified),
     ]);
+    // A missing side must also release the other side, even if that reference
+    // finishes loading after the failure. Preserve the resolver's error.
+    if (original.status === "rejected") {
+      if (modified.status === "fulfilled") modified.value.dispose();
+      throw original.reason;
+    }
+    if (modified.status === "rejected") {
+      original.value.dispose();
+      throw modified.reason;
+    }
+    const originalReference = original.value;
+    const modifiedReference = modified.value;
     const originalModel = originalReference.object.textEditorModel;
     const modifiedModel = modifiedReference.object.textEditorModel;
     if (!originalModel || !modifiedModel) {

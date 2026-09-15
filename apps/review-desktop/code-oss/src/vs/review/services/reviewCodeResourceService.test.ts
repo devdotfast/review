@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { Event } from "../../base/common/event.js";
 import { URI } from "../../base/common/uri.js";
+import { FileOperationError, FileOperationResult } from "../../platform/files/common/files.js";
 import {
   REVIEW_BASE_SCHEME,
   REVIEW_HEAD_SCHEME,
@@ -126,7 +127,7 @@ interface StubModel {
  * unified path needs: a model service that remembers what it created, a
  * resolver that hands back file-backed models, and a one-file diff service.
  */
-function createUnifiedHarness() {
+function createUnifiedHarness(beforeAcquire?: (resource: URI) => Promise<void>) {
   const models = new Map<string, StubModel>();
   const registrations: Array<{
     readonly scheme: string;
@@ -167,6 +168,7 @@ function createUnifiedHarness() {
       };
     },
     async createModelReference(resource: URI) {
+      await beforeAcquire?.(resource);
       const model = models.get(resource.toString());
       if (!model) throw new Error(`No model for ${resource.toString()}`);
       openReferences += 1;
@@ -301,6 +303,40 @@ test("unified diff references are released only when the last holder lets go", a
   );
   harness.service.dispose();
 });
+
+for (const missingSide of ["base", "head"] as const) {
+  test(`a missing ${missingSide} releases the other source reference and allows recovery`, async () => {
+    const failure = new FileOperationError("Pinned source missing", FileOperationResult.FILE_NOT_FOUND);
+    let missing = true;
+    let releaseOther!: () => void;
+    const otherReady = new Promise<void>((resolve) => { releaseOther = resolve; });
+    const harness = createUnifiedHarness(async (resource) => {
+      if (!missing || resource.scheme !== "file") return;
+      if (resource.path.includes(`/review-${missingSide}/`)) throw failure;
+      await otherReady;
+    });
+    try {
+      const acquisition = harness.service.acquireUnifiedDiff("src/example.ts", "head", []);
+      const rejected = assert.rejects(acquisition, (error) => error === failure);
+      // The other side resolves after the missing-file rejection.
+      await new Promise((resolve) => setImmediate(resolve));
+      releaseOther();
+      await rejected;
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(harness.openReferences(), 0);
+      assert.equal(harness.referenceDisposals.length, 1);
+      missing = false;
+      const recovered = await harness.service.acquireUnifiedDiff("src/example.ts", "head", []);
+      assert.ok(recovered);
+      assert.equal(harness.openReferences(), 3);
+      recovered.dispose();
+      assert.equal(harness.openReferences(), 0);
+    } finally {
+      releaseOther();
+      harness.service.dispose();
+    }
+  });
+}
 
 test("unified rows resolve back to the pinned base and head checkouts", async () => {
   const harness = createUnifiedHarness();

@@ -161,16 +161,51 @@ export class ReviewApiClient {
   }
 }
 
+type Result = { value?: JsonValue; error?: string } | null;
+
 type Listener = {
   subscription: Subscription;
+  signal: AbortSignal;
   accept(value: JsonValue | undefined): void | Promise<void>;
   disconnected(cause: unknown): void;
+  /** The newest undelivered result; replaced rather than queued while a render runs. */
+  queued?: Exclude<Result, null>;
+  draining?: boolean;
 };
+
+// Tabs mounting in separate frames share one replacement stream.
+const restartDelayMs = 20;
+
+const retryDelayMs = 1000;
+
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+function report(listener: Listener, cause: unknown) {
+  if (listener.signal.aborted) return;
+
+  try {
+    listener.disconnected(cause);
+  } catch {
+    // One tab's handler must not take the shared stream down for the others.
+  }
+}
 
 class LiveConnection {
   private readonly listeners = new Set<Listener>();
   private abort = new AbortController();
-  private running = Promise.resolve();
+  private active = false;
+  private scheduled: ReturnType<typeof setTimeout> | undefined;
   constructor(
     private readonly client: ReviewApiClient,
     private readonly empty: () => void,
@@ -182,7 +217,7 @@ class LiveConnection {
     accept: Listener["accept"],
     disconnected: Listener["disconnected"],
   ) {
-    const listener = { subscription, accept, disconnected };
+    const listener: Listener = { subscription, signal, accept, disconnected };
     this.listeners.add(listener);
     this.restart();
 
@@ -190,9 +225,16 @@ class LiveConnection {
       const stop = () => {
         signal.removeEventListener("abort", stop);
         this.listeners.delete(listener);
-        this.restart();
 
-        if (!this.listeners.size) this.empty();
+        if (this.listeners.size) this.restart();
+        else {
+          clearTimeout(this.scheduled);
+          this.scheduled = undefined;
+          this.abort.abort();
+          this.active = false;
+          this.empty();
+        }
+
         resolve();
       };
 
@@ -202,46 +244,52 @@ class LiveConnection {
     });
   }
 
+  /** The first tab connects at once; later tabs share one replacement stream. */
   private restart() {
+    if (this.scheduled) return;
+
+    if (!this.active) {
+      this.reconnect();
+
+      return;
+    }
+
+    this.scheduled = setTimeout(() => {
+      this.scheduled = undefined;
+      this.reconnect();
+    }, restartDelayMs);
+  }
+
+  private reconnect() {
     this.abort.abort();
     this.abort = new AbortController();
-    const { signal } = this.abort;
     const listeners = [...this.listeners];
-    // Finish an in-flight render before delivering a replacement stream's state.
-    this.running = this.running.then(async () => {
-      if (listeners.length && !signal.aborted)
-        await this.run(listeners, signal);
-    });
+    this.active = listeners.length > 0;
+
+    if (this.active) void this.run(listeners, this.abort.signal);
   }
 
   private async run(listeners: Listener[], signal: AbortSignal) {
     const disconnected = (cause: unknown) =>
-      listeners.forEach((listener) => listener.disconnected(cause));
+      listeners.forEach((listener) => report(listener, cause));
 
     let delay = 1000;
 
     while (!signal.aborted) {
       try {
-        for await (const values of this.client.watch<
-          Array<{ value?: JsonValue; error?: string }>
-        >(
+        for await (const results of this.client.watch<Result[]>(
           listeners.map((item) => item.subscription),
           signal,
         )) {
           if (signal.aborted) break;
           delay = 1000;
-          await Promise.all(
-            listeners.map(async (listener, index) => {
-              const result = values[index]!;
 
-              try {
-                if (result.error) throw new Error(result.error);
-                await listener.accept(result.value);
-              } catch (error) {
-                if (!signal.aborted) listener.disconnected(error);
-              }
-            }),
-          );
+          listeners.forEach((listener, index) => {
+            const result = results[index];
+
+            // null marks a subscription unchanged since the previous line.
+            if (result) this.deliver(listener, result);
+          });
         }
 
         if (!signal.aborted) disconnected(new Error("Connection closed."));
@@ -254,18 +302,39 @@ class LiveConnection {
           return;
       }
 
-      if (!signal.aborted)
-        await new Promise<void>((resolve) => {
-          const done = () => {
-            clearTimeout(timer);
-            signal.removeEventListener("abort", done);
-            resolve();
-          };
-
-          const timer = setTimeout(done, delay);
-          signal.addEventListener("abort", done, { once: true });
-        });
+      if (!signal.aborted) await sleep(delay, signal);
       delay = Math.min(delay * 2, 30_000);
     }
+  }
+
+  /** Renders never block the stream: a slow tab only delays its own newest state. */
+  private deliver(listener: Listener, result: Exclude<Result, null>) {
+    listener.queued = result;
+
+    if (listener.draining) return;
+    listener.draining = true;
+
+    void (async () => {
+      while (listener.queued && !listener.signal.aborted) {
+        const next = listener.queued;
+        listener.queued = undefined;
+
+        if (next.error) {
+          report(listener, new Error(next.error));
+          continue;
+        }
+
+        try {
+          await listener.accept(next.value);
+        } catch (error) {
+          report(listener, error);
+          // Retry the same snapshot after the delay unless a newer one arrived.
+          await sleep(retryDelayMs, listener.signal);
+          listener.queued ??= next;
+        }
+      }
+
+      listener.draining = false;
+    })();
   }
 }

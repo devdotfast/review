@@ -54,6 +54,9 @@ const CLI_NAME = "dev-traces";
 
 const UNSUPPORTED_PLATFORM = `${CLI_NAME} supports macOS and Linux only.\n`;
 
+/** The commands that write hooks; each one needs the installed shim. */
+const HOOK_WRITERS = ["allow", "enable", "repair"];
+
 const REVIEW_SCOPE_UNSUPPORTED =
   "`--review` needs the Review app. Use `--commit <sha>` or `--session <id>`.";
 
@@ -170,7 +173,6 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
   const runtime = tracesCliRuntime(input.runtime);
   const packageRoot = findPackageRoot(import.meta.url);
   const version = await readPackageVersion(packageRoot);
-  const shim = shimPath(homeDir);
 
   const startupCommand = resolveStandaloneCommand({
     ownCliPath: input.ownCliPath,
@@ -183,7 +185,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     exitCode: 0,
     json: jsonRequestedInArgv(input.argv),
     parserErrorOutput: "",
-    installBeforeAllow: true,
+    installBeforeHooks: true,
   };
 
   const configureOutput = <T extends Command>(command: T): T => {
@@ -341,38 +343,58 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     for (const line of status.lines) input.stdout.write(line);
   };
 
-  // `allow` installs the running package first, so the hooks it writes call
-  // ~/.local/bin/dev-traces and never the npx cache. `status` prints the
-  // install block first. Both wrap the runtime function instead of
-  // re-registering the command, so the options and the help stay the shared
-  // builder's. The two read commands map the repository options onto the
-  // scope value the library reads.
+  // `allow`, `enable`, and `repair` write hooks that re-enter this CLI, so
+  // each one installs the running package first and hands the installed shim
+  // to the library. Without the install the hooks would call the npx cache,
+  // which the next npx run empties. The install reports the path it wrote;
+  // the program never derives that path a second time.
+  const hookTraceCommand = async (json?: boolean): Promise<TraceCommand> => {
+    if (!state.installBeforeHooks) return startupCommand;
+
+    const result = await runtime.installSelf({
+      packageRoot,
+      homeDir,
+      env,
+      devHome: scope.devHome,
+      execPath,
+      force: false,
+    });
+
+    humanStream({
+      json,
+      stdout: input.stdout,
+      stderr: input.stderr,
+    }).write(result.output);
+
+    return { file: result.shimPath };
+  };
+
+  // `status` prints the install block before the library status. Every wrapper
+  // below wraps the runtime function instead of re-registering the command, so
+  // the options and the help stay the shared builder's. The two read commands
+  // map the repository options onto the scope value the library reads.
   const traceRuntime: TraceCommandRuntime = {
     ...runtime,
     runTraceAllow: async (allowInput) => {
       if (platform === "win32") return refuseWindows();
 
-      let traceCommand = startupCommand;
-
-      if (state.installBeforeAllow) {
-        const result = await runtime.installSelf({
-          packageRoot,
-          homeDir,
-          env,
-          devHome: scope.devHome,
-          execPath,
-          force: false,
-        });
-
-        humanStream({
-          json: allowInput.json,
-          stdout: input.stdout,
-          stderr: input.stderr,
-        }).write(result.output);
-        traceCommand = { file: shim };
-      }
+      const traceCommand = await hookTraceCommand(allowInput.json);
 
       return runtime.runTraceAllow({ ...allowInput, traceCommand });
+    },
+    runTraceEnable: async (enableInput) => {
+      if (platform === "win32") return refuseWindows();
+
+      const traceCommand = await hookTraceCommand();
+
+      return runtime.runTraceEnable({ ...enableInput, traceCommand });
+    },
+    runTraceRepair: async (repairInput) => {
+      if (platform === "win32") return refuseWindows();
+
+      const traceCommand = await hookTraceCommand();
+
+      return runtime.runTraceRepair({ ...repairInput, traceCommand });
     },
     runTraceStatus: async (statusInput) => {
       printInstallStatus(
@@ -398,17 +420,10 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
         return failWithJsonError(output, "list", REVIEW_SCOPE_UNSUPPORTED);
       }
 
-      if (!listInput.commitSha) {
-        return failWithJsonError(
-          output,
-          "list",
-          "`--commit <sha>` names the commit to list.",
-        );
-      }
-
       return runtime.runTraceList({
         cwd: listInput.cwd,
-        scope: { commit: listInput.commitSha },
+        // Commander rejects a `list` without --commit before the action runs.
+        scope: { commit: listInput.commitSha ?? "" },
         json: listInput.json,
         stdout: listInput.stdout,
       });
@@ -461,13 +476,18 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     },
   });
 
-  const allow = program.commands.find((command) => command.name() === "allow");
+  for (const name of HOOK_WRITERS) {
+    const command = program.commands.find((each) => each.name() === name);
 
-  if (!allow) throw new Error("registerTraceCommands did not register allow.");
-  allow.option(
-    "--no-install",
-    "Skip installing dev-traces under ~/.local/bin before the hooks are written",
-  );
+    if (!command) {
+      throw new Error(`registerTraceCommands did not register ${name}.`);
+    }
+
+    command.option(
+      "--no-install",
+      "Skip installing dev-traces under ~/.local/bin before the hooks are written",
+    );
+  }
 
   // The harness hook installers write `<command> trace hook <Event>` and the
   // Git hooks write `<command> trace git-hook <hook>`, so the standalone keeps
@@ -514,8 +534,8 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     // that seeded state.json only has to cover parse failures.
     if (actionCommand.optsWithGlobals().json === true) state.json = true;
 
-    if (actionCommand.name() === "allow") {
-      state.installBeforeAllow = actionCommand.opts().install !== false;
+    if (HOOK_WRITERS.includes(actionCommand.name())) {
+      state.installBeforeHooks = actionCommand.opts().install !== false;
     }
   });
 

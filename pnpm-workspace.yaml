@@ -10,6 +10,8 @@ verifyDepsBeforeRun: false
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
+  # Vitest 4.1.11 requires this exact release, which is not yet seven days old.
+  - obug@2.2.1
   - "@dev.fast/trace-protocol@0.5.0"
   - "@hono/node-server@2.0.12"
   - typescript@7.0.1-rc

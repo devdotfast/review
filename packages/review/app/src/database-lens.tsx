@@ -770,7 +770,11 @@ export function databaseC4Snapshot({
 
       if (!expandedStoresWithSchemaEdges.has(operationStore.id)) {
         relationships.push(
-          ...softwareMapForeignKeyRelationshipsForStore(operationStore),
+          ...softwareMapForeignKeyRelationshipsForStore(
+            operationStore,
+            stores,
+            expandedNodeIds,
+          ),
         );
         expandedStoresWithSchemaEdges.add(operationStore.id);
       }
@@ -936,15 +940,21 @@ function softwareMapCollectionNode({
 
 function softwareMapForeignKeyRelationshipsForStore(
   store: StoreRef,
+  stores: Record<string, StoreRef>,
+  expandedNodeIds: ReadonlySet<string>,
 ): NonNullable<SoftwareMapResolvedSnapshot["relationships"]> {
   const relationships: NonNullable<
     SoftwareMapResolvedSnapshot["relationships"]
   > = [];
 
-  for (const [collectionId, collection] of Object.entries(store.tables ?? {})) {
+  const collectionKind = store.kind === "relational" ? "tables" : "documents";
+
+  for (const [collectionId, collection] of Object.entries(
+    store[collectionKind] ?? {},
+  )) {
     const sourceCollectionNodeId = storeCollectionNodeIdForStore(
       store,
-      "tables",
+      collectionKind,
       collectionId,
     );
 
@@ -952,13 +962,21 @@ function softwareMapForeignKeyRelationshipsForStore(
       if (!row.fk) continue;
       const target = foreignKeyTarget(row.fk);
 
-      if (!target || !store.tables?.[target.table]) continue;
+      const targetStore =
+        !isStringValue(row.fk) && row.fk.store ? stores[row.fk.store] : store;
 
-      const targetCollectionNodeId = storeCollectionNodeIdForStore(
-        store,
-        "tables",
-        target.table,
-      );
+      if (!target || !targetStore) continue;
+
+      const targetKind =
+        targetStore.kind === "relational" ? "tables" : "documents";
+
+      if (!targetStore[targetKind]?.[target.table]) continue;
+
+      const targetCollectionNodeId = expandedNodeIds.has(
+        `store:${targetStore.id}`,
+      )
+        ? storeCollectionNodeIdForStore(targetStore, targetKind, target.table)
+        : `store:${targetStore.id}`;
 
       if (targetCollectionNodeId === sourceCollectionNodeId) continue;
       const id = `schema-fk:${sourceCollectionNodeId}.${row.path.join(".")}->${targetCollectionNodeId}.${target.fieldPath.join(".")}`;
@@ -1227,3 +1245,5 @@ function flattenSchemaRows(schema: FieldSchema): FieldRow[] {
 function tourIdFor(lensId: string, useCaseId: string): string {
   return `${lensId}-${useCaseId}`;
 }
+
+import { isStringValue } from "@dev.fast/json";

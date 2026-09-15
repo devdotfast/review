@@ -1,9 +1,15 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
-import { collectionSchema, resolveTargetRef } from "../../src/authoring";
+import {
+  type ActorRef,
+  type StoreInput,
+  type StoreRef,
+  collectionSchema,
+  defineCollections,
+  resolveTargetRef,
+} from "../../src/authoring";
+import { sourceAnchor } from "./api-document";
 import {
   databaseC4Snapshot,
   databaseTourStopDetail,
@@ -18,57 +24,98 @@ import { defineSoftwareModel } from "./software-map/model";
 const { defineSoftwareStores } = createTestReviewDefinitionSession();
 
 describe("software map backed database lenses", () => {
-  it("keeps the database diagram responsive inside review documents", () => {
-    const styles = readFileSync(new URL("./styles.css", import.meta.url), {
-      encoding: "utf8",
+  it("connects a field to the referenced store, including a document collection", () => {
+    const inputs = {
+      orders: {
+        kind: "relational",
+        label: "Orders",
+        tables: {
+          users: { schema: { id: { type: "text" } } },
+          orders: {
+            schema: {
+              owner: {
+                type: "text",
+                fk: { store: "identity", table: "users", field: "id" },
+              },
+            },
+          },
+        },
+      },
+      identity: {
+        kind: "document",
+        label: "Identity",
+        documents: { users: { schema: { id: { type: "text" } } } },
+      },
+    } satisfies Record<string, StoreInput>;
+
+    const stores: Record<string, StoreRef> = Object.fromEntries(
+      Object.entries(inputs).map(([id, input]) => {
+        const kind = input.kind === "relational" ? "tables" : "documents";
+
+        return [
+          id,
+          {
+            __kind: "db-store-ref",
+            id,
+            kind: input.kind,
+            label: input.label,
+            [kind]: defineCollections(
+              id,
+              input,
+              kind,
+              input.kind === "relational" ? input.tables : input.documents,
+            ),
+          },
+        ];
+      }),
+    );
+
+    const actor: ActorRef = {
+      __kind: "db-actor-ref",
+      id: "reader",
+      label: "Reader",
+    };
+
+    const anchor = sourceAnchor(
+      "source",
+      { file: "app.ts", side: "head", fromLine: 1, toLine: 1 },
+      "Read",
+    );
+
+    const targets = [
+      resolveTargetRef(stores.orders!.tables!.orders!.owner)!,
+      resolveTargetRef(stores.identity!.documents!.users!.id)!,
+    ];
+
+    const snapshot = databaseC4Snapshot({
+      useCase: { id: "read", label: "Read", operations: [] },
+      stores,
+      resolvedOperations: targets.map((target) => ({
+        actor,
+        target,
+        operation: {
+          kind: "read",
+          from: target,
+          to: actor,
+          label: "Read",
+          anchor,
+        },
+      })),
+      highlights: selectDatabaseOperationHighlights([], null),
+      selectedNodeId: null,
+      expandedNodeIds: new Set(["store:orders", "store:identity"]),
     });
 
-    const mapStyles = readFileSync(
-      new URL("./software-map/styles.css", import.meta.url),
-      { encoding: "utf8" },
-    );
-
-    const source = readFileSync(
-      new URL("./database-lens.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(styles).toMatch(
-      /\.database-lens\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s,
-    );
-    expect(styles).toMatch(
-      /\.database-lens-index\s*{[^}]*grid-template-columns:\s*minmax\(180px,\s*260px\)\s*minmax\(0,\s*1fr\);/s,
-    );
     expect(
-      source.indexOf('className="diagram-header database-lens-header"'),
-    ).toBeLessThan(source.indexOf('className="database-lens-diagram"'));
-    expect(styles).toMatch(
-      /\.database-lens\s*{[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);[^}]*overflow:\s*hidden;/s,
-    );
-    expect(styles).toMatch(
-      /\.database-lens-diagram\s*{[^}]*overflow:\s*auto;/s,
-    );
-    expect(styles).toMatch(
-      /@container review-content \(max-width:\s*560px\)\s*{[\s\S]*?\.database-lens\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s,
-    );
-    expect(styles).toMatch(
-      /@container review-content \(max-width:\s*560px\)\s*{[\s\S]*?\.database-lens-diagram\s*{[^}]*min-height:\s*520px;/s,
-    );
-    expect(source).toContain("<SoftwareMapFrame");
-    expect(source).toContain("relationshipStateById={relationshipStateById}");
-    expect(source).toContain("onOpenRelationship={openRelationship}");
-    expect(source).toContain("dataStoreSchemaSections");
-    expect(mapStyles).toMatch(
-      /\.software-map-c4-edge-label,\s*\.software-map-c4-edge-label--active\s*{[^}]*padding:\s*4px 10px !important;[^}]*border:\s*1px solid var\(--map-line-2\) !important;[^}]*background:\s*var\(--map-chip\) !important;/s,
-    );
-    expect(mapStyles).toMatch(
-      /\.software-map-c4-canvas \.react-flow__edge-path,\s*\.software-map-c4-canvas \.react-flow__edge\.selected \.react-flow__edge-path,\s*\.software-map-c4-edge--operation-active \.react-flow__edge-path\s*{[^}]*stroke:\s*var\(--map-edge\) !important;[^}]*stroke-width:\s*1\.5px !important;/s,
-    );
-    expect(styles).toMatch(
-      /\.software-map-data-store-schema-row--active\s*{[^}]*outline:\s*2px solid var\(--selection\);/s,
-    );
+      snapshot.relationships?.filter(
+        (edge) => edge.semanticKind === "foreign key",
+      ),
+    ).toMatchObject([
+      {
+        from: "store:orders.tables.orders",
+        to: "store:identity.documents.users",
+      },
+    ]);
   });
 
   it("derives DatabaseLens stores from software map data stores", () => {

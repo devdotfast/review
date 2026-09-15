@@ -45,6 +45,7 @@ import { reviewResourceIdentity } from "../../../common/reviewCodeResources.js";
 import { REVIEW_CHROME_HEIGHT } from "../../../common/reviewChrome.js";
 import type { ReviewDiffFileWire } from "../../../common/reviewProtocol.js";
 import { IReviewCodeResourceService } from "../../../services/reviewCodeResourceService.js";
+import { IReviewApiSourceService, REVIEW_API_SOURCE_SCHEME, apiSourceUri } from "../../../services/reviewApiSourceService.js";
 import { IReviewDiffTabsService } from "../../../services/reviewDiffTabs.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { IReviewSessionModelService } from "../../../services/reviewSessionModelService.js";
@@ -79,12 +80,12 @@ function accompaniesEditor(input: EditorInput | undefined): boolean {
 	}
 
 	const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
-	return resource?.scheme === Schemas.file;
+	return resource?.scheme === Schemas.file || resource?.scheme === REVIEW_API_SOURCE_SCHEME;
 }
 
 /** The Source tab browses the whole worktree, so it gets the workspace tree. */
 function isSourceTab(input: EditorInput | undefined): boolean {
-	return input instanceof ReviewCanvasEditorInput && input.target.kind === "source";
+	return input instanceof ReviewCanvasEditorInput && (input.target.kind === "source" || input.target.kind === "api-source");
 }
 
 /**
@@ -135,6 +136,7 @@ class ReviewExplorerDataSource implements IAsyncDataSource<URI | null, IFileStat
 		private readonly fileService: IFileService,
 		private readonly excludes: ResourceGlobMatcher,
 		private readonly logService: ILogService,
+		private readonly apiSource: IReviewApiSourceService,
 	) { }
 
 	hasChildren(element: URI | null | IFileStat): boolean {
@@ -151,8 +153,9 @@ class ReviewExplorerDataSource implements IAsyncDataSource<URI | null, IFileStat
 
 		const resource = URI.isUri(element) ? element : element.resource;
 		try {
-			const stat = await this.fileService.resolve(resource, { resolveSingleChildDescendants: false });
-			const siblings = stat.children ?? [];
+			const siblings = resource.scheme === REVIEW_API_SOURCE_SCHEME
+				? await this.apiSource.children(resource)
+				: (await this.fileService.resolve(resource, { resolveSingleChildDescendants: false })).children ?? [];
 			// One name set for the whole directory. A `files.exclude` `when` clause
 			// asks whether a sibling exists, and it is asked once per child, so
 			// scanning the sibling array each time would be quadratic.
@@ -273,6 +276,7 @@ export class ReviewExplorerPart extends Part {
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ILogService private readonly logService: ILogService,
 		@IReviewCodeResourceService private readonly codeResources: IReviewCodeResourceService,
+		@IReviewApiSourceService private readonly apiSource: IReviewApiSourceService,
 		@IReviewSessionModelService private readonly sessionModelService: IReviewSessionModelService,
 		@IReviewDiffTabsService private readonly reviewDiffTabsService: IReviewDiffTabsService,
 		@IReviewCanvasEditorTabsService private readonly tabsService: IReviewCanvasEditorTabsService,
@@ -355,7 +359,7 @@ export class ReviewExplorerPart extends Part {
 			(event: IConfigurationChangeEvent) => event.affectsConfiguration(FILES_EXCLUDE_CONFIG),
 		));
 
-		const dataSource = new ReviewExplorerDataSource(this.fileService, excludes, this.logService);
+		const dataSource = new ReviewExplorerDataSource(this.fileService, excludes, this.logService, this.apiSource);
 		this.dataSource = dataSource;
 
 		// A settings change can hide a folder that is currently expanded, so rebuild
@@ -393,6 +397,7 @@ export class ReviewExplorerPart extends Part {
 			// or deleting the review closes it — the same lifecycle the
 			// changed-files tree's diff tabs get from `reviewDiffTabs`.
 			const model = this.sessionModelService.activeModel;
+			const reviewId = stat.resource.scheme === REVIEW_API_SOURCE_SCHEME ? stat.resource.authority : model?.reviewUuid;
 			void Promise.resolve(this.editorService.openEditor({
 				resource: stat.resource,
 				options: {
@@ -401,8 +406,8 @@ export class ReviewExplorerPart extends Part {
 					revealIfVisible: true,
 				},
 			}, this.editorGroupsService.mainPart.activeGroup)).then(pane => {
-				if (pane?.input && model) {
-					this.tabsService.registerReviewEditor(model.reviewUuid, pane.input);
+				if (pane?.input && reviewId) {
+					this.tabsService.registerReviewEditor(reviewId, pane.input);
 				}
 			});
 		}));
@@ -411,6 +416,7 @@ export class ReviewExplorerPart extends Part {
 		// (`reviewWorkspaceFolder.contribution.ts` keeps it there), so a folder
 		// change is how the tree learns that the active review changed.
 		this._register(this.workspaceContextService.onDidChangeWorkspaceFolders(() => this.updateRoot()));
+		this._register(this.editorService.onDidActiveEditorChange(() => this.updateRoot()));
 
 		this.root = undefined;
 		this.updateRoot();
@@ -462,7 +468,12 @@ export class ReviewExplorerPart extends Part {
 	}
 
 	private updateRoot(): void {
-		const folder = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+		const input = this.editorService.activeEditor;
+		const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
+		const folder = input instanceof ReviewCanvasEditorInput && input.target.kind === "api-source"
+			? apiSourceUri({ ...input.target, file: "", side: "head" })
+			: resource?.scheme === REVIEW_API_SOURCE_SCHEME ? resource.with({ path: "/" })
+			: this.workspaceContextService.getWorkspace().folders[0]?.uri;
 		if (folder && this.root && isEqual(folder, this.root)) {
 			return;
 		}
@@ -489,7 +500,7 @@ export class ReviewExplorerPart extends Part {
 	 */
 	revealResource(resource: URI | undefined): void {
 		const root = this.root;
-		if (!resource || !root || resource.scheme !== Schemas.file || !isEqualOrParent(resource, root)) {
+		if (!resource || !root || !isEqualOrParent(resource, root)) {
 			return;
 		}
 

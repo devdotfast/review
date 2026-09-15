@@ -54,6 +54,7 @@ import {
   materializePublishRevision,
   reviewWithPresentedDocumentPins,
 } from "../publish-stage";
+import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
@@ -338,7 +339,14 @@ export function createGlobalReviewServer(
   if (input.reviewStore)
     app.route(
       "/reviews-api",
-      createReviewApi(input.reviewStore, input.reviewData),
+      createReviewApi(input.reviewStore, input.reviewData, async (review) => {
+        const result = await relay.dispatch("review-desktop", {
+          name: "openApiReview",
+          args: review,
+        });
+
+        if (!result.ok) throw new ReviewInputError(result.error, 409);
+      }),
     );
   app.post("/app/focus", async () => {
     const result = await relay.dispatch("review-desktop", {

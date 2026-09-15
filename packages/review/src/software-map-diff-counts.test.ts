@@ -19,6 +19,28 @@ index 1111111..2222222 100644
 `;
 
 describe("software map diff counts", () => {
+  it("uses the pinned side's filename and coordinates for renamed, shifted code", () => {
+    const renamed = `diff --git a/old.ts b/new.ts
+similarity index 80%
+rename from old.ts
+rename to new.ts
+--- a/old.ts
++++ b/new.ts
+@@ -20,1 +80,1 @@
+-before
++after
+`;
+
+    const base = parseGitUnifiedDiffLineCounts(renamed, "base");
+    const head = parseGitUnifiedDiffLineCounts(renamed, "head");
+    expect(base.get("old.ts")?.get(20)).toMatchObject({ deletions: 1 });
+    expect(base.has("new.ts")).toBe(false);
+    expect(head.get("new.ts")?.get(80)).toMatchObject({
+      additions: 1,
+      deletions: 1,
+    });
+    expect(head.has("old.ts")).toBe(false);
+  });
   it("counts added and deleted hunk lines by current file and line", () => {
     const counts = parseGitUnifiedDiffLineCounts(patch);
 

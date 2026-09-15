@@ -18,6 +18,8 @@ export const IReviewCanvasEditorTabsService =
 
 export interface IReviewCanvasEditorTabsService {
 	readonly _serviceBrand: undefined;
+	openApiReview(reviewId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
+	openApiSource(reviewId: string, version: number, title: string): Promise<ReviewCanvasEditorInput>;
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
@@ -81,8 +83,31 @@ export class ReviewCanvasEditorTabsService
 		return input;
 	}
 
+	async openApiReview(reviewId: string, title: string, active = true): Promise<ReviewCanvasEditorInput> {
+		const key = `api:${reviewId}`;
+		let input = this.inputs.get(key);
+		if (!input || input.isDisposed()) {
+			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, { kind: "api", reviewId, title });
+			this.inputs.set(key, input);
+		}
+		input.setApiTitle(title);
+		await this.openReviewInput(input, active);
+		return input;
+	}
+
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput> {
 		return this.openSingleton({ kind: "welcome" }, active);
+	}
+
+	async openApiSource(reviewId: string, version: number, title: string): Promise<ReviewCanvasEditorInput> {
+		const key = `api:${reviewId}:source:${version}`;
+		let input = this.inputs.get(key);
+		if (!input || input.isDisposed()) {
+			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, { kind: "api-source", reviewId, version, title });
+			this.inputs.set(key, input);
+		}
+		await this.openReviewInput(input, true);
+		return input;
 	}
 
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput> {
@@ -227,7 +252,7 @@ export class ReviewCanvasEditorTabsService
 
 	async closeReview(reviewUuid: string): Promise<void> {
 		const keys = [...this.inputs.keys()].filter(
-			(key) => key === reviewUuid || key.startsWith(`${reviewUuid}@`),
+			(key) => key === reviewUuid || key === `api:${reviewUuid}` || key.startsWith(`api:${reviewUuid}:source:`) || key.startsWith(`${reviewUuid}@`),
 		);
 		const reviewInputs = keys
 			.map((key) => this.inputs.get(key))
@@ -317,4 +342,3 @@ export class ReviewCanvasEditorTabsService
 		return input;
 	}
 }
-

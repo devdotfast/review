@@ -181,7 +181,7 @@ export function ReviewTraceView({
     }> = [];
 
     for (const s of sessions) {
-      const title = s.commits[0]?.subject || "Agent session";
+      const title = s.title || s.commits[0]?.subject || "Agent session";
       result.push({
         key: s.sessionId,
         sessionId: s.sessionId,

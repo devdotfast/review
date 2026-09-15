@@ -25,6 +25,7 @@ import { IEditorGroupsService } from "../../../../workbench/services/editor/comm
 import { IEditorService } from "../../../../workbench/services/editor/common/editorService.js";
 import { ILifecycleService } from "../../../../workbench/services/lifecycle/common/lifecycle.js";
 import { IReviewSessionService } from "../../../services/reviewSessionService.js";
+import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import { ReviewCanvasEditorPane } from "./reviewCanvasPart.js";
@@ -61,6 +62,7 @@ class ReviewCanvasEditorContribution
     @IStorageService private readonly storageService: IStorageService,
     @IReviewSessionService
     private readonly sessionService: IReviewSessionService,
+    @IReviewApiCatalogService private readonly apiCatalog: IReviewApiCatalogService,
     @IReviewCanvasEditorTabsService
     private readonly tabsService: IReviewCanvasEditorTabsService,
   ) {
@@ -68,7 +70,7 @@ class ReviewCanvasEditorContribution
     this._register(
       this.editorService.onDidCloseEditor(({ editor }) => {
         if (!(editor instanceof ReviewCanvasEditorInput)) return;
-        if (editor.target.kind !== "review") {
+        if (editor.target.kind !== "review" && editor.target.kind !== "api") {
           void this.tabsService.openHome(true);
         }
       }),
@@ -83,6 +85,9 @@ class ReviewCanvasEditorContribution
         void this.tabsService.closeReview(uuid);
       }),
     );
+    this._register(apiCatalog.onDidCloseReview(uuid => {
+      void this.tabsService.closeReview(uuid);
+    }));
     this._register(
       sessionService.onDidRegisterSession(({ session, background }) => {
         // A background open (the Source tab rooting its file tree) must not
@@ -105,6 +110,7 @@ class ReviewCanvasEditorContribution
   private async initialize(): Promise<void> {
     await this.tabsService.openHome(true);
     await this.sessionService.initialize();
+    await this.apiCatalog.initialize();
     await this.restoreTabs();
     this.restored = true;
     this._register(
@@ -128,7 +134,7 @@ class ReviewCanvasEditorContribution
        was the active tab: this is the path used by the keymap reload prompt,
        and avoids reopening an inactive tutorial on an ordinary app launch. */
     let restoreActiveTutorial = false;
-    if (stored.active && !available.has(stored.active)) {
+    if (stored.active && !stored.active.startsWith("api:") && !available.has(stored.active)) {
       try {
         const status = await this.sessionService.getTutorialStatus();
         restoreActiveTutorial = status.reviewUuid === stored.active;
@@ -137,6 +143,18 @@ class ReviewCanvasEditorContribution
       }
     }
     for (const reviewUuid of stored.open) {
+      if (reviewUuid.startsWith("api:")) {
+        const review = this.apiCatalog.reviews.find(
+          (review) => review.uuid === reviewUuid.slice(4),
+        );
+        if (review && !review.dismissedAt)
+          await this.tabsService.openApiReview(
+            review.uuid,
+            review.title,
+            reviewUuid === stored.active,
+          );
+        continue;
+      }
       if (!available.has(reviewUuid)) continue;
       await this.tabsService.openReview(
         reviewUuid,
@@ -187,18 +205,17 @@ class ReviewCanvasEditorContribution
   private persistOpenTabs(): void {
     if (!this.restored) return;
     const group = this.editorGroupsService.mainPart.activeGroup;
-    const open = group.editors.flatMap((editor) =>
-      editor instanceof ReviewCanvasEditorInput &&
-      editor.target.kind === "review"
-        ? [editor.target.reviewUuid]
-        : [],
-    );
-    const activeEditor = group.activeEditor;
-    const active =
-      activeEditor instanceof ReviewCanvasEditorInput &&
-      activeEditor.target.kind === "review"
-        ? activeEditor.target.reviewUuid
-        : undefined;
+    const key = (editor: unknown): string | undefined => {
+      if (!(editor instanceof ReviewCanvasEditorInput)) return;
+      if (editor.target.kind === "review") return editor.target.reviewUuid;
+      if (editor.target.kind === "api") return `api:${editor.target.reviewId}`;
+      return undefined;
+    };
+    const open = group.editors.flatMap(editor => {
+      const id = key(editor);
+      return id ? [id] : [];
+    });
+    const active = key(group.activeEditor);
     this.storageService.store(
       OPEN_REVIEW_TABS_STORAGE_KEY,
       JSON.stringify({ open, ...(active ? { active } : {}) }),

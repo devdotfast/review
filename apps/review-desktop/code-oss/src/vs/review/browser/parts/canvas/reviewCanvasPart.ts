@@ -102,6 +102,8 @@ import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
 import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
 import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
 import { IReviewDiffService } from "../../../services/reviewDiffService.js";
+import { IReviewApiSourceService } from "../../../services/reviewApiSourceService.js";
+import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
 import {
 	ReviewEmbeddedEditorSelection,
 	reviewEmbeddedSelectionFromOptions,
@@ -239,6 +241,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IReviewSessionModelService
 		private readonly sessionModelService: IReviewSessionModelService,
 		@IReviewDiffService private readonly diffService: IReviewDiffService,
+		@IReviewApiSourceService private readonly apiSource: IReviewApiSourceService,
+		@IReviewApiCatalogService private readonly apiCatalog: IReviewApiCatalogService,
 		@IReviewVerbsService private readonly verbs: IReviewVerbsService,
 		@IReviewCanvasEditorTabsService
 		private readonly tabsService: IReviewCanvasEditorTabsService,
@@ -341,6 +345,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
 		this.sessionService.attachControl(async (sessionId, value) => {
 			const request = parseReviewVerbRequest(value);
+			if (request.name === "openApiReview") {
+				return this.verbs.dispatch(sessionId, request);
+			}
 			if (request.name === "focusWindow") {
 				await this.hostService.focus(
 					this.targetDocument?.defaultView ?? window,
@@ -418,6 +425,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			return;
 		}
 		const warmModel = input.resolvedModel;
+		if (input.target.kind === "api" && this.readyInput === input && this.renderedInput === input) {
+			this.canvasMount?.dispatchEvent(new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT));
+			return;
+		}
 		if (
 			input.target.kind === "review" &&
 			warmModel &&
@@ -434,6 +445,12 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT),
 			);
 			this.restoreDetachedScrollSnapshot(input, warmModel, generation);
+			return;
+		}
+		if (input.target.kind === "api-source") {
+			this.sessionModelService.setActiveModel(null);
+			this.setSessionState("home");
+			await this.render({ kind: "source" }, generation);
 			return;
 		}
 		if (input.target.kind === "source") {
@@ -489,12 +506,74 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			return;
 		}
 		this.modelSubscription.clear();
+		if (input.target.kind === "api") {
+			try {
+				const { reviewId } = input.target;
+				const [connection, assets] = await Promise.all([this.sessionService.getConnection(), this.loadAssets()]);
+				if (generation !== this.loadGeneration || token.isCancellationRequested) return;
+				this.renderedInput = input;
+				this.renderedModel = null;
+				this.sessionModelService.setActiveModel(null);
+				this.setSessionState("active", reviewId);
+				void this.apiCatalog.attention(reviewId, "view").catch(error => this.logService.warn("[Review] Could not mark review viewed:", error));
+				let version = 0;
+				const source = this.apiSource.canvas(reviewId, () => version, this.inlineEditors, this.diffViews);
+				await this.render({
+					kind: "api", reviewId,
+					setTitle: title => input.setApiTitle(title),
+					setVersion: next => { version = next; },
+					bridge: {
+						...source,
+						appSessionId: this.reviewTelemetryService.appSessionId,
+						config: {
+							...connection, sessionUrl: `${connection.serverUrl}/reviews-api/${reviewId}`,
+							sessionId: reviewId, routePath: "/", host: "desktop", theme: this.colorScheme(),
+							wasmUrl: assets.reviewWasmUrl,
+							appVersion: this.productService.reviewVersion ?? this.productService.version,
+						},
+						request: (url, init) => fetch(url, init),
+						post: async request => {
+							if (request.name === "openSourceTree") {
+								await this.tabsService.openApiSource(reviewId, version, input.getName());
+								this.explorerParts.show();
+								return { ok: true };
+							}
+							if (request.name === "reveal") {
+								const range = { startLine: request.args.startLine, endLine: request.args.endLine };
+								await this.apiSource.open({ reviewId, version, file: request.args.path, side: request.args.side ?? "head" }, range);
+								return { ok: true };
+							}
+							// Session-dependent legacy verbs must not operate on another review.
+							if (["focusCanvas", "focusWindow", "captureScreenshot", "joinDiscord"].includes(request.name)) return this.verbs.dispatch(reviewId, request);
+							return { ok: false, error: "This action is not connected for API reviews yet." };
+						},
+						subscribe: listener => this.surfaceEvents.event(listener),
+						currentTheme: () => this.colorScheme(),
+						onDidChangeTheme: listener => this.themeEvents.event(listener),
+						currentDiffLayout: () => this.diffViews.diffLayout.get(),
+						setDiffLayout: layout => this.diffViews.diffLayout.set(layout),
+						onDidChangeDiffLayout: listener => this.diffViews.diffLayout.onDidChange(listener),
+						ready: () => {
+							if (generation === this.loadGeneration && this.targetDocument) {
+								this.readyInput = input;
+								this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
+							}
+						},
+						reportDiagnostic: diagnostic => this.logService.error(`[review canvas] ${diagnostic.message}`),
+					},
+				}, generation, assets);
+			} catch (error) {
+				if (generation === this.loadGeneration) await this.renderError(error, generation);
+			}
+			return;
+		}
 		if (input.target.kind === "home") {
 			this.renderedInput = input;
 			this.renderedModel = null;
 			this.sessionModelService.setActiveModel(null);
 			this.setSessionState("home");
 			const setup = await this.resolveHomeSetup();
+			await this.apiCatalog.initialize();
 			let emptyStateVisible = false;
 			/* The empty-list render suspends on the install fetch below, while
 			   the list render has no await at all. The sequence number keeps a
@@ -504,7 +583,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			const renderHome = async () =>
 				{
 					const seq = ++renderSeq;
-					const isEmpty = this.sessionService.reviews.length === 0;
+					const reviews = [...this.sessionService.reviews, ...this.apiCatalog.reviews];
+					const isEmpty = reviews.length === 0;
 					// Only the Welcome rail needs install status; the list must
 					// render without waiting on it. One fetch serves both the
 					// install card and the onboarding rail.
@@ -520,18 +600,29 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						this.reviewTelemetryService.capture("review_opened", {
 							via: "home",
 						});
-						return this.tabsService.openReview(uuid, true);
+						const api = this.apiCatalog.reviews.find(review => review.uuid === uuid);
+						return api ? this.tabsService.openApiReview(uuid, api.title) : this.tabsService.openReview(uuid, true);
 					};
 					return this.render(
 					{
 						kind: "home",
-						reviews: this.sessionService.reviews,
+						reviews,
 						reviewErrors: this.sessionService.reviewErrors,
 						openReview: (uuid) => void openReview(uuid),
-						deleteReview: (uuid) => this.sessionService.deleteReview(uuid),
-						dismissReview: (uuid) => this.sessionService.dismissReview(uuid),
-						restoreReview: (uuid) => this.sessionService.restoreReview(uuid),
+						deleteReview: (uuid) => this.apiCatalog.reviews.some(review => review.uuid === uuid)
+							? this.apiCatalog.deleteReview(uuid) : this.sessionService.deleteReview(uuid),
+						dismissReview: async (uuid) => {
+							if (!this.apiCatalog.reviews.some(review => review.uuid === uuid)) return this.sessionService.dismissReview(uuid);
+							await this.apiCatalog.attention(uuid, "dismiss");
+						},
+						restoreReview: (uuid) => this.apiCatalog.reviews.some(review => review.uuid === uuid)
+							? this.apiCatalog.attention(uuid, "restore") : this.sessionService.restoreReview(uuid),
 						openSourceTree: (uuid) => {
+							const api = this.apiCatalog.reviews.find(review => review.uuid === uuid);
+							if (api) {
+								void this.tabsService.openApiSource(uuid, Number(api.presentedDocumentRevision), api.title).then(() => this.explorerParts.show());
+								return;
+							}
 							this.reviewTelemetryService.capture("source_tree_opened", {
 								via: "home",
 							});
@@ -557,9 +648,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			// Home stays live while it is the rendered input: a deletion or a
 			// newly published review re-renders the list. render() drops stale
 			// generations once another input starts loading.
-			this.modelSubscription.value = this.sessionService.onDidChangeLists(
-				() => void renderHome(),
-			);
+			const subscriptions = new DisposableStore();
+			subscriptions.add(this.sessionService.onDidChangeLists(() => void renderHome()));
+			subscriptions.add(this.apiCatalog.onDidChange(() => void renderHome()));
+			this.modelSubscription.value = subscriptions;
 			await renderHome();
 			return;
 		}

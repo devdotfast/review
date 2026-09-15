@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import type { Edge as ReactFlowEdge } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 

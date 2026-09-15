@@ -119,6 +119,24 @@ describe("ReviewHome", () => {
     ]);
   });
 
+  it("opens API reviews grouped by repository without needing a checkout path", async () => {
+    const { worktreePath: _, ...review } = descriptor({ title: "API review" });
+    const item = { ...review, repositoryLabel: "Review repository" };
+    const onOpen = vi.fn<(review: typeof item) => void>();
+    await act(async () =>
+      root.render(<ReviewHome reviews={[item]} onOpen={onOpen} />),
+    );
+    expect(container.textContent).toContain("Review repository");
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("API review"),
+    );
+
+    expect(button).toBeDefined();
+    await act(async () => button!.click());
+    expect(onOpen).toHaveBeenCalledWith(item);
+  });
+
   it("does not show a pinned commit as a workspace branch", () => {
     const [workspace] = groupReviewsByWorktree([
       descriptor({

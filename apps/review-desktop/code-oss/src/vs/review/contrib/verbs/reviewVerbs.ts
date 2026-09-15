@@ -157,6 +157,9 @@ export class ReviewVerbsService
             request.args.active,
           );
           break;
+        case "openApiReview":
+          await this.tabsService.openApiReview(request.args.reviewId, request.args.title);
+          break;
       }
       return { ok: true };
     } catch (error) {

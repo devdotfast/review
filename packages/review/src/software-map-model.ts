@@ -143,6 +143,7 @@ export interface SoftwareModelInput {
 const softwareDataStoreForeignKeyRefDataSchema = z.union([
   z.string(),
   z.strictObject({
+    store: z.string().optional(),
     table: z.string(),
     field: z.string(),
     label: z.string().optional(),

@@ -877,6 +877,50 @@ export function listTrackedFilesSync(input: {
   });
 }
 
+/** {@link listTrackedFilesSync} without blocking: servers list trees while serving other requests. */
+export async function listTrackedFiles(input: {
+  rootPath: string;
+  ref?: string;
+}): Promise<string[]> {
+  const vcs = await detectLocalVcs(input.rootPath);
+
+  if (!vcs) return [];
+
+  const run = (command: string, args: string[]) =>
+    commandOutput(command, args, { cwd: vcs.rootPath }).catch(() => null);
+
+  if (vcs.kind === "jj") {
+    const args = ["-R", vcs.rootPath, "file", "list", "--ignore-working-copy"];
+
+    if (input.ref) args.push("-r", input.ref);
+    const output = await run("jj", args);
+
+    if (output !== null) return splitLines(output);
+
+    const gitRoot = await run("git", [
+      "-C",
+      vcs.rootPath,
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+
+    if (
+      gitRoot === null ||
+      canonicalPath(gitRoot) !== canonicalPath(vcs.rootPath)
+    )
+      return [];
+  }
+
+  const output = await run(
+    "git",
+    input.ref
+      ? ["-C", vcs.rootPath, "ls-tree", "-r", "-z", "--name-only", input.ref]
+      : ["-C", vcs.rootPath, "ls-files", "-z"],
+  );
+
+  return output === null ? [] : output.split("\0").filter(Boolean);
+}
+
 function listTrackedFilesForKind(input: {
   rootPath: string;
   ref?: string;
@@ -1517,7 +1561,12 @@ async function readJjDiffNameStatus(input: {
 }
 
 export function toJjRootFilePattern(filePath: string): string {
-  return `root-file:${JSON.stringify(filePath)}`;
+  // jj string literals accept \uXXXX but not JSON's \b and \f short escapes.
+  return `root-file:${JSON.stringify(filePath).replace(
+    /\\(.)/g,
+    (escape, char) =>
+      char === "b" ? "\\u0008" : char === "f" ? "\\u000c" : escape,
+  )}`;
 }
 
 async function defaultBranchCandidates(rootPath: string): Promise<string[]> {
@@ -1827,7 +1876,10 @@ async function readGitDiff(input: {
   mergeBase?: boolean;
   literalPaths?: boolean;
 }): Promise<string> {
-  const paths = normalizeDiffPaths(input.paths);
+  // Literal filenames are exact: no trimming, and "-" prefixes are safe after "--".
+  const paths = input.literalPaths
+    ? (input.paths ?? [])
+    : normalizeDiffPaths(input.paths);
 
   const diffRefs = input.headRef
     ? input.mergeBase === false
@@ -1924,7 +1976,9 @@ async function readJjDiff(input: {
   paths?: string[];
   literalPaths?: boolean;
 }): Promise<string> {
-  const paths = normalizeDiffPaths(input.paths);
+  const paths = input.literalPaths
+    ? (input.paths ?? [])
+    : normalizeDiffPaths(input.paths);
 
   const args = [
     "-R",
@@ -1941,9 +1995,7 @@ async function readJjDiff(input: {
     input.baseRef,
     ...(input.headRef ? ["--to", input.headRef] : []),
     "--ignore-working-copy",
-    ...(input.literalPaths
-      ? paths.map((file) => `root-file:${JSON.stringify(file)}`)
-      : paths),
+    ...(input.literalPaths ? paths.map(toJjRootFilePattern) : paths),
   ];
 
   const { stdout } = await execFileAsync("jj", args, {

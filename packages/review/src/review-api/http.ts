@@ -6,7 +6,13 @@ import { HttpJsonError } from "../server/http-json.js";
 import { authoringTools } from "./authoring-tools.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
-import type { ReviewStore } from "./store.js";
+import type { ReviewChange, ReviewStore } from "./store.js";
+
+// `?version=` must mean "current", not `Number("") === 0`.
+const version = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.coerce.number().int().nonnegative().optional(),
+);
 
 /** Mounted behind the desktop server's existing token authentication. */
 export function createReviewApi(
@@ -98,7 +104,7 @@ export function createReviewApi(
         input.commit,
       );
 
-      return context.json(data.tree(pins, input.side, input.path));
+      return context.json(await data.tree(pins, input.side, input.path));
     });
     app.get("/:id/maps/:resourceId", async (context) => {
       const query = z
@@ -169,7 +175,7 @@ export function createReviewApi(
     app.get("/:id/file", async (context) => {
       const input = z
         .strictObject({
-          version: z.coerce.number().int().nonnegative().optional(),
+          version,
           commit: z.string().min(1).optional(),
           side: z.enum(["base", "head"]),
           file: z.string(),
@@ -190,7 +196,7 @@ export function createReviewApi(
     app.get("/:id/diff", async (context) => {
       const input = z
         .strictObject({
-          version: z.coerce.number().int().nonnegative().optional(),
+          version,
           commit: z.string().min(1).optional(),
           file: z.string().optional(),
         })
@@ -227,7 +233,7 @@ export function createReviewApi(
   app.get("/:id", (context) => {
     const query = z
       .strictObject({
-        version: z.coerce.number().int().nonnegative().optional(),
+        version,
         targetId: z.string().optional(),
         full: z.enum(["true"]).optional(),
       })

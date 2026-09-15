@@ -156,7 +156,7 @@ const leafSchema = z.discriminatedUnion("type", [
     type: z.literal("trace_quote"),
     traceId: label,
     eventId: label,
-    text,
+    text: label,
   }),
   z.strictObject({
     ...identity,

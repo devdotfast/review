@@ -1,5 +1,5 @@
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
-import { type ReactNode, useLayoutEffect, useMemo, useRef } from "react";
+import { type ReactNode, memo, useLayoutEffect, useMemo, useRef } from "react";
 
 import {
   type ActorRef,
@@ -200,8 +200,12 @@ export function sourceAnchor(
 }
 
 export function ApiDocument({ data }: { data: ApiDocumentData }) {
-  const hasTitle = elements(data.snapshot.document).some(
-    (node) => node.type === "markdown" && markdownHasTitle(node.markdown),
+  const hasTitle = useMemo(
+    () =>
+      elements(data.snapshot.document).some(
+        (node) => node.type === "markdown" && markdownHasTitle(node.markdown),
+      ),
+    [data.snapshot.document],
   );
 
   return (
@@ -216,7 +220,16 @@ export function ApiDocument({ data }: { data: ApiDocumentData }) {
   );
 }
 
-function DocumentNode({ node, data }: { node: Block; data: ApiDocumentData }) {
+// Memoized: unrelated App renders must not rebuild every block's view models.
+const DocumentNode = memo(function DocumentNode({
+  node,
+  data,
+}: {
+  node: Block;
+  data: ApiDocumentData;
+}) {
+  const revision = useMemo(() => JSON.stringify(node), [node]);
+
   const children = (nodes: Block[]) =>
     nodes.map((child) => (
       <DocumentNode key={child.id} node={child} data={data} />
@@ -244,7 +257,7 @@ function DocumentNode({ node, data }: { node: Block; data: ApiDocumentData }) {
     case "section":
       content = (
         <ReviewSection
-          stateKey={node.id}
+          stateKey={`${data.snapshot.reviewId}:${node.id}`}
           title={node.title}
           defaultCollapsed={node.defaultCollapsed}
         >
@@ -264,7 +277,7 @@ function DocumentNode({ node, data }: { node: Block; data: ApiDocumentData }) {
       content = <ReviewCodePeek anchor={data.anchors.get(node.id!)!} />;
       break;
     case "sequence":
-      content = <ResolvedSequenceDiagram sequence={sequenceFor(node, data)} />;
+      content = <ApiSequence node={node} data={data} />;
       break;
     case "call_stack_diff": {
       const entries = (frames: typeof node.base) =>
@@ -338,10 +351,23 @@ function DocumentNode({ node, data }: { node: Block; data: ApiDocumentData }) {
   }
 
   return (
-    <NodeReveal id={node.id!} revision={JSON.stringify(node)}>
+    <NodeReveal id={node.id!} revision={revision}>
       {content}
     </NodeReveal>
   );
+});
+
+function ApiSequence({
+  node,
+  data,
+}: {
+  node: Extract<Block, { type: "sequence" }>;
+  data: ApiDocumentData;
+}) {
+  // A stable ref keeps the diagram's tour and layout memos valid between snapshots.
+  const sequence = useMemo(() => sequenceFor(node, data), [node, data.anchors]);
+
+  return <ResolvedSequenceDiagram sequence={sequence} />;
 }
 
 export function sequenceFor(
@@ -438,37 +464,42 @@ function ApiDatabase({
     [node.stores],
   );
 
-  const useCases = node.useCases.map((useCase) => ({
-    ...useCase,
-    id: useCase.id!,
-    operations: useCase.operations.map((op) => {
-      const store = node.stores[op.store]!;
+  // Stable between snapshots: the lens re-applies its restored tour whenever these change.
+  const useCases = useMemo(
+    () =>
+      node.useCases.map((useCase) => ({
+        ...useCase,
+        id: useCase.id!,
+        operations: useCase.operations.map((op) => {
+          const store = node.stores[op.store]!;
 
-      const target = {
-        __kind: "db-target-ref" as const,
-        storeId: op.store,
-        storeKind: store.storage,
-        storeLabel: store.label,
-        collectionKind:
-          store.storage === "relational"
-            ? ("tables" as const)
-            : ("documents" as const),
-        collectionId: op.collection,
-        collectionLabel: store.collections[op.collection]!.label,
-        path: op.field ? [op.field] : [],
-      };
+          const target = {
+            __kind: "db-target-ref" as const,
+            storeId: op.store,
+            storeKind: store.storage,
+            storeLabel: store.label,
+            collectionKind:
+              store.storage === "relational"
+                ? ("tables" as const)
+                : ("documents" as const),
+            collectionId: op.collection,
+            collectionLabel: store.collections[op.collection]!.label,
+            path: op.field ? [op.field] : [],
+          };
 
-      const from = actor(`${node.id}:${op.actor}`, node.actors[op.actor]!);
+          const from = actor(`${node.id}:${op.actor}`, node.actors[op.actor]!);
 
-      return {
-        kind: op.kind,
-        from: op.kind === "read" ? target : from,
-        to: op.kind === "read" ? from : target,
-        label: op.label,
-        anchor: data.anchors.get(op.id!)!,
-      };
-    }),
-  }));
+          return {
+            kind: op.kind,
+            from: op.kind === "read" ? target : from,
+            to: op.kind === "read" ? from : target,
+            label: op.label,
+            anchor: data.anchors.get(op.id!)!,
+          };
+        }),
+      })),
+    [node, data.anchors],
+  );
 
   return (
     <ResolvedDatabaseLens

@@ -149,6 +149,13 @@ export interface IReviewCodeResourceService {
     ranges: readonly ReviewInlineEditorRange[],
     scope?: ReviewCommitScope,
   ): Promise<ReviewUnifiedCodeModelReference | undefined>;
+  /** The unified view of a target the caller resolved, such as pinned API models. */
+  acquireUnifiedDiffForTarget(
+    path: string,
+    side: ReviewDiffSide,
+    ranges: readonly ReviewInlineEditorRange[],
+    target: ReviewCodeDiffTarget,
+  ): Promise<ReviewUnifiedCodeModelReference | undefined>;
   unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined;
   reset(): void;
 }
@@ -351,14 +358,40 @@ export class ReviewCodeResourceService
     const target = await this.resolveDiff(path, side, ranges, scope);
     if (!target) return undefined;
     const session = this.requireSession();
-    const generation = this.generation;
     const query = new URLSearchParams({
       path,
       version: session.session.sessionId,
       side,
-      revision: String(generation),
+      revision: String(this.generation),
       ...(scope?.commit ? { commit: scope.commit } : {}),
     });
+    return this.acquireUnifiedFor(path, side, ranges, target, query);
+  }
+
+  async acquireUnifiedDiffForTarget(
+    path: string,
+    side: ReviewDiffSide,
+    ranges: readonly ReviewInlineEditorRange[],
+    target: ReviewCodeDiffTarget,
+  ): Promise<ReviewUnifiedCodeModelReference | undefined> {
+    // Pinned sides identify the content; no session is involved.
+    const query = new URLSearchParams({
+      path,
+      side,
+      original: target.original.toString(),
+      modified: target.modified.toString(),
+    });
+    return this.acquireUnifiedFor(path, side, ranges, target, query);
+  }
+
+  private async acquireUnifiedFor(
+    path: string,
+    side: ReviewDiffSide,
+    ranges: readonly ReviewInlineEditorRange[],
+    target: ReviewCodeDiffTarget,
+    query: URLSearchParams,
+  ): Promise<ReviewUnifiedCodeModelReference | undefined> {
+    const generation = this.generation;
     const resource = URI.from({
       scheme: REVIEW_UNIFIED_SCHEME,
       path: `/${path}`,

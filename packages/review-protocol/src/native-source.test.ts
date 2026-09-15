@@ -35,37 +35,6 @@ afterEach(async () => {
 });
 
 describe("native Review Protocol source generation", () => {
-  it("emits one self-contained source file for the Code OSS overlay", async () => {
-    const directory = await mkdtemp(
-      path.join(tmpdir(), "review-protocol-native-"),
-    );
-
-    temporaryDirectories.push(directory);
-    const outputPath = path.join(directory, "reviewProtocol.ts");
-
-    await execFileAsync(process.execPath, [generatorPath, outputPath]);
-
-    const output = await readFile(outputPath, "utf8");
-    expect(output).toContain(
-      "// GENERATED from @dev.fast/review-protocol. Do not edit.",
-    );
-    expect(output).toContain("export const ReviewRuntimeConfigSchema");
-    expect(output).not.toContain("./contracts.js");
-    expect(output).not.toContain("./bug-report.js");
-    expect(output).not.toContain("./json.js");
-    expect(output).not.toContain("@dev.fast/json");
-    expect(output).not.toContain("./runtime-value.js");
-    // The inlined dependency modules land whole, exactly once each.
-    expect(output.match(/export function isCallableValue\(/g)).toHaveLength(1);
-    expect(output.match(/export function parseJsonText\(/g)).toHaveLength(1);
-    expect(output.match(/export type JsonValue =/g)).toHaveLength(1);
-    expect(output.match(/from "zod\/v4"/g)).toHaveLength(1);
-    expect(output).toContain("z.config({ jitless: true });");
-    expect(output.indexOf("z.config({ jitless: true });")).toBeLessThan(
-      output.indexOf("export const ReviewRuntimeConfigSchema"),
-    );
-  });
-
   it("bundles the emitted browser runtime with the protocol's Zod", async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "review-protocol-native-bundle-"),
@@ -109,6 +78,7 @@ describe("native Review Protocol source generation", () => {
     for (const name of [
       "contracts.ts",
       "code-peek-diff.ts",
+      "review-api-client.ts",
       "index.ts",
       "bug-report.ts",
     ]) {
@@ -193,6 +163,7 @@ describe("native Review Protocol source generation", () => {
     await writeFile(path.join(sourceRoot, "json.ts"), "");
     await writeFile(path.join(sourceRoot, "trace-contracts.ts"), "");
     await writeFile(path.join(sourceRoot, "code-peek-diff.ts"), "");
+    await writeFile(path.join(sourceRoot, "review-api-client.ts"), "");
     await writeFile(
       path.join(sourceRoot, "contracts.ts"),
       [

@@ -33,13 +33,31 @@ rename to new.ts
 
     const base = parseGitUnifiedDiffLineCounts(renamed, "base");
     const head = parseGitUnifiedDiffLineCounts(renamed, "head");
-    expect(base.get("old.ts")?.get(20)).toMatchObject({ deletions: 1 });
+    expect(base.get("old.ts")?.get(20)).toMatchObject({
+      additions: 1,
+      deletions: 1,
+    });
     expect(base.has("new.ts")).toBe(false);
     expect(head.get("new.ts")?.get(80)).toMatchObject({
       additions: 1,
       deletions: 1,
     });
     expect(head.has("old.ts")).toBe(false);
+  });
+  it("places base-side additions on the line the removed block occupied", () => {
+    const counts = parseGitUnifiedDiffLineCounts(patch, "base");
+
+    expect(
+      Object.fromEntries(
+        [...(counts.get("src/example.ts") ?? [])].map(([line, count]) => [
+          line,
+          { additions: count.additions, deletions: count.deletions },
+        ]),
+      ),
+    ).toEqual({
+      10: { additions: 3, deletions: 1 },
+      11: { additions: 0, deletions: 1 },
+    });
   });
   it("counts added and deleted hunk lines by current file and line", () => {
     const counts = parseGitUnifiedDiffLineCounts(patch);

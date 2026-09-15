@@ -11,7 +11,11 @@ import { ITextModelService } from "../../editor/common/services/resolverService.
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import type { IFileStat } from "../../platform/files/common/files.js";
-import { reviewPeekWindows } from "../common/reviewPeek.js";
+import {
+  reviewPeekWindows,
+  reviewPeekDiffWindows,
+  reviewPeekLineMappings,
+} from "../common/reviewPeek.js";
 import type {
   ReviewDiffSide,
   ReviewInlineEditorRange,
@@ -22,11 +26,12 @@ import type {
 } from "../common/reviewProtocol.js";
 import type {
   ReviewCodeModelReference,
+  ReviewCodeDiffTarget,
 } from "./reviewCodeResourceService.js";
 import type { ReviewInlineEditorService, ReviewInlineSource } from "./reviewInlineEditorService.js";
 import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffViewService.js";
-import { IReviewSessionService } from "./reviewSessionService.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
+import { IReviewSessionService, reviewResponseError } from "./reviewSessionService.js";
 
 export interface ApiSourceTarget {
   reviewId: string;
@@ -119,10 +124,13 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
     );
     const response = await fetch(
       `${serverUrl}/reviews-api/${encodeURIComponent(reviewId)}${route}?${params}`,
-      { headers: { "x-review-token": token } },
+      { headers: { "x-review-token": token }, signal: AbortSignal.timeout(30_000) },
     );
     if (!response.ok)
-      throw new Error((await response.json()).error ?? "Could not read pinned source.");
+      throw await reviewResponseError(
+        response,
+        `Could not read pinned source (${response.status}).`,
+      );
     return response.json();
   }
 
@@ -185,12 +193,56 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
     }
   }
 
+  private async peekDiff(
+    target: ApiSourceTarget,
+    ranges: readonly ReviewInlineEditorRange[],
+    files: Promise<readonly ReviewDiffFileWire[]>,
+  ): Promise<ReviewCodeDiffTarget | undefined> {
+    const file = (await files).find(
+      (file) =>
+        (target.side === "base" ? (file.previousPath ?? file.path) : file.path) === target.file,
+    );
+    if (!file) return undefined;
+    // Mappings come from the patch, as in the session path; the editors own the models.
+    const patch =
+      file.patch ??
+      (await this.read<string>(target.reviewId, "/diff", {
+        version: target.version,
+        commit: target.commit,
+        file: file.path,
+      }));
+    const mappings = reviewPeekLineMappings(patch);
+    return {
+      original: apiSourceUri(
+        { ...target, side: "base", file: file.previousPath ?? file.path },
+        file.status === "added",
+      ),
+      modified: apiSourceUri({ ...target, side: "head", file: file.path }, file.status === "deleted"),
+      diffFile: file,
+      mappings,
+      windows: (leftCount, rightCount) =>
+        reviewPeekDiffWindows(leftCount, rightCount, ranges, target.side, mappings),
+    };
+  }
+
   canvas(
     reviewId: string,
     version: () => number,
     inline: ReviewInlineEditorService,
     diff: ReviewDiffViewService,
   ) {
+    // A version's diff list is immutable: every peek and the diff view share one read.
+    const lists = new Map<string, Promise<readonly ReviewDiffFileWire[]>>();
+    const files = (current: number, commit?: string) => {
+      const key = `${current}:${commit ?? ""}`;
+      let list = lists.get(key);
+      if (!list) {
+        list = this.read<ReviewDiffFileWire[]>(reviewId, "/diff", { version: current, commit });
+        list.catch(() => lists.delete(key));
+        lists.set(key, list);
+      }
+      return list;
+    };
     const source = (
       file: string,
       side: ReviewDiffSide,
@@ -199,18 +251,16 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
       const target = { reviewId, version: version(), file, side };
       return {
         snippet: () => this.snippet(target, ranges),
+        diff: () => this.peekDiff(target, ranges, files(target.version)),
       };
     };
     const diffSource: ReviewDiffViewSource = {
-      files: (scope) => this.read(reviewId, "/diff", { version: version(), commit: scope?.commit }),
+      files: (scope) => files(version(), scope?.commit),
       load: async (scope) => {
         // Capture before awaiting: a live edit must not mix two versions' pins.
         const current = version();
         const commit = scope?.commit;
-        const files = await this.read<ReviewDiffFileWire[]>(reviewId, "/diff", {
-          version: current,
-          commit,
-        });
+        const entries = await files(current, commit);
         return {
           sourceUri: URI.from({
             scheme: "review-api-diff",
@@ -218,7 +268,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
             path: `/${current}`,
             query: commit ? `commit=${encodeURIComponent(commit)}` : undefined,
           }),
-          entries: files.map((file) => {
+          entries: entries.map((file) => {
             const original =
               file.status === "added"
                 ? undefined

@@ -53,6 +53,8 @@ export * from "./contracts.js";
 
 export * from "./review-api-client.js";
 
+export * from "./review-api-comments.js";
+
 export {
   type ByCommitEntry,
   type ReviewAgentTraceEvent,

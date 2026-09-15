@@ -41,6 +41,7 @@ export interface ReviewSession {
     model: NormalizedSoftwareModel,
   ): PinnedSoftwareMapData | undefined;
   keepsDismissedReviews?: boolean;
+  supportsHistoricalFeedback?: boolean;
   openOriginalCode?(threadId: string): Promise<void>;
   apiUrl(endpoint: `/${string}`, options?: ReviewRequestOptions): string;
   fetch: (

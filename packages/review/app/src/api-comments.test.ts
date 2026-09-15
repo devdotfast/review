@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createGitLabTextDiffPosition } from "@dev.fast/review-protocol";
+import { ApiComments } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -12,7 +13,6 @@ import { ReviewApiClient } from "../../src/review-api/client";
 import { createReviewApi } from "../../src/review-api/http";
 import { ReviewQuestions } from "../../src/review-api/questions";
 import { ReviewStore } from "../../src/review-api/store";
-import { ApiComments } from "./api-comments";
 
 let directory: string, store: ReviewStore, app: Hono, reviewId: string;
 
@@ -148,6 +148,200 @@ it("retries a lost save response against its original version without duplicatin
     draft: true,
   });
   expect(comments.getSnapshot().pendingCommentCount).toBe(1);
+});
+
+it("restores running status after a canvas reload, streams failure, and retries the saved question once", async () => {
+  let fail!: (error: Error) => void;
+
+  const execute = vi.fn<() => Promise<string>>(
+    () =>
+      new Promise<string>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+
+  const questions = new ReviewQuestions(store, execute);
+  app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(store, undefined, undefined, questions),
+  );
+  const routes: string[] = [];
+
+  const client = new ReviewApiClient(
+    { serverUrl: "http://review", token: "test" },
+    async (url, init) => {
+      routes.push(new URL(url).pathname);
+
+      return app.request(url, init);
+    },
+  );
+
+  try {
+    comments = new ApiComments(client, reviewId, () => 0);
+    comments.start();
+    const question = input();
+    await comments.askAgent(question);
+    expect(
+      comments.getSnapshot().agentActivities.get(question.threadId)?.status,
+    ).toBe("running");
+    comments.dispose();
+    comments = new ApiComments(client, reviewId, () => 0);
+    comments.start();
+    await comments.refresh();
+    expect(
+      comments.getSnapshot().agentActivities.get(question.threadId)?.status,
+    ).toBe("running");
+    expect(comments.canRetryAgent(question.threadId)).toBe(false);
+    fail(new Error("Disconnected"));
+    await vi.waitFor(() =>
+      expect(
+        comments.getSnapshot().agentActivities.get(question.threadId)?.status,
+      ).toBe("failed"),
+    );
+    expect(comments.canRetryAgent(question.threadId)).toBe(true);
+    execute.mockResolvedValue("Recovered answer.");
+    await comments.retryAgent(question.threadId);
+    await vi.waitFor(() =>
+      expect(
+        comments.getSnapshot().commentThreads.get(question.threadId)?.messages,
+      ).toHaveLength(2),
+    );
+    await vi.waitFor(() =>
+      expect(comments.getSnapshot().agentActivities.size).toBe(0),
+    );
+    expect(comments.canRetryAgent(question.threadId)).toBe(false);
+    await comments.retryAgent(question.threadId);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(routes.some((route) => route.includes("/runs/"))).toBe(false);
+  } finally {
+    questions.close();
+  }
+});
+
+it("restores the conversation's terminal association and opens only its own run", async () => {
+  const open = vi.fn<(signal: AbortSignal) => Promise<void>>(async () => {});
+
+  const questions = new ReviewQuestions(store, async (input) => {
+    input.onSession({ harness: "claude-code", sessionId: "session-a" }, open);
+
+    return "Saved answer.";
+  });
+
+  app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(store, undefined, undefined, questions),
+  );
+
+  const client = new ReviewApiClient(
+    { serverUrl: "http://review", token: "test" },
+    async (url, init) => app.request(url, init),
+  );
+
+  try {
+    comments = new ApiComments(client, reviewId, () => 0);
+    const question = input();
+    await comments.askAgent(question);
+    await vi.waitFor(() =>
+      expect(questions.read(reviewId, question.messageId).status).toBe(
+        "completed",
+      ),
+    );
+    comments.dispose();
+    comments = new ApiComments(client, reviewId, () => 0);
+    await comments.refresh();
+    expect(
+      comments.getSnapshot().commentThreads.get(question.threadId)
+        ?.agentSession,
+    ).toEqual({ harness: "claude-code", sessionId: "session-a" });
+    questions.terminalClosed(reviewId, question.messageId, "session-a");
+    await Promise.all([
+      comments.openTerminal(question.threadId),
+      comments.openTerminal(question.threadId),
+    ]);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open.mock.calls[0]![0].aborted).toBe(false);
+    await expect(comments.openTerminal("unrelated-thread")).rejects.toThrow(
+      "no available agent terminal",
+    );
+    expect(
+      (
+        await app.request(
+          `/reviews-api/unrelated-review/runs/${question.messageId}/terminal`,
+          { method: "POST" },
+        )
+      ).status,
+    ).toBe(409);
+    expect(open).toHaveBeenCalledTimes(1);
+    questions.close();
+    await comments.refresh();
+    expect(
+      comments.getSnapshot().commentThreads.get(question.threadId)
+        ?.agentSession,
+    ).toBeUndefined();
+    expect(
+      comments.getSnapshot().commentThreads.get(question.threadId)?.messages,
+    ).toHaveLength(2);
+  } finally {
+    questions.close();
+  }
+});
+
+it("retries an unanswered saved request-changes batch after the host loses runtime state", async () => {
+  let questions = new ReviewQuestions(store, async () => {
+    throw new Error("Could not launch");
+  });
+
+  app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(store, undefined, undefined, questions),
+  );
+
+  const client = new ReviewApiClient(
+    { serverUrl: "http://review", token: "test" },
+    async (url, init) => app.request(url, init),
+  );
+
+  try {
+    comments = new ApiComments(client, reviewId, () => 0);
+    const selected = [input(), input()];
+
+    for (const question of selected) await comments.saveComment(question);
+    const submissionId = randomUUID();
+    await comments.submit("request-changes", submissionId, selected);
+    questions.close();
+
+    const execute = vi.fn<() => Promise<string>>(async () =>
+      JSON.stringify({
+        replies: selected.map((question) => ({
+          threadId: question.threadId,
+          body: "Updated.",
+        })),
+      }),
+    );
+
+    questions = new ReviewQuestions(store, execute);
+    app = new Hono().route(
+      "/reviews-api",
+      createReviewApi(store, undefined, undefined, questions),
+    );
+    await comments.refresh();
+    expect(comments.canRetryAgent(selected[0]!.threadId)).toBe(true);
+    await comments.retryAgent(selected[0]!.threadId);
+    await vi.waitFor(() =>
+      expect(
+        store.feedback
+          .read(reviewId)
+          .threads.every((thread) => thread.messages.length === 2),
+      ).toBe(true),
+    );
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(store.feedback.read(reviewId).submissions).toHaveLength(1);
+    expect(questions.list(reviewId)[0]?.requestId).toBe(
+      store.feedback.read(reviewId).submissions[0]!.id,
+    );
+  } finally {
+    questions.close();
+  }
 });
 
 it("does not replace a submitted conversation with an older delayed read", async () => {

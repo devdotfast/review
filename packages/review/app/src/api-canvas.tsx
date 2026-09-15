@@ -2,6 +2,7 @@ import type {
   CreateReviewCommentInput,
   ReviewCanvasContent,
 } from "@dev.fast/review-protocol";
+import { ApiComments } from "@dev.fast/review-protocol";
 import {
   createContext,
   memo,
@@ -15,7 +16,6 @@ import {
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import { ReviewApiClient } from "../../src/review-api/client";
 import type { Snapshot } from "../../src/review-api/store";
-import { ApiComments } from "./api-comments";
 import {
   ApiDocument,
   type ApiDocumentData,
@@ -186,6 +186,24 @@ export function ApiCanvas({
       ...nativeSources,
       comments,
       post: async (request: Parameters<ApiContent["bridge"]["post"]>[0]) => {
+        // The panel opens locally. The legacy native action also kills terminals.
+        if (request.name === "showThreads") return { ok: true as const };
+
+        if (request.name === "resumeAgentTerminal") {
+          try {
+            await comments.openTerminal(request.args.threadId);
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+
+            setCommentError(message);
+
+            return { ok: false as const, error: message };
+          }
+
+          return { ok: true as const };
+        }
+
         if (request.name === "openReviewRevision") {
           setVersion(
             request.args.revision === undefined
@@ -202,6 +220,7 @@ export function ApiCanvas({
 
     const session = createReviewSession(bridge);
     session.keepsDismissedReviews = true;
+    session.supportsHistoricalFeedback = true;
 
     if (content.openSource)
       session.openOriginalCode = async (threadId) => {

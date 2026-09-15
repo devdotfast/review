@@ -190,7 +190,7 @@ export function ThreadAnnotations({
   } = useReviewActions();
 
   const {
-    historicalRevision,
+    commentsReadOnly,
     terminalThreadIds,
     allCommentThreads,
     resolvedCommentThreads,
@@ -985,7 +985,7 @@ export function ThreadAnnotations({
                   variant="margin"
                   compact
                   onDelete={
-                    thread.clientStatus === "draft" && !historicalRevision
+                    thread.clientStatus === "draft" && !commentsReadOnly
                       ? async () => {
                           await deleteComment(thread.threadId);
 

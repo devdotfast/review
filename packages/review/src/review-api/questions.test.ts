@@ -5,6 +5,7 @@ import { afterAll, afterEach, expect, it, vi } from "vitest";
 import { AsyncQueue } from "../native-agent/async-queue.js";
 import type {
   AgentServer,
+  LaunchInput,
   SessionUpdate,
 } from "../native-agent/native-session.js";
 import { ReviewApiClient } from "./client.js";
@@ -195,17 +196,72 @@ it("answers every submitted thread after editing the review; failures can retry 
   expect(store.activity.read(reviewId).workingCount).toBe(0);
 });
 
-it("launches a fresh session, saves completed terminal follow-ups, and stops observing on shutdown", async () => {
-  const queue = new AsyncQueue<SessionUpdate>();
+it("closing an agent terminal fails its run, but a late close cannot cancel its retry", async () => {
+  const { reviewId } = await command({
+    type: "create",
+    title: "Terminal lifecycle",
+    pins: { repositoryId: repository.id, base: "a", head: "b" },
+  });
+
+  const input = { threadId: "thread", messageId: "question" };
+  await command({
+    type: "feedback",
+    reviewId,
+    action: {
+      type: "post",
+      ...input,
+      version: 0,
+      target: { kind: "document" },
+      body: "Explain.",
+    },
+  });
+  const executions: QuestionExecution[] = [];
+  questions = new ReviewQuestions(store, (execution) => {
+    executions.push(execution);
+    execution.onSession(
+      { harness: "codex", sessionId: `session-${executions.length}` },
+      async () => {},
+    );
+
+    return new Promise<string>(() => {});
+  });
+  const api = createReviewApi(store, undefined, undefined, questions);
+
+  const closed = (sessionId: string) =>
+    api.request(`/${reviewId}/runs/question/terminal-closed`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    });
+
+  questions.start(reviewId, input);
+  expect((await closed("session-1")).status).toBe(200);
+  expect(questions.read(reviewId, "question").status).toBe("failed");
+  expect(executions[0]!.signal.aborted).toBe(true);
+  questions.start(reviewId, input);
+  await closed("session-1");
+  expect(questions.read(reviewId, "question").status).toBe("running");
+  expect(executions[1]!.signal.aborted).toBe(false);
+  await closed("session-2");
+  expect(questions.read(reviewId, "question").status).toBe("failed");
+  expect(store.feedback.read(reviewId).threads[0]!.messages).toHaveLength(1);
+});
+
+it("launches once, resumes silently, and saves new terminal follow-ups after reopening", async () => {
+  let queue = new AsyncQueue<SessionUpdate>();
 
   const close = vi.fn<() => Promise<void>>(async () => {
     queue.close();
   });
 
-  const launch = vi.fn<AgentServer["launch"]>(async () => ({
-    sessionId: "new-session",
-    command: { executable: "agent", args: [], cwd: "/source", env: {} },
-  }));
+  const launch = vi.fn<AgentServer["launch"]>(async (input: LaunchInput) => {
+    if (input.session) queue = new AsyncQueue<SessionUpdate>();
+
+    return {
+      sessionId: "new-session",
+      command: { executable: "agent", args: [], cwd: "/source", env: {} },
+    };
+  });
 
   const agent: AgentServer = {
     harness: "codex",
@@ -215,21 +271,24 @@ it("launches a fresh session, saves completed terminal follow-ups, and stops obs
     close,
   };
 
-  const open = vi.fn<() => Promise<void>>(async () => {
-    queue.push({ type: "status.changed", status: "running" });
-    queue.push({
-      type: "message.updated",
-      message: {
-        id: "answer",
-        role: "assistant",
-        body: "Finished answer.",
-        createdAt: "now",
-      },
+  const open = vi
+    .fn<() => Promise<void>>(async () => {})
+    .mockImplementationOnce(async () => {
+      queue.push({ type: "status.changed", status: "running" });
+      queue.push({
+        type: "message.updated",
+        message: {
+          id: "answer",
+          role: "assistant",
+          body: "Finished answer.",
+          createdAt: "now",
+        },
+      });
+      queue.push({ type: "status.changed", status: "idle" });
     });
-    queue.push({ type: "status.changed", status: "idle" });
-  });
 
   const abort = new AbortController();
+  let reopen!: (signal: AbortSignal) => Promise<void>;
   const onFollowup = vi.fn<() => Promise<void>>(async () => {});
   expect(
     await answerWithAgent(
@@ -241,6 +300,9 @@ it("launches a fresh session, saves completed terminal follow-ups, and stops obs
         prompt: "Question",
         cwd: "/source",
         signal: abort.signal,
+        onSession: (_session, openTerminal) => {
+          reopen = openTerminal;
+        },
         onFollowup,
         onError: vi.fn<QuestionExecution["onError"]>(),
       },
@@ -258,6 +320,9 @@ it("launches a fresh session, saves completed terminal follow-ups, and stops obs
     }),
   );
   expect(close).not.toHaveBeenCalled();
+  await reopen(abort.signal);
+  expect(launch).toHaveBeenCalledTimes(1);
+  expect(open).toHaveBeenCalledTimes(2);
   queue.push({
     type: "message.updated",
     message: { id: "followup", role: "user", body: "Why?", createdAt: "now" },
@@ -288,5 +353,41 @@ it("launches a fresh session, saves completed terminal follow-ups, and stops obs
     [{ id: "new-session:second-answer", by: "agent", body: "Complete answer" }],
   ]);
   abort.abort();
-  await vi.waitFor(() => expect(close).toHaveBeenCalled());
+  const resumed = new AbortController();
+  await reopen(resumed.signal);
+  expect(launch.mock.calls[1]).toEqual([
+    { cwd: "/source", session: { resume: "new-session" } },
+  ]);
+  expect(onFollowup).toHaveBeenCalledTimes(2);
+  queue.push({
+    type: "message.updated",
+    message: {
+      id: "resumed-question",
+      role: "user",
+      body: "Still the same session?",
+      createdAt: "now",
+    },
+  });
+  queue.push({
+    type: "message.updated",
+    message: {
+      id: "resumed-answer",
+      role: "assistant",
+      body: "Yes.",
+      createdAt: "now",
+    },
+  });
+  queue.push({ type: "status.changed", status: "idle" });
+  await vi.waitFor(() => expect(onFollowup).toHaveBeenCalledTimes(4));
+  expect(onFollowup.mock.calls.slice(-2)).toEqual([
+    [
+      {
+        id: "new-session:resumed-question",
+        by: "user",
+        body: "Still the same session?",
+      },
+    ],
+    [{ id: "new-session:resumed-answer", by: "agent", body: "Yes." }],
+  ]);
+  resumed.abort();
 });

@@ -174,6 +174,7 @@ export interface ReviewActionsValue {
 
 export interface ReviewStateValue {
   historicalRevision: string | null;
+  commentsReadOnly: boolean;
   resolvedBaseRef: string | null;
   resolvedHeadRef: string | null;
   focusedThreadId: string | null;
@@ -280,8 +281,11 @@ function ReviewCoordinator({
     null,
   );
 
-  const historicalRevisionRef = useRef<string | null>(null);
-  historicalRevisionRef.current = historicalRevision;
+  const commentsReadOnly =
+    Boolean(historicalRevision) && !session.supportsHistoricalFeedback;
+
+  const commentsReadOnlyRef = useRef(commentsReadOnly);
+  commentsReadOnlyRef.current = commentsReadOnly;
   const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
   const threadFocusNonceRef = useRef(0);
 
@@ -431,7 +435,7 @@ function ReviewCoordinator({
 
   const openCommentDraft = useCallback(
     (target: OpenCommentDraftTarget) => {
-      if (historicalRevisionRef.current) return;
+      if (commentsReadOnlyRef.current) return;
       captureUiEvent(session, "thread_draft_opened", {
         intent: target.intent ?? "comment",
       });
@@ -694,6 +698,7 @@ function ReviewCoordinator({
   const state = useMemo<ReviewStateValue>(
     () => ({
       historicalRevision,
+      commentsReadOnly,
       resolvedBaseRef,
       resolvedHeadRef,
       focusedThreadId,
@@ -721,6 +726,7 @@ function ReviewCoordinator({
       draftTarget,
       focusedThreadId,
       historicalRevision,
+      commentsReadOnly,
       lineCommentsForAnchor,
       pendingCommentCount,
       resolvedBaseRef,

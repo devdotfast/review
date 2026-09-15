@@ -72,6 +72,69 @@ afterEach(async () => {
 });
 
 describe("Review panel host", () => {
+  it("shows the saved question's failure and retries it without submitting another message", async () => {
+    const localSession = testReviewSession();
+    const comments = localSession.bridge.comments;
+    await comments.saveComment({
+      threadId: "failed",
+      messageId: "question",
+      target: { kind: "document" },
+      body: "Explain the version.",
+    });
+    comments.completeHumanReviewRound();
+
+    const snapshot = {
+      ...comments.getSnapshot(),
+      agentActivities: new Map([
+        [
+          "failed",
+          {
+            messageId: "question",
+            startedAt: "now",
+            status: "failed" as const,
+            error: "The terminal closed before answering.",
+          },
+        ],
+      ]),
+    };
+
+    vi.spyOn(comments, "getSnapshot").mockReturnValue(snapshot);
+    comments.canRetryAgent = () => true;
+    comments.retryAgent = vi.fn<NonNullable<typeof comments.retryAgent>>(
+      async () => {},
+    );
+    const post = vi.spyOn(comments, "persistComment");
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () =>
+      root!.render(
+        <ReviewSessionProvider session={localSession}>
+          <ReviewDebugSettingsProvider>
+            <ReviewProvider>
+              <ReviewPanelProvider>
+                <OpenCommentPanel threadId="failed" />
+                <ReviewPanelHost />
+              </ReviewPanelProvider>
+            </ReviewProvider>
+          </ReviewDebugSettingsProvider>
+        </ReviewSessionProvider>,
+      ),
+    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "The terminal closed before answering.",
+    );
+
+    const retry = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry answer",
+    )!;
+
+    await act(async () => retry.click());
+    expect(comments.retryAgent).toHaveBeenCalledWith("failed");
+    expect(post).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Explain the version.");
+  });
+
   it("opens original code from an outdated thread and reports unavailable source without hiding the conversation", async () => {
     const localSession = testReviewSession();
 

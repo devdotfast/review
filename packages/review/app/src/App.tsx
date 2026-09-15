@@ -685,7 +685,7 @@ function ReviewLayoutContent({
                     <span className="topbar-threads-count">{threadCount}</span>
                   )}
                 </button>
-                {!review.historicalRevision &&
+                {!review.commentsReadOnly &&
                   review.submissionOutcome !== "approved" &&
                   review.submissionOutcome !== "dismissed" && (
                     <button
@@ -711,10 +711,10 @@ function ReviewLayoutContent({
                   )}
               </div>
               <DiffLayoutControl />
-              {!review.historicalRevision && !review.submissionOutcome && (
+              {!review.commentsReadOnly && !review.submissionOutcome && (
                 <div className="topbar-actions-divider" />
               )}
-              {!review.historicalRevision && !review.submissionOutcome ? (
+              {!review.commentsReadOnly && !review.submissionOutcome ? (
                 <ReviewCornerAction />
               ) : null}
             </div>
@@ -1286,7 +1286,7 @@ function SelectionCommentButton({
 }) {
   const review = useReview();
 
-  if (!target || review.historicalRevision) return null;
+  if (!target || review.commentsReadOnly) return null;
 
   return (
     <div

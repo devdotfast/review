@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
 import {
+  type FeedbackMessage,
+  type FeedbackSnapshot,
+  type FeedbackSubmission,
+  type FeedbackThread,
   type ThreadTarget,
   ThreadTargetSchema,
 } from "@dev.fast/review-protocol";
@@ -65,36 +69,12 @@ export const feedbackActionSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export interface FeedbackMessage {
-  id: string;
-  version: number;
-  body: string;
-  by: "user" | "agent";
-  draft: boolean;
-  createdAt: string;
-}
-
-export interface FeedbackThread {
-  id: string;
-  version: number;
-  target: ThreadTarget;
-  resolved: boolean;
-  messages: FeedbackMessage[];
-}
-
-export interface FeedbackSubmission {
-  id: string;
-  version: number;
-  decision: "approve" | "request-changes";
-  messageIds: string[];
-  createdAt: string;
-}
-
-export interface FeedbackSnapshot {
-  revision: number;
-  threads: FeedbackThread[];
-  submissions: FeedbackSubmission[];
-}
+export type {
+  FeedbackMessage,
+  FeedbackThread,
+  FeedbackSubmission,
+  FeedbackSnapshot,
+} from "@dev.fast/review-protocol";
 
 /** Shares the host database and command transaction; no cached thread projection. */
 export class ReviewFeedback {

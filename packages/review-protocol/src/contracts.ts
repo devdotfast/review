@@ -744,6 +744,8 @@ export interface ReviewCommentStoreChange {
 }
 
 export interface ReviewCommentStoreBridge {
+  canRetryAgent?(threadId: string): boolean;
+  retryAgent?(threadId: string): Promise<void>;
   canEditMessage?(threadId: string, messageId: string): boolean;
   subscribe(listener: (change: ReviewCommentStoreChange) => void): () => void;
   getSnapshot(): ReviewCommentStoreSnapshot;

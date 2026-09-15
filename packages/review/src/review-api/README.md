@@ -53,6 +53,8 @@ All paths below are relative to `/reviews-api`.
 | `POST /:id/ask {threadId,messageId}` | Start a fresh agent for a posted question; return running/completed |
 | `POST /:id/respond {submissionId}` | Answer a saved request-changes submission; use the submit command's returned `targetId`, not its retry ID |
 | `GET /:id/runs/:requestId` | Read transient running/completed/failed status; request ID is the posted question ID or saved submission ID |
+| `POST /:id/runs/:requestId/terminal` | Bring that run's live terminal forward, or silently resume its completed session and save new follow-ups |
+| `POST /:id/runs/:requestId/terminal-closed {sessionId}` | Desktop reports terminal exit/close. Interrupt that execution and mark an unfinished answer failed; a stale terminal cannot stop a retry. |
 | `POST /commands`                          | Apply one command; return review ID, version, and edited target ID     |
 | `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
@@ -101,6 +103,8 @@ inputs are erased but their IDs remain, so delayed retries cannot resurrect cont
 Repository resources remain shared. Home and the canvas open a pinned, read-only
 source tree. Each source tab names its review version; files opened from it use
 the same version and side through the API, without a client-side checkout path.
+Pinned source files can read and save comments without an open review canvas.
+The source view uses the shared feedback client and releases it when no longer active.
 
 Edits: `insert {content,parentId?,afterId?}`, `update {targetId,changes}`,
 `move {targetId,parentId?,afterId?}`, `remove {targetId}`,
@@ -155,6 +159,13 @@ selected thread. Terminal follow-ups are saved in the terminal's associated thre
 Repeated starts do not duplicate a saved answer. Failures leave submitted comments
 intact; the same endpoint can retry them. Execution status is in memory and is not
 restored after restart. These submissions are not a durable background-job system.
+Feedback reads/streams include runtime `runs` (`requestId`, `threadIds`,
+`startedAt`, `status`, optional `error` and agent `session`), so reopening a canvas recovers current
+status without per-question polling. Retry answer reuses a saved unanswered
+question or its original request-changes submission; it does not post it again.
+Terminal associations stay in memory. Reopening a terminal does not resend the
+question or fork another agent; after a desktop restart, saved conversations
+remain but old terminal associations are unavailable.
 
 Native source/diff comments use the canvas's same API comment store and the
 existing native comment widgets. Targets retain source commit, file, side and
@@ -228,10 +239,10 @@ This avoids another long-lived browser connection. The badge is hidden while
 idle or viewing history, and reports unknown activity on a lost connection.
 There is no applying-update state. CLI/MCP expose this as `review_activity`.
 
-Ask execution remains later work.
 Computer use has verified native opening, source previews, comment save/submit,
-inline-map fullscreen/source inspection, live base/head map comparison, and
-trace quote/full-trace navigation, not every rich-node interaction.
+inline-map fullscreen/source inspection, live base/head map comparison,
+trace navigation, and fresh-agent Ask with saved terminal follow-ups. These are
+local integration checks, not a claim that every interaction or harness was tested.
 
 The focused test file exercises all twelve block kinds, edits and identity,
 history/restart, retries, asynchronous validation, isolation, and the actual

@@ -17,6 +17,12 @@ export function createReviewApi(
   questions?: ReviewQuestions,
 ) {
   const app = new Hono();
+
+  const feedback = (id: string) => ({
+    ...store.feedback.read(id),
+    runs: questions?.list(id) ?? [],
+  });
+
   app.onError((error, context) => {
     if (error instanceof HttpJsonError)
       return context.json({ error: error.message }, error.statusCode);
@@ -37,6 +43,27 @@ export function createReviewApi(
   app.get("/authoring", (context) => context.json(authoringTools()));
 
   if (questions) {
+    app.post("/:id/runs/:requestId/terminal", async (context) => {
+      await questions.openTerminal(
+        context.req.param("id"),
+        context.req.param("requestId"),
+      );
+
+      return context.json({ ok: true });
+    });
+    app.post("/:id/runs/:requestId/terminal-closed", async (context) => {
+      const { sessionId } = z
+        .strictObject({ sessionId: z.string().min(1) })
+        .parse(await readBoundedRequestJson(context.req.raw));
+
+      questions.terminalClosed(
+        context.req.param("id"),
+        context.req.param("requestId"),
+        sessionId,
+      );
+
+      return context.json({ ok: true });
+    });
     app.post("/:id/ask", async (context) => {
       const input = z
         .strictObject({
@@ -104,7 +131,7 @@ export function createReviewApi(
                   reviewId === null
                     ? store.list()
                     : part === "feedback"
-                      ? store.feedback.read(reviewId)
+                      ? feedback(reviewId)
                       : {
                           ...store.read(reviewId),
                           activity: store.activity.read(reviewId),
@@ -191,17 +218,18 @@ export function createReviewApi(
 
     if (!data && version !== undefined) store.read(id, version);
 
-    return context.json(
+    const snapshot =
       data && version !== undefined
         ? await data.feedback(id, version)
-        : store.feedback.read(id),
-    );
+        : store.feedback.read(id);
+
+    return context.json({ ...snapshot, runs: questions?.list(id) ?? [] });
   });
   app.get("/:id/feedback/watch", (context) => {
     const id = context.req.param("id");
 
     return watch(
-      () => store.feedback.read(id),
+      () => feedback(id),
       (notify) =>
         store.feedback.subscribe((changed) => {
           if (changed === id) notify();

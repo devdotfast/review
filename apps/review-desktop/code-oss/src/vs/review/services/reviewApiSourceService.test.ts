@@ -8,11 +8,13 @@ import type { ITextModelContentProvider } from "../../editor/common/services/res
 import type { ReviewInlineSource } from "./reviewInlineEditorService.js";
 import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
 import { apiSourceUri, ReviewApiSourceService } from "./reviewApiSourceService.js";
+import type { FeedbackSnapshot } from "../common/reviewProtocol.js";
 
 function setup() {
   let provider: ITextModelContentProvider;
   let disposed = 0;
   const editorChanged = new Emitter<void>();
+  const errors: string[] = [];
   const editors = { activeEditor: undefined as EditorInput | undefined, onDidActiveEditorChange: editorChanged.event };
   const models = new Map<string, { uri: URI; text: string; getLineCount(): number }>();
   const service = new ReviewApiSourceService(
@@ -41,9 +43,10 @@ function setup() {
     { computeDiff: async () => ({ changes: [], quitEarly: false }) } as never,
     editors as never,
     { registerReviewEditor() {} } as never,
+    { error: (message: string) => errors.push(message) } as never,
   );
   return {
-    service, models, disposed: () => disposed,
+    service, models, errors, disposed: () => disposed,
     activate(editor: EditorInput | undefined) {
       editors.activeEditor = editor;
       editorChanged.fire();
@@ -264,4 +267,53 @@ test("background canvas updates cannot take over the active review's code commen
   assert.equal(service.feedback, updatedA);
   releaseUpdatedA();
   assert.equal(service.feedback, undefined);
+});
+
+test("a standalone source tab loads, saves and observes its pinned comments without a canvas", async (t) => {
+  const { service, activate, errors } = setup();
+  t.after(() => service.dispose());
+  let feedback: FeedbackSnapshot = { revision: 0, threads: [], submissions: [] };
+  t.mock.method(globalThis, "fetch", async (value: string, init?: RequestInit) => {
+    const url = new URL(value);
+    assert.equal(new Headers(init?.headers).get("x-review-token"), "secret");
+    if (url.pathname === "/reviews-api/watch") {
+      return new Response(new ReadableStream({
+        start(controller) { init?.signal?.addEventListener("abort", () => controller.close(), { once: true }); },
+      }));
+    }
+    if (url.pathname === "/reviews-api/commands") {
+      const { operation } = JSON.parse(String(init?.body));
+      assert.equal(operation.reviewId, "review-a");
+      assert.equal(operation.action.version, 3);
+      assert.equal(operation.action.target.position.head_sha, "saved-head");
+      feedback = {
+        revision: 1, submissions: [], threads: [{
+          id: "thread", version: 3, target: operation.action.target, resolved: false,
+          messages: [{ id: "message", version: 3, body: operation.action.body, by: "user", draft: true, createdAt: new Date().toISOString() }],
+        }],
+      };
+      return Response.json({ reviewId: "review-a", version: 3, feedback: true });
+    }
+    assert.equal(url.searchParams.get("version"), "3");
+    if (url.pathname.endsWith("/feedback")) return Response.json(feedback);
+    if (url.pathname.endsWith("/diff")) return Response.json([]);
+    assert.equal(url.pathname, "/reviews-api/review-a");
+    return Response.json({ pins: { base: "saved-base", head: "saved-head" } });
+  });
+  const ready = new Promise<void>(resolve => service.onDidChangeFeedback(() => {
+    if (service.feedback) resolve();
+  }));
+  const resource = apiSourceUri({ reviewId: "review-a", version: 3, file: "a.ts", side: "head" });
+  activate({ resource } as EditorInput);
+  await ready;
+  const comments = service.feedback!.comments;
+  const target = await service.commentTarget(resource, { startLine: 2, endLine: 2 });
+  assert.ok(target);
+  await comments.saveComment({ threadId: "thread", messageId: "message", target, body: "A standalone comment" });
+  assert.equal(comments.getSnapshot().commentThreads.get("thread")?.messages[0]?.body, "A standalone comment");
+  activate({ resource: URI.from({ scheme: "devfast-review-canvas", authority: "api-source", path: "/review-a/3" }) } as EditorInput);
+  assert.equal(service.feedback?.comments, comments);
+  activate(undefined);
+  assert.equal(service.feedback, undefined);
+  assert.deepEqual(errors, []);
 });

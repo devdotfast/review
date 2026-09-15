@@ -112,6 +112,7 @@ const MODULE_PATHS = [
   traceContractsPath,
   path.join(sourceRoot, "contracts.ts"),
   path.join(sourceRoot, "review-api-client.ts"),
+  path.join(sourceRoot, "review-api-comments.ts"),
   path.join(sourceRoot, "index.ts"),
 ];
 

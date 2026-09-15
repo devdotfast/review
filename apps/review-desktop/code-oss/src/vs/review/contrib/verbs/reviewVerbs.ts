@@ -407,14 +407,32 @@ export class ReviewVerbsService
     });
     this._register(firstData);
     this.agentSessionTerminals.set(key, instance);
+    let closed = false;
+    const reportClosed = () => {
+      if (closed || !input.reviewId || !input.askMessageId) return;
+      closed = true;
+      void (async () => {
+        const { serverUrl, token } = await this.sessionService.getConnection();
+        const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(input.reviewId!)}/runs/${encodeURIComponent(input.askMessageId!)}/terminal-closed`, {
+          method: "POST", headers: { "content-type": "application/json", "x-review-token": token },
+          body: JSON.stringify({ sessionId: input.session.sessionId }),
+        });
+        if (!response.ok) throw new Error("Could not report the closed agent terminal.");
+      })().catch(error => console.error("[Review] Could not report agent exit", error));
+    };
     let processId = instance.processId;
     this._register(instance.onProcessIdReady(ready => { processId = ready.processId; timing("terminal.process-ready"); }));
     let processExited = false;
     this._register(instance.onExit(exit => {
       // dispose() also emits an undefined synthetic exit before the process dies.
-      if (exit !== undefined) processExited = true;
+      if (exit !== undefined) {
+        processExited = true;
+        reportClosed();
+        if (input.reviewId && this.agentSessionTerminals.get(key) === instance) this.agentSessionTerminals.delete(key);
+      }
     }));
     this._register(instance.onDisposed(() => {
+      reportClosed();
       if (this.agentSessionTerminals.get(key) === instance) {
         this.agentSessionTerminals.delete(key);
         void (async () => {
@@ -513,12 +531,16 @@ export class ReviewVerbsService
       if (decorations?.length) model.deltaDecorations(decorations, []);
     }
     this.decorationIdsByModel.clear();
+    // Switching a canvas must not close an independently running agent terminal.
+    const agentTerminals = new Set([...this.agentSessionTerminals.values()].map(instance => instance.resource.toString()));
     await Promise.all(
       this.editorGroupsService.parts.flatMap((part) =>
         part.groups.map((group) =>
           group.closeEditors(
             group.editors.filter(
-              (editor) => !(editor instanceof ReviewCanvasEditorInput),
+              (editor) => !(editor instanceof ReviewCanvasEditorInput) &&
+                editor.resource?.scheme !== REVIEW_API_SOURCE_SCHEME &&
+                !agentTerminals.has(editor.resource?.toString() ?? ""),
             ),
           ),
         ),

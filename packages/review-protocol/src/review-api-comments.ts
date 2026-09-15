@@ -2,20 +2,62 @@ import {
   type CreateReviewCommentInput,
   type ReviewApiSourceLocation,
   type ReviewCommentAgentActivity,
+  type ReviewCommentAgentSession,
   type ReviewCommentStoreBridge,
   type ReviewCommentStoreChange,
   type ReviewCommentStoreSnapshot,
   type ReviewCommentThreadRecord,
   type ReviewInlineEditorRange,
   type ReviewLocalCommentThread,
+  type ThreadTarget,
   gitLabDiffPositionRows,
-} from "@dev.fast/review-protocol";
+} from "./contracts.js";
+import type { ReviewApiClient, ReviewApiSummary } from "./review-api-client.js";
 
-import type { ReviewApiClient } from "../../src/review-api/client";
-import type { FeedbackSnapshot } from "../../src/review-api/feedback";
-import type { QuestionStatus } from "../../src/review-api/questions";
-import type { Result, Snapshot } from "../../src/review-api/store";
-import { createClientId } from "./review-context";
+export interface QuestionStatus {
+  status: "running" | "completed" | "failed";
+  error?: string;
+}
+
+export interface QuestionRun extends QuestionStatus {
+  requestId: string;
+  threadIds: string[];
+  startedAt: string;
+  session?: ReviewCommentAgentSession;
+}
+
+export interface FeedbackMessage {
+  id: string;
+  version: number;
+  body: string;
+  by: "user" | "agent";
+  draft: boolean;
+  createdAt: string;
+}
+
+export interface FeedbackThread {
+  id: string;
+  version: number;
+  target: ThreadTarget;
+  resolved: boolean;
+  messages: FeedbackMessage[];
+}
+
+export interface FeedbackSubmission {
+  id: string;
+  version: number;
+  decision: "approve" | "request-changes";
+  messageIds: string[];
+  createdAt: string;
+}
+
+export interface FeedbackSnapshot {
+  revision: number;
+  threads: FeedbackThread[];
+  submissions: FeedbackSubmission[];
+  /** Runtime-only answer status, added by the HTTP host. */
+  runs?: QuestionRun[];
+}
 
 /** Adapts server-owned feedback to the existing annotation UI. */
 export class ApiComments implements ReviewCommentStoreBridge {
@@ -39,7 +81,7 @@ export class ApiComments implements ReviewCommentStoreBridge {
   private submitting = false;
   private displayedVersion?: number;
   private acceptedVersion?: number;
-  private readonly activities = new Map<string, ReviewCommentAgentActivity>();
+  private refreshId = 0;
   constructor(
     private readonly client: ReviewApiClient,
     private readonly reviewId: string,
@@ -92,7 +134,7 @@ export class ApiComments implements ReviewCommentStoreBridge {
     const rows = gitLabDiffPositionRows(position)!;
     const side = rows.start.new_line != null ? "head" : "base";
 
-    const snapshot = await this.client.read<Snapshot>(
+    const snapshot = await this.client.read<Pick<ReviewApiSummary, "pins">>(
       `/${this.reviewId}?full=true&version=${thread.version}`,
     );
 
@@ -117,15 +159,17 @@ export class ApiComments implements ReviewCommentStoreBridge {
   }
 
   async refresh() {
+    const request = ++this.refreshId;
     const version = this.version();
     this.displayedVersion = version;
-    this.accept(
-      await this.client.read<FeedbackSnapshot>(
-        `/${this.reviewId}/feedback?version=${version}`,
-        this.abort.signal,
-      ),
-      version,
+
+    const next = await this.client.read<FeedbackSnapshot>(
+      `/${this.reviewId}/feedback?version=${version}`,
+      this.abort.signal,
     );
+
+    if (request !== this.refreshId) return;
+    this.accept(next, version);
 
     if (!this.abort.signal.aborted && version === this.displayedVersion)
       this.connectionError();
@@ -136,7 +180,8 @@ export class ApiComments implements ReviewCommentStoreBridge {
       version !== this.displayedVersion ||
       next.revision < this.current.revision ||
       (next.revision === this.current.revision &&
-        version === this.acceptedVersion)
+        version === this.acceptedVersion &&
+        JSON.stringify(next.runs) === JSON.stringify(this.current.runs))
     )
       return;
     this.acceptedVersion = version;
@@ -145,6 +190,24 @@ export class ApiComments implements ReviewCommentStoreBridge {
   }
   private publish() {
     const previous = this.snapshot;
+    const activities = new Map<string, ReviewCommentAgentActivity>();
+
+    for (const run of this.current.runs ?? []) {
+      for (const threadId of run.threadIds) {
+        if (run.status === "completed") activities.delete(threadId);
+        else
+          activities.set(threadId, {
+            messageId: run.requestId,
+            startedAt: run.startedAt,
+            ...(run.status === "failed"
+              ? ({
+                  status: "failed",
+                  error: run.error ?? "The agent could not finish.",
+                } as const)
+              : ({ status: "running" } as const)),
+          });
+      }
+    }
 
     const next = {
       ...previous,
@@ -158,6 +221,9 @@ export class ApiComments implements ReviewCommentStoreBridge {
         threadId: thread.id,
         target: thread.target,
         status: thread.resolved ? "resolved" : "open",
+        agentSession: [...(this.current.runs ?? [])]
+          .reverse()
+          .find((run) => run.threadIds.includes(thread.id))?.session,
         messages: thread.messages.map((message) => ({
           id: message.id,
           body: message.body,
@@ -187,22 +253,9 @@ export class ApiComments implements ReviewCommentStoreBridge {
           clientStatus: this.submitting ? "submitting" : "draft",
         });
       next.pendingCommentCount += inputs.length;
-      const activity = this.activities.get(thread.id);
-
-      const questionIndex = thread.messages.findIndex(
-        (message) => message.id === activity?.messageId,
-      );
-
-      if (
-        questionIndex >= 0 &&
-        thread.messages
-          .slice(questionIndex + 1)
-          .some((message) => message.by === "agent")
-      )
-        this.activities.delete(thread.id);
     }
 
-    this.snapshot = { ...next, agentActivities: new Map(this.activities) };
+    this.snapshot = { ...next, agentActivities: activities };
 
     const change = {
       threadIds: new Set([
@@ -215,7 +268,7 @@ export class ApiComments implements ReviewCommentStoreBridge {
   }
   private async send<Action extends { type: string }>(
     action: Action,
-    commandId = createClientId(),
+    commandId: string = crypto.randomUUID(),
   ) {
     // Keep the exact request through a lost response, including its displayed version.
     if (!this.pending.has(commandId))
@@ -224,7 +277,7 @@ export class ApiComments implements ReviewCommentStoreBridge {
         operation: { type: "feedback", reviewId: this.reviewId, action },
       });
 
-    const result = await this.client.post<Result>(
+    const result = await this.client.post<{ targetId?: string }>(
       "/commands",
       this.pending.get(commandId),
       this.abort.signal,
@@ -275,70 +328,81 @@ export class ApiComments implements ReviewCommentStoreBridge {
   }
   async askAgent(input: CreateReviewCommentInput) {
     await this.persistComment(input);
-    this.activities.set(input.threadId, {
-      messageId: input.messageId,
-      startedAt: new Date().toISOString(),
-      status: "running",
-    });
-    this.publish();
-
-    try {
-      await this.client.post(
-        `/${this.reviewId}/ask`,
-        { threadId: input.threadId, messageId: input.messageId },
-        this.abort.signal,
-      );
-      await this.refresh();
-      void this.followRun(input.messageId, input.threadId);
-    } catch (error) {
-      this.activities.set(input.threadId, {
-        messageId: input.messageId,
-        startedAt: new Date().toISOString(),
-        status: "failed",
-        error: error instanceof Error ? error.message : String(error),
-      });
-      this.publish();
-      throw error;
-    }
+    await this.client.post(
+      `/${this.reviewId}/ask`,
+      { threadId: input.threadId, messageId: input.messageId },
+      this.abort.signal,
+    );
+    await this.refresh();
   }
   async deleteLocalComment(threadId: string) {
     await this.send({ type: "discard-draft", threadId });
   }
-  private async followRun(requestId: string, threadId?: string) {
-    try {
-      while (!this.abort.signal.aborted) {
-        const result = await this.client.read<QuestionStatus>(
-          `/${this.reviewId}/runs/${encodeURIComponent(requestId)}`,
-          this.abort.signal,
-        );
+  private unanswered(threadId: string) {
+    const thread = this.current.threads.find(
+      (thread) => thread.id === threadId,
+    );
 
-        if (result.status === "failed") throw new Error(result.error);
+    for (const message of [...(thread?.messages ?? [])].reverse()) {
+      if (message.draft || message.by !== "user") continue;
 
-        if (result.status === "completed") {
-          await this.refresh();
+      const submission = this.current.submissions.find((item) =>
+        item.messageIds.includes(message.id),
+      );
 
-          if (threadId) this.activities.delete(threadId);
-          this.publish();
+      if (submission && submission.decision !== "request-changes") continue;
 
-          return;
-        }
+      if (
+        !submission &&
+        thread!.messages
+          .slice(thread!.messages.indexOf(message) + 1)
+          .some((reply) => reply.by === "agent")
+      )
+        continue;
+      const requestId = submission?.id ?? message.id;
 
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-      }
-    } catch (error) {
-      if (this.abort.signal.aborted) return;
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (threadId) {
-        this.activities.set(threadId, {
-          messageId: requestId,
-          startedAt: new Date().toISOString(),
-          status: "failed",
-          error: message,
-        });
-        this.publish();
-      } else this.connectionError(message);
+      if (
+        !thread!.messages.some(
+          (answer) => answer.id === `answer:${requestId}:${threadId}`,
+        )
+      )
+        return submission
+          ? { submissionId: submission.id }
+          : { threadId, messageId: message.id };
     }
+
+    return undefined;
+  }
+  canRetryAgent(threadId: string) {
+    return (
+      this.snapshot.agentActivities.get(threadId)?.status !== "running" &&
+      Boolean(this.unanswered(threadId))
+    );
+  }
+  async retryAgent(threadId: string) {
+    const input = this.unanswered(threadId);
+
+    if (!input) return;
+    await this.client.post(
+      `/${this.reviewId}/${"submissionId" in input ? "respond" : "ask"}`,
+      input,
+      this.abort.signal,
+    );
+    await this.refresh();
+  }
+  async openTerminal(threadId: string) {
+    const run = [...(this.current.runs ?? [])]
+      .reverse()
+      .find((run) => run.threadIds.includes(threadId));
+
+    if (!run?.session)
+      throw new Error("This conversation has no available agent terminal.");
+    await this.client.post(
+      `/${this.reviewId}/runs/${encodeURIComponent(run.requestId)}/terminal`,
+      {},
+      this.abort.signal,
+    );
+    await this.refresh();
   }
   async deleteComment(threadId: string) {
     if (
@@ -402,7 +466,7 @@ export class ApiComments implements ReviewCommentStoreBridge {
           { submissionId: result.targetId },
           this.abort.signal,
         );
-        void this.followRun(result.targetId!);
+        await this.refresh();
       } catch (error) {
         this.connectionError(
           `Your review was submitted, but the agent could not start: ${error instanceof Error ? error.message : String(error)}`,

@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from "../../base/common/lifecycle.js";
+import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
 import { Emitter, type Event } from "../../base/common/event.js";
 import { URI } from "../../base/common/uri.js";
 import { ILanguageService } from "../../editor/common/languages/language.js";
@@ -12,6 +12,7 @@ import { ITextModelService } from "../../editor/common/services/resolverService.
 import { IEditorWorkerService } from "../../editor/common/services/editorWorker.js";
 import { diffEditorDefaultOptions } from "../../editor/common/config/diffEditor.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
+import { INotificationService } from "../../platform/notification/common/notification.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import { EditorResourceAccessor, SideBySideEditor } from "../../workbench/common/editor.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
@@ -28,7 +29,7 @@ import type {
   ReviewApiSourceLocation,
   CodeThreadTarget,
 } from "../common/reviewProtocol.js";
-import { createGitLabTextDiffPosition, gitLabDiffPositionRows } from "../common/reviewProtocol.js";
+import { ApiComments, ReviewApiClient, createGitLabTextDiffPosition, gitLabDiffPositionRows } from "../common/reviewProtocol.js";
 import type {
   ReviewCodeModelReference,
   ReviewCodeDiffTarget,
@@ -40,6 +41,12 @@ import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.
 
 export interface ApiSourceTarget extends ReviewApiSourceLocation {
   reviewId: string;
+}
+
+interface SourceFeedback {
+  key: string;
+  abort: AbortController;
+  context?: ReviewApiFeedbackContext & { comments: ApiComments };
 }
 
 export const REVIEW_API_SOURCE_SCHEME = "review-api-source";
@@ -92,6 +99,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
   readonly onDidChangeFeedback = this.feedbackChanged.event;
   private readonly feedbackBindings = new Map<EditorInput, ReviewApiFeedbackContext>();
   private activeFeedback: ReviewApiFeedbackContext | undefined;
+  private sourceFeedback?: SourceFeedback;
   get feedback() { return this.activeFeedback; }
 
   bindFeedback(context: ReviewApiFeedbackContext, owner: EditorInput) {
@@ -115,9 +123,51 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
           resource.path === `/${context.reviewId}/${context.version}`),
       );
     }
+    if (!next && resource && (resource.scheme === REVIEW_API_SOURCE_SCHEME ||
+      (resource.scheme === "devfast-review-canvas" && resource.authority === "api-source"))) {
+      const tree = resource.scheme === "devfast-review-canvas";
+      const reviewId = tree ? resource.path.split("/")[1] : resource.authority;
+      const version = Number(tree ? resource.path.split("/")[2] : new URLSearchParams(resource.query).get("version") ?? undefined);
+      if (reviewId && Number.isInteger(version) && version >= 0) {
+        const key = `${reviewId}/${version}`;
+        if (this.sourceFeedback?.key !== key) {
+          this.clearSourceFeedback();
+          const state = this.sourceFeedback = { key, abort: new AbortController() };
+          void this.loadSourceFeedback(reviewId, version, state);
+        }
+        next = this.sourceFeedback?.context;
+      } else this.clearSourceFeedback();
+    } else this.clearSourceFeedback();
     if (next === this.activeFeedback) return;
     this.activeFeedback = next;
     this.feedbackChanged.fire();
+  }
+
+  private clearSourceFeedback() {
+    this.sourceFeedback?.abort.abort();
+    this.sourceFeedback?.context?.comments.dispose();
+    this.sourceFeedback = undefined;
+  }
+
+  private async loadSourceFeedback(reviewId: string, version: number, state: SourceFeedback) {
+    try {
+      const client = new ReviewApiClient(await this.session.getConnection());
+      const snapshot = await client.read<{ pins: { base: string; head: string } }>(
+        `/${encodeURIComponent(reviewId)}?full=true&version=${version}`, state.abort.signal,
+      );
+      if (state.abort.signal.aborted) return;
+      const comments = new ApiComments(client, reviewId, () => version);
+      state.context = { reviewId, version, pins: snapshot.pins, comments };
+      comments.start();
+      await comments.refresh();
+      if (!state.abort.signal.aborted) this.selectFeedback();
+    } catch (error) {
+      if (state.abort.signal.aborted) return;
+      this.clearSourceFeedback();
+      this.activeFeedback = undefined;
+      this.feedbackChanged.fire();
+      this.notifications.error(`Could not load review comments: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async commentTarget(resource: URI, range: ReviewInlineEditorRange): Promise<CodeThreadTarget | null> {
@@ -163,8 +213,10 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
     @IEditorWorkerService private readonly worker: IEditorWorkerService,
     @IEditorService private readonly editors: IEditorService,
     @IReviewCanvasEditorTabsService private readonly tabs: IReviewCanvasEditorTabsService,
+    @INotificationService private readonly notifications: INotificationService,
   ) {
     super();
+    this._register(toDisposable(() => this.clearSourceFeedback()));
     this._register(editors.onDidActiveEditorChange(() => this.selectFeedback()));
     this._register(
       models.registerTextModelContentProvider(REVIEW_API_SOURCE_SCHEME, {

@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import type {
+  QuestionRun,
+  QuestionStatus,
+  ReviewCommentAgentSession,
+} from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { ReviewInputError } from "./document.js";
@@ -12,6 +17,10 @@ export interface QuestionExecution {
   prompt: string;
   cwd: string;
   signal: AbortSignal;
+  onSession(
+    session: ReviewCommentAgentSession,
+    openTerminal: (signal: AbortSignal) => Promise<void>,
+  ): void;
   onFollowup(message: {
     id: string;
     by: "user" | "agent";
@@ -20,18 +29,22 @@ export interface QuestionExecution {
   onError(): void;
 }
 
-export interface QuestionStatus {
-  status: "running" | "completed" | "failed";
-  error?: string;
-}
-
-type ActiveQuestion = {
-  reviewId: string;
-  state: QuestionStatus;
-  abort: AbortController;
-};
+export type { QuestionStatus, QuestionRun } from "@dev.fast/review-protocol";
 
 /** In-flight work is deliberately not durable. Questions and final replies are. */
+type ActiveQuestion = {
+  reviewId: string;
+  requestId: string;
+  threadIds: string[];
+  startedAt: string;
+  state: QuestionStatus;
+  abort: AbortController;
+  session?: ReviewCommentAgentSession;
+  openTerminal?: (signal: AbortSignal) => Promise<void>;
+  opening?: Promise<void>;
+  answered: boolean;
+};
+
 export class ReviewQuestions {
   private readonly runs = new Map<string, ActiveQuestion>();
   private readonly unsubscribe: () => void;
@@ -60,6 +73,62 @@ export class ReviewQuestions {
       );
 
     return run.state;
+  }
+  list(reviewId: string): QuestionRun[] {
+    return this.runs
+      .values()
+      .filter((run) => run.reviewId === reviewId)
+      .map(({ requestId, threadIds, startedAt, state, session, answered }) => ({
+        requestId,
+        threadIds,
+        startedAt,
+        ...state,
+        session: answered || state.status === "running" ? session : undefined,
+      }))
+      .toArray();
+  }
+  openTerminal(reviewId: string, requestId: string): Promise<void> {
+    const run = this.runs.get(`${reviewId}/${requestId}`);
+
+    if (!run?.openTerminal || (!run.answered && run.state.status !== "running"))
+      throw new ReviewInputError(
+        "This terminal is unavailable. Retry the saved question instead.",
+        409,
+      );
+
+    if (run.opening) return run.opening;
+
+    if (run.abort.signal.aborted) run.abort = new AbortController();
+    run.opening = run
+      .openTerminal(run.abort.signal)
+      .then(() => {
+        if (run.answered) run.state = { status: "completed" };
+        this.store.feedback.changed(reviewId);
+      })
+      .finally(() => {
+        run.opening = undefined;
+      });
+
+    return run.opening;
+  }
+  terminalClosed(reviewId: string, requestId: string, sessionId: string) {
+    const run = this.runs.get(`${reviewId}/${requestId}`);
+
+    if (
+      !run ||
+      run.session?.sessionId !== sessionId ||
+      run.abort.signal.aborted
+    )
+      return;
+    run.abort.abort();
+
+    if (run.state.status === "running")
+      run.state = {
+        status: "failed",
+        error:
+          "The agent terminal closed before answering. Your question is saved; retry to continue.",
+      };
+    this.store.feedback.changed(reviewId);
   }
   start(
     reviewId: string,
@@ -108,13 +177,19 @@ export class ReviewQuestions {
 
     const run: ActiveQuestion = {
       reviewId,
+      requestId,
+      threadIds: questions.map((question) => question.thread.id),
+      startedAt: new Date().toISOString(),
+      answered: false,
       state: {
         status: unanswered.length ? "running" : "completed",
       },
       abort: new AbortController(),
     };
 
+    this.runs.delete(key);
     this.runs.set(key, run);
+    this.store.feedback.changed(reviewId);
 
     if (!unanswered.length) return run.state;
 
@@ -169,6 +244,11 @@ export class ReviewQuestions {
           prompt,
           cwd: this.store.repositoryPath(snapshot.pins.repositoryId),
           signal: run.abort.signal,
+          onSession: (session, openTerminal) => {
+            run.session = session;
+            run.openTerminal = openTerminal;
+            this.store.feedback.changed(reviewId);
+          },
           onFollowup: async (message) => {
             if (run.abort.signal.aborted) return;
             await this.store.execute({
@@ -193,6 +273,7 @@ export class ReviewQuestions {
               error:
                 "The agent connection ended. Saved messages are still available.",
             };
+            this.store.feedback.changed(reviewId);
           },
         });
 
@@ -245,8 +326,10 @@ export class ReviewQuestions {
           });
         }
 
+        run.answered = true;
         run.state = { status: "completed" };
       } catch (error) {
+        if (run.abort.signal.aborted) return;
         run.state = {
           status: "failed",
           error:
@@ -255,6 +338,7 @@ export class ReviewQuestions {
               : "The agent could not finish. Your questions are saved; retry to continue.",
         };
       } finally {
+        if (!run.abort.signal.aborted) this.store.feedback.changed(reviewId);
         clearInterval(renewal);
 
         if (batch)

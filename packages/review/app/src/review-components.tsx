@@ -1717,7 +1717,7 @@ function ThreadPanelInner({
       }
       titleAccessory={
         panel.page.kind === "list" ? (
-          !review.historicalRevision ? (
+          !review.commentsReadOnly ? (
             <button
               type="button"
               className="threads-new-ask"
@@ -1731,7 +1731,7 @@ function ThreadPanelInner({
               + New ask
             </button>
           ) : undefined
-        ) : thread && !review.historicalRevision ? (
+        ) : thread && !review.commentsReadOnly ? (
           <>
             <button
               type="button"
@@ -1788,7 +1788,7 @@ function ThreadPanelInner({
             (target ? targetQuote(target.target) : "Entire document")
           }
           newAsk={panel.page.kind === "new-ask"}
-          readOnly={Boolean(review.historicalRevision)}
+          readOnly={review.commentsReadOnly}
           onAskNow={askNow}
           onAddToReview={addToReview}
         />
@@ -1799,7 +1799,7 @@ function ThreadPanelInner({
             activeLocator={review.focusedThreadId}
             onSelect={selectListThread}
             onResumeInTerminal={resumeInTerminal}
-            readOnly={Boolean(review.historicalRevision)}
+            readOnly={review.commentsReadOnly}
             emptyState={
               resolvedThreads.length > 0
                 ? {
@@ -1820,7 +1820,7 @@ function ThreadPanelInner({
                 activeLocator={review.focusedThreadId}
                 onSelect={selectListThread}
                 onResumeInTerminal={resumeInTerminal}
-                readOnly={Boolean(review.historicalRevision)}
+                readOnly={review.commentsReadOnly}
               />
             </details>
           )}
@@ -1847,6 +1847,7 @@ function ThreadChat({
 }) {
   const session = useReviewSession();
   const [sourceError, setSourceError] = useState<string>();
+  const [retryError, setRetryError] = useState<string>();
 
   const targetState = useThreadTargetState(
     thread?.target ?? { kind: "document" },
@@ -1900,6 +1901,13 @@ function ThreadChat({
             );
           }
 
+          if (message.error)
+            return (
+              <p key={message.id} className="thread-message-error" role="alert">
+                {message.error}
+              </p>
+            );
+
           return message.userAuthored ? (
             <AgentChatUserMessage key={message.id} caption={caption}>
               {body}
@@ -1911,6 +1919,27 @@ function ThreadChat({
           );
         })}
       </div>
+      {thread &&
+        !readOnly &&
+        session.bridge.comments.canRetryAgent?.(thread.threadId) && (
+          <button
+            type="button"
+            onClick={async () => {
+              setRetryError(undefined);
+
+              try {
+                await session.bridge.comments.retryAgent!(thread.threadId);
+              } catch (error) {
+                setRetryError(
+                  error instanceof Error ? error.message : String(error),
+                );
+              }
+            }}
+          >
+            Retry answer
+          </button>
+        )}
+      {retryError && <p role="alert">{retryError}</p>}
       {!readOnly && (
         <div className="thread-chat-composer">
           <ThreadComposer

@@ -17,20 +17,16 @@ export async function answerWithAgent(
     >["args"],
   ) => Promise<void>,
 ) {
-  const launched = await agent.launch({
+  let launched = await agent.launch({
     cwd: input.cwd,
     prompt: { id: input.messageId, text: input.prompt },
   });
 
-  const pipe = await agent.updates(launched.sessionId);
+  let observing = false;
+  let observedSignal = input.signal;
+  let stop = () => {};
 
-  const interrupt = () => {
-    void agent.interrupt(launched.sessionId).catch(() => {});
-    void pipe.close();
-  };
-
-  input.signal.addEventListener("abort", interrupt, { once: true });
-  let first = true;
+  let observation = Promise.resolve();
   let resolveAnswer!: (text: string) => void;
   let rejectAnswer!: (cause: unknown) => void;
 
@@ -39,90 +35,137 @@ export async function answerWithAgent(
     rejectAnswer = reject;
   });
 
-  void (async () => {
-    try {
-      if (input.signal.aborted) throw new Error("Question canceled.");
+  const observe = async (signal: AbortSignal, first: boolean) => {
+    const sessionId = launched.sessionId;
+    const pipe = await agent.updates(sessionId);
 
-      let pending: NativeReviewMessage | undefined,
-        running = false;
+    const interrupt = () => {
+      void agent.interrupt(sessionId).catch(() => {});
+      void pipe.close();
+    };
 
-      const saved = new Set<string>();
+    stop = interrupt;
+    observedSignal = signal;
+    signal.addEventListener("abort", interrupt, { once: true });
 
-      for await (const update of pipe.updates) {
-        if (input.signal.aborted) throw new Error("Question canceled.");
+    if (signal.aborted) interrupt();
+    observing = true;
+    observation = (async () => {
+      try {
+        if (signal.aborted) throw new Error("Question canceled.");
 
-        if (update.type === "message.updated") {
-          const message = update.message;
+        let pending: NativeReviewMessage | undefined,
+          running = false;
 
-          if (saved.has(message.id)) continue;
+        const saved = new Set<string>();
 
-          if (message.role === "assistant") pending = message;
-          else {
-            saved.add(message.id);
+        for await (const update of pipe.updates) {
+          if (signal.aborted) throw new Error("Question canceled.");
 
-            if (!first)
-              await input.onFollowup({
-                id: `${launched.sessionId}:${message.id}`,
-                by: "user",
-                body: message.body,
-              });
-          }
-        } else {
-          if (update.status === "running") running = true;
+          if (update.type === "message.updated") {
+            const message = update.message;
 
-          if (update.status === "failed" || update.status === "interrupted")
-            throw new Error("Agent stopped before completing its answer.");
+            if (saved.has(message.id)) continue;
 
-          if (update.status === "idle" && (running || pending)) {
-            if (!pending?.body.trim())
-              throw new Error("Agent finished without an answer.");
-            saved.add(pending.id);
+            if (message.role === "assistant") pending = message;
+            else {
+              saved.add(message.id);
 
-            if (first) {
-              first = false;
-              resolveAnswer(pending.body);
-            } else
-              await input.onFollowup({
-                id: `${launched.sessionId}:${pending.id}`,
-                by: "agent",
-                body: pending.body,
-              });
-            pending = undefined;
-            running = false;
+              if (!first)
+                await input.onFollowup({
+                  id: `${sessionId}:${message.id}`,
+                  by: "user",
+                  body: message.body,
+                });
+            }
+          } else {
+            if (update.status === "running") running = true;
+
+            if (update.status === "failed" || update.status === "interrupted")
+              throw new Error("Agent stopped before completing its answer.");
+
+            if (update.status === "idle" && (running || pending)) {
+              if (!pending?.body.trim())
+                throw new Error("Agent finished without an answer.");
+              saved.add(pending.id);
+
+              if (first) {
+                first = false;
+                resolveAnswer(pending.body);
+              } else
+                await input.onFollowup({
+                  id: `${sessionId}:${pending.id}`,
+                  by: "agent",
+                  body: pending.body,
+                });
+              pending = undefined;
+              running = false;
+            }
           }
         }
+
+        if (first)
+          throw new Error(
+            "Agent connection closed before completing its answer.",
+          );
+      } catch (error) {
+        rejectAnswer(error);
+
+        if (!first && !signal.aborted) input.onError();
+      } finally {
+        observing = false;
+        signal.removeEventListener("abort", interrupt);
+        await pipe.close();
       }
+    })();
+  };
 
-      if (first)
-        throw new Error(
-          "Agent connection closed before completing its answer.",
-        );
-    } catch (error) {
-      rejectAnswer(error);
+  const show = () =>
+    open({
+      reviewId: input.reviewId,
+      threadId: input.threadId,
+      askMessageId: input.messageId,
+      session: { harness: agent.harness, sessionId: launched.sessionId },
+      command: launched.command,
+    });
 
-      if (!first && !input.signal.aborted) input.onError();
-    } finally {
-      input.signal.removeEventListener("abort", interrupt);
-      await pipe.close();
+  const reopen = async (signal: AbortSignal) => {
+    // A live observer means the existing terminal can be brought forward.
+    // Otherwise resume silently and observe only new terminal follow-ups.
+    if (!observing || observedSignal.aborted) {
+      await observation;
+      launched = await agent.launch({
+        cwd: input.cwd,
+        session: { resume: launched.sessionId },
+      });
+      await observe(signal, false);
     }
-  })();
+
+    try {
+      await show();
+    } catch (error) {
+      stop();
+      throw error;
+    }
+  };
+
+  await observe(input.signal, true);
+  const initialOpen = show();
+  input.onSession(
+    { harness: agent.harness, sessionId: launched.sessionId },
+    async (signal) => {
+      await initialOpen;
+      await reopen(signal);
+    },
+  );
 
   try {
     // Consume updates before attaching the terminal; fast agents can finish immediately.
-    const [, result] = await Promise.all([
-      open({
-        reviewId: input.reviewId,
-        threadId: input.threadId,
-        askMessageId: input.messageId,
-        session: { harness: agent.harness, sessionId: launched.sessionId },
-        command: launched.command,
-      }),
-      answer,
-    ]);
+    const [, result] = await Promise.all([initialOpen, answer]);
 
     return result;
   } catch (error) {
-    interrupt();
+    if (!input.signal.aborted) stop();
     throw error;
   }
 }

@@ -202,6 +202,95 @@ it("browses committed directories, including history, without listing untracked 
   );
 });
 
+it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {
+  const app = createReviewApi(local.store, local.data);
+  const edge = { kind: "semantic", from: "api", to: "missing" };
+
+  const upload = {
+    id: randomUUID(),
+    repositoryId: pins.repositoryId,
+    kind: "map",
+    pins,
+    side: "head",
+    model: {
+      systems: {
+        app: {
+          containers: { api: { components: { handler: {} } }, db: {} },
+          relationships: [edge],
+        },
+      },
+      relationships: [
+        { kind: "semantic", from: "app.api.handler", to: "app.db" },
+      ],
+    },
+  };
+
+  const send = () =>
+    app.request("/resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(upload),
+    });
+
+  const rejected = await send();
+  expect(rejected.status).toBe(400);
+  const { error } = await rejected.json();
+  // These are the actionable location, offending value and rule, not exact prose.
+  expect(error).toContain("relationships[0] at app.to");
+  expect(error).toContain('"missing"');
+  expect(error).toContain("does not match an element path");
+  expect(() => local.store.resource(upload.id)).toThrow(/not found/);
+
+  edge.to = "db";
+  expect((await send()).status).toBe(200);
+
+  const saved = JSON.parse(
+    Buffer.from(local.store.resource(upload.id).data).toString(),
+  );
+
+  expect(saved.relationships).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ from: "app.api", to: "app.db" }),
+      expect.objectContaining({ from: "app.api.handler", to: "app.db" }),
+    ]),
+  );
+});
+
+it("preserves map element and range details in upload errors", async () => {
+  await expect(
+    local.data.upload({
+      id: randomUUID(),
+      repositoryId: pins.repositoryId,
+      kind: "map",
+      pins,
+      side: "head",
+      model: {
+        systems: {
+          app: {
+            containers: {
+              api: {
+                components: {
+                  handler: {
+                    codeElements: {
+                      save: {
+                        sourceRanges: [
+                          { file: source.file, fromLine: 2, toLine: 1 },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ).rejects.toThrow(
+    /app\.api\.handler\.save.*sourceRanges\[0\].*fromLine <= toLine/,
+  );
+});
+
 it("reads pinned Git objects, rejects invalid evidence before saving, and retains registrations across restart", async () => {
   const review = await local.store.execute(
     command({ type: "create", title: "Pinned", pins }),

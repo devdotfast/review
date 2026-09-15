@@ -31,14 +31,16 @@ import {
 } from "./trace-session-provenance";
 import { HostedTraceStorage } from "./trace-storage/hosted";
 import {
-  type MemoryTraceStoreTransport,
   type TraceStoreTransportOptions,
   createHttpTraceStoreTransport,
-  createMemoryTraceStoreTransport,
   gzipToTemp,
+} from "./trace-store-transport";
+import {
+  type MemoryTraceStoreTransport,
+  createMemoryTraceStoreTransport,
   memoryTraceSessionKey,
   seedMemoryTraceSession,
-} from "./trace-store-transport";
+} from "./trace-store-transport.memory";
 import { allowTraceRepository, denyTraceRepository } from "./trace-user-config";
 
 const REPOSITORY_ID = 123;

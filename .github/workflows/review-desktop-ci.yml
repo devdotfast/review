@@ -64,7 +64,7 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-1.62.1
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright Chromium
         if: steps.playwright-chromium.outputs.cache-hit != 'true'
@@ -75,7 +75,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-1.62.1
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Lint
         run: pnpm lint
@@ -173,6 +173,6 @@ jobs:
           name: vitest-browser-diagnostics
           path: |
             packages/review/.vitest-attachments
-            packages/review/app/src/__screenshots__
-            packages/review/app/src/__traces__
+            packages/review/**/__screenshots__
+            packages/review/**/__traces__
           if-no-files-found: ignore

@@ -1,5 +1,4 @@
 import { afterEach } from "vitest";
-import { cleanup } from "vitest-browser-react";
 
 // SAFETY: React exposes this documented test-environment flag without adding
 // it to TypeScript's global declarations.
@@ -7,8 +6,7 @@ import { cleanup } from "vitest-browser-react";
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-afterEach(async () => {
-  await cleanup();
+afterEach(() => {
   document.body.replaceChildren();
   localStorage.clear();
   sessionStorage.clear();

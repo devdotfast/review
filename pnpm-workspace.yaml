@@ -10,8 +10,7 @@ verifyDepsBeforeRun: false
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
-  # Vitest Browser Mode's pinned provider requires this release. Checked
-  # before pinning: npm audit reports no known vulnerability.
+  # Vitest 4.1.11 requires this exact release, which is not yet seven days old.
   - obug@2.2.1
   - "@dev.fast/trace-protocol@0.5.0"
   - "@hono/node-server@2.0.12"

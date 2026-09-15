@@ -255,9 +255,6 @@ importers:
       vitest:
         specifier: 4.1.11
         version: 4.1.11(@types/node@24.12.2)(@vitest/browser-playwright@4.1.11)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0))
-      vitest-browser-react:
-        specifier: 2.3.0
-        version: 2.3.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(vitest@4.1.11)
 
   packages/review-protocol:
     dependencies:
@@ -2527,20 +2524,6 @@ packages:
       yaml:
         optional: true
 
-  vitest-browser-react@2.3.0:
-    resolution: {integrity: sha512-S5vdGHHA93j2Z6dbmIJI1wtxT3AXPTRlmC1Meo+ekG011yNnEutMAnHrwyj8qFlGhgBYA8ENGK6+o1Q+vnFz6A==}
-    peerDependencies:
-      '@types/react': ^18.0.0 || ^19.0.0
-      '@types/react-dom': ^18.0.0 || ^19.0.0
-      react: ^18.0.0 || ^19.0.0
-      react-dom: ^18.0.0 || ^19.0.0
-      vitest: ^4.0.0 || ^5.0.0
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      '@types/react-dom':
-        optional: true
-
   vitest@4.1.11:
     resolution: {integrity: sha512-fhACrNXUidIbGSBr5FlbuBkO7VWC1ZyLl0DO4CU2DrQoAPxX84Ysxs+HeGQpii5lZWV1Q4gBZTTu49mF+A6Edw==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
@@ -4727,15 +4710,6 @@ snapshots:
       esbuild: 0.28.1
       fsevents: 2.3.3
       tsx: 4.21.0
-
-  vitest-browser-react@2.3.0(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(vitest@4.1.11):
-    dependencies:
-      react: 19.2.5
-      react-dom: 19.2.5(react@19.2.5)
-      vitest: 4.1.11(@types/node@24.12.2)(@vitest/browser-playwright@4.1.11)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0))
-    optionalDependencies:
-      '@types/react': 19.2.14
-      '@types/react-dom': 19.2.3(@types/react@19.2.14)
 
   vitest@4.1.11(@types/node@24.12.2)(@vitest/browser-playwright@4.1.11)(vite@8.0.16(@types/node@24.12.2)(esbuild@0.28.1)(tsx@4.21.0)):
     dependencies:

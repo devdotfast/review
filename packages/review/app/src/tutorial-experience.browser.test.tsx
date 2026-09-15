@@ -304,19 +304,35 @@ describe("TutorialExperience", () => {
 
   it("coalesces target discovery after several DOM mutations", async () => {
     render(tutorialBridge([]));
+    await act(async () => Promise.resolve());
+
+    const frames: FrameRequestCallback[] = [];
+
+    const requestFrame = vi.fn<(callback: FrameRequestCallback) => number>(
+      (callback) => {
+        frames.push(callback);
+
+        return frames.length;
+      },
+    );
+
+    vi.stubGlobal("requestAnimationFrame", requestFrame);
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
 
     const firstTarget = document.createElement("div");
     firstTarget.className = "tutorial-keymap-picker";
     const secondTarget = document.createElement("div");
     secondTarget.className = "tutorial-keymap-picker";
     await act(async () => {
-      section("Welcome").append(firstTarget, secondTarget);
+      section("Welcome").append(firstTarget);
+      section("Welcome").append(secondTarget);
+      await Promise.resolve();
     });
 
-    await vi.waitFor(() => {
-      expect(firstTarget.dataset.tutorialTarget).toBe("chooseKeymap");
-      expect(secondTarget.dataset.tutorialTarget).toBe("chooseKeymap");
-    });
+    await vi.waitFor(() => expect(requestFrame).toHaveBeenCalledOnce());
+    act(() => frames[0]?.(0));
+    expect(firstTarget.dataset.tutorialTarget).toBe("chooseKeymap");
+    expect(secondTarget.dataset.tutorialTarget).toBe("chooseKeymap");
   });
 
   it("gets out of the way and completes the sequence step when its real tour opens", async () => {

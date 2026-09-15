@@ -33,40 +33,12 @@ const alias = {
   "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
 };
 
-const browserOptimizeDependencies = [
-  "@mr_mint/elkjs-libavoid",
-  "@speed-highlight/core",
-  "@tanstack/react-table",
-  "@xyflow/react",
-  "elkjs/lib/elk.bundled.js",
-  "fuzzysort",
-  "mdast-util-from-markdown",
-  "mdast-util-gfm",
-  "micromark-extension-gfm",
-  "react-dom",
-  "react-dom/server",
-  "react/jsx-dev-runtime",
-  "react/jsx-runtime",
-  "vitest-browser-react",
-  "zod",
-  "zustand",
-  "zustand/vanilla",
-];
-
 const isolatedTests = [
   "src/document/check.test.ts",
   "src/review-source-ref-errors.test.ts",
 ];
 
 export default defineConfig({
-  plugins: [react()],
-  optimizeDeps: {
-    include: browserOptimizeDependencies,
-  },
-  resolve: {
-    alias,
-    dedupe: ["react", "react-dom"],
-  },
   test: {
     env: {
       DEV_REVIEW_HOME: path.join(
@@ -108,12 +80,11 @@ export default defineConfig({
       },
       {
         plugins: [react()],
-        optimizeDeps: { include: browserOptimizeDependencies },
         resolve: { alias, dedupe: ["react", "react-dom"] },
         test: {
           name: "browser",
           include: ["app/src/**/*.browser.test.{ts,tsx}"],
-          isolate: true,
+          isolate: process.env.CI === "true",
           setupFiles: ["app/src/browser-test-setup.ts"],
           testTimeout: 15_000,
           browser: {
@@ -123,7 +94,7 @@ export default defineConfig({
             instances: [{ browser: "chromium" }],
             viewport: { width: 1280, height: 900 },
             screenshotFailures: true,
-            trace: "retain-on-failure",
+            trace: process.env.CI === "true" ? "retain-on-failure" : "off",
           },
         },
       },

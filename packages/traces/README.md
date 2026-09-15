@@ -65,7 +65,16 @@ when `DEV_TRACES_NO_MODIFY_PATH=1` is set. In that case put `~/.local/bin` on
 
 Open a new shell after the first install. The harness hooks and the Git hooks
 call `~/.local/bin/dev-traces` by absolute path, so a session never depends on
-the npx cache. Pass `--no-install` to write the hooks without the install.
+the npx cache.
+
+Pass `--no-install` to write the hooks without the install. Use it when the
+install ran earlier: a CI image that already holds `~/.local/bin/dev-traces`,
+or a provisioning step that ran `install` before this command.
+
+`allow` writes a harness hook only for a harness this machine holds a
+directory for: `~/.claude`, `~/.codex`, `~/.pi`, or `~/.config/opencode`. One
+line names the harnesses it skipped. Pass `--all-harnesses` to write all four,
+and `--no-harness-hooks` to write none.
 
 `install` sets up this machine: the copy, the command file, and the harness
 hooks of Claude, Codex, OpenCode, and pi. It touches no repository, so no
@@ -110,7 +119,7 @@ first to withdraw the consent of one repository.
 | `store create [path]` | Create the hosted store of one repository; needs push access |
 | `store info [path]` | Show the hosted store of one repository |
 | `store delete [path]` | Delete the hosted store of one repository; admins only |
-| `allow [path] [--no-harness-hooks] [--no-install]` | Record consent, install, and write the hooks |
+| `allow [path] [--no-harness-hooks] [--all-harnesses] [--no-install]` | Record consent, install, and write the hooks |
 | `deny [path]` | Withdraw the consent of one repository |
 | `enable [path]`, `disable [path]`, `repair [path]` | Manage the Git trace hooks of one repository |
 | `install [--no-harness-hooks] [--force]` | Install the command file and the harness hooks of this machine |

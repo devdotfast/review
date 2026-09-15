@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { ReviewInlineEditorSpec } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -423,4 +424,84 @@ it("adds a retained trace live and opens its full conversation in the existing T
     "The source remains pinned while the canvas changes.",
   );
   expect(container.textContent).not.toContain("Unable to load trace");
+});
+
+it("renders a code peek block on its pinned side without fetching source text", async () => {
+  const review = await command({ type: "create", title: "Peek review", pins });
+
+  await command({
+    type: "edit",
+    reviewId: review.reviewId,
+    edit: {
+      type: "insert",
+      content: {
+        type: "code_peek",
+        source: { side: "base", file: "src/old.ts", fromLine: 7, toLine: 9 },
+      },
+    },
+  });
+
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  const requested: string[] = [];
+  const created: ReviewInlineEditorSpec[] = [];
+
+  const bridge = testReviewBridge(
+    {},
+    {
+      request: async (url, init) => {
+        requested.push(String(url));
+
+        return app.request(url, init);
+      },
+      inlineEditors: {
+        async find() {
+          return { matchCount: 0 };
+        },
+        create: (spec) => {
+          created.push(spec);
+          const editor = document.createElement("div");
+          editor.className = "fixture-inline-editor";
+          spec.container.appendChild(editor);
+
+          return {
+            height: 180,
+            setActive() {},
+            setCollapsed() {},
+            async setFindQuery() {
+              return { matchCount: 0 };
+            },
+            revealFindMatch() {},
+            clearActiveFindMatch() {},
+            clearFind() {},
+            onDidChangeHeight: () => ({ dispose() {} }),
+            onDidError: () => ({ dispose() {} }),
+            dispose: () => {
+              editor.remove();
+            },
+          };
+        },
+      },
+    },
+  );
+
+  const container = document.createElement("div");
+  document.body.append(container);
+  await act(async () => {
+    canvas = mount(container, {
+      kind: "api",
+      reviewId: review.reviewId,
+      bridge,
+      setVersion: () => {},
+    });
+  });
+  await act(async () => {
+    await vi.waitFor(() => expect(created).toHaveLength(1));
+  });
+  expect(created[0]).toMatchObject({
+    path: "src/old.ts",
+    side: "base",
+    ranges: [{ startLine: 7, endLine: 9 }],
+  });
+  expect(requested.filter((url) => url.includes("/source"))).toEqual([]);
 });

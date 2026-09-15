@@ -4,10 +4,10 @@ import type {
 } from "@dev.fast/review-protocol";
 
 import type { AnchorRef } from "../../src/authoring";
-import type { ValidatedCodePeekInput } from "./CodePeek";
+import type { Source } from "../../src/source";
 
 export type ReviewPeekContent =
-  | { kind: "resolved-code"; input: ValidatedCodePeekInput }
+  | { kind: "source"; source: Source }
   | { kind: "inline-code"; language?: string; text: string }
   | { kind: "explanation"; text?: string }
   | {

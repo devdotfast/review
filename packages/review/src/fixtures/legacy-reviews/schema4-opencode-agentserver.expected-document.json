@@ -60,13 +60,10 @@
               "id": "opencodeAgentServer",
               "title": "OpencodeAgentServer",
               "peek": {
-                "__kind": "code-peek-ref",
-                "props": {
-                  "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                  "fromLine": 50,
-                  "toLine": 66
-                },
-                "resolution": null
+                "side": "head",
+                "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                "fromLine": 50,
+                "toLine": 66
               },
               "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
             }
@@ -183,13 +180,10 @@
                       "id": "harnessUnion",
                       "title": "ReviewAgentHarness",
                       "peek": {
-                        "__kind": "code-peek-ref",
-                        "props": {
-                          "file": "packages/progressive-review/src/authoring-session.ts",
-                          "fromLine": 1,
-                          "toLine": 1
-                        },
-                        "resolution": null
+                        "side": "head",
+                        "file": "packages/progressive-review/src/authoring-session.ts",
+                        "fromLine": 1,
+                        "toLine": 1
                       },
                       "softwareMapPath": "review.cliPackage.authoring.authoringSession"
                     }
@@ -249,13 +243,10 @@
                       "id": "contractsEnum",
                       "title": "AuthoringAgentSessionSchema",
                       "peek": {
-                        "__kind": "code-peek-ref",
-                        "props": {
-                          "file": "packages/review-protocol/src/contracts.ts",
-                          "fromLine": 1223,
-                          "toLine": 1226
-                        },
-                        "resolution": null
+                        "side": "head",
+                        "file": "packages/review-protocol/src/contracts.ts",
+                        "fromLine": 1223,
+                        "toLine": 1226
                       },
                       "softwareMapPath": "review.protocolPackage.contracts"
                     }
@@ -345,13 +336,10 @@
                       "id": "desktopServer",
                       "title": "desktop-server harness table",
                       "peek": {
-                        "__kind": "code-peek-ref",
-                        "props": {
-                          "file": "packages/progressive-review/src/server/desktop-server.ts",
-                          "fromLine": 283,
-                          "toLine": 284
-                        },
-                        "resolution": null
+                        "side": "head",
+                        "file": "packages/progressive-review/src/server/desktop-server.ts",
+                        "fromLine": 283,
+                        "toLine": 284
                       },
                       "softwareMapPath": "review.cliPackage.serverSurface.desktopServer"
                     }
@@ -566,13 +554,10 @@
                   "id": "clientSession",
                   "title": "OpencodeClient.session()",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                      "fromLine": 373,
-                      "toLine": 401
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                    "fromLine": 373,
+                    "toLine": 401
                   },
                   "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
                 }
@@ -596,13 +581,10 @@
                   "id": "forkOpencodeSession",
                   "title": "forkOpencodeSession",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                      "fromLine": 538,
-                      "toLine": 558
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                    "fromLine": 538,
+                    "toLine": 558
                   },
                   "softwareMapPath": "review.cliPackage.authoring.reviewSourceAgentSession"
                 }
@@ -626,13 +608,10 @@
                   "id": "launch",
                   "title": "launch()",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                      "fromLine": 67,
-                      "toLine": 121
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                    "fromLine": 67,
+                    "toLine": 121
                   },
                   "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
                 }
@@ -689,13 +668,10 @@
                   "id": "createOpencodeSession",
                   "title": "createOpencodeSession",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                      "fromLine": 571,
-                      "toLine": 611
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                    "fromLine": 571,
+                    "toLine": 611
                   },
                   "softwareMapPath": "review.cliPackage.authoring.tutorialAuthoringSession"
                 }
@@ -793,13 +769,10 @@
                   "title": "opencode.test.ts",
                   "detail": "Fake `opencode serve` over a real HTTP server: session create/fork scoped by directory, message projection, and the SSE event stream.",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "packages/progressive-review/src/native-agent/opencode.test.ts",
-                      "fromLine": 1,
-                      "toLine": 40
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "packages/progressive-review/src/native-agent/opencode.test.ts",
+                    "fromLine": 1,
+                    "toLine": 40
                   },
                   "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
                 }
@@ -1294,13 +1267,10 @@
       "id": "harnessUnion",
       "title": "ReviewAgentHarness",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/authoring-session.ts",
-          "fromLine": 1,
-          "toLine": 1
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/authoring-session.ts",
+        "fromLine": 1,
+        "toLine": 1
       },
       "softwareMapPath": "review.cliPackage.authoring.authoringSession"
     },
@@ -1309,13 +1279,10 @@
       "id": "contractsEnum",
       "title": "AuthoringAgentSessionSchema",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/review-protocol/src/contracts.ts",
-          "fromLine": 1223,
-          "toLine": 1226
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/review-protocol/src/contracts.ts",
+        "fromLine": 1223,
+        "toLine": 1226
       },
       "softwareMapPath": "review.protocolPackage.contracts"
     },
@@ -1324,13 +1291,10 @@
       "id": "opencodeAgentServer",
       "title": "OpencodeAgentServer",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/native-agent/opencode.ts",
-          "fromLine": 50,
-          "toLine": 66
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/native-agent/opencode.ts",
+        "fromLine": 50,
+        "toLine": 66
       },
       "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
     },
@@ -1339,13 +1303,10 @@
       "id": "launch",
       "title": "launch()",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/native-agent/opencode.ts",
-          "fromLine": 67,
-          "toLine": 121
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/native-agent/opencode.ts",
+        "fromLine": 67,
+        "toLine": 121
       },
       "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
     },
@@ -1354,13 +1315,10 @@
       "id": "clientSession",
       "title": "OpencodeClient.session()",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/native-agent/opencode.ts",
-          "fromLine": 373,
-          "toLine": 401
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/native-agent/opencode.ts",
+        "fromLine": 373,
+        "toLine": 401
       },
       "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
     },
@@ -1369,13 +1327,10 @@
       "id": "forkOpencodeSession",
       "title": "forkOpencodeSession",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/native-agent/opencode.ts",
-          "fromLine": 538,
-          "toLine": 558
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/native-agent/opencode.ts",
+        "fromLine": 538,
+        "toLine": 558
       },
       "softwareMapPath": "review.cliPackage.authoring.reviewSourceAgentSession"
     },
@@ -1384,13 +1339,10 @@
       "id": "createOpencodeSession",
       "title": "createOpencodeSession",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/native-agent/opencode.ts",
-          "fromLine": 571,
-          "toLine": 611
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/native-agent/opencode.ts",
+        "fromLine": 571,
+        "toLine": 611
       },
       "softwareMapPath": "review.cliPackage.authoring.tutorialAuthoringSession"
     },
@@ -1399,13 +1351,10 @@
       "id": "desktopServer",
       "title": "desktop-server harness table",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/server/desktop-server.ts",
-          "fromLine": 283,
-          "toLine": 284
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/server/desktop-server.ts",
+        "fromLine": 283,
+        "toLine": 284
       },
       "softwareMapPath": "review.cliPackage.serverSurface.desktopServer"
     },
@@ -1415,13 +1364,10 @@
       "title": "opencode.test.ts",
       "detail": "Fake `opencode serve` over a real HTTP server: session create/fork scoped by directory, message projection, and the SSE event stream.",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "packages/progressive-review/src/native-agent/opencode.test.ts",
-          "fromLine": 1,
-          "toLine": 40
-        },
-        "resolution": null
+        "side": "head",
+        "file": "packages/progressive-review/src/native-agent/opencode.test.ts",
+        "fromLine": 1,
+        "toLine": 40
       },
       "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
     }

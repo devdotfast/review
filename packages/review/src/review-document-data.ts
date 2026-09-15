@@ -9,7 +9,7 @@ import { z } from "zod";
 import {
   type AnchorRef,
   type ReviewAuthoringComponentName,
-  documentAnchorRefSchema,
+  anchorRefSchema,
   reviewComponentDataSchemas,
 } from "./authoring";
 import {
@@ -264,20 +264,30 @@ export const reviewDocumentDataSchema: z.ZodType<ReviewDocumentData> =
     routePath: z.string(),
     sourcePath: z.string(),
     body: z.array(reviewNodeSchema),
-    anchors: z.record(z.string(), documentAnchorRefSchema),
+    anchors: z.record(z.string(), anchorRefSchema),
     anchorContents: z.record(z.string(), z.string()),
     softwareModels: z.array(softwareModelDataSchema),
   });
 
-/** The JSON a published document stores: one serialization pass that also
- * drops code-peek resolutions, which are resolved again on load. */
-export function toReviewDocumentJson<Value>(value: Value): JsonValue {
-  return parseJsonText(
-    JSON.stringify(value, (_key, current: JsonValue) =>
-      isJsonObject(current) && current.__kind === "code-peek-ref"
-        ? { ...current, resolution: null }
-        : current,
-    ),
+/** Published documents once stored a code-peek ref
+ * (`{ __kind: "code-peek-ref", props, resolution }`) where they now store a
+ * plain source range. Sealed bundles are upgraded when read, never rewritten. */
+export function upgradeReviewDocumentJson(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(upgradeReviewDocumentJson);
+
+  if (!isJsonObject(value)) return value;
+
+  if (value.__kind === "code-peek-ref" && isJsonObject(value.props)) {
+    const { file, fromLine, toLine, graph } = value.props;
+
+    return { side: graph ?? "head", file, fromLine, toLine };
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [
+      key,
+      upgradeReviewDocumentJson(child),
+    ]),
   );
 }
 

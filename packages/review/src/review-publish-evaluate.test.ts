@@ -222,7 +222,12 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
         { type: "component", name: "CodePeek", children: [] },
       ],
     });
-    expect(result.document?.anchors.request?.peek?.resolution).toBeNull();
+    expect(result.document?.anchors.request?.peek).toEqual({
+      side: "head",
+      file: "src/example.ts",
+      fromLine: 1,
+      toLine: 1,
+    });
     expect(result.document?.anchors.unused?.title).toBe(
       "Unused imported anchor",
     );

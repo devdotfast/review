@@ -781,11 +781,7 @@ function codePeekDocument(contentHash: string): ReviewDocumentLoad {
     __kind: "db-anchor-ref",
     id: "example",
     title: "Example",
-    peek: {
-      __kind: "code-peek-ref",
-      props: { file: "src/example.ts", fromLine: 1, toLine: 1 },
-      resolution: null,
-    },
+    peek: { side: "head", file: "src/example.ts", fromLine: 1, toLine: 1 },
   };
 
   return {

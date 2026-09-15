@@ -69,7 +69,11 @@ export interface Result {
 
 export interface ReviewProviders {
   validatePins(pins: Pins): Promise<void>;
-  validateSource(pins: Pins, source: Source): Promise<void>;
+  validateSource(
+    pins: Pins,
+    source: Source,
+    options: { peek: boolean },
+  ): Promise<void>;
   validateResource(pins: Pins, block: Block): Promise<void>;
 }
 
@@ -493,14 +497,17 @@ export class ReviewStore {
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
     const references = (document: Block[], tolerant = false) => {
-      const sources = new Map<string, Source>();
+      const sources = new Map<string, { source: Source; peek: boolean }>();
       const resources = new Map<string, Block>();
 
-      const add = (source: Source) =>
-        sources.set(JSON.stringify(source), source);
+      const add = (source: Source, peek: boolean) => {
+        const key = JSON.stringify(source);
+        const kept = sources.get(key);
+        sources.set(key, { source, peek: peek || (kept?.peek ?? false) });
+      };
 
-      for (const { source } of sourceReferences(document, { tolerant }))
-        add(source);
+      for (const { source, peek } of sourceReferences(document, { tolerant }))
+        add(source, peek === true);
 
       for (const block of elements(document)) {
         if (
@@ -528,10 +535,16 @@ export class ReviewStore {
 
     // Independent reads of immutable commits: run them concurrently.
     const checks: Promise<void>[] = [];
+    for (const [key, { source, peek }] of current.sources) {
+      const kept = retained.sources.get(key);
 
-    for (const [key, source] of current.sources)
-      if (!retained.sources.has(key))
-        checks.push(this.providers.validateSource(snapshot.pins, source));
+      // A range validated earlier as a prose link still needs the peek check
+      // the first time a code peek points at it.
+      if (!kept || (peek && !kept.peek))
+        checks.push(
+          this.providers.validateSource(snapshot.pins, source, { peek }),
+        );
+    }
 
     for (const [key, block] of current.resources)
       if (!retained.resources.has(key))

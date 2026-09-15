@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   type ReviewDocumentData,
   reviewDocumentDataSchema,
+  upgradeReviewDocumentJson,
 } from "./review-document-data";
 
 // `review publish` writes the built document bundle into the review dir and
@@ -112,10 +113,10 @@ export async function readReviewDocumentBundle(
   const manifest = parseManifest(manifestRaw);
 
   if (manifest === null || manifest.routePath !== routePath) return null;
-  let json: string;
+  let raw: string;
 
   try {
-    json = await readFile(path.join(bundleDir, BUNDLE_JSON_FILE), "utf8");
+    raw = await readFile(path.join(bundleDir, BUNDLE_JSON_FILE), "utf8");
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return null;
@@ -124,12 +125,30 @@ export async function readReviewDocumentBundle(
     throw error;
   }
 
+  const json = upgradeBundleJson(raw);
+
+  if (json === null) return null;
   const document = parseDocument(json);
 
   if (document === null || document.routePath !== manifest.routePath)
     return null;
 
   return { json, contentHash: bundleHash(json) };
+}
+
+/** Older sealed bundles predate the plain-source anchor shape. Upgrading the
+ * bytes before hashing keeps one document shape and, for current bundles, the
+ * same hash as before. */
+function upgradeBundleJson(raw: string): string | null {
+  let value: JsonValue;
+
+  try {
+    value = parseJsonText(raw);
+  } catch {
+    return null;
+  }
+
+  return `${JSON.stringify(upgradeReviewDocumentJson(value))}\n`;
 }
 
 function parseManifest(raw: string): ReviewBundleManifest | null {

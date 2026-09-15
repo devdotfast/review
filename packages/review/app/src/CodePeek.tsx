@@ -7,67 +7,38 @@ import { useMemo, useRef } from "react";
 
 import {
   type CodePeekProps as AuthoringCodePeekProps,
-  type CodePeekRef,
   type ReviewCodePeekProps,
+  codePeekSource,
   validateCodePeekProps,
 } from "../../src/authoring";
+import type { Source } from "../../src/source";
 import { useReviewSession } from "./host/review-session";
 import { InlineCodeEditor } from "./InlineCodeEditor";
 
-type CodePeekRootSpec = {
-  kind: "range";
-  file: string;
-  fromLine: number;
-  toLine: number;
-};
-
 export type CodePeekProps = AuthoringCodePeekProps;
 
-export type CodePeekGraph = NonNullable<CodePeekProps["graph"]>;
-
-const validatedCodePeekInput = Symbol("validatedCodePeekInput");
-
-export interface ValidatedCodePeekInput {
-  readonly [validatedCodePeekInput]: true;
-  readonly props: CodePeekProps;
-}
-
 export interface CodePeekSubject {
-  name?: string;
   title: string;
   file: string;
   line: number;
   endLine: number;
 }
 
-export function validatedCodePeekInputFromRef(
-  ref: CodePeekRef,
-): ValidatedCodePeekInput {
-  return {
-    [validatedCodePeekInput]: true,
-    props: ref.props,
-  };
-}
-
 // Internal interactive surface used by the software-map inspector. Authored
-// Review documents receive ReviewCodePeek instead, which only accepts a
-// validated pointer created by defineAnchors.
+// Review documents receive ReviewCodePeek instead.
 export function CodePeek(props: CodePeekProps) {
-  const input = useMemo<ValidatedCodePeekInput>(
-    () => ({
-      [validatedCodePeekInput]: true,
-      props: validateCodePeekProps(props),
-    }),
+  const source = useMemo(
+    () => codePeekSource(validateCodePeekProps(props)),
     [props],
   );
 
-  return <CodePeekCard input={input} heightMode="content" />;
+  return <CodePeekCard source={source} heightMode="content" />;
 }
 
 interface GroupedCodePeek {
   key: string;
   file: string;
-  graph: CodePeekGraph;
+  side: ReviewDiffSide;
   ranges: ReviewInlineEditorRange[];
   countRanges?: ReviewInlineEditorRange[];
 }
@@ -80,7 +51,7 @@ export function CodePeekGroup({
   peeks,
   collapsed = false,
 }: {
-  peeks: readonly CodePeekProps[];
+  peeks: readonly Source[];
   collapsed?: boolean;
 }) {
   const session = useReviewSession();
@@ -101,7 +72,7 @@ export function CodePeekGroup({
             <InlineCodeEditor
               path={group.file}
               title={group.file}
-              side={group.graph}
+              side={group.side}
               ranges={group.ranges}
               heightMode="content"
               countRanges={group.countRanges}
@@ -114,7 +85,7 @@ export function CodePeekGroup({
                     fromLine: primaryRange.startLine,
                     toLine: primaryRange.endLine,
                   },
-                  primaryRange.side ?? group.graph,
+                  primaryRange.side ?? group.side,
                 )
               }
             />
@@ -126,94 +97,55 @@ export function CodePeekGroup({
 }
 
 export function ReviewCodePeek({ anchor }: ReviewCodePeekProps) {
-  const input = useMemo(
-    () => validatedCodePeekInputFromRef(anchor.peek),
-    [anchor.peek],
-  );
-
-  return <CodePeekCard input={input} />;
+  return <CodePeekCard source={anchor.peek} />;
 }
 
 export function CodePeekCard({
-  input,
+  source,
   active = false,
   heightMode = "capped",
   onNativeFocus,
 }: {
-  input: ValidatedCodePeekInput;
+  source: Source;
   active?: boolean;
   heightMode?: ReviewInlineEditorHeightMode;
   onNativeFocus?: () => void;
 }) {
   const session = useReviewSession();
 
-  const subject = useMemo(() => codePeekSubject(input), [input]);
+  const subject = useMemo(() => codePeekSubject(source), [source]);
 
   const onNativeFocusRef = useRef(onNativeFocus);
   onNativeFocusRef.current = onNativeFocus;
 
   return (
     <section className="code-peek" data-code-rendering="inline-editor">
-      {!subject ? (
-        <div className="peek-status">
-          No code location is attached here yet.
-        </div>
-      ) : null}
-      {subject ? (
-        <InlineCodeEditor
-          path={subject.file}
-          title={subject.title}
-          side={input.props.graph ?? "head"}
-          ranges={[{ startLine: subject.line, endLine: subject.endLine }]}
-          heightMode={heightMode}
-          active={active}
-          onFocus={() => onNativeFocusRef.current?.()}
-          onOpen={() =>
-            session.surface.revealAnchor(
-              subject.file,
-              { fromLine: subject.line, toLine: subject.endLine },
-              input.props.graph ?? "head",
-            )
-          }
-        />
-      ) : null}
+      <InlineCodeEditor
+        path={subject.file}
+        title={subject.title}
+        side={source.side}
+        ranges={[{ startLine: subject.line, endLine: subject.endLine }]}
+        heightMode={heightMode}
+        active={active}
+        onFocus={() => onNativeFocusRef.current?.()}
+        onOpen={() =>
+          session.surface.revealAnchor(
+            subject.file,
+            { fromLine: subject.line, toLine: subject.endLine },
+            source.side,
+          )
+        }
+      />
     </section>
   );
 }
 
-function codePeekRootFromProps(input: {
-  file?: string;
-  fromLine?: number;
-  toLine?: number;
-}): CodePeekRootSpec | null {
-  if (
-    input.file &&
-    input.fromLine !== undefined &&
-    input.toLine !== undefined
-  ) {
-    return {
-      kind: "range",
-      file: input.file,
-      fromLine: input.fromLine,
-      toLine: input.toLine,
-    };
-  }
-
-  return null;
-}
-
-export function codePeekSubject(
-  input: ValidatedCodePeekInput,
-): CodePeekSubject | undefined {
-  const root = codePeekRootFromProps(input.props);
-
-  if (!root) return undefined;
-
+export function codePeekSubject(source: Source): CodePeekSubject {
   return {
-    title: codePeekRangeTitle(root.file, root.fromLine, root.toLine),
-    file: root.file,
-    line: root.fromLine,
-    endLine: root.toLine,
+    title: codePeekRangeTitle(source.file, source.fromLine, source.toLine),
+    file: source.file,
+    line: source.fromLine,
+    endLine: source.toLine,
   };
 }
 
@@ -229,7 +161,7 @@ function codePeekRangeTitle(
   return `${file}:${range}`;
 }
 
-function groupedCodePeeks(peeks: readonly CodePeekProps[]): GroupedCodePeek[] {
+function groupedCodePeeks(peeks: readonly Source[]): GroupedCodePeek[] {
   const groups = new Map<
     string,
     Omit<GroupedCodePeek, "ranges"> & {
@@ -237,42 +169,33 @@ function groupedCodePeeks(peeks: readonly CodePeekProps[]): GroupedCodePeek[] {
     }
   >();
 
-  for (const props of peeks) {
-    const input: ValidatedCodePeekInput = {
-      [validatedCodePeekInput]: true,
-      props: validateCodePeekProps(props),
-    };
-
-    const subject = codePeekSubject(input);
-
-    if (!subject) continue;
-    const graph = input.props.graph ?? "head";
-    const key = subject.file;
+  for (const peek of peeks) {
+    const key = peek.file;
     let group = groups.get(key);
 
     if (!group) {
       group = {
         key,
-        file: subject.file,
-        graph,
+        file: peek.file,
+        side: peek.side,
         ranges: [],
       };
       groups.set(key, group);
-    } else if (graph === "head") {
-      group.graph = "head";
+    } else if (peek.side === "head") {
+      group.side = "head";
     }
 
     group.ranges.push({
-      startLine: subject.line,
-      endLine: subject.endLine,
-      side: graph,
+      startLine: peek.fromLine,
+      endLine: peek.toLine,
+      side: peek.side,
     });
   }
 
   return [...groups.values()].map((group) => ({
     ...group,
     countRanges: group.ranges,
-    ranges: mergedCodePeekRanges(group.ranges, group.graph),
+    ranges: mergedCodePeekRanges(group.ranges, group.side),
   }));
 }
 

@@ -154,7 +154,7 @@ export function callStackEvidenceErrors(
   for (const row of rows) {
     if (row.change === "unchanged") continue;
     const anchor = callStackEntryAnchor(row.entry);
-    const { file, fromLine, toLine } = anchor.peek.props;
+    const { file, fromLine, toLine } = anchor.peek;
     const side: CallStackSide = row.change === "removed" ? "base" : "head";
     const lines = changedLines(file, side);
     const relevant = row.change === "removed" ? lines?.deleted : lines?.added;

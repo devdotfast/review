@@ -1,0 +1,1360 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    author: {
+      label: "Review author",
+      description:
+        "Scaffolds a Review for a change, authors its MDX and software maps, and publishes it.",
+    },
+    reader: {
+      label: "Reviewer",
+      description:
+        "Opens a published Review in Review Desktop, reads the narrative, and leaves comment threads.",
+    },
+  },
+  systems: {
+    review: {
+      label: "dev.fast Review",
+      description:
+        "Authors, validates, publishes, and presents MDX review canvases pinned to a base and head commit.",
+      containers: {
+        cli: {
+          label: "review CLI",
+          description:
+            "The `review` command: scaffolds, validates, publishes, and manages installation, maps, traces, and threads.",
+          components: {
+            commands: {
+              label: "Command router",
+              description:
+                "Parses argv, dispatches every verb, and emits paired human and --json output.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/cli.ts",
+                  "packages/progressive-review/src/cli-runner.ts",
+                  "packages/progressive-review/src/cli-output.ts",
+                  "packages/progressive-review/src/review-internal-test.ts",
+                  "packages/progressive-review/src/review-logger.ts",
+                ],
+              },
+            },
+            install: {
+              label: "Install and migration",
+              description:
+                "Installs the CLI shim and agent skills, plus trace hooks and the trace skill only when capture is enabled; migrates legacy Review state.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/install.ts",
+                  "packages/progressive-review/src/migrate.ts",
+                  "packages/progressive-review/src/stored-review-migration.ts",
+                  "packages/progressive-review/src/package-paths.ts",
+                  "packages/progressive-review/src/review-bundled-tools.ts",
+                ],
+              },
+            },
+            mapCommands: {
+              label: "review map verbs",
+              description:
+                "open, check, publish, prune, push, and fetch over the git-notes software map store.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/map-cli.ts",
+                  "packages/progressive-review/src/map-cli-entry.ts",
+                  "packages/progressive-review/src/review-map-publish.ts",
+                ],
+              },
+            },
+            traceCommands: {
+              label: "review trace verbs",
+              description:
+                "status, enable, disable, repair, and the hook entry points agents invoke per session.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/trace-cli.ts",
+                  "packages/progressive-review/src/trace-hook-runner.ts",
+                  "packages/progressive-review/src/trace-git-hook-runner.ts",
+                ],
+              },
+            },
+            threadCommands: {
+              label: "review threads verbs",
+              description: "Reads and mutates comment threads from a terminal.",
+              coverage: { files: ["packages/progressive-review/src/threads-cli.ts"] },
+            },
+            appCommands: {
+              label: "review app verbs",
+              description:
+                "Discovers, launches, and targets the Review Desktop application.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-app.ts",
+                  "packages/progressive-review/src/review-app-launcher.ts",
+                  "packages/progressive-review/src/review-app-picker.ts",
+                  "packages/progressive-review/src/desktop-discovery.ts",
+                ],
+              },
+            },
+          },
+        },
+        engine: {
+          label: "Review engine",
+          description:
+            "The domain library behind both the CLI and the server: scaffolding, compilation, validation, storage, and traces.",
+          components: {
+            scaffold: {
+              label: "Scaffold and pinning",
+              description:
+                "Creates a Review UUID, pins base and head commits, and materializes their worktrees.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-scaffold.ts",
+                  "packages/progressive-review/src/review-prepare.ts",
+                  "packages/progressive-review/src/review-head-checkout.ts",
+                  "packages/progressive-review/src/review-worktree-target.ts",
+                  "packages/progressive-review/src/review-head-relationship.ts",
+                  "packages/progressive-review/src/review-source-ref.ts",
+                  "packages/progressive-review/src/review-change-scope.ts",
+                  "packages/progressive-review/src/runtime.ts",
+                ],
+              },
+            },
+            publish: {
+              label: "Publish gate",
+              description:
+                "Runs the whole publish gate, then seals a revision and its bundle.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-publish.ts",
+                  "packages/progressive-review/src/review-publish-evaluate.ts",
+                  "packages/progressive-review/src/review-publish-element-audit.ts",
+                  "packages/progressive-review/src/review-publish-thread-gate.ts",
+                  "packages/progressive-review/src/review-publication-preparation.ts",
+                  "packages/progressive-review/src/review-bundle.ts",
+                  "packages/progressive-review/src/review-frontmatter.ts",
+                ],
+              },
+            },
+            compiler: {
+              label: "MDX compiler",
+              description:
+                "Compiles review.mdx and its TypeScript modules into a canvas bundle, with anchors and review targets.",
+              coverage: {
+                globs: ["packages/progressive-review/src/compiler/**"],
+                files: [
+                  "packages/progressive-review/src/review-mdx-ast.ts",
+                  "packages/progressive-review/src/review-mdx-typescript-parser.ts",
+                  "packages/progressive-review/src/authoring.ts",
+                  "packages/progressive-review/src/types.ts",
+                ],
+              },
+            },
+            softwareMap: {
+              label: "Software map model",
+              description:
+                "Normalizes defineSoftwareMap input, validates coverage and connectivity, and diffs base against head topology.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/software-map-model.ts",
+                  "packages/progressive-review/src/software-map-artifact.ts",
+                  "packages/progressive-review/src/software-map-bundle.ts",
+                  "packages/progressive-review/src/software-map-health.ts",
+                  "packages/progressive-review/src/software-map-coverage-validation.ts",
+                  "packages/progressive-review/src/software-map-connectivity-validation.ts",
+                  "packages/progressive-review/src/software-map-diff-counts.ts",
+                  "packages/progressive-review/src/software-map-topology-diff.ts",
+                  "packages/progressive-review/src/tolerant-software-map-model.ts",
+                ],
+              },
+            },
+            storage: {
+              label: "Review store",
+              description:
+                "Owns the UUID Review directory: records, revisions, preferences, and attention state.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-storage.ts",
+                  "packages/progressive-review/src/review-state-store.ts",
+                  "packages/progressive-review/src/review-paths.ts",
+                  "packages/progressive-review/src/review-home.ts",
+                  "packages/progressive-review/src/review-file.ts",
+                  "packages/progressive-review/src/review-info.ts",
+                  "packages/progressive-review/src/review-preferences.ts",
+                  "packages/progressive-review/src/review-attention.ts",
+                  "packages/progressive-review/src/review-document-versions.ts",
+                  "packages/progressive-review/src/review-reopen-marker.ts",
+                  "packages/progressive-review/src/atomic-write.ts",
+                  "packages/progressive-review/src/with-file-lock.ts",
+                  "packages/progressive-review/src/async-limiter.ts",
+                ],
+              },
+            },
+            threads: {
+              label: "Comment threads",
+              description:
+                "Stores comment threads and drafts, and rebinds their pinned code targets across revisions.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-threads-service.ts",
+                  "packages/progressive-review/src/review-thread-store-backend.ts",
+                  "packages/progressive-review/src/review-comment-schema.ts",
+                  "packages/progressive-review/src/review-comment-agent.ts",
+                  "packages/progressive-review/src/thread-target-schema.ts",
+                ],
+              },
+            },
+            vcs: {
+              label: "Diff and source resolution",
+              description:
+                "Reads commits and diffs, resolves source ranges against pinned worktrees, and tokenizes code.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-vcs.ts",
+                  "packages/progressive-review/src/review-commits.ts",
+                  "packages/progressive-review/src/review-diff-files.ts",
+                  "packages/progressive-review/src/unified-diff.ts",
+                  "packages/progressive-review/src/github-remote.ts",
+                  "packages/progressive-review/src/source-range-resolver.ts",
+                  "packages/progressive-review/src/source-tokenizer.ts",
+                  "packages/progressive-review/src/source-code-types.ts",
+                  "packages/progressive-review/src/codepeek-symbol-diff.ts",
+                  "packages/progressive-review/src/call-stack-diff.ts",
+                  "packages/progressive-review/src/review-code-target-remap.ts",
+                  "packages/progressive-review/src/review-code-target-migration.ts",
+                  "packages/progressive-review/src/fuzzy-match.ts",
+                ],
+              },
+            },
+            traces: {
+              label: "Trace capture",
+              description:
+                "Configures machine and repository trace capture, installs agent hooks and FFF, and normalizes captured sessions.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/review-agent-traces.ts",
+                  "packages/progressive-review/src/trace-machine-setup.ts",
+                  "packages/progressive-review/src/trace-agent-sessions.ts",
+                  "packages/progressive-review/src/trace-repository-hooks.ts",
+                  "packages/progressive-review/src/agent-trace-hooks.ts",
+                  "packages/progressive-review/src/agent-trace-parser.ts",
+                  "packages/progressive-review/src/agent-fff.ts",
+                ],
+              },
+            },
+            nativeAgent: {
+              label: "Native agent bridge",
+              description:
+                "Observes and drives Claude, Codex, and Pi sessions and mirrors their transcripts.",
+              coverage: { globs: ["packages/progressive-review/src/native-agent/**"] },
+            },
+            agentSessions: {
+              label: "Authoring sessions",
+              description:
+                "Attributes work to an authoring agent session and waits for it to finish.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/authoring-session.ts",
+                  "packages/progressive-review/src/review-source-agent-session.ts",
+                  "packages/progressive-review/src/codex-thread-wakeup.ts",
+                  "packages/progressive-review/src/review-codex-wait.ts",
+                  "packages/progressive-review/src/review-codex-wait-state.ts",
+                  "packages/progressive-review/src/review-wait.ts",
+                  "packages/progressive-review/src/review-rebind.ts",
+                ],
+              },
+            },
+            telemetry: {
+              label: "Telemetry",
+              description:
+                "Scrubs and forwards opt-in product and error telemetry.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/telemetry.ts",
+                  "packages/progressive-review/src/telemetry-config.ts",
+                  "packages/progressive-review/src/telemetry-clean-text.ts",
+                  "packages/progressive-review/src/telemetry-debug-sink.ts",
+                  "packages/progressive-review/src/error-telemetry.ts",
+                  "packages/progressive-review/src/ui-telemetry-events.ts",
+                  "packages/progressive-review/src/posthog-capture-client.ts",
+                  "packages/progressive-review/src/embedded-posthog-key.ts",
+                  "packages/progressive-review/src/progressive-review-telemetry.ts",
+                  "packages/progressive-review/src/startup-trace.ts",
+                ],
+              },
+            },
+          },
+        },
+        server: {
+          label: "Review desktop server",
+          description:
+            "The long-lived local server that owns Review discovery, session state, and revision promotion.",
+          components: {
+            http: {
+              label: "HTTP surface",
+              description:
+                "Boots the Hono server, advertises discovery, and manages process lifecycle.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/desktop-server.ts",
+                  "packages/progressive-review/src/server/hono-http.ts",
+                  "packages/progressive-review/src/server/http-json.ts",
+                  "packages/progressive-review/src/server/lifecycle-registry.ts",
+                ],
+              },
+            },
+            api: {
+              label: "Review API",
+              description:
+                "Serves Review records, documents, diffs, threads, and the global event stream.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/review-api.ts",
+                  "packages/progressive-review/src/server/review-api-parsers.ts",
+                  "packages/progressive-review/src/server/review-info.ts",
+                  "packages/progressive-review/src/server/session-handler.ts",
+                  "packages/progressive-review/src/server/global-verb-relay.ts",
+                ],
+              },
+            },
+            publishStage: {
+              label: "Revision staging",
+              description:
+                "Materializes a sealed revision off-screen and promotes it only when the mount is clean.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/publish-preparation.ts",
+                  "packages/progressive-review/src/server/publish-stage.ts",
+                  "packages/progressive-review/src/server/doc-bundler.ts",
+                ],
+              },
+            },
+            installService: {
+              label: "Install service",
+              description:
+                "Reports install status and applies or removes CLI, skill, and FFF setup, plus opt-in trace capture and its per-agent skills and hooks.",
+              coverage: { files: ["packages/progressive-review/src/server/cli-install.ts"] },
+            },
+            desktopHost: {
+              label: "Desktop host",
+              description:
+                "Bridges the Electron main process to the server and identifies repositories.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/desktop-host.ts",
+                  "packages/progressive-review/src/server/desktop-host-shutdown.ts",
+                  "packages/progressive-review/src/server/desktop-paths.ts",
+                  "packages/progressive-review/src/server/repository-identity.ts",
+                ],
+              },
+            },
+            support: {
+              label: "Tutorial and bug reports",
+              description:
+                "Serves the built-in tutorial Review and collects bug reports.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/src/server/tutorial-service.ts",
+                  "packages/progressive-review/src/server/bug-report.ts",
+                ],
+              },
+            },
+          },
+        },
+        canvas: {
+          label: "Review canvas",
+          description:
+            "The React application that renders a published Review inside Review Desktop.",
+          components: {
+            shell: {
+              label: "Canvas shell",
+              description:
+                "Mounts the canvas, owns routing, panel layout, and global UI state.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/App.tsx",
+                  "packages/progressive-review/app/src/desktop-entry.tsx",
+                  "packages/progressive-review/app/src/review-root-context.tsx",
+                  "packages/progressive-review/app/src/review-context.tsx",
+                  "packages/progressive-review/app/src/review-initial-data-context.ts",
+                  "packages/progressive-review/app/src/review-panel.tsx",
+                  "packages/progressive-review/app/src/review-panel-store.ts",
+                  "packages/progressive-review/app/src/review-ui-state.ts",
+                  "packages/progressive-review/app/src/review-view-route.ts",
+                  "packages/progressive-review/app/src/review-view-state.ts",
+                  "packages/progressive-review/app/src/review-canvas-loading.tsx",
+                  "packages/progressive-review/app/src/review-corner-action.tsx",
+                  "packages/progressive-review/app/src/review-history-control.tsx",
+                  "packages/progressive-review/app/src/review-session-test-utils.tsx",
+                  "packages/progressive-review/app/src/side-panel-resizer.ts",
+                  "packages/progressive-review/app/src/styles.css",
+                  "packages/progressive-review/app/src/vite-env.d.ts",
+                ],
+              },
+            },
+            document: {
+              label: "Document surface",
+              description:
+                "Renders the compiled MDX document, its table of contents, authoring components, and find.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/review-components.tsx",
+                  "packages/progressive-review/app/src/review-authoring-components.tsx",
+                  "packages/progressive-review/app/src/review-document-boundary.tsx",
+                  "packages/progressive-review/app/src/review-document-context.tsx",
+                  "packages/progressive-review/app/src/review-document-error-report.ts",
+                  "packages/progressive-review/app/src/review-document-surface.tsx",
+                  "packages/progressive-review/app/src/review-document-text.ts",
+                  "packages/progressive-review/app/src/review-documents-runtime.ts",
+                  "packages/progressive-review/app/src/review-definition-runtime.ts",
+                  "packages/progressive-review/app/src/review-definition-test-utils.ts",
+                  "packages/progressive-review/app/src/review-doc-meta.tsx",
+                  "packages/progressive-review/app/src/review-toc.tsx",
+                  "packages/progressive-review/app/src/review-find.tsx",
+                  "packages/progressive-review/app/src/review-find-query.ts",
+                  "packages/progressive-review/app/src/review-find-text.ts",
+                  "packages/progressive-review/app/src/document-selection.ts",
+                  "packages/progressive-review/app/src/doc-runtime.ts",
+                  "packages/progressive-review/app/src/agent-markdown.tsx",
+                  "packages/progressive-review/app/src/code-block.tsx",
+                  "packages/progressive-review/app/src/highlighted-text.tsx",
+                  "packages/progressive-review/app/src/icons.tsx",
+                  "packages/progressive-review/app/src/link-props.ts",
+                  "packages/progressive-review/app/src/default-review.mdx",
+                ],
+              },
+            },
+            softwareMap: {
+              label: "Software map view",
+              description:
+                "Projects the map model into an inline C4 diagram, lays it out, and shows base-to-head topology changes.",
+              coverage: {
+                globs: ["packages/progressive-review/app/src/software-map/**"],
+                files: [
+                  "packages/progressive-review/app/src/software-map-selection.ts",
+                  "packages/progressive-review/app/src/diagrams.tsx",
+                  "packages/progressive-review/app/src/diagram-tour.tsx",
+                  "packages/progressive-review/app/src/diagram-text-selection.ts",
+                  "packages/progressive-review/app/src/database-lens.tsx",
+                ],
+              },
+            },
+            threads: {
+              label: "Comment threads UI",
+              description:
+                "Anchors comment threads to document and code targets and renders the thread cards.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/comments-context.tsx",
+                  "packages/progressive-review/app/src/comment-pins.ts",
+                  "packages/progressive-review/app/src/review-threads.ts",
+                  "packages/progressive-review/app/src/thread-card.tsx",
+                  "packages/progressive-review/app/src/thread-annotations.tsx",
+                  "packages/progressive-review/app/src/thread-target-index.ts",
+                  "packages/progressive-review/app/src/thread-target-model.tsx",
+                  "packages/progressive-review/app/src/thread-target-state.ts",
+                  "packages/progressive-review/app/src/sidepeek-thread-ui.tsx",
+                  "packages/progressive-review/app/src/target-fingerprint.ts",
+                ],
+              },
+            },
+            diff: {
+              label: "Diff and code peek",
+              description:
+                "Renders file diffs, commit lists, inline editors, and call-stack peeks.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/DiffView.tsx",
+                  "packages/progressive-review/app/src/CodePeek.tsx",
+                  "packages/progressive-review/app/src/InlineCodeEditor.tsx",
+                  "packages/progressive-review/app/src/ReviewCommitsView.tsx",
+                  "packages/progressive-review/app/src/call-stack-diff.tsx",
+                  "packages/progressive-review/app/src/review-diff-files-context.tsx",
+                ],
+              },
+            },
+            home: {
+              label: "Home, onboarding, and settings",
+              description:
+                "The Review list, first-run onboarding, agent setup, tutorial, and the settings page.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/review-home-view.tsx",
+                  "packages/progressive-review/app/src/welcome-page.tsx",
+                  "packages/progressive-review/app/src/settings-page.tsx",
+                  "packages/progressive-review/app/src/agent-setup-card.tsx",
+                  "packages/progressive-review/app/src/trace-capture-section.tsx",
+                  "packages/progressive-review/app/src/agent-logos.tsx",
+                  "packages/progressive-review/app/src/debug-settings.tsx",
+                  "packages/progressive-review/app/src/prompt-card.tsx",
+                  "packages/progressive-review/app/src/copy-prompt-button.tsx",
+                  "packages/progressive-review/app/src/bug-report-dialog.tsx",
+                  "packages/progressive-review/app/src/bug-report-screenshot.ts",
+                  "packages/progressive-review/app/src/tutorial-checklist.tsx",
+                  "packages/progressive-review/app/src/tutorial-context.tsx",
+                  "packages/progressive-review/app/src/tutorial-keymap-picker.tsx",
+                ],
+              },
+              codeElements: {
+                agentSetupCard: {
+                  label: "AgentSetupCard",
+                  description:
+                    "Onboarding and settings card that installs the CLI, skills, and FFF per agent.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/agent-setup-card.tsx",
+                      fromLine: 31,
+                      toLine: 363,
+                    },
+                  ],
+                },
+                traceCaptureSection: {
+                  label: "TraceCaptureSection",
+                  description:
+                    "Experimental trace capture toggle and R2 credential form under Settings ▸ Experimental Features.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/trace-capture-section.tsx",
+                      fromLine: 16,
+                      toLine: 160,
+                    },
+                  ],
+                },
+                settingsPage: {
+                  label: "SettingsPage",
+                  description:
+                    "Review Desktop settings surface, including the Experimental Features section.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/settings-page.tsx",
+                      fromLine: 54,
+                      toLine: 235,
+                    },
+                  ],
+                },
+                setupBannerMessage: {
+                  label: "setupBannerMessage",
+                  description:
+                    "Decides which setup nag Home shows above the Review list.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/review-home-view.tsx",
+                      fromLine: 292,
+                      toLine: 315,
+                    },
+                  ],
+                },
+                onboardingSetupComplete: {
+                  label: "onboardingSetupComplete",
+                  description:
+                    "Decides when first-run onboarding counts agent setup as finished.",
+                  sourceRanges: [
+                    {
+                      file: "packages/progressive-review/app/src/welcome-page.tsx",
+                      fromLine: 178,
+                      toLine: 195,
+                    },
+                  ],
+                },
+              },
+            },
+            traceView: {
+              label: "Agent trace view",
+              description:
+                "Shows captured agent sessions and validates quoted trace excerpts.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/ReviewTraceView.tsx",
+                  "packages/progressive-review/app/src/trace-document.tsx",
+                  "packages/progressive-review/app/src/trace-quote.tsx",
+                  "packages/progressive-review/app/src/use-agent-trace.ts",
+                ],
+              },
+            },
+            host: {
+              label: "Host bridge",
+              description:
+                "Talks to the Review server over HTTP and the desktop event stream, and owns session state.",
+              coverage: { globs: ["packages/progressive-review/app/src/host/**"] },
+            },
+            telemetry: {
+              label: "UI telemetry",
+              description: "Emits opt-in tab and dwell telemetry events.",
+              coverage: {
+                files: [
+                  "packages/progressive-review/app/src/ui-telemetry.ts",
+                  "packages/progressive-review/app/src/use-review-tab-telemetry.ts",
+                  "packages/progressive-review/app/src/tab-dwell-telemetry.ts",
+                ],
+              },
+            },
+          },
+        },
+        desktop: {
+          label: "Review Desktop",
+          description:
+            "The Electron application built on a Code-OSS fork that hosts the canvas and the code editor.",
+          components: {
+            workbench: {
+              label: "Review workbench",
+              description:
+                "Replaces the stock workbench with the Review canvas part, explorer, titlebar, and theme.",
+              coverage: {
+                globs: ["apps/review-desktop/code-oss/src/vs/review/browser/**"],
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/review.common.main.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/review.desktop.main.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/reviewExtensionHost.contribution.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/reviewExtensionHostUnsupportedApiPeers.ts",
+                ],
+              },
+            },
+            services: {
+              label: "Review services",
+              description:
+                "Workbench services for sessions, diffs, comments, code resources, and telemetry.",
+              coverage: { globs: ["apps/review-desktop/code-oss/src/vs/review/services/**"] },
+            },
+            contributions: {
+              label: "Workbench contributions",
+              description:
+                "Registers commands, quick access, settings, extensions, CLI install, and update surfaces.",
+              coverage: { globs: ["apps/review-desktop/code-oss/src/vs/review/contrib/**"] },
+            },
+            mainProcess: {
+              label: "Main and node processes",
+              description:
+                "Supervises the Review server, owns the menubar, updates, and user-config import.",
+              coverage: {
+                globs: [
+                  "apps/review-desktop/code-oss/src/vs/review/electron-main/**",
+                  "apps/review-desktop/code-oss/src/vs/review/electron-browser/**",
+                  "apps/review-desktop/code-oss/src/vs/review/electron-utility/**",
+                  "apps/review-desktop/code-oss/src/vs/review/node/**",
+                ],
+              },
+            },
+            settings: {
+              label: "Desktop configuration",
+              description:
+                "Declares Review's configuration keys and the defaults the fork ships, including experimental features.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewConfigurationDefaults.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewChrome.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewPaths.ts",
+                ],
+              },
+              codeElements: {
+                softwareMapSetting: {
+                  label: "review.experimental.softwareMap.enabled",
+                  description:
+                    "Registers the experimental Software Map toggle and its shipped default.",
+                  sourceRanges: [
+                    {
+                      file: "apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts",
+                      fromLine: 44,
+                      toLine: 48,
+                    },
+                  ],
+                },
+              },
+            },
+            canvasBridge: {
+              label: "Canvas bridge",
+              description:
+                "Carries selection, reveal, peek, and diff intents between the canvas and the editor.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewProtocol.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewEventStream.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewReconnect.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewDesktopBootstrap.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewCanvasReuse.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewDocumentModuleCache.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewSelection.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewReveal.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewPeek.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewDecorationAnchors.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewUnifiedDiff.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewCodeResources.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewMapColors.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewWorkbenchVisibility.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewWorkspaceFolder.ts",
+                ],
+              },
+            },
+            lifecycle: {
+              label: "Update and error surfaces",
+              description:
+                "The about dialog, update notices, and error reporting the application shows.",
+              coverage: {
+                files: [
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewAboutDialog.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewUpdateNotice.ts",
+                  "apps/review-desktop/code-oss/src/vs/review/common/reviewErrorReport.ts",
+                ],
+              },
+            },
+          },
+        },
+        protocol: {
+          label: "Shared contracts",
+          description:
+            "Zod contracts every process shares, so the CLI, server, canvas, and desktop agree on wire shapes.",
+          components: {
+            contracts: {
+              label: "Review protocol",
+              description:
+                "Review records, documents, threads, install status, and desktop discovery schemas.",
+              coverage: {
+                files: [
+                  "packages/review-protocol/src/contracts.ts",
+                  "packages/review-protocol/src/index.ts",
+                  "packages/review-protocol/src/bug-report.ts",
+                ],
+              },
+            },
+            traceContracts: {
+              label: "Trace contracts",
+              description:
+                "The shared shape of captured agent trace events and sessions.",
+              coverage: {
+                files: [
+                  "packages/trace-shared/src/contracts.ts",
+                  "packages/trace-shared/src/index.ts",
+                ],
+              },
+            },
+          },
+        },
+        localVcs: {
+          label: "Local VCS adapter",
+          description:
+            "The only path to git and jj: revisions, diffs, notes, and cross-process locks.",
+          components: {
+            gitCommands: {
+              label: "Repository commands",
+              description:
+                "Resolves revisions, reads trees and diffs, and works from non-colocated jj workspaces.",
+              coverage: { files: ["packages/local-vcs/src/index.ts"] },
+            },
+            notes: {
+              label: "Git notes",
+              description:
+                "Reads, writes, prunes, pushes, and fetches refs/notes/dev-fast/* notes.",
+              coverage: { files: ["packages/local-vcs/src/notes.ts"] },
+            },
+            fileLock: {
+              label: "File locks",
+              description:
+                "Serializes concurrent writers across processes and worktrees.",
+              coverage: { files: ["packages/local-vcs/src/file-lock.ts"] },
+            },
+          },
+        },
+      },
+      dataStores: {
+        reviewHome: {
+          label: "Review home",
+          kind: "fileStore",
+          description:
+            "`${DEV_REVIEW_HOME:-~/.dev}`: one durable directory per Review UUID, plus per-repository state.",
+          documents: {
+            review: {
+              label: "review.json",
+              key: "uuid",
+              schema: {
+                schemaVersion: { type: "number" },
+                uuid: { type: "string", pk: true, example: "a9bfe537-…" },
+                repoKey: { type: "string" },
+                worktreePath: { type: "string" },
+                baseRef: { type: "string" },
+                baseCommit: { type: "string" },
+                sourceCommit: { type: "string | null" },
+                sourceIdentity: { type: "object | null" },
+                title: { type: "string" },
+                sourceSession: { type: "string" },
+                status: { type: "ReviewStatus" },
+                presentedDocumentRevision: { type: "string | null" },
+                presentedSoftwareMapRevision: { type: "string | null" },
+                createdAt: { type: "string" },
+                lastPublishedAt: { type: "string | null" },
+                viewedAt: { type: "string | null" },
+                dismissedAt: { type: "string | null" },
+              },
+            },
+            threads: {
+              label: "threads.json",
+              key: "threadId",
+              schema: {
+                revision: { type: "number" },
+                comments: { type: "Record<threadId, ThreadRecord>" },
+                drafts: { type: "Record<threadId, DraftThread>" },
+              },
+            },
+          },
+        },
+        mapNotes: {
+          label: "Software map notes",
+          kind: "artifactStore",
+          description:
+            "`refs/notes/dev-fast/software-map`: one commit-addressed map per commit, plus scratch buffers in $GIT_COMMON_DIR/dev-fast.",
+        },
+        traceCorpus: {
+          label: "Trace search corpus",
+          kind: "fileStore",
+          description:
+            "`~/.dev/trace-search`: normalized JSONL agent sessions that FFF and the canvas read.",
+        },
+      },
+    },
+    codingAgent: {
+      label: "Coding agents",
+      external: true,
+      description:
+        "Claude Code, Codex, Cursor, and Pi: they receive Review skills and hooks and drive the CLI.",
+    },
+    fff: {
+      label: "FFF trace search",
+      external: true,
+      description:
+        "The MCP server agents query for captured traces, pointed at the local trace corpus.",
+    },
+    traceStorage: {
+      label: "R2 trace storage",
+      external: true,
+      description:
+        "Cloudflare R2 bucket that holds raw captured agent traces for a machine.",
+    },
+    gitHosting: {
+      label: "GitHub",
+      external: true,
+      description:
+        "Remote that supplies pull-request metadata and receives pushed map notes.",
+    },
+    analytics: {
+      label: "PostHog",
+      external: true,
+      description: "Destination for opt-in product and error telemetry.",
+    },
+  },
+  relationships: [
+    // People
+    {
+      kind: "semantic",
+      from: "author",
+      to: "review.cli",
+      label: "Scaffolds and publishes a Review",
+    },
+    {
+      kind: "semantic",
+      from: "author",
+      to: "codingAgent",
+      label: "Directs the authoring agent",
+    },
+    {
+      kind: "semantic",
+      from: "reader",
+      to: "review.desktop",
+      label: "Reads the Review and comments",
+    },
+    {
+      kind: "semantic",
+      from: "codingAgent",
+      to: "review.cli",
+      label: "Runs review commands",
+    },
+    {
+      kind: "semantic",
+      from: "codingAgent",
+      to: "fff",
+      label: "Searches traces over MCP",
+    },
+    {
+      kind: "semantic",
+      from: "fff",
+      to: "review.traceCorpus",
+      label: "Indexes the normalized corpus",
+    },
+
+    // Container level
+    {
+      kind: "semantic",
+      from: "review.cli",
+      to: "review.server",
+      label: "Notifies of sealed revisions",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli",
+      to: "review.engine",
+      label: "Runs every verb through the engine",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop",
+      to: "review.canvas",
+      label: "Hosts the canvas in a webview",
+    },
+    {
+      kind: "semantic",
+      from: "review.server",
+      to: "review.engine",
+      label: "Serves engine state",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine",
+      to: "review.localVcs",
+      label: "Reads and writes the repository",
+    },
+
+    // CLI components
+    {
+      kind: "semantic",
+      from: "review.cli.commands",
+      to: "review.cli.install",
+      label: "Dispatches review install",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.commands",
+      to: "review.cli.mapCommands",
+      label: "Dispatches review map",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.commands",
+      to: "review.cli.traceCommands",
+      label: "Dispatches review trace",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.commands",
+      to: "review.cli.threadCommands",
+      label: "Dispatches review threads",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.commands",
+      to: "review.cli.appCommands",
+      label: "Dispatches review app",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.commands",
+      to: "review.engine.publish",
+      label: "Runs the publish gate",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.commands",
+      to: "review.engine.scaffold",
+      label: "Runs review scaffold",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.install",
+      to: "codingAgent",
+      label: "Installs skills, the CLI shim, and trace hooks when capture is on",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.install",
+      to: "review.engine.traces",
+      label: "Configures trace capture only when R2 credentials are given",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.mapCommands",
+      to: "review.engine.softwareMap",
+      label: "Validates the scratch map",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.mapCommands",
+      to: "review.mapNotes",
+      label: "Hydrates from and flushes to notes",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.traceCommands",
+      to: "review.engine.traces",
+      label: "Enables, repairs, and reports capture",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.threadCommands",
+      to: "review.engine.threads",
+      label: "Reads and mutates threads",
+    },
+    {
+      kind: "semantic",
+      from: "review.cli.appCommands",
+      to: "review.server.http",
+      label: "Discovers and launches the desktop server",
+    },
+
+    // Engine components
+    {
+      kind: "semantic",
+      from: "review.engine.scaffold",
+      to: "review.engine.storage",
+      label: "Creates the Review record",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.scaffold",
+      to: "review.localVcs.gitCommands",
+      label: "Materializes pinned worktrees",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.scaffold",
+      to: "review.engine.traces",
+      label: "Discovers trace sessions when capture is enabled",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.publish",
+      to: "review.engine.compiler",
+      label: "Compiles and bundles the document",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.publish",
+      to: "review.engine.softwareMap",
+      label: "Gates on both pinned map notes",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.publish",
+      to: "review.engine.vcs",
+      label: "Resolves every source range",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.publish",
+      to: "review.engine.storage",
+      label: "Seals the revision",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.compiler",
+      to: "review.canvas.document",
+      label: "Emits components the canvas renders",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.softwareMap",
+      to: "review.localVcs.notes",
+      label: "Stores one map per commit",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.softwareMap",
+      to: "review.mapNotes",
+      label: "Reads and writes map notes",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.storage",
+      to: "review.reviewHome",
+      label: "Owns the UUID directory",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.storage",
+      to: "review.localVcs.fileLock",
+      label: "Serializes concurrent writers",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.threads",
+      to: "review.engine.storage",
+      label: "Persists threads and drafts",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.vcs",
+      to: "review.localVcs.gitCommands",
+      label: "Reads commits and diffs",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.vcs",
+      to: "gitHosting",
+      label: "Reads pull-request metadata",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.traces",
+      to: "traceStorage",
+      label: "Uploads and downloads raw traces",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.traces",
+      to: "review.traceCorpus",
+      label: "Normalizes sessions into JSONL",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.traces",
+      to: "fff",
+      label: "Registers the MCP server",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.traces",
+      to: "review.protocol.traceContracts",
+      label: "Shares trace event shapes",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.nativeAgent",
+      to: "codingAgent",
+      label: "Observes and drives agent sessions",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.agentSessions",
+      to: "review.engine.nativeAgent",
+      label: "Waits on the authoring session",
+    },
+    {
+      kind: "semantic",
+      from: "review.engine.telemetry",
+      to: "analytics",
+      label: "Sends opt-in events",
+    },
+
+    // Server components
+    {
+      kind: "semantic",
+      from: "review.server.http",
+      to: "review.server.api",
+      label: "Mounts the API routes",
+    },
+    {
+      kind: "semantic",
+      from: "review.server.http",
+      to: "review.canvas.host",
+      label: "Serves the canvas bundle and event stream",
+    },
+    {
+      kind: "semantic",
+      from: "review.server.api",
+      to: "review.engine.storage",
+      label: "Reads Review records and revisions",
+    },
+    {
+      kind: "semantic",
+      from: "review.server.api",
+      to: "review.protocol.contracts",
+      label: "Parses and serializes wire shapes",
+    },
+    {
+      kind: "semantic",
+      from: "review.server.publishStage",
+      to: "review.engine.publish",
+      label: "Materializes a sealed revision",
+    },
+    {
+      kind: "semantic",
+      from: "review.server.installService",
+      to: "review.cli.install",
+      label: "Applies and removes install actions",
+    },
+    {
+      kind: "semantic",
+      from: "review.server.desktopHost",
+      to: "review.desktop.mainProcess",
+      label: "Bridges the Electron main process",
+    },
+    {
+      kind: "semantic",
+      from: "review.server.support",
+      to: "review.server.api",
+      label: "Exposes tutorial and bug-report routes",
+    },
+
+    // Canvas components
+    {
+      kind: "semantic",
+      from: "review.canvas.shell",
+      to: "review.canvas.host",
+      label: "Loads session state",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.shell",
+      to: "review.canvas.document",
+      label: "Mounts the document surface",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.shell",
+      to: "review.canvas.diff",
+      label: "Mounts the diff and commits tabs",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.shell",
+      to: "review.canvas.softwareMap",
+      label: "Mounts the Map tab when enabled",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.shell",
+      to: "review.canvas.home",
+      label: "Routes to Home, onboarding, and Settings",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.shell",
+      to: "review.canvas.traceView",
+      label: "Mounts the trace tab",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.host",
+      to: "review.server.api",
+      label: "Calls the Review API",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.host",
+      to: "review.protocol.contracts",
+      label: "Decodes API payloads",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.document",
+      to: "review.canvas.threads",
+      label: "Anchors threads to document targets",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.threads",
+      to: "review.canvas.host",
+      label: "Commits thread mutations",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.softwareMap",
+      to: "review.canvas.host",
+      label: "Fetches both pinned map artifacts",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.diff",
+      to: "review.canvas.host",
+      label: "Fetches parsed diffs by revision",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.home",
+      to: "review.server.installService",
+      label: "Reads install status and applies setup",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.traceView",
+      to: "review.canvas.host",
+      label: "Loads captured agent sessions",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.telemetry",
+      to: "review.engine.telemetry",
+      label: "Emits UI telemetry events",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.home.agentSetupCard",
+      to: "review.server.installService",
+      label: "Applies and removes agent setup",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.home.settingsPage",
+      to: "review.canvas.home.agentSetupCard",
+      label: "Embeds the agent card under Agents",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.home.settingsPage",
+      to: "review.canvas.home.traceCaptureSection",
+      label: "Embeds trace capture under Experimental Features",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.home.traceCaptureSection",
+      to: "review.server.installService",
+      label: "Enables and disables trace capture",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.home.setupBannerMessage",
+      to: "review.server.installService",
+      label: "Reads install status for the Home banner",
+    },
+    {
+      kind: "semantic",
+      from: "review.canvas.home.onboardingSetupComplete",
+      to: "review.server.installService",
+      label: "Reads install status to finish onboarding",
+    },
+
+    // Desktop components
+    {
+      kind: "semantic",
+      from: "review.desktop.workbench",
+      to: "review.canvas.shell",
+      label: "Mounts the canvas part",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.services",
+      to: "review.server.api",
+      label: "Reads sessions, diffs, and comments",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.contributions",
+      to: "review.desktop.services",
+      label: "Registers commands over the services",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.mainProcess",
+      to: "review.server.http",
+      label: "Supervises the server process",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.settings",
+      to: "review.canvas.home",
+      label: "Supplies settings content to the canvas",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.settings.softwareMapSetting",
+      to: "review.canvas.softwareMap",
+      label: "Gates the Map tab",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.canvasBridge",
+      to: "review.canvas.host",
+      label: "Exchanges selection and reveal intents",
+    },
+    {
+      kind: "semantic",
+      from: "review.desktop.lifecycle",
+      to: "review.engine.telemetry",
+      label: "Reports update and error events",
+    },
+  ],
+});

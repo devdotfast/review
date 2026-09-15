@@ -93,7 +93,7 @@ it("validates Markdown source links against the pinned files before saving", asy
   const saved = local.store.read(reviewId);
 
   for (const href of [
-    "review-source:base/example.ts#L2",
+    "review-source:base/example.ts#L3",
     "review-source:head/missing.ts#L1",
     "review-source:head/../secret.ts#L1",
     "review-source:head/%2Fetc%2Fpasswd#L1",

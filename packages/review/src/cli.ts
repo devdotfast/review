@@ -65,7 +65,15 @@ async function maybeDelegateToDesktopCli(
     return null;
 
   // Internal commands must exercise this entry, not the app's.
-  if (argv[0] === "internal-test" || argv[0] === "prepare-worktree")
+  // api and mcp are thin HTTP clients whose tool catalog comes from the
+  // server, so they cannot skew from it and must not be handed to a bundled
+  // CLI that predates them.
+  if (
+    argv[0] === "internal-test" ||
+    argv[0] === "prepare-worktree" ||
+    argv[0] === "api" ||
+    argv[0] === "mcp"
+  )
     return null;
   const ownPath = fileURLToPath(import.meta.url);
 

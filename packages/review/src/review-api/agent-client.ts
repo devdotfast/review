@@ -58,11 +58,22 @@ export function callAuthoringTool(
   if (tool.method === "POST") return client.post(route, fields, signal);
   const query = new URLSearchParams();
 
-  for (const [key, value] of Object.entries(fields))
+  for (const [key, value] of Object.entries(fields)) {
+    // Hosts often send null for an unused optional field; the route reads absence.
+    if (value === null || value === undefined) continue;
+
+    if (
+      !isStringValue(value) &&
+      !isNumberValue(value) &&
+      !isBooleanValue(value)
+    )
+      throw new Error(`${key} must be a string, number or boolean.`);
+
     query.set(key, String(value));
+  }
 
   return client.read(route + (query.size ? `?${query}` : ""), signal);
 }
 
-import { isStringValue } from "@dev.fast/json";
+import { isBooleanValue, isNumberValue, isStringValue } from "@dev.fast/json";
 import type { CallToolRequest, Tool } from "@modelcontextprotocol/sdk/types.js";

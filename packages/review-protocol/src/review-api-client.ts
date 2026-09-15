@@ -23,6 +23,17 @@ type Request = (url: string, init?: RequestInit) => Promise<Response>;
 
 const defaultRequest: Request = (url, init) => fetch(url, init);
 
+/** A non-2xx reply; the status tells a caller whether retrying can help. */
+export class ReviewApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ReviewApiError";
+  }
+}
+
 // One live connection per transport/server, shared by mounted canvases.
 const liveConnections = new WeakMap<Request, Map<string, LiveConnection>>();
 
@@ -45,9 +56,9 @@ export class ReviewApiClient {
 
     if (!response.ok) {
       const body = await response.json().catch(() => null);
-      throw new Error(
-        (body?.error ?? `Review request failed (${response.status}).`) +
-          (body?.issues ? `\n${JSON.stringify(body.issues)}` : ""),
+      throw new ReviewApiError(
+        body?.error ?? `Review request failed (${response.status}).`,
+        response.status,
       );
     }
 
@@ -207,6 +218,8 @@ class LiveConnection {
     const disconnected = (cause: unknown) =>
       listeners.forEach((listener) => listener.disconnected(cause));
 
+    let delay = 1000;
+
     while (!signal.aborted) {
       try {
         for await (const values of this.client.watch<
@@ -216,6 +229,7 @@ class LiveConnection {
           signal,
         )) {
           if (signal.aborted) break;
+          delay = 1000;
           await Promise.all(
             listeners.map(async (listener, index) => {
               const result = values[index]!;
@@ -233,6 +247,11 @@ class LiveConnection {
         if (!signal.aborted) disconnected(new Error("Connection closed."));
       } catch (error) {
         if (!signal.aborted) disconnected(error);
+        if (
+          error instanceof ReviewApiError &&
+          [401, 403, 404].includes(error.status)
+        )
+          return;
       }
 
       if (!signal.aborted)
@@ -243,9 +262,10 @@ class LiveConnection {
             resolve();
           };
 
-          const timer = setTimeout(done, 1000);
+          const timer = setTimeout(done, delay);
           signal.addEventListener("abort", done, { once: true });
         });
+      delay = Math.min(delay * 2, 30_000);
     }
   }
 }

@@ -28,10 +28,11 @@ export class ReviewActivity {
       this.listeners.delete(listener);
     };
   }
+  // Liveness follows the expiry timer alone. Timers pause with the system clock
+  // during sleep, so comparing expiresAt against Date.now() here would let
+  // read() and the notified stream disagree until the timer fires.
   read(reviewId: string): ActivitySnapshot {
-    const active = [...(this.reviews.get(reviewId)?.values() ?? [])].filter(
-      (lease) => lease.expiresAt > Date.now(),
-    );
+    const active = [...(this.reviews.get(reviewId)?.values() ?? [])];
 
     return {
       workingCount: active.length,
@@ -46,7 +47,7 @@ export class ReviewActivity {
     const leases = this.reviews.get(reviewId) ?? new Map();
     const previous = leases.get(leaseId);
 
-    if (action === "renew" && (!previous || previous.expiresAt <= Date.now()))
+    if (action === "renew" && !previous)
       throw new ReviewInputError(
         "Authoring activity expired. Begin a new session.",
         404,

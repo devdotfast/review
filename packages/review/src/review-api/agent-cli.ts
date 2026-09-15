@@ -14,14 +14,24 @@ interface AgentCliInput {
   stderr: Writable;
 }
 
+export const reviewAgentCliHelp =
+  "review api tools\nreview api <tool-name> '<json>'\nreview api <tool-name> -  (read JSON from stdin)\nreview mcp  (stdio MCP adapter; Desktop must be running)\n";
+
 export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
   try {
-    const [mode, name, json, ...extra] = input.argv;
+    const [mode, ...rest] = input.argv;
 
-    if (name === "--help" || (mode === "api" && !name)) {
-      input.stdout.write(
-        "review api tools\nreview api <tool-name> '<json>'\nreview api <tool-name> -  (read JSON from stdin)\nreview mcp  (stdio MCP adapter; Desktop must be running)\n",
-      );
+    // --json is accepted everywhere; these commands already write only JSON.
+    const [name, json, ...extra] = rest.filter(
+      (argument) => argument !== "--json",
+    );
+
+    if (
+      rest.includes("--help") ||
+      rest.includes("-h") ||
+      (mode === "api" && !name)
+    ) {
+      input.stdout.write(reviewAgentCliHelp);
 
       return 0;
     }
@@ -35,6 +45,7 @@ export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
         () => connectReviewApi(input.env),
         input.stdin ?? process.stdin,
         input.stdout,
+        input.stderr,
       );
 
       return 0;

@@ -94,7 +94,7 @@ export function useDiagramTourShell(open: boolean, onClose: () => void) {
 
   const paneResize = useRightPanelResize({
     stateKey: "diagram-tour-pane-width",
-    defaultWidth: 424,
+    defaultWidth: 594,
     minWidth: 360,
     maxWidth: 760,
     minMainWidth: 480,

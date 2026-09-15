@@ -62,67 +62,43 @@ test("the tutorial manifest includes the packaged Review runtime assets", async 
     path.resolve(appRoot, "../../packages/review/tutorial"),
   );
 
-  assert.ok(tutorialManifest.reviewFiles.includes("review.mdx"));
-  assert.ok(
-    tutorialManifest.reviewFiles.includes("authoring-conversation.json"),
-  );
-  assert.ok(tutorialManifest.requiredPaths.includes("software-map.ts"));
-  assert.ok(tutorialManifest.requiredPaths.includes("git-stub/HEAD"));
-  assert.ok(
-    tutorialManifest.requiredPaths.includes(
-      ".bundle/document/review-document.json",
-    ),
-  );
-  assert.ok(
-    tutorialManifest.requiredPaths.includes(
-      ".bundle/software-map/head-map.json",
-    ),
-  );
-  assert.ok(
-    tutorialManifest.requiredPaths.includes(
-      ".bundle/software-map/base-map.json",
-    ),
-  );
-  assert.ok(
-    tutorialManifest.requiredPaths.includes(
-      ".bundle/software-map/manifest.json",
-    ),
-  );
+  for (const file of ["review.mdx", "authoring-conversation.json"]) {
+    assert.ok(tutorialManifest.reviewFiles.includes(file), file);
+  }
+
+  for (const file of [
+    "software-map.ts",
+    "git-stub/HEAD",
+    ".bundle/document/review-document.json",
+    ".bundle/software-map/head-map.json",
+    ".bundle/software-map/base-map.json",
+    ".bundle/software-map/manifest.json",
+  ]) {
+    assert.ok(tutorialManifest.requiredPaths.includes(file), file);
+  }
 });
 
 test("macOS entitlement artifacts retain required app and helper permissions", async () => {
-  const [appEntitlements, helperEntitlements, helperPluginEntitlements] =
-    await Promise.all([
-      readFile(
-        path.join(appRoot, "code-oss/build/darwin/entitlements/app.plist"),
-        "utf8",
-      ),
-      readFile(
-        path.join(appRoot, "code-oss/build/darwin/entitlements/helper.plist"),
-        "utf8",
-      ),
-      readFile(
-        path.join(
-          appRoot,
-          "code-oss/build/darwin/entitlements/helper-plugin.plist",
-        ),
-        "utf8",
-      ),
-    ]);
+  const required = {
+    app: ["device.audio-input", "device.camera", "automation.apple-events"],
+    helper: ["cs.allow-jit"],
+    "helper-plugin": [
+      "cs.allow-unsigned-executable-memory",
+      "cs.disable-library-validation",
+    ],
+  };
 
-  assert.match(appEntitlements, /com\.apple\.security\.device\.audio-input/);
-  assert.match(appEntitlements, /com\.apple\.security\.device\.camera/);
-  assert.match(
-    appEntitlements,
-    /com\.apple\.security\.automation\.apple-events/,
-  );
-  assert.match(helperEntitlements, /com\.apple\.security\.cs\.allow-jit/);
-  assert.match(
-    helperPluginEntitlements,
-    /com\.apple\.security\.cs\.allow-unsigned-executable-memory/,
-  );
-  assert.match(
-    helperPluginEntitlements,
-    /com\.apple\.security\.cs\.disable-library-validation/,
-  );
+  for (const [name, permissions] of Object.entries(required)) {
+    const plist = await readFile(
+      path.join(appRoot, `code-oss/build/darwin/entitlements/${name}.plist`),
+      "utf8",
+    );
+
+    for (const permission of permissions) {
+      assert.ok(
+        plist.includes(`com.apple.security.${permission}`),
+        `${name}: ${permission}`,
+      );
+    }
+  }
 });

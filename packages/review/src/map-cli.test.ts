@@ -213,7 +213,6 @@ describe("removed commands point at their replacements", () => {
       expect(exitCode).toBe(1);
       expect(stderr.join("")).toContain(`review map ${command} was removed`);
       expect(stderr.join("")).toContain("review map open");
-      expect(stderr.join("")).toContain("dev-review-map skill");
     },
   );
 });

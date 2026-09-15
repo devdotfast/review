@@ -44,6 +44,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id?full=true`                      | Full snapshot                                                          |
 | `GET /:id?version=2&full=true`            | Historical snapshot                                                    |
 | `GET /:id/history`                        | Saved versions with titles and timestamps                              |
+| `GET /:id/inspect` | Agent reading view: nested text outline with IDs; `targetId` reads one component completely, `full=true` includes all content, `version` selects history. `format=json` returns raw data instead. |
 | `POST /:id/open` | Open the review in the attached Desktop; report an error when none is attached |
 | `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
 | `POST /commands`                          | Apply one command; return review ID, version, and edited target ID     |
@@ -59,6 +60,11 @@ All paths below are relative to `/reviews-api`.
 | `GET /:id/diff`                           | Changed-file summaries; optional file for patch text and version       |
 
 Example request:
+
+`review_get` uses `/inspect`. MCP returns its text directly, and
+`review api review_get '{"reviewId":"…","full":true}'` prints it without JSON
+escaping. Use `format:"json"` (or CLI `--json`) when raw objects are needed.
+The canvas continues to use the JSON snapshot routes above.
 
 ```json
 {

@@ -863,6 +863,16 @@ export type ReviewFffManagedRegistration = z.infer<
   typeof ReviewFffManagedRegistrationSchema
 >;
 
+export const ReviewMcpRegistrationSchema = z.strictObject({
+  target: z.enum(["codex", "claude"]),
+  configPath: requiredString,
+  command: requiredString,
+  args: z.array(z.string()),
+  env: z.record(z.string(), z.string()),
+});
+
+export type ReviewMcpRegistration = z.infer<typeof ReviewMcpRegistrationSchema>;
+
 export const ReviewCliInstallStampSchema = z.strictObject({
   consent: z.enum(["granted", "declined", "skipped"], {
     error: "must be granted, declined, or skipped",
@@ -871,6 +881,7 @@ export const ReviewCliInstallStampSchema = z.strictObject({
   targets: z.array(ReviewCliInstallTargetSchema).optional(),
   shimPath: requiredString.optional(),
   fffRegistrations: z.array(ReviewFffManagedRegistrationSchema).optional(),
+  mcpRegistrations: z.array(ReviewMcpRegistrationSchema).optional(),
   traceManaged: z.boolean().optional(),
   updatedAt: requiredString,
 });
@@ -901,6 +912,15 @@ export const ReviewCliInstallStatusSchema = z.strictObject({
     )
     .optional(),
   error: requiredString.optional(),
+  mcp: z
+    .array(
+      z.strictObject({
+        target: z.enum(["codex", "claude"]),
+        state: z.enum(["ready", "missing", "custom", "error"]),
+        error: requiredString.optional(),
+      }),
+    )
+    .optional(),
   shim: z.strictObject({
     path: requiredString,
     installed: z.boolean(),

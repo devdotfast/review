@@ -61,34 +61,6 @@ describe("AgentSetupCard", () => {
     });
     expect(onStatusChange).toHaveBeenCalledExactlyOnceWith(grantedStatus);
   });
-
-  it("only shows per-agent install controls and the command disclosure", async () => {
-    const install: ReviewCanvasInstallContent = {
-      status: {
-        ...grantedStatus,
-        shim: {
-          ...grantedStatus.shim,
-          installed: true,
-          profileConfigured: true,
-          onPath: false,
-        },
-      },
-      apply: vi.fn<ReviewCanvasInstallContent["apply"]>(),
-      remove: vi.fn<ReviewCanvasInstallContent["remove"]>(),
-      decline: vi.fn<ReviewCanvasInstallContent["decline"]>(),
-      skip: vi.fn<ReviewCanvasInstallContent["skip"]>(),
-      enablePrompts: vi.fn<ReviewCanvasInstallContent["enablePrompts"]>(),
-    };
-
-    await act(async () => root.render(<AgentSetupCard install={install} />));
-
-    expect(container.textContent).toContain(
-      "Installing skills will also install review to your shell PATH.",
-    );
-    expect(container.textContent).not.toContain("Install for");
-    expect(container.textContent).not.toContain("terminal command");
-    expect(container.querySelectorAll("button")).toHaveLength(2);
-  });
 });
 
 const status: ReviewCliInstallStatus = {

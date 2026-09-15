@@ -50,6 +50,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LEGACY_SKILL_NAMES = [
+  "dev-review-map",
   "review",
   "review-map",
   "review-stop",
@@ -57,11 +58,7 @@ const LEGACY_SKILL_NAMES = [
   "pr-review",
 ] as const;
 
-const CURRENT_SKILL_NAMES = [
-  "dev-review",
-  "dev-review-map",
-  "trace-archaeology",
-] as const;
+const CURRENT_SKILL_NAMES = ["dev-review", "trace-archaeology"] as const;
 
 const execFilePromise = promisify(execFile);
 

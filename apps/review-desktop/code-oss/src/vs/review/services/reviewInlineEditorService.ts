@@ -1478,11 +1478,9 @@ function inlineEditorOptions(
   };
 }
 
-function reviewInlineEditorContributions(commentsEnabled: boolean) {
+function reviewInlineEditorContributions(_commentsEnabled: boolean) {
   const contributions = EditorExtensionsRegistry.getEditorContributions();
-  return commentsEnabled
-    ? contributions
-    : contributions.filter(
+  return contributions.filter(
         (contribution) => contribution.id !== COMMENT_EDITOR_CONTRIBUTION_ID,
       );
 }

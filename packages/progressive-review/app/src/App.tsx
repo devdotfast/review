@@ -24,6 +24,7 @@ import {
   diffSoftwareMaps,
 } from "../../src/software-map-topology-diff";
 import { BugReportControl } from "./bug-report-dialog";
+import { CodexSelectionProvider, useCodexSelection } from "./codex-context";
 import {
   ReviewDebugSettingsProvider,
   type ReviewNodeTint,
@@ -31,18 +32,9 @@ import {
 } from "./debug-settings";
 import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
-import {
-  type SelectionTarget,
-  observeDocumentSelection,
-  selectionCommentTarget,
-} from "./document-selection";
+import { observeDocumentSelection } from "./document-selection";
 import { useReviewSession } from "./host/review-session";
-import {
-  CommentIcon,
-  SettingsSlidersIcon,
-  TerminalIcon,
-  ThreadsIcon,
-} from "./icons";
+import { SettingsSlidersIcon, TerminalIcon, ThreadsIcon } from "./icons";
 import { repairInstruction } from "./repair-instruction";
 import { ReviewPanelHost } from "./review-components";
 import {
@@ -99,7 +91,6 @@ import type {
 } from "./software-map/model";
 import { SoftwareMapTopologyUnavailable } from "./software-map/software-map-absence";
 import { SoftwareMap } from "./software-map/SoftwareMap";
-import { ThreadAnnotations } from "./thread-annotations";
 import { ThreadDraftCard } from "./thread-card";
 import { ThreadTargetModelProvider } from "./thread-target-model";
 import { TutorialExperienceProvider } from "./tutorial-experience";
@@ -282,39 +273,41 @@ function ReviewLayout({
           documentRoute={documentRoute}
         >
           <ReviewDebugSettingsProvider>
-            <ReviewProvider
-              key={documentRoute}
-              documentRoute={documentRoute}
-              softwareMapEnabled={softwareMapEnabled}
-              openTraceSession={setTraceSelection}
-            >
-              <ReviewPanelProvider detailRevision={documentRevision}>
-                <ReviewLayoutContent
-                  appRef={appRef}
-                  shellRef={shellRef}
-                  scrollRegionRef={scrollRegionRef}
-                  articleRef={articleRef}
-                  documentState={documentState}
-                  documentRevision={documentRevision}
-                  softwareModels={[
-                    ...(softwareMap ? [softwareMap.head] : []),
-                    ...(document?.documentSoftwareModels ?? []),
-                  ]}
-                  softwareMapState={softwareMapState}
-                  repoSoftwareMap={softwareMap?.head ?? null}
-                  baseSoftwareMap={softwareMap?.base ?? null}
-                  softwareMapTopologyDiff={
-                    softwareMap
-                      ? diffSoftwareMaps(softwareMap.base, softwareMap.head)
-                      : null
-                  }
-                  softwareMapEnabled={softwareMapEnabled}
-                  range={range}
-                  commits={commits}
-                  traceSelection={traceSelection}
-                />
-              </ReviewPanelProvider>
-            </ReviewProvider>
+            <CodexSelectionProvider revision={documentRevision}>
+              <ReviewProvider
+                key={documentRoute}
+                documentRoute={documentRoute}
+                softwareMapEnabled={softwareMapEnabled}
+                openTraceSession={setTraceSelection}
+              >
+                <ReviewPanelProvider detailRevision={documentRevision}>
+                  <ReviewLayoutContent
+                    appRef={appRef}
+                    shellRef={shellRef}
+                    scrollRegionRef={scrollRegionRef}
+                    articleRef={articleRef}
+                    documentState={documentState}
+                    documentRevision={documentRevision}
+                    softwareModels={[
+                      ...(softwareMap ? [softwareMap.head] : []),
+                      ...(document?.documentSoftwareModels ?? []),
+                    ]}
+                    softwareMapState={softwareMapState}
+                    repoSoftwareMap={softwareMap?.head ?? null}
+                    baseSoftwareMap={softwareMap?.base ?? null}
+                    softwareMapTopologyDiff={
+                      softwareMap
+                        ? diffSoftwareMaps(softwareMap.base, softwareMap.head)
+                        : null
+                    }
+                    softwareMapEnabled={softwareMapEnabled}
+                    range={range}
+                    commits={commits}
+                    traceSelection={traceSelection}
+                  />
+                </ReviewPanelProvider>
+              </ReviewProvider>
+            </CodexSelectionProvider>
           </ReviewDebugSettingsProvider>
         </ThreadTargetModelProvider>
       </ReviewFindProvider>
@@ -755,16 +748,6 @@ function ReviewLayoutContent({
                         />
                       </ReviewViewStateProvider>
                     </ReviewDocumentBoundary>
-                    <ThreadAnnotations
-                      articleRef={articleRef}
-                      onOpenInPanel={(thread) => {
-                        session.surface.showThreads();
-                        openThreads({
-                          kind: "comment",
-                          threadId: thread.threadId,
-                        });
-                      }}
-                    />
                   </ReviewDocumentSelectionSurface>
                 </>
               ) : (
@@ -1259,43 +1242,6 @@ export function applySoftwareMapTopologyStatuses(
   };
 }
 
-function SelectionCommentButton({
-  target,
-  clearTarget,
-}: {
-  target: SelectionTarget | null;
-  clearTarget: () => void;
-}) {
-  const review = useReview();
-
-  if (!target || review.historicalRevision) return null;
-
-  return (
-    <div
-      className="selection-action-buttons selection-action-buttons--anchored"
-      style={{ left: target.x, top: target.y }}
-    >
-      <button
-        type="button"
-        className="selection-action-segment selection-comment-button"
-        aria-label={
-          review.pendingCommentCount > 0
-            ? "Comment on selection"
-            : "Ask about selection"
-        }
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => {
-          review.openCommentDraft(selectionCommentTarget(target));
-          clearTarget();
-        }}
-      >
-        <CommentIcon />
-        <span>{review.pendingCommentCount > 0 ? "Comment" : "Ask"}</span>
-      </button>
-    </div>
-  );
-}
-
 function ReviewDocumentSelectionSurface({
   articleRef,
   children,
@@ -1303,24 +1249,25 @@ function ReviewDocumentSelectionSurface({
   articleRef: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
-  const [selectionTarget, setSelectionTarget] =
-    useState<SelectionTarget | null>(null);
+  const selectForCodex = useCodexSelection();
 
   useEffect(() => {
     const article = articleRef.current;
 
     if (!article) return;
 
-    return observeDocumentSelection(article, setSelectionTarget);
-  }, [articleRef]);
+    return observeDocumentSelection(article, (target) => {
+      if (target)
+        selectForCodex({
+          target: target.target,
+          title: target.quote.slice(0, 100),
+        });
+    });
+  }, [articleRef, selectForCodex]);
 
   return (
     <article ref={articleRef} className="review-document">
       {children}
-      <SelectionCommentButton
-        target={selectionTarget}
-        clearTarget={() => setSelectionTarget(null)}
-      />
     </article>
   );
 }

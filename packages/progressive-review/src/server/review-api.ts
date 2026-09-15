@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   type LocalVcsCommitSummary,
   currentHead,
+  detectLocalVcs,
   listCommitRange,
   resolveRevision,
 } from "@dev.fast/local-vcs";
@@ -35,6 +36,7 @@ import {
   codePeekRootSourceRanges,
   sliceReviewDiffFileToCodePeekRanges,
 } from "../codepeek-symbol-diff";
+import { CodexSelectionSchema, selectionMarkdown } from "../codex-selection";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
 import type { AgentServer, LaunchInput } from "../native-agent/native-session";
@@ -97,6 +99,7 @@ import {
   sanitizeUiTelemetryEvent,
 } from "../ui-telemetry-events";
 import { BugReportUpstreamError, submitReviewBugReport } from "./bug-report";
+import { reviewCodexContext } from "./codex-context-provider";
 import {
   type ReviewHonoEnv,
   jsonResponse,
@@ -469,6 +472,182 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
     documentRoute("write", (context, writableReviewPath) =>
       runReviewThreadMutation(() => handler(context, writableReviewPath)),
     );
+
+  const codexKeys = new Set<string>();
+  const codexSequences = new Map<string, number>();
+  const codexOwner = randomUUID();
+  let codexQueue = Promise.resolve();
+  let codexClosed = false;
+  app.post(
+    "/ide-context",
+    route("read", async (context) => {
+      const input = CodexSelectionSchema.parse(await readJson(context.req.raw));
+      const key = `${codexOwner}:${input.clientId}`;
+
+      const update = codexQueue
+        .catch(() => {})
+        .then(async () => {
+          if (codexClosed) return;
+
+          if (!input.selection) {
+            reviewCodexContext.remove(key);
+            codexKeys.delete(key);
+            codexSequences.delete(key);
+
+            return;
+          }
+
+          if (reviewCodexContext.touch(key, input.sequence)) return;
+
+          // Expire the previous selection before resolving a replacement.
+          if (codexSequences.get(key) !== input.sequence)
+            reviewCodexContext.remove(key);
+
+          const sourceWorkspace = session.storageDir
+            ? resolveReviewRepoRootFromStore(reviewRootPath)
+            : session.rootPath;
+
+          const target = input.selection.target;
+          let excerpt = "";
+
+          if (
+            target.kind === "code" &&
+            !input.selection.selectedDiff &&
+            !input.selection.fileOnly
+          ) {
+            const vcs = await detectLocalVcs(rootPath);
+
+            if (!vcs) throw new Error("Source repository unavailable");
+            const position = target.position;
+
+            for (const side of ["base", "head"] as const) {
+              const file =
+                side === "base" ? position.old_path : position.new_path;
+
+              const commit =
+                side === "base" ? position.base_sha : position.head_sha;
+
+              const lineKey = side === "base" ? "old_line" : "new_line";
+
+              const start =
+                position.line_range?.start[lineKey] ?? position[lineKey];
+
+              const end =
+                position.line_range?.end[lineKey] ?? position[lineKey];
+
+              if (!file || !commit || !start || !end) continue;
+
+              if (
+                !/^[0-9a-f]{40,64}$/i.test(commit) ||
+                file.startsWith("/") ||
+                file.split("/").includes("..")
+              )
+                throw new Error("Invalid pinned source");
+              const source = await vcs.readFileAtRef(commit, file);
+
+              if (source === null)
+                throw new Error(`Pinned source unavailable: ${file}`);
+              excerpt +=
+                `\n## ${side}: ${file}:${start}-${end} (${commit})\n` +
+                source
+                  .split("\n")
+                  .slice(start - 1, end)
+                  .join("\n")
+                  .slice(0, 20000);
+            }
+
+            if (!excerpt)
+              throw new Error("Select a range on one side of the diff");
+          }
+
+          const diff =
+            input.selection.selectedDiff ??
+            (target.kind === "code"
+              ? {
+                  oldPath: target.position.old_path ?? "",
+                  newPath: target.position.new_path ?? "",
+                }
+              : undefined);
+
+          let diffPaths: { base: string; head: string } | undefined;
+
+          if (diff) {
+            const pinnedPath = (root: string | undefined, file: string) => {
+              if (!file) return "/dev/null";
+
+              if (!root) throw new Error("Pinned worktree unavailable");
+
+              if (path.isAbsolute(file) || file.split(/[\\/]/).includes(".."))
+                throw new Error("Invalid diff path");
+
+              return path.resolve(root, file);
+            };
+
+            diffPaths = {
+              base: pinnedPath(session.baseRootPath, diff.oldPath),
+              head: pinnedPath(session.headRootPath, diff.newPath),
+            };
+          }
+
+          const text = selectionMarkdown(input.selection, excerpt, diffPaths);
+
+          const authoringFile = path.resolve(stateReviewPath ?? reviewPath);
+
+          const codeTabs = diffPaths
+            ? [
+                ...(diffPaths.head !== "/dev/null"
+                  ? [
+                      {
+                        path: diffPaths.head,
+                        label: `${path.basename(diffPaths.head)} (head)`,
+                      },
+                    ]
+                  : []),
+                ...(diffPaths.base !== "/dev/null"
+                  ? [
+                      {
+                        path: diffPaths.base,
+                        label: `${path.basename(diffPaths.base)} (base)`,
+                      },
+                    ]
+                  : []),
+              ]
+            : [];
+
+          const activeFile = codeTabs[0]?.path ?? authoringFile;
+
+          reviewCodexContext.publish(key, {
+            roots: [
+              ...new Set([
+                rootPath,
+                sourceWorkspace,
+                session.rootPath,
+                agentRootPath,
+              ]),
+            ],
+            file: activeFile,
+            text,
+            title: path.basename(activeFile),
+            tabs: [
+              ...codeTabs,
+              { path: authoringFile, label: path.basename(authoringFile) },
+            ],
+            sequence: input.sequence,
+          });
+          codexKeys.add(key);
+          codexSequences.set(key, input.sequence);
+        });
+
+      codexQueue = update;
+      await update;
+
+      return context.json({
+        ok: true,
+        connected: reviewCodexContext.connected,
+        context: reviewCodexContext.preview(key),
+      });
+    }),
+  );
 
   app.post("/telemetry/tab", route("read", telemetryTab));
   app.post("/telemetry/event", route("read", telemetryEvent));
@@ -1491,6 +1670,10 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
       };
     },
     close: async () => {
+      codexClosed = true;
+      await codexQueue.catch(() => {});
+
+      for (const key of codexKeys) reviewCodexContext.remove(key);
       await Promise.allSettled(
         [...agentMirrors.values()].map((mirror) => mirror.close()),
       );

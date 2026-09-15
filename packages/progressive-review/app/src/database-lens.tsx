@@ -38,6 +38,7 @@ import {
   type ValidatedCodePeekInput,
   validatedCodePeekInputFromRef,
 } from "./CodePeek";
+import { useCodexSelection } from "./codex-context";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { HoverCommentButton } from "./hover-comment-button";
@@ -193,6 +194,7 @@ export function DbWrite(props: DbWriteProps) {
 }
 
 export function DatabaseLens(props: DatabaseLensProps) {
+  const selectForCodex = useCodexSelection();
   const session = useReviewSession();
 
   const {
@@ -430,6 +432,28 @@ export function DatabaseLens(props: DatabaseLensProps) {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                title="Select database use case for Codex"
+                onClick={() => {
+                  if (activeUseCaseTarget)
+                    selectForCodex({
+                      target: activeUseCaseTarget,
+                      title: `${diagramLabel}: ${activeUseCase.label}`,
+                      detail: JSON.stringify(
+                        {
+                          summary: activeUseCase.summary,
+                          operations: activeUseCase.operations,
+                          stores: storesForUseCase(activeUseCase),
+                        },
+                        null,
+                        2,
+                      ),
+                    });
+                }}
+              >
+                Select for Codex
+              </button>
               <HoverCommentButton onClick={openActiveUseCaseComment} />
             </div>
           )}

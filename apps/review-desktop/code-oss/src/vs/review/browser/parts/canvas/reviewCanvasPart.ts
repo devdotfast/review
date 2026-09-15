@@ -276,6 +276,18 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				this.inlineEditors,
 			),
 		);
+        this._register(this.diffViews.onDidFocusFile(file => {
+            this.surfaceEvents.fire({
+                event: "editorSelectionChanged", path: file.path,
+                sideContext: file.status === "deleted" ? "base" : "head",
+                isEmpty: true, range: { fromLine: 1, toLine: 1 },
+                selectedDiff: {
+                    oldPath: file.status === "added" ? "" : (file.previousPath ?? file.path),
+                    newPath: file.status === "deleted" ? "" : file.path,
+                    oldStart: 0, newStart: 0, rows: [],
+                },
+            });
+        }));
 		this._register(
 			verbs.onDidEmitSurfaceEvent((event) => {
 				if (this.targetDocument) {

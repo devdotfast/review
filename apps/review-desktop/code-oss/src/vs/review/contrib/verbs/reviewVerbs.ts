@@ -11,7 +11,6 @@ import { Emitter, Event } from "../../../base/common/event.js";
 import { Disposable, DisposableStore, MutableDisposable, toDisposable } from "../../../base/common/lifecycle.js";
 import {
   type ICodeEditor,
-  MouseTargetType,
   isCodeEditor,
   isDiffEditor,
 } from "../../../editor/browser/editorBrowser.js";
@@ -19,11 +18,6 @@ import { ICodeEditorService } from "../../../editor/browser/services/codeEditorS
 import { Range } from "../../../editor/common/core/range.js";
 import type { IEditorDecorationsCollection } from "../../../editor/common/editorCommon.js";
 import type { IModelDeltaDecoration } from "../../../editor/common/model.js";
-import {
-  MenuId,
-  MenuRegistry,
-} from "../../../platform/actions/common/actions.js";
-import { CommandsRegistry } from "../../../platform/commands/common/commands.js";
 import {
   createDecorator,
 } from "../../../platform/instantiation/common/instantiation.js";
@@ -78,15 +72,6 @@ import { IReviewSessionService } from "../../services/reviewSessionService.js";
 import { IReviewDiffTabsService } from "../../services/reviewDiffTabs.js";
 import { ReviewCanvasEditorInput } from "../../browser/parts/canvas/reviewCanvasEditorInput.js";
 import { IReviewExplorerPartsService } from "../../browser/parts/explorer/reviewExplorerPart.js";
-
-MenuRegistry.appendMenuItem(MenuId.EditorContext, {
-  group: "review",
-  order: 1,
-  command: {
-    id: "devfast.review.addComment",
-    title: "Add Review Comment",
-  },
-});
 
 export const IReviewVerbsService =
   createDecorator<IReviewVerbsService>("reviewVerbsService");
@@ -196,11 +181,7 @@ export class ReviewVerbsService
         this.untrackEditor(editor),
       ),
     );
-    this._register(
-      CommandsRegistry.registerCommand("devfast.review.addComment", () =>
-        this.requestComment(),
-      ),
-    );
+
   }
 
   async dispatch(
@@ -666,25 +647,6 @@ export class ReviewVerbsService
     this.revealDecoration = undefined;
   }
 
-  private requestComment(): void {
-    const editor = this.codeEditorService.getActiveCodeEditor();
-    const session = this.sessionModelService.activeModel?.session;
-    const identity =
-      editor && session ? this.editorIdentity(editor, session) : null;
-    const selection = editor?.getSelection();
-    if (!editor || !identity || !selection) return;
-    this._onDidEmitSurfaceEvent.fire({
-      event: "commentRequested",
-      path: identity.path,
-      range: reviewSelectionRange(
-        selection.getStartPosition(),
-        selection.getEndPosition(),
-      ),
-      sideContext: reviewSelectionSide(editor.getModel()?.uri.scheme ?? "file"),
-    });
-    this._onDidRequestCanvasFocus.fire();
-  }
-
   private trackEditor(editor: ICodeEditor): void {
     if (editor.isSimpleWidget) return;
     const id = editor.getId();
@@ -695,30 +657,6 @@ export class ReviewVerbsService
       editor.onDidChangeCursorSelection(() => this.emitEditorState(editor)),
     );
     store.add(editor.onDidChangeModel(() => this.applyDecorations()));
-    store.add(
-      editor.onMouseDown((event) => {
-        if (
-          event.target.type !== MouseTargetType.GUTTER_GLYPH_MARGIN ||
-          !event.target.position
-        )
-          return;
-        const session = this.sessionModelService.activeModel?.session;
-        const identity = session ? this.editorIdentity(editor, session) : null;
-        if (!identity || !session) return;
-        const anchor = this.anchorsByPath
-          .get(session.session.sessionId, identity.path)
-          ?.find(
-            (candidate) =>
-              event.target.position!.lineNumber >= candidate.startLine &&
-              event.target.position!.lineNumber <= candidate.endLine,
-          );
-        if (anchor)
-          this._onDidEmitSurfaceEvent.fire({
-            event: "threadDecorationClicked",
-            threadId: anchor.threadId,
-          });
-      }),
-    );
     this.editorStores.set(id, store);
     this._register(store);
     this.applyDecorations();
@@ -733,21 +671,52 @@ export class ReviewVerbsService
     editor = this.codeEditorService.getActiveCodeEditor(),
   ): void {
     const session = this.sessionModelService.activeModel?.session;
+    const model = editor?.getModel();
+    const unified = model ? this.codeResources.unifiedResource(model.uri) : undefined;
     const identity =
       editor && session ? this.editorIdentity(editor, session) : null;
     this._onDidEmitSurfaceEvent.fire({
       event: "activeEditorChanged",
-      path: identity?.path ?? null,
+      path: unified?.path ?? identity?.path ?? null,
     });
     const selection = editor?.getSelection();
-    if (identity && selection) {
+    if (!selection) return;
+    const range = reviewSelectionRange(
+      selection.getStartPosition(),
+      selection.getEndPosition(),
+    );
+    const source = unified?.targetForRange(range.fromLine, range.toLine);
+    if (unified) {
+      const rows = unified.rows.slice(range.fromLine - 1, range.toLine);
+      if (!rows.length) return;
+      const previous = unified.rows.slice(0, range.fromLine - 1);
+      const oldBefore = previous.filter(row => row.kind !== "added").length;
+      const newBefore = previous.filter(row => row.kind !== "deleted").length;
       this._onDidEmitSurfaceEvent.fire({
         event: "editorSelectionChanged",
-        path: identity.path,
-        range: reviewSelectionRange(
-          selection.getStartPosition(),
-          selection.getEndPosition(),
-        ),
+        path: unified.path,
+        sideContext: source?.side ?? "head",
+        isEmpty: selection.isEmpty(),
+        range: { fromLine: source?.startLine ?? range.fromLine, toLine: source?.endLine ?? range.toLine },
+        selectedDiff: {
+          oldPath: unified.diffFile.status === "added" ? "" : (unified.diffFile.previousPath ?? unified.path),
+          newPath: unified.diffFile.status === "deleted" ? "" : unified.path,
+          oldStart: oldBefore + (rows.some(row => row.kind !== "added") ? 1 : 0),
+          newStart: newBefore + (rows.some(row => row.kind !== "deleted") ? 1 : 0),
+          rows: rows.map(row => ({ kind: row.kind, text: row.content })),
+        },
+      });
+      return;
+    }
+    if (source || identity) {
+      this._onDidEmitSurfaceEvent.fire({
+        event: "editorSelectionChanged",
+        path: source?.path ?? identity!.path,
+        sideContext: source?.side ?? reviewSelectionSide(model?.uri.scheme ?? "file"),
+        isEmpty: selection.isEmpty(),
+        range: source
+          ? { fromLine: source.startLine, toLine: source.endLine }
+          : range,
       });
     }
   }
@@ -761,23 +730,7 @@ export class ReviewVerbsService
       const identity = this.editorIdentity(editor, session);
       if (!model || !identity) continue;
       const key = model.uri.toString();
-      const anchors =
-        this.anchorsByPath.get(session.session.sessionId, identity.path) ?? [];
-      const decorations: IModelDeltaDecoration[] = anchors.map((anchor) => ({
-        range: new Range(
-          anchor.startLine,
-          1,
-          anchor.endLine,
-          Number.MAX_SAFE_INTEGER,
-        ),
-        options: {
-          description: `Review thread ${anchor.threadId}`,
-          isWholeLine: true,
-          className: `review-thread-line review-thread-${anchor.kind}`,
-          glyphMarginClassName: `review-thread-glyph review-thread-${anchor.kind}`,
-          glyphMarginHoverMessage: { value: "Open review thread" },
-        },
-      }));
+      const decorations: IModelDeltaDecoration[] = [];
       const ids = model.deltaDecorations(
         this.decorationIdsByModel.get(key) ?? [],
         decorations,

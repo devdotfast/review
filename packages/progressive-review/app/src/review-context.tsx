@@ -24,6 +24,7 @@ import {
 import type { AnchorRef } from "../../src/authoring";
 import type { SourceLineComment } from "../../src/source-code-types";
 import type { CreateReviewCommentInput, ThreadTarget } from "../../src/types";
+import { useCodexSelection } from "./codex-context";
 import { useComments } from "./comments-context";
 import { useReviewSession } from "./host/review-session";
 import {
@@ -255,6 +256,8 @@ function ReviewCoordinator({
   const resolvedBaseRef = useResolvedBaseRef();
   const resolvedHeadRef = useResolvedHeadRef();
 
+  const selectForCodex = useCodexSelection();
+
   const [draftTarget, setDraftTarget] = useState<CommentDraftTarget | null>(
     null,
   );
@@ -435,6 +438,10 @@ function ReviewCoordinator({
       captureUiEvent(session, "thread_draft_opened", {
         intent: target.intent ?? "comment",
       });
+      selectForCodex({
+        target: target.target,
+        title: target.title ?? "Review selection",
+      });
       setDraftTarget({
         ...target,
         draftSurface: target.draftSurface ?? "document",
@@ -443,7 +450,7 @@ function ReviewCoordinator({
         placement: target.placement ?? commentDraftPlacementFromActiveElement(),
       });
     },
-    [session],
+    [session, selectForCodex],
   );
 
   const closeCommentDraft = useCallback(() => setDraftTarget(null), []);

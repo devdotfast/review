@@ -2202,6 +2202,19 @@ export type ReviewDesktopVerbResult = z.infer<
   typeof ReviewDesktopVerbResultSchema
 >;
 
+export const ReviewSelectedDiffSchema = z.strictObject({
+  oldPath: z.string(),
+  newPath: z.string(),
+  oldStart: z.number().int().nonnegative(),
+  newStart: z.number().int().nonnegative(),
+  rows: z.array(
+    z.strictObject({
+      kind: z.enum(["unchanged", "added", "deleted"]),
+      text: z.string(),
+    }),
+  ),
+});
+
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("activeEditorChanged"),
@@ -2211,6 +2224,9 @@ export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
     event: z.literal("editorSelectionChanged"),
     path: requiredString,
     range: ReviewRangeSchema,
+    sideContext: reviewDiffSideSchema.optional(),
+    isEmpty: z.boolean().optional(),
+    selectedDiff: ReviewSelectedDiffSchema.optional(),
   }),
   z.strictObject({
     event: z.literal("commentRequested"),

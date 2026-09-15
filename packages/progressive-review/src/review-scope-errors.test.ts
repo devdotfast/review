@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runProgressiveReviewCli } from "./cli-runner";
+import { resolvePublishReview } from "./publish-preparation";
 import {
   ReviewHomeScanError,
   createReviewDir,
@@ -23,10 +24,9 @@ import {
   listReviews,
   sealReviewCandidate,
 } from "./review-home";
+import { resolveReviewInfo } from "./review-info-resolver";
 import { runReviewScaffold } from "./review-scaffold";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
-import { resolvePublishReview } from "./server/publish-preparation";
-import { resolveReviewInfo } from "./server/review-info";
 import { runReviewThreadsList } from "./threads-cli";
 
 const execFilePromise = promisify(execFile);

@@ -8,7 +8,7 @@ import {
   jsonString,
 } from "@dev.fast/review-protocol";
 
-import { writePathShim } from "../server/cli-install";
+import { writePathShim } from "../cli-install";
 
 export const REVIEW_AGENT_HOOK_URL_ENV = "DEV_FAST_REVIEW_AGENT_HOOK_URL";
 

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { type JsonObject } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { materializePublishRevision } from "../publish-stage";
 import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
@@ -20,7 +21,6 @@ import {
   type GlobalReviewServerInput,
   createGlobalReviewServer,
 } from "./desktop-server";
-import { materializePublishRevision } from "./publish-stage";
 import { createReviewSessionHandler } from "./session-handler";
 
 const roots: string[] = [];

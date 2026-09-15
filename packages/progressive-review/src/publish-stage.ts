@@ -16,8 +16,8 @@ import {
   type StoredReview,
   materializeReviewRevision,
   parseAnyStoredReviewRecord,
-} from "../review-home";
-import { reviewSourcePins } from "../review-source-pins";
+} from "./review-home";
+import { reviewSourcePins } from "./review-source-pins";
 
 const CACHE_MARKER = ".review-materialized.json";
 

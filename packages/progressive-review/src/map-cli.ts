@@ -26,6 +26,7 @@ import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
+import { resolvePublishReview } from "./publish-preparation";
 import { touchReviewAgentSession } from "./review-home";
 import { runReviewMapPublish } from "./review-map-publish";
 import {
@@ -35,7 +36,6 @@ import {
 } from "./review-storage";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import { resolveReviewRoot } from "./runtime";
-import { resolvePublishReview } from "./server/publish-preparation";
 import {
   type HydrateScratchResult,
   canonicalizeModelImport,

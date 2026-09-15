@@ -13,6 +13,10 @@ import { PassThrough, Readable } from "node:stream";
 import { runTraceSessions as runTraceSessionsActual } from "@dev.fast/trace-core";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  installReviewCommand as installReviewCommandActual,
+  pathShimPath,
+} from "./cli-install";
 import { runProgressiveReviewCli } from "./cli-runner";
 import { runInstall as runInstallActual } from "./install";
 import { runReviewMigration as runReviewMigrationActual } from "./migrate";
@@ -35,10 +39,6 @@ import { runReviewInfo as runReviewInfoActual } from "./review-info";
 import { runReviewPublish as runReviewPublishActual } from "./review-publish";
 import { runReviewRepair as runReviewRepairActual } from "./review-repair";
 import { runReviewScaffold as runReviewScaffoldActual } from "./review-scaffold";
-import {
-  installReviewCommand as installReviewCommandActual,
-  pathShimPath,
-} from "./server/cli-install";
 import {
   runReviewThreadsList as runReviewThreadsListActual,
   runReviewThreadsReply as runReviewThreadsReplyActual,

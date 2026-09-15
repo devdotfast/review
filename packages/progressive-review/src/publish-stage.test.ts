@@ -11,12 +11,12 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { materializePublishRevision } from "./publish-stage";
 import {
   createReviewDir,
   materializeReviewRevision,
   sealReviewCandidate,
-} from "../review-home";
-import { materializePublishRevision } from "./publish-stage";
+} from "./review-home";
 
 describe("publish revision stage", () => {
   it.each(["empty", "partial", "wrong-revision"] as const)(

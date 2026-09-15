@@ -19,19 +19,19 @@ import {
 } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { readSkillVersion, runInstall } from "../install";
 import {
   applyCliInstall,
   cliInstallStampPath,
   installFingerprint,
   resolveCliInstallStatus,
 } from "./cli-install";
+import { readSkillVersion, runInstall } from "./install";
 
 const execFileAsync = promisify(execFile);
 
 const roots: string[] = [];
 
-const workspace = path.resolve(import.meta.dirname, "../../../..");
+const workspace = path.resolve(import.meta.dirname, "../../..");
 
 afterEach(async () => {
   await Promise.all(
@@ -246,7 +246,7 @@ describe("packaged skill updates", () => {
   it("serializes independent installer processes", async () => {
     const f = await fixture();
 
-    const code = `import { applyCliInstall } from "./packages/progressive-review/src/server/cli-install.ts";
+    const code = `import { applyCliInstall } from "./packages/progressive-review/src/cli-install.ts";
       const result = await applyCliInstall({ homeDir: process.argv[1], packageRoot: process.argv[2], env: { DEV_REVIEW_HOME: process.argv[3], PATH: "" }, targets: [process.argv[4]], shim: false });
       if (result.code !== 0) throw new Error(result.output);`;
 

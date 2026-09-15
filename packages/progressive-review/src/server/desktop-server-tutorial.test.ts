@@ -8,10 +8,10 @@ import { type JsonObject, isJsonObject } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionRef } from "../authoring-session";
+import { materializePublishRevision } from "../publish-stage";
 import { bindReviewAuthorSession, findReview } from "../review-home";
 import type { ReviewSubmissionEvent } from "../types";
 import { createGlobalReviewServer } from "./desktop-server";
-import { materializePublishRevision } from "./publish-stage";
 import type {
   ReviewSessionHandler,
   ReviewSessionHandlerInput,

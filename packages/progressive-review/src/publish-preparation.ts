@@ -3,16 +3,16 @@ import { mergeBase, resolveRevision } from "@dev.fast/local-vcs";
 import {
   actionableReviewsForCheckout,
   isPositionalChangeIdentity,
-} from "../review-change-scope";
+} from "./review-change-scope";
 import {
   type StoredReview,
   findScopedReview,
   listReviews,
-} from "../review-home";
+} from "./review-home";
 import {
   requireClosedThreadsForRepublish,
   requireCompletedAgentResponsesForRepublish,
-} from "../review-publish-thread-gate";
+} from "./review-publish-thread-gate";
 
 export interface PreparedReviewPublish {
   review: StoredReview;

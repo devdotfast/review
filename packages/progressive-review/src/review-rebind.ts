@@ -5,9 +5,9 @@ import {
   resolveRevision,
 } from "@dev.fast/local-vcs";
 
+import { resolvePublishReview } from "./publish-preparation";
 import { type RunReviewScaffoldInput, repinReview } from "./review-scaffold";
 import { resolveReviewRoot } from "./runtime";
-import { resolvePublishReview } from "./server/publish-preparation";
 
 /**
  * Move a review to a different unit of change and re-pin from it

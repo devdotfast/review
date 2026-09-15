@@ -10,13 +10,13 @@ import { z } from "zod";
 import { resolveAuthoringSessionRef } from "./authoring-session";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import type { ReviewDocumentDiagnostic } from "./document/diagnostics";
+import { prepareReviewPublish } from "./publish-preparation";
 import { ReviewPublicationValidationError } from "./review-publication-preparation";
 import {
   sealReviewDocumentPublication,
   stageReviewDocumentPublication,
 } from "./review-publication-staging";
 import { resolveReviewRoot } from "./runtime";
-import { prepareReviewPublish } from "./server/publish-preparation";
 import { recordSpan, span, startSpan } from "./startup-trace";
 
 const PublishReadyResponseSchema = z.object({

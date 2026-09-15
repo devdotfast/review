@@ -45,8 +45,8 @@ import {
   isFffTarget,
   readFffRegistration,
   removeFffRegistration,
-} from "../agent-fff";
-import { isDirectory, isFile } from "../fs-utils";
+} from "./agent-fff";
+import { isDirectory, isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
   type InstallTarget,
@@ -55,9 +55,9 @@ import {
   removeTraceSkills,
   resolveInstalledSkills,
   runInstall,
-} from "../install";
-import { readProgressiveReviewPackageVersion } from "../package-paths";
-import { reviewDesktopStateDir } from "../review-home-paths";
+} from "./install";
+import { readProgressiveReviewPackageVersion } from "./package-paths";
+import { reviewDesktopStateDir } from "./review-home-paths";
 
 const installErrors = new Map<string, string>();
 

@@ -42,6 +42,7 @@ import {
   parseFreshSourceSessionHarness,
 } from "./authoring-session";
 import { isMissingFileError } from "./native-agent/transcript-json";
+import { resolveReviewRepositoryIdentity } from "./repository-identity";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import {
   remapReviewCodeDrafts,
@@ -63,7 +64,6 @@ import {
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
-import { resolveReviewRepositoryIdentity } from "./server/repository-identity";
 
 export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

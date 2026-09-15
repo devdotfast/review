@@ -44,6 +44,16 @@ import {
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
 } from "../authoring-session";
+import {
+  applyCliInstall,
+  declineCliInstall,
+  executableOnPath,
+  removeCliInstall,
+  resetCliInstall,
+  resolveCliInstallStatus,
+  resolveInstalledReviewAgentStatus,
+  skipCliInstall,
+} from "../cli-install";
 import { preferredInstalledReviewAgent } from "../installed-review-agent";
 import * as claudeCode from "../native-agent/claude-code";
 import * as codex from "../native-agent/codex";
@@ -56,6 +66,10 @@ import {
   type ProgressiveReviewSourceKind,
   ProgressiveReviewTelemetry,
 } from "../progressive-review-telemetry";
+import {
+  materializePublishRevision,
+  reviewWithPresentedDocumentPins,
+} from "../publish-stage";
 import {
   dismissReview,
   markReviewViewed,
@@ -86,6 +100,7 @@ import {
 } from "../review-home";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import type { RunReviewInfoInput } from "../review-info";
+import { resolveReviewInfo } from "../review-info-resolver";
 import {
   ReviewBusyError,
   reviewBusyResponse,
@@ -111,16 +126,6 @@ import {
   isValidReviewAppSessionId,
 } from "../ui-telemetry-events";
 import {
-  applyCliInstall,
-  declineCliInstall,
-  executableOnPath,
-  removeCliInstall,
-  resetCliInstall,
-  resolveCliInstallStatus,
-  resolveInstalledReviewAgentStatus,
-  skipCliInstall,
-} from "./cli-install";
-import {
   GlobalReviewDesktopVerbRelay,
   type ReviewDesktopVerbRelay,
 } from "./global-verb-relay";
@@ -134,12 +139,7 @@ import {
   readBoundedRequestJson,
 } from "./hono-http";
 import { HttpJsonError, ReviewServerError } from "./http-json";
-import {
-  materializePublishRevision,
-  reviewWithPresentedDocumentPins,
-} from "./publish-stage";
 import { captureSanitizedUiTelemetry } from "./review-api";
-import { resolveReviewInfo } from "./review-info";
 import { promoteReviewRepair } from "./review-repair-promotion";
 import {
   type ReviewSessionHandler,

@@ -6,7 +6,9 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { prepareReviewPublish } from "./publish-preparation";
 import { createReviewDir } from "./review-home";
+import { resolveReviewInfo } from "./review-info-resolver";
 import { runReviewRebind as rebindReview } from "./review-rebind";
 import {
   type RunReviewScaffoldInput,
@@ -22,8 +24,6 @@ import {
   tempDir,
 } from "./review-test-utils";
 import { closeAllReviewThreadStores } from "./review-thread-store-backend";
-import { prepareReviewPublish } from "./server/publish-preparation";
-import { resolveReviewInfo } from "./server/review-info";
 
 const execFilePromise = promisify(execFile);
 

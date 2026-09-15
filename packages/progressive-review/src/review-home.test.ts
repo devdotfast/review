@@ -11,6 +11,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resolvePublishReview } from "./publish-preparation";
 import {
   readReviewDocumentBundle,
   reviewDocumentBundleData,
@@ -47,7 +48,6 @@ import {
   reviewThreadDbPath,
 } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
-import { resolvePublishReview } from "./server/publish-preparation";
 
 const execFilePromise = promisify(execFile);
 

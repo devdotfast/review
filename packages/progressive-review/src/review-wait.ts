@@ -7,10 +7,10 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
+import { resolvePublishReview } from "./publish-preparation";
 import type { StoredReview } from "./review-home";
 import { readReviewComments } from "./review-state-store";
 import { resolveReviewRoot } from "./runtime";
-import { resolvePublishReview } from "./server/publish-preparation";
 
 const DEFAULT_TIMEOUT_SECONDS = 3600;
 

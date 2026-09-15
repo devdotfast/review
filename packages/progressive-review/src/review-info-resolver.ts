@@ -1,16 +1,16 @@
 import path from "node:path";
 
-import { reviewMatchesCheckout } from "../review-change-scope";
+import { resolveReviewRepositoryIdentity } from "./repository-identity";
+import { reviewMatchesCheckout } from "./review-change-scope";
 import {
   type StoredReview,
   computeSync,
   findReview,
   listReviews,
-} from "../review-home";
-import { type ReviewInfoEvent, type RunReviewInfoInput } from "../review-info";
-import { readReviewComments } from "../review-state-store";
-import { resolveReviewRoot } from "../runtime";
-import { resolveReviewRepositoryIdentity } from "./repository-identity";
+} from "./review-home";
+import { type ReviewInfoEvent, type RunReviewInfoInput } from "./review-info";
+import { readReviewComments } from "./review-state-store";
+import { resolveReviewRoot } from "./runtime";
 
 export async function resolveReviewInfo(
   input: RunReviewInfoInput,

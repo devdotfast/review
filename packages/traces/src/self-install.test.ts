@@ -180,6 +180,21 @@ describe("self install", () => {
     ).toEqual(["0.2.0", "0.3.0", "0.4.0"]);
   });
 
+  it("prunes the leftovers of an install that was killed", async () => {
+    await install();
+    const versions = path.join(devHome, "traces", "versions");
+    // A kill leaves these behind; only the one whose process is gone goes.
+    const dead = path.join(versions, "0.1.0.tmp-999999");
+    const mine = path.join(versions, "0.1.0.old-" + String(process.pid));
+    await mkdir(dead, { recursive: true });
+    await mkdir(mine, { recursive: true });
+    await writeFakePackage("0.2.0");
+    await install();
+    const present = (await readdir(versions)).sort();
+    expect(present).toContain("0.1.0.old-" + String(process.pid));
+    expect(present).not.toContain("0.1.0.tmp-999999");
+  });
+
   it("runs a hook through the shim after the npx cache is gone", async () => {
     await install();
     await rm(path.join(home, "npx-cache"), { recursive: true, force: true });
@@ -341,7 +356,7 @@ describe("self install", () => {
     expect(before.runtimePath).toBe(null);
     expect(before.lines).toEqual([
       "Install: not installed (running from /x/cli.js)\n",
-      `Command: ${shimPath(home)} (on PATH: no)\n`,
+      `Command: ${shimPath(home)} missing; run npx @dev.fast/traces install\n`,
     ]);
 
     await install();

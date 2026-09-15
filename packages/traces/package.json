@@ -22,13 +22,10 @@
     "registry": "https://registry.npmjs.org"
   },
   "scripts": {
-    "build:workspace-deps": "pnpm --filter @dev.fast/trace-core build",
-    "prebuild": "pnpm run build:workspace-deps",
     "build": "tsdown",
     "postbuild": "node scripts/check-bundle.mjs",
     "pretest": "pnpm run build",
     "test": "node --test scripts/check-bundle.test.mjs && vitest run --config vitest.config.ts",
-    "pretypecheck": "pnpm run build:workspace-deps",
     "typecheck": "pnpm -w exec tsc -p packages/traces/tsconfig.json --noEmit",
     "prepublishOnly": "pnpm run build && pnpm run test"
   },

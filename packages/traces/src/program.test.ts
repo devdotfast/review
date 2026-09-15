@@ -13,6 +13,10 @@ const ownCliPath = "/opt/npx-cache/node_modules/@dev.fast/traces/dist/cli.js";
 
 const runningCommand = { file: "/opt/node/bin/node", args: [ownCliPath] };
 
+// Not shimPath(homeDir): a test that asserts this path proves the program read
+// the install result instead of deriving the path a second time.
+const installedShim = "/installed/by/the/install/dev-traces";
+
 /** The command names of one help text, without the built-in `help`. */
 function commandNames(helpText: string): string[] {
   const start = helpText.indexOf("Commands:");
@@ -58,7 +62,7 @@ describe("dev-traces program", () => {
             "0.1.0",
           ),
           copied: true,
-          shimPath: shimPath(input.homeDir),
+          shimPath: installedShim,
           output: "[ok] installed\n",
         };
       }),
@@ -83,6 +87,16 @@ describe("dev-traces program", () => {
       ),
       runTraceAllow: vi.fn<TracesCliRuntime["runTraceAllow"]>(async () => {
         calls.push("runTraceAllow");
+
+        return 0;
+      }),
+      runTraceEnable: vi.fn<TracesCliRuntime["runTraceEnable"]>(async () => {
+        calls.push("runTraceEnable");
+
+        return 0;
+      }),
+      runTraceRepair: vi.fn<TracesCliRuntime["runTraceRepair"]>(async () => {
+        calls.push("runTraceRepair");
 
         return 0;
       }),
@@ -143,7 +157,7 @@ describe("dev-traces program", () => {
     expect(runtime.runTraceAllow).toHaveBeenCalledWith(
       expect.objectContaining({
         json: true,
-        traceCommand: { file: shimPath(home) },
+        traceCommand: { file: installedShim },
       }),
     );
     expect(result.err()).toContain("[ok] installed");
@@ -156,6 +170,26 @@ describe("dev-traces program", () => {
     expect(await run(["allow", ".", "--no-install"], runtime).code).toBe(0);
     expect(calls).toEqual(["runTraceAllow"]);
     expect(runtime.runTraceAllow).toHaveBeenCalledWith(
+      expect.objectContaining({ traceCommand: runningCommand }),
+    );
+  });
+
+  it("enable installs first and hands the shim to the runtime", async () => {
+    const calls: string[] = [];
+    const runtime = stubs(calls);
+    expect(await run(["enable", "."], runtime).code).toBe(0);
+    expect(calls).toEqual(["installSelf", "runTraceEnable"]);
+    expect(runtime.runTraceEnable).toHaveBeenCalledWith(
+      expect.objectContaining({ traceCommand: { file: installedShim } }),
+    );
+  });
+
+  it("repair --no-install skips the install and uses the running entry", async () => {
+    const calls: string[] = [];
+    const runtime = stubs(calls);
+    expect(await run(["repair", ".", "--no-install"], runtime).code).toBe(0);
+    expect(calls).toEqual(["runTraceRepair"]);
+    expect(runtime.runTraceRepair).toHaveBeenCalledWith(
       expect.objectContaining({ traceCommand: runningCommand }),
     );
   });
@@ -220,9 +254,33 @@ describe("dev-traces program", () => {
     }
   });
 
+  it("keeps the trace group identical to the library hook commands", async () => {
+    // The hidden group forwards to the same runtime, so its arguments and
+    // options must not drift from the ones the library registers.
+    const onOneLine = (text: string): string =>
+      text.replaceAll("dev-traces trace ", "dev-traces ");
+
+    for (const name of ["hook", "git-hook"]) {
+      const direct = run([name, "--help"], stubs([]));
+      expect(await direct.code).toBe(0);
+
+      const grouped = run(["trace", name, "--help"], stubs([]));
+      expect(await grouped.code).toBe(0);
+      expect(onOneLine(grouped.out())).toBe(onOneLine(direct.out()));
+    }
+  });
+
   it("refuses allow on Windows", async () => {
     const calls: string[] = [];
     const result = run(["allow", "."], stubs(calls), { platform: "win32" });
+    expect(await result.code).toBe(1);
+    expect(result.err()).toBe("dev-traces supports macOS and Linux only.\n");
+    expect(calls).toEqual([]);
+  });
+
+  it("refuses install on Windows", async () => {
+    const calls: string[] = [];
+    const result = run(["install"], stubs(calls), { platform: "win32" });
     expect(await result.code).toBe(1);
     expect(result.err()).toBe("dev-traces supports macOS and Linux only.\n");
     expect(calls).toEqual([]);

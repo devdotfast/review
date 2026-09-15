@@ -448,11 +448,16 @@ export async function runTracesCheck(
     }
 
     if (consentError) {
+      // The read error is the one that happened here; a selection error from
+      // the same file is extra detail, never a replacement. An EACCES must not
+      // read as a missing S3 credential.
+      const detail =
+        selection.error && selection.error !== consentError
+          ? `${consentError} (${selection.error})`
+          : consentError;
+
       checks.push(
-        fail(
-          "consent",
-          `the trace configuration is unreadable: ${selection.error ?? consentError}`,
-        ),
+        fail("consent", `the trace configuration is unreadable: ${detail}`),
       );
     } else if (!allowed) {
       checks.push(
@@ -482,7 +487,7 @@ export async function runTracesCheck(
   // 6. The harness hooks and the Git hooks. `review` and `dev-traces` capture
   // to the same store, so a hook either command owns passes. Only a hook file
   // that neither command wrote is foreign.
-  const owners = await describeTraceHookOwners(scope.homeDir);
+  const owners = await describeTraceHookOwners(scope.homeDir, scope.env);
   const ownerParts: string[] = [];
   const foreign: string[] = [];
 
@@ -492,7 +497,7 @@ export async function runTracesCheck(
 
     if (owner !== null) continue;
 
-    if (await present(agentTraceHookPath(agent, scope.homeDir))) {
+    if (await present(agentTraceHookPath(agent, scope.homeDir, scope.env))) {
       foreign.push(agent);
     }
   }

@@ -301,7 +301,12 @@ async function pointCurrent(devHome: string, version: string): Promise<void> {
 /** The staging and set-aside names a killed install leaves behind. */
 const LEFTOVER_NAME = /\.(?:tmp|old)-(\d+)$/;
 
-/** True when a process with this id still runs, or the answer is unknown. */
+/**
+ * True when a process with this id still runs, or the answer is unknown. The
+ * operating system reuses a pid, so a new process can hold the id of the
+ * install that died. That keeps a leftover one extra round; nothing reads it,
+ * and the next prune removes it.
+ */
 function processRuns(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
 
@@ -468,7 +473,9 @@ export async function uninstallSelf(
   const hooksRemoved: AgentTraceHookAgent[] = [];
 
   for (const agent of AGENT_TRACE_HOOK_AGENTS) {
-    if (await removeAgentTraceHook(agent, input.homeDir, "dev-traces")) {
+    if (
+      await removeAgentTraceHook(agent, input.homeDir, "dev-traces", input.env)
+    ) {
       hooksRemoved.push(agent);
     }
   }

@@ -48,11 +48,27 @@ function piExtensionPath(homeDir: string): string {
   return path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts");
 }
 
-function openCodePluginPath(homeDir: string): string {
+/** The configuration base OpenCode reads: `$XDG_CONFIG_HOME`, else `~/.config`. */
+function configHome(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return env.XDG_CONFIG_HOME?.trim() || path.join(homeDir, ".config");
+}
+
+function openCodeDirectory(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.join(configHome(homeDir, env), "opencode");
+}
+
+function openCodePluginPath(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   return path.join(
-    homeDir,
-    ".config",
-    "opencode",
+    openCodeDirectory(homeDir, env),
     "plugins",
     "review-trace.ts",
   );
@@ -413,9 +429,10 @@ export async function installPiTraceExtension(
 export async function installOpenCodeTraceExtension(
   homeDir = os.homedir(),
   reviewCommand = traceCliName(),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<AgentTraceHookInstallResult> {
-  const pluginsDir = path.join(homeDir, ".config", "opencode", "plugins");
-  const pluginPath = openCodePluginPath(homeDir);
+  const pluginPath = openCodePluginPath(homeDir, env);
+  const pluginsDir = path.dirname(pluginPath);
 
   let existing = "";
 
@@ -440,6 +457,7 @@ export async function removeAgentTraceHook(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
   owner: TraceHookOwner = "review",
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<boolean> {
   if (agent === "claude") {
     const settingsPath = claudeSettingsPath(homeDir);
@@ -521,7 +539,9 @@ export async function removeAgentTraceHook(
   }
 
   const extensionPath =
-    agent === "pi" ? piExtensionPath(homeDir) : openCodePluginPath(homeDir);
+    agent === "pi"
+      ? piExtensionPath(homeDir)
+      : openCodePluginPath(homeDir, env);
 
   if (!existsSync(extensionPath)) return false;
   const existing = await readFile(extensionPath, "utf8");
@@ -634,12 +654,13 @@ async function readTextOrEmpty(filePath: string): Promise<string> {
 export function agentTraceHomeDirectory(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   if (agent === "claude") return path.join(homeDir, ".claude");
 
   if (agent === "codex") return path.join(homeDir, ".codex");
 
-  if (agent === "opencode") return path.join(homeDir, ".config", "opencode");
+  if (agent === "opencode") return openCodeDirectory(homeDir, env);
 
   if (agent === "pi") return path.join(homeDir, ".pi");
   const _exhaustive: never = agent;
@@ -651,12 +672,13 @@ export function agentTraceHomeDirectory(
 export function agentTraceHookPath(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   if (agent === "claude") return claudeSettingsPath(homeDir);
 
   if (agent === "codex") return codexConfigPath(homeDir);
 
-  if (agent === "opencode") return openCodePluginPath(homeDir);
+  if (agent === "opencode") return openCodePluginPath(homeDir, env);
 
   if (agent === "pi") return piExtensionPath(homeDir);
   const _exhaustive: never = agent;
@@ -667,6 +689,7 @@ export function agentTraceHookPath(
 /** Reports recognized SessionStart owners and extension owners without changing files. */
 export async function describeTraceHookOwners(
   homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<TraceHookOwners> {
   let claude: TraceHookOwner | null = null;
 
@@ -708,7 +731,7 @@ export async function describeTraceHookOwners(
     claude,
     codex,
     opencode: extensionOwner(
-      await readTextOrEmpty(openCodePluginPath(homeDir)),
+      await readTextOrEmpty(openCodePluginPath(homeDir, env)),
     ),
     pi: extensionOwner(await readTextOrEmpty(piExtensionPath(homeDir))),
   };

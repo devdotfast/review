@@ -405,10 +405,19 @@ export async function shellProfilesWithPathSetup(
   return found;
 }
 
-/** A `. "…/traces/env"` line, or the fish `source` form of it. */
-const POSIX_ENV_SOURCE_LINE = /^\.\s+"(?:[^"]*\/)?traces\/env"$/;
+// The quoted path may hold an escaped quote, so the body reads a run of plain
+// characters and any `\x` pair. The suffix is what identifies the line.
+const QUOTED_PATH_BODY = String.raw`(?:[^"\\]|\\.)*`;
 
-const FISH_ENV_SOURCE_LINE = /^source\s+"(?:[^"]*\/)?traces\/env\.fish"$/;
+/** A `. "…/traces/env"` line. */
+const POSIX_ENV_SOURCE_LINE = new RegExp(
+  String.raw`^\.\s+"${QUOTED_PATH_BODY}traces/env"$`,
+);
+
+/** The fish `source` form of the same line. */
+const FISH_ENV_SOURCE_LINE = new RegExp(
+  String.raw`^source\s+"${QUOTED_PATH_BODY}traces/env\.fish"$`,
+);
 
 /**
  * True when one line sources a trace env file. The match reads the path

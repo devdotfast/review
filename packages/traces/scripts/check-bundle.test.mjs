@@ -22,3 +22,10 @@ test("allows builtins and relative chunks", () => {
 
   assert.deepEqual(findForeignSpecifiers(source), []);
 });
+
+test("ignores a type-only import that a template string holds", () => {
+  const source =
+    'var src = `import type { ExtensionAPI } from "@earendil-works/pi";`;';
+
+  assert.deepEqual(findForeignSpecifiers(source), []);
+});

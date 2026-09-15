@@ -4,9 +4,10 @@ import { z } from "zod";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
 import { authoringTools } from "./authoring-tools.js";
+import { documentText } from "./document-text.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
-import { readQuerySchemas } from "./read-schemas.js";
+import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import type { ReviewStore, Snapshot } from "./store.js";
 
 /** Mounted behind the desktop server's existing token authentication. */
@@ -207,6 +208,21 @@ export function createReviewApi(
   app.get("/:id/history", (context) =>
     context.json(store.history(context.req.param("id"))),
   );
+  app.get("/:id/inspect", (context) => {
+    const query = inspectQuerySchema.parse(context.req.query());
+    const id = context.req.param("id");
+    const snapshot = store.read(id, query.version);
+
+    return context.json(
+      query.format === "text"
+        ? documentText(snapshot, query.targetId, Boolean(query.full))
+        : query.targetId !== undefined
+          ? store.inspect(id, query.targetId, query.version)
+          : query.full
+            ? snapshot
+            : store.inspect(id, undefined, query.version),
+    );
+  });
   app.get("/:id", (context) => {
     const query = readQuerySchemas.get.parse(context.req.query());
 

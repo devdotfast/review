@@ -297,7 +297,7 @@ describe("CodePeek native editor", () => {
       );
     });
 
-    expect(created).toHaveLength(1);
+    await vi.waitFor(() => expect(created).toHaveLength(1));
     expect(created[0]).toMatchObject({
       path: "src/old.ts",
       title: "src/old.ts:7-9",

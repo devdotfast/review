@@ -371,20 +371,19 @@ export async function installSelf(
     shimDirectory: path.dirname(shim),
   });
 
-  // A line this run added puts the shim directory first in PATH, so a new
-  // shell reads the shim before anything else and nothing shadows it.
-  const shadowing =
-    profile.added.length > 0
-      ? undefined
-      : await resolvePathCommand(
-          "dev-traces",
-          shim,
-          input.env,
-          SHIM_MARKER,
-          await realpath(path.join(input.packageRoot, "dist", "cli.js")).catch(
-            () => undefined,
-          ),
-        );
+  // The probe runs on every install, even one that just wrote a shell file:
+  // a new shell does not always put the shim directory first (macOS zsh runs
+  // path_helper after .zshenv), so a command earlier on PATH still shadows
+  // the shim. The npx `.bin` link is ruled out by its real path.
+  const shadowing = await resolvePathCommand(
+    "dev-traces",
+    shim,
+    input.env,
+    SHIM_MARKER,
+    await realpath(path.join(input.packageRoot, "dist", "cli.js")).catch(
+      () => undefined,
+    ),
+  );
 
   const backupOutput = backup
     ? `[warn] moved your existing ~/.local/bin/dev-traces to ${backup}\n`

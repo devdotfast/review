@@ -15,11 +15,10 @@ import {
   realpath,
   rm,
   stat,
-  writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 
-import { writeFileAtomicAsync } from "@dev.fast/trace-core";
+import { errorMessage, writeFileAtomicAsync } from "@dev.fast/trace-core";
 
 /** The env variable that turns the shell file edits off. */
 export const NO_MODIFY_PATH_VARIABLE = "DEV_TRACES_NO_MODIFY_PATH";
@@ -57,6 +56,20 @@ export async function readTextIfExists(filePath: string): Promise<string> {
 /** The file text, or null when the file is absent or unreadable. */
 async function readTextOrNull(filePath: string): Promise<string | null> {
   return readFile(filePath, "utf8").catch(() => null);
+}
+
+/** The file text, or null when the file is absent. Any other error throws. */
+async function readTextOrAbsent(filePath: string): Promise<string | null> {
+  return readFile(filePath, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return null;
+
+    throw error;
+  });
+}
+
+/** True when one line of `source` is `line`; a CRLF file counts too. */
+function hasLine(source: string, line: string): boolean {
+  return source.split("\n").some((each) => each.replace(/\r$/, "") === line);
 }
 
 /** True when `pathValue` holds `directory` as one of its entries. */
@@ -165,29 +178,42 @@ async function writeEnvFiles(devHome: string): Promise<void> {
   });
 }
 
+type AppendResult =
+  | { status: "created" | "added" | "unchanged" }
+  | { status: "failed"; message: string };
+
 /**
  * Appends `line` to the end of `filePath` once. The append keeps the inode, so
- * a profile that is a link into a dotfiles checkout stays a link.
+ * a profile that is a link into a dotfiles checkout stays a link. A file this
+ * process cannot read or write is reported, not thrown: the shim is already
+ * in place, and the other shell files still get their line.
  */
 async function appendLineOnce(
   filePath: string,
   line: string,
-): Promise<"created" | "added" | "unchanged"> {
-  const source = await readTextOrNull(filePath);
+): Promise<AppendResult> {
+  try {
+    const source = await readTextOrAbsent(filePath);
 
-  if (source !== null && source.split("\n").includes(line)) return "unchanged";
+    if (source !== null && hasLine(source, line))
+      return { status: "unchanged" };
 
-  const separator =
-    source === null || source.length === 0 || source.endsWith("\n") ? "" : "\n";
+    const separator =
+      source === null || source.length === 0 || source.endsWith("\n")
+        ? ""
+        : "\n";
 
-  await mkdir(path.dirname(filePath), { recursive: true });
+    await mkdir(path.dirname(filePath), { recursive: true });
 
-  await appendFile(filePath, `${separator}${line}\n`, {
-    encoding: "utf8",
-    mode: 0o644,
-  });
+    await appendFile(filePath, `${separator}${line}\n`, {
+      encoding: "utf8",
+      mode: 0o644,
+    });
 
-  return source === null ? "created" : "added";
+    return { status: source === null ? "created" : "added" };
+  } catch (error) {
+    return { status: "failed", message: errorMessage(error) };
+  }
 }
 
 export interface ShellProfileInput {
@@ -273,11 +299,17 @@ export async function ensureShellProfilePath(
   for (const target of targets) {
     const result = await appendLineOnce(target.file, target.line);
 
-    if (result === "unchanged") continue;
+    if (result.status === "unchanged") continue;
+
+    if (result.status === "failed") {
+      lines.push(`[warn] could not update ${target.file}: ${result.message}\n`);
+      continue;
+    }
+
     added.push(target.file);
     lines.push(`[ok] added ${target.file} to PATH setup\n`);
 
-    if (result === "created") {
+    if (result.status === "created") {
       created.push(target.file);
       lines.push(`[ok] created ${target.file}\n`);
     }
@@ -334,8 +366,9 @@ export async function shellProfilesWithPathSetup(
   for (const candidate of candidateFiles(input)) {
     const source = await readTextOrNull(candidate.file);
 
-    if (source?.split("\n").includes(candidate.line))
+    if (source !== null && hasLine(source, candidate.line)) {
       found.push(candidate.file);
+    }
   }
 
   return found;
@@ -345,7 +378,9 @@ export async function shellProfilesWithPathSetup(
  * Removes the source line, and the block of the earlier implementation, from
  * every shell file that holds one; then deletes the env files. Returns the
  * files it changed. A profile is never deleted: only the fish drop-in, and a
- * file the earlier implementation created and left empty, go away.
+ * file that held the legacy block and holds nothing else once it is gone, go
+ * away. That second file is the `.bash_profile` an earlier install created;
+ * left behind empty, it would keep bash from reading `~/.profile` at login.
  */
 export async function removeShellProfilePath(
   input: ShellProfileInput,
@@ -359,22 +394,29 @@ export async function removeShellProfilePath(
 
     const next = source
       .split("\n")
-      .filter((line) => line !== candidate.line)
+      .filter((line) => line.replace(/\r$/, "") !== candidate.line)
       .join("\n")
       .replaceAll(LEGACY_PROFILE_BLOCK, "");
 
     if (next === source) continue;
 
     const ownFile =
-      (candidate.dropIn && next.trim() === "") ||
-      source === LEGACY_PROFILE_BLOCK;
+      next.trim() === "" &&
+      (candidate.dropIn || source.includes(LEGACY_PROFILE_BLOCK));
 
     if (ownFile) {
       await rm(candidate.file, { force: true });
     } else {
-      // In place, not through a rename: a profile that is a link into a
-      // dotfiles checkout stays a link.
-      await writeFile(candidate.file, next, "utf8");
+      // The atomic write replaces the resolved file, so a profile that is a
+      // link into a dotfiles checkout stays a link, and a crash mid-write
+      // never leaves a truncated profile behind.
+      const target = await realpath(candidate.file);
+      const info = await stat(target);
+
+      await writeFileAtomicAsync(target, next, {
+        encoding: "utf8",
+        mode: info.mode & 0o777,
+      });
     }
 
     changed.push(candidate.file);

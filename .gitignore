@@ -62,6 +62,9 @@ packages/code-graph/.ci-tools/
 packages/code-graph/fixtures/indexing/rust/target/
 packages/code-graph/fixtures/semantic-baseline/rust/target/
 packages/review/.playwright-cli/
+packages/review/.vitest-attachments/
+packages/review/app/src/__screenshots__/
+packages/review/app/src/__traces__/
 
 .playwright-mcp
 backups/

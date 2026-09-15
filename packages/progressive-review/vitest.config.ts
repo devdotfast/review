@@ -24,6 +24,9 @@ const isolatedTests = [
 export default defineConfig({
   resolve: {
     alias: {
+      "@dev.fast/json": fileURLToPath(
+        new URL("../json/src/index.ts", import.meta.url),
+      ),
       "@dev.fast/local-vcs": fileURLToPath(
         new URL("../local-vcs/src/index.ts", import.meta.url),
       ),

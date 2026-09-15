@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { JsonValue } from "@dev.fast/review-protocol";
+import type { JsonValue } from "@dev.fast/json";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectingWritable } from "./cli-output";

@@ -3,11 +3,7 @@ import { mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  type JsonValue,
-  jsonObject,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import { type JsonValue, jsonObject, parseJsonText } from "@dev.fast/json";
 import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "../atomic-write";

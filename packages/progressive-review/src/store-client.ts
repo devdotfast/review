@@ -1,4 +1,4 @@
-import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+import { type JsonValue, parseJsonText } from "@dev.fast/json";
 import {
   type BeginUploadRequest,
   type BeginUploadResponse,

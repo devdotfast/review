@@ -1,3 +1,4 @@
+import type { JsonValue } from "@dev.fast/json";
 import { z } from "zod";
 
 import {
@@ -43,13 +44,10 @@ import {
   type ReviewVerbResponse,
   ReviewVerbResponseSchema,
 } from "./contracts.js";
-import type { JsonValue } from "./json.js";
 
 export * from "./bug-report.js";
 
-export * from "./json.js";
-
-export * from "./runtime-value.js";
+export * from "@dev.fast/json";
 
 export * from "./contracts.js";
 

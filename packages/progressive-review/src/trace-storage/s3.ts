@@ -19,7 +19,7 @@ import {
   jsonObject,
   jsonString,
   parseJsonText,
-} from "@dev.fast/review-protocol";
+} from "@dev.fast/json";
 import {
   type ByCommitEntry,
   type SessionMeta,

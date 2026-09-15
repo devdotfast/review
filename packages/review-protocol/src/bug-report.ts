@@ -1,6 +1,5 @@
+import type { JsonValue } from "@dev.fast/json";
 import { z } from "zod";
-
-import type { JsonValue } from "./json.js";
 
 const requiredString = z
   .string({ error: "must be a string" })

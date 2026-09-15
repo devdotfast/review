@@ -11,7 +11,7 @@ import {
   jsonObject,
   jsonString,
   parseJsonText,
-} from "@dev.fast/review-protocol";
+} from "@dev.fast/json";
 import {
   type ReviewAgentTraceEvent,
   type ReviewAgentTraceSession,

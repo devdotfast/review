@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { JsonValue } from "@dev.fast/review-protocol";
+import type { JsonValue } from "@dev.fast/json";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_HOSTED_ORIGIN, traceConfigPath } from "./config";

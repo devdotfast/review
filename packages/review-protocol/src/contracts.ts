@@ -1,10 +1,9 @@
+import { type JsonValue, isJsonObject } from "@dev.fast/json";
 import {
   ReviewAgentTraceEventSchema,
   ReviewAgentTraceSessionSchema,
 } from "@dev.fast/trace-shared";
 import { z } from "zod";
-
-import { type JsonValue, isJsonObject } from "./json.js";
 
 // Version 3: `review publish` owns validation, bundling, and sealing; the
 // desktop serves prebuilt revisions and exposes /publish-ready instead of the

@@ -56,6 +56,12 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  packages/json:
+    dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   packages/local-vcs:
     dependencies:
       git-url-parse:
@@ -192,6 +198,9 @@ importers:
         specifier: 4.5.7
         version: 4.5.7(@types/react@19.2.14)(react@19.2.5)
     devDependencies:
+      '@dev.fast/json':
+        specifier: workspace:*
+        version: link:../json
       '@dev.fast/review-protocol':
         specifier: workspace:*
         version: link:../review-protocol
@@ -243,6 +252,9 @@ importers:
 
   packages/review-protocol:
     dependencies:
+      '@dev.fast/json':
+        specifier: workspace:*
+        version: link:../json
       '@dev.fast/trace-shared':
         specifier: workspace:*
         version: link:../trace-shared

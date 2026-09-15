@@ -2,11 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import {
-  jsonObject,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import { jsonObject, jsonString, parseJsonText } from "@dev.fast/json";
 
 const MODEL_SOURCE_FILES = new Set([
   "software-map-model.ts",

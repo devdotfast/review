@@ -8,7 +8,7 @@ import {
   jsonArray,
   jsonObject,
   parseJsonText,
-} from "@dev.fast/review-protocol";
+} from "@dev.fast/json";
 
 import { writeFileAtomic } from "./atomic-write";
 

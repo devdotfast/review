@@ -2,12 +2,8 @@ import { execFile, spawn } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { jsonObject, jsonString, parseJsonText } from "@dev.fast/json";
 import { git } from "@dev.fast/local-vcs";
-import {
-  jsonObject,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
 
 import type { CliInputStream } from "./cli-output";
 import { readStoreAuth } from "./store-auth";

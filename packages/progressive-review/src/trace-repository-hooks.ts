@@ -1,12 +1,8 @@
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { jsonArray, jsonString, parseJsonText } from "@dev.fast/json";
 import { gitAt } from "@dev.fast/local-vcs";
-import {
-  jsonArray,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { writeFileAtomicAsync } from "./atomic-write";

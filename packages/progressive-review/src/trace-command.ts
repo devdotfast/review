@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { isStringValue } from "@dev.fast/review-protocol";
+import { isStringValue } from "@dev.fast/json";
 
 import { devReviewHome } from "./review-storage";
 

@@ -1,4 +1,4 @@
-import type { JsonValue } from "@dev.fast/review-protocol";
+import type { JsonValue } from "@dev.fast/json";
 import { storeRoutes } from "@dev.fast/trace-shared";
 import { describe, expect, it, vi } from "vitest";
 

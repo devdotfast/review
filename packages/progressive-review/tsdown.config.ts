@@ -55,6 +55,7 @@ export default defineConfig({
   dts: true,
   deps: {
     alwaysBundle: [
+      /^@dev\.fast\/json$/,
       /^@dev\.fast\/local-vcs$/,
       /^@dev\.fast\/review-protocol$/,
       /^@dev\.fast\/trace-shared$/,

@@ -10,7 +10,7 @@ import {
   isJsonObject,
   jsonString,
   parseJsonText,
-} from "@dev.fast/review-protocol";
+} from "@dev.fast/json";
 
 import { shellQuote, traceCliName } from "./trace-command";
 

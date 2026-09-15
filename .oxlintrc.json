@@ -109,7 +109,7 @@
       }
     },
     {
-      "files": ["packages/review-protocol/src/runtime-value.ts"],
+      "files": ["packages/json/src/runtime-value.ts"],
       "rules": {
         "anti-slop/no-runtime-typeof": "off"
       }

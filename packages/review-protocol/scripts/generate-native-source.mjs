@@ -95,9 +95,14 @@ const traceContractsPath =
       )
     : path.join(sourceRoot, "trace-contracts.ts");
 
+const jsonSourceRoot =
+  sourceRootFlag === -1
+    ? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "json", "src")
+    : sourceRoot;
+
 const MODULE_PATHS = [
-  path.join(sourceRoot, "runtime-value.ts"),
-  path.join(sourceRoot, "json.ts"),
+  path.join(jsonSourceRoot, "runtime-value.ts"),
+  path.join(jsonSourceRoot, "json.ts"),
   traceContractsPath,
   path.join(sourceRoot, "contracts.ts"),
   path.join(sourceRoot, "index.ts"),

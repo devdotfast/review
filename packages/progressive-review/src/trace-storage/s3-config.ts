@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
+import { jsonString, parseJsonText } from "@dev.fast/json";
 
 import {
   type S3Profile,

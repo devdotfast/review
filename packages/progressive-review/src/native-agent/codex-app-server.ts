@@ -10,15 +10,15 @@ import type { Readable } from "node:stream";
 import {
   type JsonObject,
   type JsonValue,
+  isJsonObject,
   jsonObject,
   jsonProperty,
   jsonString,
   parseJsonText,
-} from "@dev.fast/review-protocol";
+} from "@dev.fast/json";
 import { WebSocket } from "undici";
 
 import { tomlInline } from "./terminal-command";
-import { isJsonRecord } from "./transcript-json";
 
 interface PendingRequest {
   resolve(value: JsonValue | undefined): void;
@@ -176,7 +176,7 @@ export class CodexAppServerClient {
       return;
     }
 
-    if (!isJsonRecord(value)) return;
+    if (!isJsonObject(value)) return;
 
     if (value.id === undefined) {
       const method = jsonString(value.method);

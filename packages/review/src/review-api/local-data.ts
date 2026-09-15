@@ -72,6 +72,7 @@ export const uploadSchema = z.discriminatedUnion("kind", [
 /** File reads cannot name the root or a directory; tree reads can. */
 function checkRelativePath(file: string) {
   inputError(() => checkSourcePath(file));
+
   if (file === "" || file.endsWith("/"))
     throw new ReviewInputError(
       "Source file must be a repository-relative path.",

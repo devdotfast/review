@@ -535,6 +535,7 @@ export class ReviewStore {
 
     // Independent reads of immutable commits: run them concurrently.
     const checks: Promise<void>[] = [];
+
     for (const [key, { source, peek }] of current.sources) {
       const kept = retained.sources.get(key);
 

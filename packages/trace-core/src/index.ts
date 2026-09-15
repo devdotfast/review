@@ -74,6 +74,8 @@ export {
   agentTraceHookPath,
   describeTraceHookOwners,
   removeAgentTraceHook,
+  keptTraceHookOwner,
+  traceGitHookCommandOwner,
   traceHookCommandOwner,
   installClaudeTraceHook,
   installCodexTraceHook,

@@ -29,6 +29,7 @@ import {
   readTraceConfigFile,
   readTraceUserConfig,
   selectTraceStorage,
+  traceGitHookCommandOwner,
   traceRepoName,
   traceRepositoryStatus,
 } from "@dev.fast/trace-core";
@@ -86,31 +87,6 @@ async function executableFile(filePath: string): Promise<boolean> {
   if (!info?.isFile()) return false;
 
   return executable(filePath);
-}
-
-/**
- * The command a Git hook state file names, when it is `review` or
- * `dev-traces`. The state stores the rendered command, so the executable is
- * its first shell-quoted word.
- */
-function gitHookCommandOwner(
-  command: string | undefined,
-): TraceHookOwner | null {
-  if (command === undefined) return null;
-
-  const quoted = /^'((?:[^']|'"'"')*)'(?:\s|$)/.exec(command);
-  const bare = /^([^\s']+)(?:\s|$)/.exec(command);
-
-  const file = quoted
-    ? quoted[1]!.replaceAll(`'"'"'`, "'")
-    : bare
-      ? bare[1]!
-      : undefined;
-
-  if (file === undefined) return null;
-  const base = path.basename(file);
-
-  return base === "review" || base === "dev-traces" ? base : null;
 }
 
 async function present(filePath: string): Promise<boolean> {
@@ -498,7 +474,7 @@ export async function runTracesCheck(
   }
 
   const repositoryHooks = await traceRepositoryStatus(input.cwd);
-  const gitOwner = gitHookCommandOwner(repositoryHooks.command);
+  const gitOwner = traceGitHookCommandOwner(repositoryHooks.command);
   const gitHooksOk = repositoryHooks.enabled && gitOwner !== null;
 
   const gitDetail = gitHooksOk

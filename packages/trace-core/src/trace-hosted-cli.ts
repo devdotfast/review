@@ -267,14 +267,16 @@ const HARNESS_HOOK_INSTALLERS: Record<
 
 /**
  * Writes the hook of every harness this machine holds a directory for, and
- * returns the harnesses it left alone. `allHarnesses` writes all four.
+ * returns the harnesses it left alone: the ones this machine lacks, and the
+ * ones the other CLI still owns. `allHarnesses` writes all four.
  */
 async function installHarnessTraceHooks(input: {
   homeDir: string;
   hookExecutable?: string;
   allHarnesses: boolean;
-}): Promise<AgentTraceHookAgent[]> {
+}): Promise<{ skipped: AgentTraceHookAgent[]; kept: AgentTraceHookAgent[] }> {
   const skipped: AgentTraceHookAgent[] = [];
+  const kept: AgentTraceHookAgent[] = [];
 
   for (const agent of AGENT_TRACE_HOOK_AGENTS) {
     const present = existsSync(agentTraceHomeDirectory(agent, input.homeDir));
@@ -284,10 +286,15 @@ async function installHarnessTraceHooks(input: {
       continue;
     }
 
-    await HARNESS_HOOK_INSTALLERS[agent](input.homeDir, input.hookExecutable);
+    const result = await HARNESS_HOOK_INSTALLERS[agent](
+      input.homeDir,
+      input.hookExecutable,
+    );
+
+    if (result.kept) kept.push(agent);
   }
 
-  return skipped;
+  return { skipped, kept };
 }
 
 export async function runTraceAllow(
@@ -323,7 +330,7 @@ export async function runTraceAllow(
     const hookExecutable = input.traceCommand?.file;
 
     if (input.harnessHooks !== false) {
-      const skipped = await installHarnessTraceHooks({
+      const { skipped, kept } = await installHarnessTraceHooks({
         homeDir: input.scope.homeDir,
         hookExecutable,
         allHarnesses: input.allHarnesses === true,
@@ -332,6 +339,12 @@ export async function runTraceAllow(
       if (skipped.length > 0) {
         humanStream(input).write(
           `Skipped the ${skipped.join(", ")} hook${skipped.length === 1 ? "" : "s"}: this machine has no such harness. Use --all-harnesses to write them anyway.\n`,
+        );
+      }
+
+      if (kept.length > 0) {
+        humanStream(input).write(
+          `Kept the ${kept.join(", ")} hook${kept.length === 1 ? "" : "s"} the other CLI installed: its command file still exists, and it captures to the same store.\n`,
         );
       }
     }

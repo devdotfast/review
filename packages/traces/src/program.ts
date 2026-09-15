@@ -287,7 +287,6 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
       ownCliPath: input.ownCliPath,
       runningVersion: version,
       json: options.json,
-      stdin: input.stdin,
       stdout: input.stdout,
       stderr: input.stderr,
     });

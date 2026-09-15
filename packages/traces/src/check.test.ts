@@ -397,16 +397,72 @@ describe("dev-traces check", () => {
     );
   });
 
-  it("names DEV_TRACES_NODE when it is executable", async () => {
+  it("prefers DEV_TRACES_NODE over the runtime the install baked in", async () => {
+    await writeLogin();
+    await writeConsent();
+    // Both wrappers run, so only the precedence decides which one the line
+    // names. A missing baked path would pass whatever the order.
+    const wrapper = `#!/bin/sh\nexec ${process.execPath} "$@"\n`;
+    const baked = await writeScript(path.join(home, "bin"), "baked", wrapper);
+
+    const override = await writeScript(
+      path.join(home, "bin"),
+      "override",
+      wrapper,
+    );
+
+    await installEverything(baked);
+    env.DEV_TRACES_NODE = override;
+    const result = check(healthyClient());
+    expect(await result.code).toBe(0);
+    expect(runtimeLine(result.out())).toContain(
+      `ok    runtime: ${override} (Node `,
+    );
+    expect(runtimeLine(result.out())).not.toContain(baked);
+  });
+
+  it("names the baked runtime when DEV_TRACES_NODE is not set", async () => {
+    await writeLogin();
+    await writeConsent();
+
+    const baked = await writeScript(
+      path.join(home, "bin"),
+      "baked",
+      `#!/bin/sh\nexec ${process.execPath} "$@"\n`,
+    );
+
+    await installEverything(baked);
+    const result = check(healthyClient());
+    expect(await result.code).toBe(0);
+    expect(runtimeLine(result.out())).toContain(
+      `ok    runtime: ${baked} (Node `,
+    );
+  });
+
+  it("skips a directory named node on PATH", async () => {
     await writeLogin();
     await writeConsent();
     await installEverything(path.join(home, "missing-node"));
-    env.DEV_TRACES_NODE = process.execPath;
+    const decoy = path.join(home, "decoy");
+    await mkdir(path.join(decoy, "node"), { recursive: true });
+
+    const real = await writeScript(
+      path.join(home, "bin"),
+      "node",
+      `#!/bin/sh\nexec ${process.execPath} "$@"\n`,
+    );
+
+    env.PATH = [
+      decoy,
+      path.dirname(real),
+      path.join(home, ".local", "bin"),
+      "/usr/bin",
+      "/bin",
+    ].join(path.delimiter);
     const result = check(healthyClient());
     expect(await result.code).toBe(0);
-
     expect(runtimeLine(result.out())).toContain(
-      `ok    runtime: ${process.execPath} (Node `,
+      `ok    runtime: ${real} (Node `,
     );
   });
 
@@ -456,5 +512,47 @@ describe("dev-traces check", () => {
       `FAIL  login: Could not reach ${ORIGIN}: fetch failed`,
     );
     expect(result.out()).not.toContain("fix: dev-traces login");
+    expect(result.out()).toContain("FAIL  repository: skipped: no login");
+  });
+
+  it("still reads the repository when the store refuses the session check", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything();
+
+    const result = check(
+      client((url) => {
+        if (url.includes("/api/auth/get-session")) {
+          return Response.json(
+            { error: { code: "server_error", message: "session is down" } },
+            { status: 500 },
+          );
+        }
+
+        if (url.includes("/sessions")) {
+          return Response.json({ sessions: [SESSION] });
+        }
+
+        return Response.json(STORE);
+      }),
+    );
+
+    expect(await result.code).toBe(1);
+    expect(result.out()).toContain(`FAIL  login: ${ORIGIN} refused the check`);
+    expect(result.out()).not.toContain("repository: skipped: no login");
+    expect(result.out()).toContain("ok    repository: acme/app store");
+  });
+
+  it("names a malformed trace configuration on the consent line", async () => {
+    await writeLogin();
+    await writeConsent();
+    await installEverything();
+    await writeFile(path.join(devHome, "trace", "config.json"), "{ not json");
+    clearTraceEnvCache();
+    const result = check(healthyClient());
+    expect(await result.code).toBe(1);
+    expect(result.out()).toContain(
+      "FAIL  consent: the trace configuration is unreadable:",
+    );
   });
 });

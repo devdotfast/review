@@ -144,19 +144,9 @@ This command updates only `presentedSoftwareMapRevision`. It preserves the docum
 
 If the worker fails, keep the valid document publication. Report the map failure and the smallest next action.
 
-### 7. Wait for the reader
+### 7. Hand off to the reader
 
-Wait for the reader to finish with the Review. Use the command for the current harness:
-
-```sh
-review wait --requires-agent --review <uuid>
-review wait --requires-agent --codex --review <uuid>
-```
-
-Use only one wait command.
-
-- For `review-dismissed` or `review-deleted`, stop the loop.
-- While the status is `awaiting-review`, the reader owns the next action.
+Finish the turn once the document and map are published. The reader owns the next action while the status is `awaiting-review`.
 
 When the user asks for changes, update the document, run `review scaffold --update` when the binding gained commits, and publish again. If pins move, dispatch a new map worker with the new pins. Publish the document without waiting for the new map. Then publish the new map after both checks pass.
 
@@ -168,7 +158,7 @@ A Review can explain a codebase as it stands:
 2. Choose sections that describe the system (data flows, state, storage, and module boundaries). Omit diff-specific sections (interface changes, test claims, decision logs).
 3. Use diagrams and code peeks instead of raw prose. Scope the review to one subsystem.
 
-All other steps (map worker, publish, wait loop) remain identical.
+All other steps (map worker, publish, hand-off) remain identical.
 
 ## Completion criteria
 
@@ -178,7 +168,7 @@ Complete the authoring turn only when all applicable conditions are true:
 - The map is published, or you reported why it is not published.
 - All document diagnostics are resolved.
 - Both map checks passed before map publication.
-- The Review is waiting on the reader, the reader dismissed it, or the Review was deleted.
+- The Review is awaiting the reader.
 
 ## Errata
 

@@ -52,7 +52,7 @@ Start or activate it explicitly:
 review app launch --json
 ```
 
-`review info`, `review publish`, `review wait`, and map publication need a
+`review info`, `review publish`, and map publication need a
 healthy Review Desktop server. If launch reports success but those commands
 still cannot connect, quit all Review windows, reopen the app, and retry the
 launch command.

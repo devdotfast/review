@@ -73,7 +73,6 @@ $ review version --json
 | `review scaffold`      | Create or update a pinned UUID Review.                                      |
 | `review publish`       | Validate and publish the Review document, optionally opening a chosen view. |
 | `review rebind`        | Move a Review to another branch, bookmark, or change ID.                    |
-| `review wait`          | Wait for reviewer activity or an agent-action state.                        |
 | `review map`           | Author, validate, publish, and share experimental software maps.            |
 | `review install`       | Install Review skills for supported coding agents.                          |
 | `review migrate apply` | Migrate supported legacy Review data.                                       |
@@ -119,25 +118,16 @@ A bare scaffold uses the current checkout and its trunk fork point. Use
 pull-request binding. It creates a Review when none matches. Publication never
 moves the pins automatically.
 
-## Publish, rebind, and wait
+## Publish and rebind
 
 ```sh
 review publish --review <uuid> --view diff
 review rebind <branch-bookmark-or-change> --review <uuid>
-review wait --review <uuid>
-review wait --timeout <seconds> --review <uuid>
-review wait --requires-agent --review <uuid>
-review wait --requires-agent --codex --review <uuid>
 ```
 
 `review publish` validates source ranges and the document bundle before it asks
 the desktop to present the revision. `review rebind` changes the unit of change
 and immediately re-pins the Review.
-
-`review wait` defaults to a 3,600-second timeout. `--requires-agent` returns
-when the Review is no longer waiting on the human. `--codex` registers a
-detached wait that resumes the current Codex task when reviewer activity
-arrives.
 
 ## Software maps
 

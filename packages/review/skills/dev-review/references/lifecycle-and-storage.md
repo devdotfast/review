@@ -65,9 +65,7 @@ A failed publish keeps the last good pointer.
 | `accepted`               | Complete; ordinary publication is forbidden.                 |
 | `rejected`               | Closed; ordinary publication is forbidden.                   |
 
-Dismissal is separate from Review status. It removes the Review from the active list and stops the waiting agent. The reader can restore it from Home until retention deletes it. Closing the tab does not dismiss the Review. A new document publication clears dismissal and returns the Review to the active list.
-
-After publication, `review wait --requires-agent` resolves for `awaiting-agent-updates`, `review-dismissed`, or `review-deleted`.
+Dismissal is separate from Review status. It removes the Review from the active list. The reader can restore it from Home until retention deletes it. Closing the tab does not dismiss the Review. A new document publication clears dismissal and returns the Review to the active list.
 
 ## UUID directory
 

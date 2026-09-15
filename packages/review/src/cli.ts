@@ -70,7 +70,6 @@ async function maybeDelegateToDesktopCli(
   if (
     argv[0] === "stop-hook" ||
     argv[0] === "internal-test" ||
-    argv[0] === "wait-codex" ||
     argv[0] === "prepare-worktree"
   )
     return null;

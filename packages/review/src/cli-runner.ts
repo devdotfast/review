@@ -31,11 +31,6 @@ import { Argument, Command, CommanderError, Option } from "commander";
 
 import { installReviewCommand, pathShimPath } from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
-import {
-  type CodexWaitProcessInput,
-  requireCodexThreadId,
-  startCodexWaitProcess,
-} from "./codex-thread-wakeup";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { isFile } from "./fs-utils";
 import {
@@ -54,7 +49,6 @@ import {
   type ReviewAppLaunchEvent,
   runReviewAppLaunch,
 } from "./review-app-launcher";
-import { runReviewCodexWait } from "./review-codex-wait";
 import {
   type StoredReview,
   listReviews,
@@ -77,7 +71,6 @@ import {
   type ReviewTelemetryErrorCategory,
   type ReviewTelemetryErrorName,
 } from "./review-telemetry";
-import { runReviewWait, validateReviewWait } from "./review-wait";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
   runTraceBlame,
@@ -103,15 +96,6 @@ interface ReviewCliRuntime {
   runReviewPublish: typeof runReviewPublish;
   runReviewRepair: typeof runReviewRepair;
   runReviewRebind: typeof runReviewRebind;
-  runReviewWait: typeof runReviewWait;
-  runReviewCodexWait: typeof runReviewCodexWait;
-  startCodexWaitProcess(input: CodexWaitProcessInput): Promise<{
-    pid: number;
-    reused: boolean;
-    reviewUuid: string;
-    threadId: string;
-  }>;
-  validateReviewWait: typeof validateReviewWait;
   runInstall: typeof runInstall;
   installReviewCommand: typeof installReviewCommand;
   runReviewMigration: typeof runReviewMigration;
@@ -166,19 +150,6 @@ interface ReviewScaffoldOptions {
   update?: boolean;
   review?: string;
   new?: boolean;
-}
-
-interface ReviewWaitOptions {
-  codex?: boolean;
-  requiresAgent?: boolean;
-  review?: string;
-  timeout: number;
-}
-
-interface ReviewCodexWaitOptions {
-  ownerToken: string;
-  threadId: string;
-  timeout: number;
 }
 
 type OutputSurface = ReviewCliCommand | "plain";
@@ -494,89 +465,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       });
     },
   );
-
-  configureJsonOutput(
-    program
-      .command("wait")
-      .description("Wait for reviewer action")
-      .option("--review <uuid>", "review UUID")
-      .option("--requires-agent", "wait until the review requires agent action")
-      .option(
-        "--timeout <seconds>",
-        "timeout in seconds",
-        parseTimeoutSeconds,
-        3600,
-      )
-      .option(
-        "--codex",
-        "return immediately and resume the current Codex task when reviewer action arrives",
-      ),
-    "plain",
-  ).action(async (options: ReviewWaitOptions) => {
-    if (options.codex) {
-      const threadId = requireCodexThreadId(env);
-
-      const review = await runtime.validateReviewWait({
-        cwd,
-        reviewUuid: options.review,
-      });
-
-      const registration = await runtime.startCodexWaitProcess({
-        cliEntryPath: process.argv[1]!,
-        cwd,
-        env,
-        reviewUuid: review.review.uuid,
-        threadId,
-        timeout: String(options.timeout),
-      });
-
-      input.stdout.write(
-        `${JSON.stringify({
-          event: "codex-wait",
-          reviewUuid: registration.reviewUuid,
-          threadId: registration.threadId,
-          pid: registration.pid,
-          reused: registration.reused,
-          waiting: true,
-        })}\n`,
-      );
-      state.exitCode = 0;
-
-      return;
-    }
-
-    state.exitCode = await runtime.runReviewWait({
-      cwd,
-      reviewUuid: options.review,
-      requiresAgent: options.requiresAgent,
-      timeoutSeconds: options.timeout,
-      stdout: input.stdout,
-    });
-  });
-
-  configureJsonOutput(
-    program
-      .command("wait-codex <review-uuid>", { hidden: true })
-      .description("Internal detached Codex Review waiter")
-      .requiredOption("--thread-id <thread-id>")
-      .requiredOption("--owner-token <owner-token>")
-      .option(
-        "--timeout <seconds>",
-        "timeout in seconds",
-        parseTimeoutSeconds,
-        3600,
-      ),
-    "plain",
-  ).action(async (reviewUuid: string, options: ReviewCodexWaitOptions) => {
-    state.exitCode = await runtime.runReviewCodexWait({
-      cwd,
-      env,
-      ownerToken: options.ownerToken,
-      reviewUuid,
-      threadId: options.threadId,
-      timeoutSeconds: options.timeout,
-    });
-  });
 
   configureJsonOutput(
     program
@@ -1119,16 +1007,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   }
 }
 
-function parseTimeoutSeconds(value: string): number {
-  const timeout = Number(value);
-
-  if (!Number.isFinite(timeout) || timeout <= 0) {
-    throw new Error("Timeout must be a positive number of seconds.");
-  }
-
-  return timeout;
-}
-
 function installTargets(targets: readonly string[]): InstallTarget[] {
   if (targets.length === 0 || targets.includes("all")) {
     return [...ALL_INSTALL_TARGETS];
@@ -1226,10 +1104,6 @@ function reviewCliRuntime(
     runReviewPublish,
     runReviewRepair,
     runReviewRebind,
-    runReviewWait,
-    runReviewCodexWait,
-    startCodexWaitProcess,
-    validateReviewWait,
     runInstall,
     installReviewCommand,
     runReviewMigration,
@@ -1580,7 +1454,6 @@ function telemetryCommandPath(
     name === "version" ||
     name === "rebind" ||
     name === "publish" ||
-    name === "wait" ||
     name === "info" ||
     name === "scaffold" ||
     name === "install"
@@ -1629,12 +1502,7 @@ function errorClassification(
     return { errorName: "index_error", errorCategory: "dependency" };
   }
 
-  if (
-    command === "publish" ||
-    command === "wait" ||
-    command === "rebind" ||
-    command === "info"
-  ) {
+  if (command === "publish" || command === "rebind" || command === "info") {
     return { errorName: "review_state_error", errorCategory: "local_state" };
   }
 

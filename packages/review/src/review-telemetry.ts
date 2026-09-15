@@ -42,7 +42,6 @@ export type ReviewCliCommandPath =
   | "app.pick"
   | "rebind"
   | "publish"
-  | "wait"
   | "info"
   | "scaffold"
   | "install"

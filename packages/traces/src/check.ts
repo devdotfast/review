@@ -281,14 +281,21 @@ export async function runTracesCheck(
       ),
     );
   } else if (!install.shim.onPath) {
+    // The install edits shell files, so the shell that ran `allow` does not
+    // see the shim directory yet. A new shell will.
     const shimDirectory = path.dirname(shim);
 
     checks.push(
-      fail(
-        "install",
-        `${shimDirectory} is not on PATH in this shell; open a new shell after install`,
-        `export PATH="${shimDirectory}:$PATH"`,
-      ),
+      install.shim.profiles.length > 0
+        ? ok(
+            "install",
+            `${shimDirectory} is set up in ${install.shim.profiles.join(", ")}; open a new shell`,
+          )
+        : fail(
+            "install",
+            `${shimDirectory} is not on PATH in this shell; open a new shell after install`,
+            `export PATH="${shimDirectory}:$PATH"`,
+          ),
     );
   } else {
     checks.push(

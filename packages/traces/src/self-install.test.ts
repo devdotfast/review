@@ -25,7 +25,7 @@ import {
   shimPath,
   uninstallSelf,
 } from "./self-install";
-import { PROFILE_EXPORT, PROFILE_MARKER } from "./shell-profile";
+import { envFilePath, posixSourceLine } from "./shell-profile";
 
 const run = promisify(execFile);
 
@@ -96,7 +96,7 @@ describe("self install", () => {
     return path.join(devHome, "traces", "versions", version);
   }
 
-  it("copies the package, links current, writes the shim and the PATH block", async () => {
+  it("copies the package, links current, writes the shim and the PATH setup", async () => {
     const result = await install();
     expect(result).toMatchObject({
       version: "0.1.0",
@@ -128,18 +128,33 @@ describe("self install", () => {
     });
     expect(Date.parse(state.installedAt)).not.toBeNaN();
 
-    const profile = await readFile(path.join(home, ".zprofile"), "utf8");
-    expect(profile).toContain(PROFILE_MARKER);
-    expect(profile).toContain(PROFILE_EXPORT);
-    expect(profile.split(PROFILE_MARKER).length - 1).toBe(1);
+    // SHELL is zsh, so the install writes .zshenv beside the .profile it
+    // always writes; a bash on PATH changes nothing in a home with no rc file.
+    const line = posixSourceLine(devHome, home);
+    expect(await readFile(path.join(home, ".profile"), "utf8")).toBe(
+      `${line}\n`,
+    );
+    expect(await readFile(path.join(home, ".zshenv"), "utf8")).toBe(
+      `${line}\n`,
+    );
+    expect(await readFile(envFilePath(devHome), "utf8")).toContain(
+      'export PATH="$HOME/.local/bin:$PATH"',
+    );
+    expect(result.output).toContain(
+      `[ok] added ${path.join(home, ".zshenv")} to PATH setup\n`,
+    );
+    await expect(stat(path.join(home, ".zprofile"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("copies once and recopies only with force", async () => {
     await install();
     expect((await install()).copied).toBe(false);
     expect((await install(true)).copied).toBe(true);
-    const profile = await readFile(path.join(home, ".zprofile"), "utf8");
-    expect(profile.split(PROFILE_MARKER).length - 1).toBe(1);
+    const line = posixSourceLine(devHome, home);
+    const profile = await readFile(path.join(home, ".zshenv"), "utf8");
+    expect(profile.split(line).length - 1).toBe(1);
   });
 
   it("repoints current on a version bump and keeps the old version", async () => {
@@ -210,17 +225,22 @@ describe("self install", () => {
     expect(result).toMatchObject({
       removedShim: true,
       keptForeignShim: false,
-      profiles: [path.join(home, ".zprofile")],
+      profiles: [path.join(home, ".profile"), path.join(home, ".zshenv")],
     });
+    expect(result.output).toContain(
+      `[ok] removed the PATH setup from ${path.join(home, ".zshenv")}\n`,
+    );
     await expect(stat(shimPath(home))).rejects.toMatchObject({
       code: "ENOENT",
     });
     await expect(stat(path.join(devHome, "traces"))).rejects.toMatchObject({
       code: "ENOENT",
     });
-    expect(await readFile(path.join(home, ".zprofile"), "utf8")).not.toContain(
-      PROFILE_MARKER,
-    );
+    expect(await readFile(path.join(home, ".zshenv"), "utf8")).toBe("");
+    expect(await readFile(path.join(home, ".profile"), "utf8")).toBe("");
+    await expect(stat(envFilePath(devHome))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     expect(await readFile(path.join(devHome, "auth.json"), "utf8")).toContain(
       "token",
     );
@@ -347,6 +367,7 @@ describe("self install", () => {
       present: true,
       owned: true,
       onPath: true,
+      profiles: [path.join(home, ".profile"), path.join(home, ".zshenv")],
     });
     expect(after.lines).toEqual([
       `Install: dev-traces 0.1.0 at ${currentLink(devHome)} (running 0.1.0)\n`,

@@ -818,19 +818,17 @@ function normalizeRelationships(
       elementsByPath,
     );
 
-    const relationshipLabel = pending.scopePath
-      ? `relationship scoped to "${pending.scopePath}"`
-      : "top-level relationship";
+    const relationshipLabel = `relationships[${pending.index}] at ${pending.scopePath ?? "model"}`;
 
     if (!from) {
       errors.push(
-        `Invalid ${relationshipLabel}: endpoint "${pending.input.from}" does not match an element path or data store schema path.`,
+        `${relationshipLabel}.from: "${pending.input.from}" does not match an element path or data store schema path. Use an existing full path or a name relative to this scope or its parent.`,
       );
     }
 
     if (!to) {
       errors.push(
-        `Invalid ${relationshipLabel}: endpoint "${pending.input.to}" does not match an element path or data store schema path.`,
+        `${relationshipLabel}.to: "${pending.input.to}" does not match an element path or data store schema path. Use an existing full path or a name relative to this scope or its parent.`,
       );
     }
 

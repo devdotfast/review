@@ -4,6 +4,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "tsdown";
+import { z } from "zod";
+
+const packageManifestSchema = z.object({ version: z.string().min(1) });
 
 const packageRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -66,7 +69,7 @@ export default defineConfig({
 async function readPackageManifest(): Promise<{ version: string }> {
   const text = await readFile(resolve(packageRoot, "package.json"), "utf8");
 
-  return JSON.parse(text);
+  return packageManifestSchema.parse(JSON.parse(text));
 }
 
 async function normalizeExecutable(filePath: string): Promise<void> {

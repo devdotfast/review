@@ -23,6 +23,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // scripts/check-bundle.test.mjs runs under node:test, not Vitest.
+    include: ["src/**/*.test.ts"],
     env: {
       DEV_REVIEW_HOME: path.join(
         os.tmpdir(),

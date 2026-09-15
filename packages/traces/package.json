@@ -27,7 +27,7 @@
     "build": "tsdown",
     "postbuild": "node scripts/check-bundle.mjs",
     "pretest": "pnpm run build",
-    "test": "vitest run --config vitest.config.ts",
+    "test": "node --test scripts/check-bundle.test.mjs && vitest run --config vitest.config.ts",
     "pretypecheck": "pnpm run build:workspace-deps",
     "typecheck": "pnpm -w exec tsc -p packages/traces/tsconfig.json --noEmit",
     "prepublishOnly": "pnpm run build && pnpm run test"

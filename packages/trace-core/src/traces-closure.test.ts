@@ -221,24 +221,13 @@ function boundaryViolations(file: string, source: string): string[] {
   });
 }
 
-function sourceFiles(directory: string): string[] {
-  const files: string[] = [];
-
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const file = path.join(directory, entry.name);
-
-    if (entry.isDirectory()) files.push(...sourceFiles(file));
-    else if (entry.name.endsWith(".ts")) files.push(file);
-  }
-
-  return files;
-}
-
 describe("trace-core package independence", () => {
   it("has no Review or app dependency, including deferred and type-only edges", () => {
     const violations: string[] = [];
 
-    for (const file of sourceFiles(SRC_DIR)) {
+    for (const relative of readdirSync(SRC_DIR, { recursive: true })) {
+      if (!relative.endsWith(".ts")) continue;
+      const file = path.join(SRC_DIR, relative);
       for (const specifier of boundaryViolations(
         file,
         readFileSync(file, "utf8"),

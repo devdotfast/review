@@ -29,11 +29,6 @@ import {
 import { resolvePublishReview } from "./publish-preparation";
 import { touchReviewAgentSession } from "./review-home";
 import { runReviewMapPublish } from "./review-map-publish";
-import {
-  SOFTWARE_MAP_FILE_NAME,
-  SOFTWARE_MAP_NOTES_REF,
-  devFastGitDir,
-} from "./review-storage";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import { resolveReviewRoot } from "./runtime";
 import {
@@ -49,6 +44,11 @@ import type {
   NormalizedSoftwareElement,
   NormalizedSoftwareModel,
 } from "./software-map-model";
+import {
+  SOFTWARE_MAP_FILE_NAME,
+  SOFTWARE_MAP_NOTES_REF,
+  devFastGitDir,
+} from "./software-map-paths";
 
 /** The --json line `review map open` writes for a hydrated scratch. */
 interface MapOpenEvent {

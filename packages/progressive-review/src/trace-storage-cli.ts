@@ -43,7 +43,7 @@ import {
   writeTraceConfigFile,
 } from "@dev.fast/trace-core";
 
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./review-home-paths";
 
 /**
  * `review trace storage use` and `review trace config migrate`: the explicit

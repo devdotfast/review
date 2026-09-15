@@ -13,10 +13,6 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  SOFTWARE_MAP_NOTES_REF,
-  materializedSoftwareMapDir,
-} from "./review-storage";
-import {
   CANONICAL_SOFTWARE_MAP_MODEL_IMPORT,
   canonicalizeModelImport,
   flushScratch,
@@ -28,6 +24,10 @@ import {
   readSoftwareMapSourceForRefSync,
   scratchSoftwareMapPath,
 } from "./software-map-artifact";
+import {
+  SOFTWARE_MAP_NOTES_REF,
+  materializedSoftwareMapDir,
+} from "./software-map-paths";
 
 const MAP_SOURCE = (label: string) =>
   [

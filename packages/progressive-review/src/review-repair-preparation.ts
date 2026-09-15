@@ -39,7 +39,6 @@ import {
 } from "./review-repair-state";
 import { evaluateSealedReviewDocument } from "./review-sealed-document";
 import { reviewSourcePins } from "./review-source-pins";
-import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   type ReviewThreadDbMigrationOptions,
   copyReviewThreadDatabaseSnapshot,
@@ -53,6 +52,7 @@ import {
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import { checkSoftwareMapSource } from "./software-map-health";
+import { SOFTWARE_MAP_NOTES_REF } from "./software-map-paths";
 import { legacySoftwareMapBundle } from "./stored-review-migration";
 
 export type PreparedReviewRepair =

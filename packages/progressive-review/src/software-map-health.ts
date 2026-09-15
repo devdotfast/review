@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url";
 
 import { git, gitArgsSync, gitCommonDirSync } from "@dev.fast/local-vcs";
 
-import { devFastGitDir } from "./review-storage";
 import {
   type SoftwareMapArtifactRole,
   canonicalizeModelImport,
@@ -23,6 +22,7 @@ import {
   type NormalizedSoftwareModel,
   isNormalizedSoftwareModel,
 } from "./software-map-model";
+import { devFastGitDir } from "./software-map-paths";
 import { span, startSpan, traceCommandSync } from "./startup-trace";
 
 export interface SoftwareMapSourceCheck {

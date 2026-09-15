@@ -8,6 +8,7 @@ import {
 } from "@dev.fast/local-vcs";
 import { parseJsonText } from "@dev.fast/review-protocol";
 
+import { type ReviewCheckoutRole } from "./review-checkout-paths";
 import { ensureReviewPinnedCheckout } from "./review-head-checkout";
 import {
   type StoredReviewRecord,
@@ -20,7 +21,6 @@ import {
   reviewPrepareMarkerPath,
   spawnReviewPrepareBackground,
 } from "./review-prepare";
-import { type ReviewCheckoutRole } from "./review-storage";
 
 export interface PreparedReviewSourceTarget {
   ref: string;

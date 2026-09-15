@@ -11,7 +11,7 @@ import {
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 
 import type { DismissedRetentionDays } from "./review-attention";
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./review-home-paths";
 
 /**
  * Machine-wide Review preferences the server itself needs. Workbench settings

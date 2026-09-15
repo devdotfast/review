@@ -28,13 +28,13 @@ import {
   writeReviewDocumentBundle,
 } from "../src/review-bundle";
 import { createReviewDir } from "../src/review-home";
-import { SOFTWARE_MAP_NOTES_REF } from "../src/review-storage";
 import { canonicalizeModelImport } from "../src/software-map-artifact";
 import {
   bundleReviewSoftwareMap,
   writeReviewSoftwareMapBundle,
 } from "../src/software-map-bundle";
 import { loadPublishSoftwareMaps } from "../src/software-map-health";
+import { SOFTWARE_MAP_NOTES_REF } from "../src/software-map-paths";
 
 const execFilePromise = promisify(execFile);
 

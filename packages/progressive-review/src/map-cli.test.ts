@@ -23,11 +23,11 @@ import { describe, expect, it } from "vitest";
 
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
 import { createReviewDir } from "./review-home";
-import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   CANONICAL_SOFTWARE_MAP_MODEL_IMPORT,
   scratchSoftwareMapPath,
 } from "./software-map-artifact";
+import { SOFTWARE_MAP_NOTES_REF } from "./software-map-paths";
 
 describe("parseSoftwareMapCliArgs", () => {
   it("accepts a Review UUID on check", () => {

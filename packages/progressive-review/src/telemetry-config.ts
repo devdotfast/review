@@ -5,7 +5,7 @@ import type { JsonValue } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { findProgressiveReviewPackageRoot } from "./package-paths";
-import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-storage";
+import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-home-paths";
 
 export interface ProgressiveReviewTelemetryInstallConfig {
   installationId: string;

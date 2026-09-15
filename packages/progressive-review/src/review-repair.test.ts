@@ -29,7 +29,6 @@ import { runReviewRepair } from "./review-repair";
 import { prepareReviewRepair } from "./review-repair-preparation";
 import { fingerprintReviewRepairInputs } from "./review-repair-state";
 import { appendReviewComment } from "./review-state-store";
-import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";
 import {
   closeAllReviewThreadStores,
   readReviewThreadsReadOnly,
@@ -39,6 +38,7 @@ import {
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import { defineSoftwareMap } from "./software-map-model";
+import { SOFTWARE_MAP_NOTES_REF } from "./software-map-paths";
 import { migrateStoredReview } from "./stored-review-migration";
 
 const roots: string[] = [];

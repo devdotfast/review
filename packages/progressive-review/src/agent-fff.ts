@@ -17,7 +17,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { isFile } from "./fs-utils";
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./review-home-paths";
 
 export const FFF_SERVER_NAME = "fff";
 

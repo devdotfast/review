@@ -36,11 +36,11 @@ import {
   reviewTitleFromDocument,
   sealReviewCandidate,
 } from "../review-home";
+import { devReviewHome } from "../review-home-paths";
 import {
   pinReviewSourceHeadRef,
   reviewSourceHeadRef,
 } from "../review-source-ref";
-import { devReviewHome } from "../review-storage";
 
 const TUTORIAL_STATUS_VERSION = 1;
 

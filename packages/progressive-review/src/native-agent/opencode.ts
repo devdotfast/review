@@ -12,7 +12,7 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
-import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-storage";
+import { DEV_REVIEW_HOME_ENV, devReviewHome } from "../review-home-paths";
 import { AsyncQueue } from "./async-queue";
 import type {
   AgentServer,

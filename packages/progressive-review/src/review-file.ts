@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { reviewRepoStorageRoot } from "./review-storage";
+import { reviewRepoStorageRoot } from "./review-home-paths";
 
 export function reviewDir(rootPath: string): string {
   return path.join(reviewDocumentsDir(rootPath), "current");

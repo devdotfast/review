@@ -16,7 +16,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
 
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./review-home-paths";
 
 export interface EnsureBundledToolInput {
   tool: string;

@@ -99,6 +99,7 @@ import {
   touchReviewAgentSession,
 } from "../review-home";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
+import { devReviewHome } from "../review-home-paths";
 import type { RunReviewInfoInput } from "../review-info";
 import { resolveReviewInfo } from "../review-info-resolver";
 import {
@@ -117,7 +118,6 @@ import {
 } from "../review-publish-thread-gate";
 import { clearReopenPending, markReopenPending } from "../review-reopen-marker";
 import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
-import { devReviewHome } from "../review-storage";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { createTutorialAuthoringSession } from "../tutorial-authoring-session";
 import type { ReviewSubmissionEvent } from "../types";

@@ -7,22 +7,9 @@ import { describe, expect, it } from "vitest";
 import {
   normalizeReviewRoutePath,
   resolveReviewDocumentFilePath,
-  reviewDocumentRoutePathForFile,
-} from "./review-paths";
+} from "./review-document-routes";
 
-describe("review route paths", () => {
-  it("maps PR review files to /pr/:number routes", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "review-paths-"));
-    const reviewDocumentsDir = path.join(dir, ".dev", "reviews");
-    const prPath = path.join(reviewDocumentsDir, "pr-123.mdx");
-    mkdirSync(reviewDocumentsDir, { recursive: true });
-    writeFileSync(prPath, "# PR Review\n");
-
-    expect(
-      reviewDocumentRoutePathForFile({ reviewDocumentsDir, filePath: prPath }),
-    ).toBe("/pr/123");
-  });
-
+describe("review document routes", () => {
   it("resolves document query routes to safe review document files", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "review-paths-"));
     const reviewDocumentsDir = path.join(dir, ".dev", "reviews");

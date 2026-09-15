@@ -49,13 +49,13 @@ import {
   remapReviewCodeThreads,
 } from "./review-code-target-remap";
 import { resolveReviewDiffFiles } from "./review-diff-files";
+import { devReviewHome } from "./review-home-paths";
 import {
   ReviewBusyError,
   assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
 import { readReviewComments } from "./review-state-store";
-import { devReviewHome } from "./review-storage";
 import {
   ReviewThreadDbVersionError,
   checkReviewThreadDbVersion,

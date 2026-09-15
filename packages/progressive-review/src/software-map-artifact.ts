@@ -28,7 +28,7 @@ import {
   SOFTWARE_MAP_NOTES_REF,
   materializedSoftwareMapDir,
   scratchSoftwareMapDir,
-} from "./review-storage";
+} from "./software-map-paths";
 
 export { SOFTWARE_MAP_FILE_NAME, SOFTWARE_MAP_NOTES_REF };
 

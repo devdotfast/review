@@ -225,9 +225,13 @@ describe("trace-core package independence", () => {
   it("has no Review or app dependency, including deferred and type-only edges", () => {
     const violations: string[] = [];
 
-    for (const relative of readdirSync(SRC_DIR, { recursive: true })) {
+    for (const relative of readdirSync(SRC_DIR, {
+      recursive: true,
+      encoding: "utf8",
+    })) {
       if (!relative.endsWith(".ts")) continue;
       const file = path.join(SRC_DIR, relative);
+
       for (const specifier of boundaryViolations(
         file,
         readFileSync(file, "utf8"),

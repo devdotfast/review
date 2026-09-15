@@ -248,12 +248,12 @@ export interface S3SetupReport {
   error?: string;
 }
 
-/** Describes the resolved direct-bucket setup without testing the network. */
 /** The message a machine with no trace configuration reads, in either CLI. */
 export function noTraceConfigurationMessage(): string {
   return `No trace configuration found. Run \`${traceCommandPrefix()} allow .\` to configure trace capture.`;
 }
 
+/** Describes the resolved direct-bucket setup without testing the network. */
 export function describeS3Setup(
   env: NodeJS.ProcessEnv = process.env,
 ): S3SetupReport {

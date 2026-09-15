@@ -383,6 +383,15 @@ describe("shell profile PATH setup", () => {
     expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\n");
   });
 
+  it("removes an escaped rc line whose trace home holds a quote", async () => {
+    const odd = path.join(home, 'quo"ted');
+    const line = posixSourceLine(odd, home);
+    expect(line).toContain('\\"');
+    await writeFile(file(".profile"), `export A=1\n${line}\n`);
+    expect(await remove()).toEqual([file(".profile")]);
+    expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\n");
+  });
+
   it("escapes a custom trace home inside the quoted rc line", async () => {
     const odd = path.join(home, 'we$ird "home"`x`\\y');
     const line = posixSourceLine(odd, home);

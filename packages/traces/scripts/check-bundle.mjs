@@ -36,20 +36,14 @@ const SPECIFIER_PATTERN =
 const BUILTIN_MODULES = new Set(builtinModules);
 
 /**
- * `source` without its `//` line comments. A comment can name a package the
- * bundle never imports, such as the note a library keeps above a shim.
- * A `//` inside a string or a URL stays: only a comment that starts the line,
- * or follows whitespace, is cut.
+ * `source` without the lines that are only a `//` comment. A comment can name
+ * a package the bundle never imports, such as the note a library keeps above a
+ * shim. Mid-line text is never cut: the bundle puts several statements on one
+ * line, and a `//` inside a string literal or a URL would hide every specifier
+ * after it.
  */
 function withoutLineComments(source) {
-  const lines = [];
-
-  for (const line of source.split("\n")) {
-    const comment = /(^|\s)\/\/.*$/.exec(line);
-    lines.push(comment ? line.slice(0, comment.index) : line);
-  }
-
-  return lines.join("\n");
+  return source.replaceAll(/^\s*\/\/.*$/gm, "");
 }
 
 /** The specifiers in `source` that the self-install cannot resolve. */

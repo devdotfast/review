@@ -354,7 +354,11 @@ export async function runTraceStoreDelete(
 /** The installer of one harness hook, keyed by the harness. */
 const HARNESS_HOOK_INSTALLERS: Record<
   AgentTraceHookAgent,
-  (homeDir: string, command?: string) => Promise<AgentTraceHookInstallResult>
+  (
+    homeDir: string,
+    command?: string,
+    env?: NodeJS.ProcessEnv,
+  ) => Promise<AgentTraceHookInstallResult>
 > = {
   claude: installClaudeTraceHook,
   codex: installCodexTraceHook,
@@ -368,20 +372,27 @@ const HARNESS_HOOK_INSTALLERS: Record<
  */
 async function installHarnessTraceHooks(input: {
   homeDir: string;
+  env: NodeJS.ProcessEnv;
   hookExecutable?: string;
   allHarnesses: boolean;
 }): Promise<AgentTraceHookAgent[]> {
   const skipped: AgentTraceHookAgent[] = [];
 
   for (const agent of AGENT_TRACE_HOOK_AGENTS) {
-    const present = existsSync(agentTraceHomeDirectory(agent, input.homeDir));
+    const present = existsSync(
+      agentTraceHomeDirectory(agent, input.homeDir, input.env),
+    );
 
     if (!input.allHarnesses && !present) {
       skipped.push(agent);
       continue;
     }
 
-    await HARNESS_HOOK_INSTALLERS[agent](input.homeDir, input.hookExecutable);
+    await HARNESS_HOOK_INSTALLERS[agent](
+      input.homeDir,
+      input.hookExecutable,
+      input.env,
+    );
   }
 
   return skipped;
@@ -427,6 +438,7 @@ export async function runTraceAllow(
     if (input.harnessHooks !== false) {
       const skipped = await installHarnessTraceHooks({
         homeDir: input.scope.homeDir,
+        env: input.scope.env,
         hookExecutable,
         allHarnesses: input.allHarnesses === true,
       });
@@ -748,7 +760,11 @@ export async function writeHostedTraceStatus(
     `Capture switch: ${hostedCaptureEnabled(readTraceConfigFile({ devHome }).config) ? "on" : "off"}\n`,
   );
 
-  const owners = await describeTraceHookOwners(input.scope.homeDir);
+  const owners = await describeTraceHookOwners(
+    input.scope.homeDir,
+    input.scope.env,
+  );
+
   stream.write(
     `Harness hooks: claude -> ${owners.claude ?? "none"}, codex -> ${owners.codex ?? "none"}, opencode -> ${owners.opencode ?? "none"}, pi -> ${owners.pi ?? "none"}\n`,
   );

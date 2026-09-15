@@ -32,6 +32,7 @@ import {
   readTextIfExists,
   removeShellProfilePath,
   resolvePathCommand,
+  shellProfilesWithPathSetup,
 } from "./shell-profile.js";
 
 /** The line that marks a command file as one this package wrote. */
@@ -129,7 +130,14 @@ export interface SelfInstallStatus {
   installed: boolean;
   installedVersion: string | null;
   currentPath: string;
-  shim: { path: string; present: boolean; owned: boolean; onPath: boolean };
+  shim: {
+    path: string;
+    present: boolean;
+    owned: boolean;
+    onPath: boolean;
+    /** The shell files that put the shim directory on PATH in a new shell. */
+    profiles: string[];
+  };
   runtimePath: string | null;
   lines: string[];
 }
@@ -358,23 +366,25 @@ export async function installSelf(
 
   const profile = await ensureShellProfilePath({
     homeDir: input.homeDir,
+    devHome: input.devHome,
     env: input.env,
     shimDirectory: path.dirname(shim),
   });
 
-  // A block this run added puts the shim directory first in PATH, so a new
+  // A line this run added puts the shim directory first in PATH, so a new
   // shell reads the shim before anything else and nothing shadows it.
-  const shadowing = profile.added
-    ? undefined
-    : await resolvePathCommand(
-        "dev-traces",
-        shim,
-        input.env,
-        SHIM_MARKER,
-        await realpath(path.join(input.packageRoot, "dist", "cli.js")).catch(
-          () => undefined,
-        ),
-      );
+  const shadowing =
+    profile.added.length > 0
+      ? undefined
+      : await resolvePathCommand(
+          "dev-traces",
+          shim,
+          input.env,
+          SHIM_MARKER,
+          await realpath(path.join(input.packageRoot, "dist", "cli.js")).catch(
+            () => undefined,
+          ),
+        );
 
   const backupOutput = backup
     ? `[warn] moved your existing ~/.local/bin/dev-traces to ${backup}\n`
@@ -407,7 +417,12 @@ export async function uninstallSelf(
     removedShim = true;
   }
 
-  const profiles = await removeShellProfilePath(input.homeDir);
+  const profiles = await removeShellProfilePath({
+    homeDir: input.homeDir,
+    devHome: input.devHome,
+    env: input.env,
+  });
+
   const hooksRemoved: AgentTraceHookAgent[] = [];
 
   for (const agent of HOOK_AGENTS) {
@@ -461,7 +476,7 @@ export async function uninstallSelf(
   const lines = [
     removedShim ? `[ok] removed ${shim}\n` : foreignShimLine,
     ...profiles.map(
-      (profile) => `[ok] removed the PATH block from ${profile}\n`,
+      (profile) => `[ok] removed the PATH setup from ${profile}\n`,
     ),
     ...hooksRemoved.map((agent) => `[ok] removed the ${agent} trace hook\n`),
     ...repositoriesDisabled.map(
@@ -517,6 +532,11 @@ export async function selfInstallStatus(
       present: shimText.length > 0,
       owned: shimText.includes(SHIM_MARKER),
       onPath: pathContainsDirectory(input.env.PATH, path.dirname(shim)),
+      profiles: await shellProfilesWithPathSetup({
+        homeDir: input.homeDir,
+        devHome: input.devHome,
+        env: input.env,
+      }),
     },
     runtimePath: state?.runtimePath ?? null,
     lines: [],
@@ -527,8 +547,14 @@ export async function selfInstallStatus(
       ? `Install: dev-traces ${installedVersion} at ${currentPath} (running ${input.runningVersion})\n`
       : `Install: not installed (running from ${input.ownCliPath})\n`,
   );
+
+  const setUpIn =
+    !status.shim.onPath && status.shim.profiles.length > 0
+      ? `; set up in ${status.shim.profiles.join(", ")}`
+      : "";
+
   status.lines.push(
-    `Command: ${shim} (on PATH: ${status.shim.onPath ? "yes" : "no"})\n`,
+    `Command: ${shim} (on PATH: ${status.shim.onPath ? "yes" : "no"}${setUpIn})\n`,
   );
 
   if (status.runtimePath) status.lines.push(`Runtime: ${status.runtimePath}\n`);

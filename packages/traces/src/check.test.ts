@@ -252,6 +252,38 @@ describe("dev-traces check", () => {
     expect(result.err()).toContain("All checks passed.");
   });
 
+  it("passes the install check in the shell that ran the install", async () => {
+    await writeLogin();
+    await writeConsent();
+    // The shell that ran `allow` has no shim directory on PATH yet; the
+    // install wrote the shell files, so a new shell will.
+    env.PATH = "/usr/bin:/bin";
+    await installEverything();
+    const result = check(healthyClient(), true);
+    expect(await result.code).toBe(0);
+    const event: CheckEvent = JSON.parse(result.out().trim());
+    const install = event.checks.find((entry) => entry.name === "install");
+
+    expect(install).toEqual({
+      name: "install",
+      ok: true,
+      detail: `${path.join(home, ".local", "bin")} is set up in ${path.join(home, ".profile")}, ${path.join(home, ".zshenv")}; open a new shell`,
+    });
+  });
+
+  it("fails the install check when no shell file holds the PATH setup", async () => {
+    await writeLogin();
+    await writeConsent();
+    env.PATH = "/usr/bin:/bin";
+    env.DEV_TRACES_NO_MODIFY_PATH = "1";
+    await installEverything();
+    const result = check(healthyClient());
+    expect(await result.code).toBe(1);
+    expect(result.out()).toContain(
+      `FAIL  install: ${path.join(home, ".local", "bin")} is not on PATH in this shell`,
+    );
+  });
+
   it("passes a harness hook that review owns", async () => {
     await writeLogin();
     await writeConsent();

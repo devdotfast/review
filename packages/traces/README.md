@@ -48,8 +48,20 @@ hooks. The install does four steps:
    `~/.dev`.
 2. It points `$DEV_REVIEW_HOME/traces/current` at that copy.
 3. It writes the command file `~/.local/bin/dev-traces`.
-4. It adds `~/.local/bin` to `PATH` in `~/.zprofile` or `~/.bash_profile`. A
-   fish user gets a hint to run `fish_add_path ~/.local/bin`.
+4. It puts `~/.local/bin` on `PATH` the way rustup and Volta do. It writes
+   `$DEV_REVIEW_HOME/traces/env` and `env.fish`, and appends one `source` line
+   to the startup files of each shell on the machine:
+   - `~/.profile`, created when absent. This is the file `sh` and a bash login
+     shell read.
+   - The bash files that exist among `~/.bash_profile`, `~/.bash_login`, and
+     `~/.bashrc`. The install never creates a bash file: a new
+     `~/.bash_profile` makes bash skip `~/.profile` and `~/.bashrc` at login.
+   - `${ZDOTDIR:-~}/.zshenv`, created when absent.
+   - `~/.config/fish/conf.d/dev-traces.fish`.
+
+The install changes no shell file when `~/.local/bin` is already on `PATH`, or
+when `DEV_TRACES_NO_MODIFY_PATH=1` is set. In that case put `~/.local/bin` on
+`PATH` yourself, or run `. "$HOME/.dev/traces/env"` in a shell of your choice.
 
 Open a new shell after the first install. The harness hooks and the Git hooks
 call `~/.local/bin/dev-traces` by absolute path, so a session never depends on
@@ -82,8 +94,9 @@ to it. The install keeps the two previous versions.
 dev-traces uninstall
 ```
 
-`uninstall` removes the command file, the installed versions, the `PATH` block
-this package wrote, the harness hooks it owns, and the Git hooks it owns. It
+`uninstall` removes the command file, the installed versions, the `PATH` lines
+and env files this package wrote, the harness hooks it owns, and the Git hooks
+it owns. It never deletes a shell startup file. It
 keeps the login, the consent, and the captured sessions. Run `dev-traces deny .`
 first to withdraw the consent of one repository.
 

@@ -89,6 +89,7 @@ describe("dev-traces program", () => {
               present: true,
               owned: true,
               onPath: true,
+              profiles: [],
             },
             runtimePath: "/opt/node/bin/node",
             lines: ["Installed: 0.1.0\n"],

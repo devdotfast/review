@@ -1,31 +1,62 @@
-// The PATH block the standalone install owns in a login shell profile. The
-// Review app has the same helpers, but the standalone package cannot bundle
-// app code, so it keeps its own copy with its own marker.
+// The PATH setup of the standalone install, done the way rustup and Volta do
+// it: one self-guarding env file under the trace home, and one `source` line
+// appended to the startup files of every shell on the machine. The install
+// never creates a bash file: a new `~/.bash_profile` makes bash skip
+// `~/.profile` and `~/.bashrc` at login, which breaks a Debian user's shell.
+// The Review app has similar helpers, but the standalone package cannot bundle
+// app code, so it keeps its own copy.
 
-import { access, constants, readFile, realpath, stat } from "node:fs/promises";
+import {
+  access,
+  appendFile,
+  constants,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
 import { writeFileAtomicAsync } from "@dev.fast/trace-core";
 
-/** The first line of the block this package owns. */
-export const PROFILE_MARKER =
+/** The env variable that turns the shell file edits off. */
+export const NO_MODIFY_PATH_VARIABLE = "DEV_TRACES_NO_MODIFY_PATH";
+
+const ENV_MARKER = "# Managed by @dev.fast/traces. Do not edit.";
+
+/** The env file for POSIX shells. The guard keeps PATH free of a second entry. */
+const ENV_SOURCE = `${ENV_MARKER}
+case ":\${PATH}:" in
+  *:"$HOME/.local/bin":*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+`;
+
+const FISH_ENV_SOURCE = `${ENV_MARKER}
+if not contains -- "$HOME/.local/bin" $PATH
+  set -gx PATH "$HOME/.local/bin" $PATH
+end
+`;
+
+/** The first line of the block an earlier version of this package wrote. */
+export const LEGACY_PROFILE_MARKER =
   "# Managed by @dev.fast/traces: dev-traces command PATH. Do not edit.";
 
-/** The one line the block adds to PATH. */
-export const PROFILE_EXPORT = 'export PATH="$HOME/.local/bin:$PATH"';
+const LEGACY_PROFILE_BLOCK = `\n${LEGACY_PROFILE_MARKER}\nexport PATH="$HOME/.local/bin:$PATH"\n`;
 
-/** The whole block, with the blank line that separates it from the file. */
-export const PROFILE_BLOCK = `\n${PROFILE_MARKER}\n${PROFILE_EXPORT}\n`;
-
-/** The login profiles this package writes and reads. */
-export const SHELL_PROFILE_NAMES = [".zprofile", ".bash_profile"] as const;
-
-const MANUAL_PATH_MESSAGE =
-  "dev-traces did not change PATH for this shell. Add ~/.local/bin to PATH. Fish users can run: fish_add_path ~/.local/bin\n";
+/** The bash startup files the install appends to when they exist. */
+const BASH_FILE_NAMES = [".bash_profile", ".bash_login", ".bashrc"] as const;
 
 /** The file text, or an empty string when the file is absent or unreadable. */
 export async function readTextIfExists(filePath: string): Promise<string> {
   return readFile(filePath, "utf8").catch(() => "");
+}
+
+/** The file text, or null when the file is absent or unreadable. */
+async function readTextOrNull(filePath: string): Promise<string | null> {
+  return readFile(filePath, "utf8").catch(() => null);
 }
 
 /** True when `pathValue` holds `directory` as one of its entries. */
@@ -53,93 +84,306 @@ export async function isExecutableFile(target: string): Promise<boolean> {
   );
 }
 
-async function writeTextAtomic(
-  filePath: string,
-  source: string,
-): Promise<void> {
-  const info = await stat(filePath).catch(() => null);
+/** The env file POSIX shells source. */
+export function envFilePath(devHome: string): string {
+  return path.join(devHome, "traces", "env");
+}
 
-  await writeFileAtomicAsync(filePath, source, {
+/** The env file fish sources. */
+export function fishEnvFilePath(devHome: string): string {
+  return path.join(devHome, "traces", "env.fish");
+}
+
+/**
+ * The env file path as the shell files spell it. The default trace home stays
+ * `$HOME`-relative, so the line survives a home directory move; a custom
+ * `DEV_REVIEW_HOME` is written in full, because a login shell has not read
+ * that variable yet.
+ */
+function envPathText(devHome: string, homeDir: string, name: string): string {
+  const isDefaultHome =
+    path.resolve(devHome) === path.resolve(path.join(homeDir, ".dev"));
+
+  return isDefaultHome
+    ? `$HOME/.dev/traces/${name}`
+    : path.join(devHome, "traces", name);
+}
+
+/** The one line the install appends to a POSIX shell file. */
+export function posixSourceLine(devHome: string, homeDir: string): string {
+  return `. "${envPathText(devHome, homeDir, "env")}"`;
+}
+
+/** The one line the install writes to the fish drop-in. */
+export function fishSourceLine(devHome: string, homeDir: string): string {
+  return `source "${envPathText(devHome, homeDir, "env.fish")}"`;
+}
+
+function zshenvPath(homeDir: string, env: NodeJS.ProcessEnv): string {
+  return path.join(env.ZDOTDIR?.trim() || homeDir, ".zshenv");
+}
+
+function fishDropInPath(homeDir: string, env: NodeJS.ProcessEnv): string {
+  const configHome =
+    env.XDG_CONFIG_HOME?.trim() || path.join(homeDir, ".config");
+
+  return path.join(configHome, "fish", "conf.d", "dev-traces.fish");
+}
+
+/** True when `$SHELL` is this shell, or PATH reaches its binary. */
+async function shellPresent(
+  name: string,
+  env: NodeJS.ProcessEnv,
+): Promise<boolean> {
+  if (path.basename(env.SHELL?.trim() ?? "") === name) return true;
+
+  for (const entry of (env.PATH ?? "").split(path.delimiter)) {
+    if (entry && (await isExecutableFile(path.join(entry, name)))) return true;
+  }
+
+  return false;
+}
+
+async function exists(filePath: string): Promise<boolean> {
+  return stat(filePath).then(
+    () => true,
+    () => false,
+  );
+}
+
+async function writeEnvFiles(devHome: string): Promise<void> {
+  await mkdir(path.join(devHome, "traces"), { recursive: true });
+
+  await writeFileAtomicAsync(envFilePath(devHome), ENV_SOURCE, {
     encoding: "utf8",
-    mode: info ? info.mode & 0o777 : 0o644,
+    mode: 0o644,
+  });
+
+  await writeFileAtomicAsync(fishEnvFilePath(devHome), FISH_ENV_SOURCE, {
+    encoding: "utf8",
+    mode: 0o644,
   });
 }
 
-/** The login profile of the shell in `env`, or null when none is known. */
-function profileFileName(
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): (typeof SHELL_PROFILE_NAMES)[number] | null {
-  const shell = path.basename(env.SHELL?.trim() ?? "");
+/**
+ * Appends `line` to the end of `filePath` once. The append keeps the inode, so
+ * a profile that is a link into a dotfiles checkout stays a link.
+ */
+async function appendLineOnce(
+  filePath: string,
+  line: string,
+): Promise<"created" | "added" | "unchanged"> {
+  const source = await readTextOrNull(filePath);
 
-  if (shell === "bash") return ".bash_profile";
+  if (source !== null && source.split("\n").includes(line)) return "unchanged";
 
-  if (shell === "zsh" || (shell !== "fish" && platform === "darwin")) {
-    return ".zprofile";
-  }
+  const separator =
+    source === null || source.length === 0 || source.endsWith("\n") ? "" : "\n";
 
-  return null;
+  await mkdir(path.dirname(filePath), { recursive: true });
+
+  await appendFile(filePath, `${separator}${line}\n`, {
+    encoding: "utf8",
+    mode: 0o644,
+  });
+
+  return source === null ? "created" : "added";
 }
 
-export interface EnsureShellProfilePathInput {
+export interface ShellProfileInput {
   homeDir: string;
+  devHome: string;
   env: NodeJS.ProcessEnv;
+}
+
+export interface EnsureShellProfilePathInput extends ShellProfileInput {
   shimDirectory: string;
-  platform?: NodeJS.Platform;
 }
 
 export interface EnsureShellProfilePathResult {
-  /** True only when this call wrote the block. */
-  added: boolean;
-  /** The one human line the install prints; empty when there is nothing to say. */
+  /** The files this call appended the source line to. */
+  added: string[];
+  /** The files this call created; each one is also in `added`. */
+  created: string[];
+  /** Why this call changed nothing, or null when it ran. */
+  skipped: string | null;
+  /** The human lines the install prints; empty when there is nothing to say. */
   output: string;
 }
 
-/** Adds the shim directory to PATH in the login profile, once. */
+/** Puts the shim directory on PATH in the startup files of every shell present. */
 export async function ensureShellProfilePath(
   input: EnsureShellProfilePathInput,
 ): Promise<EnsureShellProfilePathResult> {
-  if (pathContainsDirectory(input.env.PATH, input.shimDirectory)) {
-    return { added: false, output: "" };
+  const skipped =
+    input.env[NO_MODIFY_PATH_VARIABLE] === "1"
+      ? `${NO_MODIFY_PATH_VARIABLE}=1 is set; no shell file was changed`
+      : pathContainsDirectory(input.env.PATH, input.shimDirectory)
+        ? `${input.shimDirectory} is already on PATH; no shell file was changed`
+        : null;
+
+  if (skipped)
+    return { added: [], created: [], skipped, output: `${skipped}\n` };
+
+  await writeEnvFiles(input.devHome);
+  const posixLine = posixSourceLine(input.devHome, input.homeDir);
+  const targets: { file: string; line: string }[] = [];
+
+  // sh, always: `~/.profile` is what every login shell reads when nothing
+  // more specific exists, and it is the file bash falls back to.
+  targets.push({ file: path.join(input.homeDir, ".profile"), line: posixLine });
+
+  let bashNote = "";
+
+  if (await shellPresent("bash", input.env)) {
+    const bashFiles: string[] = [];
+
+    for (const name of BASH_FILE_NAMES) {
+      const file = path.join(input.homeDir, name);
+
+      if (await exists(file)) bashFiles.push(file);
+    }
+
+    if (bashFiles.length === 0) {
+      bashNote =
+        "bash reads ~/.profile at login; no bash rc file was created.\n";
+    }
+
+    for (const file of bashFiles) targets.push({ file, line: posixLine });
   }
 
-  const name = profileFileName(input.env, input.platform ?? process.platform);
-
-  if (!name) return { added: false, output: MANUAL_PATH_MESSAGE };
-
-  const profilePath = path.join(input.homeDir, name);
-  const source = await readTextIfExists(profilePath);
-
-  // A profile that already reaches ~/.local/bin needs no second block, even
-  // when another tool wrote the line.
-  if (source.includes(PROFILE_MARKER) || source.includes(".local/bin")) {
-    return { added: false, output: "" };
+  if (await shellPresent("zsh", input.env)) {
+    targets.push({
+      file: zshenvPath(input.homeDir, input.env),
+      line: posixLine,
+    });
   }
 
-  await writeTextAtomic(profilePath, `${source}${PROFILE_BLOCK}`);
+  if (await shellPresent("fish", input.env)) {
+    targets.push({
+      file: fishDropInPath(input.homeDir, input.env),
+      line: fishSourceLine(input.devHome, input.homeDir),
+    });
+  }
 
-  return {
-    added: true,
-    output: `[ok] added ${input.shimDirectory} to PATH in ${profilePath}\n`,
-  };
+  const added: string[] = [];
+  const created: string[] = [];
+  const lines: string[] = [];
+
+  for (const target of targets) {
+    const result = await appendLineOnce(target.file, target.line);
+
+    if (result === "unchanged") continue;
+    added.push(target.file);
+    lines.push(`[ok] added ${target.file} to PATH setup\n`);
+
+    if (result === "created") {
+      created.push(target.file);
+      lines.push(`[ok] created ${target.file}\n`);
+    }
+  }
+
+  if (added.length > 0) {
+    lines.push(
+      bashNote,
+      `To set up PATH in another shell, run: ${posixLine}\n`,
+    );
+  }
+
+  return { added, created, skipped: null, output: lines.join("") };
 }
 
-/** Removes the block from every profile that has it; returns those paths. */
-export async function removeShellProfilePath(
-  homeDir: string,
+/** Every shell file the install writes or wrote, with the line it holds. */
+function candidateFiles(
+  input: ShellProfileInput,
+): { file: string; line: string; dropIn: boolean }[] {
+  const posixLine = posixSourceLine(input.devHome, input.homeDir);
+
+  const names = [
+    ".profile",
+    ...BASH_FILE_NAMES,
+    // The earlier implementation wrote `.zprofile`.
+    ".zprofile",
+  ];
+
+  return [
+    ...names.map((name) => ({
+      file: path.join(input.homeDir, name),
+      line: posixLine,
+      dropIn: false,
+    })),
+    {
+      file: zshenvPath(input.homeDir, input.env),
+      line: posixLine,
+      dropIn: false,
+    },
+    {
+      file: fishDropInPath(input.homeDir, input.env),
+      line: fishSourceLine(input.devHome, input.homeDir),
+      dropIn: true,
+    },
+  ];
+}
+
+/** The shell files that hold the source line. */
+export async function shellProfilesWithPathSetup(
+  input: ShellProfileInput,
 ): Promise<string[]> {
-  const removed: string[] = [];
+  const found: string[] = [];
 
-  for (const name of SHELL_PROFILE_NAMES) {
-    const profilePath = path.join(homeDir, name);
-    const source = await readTextIfExists(profilePath);
+  for (const candidate of candidateFiles(input)) {
+    const source = await readTextOrNull(candidate.file);
 
-    if (!source.includes(PROFILE_BLOCK)) continue;
-    await writeTextAtomic(profilePath, source.replaceAll(PROFILE_BLOCK, ""));
-    removed.push(profilePath);
+    if (source?.split("\n").includes(candidate.line))
+      found.push(candidate.file);
   }
 
-  return removed;
+  return found;
+}
+
+/**
+ * Removes the source line, and the block of the earlier implementation, from
+ * every shell file that holds one; then deletes the env files. Returns the
+ * files it changed. A profile is never deleted: only the fish drop-in, and a
+ * file the earlier implementation created and left empty, go away.
+ */
+export async function removeShellProfilePath(
+  input: ShellProfileInput,
+): Promise<string[]> {
+  const changed: string[] = [];
+
+  for (const candidate of candidateFiles(input)) {
+    const source = await readTextOrNull(candidate.file);
+
+    if (source === null) continue;
+
+    const next = source
+      .split("\n")
+      .filter((line) => line !== candidate.line)
+      .join("\n")
+      .replaceAll(LEGACY_PROFILE_BLOCK, "");
+
+    if (next === source) continue;
+
+    const ownFile =
+      (candidate.dropIn && next.trim() === "") ||
+      source === LEGACY_PROFILE_BLOCK;
+
+    if (ownFile) {
+      await rm(candidate.file, { force: true });
+    } else {
+      // In place, not through a rename: a profile that is a link into a
+      // dotfiles checkout stays a link.
+      await writeFile(candidate.file, next, "utf8");
+    }
+
+    changed.push(candidate.file);
+  }
+
+  await rm(envFilePath(input.devHome), { force: true });
+  await rm(fishEnvFilePath(input.devHome), { force: true });
+
+  return changed;
 }
 
 /**

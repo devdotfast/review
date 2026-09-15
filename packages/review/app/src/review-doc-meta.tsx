@@ -18,7 +18,6 @@ import {
 
 import { useReviewSession } from "./host/review-session";
 import { useReviewDiffFiles } from "./review-diff-files-context";
-import { useReviewInitialData } from "./review-initial-data-context";
 
 interface ReviewDocumentMetaState {
   pullRequestNumber: number | null;
@@ -34,18 +33,8 @@ interface ReviewDocumentMetaState {
 export function ReviewDocumentMetaLine(): ReactElement | null {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
-  const initialData = useReviewInitialData();
   const diffFiles = useReviewDiffFiles();
-  const initialDocumentMeta = initialData?.documentMeta;
-  const initialDiffStats = initialData?.diffStats;
-
-  const [meta, setMeta] = useState<ReviewDocumentMetaState | null>(() =>
-    initialDocumentMeta ? documentMetaState(initialDocumentMeta) : null,
-  );
-
-  const [initialDiff] = useState<ReviewDiffStats | null>(() =>
-    initialDiffStats ? reviewDiffStats(initialDiffStats) : null,
-  );
+  const [meta, setMeta] = useState<ReviewDocumentMetaState | null>(null);
 
   const [relativeTimeNowMs, setRelativeTimeNowMs] = useState<number | null>(
     null,
@@ -60,27 +49,22 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   useEffect(() => {
     const controller = new AbortController();
 
-    if (!initialDocumentMeta) {
-      reviewFetch("/document-meta", {
-        signal: controller.signal,
+    reviewFetch("/document-meta", { signal: controller.signal })
+      .then(async (response) => {
+        const json: JsonValue = await response.json();
+        if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
+        setMeta(
+          documentMetaState({
+            updatedAtMs: jsonNumber(json.updatedAtMs),
+            pullRequestNumber: jsonNumber(json.pullRequestNumber),
+            pullRequestUrl: jsonString(json.pullRequestUrl),
+          }),
+        );
       })
-        .then(async (response) => {
-          const json: JsonValue = await response.json();
-
-          if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
-          setMeta(
-            documentMetaState({
-              updatedAtMs: jsonNumber(json.updatedAtMs),
-              pullRequestNumber: jsonNumber(json.pullRequestNumber),
-              pullRequestUrl: jsonString(json.pullRequestUrl),
-            }),
-          );
-        })
-        .catch(() => {});
-    }
+      .catch(() => {});
 
     return () => controller.abort();
-  }, [initialDocumentMeta, reviewFetch]);
+  }, [reviewFetch]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,8 +85,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
     return () => controller.abort();
   }, [meta?.pullRequestNumber, reviewFetch]);
 
-  const diff =
-    diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : initialDiff;
+  const diff = diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : null;
 
   const updatedLabel =
     meta?.updatedAtMs != null && relativeTimeNowMs != null

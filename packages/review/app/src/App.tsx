@@ -54,7 +54,6 @@ import {
   useReviewFindRegistration,
 } from "./review-find";
 import { ReviewHistoryControl } from "./review-history-control";
-import { useReviewInitialData } from "./review-initial-data-context";
 import {
   ReviewPanelProvider,
   useReviewPanel,
@@ -366,7 +365,6 @@ function ReviewLayoutContent({
   useEffect(() => {
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
-  const initialDiffStats = useReviewInitialData()?.diffStats;
   const [hasTraceSessions, setHasTraceSessions] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
@@ -395,7 +393,7 @@ function ReviewLayoutContent({
     ? diffScope.fileCount
     : diffFiles.status === "loaded"
       ? diffFiles.files.length
-      : (initialDiffStats?.files?.length ?? null);
+      : null;
 
   const reviewViews: readonly ReviewView[] = [
     "review",

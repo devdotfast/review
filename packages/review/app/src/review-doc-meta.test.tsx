@@ -12,28 +12,10 @@ import {
 } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
 import {
-  type ReviewInitialData,
-  ReviewInitialDataContext,
-} from "./review-initial-data-context";
-import {
   testReviewBridge,
-  testReviewSession,
 } from "./review-session-test-utils";
 
-const initialData: ReviewInitialData = {
-  documentMeta: { updatedAtMs: Date.UTC(2026, 6, 22, 12, 0) },
-  diffStats: { files: [{ additions: 2, deletions: 1 }] },
-  softwareMapResolvedData: [],
-};
-
-const stackInitialData: ReviewInitialData = {
-  ...initialData,
-  documentMeta: { pullRequestNumber: 20 },
-};
-
 let root: Root | null = null;
-
-const session = testReviewSession();
 
 describe("ReviewDocumentMetaLine", () => {
   beforeEach(() => {
@@ -58,11 +40,18 @@ describe("ReviewDocumentMetaLine", () => {
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(Date.UTC(2026, 6, 22, 12, 1));
 
+    const session = createReviewSession(
+      testReviewBridge({}, {
+        request: async () =>
+          Response.json({
+            ok: true,
+            updatedAtMs: Date.UTC(2026, 6, 22, 12, 0),
+          }),
+      }),
+    );
     const tree = (
       <ReviewSessionProvider session={session}>
-        <ReviewInitialDataContext.Provider value={initialData}>
-          <ReviewDocumentMetaLine />
-        </ReviewInitialDataContext.Provider>
+        <ReviewDocumentMetaLine />
       </ReviewSessionProvider>
     );
 
@@ -98,8 +87,10 @@ describe("ReviewDocumentMetaLine", () => {
         {},
         {
           request: async (url) => {
+            if (url.includes("/document-meta")) {
+              return Response.json({ ok: true, pullRequestNumber: 20 });
+            }
             expect(url).toContain("/stack");
-
             return Response.json({
               layers: [
                 {
@@ -140,9 +131,7 @@ describe("ReviewDocumentMetaLine", () => {
     await act(async () => {
       root?.render(
         <ReviewSessionProvider session={stackSession}>
-          <ReviewInitialDataContext.Provider value={stackInitialData}>
-            <ReviewDocumentMetaLine />
-          </ReviewInitialDataContext.Provider>
+          <ReviewDocumentMetaLine />
         </ReviewSessionProvider>,
       );
       await new Promise((resolve) => setTimeout(resolve, 0));

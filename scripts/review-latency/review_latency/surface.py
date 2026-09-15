@@ -12,11 +12,11 @@ from pathlib import Path
 from review_latency.config import REPO_ROOT, SOURCE_CLI
 
 PACKAGE = REPO_ROOT / "packages" / "review"
-SKILL_DIRS = [PACKAGE / "skills" / "dev-review", PACKAGE / "skills" / "dev-review-map"]
+SKILL_DIRS = [PACKAGE / "skills" / "dev-review"]
 # What the agents actually read: the app-managed installed copies.
 INSTALLED_SKILLS = {
-    "claude": [Path.home() / ".claude" / "skills" / "dev-review", Path.home() / ".claude" / "skills" / "dev-review-map"],
-    "agents": [Path.home() / ".agents" / "skills" / "dev-review", Path.home() / ".agents" / "skills" / "dev-review-map"],
+    "claude": [Path.home() / ".claude" / "skills" / "dev-review"],
+    "agents": [Path.home() / ".agents" / "skills" / "dev-review"],
 }
 DOCS_DIR = REPO_ROOT / "docs"
 AUTHORING_TYPES = [PACKAGE / "src" / "authoring.ts"]

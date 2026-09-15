@@ -15,6 +15,13 @@ const commit = z.string().min(1).optional();
 
 const side = z.enum(["base", "head"]);
 
+export const inspectQuerySchema = z.strictObject({
+  version,
+  targetId: z.string().min(1).optional(),
+  full: z.union([z.literal(true), z.literal("true")]).optional(),
+  format: z.enum(["text", "json"]).default("text"),
+});
+
 export const readQuerySchemas = {
   get: z.strictObject({
     version,

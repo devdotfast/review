@@ -16,6 +16,7 @@ import { z } from "zod";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
   type NormalizedSoftwareModel,
+  SoftwareModelValidationError,
   defineSoftwareMap,
 } from "../software-map-model.js";
 import {
@@ -353,10 +354,10 @@ export class LocalReviewData {
 
         try {
           model = defineSoftwareMap(input.model);
-        } catch {
-          throw new ReviewInputError(
-            "Invalid software-map elements or relationships.",
-          );
+        } catch (error) {
+          if (error instanceof SoftwareModelValidationError)
+            throw new ReviewInputError(error.message);
+          throw error;
         }
 
         // Read each pinned file once, then check every range against it concurrently.

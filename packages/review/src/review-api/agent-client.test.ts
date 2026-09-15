@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { PassThrough, Readable, Writable } from "node:stream";
 
 import { ListToolsResultSchema } from "@modelcontextprotocol/sdk/types.js";
-import { afterAll, afterEach, expect, it } from "vitest";
+import { afterAll, afterEach, expect, it, vi } from "vitest";
 
 import { runReviewAgentCli } from "./agent-cli.js";
+import * as agentClient from "./agent-client.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
 import { ReviewApiClient } from "./client.js";
 import { createReviewApi } from "./http.js";
@@ -78,6 +79,7 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
     await call("get", {
       reviewId: created.reviewId,
       targetId: result.targetId,
+      format: "json",
     }),
   ).toMatchObject({ type: "sequence", id: result.targetId });
   await expect(
@@ -102,14 +104,43 @@ it("uses host-advertised tools to edit, retry, reject invalid content and inspec
     },
   });
   expect(
-    await call("get", { reviewId: created.reviewId, full: true }),
+    await call("get", {
+      reviewId: created.reviewId,
+      full: true,
+      format: "json",
+    }),
   ).toMatchObject({
     version: 2,
     document: [{ id: result.targetId, title: "Saved" }],
   });
   expect(
-    await call("get", { reviewId: created.reviewId, version: 1, full: true }),
+    await call("get", {
+      reviewId: created.reviewId,
+      version: 1,
+      full: true,
+      format: "json",
+    }),
   ).toMatchObject({ version: 1, document: [{ title: "Save" }] });
+  const text = await call("get", { reviewId: created.reviewId, full: true });
+  expect(text).toContain(`[${result.targetId}] sequence: Saved`);
+  expect(text).toContain("Validated before saving.");
+  expect(
+    await call("get", { reviewId: created.reviewId, version: 1 }),
+  ).toContain("sequence: Save");
+  // IDs discovered in the reading view still identify the same editable nodes.
+  const stepId = String(text).match(/\[(step-\d+)\]/)![1];
+  await call("edit", {
+    commandId: randomUUID(),
+    reviewId: created.reviewId,
+    edit: {
+      type: "update",
+      targetId: stepId,
+      changes: { explanation: "Updated through the reading view." },
+    },
+  });
+  expect(
+    await call("get", { reviewId: created.reviewId, targetId: stepId }),
+  ).toContain("Updated through the reading view.");
 });
 
 it("serves MCP framing without stdout diagnostics and returns host errors as tool errors", async () => {
@@ -177,6 +208,34 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
     });
 
     expect(JSON.parse(next.result.content[0].text)).toEqual([]);
+
+    const created = await store.execute({
+      commandId: randomUUID(),
+      operation: {
+        type: "create",
+        title: "Readable review",
+        pins: { repositoryId: "repo", base: "base", head: "head" },
+      },
+    });
+
+    const read = await request(5, "tools/call", {
+      name: "review_get",
+      arguments: { reviewId: created.reviewId },
+    });
+
+    expect(read.result.content[0].text.startsWith("# Readable review\n")).toBe(
+      true,
+    );
+
+    const raw = await request(6, "tools/call", {
+      name: "review_get",
+      arguments: { reviewId: created.reviewId, full: true, format: "json" },
+    });
+
+    expect(JSON.parse(raw.result.content[0].text)).toMatchObject({
+      reviewId: created.reviewId,
+      document: [],
+    });
   } finally {
     await server.close();
   }
@@ -202,4 +261,55 @@ it("shows CLI help without requiring Desktop or touching review storage", async 
     }),
   ).toBe(0);
   expect(output).toContain("review api <tool-name>");
+});
+
+it("prints readable CLI output by default and raw objects with --json", async () => {
+  const connection = vi
+    .spyOn(agentClient, "connectReviewApi")
+    .mockResolvedValue(client);
+
+  const created = await store.execute({
+    commandId: randomUUID(),
+    operation: {
+      type: "create",
+      title: "CLI reading",
+      pins: { repositoryId: "repo", base: "base", head: "head" },
+    },
+  });
+
+  try {
+    const read = async (flags: string[]) => {
+      let output = "";
+
+      const stdout = new Writable({
+        write(chunk, _encoding, done) {
+          output += chunk;
+          done();
+        },
+      });
+
+      expect(
+        await runReviewAgentCli({
+          argv: [
+            "api",
+            "review_get",
+            JSON.stringify({ reviewId: created.reviewId, full: true }),
+            ...flags,
+          ],
+          stdout,
+          stderr: stdout,
+        }),
+      ).toBe(0);
+
+      return output;
+    };
+
+    expect((await read([])).startsWith("# CLI reading\n")).toBe(true);
+    expect(JSON.parse(await read(["--json"]))).toMatchObject({
+      reviewId: created.reviewId,
+      document: [],
+    });
+  } finally {
+    connection.mockRestore();
+  }
 });

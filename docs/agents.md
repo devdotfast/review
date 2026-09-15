@@ -33,10 +33,24 @@ to load refreshed skills. Reinstall from settings to repair same-version edits
 or missing supporting files; terminal-only installs are not automatically enrolled. You can manage the integrations later from Review
 settings.
 
+For Codex and Claude Code, Desktop setup also registers a user-level `review`
+MCP connection. It launches a small adapter using Review's bundled runtime; no
+separate Node installation, agent CLI, port, or token configuration is needed.
+The desktop server remains the owner of every review. Other agents can use the
+installed `review api` command.
+
+App updates refresh the adapter along with enabled integrations and repair missing
+MCP entries. Reinstall in settings runs the same setup again. Review leaves
+customized MCP entries alone and explains how to replace them if desired;
+uninstall removes only unchanged entries it created. Restart the agent or
+reconnect its MCP server after setup. Start a new session for updated skills.
+
+This automatic MCP setup belongs to the Desktop integration flow. The
+terminal-only `review install` command still installs skills and the CLI only.
+
 ## Installed skills
 
-- `dev-review` authors and publishes a change review or architecture review.
-- `dev-review-map` builds the base and head software maps used by the Map tab.
+- `dev-review` authors change and architecture reviews, including software maps.
 
 The authoring skill coordinates the whole workflow. In normal use, ask your
 agent for a Review instead of running the lower-level CLI commands yourself.

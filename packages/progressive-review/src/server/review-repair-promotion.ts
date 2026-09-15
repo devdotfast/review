@@ -14,6 +14,10 @@ import {
   parseJsonText,
 } from "@dev.fast/review-protocol";
 
+import {
+  materializePublishRevision,
+  reviewWithPresentedDocumentPins,
+} from "../publish-stage";
 import { promoteReviewArtifactFiles } from "../review-artifact-promotion";
 import { readReviewDocumentBundle } from "../review-bundle";
 import {
@@ -38,10 +42,6 @@ import {
 import { reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { ReviewServerError } from "./http-json";
-import {
-  materializePublishRevision,
-  reviewWithPresentedDocumentPins,
-} from "./publish-stage";
 
 /** A staged seal may extend private objects and advance main/index, but cannot
  * replace repository config, remove history, or redirect writes through links. */

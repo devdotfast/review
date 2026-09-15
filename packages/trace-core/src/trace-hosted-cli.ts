@@ -21,6 +21,7 @@ import {
   failWithJsonError,
   humanStream,
 } from "./cli-output";
+import { errorMessage } from "./error-message";
 import { readStoreAuth, requireStoreClient } from "./store-auth";
 import { StoreApiError, StoreClient } from "./store-client";
 import { readActiveTraceSessions } from "./trace-agent-sessions";
@@ -30,6 +31,12 @@ import {
   type TraceScope,
   traceCliName,
 } from "./trace-command";
+import {
+  allowTraceRepository,
+  denyTraceRepository,
+  findTraceRepository,
+  readTraceUserConfig,
+} from "./trace-consent";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import {
   enableTraceRepository,
@@ -52,12 +59,6 @@ import {
   listTraceSyncFailures,
 } from "./trace-sync-status";
 import { writeOwnUploadStatus } from "./trace-upload-status";
-import {
-  allowTraceRepository,
-  denyTraceRepository,
-  findTraceRepository,
-  readTraceUserConfig,
-} from "./trace-user-config";
 
 /** A store failure as one sentence the user can act on. */
 function describeStoreFailure(
@@ -113,7 +114,7 @@ async function withHostedRepository(
   try {
     name = await inferRepoFromGit(input.cwd);
   } catch (error) {
-    return fail(error instanceof Error ? error.message : String(error));
+    return fail(errorMessage(error));
   }
 
   let origin = input.origin ?? DEFAULT_HOSTED_ORIGIN;
@@ -123,7 +124,7 @@ async function withHostedRepository(
     try {
       client ??= await requireStoreClient(input.scope.env);
     } catch (error) {
-      return fail(error instanceof Error ? error.message : String(error));
+      return fail(errorMessage(error));
     }
   } else if (stage === "allow" || !client) {
     // Consent always needs the saved destination, even with an injected client.
@@ -226,9 +227,7 @@ export async function runTraceOnboard(
         );
       }
 
-      throw new HostedCommandFailure(
-        error instanceof Error ? error.message : String(error),
-      );
+      throw new HostedCommandFailure(errorMessage(error));
     }
 
     emitJsonEvent(input, {
@@ -354,11 +353,7 @@ export async function runTraceDeny(
   try {
     name = traceRepoName(await inferRepoFromGit(input.cwd));
   } catch (error) {
-    return failWithJsonError(
-      input,
-      "deny",
-      error instanceof Error ? error.message : String(error),
-    );
+    return failWithJsonError(input, "deny", errorMessage(error));
   }
 
   const devHome = input.scope.devHome;
@@ -403,11 +398,7 @@ export async function runTraceDeny(
         throw error;
       }
     } catch (error) {
-      return failWithJsonError(
-        input,
-        "deny",
-        error instanceof Error ? error.message : String(error),
-      );
+      return failWithJsonError(input, "deny", errorMessage(error));
     }
   }
 

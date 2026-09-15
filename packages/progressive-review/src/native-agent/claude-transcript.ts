@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { isMissingFileError } from "./transcript-json";
+import { isMissingFileError } from "../fs-utils";
 
 export async function findClaudeTranscript(sessionId: string): Promise<string> {
   const configDir = process.env.CLAUDE_CONFIG_DIR

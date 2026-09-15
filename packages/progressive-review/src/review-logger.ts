@@ -7,9 +7,60 @@ import {
 import pino from "pino";
 import pretty from "pino-pretty";
 
-import type { ReviewLifecycleError, ReviewLifecycleEvent } from "./types";
+import type { ReviewSubmissionEvent } from "./types";
 
 export type ReviewLogFormat = "ndjson" | "pretty";
+
+export type ReviewLifecyclePhaseName = "review_document" | "server";
+
+export interface ReviewLifecycleError {
+  name: string;
+  message: string;
+  stack?: string;
+  component?: string;
+  propertyPath?: string;
+  expected?: unknown;
+  received?: unknown;
+}
+
+export type ReviewLifecycleEvent =
+  | {
+      event: "start";
+      cliPath: string;
+      cliName: string;
+      cliVersion: string;
+      provenance: "workspace" | "installed";
+      source: string;
+      args: string[];
+      base: string;
+      head: string;
+      repo?: string;
+      pullRequest?: number;
+    }
+  | {
+      event: "phase";
+      name: ReviewLifecyclePhaseName;
+      status: "running" | "complete";
+    }
+  | {
+      event: "ready";
+      url: string;
+      document: string;
+      headCheckout?: string;
+    }
+  | {
+      event: "diagnostic";
+      level: "info" | "warn" | "error";
+      origin: "review";
+      message: string;
+      error?: ReviewLifecycleError;
+    }
+  | { event: "submitted"; submission: ReviewSubmissionEvent }
+  | { event: "dismissed"; reason: "canvas_closed" }
+  | {
+      event: "error";
+      error: ReviewLifecycleError;
+    };
 
 // This is the only presentation choice in the Review logging pipeline.
 export const DEFAULT_REVIEW_LOG_FORMAT: ReviewLogFormat = "ndjson";

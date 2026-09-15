@@ -8,8 +8,10 @@ import { z } from "zod";
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
-} from "./authoring-session";
+} from "./agent-session-ref";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
+import { resolvePublishReview } from "./publish-preparation";
+import { materializePublishRevision } from "./publish-stage";
 import {
   type StoredReview,
   parseAnyStoredReviewRecord,
@@ -25,8 +27,6 @@ import {
   prepareReviewSoftwareMapBundle,
 } from "./review-publication-preparation";
 import { resolveReviewRoot } from "./runtime";
-import { resolvePublishReview } from "./server/publish-preparation";
-import { materializePublishRevision } from "./server/publish-stage";
 import {
   type ReviewSoftwareMapBundle,
   readReviewSoftwareMapBundle,

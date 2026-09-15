@@ -11,14 +11,14 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";
 import {
   allowTraceRepository,
   denyTraceRepository,
   findTraceRepository,
   readTraceUserConfig,
   traceUserConfigPath,
-} from "./trace-user-config";
+} from "./trace-consent";
+import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";
 
 describe("trace user config", () => {
   let devHome: string;

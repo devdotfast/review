@@ -5,7 +5,7 @@ import type { JsonValue } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { findProgressiveReviewPackageRoot } from "./package-paths";
-import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-storage";
+import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-home-paths";
 
 export interface ProgressiveReviewTelemetryInstallConfig {
   installationId: string;
@@ -52,6 +52,8 @@ export function isTelemetryOptedOut(
 
   if (config?.enabled === false) return true;
 
+  // Keep every historical spelling so existing shell and CI configurations
+  // continue to disable telemetry after package and product renames.
   return [
     env.DO_NOT_TRACK,
     env.DNT,

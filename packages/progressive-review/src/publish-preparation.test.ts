@@ -6,11 +6,11 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createReviewDir } from "../review-home";
 import {
   prepareReviewPublish,
   resolvePublishReview,
 } from "./publish-preparation";
+import { createReviewDir } from "./review-home";
 
 const execFilePromise = promisify(execFile);
 

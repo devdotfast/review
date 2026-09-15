@@ -40,21 +40,22 @@ import {
   authoringSessionKey,
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
-} from "./authoring-session";
-import { isMissingFileError } from "./native-agent/transcript-json";
+} from "./agent-session-ref";
+import { isMissingFileError } from "./fs-utils";
+import { resolveReviewRepositoryIdentity } from "./repository-identity";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import {
   remapReviewCodeDrafts,
   remapReviewCodeThreads,
 } from "./review-code-target-remap";
 import { resolveReviewDiffFiles } from "./review-diff-files";
+import { devReviewHome } from "./review-home-paths";
 import {
   ReviewBusyError,
   assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
 import { readReviewComments } from "./review-state-store";
-import { devReviewHome } from "./review-storage";
 import {
   ReviewThreadDbVersionError,
   checkReviewThreadDbVersion,
@@ -63,7 +64,6 @@ import {
   reviewThreadStoreBackend,
 } from "./review-thread-store-backend";
 import { reviewVcs } from "./review-vcs";
-import { resolveReviewRepositoryIdentity } from "./server/repository-identity";
 
 export const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -17,6 +17,7 @@ import {
   failWithJsonError,
   humanStream,
 } from "./cli-output";
+import { errorMessage } from "./error-message";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import { traceCliName } from "./trace-command";
@@ -151,11 +152,7 @@ export async function runStoreLogin(input: {
   try {
     origin = normalizeStoreOrigin(input.origin ?? DEFAULT_STORE_ORIGIN);
   } catch (error) {
-    return failWithJsonError(
-      output,
-      "login",
-      error instanceof Error ? error.message : String(error),
-    );
+    return failWithJsonError(output, "login", errorMessage(error));
   }
 
   const openUrl = input.openUrl ?? defaultOpenUrl;

@@ -29,7 +29,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { parseAuthoringSessionKey } from "./authoring-session";
+import { parseAuthoringSessionKey } from "./agent-session-ref";
 import { snapshotReviewTree } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import { readReviewDocumentBundle } from "./review-bundle";
 import { isDerivedReviewPath } from "./review-derived-paths";

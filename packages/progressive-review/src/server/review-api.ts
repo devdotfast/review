@@ -42,7 +42,7 @@ import {
   type ReviewAgentHarness,
   type SessionRef,
   resolveAuthoringSessionRef,
-} from "../authoring-session";
+} from "../agent-session-ref";
 import {
   codePeekRootSourceRanges,
   sliceReviewDiffFileToCodePeekRanges,
@@ -60,12 +60,12 @@ import {
   resolveReviewDiffFiles,
   resolveReviewFileContent,
 } from "../review-diff-files";
-import { listReviews } from "../review-home";
-import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
 import {
   normalizeReviewRoutePath,
   resolveReviewDocumentFilePath,
-} from "../review-paths";
+} from "../review-document-routes";
+import { listReviews } from "../review-home";
+import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
 import { resolveReviewStackLayers } from "../review-stack";
 import { saveReviewSubmissionAudit } from "../review-state-store";
 import {

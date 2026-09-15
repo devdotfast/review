@@ -8,8 +8,8 @@ import { writeNote } from "@dev.fast/local-vcs";
 import { expect, it } from "vitest";
 
 import { createReviewDir } from "../review-home";
-import { SOFTWARE_MAP_NOTES_REF } from "../review-storage";
 import { CANONICAL_SOFTWARE_MAP_MODEL_IMPORT } from "../software-map-artifact";
+import { SOFTWARE_MAP_NOTES_REF } from "../software-map-paths";
 import { createReviewSessionHandler } from "./session-handler";
 import { unusedAgentServices } from "./session-handler-test-utils";
 

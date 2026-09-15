@@ -1,3 +1,4 @@
+import { errorMessage } from "../error-message";
 import { traceCliName } from "../trace-command";
 import {
   type TraceConfigFile,
@@ -77,7 +78,7 @@ export function selectTraceStorage(
       config,
       s3: null,
       hosted: null,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     };
   }
 

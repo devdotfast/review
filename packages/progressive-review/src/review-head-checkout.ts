@@ -10,15 +10,14 @@ import {
 } from "@dev.fast/local-vcs";
 import { withFileLock } from "@dev.fast/trace-core";
 
-import { isInsideDirectory } from "./review-paths";
-import { removeReviewPrepareArtifacts } from "./review-prepare";
 import {
   type ReviewCheckoutRole,
   legacyReviewWorktreesDir,
   reviewManagedCheckoutDir,
   reviewManagedCheckoutRoot,
   reviewManagedCheckoutsDir,
-} from "./review-storage";
+} from "./review-checkout-paths";
+import { removeReviewPrepareArtifacts } from "./review-prepare";
 
 // A review renders the pinned code on the canvas, but file reads against the
 // user's working tree see whatever is checked out there — including edits
@@ -376,5 +375,15 @@ function isManagedLegacyReviewWorktree(
 function isReviewUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value,
+  );
+}
+
+function isInsideDirectory(filePath: string, directory: string): boolean {
+  const relative = path.relative(directory, filePath);
+
+  return (
+    Boolean(relative) &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
   );
 }

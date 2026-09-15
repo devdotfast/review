@@ -296,6 +296,31 @@ download URL. The hosted store is the only store it lists, so it refuses
 A store older than contract 0.3.0 answers "does not support listing every
 session yet"; use `review trace list --commit <sha>` there.
 
+## Environment variables
+
+These variables support legacy trace configuration, isolated Desktop launches,
+and telemetry administration:
+
+| Variable | Meaning, precedence, and default |
+| --- | --- |
+| `TRACE_ENV_FILE` | Selects the legacy direct-bucket environment file. The default is `~/.config/dev-trace/env`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists. |
+| `TRACE_SETTINGS_FILE` | Selects the legacy capture settings file. The default is `~/.config/dev-trace/settings.json`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists. |
+| `TRACE_HOME_DIR` | Replaces the operating-system home used to find the installed trace command and the trace repository registry under `.config/dev-trace`. The default is the operating-system home. |
+| `TRACE_OPENCODE_TRACES_ROOT` | Selects where Review writes fresh OpenCode session exports. The default is `$DEV_REVIEW_HOME/opencode-traces`. |
+| `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT` | Gives a launched Review Desktop instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state. |
+| `PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL` | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection. |
+| `POSTHOG_KEY` | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key. |
+| `POSTHOG_HOST` | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`. |
+| `DO_NOT_TRACK` | Disables passive telemetry when set to `1` or `true`. |
+| `DNT` | Disables passive telemetry when set to `1` or `true`. |
+| `PROGRESSIVE_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
+| `DEV_FAST_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
+| `DEV_FAST_PROGRESSIVE_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
+| `DEV_FAST_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
+
+See [Telemetry and privacy](telemetry.md) for the complete telemetry controls
+and data policy.
+
 ## Agent integration and migration
 
 ```sh

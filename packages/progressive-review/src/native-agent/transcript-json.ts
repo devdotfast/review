@@ -44,8 +44,3 @@ export function textBlocks(value: JsonValue | undefined): string[] {
     return blockText?.trim() ? [blockText] : [];
   });
 }
-
-/** Whether a thrown filesystem error reports a missing file (ENOENT). */
-export function isMissingFileError(cause: unknown): boolean {
-  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
-}

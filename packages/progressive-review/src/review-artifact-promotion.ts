@@ -4,7 +4,7 @@ import path from "node:path";
 import type { ReviewRecord } from "@dev.fast/review-protocol";
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { isMissingFileError } from "./fs-utils";
 
 export async function promoteReviewArtifactFiles(input: {
   reviewDir: string;

@@ -8,6 +8,8 @@ import {
 } from "@dev.fast/local-vcs";
 import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 
+import { isMissingFileError } from "./fs-utils";
+
 const REVIEW_FILE_CONTENT_LIMIT_BYTES = 5 * 1024 * 1024;
 
 export interface ReviewDiffFile {
@@ -193,10 +195,6 @@ function fileContentFromBytes(
     content: bytes.subarray(0, limit).toString("utf8"),
     truncated: true,
   };
-}
-
-function isMissingFileError(cause: unknown): boolean {
-  return cause instanceof Error && "code" in cause && cause.code === "ENOENT";
 }
 
 async function readDiffOutput(

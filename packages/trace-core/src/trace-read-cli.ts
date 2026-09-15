@@ -4,6 +4,7 @@ import {
   type AgentTraceEvent,
   extractTraceEventText,
 } from "./agent-trace-parser";
+import { errorMessage } from "./error-message";
 import {
   type ReviewTraceBlameLookupResult,
   type ReviewTraceCommitLookupResult,
@@ -364,9 +365,7 @@ export async function runTracePull(input: {
 
     return sessions.length > 0 && result.sessions.length === 0 ? 1 : 0;
   } catch (error) {
-    input.stderr.write(
-      `trace pull error: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
+    input.stderr.write(`trace pull error: ${errorMessage(error)}\n`);
 
     return 1;
   }
@@ -417,9 +416,7 @@ export async function runTraceBlame(input: {
       storage: await resolveTraceReadStorage(input.storage, input.cwd),
     });
   } catch (err: unknown) {
-    input.stderr.write(
-      `trace blame error: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
+    input.stderr.write(`trace blame error: ${errorMessage(err)}\n`);
 
     return 1;
   }

@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 import { parseStoredReviewRecord } from "./review-home";
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./review-home-paths";
 import {
   cleanupTempDirs,
   gitRepository,

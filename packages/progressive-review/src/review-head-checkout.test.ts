@@ -6,12 +6,12 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { reviewManagedCheckoutDir } from "./review-checkout-paths";
 import {
   ensureReviewPinnedCheckout,
   removeReviewPinnedCheckout,
 } from "./review-head-checkout";
 import { reviewPrepareMarkerPath } from "./review-prepare";
-import { reviewManagedCheckoutDir } from "./review-storage";
 
 const TEST_REVIEW_UUID = "00000000-0000-4000-8000-00000000dddd";
 

@@ -16,13 +16,13 @@ import { writePrivateJsonAtomic } from "./atomic-write";
 import { StoreApiError, type StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import { traceCliName } from "./trace-command";
-import { devReviewHome } from "./trace-home";
-import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import {
   type TraceRepositoryConsent,
   findTraceRepository,
   readTraceUserConfig,
-} from "./trace-user-config";
+} from "./trace-consent";
+import { devReviewHome } from "./trace-home";
+import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 
 export type { TraceRepo } from "./trace-repo";
 

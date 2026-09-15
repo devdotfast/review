@@ -1,8 +1,8 @@
 import type { ReviewVerbRequest } from "@dev.fast/review-protocol";
 
-import type { ReviewAgentHarness } from "../authoring-session";
+import type { ReviewAgentHarness } from "../agent-session-ref";
 
-export type { ReviewAgentHarness, SessionRef } from "../authoring-session";
+export type { ReviewAgentHarness, SessionRef } from "../agent-session-ref";
 
 export interface NativeReviewMessage {
   id: string;

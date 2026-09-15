@@ -39,7 +39,7 @@ import {
   parseAnyStoredReviewRecord,
   parseStoredReviewRecord,
 } from "./review-home";
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./review-home-paths";
 import { reviewVcs } from "./review-vcs";
 import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 import { migrateStoredReviewData } from "./stored-review-migration";

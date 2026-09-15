@@ -147,7 +147,7 @@ export {
   findTraceRepository,
   readTraceUserConfig,
   allowTraceRepository,
-} from "./trace-user-config";
+} from "./trace-consent";
 
 export {
   describeTraceSyncFailure,

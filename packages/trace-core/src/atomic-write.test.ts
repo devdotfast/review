@@ -133,6 +133,24 @@ describe.each(["sync", "async"])("%s atomic replacement", (kind) => {
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
   });
 
+  it("replaces a symlink entry without changing its target when requested", async () => {
+    const target = path.join(dir, "target");
+    const link = path.join(dir, "link");
+    writeFileSync(target, "external", { mode: 0o640 });
+    symlinkSync("target", link);
+
+    await write(link, "installed", {
+      mode: 0o600,
+      replaceSymlink: true,
+    });
+
+    expect(lstatSync(link).isSymbolicLink()).toBe(false);
+    expect(readFileSync(link, "utf8")).toBe("installed");
+    expect(statSync(link).mode & 0o777).toBe(0o600);
+    expect(readFileSync(target, "utf8")).toBe("external");
+    expect(statSync(target).mode & 0o777).toBe(0o640);
+  });
+
   it("cleans up after a failed rename without replacing the destination directory", async () => {
     const target = path.join(dir, "state");
     mkdirSync(target);

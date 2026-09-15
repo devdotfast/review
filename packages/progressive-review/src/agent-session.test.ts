@@ -4,7 +4,7 @@ import {
   freshSourceSessionKey,
   parseFreshSourceSessionHarness,
   resolveAuthoringSessionRef,
-} from "./authoring-session";
+} from "./agent-session-ref";
 
 describe("fresh tutorial source sessions", () => {
   it("round-trips supported harnesses and rejects other source sessions", () => {

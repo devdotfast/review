@@ -1,7 +1,7 @@
 import { lstat, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { isMissingFileError } from "./native-agent/transcript-json";
+import { isMissingFileError } from "./fs-utils";
 import {
   type ReviewDocumentBundle,
   writeReviewDocumentBundle,

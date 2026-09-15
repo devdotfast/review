@@ -4,6 +4,7 @@ import {
   type TraceListScope,
   type TracePullScope,
   type TraceReviewScope,
+  errorMessage,
   runTraceList as listWithScope,
   runTracePull as pullWithScope,
   resolveTraceReadStorage,
@@ -113,9 +114,7 @@ export async function runTracePull(input: {
       stderr: input.stderr,
     });
   } catch (error) {
-    input.stderr.write(
-      `trace pull error: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
+    input.stderr.write(`trace pull error: ${errorMessage(error)}\n`);
 
     return 1;
   }

@@ -25,7 +25,7 @@ import {
 import {
   type ReviewAgentHarness,
   parseAuthoringSessionKey,
-} from "../authoring-session";
+} from "../agent-session-ref";
 import { readReviewStoreRecord } from "../review-worktree-target";
 import { USER_DATA_REGEXES } from "../telemetry-clean-text";
 

@@ -14,9 +14,9 @@ import {
 
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import { UUID_PATTERN, findScopedReview } from "./review-home";
+import { devReviewHome } from "./review-home-paths";
 import { prepareReviewRepair } from "./review-repair-preparation";
 import { ReviewRepairReadyResponseSchema } from "./review-repair-state";
-import { devReviewHome } from "./review-storage";
 import { resolveReviewRoot } from "./runtime";
 
 export async function runReviewRepair(input: {

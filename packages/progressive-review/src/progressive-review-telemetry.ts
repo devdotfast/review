@@ -10,7 +10,7 @@ import {
 import { withFileLock, writeFileAtomic } from "@dev.fast/trace-core";
 import { valid as validSemver } from "semver";
 
-import { resolveAuthoringSessionRef } from "./authoring-session";
+import { resolveAuthoringSessionRef } from "./agent-session-ref";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
 import { findProgressiveReviewPackageRoot } from "./package-paths";
 import {

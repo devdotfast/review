@@ -79,7 +79,7 @@ async function maybeDelegateToDesktopCli(
   if (!/[\\/]dist[\\/]cli\.js$/.test(ownPath)) return null;
 
   // This bootstrap runs before the Node floor check, so it cannot import
-  // devReviewHome() from review-storage: that module graph needs a modern
+  // devReviewHome() from @dev.fast/trace-core: that module graph needs a modern
   // Node. Keep this copy in step with devReviewHome().
   const devHome = env.DEV_REVIEW_HOME?.trim()
     ? path.resolve(env.DEV_REVIEW_HOME.trim())

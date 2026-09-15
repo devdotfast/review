@@ -10,7 +10,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { errorMessage } from "@dev.fast/trace-core";
 
-import type { SessionRef } from "./authoring-session";
+import type { SessionRef } from "./agent-session-ref";
 import { findClaudeTranscript } from "./native-agent/claude-transcript";
 import { forkCodexThread } from "./native-agent/codex-app-server";
 import { forkOpencodeSession } from "./native-agent/opencode";

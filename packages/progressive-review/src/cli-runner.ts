@@ -29,6 +29,7 @@ import {
 } from "@dev.fast/trace-core";
 import { Argument, Command, CommanderError, Option } from "commander";
 
+import { installReviewCommand, pathShimPath } from "./cli-install";
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import {
   type CodexWaitProcessInput,
@@ -82,7 +83,6 @@ import {
 import { runReviewRepair } from "./review-repair";
 import { runReviewScaffold } from "./review-scaffold";
 import { runReviewWait, validateReviewWait } from "./review-wait";
-import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
   runReviewThreadsGet,

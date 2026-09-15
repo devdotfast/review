@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { materializePublishRevision } from "../publish-stage";
 import {
   bundleReviewDocument,
   readReviewDocumentBundle,
@@ -14,7 +15,6 @@ import {
   writeReviewDocumentBundle,
 } from "../review-bundle";
 import { findReview, listReviews } from "../review-home";
-import { materializePublishRevision } from "./publish-stage";
 import { createTutorialService } from "./tutorial-service";
 
 const packageRoot = path.resolve(

@@ -10,8 +10,8 @@ import {
 } from "@dev.fast/trace-core";
 import { z } from "zod";
 
-import { isMissingFileError } from "./native-agent/transcript-json";
-import { devReviewHome } from "./review-storage";
+import { isMissingFileError } from "./fs-utils";
+import { devReviewHome } from "./review-home-paths";
 
 const waitStateSchema = z.object({
   delivered: z.array(z.string()),

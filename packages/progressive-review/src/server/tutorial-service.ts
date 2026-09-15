@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import {
   cp,
@@ -10,9 +9,8 @@ import {
   stat,
 } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 
-import { resolveRevision } from "@dev.fast/local-vcs";
+import { gitAt, resolveRevision } from "@dev.fast/local-vcs";
 import {
   type JsonValue,
   isJsonObject,
@@ -27,7 +25,7 @@ import {
   freshSourceSessionKey,
   parseAuthoringSessionKey,
   parseFreshSourceSessionHarness,
-} from "../authoring-session";
+} from "../agent-session-ref";
 import { readReviewDocumentBundle } from "../review-bundle";
 import {
   type StoredReview,
@@ -38,13 +36,11 @@ import {
   reviewTitleFromDocument,
   sealReviewCandidate,
 } from "../review-home";
+import { devReviewHome } from "../review-home-paths";
 import {
   pinReviewSourceHeadRef,
   reviewSourceHeadRef,
 } from "../review-source-ref";
-import { devReviewHome } from "../review-storage";
-
-const execFilePromise = promisify(execFile);
 
 const TUTORIAL_STATUS_VERSION = 1;
 
@@ -510,10 +506,5 @@ async function isManagedTutorialPath(
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFilePromise("git", args, {
-    cwd,
-    encoding: "utf8",
-  });
-
-  return stdout;
+  return (await gitAt(cwd, args)).stdout;
 }

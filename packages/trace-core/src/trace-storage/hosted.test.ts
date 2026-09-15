@@ -22,6 +22,7 @@ import {
 } from "../review-agent-traces";
 import { writeStoreAuth } from "../store-auth";
 import { StoreApiError } from "../store-client";
+import { allowTraceRepository } from "../trace-consent";
 import {
   type TraceRepositoryTarget,
   rememberTraceRepositoryTarget,
@@ -36,7 +37,6 @@ import {
   createMemoryTraceStoreTransport,
   seedMemoryTraceSession,
 } from "../trace-store-transport.memory";
-import { allowTraceRepository } from "../trace-user-config";
 import { traceConfigPath } from "./config";
 import { HostedTraceStorage } from "./hosted";
 import { resolveTraceStorage } from "./resolve";

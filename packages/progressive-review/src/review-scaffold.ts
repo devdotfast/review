@@ -24,7 +24,7 @@ import {
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
-} from "./authoring-session";
+} from "./agent-session-ref";
 import { buildReviewDocument } from "./document/build";
 import { isPositionalChangeIdentity } from "./review-change-scope";
 import { removeReviewManagedCheckouts } from "./review-head-checkout";
@@ -38,6 +38,7 @@ import {
   updateReviewPins,
 } from "./review-home";
 import type { ReviewInfoEvent } from "./review-info";
+import { reviewInfoEvent } from "./review-info-resolver";
 import { createReviewSourceAgentSession } from "./review-source-agent-session";
 import {
   deleteReviewSourceHeadRef,
@@ -46,7 +47,6 @@ import {
 } from "./review-source-ref";
 import { ensurePinnedReviewWorktreeAtCommit } from "./review-worktree-target";
 import { resolveReviewRoot, resolveReviewSource } from "./runtime";
-import { reviewInfoEvent } from "./server/review-info";
 import { span } from "./startup-trace";
 
 export interface RunReviewScaffoldInput {

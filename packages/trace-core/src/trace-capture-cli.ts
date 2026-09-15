@@ -1,5 +1,6 @@
 import type { Writable } from "node:stream";
 
+import { errorMessage } from "./error-message";
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
 import {
   type TraceCommand,
@@ -240,7 +241,7 @@ export async function runTraceSync(input: {
       repo: input.repo,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     // The SessionEnd hook runs this command detached. The record is what
     // the trace status command shows, so the failure is not lost.
     await recordTraceSyncFailure({

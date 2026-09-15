@@ -12,6 +12,7 @@ import {
   StoreApiError,
   StoreClient,
   type TraceScope,
+  type TraceSyncFailure,
   agentTraceHookPath,
   describeTraceHookOwners,
   emitJsonEvent,
@@ -49,11 +50,10 @@ const HOOK_AGENTS: AgentTraceHookAgent[] = [
 
 const INSTALL_FIX = "npx @dev.fast/traces install";
 
-const RUNTIME_FIX = `Install Node ${NODE_FLOOR_MAJOR} or newer, then rerun ${INSTALL_FIX}`;
-
-const PATH_FIX = "Add ~/.local/bin to PATH (open a new shell after allow)";
-
 const ALLOW_FIX = "dev-traces allow .";
+
+/** How long the runtime probe waits before it reports a runtime that hangs. */
+const PROBE_TIMEOUT_MS = 5_000;
 
 /** The sync failures one activity line names before it counts the rest. */
 const MAX_REPORTED_FAILURES = 3;
@@ -75,6 +75,8 @@ export interface RunTracesCheckInput {
   stderr: NodeJS.WritableStream;
   stdin?: CliInputStream;
   client?: StoreClient;
+  /** How long the runtime probe waits. Tests shorten it. */
+  probeTimeoutMs?: number;
 }
 
 async function executable(filePath: string): Promise<boolean> {
@@ -91,36 +93,68 @@ async function present(filePath: string): Promise<boolean> {
   );
 }
 
+/** The first executable `node` in PATH, in the order the shell reads it. */
+async function nodeOnPath(env: NodeJS.ProcessEnv): Promise<string | null> {
+  for (const entry of (env.PATH ?? "").split(path.delimiter)) {
+    if (!entry) continue;
+    const candidate = path.join(entry, "node");
+
+    if (await executable(candidate)) return candidate;
+  }
+
+  return null;
+}
+
 /**
- * The Node the shim runs. The shim prefers an executable `DEV_TRACES_NODE`,
- * then the runtime the install baked in. This run's own Node answers for a
- * machine that never installed.
+ * The Node the shim runs, in the shim's own order: an executable
+ * `DEV_TRACES_NODE`, then the runtime the install baked in, then `node` on
+ * PATH. Null means the shim finds no runtime at all.
  */
 export async function resolveShimRuntime(
   env: NodeJS.ProcessEnv,
   bakedPath: string | null,
-): Promise<string> {
+): Promise<string | null> {
   const override = env.DEV_TRACES_NODE;
 
   if (override && (await executable(override))) return override;
 
-  return bakedPath ?? process.execPath;
+  if (bakedPath && (await executable(bakedPath))) return bakedPath;
+
+  return nodeOnPath(env);
 }
 
-/** The Node version one runtime reports, or null when it does not run. */
+/**
+ * The Node version one runtime reports, or null when it does not run. The
+ * timeout keeps a runtime that hangs from stopping the whole report.
+ */
 async function runtimeVersion(
   runtime: string,
   env: NodeJS.ProcessEnv,
+  timeoutMs: number,
 ): Promise<string | null> {
   try {
     const { stdout } = await exec(runtime, ["-p", "process.versions.node"], {
       env,
+      timeout: timeoutMs,
     });
 
     return stdout.trim();
   } catch {
     return null;
   }
+}
+
+/** The runtime line: what the shim will run, and why it does not work. */
+function runtimeDetail(runtime: string | null, version: string | null): string {
+  if (!runtime) {
+    return `no runtime: DEV_TRACES_NODE, the installed runtime, and node on PATH are all missing; dev-traces needs Node ${NODE_FLOOR_MAJOR} or newer`;
+  }
+
+  if (!version) {
+    return `${runtime} did not run; dev-traces needs Node ${NODE_FLOOR_MAJOR} or newer`;
+  }
+
+  return `${runtime} (Node ${version}); dev-traces needs Node ${NODE_FLOOR_MAJOR} or newer`;
 }
 
 /** The agent sessions this checkout still marks active. */
@@ -134,6 +168,16 @@ async function pendingSessionCount(cwd: string): Promise<number> {
   );
 
   return sessions.size;
+}
+
+/** The failures of one repository, or every failure when none is known. */
+function repositorySyncFailures(
+  failures: TraceSyncFailure[],
+  repository: string | null,
+): TraceSyncFailure[] {
+  if (!repository) return failures;
+
+  return failures.filter((failure) => failure.repository === repository);
 }
 
 /** The library takes a node stream; this input names the wider interface. */
@@ -169,18 +213,19 @@ export async function runTracesCheck(
   });
 
   const runtime = await resolveShimRuntime(scope.env, install.runtimePath);
-  const version = await runtimeVersion(runtime, scope.env);
+
+  const version = runtime
+    ? await runtimeVersion(
+        runtime,
+        scope.env,
+        input.probeTimeoutMs ?? PROBE_TIMEOUT_MS,
+      )
+    : null;
 
   checks.push(
-    version && supportedNodeRuntime(version)
-      ? ok("runtime", `${runtime} runs Node ${version}`)
-      : fail(
-          "runtime",
-          version
-            ? `${runtime} runs Node ${version}; dev-traces needs Node ${NODE_FLOOR_MAJOR} or newer`
-            : `${runtime} did not run`,
-          RUNTIME_FIX,
-        ),
+    runtime && version && supportedNodeRuntime(version)
+      ? ok("runtime", `${runtime} (Node ${version})`)
+      : fail("runtime", runtimeDetail(runtime, version), INSTALL_FIX),
   );
 
   // 2. The installed copy and the command file that finds it.
@@ -211,8 +256,14 @@ export async function runTracesCheck(
       ),
     );
   } else if (!install.shim.onPath) {
+    const shimDirectory = path.dirname(shim);
+
     checks.push(
-      fail("install", `${path.dirname(shim)} is not on PATH`, PATH_FIX),
+      fail(
+        "install",
+        `${shimDirectory} is not on PATH in this shell; open a new shell after install`,
+        `export PATH="${shimDirectory}:$PATH"`,
+      ),
     );
   } else {
     checks.push(
@@ -252,14 +303,27 @@ export async function runTracesCheck(
       const session = await client.session();
       checks.push(ok("login", `${session.user.name} at ${origin}`));
     } catch (error) {
-      const expired =
-        error instanceof StoreApiError && error.code === "unauthorized";
+      // A store that answers and refuses is not a store this machine cannot
+      // reach. Only an expired login has a login command to run.
+      if (error instanceof StoreApiError) {
+        checks.push(
+          error.code === "unauthorized"
+            ? fail(
+                "login",
+                `the login for ${origin} expired: ${error.message}`,
+                loginFix,
+              )
+            : fail(
+                "login",
+                `${origin} refused the check: ${error.code}: ${error.message}`,
+              ),
+        );
+      } else {
+        checks.push(
+          fail("login", `Could not reach ${origin}: ${errorMessage(error)}`),
+        );
+      }
 
-      checks.push(
-        expired
-          ? fail("login", `the login for ${origin} expired`, loginFix)
-          : fail("login", `Could not reach ${origin}: ${errorMessage(error)}`),
-      );
       client = null;
     }
   }
@@ -340,6 +404,8 @@ export async function runTracesCheck(
       checks.push(
         fail("consent", `${repository} is not allowed at ${origin}`, ALLOW_FIX),
       );
+    } else if (selection.error) {
+      checks.push(fail("consent", selection.error));
     } else if (!hostedCaptureEnabled(readTraceConfigFile(scope).config)) {
       checks.push(
         fail("consent", "the hosted capture switch is off", ALLOW_FIX),
@@ -401,7 +467,12 @@ export async function runTracesCheck(
 
   // 7. The work in flight. This check reports; only a failed sync fails it.
   const pending = await pendingSessionCount(input.cwd);
-  const failures = await listTraceSyncFailures(scope.devHome);
+
+  const failures = repositorySyncFailures(
+    await listTraceSyncFailures(scope.devHome),
+    repository,
+  );
+
   let newest = "no published session";
 
   if (!client || store?.status !== "active") {

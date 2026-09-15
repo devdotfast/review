@@ -1,4 +1,3 @@
-import { isStringValue } from "@dev.fast/review-protocol";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -24,15 +23,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { sequenceDiagramPropsSchema } from "../../src/authoring";
-import type {
-  ActorRef,
-  AnchorRef,
-  SequenceActorInput,
-  SequenceDiagramProps,
-  SequenceMessageCodeInput,
-  SequenceMessageInput,
-} from "../../src/authoring";
+import type { AnchorRef } from "../../src/authoring";
+import type { Step } from "../../src/review-api/document";
 import { useAgentSelection } from "./agent-selection";
 import { useReviewDebugSettings } from "./debug-settings";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
@@ -47,7 +39,7 @@ import "@xyflow/react/dist/style.css";
 
 type SequenceParticipantNodeData = {
   diagram: string;
-  participant: ActorRef;
+  participant: SequenceParticipant;
   height: number;
   messages: SequenceMessage[];
   messageGap: number;
@@ -81,259 +73,112 @@ export function sequenceMessageColor(isActive: boolean): string {
   return isActive ? "var(--accent)" : "var(--edge-muted)";
 }
 
-export type {
-  SequenceActorInput,
-  SequenceDiagramProps,
-  SequenceMessageCodeInput,
-  SequenceMessageInput,
-};
-
-export type SequenceInput = SequenceDiagramProps;
-
-interface UncheckedSequenceMessageInput {
-  from: SequenceActorInput;
-  to: SequenceActorInput;
-  label: string;
-  anchor?: AnchorRef;
-  code?: SequenceMessageCodeInput;
+/** The canonical `sequence` block as the document stores it. */
+export interface SequenceDiagramProps {
+  id: string;
+  title: string;
+  actors: Record<string, string>;
+  steps: readonly Step[];
 }
 
-interface UncheckedSequenceInput {
+export interface SequenceParticipant {
+  id: string;
   label: string;
-  messages: UncheckedSequenceMessageInput[];
 }
-
-export type SequenceMessageCodeBlock = {
-  language?: string;
-  text: string;
-};
 
 export interface SequenceMessage {
   id: string;
-  from: ActorRef;
-  to: ActorRef;
+  from: SequenceParticipant;
+  to: SequenceParticipant;
   label: string;
-  anchor: AnchorRef;
-  code?: SequenceMessageCodeBlock;
+  style: Step["style"];
+  source?: Step["source"];
+  code?: Step["code"];
   explanation?: string;
-  style?: "call" | "return" | "async";
 }
 
-export interface SequenceRef {
-  __kind: "review-sequence-ref";
-  stableItemIds?: boolean;
+export interface SequenceView {
   id: string;
-  label: string;
-  participants: ActorRef[];
+  title: string;
+  participants: SequenceParticipant[];
   messages: SequenceMessage[];
 }
 
-export function createSequence(input: UncheckedSequenceInput): SequenceRef {
-  sequenceDiagramPropsSchema.parse(input);
-
-  const messages = uniqueSequenceMessageAnchors(
-    normalizeSequenceMessages(input),
-  );
-
-  const id = `sequence-${slugSequenceActorLabel(input.label)}`;
-  const participants = participantsForMessages(messages);
-
-  return Object.freeze({
-    __kind: "review-sequence-ref",
-    id,
-    label: input.label,
-    participants,
-    messages: messages.map((message, index) =>
-      Object.freeze({
-        id: `${id}-message-${index + 1}-${message.anchor.id}`,
-        from: message.from,
-        to: message.to,
-        label: message.label,
-        anchor: message.anchor,
-        code: message.code,
-      }),
-    ),
+/** Pure layout input: participants in lane order and one message per step.
+ * Actor names are the participant ids; nothing here reaches back into the
+ * authoring runtime. */
+export function sequenceView(block: SequenceDiagramProps): SequenceView {
+  const participant = (name: string): SequenceParticipant => ({
+    id: name,
+    label: block.actors[name] ?? name,
   });
-}
 
-function uniqueSequenceMessageAnchors(
-  messages: readonly SequenceMessage[],
-): SequenceMessage[] {
-  const reservedIds = new Set(messages.map((message) => message.anchor.id));
-  const usedIds = new Set<string>();
-
-  return messages.map((message, index) => {
-    if (!usedIds.has(message.anchor.id)) {
-      usedIds.add(message.anchor.id);
-
-      return message;
-    }
-
-    const prefix = `${message.anchor.id}--sequence-use-${index + 1}`;
-    let id = prefix;
-    let suffix = 2;
-
-    while (reservedIds.has(id) || usedIds.has(id)) {
-      id = `${prefix}-${suffix}`;
-      suffix += 1;
-    }
-
-    usedIds.add(id);
-
-    return {
-      ...message,
-      anchor: Object.freeze({ ...message.anchor, id }),
+  const messages = block.steps.map((step, index): SequenceMessage => {
+    const message: SequenceMessage = {
+      id: step.id ?? `${block.id}-step-${index + 1}`,
+      from: participant(step.from),
+      to: participant(step.to),
+      label: step.label,
+      style: step.style,
     };
+
+    if (step.source) message.source = step.source;
+
+    if (step.code) message.code = step.code;
+
+    if (step.explanation !== undefined) message.explanation = step.explanation;
+
+    return message;
   });
-}
-
-function normalizeSequenceMessages(
-  input: UncheckedSequenceInput,
-): SequenceMessage[] {
-  const { messages } = input;
-  const explicitActorIds = new Set<string>();
-
-  for (const message of messages) {
-    if (message.from.id) explicitActorIds.add(message.from.id);
-
-    if (message.to.id) explicitActorIds.add(message.to.id);
-  }
-
-  const inlineActorIdsByLabel = new Map<string, string>();
-  const usedActorIds = new Set(explicitActorIds);
-
-  const normalizeActor = (actor: SequenceActorInput): ActorRef => {
-    if (actor.id) {
-      return {
-        __kind: "db-actor-ref",
-        id: actor.id,
-        label: actor.label,
-        softwareMapPath: actorSoftwareMapPath(actor),
-      };
-    }
-
-    const existing = inlineActorIdsByLabel.get(actor.label);
-
-    if (existing) {
-      return {
-        __kind: "db-actor-ref",
-        id: existing,
-        label: actor.label,
-        softwareMapPath: actorSoftwareMapPath(actor),
-      };
-    }
-
-    const baseId = `inline-${slugSequenceActorLabel(actor.label) || "actor"}`;
-    let id = baseId;
-
-    for (let suffix = 2; usedActorIds.has(id); suffix += 1) {
-      id = `${baseId}-${suffix}`;
-    }
-
-    usedActorIds.add(id);
-    inlineActorIdsByLabel.set(actor.label, id);
-
-    return {
-      __kind: "db-actor-ref",
-      id,
-      label: actor.label,
-      softwareMapPath: actorSoftwareMapPath(actor),
-    };
-  };
-
-  return messages.map((message, index) => {
-    const code = normalizeSequenceMessageCode(message.code);
-
-    const fallbackAnchor = {
-      __kind: "db-anchor-ref",
-      id: `sequence-${slugSequenceActorLabel(input.label) || "diagram"}-message-${index + 1}`,
-      title: message.label,
-    } satisfies AnchorRef;
-
-    return Object.freeze({
-      id: `sequence-message-input-${index + 1}`,
-      from: normalizeActor(message.from),
-      to: normalizeActor(message.to),
-      label: message.label,
-      anchor: message.anchor ?? fallbackAnchor,
-      code,
-    });
-  });
-}
-
-function actorSoftwareMapPath(actor: SequenceActorInput): string | undefined {
-  return "__kind" in actor ? actor.softwareMapPath : undefined;
-}
-
-/** Message code written as bare text rather than a `{ text, language }` block. */
-function isSequenceMessageCodeText(
-  code: SequenceMessageCodeInput,
-): code is string {
-  return isStringValue(code);
-}
-
-function normalizeSequenceMessageCode(
-  code: SequenceMessageCodeInput | undefined,
-): SequenceMessageCodeBlock | undefined {
-  if (code !== undefined && isSequenceMessageCodeText(code)) {
-    const text = code.trim();
-
-    return text ? { text } : undefined;
-  }
-
-  if (!code) return undefined;
-  const text = code.text.trim();
-
-  if (!text) return undefined;
-  const language = code.language?.trim();
-
-  return language ? { language, text } : { text };
-}
-
-function slugSequenceActorLabel(label: string) {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-export function createSequenceTourEntry(sequence: SequenceRef): GuidedTour {
-  const participantById = new Map(
-    sequence.participants.map((participant) => [participant.id, participant]),
-  );
 
   return {
+    id: block.id,
+    title: block.title,
+    participants: participantsForMessages(messages),
+    messages,
+  };
+}
+
+/** The side panel and guided tour key their state by anchor; a message is
+ * its own anchor. */
+function panelAnchor(message: SequenceMessage): AnchorRef {
+  const anchor: AnchorRef = {
+    __kind: "db-anchor-ref",
+    id: message.id,
+    title: message.label,
+  };
+
+  if (message.source) anchor.peek = message.source;
+
+  return anchor;
+}
+
+export function createSequenceTourEntry(sequence: SequenceView): GuidedTour {
+  return {
     id: sequence.id,
-    title: sequence.label,
+    title: sequence.title,
     telemetryKind: "sequence" as const,
     stops: sequence.messages.map((message) => ({
-      anchor: message.anchor,
+      anchor: panelAnchor(message),
       label: message.label,
-      detail:
-        participantById.get(message.from.id)?.label &&
-        participantById.get(message.to.id)?.label
-          ? `${participantById.get(message.from.id)?.label} -> ${
-              participantById.get(message.to.id)?.label
-            }`
-          : undefined,
+      detail: `${message.from.label} -> ${message.to.label}`,
       content: message.code
-        ? {
-            kind: "inline-code" as const,
-            ...message.code,
-          }
-        : message.anchor.peek
-          ? {
-              kind: "source" as const,
-              source: message.anchor.peek,
-            }
+        ? { kind: "inline-code" as const, ...message.code }
+        : message.source
+          ? { kind: "source" as const, source: message.source }
           : { kind: "explanation" as const, text: message.explanation },
     })),
   };
 }
 
-function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
-  const participants = new Map<string, { actor: ActorRef; order: number }>();
+function participantsForMessages(
+  messages: SequenceMessage[],
+): SequenceParticipant[] {
+  const participants = new Map<
+    string,
+    { actor: SequenceParticipant; order: number }
+  >();
+
   const outgoing = new Map<string, Set<string>>();
   const incomingCount = new Map<string, number>();
 
@@ -375,7 +220,7 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
     .filter((id) => (incomingCount.get(id) ?? 0) === 0)
     .sort(byFirstSeen);
 
-  const ordered: ActorRef[] = [];
+  const ordered: SequenceParticipant[] = [];
   const consumed = new Set<string>();
 
   while (ready.length > 0) {
@@ -406,21 +251,16 @@ function participantsForMessages(messages: SequenceMessage[]): ActorRef[] {
   return ordered;
 }
 
-export function SequenceDiagram(input: SequenceInput) {
+export function SequenceDiagram(block: SequenceDiagramProps) {
+  const { id, title, actors, steps } = block;
+
+  // Memoize on the block's fields, not the props object: a live JSON snapshot
+  // keeps its node references stable, so the tour and layout memos survive
+  // re-renders and edits elsewhere in the document.
   const sequence = useMemo(
-    () => createSequence(input),
-    [input.label, input.messages],
+    () => sequenceView({ id, title, actors, steps }),
+    [id, title, actors, steps],
   );
-
-  return <ResolvedSequenceDiagram sequence={sequence} />;
-}
-
-/** Same UI, with accepted JSON data instead of MDX props. */
-export function ResolvedSequenceDiagram({
-  sequence,
-}: {
-  sequence: SequenceRef;
-}) {
   const session = useReviewSession();
   const { theme } = useReviewDebugSettings();
   const tour = useMemo(() => createSequenceTourEntry(sequence), [sequence]);
@@ -533,7 +373,7 @@ function SequenceDiagramFigure({
   activeTourAnchor,
   onCloseTour,
 }: {
-  sequence: ReturnType<typeof createSequence>;
+  sequence: SequenceView;
   theme: ReturnType<typeof useReviewDebugSettings>["theme"];
   stopCount: number;
   openTour: (anchor?: string) => void;
@@ -547,14 +387,14 @@ function SequenceDiagramFigure({
   const openTour = useCallback(
     (anchor?: string) => {
       const message = sequence.messages.find(
-        (message) => message.anchor.id === anchor,
+        (message) => message.id === anchor,
       );
 
       if (message)
         selectForAgent({
           target: {
             kind: "graph",
-            diagram: sequence.label,
+            diagram: sequence.title,
             label: message.label,
             elementType: "edge",
           },
@@ -608,7 +448,7 @@ function SequenceDiagramFigure({
         height,
         data: {
           participant,
-          diagram: sequence.label,
+          diagram: sequence.title,
           height,
           messages: sequence.messages,
           messageGap,
@@ -623,7 +463,7 @@ function SequenceDiagramFigure({
   const reactFlowEdges: SequenceMessageFlowEdge[] = useMemo(
     () =>
       sequence.messages.map((message, index) => {
-        const isActive = activeTourAnchor === message.anchor.id;
+        const isActive = activeTourAnchor === message.id;
         const color = sequenceMessageColor(isActive);
 
         return {
@@ -667,7 +507,7 @@ function SequenceDiagramFigure({
   ) => {
     event.stopPropagation();
 
-    if (edge.data) openTour(edge.data.message.anchor.id);
+    if (edge.data) openTour(edge.data.message.id);
   };
 
   const scrollSequenceHorizontally = useCallback((event: WheelEvent) => {
@@ -760,7 +600,7 @@ function SequenceDiagramFigure({
       >
         <DiagramHeader
           kind="SEQ"
-          title={sequence.label}
+          title={sequence.title}
           meta={`${stopCount} stops`}
           action={
             // The tour panel's header owns the close control fullscreen.
@@ -1013,7 +853,7 @@ function SequenceMessageEdge(
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          data.openTour(data.message.anchor.id);
+          data.openTour(data.message.id);
         }}
       />
       <EdgeLabelRenderer>
@@ -1029,10 +869,10 @@ function SequenceMessageEdge(
           style={{
             transform: `translate(-50%, -50%) translate(${props.sourceX}px,${props.sourceY}px)`,
           }}
-          data-review-anchor-id={data.message.anchor.id}
+          data-review-anchor-id={data.message.id}
           onClick={(event) => {
             event.stopPropagation();
-            data.openTour(data.message.anchor.id);
+            data.openTour(data.message.id);
           }}
           aria-label={data.message.label}
         >
@@ -1052,18 +892,18 @@ function SequenceMessageEdge(
                 ? "sequence-message-label clickable active"
                 : "sequence-message-label clickable"
             }
-            data-review-anchor-id={data.message.anchor.id}
+            data-review-anchor-id={data.message.id}
             onClick={(event) => {
               event.stopPropagation();
 
               if (hasTextSelectionWithin(event.currentTarget)) return;
-              data.openTour(data.message.anchor.id);
+              data.openTour(data.message.id);
             }}
             onKeyDown={(event) => {
               if (event.key !== "Enter" && event.key !== " ") return;
               event.preventDefault();
               event.stopPropagation();
-              data.openTour(data.message.anchor.id);
+              data.openTour(data.message.id);
             }}
           >
             {data.message.label}
@@ -1081,7 +921,7 @@ interface HorizontalScrollEvent {
 }
 
 interface SequenceActiveMessageScrollInput {
-  sequence: SequenceRef;
+  sequence: SequenceView;
   activeAnchor: string | null;
   laneWidth: number;
   viewportWidth: number;
@@ -1124,7 +964,7 @@ export function sequenceActiveMessageScrollTarget({
   if (!activeAnchor || maxScrollLeft <= 0 || viewportWidth <= 0) return null;
 
   const activeMessage = sequence.messages.find(
-    (message) => message.anchor.id === activeAnchor,
+    (message) => message.id === activeAnchor,
   );
 
   if (!activeMessage) return null;
@@ -1170,7 +1010,7 @@ export function sequenceActiveMessageScrollTarget({
 }
 
 interface SequenceActiveMessageScrollTopInput {
-  sequence: SequenceRef;
+  sequence: SequenceView;
   activeAnchor: string | null;
   messageTop: number;
   messageGap: number;
@@ -1199,7 +1039,7 @@ export function sequenceActiveMessageScrollTopTarget({
   if (!activeAnchor || maxScrollTop <= 0 || viewportHeight <= 0) return null;
 
   const messageIndex = sequence.messages.findIndex(
-    (message) => message.anchor.id === activeAnchor,
+    (message) => message.id === activeAnchor,
   );
 
   if (messageIndex < 0) return null;

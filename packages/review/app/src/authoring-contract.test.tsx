@@ -23,7 +23,6 @@ import {
   tutorialFeaturePropsSchema,
   tutorialViewButtonPropsSchema,
 } from "../../src/authoring";
-import { createSequence } from "./diagrams";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { createTestReviewDefinitionSession } from "./review-definition-test-utils";
 import { ReviewDocumentContent } from "./review-document-surface";
@@ -36,7 +35,7 @@ const { defineActors, defineAnchors, defineStores } = definitionSession;
 // moves the rest of the registry to document props too.
 const runtimeRegistry = reviewAuthoringComponents satisfies Omit<
   ReviewAuthoringComponentRegistry,
-  "CallStackDiff"
+  "CallStackDiff" | "SequenceDiagram"
 >;
 
 const actors = defineActors({
@@ -375,7 +374,7 @@ describe("review authoring contract", () => {
       let caught: unknown;
 
       try {
-        createSequence({
+        sequenceDiagramPropsSchema.parse({
           label: "Request",
           messages: [message as never],
         });

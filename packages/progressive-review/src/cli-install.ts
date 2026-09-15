@@ -6,10 +6,8 @@ import {
   mkdir,
   readFile,
   readdir,
-  rename,
   rm,
   stat,
-  writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -724,16 +722,11 @@ fi
 exec node "$cli" "$@"
 `;
 
-  await mkdir(path.dirname(shimPath), { recursive: true });
-  const staging = `${shimPath}.tmp-${process.pid}`;
-
-  try {
-    await writeFile(staging, source, { encoding: "utf8", mode: 0o755 });
-    await rename(staging, shimPath);
-  } finally {
-    await rm(staging, { force: true });
-  }
-
+  await writeFileAtomicAsync(shimPath, source, {
+    encoding: "utf8",
+    mode: 0o755,
+    replaceSymlink: true,
+  });
   await chmod(shimPath, 0o755);
 }
 

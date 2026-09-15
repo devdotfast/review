@@ -1,13 +1,4 @@
-import {
-  copyFile,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Writable } from "node:stream";
@@ -25,6 +16,7 @@ import {
   installOpenCodeTraceExtension,
   installPiTraceExtension,
   traceMachineEnabled,
+  writeFileAtomicAsync,
 } from "@dev.fast/trace-core";
 import { valid as validVersion } from "semver";
 
@@ -541,31 +533,15 @@ async function listSkillDirs(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function installFile(src: string, dest: string): Promise<void> {
-  await mkdir(path.dirname(dest), { recursive: true });
-  const staging = `${dest}.tmp-${process.pid}`;
-  const backup = `${dest}.bak-${process.pid}`;
-  await rm(staging, { force: true });
-  await rm(backup, { force: true });
-  await copyFile(src, staging);
-  let movedExisting = false;
+/** Installs one bundled file while replacing the destination path entry. */
+export async function installFile(src: string, dest: string): Promise<void> {
+  const source = await readFile(src);
+  const { mode } = await stat(src);
 
-  try {
-    await rename(dest, backup);
-    movedExisting = true;
-  } catch (error) {
-    // SAFETY: fs rename rejects with a Node errno exception.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-
-  try {
-    await rename(staging, dest);
-  } catch (error) {
-    if (movedExisting) await rename(backup, dest).catch(() => {});
-    throw error;
-  }
-
-  if (movedExisting) await rm(backup, { force: true });
+  await writeFileAtomicAsync(dest, source, {
+    mode: mode & 0o777,
+    replaceSymlink: true,
+  });
 }
 
 function openCodePluginPath(homeDir: string): string {

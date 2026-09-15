@@ -4,6 +4,7 @@ import {
   chownSync,
   closeSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   realpathSync,
@@ -16,6 +17,7 @@ import type { Stats } from "node:fs";
 import {
   chmod,
   chown,
+  lstat,
   mkdir,
   open,
   realpath,
@@ -28,6 +30,7 @@ import path from "node:path";
 
 export interface AtomicWriteOptions {
   mode?: number;
+  replaceSymlink?: boolean;
   tmpfileCreated?: (tmpfile: string) => void;
 }
 
@@ -76,16 +79,22 @@ export function writeFileAtomic(
   mkdirSync(path.dirname(filePath), { recursive: true });
   let target = filePath;
 
-  try {
-    target = realpathSync(filePath);
-  } catch {
-    /* A new file has no real path yet. */
+  if (!options.replaceSymlink) {
+    try {
+      target = realpathSync(filePath);
+    } catch {
+      /* A new file has no real path yet. */
+    }
   }
 
   let metadata: Stats | undefined;
 
   try {
-    metadata = statSync(target);
+    const candidate = options.replaceSymlink
+      ? lstatSync(target)
+      : statSync(target);
+
+    if (!candidate.isSymbolicLink()) metadata = candidate;
   } catch {
     /* Match new-file defaults when stat is unavailable. */
   }
@@ -159,8 +168,16 @@ async function replaceFile(
   options: AtomicWriteOptions & { encoding?: BufferEncoding },
 ): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
-  const target = await realpath(filePath).catch(() => filePath);
-  const metadata = await stat(target).catch(() => undefined);
+
+  const target = options.replaceSymlink
+    ? filePath
+    : await realpath(filePath).catch(() => filePath);
+
+  const candidate = options.replaceSymlink
+    ? await lstat(target).catch(() => undefined)
+    : await stat(target).catch(() => undefined);
+
+  const metadata = candidate?.isSymbolicLink() ? undefined : candidate;
   const mode = options.mode ?? metadata?.mode;
   const tmp = temporaryPath(target);
   let handle: FileHandle | undefined;

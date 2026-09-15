@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -302,6 +310,35 @@ describe("shell profile PATH management", () => {
 });
 
 describe("skill and review command installation", () => {
+  it("replaces a command symlink without changing its target", async () => {
+    const homeDir = await temporaryHome("review-cli-symlink-shim-");
+    const env = profileEnvironment(homeDir, "/bin/zsh");
+    const cliPath = path.join(homeDir, "current-app", "cli.js");
+    const shimPath = path.join(homeDir, ".local", "bin", "review");
+    const external = path.join(homeDir, "external-command");
+    await Promise.all([
+      mkdir(path.dirname(cliPath), { recursive: true }),
+      mkdir(path.dirname(shimPath), { recursive: true }),
+    ]);
+    await writeFile(cliPath, "// current CLI\n");
+    await writeFile(external, "external\n", { mode: 0o755 });
+    await symlink(external, shimPath);
+
+    const applied = await applyCliInstall({
+      packageRoot,
+      targets: [],
+      shim: true,
+      cliPath,
+      homeDir,
+      env,
+    });
+
+    expect(applied).toMatchObject({ code: 0, shimPath });
+    expect((await lstat(shimPath)).isSymbolicLink()).toBe(false);
+    expect(await readFile(shimPath, "utf8")).toContain(cliPath);
+    expect(await readFile(external, "utf8")).toBe("external\n");
+  });
+
   it("installs only the command and replaces a previous app shim", async () => {
     const homeDir = await temporaryHome("review-cli-only-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");

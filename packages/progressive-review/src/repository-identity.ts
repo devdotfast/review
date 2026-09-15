@@ -1,13 +1,10 @@
-import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 
+import { gitAt } from "@dev.fast/local-vcs";
 import type { ReviewRepositoryIdentity } from "@dev.fast/review-protocol";
-
-const execFilePromise = promisify(execFile);
 
 export async function resolveReviewRepositoryIdentity(
   rootPath: string,
@@ -21,24 +18,20 @@ export async function resolveReviewRepositoryIdentity(
     return identity("jj", repositoryPath, worktreeRoot);
   }
 
-  try {
-    const { stdout } = await execFilePromise(
-      "git",
-      ["-C", worktreeRoot, "rev-parse", "--git-common-dir"],
-      { maxBuffer: 1024 * 1024 },
+  // A non-VCS directory is still a valid Review root: a failed rev-parse
+  // falls through to the "none" identity.
+  const result = await gitAt(worktreeRoot, ["rev-parse", "--git-common-dir"], {
+    allowFailure: true,
+  });
+
+  const raw = result.ok ? result.stdout.trim() : "";
+
+  if (raw) {
+    const repositoryPath = await canonicalPath(
+      path.isAbsolute(raw) ? raw : path.resolve(worktreeRoot, raw),
     );
 
-    const raw = stdout.trim();
-
-    if (raw) {
-      const repositoryPath = await canonicalPath(
-        path.isAbsolute(raw) ? raw : path.resolve(worktreeRoot, raw),
-      );
-
-      return identity("git", repositoryPath, worktreeRoot);
-    }
-  } catch {
-    // A non-VCS directory is still a valid Review root.
+    return identity("git", repositoryPath, worktreeRoot);
   }
 
   return identity("none", worktreeRoot, worktreeRoot);

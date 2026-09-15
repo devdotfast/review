@@ -1,12 +1,20 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { collectingWritable } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runInstall } from "./install";
+import { installFile, runInstall } from "./install";
 
 const REQUIRED_SKILLS = ["dev-review", "dev-review-map"] as const;
 
@@ -68,6 +76,25 @@ function silentStreams() {
 }
 
 describe("runInstall", () => {
+  it("replaces an installed-file symlink without changing its target", async () => {
+    const packageRoot = await makePackageRoot();
+    const source = path.join(packageRoot, "plugins", "review.ts");
+    const destinationRoot = await makeTempDir();
+    const external = path.join(await makeTempDir(), "external-plugin.ts");
+    const pluginPath = path.join(destinationRoot, "plugins", "review.ts");
+    await mkdir(path.dirname(pluginPath), { recursive: true });
+    await writeFile(external, "external\n");
+    await symlink(external, pluginPath);
+
+    await installFile(source, pluginPath);
+
+    expect((await lstat(pluginPath)).isSymbolicLink()).toBe(false);
+    expect(await readFile(pluginPath, "utf8")).toContain(
+      "Managed by Review Desktop",
+    );
+    expect(await readFile(external, "utf8")).toBe("external\n");
+  });
+
   it("installs Review skills to Claude Code, Codex, and Cursor by default", async () => {
     const packageRoot = await makePackageRoot();
     const homeDir = await makeTempDir();

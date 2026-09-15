@@ -9,6 +9,7 @@ import {
   resolveTraceCommand,
   setTraceCliName,
   traceCliName,
+  traceCommandPrefix,
   traceHomeDir,
   traceScope,
 } from "./trace-command";
@@ -81,6 +82,22 @@ describe("resolveTraceCommand", () => {
   it("reads TRACE_HOME_DIR before the OS home", () => {
     expect(traceHomeDir({ TRACE_HOME_DIR: "/tmp/h" })).toBe("/tmp/h");
     expect(traceHomeDir({})).toBe(os.homedir());
+  });
+});
+
+describe("traceCommandPrefix", () => {
+  it("names the trace group of review by default", () => {
+    expect(traceCliName()).toBe("review");
+    expect(traceCommandPrefix()).toBe("review trace");
+  });
+
+  it("follows the CLI name, or the prefix a root-level CLI sets", () => {
+    setTraceCliName("other");
+    expect(traceCommandPrefix()).toBe("other trace");
+
+    setTraceCliName("dev-traces", "dev-traces");
+    expect(traceCliName()).toBe("dev-traces");
+    expect(traceCommandPrefix()).toBe("dev-traces");
   });
 });
 

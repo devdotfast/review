@@ -30,7 +30,11 @@ export function registerTraceReadCommands(
       listOptions(
         trace
           .command("list")
-          .description("List agent sessions for a Review or commit"),
+          .description(
+            settings.reads === "review"
+              ? "List agent sessions for a Review or commit"
+              : "List agent sessions for one commit",
+          ),
       ),
     ),
   ).action(

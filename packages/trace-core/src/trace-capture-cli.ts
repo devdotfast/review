@@ -5,7 +5,7 @@ import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
 import {
   type TraceCommand,
   type TraceScope,
-  traceCliName,
+  traceCommandPrefix,
 } from "./trace-command";
 import { runTraceGitHook } from "./trace-git-hook-runner";
 import { runTraceHook } from "./trace-hook-runner";
@@ -230,7 +230,7 @@ export async function runTraceSync(input: {
 
       if (current !== input.expectStorage) {
         throw new Error(
-          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCliName()} trace sync ${input.sessionId}\` to publish to the current selection.`,
+          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCommandPrefix()} sync ${input.sessionId}\` to publish to the current selection.`,
         );
       }
     }

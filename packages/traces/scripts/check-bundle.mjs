@@ -10,6 +10,9 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const distDir = join(packageRoot, "dist");
 
+// The two entries, plus the build stamp. Rolldown puts each dynamic import of
+// the library in its own chunk beside them; the self-install copies the whole
+// dist directory, so those chunks travel with the entries.
 const EXPECTED_FILES = ["build-info.json", "cli.js", "program.js"];
 
 const FORBIDDEN = [
@@ -24,9 +27,11 @@ const FORBIDDEN = [
 // Rolldown writes four specifier forms: `import`/`export ... from`, a dynamic
 // `import(...)`, a bare `import "x"`, and `__require("x")` for the CommonJS
 // packages it bundles. The scan reads the whole file at once, because the
-// bundle puts several statements on one line.
+// bundle puts several statements on one line. A build erases every `import
+// type` line, so one in the bundle is text inside a string, such as the pi
+// extension the library writes.
 const SPECIFIER_PATTERN =
-  /\b(?:import|export)\b[^;'"]*?\bfrom\s*["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\bimport\s+["']([^"']+)["']|\b(?:__)?require\s*\(\s*["']([^"']+)["']\s*\)/g;
+  /\b(?:import|export)\b(?!\s+type\b)[^;'"]*?\bfrom\s*["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\bimport\s+["']([^"']+)["']|\b(?:__)?require\s*\(\s*["']([^"']+)["']\s*\)/g;
 
 const BUILTIN_MODULES = new Set(builtinModules);
 
@@ -55,20 +60,25 @@ async function checkBundle() {
 
   const present = (await readdir(distDir)).sort();
 
-  if (present.join(",") !== EXPECTED_FILES.join(",")) {
-    problems.push(
-      `dist/ holds [${present.join(", ")}]; expected exactly [${EXPECTED_FILES.join(", ")}]`,
-    );
+  for (const file of EXPECTED_FILES) {
+    if (!present.includes(file)) problems.push(`dist/ misses ${file}`);
   }
 
-  const sizes = [];
+  const scripts = [];
 
-  for (const file of ["cli.js", "program.js"]) {
+  for (const file of present) {
+    if (file.endsWith(".js")) scripts.push(file);
+    else if (file !== "build-info.json") {
+      problems.push(`dist/ holds ${file}, which is neither a chunk nor a stamp`);
+    }
+  }
+
+  let bytes = 0;
+
+  for (const file of scripts) {
     const filePath = join(distDir, file);
     const source = await readFile(filePath, "utf8");
-    sizes.push(
-      `dist/${file} ${((await stat(filePath)).size / 1024).toFixed(0)} KiB`,
-    );
+    bytes += (await stat(filePath)).size;
 
     for (const pattern of FORBIDDEN) {
       if (pattern.test(source)) {
@@ -86,7 +96,9 @@ async function checkBundle() {
     process.exit(1);
   }
 
-  process.stdout.write(`bundle ok: ${sizes.join(", ")}\n`);
+  process.stdout.write(
+    `bundle ok: ${scripts.length} files, ${(bytes / 1024).toFixed(0)} KiB\n`,
+  );
 }
 
 const invokedPath = process.argv[1];

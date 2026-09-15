@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import type { Writable } from "node:stream";
 
 import { git } from "@dev.fast/local-vcs";
@@ -10,15 +9,9 @@ import {
 } from "@dev.fast/trace-protocol";
 
 import {
-  AGENT_TRACE_HOOK_AGENTS,
-  type AgentTraceHookAgent,
-  type AgentTraceHookInstallResult,
-  agentTraceHomeDirectory,
   describeTraceHookOwners,
-  installClaudeTraceHook,
-  installCodexTraceHook,
-  installOpenCodeTraceExtension,
-  installPiTraceExtension,
+  installHarnessHooks,
+  skippedHarnessesLine,
 } from "./agent-trace-hooks";
 import {
   type CliJsonOutput,
@@ -350,52 +343,6 @@ export async function runTraceStoreDelete(
 
     return 0;
   });
-
-/** The installer of one harness hook, keyed by the harness. */
-const HARNESS_HOOK_INSTALLERS: Record<
-  AgentTraceHookAgent,
-  (
-    homeDir: string,
-    command?: string,
-    env?: NodeJS.ProcessEnv,
-  ) => Promise<AgentTraceHookInstallResult>
-> = {
-  claude: installClaudeTraceHook,
-  codex: installCodexTraceHook,
-  opencode: installOpenCodeTraceExtension,
-  pi: installPiTraceExtension,
-};
-
-/**
- * Writes the hook of every harness this machine holds a directory for, and
- * returns the harnesses it left alone. `allHarnesses` writes all four.
- */
-async function installHarnessTraceHooks(input: {
-  homeDir: string;
-  env: NodeJS.ProcessEnv;
-  hookExecutable?: string;
-  allHarnesses: boolean;
-}): Promise<AgentTraceHookAgent[]> {
-  const skipped: AgentTraceHookAgent[] = [];
-
-  for (const agent of AGENT_TRACE_HOOK_AGENTS) {
-    const present = existsSync(
-      agentTraceHomeDirectory(agent, input.homeDir, input.env),
-    );
-
-    if (!input.allHarnesses && !present) {
-      skipped.push(agent);
-      continue;
-    }
-
-    await HARNESS_HOOK_INSTALLERS[agent](
-      input.homeDir,
-      input.hookExecutable,
-      input.env,
-    );
-  }
-
-  return skipped;
 }
 
 export async function runTraceAllow(
@@ -433,21 +380,16 @@ export async function runTraceAllow(
     const storeOrigin = ctx.origin;
     const store = await requireActiveStore(ctx);
 
-    const hookExecutable = input.traceCommand?.file;
+    const { skipped } = await installHarnessHooks({
+      homeDir: input.scope.homeDir,
+      env: input.scope.env,
+      executable: input.traceCommand?.file,
+      harnessHooks: input.harnessHooks,
+      allHarnesses: input.allHarnesses,
+    });
 
-    if (input.harnessHooks !== false) {
-      const skipped = await installHarnessTraceHooks({
-        homeDir: input.scope.homeDir,
-        env: input.scope.env,
-        hookExecutable,
-        allHarnesses: input.allHarnesses === true,
-      });
-
-      if (skipped.length > 0) {
-        humanStream(input).write(
-          `Skipped the ${skipped.join(", ")} hook${skipped.length === 1 ? "" : "s"}: this machine has no such harness. Use --all-harnesses to write them anyway.\n`,
-        );
-      }
+    if (skipped.length > 0) {
+      humanStream(input).write(skippedHarnessesLine(skipped));
     }
 
     await enableTraceRepository({

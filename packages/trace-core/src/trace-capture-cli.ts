@@ -1,6 +1,6 @@
 import type { Writable } from "node:stream";
 
-import { installHarnessHooks } from "./agent-trace-hooks";
+import { installHarnessHooks, skippedHarnessesLine } from "./agent-trace-hooks";
 import { type CliJsonOutput, emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
@@ -179,6 +179,8 @@ export async function runTraceInstallMachine(
     scope: TraceScope;
     /** False skips the four harness hook installers. */
     harnessHooks?: boolean;
+    /** True writes every hook, even for a harness this machine lacks. */
+    allHarnesses?: boolean;
     /** The command the harness hooks run; the CLI name when absent. */
     traceCommand?: TraceCommand;
     /** Installs the CLI itself and reports the command the hooks call. */
@@ -195,24 +197,28 @@ export async function runTraceInstallMachine(
     ? await input.installMachine(output)
     : input.traceCommand;
 
-  const hooks = await installHarnessHooks({
+  const { installed, skipped } = await installHarnessHooks({
     homeDir: input.scope.homeDir,
+    env: input.scope.env,
     executable: traceCommand?.file,
     harnessHooks: input.harnessHooks,
+    allHarnesses: input.allHarnesses,
   });
 
-  emitJsonEvent(output, { event: "trace.install", hooks });
+  emitJsonEvent(output, { event: "trace.install", hooks: installed, skipped });
   const stream = humanStream(output);
 
-  if (hooks.length === 0) {
+  if (input.harnessHooks === false) {
     stream.write("Harness hooks: skipped.\n");
 
     return 0;
   }
 
-  for (const hook of hooks) {
+  for (const hook of installed) {
     stream.write(`Harness hook: ${hook.agent} -> ${hook.path}\n`);
   }
+
+  if (skipped.length > 0) stream.write(skippedHarnessesLine(skipped));
 
   return 0;
 }

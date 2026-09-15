@@ -166,7 +166,7 @@ review login [--origin <url>] [--no-browser]
 review logout
 review whoami
 review trace store create|delete|info [path]
-review trace install [--no-harness-hooks] [--json]
+review trace install [--no-harness-hooks] [--all-harnesses] [--json]
 review trace allow [path] [--no-harness-hooks] [--all-harnesses]
 review trace deny [path]
 ```
@@ -290,7 +290,7 @@ which the hooks call by absolute path.
 `allow` writes a harness hook only for a harness this machine holds a
 directory for: `~/.claude`, `~/.codex`, `~/.pi`, or `~/.config/opencode`. One
 line names the harnesses it skipped. `--all-harnesses` writes all four, and
-`--no-harness-hooks` writes none. Both flags work in `review trace allow` too.
+`--no-harness-hooks` writes none. Both flags work in `install` and in `review trace allow` too.
 
 `dev-traces` offers `login`, `logout`, `whoami`, `store create|delete|info`,
 `install`, `allow`, `deny`, `enable`, `disable`, `repair`, `status`,

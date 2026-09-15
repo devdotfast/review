@@ -122,7 +122,7 @@ first to withdraw the consent of one repository.
 | `allow [path] [--no-harness-hooks] [--all-harnesses] [--no-install]` | Record consent, install, and write the hooks |
 | `deny [path]` | Withdraw the consent of one repository |
 | `enable [path]`, `disable [path]`, `repair [path]` | Manage the Git trace hooks of one repository |
-| `install [--no-harness-hooks] [--force]` | Install the command file and the harness hooks of this machine |
+| `install [--no-harness-hooks] [--all-harnesses] [--force]` | Install the command file and the harness hooks of this machine |
 | `uninstall` | Remove the `~/.local/bin/dev-traces` install |
 | `check` | Check seven preconditions |
 | `status [--session <id>] [--limit <n>] [--cursor <cursor>]` | Print the install block, the selected store, and your uploads |

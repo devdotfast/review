@@ -550,6 +550,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     if (actionCommand.name() === "install") {
       state.installForce = actionCommand.opts().force === true;
     }
+
     state.hookEntryPoint = HOOK_ENTRY_POINTS.includes(actionCommand.name());
   });
 

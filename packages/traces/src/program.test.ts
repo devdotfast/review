@@ -224,6 +224,30 @@ describe("dev-traces program", () => {
     );
   });
 
+  it.each([
+    ["hook", ["trace", "hook", "SessionStart"]],
+    ["git-hook", ["trace", "git-hook", "pre-push"]],
+  ])("exits 0 with one line when %s throws", async (_name, argv) => {
+    const failure = new Error("the store is unreachable");
+
+    const runtime = {
+      ...stubs([]),
+      runTraceHook: vi.fn<TracesCliRuntime["runTraceHook"]>(async () => {
+        throw failure;
+      }),
+      runTraceGitHook: vi.fn<TracesCliRuntime["runTraceGitHook"]>(async () => {
+        throw failure;
+      }),
+    };
+
+    const result = run(argv, runtime);
+    expect(await result.code).toBe(0);
+    expect(result.err()).toBe(
+      "dev-traces: the hook failed: the store is unreachable\n",
+    );
+    expect(result.err()).not.toContain("at ");
+  });
+
   it("emits one JSON error event for a usage error under --json", async () => {
     const result = run(["no-such-command", "--json"], stubs([]));
     expect(await result.code).toBe(1);

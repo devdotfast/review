@@ -1,7 +1,7 @@
 // Fails the build when the bundle reaches app-only code or leaves a runtime
 // dependency external. The self-install copies dist/ without node_modules, so
 // only node: builtins may stay external.
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { builtinModules } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,11 +35,28 @@ const SPECIFIER_PATTERN =
 
 const BUILTIN_MODULES = new Set(builtinModules);
 
+/**
+ * `source` without its `//` line comments. A comment can name a package the
+ * bundle never imports, such as the note a library keeps above a shim.
+ * A `//` inside a string or a URL stays: only a comment that starts the line,
+ * or follows whitespace, is cut.
+ */
+function withoutLineComments(source) {
+  const lines = [];
+
+  for (const line of source.split("\n")) {
+    const comment = /(^|\s)\/\/.*$/.exec(line);
+    lines.push(comment ? line.slice(0, comment.index) : line);
+  }
+
+  return lines.join("\n");
+}
+
 /** The specifiers in `source` that the self-install cannot resolve. */
 export function findForeignSpecifiers(source) {
   const foreign = new Set();
 
-  for (const match of source.matchAll(SPECIFIER_PATTERN)) {
+  for (const match of withoutLineComments(source).matchAll(SPECIFIER_PATTERN)) {
     const specifier = match[1] ?? match[2] ?? match[3] ?? match[4];
 
     if (!specifier) continue;
@@ -103,8 +120,13 @@ async function checkBundle() {
 
 const invokedPath = process.argv[1];
 
+const scriptPath = fileURLToPath(import.meta.url);
+
+// Both sides are resolved through every link, so a run through a symlinked
+// path, such as a `.bin` entry, still counts as running this script.
 const runsAsScript =
   invokedPath !== undefined &&
-  resolve(invokedPath) === fileURLToPath(import.meta.url);
+  (await realpath(invokedPath).catch(() => resolve(invokedPath))) ===
+    (await realpath(scriptPath).catch(() => scriptPath));
 
 if (runsAsScript) await checkBundle();

@@ -390,8 +390,9 @@ describe("shell profile PATH setup", () => {
     expect(line).toBe(
       `. "${path.join(odd, "traces", "env").replaceAll(/[\\$"`]/g, (each) => `\\${each}`)}"`,
     );
-    expect(fishSourceLine(odd, home)).toContain('\\$ird');
+    expect(fishSourceLine(odd, home)).toContain("\\$ird");
     // `/bin/sh` must read the line as the one path it names.
+
     const probe = await run("/bin/sh", [
       "-c",
       `set -- ; printf '%s' "${line.slice(3, -1)}"`,

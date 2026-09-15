@@ -57,6 +57,12 @@ const UNSUPPORTED_PLATFORM = `${CLI_NAME} supports macOS and Linux only.\n`;
 /** The commands that write hooks; each one needs the installed shim. */
 const HOOK_WRITERS = ["allow", "enable", "repair"];
 
+/**
+ * The hook entry points. A harness runs these, so a failure inside one must
+ * never end the agent session: the run reports the fault and exits 0.
+ */
+const HOOK_ENTRY_POINTS = ["hook", "git-hook"];
+
 const REVIEW_SCOPE_UNSUPPORTED =
   "`--review` needs the Review app. Use `--commit <sha>` or `--session <id>`.";
 
@@ -187,6 +193,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     json: jsonRequestedInArgv(input.argv),
     parserErrorOutput: "",
     installBeforeHooks: true,
+    hookEntryPoint: false,
   };
 
   const configureOutput = <T extends Command>(command: T): T => {
@@ -537,6 +544,8 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     if (HOOK_WRITERS.includes(actionCommand.name())) {
       state.installBeforeHooks = actionCommand.opts().install !== false;
     }
+
+    state.hookEntryPoint = HOOK_ENTRY_POINTS.includes(actionCommand.name());
   });
 
   try {
@@ -563,6 +572,16 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
       );
 
       return 1;
+    }
+
+    // A hook that throws writes one line and exits 0: a non-zero code, or a
+    // stack on stderr, would stop the agent session the harness is running.
+    if (state.hookEntryPoint) {
+      input.stderr.write(
+        `${CLI_NAME}: the hook failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+
+      return 0;
     }
 
     if (state.json) {

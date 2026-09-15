@@ -35,13 +35,16 @@ describe("checkSourcePath", () => {
     expect(() => checkSourcePath("")).not.toThrow();
   });
 
-  it.each(["/etc/passwd", "../secret", "src/./a.ts", "src\\a.ts", "src/.ts"])(
-    "rejects %j",
-    (file) => {
-      expect(() => checkSourcePath(file)).toThrow(SourceRangeError);
-      expect(() => checkSourcePath(file)).toThrow("repository-relative");
-    },
-  );
+  it.each([
+    "/etc/passwd",
+    "../secret",
+    "src/./a.ts",
+    "src\\a.ts",
+    "src/\u0001.ts",
+  ])("rejects %j", (file) => {
+    expect(() => checkSourcePath(file)).toThrow(SourceRangeError);
+    expect(() => checkSourcePath(file)).toThrow("repository-relative");
+  });
 });
 
 describe("sliceSourceRange", () => {

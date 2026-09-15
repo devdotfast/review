@@ -59,6 +59,24 @@ jobs:
       - name: Install monorepo dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Restore Playwright Chromium
+        id: playwright-chromium
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-chromium.outputs.cache-hit != 'true'
+        run: pnpm --filter @dev.fast/review exec playwright install chromium --only-shell
+
+      - name: Save Playwright Chromium
+        if: steps.playwright-chromium.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-chromium-${{ hashFiles('pnpm-lock.yaml') }}
+
       - name: Lint
         run: pnpm lint
 
@@ -76,6 +94,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev
+
+      - name: Install Playwright Chromium system dependencies
+        run: pnpm --filter @dev.fast/review exec playwright install-deps chromium
 
       - name: Setup Code OSS Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -144,3 +165,14 @@ jobs:
 
       - name: Check repository quality
         run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
+
+      - name: Upload browser test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vitest-browser-diagnostics
+          path: |
+            packages/review/.vitest-attachments
+            packages/review/**/__screenshots__
+            packages/review/**/__traces__
+          if-no-files-found: ignore

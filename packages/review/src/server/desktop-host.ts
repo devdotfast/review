@@ -35,10 +35,6 @@ export async function runDesktopHost(
   // a later in-app enable also reaches telemetry instances created elsewhere.
   delete env.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
 
-  const home = devReviewHome(env);
-  await mkdir(home, { recursive: true });
-  const local = openLocalReviewStore(path.join(home, "review-api.db"));
-
   const serverInput: Parameters<typeof createGlobalReviewServer>[0] = {
     appPid,
     packageRoot,
@@ -47,9 +43,23 @@ export async function runDesktopHost(
     token: env.DEV_FAST_REVIEW_SERVER_TOKEN,
     instanceId: env.DEV_FAST_REVIEW_INSTANCE_ID,
     telemetry,
-    reviewStore: local.store,
-    reviewData: local.data,
   };
+
+  // The JSON review store is experimental: a failed open must not block the host.
+  let local: ReturnType<typeof openLocalReviewStore> | undefined;
+
+  try {
+    const home = devReviewHome(env);
+    await mkdir(home, { recursive: true });
+    local = openLocalReviewStore(path.join(home, "review-api.db"));
+    serverInput.reviewStore = local.store;
+    serverInput.reviewData = local.data;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `[Review API] Could not open the review store; /reviews-api is unavailable: ${reason}\n`,
+    );
+  }
 
   if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
     serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;
@@ -60,7 +70,7 @@ export async function runDesktopHost(
   try {
     await server.listen();
   } catch (error) {
-    await local.store.close();
+    await local?.store.close();
     throw error;
   }
 
@@ -82,7 +92,7 @@ export async function runDesktopHost(
 
   const stop = () => {
     if (!stopping) {
-      stopping = server.close("app-exit").finally(() => local.store.close());
+      stopping = server.close("app-exit").finally(() => local?.store.close());
     }
 
     return stopping;

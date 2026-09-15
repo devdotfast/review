@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 const desktopRoot = fileURLToPath(new URL("..", import.meta.url));
 
 test("Review Files handles missing source locally and releases partial models", () => {
-  // Run the real browser model loader in its own DOM environment. Reuse
-  // Review's jsdom test dependency; tsx supplies Code OSS decorator semantics.
+  // Run the real browser model loader in its own DOM environment. tsx supplies
+  // Code OSS decorator semantics.
   execFileSync(
     process.execPath,
     [
@@ -17,7 +17,7 @@ test("Review Files handles missing source locally and releases partial models", 
       String.raw`
     import assert from "node:assert/strict";
     import { createRequire, registerHooks } from "node:module";
-    const require = createRequire(new URL("../../packages/review/package.json", import.meta.url));
+    const require = createRequire(new URL("./package.json", import.meta.url));
     const { JSDOM } = require("jsdom");
     const dom = new JSDOM("<html><body></body></html>");
     for (const key of ["window", "document", "HTMLElement", "HTMLCanvasElement", "Node", "MutationObserver", "Element", "navigator", "customElements", "UIEvent", "MouseEvent", "KeyboardEvent"]) {

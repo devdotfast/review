@@ -116,6 +116,31 @@ describe("software map backed database lenses", () => {
         to: "store:identity.documents.users",
       },
     ]);
+
+    const ordersOnly = databaseC4Snapshot({
+      useCase: { id: "read", label: "Read", operations: [] },
+      stores,
+      resolvedOperations: targets.slice(0, 1).map((target) => ({
+        actor,
+        target,
+        operation: {
+          kind: "read",
+          from: target,
+          to: actor,
+          label: "Read",
+          anchor,
+        },
+      })),
+      highlights: selectDatabaseOperationHighlights([], null),
+      selectedNodeId: null,
+      expandedNodeIds: new Set(["store:orders"]),
+    });
+
+    expect(
+      ordersOnly.relationships?.filter(
+        (edge) => edge.semanticKind === "foreign key",
+      ),
+    ).toEqual([]);
   });
 
   it("derives DatabaseLens stores from software map data stores", () => {

@@ -195,6 +195,19 @@ function embeddedSelectionChangeReason(
 	}
 }
 
+/** The connection fields a legacy session contributes to the canvas runtime config. */
+function sessionConnection(
+	session: ReviewDesktopSession,
+): Pick<ReviewRuntimeConfig, "serverUrl" | "sessionUrl" | "routePath" | "sessionId" | "token"> {
+	return {
+		serverUrl: session.serverUrl,
+		sessionUrl: session.sessionUrl,
+		routePath: session.descriptor.routePath,
+		sessionId: session.session.sessionId,
+		token: session.token,
+	};
+}
+
 export class ReviewCanvasEditorPane extends EditorPane {
 	static readonly ID = ReviewCanvasEditorInput.EDITOR_ID;
 
@@ -449,6 +462,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			return;
 		}
 		if (input.target.kind === "api-source") {
+			// The Source placeholder replaces the mount, so the reuse shortcuts
+			// above must not treat the previous review as still rendered.
+			this.renderedInput = input;
+			this.renderedModel = null;
+			this.readyInput = undefined;
 			this.sessionModelService.setActiveModel(null);
 			this.setSessionState("home");
 			await this.render({ kind: "source" }, generation);
@@ -526,13 +544,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					openSource: (source, range) => this.apiSource.open({ reviewId, ...source }, range),
 					bridge: {
 						...source,
-						appSessionId: this.reviewTelemetryService.appSessionId,
-						config: {
+						...this.sharedBridge(generation, () => { this.readyInput = input; }),
+						config: this.reviewRuntimeConfig({
 							...connection, sessionUrl: `${connection.serverUrl}/reviews-api/${reviewId}`,
-							sessionId: reviewId, routePath: "/", host: "desktop", theme: this.colorScheme(),
-							wasmUrl: assets.reviewWasmUrl,
-							appVersion: this.productService.reviewVersion ?? this.productService.version,
-						},
+							sessionId: reviewId, routePath: "/",
+						}, assets),
 						request: requestReviewApi,
 						post: async request => {
 							if (request.name === "openSourceTree") {
@@ -545,23 +561,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 								await this.apiSource.open({ reviewId, version, file: request.args.path, side: request.args.side ?? "head" }, range);
 								return { ok: true };
 							}
-							// Session-dependent legacy verbs must not operate on another review.
-							if (["focusCanvas", "focusWindow", "captureScreenshot", "joinDiscord"].includes(request.name)) return this.verbs.dispatch(reviewId, request);
-							return { ok: false, error: "This action is not connected for API reviews yet." };
+							// API reviews keep no active session model, so a session-bound
+							// legacy verb reports an error instead of acting on another review.
+							return this.verbs.dispatch(reviewId, request);
 						},
-						subscribe: listener => this.surfaceEvents.event(listener),
-						currentTheme: () => this.colorScheme(),
-						onDidChangeTheme: listener => this.themeEvents.event(listener),
-						currentDiffLayout: () => this.diffViews.diffLayout.get(),
-						setDiffLayout: layout => this.diffViews.diffLayout.set(layout),
-						onDidChangeDiffLayout: listener => this.diffViews.diffLayout.onDidChange(listener),
-						ready: () => {
-							if (generation === this.loadGeneration && this.targetDocument) {
-								this.readyInput = input;
-								this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
-							}
-						},
-						reportDiagnostic: diagnostic => this.logService.error(`[review canvas] ${diagnostic.message}`),
 					},
 				}, generation, assets);
 			} catch (error) {
@@ -575,7 +578,12 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			this.sessionModelService.setActiveModel(null);
 			this.setSessionState("home");
 			const setup = await this.resolveHomeSetup();
-			await this.apiCatalog.initialize();
+			try {
+				await this.apiCatalog.initialize();
+			} catch (error) {
+				// Home still lists legacy reviews when the API list is unavailable.
+				this.logService.warn("[Review] Could not load API reviews:", error);
+			}
 			let emptyStateVisible = false;
 			/* The empty-list render suspends on the install fetch below, while
 			   the list render has no await at all. The sequence number keeps a
@@ -1515,15 +1523,44 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		lifecycle?: ReviewCanvasLoadLifecycle,
 	): ReviewCanvasBridge {
 		const session = model.session;
-		const config = this.reviewRuntimeConfig(session, assets);
+		const config = this.reviewRuntimeConfig(sessionConnection(session), assets);
 		return {
-			appSessionId: this.reviewTelemetryService.appSessionId,
+			...this.sharedBridge(
+				generation,
+				() => {
+					lifecycle?.ready();
+					void this.captureReviewPresented(model);
+				},
+				lifecycle,
+			),
 			config,
 			inlineEditors: this.inlineEditors,
 			diffView: this.diffViews,
 			request: (url, init) => model.request(url, init),
 			post: (request) =>
 				this.verbs.dispatch(session.session.sessionId, request),
+		};
+	}
+
+	/** The bridge members every canvas shares; `onReady` runs once the mount reports ready. */
+	private sharedBridge(
+		generation: number,
+		onReady: () => void,
+		lifecycle?: ReviewCanvasLoadLifecycle,
+	): Pick<
+		ReviewCanvasBridge,
+		| "appSessionId"
+		| "subscribe"
+		| "currentTheme"
+		| "onDidChangeTheme"
+		| "currentDiffLayout"
+		| "setDiffLayout"
+		| "onDidChangeDiffLayout"
+		| "ready"
+		| "reportDiagnostic"
+	> {
+		return {
+			appSessionId: this.reviewTelemetryService.appSessionId,
 			subscribe: (listener) => this.surfaceEvents.event(listener),
 			currentTheme: () => this.colorScheme(),
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),
@@ -1534,8 +1571,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			ready: () => {
 				if (generation !== this.loadGeneration || !this.targetDocument) return;
 				this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
-				lifecycle?.ready();
-				void this.captureReviewPresented(model);
+				onReady();
 			},
 			reportDiagnostic: (diagnostic) => {
 				if (generation === this.loadGeneration && diagnostic.level === "error") {
@@ -1553,15 +1589,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	private reviewRuntimeConfig(
-		session: ReviewDesktopSession,
+		connection: Pick<
+			ReviewRuntimeConfig,
+			"serverUrl" | "sessionUrl" | "routePath" | "sessionId" | "token"
+		>,
 		assets: ReviewCanvasAssetsModule,
 	): ReviewRuntimeConfig {
 		return {
-			serverUrl: session.serverUrl,
-			sessionUrl: session.sessionUrl,
-			routePath: session.descriptor.routePath,
-			sessionId: session.session.sessionId,
-			token: session.token,
+			...connection,
 			wasmUrl: assets.reviewWasmUrl,
 			appVersion:
 				this.productService.reviewVersion ?? this.productService.version,
@@ -1635,7 +1670,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			});
 			const bridge: ReviewCanvasBridge = {
 				appSessionId: this.reviewTelemetryService.appSessionId,
-				config: this.reviewRuntimeConfig(session, assets),
+				config: this.reviewRuntimeConfig(sessionConnection(session), assets),
 				inlineEditors: this.inlineEditors,
 				// A validation mount must build no diff widgets off-screen and
 				// must not write the visible pane's view-state cache.

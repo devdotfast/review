@@ -6,7 +6,8 @@ import { HttpJsonError } from "../server/http-json.js";
 import { authoringTools } from "./authoring-tools.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
-import type { ReviewStore } from "./store.js";
+import { readQuerySchemas } from "./read-schemas.js";
+import type { ReviewStore, Snapshot } from "./store.js";
 
 /** Mounted behind the desktop server's existing token authentication. */
 export function createReviewApi(
@@ -22,9 +23,10 @@ export function createReviewApi(
     if (error instanceof ReviewInputError)
       return context.json({ error: error.message }, error.status);
 
+    // A readable message for agents and the canvas; issues stay for programs.
     if (error instanceof z.ZodError)
       return context.json(
-        { error: "Invalid request.", issues: error.issues },
+        { error: z.prettifyError(error), issues: error.issues },
         400,
       );
 
@@ -35,14 +37,14 @@ export function createReviewApi(
   app.get("/authoring", (context) => context.json(authoringTools()));
   app.get("/:id/activity", (context) => {
     const id = context.req.param("id");
-    store.read(id);
+    store.assertExists(id);
 
     return context.json(store.activity.read(id));
   });
   app.post("/:id/activity", async (context) => {
     const input = await readBoundedRequestJson(context.req.raw);
     const id = context.req.param("id");
-    store.read(id);
+    store.assertExists(id);
 
     return context.json(store.activity.update(id, input));
   });
@@ -126,11 +128,20 @@ export function createReviewApi(
   app.get("/:id/watch", (context) => {
     const id = context.req.param("id");
 
+    // Activity changes every renewal; reload the document only when it changed.
+    let document: Snapshot | undefined;
+
     return watch(
-      () => ({ ...store.read(id), activity: store.activity.read(id) }),
+      () => ({
+        ...(document ??= store.read(id)),
+        activity: store.activity.read(id),
+      }),
       (notify) => {
         const stopDocument = store.subscribe((result) => {
-          if (result.reviewId === id) notify();
+          if (result.reviewId === id) {
+            document = undefined;
+            notify();
+          }
         });
 
         const stopActivity = store.activity.subscribe((changed) => {
@@ -147,28 +158,17 @@ export function createReviewApi(
 
   if (data) {
     app.get("/:id/tree", async (context) => {
-      const input = z
-        .strictObject({
-          version: z.coerce.number().int().nonnegative().optional(),
-          side: z.enum(["base", "head"]).default("head"),
-          path: z.string().default(""),
-          commit: z.string().min(1).optional(),
-        })
-        .parse(context.req.query());
+      const input = readQuerySchemas.tree.parse(context.req.query());
 
       const pins = await data.comparison(
         store.read(context.req.param("id"), input.version).pins,
         input.commit,
       );
 
-      return context.json(data.tree(pins, input.side, input.path));
+      return context.json(await data.tree(pins, input.side, input.path));
     });
     app.get("/:id/maps/:resourceId", async (context) => {
-      const query = z
-        .strictObject({
-          version: z.coerce.number().int().nonnegative().optional(),
-        })
-        .parse(context.req.query());
+      const query = readQuerySchemas.maps.parse(context.req.query());
 
       return context.json(
         await data.map(
@@ -230,14 +230,7 @@ export function createReviewApi(
       );
     });
     app.get("/:id/file", async (context) => {
-      const input = z
-        .strictObject({
-          version: z.coerce.number().int().nonnegative().optional(),
-          commit: z.string().min(1).optional(),
-          side: z.enum(["base", "head"]),
-          file: z.string(),
-        })
-        .parse(context.req.query());
+      const input = readQuerySchemas.file.parse(context.req.query());
 
       return context.json(
         await data.file(
@@ -251,13 +244,7 @@ export function createReviewApi(
       );
     });
     app.get("/:id/diff", async (context) => {
-      const input = z
-        .strictObject({
-          version: z.coerce.number().int().nonnegative().optional(),
-          commit: z.string().min(1).optional(),
-          file: z.string().optional(),
-        })
-        .parse(context.req.query());
+      const input = readQuerySchemas.diff.parse(context.req.query());
 
       return context.json(
         await data.changes(
@@ -270,11 +257,7 @@ export function createReviewApi(
       );
     });
     app.get("/:id/commits", async (context) => {
-      const input = z
-        .strictObject({
-          version: z.coerce.number().int().nonnegative().optional(),
-        })
-        .parse(context.req.query());
+      const input = readQuerySchemas.commits.parse(context.req.query());
 
       return context.json(
         await data.commits(
@@ -288,13 +271,7 @@ export function createReviewApi(
     context.json(store.history(context.req.param("id"))),
   );
   app.get("/:id", (context) => {
-    const query = z
-      .strictObject({
-        version: z.coerce.number().int().nonnegative().optional(),
-        targetId: z.string().optional(),
-        full: z.enum(["true"]).optional(),
-      })
-      .parse(context.req.query());
+    const query = readQuerySchemas.get.parse(context.req.query());
 
     return context.json(
       query.full

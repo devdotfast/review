@@ -3,6 +3,7 @@ import { z } from "zod";
 import { activitySchema } from "./activity.js";
 import { sourceSchema } from "./document.js";
 import { uploadSchema } from "./local-data.js";
+import { readQuerySchemas } from "./read-schemas.js";
 import { commandSchema } from "./store.js";
 
 /** The host publishes its actual input schemas; adapters do not validate documents. */
@@ -10,8 +11,9 @@ export function authoringTools() {
   const id = z.string().min(1);
   const review = { reviewId: id };
   const version = z.number().int().nonnegative().optional();
-  const side = z.enum(["base", "head"]);
-  const comparison = { version, commit: id.optional() };
+
+  const read = (name: keyof typeof readQuerySchemas) =>
+    z.strictObject({ ...review, ...readQuerySchemas[name].shape });
 
   const descriptions = {
     create: "Create a blank review at resolved source pins.",
@@ -70,12 +72,7 @@ export function authoringTools() {
     tool(
       "get",
       "Read a compact outline, one target, or the full snapshot. IDs in the result can be used for edits.",
-      z.strictObject({
-        ...review,
-        version,
-        targetId: id.optional(),
-        full: z.literal(true).optional(),
-      }),
+      read("get"),
       "GET",
       "/:reviewId",
     ),
@@ -124,33 +121,28 @@ export function authoringTools() {
     tool(
       "file",
       "Read a complete pinned source file.",
-      z.strictObject({ ...review, ...comparison, side, file: id }),
+      read("file"),
       "GET",
       "/:reviewId/file",
     ),
     tool(
       "tree",
       "List immediate committed directory entries, not working-copy files.",
-      z.strictObject({
-        ...review,
-        ...comparison,
-        side: side.optional(),
-        path: z.string().optional(),
-      }),
+      read("tree"),
       "GET",
       "/:reviewId/tree",
     ),
     tool(
       "diff",
       "Read changed-file summaries, or patch text when file is supplied. commit selects one commit from this review.",
-      z.strictObject({ ...review, ...comparison, file: id.optional() }),
+      read("diff"),
       "GET",
       "/:reviewId/diff",
     ),
     tool(
       "commits",
       "List commits in this review's pinned comparison.",
-      z.strictObject({ ...review, version }),
+      read("commits"),
       "GET",
       "/:reviewId/commits",
     ),

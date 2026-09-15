@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import react from "@vitejs/plugin-react";
+import { playwright } from "@vitest/browser-playwright";
 import { configDefaults, defineConfig } from "vitest/config";
 
 const require = createRequire(import.meta.url);
@@ -12,33 +14,31 @@ const decodeNamedCharacterReferenceIndex = path.join(
   "index.js",
 );
 
+const alias = {
+  "@dev.fast/trace-core": fileURLToPath(
+    new URL("../trace-core/src/index.ts", import.meta.url),
+  ),
+  "@dev.fast/json": fileURLToPath(
+    new URL("../json/src/index.ts", import.meta.url),
+  ),
+  "@dev.fast/local-vcs": fileURLToPath(
+    new URL("../local-vcs/src/index.ts", import.meta.url),
+  ),
+  "@dev.fast/review-protocol": fileURLToPath(
+    new URL("../review-protocol/src/index.ts", import.meta.url),
+  ),
+  "@dev.fast/trace-protocol": fileURLToPath(
+    new URL("../trace-protocol/src/index.ts", import.meta.url),
+  ),
+  "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
+};
+
 const isolatedTests = [
-  "app/src/review-document-boundary.test.tsx",
-  "app/src/review-panel.test.tsx",
-  "app/src/review-ui-state.test.ts",
-  "app/src/side-panel-resizer.test.tsx",
   "src/document/check.test.ts",
   "src/review-source-ref-errors.test.ts",
 ];
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      "@dev.fast/trace-core": fileURLToPath(
-        new URL("../trace-core/src/index.ts", import.meta.url),
-      ),
-      "@dev.fast/json": fileURLToPath(
-        new URL("../json/src/index.ts", import.meta.url),
-      ),
-      "@dev.fast/local-vcs": fileURLToPath(
-        new URL("../local-vcs/src/index.ts", import.meta.url),
-      ),
-      "@dev.fast/trace-protocol": fileURLToPath(
-        new URL("../trace-protocol/src/index.ts", import.meta.url),
-      ),
-      "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
-    },
-  },
   test: {
     env: {
       DEV_REVIEW_HOME: path.join(
@@ -60,7 +60,11 @@ export default defineConfig({
           name: "shared-module-graph",
           environment: "node",
           isolate: false,
-          exclude: [...configDefaults.exclude, ...isolatedTests],
+          exclude: [
+            ...configDefaults.exclude,
+            ...isolatedTests,
+            "app/src/**/*.browser.test.{ts,tsx}",
+          ],
           // Individual full-pipeline compiler cases can exceed Vitest's
           // 5 second default while sharing a two-core hosted runner.
           testTimeout: 15_000,
@@ -72,6 +76,26 @@ export default defineConfig({
           environment: "node",
           include: isolatedTests,
           testTimeout: 15_000,
+        },
+      },
+      {
+        plugins: [react()],
+        resolve: { alias, dedupe: ["react", "react-dom"] },
+        test: {
+          name: "browser",
+          include: ["app/src/**/*.browser.test.{ts,tsx}"],
+          isolate: process.env.CI === "true",
+          setupFiles: ["app/src/browser-test-setup.ts"],
+          testTimeout: 15_000,
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            instances: [{ browser: "chromium" }],
+            viewport: { width: 1280, height: 900 },
+            screenshotFailures: true,
+            trace: process.env.CI === "true" ? "retain-on-failure" : "off",
+          },
         },
       },
     ],

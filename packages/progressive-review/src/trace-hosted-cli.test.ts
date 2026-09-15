@@ -155,15 +155,7 @@ describe("hosted trace commands", () => {
       { repositoryId: 7, name: "acme/app", origin: ORIGIN },
       devHome,
     );
-    await writeStoreAuth(
-      {
-        origin: ORIGIN,
-        token: "token",
-        login: "dev",
-        savedAt: "2026-09-01T00:00:00.000Z",
-      },
-      env,
-    );
+    await login();
   }
 
   async function login(): Promise<void> {

@@ -1,0 +1,250 @@
+import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";
+
+export default defineSoftwareMap({
+  people: {
+    reviewer: { label: "Reviewer", description: "Reads the canvas, inspects source and maps, and accepts a change." },
+    author: { label: "Authoring agent", description: "Builds a Review through the CLI and the authoring skills." },
+  },
+  systems: {
+    review: {
+      label: "Review Desktop",
+      description: "Local-first review application binding a narrative document, code comparison, software map, and agent traces to pinned commits.",
+      containers: {
+        cli: {
+          label: "Review CLI",
+          description: "The `review` command surface for the authoring agent and the desktop app.",
+          components: {
+            commands: {
+              label: "Lifecycle commands",
+              description: "Scaffolds, prepares, publishes, repairs, and rebinds a Review, and launches the desktop app.",
+              coverage: { files: ["packages/review/src/cli.ts", "packages/review/src/cli-runner.ts", "packages/review/src/cli-runtime-info.ts", "packages/review/src/review-scaffold.ts", "packages/review/src/review-prepare.ts", "packages/review/src/review-rebind.ts", "packages/review/src/review-repair.ts", "packages/review/src/review-info.ts", "packages/review/src/review-info-resolver.ts", "packages/review/src/desktop-discovery.ts"] },
+            },
+            traceBridge: {
+              label: "Review-scoped trace commands",
+              description: "Resolves `--review <uuid>` against the Review store and hands the change range to the store-free trace runtime.",
+              coverage: { files: ["packages/review/src/trace-cli.ts", "packages/review/src/trace-storage-cli.ts"] },
+            },
+            installation: {
+              label: "CLI, skill, and MCP installation",
+              coverage: { files: ["packages/review/src/install.ts", "packages/review/src/install-directory.ts", "packages/review/src/cli-install.ts", "packages/review/src/skill-install-lock.ts", "packages/review/src/agent-fff.ts", "packages/review/src/agent-session-ref.ts"] },
+            },
+            guidance: {
+              label: "Authoring contract",
+              description: "The managed skills and user documentation that direct an authoring agent.",
+              coverage: { globs: ["packages/review/skills/**", "docs/**"] },
+            },
+          },
+        },
+        backend: {
+          label: "Local Review server",
+          description: "The Node host that serves review data, compiles documents, and stages publications.",
+          components: {
+            server: {
+              label: "Session and publication API",
+              coverage: { globs: ["packages/review/src/server/**"] },
+            },
+            lifecycle: {
+              label: "Review discovery and migration",
+              coverage: { files: ["packages/review/src/review-home.ts", "packages/review/src/review-home-paths.ts", "packages/review/src/review-attention.ts", "packages/review/src/review-file.ts", "packages/review/src/review-preferences.ts", "packages/review/src/migrate.ts", "packages/review/src/stored-review-migration.ts", "packages/review/src/stored-review-document-audit.ts", "packages/review/src/review-mutation-lock.ts"] },
+            },
+            document: {
+              label: "MDX document compilation",
+              description: "Parses, type-checks, and builds the authored review document in a worker.",
+              coverage: { globs: ["packages/review/src/document/**"], files: ["packages/review/src/review-mdx-ast.ts", "packages/review/src/review-mdx-typescript-parser.ts", "packages/review/src/review-frontmatter.ts", "packages/review/src/review-document-materialize.ts", "packages/review/src/review-document-routes.ts", "packages/review/src/review-document-versions.ts"] },
+            },
+            publication: {
+              label: "Publication audit and staging",
+              coverage: { files: ["packages/review/src/review-publish.ts", "packages/review/src/review-publish-evaluate.ts", "packages/review/src/review-publish-element-audit.ts", "packages/review/src/review-publication-audit.ts", "packages/review/src/review-publication-preparation.ts", "packages/review/src/review-publication-staging.ts", "packages/review/src/review-sealed-document.ts", "packages/review/src/review-map-publish.ts"] },
+            },
+            maps: {
+              label: "Pinned software maps",
+              description: "Validates an authored map, saves it to a commit note, and diffs base against head.",
+              coverage: { globs: ["packages/review/src/software-map-*.ts"], files: ["packages/review/src/tolerant-software-map-model.ts"] },
+            },
+            sourceLens: {
+              label: "Pinned source resolution",
+              description: "Resolves code peeks, symbol diffs, and unified diffs against the pinned worktrees.",
+              coverage: { files: ["packages/review/src/source-range-resolver.ts", "packages/review/src/source-code-types.ts", "packages/review/src/source-tokenizer.ts", "packages/review/src/codepeek-symbol-diff.ts", "packages/review/src/call-stack-diff.ts", "packages/review/src/unified-diff.ts", "packages/review/src/review-source-ref.ts", "packages/review/src/review-source-pins.ts", "packages/review/src/review-vcs.ts", "packages/review/src/review-head-checkout.ts", "packages/review/src/review-head-relationship.ts", "packages/review/src/review-worktree-target.ts", "packages/review/src/review-tree-fingerprint.ts", "packages/review/src/review-stack.ts"] },
+            },
+            telemetry: {
+              label: "Telemetry and error reporting",
+              coverage: { files: ["packages/review/src/telemetry.ts", "packages/review/src/telemetry-config.ts", "packages/review/src/telemetry-clean-text.ts", "packages/review/src/telemetry-debug-sink.ts", "packages/review/src/review-telemetry.ts", "packages/review/src/ui-telemetry-events.ts", "packages/review/src/error-telemetry.ts", "packages/review/src/review-logger.ts", "packages/review/src/startup-trace.ts"] },
+            },
+          },
+        },
+        desktop: {
+          label: "Electron workbench and canvas",
+          description: "The vendored code-oss workbench and the React canvas it mounts.",
+          components: {
+            canvas: {
+              label: "Review document canvas",
+              description: "Renders the compiled MDX document, its peeks, and its diagrams.",
+              coverage: { files: ["packages/review/app/src/desktop-entry.tsx", "packages/review/app/src/App.tsx", "packages/review/app/src/review-document-renderer.tsx", "packages/review/app/src/review-components.tsx", "packages/review/app/src/review-panel.tsx", "packages/review/app/src/CodePeek.tsx", "packages/review/app/src/DiffView.tsx", "packages/review/app/src/diagrams.tsx", "packages/review/app/src/database-lens.tsx", "packages/review/app/src/styles.css"] },
+            },
+            mapView: {
+              label: "Software map view",
+              description: "Projects the pinned model into the C4 diagram and its keyboard navigation.",
+              coverage: { globs: ["packages/review/app/src/software-map/**"] },
+            },
+            traceView: {
+              label: "Trace viewer and capture setup",
+              coverage: { files: ["packages/review/app/src/ReviewTraceView.tsx", "packages/review/app/src/use-agent-trace.ts", "packages/review/app/src/trace-capture-section.tsx", "packages/review/app/src/trace-document.tsx", "packages/review/app/src/trace-quote.tsx", "packages/review/app/src/trace-ruler.tsx"] },
+            },
+            tutorial: {
+              label: "Tutorial and welcome experience",
+              coverage: { files: ["packages/review/app/src/tutorial-experience.tsx", "packages/review/app/src/tutorial-context.tsx", "packages/review/app/src/tutorial-dynamic-content.tsx", "packages/review/app/src/tutorial-authoring-conversation.tsx", "packages/review/app/src/tutorial-keymap-picker.tsx", "packages/review/app/src/welcome-page.tsx", "packages/review/app/src/review-home-view.tsx"] },
+            },
+            session: {
+              label: "Session model and canvas part",
+              coverage: { files: ["apps/review-desktop/code-oss/src/vs/review/services/reviewSessionModelService.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewSessionService.ts", "apps/review-desktop/code-oss/src/vs/review/browser/parts/canvas/reviewCanvasPart.ts", "apps/review-desktop/code-oss/src/vs/review/review.common.main.ts", "packages/review/app/src/host/review-host.tsx", "packages/review/app/src/host/review-client.ts", "packages/review/app/src/host/review-session.tsx"] },
+            },
+            diffSurfaces: {
+              label: "Native diff and editor surfaces",
+              description: "Monaco diff editors, inline editors, and the verb commands that reveal pinned code.",
+              coverage: { files: ["apps/review-desktop/code-oss/src/vs/review/contrib/verbs/reviewVerbs.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewDiffViewService.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewFilesDiffView.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewInlineEditorService.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewUnifiedFilesEditor.ts", "apps/review-desktop/code-oss/src/vs/review/services/reviewCodeResourceService.ts"] },
+            },
+          },
+        },
+        protocol: { label: "Review transport contracts", coverage: { globs: ["packages/review-protocol/src/**"] } },
+        vcs: { label: "Pinned local VCS access", coverage: { globs: ["packages/local-vcs/src/**"] } },
+        json: { label: "Shared JSON helpers", coverage: { globs: ["packages/json/src/**"] } },
+      },
+      dataStores: {
+        documents: { label: "Review files and publication artifacts", description: "Per-review review.json metadata, author-edited MDX and data files, and immutable compiled builds.", kind: "fileStore" },
+        notes: { label: "Git notes", description: "Commit-addressed software maps and agent trace associations.", kind: "artifactStore" },
+      },
+    },
+    traces: {
+      label: "Agent trace runtime",
+      description: "The store-free trace packages that capture, read, and transfer agent transcripts independently of Review.",
+      containers: {
+        core: {
+          label: "Trace core",
+          components: {
+            capture: {
+              label: "Agent and Git capture hooks",
+              description: "Installs owner-aware harness and repository hooks, then records session and commit associations.",
+              coverage: { files: ["packages/trace-core/src/agent-trace-hooks.ts", "packages/trace-core/src/trace-hook-runner.ts", "packages/trace-core/src/trace-hook-commands.ts", "packages/trace-core/src/trace-git-hook-runner.ts", "packages/trace-core/src/trace-repository-hooks.ts", "packages/trace-core/src/trace-repository-target.ts", "packages/trace-core/src/trace-agent-sessions.ts", "packages/trace-core/src/trace-session-provenance.ts", "packages/trace-core/src/trace-capture-scope.ts", "packages/trace-core/src/trace-consent.ts"] },
+            },
+            read: {
+              label: "Trace discovery and search corpus",
+              description: "Parses local harness transcripts and materializes the searchable corpus.",
+              coverage: { files: ["packages/trace-core/src/trace-read.ts", "packages/trace-core/src/trace-local-sessions.ts", "packages/trace-core/src/trace-corpus.ts", "packages/trace-core/src/agent-trace-parser.ts", "packages/trace-core/src/review-agent-traces.ts", "packages/trace-core/src/opencode-trace-export.ts", "packages/trace-core/src/tutorial-trace.ts", "packages/trace-core/src/trace-repo.ts", "packages/trace-core/src/trace-home.ts"] },
+            },
+            transfer: {
+              label: "Trace sync and store transport",
+              description: "Uploads and pulls traces and commit indexes through the configured store.",
+              coverage: { files: ["packages/trace-core/src/trace-sync.ts", "packages/trace-core/src/trace-sync-status.ts", "packages/trace-core/src/trace-upload-status.ts", "packages/trace-core/src/trace-store-transport.ts", "packages/trace-core/src/trace-store-transport.memory.ts", "packages/trace-core/src/store-client.ts", "packages/trace-core/src/store-auth.ts", "packages/trace-core/src/store-origin.ts"] },
+            },
+            storage: {
+              label: "Storage selection and credentials",
+              description: "Resolves the hosted or S3-compatible backend from machine configuration.",
+              coverage: { globs: ["packages/trace-core/src/trace-storage/**"], files: ["packages/trace-core/src/trace-machine-setup.ts"] },
+            },
+            commands: {
+              label: "Store-free trace command surface",
+              description: "Registers the capture, read, and hosted-store commands. A host CLI now sets its own command name and hint prefix, and hands the installed shim to every hook-writing command.",
+              changeStatus: "modified",
+              coverage: { files: ["packages/trace-core/src/trace-command.ts", "packages/trace-core/src/trace-commands.ts", "packages/trace-core/src/trace-command-options.ts", "packages/trace-core/src/trace-command-storage-option.ts", "packages/trace-core/src/trace-capture-cli.ts", "packages/trace-core/src/trace-capture-commands.ts", "packages/trace-core/src/trace-read-cli.ts", "packages/trace-core/src/trace-read-commands.ts", "packages/trace-core/src/trace-hosted-cli.ts", "packages/trace-core/src/index.ts", "packages/trace-core/src/cli-output.ts"] },
+            },
+          },
+        },
+        cli: {
+          label: "dev-traces CLI",
+          description: "The standalone `dev-traces` command. It carries the trace runtime without Review.",
+          changeStatus: "added",
+          components: {
+            program: {
+              label: "Command surface and entry",
+              description: "Mounts the trace-core subcommands at its own root, names itself for every hint, and checks the Node floor before it runs.",
+              changeStatus: "added",
+              coverage: { files: ["packages/traces/src/program.ts", "packages/traces/src/cli.ts", "packages/traces/src/node-floor.ts", "packages/traces/src/package-root.ts"] },
+            },
+            selfInstall: {
+              label: "Self-install shim",
+              description: "Writes a managed command file under ~/.local/bin, keeps the installed versions beside it, backs up a foreign command, and removes only what it owns.",
+              changeStatus: "added",
+              coverage: { files: ["packages/traces/src/self-install.ts", "packages/traces/src/shell-profile.ts"] },
+            },
+            check: {
+              label: "Machine check report",
+              description: "Reports the shim, its resolved Node runtime, the harness hooks, the repository hooks, the active sessions, and the sync failures.",
+              changeStatus: "added",
+              coverage: { files: ["packages/traces/src/check.ts"] },
+            },
+            bundleGuard: {
+              label: "Bundle guard",
+              description: "Checks that the built bundle keeps no unresolved workspace import or stray require call.",
+              changeStatus: "added",
+              coverage: { files: ["packages/traces/scripts/check-bundle.mjs"] },
+            },
+          },
+        },
+        protocol: { label: "Trace store contracts", description: "The shared store API schemas and routes.", coverage: { globs: ["packages/trace-protocol/src/**"] } },
+      },
+      dataStores: {
+        traceFiles: { label: "Local agent transcripts and corpus", description: "Harness session files and the materialized local search corpus.", kind: "fileStore" },
+        traceSettings: { label: "Machine trace credentials and capture settings", kind: "fileStore" },
+      },
+    },
+    traceStorage: {
+      label: "Trace store backend",
+      description: "The hosted or S3-compatible object storage that holds traces and commit indexes.",
+      external: true,
+      dataStores: { objects: { label: "Trace and commit-index objects", kind: "objectStore" } },
+    },
+  },
+  relationships: [
+    { kind: "semantic", from: "reviewer", to: "review.desktop", label: "Reads and inspects" },
+    { kind: "semantic", from: "author", to: "review.cli", label: "Authors and publishes" },
+    { kind: "semantic", from: "author", to: "review.documents", label: "Edits MDX inputs directly" },
+    { kind: "semantic", from: "review.cli.guidance", to: "review.cli.commands", label: "Guides agent workflow" },
+    { kind: "semantic", from: "review.cli.commands", to: "review.backend.server", label: "Calls the lifecycle API" },
+    { kind: "semantic", from: "review.cli.commands", to: "review.backend.lifecycle", label: "Resolves the Review store" },
+    { kind: "semantic", from: "review.cli.commands", to: "review.backend.publication", label: "Publishes artifacts" },
+    { kind: "semantic", from: "review.cli.installation", to: "review.cli.guidance", label: "Installs managed skills" },
+    { kind: "semantic", from: "review.cli.traceBridge", to: "traces.core.commands", label: "Mounts the trace commands" },
+    { kind: "semantic", from: "review.cli.traceBridge", to: "review.backend.lifecycle", label: "Resolves a Review change range" },
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.document", label: "Compiles authored documents" },
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.maps", label: "Serves pinned maps" },
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.sourceLens", label: "Resolves peeks and diffs" },
+    { kind: "semantic", from: "review.backend.server", to: "review.backend.telemetry", label: "Reports usage and errors" },
+    { kind: "semantic", from: "review.backend.server", to: "review.protocol", label: "Validates wire contracts" },
+    { kind: "semantic", from: "review.backend.server", to: "traces.core.read", label: "Serves trace lookups" },
+    { kind: "semantic", from: "review.backend.server", to: "review.cli.installation", label: "Installs the CLI on first run" },
+    { kind: "semantic", from: "review.backend.document", to: "review.documents", label: "Reads and builds MDX" },
+    { kind: "semantic", from: "review.backend.publication", to: "review.documents", label: "Seals and stages builds" },
+    { kind: "semantic", from: "review.backend.publication", to: "review.backend.maps", label: "Publishes pinned maps" },
+    { kind: "semantic", from: "review.backend.lifecycle", to: "review.documents", label: "Discovers metadata" },
+    { kind: "semantic", from: "review.backend.maps", to: "review.notes", label: "Saves pinned models" },
+    { kind: "semantic", from: "review.backend.maps", to: "review.vcs", label: "Reads commit notes" },
+    { kind: "semantic", from: "review.backend.sourceLens", to: "review.vcs", label: "Inspects pinned worktrees" },
+    { kind: "semantic", from: "review.protocol", to: "review.json", label: "Parses JSON values" },
+    { kind: "semantic", from: "review.desktop.session", to: "review.backend.server", label: "HTTP requests and SSE events" },
+    { kind: "semantic", from: "review.desktop.session", to: "review.desktop.canvas", label: "Mounts compiled documents" },
+    { kind: "semantic", from: "review.desktop.session", to: "review.protocol", label: "Speaks the typed transport" },
+    { kind: "semantic", from: "review.desktop.canvas", to: "review.desktop.mapView", label: "Embeds the map diagram" },
+    { kind: "semantic", from: "review.desktop.canvas", to: "review.desktop.diffSurfaces", label: "Reveals pinned code" },
+    { kind: "semantic", from: "review.desktop.canvas", to: "review.desktop.tutorial", label: "Hosts the first-run tutorial" },
+    { kind: "semantic", from: "review.desktop.traceView", to: "review.backend.server", label: "Loads trace sessions and capture status" },
+    { kind: "semantic", from: "review.desktop.diffSurfaces", to: "review.backend.sourceLens", label: "Requests pinned source" },
+    { kind: "semantic", from: "traces.cli.program", to: "traces.core.commands", label: "Mounts the trace commands at its root", changeStatus: "added" },
+    { kind: "semantic", from: "traces.cli.program", to: "traces.cli.check", label: "Runs the machine check", changeStatus: "added" },
+    { kind: "semantic", from: "traces.cli.program", to: "traces.cli.selfInstall", label: "Installs, updates, and removes the shim", changeStatus: "added" },
+    { kind: "semantic", from: "traces.cli.selfInstall", to: "traces.core.capture", label: "Supplies the shim path to every hook writer", changeStatus: "added" },
+    { kind: "semantic", from: "traces.cli.check", to: "traces.core.capture", label: "Reads harness and repository hook ownership", changeStatus: "added" },
+    { kind: "semantic", from: "traces.cli.check", to: "traces.core.transfer", label: "Reads the recorded sync failures", changeStatus: "added" },
+    { kind: "semantic", from: "traces.cli.bundleGuard", to: "traces.cli.program", label: "Guards the published bundle", changeStatus: "added" },
+    { kind: "semantic", from: "traces.core.commands", to: "traces.core.capture", label: "Enables and repairs capture" },
+    { kind: "semantic", from: "traces.core.commands", to: "traces.core.read", label: "Lists, shows, and blames traces" },
+    { kind: "semantic", from: "traces.core.commands", to: "traces.core.transfer", label: "Syncs and pulls traces" },
+    { kind: "semantic", from: "traces.core.commands", to: "traces.core.storage", label: "Selects the store and logs in" },
+    { kind: "semantic", from: "traces.core.capture", to: "traces.traceFiles", label: "Records sessions and commit maps" },
+    { kind: "semantic", from: "traces.core.capture", to: "review.notes", label: "Writes trace associations" },
+    { kind: "semantic", from: "traces.core.read", to: "traces.traceFiles", label: "Discovers and materializes transcripts" },
+    { kind: "semantic", from: "traces.core.transfer", to: "traceStorage.objects", label: "Reads and writes trace objects" },
+    { kind: "semantic", from: "traces.core.transfer", to: "traces.protocol", label: "Uses the store API contracts" },
+    { kind: "semantic", from: "traces.core.storage", to: "traces.traceSettings", label: "Loads credentials and settings" },
+    { kind: "semantic", from: "traces.protocol", to: "traceStorage.objects", label: "Defines the store routes" },
+  ],
+});

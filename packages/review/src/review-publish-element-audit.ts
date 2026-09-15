@@ -5,10 +5,12 @@ import { z } from "zod";
 import {
   type CallStackDiffProps,
   type DatabaseLensProps,
+  type SequenceDiagramProps,
   callStackDiffPropsSchema,
   databaseLensPropsSchema,
   dbUseCasePropsSchema,
   reviewAuthoringPropsSchemas,
+  sequenceDiagramPropsSchema,
   traceQuotePropsSchema,
 } from "./authoring";
 
@@ -73,7 +75,10 @@ export type AuthoringComponentName = z.infer<
   typeof authoringComponentNameSchema
 >;
 
-type ProjectedComponentName = "DatabaseLens" | "CallStackDiff";
+type ProjectedComponentName =
+  | "DatabaseLens"
+  | "CallStackDiff"
+  | "SequenceDiagram";
 
 type OtherAuthoringComponentProps = {
   [Name in Exclude<AuthoringComponentName, ProjectedComponentName>]: z.infer<
@@ -83,12 +88,14 @@ type OtherAuthoringComponentProps = {
 
 // The audit is the one walk that sees every authored element, so it parses
 // each component's props once and hands the typed result to materialization.
-// DatabaseLens and CallStackDiff are their own members because their document
-// form differs from their authored form (store handles project to data, anchor
-// lists project to frames), and narrowing on `name` must narrow `props` too.
+// DatabaseLens, CallStackDiff and SequenceDiagram are their own members
+// because their document form differs from their authored form (store handles
+// project to data, anchor lists to frames, messages to steps), and narrowing
+// on `name` must narrow `props` too.
 export type AuditedComponentProps =
   | { name: "DatabaseLens"; props: DatabaseLensProps }
   | { name: "CallStackDiff"; props: CallStackDiffProps }
+  | { name: "SequenceDiagram"; props: SequenceDiagramProps }
   | {
       name: Exclude<AuthoringComponentName, ProjectedComponentName>;
       props: OtherAuthoringComponentProps;
@@ -408,6 +415,10 @@ function auditElement(
     audited = parsed.success ? { name, props: parsed.data } : null;
 
     if (parsed.success) collectCallStackDiff?.(parsed.data);
+  } else if (name === "SequenceDiagram") {
+    const parsed = sequenceDiagramPropsSchema.safeParse(element.props);
+    reportParseErrors(name, parsed, reportError);
+    audited = parsed.success ? { name, props: parsed.data } : null;
   } else if (name === "TraceQuote") {
     const parsed = traceQuotePropsSchema.safeParse(element.props);
     reportParseErrors(name, parsed, reportError);

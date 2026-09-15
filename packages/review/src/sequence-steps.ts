@@ -1,3 +1,5 @@
+import { isStringValue } from "@dev.fast/review-protocol";
+
 import type {
   SequenceActorInput,
   SequenceDiagramProps,
@@ -66,6 +68,7 @@ export function sequenceBlockFromProps(
       message.anchor ? [message.anchor.id] : [],
     ),
   );
+
   const usedStepIds = new Set<string>();
 
   const stepId = (index: number, anchorId: string | undefined): string => {
@@ -124,7 +127,7 @@ function codeBlock(
 ): { language: string; text: string } | undefined {
   if (code === undefined) return undefined;
 
-  if (typeof code === "string") {
+  if (isStringValue(code)) {
     const text = code.trim();
 
     return text ? { language: "text", text } : undefined;

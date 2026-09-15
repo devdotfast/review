@@ -36,6 +36,9 @@ All paths below are relative to `/reviews-api`.
 | Request                                   | Result                                                                 |
 | ----------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /`                                   | Current review summaries                                               |
+| `GET /authoring` | Tool names, host input schemas and HTTP mappings for CLI/MCP adapters |
+| `GET /:id/activity` | Currently reported authoring work, not stored in document history |
+| `POST /:id/activity {action,leaseId}` | Begin, renew or end a working signal; return count and expiry |
 | `GET /watch` | NDJSON review summaries: initial list, then saved changes |
 | `GET /:id`                                | Compact outline                                                        |
 | `GET /:id?targetId=step-3`                | Full block or sequence step                                            |
@@ -168,8 +171,26 @@ comment targets use saved block/element IDs, so duplicate display titles are
 safe. The Trace tab and quote side panels read retained trace resources; imported
 labels are preserved without claiming a harness, commit association, or timestamps.
 
-MCP/CLI,
-Ask execution and profile migration remain later work.
+The thin agent clients use `review api <tool-name> '<json>'` (or `-` for stdin)
+and `review mcp` (stdio). `review api tools` lists the host's tool schemas.
+Both adapters use existing desktop discovery/authentication and the same HTTP
+routes as the canvas. Neither imports the store or validates document content.
+Command/resource schemas come from the server's existing Zod definitions; the
+MCP SDK handles framing. The checkout skill describes this JSON workflow while
+preserving the writing guidance. No integration is installed automatically.
+
+Activity uses a caller-chosen lease UUID and no command receipt. Begin/renew
+expires after 60 seconds; clients renew at least every 30 seconds and end when
+finished. Different agents have independent leases, so one cannot accidentally
+end another's signal. Repeating begin/end is safe. Restart clears this ephemeral
+state; deletion clears its timers. It is not a write lock or proof of completion.
+The existing document stream includes an `activity` snapshot and also sends on
+activity changes; the canvas only loads document data when its version changes.
+This avoids another long-lived browser connection. The badge is hidden while
+idle or viewing history, and reports unknown activity on a lost connection.
+There is no applying-update state. CLI/MCP expose this as `review_activity`.
+
+Ask execution remains later work.
 Computer use has verified native opening, source previews, comment save/submit,
 inline-map fullscreen/source inspection, live base/head map comparison, and
 trace quote/full-trace navigation, not every rich-node interaction.

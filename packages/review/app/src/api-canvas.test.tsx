@@ -121,6 +121,25 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   expect(toggle).toBeTruthy();
   await act(async () => toggle.click());
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  const leaseId = randomUUID();
+  await act(async () => {
+    store.activity.update(review.reviewId, { action: "begin", leaseId });
+  });
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(container.textContent).toContain("Agent working…");
+  });
+  expect(
+    container.querySelector(`[data-review-node-id="${inserted.targetId}"]`),
+  ).toBe(node);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => {
+    store.activity.update(review.reviewId, { action: "end", leaseId });
+  });
+  await vi.waitFor(async () => {
+    await act(async () => {});
+    expect(container.textContent).not.toContain("Agent working…");
+  });
   await act(async () => {
     await command({
       type: "edit",
@@ -185,6 +204,10 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   });
   expect(container.textContent).not.toContain("Next section");
   await act(async () => {
+    store.activity.update(review.reviewId, { action: "begin", leaseId });
+  });
+  expect(container.textContent).not.toContain("Agent working…");
+  await act(async () => {
     await command({
       type: "edit",
       reviewId: review.reviewId,
@@ -209,6 +232,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       expect(container.textContent).toContain("Written while viewing history"),
     );
   });
+  expect(container.textContent).toContain("Agent working…");
 });
 
 it("keeps sequence step identities and supports explanation/code steps without invented source anchors", async () => {

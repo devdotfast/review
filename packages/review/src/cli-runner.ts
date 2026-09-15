@@ -206,6 +206,12 @@ interface CliRunState {
 }
 
 export async function runReviewCli(input: ReviewCliInput): Promise<number> {
+  if (input.argv[0] === "api" || input.argv[0] === "mcp") {
+    const { runReviewAgentCli } = await import("./review-api/agent-cli.js");
+
+    return runReviewAgentCli(input);
+  }
+
   const env = input.env ?? process.env;
   const cwd = input.cwd ?? env.INIT_CWD ?? process.cwd();
 
@@ -301,7 +307,11 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     .enablePositionalOptions()
     .version(cliVersion)
     .description("Create, publish, and open dev.fast Reviews.")
-    .addHelpText("after", reviewTopLevelHelp());
+    .addHelpText("after", reviewTopLevelHelp())
+    .addHelpText(
+      "after",
+      "\nJSON reviews: review api --help\nMCP adapter: review mcp\n",
+    );
 
   // Tolerate the leading form (`review --json scaffold`) as well as the usual
   // trailing one. Never give this a .default(): optsWithGlobals merges globals

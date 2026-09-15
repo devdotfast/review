@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
+import { authoringTools } from "./authoring-tools.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
 import type { ReviewStore } from "./store.js";
@@ -31,6 +32,20 @@ export function createReviewApi(
     return context.json({ error: "Review operation failed." }, 500);
   });
   app.get("/", (context) => context.json(store.list()));
+  app.get("/authoring", (context) => context.json(authoringTools()));
+  app.get("/:id/activity", (context) => {
+    const id = context.req.param("id");
+    store.read(id);
+
+    return context.json(store.activity.read(id));
+  });
+  app.post("/:id/activity", async (context) => {
+    const input = await readBoundedRequestJson(context.req.raw);
+    const id = context.req.param("id");
+    store.read(id);
+
+    return context.json(store.activity.update(id, input));
+  });
   app.get("/watch", () =>
     watch(
       () => store.list(),
@@ -49,11 +64,21 @@ export function createReviewApi(
     const id = context.req.param("id");
 
     return watch(
-      () => store.read(id),
-      (notify) =>
-        store.subscribe((result) => {
+      () => ({ ...store.read(id), activity: store.activity.read(id) }),
+      (notify) => {
+        const stopDocument = store.subscribe((result) => {
           if (result.reviewId === id) notify();
-        }),
+        });
+
+        const stopActivity = store.activity.subscribe((changed) => {
+          if (changed === id) notify();
+        });
+
+        return () => {
+          stopDocument();
+          stopActivity();
+        };
+      },
     );
   });
   app.get("/:id/feedback", (context) =>

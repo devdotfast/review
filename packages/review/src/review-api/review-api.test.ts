@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createGlobalReviewServer } from "../server/desktop-server.js";
+import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
 import { ReviewApiClient } from "./client.js";
 import { ReviewInputError } from "./document.js";
 import { type ReviewProviders, ReviewStore } from "./store.js";
@@ -525,6 +526,27 @@ it("serves the experiment through the real desktop HTTP server and existing auth
       token: "test-token",
     });
 
+    const tools = await client.read<AuthoringTool[]>("/authoring");
+    expect(
+      await callAuthoringTool(
+        client,
+        tools.find((t) => t.name === "review_list")!,
+        {},
+      ),
+    ).toMatchObject([{ reviewId }]);
+    await expect(
+      callAuthoringTool(client, tools.find((t) => t.name === "review_edit")!, {
+        commandId: randomUUID(),
+        reviewId,
+        edit: {
+          type: "insert",
+          content: {
+            type: "code_peek",
+            source: { side: "head", file: "x", fromLine: 0, toLine: 1 },
+          },
+        },
+      }),
+    ).rejects.toThrow(/fromLine/);
     const abort = new AbortController();
     const catalog = client.watch(null, abort.signal);
     expect((await catalog.next()).value).toMatchObject([

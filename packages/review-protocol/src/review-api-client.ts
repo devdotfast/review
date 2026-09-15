@@ -40,7 +40,8 @@ export class ReviewApiClient {
     if (!response.ok) {
       const body = await response.json().catch(() => null);
       throw new Error(
-        body?.error ?? `Review request failed (${response.status}).`,
+        (body?.error ?? `Review request failed (${response.status}).`) +
+          (body?.issues ? `\n${JSON.stringify(body.issues)}` : ""),
       );
     }
 

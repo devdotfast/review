@@ -2,11 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import {
-  jsonObject,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import { jsonObject, jsonString, parseJsonText } from "@dev.fast/json";
+import { findPackageRoot } from "@dev.fast/trace-core";
 
 const MODEL_SOURCE_FILES = new Set([
   "software-map-model.ts",
@@ -16,21 +13,7 @@ const MODEL_SOURCE_FILES = new Set([
 export function findProgressiveReviewPackageRoot(
   moduleUrl: string = import.meta.url,
 ): string {
-  const currentDir = path.dirname(fileURLToPath(moduleUrl));
-  let candidate = currentDir;
-
-  while (true) {
-    const directoryName = path.basename(candidate);
-
-    if (directoryName === "src" || directoryName === "dist") {
-      return path.dirname(candidate);
-    }
-
-    const parent = path.dirname(candidate);
-
-    if (parent === candidate) return currentDir;
-    candidate = parent;
-  }
+  return findPackageRoot(moduleUrl);
 }
 
 /**

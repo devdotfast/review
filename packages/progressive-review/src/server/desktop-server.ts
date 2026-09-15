@@ -31,12 +31,12 @@ import {
   parseReviewPublishReadyRequest,
   reviewViewSchema,
 } from "@dev.fast/review-protocol";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
-import { writePrivateJsonAtomic } from "../atomic-write";
 import {
   type ReviewAgentHarness,
   type SessionRef,

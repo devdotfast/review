@@ -11,8 +11,8 @@ import {
   gitLabDiffPositionRows,
   isJsonObject,
 } from "@dev.fast/review-protocol";
+import { writeFileAtomic } from "@dev.fast/trace-core";
 
-import { writeFileAtomic } from "./atomic-write";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import {
   reviewStateDir,

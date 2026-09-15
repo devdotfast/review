@@ -8,6 +8,7 @@ import {
   jjRevisionIsConflicted,
   resolveRevision,
 } from "@dev.fast/local-vcs";
+import { withFileLock } from "@dev.fast/trace-core";
 
 import { isInsideDirectory } from "./review-paths";
 import { removeReviewPrepareArtifacts } from "./review-prepare";
@@ -18,7 +19,6 @@ import {
   reviewManagedCheckoutRoot,
   reviewManagedCheckoutsDir,
 } from "./review-storage";
-import { withFileLock } from "./with-file-lock";
 
 // A review renders the pinned code on the canvas, but file reads against the
 // user's working tree see whatever is checked out there — including edits

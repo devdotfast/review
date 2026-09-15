@@ -15,17 +15,17 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-
-import {
-  type ReviewAgentHarness,
-  parseAuthoringSessionKey,
-} from "../authoring-session";
 import {
   codexSessionsRoot,
   findLocalTrace,
   indexCodexTraceFiles,
   listFilesRecursive,
-} from "../review-agent-traces";
+} from "@dev.fast/trace-core";
+
+import {
+  type ReviewAgentHarness,
+  parseAuthoringSessionKey,
+} from "../authoring-session";
 import { readReviewStoreRecord } from "../review-worktree-target";
 import { USER_DATA_REGEXES } from "../telemetry-clean-text";
 

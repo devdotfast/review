@@ -1,3 +1,4 @@
+import type { JsonValue } from "@dev.fast/json";
 import { z } from "zod";
 
 import {
@@ -43,15 +44,25 @@ import {
   type ReviewVerbResponse,
   ReviewVerbResponseSchema,
 } from "./contracts.js";
-import type { JsonValue } from "./json.js";
 
 export * from "./bug-report.js";
 
-export * from "./json.js";
-
-export * from "./runtime-value.js";
+export * from "@dev.fast/json";
 
 export * from "./contracts.js";
+
+export {
+  type ByCommitEntry,
+  type ReviewAgentTraceEvent,
+  ReviewAgentTraceEventSchema,
+  type ReviewAgentTraceSession,
+  ReviewAgentTraceSessionSchema,
+  type SessionMeta,
+  byCommitSchema,
+  commitShaSchema,
+  sessionIdSchema,
+  sessionMetaSchema,
+} from "@dev.fast/trace-protocol";
 
 export interface ReviewCliInstallResyncRequest {
   readonly targets: readonly ReviewCliInstallTarget[];

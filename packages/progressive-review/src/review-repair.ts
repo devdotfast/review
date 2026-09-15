@@ -6,8 +6,12 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import {
+  emitJsonEvent,
+  failWithJsonError,
+  humanStream,
+} from "@dev.fast/trace-core";
 
-import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import { UUID_PATTERN, findScopedReview } from "./review-home";
 import { prepareReviewRepair } from "./review-repair-preparation";

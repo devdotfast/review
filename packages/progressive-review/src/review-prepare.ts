@@ -4,8 +4,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { jsonObject, parseJsonText } from "@dev.fast/review-protocol";
-
-import { withFileLock } from "./with-file-lock";
+import { withFileLock } from "@dev.fast/trace-core";
 
 // Dependency preparation for pinned worktrees. The repo owner configures the
 // commands once per clone (`git config devfast.prepare '<command>'`, the key

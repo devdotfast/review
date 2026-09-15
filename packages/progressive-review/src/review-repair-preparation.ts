@@ -10,9 +10,11 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import {
+  errorMessage as message,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
 
-import { writePrivateJsonAtomic } from "./atomic-write";
-import { errorMessage as message } from "./error-message";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import {
   bundleReviewDocument,

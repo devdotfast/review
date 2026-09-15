@@ -3,12 +3,15 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+import {
+  processIsAlive,
+  withFileLock,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
 import { z } from "zod";
 
-import { writePrivateJsonAtomic } from "./atomic-write";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { devReviewHome } from "./review-storage";
-import { processIsAlive, withFileLock } from "./with-file-lock";
 
 const waitStateSchema = z.object({
   delivered: z.array(z.string()),

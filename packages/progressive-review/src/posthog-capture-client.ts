@@ -3,12 +3,11 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { parseJsonText } from "@dev.fast/review-protocol";
+import { withFileLock, writeFileAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
-import { writeFileAtomic } from "./atomic-write";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
 import { DEV_REVIEW_HOME_ENV, devReviewHome } from "./review-storage";
-import { withFileLock } from "./with-file-lock";
 
 export type PostHogCaptureProperties = Record<
   string,

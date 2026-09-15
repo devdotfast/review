@@ -53,6 +53,7 @@ describe("native Review Protocol source generation", () => {
     expect(output).not.toContain("./contracts.js");
     expect(output).not.toContain("./bug-report.js");
     expect(output).not.toContain("./json.js");
+    expect(output).not.toContain("@dev.fast/json");
     expect(output).not.toContain("./runtime-value.js");
     // The inlined dependency modules land whole, exactly once each.
     expect(output.match(/export function isCallableValue\(/g)).toHaveLength(1);
@@ -105,18 +106,24 @@ describe("native Review Protocol source generation", () => {
     const sourceRoot = path.join(directory, "src");
     await mkdir(sourceRoot, { recursive: true });
 
-    for (const name of [
-      "runtime-value.ts",
-      "json.ts",
-      "contracts.ts",
-      "index.ts",
-      "bug-report.ts",
-    ]) {
+    for (const name of ["contracts.ts", "index.ts", "bug-report.ts"]) {
       await copyFile(
         path.join(packageRoot, "src", name),
         path.join(sourceRoot, name),
       );
     }
+
+    for (const name of ["runtime-value.ts", "json.ts"]) {
+      await copyFile(
+        path.join(packageRoot, "..", "json", "src", name),
+        path.join(sourceRoot, name),
+      );
+    }
+
+    await copyFile(
+      path.join(packageRoot, "..", "trace-protocol", "src", "contracts.ts"),
+      path.join(sourceRoot, "trace-contracts.ts"),
+    );
 
     // Reformat index.ts: one named import per line, different order, the
     // re-exports moved to the bottom of the file, and the `contracts.js`
@@ -179,6 +186,7 @@ describe("native Review Protocol source generation", () => {
     await mkdir(sourceRoot, { recursive: true });
     await writeFile(path.join(sourceRoot, "runtime-value.ts"), "");
     await writeFile(path.join(sourceRoot, "json.ts"), "");
+    await writeFile(path.join(sourceRoot, "trace-contracts.ts"), "");
     await writeFile(
       path.join(sourceRoot, "contracts.ts"),
       [

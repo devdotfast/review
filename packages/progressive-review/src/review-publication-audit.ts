@@ -1,6 +1,11 @@
 import path from "node:path";
 
-import { extractTraceEventText } from "./agent-trace-parser";
+import {
+  errorMessage,
+  extractTraceEventText,
+  loadReviewAgentTrace,
+} from "@dev.fast/trace-core";
+
 import {
   type CallStackDiffProps,
   type CodePeekProps,
@@ -17,8 +22,6 @@ import {
   callStackEvidenceErrors,
   diffCallStacks,
 } from "./call-stack-diff";
-import { errorMessage } from "./error-message";
-import { loadReviewAgentTrace } from "./review-agent-traces";
 import {
   REVIEW_DOCUMENT_FORMAT,
   type ReviewDocumentData,

@@ -8,8 +8,8 @@ import {
   jsonNumber,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 
-import { writePrivateJsonAtomic } from "./atomic-write";
 import type { DismissedRetentionDays } from "./review-attention";
 import { devReviewHome } from "./review-storage";
 

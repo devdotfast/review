@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough, Readable } from "node:stream";
 
+import { runTraceSessions as runTraceSessionsActual } from "@dev.fast/trace-core";
 import { describe, expect, it, vi } from "vitest";
 
 import { runProgressiveReviewCli } from "./cli-runner";
@@ -43,14 +44,11 @@ import {
   runReviewThreadsReply as runReviewThreadsReplyActual,
   runReviewThreadsResolve as runReviewThreadsResolveActual,
 } from "./threads-cli";
-import { runReviewTraceStatus as runReviewTraceStatusActual } from "./trace-cli";
-import { runReviewTraceSessions as runReviewTraceSessionsActual } from "./trace-hosted-cli";
+import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
 
 describe("Review CLI", () => {
   it("routes own-upload status filters without requesting trace content", async () => {
-    const runReviewTraceStatus = vi.fn<typeof runReviewTraceStatusActual>(
-      async () => 0,
-    );
+    const runTraceStatus = vi.fn<typeof runTraceStatusActual>(async () => 0);
 
     const code = await runProgressiveReviewCli({
       argv: [
@@ -65,11 +63,11 @@ describe("Review CLI", () => {
       ],
       stdout: outputStream(),
       stderr: outputStream(),
-      runtime: { runReviewTraceStatus },
+      runtime: { runTraceStatus },
     });
 
     expect(code).toBe(0);
-    expect(runReviewTraceStatus).toHaveBeenCalledWith(
+    expect(runTraceStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         session: "my-upload-session",
         limit: 5,
@@ -795,7 +793,7 @@ describe("Review CLI", () => {
   });
 
   it("rejects a --limit that is not a whole number before the runtime runs", async () => {
-    const runReviewTraceSessions = vi.fn<typeof runReviewTraceSessionsActual>(
+    const runTraceSessions = vi.fn<typeof runTraceSessionsActual>(
       async () => 0,
     );
 
@@ -806,10 +804,10 @@ describe("Review CLI", () => {
           argv: ["trace", "sessions", "--limit", value],
           stdout: outputStream(),
           stderr,
-          runtime: { runReviewTraceSessions },
+          runtime: { runTraceSessions },
         }),
       ).resolves.toBe(1);
-      expect(runReviewTraceSessions).not.toHaveBeenCalled();
+      expect(runTraceSessions).not.toHaveBeenCalled();
     }
 
     await expect(
@@ -817,10 +815,10 @@ describe("Review CLI", () => {
         argv: ["trace", "sessions", "--limit", "50"],
         stdout: outputStream(),
         stderr: outputStream(),
-        runtime: { runReviewTraceSessions },
+        runtime: { runTraceSessions },
       }),
     ).resolves.toBe(0);
-    expect(runReviewTraceSessions).toHaveBeenCalledWith(
+    expect(runTraceSessions).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 50 }),
     );
   });

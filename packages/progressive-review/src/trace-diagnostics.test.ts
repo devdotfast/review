@@ -2,20 +2,18 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, expect, it } from "vitest";
-
-import { cliRuntimeInfo } from "./cli-runtime-info";
-import { traceTargetKey } from "./trace-repository-target";
-import {
-  recordTraceSessionProvenance,
-  requireTraceSessionProvenance,
-} from "./trace-session-provenance";
 import {
   describeTraceSyncFailure,
   listTraceSyncFailures,
+  recordTraceSessionProvenance,
   recordTraceSyncFailure,
+  requireTraceSessionProvenance,
   traceSyncStatusDir,
-} from "./trace-sync-status";
+  traceTargetKey,
+} from "@dev.fast/trace-core";
+import { afterEach, expect, it } from "vitest";
+
+import { cliRuntimeInfo } from "./cli-runtime-info";
 
 const roots: string[] = [];
 

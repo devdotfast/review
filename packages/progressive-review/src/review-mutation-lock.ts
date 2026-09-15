@@ -11,9 +11,9 @@ import {
   jsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { withFileLock } from "@dev.fast/trace-core";
 
 import type { StoredReviewRecord } from "./review-home";
-import { withFileLock } from "./with-file-lock";
 
 const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
 

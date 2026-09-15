@@ -14,24 +14,24 @@ import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
-import { valid as validVersion } from "semver";
-
-import { installFffForTargets, isFffTarget } from "./agent-fff";
 import {
+  type TraceCredentialsInput,
+  configureTraceMachine,
+  emitJsonEvent,
+  failWithJsonError,
+  humanStream,
   installClaudeTraceHook,
   installCodexTraceHook,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
-} from "./agent-trace-hooks";
-import { emitJsonEvent, failWithJsonError, humanStream } from "./cli-output";
+  traceMachineEnabled,
+} from "@dev.fast/trace-core";
+import { valid as validVersion } from "semver";
+
+import { installFffForTargets, isFffTarget } from "./agent-fff";
 import { isDirectory, isFile } from "./fs-utils";
 import { installDirectory } from "./install-directory";
 import { withSkillInstallLock } from "./skill-install-lock";
-import {
-  type TraceCredentialsInput,
-  configureTraceMachine,
-  traceMachineEnabled,
-} from "./trace-machine-setup";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
 

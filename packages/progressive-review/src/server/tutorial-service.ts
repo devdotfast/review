@@ -20,8 +20,8 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 
-import { writePrivateJsonAtomic } from "../atomic-write";
 import {
   type ReviewAgentHarness,
   freshSourceSessionKey,

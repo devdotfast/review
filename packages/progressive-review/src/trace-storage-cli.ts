@@ -4,51 +4,46 @@ import path from "node:path";
 
 import {
   type CliJsonOutput,
-  emitJsonEvent,
-  failWithJsonError,
-  humanStream,
-} from "./cli-output";
-import { clearTraceEnvCache } from "./review-agent-traces";
-import { devReviewHome } from "./review-storage";
-import { readStoreAuth } from "./store-auth";
-import { StoreApiError, StoreClient } from "./store-client";
-import { normalizeStoreOrigin } from "./store-origin";
-import { HOSTED_CAPTURE_SCOPE_DESCRIPTION } from "./trace-capture-scope";
-import {
-  readLegacyCaptureSettings,
-  traceMachineStatus,
-} from "./trace-machine-setup";
-import { traceRepositoryStatus } from "./trace-repository-hooks";
-import {
-  type TraceRepositoryTarget,
-  requireTraceConsent,
-  resolveTraceRepositoryTarget,
-} from "./trace-repository-target";
-import {
   DEFAULT_HOSTED_ORIGIN,
+  HOSTED_CAPTURE_SCOPE_DESCRIPTION,
   type S3CaptureSettings,
+  type S3Credentials,
   type S3Profile,
+  S3_DEFAULT_REGION,
+  StoreApiError,
+  StoreClient,
   type TraceConfig,
   TraceConfigurationError,
+  type TraceRepositoryTarget,
+  clearTraceEnvCache,
   currentStore,
+  describeSelection,
+  emitJsonEvent,
   emptyTraceConfig,
+  failWithJsonError,
+  humanStream,
+  isS3MockMode,
+  loadS3TraceStorage,
+  normalizeStoreOrigin,
+  readLegacyCaptureSettings,
+  readStoreAuth,
   readTraceConfigFile,
+  readTraceEnvFile,
+  readTraceUserConfig,
+  requireTraceConsent,
+  resolveS3Setup,
+  resolveTraceRepositoryTarget,
   s3ProfileSchema,
   s3Store,
   sameS3Profile,
-  writeTraceConfigFile,
-} from "./trace-storage/config";
-import { describeSelection, selectTraceStorage } from "./trace-storage/resolve";
-import { S3TraceStorage } from "./trace-storage/s3";
-import {
-  type S3Credentials,
-  S3_DEFAULT_REGION,
-  isS3MockMode,
-  readTraceEnvFile,
-  resolveS3Setup,
+  selectTraceStorage,
+  traceMachineStatus,
+  traceRepositoryStatus,
   traceSettingsPath,
-} from "./trace-storage/s3-config";
-import { readTraceUserConfig } from "./trace-user-config";
+  writeTraceConfigFile,
+} from "@dev.fast/trace-core";
+
+import { devReviewHome } from "./review-storage";
 
 /**
  * `review trace storage use` and `review trace config migrate`: the explicit
@@ -76,7 +71,7 @@ export interface RunReviewTraceStorageUseInput
   region?: string;
 }
 
-export async function runReviewTraceStorageUse(
+export async function runTraceStorageUse(
   input: RunReviewTraceStorageUseInput,
 ): Promise<number> {
   const stage = "trace.storage.use";
@@ -309,7 +304,7 @@ export function legacyRetiredPath(filePath: string): string {
  * Copies the effective legacy bucket setup into the version-2 config.
  * Configuration moves; bucket objects, paths, and formats do not.
  */
-export async function runReviewTraceConfigMigrate(
+export async function runTraceConfigMigrate(
   input: RunReviewTraceConfigMigrateInput,
 ): Promise<number> {
   const stage = "trace.config.migrate";
@@ -502,6 +497,8 @@ async function requireReachable(
     secretAccessKey: profile.secretAccessKey,
     region: profile.region ?? S3_DEFAULT_REGION,
   };
+
+  const S3TraceStorage = await loadS3TraceStorage();
 
   const readiness = await S3TraceStorage.fromCredentials(
     credentials,

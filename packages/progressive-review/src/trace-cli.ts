@@ -1,17 +1,18 @@
 import type { Writable } from "node:stream";
 
-import { reviewUuidForManagedCheckout } from "./review-head-checkout";
-import { type StoredReview, findReview, listReviews } from "./review-home";
-import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import {
   type TraceListScope,
   type TracePullScope,
   type TraceReviewScope,
-  runReviewTraceList as listWithScope,
-  runReviewTracePull as pullWithScope,
+  runTraceList as listWithScope,
+  runTracePull as pullWithScope,
   resolveTraceReadStorage,
-} from "./trace-read-cli";
-import type { TraceStorageKind } from "./trace-storage/types";
+} from "@dev.fast/trace-core";
+import type { TraceStorageKind } from "@dev.fast/trace-core";
+
+import { reviewUuidForManagedCheckout } from "./review-head-checkout";
+import { type StoredReview, findReview, listReviews } from "./review-home";
+import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 
 /**
  * The Review app's trace commands. It resolves `--review <uuid>` (or the
@@ -20,26 +21,23 @@ import type { TraceStorageKind } from "./trace-storage/types";
  */
 
 export {
-  runReviewTraceDisable,
-  runReviewTraceDoctor,
-  runReviewTraceEnable,
-  runReviewTraceGitHook,
-  runReviewTraceHook,
-  runReviewTraceRepair,
-  runReviewTraceStatus,
-  runReviewTraceSync,
-} from "./trace-capture-cli";
-
-export {
+  runTraceDisable,
+  runTraceDoctor,
+  runTraceEnable,
+  runTraceGitHook,
+  runTraceHook,
+  runTraceRepair,
+  runTraceStatus,
+  runTraceSync,
   type TraceListScope,
   type TracePullScope,
   type TraceReviewScope,
-  runReviewTraceBlame,
-  runReviewTraceLookupBlame,
-  runReviewTraceLookupCommit,
-  runReviewTraceLookupSession,
-  runReviewTraceShow,
-} from "./trace-read-cli";
+  runTraceBlame,
+  runTraceLookupBlame,
+  runTraceLookupCommit,
+  runTraceLookupSession,
+  runTraceShow,
+} from "@dev.fast/trace-core";
 
 export async function resolveTraceReviewScope(
   cwd: string,
@@ -56,7 +54,7 @@ export async function resolveTraceReviewScope(
   };
 }
 
-export async function runReviewTraceList(input: {
+export async function runTraceList(input: {
   cwd: string;
   reviewUuid?: string;
   commitSha?: string;
@@ -84,7 +82,7 @@ export async function runReviewTraceList(input: {
   });
 }
 
-export async function runReviewTracePull(input: {
+export async function runTracePull(input: {
   cwd: string;
   repo?: string;
   reviewUuid?: string;

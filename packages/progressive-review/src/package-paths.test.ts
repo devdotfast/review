@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -7,6 +8,7 @@ import {
   findProgressiveReviewPackageRoot,
   progressiveReviewAppSourcePath,
   progressiveReviewAuthoringTypesPath,
+  progressiveReviewModelModulePath,
 } from "./package-paths";
 
 describe("findProgressiveReviewPackageRoot", () => {
@@ -45,6 +47,19 @@ describe("compiler resource paths", () => {
     pathToFileURL(path.join(packageRoot, "dist", "server", "desktop-host.js"))
       .href,
   ];
+
+  it("resolves default resources in Review when the root finder lives in trace-core", () => {
+    expect(findProgressiveReviewPackageRoot()).toBe(packageRoot);
+    expect(progressiveReviewAppSourcePath()).toBe(
+      path.join(packageRoot, "app", "src"),
+    );
+    expect(progressiveReviewAuthoringTypesPath()).toBe(
+      path.join(packageRoot, "src", "authoring.ts"),
+    );
+    const model = progressiveReviewModelModulePath("software-map-model.ts");
+    expect(model.startsWith(`${packageRoot}${path.sep}`)).toBe(true);
+    expect(existsSync(model)).toBe(true);
+  });
 
   it("resolves the review app source directory inside the package", () => {
     for (const moduleUrl of moduleUrls) {

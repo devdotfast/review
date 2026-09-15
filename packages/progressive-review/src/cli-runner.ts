@@ -10,13 +10,25 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-import { Argument, Command, CommanderError, Option } from "commander";
-
 import {
   type CliInputStream,
+  DEFAULT_STORE_ORIGIN,
   humanStream,
   jsonRequestedInArgv,
-} from "./cli-output";
+  registerTraceCommands,
+  resolveTraceCommand,
+  runStoreLogin,
+  runStoreLogout,
+  runStoreWhoami,
+  runTraceAllow,
+  runTraceDeny,
+  runTraceOnboard,
+  runTraceSessions,
+  traceHomeDir,
+  traceScope,
+} from "@dev.fast/trace-core";
+import { Argument, Command, CommanderError, Option } from "commander";
+
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import {
   type CodexWaitProcessInput,
@@ -73,42 +85,25 @@ import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
-  DEFAULT_STORE_ORIGIN,
-  runReviewLogin,
-  runReviewLogout,
-  runReviewWhoami,
-} from "./store-auth";
-import {
   runReviewThreadsGet,
   runReviewThreadsList,
   runReviewThreadsReply,
   runReviewThreadsResolve,
 } from "./threads-cli";
 import {
-  runReviewTraceBlame,
-  runReviewTraceDisable,
-  runReviewTraceEnable,
-  runReviewTraceGitHook,
-  runReviewTraceHook,
-  runReviewTraceList,
-  runReviewTracePull,
-  runReviewTraceRepair,
-  runReviewTraceShow,
-  runReviewTraceStatus,
-  runReviewTraceSync,
+  runTraceBlame,
+  runTraceDisable,
+  runTraceEnable,
+  runTraceGitHook,
+  runTraceHook,
+  runTraceList,
+  runTracePull,
+  runTraceRepair,
+  runTraceShow,
+  runTraceStatus,
+  runTraceSync,
 } from "./trace-cli";
-import { resolveTraceCommand, traceHomeDir, traceScope } from "./trace-command";
-import { registerTraceCommands } from "./trace-commands";
-import {
-  runReviewTraceAllow,
-  runReviewTraceDeny,
-  runReviewTraceOnboard,
-  runReviewTraceSessions,
-} from "./trace-hosted-cli";
-import {
-  runReviewTraceConfigMigrate,
-  runReviewTraceStorageUse,
-} from "./trace-storage-cli";
+import { runTraceConfigMigrate, runTraceStorageUse } from "./trace-storage-cli";
 
 interface ProgressiveReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
@@ -136,26 +131,26 @@ interface ProgressiveReviewCliRuntime {
   installReviewCommand: typeof installReviewCommand;
   runReviewMigration: typeof runReviewMigration;
   runSoftwareMapCli: typeof runSoftwareMapCli;
-  runReviewTraceStatus: typeof runReviewTraceStatus;
-  runReviewTraceEnable: typeof runReviewTraceEnable;
-  runReviewTraceDisable: typeof runReviewTraceDisable;
-  runReviewTraceRepair: typeof runReviewTraceRepair;
-  runReviewTraceList: typeof runReviewTraceList;
-  runReviewTraceShow: typeof runReviewTraceShow;
-  runReviewTracePull: typeof runReviewTracePull;
-  runReviewTraceBlame: typeof runReviewTraceBlame;
-  runReviewTraceHook: typeof runReviewTraceHook;
-  runReviewTraceGitHook: typeof runReviewTraceGitHook;
-  runReviewTraceSync: typeof runReviewTraceSync;
-  runReviewTraceStorageUse: typeof runReviewTraceStorageUse;
-  runReviewTraceConfigMigrate: typeof runReviewTraceConfigMigrate;
-  runReviewTraceOnboard: typeof runReviewTraceOnboard;
-  runReviewTraceSessions: typeof runReviewTraceSessions;
-  runReviewTraceAllow: typeof runReviewTraceAllow;
-  runReviewTraceDeny: typeof runReviewTraceDeny;
-  runReviewLogin: typeof runReviewLogin;
-  runReviewLogout: typeof runReviewLogout;
-  runReviewWhoami: typeof runReviewWhoami;
+  runTraceStatus: typeof runTraceStatus;
+  runTraceEnable: typeof runTraceEnable;
+  runTraceDisable: typeof runTraceDisable;
+  runTraceRepair: typeof runTraceRepair;
+  runTraceList: typeof runTraceList;
+  runTraceShow: typeof runTraceShow;
+  runTracePull: typeof runTracePull;
+  runTraceBlame: typeof runTraceBlame;
+  runTraceHook: typeof runTraceHook;
+  runTraceGitHook: typeof runTraceGitHook;
+  runTraceSync: typeof runTraceSync;
+  runTraceStorageUse: typeof runTraceStorageUse;
+  runTraceConfigMigrate: typeof runTraceConfigMigrate;
+  runTraceOnboard: typeof runTraceOnboard;
+  runTraceSessions: typeof runTraceSessions;
+  runTraceAllow: typeof runTraceAllow;
+  runTraceDeny: typeof runTraceDeny;
+  runStoreLogin: typeof runStoreLogin;
+  runStoreLogout: typeof runStoreLogout;
+  runStoreWhoami: typeof runStoreWhoami;
   listReviews: typeof listReviews;
   sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
@@ -953,7 +948,7 @@ export async function runProgressiveReviewCli(
         browser?: boolean;
         json?: boolean;
       }) => {
-        state.exitCode = await runtime.runReviewLogin({
+        state.exitCode = await runtime.runStoreLogin({
           origin: options.origin,
           noBrowser: !options.browser,
           json: options.json,
@@ -967,14 +962,14 @@ export async function runProgressiveReviewCli(
     .command("logout")
     .description("Forget the hosted trace store login")
     .action(async () => {
-      state.exitCode = await runtime.runReviewLogout({ stdout: input.stdout });
+      state.exitCode = await runtime.runStoreLogout({ stdout: input.stdout });
     });
 
   configureJsonOutput(
     program.command("whoami").description("Show the hosted trace store login"),
     "plain",
   ).action(async (options: { json?: boolean }) => {
-    state.exitCode = await runtime.runReviewWhoami({
+    state.exitCode = await runtime.runStoreWhoami({
       json: options.json,
       stdout: input.stdout,
       stderr: input.stderr,
@@ -1036,7 +1031,7 @@ export async function runProgressiveReviewCli(
         json?: boolean;
       },
     ) => {
-      state.exitCode = await runtime.runReviewTraceStorageUse({
+      state.exitCode = await runtime.runTraceStorageUse({
         cwd,
         mode,
         origin: options.origin,
@@ -1075,7 +1070,7 @@ export async function runProgressiveReviewCli(
       keepLegacy?: boolean;
       json?: boolean;
     }) => {
-      state.exitCode = await runtime.runReviewTraceConfigMigrate({
+      state.exitCode = await runtime.runTraceConfigMigrate({
         dryRun: options.dryRun,
         keepLegacy: options.keepLegacy,
         json: options.json,
@@ -1350,26 +1345,26 @@ function progressiveReviewCliRuntime(
     installReviewCommand,
     runReviewMigration,
     runSoftwareMapCli,
-    runReviewTraceStatus,
-    runReviewTraceEnable,
-    runReviewTraceDisable,
-    runReviewTraceRepair,
-    runReviewTraceList,
-    runReviewTraceShow,
-    runReviewTracePull,
-    runReviewTraceBlame,
-    runReviewTraceHook,
-    runReviewTraceGitHook,
-    runReviewTraceSync,
-    runReviewTraceStorageUse,
-    runReviewTraceConfigMigrate,
-    runReviewTraceOnboard,
-    runReviewTraceSessions,
-    runReviewTraceAllow,
-    runReviewTraceDeny,
-    runReviewLogin,
-    runReviewLogout,
-    runReviewWhoami,
+    runTraceStatus,
+    runTraceEnable,
+    runTraceDisable,
+    runTraceRepair,
+    runTraceList,
+    runTraceShow,
+    runTracePull,
+    runTraceBlame,
+    runTraceHook,
+    runTraceGitHook,
+    runTraceSync,
+    runTraceStorageUse,
+    runTraceConfigMigrate,
+    runTraceOnboard,
+    runTraceSessions,
+    runTraceAllow,
+    runTraceDeny,
+    runStoreLogin,
+    runStoreLogout,
+    runStoreWhoami,
     listReviews,
     sealReviewCandidate,
     prepareReviewPinnedCheckout,

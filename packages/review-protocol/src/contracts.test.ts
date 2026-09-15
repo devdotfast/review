@@ -1,3 +1,4 @@
+import { type JsonObject, jsonValueSchema } from "@dev.fast/json";
 import { describe, expect, it } from "vitest";
 import type { ZodType } from "zod";
 
@@ -46,8 +47,6 @@ import {
   summarizeReviewDiffFiles,
 } from "./contracts.js";
 import type { ReviewDocumentLoad, ReviewSoftwareMapLoad } from "./contracts.js";
-import { jsonValueSchema } from "./json.js";
-import type { JsonObject } from "./json.js";
 
 it("accepts retryable busy errors through strict response envelopes", () => {
   const busy = {

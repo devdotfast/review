@@ -1,0 +1,589 @@
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+import { promisify } from "node:util";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { writeStoreAuth } from "./store-auth";
+import { TRACE_SESSION_TTL_MS } from "./trace-agent-sessions";
+import { traceScope } from "./trace-command";
+import { runTraceGitHook } from "./trace-git-hook-runner";
+import { runTraceHook } from "./trace-hook-runner";
+import { configureTraceMachine } from "./trace-machine-setup";
+import { traceTargetKey } from "./trace-repository-target";
+import { readTraceSessionProvenance } from "./trace-session-provenance";
+import { traceConfigPath } from "./trace-storage/config";
+import { allowTraceRepository } from "./trace-user-config";
+
+const execFilePromise = promisify(execFile);
+
+const tempRoots: string[] = [];
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+
+  while (tempRoots.length > 0) {
+    const dir = tempRoots.pop();
+
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+async function runGit(root: string, args: string[]): Promise<string> {
+  const { stdout } = await execFilePromise("git", ["-C", root, ...args], {
+    encoding: "utf8",
+  });
+
+  return stdout.trim();
+}
+
+async function runJj(root: string, args: string[]): Promise<string> {
+  const { stdout } = await execFilePromise("jj", args, {
+    cwd: root,
+    encoding: "utf8",
+  });
+
+  return stdout;
+}
+
+async function makeGitRepo(): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "trace-hook-runner-test-"));
+  tempRoots.push(dir);
+  await runGit(dir, ["init", "-b", "main"]);
+  await runGit(dir, ["config", "user.name", "Test User"]);
+  await runGit(dir, ["config", "user.email", "test@example.com"]);
+  await writeFile(path.join(dir, "README.md"), "# Test\n");
+  await runGit(dir, ["add", "README.md"]);
+  await runGit(dir, ["commit", "-m", "initial"]);
+  await configureTraceMachine({
+    homeDir: dir,
+    env: { TRACE_R2_MODE: "mock" },
+    credentials: {
+      endpoint: "mock://endpoint",
+      bucket: "mock-bucket",
+      key: "mock-key",
+      secret: "mock-secret",
+    },
+  });
+
+  return dir;
+}
+
+describe("runTraceHook", () => {
+  it("re-enters the injected command from the git hooks and detached sync", async () => {
+    const repo = await makeGitRepo();
+    const log = path.join(repo, "hook-calls.log");
+    const script = path.join(repo, "fake-cli.sh");
+    await writeFile(script, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\n`, {
+      mode: 0o755,
+    });
+    const traceCommand = { file: script, args: ["--flag"] };
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+
+    await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+      traceCommand,
+    });
+
+    const prePush = await readFile(
+      path.join(repo, ".git", "dev-fast", "trace-hooks", "hooks", "pre-push"),
+      "utf8",
+    );
+
+    expect(prePush).toContain(`'${script}' '--flag' trace git-hook pre-push`);
+
+    await runTraceHook({
+      cwd: repo,
+      event: "SessionEnd",
+      sessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+      traceCommand,
+    });
+
+    expect(await waitForCompleteFile(log)).toMatch(
+      new RegExp(`^--flag trace sync ${sessionId} --expect-storage \\S+\\n$`),
+    );
+  });
+
+  it("records session ID on SessionStart and removes on SessionEnd", async () => {
+    const repo = await makeGitRepo();
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    const now = 1_800_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
+    // 1. SessionStart via CLI args
+    const startCode = await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+
+    expect(startCode).toBe(0);
+
+    const agentSessionFile = path.join(repo, ".git", "agent-session");
+    expect(existsSync(agentSessionFile)).toBe(true);
+    expect(await readFile(agentSessionFile, "utf8")).toBe(
+      `${sessionId}\t${now}\n`,
+    );
+
+    // 2. Another session joins
+    const secondSessionId = "02b015e4-0477-7055-a0fd-21a0f72a4ec7";
+    await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId: secondSessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    expect(await readFile(agentSessionFile, "utf8")).toBe(
+      `${sessionId}\t${now}\n${secondSessionId}\t${now}\n`,
+    );
+
+    // 3. First session ends
+    const endCode = await runTraceHook({
+      cwd: repo,
+      event: "SessionEnd",
+      sessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+
+    expect(endCode).toBe(0);
+    expect(await readFile(agentSessionFile, "utf8")).toBe(
+      `${secondSessionId}\t${now}\n`,
+    );
+
+    // 4. Second session ends (file should be deleted)
+    await runTraceHook({
+      cwd: repo,
+      event: "SessionEnd",
+      sessionId: secondSessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    expect(existsSync(agentSessionFile)).toBe(false);
+  });
+
+  it("parses Claude/Codex hook JSON from stdin", async () => {
+    const repo = await makeGitRepo();
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    const now = 1_800_000_000_000;
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
+    const startPayload = JSON.stringify({
+      hook_event_name: "SessionStart",
+      session_id: sessionId,
+    });
+
+    const stdinStart = Readable.from([startPayload]);
+
+    await runTraceHook({
+      cwd: repo,
+      event: "unknown",
+      stdin: stdinStart,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+
+    const agentSessionFile = path.join(repo, ".git", "agent-session");
+    expect(existsSync(agentSessionFile)).toBe(true);
+    expect(await readFile(agentSessionFile, "utf8")).toBe(
+      `${sessionId}\t${now}\n`,
+    );
+
+    const endPayload = JSON.stringify({
+      hook_event_name: "SessionEnd",
+      session_id: sessionId,
+    });
+
+    const stdinEnd = Readable.from([endPayload]);
+
+    await runTraceHook({
+      cwd: repo,
+      event: "unknown",
+      stdin: stdinEnd,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+
+    expect(existsSync(agentSessionFile)).toBe(false);
+  });
+
+  it("refreshes timestamps on turn start and drops stale sessions", async () => {
+    const repo = await makeGitRepo();
+    const staleSessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    const activeSessionId = "02b015e4-0477-7055-a0fd-21a0f72a4ec7";
+    const startedAt = 1_800_000_000_000;
+    const heartbeatAt = startedAt + TRACE_SESSION_TTL_MS + 1;
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+
+    await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId: staleSessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    now.mockReturnValue(heartbeatAt);
+    await runTraceHook({
+      cwd: repo,
+      event: "UserPromptSubmit",
+      sessionId: activeSessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+
+    const agentSessionFile = path.join(repo, ".git", "agent-session");
+    expect(await readFile(agentSessionFile, "utf8")).toBe(
+      `${activeSessionId}\t${heartbeatAt}\n`,
+    );
+
+    now.mockReturnValue(heartbeatAt + 1_000);
+    await runTraceHook({
+      cwd: repo,
+      event: "turn_start",
+      sessionId: activeSessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    expect(await readFile(agentSessionFile, "utf8")).toBe(
+      `${activeSessionId}\t${heartbeatAt + 1_000}\n`,
+    );
+  });
+
+  it("prunes stale sessions before stamping a Git commit", async () => {
+    const repo = await makeGitRepo();
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    const startedAt = 1_800_000_000_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+
+    await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    now.mockReturnValue(startedAt + TRACE_SESSION_TTL_MS + 1);
+    const messagePath = path.join(repo, ".git", "COMMIT_EDITMSG");
+    await writeFile(messagePath, "Test commit\n");
+    await runTraceGitHook({
+      cwd: repo,
+      hook: "prepare-commit-msg",
+      args: [messagePath],
+      stderr: process.stderr,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+
+    expect(await readFile(messagePath, "utf8")).toBe("Test commit\n");
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
+
+    await runTraceHook({
+      cwd: repo,
+      event: "UserPromptSubmit",
+      sessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    await writeFile(messagePath, "Fresh commit\n");
+    await runTraceGitHook({
+      cwd: repo,
+      hook: "prepare-commit-msg",
+      args: [messagePath],
+      stderr: process.stderr,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    expect(await readFile(messagePath, "utf8")).toContain(
+      `Agent-Session: ${sessionId}`,
+    );
+  });
+
+  it("writes valid Jujutsu commit trailer templates", async () => {
+    if (!(await commandAvailable("jj"))) return;
+    const repo = await makeGitRepo();
+    await runJj(repo, ["git", "init", "--colocate", "."]);
+    const firstSessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    const secondSessionId = "02b015e4-0477-7055-a0fd-21a0f72a4ec7";
+    const startedAt = 1_800_000_000_000;
+    const now = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+
+    for (const sessionId of [firstSessionId, secondSessionId]) {
+      await runTraceHook({
+        cwd: repo,
+        event: "SessionStart",
+        sessionId,
+        scope: traceScope({
+          homeDir: repo,
+          env: { TRACE_R2_MODE: "mock" },
+        }),
+      });
+    }
+
+    await runJj(repo, ["describe", "-m", "Trace work"]);
+
+    const description = await runJj(repo, [
+      "log",
+      "-r",
+      "@",
+      "--no-graph",
+      "-T",
+      "description",
+    ]);
+
+    expect(description).toBe(
+      `Trace work\n\nAgent-Session: ${firstSessionId}\nAgent-Session: ${secondSessionId}\n`,
+    );
+
+    now.mockReturnValue(startedAt + TRACE_SESSION_TTL_MS + 1);
+    await runTraceHook({
+      cwd: repo,
+      event: "UserPromptSubmit",
+      sessionId: firstSessionId,
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+    await runJj(repo, ["describe", "-m", "Fresh trace work"]);
+
+    const refreshedDescription = await runJj(repo, [
+      "log",
+      "-r",
+      "@",
+      "--no-graph",
+      "-T",
+      "description",
+    ]);
+
+    expect(refreshedDescription).toBe(
+      `Fresh trace work\n\nAgent-Session: ${firstSessionId}\n`,
+    );
+  });
+
+  it("ignores invalid or malformed session IDs safely", async () => {
+    const repo = await makeGitRepo();
+
+    const code = await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId: "invalid!@#$%",
+      scope: traceScope({
+        homeDir: repo,
+        env: { TRACE_R2_MODE: "mock" },
+      }),
+    });
+
+    expect(code).toBe(0);
+
+    const agentSessionFile = path.join(repo, ".git", "agent-session");
+    expect(existsSync(agentSessionFile)).toBe(false);
+  });
+});
+
+async function waitForCompleteFile(filePath: string): Promise<string> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (existsSync(filePath)) {
+      const content = await readFile(filePath, "utf8");
+
+      if (content.endsWith("\n")) return content;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`No complete hook call was logged at ${filePath}.`);
+}
+
+async function commandAvailable(command: string): Promise<boolean> {
+  return execFilePromise(command, ["--version"])
+    .then(() => true)
+    .catch(() => false);
+}
+
+describe("runTraceHook with hosted storage", () => {
+  const origin = "https://app.dev.fast";
+
+  async function hostedRepo(input: {
+    remote: string;
+    allow: boolean;
+    selectHosted?: boolean;
+  }): Promise<{ repo: string; env: NodeJS.ProcessEnv; devHome: string }> {
+    const repo = await mkdtemp(
+      path.join(os.tmpdir(), "trace-hook-hosted-test-"),
+    );
+
+    tempRoots.push(repo);
+    await runGit(repo, ["init", "-b", "main"]);
+    await runGit(repo, ["config", "user.name", "Test User"]);
+    await runGit(repo, ["config", "user.email", "test@example.com"]);
+    await runGit(repo, ["remote", "add", "origin", input.remote]);
+    await writeFile(path.join(repo, "README.md"), "# Test\n");
+    await runGit(repo, ["add", "README.md"]);
+    await runGit(repo, ["commit", "-m", "initial"]);
+    const devHome = path.join(repo, ".dev");
+    const env: NodeJS.ProcessEnv = { DEV_REVIEW_HOME: devHome };
+    const configPath = traceConfigPath({ devHome });
+    await mkdir(path.dirname(configPath), { recursive: true });
+
+    const config =
+      input.selectHosted === false
+        ? { version: 2 }
+        : { version: 2, "current-store": "hosted" };
+
+    await writeFile(configPath, JSON.stringify(config));
+
+    if (input.allow) {
+      await allowTraceRepository(
+        { repositoryId: 1, name: "acme/hook-test", origin },
+        devHome,
+      );
+    }
+
+    return { repo, env, devHome };
+  }
+
+  it("ignores a repository with no consent entry but still records provenance", async () => {
+    const { repo, env, devHome } = await hostedRepo({
+      remote: "git@github.com:acme/other.git",
+      allow: false,
+    });
+
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec9";
+
+    const code = await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      scope: traceScope({ homeDir: repo, env }),
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(false);
+    // The session still leaves a mark, so a publication elsewhere can see it
+    // ran here.
+    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
+      expect.objectContaining({
+        identity: "unallowed:acme/other",
+        allowed: false,
+      }),
+    ]);
+  });
+
+  it("records the allowed target only when the login names the selected store", async () => {
+    const { repo, env, devHome } = await hostedRepo({
+      remote: "git@github.com:acme/hook-test.git",
+      allow: true,
+    });
+
+    const sessionId = "01a015e4-0477-7055-a0fd-21a0f72a4ec6";
+    await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      scope: traceScope({ homeDir: repo, env }),
+    });
+    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
+      expect.objectContaining({
+        identity: "unallowed:acme/hook-test",
+        allowed: false,
+      }),
+    ]);
+    // Consent alone stamps the session; publication needs the login too.
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(true);
+
+    await writeStoreAuth(
+      {
+        origin,
+        token: "t",
+        login: "dev",
+        savedAt: "2026-09-02T00:00:00Z",
+      },
+      env,
+    );
+    const other = "02b015e4-0477-7055-a0fd-21a0f72a4ec7";
+    await runTraceHook({
+      cwd: repo,
+      event: "UserPromptSubmit",
+      sessionId: other,
+      scope: traceScope({ homeDir: repo, env }),
+    });
+    expect(await readTraceSessionProvenance(other, devHome)).toEqual([
+      expect.objectContaining({
+        identity: traceTargetKey({ origin, repositoryId: 1 }),
+        allowed: true,
+      }),
+    ]);
+  });
+
+  it("captures with consent alone when no bucket is configured", async () => {
+    // A hosted-only machine needs nothing beyond the consent list: the
+    // hosted store at the default origin is inferred.
+    const { repo, env, devHome } = await hostedRepo({
+      remote: "git@github.com:acme/hook-test.git",
+      allow: true,
+      selectHosted: false,
+    });
+
+    await writeStoreAuth(
+      { origin, token: "t", login: "dev", savedAt: "2026-09-02T00:00:00Z" },
+      env,
+    );
+    const sessionId = "03c015e4-0477-7055-a0fd-21a0f72a4ec8";
+
+    const code = await runTraceHook({
+      cwd: repo,
+      event: "SessionStart",
+      sessionId,
+      scope: traceScope({ homeDir: repo, env }),
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(path.join(repo, ".git", "agent-session"))).toBe(true);
+    expect(await readTraceSessionProvenance(sessionId, devHome)).toEqual([
+      expect.objectContaining({ allowed: true }),
+    ]);
+  });
+});

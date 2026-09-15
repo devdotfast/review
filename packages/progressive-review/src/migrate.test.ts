@@ -4,10 +4,10 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
+import { collectingWritable } from "@dev.fast/trace-core";
 import * as git from "isomorphic-git";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { collectingWritable } from "./cli-output";
 import {
   type ReviewPackageManager,
   migrateJjReviewRepositories,

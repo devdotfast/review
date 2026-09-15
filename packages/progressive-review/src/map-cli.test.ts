@@ -18,9 +18,9 @@ import {
   remoteNotesRef,
   writeNote,
 } from "@dev.fast/local-vcs";
+import { collectingWritable } from "@dev.fast/trace-core";
 import { describe, expect, it } from "vitest";
 
-import { collectingWritable } from "./cli-output";
 import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
 import { createReviewDir } from "./review-home";
 import { SOFTWARE_MAP_NOTES_REF } from "./review-storage";

@@ -8,9 +8,9 @@ import {
   isJsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { errorMessage } from "@dev.fast/trace-core";
 
 import type { SessionRef } from "./authoring-session";
-import { errorMessage } from "./error-message";
 import { findClaudeTranscript } from "./native-agent/claude-transcript";
 import { forkCodexThread } from "./native-agent/codex-app-server";
 import { forkOpencodeSession } from "./native-agent/opencode";

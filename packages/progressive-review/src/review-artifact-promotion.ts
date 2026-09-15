@@ -2,8 +2,8 @@ import { cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import type { ReviewRecord } from "@dev.fast/review-protocol";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 
-import { writePrivateJsonAtomic } from "./atomic-write";
 import { isMissingFileError } from "./native-agent/transcript-json";
 
 export async function promoteReviewArtifactFiles(input: {

@@ -2,9 +2,9 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { errorMessage } from "@dev.fast/trace-core";
 import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
 
-import { errorMessage } from "./error-message";
 import {
   type PublishValidationRuntime,
   type ReviewPublishEvaluationInput,

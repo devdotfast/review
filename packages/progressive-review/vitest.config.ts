@@ -24,11 +24,17 @@ const isolatedTests = [
 export default defineConfig({
   resolve: {
     alias: {
+      "@dev.fast/trace-core": fileURLToPath(
+        new URL("../trace-core/src/index.ts", import.meta.url),
+      ),
+      "@dev.fast/json": fileURLToPath(
+        new URL("../json/src/index.ts", import.meta.url),
+      ),
       "@dev.fast/local-vcs": fileURLToPath(
         new URL("../local-vcs/src/index.ts", import.meta.url),
       ),
-      "@dev.fast/trace-shared": fileURLToPath(
-        new URL("../trace-shared/src/index.ts", import.meta.url),
+      "@dev.fast/trace-protocol": fileURLToPath(
+        new URL("../trace-protocol/src/index.ts", import.meta.url),
       ),
       "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
     },

@@ -7,9 +7,9 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { withFileLock, writeFileAtomic } from "@dev.fast/trace-core";
 import { valid as validSemver } from "semver";
 
-import { writeFileAtomic } from "./atomic-write";
 import { resolveAuthoringSessionRef } from "./authoring-session";
 import { EMBEDDED_PROGRESSIVE_REVIEW_POSTHOG_KEY } from "./embedded-posthog-key";
 import { findProgressiveReviewPackageRoot } from "./package-paths";
@@ -30,7 +30,6 @@ import {
   progressiveReviewTelemetryConfigPath,
 } from "./telemetry-config";
 import { createTelemetryDebugSink } from "./telemetry-debug-sink";
-import { withFileLock } from "./with-file-lock";
 
 export const REVIEW_APP_VERSION_ENV = "DEV_FAST_REVIEW_APP_VERSION";
 

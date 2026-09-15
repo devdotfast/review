@@ -22,6 +22,18 @@ import {
   jsonString,
   parseReviewFileContentRequest,
 } from "@dev.fast/review-protocol";
+import {
+  TraceConfigurationError,
+  type TraceStorage,
+  TraceStorageDeniedError,
+  type TraceStorageKind,
+  isS3MockMode,
+  isTraceStorageConfigured,
+  listReviewTraceSessions,
+  loadReviewAgentTrace,
+  resolveTraceStorage,
+  selectTraceStorage,
+} from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
@@ -38,10 +50,6 @@ import {
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { NativeMessageMirror } from "../native-agent/native-message-mirror";
 import type { AgentServer, LaunchInput } from "../native-agent/native-session";
-import {
-  listReviewTraceSessions,
-  loadReviewAgentTrace,
-} from "../review-agent-traces";
 import { reviewCommentPrompt } from "../review-comment-agent";
 import { resolveReviewCommitScope } from "../review-commits";
 import type {
@@ -79,18 +87,6 @@ import type { SourceSnapshot } from "../source-code-types";
 import { resolveReviewSourceRange } from "../source-range-resolver";
 import { ProgressiveReviewTelemetry } from "../telemetry";
 import type { ReviewTabTelemetryEvent } from "../telemetry";
-import { TraceConfigurationError } from "../trace-storage/config";
-import {
-  isTraceStorageConfigured,
-  resolveTraceStorage,
-  selectTraceStorage,
-} from "../trace-storage/resolve";
-import { isS3MockMode } from "../trace-storage/s3-config";
-import {
-  type TraceStorage,
-  TraceStorageDeniedError,
-  type TraceStorageKind,
-} from "../trace-storage/types";
 import type { CreateReviewCommentInput, ReviewSubmissionEvent } from "../types";
 import {
   REVIEW_APP_SESSION_ID_HEADER,

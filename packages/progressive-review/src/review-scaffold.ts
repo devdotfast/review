@@ -12,19 +12,20 @@ import type {
   ReviewAgentTraceSession,
   ReviewSourceIdentity,
 } from "@dev.fast/review-protocol";
+import {
+  type ReviewTracePullSessionResult,
+  errorMessage,
+  inferRepoFromGit,
+  listReviewTraceSessions,
+  pullReviewTraceCorpus,
+  traceMachineEnabled,
+} from "@dev.fast/trace-core";
 
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
 import { buildReviewDocument } from "./document/build";
-import { errorMessage } from "./error-message";
-import {
-  type ReviewTracePullSessionResult,
-  inferRepoFromGit,
-  listReviewTraceSessions,
-  pullReviewTraceCorpus,
-} from "./review-agent-traces";
 import { isPositionalChangeIdentity } from "./review-change-scope";
 import { removeReviewManagedCheckouts } from "./review-head-checkout";
 import {
@@ -47,7 +48,6 @@ import { ensurePinnedReviewWorktreeAtCommit } from "./review-worktree-target";
 import { resolveReviewRoot, resolveReviewSource } from "./runtime";
 import { reviewInfoEvent } from "./server/review-info";
 import { span } from "./startup-trace";
-import { traceMachineEnabled } from "./trace-machine-setup";
 
 export interface RunReviewScaffoldInput {
   cwd: string;

@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { collectingWritable } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { collectingWritable } from "./cli-output";
 import { runInstall } from "./install";
 
 const REQUIRED_SKILLS = ["dev-review", "dev-review-map"] as const;

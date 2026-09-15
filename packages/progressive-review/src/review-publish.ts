@@ -4,10 +4,10 @@ import type {
   ReviewPublishReadyRequest,
   ReviewView,
 } from "@dev.fast/review-protocol";
+import { type CliJsonEvent, emitJsonEvent } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import { resolveAuthoringSessionRef } from "./authoring-session";
-import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
 import type { ReviewDocumentDiagnostic } from "./document/diagnostics";
 import { ReviewPublicationValidationError } from "./review-publication-preparation";

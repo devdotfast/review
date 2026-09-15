@@ -7,14 +7,10 @@ import {
   jsonArray,
   jsonString,
   parseJsonText,
-} from "@dev.fast/review-protocol";
+} from "@dev.fast/json";
 
 /** One parsed transcript line; the harness parsers narrow its fields. */
 export type JsonRecord = JsonObject;
-
-export function isJsonRecord(value: unknown): value is JsonRecord {
-  return isJsonObject(value);
-}
 
 export async function readJsonLines(path: string): Promise<JsonRecord[]> {
   const source = await readFile(path, "utf8");
@@ -25,7 +21,7 @@ export async function readJsonLines(path: string): Promise<JsonRecord[]> {
     try {
       const value = parseJsonText(line);
 
-      return isJsonRecord(value) ? [value] : [];
+      return isJsonObject(value) ? [value] : [];
     } catch {
       // A native writer can leave the last line incomplete during a read.
       return [];
@@ -42,7 +38,7 @@ export function textBlocks(value: JsonValue | undefined): string[] {
   if (!blocks) return [];
 
   return blocks.flatMap((block) => {
-    if (!isJsonRecord(block) || block.type !== "text") return [];
+    if (!isJsonObject(block) || block.type !== "text") return [];
     const blockText = jsonString(block.text);
 
     return blockText?.trim() ? [blockText] : [];

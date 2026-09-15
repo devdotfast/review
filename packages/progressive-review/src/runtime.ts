@@ -17,8 +17,8 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { errorMessage } from "@dev.fast/trace-core";
 
-import { errorMessage } from "./error-message";
 import { reviewMdxPath } from "./review-file";
 
 const DEFAULT_REVIEW_ROUTE = "/";

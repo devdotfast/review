@@ -65,7 +65,11 @@ export function AgentSetupCard({
             status.skills?.filter((skill) => skill.target === agent.target) ??
             [];
 
-          const needsUpdate = skills.some((skill) => skill.stale);
+          const mcp = status.mcp?.find((item) => item.target === agent.target);
+
+          const needsUpdate =
+            skills.some((skill) => skill.stale) ||
+            (agent.installed && mcp?.state === "missing");
 
           const versions = skills
             .map(
@@ -96,13 +100,17 @@ export function AgentSetupCard({
                 data-installed={agent.installed}
                 title={versions || undefined}
               >
-                {needsUpdate
-                  ? "update needed"
-                  : agent.installed
-                    ? "installed"
-                    : agent.present
-                      ? "detected"
-                      : "not detected"}
+                {mcp?.state === "error"
+                  ? "setup error"
+                  : mcp?.state === "custom"
+                    ? "custom MCP"
+                    : needsUpdate
+                      ? "update needed"
+                      : agent.installed
+                        ? "installed"
+                        : agent.present
+                          ? "detected"
+                          : "not detected"}
               </span>
               {agent.installed ? (
                 <button
@@ -138,10 +146,11 @@ export function AgentSetupCard({
         })}
       </ul>
       <p className="review-agent-setup-disclosure">
-        Installing skills will also install <code>review</code> to your shell
-        PATH. Review automatically replaces these generated skills after app
-        updates. Local edits are overwritten; start a new agent session to load
-        updated skills.
+        Installs the Review skills and <code>review</code> command. For Codex
+        and Claude Code, it also connects the Review MCP tools. App updates
+        refresh this setup automatically. Generated skills are replaced; custom
+        MCP settings are left alone. Restart your agent or reconnect its MCP
+        server after setup, and start a new session to load updated skills.
       </p>
       {error || status.error ? (
         <p className="review-agent-setup-error">{error ?? status.error}</p>
@@ -154,6 +163,14 @@ export function AgentSetupCard({
             key={`${skill.target}-${skill.name}`}
           >
             {skill.error}
+          </p>
+        ))}
+      {status.mcp
+        ?.filter((item) => item.state === "error" || item.state === "custom")
+        .map((item) => (
+          <p className="review-agent-setup-error" key={item.target}>
+            {item.error ??
+              `${TARGET_LABELS[item.target]} already has custom Review MCP settings. Remove that entry in your agent's settings, then reinstall here to let Review manage it.`}
           </p>
         ))}
     </section>

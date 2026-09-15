@@ -43,7 +43,7 @@ test("stamps all packaged skills with the Desktop release, preserving source har
       await readFile(path.join(appRoot, "package.json"), "utf8"),
     );
 
-    for (const name of ["dev-review", "dev-review-map", "trace-archaeology"]) {
+    for (const name of ["dev-review", "trace-archaeology"]) {
       const output = await readFile(
         path.join(runtime, "skills", name, "SKILL.md"),
         "utf8",

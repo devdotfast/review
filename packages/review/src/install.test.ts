@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { installFile, runInstall } from "./install";
 
-const REQUIRED_SKILLS = ["dev-review", "dev-review-map"] as const;
+const REQUIRED_SKILLS = ["dev-review"] as const;
 
 const ALL_SKILLS = [...REQUIRED_SKILLS, "trace-archaeology"] as const;
 
@@ -250,7 +250,14 @@ describe("runInstall", () => {
     const staleOldNameDest = path.join(homeDir, ".claude", "skills", "review");
     await mkdir(staleOldNameDest, { recursive: true });
     await writeFile(path.join(staleOldNameDest, "SKILL.md"), "# old-name\n");
-    const staleMapDest = path.join(homeDir, ".claude", "skills", "review-map");
+
+    const staleMapDest = path.join(
+      homeDir,
+      ".claude",
+      "skills",
+      "dev-review-map",
+    );
+
     await mkdir(staleMapDest, { recursive: true });
     await writeFile(path.join(staleMapDest, "SKILL.md"), "# old-map\n");
 
@@ -466,13 +473,10 @@ describe("runInstall", () => {
 
   it("fails when the bundle is missing required Review action skills", async () => {
     const packageRoot = await makeTempDir();
-    await writeSkill(packageRoot, "dev-review");
-    const invalidSkillDir = path.join(packageRoot, "skills", "dev-review-map");
+    await writeSkill(packageRoot, "trace-archaeology");
+    const invalidSkillDir = path.join(packageRoot, "skills", "dev-review");
     await mkdir(invalidSkillDir, { recursive: true });
-    await writeFile(
-      path.join(invalidSkillDir, "SKILL.md"),
-      "# dev-review-map\n",
-    );
+    await writeFile(path.join(invalidSkillDir, "SKILL.md"), "# dev-review\n");
     const homeDir = await makeTempDir();
     const streams = silentStreams();
 
@@ -486,7 +490,7 @@ describe("runInstall", () => {
 
     expect(code).toBe(1);
     expect(streams.err.join("")).toContain("Bundled skills not found");
-    expect(streams.err.join("")).toContain("dev-review-map");
+    expect(streams.err.join("")).toContain("dev-review");
     // Both agents use the same skill set, so Codex should fail too.
     const codexStreams = silentStreams();
     expect(

@@ -44,6 +44,13 @@ import {
   readFffRegistration,
   removeFffRegistration,
 } from "./agent-fff";
+import {
+  REVIEW_MCP_TARGETS,
+  reviewMcpLauncher,
+  reviewMcpRegistration,
+  reviewMcpStatus,
+  writeReviewMcpRegistration,
+} from "./agent-review-mcp";
 import { isDirectory, isFile } from "./fs-utils";
 import {
   ALL_INSTALL_TARGETS,
@@ -148,6 +155,20 @@ export async function resolveCliInstallStatus(input: {
     traceEnabled: trace.enabled,
   });
 
+  const mcp = await Promise.all(
+    REVIEW_MCP_TARGETS.map(async (target) => {
+      const result = await reviewMcpStatus(
+        reviewMcpRegistration(target, homeDir, env),
+        stamp?.mcpRegistrations?.find((item) => item.target === target),
+      );
+
+      if (result.state === "ready" && !(await isFile(reviewMcpLauncher(env))))
+        return { ...result, state: "missing" as const };
+
+      return result;
+    }),
+  );
+
   const shimPath = pathShimPath(homeDir);
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
   const fffBinary = fffBinaryPath(homeDir);
@@ -180,8 +201,14 @@ export async function resolveCliInstallStatus(input: {
     stale:
       stamp?.consent === "granted" &&
       (stamp.fingerprint !== fingerprint ||
-        skills.some((skill) => skill.stale)),
+        skills.some((skill) => skill.stale) ||
+        ((await isFile(cliPath)) &&
+          mcp.some(
+            (item) =>
+              managedTargets.includes(item.target) && item.state === "missing",
+          ))),
     skills,
+    mcp,
     shim: {
       path: shimPath,
       installed: await isOwnedShim(shimPath),
@@ -420,7 +447,50 @@ async function applyCliInstallUnlocked(
   if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
 
   if (traceManaged) stamp.traceManaged = true;
+  stamp.mcpRegistrations = previous?.mcpRegistrations ?? [];
+  // Save ownership as each target succeeds, so a later failure remains repairable.
   await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+
+  if (
+    input.cliPath &&
+    input.targets.some((target) =>
+      REVIEW_MCP_TARGETS.some((item) => item === target),
+    )
+  ) {
+    await writePathShim(
+      reviewMcpLauncher(env),
+      input.cliPath,
+      input.cliRuntimePath,
+    );
+
+    for (const target of REVIEW_MCP_TARGETS.filter((target) =>
+      input.targets.includes(target),
+    )) {
+      const registration = reviewMcpRegistration(target, homeDir, env);
+
+      const managed = stamp.mcpRegistrations.find(
+        (item) => item.target === target,
+      );
+
+      const installed = await writeReviewMcpRegistration(registration, managed);
+
+      if (!installed) {
+        chunks.push(
+          `The ${target} Review MCP entry was customized; left unchanged.\n`,
+        );
+        continue;
+      }
+
+      stamp.mcpRegistrations = [
+        ...stamp.mcpRegistrations.filter((item) => item.target !== target),
+        registration,
+      ];
+      await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);
+      chunks.push(
+        `[ok] Review MCP -> ${target}. Restart the agent or reconnect its MCP server to load the tools.\n`,
+      );
+    }
+  }
 
   const result: Awaited<ReturnType<typeof applyCliInstall>> = {
     code: 0,
@@ -489,6 +559,25 @@ async function removeCliInstallUnlocked(
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const chunks: string[] = [];
+  const previous = await readCliInstallStamp(cliInstallStampPath(env));
+  let keepMcpLauncher = false;
+
+  for (const registration of previous?.mcpRegistrations ?? []) {
+    if (!input.targets.includes(registration.target)) continue;
+
+    const removed = await writeReviewMcpRegistration(
+      registration,
+      registration,
+      true,
+    );
+
+    if (!removed) keepMcpLauncher = true;
+    chunks.push(
+      removed
+        ? `[ok] removed ${registration.target} Review MCP\n`
+        : `The ${registration.target} Review MCP entry changed after installation; left in place.\n`,
+    );
+  }
 
   for (const target of input.targets) {
     await removeInstalledSkills(target, homeDir);
@@ -537,7 +626,6 @@ async function removeCliInstallUnlocked(
     chunks.push("[ok] disabled Review trace capture\n");
   }
 
-  const previous = await readCliInstallStamp(cliInstallStampPath(env));
   const removedFffTargets = new Set<ReviewFffInstallTarget>();
   const fffRemovalTargets = input.fff ? input.targets.filter(isFffTarget) : [];
 
@@ -604,6 +692,18 @@ async function removeCliInstallUnlocked(
     if (shimPath) stamp.shimPath = shimPath;
 
     if (fffRegistrations.length > 0) stamp.fffRegistrations = fffRegistrations;
+    stamp.mcpRegistrations = previous.mcpRegistrations?.filter(
+      (item) => !removed.has(item.target),
+    );
+
+    if (
+      !keepMcpLauncher &&
+      !stamp.mcpRegistrations?.length &&
+      previous.mcpRegistrations?.length &&
+      (await isOwnedShim(reviewMcpLauncher(env)))
+    ) {
+      await rm(reviewMcpLauncher(env), { force: true });
+    }
 
     if (!input.trace && previous.traceManaged) stamp.traceManaged = true;
     await writePrivateJsonAtomic(cliInstallStampPath(env), stamp);

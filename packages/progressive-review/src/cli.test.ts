@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough, Readable } from "node:stream";
 
+import { runTraceSessions as runTraceSessionsActual } from "@dev.fast/trace-core";
 import { describe, expect, it, vi } from "vitest";
 
 import { runProgressiveReviewCli } from "./cli-runner";
@@ -44,7 +45,6 @@ import {
   runReviewThreadsResolve as runReviewThreadsResolveActual,
 } from "./threads-cli";
 import { runTraceStatus as runTraceStatusActual } from "./trace-cli";
-import { runTraceSessions as runTraceSessionsActual } from "./trace-hosted-cli";
 
 describe("Review CLI", () => {
   it("routes own-upload status filters without requesting trace content", async () => {

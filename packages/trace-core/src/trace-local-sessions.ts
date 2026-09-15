@@ -8,8 +8,8 @@ import {
   exportOpenCodeTrace,
   isOpenCodeSessionId,
 } from "./opencode-trace-export";
-import { devReviewHome } from "./review-storage";
 import { isFile, listFilesRecursive } from "./trace-corpus";
+import { devReviewHome } from "./trace-home";
 import { traceEnvValue as s3EnvValue } from "./trace-storage/s3-config";
 
 export interface LocalTraceDiscovery {

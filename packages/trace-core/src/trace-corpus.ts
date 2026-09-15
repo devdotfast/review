@@ -12,7 +12,7 @@ import {
   extractTraceEventText,
 } from "./agent-trace-parser";
 import { writeFileAtomic } from "./atomic-write";
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./trace-home";
 import { parseRepo } from "./trace-repo";
 import { type TraceStorage } from "./trace-storage/types";
 

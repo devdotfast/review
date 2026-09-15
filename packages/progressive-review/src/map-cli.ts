@@ -13,19 +13,19 @@ import {
   readNote,
   resolveRevision,
 } from "@dev.fast/local-vcs";
-import { Argument, Command, CommanderError, Option } from "commander";
-
-import {
-  authoringSessionKey,
-  resolveAuthoringSessionRef,
-} from "./authoring-session";
 import {
   type CliJsonOutput,
   emitJsonEvent,
   failWithJsonError,
   humanStream,
   jsonRequestedInArgv,
-} from "./cli-output";
+} from "@dev.fast/trace-core";
+import { Argument, Command, CommanderError, Option } from "commander";
+
+import {
+  authoringSessionKey,
+  resolveAuthoringSessionRef,
+} from "./authoring-session";
 import { touchReviewAgentSession } from "./review-home";
 import { runReviewMapPublish } from "./review-map-publish";
 import {

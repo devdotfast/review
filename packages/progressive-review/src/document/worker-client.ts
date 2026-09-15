@@ -2,9 +2,9 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 
+import { errorMessage } from "@dev.fast/trace-core";
 import { type BirpcReturn, type ChannelOptions, createBirpc } from "birpc";
 
-import { errorMessage } from "../error-message";
 import { findProgressiveReviewPackageRoot } from "../package-paths";
 import type { ReviewPublishEvaluationInput } from "../review-publication-audit";
 import type {

@@ -7,8 +7,8 @@ import { type JsonValue, jsonObject, parseJsonText } from "@dev.fast/json";
 import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "../atomic-write";
-import { devReviewHome } from "../review-storage";
 import { normalizeStoreOrigin } from "../store-origin";
+import { devReviewHome } from "../trace-home";
 import { withFileLock } from "../with-file-lock";
 
 /**

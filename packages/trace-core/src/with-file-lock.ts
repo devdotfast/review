@@ -2,11 +2,7 @@ import { mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
-import {
-  jsonNumber,
-  jsonObject,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import { jsonNumber, jsonObject, parseJsonText } from "@dev.fast/json";
 
 const LOCK_OWNER_FILE = "owner.json";
 

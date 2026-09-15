@@ -113,6 +113,18 @@
       "rules": {
         "anti-slop/no-runtime-typeof": "off"
       }
+    },
+    {
+      "files": ["packages/trace-core/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": ["@dev.fast/review"],
+            "patterns": ["@dev.fast/review/*", "**/progressive-review/**"]
+          }
+        ]
+      }
     }
   ]
 }

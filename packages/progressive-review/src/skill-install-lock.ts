@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
-import { withFileLock } from "./with-file-lock";
+import { withFileLock } from "@dev.fast/trace-core";
 
 /** Shared by terminal installs, Desktop updates, and removals, across processes. */
 export async function withSkillInstallLock<T>(

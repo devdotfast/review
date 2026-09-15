@@ -4,7 +4,6 @@ import {
   type AgentTraceEvent,
   extractTraceEventText,
 } from "./agent-trace-parser";
-import type { TraceQuoteProps } from "./authoring";
 import {
   type ReviewTraceBlameLookupResult,
   type ReviewTraceCommitLookupResult,
@@ -198,12 +197,12 @@ export async function runTraceShow(input: {
     const text = extractTraceEventText(event);
 
     if (input.json) {
-      const traceQuoteProps: TraceQuoteProps = {
+      const traceQuoteProps = {
         sessionId: input.sessionId,
         event: input.eventIndex,
+        trace: traceName || undefined,
       };
 
-      if (traceName) traceQuoteProps.trace = traceName;
       input.stdout.write(
         `${JSON.stringify({
           session: input.sessionId,

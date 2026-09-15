@@ -10,13 +10,25 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
-import { Argument, Command, CommanderError, Option } from "commander";
-
 import {
   type CliInputStream,
+  DEFAULT_STORE_ORIGIN,
   humanStream,
   jsonRequestedInArgv,
-} from "./cli-output";
+  registerTraceCommands,
+  resolveTraceCommand,
+  runStoreLogin,
+  runStoreLogout,
+  runStoreWhoami,
+  runTraceAllow,
+  runTraceDeny,
+  runTraceOnboard,
+  runTraceSessions,
+  traceHomeDir,
+  traceScope,
+} from "@dev.fast/trace-core";
+import { Argument, Command, CommanderError, Option } from "commander";
+
 import { cliRuntimeInfo, describeCliRuntime } from "./cli-runtime-info";
 import {
   type CodexWaitProcessInput,
@@ -73,12 +85,6 @@ import { runReviewWait, validateReviewWait } from "./review-wait";
 import { installReviewCommand, pathShimPath } from "./server/cli-install";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
-  DEFAULT_STORE_ORIGIN,
-  runStoreLogin,
-  runStoreLogout,
-  runStoreWhoami,
-} from "./store-auth";
-import {
   runReviewThreadsGet,
   runReviewThreadsList,
   runReviewThreadsReply,
@@ -97,14 +103,6 @@ import {
   runTraceStatus,
   runTraceSync,
 } from "./trace-cli";
-import { resolveTraceCommand, traceHomeDir, traceScope } from "./trace-command";
-import { registerTraceCommands } from "./trace-commands";
-import {
-  runTraceAllow,
-  runTraceDeny,
-  runTraceOnboard,
-  runTraceSessions,
-} from "./trace-hosted-cli";
 import { runTraceConfigMigrate, runTraceStorageUse } from "./trace-storage-cli";
 
 interface ProgressiveReviewCliRuntime {

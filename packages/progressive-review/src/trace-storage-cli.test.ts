@@ -12,22 +12,26 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { JsonValue } from "@dev.fast/json";
+import {
+  StoreClient,
+  allowTraceRepository,
+  clearTraceEnvCache,
+  collectingWritable,
+  describeS3Setup,
+  readTraceConfigFile,
+  resolveS3Setup,
+  selectTraceStorage,
+  traceConfigPath,
+  traceMachineStatus,
+  writeStoreAuth,
+} from "@dev.fast/trace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { collectingWritable } from "./cli-output";
-import { clearTraceEnvCache } from "./review-agent-traces";
-import { writeStoreAuth } from "./store-auth";
-import { StoreClient } from "./store-client";
-import { traceMachineStatus } from "./trace-machine-setup";
 import {
   legacyRetiredPath,
   runTraceConfigMigrate,
   runTraceStorageUse,
 } from "./trace-storage-cli";
-import { readTraceConfigFile, traceConfigPath } from "./trace-storage/config";
-import { selectTraceStorage } from "./trace-storage/resolve";
-import { describeS3Setup, resolveS3Setup } from "./trace-storage/s3-config";
-import { allowTraceRepository } from "./trace-user-config";
 
 /** Runs `action` with process.env and HOME temporarily replaced by `env`. */
 async function withProcessEnv<T>(

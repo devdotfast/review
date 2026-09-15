@@ -4,10 +4,10 @@ import { registerHooks } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { errorMessage } from "@dev.fast/trace-core";
 import { type Diagnostic, DiagnosticCategory } from "typescript";
 
 import { reviewAuthoringPropsSchemas } from "../authoring";
-import { errorMessage } from "../error-message";
 import type { PublishValidationRuntime } from "../review-publication-audit";
 import type { PublishValidationProps } from "../review-publish-element-audit";
 import {

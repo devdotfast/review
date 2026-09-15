@@ -1,8 +1,5 @@
 import type { Writable } from "node:stream";
 
-import { reviewUuidForManagedCheckout } from "./review-head-checkout";
-import { type StoredReview, findReview, listReviews } from "./review-home";
-import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import {
   type TraceListScope,
   type TracePullScope,
@@ -10,8 +7,12 @@ import {
   runTraceList as listWithScope,
   runTracePull as pullWithScope,
   resolveTraceReadStorage,
-} from "./trace-read-cli";
-import type { TraceStorageKind } from "./trace-storage/types";
+} from "@dev.fast/trace-core";
+import type { TraceStorageKind } from "@dev.fast/trace-core";
+
+import { reviewUuidForManagedCheckout } from "./review-head-checkout";
+import { type StoredReview, findReview, listReviews } from "./review-home";
+import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 
 /**
  * The Review app's trace commands. It resolves `--review <uuid>` (or the
@@ -28,9 +29,6 @@ export {
   runTraceRepair,
   runTraceStatus,
   runTraceSync,
-} from "./trace-capture-cli";
-
-export {
   type TraceListScope,
   type TracePullScope,
   type TraceReviewScope,
@@ -39,7 +37,7 @@ export {
   runTraceLookupCommit,
   runTraceLookupSession,
   runTraceShow,
-} from "./trace-read-cli";
+} from "@dev.fast/trace-core";
 
 export async function resolveTraceReviewScope(
   cwd: string,

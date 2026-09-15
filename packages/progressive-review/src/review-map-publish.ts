@@ -2,13 +2,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 
+import { type CliJsonEvent, emitJsonEvent } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import {
   authoringSessionKey,
   resolveAuthoringSessionRef,
 } from "./authoring-session";
-import { type CliJsonEvent, emitJsonEvent } from "./cli-output";
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import {
   type StoredReview,

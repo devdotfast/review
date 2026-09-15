@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,9 +6,14 @@ import {
   ModuleResolutionKind,
   ScriptKind,
   ScriptTarget,
+  SyntaxKind,
   createSourceFile,
+  forEachChild,
+  isCallExpression,
   isExportDeclaration,
   isImportDeclaration,
+  isImportTypeNode,
+  isLiteralTypeNode,
   isNamedExports,
   isNamedImports,
   isStringLiteral,
@@ -24,24 +29,13 @@ import { describe, expect, it } from "vitest";
  * value imports only: `import type`, `export type`, and `import()` are not
  * part of a bundle's eager graph.
  */
-const TRACE_ROOTS = [
-  "traces-runtime.ts",
-  "trace-commands.ts",
-  "trace-capture-cli.ts",
-  "trace-read-cli.ts",
-  "store-auth.ts",
-  "trace-hosted-cli.ts",
-  "trace-hook-runner.ts",
-  "trace-git-hook-runner.ts",
-  "agent-trace-hooks.ts",
-  "trace-repository-hooks.ts",
-  "cli-output.ts",
-  "trace-storage/resolve.ts",
-];
+const TRACE_ROOTS = ["index.ts"];
 
 /** Source-relative module paths the closure must never contain. */
 const FORBIDDEN_MODULES = [
   "trace-cli.ts",
+  "trace-storage/s3.ts",
+  "tutorial-trace.ts",
   "review-home.ts",
   "review-state-store.ts",
   "review-vcs.ts",
@@ -53,7 +47,12 @@ const FORBIDDEN_MODULES = [
   "startup-trace.ts",
 ];
 
-const FORBIDDEN_PACKAGES = ["isomorphic-git", "react", "node:sqlite"];
+const FORBIDDEN_PACKAGES = [
+  "@dev.fast/review",
+  "isomorphic-git",
+  "react",
+  "node:sqlite",
+];
 
 const SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -161,5 +160,113 @@ describe("trace surface import closure", () => {
     );
 
     expect(reached).toEqual([]);
+  });
+});
+
+/** Includes type and deferred imports when checking package independence. */
+function allImportSpecifiers(file: string, source: string): string[] {
+  const parsed = createSourceFile(
+    file,
+    source,
+    ScriptTarget.Latest,
+    false,
+    ScriptKind.TS,
+  );
+
+  const specifiers: string[] = [];
+
+  function visit(node: import("typescript").Node): void {
+    if (
+      (isImportDeclaration(node) || isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      isStringLiteral(node.moduleSpecifier)
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    } else if (
+      isCallExpression(node) &&
+      node.expression.kind === SyntaxKind.ImportKeyword &&
+      node.arguments[0] &&
+      isStringLiteral(node.arguments[0])
+    ) {
+      specifiers.push(node.arguments[0].text);
+    } else if (
+      isImportTypeNode(node) &&
+      isLiteralTypeNode(node.argument) &&
+      isStringLiteral(node.argument.literal)
+    ) {
+      specifiers.push(node.argument.literal.text);
+    }
+
+    forEachChild(node, visit);
+  }
+
+  visit(parsed);
+
+  return specifiers;
+}
+
+function boundaryViolations(file: string, source: string): string[] {
+  return allImportSpecifiers(file, source).filter((specifier) => {
+    if (
+      FORBIDDEN_PACKAGES.some(
+        (name) => specifier === name || specifier.startsWith(`${name}/`),
+      )
+    )
+      return true;
+
+    if (!specifier.startsWith(".")) return false;
+    const resolved = path.resolve(path.dirname(file), specifier);
+
+    return !resolved.startsWith(`${SRC_DIR}${path.sep}`);
+  });
+}
+
+function sourceFiles(directory: string): string[] {
+  const files: string[] = [];
+
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+
+    if (entry.isDirectory()) files.push(...sourceFiles(file));
+    else if (entry.name.endsWith(".ts")) files.push(file);
+  }
+
+  return files;
+}
+
+describe("trace-core package independence", () => {
+  it("has no Review or app dependency, including deferred and type-only edges", () => {
+    const violations: string[] = [];
+
+    for (const file of sourceFiles(SRC_DIR)) {
+      for (const specifier of boundaryViolations(
+        file,
+        readFileSync(file, "utf8"),
+      )) {
+        violations.push(`${path.relative(SRC_DIR, file)}: ${specifier}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it("rejects Review subpaths, lazy imports and type-only relative backedges", () => {
+    const file = path.join(SRC_DIR, "negative-control.ts");
+    expect(
+      boundaryViolations(
+        file,
+        `
+      import type { App } from "@dev.fast/review";
+      export type { App } from "@dev.fast/review/authoring";
+      const app = import("../../progressive-review/src/runtime");
+      type AppType = import("../../progressive-review/src/authoring").App;
+    `,
+      ),
+    ).toEqual([
+      "@dev.fast/review",
+      "@dev.fast/review/authoring",
+      "../../progressive-review/src/runtime",
+      "../../progressive-review/src/authoring",
+    ]);
   });
 });

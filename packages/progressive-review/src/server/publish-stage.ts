@@ -9,6 +9,7 @@ import {
 import path from "node:path";
 
 import { parseJsonText } from "@dev.fast/review-protocol";
+import { withFileLock } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import {
@@ -17,7 +18,6 @@ import {
   parseAnyStoredReviewRecord,
 } from "../review-home";
 import { reviewSourcePins } from "../review-source-pins";
-import { withFileLock } from "../with-file-lock";
 
 const CACHE_MARKER = ".review-materialized.json";
 

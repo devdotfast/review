@@ -19,8 +19,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 
 import { setLocalVcsCommandObserver } from "@dev.fast/local-vcs";
-
-import { errorMessage } from "./error-message";
+import { errorMessage } from "@dev.fast/trace-core";
 
 export interface TraceSpanRecord {
   id: number;

@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { isStringValue } from "@dev.fast/json";
 
-import { devReviewHome } from "./review-storage";
+import { devReviewHome } from "./trace-home";
 
 /** Where one CLI run reads its machine state; built once at the entry. */
 export interface TraceScope {

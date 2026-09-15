@@ -1,4 +1,5 @@
 import { isCallableValue, isObjectValue } from "@dev.fast/review-protocol";
+import { errorMessage } from "@dev.fast/trace-core";
 import { z } from "zod";
 
 import {
@@ -10,7 +11,6 @@ import {
   reviewAuthoringPropsSchemas,
   traceQuotePropsSchema,
 } from "./authoring";
-import { errorMessage } from "./error-message";
 
 // Publish-time element audit. The validation runtime's React substitute does
 // not render: `jsx` builds cheap element records, and the audit invokes the

@@ -13,10 +13,10 @@ import { resolveRepoContext } from "@dev.fast/local-vcs";
 import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";
-import { devReviewHome } from "./review-storage";
 import { StoreApiError, type StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import { traceCliName } from "./trace-command";
+import { devReviewHome } from "./trace-home";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 import {
   type TraceRepositoryConsent,

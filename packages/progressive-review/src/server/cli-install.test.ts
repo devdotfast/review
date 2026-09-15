@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { writePrivateJsonAtomic } from "../atomic-write";
 import {
   applyCliInstall,
   cliInstallStampPath,

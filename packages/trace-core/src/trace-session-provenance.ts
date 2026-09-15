@@ -14,8 +14,8 @@ import { sessionIdSchema } from "@dev.fast/trace-shared";
 import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";
-import { devReviewHome } from "./review-storage";
 import { traceCliName } from "./trace-command";
+import { devReviewHome } from "./trace-home";
 import {
   type TraceRepositoryTarget,
   traceTargetKey,

@@ -5,8 +5,8 @@
 // the shared trace config under `repositories`, each naming the hosted
 // origins it may publish to. Consent never selects a store by itself.
 
-import { devReviewHome } from "./review-storage";
 import { normalizeStoreOrigin } from "./store-origin";
+import { devReviewHome } from "./trace-home";
 import type {
   TraceConfigFile,
   TraceRepositoryEntry,

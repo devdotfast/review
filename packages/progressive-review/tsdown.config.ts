@@ -41,7 +41,6 @@ export default defineConfig({
     "native-agent/pi-bridge-extension":
       "src/native-agent/pi-bridge-extension.ts",
     runtime: "src/runtime.ts",
-    traces: "src/traces-runtime.ts",
     "desktop-server": "src/server/desktop-server.ts",
     "server/desktop-host": "src/server/desktop-host.ts",
     "software-map-model": "src/software-map-model.ts",
@@ -54,14 +53,25 @@ export default defineConfig({
   outDir: "dist",
   fixedExtension: false,
   dts: true,
+  // The external declaration edge has no global augmentation or runtime effect.
+  // Used bindings stay bundled; the published declarations need no core package.
+  treeshake: {
+    moduleSideEffects: [
+      { test: /^@dev\.fast\/trace-core$/, external: true, sideEffects: false },
+    ],
+  },
   deps: {
     alwaysBundle: [
+      "@dev.fast/trace-core",
       /^@dev\.fast\/json$/,
       /^@dev\.fast\/local-vcs$/,
       /^@dev\.fast\/review-protocol$/,
       /^@dev\.fast\/trace-shared$/,
       /^isomorphic-git$/,
     ],
+    // Re-inlining core's public declaration graph exhausts the default Node heap.
+    // Its only remaining declaration edge is the side-effect import handled above.
+    dts: { neverBundle: ["@dev.fast/trace-core"] },
     onlyBundle: false,
     neverBundle: ["typescript"],
   },

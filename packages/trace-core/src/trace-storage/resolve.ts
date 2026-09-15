@@ -227,7 +227,7 @@ async function s3Storage(
   scope: S3ConfigScope,
 ): Promise<TraceStorage | null> {
   const env = scope.env ?? process.env;
-  const { S3TraceStorage } = await import("./s3");
+  const S3TraceStorage = await loadS3TraceStorage();
 
   if (isS3MockMode(env)) return S3TraceStorage.fromEnvironment(scope);
 
@@ -274,3 +274,8 @@ export function isTraceStorageConfigured(scope: S3ConfigScope = {}): boolean {
 }
 
 export { clearTraceEnvCache };
+
+/** Loads the direct-store implementation on demand, without opening a store. */
+export async function loadS3TraceStorage() {
+  return (await import("./s3")).S3TraceStorage;
+}

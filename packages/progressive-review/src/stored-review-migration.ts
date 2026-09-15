@@ -11,14 +11,13 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { errorMessage, writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
-import { writePrivateJsonAtomic } from "./atomic-write";
 import {
   authoringSessionKey,
   parseAuthoringSessionKey,
 } from "./authoring-session";
-import { errorMessage } from "./error-message";
 import { isMissingFileError } from "./native-agent/transcript-json";
 import { promoteReviewArtifactFiles } from "./review-artifact-promotion";
 import {

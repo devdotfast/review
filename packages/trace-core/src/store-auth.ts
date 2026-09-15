@@ -17,10 +17,10 @@ import {
   failWithJsonError,
   humanStream,
 } from "./cli-output";
-import { devReviewHome } from "./review-storage";
 import { StoreApiError, StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
 import { traceCliName } from "./trace-command";
+import { devReviewHome } from "./trace-home";
 import { DEFAULT_HOSTED_ORIGIN } from "./trace-storage/config";
 
 export const DEFAULT_STORE_ORIGIN = DEFAULT_HOSTED_ORIGIN;

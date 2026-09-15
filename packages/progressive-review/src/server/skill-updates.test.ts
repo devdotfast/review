@@ -13,10 +13,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { reviewCliInstallResyncRequest } from "@dev.fast/review-protocol";
+import {
+  collectingWritable,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { writePrivateJsonAtomic } from "../atomic-write";
-import { collectingWritable } from "../cli-output";
 import { readSkillVersion, runInstall } from "../install";
 import {
   applyCliInstall,

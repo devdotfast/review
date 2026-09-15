@@ -9,9 +9,9 @@ import {
   REVIEW_SCHEMA_VERSION,
   type ReviewBugReportRequest,
 } from "@dev.fast/review-protocol";
+import { clearTraceEnvCache } from "@dev.fast/trace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearTraceEnvCache } from "../review-agent-traces";
 import {
   type BugReportPayload,
   buildBugReportRequest,

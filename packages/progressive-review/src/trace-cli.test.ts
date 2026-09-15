@@ -10,10 +10,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
+import {
+  clearTraceEnvCache,
+  collectingWritable,
+  configureTraceMachine,
+  listTraceSyncFailures,
+  recordTraceSyncFailure,
+  traceScope,
+} from "@dev.fast/trace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { collectingWritable } from "./cli-output";
-import { clearTraceEnvCache } from "./review-agent-traces";
 import {
   runTraceDoctor,
   runTraceEnable,
@@ -25,12 +31,6 @@ import {
   runTraceShow,
   runTraceSync,
 } from "./trace-cli";
-import { traceScope } from "./trace-command";
-import { configureTraceMachine } from "./trace-machine-setup";
-import {
-  listTraceSyncFailures,
-  recordTraceSyncFailure,
-} from "./trace-sync-status";
 
 describe("trace-cli", () => {
   let tempDir: string;

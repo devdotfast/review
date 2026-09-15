@@ -411,12 +411,12 @@ const QUOTED_PATH_BODY = String.raw`(?:[^"\\]|\\.)*`;
 
 /** A `. "…/traces/env"` line. */
 const POSIX_ENV_SOURCE_LINE = new RegExp(
-  String.raw`^\.\s+"${QUOTED_PATH_BODY}traces/env"$`,
+  String.raw`^\.\s+"(?:${QUOTED_PATH_BODY}/)?traces/env"$`,
 );
 
 /** The fish `source` form of the same line. */
 const FISH_ENV_SOURCE_LINE = new RegExp(
-  String.raw`^source\s+"${QUOTED_PATH_BODY}traces/env\.fish"$`,
+  String.raw`^source\s+"(?:${QUOTED_PATH_BODY}/)?traces/env\.fish"$`,
 );
 
 /**

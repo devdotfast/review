@@ -121,7 +121,7 @@
           "error",
           {
             "paths": ["@dev.fast/review"],
-            "patterns": ["@dev.fast/review/*", "**/progressive-review/**"]
+            "patterns": ["@dev.fast/review/*", "**/review/**"]
           }
         ]
       }

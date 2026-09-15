@@ -12,7 +12,7 @@ import { CancellationError, ErrorNoTelemetry } from "../../base/common/errors.js
  * The raw name, message, and stack packed here travel only to the loopback
  * Review server on the same machine. That server replaces the message with a
  * digest and keeps only the stack frames that resolve inside the shipped
- * bundle; see packages/progressive-review/src/error-telemetry.ts. Nothing in
+ * bundle; see packages/review/src/error-telemetry.ts. Nothing in
  * this file is ever sent to a vendor as it stands.
  *
  * The filters mirror upstream `BaseErrorTelemetry._onErrorEvent`. They are

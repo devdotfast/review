@@ -43,7 +43,7 @@ const FORBIDDEN_MODULES = [
   "review-worktree-target.ts",
   "server/cli-install.ts",
   "install.ts",
-  "progressive-review-telemetry.ts",
+  "review-telemetry.ts",
   "startup-trace.ts",
 ];
 
@@ -251,15 +251,15 @@ describe("trace-core package independence", () => {
         `
       import type { App } from "@dev.fast/review";
       export type { App } from "@dev.fast/review/authoring";
-      const app = import("../../progressive-review/src/runtime");
-      type AppType = import("../../progressive-review/src/authoring").App;
+      const app = import("../../review/src/runtime");
+      type AppType = import("../../review/src/authoring").App;
     `,
       ),
     ).toEqual([
       "@dev.fast/review",
       "@dev.fast/review/authoring",
-      "../../progressive-review/src/runtime",
-      "../../progressive-review/src/authoring",
+      "../../review/src/runtime",
+      "../../review/src/authoring",
     ]);
   });
 });

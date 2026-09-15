@@ -14,9 +14,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "paths": {
-      "@dev.fast/review/authoring": [
-        "./packages/progressive-review/src/authoring.ts"
-      ],
+      "@dev.fast/review/authoring": ["./packages/review/src/authoring.ts"],
       "@dev.fast/trace-core": ["./packages/trace-core/src/index.ts"],
       "@dev.fast/*": ["./packages/*/src"]
     }

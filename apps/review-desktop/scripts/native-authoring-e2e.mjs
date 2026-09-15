@@ -29,7 +29,7 @@ const appRoot = path.resolve(import.meta.dirname, "..");
 
 const workspace = path.resolve(appRoot, "../..");
 
-const sourcePackage = path.join(workspace, "packages/progressive-review");
+const sourcePackage = path.join(workspace, "packages/review");
 
 const require = createRequire(path.join(appRoot, "code-oss/package.json"));
 

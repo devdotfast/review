@@ -27,7 +27,7 @@ if (process.argv[2] === "--child") {
           },
         });
 
-        const code = await entry.runProgressiveReviewCli({
+        const code = await entry.runReviewCli({
           argv: ["publish", "--review", cli.uuid, "--json"],
           cwd: cli.cwd,
           env: process.env,

@@ -72,7 +72,7 @@ Keywords=review;code;agents;
 `);
 	const icon = join(destination, 'usr/share/icons/hicolor/512x512/apps/review.png');
 	await mkdir(dirname(icon), { recursive: true });
-	await cp(join(monorepoRoot, 'packages/progressive-review/app/icons/review-square-512.png'), icon);
+	await cp(join(monorepoRoot, 'packages/review/app/icons/review-square-512.png'), icon);
 	// Electron's packaged sandbox helper must be root-owned with setuid in the
 	// system package. Package creation sets ownership; no runtime chmod is needed.
 	await chmod(join(destination, 'usr/share/review/chrome-sandbox'), 0o4755);

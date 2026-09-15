@@ -116,7 +116,7 @@ else
 fi
 if [[ "$DEV_FAST_ACTIVE" != "1" ]]; then
   if [[ -n "${REVIEW_POSTHOG_KEY:-}" ]]; then
-    node "$MONOREPO_ROOT/packages/progressive-review/scripts/embed-posthog-key.mjs"
+    node "$MONOREPO_ROOT/packages/review/scripts/embed-posthog-key.mjs"
   fi
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review app:desktop:build
   pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build

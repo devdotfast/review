@@ -1,8 +1,8 @@
 # Node
 node_modules/
 dist/
-packages/progressive-review/tutorial/.bundle/
-packages/progressive-review/tutorial/git-stub/
+packages/review/tutorial/.bundle/
+packages/review/tutorial/git-stub/
 *.tsbuildinfo
 
 # pnpm
@@ -61,7 +61,7 @@ packages/code-graph/canvas/public/snapshot*.json
 packages/code-graph/.ci-tools/
 packages/code-graph/fixtures/indexing/rust/target/
 packages/code-graph/fixtures/semantic-baseline/rust/target/
-packages/progressive-review/.playwright-cli/
+packages/review/.playwright-cli/
 
 .playwright-mcp
 backups/

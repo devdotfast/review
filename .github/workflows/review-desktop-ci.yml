@@ -38,7 +38,7 @@ jobs:
             jq -r '
               select(.sourceRepository == "devdotfast/review") |
               .baseCommit, .sourceCommit
-            ' packages/progressive-review/src/fixtures/legacy-reviews/*.json |
+            ' packages/review/src/fixtures/legacy-reviews/*.json |
               sort -u
           )
           test "${#fixture_commits[@]}" -gt 0

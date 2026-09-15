@@ -28,7 +28,7 @@ for Claude Code.
    `DEV_REVIEW_HOME`, so the run never sees the user's real reviews or app,
    and no pre-cleaning is needed. The desktop is torn down when the run ends.
 2. Puts a `review` shim first on PATH that runs the instrumented source CLI
-   (`packages/progressive-review/src/cli.ts`, no desktop delegation) and sets
+   (`packages/review/src/cli.ts`, no desktop delegation) and sets
    `DEV_FAST_REVIEW_TRACE_DIR` so every `review` invocation writes a span file.
 3. Runs `claude -p "<prompt>" --model <model> --output-format stream-json
    --dangerously-skip-permissions` from the repo root, with the outer Claude /

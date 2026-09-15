@@ -3,8 +3,6 @@ import path from "node:path";
 import {
   type JsonObject,
   type JsonValue,
-  type ReviewAgentTraceEvent,
-  type ReviewAgentTraceSession,
   isJsonArray,
   isJsonObject,
   jsonArray,
@@ -14,6 +12,10 @@ import {
   jsonString,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import {
+  type ReviewAgentTraceEvent,
+  type ReviewAgentTraceSession,
+} from "@dev.fast/trace-shared";
 
 export const AGENT_TRACE_PARSER_VERSION = "1";
 

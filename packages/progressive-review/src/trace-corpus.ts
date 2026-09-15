@@ -2,11 +2,8 @@ import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 import { git, gitAt } from "@dev.fast/local-vcs";
-import {
-  isStringValue,
-  parseJsonText,
-  sessionIdSchema,
-} from "@dev.fast/review-protocol";
+import { isStringValue, parseJsonText } from "@dev.fast/review-protocol";
+import { sessionIdSchema } from "@dev.fast/trace-shared";
 
 import {
   AGENT_TRACE_PARSER_VERSION,

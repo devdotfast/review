@@ -13,18 +13,20 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import {
-  type ByCommitEntry,
   type JsonValue,
-  type SessionMeta,
-  byCommitSchema,
-  commitShaSchema,
   jsonArray,
   jsonNumber,
   jsonObject,
   jsonString,
   parseJsonText,
-  sessionMetaSchema,
 } from "@dev.fast/review-protocol";
+import {
+  type ByCommitEntry,
+  type SessionMeta,
+  byCommitSchema,
+  commitShaSchema,
+  sessionMetaSchema,
+} from "@dev.fast/trace-shared";
 
 import { errorMessage } from "../error-message";
 import {

@@ -7,7 +7,7 @@ import {
   type ReviewAgentTraceSession,
   type SessionMeta,
   sessionIdSchema,
-} from "@dev.fast/review-protocol";
+} from "@dev.fast/trace-shared";
 
 import {
   AGENT_TRACE_PARSER_VERSION,

@@ -25,6 +25,7 @@
     "typecheck": "pnpm -w exec tsc -p packages/review-protocol/tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@dev.fast/trace-shared": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {

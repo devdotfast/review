@@ -1,4 +1,4 @@
-import type { SessionMeta } from "@dev.fast/review-protocol";
+import type { SessionMeta } from "@dev.fast/trace-shared";
 
 /**
  * The operation-level boundary between Review's shared trace code and one

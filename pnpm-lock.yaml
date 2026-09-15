@@ -243,6 +243,9 @@ importers:
 
   packages/review-protocol:
     dependencies:
+      '@dev.fast/trace-shared':
+        specifier: workspace:*
+        version: link:../trace-shared
       zod:
         specifier: 4.4.3
         version: 4.4.3

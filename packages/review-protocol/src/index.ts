@@ -53,6 +53,19 @@ export * from "./runtime-value.js";
 
 export * from "./contracts.js";
 
+export {
+  type ByCommitEntry,
+  type ReviewAgentTraceEvent,
+  ReviewAgentTraceEventSchema,
+  type ReviewAgentTraceSession,
+  ReviewAgentTraceSessionSchema,
+  type SessionMeta,
+  byCommitSchema,
+  commitShaSchema,
+  sessionIdSchema,
+  sessionMetaSchema,
+} from "@dev.fast/trace-shared";
+
 export interface ReviewCliInstallResyncRequest {
   readonly targets: readonly ReviewCliInstallTarget[];
   readonly shim: boolean;

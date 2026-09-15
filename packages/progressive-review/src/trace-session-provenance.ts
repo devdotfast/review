@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { sessionIdSchema } from "@dev.fast/review-protocol";
+import { sessionIdSchema } from "@dev.fast/trace-shared";
 import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";

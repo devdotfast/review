@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { git } from "@dev.fast/local-vcs";
-import { type SessionMeta, commitShaSchema } from "@dev.fast/review-protocol";
+import { type SessionMeta, commitShaSchema } from "@dev.fast/trace-shared";
 import {
   type CompleteUploadResponse,
   MAX_TRACE_COMMITS,

@@ -83,15 +83,28 @@ function stripModuleStatements(source) {
 
 // Dependencies first: every module may only name things declared above it,
 // because concatenation is all that replaces the dropped relative imports.
-const MODULE_FILES = [
-  "runtime-value.ts",
-  "json.ts",
-  "contracts.ts",
-  "index.ts",
+const traceContractsPath =
+  sourceRootFlag === -1
+    ? path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "trace-shared",
+        "src",
+        "contracts.ts",
+      )
+    : path.join(sourceRoot, "trace-contracts.ts");
+
+const MODULE_PATHS = [
+  path.join(sourceRoot, "runtime-value.ts"),
+  path.join(sourceRoot, "json.ts"),
+  traceContractsPath,
+  path.join(sourceRoot, "contracts.ts"),
+  path.join(sourceRoot, "index.ts"),
 ];
 
-const modules = MODULE_FILES.map((file) =>
-  stripModuleStatements(readFileSync(path.join(sourceRoot, file), "utf8")),
+const modules = MODULE_PATHS.map((file) =>
+  stripModuleStatements(readFileSync(file, "utf8")),
 );
 
 writeFileSync(outputPath, `${HEADER}${modules.join("\n\n")}\n`);

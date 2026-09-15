@@ -118,6 +118,11 @@ describe("native Review Protocol source generation", () => {
       );
     }
 
+    await copyFile(
+      path.join(packageRoot, "..", "trace-shared", "src", "contracts.ts"),
+      path.join(sourceRoot, "trace-contracts.ts"),
+    );
+
     // Reformat index.ts: one named import per line, different order, the
     // re-exports moved to the bottom of the file, and the `contracts.js`
     // re-export rewritten from `export * from` to a wrapped multi-line
@@ -179,6 +184,7 @@ describe("native Review Protocol source generation", () => {
     await mkdir(sourceRoot, { recursive: true });
     await writeFile(path.join(sourceRoot, "runtime-value.ts"), "");
     await writeFile(path.join(sourceRoot, "json.ts"), "");
+    await writeFile(path.join(sourceRoot, "trace-contracts.ts"), "");
     await writeFile(
       path.join(sourceRoot, "contracts.ts"),
       [

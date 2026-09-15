@@ -185,11 +185,7 @@ export function registerTraceCaptureCommands(
   configureJsonOutput(
     trace
       .command("install")
-      .description(
-        settings.installMachine
-          ? `Install the agent hooks on this machine and the ${settings.cliName} command under ~/.local/bin`
-          : "Install the agent hooks on this machine",
-      )
+      .description("Install the agent hooks on this machine")
       .option(
         "--no-harness-hooks",
         "skip the Claude, Codex, OpenCode, and pi hook installers",
@@ -228,6 +224,7 @@ export function registerTraceCaptureCommands(
           json: options.json,
           harnessHooks: options.harnessHooks,
           traceCommand,
+          verifyCommand: settings.verifyCommand,
           stdout: settings.stdout,
           stderr: settings.stderr,
         }),

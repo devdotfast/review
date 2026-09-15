@@ -78,6 +78,7 @@ export {
   traceHookCommandOwner,
   installClaudeTraceHook,
   installCodexTraceHook,
+  installHarnessHooks,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
 } from "./agent-trace-hooks";

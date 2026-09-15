@@ -166,7 +166,7 @@ review login [--origin <url>] [--no-browser]
 review logout
 review whoami
 review trace store create|delete|info [path]
-review trace install [--no-harness-hooks]
+review trace install [--no-harness-hooks] [--json]
 review trace allow [path] [--no-harness-hooks]
 review trace deny [path]
 ```

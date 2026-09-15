@@ -384,11 +384,13 @@ describe("shared trace command parsing", () => {
     await fixture.parse(["install", "--no-harness-hooks"]);
     expect(calls).toEqual(["harnessHooks=true"]);
     expect(fixture.result.code).toBe(0);
+    // The shared description names the hooks only; a CLI that installs its
+    // own command file appends that clause after registration.
     expect(
       fixture.parent.commands
         .find((command) => command.name() === "install")
         ?.description(),
-    ).toContain("~/.local/bin");
+    ).toBe("Install the agent hooks on this machine");
   });
   it("renders repository help and hides hook commands", () => {
     const fixture = build("repository", false);

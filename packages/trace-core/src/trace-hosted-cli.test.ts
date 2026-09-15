@@ -228,7 +228,7 @@ describe("hosted trace commands", () => {
   });
 
   // SAFETY: The tuple fixes the two commands that accept an injected login.
-  it.each(["onboard", "sessions"] as const)(
+  it.each(["store.create", "sessions"] as const)(
     "accepts an injected client without saved login for %s",
     async (stage) => {
       writeConfig({
@@ -253,12 +253,12 @@ describe("hosted trace commands", () => {
       };
 
       expect(
-        await (stage === "onboard"
+        await (stage === "store.create"
           ? runTraceOnboard(input)
           : runTraceSessions(input)),
       ).toBe(0);
       expect(JSON.parse(out.text())).toEqual(
-        stage === "onboard"
+        stage === "store.create"
           ? {
               event: "trace.onboard",
               repositoryId: 7,
@@ -278,7 +278,7 @@ describe("hosted trace commands", () => {
   );
 
   // SAFETY: The tuple fixes the three command stages used below.
-  it.each(["onboard", "allow", "sessions"] as const)(
+  it.each(["store.create", "allow", "sessions"] as const)(
     "preserves the unauthorized store message for %s",
     async (stage) => {
       await login();
@@ -305,7 +305,7 @@ describe("hosted trace commands", () => {
       };
 
       const run =
-        stage === "onboard"
+        stage === "store.create"
           ? runTraceOnboard
           : stage === "allow"
             ? runTraceAllow
@@ -644,8 +644,8 @@ describe("hosted trace commands", () => {
 
     expect(deleted.text).toContain("was deleted");
 
-    const notOnboarded = await run(() => envelope("not_found", 404));
-    expect(notOnboarded.text).toContain("not onboarded");
+    const noStore = await run(() => envelope("not_found", 404));
+    expect(noStore.text).toContain("has no trace store");
 
     const older = await run((url) =>
       url.includes("/stores?")
@@ -868,7 +868,7 @@ describe("hosted trace commands", () => {
 
     expect(code).toBe(1);
     expect(err.text()).toBe(
-      "acme/app is not onboarded. Run `review trace store create` first.\n",
+      "acme/app has no trace store. Run `review trace store create` first.\n",
     );
   });
 
@@ -950,7 +950,27 @@ describe("hosted trace commands", () => {
       ),
     ).toContain("'/opt/dev-traces/bin/dev-traces' trace git-hook pre-push");
     expect(out.text()).toBe(
-      `Traces from acme/app may be published to ${ORIGIN}. Run \`review trace check\` to verify.\n`,
+      `Traces from acme/app may be published to ${ORIGIN}. Run \`review trace status\` to verify.\n`,
+    );
+  });
+
+  it("names the verify command the CLI registers", async () => {
+    await login();
+    const out = collect();
+
+    const code = await runTraceAllow({
+      cwd: repo,
+      scope: traceScope({ homeDir: home, env }),
+      harnessHooks: false,
+      verifyCommand: "dev-traces check",
+      client: client(() => Response.json(STORE)),
+      stdout: out.stream,
+      stderr: out.stream,
+    });
+
+    expect(code).toBe(0);
+    expect(out.text()).toBe(
+      `Traces from acme/app may be published to ${ORIGIN}. Run \`dev-traces check\` to verify.\n`,
     );
   });
 

@@ -90,6 +90,11 @@ export interface RegisterTraceCommandsOptions {
   /** Receives every action's exit code. */
   setExitCode: (code: number) => void;
   /**
+   * The command `allow` names on its last line, such as `dev-traces check`.
+   * `<prefix> status` when absent.
+   */
+  verifyCommand?: string;
+  /**
    * Installs the CLI itself, and reports the command the harness hooks call.
    * Only a CLI that ships its own command file supplies this; `install` then
    * names that command file too.

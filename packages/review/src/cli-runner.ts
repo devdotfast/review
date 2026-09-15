@@ -782,6 +782,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     stderr: input.stderr,
     configureOutput: (command) => configureOutput(command, "plain"),
     configureJsonOutput: (command) => configureJsonOutput(command, "plain"),
+    verifyCommand: "review trace status",
     setExitCode: (code) => {
       state.exitCode = code;
     },

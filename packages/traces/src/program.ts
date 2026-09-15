@@ -468,14 +468,19 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     setExitCode: (code) => {
       state.exitCode = code;
     },
+    verifyCommand: `${CLI_NAME} check`,
     // `install` is the machine setup of this CLI: the command file first, then
     // the harness hooks that call it.
     installMachine: ({ json }) => hookTraceCommand(json),
   });
 
-  // A standalone-only option on a shared command: the copy belongs to this
-  // CLI's own install, not to the harness hooks.
-  requireRegistered("install").option(
+  // A standalone-only option and clause on a shared command: the copy and the
+  // command file belong to this CLI, not to the harness hooks.
+  const install = requireRegistered("install");
+  install.description(
+    `${install.description()} and the ${CLI_NAME} command under ~/.local/bin`,
+  );
+  install.option(
     "--force",
     "Copy the running version again even when it is installed",
   );

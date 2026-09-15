@@ -1,12 +1,6 @@
 import type { Writable } from "node:stream";
 
-import {
-  type AgentTraceHookInstallResult,
-  installClaudeTraceHook,
-  installCodexTraceHook,
-  installOpenCodeTraceExtension,
-  installPiTraceExtension,
-} from "./agent-trace-hooks";
+import { installHarnessHooks } from "./agent-trace-hooks";
 import { type CliJsonOutput, emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
@@ -200,25 +194,20 @@ export async function runTraceInstallMachine(
     ? await input.installMachine(output)
     : input.traceCommand;
 
+  const hooks = await installHarnessHooks({
+    homeDir: input.scope.homeDir,
+    executable: traceCommand?.file,
+    harnessHooks: input.harnessHooks,
+  });
+
+  emitJsonEvent(output, { event: "trace.install", hooks });
   const stream = humanStream(output);
 
-  if (input.harnessHooks === false) {
-    emitJsonEvent(output, { event: "trace.install", hooks: [] });
+  if (hooks.length === 0) {
     stream.write("Harness hooks: skipped.\n");
 
     return 0;
   }
-
-  const executable = traceCommand?.file;
-
-  const hooks: AgentTraceHookInstallResult[] = [
-    await installClaudeTraceHook(input.scope.homeDir, executable),
-    await installCodexTraceHook(input.scope.homeDir, executable),
-    await installOpenCodeTraceExtension(input.scope.homeDir, executable),
-    await installPiTraceExtension(input.scope.homeDir, executable),
-  ];
-
-  emitJsonEvent(output, { event: "trace.install", hooks });
 
   for (const hook of hooks) {
     stream.write(`Harness hook: ${hook.agent} -> ${hook.path}\n`);

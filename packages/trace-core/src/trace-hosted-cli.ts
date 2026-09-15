@@ -10,10 +10,7 @@ import {
 
 import {
   describeTraceHookOwners,
-  installClaudeTraceHook,
-  installCodexTraceHook,
-  installOpenCodeTraceExtension,
-  installPiTraceExtension,
+  installHarnessHooks,
 } from "./agent-trace-hooks";
 import {
   type CliJsonOutput,
@@ -79,7 +76,7 @@ function describeStoreFailure(
     case "store_deleted":
       return `The trace store of ${repository} was deleted. Run \`${traceCommandPrefix()} store create\` to create a new one.`;
     case "not_found":
-      return `${repository} is not onboarded. Run \`${traceCommandPrefix()} store create\` first.`;
+      return `${repository} has no trace store. Run \`${traceCommandPrefix()} store create\` first.`;
     default:
       return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
   }
@@ -93,7 +90,7 @@ interface HostedRepositoryContext {
   repository: string;
   origin: string;
   client: StoreClient;
-  stage: "onboard" | "allow" | "sessions" | "store";
+  stage: "store.create" | "store.delete" | "store.info" | "allow" | "sessions";
 }
 
 /** Shares repository inference without changing each command's login policy. */
@@ -121,7 +118,7 @@ async function withHostedRepository(
   let origin = input.origin ?? DEFAULT_HOSTED_ORIGIN;
   let client = input.client;
 
-  if (stage === "onboard") {
+  if (stage === "store.create") {
     try {
       client ??= await requireStoreClient(input.scope.env);
     } catch (error) {
@@ -186,7 +183,7 @@ async function requireActiveStore(
 
   if (!store) {
     throw new HostedCommandFailure(
-      `${ctx.repository} is not onboarded. Run \`${traceCommandPrefix()} store create\` first.`,
+      `${ctx.repository} has no trace store. Run \`${traceCommandPrefix()} store create\` first.`,
     );
   }
 
@@ -213,7 +210,7 @@ export async function runTraceOnboard(
     client?: StoreClient;
   },
 ): Promise<number> {
-  return withHostedRepository(input, "onboard", async (ctx) => {
+  return withHostedRepository(input, "store.create", async (ctx) => {
     let store: Awaited<ReturnType<StoreClient["createStore"]>>;
 
     try {
@@ -257,7 +254,7 @@ export async function runTraceStoreInfo(
     client?: StoreClient;
   },
 ): Promise<number> {
-  return withHostedRepository(input, "store", async (ctx) => {
+  return withHostedRepository(input, "store.info", async (ctx) => {
     let store: StoreResponse | null;
 
     try {
@@ -277,7 +274,7 @@ export async function runTraceStoreInfo(
 
     if (!store) {
       throw new HostedCommandFailure(
-        `${ctx.repository} is not onboarded. Run \`${traceCommandPrefix()} store create\` first.`,
+        `${ctx.repository} has no trace store. Run \`${traceCommandPrefix()} store create\` first.`,
       );
     }
 
@@ -315,7 +312,7 @@ export async function runTraceStoreDelete(
     client?: StoreClient;
   },
 ): Promise<number> {
-  return withHostedRepository(input, "store", async (ctx) => {
+  return withHostedRepository(input, "store.delete", async (ctx) => {
     const store = await requireActiveStore(ctx);
 
     let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>>;
@@ -354,6 +351,11 @@ export async function runTraceAllow(
     harnessHooks?: boolean;
     /** The executable the installed hooks run; the CLI name when absent. */
     traceCommand?: TraceCommand;
+    /**
+     * The command the last line names, because only the CLI knows which one
+     * it registers. `<prefix> status` when absent.
+     */
+    verifyCommand?: string;
   },
 ): Promise<number> {
   return withHostedRepository(input, "allow", async (ctx) => {
@@ -375,14 +377,11 @@ export async function runTraceAllow(
     const storeOrigin = ctx.origin;
     const store = await requireActiveStore(ctx);
 
-    const hookExecutable = input.traceCommand?.file;
-
-    if (input.harnessHooks !== false) {
-      await installClaudeTraceHook(input.scope.homeDir, hookExecutable);
-      await installCodexTraceHook(input.scope.homeDir, hookExecutable);
-      await installOpenCodeTraceExtension(input.scope.homeDir, hookExecutable);
-      await installPiTraceExtension(input.scope.homeDir, hookExecutable);
-    }
+    await installHarnessHooks({
+      homeDir: input.scope.homeDir,
+      executable: input.traceCommand?.file,
+      harnessHooks: input.harnessHooks,
+    });
 
     await enableTraceRepository({
       cwd: input.cwd,
@@ -405,8 +404,12 @@ export async function runTraceAllow(
       name: store.displayName,
       store: storeOrigin,
     });
+
+    const verifyCommand =
+      input.verifyCommand ?? `${traceCommandPrefix()} status`;
+
     humanStream(input).write(
-      `Traces from ${store.displayName} may be published to ${storeOrigin}. Run \`${traceCommandPrefix()} check\` to verify.\n`,
+      `Traces from ${store.displayName} may be published to ${storeOrigin}. Run \`${verifyCommand}\` to verify.\n`,
     );
 
     return 0;

@@ -305,6 +305,12 @@ describe("dev-traces program", () => {
     // The hooks must name the installed command file, never the npx cache.
     expect(await readFile(claudeSettings, "utf8")).toContain(installedShim);
     expect(text).not.toContain(ownCliPath);
+
+    const help = run(["install", "--help"], stubs([]));
+    expect(await help.code).toBe(0);
+    expect(help.out()).toContain(
+      "Install the agent hooks on this machine and the dev-traces command",
+    );
   });
 
   it("install --force copies the running version again", async () => {

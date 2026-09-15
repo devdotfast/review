@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+
 import { findReviewPackageRoot } from "../package-paths";
+import { openLocalReviewStore } from "../review-api/local-data";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
+import { devReviewHome } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
@@ -30,6 +35,10 @@ export async function runDesktopHost(
   // a later in-app enable also reaches telemetry instances created elsewhere.
   delete env.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
 
+  const home = devReviewHome(env);
+  await mkdir(home, { recursive: true });
+  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+
   const serverInput: Parameters<typeof createGlobalReviewServer>[0] = {
     appPid,
     packageRoot,
@@ -38,6 +47,8 @@ export async function runDesktopHost(
     token: env.DEV_FAST_REVIEW_SERVER_TOKEN,
     instanceId: env.DEV_FAST_REVIEW_INSTANCE_ID,
     telemetry,
+    reviewStore: local.store,
+    reviewData: local.data,
   };
 
   if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
@@ -45,7 +56,14 @@ export async function runDesktopHost(
   }
 
   const server = createGlobalReviewServer(serverInput);
-  await server.listen();
+
+  try {
+    await server.listen();
+  } catch (error) {
+    await local.store.close();
+    throw error;
+  }
+
   process.stdout.write(
     `${JSON.stringify({ event: "ready", ...server.discovery, installationId })}\n`,
   );
@@ -64,7 +82,7 @@ export async function runDesktopHost(
 
   const stop = () => {
     if (!stopping) {
-      stopping = server.close("app-exit");
+      stopping = server.close("app-exit").finally(() => local.store.close());
     }
 
     return stopping;

@@ -63,7 +63,7 @@ against the same pinned worktrees.
 4. `createBrowserReviewDefinitionSession` (app runtime): if the global carries
    this route's map, `resolveCodePeek` is a lookup (missing key = error, the
    bundle is immutable); no map = pre-change bundle, keep the fetch path.
-5. Rebuild: `pnpm run build` + `app:desktop:build` in progressive-review, then
+5. Rebuild: `pnpm run build` + `app:desktop:build` in `packages/review`, then
    `app:build` for the desktop; measure with review-8-cold / review-83-fork.
 
 Expected: mount ≈ first commit only (well under 1s); publish desktop half
@@ -182,7 +182,7 @@ judge a fix on the change in medians.
 - Desktop-side edits need `REVIEW_DESKTOP_DEV_FAST=1 pnpm --filter
   @dev-fast/review-desktop app:build` (renderer; a bare `npm run compile`
   leaves `out/vs/review/common/reviewProtocol.js` importing `zod/v4` and the
-  window fails to start) and `pnpm run build` in `packages/progressive-review`
+  window fails to start) and `pnpm run build` in `packages/review`
   (server) before a `desktop = "dev"` run sees them.
 
 ## Not levers (checked)
@@ -244,5 +244,5 @@ Per-run detail (after):
 ## Harness realism notes (2026-09-03 evening)
 
 - Fork worktrees share the repo's stash stack. A "perf WIP (stashed by agent-server refactor)" entry, created by the review#83 session itself, cost one warm run 20s of "important finding" detours. Dropped; keep the stash stack empty during experiments.
-- The `review` shim broke whenever the agent's shell cwd was inside the fork worktree's `packages/progressive-review`: tsx reads tsconfig from the cwd, and the worktree's `paths` remapped `@dev.fast/local-vcs` onto the worktree's older source (no `setLocalVcsCommandObserver`). The agent then routed around the shim with the worktree's own `cli.ts`, silently changing the CLI under test (16:21 and 17:50 runs). Fixed: the shim pins `--tsconfig` to the instrumented checkout, and the runner aborts on any CLI load failure (`review-shim-stderr.log`).
+- The `review` shim broke whenever the agent's shell cwd was inside the fork worktree's `packages/review`: tsx reads tsconfig from the cwd, and the worktree's `paths` remapped `@dev.fast/local-vcs` onto the worktree's older source (no `setLocalVcsCommandObserver`). The agent then routed around the shim with the worktree's own `cli.ts`, silently changing the CLI under test (16:21 and 17:50 runs). Fixed: the shim pins `--tsconfig` to the instrumented checkout, and the runner aborts on any CLI load failure (`review-shim-stderr.log`).
 - Rule placement matters more than wording: the typecheck/test reflex fires at call ~4, before any `references/*.md` is opened. Rules about what not to do before authoring belong in SKILL.md (loaded at invocation); `document-authoring.md` is only in context once the agent is about to write.

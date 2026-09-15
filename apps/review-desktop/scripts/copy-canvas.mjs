@@ -11,7 +11,7 @@ const monorepoRoot = path.resolve(appDirectory, "../..");
 
 const sourceRoot = path.join(
   monorepoRoot,
-  "packages/progressive-review/app/dist/desktop",
+  "packages/review/app/dist/desktop",
 );
 
 export function canvasTargets(args, appRoot = appDirectory) {

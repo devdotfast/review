@@ -22,7 +22,7 @@ const appRoot = path.resolve(
 
 const sourceSkills = path.resolve(
   appRoot,
-  "../../packages/progressive-review/skills",
+  "../../packages/review/skills",
 );
 
 test("stamps all packaged skills with the Desktop release, preserving source hardlinks", async () => {

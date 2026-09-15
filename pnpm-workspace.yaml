@@ -18,7 +18,7 @@ minimumReleaseAgeExclude:
   - fuzzysort@4.0.2
 
 overrides:
-  # progressive-review declares a registry range; this override is what makes
+  # @dev.fast/review declares a registry range; this override is what makes
   # it resolve to the workspace package. Do not remove it.
   "@dev.fast/local-vcs": "workspace:0.1.0"
   "brace-expansion@2": "2.1.2"

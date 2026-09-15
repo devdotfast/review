@@ -107,7 +107,7 @@ function cases(home) {
   ];
 }
 
-/** Must match hashErrorMessage in packages/progressive-review/src/error-telemetry.ts. */
+/** Must match hashErrorMessage in packages/review/src/error-telemetry.ts. */
 function digestOf(message) {
   return createHash("sha256").update(message, "utf8").digest("hex").slice(0, 16);
 }

@@ -4,7 +4,7 @@ set -euo pipefail
 MONOREPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 APP_DIR="$MONOREPO_ROOT/apps/review-desktop"
 CHECKOUT="$APP_DIR/code-oss"
-REVIEW_PACKAGE="$MONOREPO_ROOT/packages/progressive-review"
+REVIEW_PACKAGE="$MONOREPO_ROOT/packages/review"
 REVIEW_SERVER="$REVIEW_PACKAGE/dist/server/desktop-host.js"
 CANVAS_MANIFEST="$REVIEW_PACKAGE/app/dist/desktop/.vite/manifest.json"
 

@@ -220,7 +220,7 @@ text, and only as described in "Error reports".
 ### Desktop and canvas events
 
 The server checks all properties in this table against
-`packages/progressive-review/src/ui-telemetry-events.ts`.
+`packages/review/src/ui-telemetry-events.ts`.
 
 | Event                             | Additional properties                                                                                                                                          | When                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
@@ -341,7 +341,7 @@ as `ENOENT: no such file or directory, open '<REDACTED: user-file-path>'`.
 The cleaner is Microsoft's, taken from VS Code, which Review is built on. Review
 uses it rather than a rule of its own so that you can check it against a known
 implementation. The copy is in
-`packages/progressive-review/src/telemetry-clean-text.ts`, and its header lists
+`packages/review/src/telemetry-clean-text.ts`, and its header lists
 every difference from the original.
 
 Two rules sit on top of the cleaner:
@@ -466,15 +466,15 @@ passive event allowlist and telemetry disk queue do not process bug reports.
 
 | Concern                    | File                                                                                           |
 | -------------------------- | ---------------------------------------------------------------------------------------------- |
-| Telemetry API and identity | `packages/progressive-review/src/progressive-review-telemetry.ts`                              |
-| Batch queue                | `packages/progressive-review/src/posthog-capture-client.ts`                                    |
-| Opt-out rules              | `packages/progressive-review/src/telemetry-config.ts`                                          |
-| Developer sink             | `packages/progressive-review/src/telemetry-debug-sink.ts`                                      |
-| UI allowlist               | `packages/progressive-review/src/ui-telemetry-events.ts`                                       |
-| Error message and frames   | `packages/progressive-review/src/error-telemetry.ts`                                           |
-| Message cleaner (VS Code)  | `packages/progressive-review/src/telemetry-clean-text.ts`                                      |
+| Telemetry API and identity | `packages/review/src/review-telemetry.ts`                                                      |
+| Batch queue                | `packages/review/src/posthog-capture-client.ts`                                                |
+| Opt-out rules              | `packages/review/src/telemetry-config.ts`                                                      |
+| Developer sink             | `packages/review/src/telemetry-debug-sink.ts`                                                  |
+| UI allowlist               | `packages/review/src/ui-telemetry-events.ts`                                                   |
+| Error message and frames   | `packages/review/src/error-telemetry.ts`                                                       |
+| Message cleaner (VS Code)  | `packages/review/src/telemetry-clean-text.ts`                                                  |
 | Error reporting rules      | `apps/review-desktop/code-oss/src/vs/review/common/reviewErrorReport.ts`                       |
 | Pre-start crash note       | `apps/review-desktop/code-oss/src/vs/review/node/reviewBootstrapBreadcrumb.ts`                 |
 | Desktop setting            | `apps/review-desktop/code-oss/src/vs/review/common/reviewConfiguration.ts`                     |
-| Settings screen            | `packages/progressive-review/app/src/settings-page.tsx`                                        |
+| Settings screen            | `packages/review/app/src/settings-page.tsx`                                                    |
 | First-use notice           | `apps/review-desktop/code-oss/src/vs/review/contrib/telemetry/reviewTelemetry.contribution.ts` |

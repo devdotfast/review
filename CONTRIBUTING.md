@@ -6,7 +6,7 @@ Thank you for your interest in Review Desktop.
 
 - `apps/review-desktop/` contains the application, packaging scripts, and the
   pinned Code - OSS fork.
-- `packages/progressive-review/` contains the Review command-line interface,
+- `packages/review/` contains the Review command-line interface,
   embedded server, and canvas.
 - `packages/review-protocol/` contains the shared process contracts.
 - `packages/local-vcs/` contains local version-control helpers.

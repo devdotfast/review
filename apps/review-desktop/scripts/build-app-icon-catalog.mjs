@@ -30,7 +30,7 @@ import { parseArgs } from "node:util";
 
 export const ICONS_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../../packages/progressive-review/app/icons",
+  "../../../packages/review/app/icons",
 );
 
 export const ICON_SOURCE = path.join(ICONS_DIR, "dev-fast.icon");

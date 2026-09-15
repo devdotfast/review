@@ -52,6 +52,8 @@ export function isTelemetryOptedOut(
 
   if (config?.enabled === false) return true;
 
+  // Keep every historical spelling so existing shell and CI configurations
+  // continue to disable telemetry after package and product renames.
   return [
     env.DO_NOT_TRACK,
     env.DNT,

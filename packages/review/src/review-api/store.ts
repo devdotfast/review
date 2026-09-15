@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { ReviewApiSummary } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { ReviewActivity } from "./activity.js";
 import {
   type Block,
   type Pins,
@@ -76,6 +77,7 @@ export interface ReviewProviders {
  * This prototype uses a new, explicitly supplied database, never an existing profile.
  */
 export class ReviewStore {
+  readonly activity = new ReviewActivity();
   private readonly db: DatabaseSync;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
@@ -179,6 +181,7 @@ export class ReviewStore {
     await this.pending;
     this.listeners.clear();
     this.catalogListeners.clear();
+    this.activity.close();
     this.db.close();
   }
   read(id: string, version?: number): Snapshot {
@@ -460,6 +463,8 @@ export class ReviewStore {
       this.db.exec("ROLLBACK");
       throw error;
     }
+
+    if (result.deleted) this.activity.remove(result.reviewId);
 
     if (!result.attention)
       for (const listener of this.listeners) listener(result);

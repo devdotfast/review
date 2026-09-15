@@ -21,6 +21,7 @@ import {
   type SoftwareMapTopologyDiff,
   diffSoftwareMaps,
 } from "../../src/software-map-topology-diff";
+import { AuthoringActivityBadge } from "./authoring-activity";
 import { BugReportControl } from "./bug-report-dialog";
 import {
   ReviewDebugSettingsProvider,
@@ -593,6 +594,7 @@ function ReviewLayoutContent({
               >
                 Open source tree ↗
               </button>
+              <AuthoringActivityBadge />
             </div>
             <div className="review-topbar-actions">
               <ReviewHistoryControl />

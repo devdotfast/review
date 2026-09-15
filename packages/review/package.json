@@ -74,6 +74,7 @@
     "@babel/parser": "7.29.7",
     "@dev.fast/local-vcs": "^0.1.0",
     "@hono/node-server": "2.0.12",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@mr_mint/elkjs-libavoid": "0.5.0",
     "@speed-highlight/core": "1.2.15",
     "@tanstack/react-table": "8.21.3",

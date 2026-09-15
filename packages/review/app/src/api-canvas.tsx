@@ -1,6 +1,7 @@
 import type { ReviewCanvasContent } from "@dev.fast/review-protocol";
 import {
   createContext,
+  memo,
   useContext,
   useEffect,
   useMemo,
@@ -8,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import type { ActivitySnapshot } from "../../src/review-api/activity";
 import { ReviewApiClient } from "../../src/review-api/client";
 import type { Snapshot } from "../../src/review-api/store";
 import {
@@ -18,6 +20,7 @@ import {
 import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
+import { AuthoringActivityContext } from "./authoring-activity";
 import {
   ReviewSessionProvider,
   createReviewSession,
@@ -47,6 +50,7 @@ export function ApiCanvas({
   );
 
   const [version, setVersion] = useState(content.version);
+  const [activity, setActivity] = useState<ActivitySnapshot | "unknown">();
   useEffect(() => setVersion(content.version), [content.version]);
   const [data, setData] = useState<ApiDocumentData>();
   const dataRef = useRef(data);
@@ -56,6 +60,7 @@ export function ApiCanvas({
     const abort = new AbortController();
     const loader = createDocumentLoader(client);
     setData(undefined);
+    setActivity(undefined);
 
     const show = async (snapshot: Snapshot) => {
       const next = await loader.load(snapshot);
@@ -85,34 +90,25 @@ export function ApiCanvas({
         return;
       }
 
-      while (!abort.signal.aborted) {
-        try {
-          for await (const next of client.watch<Snapshot>(
-            content.reviewId,
-            abort.signal,
-          ))
-            await show(next);
+      let shownVersion: number | undefined;
+      await client.follow<Snapshot & { activity: ActivitySnapshot }>(
+        content.reviewId,
+        abort.signal,
+        async (snapshot) => {
+          setActivity(snapshot.activity);
 
-          if (!abort.signal.aborted) setError("Connection lost. Reconnecting…");
-        } catch (cause) {
-          if (!abort.signal.aborted)
-            setError(
-              `Connection lost. Reconnecting… ${cause instanceof Error ? cause.message : ""}`,
-            );
-        }
-
-        if (!abort.signal.aborted)
-          await new Promise<void>((resolve) => {
-            const done = () => {
-              clearTimeout(timer);
-              abort.signal.removeEventListener("abort", done);
-              resolve();
-            };
-
-            const timer = setTimeout(done, 1000);
-            abort.signal.addEventListener("abort", done, { once: true });
-          });
-      }
+          if (shownVersion !== snapshot.version) {
+            await show(snapshot);
+            shownVersion = snapshot.version;
+          } else setError(undefined);
+        },
+        (cause) => {
+          setActivity("unknown");
+          setError(
+            `Connection lost. Reconnecting… ${cause instanceof Error ? cause.message : ""}`,
+          );
+        },
+      );
     })();
 
     return () => {
@@ -227,6 +223,36 @@ export function ApiCanvas({
   }, [Boolean(data), content.bridge]);
 
   if (!data) return <p role="status">{error ?? "Loading review…"}</p>;
+
+  return (
+    <ReviewSessionProvider session={session}>
+      <DocumentData.Provider value={data}>
+        <TutorialProvider>
+          {error && <p role="status">{error}</p>}
+          {version !== undefined && (
+            <button onClick={() => setVersion(undefined)}>
+              Back to latest version
+            </button>
+          )}
+          <AuthoringActivityContext.Provider
+            value={version === undefined ? activity : undefined}
+          >
+            <CanvasDocument data={data} findHost={findHost} />
+          </AuthoringActivityContext.Provider>
+        </TutorialProvider>
+      </DocumentData.Provider>
+    </ReviewSessionProvider>
+  );
+}
+
+// Activity updates only the badge; keep diagram inputs stable until document data changes.
+const CanvasDocument = memo(function CanvasDocument({
+  data,
+  findHost,
+}: {
+  data: ApiDocumentData;
+  findHost?: ReviewFindHost;
+}) {
   const snapshot = data.snapshot;
 
   const document: RenderedReviewDocument = {
@@ -239,42 +265,30 @@ export function ApiCanvas({
   };
 
   return (
-    <ReviewSessionProvider session={session}>
-      <DocumentData.Provider value={data}>
-        <TutorialProvider>
-          {error && <p role="status">{error}</p>}
-          {version !== undefined && (
-            <button onClick={() => setVersion(undefined)}>
-              Back to latest version
-            </button>
-          )}
-          <App
-            documentState={{ state: "ready", document }}
-            softwareMapState={{
-              state: "ready",
-              softwareMap: {
-                head:
-                  [...data.maps.values()].find(
-                    (map) => map.pinnedData.side === "head",
-                  ) ?? null,
-                base:
-                  [...data.maps.values()].find(
-                    (map) => map.pinnedData.side === "base",
-                  ) ?? null,
-              },
-            }}
-            softwareMapEnabled={data.maps.size > 0}
-            range={{
-              baseRef: snapshot.pins.base,
-              headRef: snapshot.pins.head,
-              baseCommit: snapshot.pins.base,
-              headCommit: snapshot.pins.head,
-            }}
-            commits={data.commits}
-            findHost={findHost}
-          />
-        </TutorialProvider>
-      </DocumentData.Provider>
-    </ReviewSessionProvider>
+    <App
+      documentState={{ state: "ready", document }}
+      softwareMapState={{
+        state: "ready",
+        softwareMap: {
+          head:
+            [...data.maps.values()].find(
+              (map) => map.pinnedData.side === "head",
+            ) ?? null,
+          base:
+            [...data.maps.values()].find(
+              (map) => map.pinnedData.side === "base",
+            ) ?? null,
+        },
+      }}
+      softwareMapEnabled={data.maps.size > 0}
+      range={{
+        baseRef: snapshot.pins.base,
+        headRef: snapshot.pins.head,
+        baseCommit: snapshot.pins.base,
+        headCommit: snapshot.pins.head,
+      }}
+      commits={data.commits}
+      findHost={findHost}
+    />
   );
-}
+});

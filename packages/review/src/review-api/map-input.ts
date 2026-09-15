@@ -7,6 +7,10 @@ import type { SoftwareModelInput } from "../software-map-model.js";
 // defineSoftwareMap normalizer remains responsible for relationships/coverage.
 const label = z.string().trim().min(1);
 
+const endpoint = label.describe(
+  'Existing element or data-store schema path. Resolution order: relative to the containing element, relative to its parent, then full path. "." means the containing element. At model root use full paths. Cross-level endpoints are allowed.',
+);
+
 const range = z.strictObject({
   fromLine: z.number().int().positive(),
   toLine: z.number().int().positive(),
@@ -15,16 +19,16 @@ const range = z.strictObject({
 const relationship = z.union([
   z.strictObject({
     kind: z.literal("call"),
-    from: label,
-    to: label,
+    from: endpoint,
+    to: endpoint,
     label: z.string().optional(),
     description: z.string().optional(),
     nthCallSite: z.number().int().nonnegative().optional(),
   }),
   z.strictObject({
     kind: z.literal("semantic"),
-    from: label,
-    to: label,
+    from: endpoint,
+    to: endpoint,
     label: z.string().optional(),
     description: z.string().optional(),
     semanticKind: z.string().optional(),
@@ -33,13 +37,22 @@ const relationship = z.union([
 ]);
 
 const base = z.strictObject({
-  id: label.optional(),
+  id: label
+    .optional()
+    .describe(
+      "Local ID, unique among siblings; defaults to the object key (or array index). Give array entries explicit IDs for stable paths. Nesting builds the full path: api under app becomes app.api. Do not repeat the parent path in the ID.",
+    ),
   label: label.optional(),
   description: z.string().optional(),
   changeStatus: z
     .enum(["added", "removed", "modified", "unchanged"])
     .optional(),
-  relationships: z.array(relationship).optional(),
+  relationships: z
+    .array(relationship)
+    .optional()
+    .describe(
+      "Relationships scoped to this element. Endpoints may use relative names or full paths; they need not be direct children.",
+    ),
 });
 
 const coverage = z.strictObject({
@@ -89,5 +102,10 @@ const system = base.extend({
 export const mapInputSchema: z.ZodType<SoftwareModelInput> = z.strictObject({
   people: collection(base).optional(),
   systems: collection(system).optional(),
-  relationships: z.array(relationship).optional(),
+  relationships: z
+    .array(relationship)
+    .optional()
+    .describe(
+      "Model-level relationships, including people and systems. Use full endpoint paths; external systems are systems with external: true.",
+    ),
 });

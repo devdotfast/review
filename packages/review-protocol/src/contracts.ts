@@ -151,10 +151,10 @@ export interface ReviewInlineEditorSpec {
   description?: string;
   side: ReviewDiffSide;
   ranges: readonly ReviewInlineEditorRange[];
+  /** Original authored selections, before display ranges are merged. */
+  countRanges?: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
   active: boolean;
-  /** Render the one-column unified diff instead of the layout-following diff. */
-  unifiedDiff?: boolean;
   diffStats?: {
     additions: number;
     deletions: number;
@@ -180,7 +180,6 @@ export interface ReviewInlineFindSpec {
   path: string;
   side: ReviewDiffSide;
   ranges: readonly ReviewInlineEditorRange[];
-  unifiedDiff?: boolean;
 }
 
 export interface ReviewInlineEditorHandle extends ReviewDisposable {

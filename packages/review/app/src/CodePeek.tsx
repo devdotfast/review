@@ -126,6 +126,7 @@ interface ResolvedCodePeekGroup {
   file: string;
   graph: CodePeekGraph;
   ranges: ReviewInlineEditorRange[];
+  countRanges?: ReviewInlineEditorRange[];
   diffStats?: { additions: number; deletions: number };
 }
 
@@ -228,8 +229,8 @@ export function CodePeekGroup({
               ranges={group.ranges}
               heightMode="content"
               diffStats={group.diffStats}
+              countRanges={group.countRanges}
               active={false}
-              unifiedDiff
               collapsed={collapsed}
               onOpen={() =>
                 session.surface.revealAnchor(
@@ -278,17 +279,15 @@ export function ReviewCodePeek({ anchor }: ReviewCodePeekProps) {
     [anchor.peek],
   );
 
-  return <CodePeekView input={input} unifiedDiff />;
+  return <CodePeekView input={input} />;
 }
 
 export function CodePeekView({
   input,
   heightMode = "capped",
-  unifiedDiff = false,
 }: {
   input: ValidatedCodePeekInput;
   heightMode?: ReviewInlineEditorHeightMode;
-  unifiedDiff?: boolean;
 }) {
   const { resolution, status, error } = useCodePeekResolution(input);
 
@@ -299,7 +298,6 @@ export function CodePeekView({
       status={status}
       error={error}
       heightMode={heightMode}
-      unifiedDiff={unifiedDiff}
     />
   );
 }
@@ -435,7 +433,6 @@ export function CodePeekCard({
   active = false,
   heightMode = "capped",
   onNativeFocus,
-  unifiedDiff = false,
 }: {
   input: ValidatedCodePeekInput;
   resolution?: CodePeekResolveResult;
@@ -444,7 +441,6 @@ export function CodePeekCard({
   active?: boolean;
   heightMode?: ReviewInlineEditorHeightMode;
   onNativeFocus?: () => void;
-  unifiedDiff?: boolean;
 }) {
   const session = useReviewSession();
 
@@ -486,7 +482,6 @@ export function CodePeekCard({
           heightMode={heightMode}
           diffStats={diffCounts}
           active={active}
-          unifiedDiff={unifiedDiff}
           onFocus={() => onNativeFocusRef.current?.()}
           onOpen={() =>
             session.surface.revealAnchor(
@@ -622,6 +617,7 @@ function resolvedCodePeekGroups(
 
   return [...groups.values()].map(({ hasDiffStats, ...group }) => ({
     ...group,
+    countRanges: group.ranges,
     ranges: mergedCodePeekRanges(group.ranges, group.graph),
     diffStats: hasDiffStats ? group.diffStats : undefined,
   }));

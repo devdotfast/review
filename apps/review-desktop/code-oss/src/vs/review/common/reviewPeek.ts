@@ -110,33 +110,6 @@ export function reviewPeekWindowsLineCount(
   return windows.reduce((total, window) => total + window.lineCount, 0);
 }
 
-/**
- * Height bound for a multi-diff peek body in unmeasured states: before the
- * peek windows land, while the inner editors have no model, and always in
- * capped mode. The widget's getContentHeight() is never trustworthy for a
- * windowed peek — the diff editor keeps alignment view zones for every hunk
- * in the file, and setHiddenAreas removes lines but not those zones — so a
- * real measurement must come from reviewPeekWindowsRenderedHeight instead,
- * and this bound caps anything else. Summing both windows over-estimates
- * side-by-side rendering but covers the unified view, where deleted lines
- * render as view zones in the modified editor; over-estimating a bound for
- * an unmeasured state is harmless, under-estimating would clip.
- */
-export function reviewPeekMultiDiffBodyHeightLimit(
-  heightMode: ReviewPeekHeightMode,
-  originalWindows: readonly ReviewPeekWindow[],
-  modifiedWindows: readonly ReviewPeekWindow[],
-): number {
-  if (heightMode !== "content") {
-    return REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT;
-  }
-  return (
-    (reviewPeekWindowsLineCount(originalWindows) +
-      reviewPeekWindowsLineCount(modifiedWindows)) *
-    REVIEW_PEEK_LINE_HEIGHT
-  );
-}
-
 export function reviewPeekCappedHeight(measuredHeight: number): number {
   return Math.min(
     REVIEW_PEEK_MAX_VISIBLE_LINES * REVIEW_PEEK_LINE_HEIGHT,

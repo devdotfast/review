@@ -219,7 +219,6 @@ export class ReviewFilesDiffView extends Disposable {
       // Hover and definition widgets must escape the canvas root, whose
       // container-query containment clips position: fixed descendants.
       overflowWidgetsDomNode,
-      undefined,
       false,
       undefined,
     );

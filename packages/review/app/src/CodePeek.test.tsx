@@ -145,6 +145,12 @@ describe("CodePeek native editor", () => {
             },
             {
               file: "src/current.ts",
+              fromLine: 22,
+              toLine: 23,
+              graph: "head",
+            },
+            {
+              file: "src/current.ts",
               fromLine: 80,
               toLine: 82,
               graph: "head",
@@ -171,6 +177,12 @@ describe("CodePeek native editor", () => {
       {
         path: "src/current.ts",
         side: "head",
+        countRanges: [
+          { startLine: 20, endLine: 24, side: "head" },
+          { startLine: 22, endLine: 23, side: "head" },
+          { startLine: 80, endLine: 82, side: "head" },
+          { startLine: 50, endLine: 50, side: "base" },
+        ],
         ranges: [
           { startLine: 20, endLine: 24 },
           { startLine: 80, endLine: 82 },

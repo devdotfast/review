@@ -145,6 +145,75 @@ it("defers native editor creation until the peek nears the viewport", () => {
   expect(created).toHaveLength(1);
 });
 
+it("refreshes header inputs when authored count ranges change within the same display range", () => {
+  const dispose = vi.fn<() => void>();
+
+  const session = testReviewSession(
+    {},
+    {
+      inlineEditors: {
+        async find() {
+          return { matchCount: 0 };
+        },
+        create(spec) {
+          created.push(spec);
+
+          return {
+            height: 180,
+            setActive() {},
+            setCollapsed() {},
+            async setFindQuery() {
+              return { matchCount: 0 };
+            },
+            revealFindMatch() {},
+            clearActiveFindMatch() {},
+            clearFind() {},
+            onDidChangeHeight: () => ({ dispose() {} }),
+            onDidError: () => ({ dispose() {} }),
+            dispose,
+          };
+        },
+      },
+    },
+  );
+
+  const element = document.createElement("div");
+  document.body.append(element);
+  root = createRoot(element);
+
+  const render = (countRanges: ReviewInlineEditorSpec["countRanges"]) =>
+    act(() => {
+      root?.render(
+        reviewSessionElement(
+          session,
+          <InlineCodeEditor
+            path="a.ts"
+            title="a.ts"
+            side="head"
+            ranges={[{ startLine: 1, endLine: 10 }]}
+            countRanges={countRanges}
+            active
+            heightMode="content"
+          />,
+        ),
+      );
+    });
+
+  render([{ startLine: 2, endLine: 2 }]);
+  render([{ startLine: 2, endLine: 2 }]);
+  expect(created).toHaveLength(1);
+  render([
+    { startLine: 2, endLine: 2, side: "base" },
+    { startLine: 2, endLine: 2 },
+  ]);
+  expect(dispose).toHaveBeenCalledTimes(1);
+  expect(created).toHaveLength(2);
+  expect(created[1].countRanges).toEqual([
+    { startLine: 2, endLine: 2, side: "base" },
+    { startLine: 2, endLine: 2 },
+  ]);
+});
+
 it("searches an offscreen peek without mounting Monaco", async () => {
   vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
 
@@ -222,7 +291,6 @@ it("searches an offscreen peek without mounting Monaco", async () => {
         path: "src/offscreen.ts",
         side: "head",
         ranges: [{ startLine: 1, endLine: 3 }],
-        unifiedDiff: false,
       },
       {
         text: "needle",

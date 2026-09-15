@@ -1,10 +1,59 @@
+import {
+  chmod,
+  cp,
+  mkdir,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+} from "node:fs/promises";
 import path from "node:path";
 
-import type { AgentTraceHookAgent } from "@dev.fast/trace-core";
+import {
+  type AgentTraceHookAgent,
+  disableTraceRepository,
+  listTraceRepositoryRoots,
+  removeAgentTraceHook,
+  renderTraceCommand,
+  traceRepositoryStatus,
+  writeFileAtomicAsync,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
+import { z } from "zod";
 
-// Task 22 writes the bodies of installSelf, uninstallSelf, and
-// selfInstallStatus. The path helpers below are final: the program and its
-// tests need them now, and they hold no install logic.
+import { NODE_FLOOR_MAJOR } from "./node-floor.js";
+import { readPackageVersion } from "./package-root.js";
+import {
+  ensureShellProfilePath,
+  pathContainsDirectory,
+  readTextIfExists,
+  removeShellProfilePath,
+  resolvePathCommand,
+} from "./shell-profile.js";
+
+/** The line that marks a command file as one this package wrote. */
+export const SHIM_MARKER = "# Managed by @dev.fast/traces. Do not edit.";
+
+/** The versions the install keeps beside the one in use. */
+const KEEP_PREVIOUS_VERSIONS = 2;
+
+const HOOK_AGENTS: AgentTraceHookAgent[] = [
+  "claude",
+  "codex",
+  "opencode",
+  "pi",
+];
+
+const installStateSchema = z.object({
+  version: z.string().min(1),
+  installedAt: z.string().min(1),
+  shimPath: z.string().min(1),
+  runtimePath: z.string().min(1),
+});
+
+type InstallState = z.infer<typeof installStateSchema>;
 
 /** The command file the install writes under the user's home directory. */
 export function shimPath(homeDir: string): string {
@@ -24,6 +73,15 @@ export function currentLink(devHome: string): string {
 /** The entry file of the installed version in use. */
 export function currentCliPath(devHome: string): string {
   return path.join(currentLink(devHome), "dist", "cli.js");
+}
+
+/** The record of the last install this package wrote. */
+export function installStatePath(devHome: string): string {
+  return path.join(tracesDir(devHome), "install.json");
+}
+
+function versionsDir(devHome: string): string {
+  return path.join(tracesDir(devHome), "versions");
 }
 
 export interface InstallSelfInput {
@@ -75,23 +133,337 @@ export interface SelfInstallStatus {
   lines: string[];
 }
 
+async function exists(filePath: string): Promise<boolean> {
+  return stat(filePath).then(
+    () => true,
+    () => false,
+  );
+}
+
+async function sameRealPath(left: string, right: string): Promise<boolean> {
+  const [a, b] = await Promise.all([
+    realpath(left).catch(() => null),
+    realpath(right).catch(() => null),
+  ]);
+
+  return a !== null && a === b;
+}
+
+/** Quotes one word for `/bin/sh`, including a word that holds a quote. */
+function shSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * The command file. It finds the installed entry through the trace home, picks
+ * a runtime, and never breaks an agent session: a hook call exits 0 when the
+ * install is gone, while a human call explains what to run.
+ */
+function shimSource(execPath: string): string {
+  const baked = shSingleQuote(execPath);
+
+  return `#!/bin/sh
+${SHIM_MARKER}
+home="\${DEV_REVIEW_HOME:-$HOME/.dev}"
+cli="$home/traces/current/dist/cli.js"
+hook_mode=0
+if [ "$1" = "trace" ] && { [ "$2" = "hook" ] || [ "$2" = "git-hook" ]; }; then hook_mode=1; fi
+if [ ! -f "$cli" ]; then
+  [ "$hook_mode" = 1 ] && exit 0
+  echo "dev-traces is not installed. Run: npx @dev.fast/traces install" >&2
+  exit 1
+fi
+runtime=""
+if [ -n "$DEV_TRACES_NODE" ] && [ -x "$DEV_TRACES_NODE" ]; then runtime="$DEV_TRACES_NODE"
+elif [ -x ${baked} ]; then runtime=${baked}
+elif command -v node >/dev/null 2>&1; then
+  major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)
+  case "$major" in *[!0-9]*|"") major=0;; esac
+  [ "$major" -ge ${NODE_FLOOR_MAJOR} ] && runtime="node"
+fi
+if [ -z "$runtime" ]; then
+  [ "$hook_mode" = 1 ] && exit 0
+  echo "dev-traces needs Node.js ${NODE_FLOOR_MAJOR} or newer on PATH or in DEV_TRACES_NODE." >&2
+  exit 1
+fi
+exec "$runtime" "$cli" "$@"
+`;
+}
+
+async function writeShim(shim: string, execPath: string): Promise<void> {
+  await mkdir(path.dirname(shim), { recursive: true });
+  await writeFileAtomicAsync(shim, shimSource(execPath), {
+    encoding: "utf8",
+    mode: 0o755,
+    replaceSymlink: true,
+  });
+  await chmod(shim, 0o755);
+}
+
+/**
+ * Copies the package beside the installed versions. The copy leaves out every
+ * node_modules directory: the bundle carries its dependencies, and the npx
+ * cache the copy comes from disappears after the run.
+ */
+async function copyPackage(packageRoot: string, target: string): Promise<void> {
+  await mkdir(path.dirname(target), { recursive: true });
+  const staging = `${target}.tmp-${process.pid}`;
+  await rm(staging, { recursive: true, force: true });
+
+  try {
+    await cp(packageRoot, staging, {
+      recursive: true,
+      filter: (source) => path.basename(source) !== "node_modules",
+    });
+    await rm(target, { recursive: true, force: true });
+    await rename(staging, target);
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
+/** Points `current` at one version through a staged link and one rename. */
+async function pointCurrent(devHome: string, version: string): Promise<void> {
+  const link = currentLink(devHome);
+  await mkdir(path.dirname(link), { recursive: true });
+  const staging = `${link}.tmp-${process.pid}`;
+  await rm(staging, { force: true });
+  await symlink(path.join("versions", version), staging);
+  await rename(staging, link);
+}
+
+/** Removes the oldest versions, and never the one `current` points at. */
+async function pruneVersions(devHome: string): Promise<string[]> {
+  const root = versionsDir(devHome);
+  const keep = await realpath(currentLink(devHome)).catch(() => null);
+  const entries = await readdir(root).catch(() => []);
+  const candidates: { dir: string; name: string; mtimeMs: number }[] = [];
+
+  for (const name of entries) {
+    if (name.includes(".tmp-")) continue;
+    const dir = path.join(root, name);
+
+    if ((await realpath(dir).catch(() => null)) === keep) continue;
+    const info = await stat(dir).catch(() => null);
+
+    if (!info) continue;
+    candidates.push({ dir, name, mtimeMs: info.mtimeMs });
+  }
+
+  // Newest first. Two copies can share one millisecond, so the name breaks
+  // the tie and keeps the result the same on every machine.
+  candidates.sort(
+    (a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name),
+  );
+
+  const removed: string[] = [];
+
+  for (const candidate of candidates.slice(KEEP_PREVIOUS_VERSIONS)) {
+    await rm(candidate.dir, { recursive: true, force: true });
+    removed.push(candidate.dir);
+  }
+
+  return removed;
+}
+
+/** True when the target holds a complete copy of the same version. */
+async function installedAlready(
+  target: string,
+  version: string,
+): Promise<boolean> {
+  if (!(await exists(path.join(target, "dist", "cli.js")))) return false;
+
+  return (await readPackageVersion(target).catch(() => null)) === version;
+}
+
 /** Copies the running package under the trace home and writes the shim. */
 export async function installSelf(
   input: InstallSelfInput,
 ): Promise<InstallSelfResult> {
-  throw new Error("not implemented: installSelf");
+  const version = await readPackageVersion(input.packageRoot);
+  const target = path.join(versionsDir(input.devHome), version);
+  const shim = shimPath(input.homeDir);
+  let copied = false;
+
+  // A run of the installed copy installs nothing; it is already the target.
+  if (!(await sameRealPath(input.packageRoot, target))) {
+    if (input.force || !(await installedAlready(target, version))) {
+      await copyPackage(input.packageRoot, target);
+      copied = true;
+    }
+  }
+
+  await pointCurrent(input.devHome, version);
+  await pruneVersions(input.devHome);
+
+  // Read PATH before the shim exists: a shim of ours never counts as a
+  // shadowing command, and the reader would otherwise find the new file.
+  const shadowing = await resolvePathCommand(
+    "dev-traces",
+    shim,
+    input.env,
+    SHIM_MARKER,
+  );
+
+  await writeShim(shim, input.execPath);
+
+  const state: InstallState = {
+    version,
+    installedAt: new Date().toISOString(),
+    shimPath: shim,
+    runtimePath: input.execPath,
+  };
+
+  await writePrivateJsonAtomic(installStatePath(input.devHome), state);
+
+  const profileOutput = await ensureShellProfilePath({
+    homeDir: input.homeDir,
+    env: input.env,
+    shimDirectory: path.dirname(shim),
+  });
+
+  const shadowingOutput = shadowing
+    ? `Warning: ${shadowing} currently shadows ${shim}. Move ${path.dirname(shim)} earlier in PATH.\n`
+    : "";
+
+  return {
+    version,
+    installedRoot: target,
+    copied,
+    shimPath: shim,
+    output: `[ok] dev-traces command -> ${shim}\n${profileOutput}${shadowingOutput}`,
+  };
 }
 
 /** Removes the shim, the installed versions, and the hooks they own. */
 export async function uninstallSelf(
   input: UninstallSelfInput,
 ): Promise<UninstallSelfResult> {
-  throw new Error("not implemented: uninstallSelf");
+  const shim = shimPath(input.homeDir);
+  const shimText = await readTextIfExists(shim);
+  const owned = shimText.includes(SHIM_MARKER);
+  let removedShim = false;
+
+  if (owned) {
+    await rm(shim, { force: true });
+    removedShim = true;
+  }
+
+  const profiles = await removeShellProfilePath(input.homeDir);
+  const hooksRemoved: AgentTraceHookAgent[] = [];
+
+  for (const agent of HOOK_AGENTS) {
+    if (await removeAgentTraceHook(agent, input.homeDir, "dev-traces")) {
+      hooksRemoved.push(agent);
+    }
+  }
+
+  // Git hooks of another owner stay: only the repositories that re-enter this
+  // shim, and the ones whose state file names no command, lose their hooks.
+  const ownCommand = renderTraceCommand({ file: shim });
+  const repositoriesDisabled: string[] = [];
+
+  for (const root of await listTraceRepositoryRoots(input.homeDir)) {
+    const status = await traceRepositoryStatus(root).catch(() => null);
+
+    // No state file means no managed hooks, so there is nothing to remove.
+    if (!status?.managedHooksPath) continue;
+
+    if (status.command !== undefined && status.command !== ownCommand) continue;
+    await disableTraceRepository({
+      cwd: root,
+      scope: {
+        homeDir: input.homeDir,
+        env: input.env,
+        devHome: input.devHome,
+      },
+    }).catch(() => undefined);
+    repositoriesDisabled.push(root);
+  }
+
+  await rm(tracesDir(input.devHome), { recursive: true, force: true });
+
+  const foreignShimLine = shimText
+    ? `[skip] ${shim} is not managed by @dev.fast/traces; left in place\n`
+    : "";
+
+  const lines = [
+    removedShim ? `[ok] removed ${shim}\n` : foreignShimLine,
+    ...profiles.map(
+      (profile) => `[ok] removed the PATH block from ${profile}\n`,
+    ),
+    ...hooksRemoved.map((agent) => `[ok] removed the ${agent} trace hook\n`),
+    ...repositoriesDisabled.map(
+      (root) => `[ok] disabled the Git trace hooks in ${root}\n`,
+    ),
+    `[ok] removed ${tracesDir(input.devHome)}\n`,
+    "Kept: the trace store login, the repository consent, and the captured sessions.\n",
+  ];
+
+  return {
+    removedShim,
+    keptForeignShim: !owned && shimText.length > 0,
+    profiles,
+    hooksRemoved,
+    repositoriesDisabled,
+    output: lines.join(""),
+  };
+}
+
+async function readInstallState(devHome: string): Promise<InstallState | null> {
+  const text = await readTextIfExists(installStatePath(devHome));
+
+  if (!text) return null;
+
+  try {
+    return installStateSchema.parse(JSON.parse(text));
+  } catch {
+    return null;
+  }
 }
 
 /** Reports the installed version, the shim, and the runtime in use. */
 export async function selfInstallStatus(
   input: SelfInstallStatusInput,
 ): Promise<SelfInstallStatus> {
-  throw new Error("not implemented: selfInstallStatus");
+  const shim = shimPath(input.homeDir);
+  const shimText = await readTextIfExists(shim);
+  const currentPath = currentLink(input.devHome);
+  const state = await readInstallState(input.devHome);
+  const installed = await exists(currentCliPath(input.devHome));
+
+  const installedVersion = installed
+    ? await readPackageVersion(currentPath).catch(() => state?.version ?? null)
+    : null;
+
+  const status: SelfInstallStatus = {
+    installed,
+    installedVersion,
+    currentPath,
+    shim: {
+      path: shim,
+      present: shimText.length > 0,
+      owned: shimText.includes(SHIM_MARKER),
+      onPath: pathContainsDirectory(input.env.PATH, path.dirname(shim)),
+    },
+    runtimePath: state?.runtimePath ?? null,
+    lines: [],
+  };
+
+  status.lines.push(
+    installed
+      ? `Install: dev-traces ${installedVersion} at ${currentPath} (running ${input.runningVersion})\n`
+      : `Install: not installed (running from ${input.ownCliPath})\n`,
+  );
+  status.lines.push(
+    `Command: ${shim} (on PATH: ${status.shim.onPath ? "yes" : "no"})\n`,
+  );
+
+  if (status.runtimePath) status.lines.push(`Runtime: ${status.runtimePath}\n`);
+
+  if (input.env.TRACE_DISABLE === "1") {
+    status.lines.push("TRACE_DISABLE=1 is set; hooks are inert\n");
+  }
+
+  return status;
 }

@@ -6,6 +6,7 @@ import type {
   SequenceMessageCodeInput,
 } from "./authoring";
 import type { Step } from "./review-api/document";
+import { slugify, uniqueId } from "./slug";
 
 /** A sequence diagram as the document stores it: the canonical block minus
  * its `type` tag, with the id always present. */
@@ -25,7 +26,7 @@ export interface SequenceBlockProps {
 export function sequenceBlockFromProps(
   props: SequenceDiagramProps,
 ): SequenceBlockProps {
-  const slug = slugLabel(props.label);
+  const slug = slugify(props.label);
   const id = `sequence-${slug}`;
   const actors: Record<string, string> = {};
   const explicitActorIds = new Set<string>();
@@ -49,12 +50,11 @@ export function sequenceBlockFromProps(
     const existing = inlineActorIdsByLabel.get(actor.label);
 
     if (existing) return existing;
-    const baseId = `inline-${slugLabel(actor.label) || "actor"}`;
-    let name = baseId;
 
-    for (let suffix = 2; usedActorIds.has(name); suffix += 1) {
-      name = `${baseId}-${suffix}`;
-    }
+    const name = uniqueId(
+      `inline-${slugify(actor.label) || "actor"}`,
+      usedActorIds,
+    );
 
     usedActorIds.add(name);
     inlineActorIdsByLabel.set(actor.label, name);
@@ -138,12 +138,4 @@ function codeBlock(
   if (!text) return undefined;
 
   return { language: code.language?.trim() || "text", text };
-}
-
-function slugLabel(label: string): string {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }

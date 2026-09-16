@@ -1,11 +1,13 @@
 import type { Writable } from "node:stream";
 
+import { installHarnessHooks } from "./agent-trace-hooks";
+import { type CliJsonOutput, emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
 import {
   type TraceCommand,
   type TraceScope,
-  traceCliName,
+  traceCommandPrefix,
 } from "./trace-command";
 import { runTraceGitHook } from "./trace-git-hook-runner";
 import { runTraceHook } from "./trace-hook-runner";
@@ -163,6 +165,57 @@ export async function runTraceEnable(input: {
   return result.enabled ? 0 : 1;
 }
 
+/**
+ * Installs the machine parts of trace capture: the harness hooks of every
+ * agent, and the CLI itself when the CLI passes an installer. The command
+ * touches no repository; `allow` keeps the consent and the Git hooks.
+ *
+ * The CLI install runs first, because it reports the command file the
+ * harness hooks must call.
+ */
+export async function runTraceInstallMachine(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    /** False skips the four harness hook installers. */
+    harnessHooks?: boolean;
+    /** The command the harness hooks run; the CLI name when absent. */
+    traceCommand?: TraceCommand;
+    /** Installs the CLI itself and reports the command the hooks call. */
+    installMachine?: (output: CliJsonOutput) => Promise<TraceCommand>;
+  },
+): Promise<number> {
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+
+  const traceCommand = input.installMachine
+    ? await input.installMachine(output)
+    : input.traceCommand;
+
+  const hooks = await installHarnessHooks({
+    homeDir: input.scope.homeDir,
+    executable: traceCommand?.file,
+    harnessHooks: input.harnessHooks,
+  });
+
+  emitJsonEvent(output, { event: "trace.install", hooks });
+  const stream = humanStream(output);
+
+  if (hooks.length === 0) {
+    stream.write("Harness hooks: skipped.\n");
+
+    return 0;
+  }
+
+  for (const hook of hooks) {
+    stream.write(`Harness hook: ${hook.agent} -> ${hook.path}\n`);
+  }
+
+  return 0;
+}
+
 export async function runTraceDisable(input: {
   scope: TraceScope;
   cwd: string;
@@ -230,7 +283,7 @@ export async function runTraceSync(input: {
 
       if (current !== input.expectStorage) {
         throw new Error(
-          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCliName()} trace sync ${input.sessionId}\` to publish to the current selection.`,
+          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCommandPrefix()} sync ${input.sessionId}\` to publish to the current selection.`,
         );
       }
     }

@@ -31,14 +31,26 @@ export interface TraceCommand {
 
 let cliName = "review";
 
+let commandPrefix = `${cliName} trace`;
+
 /** The user-facing command name in messages and hook templates. */
 export function traceCliName(): string {
   return cliName;
 }
 
+/**
+ * The words before a trace subcommand in a hint, such as `review trace` for
+ * `review trace allow .`. A CLI that registers the subcommands at its root
+ * sets the prefix to its own name.
+ */
+export function traceCommandPrefix(): string {
+  return commandPrefix;
+}
+
 /** A second CLI entry sets its own name before it prints anything. */
-export function setTraceCliName(name: string): void {
+export function setTraceCliName(name: string, prefix = `${name} trace`): void {
   cliName = name;
+  commandPrefix = prefix;
 }
 
 /** Returns the configured trace home, then the operating-system home. */

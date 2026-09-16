@@ -219,6 +219,30 @@ function runTraceHook(eventName: string, sessionId: string, cwd: string) {
 }
 
 /**
+ * Installs the session lifecycle hook of every harness this package owns.
+ *
+ * `harnessHooks: false` installs none, so one caller can keep the option its
+ * command registers. The result names each file that was written, in the
+ * order the installers ran.
+ */
+export async function installHarnessHooks(input: {
+  homeDir: string;
+  /** The executable the hooks run; the CLI name when absent. */
+  executable?: string;
+  /** False skips every installer. */
+  harnessHooks?: boolean;
+}): Promise<AgentTraceHookInstallResult[]> {
+  if (input.harnessHooks === false) return [];
+
+  return [
+    await installClaudeTraceHook(input.homeDir, input.executable),
+    await installCodexTraceHook(input.homeDir, input.executable),
+    await installOpenCodeTraceExtension(input.homeDir, input.executable),
+    await installPiTraceExtension(input.homeDir, input.executable),
+  ];
+}
+
+/**
  * Idempotently configures Claude Code session lifecycle hooks in ~/.claude/settings.json.
  */
 export async function installClaudeTraceHook(
@@ -593,6 +617,20 @@ export interface TraceHookOwners {
 
 async function readTextOrEmpty(filePath: string): Promise<string> {
   return existsSync(filePath) ? readFile(filePath, "utf8") : "";
+}
+
+/** The file one harness reads its trace hook from. */
+export function agentTraceHookPath(
+  agent: AgentTraceHookAgent,
+  homeDir = os.homedir(),
+): string {
+  if (agent === "claude") return claudeSettingsPath(homeDir);
+
+  if (agent === "codex") return codexConfigPath(homeDir);
+
+  if (agent === "opencode") return openCodePluginPath(homeDir);
+
+  return piExtensionPath(homeDir);
 }
 
 /** Reports recognized SessionStart owners and extension owners without changing files. */

@@ -17,6 +17,8 @@ export {
   runTraceDeny,
   runTraceOnboard,
   runTraceSessions,
+  runTraceStoreDelete,
+  runTraceStoreInfo,
   writeHostedTraceStatus,
 } from "./trace-hosted-cli";
 
@@ -25,6 +27,7 @@ export {
   runTraceEnable,
   runTraceGitHook,
   runTraceHook,
+  runTraceInstallMachine,
   runTraceRepair,
   runTraceStatus,
   runTraceSync,
@@ -60,6 +63,7 @@ export {
   resolveTraceCommand,
   setTraceCliName,
   traceCliName,
+  traceCommandPrefix,
   traceHomeDir,
   traceScope,
 } from "./trace-command";
@@ -68,11 +72,13 @@ export {
   type AgentTraceHookAgent,
   type TraceHookOwner,
   type TraceHookOwners,
+  agentTraceHookPath,
   describeTraceHookOwners,
   removeAgentTraceHook,
   traceHookCommandOwner,
   installClaudeTraceHook,
   installCodexTraceHook,
+  installHarnessHooks,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
 } from "./agent-trace-hooks";
@@ -150,6 +156,7 @@ export {
 } from "./trace-consent";
 
 export {
+  type TraceSyncFailure,
   describeTraceSyncFailure,
   listTraceSyncFailures,
   recordTraceSyncFailure,

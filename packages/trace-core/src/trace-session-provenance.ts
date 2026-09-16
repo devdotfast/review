@@ -14,7 +14,7 @@ import { sessionIdSchema } from "@dev.fast/trace-protocol";
 import { z } from "zod";
 
 import { writePrivateJsonAtomic } from "./atomic-write";
-import { traceCliName } from "./trace-command";
+import { traceCommandPrefix } from "./trace-command";
 import { devReviewHome } from "./trace-home";
 import {
   type TraceRepositoryTarget,
@@ -177,7 +177,7 @@ export async function requireTraceSessionProvenance(
   if (records.length === 0) {
     throw new TraceProvenanceError(
       "provenance_missing",
-      `Review did not capture this session in ${target.name}. Start a new agent session there after \`${traceCliName()} trace allow .\`; a commit trailer does not authorize publication.`,
+      `Review did not capture this session in ${target.name}. Start a new agent session there after \`${traceCommandPrefix()} allow .\`; a commit trailer does not authorize publication.`,
     );
   }
 

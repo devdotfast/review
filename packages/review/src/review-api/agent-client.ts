@@ -2,7 +2,7 @@ import {
   readReviewDesktopDiscovery,
   requireHealthyReviewDesktop,
 } from "../desktop-discovery.js";
-import { reviewDesktopDiscoveryPath } from "../server/desktop-paths.js";
+import { reviewDesktopDiscoveryPath } from "../review-home-paths.js";
 import { ReviewApiClient } from "./client.js";
 
 export interface AuthoringTool {

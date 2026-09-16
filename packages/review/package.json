@@ -65,7 +65,6 @@
     "prepack": "pnpm run build && pnpm run app:desktop:build",
     "start": "tsx src/cli.ts",
     "app:desktop:build": "vite build --config app/desktop.vite.config.ts",
-    "map": "tsx src/map-cli-entry.ts",
     "review": "tsx src/cli.ts",
     "fixtures:capture-legacy-review": "tsx scripts/capture-legacy-review-fixture.ts",
     "fixtures:legacy-review-goldens": "tsx scripts/generate-legacy-review-goldens.ts",

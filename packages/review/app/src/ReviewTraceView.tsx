@@ -14,39 +14,6 @@ import {
   useAgentTrace,
 } from "./use-agent-trace";
 
-export {
-  TraceDocument,
-  TraceTurn,
-  TraceToolGroup,
-  TraceToolRow,
-  TraceEvent,
-  ElidedMessage,
-  TraceGapChip,
-  ChevronIcon,
-  toolIcon,
-  toolGroupLabel,
-  timeLabel,
-  formatDuration,
-  applyLensPicks,
-  buildLensDisplay,
-  elideByKeep,
-  extractEventText,
-  buildIndexedTraceTurns,
-  buildTraceTurns,
-  groupIndexedWorkEvents,
-  type TraceTurnEvent,
-  type TraceTurnGroup,
-  type IndexedTraceTurnEvent,
-  type IndexedTraceTurnGroup,
-  type IndexedTraceToolItem,
-  type LensPick,
-  type LensPickEvent,
-  type LensPickRange,
-  type LensDisplayItem,
-  type ElidedSegment,
-  type TraceDocumentProps,
-  type TraceDocumentOptions,
-} from "./trace-document";
 /**
  * The Trace tab shows the raw agent traces behind a review, resolved from
  * `Agent-Session:` commit trailers and fetched from the shared R2 trace store.

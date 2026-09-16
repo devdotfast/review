@@ -161,8 +161,7 @@ export async function runSoftwareMapCli(
       output,
       "map",
       `review map ${command} was removed: it spawned a nested coding agent. ` +
-        "Run `review map open <rev>` to hydrate the scratch, author it " +
-        "with the dev-review-map skill, and validate/" +
+        "Run `review map open <rev>` to hydrate the scratch, edit it, and validate/" +
         "flush with `review map check <rev>`.",
     );
   }

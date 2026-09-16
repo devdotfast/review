@@ -158,8 +158,7 @@ command first on `PATH`.
 
 The installer copies these bundled skills into the selected agent configs:
 
-- `/dev-review` — author, validate, and publish a Review canvas.
-- `/dev-review-map` — generate or refresh the code map.
+- `/dev-review` — author a Review canvas, including software maps.
 
 Other coding agents that follow the shared Agent Skills convention can load the
 same skills from `~/.agents/skills`.

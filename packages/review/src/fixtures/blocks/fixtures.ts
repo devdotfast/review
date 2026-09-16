@@ -6,14 +6,12 @@ import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 
 export const BLOCK_FIXTURES_ROOT = path.dirname(fileURLToPath(import.meta.url));
 
-/** Resource ids the fixtures reference; tests map them to real uploads or stubs. */
-export const FIXTURE_IMAGE_ID = "11111111-1111-4111-8111-111111111111";
-
-export const FIXTURE_TRACE_ID = "22222222-2222-4222-8222-222222222222";
-
-export const FIXTURE_TRACE_EVENT_ID = "0";
-
-export const FIXTURE_MAP_ID = "33333333-3333-4333-8333-333333333333";
+export {
+  FIXTURE_IMAGE_ID,
+  FIXTURE_MAP_ID,
+  FIXTURE_TRACE_EVENT_ID,
+  FIXTURE_TRACE_ID,
+} from "./ids.js";
 
 /** One entry per `<type>.json`: the block type and its array of valid blocks. */
 export async function readBlockFixtures(): Promise<Map<string, JsonValue[]>> {

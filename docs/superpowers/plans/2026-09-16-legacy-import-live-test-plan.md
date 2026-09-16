@@ -30,7 +30,9 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
    alias review='pnpm --filter @dev.fast/review review'
    ```
 
-3. The inventory table in `TESTER-README.md` lists each review's uuid, schema, whether a sealed bundle exists, and whether it is a system review. Expected after the first Home list: schema-4 reviews with a worktree are upgraded to sealed JSON and imported; schema-5 JSON reviews are imported; the system review (the tutorial sample) is skipped; anything whose worktree is still missing stays legacy.
+3. Make sure no other Review Desktop instance is running before launching, or screenshots and `app pick` will target the wrong window: `pgrep -fl "code-oss/.build/electron|Review.app"` should be empty, and `pkill -f review-live-` clears instances left by an earlier run of this plan. Do not kill an instance running on the live `~/.dev` home unless it is yours.
+
+4. The inventory table in `TESTER-README.md` lists each review's uuid, schema, whether a sealed bundle exists, and whether it is a system review. Expected after the first Home list: schema-4 reviews with a worktree are upgraded to sealed JSON and imported; schema-5 JSON reviews are imported; the system review (the tutorial sample) is skipped; anything whose worktree is still missing stays legacy.
 
 ## A. Home after startup (import on list)
 
@@ -75,10 +77,10 @@ Use a repository with a change you can review. Scaffold a fresh review and publi
 |---|---|---|
 | D1 | `review scaffold --base <base> --head <head> --new`, author a small `review.mdx` (a heading, a paragraph with a source link, one `<CodePeek>`), then `review publish --review <uuid>`. | Publish succeeds as before. Within a few seconds the app shows the **JSON** canvas for it (a legacy tab may flash first and get replaced). Terminal: `imported as version 0`. |
 | D2 | Edit `review.mdx` and run `review publish --review <uuid>` again. | Exit 1. The message says the review was migrated to the JSON review store and names `review api` and the MCP tools. No new version appears in the app. |
-| D3 | `review map publish --review <uuid>` (author a map first with `review map open`/`check` if needed). | Same refusal. |
+| D3 | Author a map for the same review **before** relying on this step, as the e2e does: for each of `<base>` and `<head>`, run `review map open <commit>`, write a minimal map into the scratch path it prints (`import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model"; export default defineSoftwareMap({systems: {orders: {label: "Order service", containers: {api: {label: "Order API", components: {handler: {label: "Order handler", coverage: {files: ["<a file in the diff>"]}}}}}}}});`), then `review map check <commit> --review <uuid>`. Then `review map publish --review <uuid>`. | The publish is refused with the same `migrated` message. Without an authored map the CLI stops before reaching the server, which does not exercise the guard. |
 | D4 | `review repair --review <uuid>`. | Either "no repair needed" (exit 0, healthy artifacts never reach the server) or, if artifacts are stale, the same `migrated` refusal. Record which. |
 | D5 | `review info --review <uuid>`. | Still works and prints the legacy record; nothing about it should look broken. |
-| D6 | Edit the imported review through the JSON API: `review api tools`, then `review api review_edit '{"reviewId":"<uuid>","edit":{"type":"insert","content":{"type":"markdown","markdown":"Edited after import.\n"}}}'`. | The edit lands; the canvas shows the new paragraph; the version number increments. |
+| D6 | Edit the imported review through the JSON API: `review api tools`, then `review api review_edit "{\"commandId\":\"$(uuidgen | tr A-Z a-z)\",\"reviewId\":\"<uuid>\",\"edit\":{\"type\":\"insert\",\"content\":{\"type\":\"markdown\",\"markdown\":\"Edited after import.\\n\"}}}"` (every command tool needs a fresh `commandId`). | The edit lands; the canvas shows the new paragraph; the version number increments. |
 
 ## E. Restart and persistence
 

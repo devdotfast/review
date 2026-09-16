@@ -257,6 +257,7 @@ export function DatabaseLens(block: DatabaseLensProps) {
       lensUseCases({ id: lensId, actors, stores, useCases: block.useCases }),
     [lensId, actors, stores, block.useCases],
   );
+
   const session = useReviewSession();
 
   const [activeUseCaseId, setActiveUseCaseId] = useState<string | null>(

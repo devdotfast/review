@@ -840,6 +840,7 @@ try {
         .click();
       await canvas.locator(".software-map").first().waitFor({ timeout: 30000 });
     }
+
     benchmarkCases.push({
       name,
       input: {

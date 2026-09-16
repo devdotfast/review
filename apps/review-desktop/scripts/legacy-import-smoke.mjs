@@ -299,6 +299,25 @@ for (const review of expected) {
     }
   } catch (error) {
     row.outcome = `FAIL: ${error.message}`;
+
+    // Keep what the workbench showed so the failure can be diagnosed offline.
+    for (const [index, page] of browser
+      .contexts()
+      .flatMap((context) => context.pages())
+      .entries()) {
+      await page
+        .screenshot({
+          path: path.join(out, `${review.uuid}-failure-${index}.png`),
+        })
+        .catch(() => {});
+      await writeFile(
+        path.join(out, `${review.uuid}-failure-${index}.txt`),
+        await page
+          .locator("body")
+          .innerText()
+          .catch(() => ""),
+      );
+    }
   }
 
   results.push(row);

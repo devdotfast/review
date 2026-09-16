@@ -18,7 +18,7 @@ const exec = promisify(execFile);
 
 export async function scratchGitRepo() {
   const root = await mkdtemp(path.join(os.tmpdir(), "import-repo-"));
-  const git = (...args: string[]) => exec("git", args, { cwd: root });
+  const git = (...args: string[]) => exec("git", ["-C", root, ...args]);
   await git("init", "-q", "-b", "main");
   await git("config", "user.email", "t@example.invalid");
   await git("config", "user.name", "t");

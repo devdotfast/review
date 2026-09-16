@@ -2377,7 +2377,7 @@ function offsetC4ElkPoint(point: C4ElkPoint, offset: C4ElkPoint): C4ElkPoint {
   };
 }
 
-function c4RelationshipEdgeId(
+export function c4RelationshipEdgeId(
   relationship: SoftwareMapRelationshipSnapshot,
   index: number,
 ) {

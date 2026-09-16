@@ -6,7 +6,6 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type FormEvent,
-  useEffect,
   useId,
   useRef,
   useState,
@@ -20,6 +19,7 @@ import {
 } from "./bug-report-screenshot";
 import { useReviewSession } from "./host/review-session";
 import { BugIcon } from "./icons";
+import { useToast } from "./toast";
 import { useTutorial } from "./tutorial-context";
 import { captureUiEvent, clientErrorName } from "./ui-telemetry";
 
@@ -27,8 +27,6 @@ const MAX_DESCRIPTION_BYTES = 64 * 1024;
 
 const TRACE_PRIVACY_COPY =
   "Includes the complete, uncapped authoring session trace. For forked sessions, it also includes each ancestor session up to its fork point, plus up to ten tail-capped subagent traces. Recognizable secrets are redacted, but other secrets may be included; everything is sent to /dev/fast.";
-
-type Toast = { kind: "success" | "error"; text: string };
 
 export function BugReportControl({
   captureScreenshot = captureWindowScreenshot,
@@ -47,18 +45,11 @@ export function BugReportControl({
   const [dropActive, setDropActive] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [sending, setSending] = useState(false);
-  const [toast, setToast] = useState<Toast | null>(null);
+  const { toast, showToast: setToast } = useToast();
   const tracePrivacyTooltipId = useId();
   const capturePending = useRef(false);
   const descriptionBytes = new TextEncoder().encode(description).byteLength;
   const canSend = descriptionBytes <= MAX_DESCRIPTION_BYTES && !sending;
-
-  useEffect(() => {
-    if (!toast) return;
-    const timeout = window.setTimeout(() => setToast(null), 6_000);
-
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
 
   const reset = () => {
     setDescription("");
@@ -356,14 +347,7 @@ export function BugReportControl({
           </section>
         </div>
       )}
-      {toast && (
-        <div
-          className={`bug-report-toast bug-report-toast--${toast.kind}`}
-          role="status"
-        >
-          {toast.text}
-        </div>
-      )}
+      {toast}
     </>
   );
 }

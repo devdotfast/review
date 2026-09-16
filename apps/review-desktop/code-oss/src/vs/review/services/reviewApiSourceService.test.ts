@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { URI } from "../../base/common/uri.js";
+import { URI } from "../../base/common/uri.js";
 import type { ITextModelContentProvider } from "../../editor/common/services/resolverService.js";
 import type { ReviewInlineSource } from "./reviewInlineEditorService.js";
 import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
@@ -37,7 +37,9 @@ function setup() {
     {} as never,
     { registerReviewEditor() {} } as never,
   );
-  return { service, models, disposed: () => disposed };
+  return {
+    service, models, disposed: () => disposed,
+  };
 }
 
 test("a native peek reads the pinned version through the authenticated API, not a working file", async (t) => {

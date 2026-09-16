@@ -2584,6 +2584,9 @@ button {
 
 .review-history {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .review-history-button {
@@ -2603,6 +2606,20 @@ button {
 .review-history-button .ui-icon {
   width: var(--chrome-icon-size);
   height: var(--chrome-icon-size);
+}
+
+.review-history-selected {
+  display: flex;
+  gap: 8px;
+  width: auto;
+  padding: 0 8px;
+  font-family: var(--chrome-font);
+  font-size: var(--chrome-font-size);
+  white-space: nowrap;
+}
+
+.review-history-selected time {
+  color: var(--ink-faint);
 }
 
 .review-history-button:hover:not(:disabled),

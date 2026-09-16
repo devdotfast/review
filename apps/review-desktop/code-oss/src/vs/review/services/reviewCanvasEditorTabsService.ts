@@ -9,7 +9,7 @@ import { Disposable } from "../../base/common/lifecycle.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
 import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
-import { ReviewCanvasEditorInput } from "../browser/parts/canvas/reviewCanvasEditorInput.js";
+import { ReviewCanvasEditorInput, type ReviewCanvasEditorTarget } from "../browser/parts/canvas/reviewCanvasEditorInput.js";
 import { IReviewSessionService } from "./reviewSessionService.js";
 import { shortPath } from "../common/reviewPaths.js";
 
@@ -18,6 +18,7 @@ export const IReviewCanvasEditorTabsService =
 
 export interface IReviewCanvasEditorTabsService {
 	readonly _serviceBrand: undefined;
+	inputFor(target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>): ReviewCanvasEditorInput;
 	openApiReview(reviewId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
 	openApiSource(reviewId: string, version: number, title: string): Promise<ReviewCanvasEditorInput>;
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
@@ -77,20 +78,24 @@ export class ReviewCanvasEditorTabsService
 	}
 
 	async openHome(active: boolean): Promise<ReviewCanvasEditorInput> {
-		const group = this.editorGroupsService.mainPart.activeGroup;
 		const input = await this.openSingleton({ kind: "home" }, active);
-		group.stickEditor(input);
+		this.editorGroupsService.groups.find(group => group.contains(input))?.stickEditor(input);
+		return input;
+	}
+
+	inputFor(target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>): ReviewCanvasEditorInput {
+		const key = target.kind === "home" ? "home" : target.kind === "api" ? `api:${target.reviewId}` : `api:${target.reviewId}:source:${target.version}`;
+		let input = this.inputs.get(key);
+		if (!input || input.isDisposed()) {
+			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, target);
+			this.inputs.set(key, input);
+		}
+		if (target.kind !== "home") input.setApiTitle(target.title);
 		return input;
 	}
 
 	async openApiReview(reviewId: string, title: string, active = true): Promise<ReviewCanvasEditorInput> {
-		const key = `api:${reviewId}`;
-		let input = this.inputs.get(key);
-		if (!input || input.isDisposed()) {
-			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, { kind: "api", reviewId, title });
-			this.inputs.set(key, input);
-		}
-		input.setApiTitle(title);
+		const input = this.inputFor({ kind: "api", reviewId, title });
 		await this.openReviewInput(input, active);
 		return input;
 	}
@@ -100,12 +105,7 @@ export class ReviewCanvasEditorTabsService
 	}
 
 	async openApiSource(reviewId: string, version: number, title: string): Promise<ReviewCanvasEditorInput> {
-		const key = `api:${reviewId}:source:${version}`;
-		let input = this.inputs.get(key);
-		if (!input || input.isDisposed()) {
-			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, { kind: "api-source", reviewId, version, title });
-			this.inputs.set(key, input);
-		}
+		const input = this.inputFor({ kind: "api-source", reviewId, version, title });
 		await this.openReviewInput(input, true);
 		return input;
 	}

@@ -80,6 +80,120 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {
+  const app = createReviewApi(local.store, local.data);
+  const edge = { kind: "semantic", from: "api", to: "missing" };
+
+  const upload = {
+    id: randomUUID(),
+    repositoryId: pins.repositoryId,
+    kind: "map",
+    pins,
+    side: "head",
+    model: {
+      systems: {
+        app: {
+          containers: { api: { components: { handler: {} } }, db: {} },
+          relationships: [edge],
+        },
+      },
+      relationships: [
+        { kind: "semantic", from: "app.api.handler", to: "app.db" },
+      ],
+    },
+  };
+
+  const send = () =>
+    app.request("/resources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(upload),
+    });
+
+  const rejected = await send();
+  expect(rejected.status).toBe(400);
+  const { error } = await rejected.json();
+  // These are the actionable location, offending value and rule, not exact prose.
+  expect(error).toContain("relationships[0] at app.to");
+  expect(error).toContain('"missing"');
+  expect(error).toContain("does not match an element path");
+  expect(() => local.store.resource(upload.id)).toThrow(/not found/);
+
+  edge.to = "db";
+  expect((await send()).status).toBe(200);
+
+  const saved = JSON.parse(
+    Buffer.from(local.store.resource(upload.id).data).toString(),
+  );
+
+  expect(saved.relationships).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ from: "app.api", to: "app.db" }),
+      expect.objectContaining({ from: "app.api.handler", to: "app.db" }),
+    ]),
+  );
+});
+
+it("preserves map element and range details in upload errors", async () => {
+  await expect(
+    local.data.upload({
+      id: randomUUID(),
+      repositoryId: pins.repositoryId,
+      kind: "map",
+      pins,
+      side: "head",
+      model: {
+        systems: {
+          app: {
+            containers: {
+              api: {
+                components: {
+                  handler: {
+                    codeElements: {
+                      save: {
+                        sourceRanges: [
+                          { file: source.file, fromLine: 2, toLine: 1 },
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ).rejects.toThrow(
+    /app\.api\.handler\.save.*sourceRanges\[0\].*fromLine <= toLine/,
+  );
+});
+
+it("validates Markdown source links against the pinned files before saving", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Links", pins }),
+  );
+
+  await insert(reviewId, {
+    type: "markdown",
+    markdown:
+      "[base](review-source:base/example.ts#L1) and [head](review-source:head/example.ts#L1-L2)",
+  });
+  const saved = local.store.read(reviewId);
+
+  for (const href of [
+    "review-source:base/example.ts#L3",
+    "review-source:head/missing.ts#L1",
+    "review-source:head/../secret.ts#L1",
+    "review-source:head/%2Fetc%2Fpasswd#L1",
+  ]) {
+    await expect(
+      insert(reviewId, { type: "markdown", markdown: `[bad](${href})` }),
+    ).rejects.toThrow(Error);
+    expect(local.store.read(reviewId)).toEqual(saved);
+  }
+});
+
 it("lists the version's commits and reads a selected commit's diff against its parent", async () => {
   const firstHead = pins.head;
   writeFileSync(
@@ -199,95 +313,6 @@ it("browses committed directories, including history, without listing untracked 
   expect((await app.request(`${route}?path=nested`)).status).toBe(404);
   expect((await app.request(`${route}?version=0&path=nested`)).status).toBe(
     200,
-  );
-});
-
-it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {
-  const app = createReviewApi(local.store, local.data);
-  const edge = { kind: "semantic", from: "api", to: "missing" };
-
-  const upload = {
-    id: randomUUID(),
-    repositoryId: pins.repositoryId,
-    kind: "map",
-    pins,
-    side: "head",
-    model: {
-      systems: {
-        app: {
-          containers: { api: { components: { handler: {} } }, db: {} },
-          relationships: [edge],
-        },
-      },
-      relationships: [
-        { kind: "semantic", from: "app.api.handler", to: "app.db" },
-      ],
-    },
-  };
-
-  const send = () =>
-    app.request("/resources", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(upload),
-    });
-
-  const rejected = await send();
-  expect(rejected.status).toBe(400);
-  const { error } = await rejected.json();
-  // These are the actionable location, offending value and rule, not exact prose.
-  expect(error).toContain("relationships[0] at app.to");
-  expect(error).toContain('"missing"');
-  expect(error).toContain("does not match an element path");
-  expect(() => local.store.resource(upload.id)).toThrow(/not found/);
-
-  edge.to = "db";
-  expect((await send()).status).toBe(200);
-
-  const saved = JSON.parse(
-    Buffer.from(local.store.resource(upload.id).data).toString(),
-  );
-
-  expect(saved.relationships).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ from: "app.api", to: "app.db" }),
-      expect.objectContaining({ from: "app.api.handler", to: "app.db" }),
-    ]),
-  );
-});
-
-it("preserves map element and range details in upload errors", async () => {
-  await expect(
-    local.data.upload({
-      id: randomUUID(),
-      repositoryId: pins.repositoryId,
-      kind: "map",
-      pins,
-      side: "head",
-      model: {
-        systems: {
-          app: {
-            containers: {
-              api: {
-                components: {
-                  handler: {
-                    codeElements: {
-                      save: {
-                        sourceRanges: [
-                          { file: source.file, fromLine: 2, toLine: 1 },
-                        ],
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    }),
-  ).rejects.toThrow(
-    /app\.api\.handler\.save.*sourceRanges\[0\].*fromLine <= toLine/,
   );
 });
 

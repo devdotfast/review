@@ -1,7 +1,9 @@
 import type { ReviewDocumentVersionWire } from "@dev.fast/review-protocol";
 import {
   type ReactElement,
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -13,8 +15,13 @@ import { useTutorial } from "./tutorial-context";
 
 type VersionList = ReviewDocumentVersionWire[] | null | "unavailable";
 
+export const DisplayedReviewVersionContext = createContext<number | undefined>(
+  undefined,
+);
+
 export function ReviewHistoryControl(): ReactElement | null {
   const { historicalRevision, listVersions } = useReview();
+  const displayedVersion = useContext(DisplayedReviewVersionContext);
   const session = useReviewSession();
   const tutorial = useTutorial();
   const controlRef = useRef<HTMLDivElement | null>(null);
@@ -31,9 +38,9 @@ export function ReviewHistoryControl(): ReactElement | null {
   }, [listVersions]);
 
   useEffect(() => {
-    if (historicalRevision || tutorial) return;
+    if (tutorial) return;
     void loadVersions();
-  }, [historicalRevision, loadVersions, tutorial]);
+  }, [displayedVersion, historicalRevision, loadVersions, tutorial]);
 
   useEffect(() => {
     if (!open) return;
@@ -59,17 +66,57 @@ export function ReviewHistoryControl(): ReactElement | null {
     };
   }, [open]);
 
-  if (historicalRevision || (!tutorial && !Array.isArray(versions))) {
+  if (!tutorial && !Array.isArray(versions)) {
     return null;
   }
 
-  const versionItems = Array.isArray(versions) ? versions : [];
+  const versionItems = Array.isArray(versions)
+    ? [...versions].sort((a, b) =>
+        /^[0-9]+$/.test(a.revision) && /^[0-9]+$/.test(b.revision)
+          ? Number(a.revision) - Number(b.revision)
+          : a.sealedAt - b.sealedAt,
+      )
+    : [];
+
+  const selectedRevision =
+    displayedVersion !== undefined
+      ? String(displayedVersion)
+      : historicalRevision;
+
+  const selectedIndex = versionItems.findIndex((item) =>
+    selectedRevision ? item.revision === selectedRevision : item.isCurrent,
+  );
+
+  const selected = versionItems[selectedIndex];
+  const previous = versionItems[selectedIndex - 1];
+  const next = selected ? versionItems[selectedIndex + 1] : undefined;
+
+  function selectVersion(version: ReviewDocumentVersionWire) {
+    setOpen(false);
+    void session.surface.post({
+      name: "openReviewRevision",
+      args:
+        version === versionItems.at(-1)
+          ? {}
+          : { revision: version.revision, sealedAt: version.sealedAt },
+    });
+  }
 
   return (
     <div ref={controlRef} className="review-history">
       <button
         type="button"
         className="review-history-button"
+        aria-label="Previous version"
+        title="Previous version"
+        disabled={tutorial !== null || !previous}
+        onClick={() => previous && selectVersion(previous)}
+      >
+        <VersionArrow direction="previous" />
+      </button>
+      <button
+        type="button"
+        className="review-history-button review-history-selected"
         aria-label="Version history"
         title="Version history"
         aria-haspopup="menu"
@@ -82,29 +129,41 @@ export function ReviewHistoryControl(): ReactElement | null {
           if (!open) void loadVersions();
         }}
       >
-        <HistoryIcon />
+        {selected ? (
+          <>
+            <span>{versionLabel(selected, selectedIndex)}</span>
+            <time dateTime={new Date(selected.sealedAt).toISOString()}>
+              {formatVersionTimestamp(selected.sealedAt)}
+            </time>
+          </>
+        ) : (
+          "Version history"
+        )}
+        <span aria-hidden="true">⌄</span>
+      </button>
+      <button
+        type="button"
+        className="review-history-button"
+        aria-label="Next version"
+        title="Next version"
+        disabled={tutorial !== null || !next}
+        onClick={() => next && selectVersion(next)}
+      >
+        <VersionArrow direction="next" />
       </button>
       {open ? (
         <ul className="review-history-list" role="menu">
-          {versionItems.map((version) => (
+          {versionItems.map((version, index) => (
             <li key={version.revision}>
               <button
                 type="button"
                 role="menuitem"
-                disabled={version.isCurrent}
-                onClick={() => {
-                  setOpen(false);
-                  void session.surface.post({
-                    name: "openReviewRevision",
-                    args: {
-                      revision: version.revision,
-                      sealedAt: version.sealedAt,
-                    },
-                  });
-                }}
+                disabled={version === selected}
+                onClick={() => selectVersion(version)}
               >
+                {versionLabel(version, index)} ·{" "}
                 {formatVersionTimestamp(version.sealedAt)}
-                {version.isCurrent ? " — Current" : ""}
+                {version === selected ? " — Current" : ""}
               </button>
             </li>
           ))}
@@ -123,7 +182,15 @@ function formatVersionTimestamp(sealedAt: number): string {
   });
 }
 
-function HistoryIcon(): ReactElement {
+function versionLabel(version: ReviewDocumentVersionWire, index: number) {
+  return `Version ${/^[0-9]+$/.test(version.revision) ? version.revision : index + 1}`;
+}
+
+function VersionArrow({
+  direction,
+}: {
+  direction: "previous" | "next";
+}): ReactElement {
   return (
     <svg
       className="ui-icon"
@@ -132,7 +199,7 @@ function HistoryIcon(): ReactElement {
       focusable="false"
     >
       <path
-        d="M4.7 8.1A8 8 0 1 1 4 12M4.7 8.1H1.5m3.2 0V4.9M12 7.5V12l3 1.8"
+        d={direction === "previous" ? "M14 6l-6 6 6 6" : "M10 6l6 6-6 6"}
         fill="none"
         stroke="currentColor"
         strokeLinecap="round"

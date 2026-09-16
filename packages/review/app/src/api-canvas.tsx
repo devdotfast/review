@@ -29,6 +29,7 @@ import {
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
+import { DisplayedReviewVersionContext } from "./review-history-control";
 import { TutorialProvider } from "./tutorial-context";
 
 type ApiContent = Extract<ReviewCanvasContent, { kind: "api" }>;
@@ -75,6 +76,8 @@ export function ApiCanvas({
   const [data, setData] = useState<ApiDocumentData>();
   const dataRef = useRef(data);
   dataRef.current = data;
+  const sourceRef = useRef<{ key: string; version: number }>(undefined);
+  const sourceVersion = sourceRef.current?.version;
   const [error, setError] = useState<string>();
   useEffect(() => {
     const abort = new AbortController();
@@ -87,7 +90,11 @@ export function ApiCanvas({
 
       if (abort.signal.aborted) return;
       // Native source widgets must use these pins on their first mount.
-      content.setVersion?.(snapshot.version);
+      const key = JSON.stringify([snapshot.reviewId, snapshot.pins]);
+
+      if (sourceRef.current?.key !== key)
+        sourceRef.current = { key, version: snapshot.version };
+      content.setVersion?.(sourceRef.current.version);
       setData(next);
       setError(undefined);
       content.setTitle?.(snapshot.title);
@@ -159,9 +166,18 @@ export function ApiCanvas({
 
   const traceKey = JSON.stringify([...(data?.traces.keys() ?? [])]);
 
+  const nativeSources = useMemo(
+    () => ({
+      inlineEditors: { ...content.bridge.inlineEditors },
+      diffView: { ...content.bridge.diffView },
+    }),
+    [content.bridge, sourceVersion],
+  );
+
   const session = useMemo(() => {
     const bridge = {
       ...content.bridge,
+      ...nativeSources,
       post: async (request: Parameters<ApiContent["bridge"]["post"]>[0]) => {
         if (request.name === "openReviewRevision") {
           setVersion(
@@ -179,6 +195,7 @@ export function ApiCanvas({
 
     const session = createReviewSession(bridge);
     session.keepsDismissedReviews = true;
+
     session.softwareMapData = (model) =>
       [...(dataRef.current?.maps.values() ?? [])].find((map) => map === model)
         ?.pinnedData;
@@ -256,7 +273,15 @@ export function ApiCanvas({
     };
 
     return session;
-  }, [client, content.bridge, content.reviewId, version, traceKey]);
+  }, [
+    client,
+    content.bridge,
+    content.reviewId,
+    content.openSource,
+    version,
+    traceKey,
+    nativeSources,
+  ]);
 
   useEffect(() => {
     if (data) content.bridge.ready();
@@ -279,15 +304,14 @@ export function ApiCanvas({
       <DocumentData.Provider value={data}>
         <TutorialProvider>
           {error && <p role="status">{error}</p>}
-          {version !== undefined && (
-            <button onClick={() => setVersion(undefined)}>
-              Back to latest version
-            </button>
-          )}
           <AuthoringActivityContext.Provider
             value={version === undefined ? activity : undefined}
           >
-            <CanvasDocument data={data} findHost={findHost} />
+            <DisplayedReviewVersionContext.Provider
+              value={data.snapshot.version}
+            >
+              <CanvasDocument data={data} findHost={findHost} />
+            </DisplayedReviewVersionContext.Provider>
           </AuthoringActivityContext.Provider>
         </TutorialProvider>
       </DocumentData.Provider>

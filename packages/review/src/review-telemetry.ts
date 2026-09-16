@@ -390,14 +390,6 @@ export class ReviewTelemetry {
     });
   }
 
-  async capturePublishGateRejected(input: {
-    gate: "publish_ready" | "map_publish_ready";
-  }): Promise<void> {
-    await this.captureEvent("review_publish_gate_rejected", {
-      gate: input.gate,
-    });
-  }
-
   async captureTabViewed(
     event: ReviewTabTelemetryEvent,
     context?: ReviewTelemetryContext,

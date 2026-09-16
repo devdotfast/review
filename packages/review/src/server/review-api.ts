@@ -250,14 +250,8 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         if (access === "write" && reviewSessionModeIsReadOnly(options.mode)) {
           return reviewApiJsonResponse(409, {
             ok: false,
-            error:
-              options.mode.kind === "historical"
-                ? "This historical version is read-only."
-                : "This review is read-only while repair is validated.",
-            code:
-              options.mode.kind === "historical"
-                ? "historical_revision"
-                : "review_read_only",
+            error: "This historical version is read-only.",
+            code: "historical_revision",
           });
         }
 

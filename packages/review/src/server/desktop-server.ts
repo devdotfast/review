@@ -19,7 +19,6 @@ import {
   type ReviewSessionWire,
   type ReviewTutorialOpenResponse,
   type ReviewVerbRequest,
-  type ReviewVerbResponse,
   type ReviewView,
   isJsonObject,
   isObjectValue,
@@ -30,11 +29,10 @@ import {
   parseReviewCliInstallApplyRequest,
   reviewViewSchema,
 } from "@dev.fast/review-protocol";
-import { errorMessage, writePrivateJsonAtomic } from "@dev.fast/trace-core";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { z } from "zod";
 
 import { parseAuthoringSessionKey } from "../agent-session-ref";
 import {
@@ -167,7 +165,6 @@ interface RegisterSessionInput {
   historicalRevision?: string;
   documentUnavailable?: string;
   softwareMapUnavailable?: string;
-  repairValidation?: boolean;
   source?: ActiveReviewSession["source"];
   appSessionId?: string;
   promoted: boolean;
@@ -257,14 +254,6 @@ export function createGlobalReviewServer(
 
   // Production completes its storage migration before constructing the host.
   const legacyImporter = input.legacyImporter;
-
-  function migratedError(uuid: string, verb: string): ReviewServerError {
-    return new ReviewServerError(
-      `Review ${uuid} was migrated to the JSON review store. \`review ${verb}\` no longer applies; edit it with \`review api\` or the Review MCP tools.`,
-      409,
-      "migrated",
-    );
-  }
 
   const reviewLocks = new Map<string, Promise<void>>();
   const globalClients = new Set<ReviewDesktopEventClient>();
@@ -1596,24 +1585,14 @@ export function createGlobalReviewServer(
             revision: registration.historicalRevision,
             record: registration.review.review,
           }
-        : registration.repairValidation
-          ? {
-              kind: "repairValidation",
-              record: registration.review.review,
-              isPromoted: () => active.promoted,
-            }
-          : { kind: "live" },
+        : { kind: "live" },
       artifacts: {
         document: registration.documentUnavailable,
         map: registration.softwareMapUnavailable,
         source: sourceUnavailable,
       },
       listDocumentVersions: async () => {
-        const latest = await (
-          registration.repairValidation && !active.promoted
-            ? findReviewForRepair
-            : findReview
-        )(registration.review.review.uuid);
+        const latest = await findReview(registration.review.review.uuid);
 
         return latest ? listReviewDocumentVersions(latest) : [];
       },

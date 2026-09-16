@@ -13,9 +13,11 @@ for VERSION in 43 44; do
     43) IMAGE='fedora:43@sha256:a651ddf48ea28a06ed4e1e6519f51c9f47e7a5a138722ade87369b8fbb7e5b42' ;;
     44) IMAGE='fedora:44@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80' ;;
   esac
+  # Each fresh container would otherwise report `review --help` as an install.
   docker run --rm --platform linux/amd64 \
     -v "$PUBLICATION:/publication:ro" -v "$SCRIPT_DIR:/test:ro" \
     -e GENERATION="$GENERATION" -e FINGERPRINT="$FINGERPRINT" \
+    -e DO_NOT_TRACK=1 \
     "$IMAGE" bash /test/verify-fedora-container.sh
   echo "Fedora $VERSION: install, upgrade, retention, package/metadata tamper and untrusted-key rejection passed"
 done

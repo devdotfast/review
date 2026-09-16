@@ -63,7 +63,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REVIEW_DESKTOP_CI_FAST: "1"
-          REVIEW_POSTHOG_KEY: ${{ vars.REVIEW_POSTHOG_KEY }}
+          # Only stamped releases ship the telemetry key.
+          REVIEW_POSTHOG_KEY: ${{ inputs.version != '' && vars.REVIEW_POSTHOG_KEY || '' }}
         run: |
           pnpm desktop:build
           pnpm desktop:package:linux

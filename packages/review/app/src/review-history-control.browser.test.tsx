@@ -112,12 +112,14 @@ describe("ReviewHistoryControl", () => {
       sealedAt: Date.UTC(2026, 7, revision),
       isCurrent: revision === 3,
     }));
+
     request.mockImplementation(async (url) =>
       url.includes("/revisions")
         ? jsonResponse({ ok: true, versions: saved })
         : jsonResponse({ ok: true }),
     );
     const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
+
     const arrow = (label: string) =>
       container.querySelector<HTMLButtonElement>(
         `[aria-label="${label} version"]`,

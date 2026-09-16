@@ -4812,7 +4812,8 @@ button {
 
 .review-document h1 {
   width: min(100%, var(--review-prose-max-width));
-  margin: 0 auto 18px;
+  /* Keep title headroom consistent as the contents switches between pill and rail. */
+  margin: 28px auto 18px;
   color: var(--ink);
   font-family: var(--font-serif);
   font-size: 34px;
@@ -5419,17 +5420,6 @@ button.review-stack-row:disabled .review-stack-relation {
     justify-content: center;
     gap: 0;
     padding: var(--review-page-top) 24px 120px;
-  }
-}
-
-/* Below the rail breakpoint in review-toc.tsx the contents widget is always the
-   fixed breadcrumb pill, even at the top of the document, and nothing offsets
-   the column to make room for it. Reserve enough headroom that the title still
-   clears the pill through the pre-collapse scroll range
-   (TOC_COLLAPSE_SCROLL_TOP, 48px). */
-@container review-content (max-width: 1239.98px) {
-  .review-document h1 {
-    margin-top: 56px;
   }
 }
 

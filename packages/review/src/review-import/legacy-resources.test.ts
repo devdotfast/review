@@ -25,6 +25,7 @@ describe("traceResourceFromLoaded", () => {
         toolCalls: 1,
         events: [
           { kind: "user", text: "please fix" },
+          { kind: "separator" },
           { kind: "assistant", markdown: "On it." },
           { kind: "tool", tool: "shell", verb: "ran", title: "pnpm test" },
         ] as never,
@@ -35,8 +36,8 @@ describe("traceResourceFromLoaded", () => {
       label: "Fix",
       events: [
         { id: "0", role: "user", text: "please fix" },
-        { id: "1", role: "assistant", text: "On it." },
-        { id: "2", role: "tool", text: "shell ran pnpm test" },
+        { id: "2", role: "assistant", text: "On it." },
+        { id: "3", role: "tool", text: "shell ran pnpm test" },
       ],
     });
   });

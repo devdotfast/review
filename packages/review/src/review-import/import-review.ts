@@ -217,38 +217,17 @@ export async function importLegacyReview(
     };
 
   if (record.presentedSoftwareMapRevision) {
-    const mapDir = await input.materialize(
+    // A map that cannot be imported must not sink the document.
+    const mapSection = await importMapSection(
       review,
       record.presentedSoftwareMapRevision,
+      input.materialize,
+      store,
+      repositoryId,
+      lastWarnings,
     );
 
-    const bundle = await readReviewSoftwareMapBundle(mapDir);
-
-    if (bundle) {
-      const children: Block[] = [];
-
-      for (const payload of mapResourcesFromBundle(bundle)) {
-        const mapVersionId = randomUUID();
-        store.putResource(
-          mapVersionId,
-          repositoryId,
-          "map",
-          "application/json",
-          Buffer.from(payload.json),
-        );
-        children.push({ type: "software_map", mapVersionId });
-      }
-
-      last.document.push({
-        type: "section",
-        title: "Software map",
-        defaultCollapsed: true,
-        children,
-      });
-    } else
-      lastWarnings.push(
-        `map revision ${record.presentedSoftwareMapRevision} has no bundle`,
-      );
+    if (mapSection) last.document.push(mapSection);
   }
 
   // Source ranges that no longer resolve are reported in the document, so the
@@ -282,6 +261,54 @@ export async function importLegacyReview(
       ...new Set([...warnings, ...calloutWarnings, ...result.warnings]),
     ],
   };
+}
+
+async function importMapSection(
+  review: StoredReview,
+  revision: string,
+  materialize: ImportLegacyReviewInput["materialize"],
+  store: ReviewStore,
+  repositoryId: string,
+  warnings: string[],
+): Promise<Block | null> {
+  try {
+    const bundle = await readReviewSoftwareMapBundle(
+      await materialize(review, revision),
+    );
+
+    if (!bundle) {
+      warnings.push(`map revision ${revision} has no bundle`);
+
+      return null;
+    }
+
+    const children: Block[] = [];
+
+    for (const payload of mapResourcesFromBundle(bundle)) {
+      const mapVersionId = randomUUID();
+      store.putResource(
+        mapVersionId,
+        repositoryId,
+        "map",
+        "application/json",
+        Buffer.from(payload.json),
+      );
+      children.push({ type: "software_map", mapVersionId });
+    }
+
+    return {
+      type: "section",
+      title: "Software map",
+      defaultCollapsed: true,
+      children,
+    };
+  } catch (error) {
+    warnings.push(
+      `map revision ${revision} could not be imported: ${errorMessage(error)}`,
+    );
+
+    return null;
+  }
 }
 
 /** Log entries oldest first, after the last imported revision and up to and
@@ -458,10 +485,11 @@ class TraceResolver {
         continue;
       }
 
-      const events = trace.resource.events;
+      const wanted = String(request.eventIndex ?? 0);
 
-      const event =
-        events[Math.min(request.eventIndex ?? 0, events.length - 1)];
+      const event = trace.resource.events.find(
+        (candidate) => candidate.id === wanted,
+      );
 
       if (!event || !textIncludesQuote(event.text, request.quote)) {
         warnings.push(

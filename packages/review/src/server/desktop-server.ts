@@ -314,13 +314,24 @@ export function createGlobalReviewServer(
       (session) => session.review.review.uuid === uuid,
     );
 
-    if (live.length === 0) return;
-    await relay.dispatch("review-desktop", {
+    // Only presented sessions are replaced: an unpromoted candidate mid
+    // validation belongs to a publish, which meets the in-lock re-check itself.
+    const promoted = live.filter((session) => session.promoted);
+
+    if (promoted.length === 0) return;
+
+    const opened = await relay.dispatch("review-desktop", {
       name: "openApiReview",
       args: { reviewId: uuid, title: review.review.title },
     });
 
-    for (const session of live) await closeSession(session, "replaced", false);
+    if (!opened.ok)
+      throw new Error(
+        `Desktop did not open the imported review, keeping its legacy session: ${opened.error ?? "unknown error"}`,
+      );
+
+    for (const session of promoted)
+      await closeSession(session, "replaced", false);
   }
 
   function importAfterPromotion(uuid: string): void {
@@ -575,10 +586,18 @@ export function createGlobalReviewServer(
           404,
           "deleted",
         );
-      await relay.dispatch("review-desktop", {
+
+      const opened = await relay.dispatch("review-desktop", {
         name: "openApiReview",
         args: { reviewId: uuid, title: review.review.title },
       });
+
+      if (!opened.ok)
+        throw new ReviewServerError(
+          `Review Desktop could not open the imported review: ${opened.error ?? "unknown error"}`,
+          503,
+          "desktop_unavailable",
+        );
       throw new ReviewServerError(
         "Review opened in the JSON canvas.",
         409,
@@ -1067,7 +1086,13 @@ export function createGlobalReviewServer(
         request,
         sessions,
         registerSerialized,
-        withReviewLock,
+        withReviewLock: (uuid, operation) =>
+          withReviewLock(uuid, async () => {
+            if (reviewStore?.legacyImport(uuid))
+              throw migratedError(uuid, "repair");
+
+            return operation();
+          }),
         dispatch: (sessionId, verb) => relay.dispatch(sessionId, verb),
         startSessionTelemetry,
         closeSession: (session, reason) => closeSession(session, reason, false),
@@ -1382,6 +1407,10 @@ export function createGlobalReviewServer(
 
       await timed("promote", () =>
         withReviewLock(review.review.uuid, async () => {
+          // The guard ran before validation; an import may have landed since.
+          if (reviewStore?.legacyImport(review.review.uuid))
+            throw migratedError(review.review.uuid, "publish");
+
           if (
             successor.closing ||
             sessions.get(successor.descriptor.sessionId) !== successor ||
@@ -1561,6 +1590,8 @@ export function createGlobalReviewServer(
       }
 
       await withReviewLock(review.review.uuid, async () => {
+        if (reviewStore?.legacyImport(review.review.uuid))
+          throw migratedError(review.review.uuid, "map publish");
         const latest = await findReview(review.review.uuid);
 
         if (!latest) throw new ReviewServerError("Review not found.", 404);

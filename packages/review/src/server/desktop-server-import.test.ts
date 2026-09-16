@@ -130,6 +130,34 @@ describe("legacy review import triggers", () => {
     expect(dispatched).toEqual(["openApiReview"]);
   });
 
+  it("fails the open and keeps the legacy session when the Desktop cannot open the review", async () => {
+    const { home } = await seedLegacyReview();
+    const relay = new GlobalReviewDesktopVerbRelay();
+    relay.dispatch = async () => ({ ok: false, error: "reloading" });
+
+    server = createGlobalReviewServer({
+      appPid: process.pid,
+      packageRoot,
+      toolingRoot: packageRoot,
+      port: 0,
+      token,
+      discoveryPath: path.join(home, "desktop.json"),
+      relay,
+      legacyImporter: {
+        sweep: async () => [],
+        ensure: async () => ({ kind: "current", reviewId: uuid }),
+      },
+    });
+    await server.listen();
+
+    const opened = await request(`/reviews/${uuid}/open`, {});
+    expect(opened.status).toBe(503);
+    expect(opened.value).toMatchObject({
+      ok: false,
+      code: "desktop_unavailable",
+    });
+  });
+
   it("falls through to the legacy open when the import is skipped", async () => {
     const { home } = await seedLegacyReview();
     const dispatched: string[] = [];

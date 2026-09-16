@@ -89,7 +89,7 @@ describe("proseToMarkdown", () => {
         ]),
         el("ol", [el("li", [text("first")]), el("li", [text("second")])]),
       ]),
-    ).toBe("- [x] done\n- todo\n  - nested\n\n1. first\n1. second\n");
+    ).toBe("- [x] done\n- todo\n  - nested\n\n1. first\n2. second\n");
   });
 
   it("renders tables with alignment", () => {
@@ -249,6 +249,77 @@ describe("proseToMarkdown", () => {
     expect(warnings).toEqual([
       "CodePeek inside prose became a source link (Peek)",
       "TraceQuote inside prose kept only its text",
+    ]);
+  });
+
+  it("round-trips list, code, footnote and numbering semantics through the parser", () => {
+    const tree = parseMarkdown(
+      proseToMarkdown([
+        el("ol", [el("li", [text("three")]), el("li", [text("four")])], {
+          start: 3,
+        }),
+        el("ul", [
+          el("li", [
+            el("p", [text("first paragraph")]),
+            el("p", [text("second paragraph")]),
+            el("pre", [
+              el("code", [text("a\n\nb\n")], { className: "language-txt" }),
+            ]),
+          ]),
+        ]),
+        el("p", [
+          el("code", [text("`tick")]),
+          text(" and "),
+          el("code", [text("tock`")]),
+        ]),
+        el("p", [
+          text("Note"),
+          el("sup", [
+            el("a", [text("1")], {
+              href: "#user-content-fn-x",
+              "data-footnote-ref": "true",
+            }),
+          ]),
+        ]),
+        el(
+          "section",
+          [
+            el("ol", [
+              el("li", [el("p", [text("first")]), el("p", [text("second")])], {
+                id: "user-content-fn-x",
+              }),
+            ]),
+          ],
+          { "data-footnotes": "true" },
+        ),
+      ]),
+    );
+
+    const [ordered, loose, codes, note, definition] = tree.children ?? [];
+    expect(ordered).toMatchObject({ type: "list", ordered: true, start: 3 });
+    expect(loose?.type).toBe("list");
+
+    const item = loose?.children?.[0];
+    expect(item?.children?.map((child) => child.type)).toEqual([
+      "paragraph",
+      "paragraph",
+      "code",
+    ]);
+    expect(item?.children?.[2]?.value).toBe("a\n\nb");
+    expect(
+      (codes?.children ?? [])
+        .filter((child) => child.type === "inlineCode")
+        .map((child) => child.value),
+    ).toEqual(["`tick", "tock`"]);
+    expect(
+      (note?.children ?? []).some(
+        (child) => child.type === "footnoteReference",
+      ),
+    ).toBe(true);
+    expect(definition).toMatchObject({ type: "footnoteDefinition" });
+    expect(definition?.children?.map((child) => child.type)).toEqual([
+      "paragraph",
+      "paragraph",
     ]);
   });
 

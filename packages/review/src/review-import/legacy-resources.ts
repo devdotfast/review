@@ -27,8 +27,10 @@ export interface TraceResource {
 export function traceResourceFromLoaded(loaded: LoadedTrace): TraceResource {
   const events: TraceResourceEvent[] = [];
 
-  for (const event of loaded.trace.events) {
-    const id = String(events.length);
+  // Ids are the positions in the parsed trace, which is what a legacy quote's
+  // `event` index names; separators are skipped without renumbering.
+  for (const [index, event] of loaded.trace.events.entries()) {
+    const id = String(index);
 
     switch (event.kind) {
       case "user":

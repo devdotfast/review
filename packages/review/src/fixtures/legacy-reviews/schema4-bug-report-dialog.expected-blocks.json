@@ -19,7 +19,7 @@
     "children": [
       {
         "type": "markdown",
-        "markdown": "## Screenshot flow\n\n1. Review Desktop captures the window through the host screenshot service.\n1. The canvas limits the longest edge to 1600 pixels and re-encodes at JPEG quality 0.8.\n1. The local API accepts at most 6 MiB of JSON and validates a decoded screenshot limit of 3 MiB.\n1. Submission sends the existing gzipped multipart payload to the bug service.\n1. If the multipart payload is too large, the server drops diff, map, screenshot, then Review source. Metadata records whether the screenshot was sent or truncated.\n\nCapture failure and a 1.5 second timeout are non-blocking. The dialog still opens, and paste or drop remains available.\n"
+        "markdown": "## Screenshot flow\n\n1. Review Desktop captures the window through the host screenshot service.\n2. The canvas limits the longest edge to 1600 pixels and re-encodes at JPEG quality 0.8.\n3. The local API accepts at most 6 MiB of JSON and validates a decoded screenshot limit of 3 MiB.\n4. Submission sends the existing gzipped multipart payload to the bug service.\n5. If the multipart payload is too large, the server drops diff, map, screenshot, then Review source. Metadata records whether the screenshot was sent or truncated.\n\nCapture failure and a 1.5 second timeout are non-blocking. The dialog still opens, and paste or drop remains available.\n"
       }
     ]
   },

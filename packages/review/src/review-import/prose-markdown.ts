@@ -138,6 +138,7 @@ function blocks(
   nodes: ReviewNode[],
   state: FootnoteState,
   indent = "",
+  separator = "\n\n",
 ): string {
   const out: string[] = [];
   let inline: ReviewNode[] = [];
@@ -161,7 +162,7 @@ function blocks(
 
   flush();
 
-  return out.join("\n\n");
+  return out.join(separator);
 }
 
 function block(
@@ -191,14 +192,25 @@ function block(
     case "pre":
       return fencedCode(node, indent);
     case "ul":
-    case "ol":
+    case "ol": {
+      const start = Number(props.start ?? 1) || 1;
+
       return children
         .filter(
           (child): child is ElementNode =>
             child.type === "element" && child.tag === "li",
         )
-        .map((li) => listItem(li, tag === "ol" ? "1. " : "- ", state, indent))
+        .map((li, index) =>
+          listItem(
+            li,
+            tag === "ol" ? `${start + index}. ` : "- ",
+            state,
+            indent,
+          ),
+        )
         .join("\n");
+    }
+
     case "table":
       return table(node, state, indent);
     case "section":
@@ -253,13 +265,21 @@ function listItem(
     children = children.slice(1);
   }
 
-  const inner = blocks(children, state, indent + " ".repeat(marker.length));
+  // A tight item holds bare text; a loose one wraps blocks in paragraphs.
+  const loose = children.some(
+    (child) => child.type === "element" && child.tag === "p",
+  );
+
+  const inner = blocks(
+    children,
+    state,
+    indent + " ".repeat(marker.length),
+    loose ? "\n\n" : "\n",
+  );
+
   const [head = "", ...rest] = inner.split("\n");
 
-  return [
-    indent + prefix + head.trimStart(),
-    ...rest.filter((line) => line.trim() !== ""),
-  ].join("\n");
+  return [indent + prefix + head.trimStart(), ...rest].join("\n");
 }
 
 function table(
@@ -314,9 +334,17 @@ function collectFootnotes(section: ElementNode, state: FootnoteState): void {
             referenced: new Set(),
           };
 
+          // Continuation lines of a definition are indented under its label.
+          const definition = blocks(stripBackrefs(li.children), inner).trim();
+
           state.definitions.set(
             label,
-            blocks(stripBackrefs(li.children), inner).trim(),
+            definition
+              .split("\n")
+              .map((line, index) =>
+                index === 0 || line.trim() === "" ? line : `    ${line}`,
+              )
+              .join("\n"),
           );
         }
 }
@@ -356,8 +384,10 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
     case "kbd": {
       const text = plainText(children);
       const ticks = "`".repeat(longestRun(text, "`") + 1);
+      // A span that starts or ends with a backtick needs padding spaces.
+      const pad = text.startsWith("`") || text.endsWith("`") ? " " : "";
 
-      return `${ticks}${text}${ticks}`;
+      return `${ticks}${pad}${text}${pad}${ticks}`;
     }
 
     case "a":

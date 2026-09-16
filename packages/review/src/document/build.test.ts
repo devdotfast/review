@@ -68,9 +68,14 @@ describe("native document builder", () => {
       (node) => node.type === "component" && node.name === "DatabaseLens",
     );
 
-    expect(lens?.type === "component" && lens.children).toContainEqual(
-      expect.objectContaining({ type: "component", name: "DbUseCase" }),
-    );
+    // Use cases and operations lower into the lens block at publish; the
+    // marker children do not survive into the document.
+    expect(lens?.type === "component" && lens.children).toEqual([]);
+    expect(
+      lens?.type === "component" && lens.name === "DatabaseLens"
+        ? lens.props.useCases.map((useCase) => useCase.operations.length)
+        : null,
+    ).toEqual(expect.arrayContaining([expect.any(Number)]));
   });
   it("maps semantic failures to authored positions", async () => {
     const result = await buildReviewDocument(

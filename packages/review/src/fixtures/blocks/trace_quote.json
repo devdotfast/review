@@ -1,0 +1,9 @@
+[
+  {
+    "id": "block-1",
+    "type": "trace_quote",
+    "traceId": "22222222-2222-4222-8222-222222222222",
+    "eventId": "0",
+    "text": "queue the order"
+  }
+]

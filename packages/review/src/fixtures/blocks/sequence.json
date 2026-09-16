@@ -1,0 +1,33 @@
+[
+  {
+    "id": "diagram-1",
+    "type": "sequence",
+    "title": "Order status",
+    "actors": { "api": "API", "store": "Order store" },
+    "steps": [
+      {
+        "id": "step-1",
+        "type": "step",
+        "from": "api",
+        "to": "store",
+        "label": "set status",
+        "style": "call",
+        "source": {
+          "side": "head",
+          "file": "order.ts",
+          "fromLine": 1,
+          "toLine": 1
+        }
+      },
+      {
+        "id": "step-2",
+        "type": "step",
+        "from": "store",
+        "to": "api",
+        "label": "queued",
+        "style": "return",
+        "explanation": "The stored status"
+      }
+    ]
+  }
+]

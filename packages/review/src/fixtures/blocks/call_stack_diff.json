@@ -1,0 +1,34 @@
+[
+  {
+    "id": "block-1",
+    "type": "call_stack_diff",
+    "title": "Status path",
+    "base": [
+      {
+        "id": "frame-1",
+        "key": "status",
+        "source": {
+          "side": "base",
+          "file": "order.ts",
+          "fromLine": 1,
+          "toLine": 1
+        },
+        "label": "status = draft"
+      }
+    ],
+    "head": [
+      {
+        "id": "frame-2",
+        "key": "status",
+        "source": {
+          "side": "head",
+          "file": "order.ts",
+          "fromLine": 1,
+          "toLine": 1
+        },
+        "label": "status = queued",
+        "via": { "kind": "call", "reason": "direct" }
+      }
+    ]
+  }
+]

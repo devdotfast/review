@@ -1,0 +1,47 @@
+[
+  {
+    "id": "block-1",
+    "type": "database_lens",
+    "title": "Orders",
+    "actors": { "service": "Order service" },
+    "stores": {
+      "orders": {
+        "label": "Orders DB",
+        "storage": "relational",
+        "collections": {
+          "orders": {
+            "label": "orders",
+            "key": "id",
+            "fields": {
+              "id": { "label": "id", "dataType": "text", "primaryKey": true },
+              "status": { "label": "status", "dataType": "text" }
+            }
+          }
+        }
+      }
+    },
+    "useCases": [
+      {
+        "id": "case-1",
+        "label": "Queue an order",
+        "operations": [
+          {
+            "id": "operation-1",
+            "kind": "write",
+            "store": "orders",
+            "collection": "orders",
+            "field": "status",
+            "actor": "service",
+            "label": "write queued",
+            "source": {
+              "side": "head",
+              "file": "order.ts",
+              "fromLine": 1,
+              "toLine": 1
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

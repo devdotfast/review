@@ -4,7 +4,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   changeIdentityForRevision,
@@ -14,6 +14,7 @@ import {
   devfastPrepareCommands,
   diff,
   diffFileSummaries,
+  diffFileSummariesTrees,
   diffNameStatus,
   diffNameStatusTrees,
   diffTrees,
@@ -21,16 +22,24 @@ import {
   gitCommonDir,
   gitCommonDirSync,
   listCommitRange,
+  listTrackedFilesAtCommit,
   listTrackedFilesSync,
+  parseGitRawNumStatSummaries,
   parseGitRemote,
   parseGitRemoteSlug,
   parseJjDiffSummary,
+  readFileAtCommit,
   readFileAtRevision,
   resolveRepoContext,
   resolveRepoContextSync,
+  setLocalVcsCommandObserver,
 } from ".";
 
 describe("local vcs", () => {
+  afterEach(() => {
+    setLocalVcsCommandObserver(null);
+  });
+
   it("runs git in the linked worktree that owns the working directory", async () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-git-at-"));
     const worktreePath = `${rootPath}-linked`;
@@ -286,6 +295,8 @@ describe("local vcs", () => {
     writeFileSync(path.join(rootPath, "src/deleted.ts"), "gone\n");
     writeFileSync(path.join(rootPath, "src/rename old.ts"), "renamed\n");
     writeFileSync(path.join(rootPath, "src/tab\tname.ts"), "before\n");
+    writeFileSync(path.join(rootPath, "src/:colon.ts"), "before\n");
+    writeFileSync(path.join(rootPath, "src/3\t4\tcounts.ts"), "before\n");
     writeFileSync(path.join(rootPath, "src/binary.dat"), Buffer.from([0, 1]));
     execGit(rootPath, ["add", "src"]);
     execGit(rootPath, ["commit", "-m", "initial"]);
@@ -294,6 +305,8 @@ describe("local vcs", () => {
     writeFileSync(path.join(rootPath, "src/modified.ts"), "two\nkeep\nextra\n");
     writeFileSync(path.join(rootPath, "src/added file.ts"), "a\nb\n");
     writeFileSync(path.join(rootPath, "src/tab\tname.ts"), "after\n");
+    writeFileSync(path.join(rootPath, "src/:colon.ts"), "after\n");
+    writeFileSync(path.join(rootPath, "src/3\t4\tcounts.ts"), "after\n");
     writeFileSync(path.join(rootPath, "src/binary.dat"), Buffer.from([0, 2]));
     execGit(rootPath, ["rm", "src/deleted.ts"]);
     execGit(rootPath, ["mv", "src/rename old.ts", "src/renamed new.ts"]);
@@ -307,7 +320,7 @@ describe("local vcs", () => {
       headRef,
     });
 
-    expect(summaries).toHaveLength(6);
+    expect(summaries).toHaveLength(8);
     expect(summaries).toEqual(
       expect.arrayContaining([
         {
@@ -341,6 +354,18 @@ describe("local vcs", () => {
           deletions: 1,
         },
         {
+          path: "src/:colon.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+        },
+        {
+          path: "src/3\t4\tcounts.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+        },
+        {
           path: "src/renamed new.ts",
           previousPath: "src/rename old.ts",
           status: "renamed",
@@ -365,6 +390,132 @@ describe("local vcs", () => {
         deletions: 0,
       },
     ]);
+  });
+
+  it("summarizes an edited rename in one Git call", async () => {
+    const rootPath = await mkdtemp(
+      path.join(tmpdir(), "local-vcs-git-rename-"),
+    );
+
+    execGit(rootPath, ["init"]);
+    execGit(rootPath, ["config", "user.email", "test@example.com"]);
+    execGit(rootPath, ["config", "user.name", "Test User"]);
+    mkdirSync(path.join(rootPath, "src"));
+    writeFileSync(
+      path.join(rootPath, "src/rename old.ts"),
+      "one\ntwo\nthree\nfour\nfive\nsix\n",
+    );
+    execGit(rootPath, ["add", "src"]);
+    execGit(rootPath, ["commit", "-m", "initial"]);
+    const baseRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
+    execGit(rootPath, ["mv", "src/rename old.ts", "src/renamed new.ts"]);
+    writeFileSync(
+      path.join(rootPath, "src/renamed new.ts"),
+      "one\ntwo\nthree\nfour\nfive\nSIX\n",
+    );
+    execGit(rootPath, ["add", "src"]);
+    execGit(rootPath, ["commit", "-m", "rename and edit"]);
+    const headRef = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+
+    const spawns: string[][] = [];
+
+    setLocalVcsCommandObserver({
+      start: ({ file, args }) => {
+        spawns.push([file, ...args]);
+
+        return () => {};
+      },
+    });
+    await expect(
+      diffFileSummariesTrees({ rootPath, baseRef, headRef, kind: "git" }),
+    ).resolves.toEqual([
+      {
+        path: "src/renamed new.ts",
+        previousPath: "src/rename old.ts",
+        status: "renamed",
+        additions: 1,
+        deletions: 1,
+      },
+    ]);
+    expect(spawns).toHaveLength(1);
+  });
+
+  it("reads a copied file without dropping the records after it", () => {
+    // git never emits a copy record without -C; feed one by hand.
+    const raw = [
+      ":100644 100644 1111111 2222222 C085",
+      "src/source.ts",
+      "src/copy.ts",
+      ":100644 100644 3333333 4444444 M",
+      "src/after.ts",
+    ];
+
+    const counts = [
+      "2\t1\t",
+      "src/source.ts",
+      "src/copy.ts",
+      "1\t0\tsrc/after.ts",
+    ];
+
+    expect(
+      parseGitRawNumStatSummaries(`${[...raw, ...counts].join("\0")}\0`),
+    ).toEqual([
+      { path: "src/copy.ts", status: "added", additions: 2, deletions: 1 },
+      { path: "src/after.ts", status: "modified", additions: 1, deletions: 0 },
+    ]);
+  });
+
+  it("refuses a diff whose counts arrive before its records", () => {
+    const records = [
+      "1\t0\tsrc/app.ts",
+      ":100644 100644 1111111 2222222 M",
+      "src/app.ts",
+    ];
+
+    expect(() =>
+      parseGitRawNumStatSummaries(`${records.join("\0")}\0`),
+    ).toThrow("counts before its raw records");
+  });
+
+  it("reads no file where a jj workspace has a directory", async () => {
+    if (!commandExists("jj")) return;
+
+    const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-jj-tree-"));
+
+    execJj(rootPath, ["git", "init"]);
+    execJj(rootPath, ["config", "set", "--repo", "user.name", "Test User"]);
+    execJj(rootPath, [
+      "config",
+      "set",
+      "--repo",
+      "user.email",
+      "test@example.com",
+    ]);
+    mkdirSync(path.join(rootPath, "src"));
+    writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 1;\n");
+    execJj(rootPath, ["commit", "-m", "initial"]);
+
+    const commit = execJjOutput(rootPath, [
+      "log",
+      "-r",
+      "@-",
+      "--no-graph",
+      "-T",
+      "commit_id",
+    ]);
+
+    await expect(
+      readFileAtCommit({ rootPath, kind: "jj", commit, relativePath: "src" }),
+    ).resolves.toBeNull();
+    await expect(
+      readFileAtCommit({
+        rootPath,
+        kind: "jj",
+        commit,
+        relativePath: "src/app.ts",
+      }),
+    ).resolves.toBe("export const app = 1;\n");
   });
 
   it("uses jj local semantics for jj-only revisions", async () => {
@@ -771,6 +922,43 @@ describe("local vcs", () => {
         relativePath: "src/missing.ts",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("falls back to colocated Git when a jj root cannot answer", async () => {
+    const rootPath = await mkdtemp(
+      path.join(tmpdir(), "local-vcs-jj-fallback-"),
+    );
+
+    execGit(rootPath, ["init"]);
+    execGit(rootPath, ["config", "user.email", "test@example.com"]);
+    execGit(rootPath, ["config", "user.name", "Test User"]);
+    mkdirSync(path.join(rootPath, "src"));
+    writeFileSync(
+      path.join(rootPath, "src", "app.ts"),
+      "export const app = 1;\n",
+    );
+    execGit(rootPath, ["add", "src/app.ts"]);
+    execGit(rootPath, ["commit", "-m", "initial"]);
+    const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
+    await expect(
+      readFileAtCommit({
+        rootPath,
+        kind: "jj",
+        commit,
+        relativePath: "src/app.ts",
+      }),
+    ).resolves.toBe("export const app = 1;\n");
+    await expect(
+      readFileAtCommit({
+        rootPath,
+        kind: "jj",
+        commit,
+        relativePath: "src/missing.ts",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      listTrackedFilesAtCommit({ rootPath, kind: "jj", commit }),
+    ).resolves.toEqual(["src/app.ts"]);
   });
 });
 

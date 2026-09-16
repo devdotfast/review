@@ -32,8 +32,12 @@ const definitionSession = createTestReviewDefinitionSession();
 
 const { defineActors, defineAnchors, defineStores } = definitionSession;
 
-const runtimeRegistry =
-  reviewAuthoringComponents satisfies ReviewAuthoringComponentRegistry;
+// CallStackDiff renders canonical frames, not authored anchor lists; Part I
+// moves the rest of the registry to document props too.
+const runtimeRegistry = reviewAuthoringComponents satisfies Omit<
+  ReviewAuthoringComponentRegistry,
+  "CallStackDiff"
+>;
 
 const actors = defineActors({
   browser: { label: "Browser" },

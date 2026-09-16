@@ -1,9 +1,10 @@
-import { type CallStackEntry, callStackEntryAnchor } from "./authoring";
+import { frameIdentity } from "./call-stack-frames";
+import type { Frame } from "./review-api/document";
 
 export type CallStackSide = "base" | "head";
 
-// Positional diff over two authored call stacks. Frames align by anchor
-// identity, the way git aligns lines. The result is one unified stack:
+// Positional diff over two call stacks. Frames align by their matching
+// identity (an explicit key, else the source range), the way git aligns lines. The result is one unified stack:
 // base-only frames are removed, head-only frames are added, shared frames
 // are context. Order follows the head stack, with removed frames emitted
 // before the added frames of the same hunk, as in a unified diff.
@@ -11,7 +12,7 @@ export type CallStackSide = "base" | "head";
 export type CallStackChange = "added" | "removed" | "unchanged";
 
 export interface CallStackDiffRow {
-  entry: CallStackEntry;
+  frame: Frame;
   change: CallStackChange;
   // Depth in the row's own side: its index in the base or head stack. The
   // renderer turns depth transitions into tree-util connectors.
@@ -19,9 +20,9 @@ export interface CallStackDiffRow {
 }
 
 export function diffCallStacks(
-  base: readonly CallStackEntry[],
-  head: readonly CallStackEntry[],
-  identity = (entry: CallStackEntry) => callStackEntryAnchor(entry).id,
+  base: readonly Frame[],
+  head: readonly Frame[],
+  identity: (frame: Frame) => string = frameIdentity,
 ): CallStackDiffRow[] {
   const baseIds = base.map(identity);
   const headIds = head.map(identity);
@@ -46,18 +47,18 @@ export function diffCallStacks(
 
   while (i < base.length || j < head.length) {
     if (i < base.length && j < head.length && baseIds[i] === headIds[j]) {
-      // Shared frame: render the head entry, so the click opens new code.
-      rows.push({ entry: head[j]!, change: "unchanged", depth: j });
+      // Shared frame: render the head frame, so the click opens new code.
+      rows.push({ frame: head[j]!, change: "unchanged", depth: j });
       i += 1;
       j += 1;
     } else if (
       i < base.length &&
       (j >= head.length || lcs[i + 1]![j]! >= lcs[i]![j + 1]!)
     ) {
-      rows.push({ entry: base[i]!, change: "removed", depth: i });
+      rows.push({ frame: base[i]!, change: "removed", depth: i });
       i += 1;
     } else {
-      rows.push({ entry: head[j]!, change: "added", depth: j });
+      rows.push({ frame: head[j]!, change: "added", depth: j });
       j += 1;
     }
   }
@@ -153,8 +154,7 @@ export function callStackEvidenceErrors(
 
   for (const row of rows) {
     if (row.change === "unchanged") continue;
-    const anchor = callStackEntryAnchor(row.entry);
-    const { file, fromLine, toLine } = anchor.peek;
+    const { file, fromLine, toLine } = row.frame.source;
     const side: CallStackSide = row.change === "removed" ? "base" : "head";
     const lines = changedLines(file, side);
     const relevant = row.change === "removed" ? lines?.deleted : lines?.added;
@@ -173,7 +173,7 @@ export function callStackEvidenceErrors(
     const marker = row.change === "removed" ? '"-"' : '"+"';
     const kind = row.change === "removed" ? "deleted" : "added";
     errors.push(
-      `Frame "${anchor.id}" renders ${marker} but ${file}:${fromLine}-${toLine} ` +
+      `Frame "${frameIdentity(row.frame)}" renders ${marker} but ${file}:${fromLine}-${toLine} ` +
         `contains no ${kind} lines in this change. Anchor the ${kind} call ` +
         `site, or list the frame on both sides.`,
     );

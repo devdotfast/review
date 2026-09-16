@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  type CallStackEntry,
   type PeekableAnchorRef,
   callStackDiffPropsSchema,
   calls,
@@ -12,6 +13,7 @@ import {
   diffCallStacks,
   patchChangedLines,
 } from "./call-stack-diff";
+import { callStackFrames } from "./call-stack-frames";
 
 interface AnchorPeekProps {
   file: string;
@@ -47,16 +49,17 @@ const processItem = anchor("processItem");
 
 const persistResult = anchor("persistResult");
 
+const diff = (base: CallStackEntry[], head: CallStackEntry[]) =>
+  diffCallStacks(callStackFrames(base), callStackFrames(head));
+
 describe("diffCallStacks", () => {
   it("aligns shared frames and marks removed and added frames", () => {
-    const rows = diffCallStacks(
+    const rows = diff(
       [reconcile, auth, enqueueWork, persistResult],
       [reconcile, enqueueWork, processItem, persistResult],
     );
 
-    expect(
-      rows.map((row) => [row.change, (row.entry as PeekableAnchorRef).id]),
-    ).toEqual([
+    expect(rows.map((row) => [row.change, row.frame.id])).toEqual([
       ["unchanged", "reconcile"],
       ["removed", "auth"],
       ["unchanged", "enqueueWork"],
@@ -67,27 +70,23 @@ describe("diffCallStacks", () => {
 
   it("renders a shared frame from the head entry", () => {
     const headReconcile = anchor("reconcile");
-    const rows = diffCallStacks([reconcile], [headReconcile]);
-    expect(rows[0]!.entry).toBe(headReconcile);
+    const rows = diff([reconcile], [headReconcile]);
+    expect(rows[0]!.frame).toEqual(callStackFrames([headReconcile])[0]);
   });
 
   it("matches a calls() hop by its child frame", () => {
     const hop = calls(enqueueWork, processItem, "via the workqueue");
-    const rows = diffCallStacks([enqueueWork, hop], [enqueueWork, hop]);
+    const rows = diff([enqueueWork, hop], [enqueueWork, hop]);
     expect(rows.map((row) => row.change)).toEqual(["unchanged", "unchanged"]);
   });
 
   it("diffs one-sided stacks", () => {
-    expect(diffCallStacks([], [reconcile]).map((row) => row.change)).toEqual([
-      "added",
-    ]);
-    expect(diffCallStacks([auth], []).map((row) => row.change)).toEqual([
-      "removed",
-    ]);
+    expect(diff([], [reconcile]).map((row) => row.change)).toEqual(["added"]);
+    expect(diff([auth], []).map((row) => row.change)).toEqual(["removed"]);
   });
 
   it("assigns each row its own side's depth", () => {
-    const rows = diffCallStacks(
+    const rows = diff(
       [reconcile, auth, enqueueWork],
       [reconcile, enqueueWork, processItem],
     );
@@ -103,7 +102,7 @@ describe("diffCallStacks", () => {
 
 describe("callStackConnectorPrefix", () => {
   it("draws tree-util connectors from depth transitions", () => {
-    const rows = diffCallStacks(
+    const rows = diff(
       [reconcile, auth, enqueueWork],
       [reconcile, enqueueWork, processItem],
     );
@@ -114,7 +113,7 @@ describe("callStackConnectorPrefix", () => {
   });
 
   it("keeps the continuation bar while a branch continues below", () => {
-    const rows = diffCallStacks([reconcile, auth, persistResult], [reconcile]);
+    const rows = diff([reconcile, auth, persistResult], [reconcile]);
     // No second depth-1 row follows auth, so auth draws "└─" and its child
     // indents one column further.
     expect(
@@ -201,12 +200,12 @@ describe("callStackEvidenceErrors", () => {
         : null;
 
   it("accepts markers whose ranges intersect the change", () => {
-    const rows = diffCallStacks([reconcile, auth], [reconcile, processItem]);
+    const rows = diff([reconcile, auth], [reconcile, processItem]);
     expect(callStackEvidenceErrors(rows, changed)).toEqual([]);
   });
 
   it("rejects a removed frame over unchanged code", () => {
-    const rows = diffCallStacks([reconcile, enqueueWork], [reconcile]);
+    const rows = diff([reconcile, enqueueWork], [reconcile]);
     const errors = callStackEvidenceErrors(rows, changed);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('"enqueueWork" renders "-"');
@@ -214,7 +213,7 @@ describe("callStackEvidenceErrors", () => {
   });
 
   it("rejects an added frame over unchanged code", () => {
-    const rows = diffCallStacks([reconcile], [reconcile, persistResult]);
+    const rows = diff([reconcile], [reconcile, persistResult]);
     const errors = callStackEvidenceErrors(rows, changed);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('"persistResult" renders "+"');

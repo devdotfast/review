@@ -94,3 +94,24 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
   React-child walk, the symbol-backed collection handles, `resolveTargetRef`
   and the `"type?"` string round trip are gone from the render path. A field's
   nullability still displays as the `type?` suffix.
+
+## I: one document input
+
+- The app registry satisfies `ReviewDocumentComponentRegistry`, typed by the
+  document props each sealed node carries; the authoring registry type still
+  describes authored MDX only. Prose (`AnchorLink`, `ReviewSection`), trace
+  quotes and tutorial components take document props and no longer parse
+  authoring schemas per render.
+- The side panel and guided tours key on their own `PeekAnchor` contract
+  (`{ id, title, detail?, peek?, softwareMapPath? }`); diagrams build one from
+  their document props. `codePeekSource` lives in `source.ts`.
+- Hydration no longer canonicalizes anchor refs to shared objects (nothing in
+  the app relied on identity, and every component reads anchor values). It
+  keeps heading ids, section summaries, tutorial text hints and software-map
+  hydration. A saved document whose component anchors are absent from the
+  top-level `anchors` map now renders instead of failing to load.
+- Trace-quote containment is shared by legacy publish and JSON accept
+  (`evidence.ts`): both compare whitespace-normalized text. Software-map pin
+  checks stay per path because only JSON reviews carry pins in the document.
+- `git grep 'src/authoring"' packages/review/app/src` (non-test) now lists only
+  the test utility that builds a legacy definition session.

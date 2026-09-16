@@ -118,8 +118,9 @@ export class HideUnchangedRegionsFeature extends Disposable {
 					continue;
 				}
 				// A region on one side only is a band on that side alone; the diff's alignment leaves room for it on the other.
-				const onOriginal = r.kind !== 'inserted';
-				const onModified = r.kind !== 'removed';
+				const onOriginal = r.owner !== 'head';
+				const onModified = !sideBySide || r.owner !== 'base';
+                // Inline has one visible column: removed-only folds need their control here too.
 
 				if (compactMode) {
 					if (onOriginal) {
@@ -199,9 +200,9 @@ export class HideUnchangedRegionsFeature extends Disposable {
 		this._register(applyObservableDecorations(this._editors.original, derived(this, reader => {
 			/** @description decorations */
 			// An inserted region belongs to the modified side: no decoration and no control here.
-			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.kind !== 'inserted');
+			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.owner !== 'head');
 			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
-			const result = curUnchangedRegions.filter(r => r.kind === 'unchanged').map<IModelDeltaDecoration>(r => ({
+			const result = curUnchangedRegions.filter(r => r.change === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.originalUnchangedRange.toInclusiveRange()!,
 				options: unchangedLinesDecoration,
 			}));
@@ -219,9 +220,10 @@ export class HideUnchangedRegionsFeature extends Disposable {
 		this._register(applyObservableDecorations(this._editors.modified, derived(this, reader => {
 			/** @description decorations */
 			// A removed region belongs to the original side: no decoration and no control here.
-			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.kind !== 'removed');
+			const sideBySide = this._options.renderSideBySide.read(reader);
+			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.owner !== 'base' || (!sideBySide && !r.modifiedUnchangedRange.isEmpty));
 			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
-			const result = curUnchangedRegions.filter(r => r.kind === 'unchanged').map<IModelDeltaDecoration>(r => ({
+			const result = curUnchangedRegions.filter(r => r.change === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.modifiedUnchangedRange.toInclusiveRange()!,
 				options: unchangedLinesDecoration,
 			}));
@@ -301,7 +303,7 @@ class CompactCollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			/** @description update labels */
 
 			if (!this._hide) {
-				const lineCount = this._unchangedRegion.getHiddenModifiedRange(reader).length;
+				const lineCount = Math.max(this._unchangedRegion.getHiddenModifiedRange(reader).length, this._unchangedRegion.getHiddenOriginalRange(reader).length);
 				const linesHiddenText = localize('hiddenLines', '{0} hidden lines', lineCount);
 				this._nodes.text.innerText = linesHiddenText;
 			}
@@ -310,7 +312,7 @@ class CompactCollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 }
 
 /** The reveal tooltip names what the band hides. */
-export function showTitle(kind: 'unchanged' | 'inserted' | 'removed'): string {
+export function showTitle(kind: 'unchanged' | 'inserted' | 'removed' | 'modified'): string {
 	switch (kind) {
 		case 'inserted': return localize('showAddedLines', 'Show added lines');
 		case 'removed': return localize('showRemovedLines', 'Show removed lines');
@@ -323,7 +325,7 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 		h('div.top@top', { title: localize('diff.hiddenLines.top', 'Click or drag to show more above') }),
 		h('div.center@content', { style: { display: 'flex' } }, [
 			h('div@first', { style: { display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: '0' } },
-				[$('a', { title: showTitle(this._unchangedRegion.kind), role: 'button', onclick: () => { this._unchangedRegion.showAll(undefined); } },
+				[$('a', { title: showTitle(this._unchangedRegion.change), role: 'button', onclick: () => { this._unchangedRegion.showAll(undefined); } },
 					...renderLabelWithIcons('$(unfold)'))]
 			),
 			h('div@others', { style: { display: 'flex', justifyContent: 'center', alignItems: 'center' } }),
@@ -346,7 +348,7 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 		const root = h('div.diff-hidden-lines-widget');
 		super(_editor, _viewZone, root.root);
 		root.root.appendChild(this._nodes.root);
-		this._nodes.root.classList.add(`kind-${_unchangedRegion.kind}`);
+		this._nodes.root.classList.add(`kind-${_unchangedRegion.change}`);
 
 		if (!this._hide) {
 			this._register(applyStyle(this._nodes.first, { width: observableCodeEditor(this._editor).layoutInfoContentLeft }));

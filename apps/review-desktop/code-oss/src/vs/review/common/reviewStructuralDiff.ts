@@ -1,108 +1,25 @@
+import { structuralChangeCounts } from "./reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-/**
- * diffr's v3 wire as the native experiment reads it. Lines are 0-based and
- * split on `\n` only; columns are byte offsets into the wire text; ranges
- * are half-open. Sides are `lhs` (base) and `rhs` (head), and a pairing
- * carries whichever sides exist.
- */
-export const STRUCTURAL_WIRE_VERSION = 3;
-
-export interface StructuralPairing<T> {
-  lhs?: T;
-  rhs?: T;
-}
-export interface StructuralProblem {
-  code: string;
-  message: string;
-}
-export interface StructuralPos {
-  line: number;
-  column: number;
-}
-export interface StructuralSpan {
-  line: number;
-  start_column: number;
-  end_column: number;
-}
-export interface StructuralVisibility {
-  collapsed?: boolean;
-  label?: string;
-}
-/**
- * One range on one side. `id` names the region, unique within the file
- * across both sides. Only a leaf has an `alignment_id`: it pairs the leaf
- * with the leaf on the other side whose rows line up with it and keys the row
- * zip. `fold_state_id` groups what opens and closes together, on either side,
- * and keys collapse state: a fold's counterpart is the region on the other
- * side sharing it. Leaves tile the file in order; a fold's range is the hull
- * of its children. Tags are `<plugin>:<name>`.
- */
-export type StructuralRegion = StructuralLeaf | StructuralFold;
-interface StructuralRegionBase {
-  id: number;
-  fold_state_id: number;
-  start: StructuralPos;
-  end: StructuralPos;
-  tags?: string[];
-  visibility?: StructuralVisibility;
-}
-export interface StructuralLeaf extends StructuralRegionBase {
-  kind: "leaf";
-  alignment_id: number;
-  changed?: StructuralSpan[];
-}
-export interface StructuralFold extends StructuralRegionBase {
-  kind: "fold";
-  children: StructuralRegion[];
-}
-export interface StructuralSyntaxSpan extends StructuralSpan {
-  capture: string;
-}
-export interface StructuralSource {
-  text: string;
-  syntax?: StructuralSyntaxSpan[];
-  regions?: StructuralRegion[];
-}
-export interface StructuralLineCounts {
-  added: number;
-  removed: number;
-}
-export interface StructuralStats {
-  textual: StructuralLineCounts;
-  /** Changed lines on screen under the wire's initial fold state. Always present. */
-  visible: StructuralLineCounts;
-  /** Present when the AST match did not run and this is a line diff. */
-  fallback?: StructuralProblem;
-}
-export type StructuralTextDiff = { type: "text"; stats: StructuralStats } & StructuralPairing<StructuralSource>;
-export type StructuralBinaryDiff = { type: "binary" } & StructuralPairing<{ size: number }>;
-export type StructuralDiff = StructuralTextDiff | StructuralBinaryDiff;
-export interface StructuralFileRef {
-  path: string;
-  oid: string;
-  mode: string;
-}
-export interface StructuralFileChange {
-  file: StructuralPairing<StructuralFileRef>;
-  status: "added" | "deleted" | "modified" | "renamed" | "copied" | "type_changed";
-  /** Linguist and git-attribute tags such as `generated`, `test`, `docs`, `vendored`; sorted. */
-  tags?: string[];
-}
-export type StructuralEvent =
-  | { type: "start"; version: number; files: StructuralFileChange[] }
-  | {
-      type: "file";
-      file: StructuralPairing<StructuralFileRef>;
-      /** How the whole file starts out, set by a plugin: collapsed with a reason label. Absent means open. */
-      visibility?: StructuralVisibility;
-      diff?: StructuralDiff;
-      error?: StructuralProblem;
-    }
-  | { type: "complete"; succeeded: number; failed: number; aborted?: StructuralProblem };
+import type {
+  StructuralPairing, StructuralFileRef, StructuralRegion, StructuralSource,
+  StructuralLineCounts, StructuralProblem, StructuralDiff,
+} from "./reviewProtocol.js";
+export type {
+  StructuralPairing, StructuralProblem, StructuralPos, StructuralSpan,
+  StructuralVisibility, StructuralRegion, StructuralSyntaxSpan, StructuralSource,
+  StructuralLineCounts, StructuralStats, StructuralDiff, StructuralFileRef,
+  StructuralFileChange,
+} from "./reviewProtocol.js";
+export { STRUCTURAL_DIFF_WIRE_VERSION as STRUCTURAL_WIRE_VERSION } from "./reviewProtocol.js";
+export type { StructuralDiffEvent as StructuralEvent } from "./reviewProtocol.js";
+export type StructuralLeaf = Extract<StructuralRegion, { kind: "leaf" }>;
+export type StructuralFold = Extract<StructuralRegion, { kind: "fold" }>;
+export type StructuralTextDiff = Extract<StructuralDiff, { type: "text" }>;
+export type StructuralBinaryDiff = Extract<StructuralDiff, { type: "binary" }>;
 
 /** Review keys a file by its head path, or its base path for a deletion. */
 export function structuralFilePath(file: StructuralPairing<StructuralFileRef>): string {
@@ -229,7 +146,8 @@ export interface StructuralGap {
   modifiedCount: number;
   label: string;
   /** What the band hides: unchanged context, or lines that exist on one side only. */
-  kind: "unchanged" | "inserted" | "removed";
+  owner: "base" | "head" | "both";
+  change: "unchanged" | "inserted" | "removed" | "modified";
   /** False for a region the reader revealed: it stays a band the editor can fold again. */
   collapsed: boolean;
   /** The fold-state id of the region(s) this band hides; toggling the band toggles it. */
@@ -346,7 +264,7 @@ export function structuralContextGaps(
         originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
         modifiedStart: right.start + 1, modifiedCount: right.end - right.start,
         label: partner.region.visibility?.label || left.visibility?.label || "",
-        kind: "unchanged",
+        owner: "both", change: "unchanged",
         collapsed: collapsed && partner.collapsed,
         foldStateId: left.fold_state_id,
         breadcrumbs: !isDocstring(left) && !isDocstring(partner.region),
@@ -357,7 +275,7 @@ export function structuralContextGaps(
     gaps.push({
       originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
       modifiedStart: opposite.start, modifiedCount: opposite.count,
-      label: left.visibility?.label || "", kind: "removed", collapsed, foldStateId: left.fold_state_id,
+      label: left.visibility?.label || "", owner: "base", change: "unchanged", collapsed, foldStateId: left.fold_state_id,
       breadcrumbs: !isDocstring(left),
     });
   }
@@ -368,9 +286,21 @@ export function structuralContextGaps(
     gaps.push({
       originalStart: opposite.start, originalCount: opposite.count,
       modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
-      label: right.visibility?.label || "", kind: "inserted", collapsed, foldStateId: right.fold_state_id,
+      label: right.visibility?.label || "", owner: "head", change: "unchanged", collapsed, foldStateId: right.fold_state_id,
       breadcrumbs: !isDocstring(right),
     });
+  }
+  // Ownership says which fold state to toggle, never whether its contents were deleted.
+  const highlights = structuralHighlights(diff);
+  const removedLines = new Set(highlights.originalLines), addedLines = new Set(highlights.modifiedLines);
+  for (const [left, right] of rows) {
+    if (left !== null && right === null) removedLines.add(left + 1);
+    if (right !== null && left === null) addedLines.add(right + 1);
+  }
+  for (const gap of gaps) {
+    const removed = [...removedLines].some(line => line >= gap.originalStart && line < gap.originalStart + gap.originalCount);
+    const added = [...addedLines].some(line => line >= gap.modifiedStart && line < gap.modifiedStart + gap.modifiedCount);
+    gap.change = removed && added ? "modified" : removed ? "removed" : added ? "inserted" : "unchanged";
   }
   gaps.sort((a, b) => (a.modifiedStart - b.modifiedStart) || (a.originalStart - b.originalStart));
   for (const gap of gaps) if (!gap.label) {
@@ -388,12 +318,12 @@ export interface StructuralFileCounts {
 
 /** The file's counts, straight from the wire. Folding never changes them. */
 export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFileCounts {
-  return { visible: diff.stats.visible, textual: diff.stats.textual, fallback: diff.stats.fallback };
+  return { visible: structuralChangeCounts(diff.structural_changes), textual: diff.stats.textual, fallback: diff.stats.fallback };
 }
 
 export function structuralCountsTooltip(counts: StructuralFileCounts): string {
   const row = (label: string, value: StructuralLineCounts) => `${label} +${value.added} −${value.removed}`;
-  const rows = [row("visible", counts.visible), row("textual", counts.textual)];
+  const rows = [row("structural", counts.visible), row("textual", counts.textual)];
   if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
   return rows.join("\n");
 }

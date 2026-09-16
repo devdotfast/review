@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { projectSourceAlignment } from "../../../../../common/diff/sourceLineAlignment.js";
+import { projectInlineSourceAlignment, projectSplitSourceAlignment } from "../../../../../common/diff/sourceLineAlignment.js";
 import { $, addDisposableListener } from '../../../../../../base/browser/dom.js';
 import { ArrayQueue } from '../../../../../../base/common/arrays.js';
 import { RunOnceScheduler } from '../../../../../../base/common/async.js';
@@ -103,7 +103,24 @@ export class DiffEditorViewZones extends Disposable {
 			state.read(reader);
 			const renderSideBySide = this._options.renderSideBySide.read(reader);
 			const innerHunkAlignment = renderSideBySide;
-			if (renderSideBySide && diff.sourceLineAlignment) {
+			if (diff.sourceLineAlignment && !renderSideBySide) {
+                const originalView = this._editors.original._getViewModel()!.coordinatesConverter;
+                const modifiedView = this._editors.modified._getViewModel()!.coordinatesConverter;
+                const originalHeight = this._editors.original.getOption(EditorOption.lineHeight);
+                const modifiedHeight = this._editors.modified.getOption(EditorOption.lineHeight);
+                return projectInlineSourceAlignment(diff.sourceLineAlignment,
+                    l => originalView.getModelLineViewLineCount(l + 1) * originalHeight,
+                    r => modifiedView.getModelLineViewLineCount(r + 1) * modifiedHeight,
+                    new Set(diff.changeHighlights?.originalLines?.map(l => l - 1) ?? diff.mappings.flatMap(m => m.lineRangeMapping.original.mapToLineArray(l => l - 1))),
+                    new Set(diff.changeHighlights?.modifiedLines?.map(l => l - 1) ?? diff.mappings.flatMap(m => m.lineRangeMapping.modified.mapToLineArray(l => l - 1))),
+                ).map(s => {
+                    const originalRange = new LineRange(s.leftStart + 1, s.leftEnd + 1);
+                    const modifiedRange = new LineRange(s.rightStart + 1, s.rightEnd + 1);
+                    return { originalRange, modifiedRange, originalHeightInPx: s.leftHeight, modifiedHeightInPx: s.rightHeight,
+                        diff: new DetailedLineRangeMapping(originalRange, modifiedRange, undefined) };
+                });
+            }
+            if (diff.sourceLineAlignment) {
 				const regions = diffModel.unchangedRegions.read(reader);
 				const compactMode = this._options.compactMode.read(reader);
 				const bandLineHeight = this._editors.modified.getOption(EditorOption.lineHeight);
@@ -111,15 +128,15 @@ export class DiffEditorViewZones extends Disposable {
 				// so the row that starts the fold gets a filler of exactly that height on the other side.
 				const originalBands = new Map<number, number>(), modifiedBands = new Map<number, number>();
 				regions.forEach((region, index) => {
-					if (region.kind === 'unchanged') { return; }
+					if (region.owner === 'both') { return; }
 					const height = bandZoneHeightPx(regions, index, compactMode, bandLineHeight, reader);
 					if (height === undefined) { return; }
-					const [bands, first] = region.kind === 'removed'
+					const [bands, first] = region.owner === 'base'
 						? [originalBands, region.getHiddenOriginalRange(reader).startLineNumber]
 						: [modifiedBands, region.getHiddenModifiedRange(reader).startLineNumber];
 					bands.set(first, (bands.get(first) ?? 0) + height);
 				});
-				return computeSourceAlignment(this._editors.original, this._editors.modified, diff.sourceLineAlignment, this._origViewZonesToIgnore, this._modViewZonesToIgnore, originalBands, modifiedBands);
+				return computeSplitSourceAlignment(this._editors.original, this._editors.modified, diff.sourceLineAlignment, this._origViewZonesToIgnore, this._modViewZonesToIgnore, originalBands, modifiedBands);
 			}
 			return computeRangeAlignment(
 				this._editors.original,
@@ -290,6 +307,20 @@ export class DiffEditorViewZones extends Disposable {
 							}
 						}
 
+                        // Pure base-side code lives in an inline view zone, not the modified model's gutter.
+                        // Keep the expanded fold's control attached to that rendered code.
+                        for (const region of this._diffModel.read(reader)?.unchangedRegions.read(reader) ?? []) {
+                            if (!region.modifiedUnchangedRange.isEmpty || !region.shouldHideControls(reader)) continue;
+                            const row = visibleOriginalLines.indexOf(region.originalLineNumber);
+                            if (row < 0) continue;
+                            const button = document.createElement('button');
+                            button.className = 'inline-fold-control ' + ThemeIcon.asClassName(Codicon.fold);
+                            button.title = 'Collapse region';
+                            button.setAttribute('aria-label', 'Collapse region');
+                            button.style.cssText = `position:absolute;right:0;top:${result.viewLineCounts.slice(0, row).reduce((a, b) => a + b, 0) * modLineHeight}px;height:${modLineHeight}px;border:0;background:transparent;color:inherit;cursor:pointer;z-index:20`;
+                            alignmentViewZonesDisposables.add(addDisposableListener(button, 'click', e => { e.preventDefault(); e.stopPropagation(); region.collapseAll(undefined); }));
+                            marginDomNode.appendChild(button);
+                        }
 						let zoneId: string | undefined = undefined;
 						alignmentViewZonesDisposables.add(
 							new InlineDiffDeletedCodeMargin(
@@ -707,14 +738,14 @@ export function rangeIsSingleLine(range: Range): boolean {
 
 /** Project existing correspondence through folding and wrapping, without rematching. */
 /** `originalBands` and `modifiedBands` are band heights by the band's first hidden line, one-based, on the side that shows it. */
-function computeSourceAlignment(original: CodeEditorWidget, modified: CodeEditorWidget, rows: readonly (readonly [number | null, number | null])[], originalZonesToIgnore: ReadonlySet<string>, modifiedZonesToIgnore: ReadonlySet<string>, originalBands: ReadonlyMap<number, number>, modifiedBands: ReadonlyMap<number, number>): ILineRangeAlignment[] {
+function computeSplitSourceAlignment(original: CodeEditorWidget, modified: CodeEditorWidget, rows: readonly (readonly [number | null, number | null])[], originalZonesToIgnore: ReadonlySet<string>, modifiedZonesToIgnore: ReadonlySet<string>, originalBands: ReadonlyMap<number, number>, modifiedBands: ReadonlyMap<number, number>): ILineRangeAlignment[] {
 	const leftView = original._getViewModel()!.coordinatesConverter;
 	const rightView = modified._getViewModel()!.coordinatesConverter;
 	const leftHeight = original.getOption(EditorOption.lineHeight);
 	const rightHeight = modified.getOption(EditorOption.lineHeight);
 	const leftExtra = new Map(getAdditionalLineHeights(original, originalZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
 	const rightExtra = new Map(getAdditionalLineHeights(modified, modifiedZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
-	return projectSourceAlignment(rows,
+	return projectSplitSourceAlignment(rows,
 		l => (leftView.getModelLineViewLineCount(l + 1) === 0 ? 0 : leftHeight + (leftExtra.get(l + 1) ?? 0)) + (originalBands.get(l + 1) ?? 0),
 		r => (rightView.getModelLineViewLineCount(r + 1) === 0 ? 0 : rightHeight + (rightExtra.get(r + 1) ?? 0)) + (modifiedBands.get(r + 1) ?? 0),
 	).filter(s => s.leftHeight !== s.rightHeight).map(s => ({ originalRange: new LineRange(s.leftStart + 1, s.leftEnd + 1), modifiedRange: new LineRange(s.rightStart + 1, s.rightEnd + 1), originalHeightInPx: s.leftHeight, modifiedHeightInPx: s.rightHeight, diff: undefined }));

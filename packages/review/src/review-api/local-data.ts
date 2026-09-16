@@ -1,7 +1,6 @@
 import { type FSWatcher, existsSync, watch } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 
-import type { JsonObject } from "@dev.fast/json";
 import {
   type BlobBatchReader,
   type LocalVcs,
@@ -22,12 +21,13 @@ import {
 import type {
   ReviewLanguageEnvironment,
   ReviewSourceEntry,
+  StructuralDiffEvent,
 } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
 import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
-import { structuralDiff } from "../server/structural-diff.js";
+import { StructuralComparisons } from "../server/structural-comparisons.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
   type NormalizedSoftwareModel,
@@ -266,13 +266,17 @@ export class LocalReviewData {
     );
   }
 
-  async structuralChanges(
-    reviewId: string,
-    pins: Pins,
-    signal: AbortSignal,
-    onEvent: (event: JsonObject) => void,
-    file?: string,
-  ): Promise<void> {
+  async *structuralChanges({
+    reviewId,
+    pins,
+    signal,
+    file,
+  }: {
+    reviewId: string;
+    pins: Pins;
+    signal: AbortSignal;
+    file?: string;
+  }): AsyncGenerator<StructuralDiffEvent> {
     if (file !== undefined) checkRelativePath(file);
 
     const rootPath = await ensureReviewPinnedCheckout({
@@ -285,17 +289,15 @@ export class LocalReviewData {
       throw new ReviewInputError(
         "Cannot prepare the pinned repository for structural diffing.",
       );
-    await structuralDiff({
-      rootPath,
-      baseRef: pins.base,
-      headRef: pins.head,
-      exactTrees: true,
+    yield* this.structuralComparisons.stream({
+      repositoryPath: rootPath,
+      comparison: { kind: "trees", base: pins.base, head: pins.head },
       paths: file === undefined ? undefined : [file],
       signal,
-      onEvent,
     });
   }
 
+  private readonly structuralComparisons = new StructuralComparisons();
   private closed = false;
   private readonly worktrees = new Map<
     string,
@@ -368,6 +370,7 @@ export class LocalReviewData {
   }
 
   async close(): Promise<void> {
+    this.structuralComparisons.close();
     this.closed = true;
     await this.workspaces.close();
 

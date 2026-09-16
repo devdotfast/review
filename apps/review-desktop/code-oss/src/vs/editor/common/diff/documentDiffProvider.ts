@@ -66,11 +66,10 @@ export interface IDocumentContextGap {
 	readonly originalCount: number;
 	readonly modifiedCount: number;
 	readonly label?: string;
-	/**
-	 * What the hidden lines are: unchanged context, lines that exist only on
-	 * the modified side, or only on the original side. Drives the band's tint.
-	 */
-	readonly kind?: 'unchanged' | 'inserted' | 'removed';
+	/** Where the fold control originates; independent of the enclosed code's change status. */
+	readonly owner?: 'base' | 'head' | 'both';
+	/** Actual changes in the hidden ranges, used only for presentation. */
+	readonly change?: 'unchanged' | 'inserted' | 'removed' | 'modified';
 	/**
 	 * Whether the band lists the symbols its hidden lines belong to. Default
 	 * `true`; `false` keeps the bare count.

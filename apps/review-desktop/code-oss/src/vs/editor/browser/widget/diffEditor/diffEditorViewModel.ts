@@ -550,7 +550,8 @@ export class UnchangedRegion {
 	public get label(): string | undefined { return undefined; }
 	public get breadcrumbs(): boolean { return true; }
 	/** What the hidden lines are; supplied gaps say, computed regions are unchanged context. */
-	public get kind(): 'unchanged' | 'inserted' | 'removed' { return 'unchanged'; }
+	public get owner(): 'base' | 'head' | 'both' { return 'both'; }
+	public get change(): 'unchanged' | 'inserted' | 'removed' | 'modified' { return 'unchanged'; }
 
 	constructor(
 		public readonly originalLineNumber: number,
@@ -686,7 +687,8 @@ class SuppliedContextGap extends UnchangedRegion {
 		super(gap.originalStart, gap.modifiedStart, Math.max(gap.originalCount, gap.modifiedCount), 0, 0);
 	}
 	override get label(): string | undefined { return this.gap.label; }
-	override get kind(): 'unchanged' | 'inserted' | 'removed' { return this.gap.kind ?? 'unchanged'; }
+	override get owner(): 'base' | 'head' | 'both' { return this.gap.owner ?? 'both'; }
+	override get change(): 'unchanged' | 'inserted' | 'removed' | 'modified' { return this.gap.change ?? 'unchanged'; }
 	override get breadcrumbs(): boolean { return this.gap.breadcrumbs ?? true; }
 	override get originalUnchangedRange(): LineRange { return LineRange.ofLength(this.gap.originalStart, this.gap.originalCount); }
 	override get modifiedUnchangedRange(): LineRange { return LineRange.ofLength(this.gap.modifiedStart, this.gap.modifiedCount); }

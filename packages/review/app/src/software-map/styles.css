@@ -1478,7 +1478,9 @@
   line-height: 16px;
 }
 
-.software-map-overlay {
+/* Keep the theme-bearing .review-app's normal layout from placing this
+   fullscreen portal below the canvas. */
+.software-map-overlay.review-app {
   position: fixed;
   inset: 0;
   /* The overlay lives inside the canvas root, outside .review-app where this

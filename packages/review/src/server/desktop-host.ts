@@ -71,6 +71,7 @@ export async function runDesktopHost(
     await server.listen();
   } catch (error) {
     await local?.store.close();
+    await local?.data.close();
     throw error;
   }
 
@@ -92,7 +93,10 @@ export async function runDesktopHost(
 
   const stop = () => {
     if (!stopping) {
-      stopping = server.close("app-exit").finally(() => local?.store.close());
+      stopping = server
+        .close("app-exit")
+        .finally(() => local?.store.close())
+        .finally(() => local?.data.close());
     }
 
     return stopping;

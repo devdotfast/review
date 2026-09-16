@@ -186,12 +186,13 @@ export class LocalReviewData {
     return reader;
   }
 
-  private closeReader(repositoryId: string): void {
+  private closeReader(repositoryId: string): Promise<void> | undefined {
     const reader = this.readers.get(repositoryId);
 
     if (!reader) return;
     this.readers.delete(repositoryId);
-    void reader.close();
+
+    return reader.close();
   }
 
   private async vcsTarget(
@@ -215,7 +216,16 @@ export class LocalReviewData {
 
     if (!vcs) throw new ReviewInputError("Choose a Git or jj repository.");
 
-    return this.store.registerRepository(await realpath(vcs.rootPath));
+    const repository = this.store.registerRepository(
+      await realpath(vcs.rootPath),
+    );
+
+    // Registration may follow replacement of a managed repository at the same
+    // path (for example resetting the tutorial). Reopen its Git reader too.
+    await this.closeReader(repository.id);
+    this.repositories.delete(repository.id);
+
+    return repository;
   }
   async resolvePins(
     repositoryId: string,

@@ -535,7 +535,19 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				void this.apiCatalog.attention(reviewId, "view").catch(error => this.logService.warn("[Review] Could not mark review viewed:", error));
 				let version = 0;
 				const source = this.apiSource.canvas(reviewId, () => version, this.inlineEditors, this.diffViews);
+				const closeTutorial = () => void this.group.closeEditor(input);
+				const updateTutorial = (progress: TutorialProgressV1) => {
+					this.writeTutorialProgress(progress);
+					if (!this.apiContent) return;
+					this.apiContent = { ...this.apiContent, tutorial: this.createTutorialBridge(reviewId, progress, updateTutorial, closeTutorial) };
+					this.canvas.value?.update(this.apiContent);
+				};
 				await this.render({
+					setTutorial: enabled => {
+						if (!this.apiContent || generation !== this.loadGeneration || enabled === Boolean(this.apiContent.tutorial)) return;
+						this.apiContent = { ...this.apiContent, tutorial: enabled ? this.createTutorialBridge(reviewId, this.readTutorialProgress(), updateTutorial, closeTutorial) : undefined };
+						this.canvas.value?.update(this.apiContent);
+					},
 					kind: "api", reviewId, softwareMapEnabled: this.currentSoftwareMapEnabled(),
 					setTitle: title => input.setApiTitle(title),
 					setVersion: next => { version = next; },

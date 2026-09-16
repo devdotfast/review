@@ -81,7 +81,7 @@ class OpenTutorialAction extends Action2 {
 		const tabsService = accessor.get(IReviewCanvasEditorTabsService);
 		try {
 			const opened = await sessionService.openTutorial();
-			await tabsService.openReview(opened.reviewUuid, true);
+			await tabsService.openApiReview(opened.reviewUuid, opened.review.title);
 		} catch (error) {
 			notificationService.error(
 				localize('review.tutorial.failed', "Review could not open the tutorial: {0}", String(error)),

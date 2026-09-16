@@ -1,12 +1,8 @@
-/* Builds the tutorial's shipped artifacts: a deterministic stubbed git repo
-   (as `git-stub/`, because npm-packlist strips `.git` at any depth), the
-   compiled review document bundle, and the software-map bundle. Runs at app
-   build time; the desktop server serves these bytes without compiling,
-   validating, or sealing anything on the user's machine. */
 import { execFile } from "node:child_process";
 import {
   chmod,
   cp,
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -18,23 +14,12 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { writeNote } from "@dev.fast/local-vcs";
 import { parseJsonText } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { buildReviewDocument } from "../src/document/build";
-import {
-  bundleReviewDocument,
-  writeReviewDocumentBundle,
-} from "../src/review-bundle";
-import { createReviewDir } from "../src/review-home";
-import { canonicalizeModelImport } from "../src/software-map-artifact";
-import {
-  bundleReviewSoftwareMap,
-  writeReviewSoftwareMapBundle,
-} from "../src/software-map-bundle";
-import { loadPublishSoftwareMaps } from "../src/software-map-health";
-import { SOFTWARE_MAP_NOTES_REF } from "../src/software-map-paths";
+import { sourceReferences } from "../src/review-api/document";
+import { openLocalReviewStore } from "../src/review-api/local-data";
+import { createNativeTutorial } from "../src/server/tutorial-service";
 
 const execFilePromise = promisify(execFile);
 
@@ -78,9 +63,8 @@ export async function readTutorialRuntimeManifest(
   return parsed.data;
 }
 
-/* The commit hash must be identical on every build machine: the map-bundle
-   manifest bakes it in, and the runtime checks the shipped repo's HEAD
-   against that manifest. */
+/* Source pins must be identical on every build machine. The native tutorial
+   validates its evidence and both maps against these exact commits. */
 const COMMIT_ENV = {
   GIT_AUTHOR_DATE: "2026-01-01T00:00:00Z",
   GIT_COMMITTER_DATE: "2026-01-01T00:00:00Z",
@@ -119,7 +103,7 @@ export async function buildTutorialAssets(
   input: { outDir?: string } = {},
 ): Promise<BuiltTutorialAssets> {
   const outDir = input.outDir ?? tutorialDir;
-  const runtimeManifest = await readTutorialRuntimeManifest(tutorialDir);
+  await readTutorialRuntimeManifest(tutorialDir);
 
   const temporaryRoot = await mkdtemp(
     path.join(os.tmpdir(), "review-tutorial-build-"),
@@ -181,117 +165,38 @@ export async function buildTutorialAssets(
       );
     }
 
-    // 2. Software-map note, shipped inside the stub so the runtime
-    // artifacts-refresh path keeps working.
-    const mapSource = await readFile(
-      path.join(tutorialDir, "software-map.ts"),
-      "utf8",
+    const validationAssets = path.join(temporaryRoot, "assets");
+    await mkdir(validationAssets);
+
+    for (const name of ["document.json", "trace.json", "software-map.json"])
+      await cp(path.join(tutorialDir, name), path.join(validationAssets, name));
+
+    const pins =
+      JSON.stringify({ base: baseCommit, head: commit }, null, 2) + "\n";
+
+    await writeFile(path.join(validationAssets, "pins.json"), pins);
+
+    const local = openLocalReviewStore(
+      path.join(temporaryRoot, "validation.db"),
     );
 
-    await writeNote({
-      rootPath: repo,
-      ref: SOFTWARE_MAP_NOTES_REF,
-      commit,
-      content: canonicalizeModelImport(mapSource),
-    });
-    await writeNote({
-      rootPath: repo,
-      ref: SOFTWARE_MAP_NOTES_REF,
-      commit: baseCommit,
-      content: canonicalizeModelImport(mapSource),
-    });
+    let peekCount: number;
 
-    // 3. Validate the authored document in a throwaway review directory.
-    const review = await createReviewDir({
-      reviewsHomePath: temporaryRoot,
-      worktreePath: repo,
-      baseRef: "main~1",
-      baseCommit,
-      sourceCommit: commit,
-      sourceIdentity: { kind: "git-branch", name: "main" },
-    });
+    try {
+      const { snapshot } = await createNativeTutorial({
+        assetsRoot: validationAssets,
+        sampleRoot: repo,
+        ...local,
+      });
 
-    await Promise.all(
-      runtimeManifest.reviewFiles.map((entry) =>
-        cp(path.join(tutorialDir, entry), path.join(review.dir, entry)),
-      ),
-    );
-
-    const evaluation = await buildReviewDocument({
-      reviewPath: path.join(review.dir, "review.mdx"),
-      prepareEvidence: async () => ({
-        head: { sourceRootPath: repo },
-        base: { sourceRootPath: repo },
-      }),
-    });
-
-    if (evaluation.diagnostics.some((item) => item.severity === "error")) {
-      throw new Error(
-        `Tutorial document validation failed:\n${evaluation.diagnostics.map((item) => item.message).join("\n")}`,
-      );
+      peekCount = sourceReferences(snapshot.document).length;
+    } finally {
+      await local.data.close();
+      await local.store.close();
     }
 
-    if (evaluation.errors.length > 0) {
-      throw new Error(
-        `Tutorial document evaluation failed:\n${evaluation.errors.join("\n")}`,
-      );
-    }
-
-    if (!evaluation.document) {
-      throw new Error("Tutorial document did not materialize.");
-    }
-
-    if (evaluation.peekCount === 0) {
-      throw new Error(
-        "The tutorial document did not resolve any code evidence.",
-      );
-    }
-
-    for (const peek of evaluation.rangePeeks) {
-      const sourcePath = path.join(repo, peek.file);
-      await stat(sourcePath);
-
-      const lineCount = (await readFile(sourcePath, "utf8")).split(
-        /\r?\n/,
-      ).length;
-
-      if (
-        peek.fromLine < 1 ||
-        peek.toLine < peek.fromLine ||
-        peek.toLine > lineCount
-      ) {
-        throw new Error(
-          `Tutorial range does not fit ${peek.file}: ${peek.fromLine}-${peek.toLine}.`,
-        );
-      }
-    }
-
-    // 5. Software-map bundle with the commit baked into its manifest.
-    const maps = await loadPublishSoftwareMaps({
-      repoRootPath: repo,
-      baseCommit,
-      headCommit: commit,
-    });
-
-    if (maps.errors.length > 0 || !maps.base || !maps.head) {
-      throw new Error(
-        `The tutorial map did not resolve for both Review roles:\n${maps.errors.join("\n")}`,
-      );
-    }
-
-    const mapBundle = bundleReviewSoftwareMap({
-      head: maps.head,
-      base: maps.base,
-      headCommit: commit,
-      baseCommit,
-    });
-
-    // 6. Write outputs only after everything validated.
-    await writeReviewDocumentBundle(
-      outDir,
-      bundleReviewDocument(evaluation.document),
-    );
-    await writeReviewSoftwareMapBundle(outDir, mapBundle);
+    await mkdir(outDir, { recursive: true });
+    await writeFile(path.join(outDir, "pins.json"), pins);
     const gitStub = path.join(outDir, "git-stub");
     await rm(gitStub, { recursive: true, force: true });
 
@@ -312,7 +217,7 @@ export async function buildTutorialAssets(
     await cp(path.join(repo, ".git"), gitStub, { recursive: true });
     await makeTreeOwnerWritable(gitStub);
 
-    return { baseCommit, commit, peekCount: evaluation.peekCount };
+    return { baseCommit, commit, peekCount };
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

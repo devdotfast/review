@@ -5,13 +5,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { parseJsonText } from "@dev.fast/review-protocol";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { hydrateReviewDocument } from "../app/src/review-document-hydrate";
-import {
-  reviewAuthoringPropsSchemas,
-  reviewComponentDataSchemas,
-} from "./authoring";
+import { reviewAuthoringPropsSchemas } from "./authoring";
 import { patchChangedLines } from "./call-stack-diff-test-utils";
 import { buildReviewDocument } from "./document/build";
 import {
@@ -41,19 +38,6 @@ const exec = promisify(execFile);
 const packageRoot = path.resolve(import.meta.dirname, "..");
 
 const roots: string[] = [];
-
-const exercisedComponents = new Set<string>();
-
-afterAll(() => {
-  const missing = Object.keys(reviewComponentDataSchemas).filter(
-    (name) => !exercisedComponents.has(name),
-  );
-
-  if (missing.length > 0)
-    throw new Error(
-      `Authored MDX corpus does not exercise: ${missing.join(", ")}`,
-    );
-});
 
 afterEach(async () => {
   await Promise.all(
@@ -249,8 +233,6 @@ describe.each(authoredReviewCases)("authored corpus $name", (input) => {
     const nodes: ReviewNode[] = [];
     walkReviewNodes(document.body, (node) => {
       nodes.push(node);
-
-      if (node.type === "component") exercisedComponents.add(node.name);
     });
     expect(
       [

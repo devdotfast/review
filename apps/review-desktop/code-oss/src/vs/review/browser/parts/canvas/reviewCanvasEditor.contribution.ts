@@ -150,14 +150,17 @@ class ReviewCanvasEditorContribution
       ),
     );
     if (restored.size === 0) return;
-    const reconcile = () => {
+    const reconcile = async () => {
+      // The managed tutorial is intentionally absent from the Home catalog.
+      const tutorial = await this.sessionService.getTutorialStatus().catch(() => undefined);
       for (const reviewId of restored) {
+        if (reviewId === tutorial?.reviewUuid) continue;
         const review = this.apiCatalog.reviews.find(review => review.uuid === reviewId);
         if (!review || review.dismissedAt) void this.tabsService.closeReview(reviewId);
       }
     };
-    if (this.apiCatalog.loaded) reconcile();
-    else this._register(Event.once(this.apiCatalog.onDidChange)(reconcile));
+    if (this.apiCatalog.loaded) void reconcile();
+    else this._register(Event.once(this.apiCatalog.onDidChange)(() => { void reconcile(); }));
   }
 
   private async restoreTabs(): Promise<void> {
@@ -192,7 +195,7 @@ class ReviewCanvasEditorContribution
     if (restoreActiveTutorial) {
       try {
         const opened = await this.sessionService.openTutorial();
-        await this.tabsService.openReview(opened.reviewUuid, true);
+        await this.tabsService.openApiReview(opened.reviewUuid, opened.review.title);
       } catch {
         // Home remains usable when the off-store tutorial cannot be prepared.
       }

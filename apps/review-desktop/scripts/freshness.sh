@@ -57,13 +57,13 @@ rebuild_review_desktop_outputs() {
     "$monorepo_root/packages/review-protocol/src"; then
     pnpm --dir "$monorepo_root" --filter @dev.fast/review app:desktop:build
   fi
-  local tutorial_output="$review_package/tutorial/.bundle/document/review-document.json"
+  local tutorial_output="$review_package/tutorial/pins.json"
   if needs_rebuild \
     "$tutorial_output" \
     "$review_package/scripts/build-tutorial-assets.ts" ||
     [[ -n "$(
       find "$review_package/tutorial" \
-        \( -path "$review_package/tutorial/.bundle" -o -path "$review_package/tutorial/git-stub" \) -prune \
+        \( -path "$review_package/tutorial/.bundle" -o -path "$review_package/tutorial/git-stub" -o -path "$review_package/tutorial/pins.json" \) -prune \
         -o -type f -newer "$tutorial_output" -print -quit
     )" ]]; then
     pnpm --dir "$monorepo_root" --filter @dev.fast/review build:tutorial-assets

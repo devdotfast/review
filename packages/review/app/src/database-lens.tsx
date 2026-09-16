@@ -9,7 +9,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { AnchorRef } from "../../src/authoring";
 import type { DatabaseLensBlockProps } from "../../src/database-lens-block";
 import type {
   DatabaseField,
@@ -20,7 +19,7 @@ import type { Source } from "../../src/source";
 import { useAgentSelection } from "./agent-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
-import type { GuidedTour } from "./review-panel-model";
+import type { GuidedTour, PeekAnchor } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
 import { formatSchemaExample } from "./software-map/c4-projection";
 import {
@@ -180,9 +179,8 @@ export function lensUseCases(block: DatabaseLensProps): ParsedUseCase[] {
 
 /** The side panel and guided tour key their state by anchor; an operation
  * is its own anchor. */
-function panelAnchor(operation: ParsedOperation): AnchorRef {
-  const anchor: AnchorRef = {
-    __kind: "db-anchor-ref",
+function panelAnchor(operation: ParsedOperation): PeekAnchor {
+  const anchor: PeekAnchor = {
     id: operation.id,
     title: operation.label,
     peek: operation.source,

@@ -1,9 +1,6 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 
-import type {
-  TutorialFeatureProps,
-  TutorialViewButtonProps,
-} from "../../src/authoring";
+import type { ReviewComponentProps } from "../../src/review-document-data";
 import { useReviewActions } from "./review-context";
 import { useTutorial } from "./tutorial-context";
 import {
@@ -11,9 +8,15 @@ import {
   tutorialViewVisible,
 } from "./tutorial-render-visibility";
 
+type TutorialViewButtonProps = ReviewComponentProps<"TutorialViewButton"> & {
+  children?: ReactNode;
+};
+
 export function TutorialFeature({
   children,
-}: TutorialFeatureProps): ReactElement | null {
+}: ReviewComponentProps<"TutorialFeature"> & {
+  children?: ReactNode;
+}): ReactElement | null {
   const tutorial = useTutorial();
   const { softwareMapEnabled } = useReviewActions();
 
@@ -28,7 +31,9 @@ export function TutorialFeature({
 export function TutorialViewButton({
   view,
   children,
-}: TutorialViewButtonProps): ReactElement | null {
+}: ReviewComponentProps<"TutorialViewButton"> & {
+  children?: ReactNode;
+}): ReactElement | null {
   const tutorial = useTutorial();
   const { softwareMapEnabled } = useReviewActions();
 

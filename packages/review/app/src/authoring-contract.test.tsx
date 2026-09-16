@@ -23,6 +23,7 @@ import {
   tutorialFeaturePropsSchema,
   tutorialViewButtonPropsSchema,
 } from "../../src/authoring";
+import type { ReviewDocumentComponentRegistry } from "../../src/review-document-data";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { createTestReviewDefinitionSession } from "./review-definition-test-utils";
 import { ReviewDocumentContent } from "./review-document-surface";
@@ -33,15 +34,8 @@ const { defineActors, defineAnchors, defineStores } = definitionSession;
 
 // CallStackDiff renders canonical frames, not authored anchor lists; Part I
 // moves the rest of the registry to document props too.
-const runtimeRegistry = reviewAuthoringComponents satisfies Omit<
-  ReviewAuthoringComponentRegistry,
-  | "CallStackDiff"
-  | "SequenceDiagram"
-  | "DatabaseLens"
-  | "DbRead"
-  | "DbUseCase"
-  | "DbWrite"
->;
+const runtimeRegistry =
+  reviewAuthoringComponents satisfies ReviewDocumentComponentRegistry;
 
 const actors = defineActors({
   browser: { label: "Browser" },

@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 
-import type { AnchorRef } from "../../src/authoring";
+import type { PeekAnchor } from "./review-panel-model";
 
 /**
  * Authored inline code shown in a side peek or tour stop. Lines are numbered
@@ -11,7 +11,7 @@ export function AuthoredCodeSurface({
   code,
   language,
 }: {
-  anchor: AnchorRef;
+  anchor: PeekAnchor;
   code: string;
   language?: string;
 }): ReactElement {

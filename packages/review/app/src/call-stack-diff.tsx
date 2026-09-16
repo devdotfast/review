@@ -1,4 +1,3 @@
-import type { AnchorRef } from "../../src/authoring";
 import {
   callStackConnectorPrefix,
   diffCallStacks,
@@ -7,6 +6,7 @@ import { frameIdentity, frameName } from "../../src/call-stack-frames";
 import type { Frame } from "../../src/review-api/document";
 import { useReviewSession } from "./host/review-session";
 import { useReviewPanel } from "./review-panel";
+import type { PeekAnchor } from "./review-panel-model";
 import { captureUiEvent } from "./ui-telemetry";
 
 // A unified diff over a tree: a hunk header, tree-util connectors for
@@ -94,9 +94,8 @@ export function CallStackDiff({ title, base, head }: CallStackDiffProps) {
 }
 
 /** The side panel keys its state by anchor; a frame is its own anchor. */
-function panelAnchor(frame: Frame): AnchorRef {
+function panelAnchor(frame: Frame): PeekAnchor {
   return {
-    __kind: "db-anchor-ref",
     id: frame.id ?? frameIdentity(frame),
     title: frameName(frame),
     peek: frame.source,

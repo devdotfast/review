@@ -7,11 +7,7 @@ import {
 } from "@dev.fast/review-protocol";
 
 import {
-  type AnchorRef,
-  type StoreRef,
-  tutorialAuthoringConversationPropsSchema,
-} from "../../src/authoring";
-import {
+  type DocumentAnchor,
   type ReviewComponentNode,
   type ReviewDocumentComponentName,
   type ReviewElementNode,
@@ -48,19 +44,15 @@ export interface HydratedReviewComponentNode {
   renderedTextSuffix?: string;
 }
 
-export type HydratedReviewPropValue =
-  | JsonPrimitive
-  | AnchorRef
-  | StoreRef
-  | HydratedReviewPropValue[]
-  | { [name: string]: HydratedReviewPropValue };
+/** Sealed component props as the document carries them (plain JSON; optional
+ * fields may be absent). A ReviewSection also gains its computed summary. */
+export type HydratedReviewPropValue = JsonValue | undefined;
 
 export interface HydratedReviewComponentProps {
   [name: string]: HydratedReviewPropValue;
 }
 
-// Hydrated component props are the sealed JSON props with anchor refs
-// canonicalized to the document's shared anchor objects.
+// Hydrated component props are the sealed JSON props, untouched.
 export type HydratedReviewNode =
   | HydratedReviewTextNode
   | HydratedReviewElementNode
@@ -69,7 +61,7 @@ export type HydratedReviewNode =
 export interface HydratedReviewDocument {
   contentHash: string;
   body: HydratedReviewNode[];
-  anchors: ReadonlyMap<string, AnchorRef>;
+  anchors: ReadonlyMap<string, DocumentAnchor>;
   documentSoftwareModels: NormalizedSoftwareModel[];
   routePath: string;
   filePath: string;
@@ -127,7 +119,7 @@ const componentHydrators: ComponentHydrators = {
 
 function hydrateNode(
   node: ReviewNode,
-  anchors: ReadonlyMap<string, AnchorRef>,
+  anchors: ReadonlyMap<string, DocumentAnchor>,
 ): HydratedReviewNode {
   if (node.type === "text") return node;
 
@@ -150,11 +142,23 @@ function hydrateNode(
   return hydrateComponentNode(node, anchors);
 }
 
+function isTutorialConversationNode(
+  node: ReviewComponentNode,
+): node is Extract<
+  ReviewComponentNode,
+  { name: "TutorialAuthoringConversation" }
+> {
+  return node.name === "TutorialAuthoringConversation";
+}
+
 function hydrateComponentNode<K extends ReviewDocumentComponentName>(
   node: Extract<ReviewComponentNode, { name: K }>,
-  anchors: ReadonlyMap<string, AnchorRef>,
+  anchors: ReadonlyMap<string, DocumentAnchor>,
 ): HydratedReviewComponentNode {
-  const walked = hydrateComponentProps(node.props, anchors);
+  // SAFETY: the document schema parsed `node.props` into plain JSON; only its
+  // optional fields (typed `| undefined`) keep the object from matching the
+  // JSON index signature structurally.
+  const walked = node.props as HydratedReviewComponentProps;
   const children = node.children.map((child) => hydrateNode(child, anchors));
 
   const hydrate = componentHydrators[node.name];
@@ -168,59 +172,8 @@ function hydrateComponentNode<K extends ReviewDocumentComponentName>(
 
   if (node.name === "TutorialViewButton") hydrated.renderedTextSuffix = "→";
 
-  if (node.name === "TutorialAuthoringConversation") {
-    hydrated.renderedParagraphs =
-      tutorialAuthoringConversationPropsSchema.parse(
-        node.props,
-      ).conversation.messages.length;
-  }
+  if (isTutorialConversationNode(node))
+    hydrated.renderedParagraphs = node.props.conversation.messages.length;
 
   return hydrated;
-}
-
-function hydrateComponentProps(
-  props: ReviewComponentNode["props"],
-  anchors: ReadonlyMap<string, AnchorRef>,
-): HydratedReviewComponentProps {
-  return Object.fromEntries(
-    Object.entries(props).map(([name, value]) => [
-      name,
-      canonicalizeAnchorRefs(value, anchors),
-    ]),
-  );
-}
-
-function canonicalizeAnchorRefs(
-  value: JsonValue,
-  anchors: ReadonlyMap<string, AnchorRef>,
-): HydratedReviewPropValue {
-  if (Array.isArray(value)) {
-    return value.map((child) => canonicalizeAnchorRefs(child, anchors));
-  }
-
-  if (!isJsonObject(value)) return value;
-
-  const anchorId =
-    jsonString(value.__kind) === "db-anchor-ref"
-      ? jsonString(value.id)
-      : undefined;
-
-  if (anchorId !== undefined) {
-    const canonical = anchors.get(anchorId);
-
-    if (!canonical) {
-      throw new Error(
-        `Review document references missing anchor ${JSON.stringify(anchorId)}.`,
-      );
-    }
-
-    return canonical;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => [
-      key,
-      canonicalizeAnchorRefs(child, anchors),
-    ]),
-  );
 }

@@ -1,6 +1,6 @@
 import { type ReactNode, isValidElement } from "react";
 
-import type { TraceQuoteProps } from "../../src/authoring";
+import type { ReviewComponentProps } from "../../src/review-document-data";
 import { isReactTextNode } from "./agent-markdown";
 import { ProsePeekAnchor } from "./review-components";
 import { useOptionalReviewPanel } from "./review-panel";
@@ -22,7 +22,7 @@ export function TraceQuote({
   trace,
   event,
   children,
-}: TraceQuoteProps) {
+}: ReviewComponentProps<"TraceQuote"> & { children?: ReactNode }) {
   const quote = extractText(children);
   const openPeek = useOptionalReviewPanel((state) => state.openPeek);
 

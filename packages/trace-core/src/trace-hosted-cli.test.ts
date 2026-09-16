@@ -260,7 +260,7 @@ describe("hosted trace commands", () => {
       expect(JSON.parse(out.text())).toEqual(
         stage === "store.create"
           ? {
-              event: "trace.onboard",
+              event: "trace.store.create",
               repositoryId: 7,
               displayName: "acme/app",
               created: false,

@@ -229,7 +229,7 @@ export async function runTraceOnboard(
     }
 
     emitJsonEvent(input, {
-      event: "trace.onboard",
+      event: "trace.store.create",
       repositoryId: store.repositoryId,
       displayName: store.displayName,
       created: store.created === true,

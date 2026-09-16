@@ -4,7 +4,6 @@ import { MAX_TRACE_SESSIONS_PAGE } from "@dev.fast/trace-protocol";
 import { InvalidArgumentError } from "commander";
 import type { Command } from "commander";
 
-import { traceCommandPrefix } from "./trace-command";
 import type { RegisterTraceCommandsOptions } from "./trace-command-options";
 import { addTraceStorageOption } from "./trace-command-storage-option";
 import { DEFAULT_TRACE_SESSIONS_LIMIT } from "./trace-hosted-cli";
@@ -161,24 +160,6 @@ export function registerTraceCaptureCommands(
           stderr: settings.stderr,
         }),
       );
-    },
-  );
-
-  // The former name of `store create`. It stays, hidden, so a saved command
-  // and an older document keep working; the line on stderr teaches the new
-  // name.
-  configureJsonOutput(
-    trace
-      .command("onboard [path]", { hidden: true })
-      .description(
-        "Create the hosted trace store for one repository (needs push access)",
-      ),
-  ).action(
-    async (repoPath: string | undefined, options: { json?: boolean }) => {
-      settings.stderr.write(
-        `onboard is now \`${traceCommandPrefix()} store create\`.\n`,
-      );
-      await createStore(repoPath, options);
     },
   );
 

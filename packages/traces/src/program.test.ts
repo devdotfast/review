@@ -344,12 +344,6 @@ describe("dev-traces program", () => {
 
     expect(await run(["store", "create"], runtime).code).toBe(0);
     expect(calls).toEqual(["runTraceOnboard"]);
-
-    const aliased = run(["onboard"], runtime);
-    expect(await aliased.code).toBe(0);
-    expect(aliased.err()).toContain(
-      "onboard is now `dev-traces store create`.",
-    );
   });
 
   it("refuses allow on Windows", async () => {

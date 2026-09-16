@@ -339,23 +339,14 @@ describe("shared trace command parsing", () => {
     ]);
     expect(fixture.result.code).toBe(2);
   });
-  it("keeps onboard as a hidden alias that names store create", async () => {
-    const calls: string[] = [];
+  it("no longer registers onboard", async () => {
+    const fixture = build("repository", false);
 
-    const fixture = build("repository", false, {
-      runTraceOnboard: async (input) => {
-        calls.push(input.cwd);
-
-        return 0;
-      },
-    });
-
-    await fixture.parse(["onboard", "child"]);
-    expect(calls).toEqual(["/repo/child"]);
-    expect(fixture.result.err).toBe(
-      "onboard is now `review trace store create`.\n",
+    await expect(fixture.parse(["onboard", "child"])).rejects.toThrow(
+      "unknown command 'onboard'",
     );
   });
+
   it("refuses the removed deny option", async () => {
     const fixture = build("repository", false);
     await expect(fixture.parse(["deny", "--delete-store"])).rejects.toThrow(

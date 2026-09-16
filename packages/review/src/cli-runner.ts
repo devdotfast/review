@@ -1445,9 +1445,6 @@ function telemetryCommandPath(
   if (parent === "migrate" && name === "apply") return "migrate.apply";
 
   if (parent === "trace") {
-    // The hidden `onboard` alias reports the name that replaced it.
-    if (name === "onboard") return "trace.store.create";
-
     if (name === "allow" || name === "deny" || name === "install") {
       return `trace.${name}`;
     }

@@ -9,12 +9,22 @@ import { z } from "zod";
 
 import {
   type AnchorRef,
+  type DatabaseLensProps,
   type ReviewAuthoringComponentName,
   type StoreRefData,
   reviewAuthoringPropsSchemas,
   storeRefData,
 } from "./authoring";
 import { callStackFrames } from "./call-stack-frames";
+import {
+  type DatabaseLensBlockProps,
+  type LegacyDbOperationNode,
+  type LegacyDbUseCaseNode,
+  databaseLensBlockFromLegacy,
+  legacyDbReadSchema,
+  legacyDbUseCaseSchema,
+  legacyDbWriteSchema,
+} from "./database-lens-block";
 import type { Frame } from "./review-api/document";
 import {
   type ReviewElementProps,
@@ -51,9 +61,7 @@ type ProjectedComponentName =
   | "SequenceDiagram";
 
 export type MaterializedComponentProps =
-  | (Omit<AuthoringProps<"DatabaseLens">, "children" | "stores"> & {
-      stores: Record<string, StoreRefData>;
-    })
+  | DatabaseLensBlockProps
   | (Omit<AuthoringProps<"CallStackDiff">, "children" | "base" | "head"> & {
       base: Frame[];
       head: Frame[];
@@ -191,6 +199,20 @@ function materializeChildren(
 
     // A component whose props failed the audit already reported its errors.
     if (!audited) continue;
+
+    if (audited.name === "DatabaseLens") {
+      nodes.push({
+        type: "component",
+        name,
+        props: materializeDatabaseLens(
+          audited.props,
+          materializeChildren(children, input, errors),
+        ),
+        children: [],
+      });
+      continue;
+    }
+
     nodes.push({
       type: "component",
       name,
@@ -202,20 +224,60 @@ function materializeChildren(
   return nodes;
 }
 
-function materializeComponentProps(
-  audited: AuditedComponentProps,
-): MaterializedComponentProps {
-  if (audited.name === "DatabaseLens") {
-    const { children: _children, stores, ...props } = audited.props;
+/** A lens and its `DbUseCase` / `DbRead` / `DbWrite` children lower to one
+ * canonical block; the markers do not survive into the document. */
+function materializeDatabaseLens(
+  props: DatabaseLensProps,
+  children: MaterializedReviewNode[],
+): DatabaseLensBlockProps {
+  const useCases: LegacyDbUseCaseNode[] = [];
 
-    return {
-      ...props,
+  for (const child of children) {
+    if (child.type !== "component" || child.name !== "DbUseCase") continue;
+    useCases.push({
+      props: legacyDbUseCaseSchema.parse(child.props),
+      operations: child.children.flatMap(
+        (operation): LegacyDbOperationNode[] => {
+          if (operation.type !== "component") return [];
+
+          if (operation.name === "DbRead")
+            return [
+              {
+                name: "DbRead" as const,
+                props: legacyDbReadSchema.parse(operation.props),
+              },
+            ];
+
+          if (operation.name === "DbWrite")
+            return [
+              {
+                name: "DbWrite" as const,
+                props: legacyDbWriteSchema.parse(operation.props),
+              },
+            ];
+
+          return [];
+        },
+      ),
+    });
+  }
+
+  const { children: _children, stores, ...rest } = props;
+
+  return databaseLensBlockFromLegacy(
+    {
+      ...rest,
       stores: Object.fromEntries(
         Object.entries(stores).map(([id, store]) => [id, storeRefData(store)]),
       ),
-    };
-  }
+    },
+    useCases,
+  );
+}
 
+function materializeComponentProps(
+  audited: AuditedComponentProps,
+): MaterializedComponentProps {
   if (audited.name === "SequenceDiagram")
     return sequenceBlockFromProps(audited.props);
 

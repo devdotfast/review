@@ -280,15 +280,20 @@ describe("desktop review document load states", () => {
                   {
                     type: "component",
                     name: "DatabaseLens",
-                    props: { stores: {}, title: "Order database" },
-                    children: [
-                      {
-                        type: "component",
-                        name: "DbUseCase",
-                        props: { id: "create", label: "Create an order" },
-                        children: [{ type: "text", value: "Create order" }],
-                      },
-                    ],
+                    props: {
+                      id: "db:order-database",
+                      title: "Order database",
+                      actors: {},
+                      stores: {},
+                      useCases: [
+                        {
+                          id: "create",
+                          label: "Create an order",
+                          operations: [],
+                        },
+                      ],
+                    },
+                    children: [],
                   },
                 ],
               },

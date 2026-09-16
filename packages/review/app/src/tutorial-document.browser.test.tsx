@@ -23,8 +23,6 @@ const expectedComponents = [
   "AnchorLink",
   "CodePeek",
   "DatabaseLens",
-  "DbUseCase",
-  "DbWrite",
   "ReviewSection",
   "SequenceDiagram",
   "TraceQuote",

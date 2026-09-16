@@ -3,7 +3,7 @@ import type { ComponentType } from "react";
 import type { ReviewAuthoringComponentRegistry } from "../../src/authoring";
 import { CallStackDiff, type CallStackDiffProps } from "./call-stack-diff";
 import { ReviewCodePeek } from "./CodePeek";
-import { DatabaseLens, DbRead, DbUseCase, DbWrite } from "./database-lens";
+import { DatabaseLens, type DatabaseLensProps } from "./database-lens";
 import { SequenceDiagram, type SequenceDiagramProps } from "./diagrams";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { TraceQuote } from "./trace-quote";
@@ -19,9 +19,6 @@ export const reviewAuthoringComponents = {
   CallStackDiff,
   CodePeek: ReviewCodePeek,
   DatabaseLens,
-  DbRead,
-  DbUseCase,
-  DbWrite,
   ReviewSection,
   SequenceDiagram,
   TraceQuote,
@@ -31,11 +28,18 @@ export const reviewAuthoringComponents = {
   TutorialViewButton,
 } satisfies Omit<
   ReviewAuthoringComponentRegistry,
-  "CallStackDiff" | "SequenceDiagram"
+  | "CallStackDiff"
+  | "SequenceDiagram"
+  | "DatabaseLens"
+  | "DbRead"
+  | "DbUseCase"
+  | "DbWrite"
 > & {
-  // The document stores canonical frames and steps; the authoring registry
-  // still types authored MDX with anchor lists and messages. Part I moves the
-  // whole registry over.
+  // The document stores canonical frames, steps and lens blocks; the authoring
+  // registry still types authored MDX with anchor lists, messages and the
+  // DbUseCase/DbRead/DbWrite markers, which lower into the lens at publish.
+  // Part I moves the whole registry over.
   CallStackDiff: ComponentType<CallStackDiffProps>;
   SequenceDiagram: ComponentType<SequenceDiagramProps>;
+  DatabaseLens: ComponentType<DatabaseLensProps>;
 };

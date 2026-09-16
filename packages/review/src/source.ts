@@ -57,3 +57,19 @@ export function requireVisibleSource(text: string, range: SourceRange): void {
       `Code peek range ${range.file}:${range.fromLine}-${range.toLine} contains only whitespace.`,
     );
 }
+
+/** The authoring input names the diff side `graph`; the document names it
+ * `side`. */
+export function codePeekSource(props: {
+  file: string;
+  fromLine: number;
+  toLine: number;
+  graph?: "head" | "base";
+}): Source {
+  return {
+    side: props.graph ?? "head",
+    file: props.file,
+    fromLine: props.fromLine,
+    toLine: props.toLine,
+  };
+}

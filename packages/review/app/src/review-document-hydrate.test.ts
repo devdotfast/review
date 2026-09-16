@@ -149,7 +149,7 @@ describe("hydrateReviewDocument", () => {
     expect(JSON.stringify(data)).toBe(saved);
   });
 
-  it("parses data and canonicalizes anchors", () => {
+  it("parses data and keeps component props as sealed", () => {
     const sealed = reviewDocumentData();
     const sealedJson = JSON.stringify(sealed);
     const document = hydrateReviewDocument(ready(sealed));
@@ -162,7 +162,7 @@ describe("hydrateReviewDocument", () => {
       throw new Error("Expected the first hydrated node to remain an element.");
     }
 
-    expect(codePeek.props.anchor).toBe(anchor);
+    expect(codePeek.props.anchor).toEqual(anchor);
     expect(heading.props).toEqual({
       "data-review-block-tag": "h1",
       id: "orders-heading",
@@ -186,15 +186,6 @@ describe("hydrateReviewDocument", () => {
     expect(databaseLens.props).toEqual(sealedLens.props);
     expect(document.documentSoftwareModels[0]?.elementsByPath).toBeInstanceOf(
       Map,
-    );
-  });
-
-  it("rejects an inline anchor that has no canonical top-level definition", () => {
-    const data = reviewDocumentData();
-    data.anchors = {};
-
-    expect(() => hydrateReviewDocument(ready(data))).toThrow(
-      'Review document references missing anchor "create-order".',
     );
   });
 

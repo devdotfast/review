@@ -5,17 +5,18 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useMemo, useRef } from "react";
 
-import {
-  type CodePeekProps as AuthoringCodePeekProps,
-  type ReviewCodePeekProps,
-  codePeekSource,
-  validateCodePeekProps,
-} from "../../src/authoring";
-import type { Source } from "../../src/source";
+import type { ReviewComponentProps } from "../../src/review-document-data";
+import { type Source, codePeekSource } from "../../src/source";
 import { useReviewSession } from "./host/review-session";
 import { InlineCodeEditor } from "./InlineCodeEditor";
 
-export type CodePeekProps = AuthoringCodePeekProps;
+/** The software-map inspector's peek input: a range on one diff side. */
+export interface CodePeekProps {
+  file: string;
+  fromLine: number;
+  toLine: number;
+  graph?: "head" | "base";
+}
 
 export interface CodePeekSubject {
   title: string;
@@ -27,10 +28,7 @@ export interface CodePeekSubject {
 // Internal interactive surface used by the software-map inspector. Authored
 // Review documents receive ReviewCodePeek instead.
 export function CodePeek(props: CodePeekProps) {
-  const source = useMemo(
-    () => codePeekSource(validateCodePeekProps(props)),
-    [props],
-  );
+  const source = useMemo(() => codePeekSource(props), [props]);
 
   return <CodePeekCard source={source} heightMode="content" />;
 }
@@ -96,7 +94,7 @@ export function CodePeekGroup({
   );
 }
 
-export function ReviewCodePeek({ anchor }: ReviewCodePeekProps) {
+export function ReviewCodePeek({ anchor }: ReviewComponentProps<"CodePeek">) {
   return <CodePeekCard source={anchor.peek} />;
 }
 

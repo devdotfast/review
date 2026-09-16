@@ -1,7 +1,6 @@
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
 import { type ReactNode, memo, useLayoutEffect, useMemo, useRef } from "react";
 
-import { type PeekableAnchorRef } from "../../src/authoring";
 import type { ReviewApiClient } from "../../src/review-api/client";
 import {
   type Block,
@@ -11,6 +10,7 @@ import {
 } from "../../src/review-api/document";
 import type { LocalReviewData } from "../../src/review-api/local-data";
 import type { Snapshot } from "../../src/review-api/store";
+import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { MarkdownContent, markdownHasTitle } from "./agent-markdown";
 import { CallStackDiff } from "./call-stack-diff";
@@ -34,7 +34,7 @@ interface Trace {
 export interface ApiDocumentData {
   snapshot: Snapshot;
   commits: ReviewCommitSummary[];
-  anchors: Map<string, PeekableAnchorRef>;
+  anchors: Map<string, DocumentPeekableAnchor>;
   images: Map<string, string>;
   traces: Map<string, Trace>;
   maps: Map<
@@ -176,7 +176,7 @@ export function sourceAnchor(
   id: string,
   source: Source,
   title: string,
-): PeekableAnchorRef {
+): DocumentPeekableAnchor {
   return { __kind: "db-anchor-ref", id, title, peek: source };
 }
 

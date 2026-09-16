@@ -1,10 +1,10 @@
 import type { ReactElement } from "react";
 
-import type { TutorialAuthoringConversationProps } from "../../src/authoring";
+import type { ReviewComponentProps } from "../../src/review-document-data";
 
 export function TutorialAuthoringConversation({
   conversation,
-}: TutorialAuthoringConversationProps): ReactElement {
+}: ReviewComponentProps<"TutorialAuthoringConversation">): ReactElement {
   return (
     <details className="tutorial-authoring-conversation">
       <summary>

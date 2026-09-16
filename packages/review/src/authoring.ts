@@ -14,7 +14,9 @@ import {
   type SoftwareDataStoreFieldSchema,
   type SoftwareDataStoreKind,
 } from "./software-map-model";
-import { type Source, sourceSchema } from "./source";
+import { type Source, codePeekSource, sourceSchema } from "./source";
+
+export { codePeekSource };
 
 export { defineSoftwareMap as defineSoftwareModel } from "./software-map-model";
 
@@ -132,17 +134,6 @@ export type CodePeekRangeInput = z.infer<typeof codePeekRangeInputSchema>;
 export const codePeekPropsSchema = codePeekRangeInputSchema;
 
 export type CodePeekProps = z.infer<typeof codePeekPropsSchema>;
-
-/** The authoring input names the diff side `graph`; the document names it
- * `side`. `theme` was never rendered and is not carried. */
-export function codePeekSource(props: CodePeekProps): Source {
-  return {
-    side: props.graph ?? "head",
-    file: props.file,
-    fromLine: props.fromLine,
-    toLine: props.toLine,
-  };
-}
 
 export const anchorInputSchema = z.strictObject({
   title: nonEmptyStringSchema,

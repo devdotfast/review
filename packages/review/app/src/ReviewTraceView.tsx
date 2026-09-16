@@ -47,7 +47,7 @@ export function ReviewTraceView({
 }) {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
-  const [list, setList] = useState<TraceListState>({ status: "loading" });
+  const [legacyList, setList] = useState<TraceListState>({ status: "loading" });
 
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
@@ -91,6 +91,7 @@ export function ReviewTraceView({
   }, [initialSelection]);
 
   useEffect(() => {
+    if (session.review) return;
     const controller = new AbortController();
 
     const url: `/${string}` = storageOverride
@@ -129,7 +130,24 @@ export function ReviewTraceView({
       });
 
     return () => controller.abort();
-  }, [reviewFetch, storageOverride]);
+  }, [reviewFetch, storageOverride, session.review]);
+
+  const list: TraceListState = useMemo(
+    () =>
+      session.review
+        ? {
+            status: "loaded",
+            configured: true,
+            storage: null,
+            sources: [],
+            storageError: null,
+            sessions: [...session.review.traces.values()].map(
+              (trace) => trace.session,
+            ),
+          }
+        : legacyList,
+    [session.review, legacyList],
+  );
 
   const sessions = list.status === "loaded" ? list.sessions : [];
 

@@ -1533,6 +1533,8 @@ function C4MapCanvas({
     nodeDimensions,
   };
 
+  const wasmUrl = session.wasmUrl();
+
   useEffect(() => {
     if (!hasMeasuredNodes || !layoutSignature) return;
 
@@ -1564,7 +1566,7 @@ function C4MapCanvas({
             // placement. Reusing a no-edge layout keeps the graph in its old
             // stack, even though the edge itself is present.
             previousInlineLayout,
-            session.wasmUrl(),
+            wasmUrl,
           ),
     )
       .then((nextLayout) => {
@@ -1588,7 +1590,7 @@ function C4MapCanvas({
     return () => {
       cancelled = true;
     };
-  }, [hasMeasuredNodes, layoutSignature, session]);
+  }, [hasMeasuredNodes, layoutSignature, wasmUrl]);
 
   const layoutRefreshing = Boolean(
     layoutState && layoutSignature && layoutState.signature !== layoutSignature,

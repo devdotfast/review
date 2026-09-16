@@ -403,11 +403,12 @@ function ReviewLayoutContent({
   }, [activeView, reviewFind]);
 
   // Unknown until the first answer, so a restored Trace tab survives the fetch.
-  const [hasTraceSessions, setHasTraceSessions] = useState<boolean | null>(
-    null,
-  );
+  const [legacyHasTraceSessions, setHasTraceSessions] = useState<
+    boolean | null
+  >(null);
 
   useEffect(() => {
+    if (session.review) return;
     const controller = new AbortController();
     session
       .fetch("/agent-traces", { signal: controller.signal })
@@ -427,6 +428,10 @@ function ReviewLayoutContent({
     return () => controller.abort();
   }, [session]);
   const diffFiles = useReviewDiffFiles();
+
+  const hasTraceSessions = session.review
+    ? session.review.traces.size > 0
+    : legacyHasTraceSessions;
 
   const filesTabFileCount = diffScope
     ? diffScope.fileCount

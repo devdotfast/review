@@ -34,7 +34,10 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
   const diffFiles = useReviewDiffFiles();
-  const [meta, setMeta] = useState<ReviewDocumentMetaState | null>(null);
+  const [legacyMeta, setMeta] = useState<ReviewDocumentMetaState | null>(null);
+
+  const review = session.review;
+  const meta = review ? documentMetaState(review) : legacyMeta;
 
   const [relativeTimeNowMs, setRelativeTimeNowMs] = useState<number | null>(
     null,
@@ -47,6 +50,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   }, []);
 
   useEffect(() => {
+    if (review) return;
     const controller = new AbortController();
 
     reviewFetch("/document-meta", { signal: controller.signal })
@@ -65,7 +69,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       .catch(() => {});
 
     return () => controller.abort();
-  }, [reviewFetch]);
+  }, [reviewFetch, review]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -76,15 +80,23 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       return () => controller.abort();
     }
 
-    reviewFetch("/stack", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return;
-        setStackLayers(parseReviewStackResponse(await response.json()).layers);
+    const layers = review
+      ? review.stack(controller.signal)
+      : reviewFetch("/stack", { signal: controller.signal }).then(
+          async (response) =>
+            response.ok
+              ? parseReviewStackResponse(await response.json()).layers
+              : [],
+        );
+
+    layers
+      .then((next) => {
+        if (!controller.signal.aborted) setStackLayers(next);
       })
       .catch(() => {});
 
     return () => controller.abort();
-  }, [meta?.pullRequestNumber, reviewFetch]);
+  }, [meta?.pullRequestNumber, reviewFetch, review]);
 
   const diff =
     diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : null;

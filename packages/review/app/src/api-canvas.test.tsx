@@ -14,6 +14,7 @@ import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { createReviewApi } from "../../src/review-api/http";
+import { LocalReviewData } from "../../src/review-api/local-data";
 import { ReviewStore } from "../../src/review-api/store";
 import * as clipboard from "./copy-text";
 import { mountReviewCanvas as mount } from "./desktop-entry";
@@ -79,13 +80,18 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
 
   const app = new Hono().route("/reviews-api", createReviewApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  const requests: string[] = [];
   const ready = vi.fn<() => void>();
   const displayedVersion = vi.fn<(version: number) => void>();
 
   const bridge = testReviewBridge(
     {},
     {
-      request: async (url, init) => app.request(url, init),
+      request: async (url, init) => {
+        requests.push(new URL(url).pathname);
+
+        return app.request(url, init);
+      },
       ready,
       diffView: {
         files: async () => [],
@@ -126,6 +132,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   expect(toggle).toBeTruthy();
   await act(async () => toggle.click());
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(node.textContent).toContain("1 paragraph");
   const leaseId = randomUUID();
   await act(async () => {
     store.activity.update(review.reviewId, { action: "begin", leaseId });
@@ -164,6 +171,24 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   expect(
     container.querySelector(`[data-review-node-id="${inserted.targetId}"]`),
   ).toBe(node);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  const section = store.read(review.reviewId).document[0]!;
+
+  if (section.type !== "section") throw new Error("Expected section");
+  await act(async () => {
+    await command({
+      type: "edit",
+      reviewId: review.reviewId,
+      edit: {
+        type: "update",
+        targetId: section.children[0]!.id,
+        changes: { markdown: "Original explanation\n\nAnother paragraph" },
+      },
+    });
+  });
+  await act(async () => {
+    await vi.waitFor(() => expect(node.textContent).toContain("2 paragraphs"));
+  });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   await act(async () => {
     await command({
@@ -239,6 +264,12 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     );
   });
   expect(container.textContent).toContain("Agent working…");
+  expect(
+    requests.filter((route) =>
+      /\/(agent-traces|session|document-meta|revisions|dismiss)$/.test(route),
+    ),
+  ).toEqual([]);
+  expect(requests.some((route) => route.endsWith("/history"))).toBe(true);
 });
 
 it("keeps sequence step identities and supports explanation/code steps without invented source anchors", async () => {
@@ -547,24 +578,23 @@ it("copies prose and code from the displayed historical JSON review", async () =
     reviewId: review.reviewId,
     pins: { ...pins, head: "new-head" },
   });
-  const app = new Hono().route("/reviews-api", createReviewApi(store));
-  app.get("/reviews-api/:id/commits", (context) => context.json([]));
-  app.post("/reviews-api/:id/source", async (context) => {
-    const input = await context.req.json();
-    const snapshot = store.read(context.req.param("id"), input.version);
-    expect(input.source).toEqual({
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "commits").mockResolvedValue([]);
+  vi.spyOn(data, "quote").mockImplementation(async (sourcePins, source) => {
+    expect(source).toEqual({
       side: "head",
       file: "example.ts",
       fromLine: 2,
       toLine: 2,
     });
 
-    return context.json({
-      commit: snapshot.pins.head,
-      text:
-        snapshot.pins.head === "head" ? "historical source" : "latest source",
-    });
+    return {
+      ...source,
+      commit: sourcePins.head,
+      text: sourcePins.head === "head" ? "historical source" : "latest source",
+    };
   });
+  const app = new Hono().route("/reviews-api", createReviewApi(store, data));
   const listeners = new Set<Parameters<ReviewCanvasBridge["subscribe"]>[0]>();
 
   const bridge = testReviewBridge(
@@ -669,6 +699,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
     expect(diff).toContain("Base: a/old.ts\nHead: b/example.ts");
     expect(diff).toContain("-before\n+after");
   } finally {
+    await data.close();
     write.mockRestore();
     document.getSelection()!.removeAllRanges();
   }

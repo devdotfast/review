@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 
+import { AgentSelectionSchema, selectionMarkdown } from "../agent-selection.js";
 import { resolveReviewStackLayers } from "../review-stack.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
@@ -295,6 +296,65 @@ export function createReviewApi(
       );
     });
   }
+
+  app.post("/:id/copy-context", async (context) => {
+    const query = readQuerySchemas.get
+      .pick({ version: true })
+      .parse(context.req.query());
+
+    const snapshot = store.read(context.req.param("id"), query.version);
+
+    const selection = AgentSelectionSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    const target = selection.target;
+    let excerpt = "";
+
+    if (target.kind === "code" && !selection.selectedDiff) {
+      if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+
+      const source = await data.quote(snapshot.pins, {
+        side: target.side,
+        file: target.path,
+        fromLine: target.startLine,
+        toLine: target.endLine,
+      });
+
+      excerpt =
+        `## ${target.side}: ${target.path}:${target.startLine}-${target.endLine} (${source.commit})\n` +
+        source.text
+          .split("\n")
+          .map((line) => `    ${line}`)
+          .join("\n");
+    }
+
+    const diff = selection.selectedDiff;
+
+    const text = selectionMarkdown(
+      selection,
+      excerpt,
+      diff
+        ? { base: `a/${diff.oldPath}`, head: `b/${diff.newPath}` }
+        : undefined,
+    );
+
+    return context.json({
+      text: [
+        `Selected ${target.kind === "text" ? "text" : target.kind === "code" ? "code" : "diagram element"} from Review: ${snapshot.title}`,
+        `Review ID: ${snapshot.reviewId}`,
+        `Version: ${snapshot.version}`,
+        `Repository ID: ${snapshot.pins.repositoryId}`,
+        `Review base: ${snapshot.pins.base}`,
+        `Review head: ${snapshot.pins.head}`,
+        `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
+        "",
+        text,
+        "",
+        "",
+      ].join("\n"),
+    });
+  });
 
   app.get("/:id/stack", async (context) => {
     const query = readQuerySchemas.get.parse(context.req.query());

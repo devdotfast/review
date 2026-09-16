@@ -115,7 +115,7 @@ export function useReviewViewStateSync({
 
   const initialState = useMemo(
     () => readPersistedReviewViewState(session.config),
-    [session],
+    [session.config],
   );
 
   const persistedRef = useRef(initialState);

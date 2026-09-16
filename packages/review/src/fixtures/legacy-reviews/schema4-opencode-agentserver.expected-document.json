@@ -533,87 +533,53 @@
           "type": "component",
           "name": "SequenceDiagram",
           "props": {
-            "label": "Forking a review-source session",
-            "messages": [
+            "id": "sequence-forking-a-review-source-session",
+            "title": "Forking a review-source session",
+            "actors": {
+              "reviewCli": "Review CLI/desktop",
+              "opencodeServe": "opencode serve"
+            },
+            "steps": [
               {
-                "from": {
-                  "__kind": "db-actor-ref",
-                  "id": "reviewCli",
-                  "label": "Review CLI/desktop",
-                  "softwareMapPath": "review.cliPackage.authoring"
-                },
-                "to": {
-                  "__kind": "db-actor-ref",
-                  "id": "opencodeServe",
-                  "label": "opencode serve",
-                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
-                },
+                "id": "clientSession",
+                "type": "step",
+                "from": "reviewCli",
+                "to": "opencodeServe",
                 "label": "GET /project, then GET /session/:id in each worktree until one answers",
-                "anchor": {
-                  "__kind": "db-anchor-ref",
-                  "id": "clientSession",
-                  "title": "OpencodeClient.session()",
-                  "peek": {
-                    "side": "head",
-                    "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                    "fromLine": 373,
-                    "toLine": 401
-                  },
-                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
+                "style": "call",
+                "source": {
+                  "side": "head",
+                  "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                  "fromLine": 373,
+                  "toLine": 401
                 }
               },
               {
-                "from": {
-                  "__kind": "db-actor-ref",
-                  "id": "reviewCli",
-                  "label": "Review CLI/desktop",
-                  "softwareMapPath": "review.cliPackage.authoring"
-                },
-                "to": {
-                  "__kind": "db-actor-ref",
-                  "id": "opencodeServe",
-                  "label": "opencode serve",
-                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
-                },
+                "id": "forkOpencodeSession",
+                "type": "step",
+                "from": "reviewCli",
+                "to": "opencodeServe",
                 "label": "POST /session/:id/fork, scoped to the source session's own directory",
-                "anchor": {
-                  "__kind": "db-anchor-ref",
-                  "id": "forkOpencodeSession",
-                  "title": "forkOpencodeSession",
-                  "peek": {
-                    "side": "head",
-                    "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                    "fromLine": 538,
-                    "toLine": 558
-                  },
-                  "softwareMapPath": "review.cliPackage.authoring.reviewSourceAgentSession"
+                "style": "call",
+                "source": {
+                  "side": "head",
+                  "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                  "fromLine": 538,
+                  "toLine": 558
                 }
               },
               {
-                "from": {
-                  "__kind": "db-actor-ref",
-                  "id": "reviewCli",
-                  "label": "Review CLI/desktop",
-                  "softwareMapPath": "review.cliPackage.authoring"
-                },
-                "to": {
-                  "__kind": "db-actor-ref",
-                  "id": "opencodeServe",
-                  "label": "opencode serve",
-                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServe"
-                },
+                "id": "launch",
+                "type": "step",
+                "from": "reviewCli",
+                "to": "opencodeServe",
                 "label": "opencode attach <url> --session <id> --dir <source directory>",
-                "anchor": {
-                  "__kind": "db-anchor-ref",
-                  "id": "launch",
-                  "title": "launch()",
-                  "peek": {
-                    "side": "head",
-                    "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                    "fromLine": 67,
-                    "toLine": 121
-                  },
-                  "softwareMapPath": "review.cliPackage.nativeAgents.opencodeServer"
+                "style": "call",
+                "source": {
+                  "side": "head",
+                  "file": "packages/progressive-review/src/native-agent/opencode.ts",
+                  "fromLine": 67,
+                  "toLine": 121
                 }
               }
             ]

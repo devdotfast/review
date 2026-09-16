@@ -11,9 +11,8 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { createReviewApi } from "../../src/review-api/http";
 import { ReviewStore } from "../../src/review-api/store";
-import { sequenceFor } from "./api-document";
 import { mountReviewCanvas as mount } from "./desktop-entry";
-import { createSequenceTourEntry } from "./diagrams";
+import { createSequenceTourEntry, sequenceView } from "./diagrams";
 import { testReviewBridge } from "./review-session-test-utils";
 
 let store: ReviewStore, directory: string;
@@ -271,7 +270,14 @@ it("keeps sequence step identities and supports explanation/code steps without i
   const node = store.read(review.reviewId).document[0]!;
 
   if (node.type !== "sequence") throw new Error("Expected sequence");
-  const sequence = sequenceFor(node, { anchors: new Map() });
+
+  const sequence = sequenceView({
+    id: node.id!,
+    title: node.title,
+    actors: node.actors,
+    steps: node.steps,
+  });
+
   const tour = createSequenceTourEntry(sequence);
   expect(sequence.id).toBe(inserted.targetId);
   expect(tour.stops.map((stop) => stop.anchor.id)).toEqual(

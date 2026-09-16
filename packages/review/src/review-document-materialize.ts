@@ -33,6 +33,10 @@ import {
   isPublishAuditComponent,
 } from "./review-publish-element-audit";
 import {
+  type SequenceBlockProps,
+  sequenceBlockFromProps,
+} from "./sequence-steps";
+import {
   type NormalizedSoftwareModel,
   isNormalizedSoftwareModel,
 } from "./software-map-model";
@@ -41,7 +45,10 @@ type AuthoringProps<Name extends ReviewAuthoringComponentName> = z.infer<
   (typeof reviewAuthoringPropsSchemas)[Name]
 >;
 
-type ProjectedComponentName = "DatabaseLens" | "CallStackDiff";
+type ProjectedComponentName =
+  | "DatabaseLens"
+  | "CallStackDiff"
+  | "SequenceDiagram";
 
 export type MaterializedComponentProps =
   | (Omit<AuthoringProps<"DatabaseLens">, "children" | "stores"> & {
@@ -51,6 +58,7 @@ export type MaterializedComponentProps =
       base: Frame[];
       head: Frame[];
     })
+  | SequenceBlockProps
   | {
       [Name in Exclude<
         ReviewAuthoringComponentName,
@@ -207,6 +215,9 @@ function materializeComponentProps(
       ),
     };
   }
+
+  if (audited.name === "SequenceDiagram")
+    return sequenceBlockFromProps(audited.props);
 
   if (audited.name === "CallStackDiff") {
     const { children: _children, base, head, ...props } = audited.props;

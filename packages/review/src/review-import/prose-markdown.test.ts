@@ -252,6 +252,106 @@ describe("proseToMarkdown", () => {
     ]);
   });
 
+  it("routes footnote definition content through the caller's renderer", () => {
+    const warnings: string[] = [];
+    const seen: string[] = [];
+
+    const definitions = el(
+      "section",
+      [
+        el("ol", [
+          el(
+            "li",
+            [
+              el("p", [
+                text("The agent "),
+                {
+                  type: "component",
+                  name: "TraceQuote",
+                  props: { sessionId: "s1", event: 2 },
+                  children: [text("said so")],
+                } as ReviewNode,
+                text(" about "),
+                el("code", [text("order.ts")]),
+                text(" "),
+                {
+                  type: "component",
+                  name: "CodePeek",
+                  props: {
+                    anchor: {
+                      __kind: "db-anchor-ref",
+                      id: "p",
+                      title: "Peek",
+                      peek: {
+                        side: "head",
+                        file: "src/a.ts",
+                        fromLine: 4,
+                        toLine: 6,
+                      },
+                    },
+                  },
+                  children: [],
+                } as ReviewNode,
+              ]),
+            ],
+            { id: "user-content-fn-1" },
+          ),
+        ]),
+      ],
+      { "data-footnotes": "true" },
+    );
+
+    const footnotes = collectFootnoteDefinitions(
+      [definitions],
+      warnings,
+      (node) => {
+        seen.push(node.type === "component" ? node.name : node.tag);
+
+        return node.type === "component" && node.name === "TraceQuote"
+          ? "[said so](review-trace:t1#2)"
+          : undefined;
+      },
+    );
+
+    expect(seen).toEqual(["TraceQuote", "code", "CodePeek"]);
+    expect([...footnotes]).toEqual([
+      [
+        "1",
+        "The agent [said so](review-trace:t1#2) about `order.ts` [Peek](review-source:head/src/a.ts#L4-L6)",
+      ],
+    ]);
+    expect(warnings).toEqual([
+      "CodePeek inside prose became a source link (Peek)",
+    ]);
+  });
+
+  it("converts a footnote definition once when its definitions were supplied", () => {
+    const seen: string[] = [];
+
+    const render = (node: ReviewNode) => {
+      if (node.type === "element") seen.push(node.tag);
+
+      return undefined;
+    };
+
+    const definitions = el(
+      "section",
+      [
+        el("ol", [
+          el("li", [el("p", [text("Counted "), el("em", [text("once")])])], {
+            id: "user-content-fn-1",
+          }),
+        ]),
+      ],
+      { "data-footnotes": "true" },
+    );
+
+    const footnotes = collectFootnoteDefinitions([definitions], [], render);
+
+    expect(proseToMarkdown([definitions], footnotes, [], render)).toBe("\n");
+    expect(seen).toEqual(["em"]);
+  });
+
   it("round-trips list, code, footnote and numbering semantics through the parser", () => {
     const tree = parseMarkdown(
       proseToMarkdown([

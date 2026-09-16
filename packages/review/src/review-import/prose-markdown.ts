@@ -1,4 +1,8 @@
-import type { ReviewElementProps, ReviewNode } from "../review-document-data";
+import type {
+  ReviewComponentNode,
+  ReviewElementProps,
+  ReviewNode,
+} from "../review-document-data";
 
 interface Source {
   side: "base" | "head";
@@ -63,23 +67,35 @@ function alignRow(align: ReviewElementProps[string] | undefined): string {
  * block must carry the definitions of the footnotes it references. */
 export type FootnoteDefinitions = Map<string, string>;
 
+/** Renders a node the caller carries itself, such as a component it turns into
+ * a block of its own; `undefined` falls back to the Markdown rendering. */
+export type RenderProseNode = (
+  node: ReviewComponentNode | ElementNode,
+) => string | undefined;
+
 interface FootnoteState {
   definitions: FootnoteDefinitions;
   referenced: Set<string>;
+  /** The definitions came from the whole document, so a footnote section met
+   * again is already converted. */
+  supplied: boolean;
   /** Components found inside prose that Markdown cannot carry. */
   warnings?: string[];
-  renderComponent?: (
-    node: Extract<ReviewNode, { type: "component" }>,
-  ) => string | undefined;
+  render?: RenderProseNode;
 }
 
 /** Every footnote definition in a document, from any `section[data-footnotes]`. */
 export function collectFootnoteDefinitions(
   nodes: ReviewNode[],
+  warnings?: string[],
+  render?: RenderProseNode,
 ): FootnoteDefinitions {
   const state: FootnoteState = {
     definitions: new Map(),
     referenced: new Set(),
+    supplied: false,
+    warnings,
+    render,
   };
 
   const visit = (node: ReviewNode) => {
@@ -105,13 +121,14 @@ export function proseToMarkdown(
   nodes: ReviewNode[],
   footnotes?: FootnoteDefinitions,
   warnings?: string[],
-  renderComponent?: FootnoteState["renderComponent"],
+  render?: RenderProseNode,
 ): string {
   const state: FootnoteState = {
     definitions: footnotes ?? new Map(),
     referenced: new Set(),
+    supplied: footnotes !== undefined,
     warnings,
-    renderComponent,
+    render,
   };
 
   const body = blocks(nodes, state).trimEnd();
@@ -220,7 +237,9 @@ function block(
       return table(node, state, indent);
     case "section":
       if (isFootnoteSection(node)) {
-        collectFootnotes(node, state);
+        // Converting a definition again would repeat its side effects: a trace
+        // quote inside it would be registered a second time.
+        if (!state.supplied) collectFootnotes(node, state);
 
         return "";
       }
@@ -337,6 +356,9 @@ function collectFootnotes(section: ElementNode, state: FootnoteState): void {
           const inner: FootnoteState = {
             definitions: state.definitions,
             referenced: new Set(),
+            supplied: state.supplied,
+            warnings: state.warnings,
+            render: state.render,
           };
 
           // Continuation lines of a definition are indented under its label.
@@ -372,6 +394,10 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
   if (node.type === "text") return escapeText(node.value);
 
   if (node.type === "component") return inlineComponent(node, state);
+
+  const rendered = state?.render?.(node);
+
+  if (rendered !== undefined) return rendered;
 
   const { tag, children, props } = node;
 
@@ -416,7 +442,11 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
       return BLOCK_TAGS.has(tag)
         ? blocks(
             [node],
-            state ?? { definitions: new Map(), referenced: new Set() },
+            state ?? {
+              definitions: new Map(),
+              referenced: new Set(),
+              supplied: false,
+            },
           )
         : inlines(children, state);
   }
@@ -427,10 +457,10 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
  * `CodePeek` survives as a source link, everything else keeps its text and is
  * reported so the import callout names it. */
 function inlineComponent(
-  node: Extract<ReviewNode, { type: "component" }>,
+  node: ReviewComponentNode,
   state?: FootnoteState,
 ): string {
-  const rendered = state?.renderComponent?.(node);
+  const rendered = state?.render?.(node);
 
   if (rendered !== undefined) return rendered;
 

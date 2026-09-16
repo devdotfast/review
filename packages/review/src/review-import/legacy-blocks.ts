@@ -1,6 +1,11 @@
 import { type Block, elements } from "../review-api/document";
-import type { ReviewDocumentData, ReviewNode } from "../review-document-data";
+import type {
+  ReviewComponentNode,
+  ReviewDocumentData,
+  ReviewNode,
+} from "../review-document-data";
 import {
+  type RenderProseNode,
   collectFootnoteDefinitions,
   isProseNode,
   proseToMarkdown,
@@ -37,7 +42,6 @@ export function legacyDocumentToBlocks(
 ): LegacyConversion {
   const traces: TraceRequest[] = [];
   const warnings: string[] = [];
-  const footnotes = collectFootnoteDefinitions(document.body);
 
   const traceQuote = (
     node: Extract<ReviewNode, { type: "component"; name: "TraceQuote" }>,
@@ -61,6 +65,37 @@ export function legacyDocumentToBlocks(
     };
   };
 
+  // Markdown cannot carry a diagram, so one nested in prose converts into this
+  // sink and is emitted after the prose it came from. `nestedTags` holds the
+  // diagrams of the prose node being converted; it stays empty while the
+  // document's footnote definitions are collected, where nothing can follow a
+  // definition.
+  let hoisted: Block[] = [];
+  let nestedTags = new Map<ReviewNode, string>();
+
+  const render: RenderProseNode = (node) => {
+    if (node.type !== "component") return undefined;
+
+    if (node.name === "TraceQuote") {
+      const quote = traceQuote(node);
+      const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
+
+      return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
+    }
+
+    const tag = nestedTags.get(node);
+    const diagram = tag === undefined ? undefined : diagramBlock(node);
+
+    if (!diagram) return undefined;
+
+    hoisted.push(diagram);
+    warnings.push(`${node.name} inside ${tag} was moved after it`);
+
+    return "";
+  };
+
+  const footnotes = collectFootnoteDefinitions(document.body, warnings, render);
+
   const convert = (nodes: ReviewNode[]): Block[] => {
     const out: Block[] = [];
     let prose: ReviewNode[] = [];
@@ -68,27 +103,47 @@ export function legacyDocumentToBlocks(
     const flush = () => {
       if (prose.length === 0) return;
 
-      const markdown = proseToMarkdown(prose, footnotes, warnings, (node) => {
-        if (node.name !== "TraceQuote") return undefined;
-        const quote = traceQuote(node);
-        const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
-
-        return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
-      }).trim();
+      const markdown = proseToMarkdown(
+        prose,
+        footnotes,
+        warnings,
+        render,
+      ).trim();
 
       if (markdown) out.push({ type: "markdown", markdown: `${markdown}\n` });
+      out.push(...hoisted);
       prose = [];
+      hoisted = [];
+      nestedTags = new Map();
     };
 
     for (const node of nodes) {
       if (isProseNode(node)) {
+        const diagrams = nestedDiagrams(node, "prose", new Map());
+
+        if (diagrams.size === 0) {
+          prose.push(node);
+          continue;
+        }
+
+        // This node converts on its own so its diagrams can follow it.
+        flush();
+        nestedTags = diagrams;
         prose.push(node);
+        flush();
         continue;
       }
 
       flush();
 
       if (node.type !== "component") continue;
+
+      const diagram = diagramBlock(node);
+
+      if (diagram) {
+        out.push(diagram);
+        continue;
+      }
 
       switch (node.name) {
         case "ReviewSection": {
@@ -113,38 +168,6 @@ export function legacyDocumentToBlocks(
 
           if (node.props.anchor.title) peek.caption = node.props.anchor.title;
           out.push(peek);
-          break;
-        }
-
-        case "CallStackDiff":
-          out.push({
-            type: "call_stack_diff",
-            title: node.props.title || "Call stack",
-            base: stripIds(node.props.base),
-            head: stripIds(node.props.head),
-          });
-          break;
-        case "SequenceDiagram":
-          out.push({
-            type: "sequence",
-            title: node.props.title,
-            actors: node.props.actors,
-            steps: stripIds(node.props.steps),
-          });
-          break;
-        case "DatabaseLens": {
-          const { title, actors, stores, useCases } = node.props;
-
-          out.push({
-            type: "database_lens",
-            title: title ?? "Database",
-            actors,
-            stores,
-            useCases: useCases.map(({ id: _id, operations, ...useCase }) => ({
-              ...useCase,
-              operations: stripIds(operations),
-            })),
-          });
           break;
         }
 
@@ -190,6 +213,62 @@ export function legacyDocumentToBlocks(
   };
 
   return { blocks: convert(document.body), traces, warnings };
+}
+
+/** The diagram components as blocks, wherever they were authored. */
+function diagramBlock(node: ReviewComponentNode): Block | undefined {
+  switch (node.name) {
+    case "CallStackDiff":
+      return {
+        type: "call_stack_diff",
+        title: node.props.title || "Call stack",
+        base: stripIds(node.props.base),
+        head: stripIds(node.props.head),
+      };
+    case "SequenceDiagram":
+      return {
+        type: "sequence",
+        title: node.props.title,
+        actors: node.props.actors,
+        steps: stripIds(node.props.steps),
+      };
+    case "DatabaseLens": {
+      const { title, actors, stores, useCases } = node.props;
+
+      return {
+        type: "database_lens",
+        title: title ?? "Database",
+        actors,
+        stores,
+        useCases: useCases.map(({ id: _id, operations, ...useCase }) => ({
+          ...useCase,
+          operations: stripIds(operations),
+        })),
+      };
+    }
+
+    default:
+      return undefined;
+  }
+}
+
+/** Every diagram nested in `node`, with the tag of the element holding it, so
+ * the warning can say where it came from. `diagramBlock` is the one list of
+ * what can be hoisted. */
+function nestedDiagrams(
+  node: ReviewNode,
+  tag: string,
+  found: Map<ReviewNode, string>,
+): Map<ReviewNode, string> {
+  if (node.type === "text") return found;
+
+  if (node.type === "component" && diagramBlock(node)) found.set(node, tag);
+
+  const inner = node.type === "element" ? node.tag : tag;
+
+  for (const child of node.children) nestedDiagrams(child, inner, found);
+
+  return found;
 }
 
 function stripIds<T extends WithId>(items: T[]): Omit<T, "id">[] {

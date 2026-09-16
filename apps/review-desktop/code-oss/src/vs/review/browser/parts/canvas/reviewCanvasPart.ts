@@ -360,7 +360,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.sessionService.attachControl(async (sessionId, value) => {
 			const request = parseReviewVerbRequest(value);
 			if (request.name === "openApiReview") {
-				return this.verbs.dispatch(sessionId, request);
+				const response = await this.verbs.dispatch(sessionId, request);
+				return response.ok
+					? { ok: true, result: { softwareMapEnabled: this.currentSoftwareMapEnabled() } }
+					: response;
 			}
 			if (request.name === "focusWindow") {
 				await this.hostService.focus(

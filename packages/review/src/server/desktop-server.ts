@@ -418,6 +418,10 @@ export function createGlobalReviewServer(
         });
 
         if (!result.ok) throw new ReviewInputError(result.error, 409);
+
+        return z
+          .object({ softwareMapEnabled: z.boolean() })
+          .parse(result.result);
       }),
     );
   app.post("/app/focus", async () => {

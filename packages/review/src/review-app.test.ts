@@ -177,6 +177,49 @@ describe("review app", () => {
       ),
     ).rejects.toThrow(`Review not found: ${selected.review.uuid}`);
   });
+
+  it("treats an imported open response as a successful pick", async () => {
+    const selected = storedReview("selected", null);
+
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json(
+        {
+          ok: false,
+          code: "imported",
+          error: "Review opened in the JSON canvas.",
+        },
+        { status: 409 },
+      ),
+    );
+
+    await expect(
+      runReviewApp(
+        {
+          cwd: "/repo",
+          stdin: fakeTty(),
+          stdout: process.stdout,
+          reviewUuid: selected.review.uuid,
+        },
+        {
+          launch: async () => ({
+            event: "app",
+            action: "launch",
+            state: "running",
+            instanceId: discovery.instanceId,
+          }),
+          resolveReviewRoot: async () => "/repo",
+          findScopedReview: async () => selected,
+          readReviewDesktopDiscovery: async () => discovery,
+          fetch,
+        },
+      ),
+    ).resolves.toEqual({
+      event: "app",
+      action: "pick",
+      reviewUuid: selected.review.uuid,
+      title: selected.review.title,
+    });
+  });
 });
 
 function storedReview(

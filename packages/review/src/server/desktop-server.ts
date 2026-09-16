@@ -86,6 +86,10 @@ import {
 } from "../review-home";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import { devReviewHome } from "../review-home-paths";
+import {
+  type LegacyImporter,
+  createLegacyImporter,
+} from "../review-import/legacy-importer";
 import type { RunReviewInfoInput } from "../review-info";
 import { resolveReviewInfo } from "../review-info-resolver";
 import {
@@ -249,6 +253,8 @@ export interface GlobalReviewServerInput {
   /* Object seam, like publishRuntime: a test supplies a relay whose dispatch
      it controls instead of reaching into the class. */
   relay?: ReviewDesktopVerbRelay;
+  /** Legacy import seam; the default imports into `reviewStore`. */
+  legacyImporter?: LegacyImporter;
 }
 
 export interface GlobalReviewServer {
@@ -279,6 +285,52 @@ export function createGlobalReviewServer(
   const telemetry = input.telemetry ?? ReviewTelemetry.fromEnv();
   const relay = input.relay ?? new GlobalReviewDesktopVerbRelay();
   const sessions = new Map<string, ActiveReviewSession>();
+  const reviewStore = input.reviewStore;
+
+  // A review is imported once its uuid has a row in the JSON store. The Home
+  // list sweeps in the background, open imports first, and the MDX verbs
+  // refuse an imported review.
+  const legacyImporter: LegacyImporter | undefined =
+    input.legacyImporter ??
+    (reviewStore && input.reviewData
+      ? createLegacyImporter({
+          store: reviewStore,
+          data: input.reviewData,
+          materialize: (review, revision) =>
+            publishRuntime.materializePublishRevision({ review, revision }),
+          onImported: replaceLegacySessions,
+          log: (message) => console.warn(message),
+        })
+      : undefined);
+
+  /** After an import the JSON canvas is the review: close any legacy
+   * session, open the JSON tab in its place, and drop the legacy list
+   * entry (the desktop handles `review-deleted` as "remove from list"). */
+  async function replaceLegacySessions(review: StoredReview): Promise<void> {
+    const uuid = review.review.uuid;
+
+    const live = [...sessions.values()].filter(
+      (session) => session.review.review.uuid === uuid,
+    );
+
+    if (live.length)
+      await relay.dispatch("review-desktop", {
+        name: "openApiReview",
+        args: { reviewId: uuid, title: review.review.title },
+      });
+
+    for (const session of live) await closeSession(session, "replaced", false);
+    broadcastGlobal({ event: "review-deleted", uuid });
+  }
+
+  function migratedError(uuid: string, verb: string): ReviewServerError {
+    return new ReviewServerError(
+      `Review ${uuid} was migrated to the JSON review store. \`review ${verb}\` no longer applies; edit it with \`review api\` or the Review MCP tools.`,
+      409,
+      "migrated",
+    );
+  }
+
   const reviewLocks = new Map<string, Promise<void>>();
   const globalClients = new Set<ReviewDesktopEventClient>();
 
@@ -386,11 +438,14 @@ export function createGlobalReviewServer(
     const { dismissedRetentionDays } = await readReviewPreferences();
     await reapDismissedReviews(dismissedRetentionDays);
     const listed = await listReviews();
+    void legacyImporter?.sweep(listed.reviews);
 
     const reviews = await Promise.all(
-      listed.reviews.map((stored) =>
-        reviewDescriptor(stored, { retentionDays: dismissedRetentionDays }),
-      ),
+      listed.reviews
+        .filter((stored) => !reviewStore?.has(stored.review.uuid))
+        .map((stored) =>
+          reviewDescriptor(stored, { retentionDays: dismissedRetentionDays }),
+        ),
     );
 
     reviews.sort(
@@ -497,6 +552,23 @@ export function createGlobalReviewServer(
 
     if (!review) {
       throw new ReviewServerError("Review not found.", 404);
+    }
+
+    // Import before opening: an imported review lives in the JSON canvas.
+    const imported = legacyImporter
+      ? await legacyImporter.ensure(review)
+      : null;
+
+    if (imported && imported.kind !== "skipped") {
+      await relay.dispatch("review-desktop", {
+        name: "openApiReview",
+        args: { reviewId: uuid, title: review.review.title },
+      });
+      throw new ReviewServerError(
+        "Review opened in the JSON canvas.",
+        409,
+        "imported",
+      );
     }
 
     const descriptor = await reviewDescriptor(review);
@@ -929,6 +1001,9 @@ export function createGlobalReviewServer(
       let review = await findReview(request.reviewUuid);
 
       if (!review) throw new ReviewServerError("Review not found.", 404);
+
+      if (reviewStore?.has(request.reviewUuid))
+        throw migratedError(request.reviewUuid, "publish");
       const agent = request.agent;
 
       if (agent) {
@@ -960,6 +1035,9 @@ export function createGlobalReviewServer(
 
     if (!review) throw new ReviewServerError("Review not found.", 404);
 
+    if (reviewStore?.has(request.reviewUuid))
+      throw migratedError(request.reviewUuid, "repair");
+
     return globalJson(
       201,
       await promoteReviewRepair({
@@ -984,6 +1062,9 @@ export function createGlobalReviewServer(
       let review = await findReview(request.reviewUuid);
 
       if (!review) throw new ReviewServerError("Review not found.", 404);
+
+      if (reviewStore?.has(request.reviewUuid))
+        throw migratedError(request.reviewUuid, "map publish");
       const agent = request.agent;
 
       if (agent) {

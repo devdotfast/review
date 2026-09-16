@@ -56,6 +56,7 @@ export default defineConfig({
     maxWorkers: 1,
     projects: [
       {
+        resolve: { alias },
         test: {
           name: "shared-module-graph",
           environment: "node",
@@ -71,6 +72,7 @@ export default defineConfig({
         },
       },
       {
+        resolve: { alias },
         test: {
           name: "isolated",
           environment: "node",

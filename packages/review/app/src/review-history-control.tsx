@@ -103,6 +103,9 @@ export function ReviewHistoryControl(): ReactElement | null {
                   });
                 }}
               >
+                {/^[0-9]+$/.test(version.revision)
+                  ? `Version ${version.revision} · `
+                  : ""}
                 {formatVersionTimestamp(version.sealedAt)}
                 {version.isCurrent ? " — Current" : ""}
               </button>

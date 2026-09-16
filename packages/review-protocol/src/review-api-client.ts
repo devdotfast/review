@@ -1,3 +1,5 @@
+import type { JsonValue } from "@dev.fast/json";
+
 /** List metadata only: document contents and repository paths stay on the host. */
 export interface ReviewApiSummary {
   reviewId: string;
@@ -15,6 +17,12 @@ export interface ReviewSourceEntry {
   kind: "file" | "directory";
 }
 
+type Subscription = { reviewId: string | null };
+
+type Request = (url: string, init?: RequestInit) => Promise<Response>;
+
+const defaultRequest: Request = (url, init) => fetch(url, init);
+
 /** A non-2xx reply; the status tells a caller whether retrying can help. */
 export class ReviewApiError extends Error {
   constructor(
@@ -26,14 +34,14 @@ export class ReviewApiError extends Error {
   }
 }
 
+// One live connection per transport/server, shared by mounted canvases.
+const liveConnections = new WeakMap<Request, Map<string, LiveConnection>>();
+
 /** Shared by the canvas and thin agent clients; no filesystem or SQL access. */
 export class ReviewApiClient {
   constructor(
     readonly connection: { serverUrl: string; token: string },
-    private readonly request: (
-      url: string,
-      init?: RequestInit,
-    ) => Promise<Response> = (url, init) => fetch(url, init),
+    private readonly request: Request = defaultRequest,
   ) {}
   async response(route: string, init?: RequestInit) {
     const headers = new Headers(init?.headers);
@@ -74,11 +82,15 @@ export class ReviewApiClient {
     ).json();
   }
   async *watch<T = unknown>(
-    reviewId: string | null,
+    reviewId: string | null | Subscription[],
     signal: AbortSignal,
   ): AsyncGenerator<T> {
     const response = await this.response(
-      reviewId === null ? "/watch" : `/${encodeURIComponent(reviewId)}/watch`,
+      Array.isArray(reviewId)
+        ? `/watch?subscriptions=${encodeURIComponent(JSON.stringify(reviewId))}`
+        : reviewId === null
+          ? "/watch"
+          : `/${encodeURIComponent(reviewId)}/watch`,
       { signal },
     );
 
@@ -104,7 +116,7 @@ export class ReviewApiClient {
         let end: number;
 
         while ((end = pending.indexOf("\n")) !== -1) {
-          // SAFETY: the authenticated host serializes the requested review snapshot.
+          // SAFETY: the authenticated host serializes the snapshot type requested by this caller.
           yield JSON.parse(pending.slice(0, end)) as T;
           pending = pending.slice(end + 1);
         }
@@ -121,13 +133,163 @@ export class ReviewApiClient {
     accept: (snapshot: T) => void | Promise<void>,
     disconnected: (cause: unknown) => void,
   ) {
+    if (signal.aborted) return;
+    let connections = liveConnections.get(this.request);
+
+    if (!connections)
+      liveConnections.set(this.request, (connections = new Map()));
+
+    const key = JSON.stringify([
+      this.connection.serverUrl,
+      this.connection.token,
+    ]);
+
+    let live = connections.get(key);
+
+    if (!live) {
+      live = new LiveConnection(this, () => connections.delete(key));
+      connections.set(key, live);
+    }
+
+    return live.add(
+      { reviewId },
+      signal,
+      // SAFETY: this listener requests the review whose snapshot type is T.
+      (value) => accept(value as T),
+      disconnected,
+    );
+  }
+}
+
+type Result = { value?: JsonValue; error?: string } | null;
+
+type Listener = {
+  subscription: Subscription;
+  signal: AbortSignal;
+  accept(value: JsonValue | undefined): void | Promise<void>;
+  disconnected(cause: unknown): void;
+  /** The newest undelivered result; replaced rather than queued while a render runs. */
+  queued?: Exclude<Result, null>;
+  draining?: boolean;
+};
+
+// Tabs mounting in separate frames share one replacement stream.
+const restartDelayMs = 20;
+
+const retryDelayMs = 1000;
+
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+function report(listener: Listener, cause: unknown) {
+  if (listener.signal.aborted) return;
+
+  try {
+    listener.disconnected(cause);
+  } catch {
+    // One tab's handler must not take the shared stream down for the others.
+  }
+}
+
+class LiveConnection {
+  private readonly listeners = new Set<Listener>();
+  private abort = new AbortController();
+  private active = false;
+  private scheduled: ReturnType<typeof setTimeout> | undefined;
+  constructor(
+    private readonly client: ReviewApiClient,
+    private readonly empty: () => void,
+  ) {}
+
+  add(
+    subscription: Subscription,
+    signal: AbortSignal,
+    accept: Listener["accept"],
+    disconnected: Listener["disconnected"],
+  ) {
+    const listener: Listener = { subscription, signal, accept, disconnected };
+    this.listeners.add(listener);
+    this.restart();
+
+    return new Promise<void>((resolve) => {
+      const stop = () => {
+        signal.removeEventListener("abort", stop);
+        this.listeners.delete(listener);
+
+        if (this.listeners.size) this.restart();
+        else {
+          clearTimeout(this.scheduled);
+          this.scheduled = undefined;
+          this.abort.abort();
+          this.active = false;
+          this.empty();
+        }
+
+        resolve();
+      };
+
+      signal.addEventListener("abort", stop, { once: true });
+
+      if (signal.aborted) stop();
+    });
+  }
+
+  /** The first tab connects at once; later tabs share one replacement stream. */
+  private restart() {
+    if (this.scheduled) return;
+
+    if (!this.active) {
+      this.reconnect();
+
+      return;
+    }
+
+    this.scheduled = setTimeout(() => {
+      this.scheduled = undefined;
+      this.reconnect();
+    }, restartDelayMs);
+  }
+
+  private reconnect() {
+    this.abort.abort();
+    this.abort = new AbortController();
+    const listeners = [...this.listeners];
+    this.active = listeners.length > 0;
+
+    if (this.active) void this.run(listeners, this.abort.signal);
+  }
+
+  private async run(listeners: Listener[], signal: AbortSignal) {
+    const disconnected = (cause: unknown) =>
+      listeners.forEach((listener) => report(listener, cause));
+
     let delay = 1000;
 
     while (!signal.aborted) {
       try {
-        for await (const next of this.watch<T>(reviewId, signal)) {
+        for await (const results of this.client.watch<Result[]>(
+          listeners.map((item) => item.subscription),
+          signal,
+        )) {
+          if (signal.aborted) break;
           delay = 1000;
-          await accept(next);
+
+          listeners.forEach((listener, index) => {
+            const result = results[index];
+
+            // null marks a subscription unchanged since the previous line.
+            if (result) this.deliver(listener, result);
+          });
         }
 
         if (!signal.aborted) disconnected(new Error("Connection closed."));
@@ -141,18 +303,39 @@ export class ReviewApiClient {
           return;
       }
 
-      if (!signal.aborted)
-        await new Promise<void>((resolve) => {
-          const done = () => {
-            clearTimeout(timer);
-            signal.removeEventListener("abort", done);
-            resolve();
-          };
-
-          const timer = setTimeout(done, delay);
-          signal.addEventListener("abort", done, { once: true });
-        });
+      if (!signal.aborted) await sleep(delay, signal);
       delay = Math.min(delay * 2, 30_000);
     }
+  }
+
+  /** Renders never block the stream: a slow tab only delays its own newest state. */
+  private deliver(listener: Listener, result: Exclude<Result, null>) {
+    listener.queued = result;
+
+    if (listener.draining) return;
+    listener.draining = true;
+
+    void (async () => {
+      while (listener.queued && !listener.signal.aborted) {
+        const next = listener.queued;
+        listener.queued = undefined;
+
+        if (next.error) {
+          report(listener, new Error(next.error));
+          continue;
+        }
+
+        try {
+          await listener.accept(next.value);
+        } catch (error) {
+          report(listener, error);
+          // Retry the same snapshot after the delay unless a newer one arrived.
+          await sleep(retryDelayMs, listener.signal);
+          listener.queued ??= next;
+        }
+      }
+
+      listener.draining = false;
+    })();
   }
 }

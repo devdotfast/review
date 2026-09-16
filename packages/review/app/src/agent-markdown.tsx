@@ -3,46 +3,24 @@ import { isNumberValue, isStringValue } from "@dev.fast/review-protocol";
 // mdast of untrusted runtime strings (agent trace message bodies) and never
 // evaluates them, whereas MDX compilation produces executable code and must
 // only ever see trusted authored review documents.
-import { fromMarkdown } from "mdast-util-from-markdown";
-import { gfmFromMarkdown } from "mdast-util-gfm";
-import { gfm } from "micromark-extension-gfm";
 import {
   type ComponentType,
   Fragment,
   type ReactElement,
   type ReactNode,
+  createContext,
   createElement,
+  useContext,
 } from "react";
 
+import { type MarkdownNode, parseMarkdown } from "../../src/markdown";
 import { RenderedCodeBlock } from "./code-block";
 import { HighlightedText } from "./highlighted-text";
 import { newTabLinkProps } from "./link-props";
 
-interface MarkdownNode {
-  type: string;
-  children?: MarkdownNode[];
-  value?: string;
-  depth?: number;
-  ordered?: boolean;
-  start?: number | null;
-  checked?: boolean | null;
-  lang?: string | null;
-  url?: string;
-  title?: string | null;
-  align?: Array<string | null>;
-  alt?: string | null;
-}
+type LinkRenderer = (href: string, children: ReactNode) => ReactNode;
 
-function parseMarkdown(source: string): MarkdownNode {
-  // SAFETY: fromMarkdown returns an mdast Root whose nodes carry the same
-  // `type`/`children`/`value` fields MarkdownNode reads; the optional fields
-  // only differ by mdast also allowing null (e.g. List.ordered), which the
-  // renderer treats like undefined.
-  return fromMarkdown(source, {
-    extensions: [gfm()],
-    mdastExtensions: [gfmFromMarkdown()],
-  }) as MarkdownNode;
-}
+const DocumentLink = createContext<LinkRenderer | undefined>(undefined);
 
 export function AgentMarkdown({
   source,
@@ -66,12 +44,14 @@ export function AgentMarkdown({
 export function MarkdownContent({
   source,
   h1: Heading,
+  renderLink,
 }: {
   source: string;
   h1?: ComponentType<{ children?: ReactNode }>;
+  renderLink?: LinkRenderer;
 }): ReactElement {
   return (
-    <>
+    <DocumentLink.Provider value={renderLink}>
       {(parseMarkdown(source).children ?? []).map((node, index) =>
         node.type === "heading" && node.depth === 1 && Heading ? (
           <Heading key={index}>
@@ -81,7 +61,7 @@ export function MarkdownContent({
           renderMarkdownNode(node, String(index))
         ),
       )}
-    </>
+    </DocumentLink.Provider>
   );
 }
 
@@ -209,22 +189,12 @@ function renderMarkdownNode(
         highlightQuote,
       );
 
-      if (isLocalFilesystemHref(node.url)) {
-        return (
-          <code key={key} className="agent-markdown-code-reference">
-            {textFromChildren(children) ?? "local file"}
-          </code>
-        );
-      }
-
-      const href = safeMarkdownHref(node.url);
-
-      if (!href) {
-        return <span key={key}>{children}</span>;
-      }
-
       return (
-        <MarkdownLink key={key} href={href} title={node.title ?? undefined}>
+        <MarkdownLink
+          key={key}
+          href={node.url ?? ""}
+          title={node.title ?? undefined}
+        >
           {children}
         </MarkdownLink>
       );
@@ -306,6 +276,19 @@ function MarkdownLink({
   children: ReactNode;
   title?: string;
 }): ReactElement {
+  const renderLink = useContext(DocumentLink);
+  const custom = renderLink?.(href, children);
+
+  if (custom !== undefined) return <>{custom}</>;
+
+  if (isLocalFilesystemHref(href))
+    return (
+      <code className="agent-markdown-code-reference">
+        {textFromChildren(children) ?? "local file"}
+      </code>
+    );
+
+  if (!safeMarkdownHref(href)) return <span>{children}</span>;
   const linkProps = newTabLinkProps(href);
 
   return (

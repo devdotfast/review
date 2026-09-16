@@ -16,6 +16,7 @@ import {
   editSchema,
   elements,
   pinsSchema,
+  sourceReferences,
 } from "./document.js";
 
 const reviewId = z.string().min(1);
@@ -491,23 +492,17 @@ export class ReviewStore {
       }
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
-    const references = (document: Block[]) => {
+    const references = (document: Block[], tolerant = false) => {
       const sources = new Map<string, Source>();
       const resources = new Map<string, Block>();
 
       const add = (source: Source) =>
         sources.set(JSON.stringify(source), source);
 
+      for (const { source } of sourceReferences(document, { tolerant }))
+        add(source);
+
       for (const block of elements(document)) {
-        if ("source" in block && block.source) add(block.source);
-
-        if (block.type === "call_stack_diff")
-          for (const frame of [...block.base, ...block.head]) add(frame.source);
-
-        if (block.type === "database_lens")
-          for (const useCase of block.useCases)
-            for (const op of useCase.operations) add(op.source);
-
         if (
           block.type === "image" ||
           block.type === "trace_quote" ||
@@ -521,11 +516,14 @@ export class ReviewStore {
 
     const current = references(snapshot.document);
 
+    // Stored content is not re-validated: an edit may fix a link that the
+    // current rules reject.
     const retained = references(
       previous &&
         JSON.stringify(previous.pins) === JSON.stringify(snapshot.pins)
         ? previous.document
         : [],
+      true,
     );
 
     // Independent reads of immutable commits: run them concurrently.

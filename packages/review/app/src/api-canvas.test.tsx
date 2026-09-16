@@ -199,7 +199,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   );
   await act(async () => {
     await vi.waitFor(() =>
-      expect(container.textContent).toContain("Back to latest version"),
+      expect(container.textContent).toContain("Back to latest"),
     );
   });
   expect(container.textContent).not.toContain("Next section");
@@ -224,9 +224,10 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
 
   const latest = [
     ...container.querySelectorAll<HTMLButtonElement>("button"),
-  ].find((button) => button.textContent === "Back to latest version")!;
+  ].filter((button) => button.textContent === "Back to latest");
 
-  await act(async () => latest.click());
+  expect(latest).toHaveLength(1);
+  await act(async () => latest[0]!.click());
   await act(async () => {
     await vi.waitFor(() =>
       expect(container.textContent).toContain("Written while viewing history"),

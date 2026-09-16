@@ -870,7 +870,7 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 		this._editorPartContainer = editorPartContainer;
 
 		mark('code/willCreatePart/workbench.parts.editor');
-		this.getPart(Parts.EDITOR_PART).create(editorPartContainer, { restorePreviousState: false });
+		this.getPart(Parts.EDITOR_PART).create(editorPartContainer, { restorePreviousState: true });
 		mark('code/didCreatePart/workbench.parts.editor');
 
 		this.mainContainer.appendChild(editorPartContainer);

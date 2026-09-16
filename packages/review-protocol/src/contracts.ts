@@ -411,6 +411,13 @@ export type ReviewSoftwareMapLoad =
   | { state: "needs-republish"; reviewUuid: string }
   | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
+export interface ReviewApiSourceLocation {
+  version: number;
+  file: string;
+  side: ReviewDiffSide;
+  commit?: string;
+}
+
 export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
@@ -420,6 +427,10 @@ export type ReviewCanvasContent =
       bridge: ReviewCanvasBridge;
       setTitle?(title: string): void;
       setVersion?(version: number): void;
+      openSource?(
+        source: ReviewApiSourceLocation,
+        range: ReviewInlineEditorRange,
+      ): Promise<void>;
     }
   | {
       kind: "error";

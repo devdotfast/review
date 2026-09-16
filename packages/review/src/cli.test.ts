@@ -26,11 +26,7 @@ import {
 } from "./posthog-capture-client";
 import { runReviewApp as runReviewAppActual } from "./review-app";
 import { runReviewAppLaunch as runReviewAppLaunchActual } from "./review-app-launcher";
-import {
-  type StoredReview,
-  listReviews as listReviewsActual,
-  sealReviewCandidate as sealReviewCandidateActual,
-} from "./review-home";
+import type { StoredReview } from "./review-home";
 import { runReviewInfo as runReviewInfoActual } from "./review-info";
 import { runReviewPublish as runReviewPublishActual } from "./review-publish";
 import { runReviewRepair as runReviewRepairActual } from "./review-repair";
@@ -915,44 +911,6 @@ describe("Review CLI", () => {
         stderr: outputStream(),
       }),
     ).resolves.toBe(1);
-  });
-
-  it("checkpoints every touched UUID review at the end of a turn", async () => {
-    const review = {
-      dir: "/tmp/reviews/review-uuid",
-      review: {
-        uuid: "11111111-1111-4111-8111-111111111111",
-        status: "awaiting-agent-updates",
-      },
-    } as StoredReview;
-
-    const listReviews = vi.fn<typeof listReviewsActual>(async () => ({
-      reviews: [review],
-      errors: [],
-    }));
-
-    const sealReviewCandidate = vi.fn<typeof sealReviewCandidateActual>(
-      async () => "revision",
-    );
-
-    const stdin = new PassThrough();
-    stdin.end(`${JSON.stringify({ cwd: `${review.dir}/notes` })}\n`);
-
-    await expect(
-      runReviewCli({
-        argv: ["stop-hook"],
-        stdin,
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { listReviews, sealReviewCandidate },
-      }),
-    ).resolves.toBe(0);
-
-    expect(listReviews).toHaveBeenCalledWith();
-    expect(sealReviewCandidate).toHaveBeenCalledWith(
-      review.dir,
-      "Review turn checkpoint",
-    );
   });
 
   it("handles the internal prepare-worktree command", async () => {

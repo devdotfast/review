@@ -23,6 +23,7 @@ import type {
   ReviewInlineEditorFactory,
   ReviewDiffViewFactory,
   ReviewSourceEntry,
+  ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
 import type {
   ReviewCodeModelReference,
@@ -33,12 +34,8 @@ import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffVi
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import { IReviewSessionService, reviewResponseError } from "./reviewSessionService.js";
 
-export interface ApiSourceTarget {
+export interface ApiSourceTarget extends ReviewApiSourceLocation {
   reviewId: string;
-  version: number;
-  file: string;
-  side: ReviewDiffSide;
-  commit?: string;
 }
 
 export const REVIEW_API_SOURCE_SCHEME = "review-api-source";

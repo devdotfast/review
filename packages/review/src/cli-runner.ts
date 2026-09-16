@@ -1,15 +1,9 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { devfastPrepareCommands } from "@dev.fast/local-vcs";
-import {
-  type ReviewView,
-  jsonObject,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import type { ReviewView } from "@dev.fast/review-protocol";
 import {
   type CliInputStream,
   DEFAULT_STORE_ORIGIN,
@@ -50,11 +44,6 @@ import {
   type ReviewAppLaunchEvent,
   runReviewAppLaunch,
 } from "./review-app-launcher";
-import {
-  type StoredReview,
-  listReviews,
-  sealReviewCandidate,
-} from "./review-home";
 import { reviewDesktopDiscoveryPath } from "./review-home-paths";
 import { runReviewInfo } from "./review-info";
 import { runReviewInternalTest } from "./review-internal-test";
@@ -121,8 +110,6 @@ interface ReviewCliRuntime {
   runStoreLogin: typeof runStoreLogin;
   runStoreLogout: typeof runStoreLogout;
   runStoreWhoami: typeof runStoreWhoami;
-  listReviews: typeof listReviews;
-  sealReviewCandidate: typeof sealReviewCandidate;
   prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
 }
 
@@ -695,25 +682,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     });
   });
 
-  configureOutput(
-    program
-      .command("stop-hook", { hidden: true })
-      .description("Internal Review stop hook"),
-    "plain",
-  ).action(async () => {
-    const payload = await readStopHookPayload(input);
-
-    for (const review of await touchedStopHookReviews(
-      payload,
-      runtime.listReviews,
-    )) {
-      await runtime.sealReviewCandidate(review.dir, "Review turn checkpoint");
-    }
-
-    // The checkpoint never blocks an agent from stopping.
-    state.exitCode = 0;
-  });
-
   // Hosted trace store login. Logging in authenticates a user; it selects
   // no storage by itself.
   configureJsonOutput(
@@ -1051,76 +1019,6 @@ function installTargets(targets: readonly string[]): InstallTarget[] {
   ];
 }
 
-interface StopHookPayload {
-  cwd?: string;
-  transcriptPath?: string;
-}
-
-async function readStopHookPayload(
-  input: ReviewCliInput,
-): Promise<StopHookPayload> {
-  const stdin = input.stdin ?? process.stdin;
-
-  if (stdin.isTTY) return {};
-
-  try {
-    const chunks: Buffer[] = [];
-
-    for await (const chunk of stdin) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-
-    const raw = Buffer.concat(chunks).toString("utf8").trim();
-
-    if (!raw) return {};
-    const parsed = jsonObject(parseJsonText(raw));
-    const payload: StopHookPayload = {};
-    const cwd = jsonString(parsed?.cwd);
-
-    if (cwd !== undefined) payload.cwd = cwd;
-    const transcriptPath = jsonString(parsed?.transcript_path);
-
-    if (transcriptPath !== undefined) payload.transcriptPath = transcriptPath;
-
-    return payload;
-  } catch {
-    return {};
-  }
-}
-
-async function touchedStopHookReviews(
-  input: {
-    cwd?: string;
-    transcriptPath?: string;
-  },
-  scan: typeof listReviews,
-): Promise<StoredReview[]> {
-  const listed = await scan();
-  const cwd = input.cwd ? path.resolve(input.cwd) : undefined;
-
-  const transcript = input.transcriptPath
-    ? await readFile(input.transcriptPath, "utf8")
-    : "";
-
-  const touched = (reviewDir: string) => {
-    const dir = path.resolve(reviewDir);
-
-    const cwdInside =
-      cwd === dir || (cwd?.startsWith(`${dir}${path.sep}`) ?? false);
-
-    return cwdInside || transcript.includes(dir);
-  };
-
-  const errors = listed.errors.filter((error) => touched(error.reviewDir));
-
-  if (errors.length > 0)
-    throw new Error(
-      `Could not checkpoint reviews:\n${errors.map((error) => `${error.reviewDir}: ${error.message}`).join("\n")}`,
-    );
-
-  return listed.reviews.filter((review) => touched(review.dir));
-}
-
 function reviewCliRuntime(
   overrides: Partial<ReviewCliRuntime> | undefined,
 ): ReviewCliRuntime {
@@ -1157,8 +1055,6 @@ function reviewCliRuntime(
     runStoreLogin,
     runStoreLogout,
     runStoreWhoami,
-    listReviews,
-    sealReviewCandidate,
     prepareReviewPinnedCheckout,
     ...overrides,
   };

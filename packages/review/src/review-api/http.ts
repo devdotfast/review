@@ -49,12 +49,91 @@ export function createReviewApi(
 
     return context.json(store.activity.update(id, input));
   });
-  app.get("/watch", () =>
-    watch(
+  app.get("/watch", (context) => {
+    const query = context.req.query("subscriptions");
+
+    if (query !== undefined) {
+      let input: unknown;
+
+      try {
+        input = JSON.parse(query);
+      } catch {
+        throw new ReviewInputError("Invalid subscriptions.");
+      }
+
+      const subscriptions = z
+        .array(
+          z.strictObject({
+            reviewId: z.string().min(1).nullable(),
+          }),
+        )
+        .parse(input);
+
+      // Only entries whose review (or the catalog) changed are re-read and re-sent.
+      const dirty = new Set(subscriptions.keys());
+
+      const mark = (id: string | null) => {
+        let marked = false;
+
+        subscriptions.forEach((item, index) => {
+          if (item.reviewId === id) {
+            dirty.add(index);
+            marked = true;
+          }
+        });
+
+        return marked;
+      };
+
+      return watch(
+        () =>
+          subscriptions.map(({ reviewId }, index) => {
+            if (!dirty.delete(index)) return null;
+
+            try {
+              return {
+                value:
+                  reviewId === null
+                    ? store.list()
+                    : {
+                        ...store.read(reviewId),
+                        activity: store.activity.read(reviewId),
+                      },
+              };
+            } catch (error) {
+              return {
+                error:
+                  error instanceof ReviewInputError
+                    ? error.message
+                    : "Could not read review.",
+              };
+            }
+          }),
+        (notify) => {
+          const stops = [
+            store.subscribe((result) => {
+              if (mark(result.reviewId)) notify();
+            }),
+            store.activity.subscribe((id) => {
+              if (mark(id)) notify();
+            }),
+            store.subscribeCatalog(() => {
+              if (mark(null)) notify();
+            }),
+          ];
+
+          return () => stops.forEach((stop) => stop());
+        },
+        // A missing review is an {error} entry here, never a 404.
+        () => {},
+      );
+    }
+
+    return watch(
       () => store.list(),
       (notify) => store.subscribeCatalog(notify),
-    ),
-  );
+    );
+  });
   app.post("/:id/open", async (context) => {
     const review = store.read(context.req.param("id"));
 
@@ -245,8 +324,9 @@ export function createReviewApi(
 function watch<T>(
   read: () => T,
   subscribe: (notify: () => void) => () => void,
+  probe: () => void = read,
 ) {
-  read(); // Return a normal 404 before opening the response.
+  probe(); // Return a normal 404 before opening the response.
   let stop = () => {};
 
   let dirty = true;

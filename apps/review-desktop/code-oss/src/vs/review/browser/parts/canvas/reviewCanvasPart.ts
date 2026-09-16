@@ -162,6 +162,7 @@ const detachedScrollRestoreDeadlineMs = 30_000;
 // Canvas content loading is keyed by promise identity. Metadata-only refreshes
 // must not remount the document and its native diff when maps are disabled.
 const disabledSoftwareMap = Promise.resolve(null);
+const requestReviewApi: typeof fetch = (url, init) => fetch(url, init);
 
 // The tutorial step list as it first shipped. Stored progress payloads
 // without a `steps` field date from this era.
@@ -540,6 +541,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					kind: "api", reviewId,
 					setTitle: title => input.setApiTitle(title),
 					setVersion: next => { version = next; },
+					openSource: (source, range) => this.apiSource.open({ reviewId, ...source }, range),
 					bridge: {
 						...source,
 						...this.sharedBridge(generation, () => { this.readyInput = input; }),
@@ -547,7 +549,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							...connection, sessionUrl: `${connection.serverUrl}/reviews-api/${reviewId}`,
 							sessionId: reviewId, routePath: "/",
 						}, assets),
-						request: (url, init) => fetch(url, init),
+						request: requestReviewApi,
 						post: async request => {
 							if (request.name === "openSourceTree") {
 								await this.tabsService.openApiSource(reviewId, version, input.getName());

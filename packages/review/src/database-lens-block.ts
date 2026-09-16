@@ -86,7 +86,8 @@ export interface LegacyDbUseCaseNode {
  * `DbRead` / `DbWrite` child nodes) to the canonical block once. Ids are
  * kept: the lens id is `db:<slug(title)>`, use cases keep their authored id,
  * and an operation's id is its anchor id, so tour state and deep links still
- * resolve. */
+ * resolve. An anchor reused by later operations gets `--db-use-N` appended,
+ * since operation ids double as diagram edge ids and must be unique. */
 export function databaseLensBlockFromLegacy(
   props: LegacyDatabaseLensProps,
   useCases: readonly LegacyDbUseCaseNode[],
@@ -105,6 +106,15 @@ export function databaseLensBlockFromLegacy(
     Object.entries(props.stores).map(([id, store]) => [id, storeBlock(store)]),
   );
 
+  const anchorUses = new Map<string, number>();
+
+  const operationId = (anchorId: string): string => {
+    const uses = (anchorUses.get(anchorId) ?? 0) + 1;
+    anchorUses.set(anchorId, uses);
+
+    return uses === 1 ? anchorId : `${anchorId}--db-use-${uses}`;
+  };
+
   const block: DatabaseLensBlockProps = {
     id: `db:${slugPart(props.title ?? "database")}`,
     actors,
@@ -114,7 +124,7 @@ export function databaseLensBlockFromLegacy(
         id: useCase.props.id,
         label: useCase.props.label,
         operations: useCase.operations.map((node) =>
-          operationBlock(node, actorName),
+          operationBlock(node, actorName, operationId),
         ),
       };
 
@@ -135,6 +145,7 @@ export function databaseLensBlockFromLegacy(
 function operationBlock(
   node: LegacyDbOperationNode,
   actorName: (actor: ActorRef) => string,
+  operationId: (anchorId: string) => string,
 ): DatabaseOperation {
   if (node.name === "DbRead") {
     const read = legacyDbReadSchema.parse(node.props);
@@ -146,6 +157,7 @@ function operationBlock(
       read.label,
       read.anchor,
       actorName,
+      operationId,
     );
   }
 
@@ -158,6 +170,7 @@ function operationBlock(
     write.label,
     write.anchor,
     actorName,
+    operationId,
   );
 }
 
@@ -168,9 +181,10 @@ function operationFor(
   label: string,
   anchor: PeekableAnchorRef,
   actorName: (actor: ActorRef) => string,
+  operationId: (anchorId: string) => string,
 ): DatabaseOperation {
   const operation: DatabaseOperation = {
-    id: anchor.id,
+    id: operationId(anchor.id),
     kind,
     store: target.storeId,
     collection: target.collectionId,

@@ -66,6 +66,39 @@ const stores = {
 } satisfies Record<string, StoreRefData>;
 
 describe("databaseLensBlockFromLegacy", () => {
+  it("gives operations that reuse one anchor unique ids", () => {
+    const anchor = {
+      __kind: "db-anchor-ref" as const,
+      id: "current",
+      title: "Current row",
+      peek: { side: "head" as const, file: "src/x.ts", fromLine: 1, toLine: 2 },
+    };
+    const actor = { __kind: "db-actor-ref" as const, id: "api", label: "API" };
+    const to = target("orders", "relational", "orders", []);
+
+    const block = databaseLensBlockFromLegacy({ stores }, [
+      {
+        props: { id: "one", label: "One" },
+        operations: [
+          { name: "DbWrite", props: { from: actor, to, label: "a", anchor } },
+          { name: "DbWrite", props: { from: actor, to, label: "b", anchor } },
+        ],
+      },
+      {
+        props: { id: "two", label: "Two" },
+        operations: [
+          { name: "DbWrite", props: { from: actor, to, label: "c", anchor } },
+        ],
+      },
+    ]);
+
+    expect(
+      block.useCases.flatMap((useCase) =>
+        useCase.operations.map((operation) => operation.id),
+      ),
+    ).toEqual(["current", "current--db-use-2", "current--db-use-3"]);
+  });
+
   it("lowers stores, fields, actors and operations to the canonical block", () => {
     const block = databaseLensBlockFromLegacy(
       { title: "Checkout data", height: 480, stores },

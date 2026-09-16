@@ -248,9 +248,16 @@ export function databaseTourStopDetail({
 }
 
 export function DatabaseLens(block: DatabaseLensProps) {
-  const { title, stores, height = 560 } = block;
-  const useCases = useMemo(() => lensUseCases(block), [block]);
-  const lensId = block.id;
+  const { id: lensId, title, actors, stores, height = 560 } = block;
+
+  // Memoize on the block's fields, not the props object: a live JSON snapshot
+  // keeps its node references stable, so the tour entries and restored tour
+  // state survive re-renders and edits elsewhere in the document.
+  const useCases = useMemo(
+    () =>
+      lensUseCases({ id: lensId, actors, stores, useCases: block.useCases }),
+    [lensId, actors, stores, block.useCases],
+  );
   const selectForAgent = useAgentSelection();
   const session = useReviewSession();
 
@@ -429,12 +436,13 @@ export function DatabaseLens(block: DatabaseLensProps) {
                       kind: "database use case",
                       description: activeUseCase.summary,
                       operations: activeUseCase.operations.map((operation) => {
-                        const endpoint = (ref: ActorRef | TargetRef) =>
-                          ref.__kind === "db-actor-ref"
-                            ? ref.label
-                            : ref.collectionLabel;
+                        const actor = operation.actor.label;
+                        const target = operation.target.collectionLabel;
+                        const [from, to] = operation.kind === "read"
+                          ? [target, actor]
+                          : [actor, target];
 
-                        return `${operation.kind}: ${endpoint(operation.from)} → ${endpoint(operation.to)} — ${operation.label}`;
+                        return `${operation.kind}: ${from} → ${to} — ${operation.label}`;
                       }),
                     },
                   })

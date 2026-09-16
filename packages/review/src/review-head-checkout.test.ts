@@ -280,6 +280,33 @@ describe("removeReviewPinnedCheckout", () => {
     expect(worktrees).toContain(other ?? "");
   });
 
+  it("sweeps prepare markers an older install left beside the checkout", async () => {
+    const repo = await createRepoWithFeature(cleanupPaths);
+
+    const checkoutPath =
+      (await ensureReviewPinnedCheckout({
+        rootPath: repo.rootPath,
+        ref: repo.headCommit,
+        reviewUuid: TEST_REVIEW_UUID,
+      })) ?? "";
+
+    // Releases before the JSON API wrote these beside the worktree.
+    await writeFile(`${checkoutPath}.prepared`, "{}\n", "utf8");
+    await writeFile(`${checkoutPath}.prepare-log`, "prepared\n", "utf8");
+
+    await expect(
+      removeReviewPinnedCheckout({
+        rootPath: repo.rootPath,
+        reviewUuid: TEST_REVIEW_UUID,
+        checkoutPath,
+      }),
+    ).resolves.toBe(true);
+
+    expect(existsSync(checkoutPath)).toBe(false);
+    expect(existsSync(`${checkoutPath}.prepared`)).toBe(false);
+    expect(existsSync(`${checkoutPath}.prepare-log`)).toBe(false);
+  });
+
   it("refuses paths outside the dev-fast worktrees dir", async () => {
     const repo = await createRepoWithFeature(cleanupPaths);
 

@@ -32,7 +32,6 @@ import {
 } from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { z } from "zod";
 
 import { AgentSelectionSchema, selectionMarkdown } from "../agent-selection";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
@@ -42,10 +41,7 @@ import {
   resolveReviewDiffFiles,
   resolveReviewFileContent,
 } from "../review-diff-files";
-import {
-  normalizeReviewRoutePath,
-  resolveReviewDocumentFilePath,
-} from "../review-document-routes";
+import { resolveReviewDocumentFilePath } from "../review-document-routes";
 import { listReviews } from "../review-home";
 import { ReviewBusyError, reviewBusyResponse } from "../review-mutation-lock";
 import { resolveReviewStackLayers } from "../review-stack";

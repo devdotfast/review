@@ -48,9 +48,10 @@ Use the dev-review skill to review my current branch against up to date main,
 then open it in Review.
 ```
 
-The agent scaffolds a Review, writes and validates the walkthrough, publishes
-it, and opens it in Review Desktop. You can also review a specific GitHub pull
-request or ask for an architecture review of a repository.
+The agent registers the repository, resolves the base and head pins, creates
+the review through the Review API, writes and validates the walkthrough, and
+opens it in Review Desktop. You can also review a specific GitHub pull request
+or ask for an architecture review of a repository.
 
 ### Add Review guidance
 

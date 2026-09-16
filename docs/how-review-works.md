@@ -31,8 +31,9 @@ evidence rather than the only way to understand the change.
 ## Changes are pinned before authoring
 
 A Review binds to one unit of change: a Git branch, Jujutsu bookmark, Jujutsu
-change ID, or GitHub pull request. Scaffolding resolves and pins exact base and
-head commits, then prepares Review-owned checkouts for them.
+change ID, or GitHub pull request. Creating the review through the Review API
+resolves and pins exact base and head commits, then prepares Review-owned
+checkouts for them.
 
 The agent reads those pinned checkouts while it writes. Moving your current
 checkout does not silently change the code being reviewed. Use `review_repin`

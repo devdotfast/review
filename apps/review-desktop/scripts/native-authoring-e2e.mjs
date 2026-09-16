@@ -423,6 +423,8 @@ try {
 
   console.log("Desktop attached; exercising installed CLI", root);
 
+  let jsonApiChecked = false;
+
   for (const fixture of legacyFixtures) {
     if (fixture.deferred) await seedLegacyFixture(fixture);
 
@@ -550,6 +552,93 @@ try {
         .getByRole("button", { name: "Expand Software map", exact: true })
         .click();
       await canvas.locator(".software-map").first().waitFor({ timeout: 30000 });
+    }
+
+    // E10: the JSON API rejects the pitfalls the render gate used to catch, and
+    // accepts a valid block that then renders in the open canvas. One imported
+    // fixture exercises it; the API is the same for all of them.
+    if (!jsonApiChecked) {
+      jsonApiChecked = true;
+
+      const before = (await api(`/reviews-api/${metadata.sourceUuid}?full=true`))
+        .value;
+
+      const edit = (content) =>
+        api("/reviews-api/commands", "POST", {
+          commandId: randomUUID(),
+          operation: {
+            type: "edit",
+            reviewId: metadata.sourceUuid,
+            edit: { type: "insert", content },
+          },
+        });
+
+      for (const [content, message] of [
+        [
+          {
+            type: "database_lens",
+            title: "Empty",
+            actors: { app: "App" },
+            stores: {},
+            useCases: [],
+          },
+          "at least one store",
+        ],
+        [
+          {
+            type: "sequence",
+            title: "Save",
+            actors: { app: "App" },
+            steps: [{ from: "app", to: "db", label: "Write", explanation: "x" }],
+          },
+          "Unknown component name: db",
+        ],
+        [
+          {
+            type: "code_peek",
+            source: {
+              side: "head",
+              file: "../outside.ts",
+              fromLine: 1,
+              toLine: 1,
+            },
+          },
+          "repository-relative",
+        ],
+      ]) {
+        const rejected = await edit(content);
+        assert.equal(rejected.status, 400, JSON.stringify(rejected.value));
+        assert.match(rejected.value.error, new RegExp(message));
+      }
+
+      const after = (await api(`/reviews-api/${metadata.sourceUuid}?full=true`))
+        .value;
+
+      assert.deepEqual(
+        after,
+        before,
+        "rejected edits must not change the document",
+      );
+
+      const accepted = await edit({
+        type: "callout",
+        title: "E2E marker",
+        tone: "success",
+        children: [
+          { type: "markdown", markdown: "Inserted through the JSON API." },
+        ],
+      });
+
+      assert.equal(accepted.status, 200, JSON.stringify(accepted.value));
+      await canvas
+        .getByText("Inserted through the JSON API.", { exact: true })
+        .waitFor();
+      assert.doesNotMatch(await canvas.innerText(), /Layout failed:/);
+      console.log("E2E checkpoint", report.checks.length);
+      report.checks.push(
+        "JSON API rejects lens, actor and path pitfalls without changing the document",
+        "JSON API edits render live in the open canvas",
+      );
     }
 
     report.checks.push(

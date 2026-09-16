@@ -173,8 +173,7 @@ event includes only `reason`, `count`, and the random installation identifier.
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
 | `review_installation_created`  | None                                                                                                         | The first enabled Review use            |
 | `review_command_started`       | `command_path`, `command_run_id`, `agent_kind`                                                               | A public CLI handler is about to run    |
-| `review_command_bound`         | Start properties plus `review_id`                                                                            | Scaffold or publish resolves its Review |
-| `review_command_succeeded`     | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, optional `review_id`, and closed command flags | A public CLI command succeeds           |
+| `review_command_succeeded`     | `command_path`, `command_run_id`, `exit_code`, `duration_ms`, and closed command flags                       | A public CLI command succeeds           |
 | `review_command_failed`        | The success properties plus `error_name` and `error_category` closed enums                                   | A public CLI command fails              |
 | `review_session_started`       | `source_kind`, `agent_kind`, `review_id`, `presentation_id`, optional `app_session_id`                       | A Desktop review session opens          |
 | `review_session_ended`         | Start properties plus `outcome`, `duration_ms`                                                               | A review is dismissed                   |
@@ -183,13 +182,12 @@ event includes only `reason`, `count`, and the random installation identifier.
 | `review_telemetry_dropped`     | `reason`, `count`                                                                                            | The queue drops one or more events      |
 
 `command_path` is a closed enum for all public commands. It includes `help`,
-`version`, `app.launch`, `app.pick`, `rebind`, `publish`, `info`,
-`scaffold`, `install`, `migrate.apply`, `map.open`, `map.check`, `map.prune`,
-`map.publish`, `map.push`, `map.fetch`, `login`, `logout`, `whoami`,
-`trace.store.create`, `trace.store.delete`, `trace.store.info`,
-`trace.install`, `trace.allow`, `trace.deny`, `trace.storage.use`,
-`trace.config.migrate`, and `invalid`. Review sends no arguments, refs,
-tokens, or storage credentials.
+`version`, `app.launch`, `app.pick`, `info`, `install`, `migrate.apply`,
+`map.open`, `map.check`, `map.prune`, `map.push`, `map.fetch`, `login`,
+`logout`, `whoami`, `trace.store.create`, `trace.store.delete`,
+`trace.store.info`, `trace.install`, `trace.allow`, `trace.deny`,
+`trace.storage.use`, `trace.config.migrate`, `api`, `mcp`, and `invalid`.
+Review sends no arguments, refs, tokens, or storage credentials.
 
 The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 `force` flags accompany only `map.*` commands.
@@ -197,8 +195,6 @@ The `command`, `subcommand`, `mode`, `has_base_ref`, `has_head_ref`, and
 The CLI writes `review_command_started` to the disk queue before entering the
 command handler. The queue normally begins its background flush after five
 seconds; Review does not wait for network delivery before starting the command.
-Scaffold binds after a new Review is persisted or an update target is resolved.
-Publish binds immediately after target resolution, before validation and mount.
 
 Error names and categories are closed enums. A failed command sends no exception
 message, stack, path, process output, project identifier, or remediation text.

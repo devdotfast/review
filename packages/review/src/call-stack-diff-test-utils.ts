@@ -35,9 +35,3 @@ export function patchChangedLines(patch: string): CallStackChangedLines {
 
   return { deleted, added };
 }
-
-// Evidence rule: a "-" row is a claim of removal and must anchor a range
-// that the change actually deletes lines from; a "+" row must anchor a
-// range with added lines. This is the check that makes the markers honest —
-// a frame listed on one side for contrast, over unchanged code, fails
-// publish. Context rows carry no claim and stay free.

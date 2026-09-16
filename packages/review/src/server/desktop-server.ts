@@ -1412,7 +1412,7 @@ export function createGlobalReviewServer(
             reviewMutationFingerprint(latest.review) !== expected
           ) {
             throw new ReviewServerError(
-              "Review changed while preparing its session; retry opening or publishing it.",
+              "Review changed while preparing its session; retry opening it.",
               409,
               "review_changed",
             );

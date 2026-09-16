@@ -61,13 +61,19 @@ export function createLegacyImporter(input: {
           }),
         ),
       )
-      .catch(
-        (error): ImportOutcome => ({
-          kind: "skipped",
-          reviewId: uuid,
-          reason: errorMessage(error),
-        }),
-      )
+      .catch((error): ImportOutcome => {
+        // A review the store already holds is the one Home lists and opens:
+        // a failed re-import leaves it current, rather than sending the
+        // reader to the legacy view of a review Home no longer offers.
+        if (input.store.has(uuid))
+          return {
+            kind: "current",
+            reviewId: uuid,
+            warnings: [errorMessage(error)],
+          };
+
+        return { kind: "skipped", reviewId: uuid, reason: errorMessage(error) };
+      })
       .then(async (outcome) => {
         if (outcome.kind === "skipped")
           report(uuid, `skipped (${outcome.reason})`);

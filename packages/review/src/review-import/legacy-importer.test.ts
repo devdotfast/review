@@ -123,6 +123,62 @@ describe("createLegacyImporter", () => {
     }
   });
 
+  it("leaves an already-imported review current when a re-import throws", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 2 },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const log = vi.fn<(message: string) => void>();
+    let fail = false;
+
+    const importer = createLegacyImporter({
+      store,
+      data,
+      materialize: async (review: StoredReview, revision: string) => {
+        if (fail) throw new Error("disk on fire");
+
+        return materializeFromRevisionDirs(review, revision);
+      },
+      onImported: async () => {},
+      log,
+      revisionLog: logFromRevisionDirs(oids),
+    });
+
+    try {
+      // The sweep saw the record when only the first revision was presented.
+      const older: StoredReview = {
+        dir: stored.dir,
+        review: { ...record, presentedDocumentRevision: oids[0]! },
+      };
+
+      expect(await importer.ensure(older)).toMatchObject({ kind: "imported" });
+      fail = true;
+
+      // The newer revision cannot be read, but the review is in the store, so
+      // it stays the one Home lists and opens.
+      expect(await importer.ensure(stored)).toEqual({
+        kind: "current",
+        reviewId: record.uuid,
+        warnings: ["disk on fire"],
+      });
+      expect(store.has(record.uuid)).toBe(true);
+      expect(await importer.ensure(stored)).toMatchObject({ kind: "current" });
+      expect(
+        log.mock.calls.filter(([message]) => message.endsWith("disk on fire")),
+      ).toHaveLength(1);
+    } finally {
+      await store.close();
+    }
+  });
+
   it("reports a map it cannot import once, then imports it", async () => {
     const repo = await scratchGitRepo();
     const mapOid = "a".repeat(40);

@@ -33,3 +33,20 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
   and `CodePeekGroup` take `Source` values. JSON `code_peek` blocks render
   directly, with no source-text fetch during document load.
 - JSON commands still commit without the off-screen test-render gate.
+
+## F: canonical call-stack frames
+
+- `CallStackDiff` documents store frames (`{ id, key?, source, label?, via? }`
+  from `review-api/document.ts`) on both sides. Legacy anchor lists and
+  `calls()` hops convert once on the server: at publish in materialize, and
+  for sealed bundles in the read-time upgrade walker. The anchor id becomes
+  both `id` and matching `key`, so shared frames still align by anchor.
+- Matching identity is `key`, else the source range; React and selection
+  identity stay on `id`. A `calls()` hop becomes the child frame with
+  `via: { kind: "call", reason }` (`"asserted"` when no reason was given).
+- The renderer no longer parses the authoring schema per render; the base/head
+  side rules remain a publish-time check in the authoring schema and a JSON
+  ingestion check in `checkReferences`.
+- The authoring registry type still describes authored MDX props; the app's
+  runtime registry satisfies it for every component except `CallStackDiff`
+  until Part I moves the registry to document props.

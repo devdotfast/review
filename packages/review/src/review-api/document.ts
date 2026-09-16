@@ -50,7 +50,7 @@ const stepSchema = z
     "A step needs exactly one of source, explanation, or code.",
   );
 
-const frameSchema = z.strictObject({
+export const frameSchema = z.strictObject({
   ...identity,
   // Optional component-local name for the same frame on both sides (even if moved).
   key: label.optional(),
@@ -63,6 +63,8 @@ const frameSchema = z.strictObject({
     })
     .optional(),
 });
+
+export type Frame = z.infer<typeof frameSchema>;
 
 const fieldSchema = z.strictObject({
   label,

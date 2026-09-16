@@ -73,21 +73,24 @@ export type AuthoringComponentName = z.infer<
   typeof authoringComponentNameSchema
 >;
 
+type ProjectedComponentName = "DatabaseLens" | "CallStackDiff";
+
 type OtherAuthoringComponentProps = {
-  [Name in Exclude<AuthoringComponentName, "DatabaseLens">]: z.infer<
+  [Name in Exclude<AuthoringComponentName, ProjectedComponentName>]: z.infer<
     (typeof reviewAuthoringPropsSchemas)[Name]
   >;
-}[Exclude<AuthoringComponentName, "DatabaseLens">];
+}[Exclude<AuthoringComponentName, ProjectedComponentName>];
 
 // The audit is the one walk that sees every authored element, so it parses
 // each component's props once and hands the typed result to materialization.
-// DatabaseLens is its own member because it is the only component whose
-// document form differs from its authored form (store handles project to
-// data), and narrowing on `name` must narrow `props` with it.
+// DatabaseLens and CallStackDiff are their own members because their document
+// form differs from their authored form (store handles project to data, anchor
+// lists project to frames), and narrowing on `name` must narrow `props` too.
 export type AuditedComponentProps =
   | { name: "DatabaseLens"; props: DatabaseLensProps }
+  | { name: "CallStackDiff"; props: CallStackDiffProps }
   | {
-      name: Exclude<AuthoringComponentName, "DatabaseLens">;
+      name: Exclude<AuthoringComponentName, ProjectedComponentName>;
       props: OtherAuthoringComponentProps;
     };
 

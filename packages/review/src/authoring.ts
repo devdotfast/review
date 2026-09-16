@@ -2,6 +2,7 @@ import { isObjectValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import type { ComponentType, ReactNode } from "react";
 import { z } from "zod";
 
+import { frameSchema } from "./review-api/document";
 import {
   type NormalizedSoftwareModel,
   type SoftwareDataStoreCollectionInput,
@@ -826,16 +827,6 @@ export const storeRefDataSchema: z.ZodType<StoreRefData> = z.strictObject({
 // store handles are their data projection. Anchors are stored as-is: their
 // peek is already a plain source range. review-document-materialize.ts writes
 // exactly this.
-const documentCallStackEntrySchema = z.union([
-  peekableAnchorRefSchema,
-  z.strictObject({
-    __kind: z.literal("call-assertion"),
-    parent: peekableAnchorRefSchema,
-    child: peekableAnchorRefSchema,
-    reason: optionalNonEmptyStringSchema,
-  }),
-]);
-
 const documentSequenceMessageFields = {
   from: sequenceActorInputSchema,
   to: sequenceActorInputSchema,
@@ -864,8 +855,8 @@ export const reviewComponentDataSchemas = {
   AnchorLink: z.strictObject({ anchor: peekableAnchorRefSchema }),
   CallStackDiff: z.strictObject({
     title: optionalNonEmptyStringSchema,
-    base: z.array(documentCallStackEntrySchema),
-    head: z.array(documentCallStackEntrySchema),
+    base: z.array(frameSchema),
+    head: z.array(frameSchema),
   }),
   CodePeek: z.strictObject({ anchor: peekableAnchorRefSchema }),
   DatabaseLens: z.strictObject({

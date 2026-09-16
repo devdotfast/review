@@ -1,5 +1,7 @@
+import type { ComponentType } from "react";
+
 import type { ReviewAuthoringComponentRegistry } from "../../src/authoring";
-import { CallStackDiff } from "./call-stack-diff";
+import { CallStackDiff, type CallStackDiffProps } from "./call-stack-diff";
 import { ReviewCodePeek } from "./CodePeek";
 import { DatabaseLens, DbRead, DbUseCase, DbWrite } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
@@ -27,4 +29,8 @@ export const reviewAuthoringComponents = {
   TutorialFeature,
   TutorialKeymapPicker,
   TutorialViewButton,
-} satisfies ReviewAuthoringComponentRegistry;
+} satisfies Omit<ReviewAuthoringComponentRegistry, "CallStackDiff"> & {
+  // The document stores canonical frames; the authoring registry still types
+  // authored MDX with anchor lists. Part I moves the whole registry over.
+  CallStackDiff: ComponentType<CallStackDiffProps>;
+};

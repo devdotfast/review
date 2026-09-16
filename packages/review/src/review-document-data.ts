@@ -10,8 +10,10 @@ import {
   type AnchorRef,
   type ReviewAuthoringComponentName,
   anchorRefSchema,
+  callStackEntrySchema,
   reviewComponentDataSchemas,
 } from "./authoring";
+import { callStackFrames } from "./call-stack-frames";
 import {
   type SoftwareModelData,
   softwareModelDataSchema,
@@ -283,12 +285,40 @@ export function upgradeReviewDocumentJson(value: JsonValue): JsonValue {
     return { side: graph ?? "head", file, fromLine, toLine };
   }
 
-  return Object.fromEntries(
+  const upgraded = Object.fromEntries(
     Object.entries(value).map(([key, child]) => [
       key,
       upgradeReviewDocumentJson(child),
     ]),
   );
+
+  // Call stacks once listed anchors and `calls()` hops; they now list frames.
+  if (
+    upgraded.type === "component" &&
+    upgraded.name === "CallStackDiff" &&
+    isJsonObject(upgraded.props)
+  ) {
+    const props = { ...upgraded.props };
+
+    for (const side of ["base", "head"] as const) {
+      const entries = props[side];
+
+      if (Array.isArray(entries) && entries.some(isLegacyCallStackEntry))
+        props[side] = parseJsonText(
+          JSON.stringify(
+            callStackFrames(z.array(callStackEntrySchema).parse(entries)),
+          ),
+        );
+    }
+
+    return { ...upgraded, props };
+  }
+
+  return upgraded;
+}
+
+function isLegacyCallStackEntry(value: JsonValue): boolean {
+  return isJsonObject(value) && value.__kind !== undefined;
 }
 
 export function walkReviewNodes(

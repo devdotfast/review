@@ -13,7 +13,6 @@ import {
   type CodePeekProps,
   type CodePeekValidationContext,
   type ReviewDefinitionSession,
-  callStackEntryAnchor,
   calls,
   createReviewDefinitionSession,
 } from "./authoring";
@@ -23,6 +22,7 @@ import {
   callStackEvidenceErrors,
   diffCallStacks,
 } from "./call-stack-diff";
+import { callStackFrames } from "./call-stack-frames";
 import {
   REVIEW_DOCUMENT_FORMAT,
   type ReviewDocumentData,
@@ -349,12 +349,15 @@ async function validateCallStackEvidence(input: {
   const changedLines = new Map<string, CallStackChangedLines | null>();
 
   for (const props of input.props) {
-    const rows = diffCallStacks(props.base, props.head);
+    const rows = diffCallStacks(
+      callStackFrames(props.base),
+      callStackFrames(props.head),
+    );
 
     for (const row of rows) {
       if (row.change === "unchanged") continue;
       const side: CallStackSide = row.change === "removed" ? "base" : "head";
-      const file = callStackEntryAnchor(row.entry).peek.file;
+      const file = row.frame.source.file;
       const key = `${side}\0${file}`;
 
       if (!changedLines.has(key)) {

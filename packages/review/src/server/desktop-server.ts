@@ -451,7 +451,7 @@ export function createGlobalReviewServer(
 
     const reviews = await Promise.all(
       listed.reviews
-        .filter((stored) => !reviewStore?.has(stored.review.uuid))
+        .filter((stored) => !reviewStore?.legacyImport(stored.review.uuid))
         .map((stored) =>
           reviewDescriptor(stored, { retentionDays: dismissedRetentionDays }),
         ),
@@ -569,6 +569,12 @@ export function createGlobalReviewServer(
       : null;
 
     if (imported && imported.kind !== "skipped") {
+      if (reviewStore && !reviewStore.has(uuid))
+        throw new ReviewServerError(
+          "This review was imported into the JSON review store and then deleted there.",
+          404,
+          "deleted",
+        );
       await relay.dispatch("review-desktop", {
         name: "openApiReview",
         args: { reviewId: uuid, title: review.review.title },
@@ -1011,7 +1017,7 @@ export function createGlobalReviewServer(
 
       if (!review) throw new ReviewServerError("Review not found.", 404);
 
-      if (reviewStore?.has(request.reviewUuid))
+      if (reviewStore?.legacyImport(request.reviewUuid))
         throw migratedError(request.reviewUuid, "publish");
       const agent = request.agent;
 
@@ -1051,7 +1057,7 @@ export function createGlobalReviewServer(
 
     if (!review) throw new ReviewServerError("Review not found.", 404);
 
-    if (reviewStore?.has(request.reviewUuid))
+    if (reviewStore?.legacyImport(request.reviewUuid))
       throw migratedError(request.reviewUuid, "repair");
 
     return globalJson(
@@ -1079,7 +1085,7 @@ export function createGlobalReviewServer(
 
       if (!review) throw new ReviewServerError("Review not found.", 404);
 
-      if (reviewStore?.has(request.reviewUuid))
+      if (reviewStore?.legacyImport(request.reviewUuid))
         throw migratedError(request.reviewUuid, "map publish");
       const agent = request.agent;
 

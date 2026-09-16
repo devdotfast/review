@@ -206,6 +206,52 @@ describe("proseToMarkdown", () => {
     expect(proseToMarkdown([definitions], footnotes)).toBe("\n");
   });
 
+  it("keeps a nested CodePeek as a source link and reports other nested components", () => {
+    const warnings: string[] = [];
+    const peek = { side: "head", file: "src/a.ts", fromLine: 4, toLine: 6 };
+
+    const markdown = proseToMarkdown(
+      [
+        el("ul", [
+          el("li", [
+            {
+              type: "component",
+              name: "CodePeek",
+              props: {
+                anchor: {
+                  __kind: "db-anchor-ref",
+                  id: "p",
+                  title: "Peek",
+                  peek,
+                },
+              },
+              children: [],
+            } as ReviewNode,
+          ]),
+        ]),
+        el("p", [
+          text("Said: "),
+          {
+            type: "component",
+            name: "TraceQuote",
+            props: { sessionId: "s1", event: 1 },
+            children: [text("quoted")],
+          } as ReviewNode,
+        ]),
+      ],
+      undefined,
+      warnings,
+    );
+
+    expect(markdown).toBe(
+      "- [Peek](review-source:head/src/a.ts#L4-L6)\n\nSaid: quoted\n",
+    );
+    expect(warnings).toEqual([
+      "CodePeek inside prose became a source link (Peek)",
+      "TraceQuote inside prose kept only its text",
+    ]);
+  });
+
   it("degrades kbd and blockquotes", () => {
     expect(
       proseToMarkdown([

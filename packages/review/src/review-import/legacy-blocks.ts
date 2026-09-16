@@ -58,7 +58,7 @@ export function legacyDocumentToBlocks(
 
     const flush = () => {
       if (prose.length === 0) return;
-      const markdown = proseToMarkdown(prose, footnotes).trim();
+      const markdown = proseToMarkdown(prose, footnotes, warnings).trim();
 
       if (markdown) out.push({ type: "markdown", markdown: `${markdown}\n` });
       prose = [];

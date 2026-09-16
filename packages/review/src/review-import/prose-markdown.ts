@@ -66,6 +66,8 @@ export type FootnoteDefinitions = Map<string, string>;
 interface FootnoteState {
   definitions: FootnoteDefinitions;
   referenced: Set<string>;
+  /** Components found inside prose that Markdown cannot carry. */
+  warnings?: string[];
 }
 
 /** Every footnote definition in a document, from any `section[data-footnotes]`. */
@@ -99,10 +101,12 @@ export function collectFootnoteDefinitions(
 export function proseToMarkdown(
   nodes: ReviewNode[],
   footnotes?: FootnoteDefinitions,
+  warnings?: string[],
 ): string {
   const state: FootnoteState = {
     definitions: footnotes ?? new Map(),
     referenced: new Set(),
+    warnings,
   };
 
   const body = blocks(nodes, state).trimEnd();
@@ -334,19 +338,7 @@ function inlines(nodes: ReviewNode[], state?: FootnoteState): string {
 function inline(node: ReviewNode, state?: FootnoteState): string {
   if (node.type === "text") return escapeText(node.value);
 
-  if (node.type === "component") {
-    // SAFETY: reviewDocumentDataSchema validated AnchorLink props against
-    // reviewComponentDataSchemas.AnchorLink when the sealed document was parsed.
-    const anchor = (
-      node.props as { anchor?: { title?: string; peek?: Source } }
-    ).anchor;
-
-    const label = inlines(node.children, state) || anchor?.title || "";
-
-    return node.name === "AnchorLink" && anchor?.peek
-      ? `[${label}](${sourceLink(anchor.peek)})`
-      : label;
-  }
+  if (node.type === "component") return inlineComponent(node, state);
 
   const { tag, children, props } = node;
 
@@ -393,6 +385,46 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
           )
         : inlines(children, state);
   }
+}
+
+/** Only `AnchorLink` is prose. Any other component reached here sits inside
+ * an element (a peek in a list item, a quote in a paragraph): a nested
+ * `CodePeek` survives as a source link, everything else keeps its text and is
+ * reported so the import callout names it. */
+function inlineComponent(
+  node: Extract<ReviewNode, { type: "component" }>,
+  state?: FootnoteState,
+): string {
+  // SAFETY: reviewDocumentDataSchema validated the component props against
+  // reviewComponentDataSchemas when the sealed document was parsed.
+  const anchor = (node.props as { anchor?: { title?: string; peek?: Source } })
+    .anchor;
+
+  const text = inlines(node.children, state);
+
+  if (node.name === "AnchorLink")
+    return anchor?.peek
+      ? `[${text || anchor.title || ""}](${sourceLink(anchor.peek)})`
+      : text || anchor?.title || "";
+
+  if (node.name === "CodePeek" && anchor?.peek) {
+    const peek = anchor.peek;
+
+    const label =
+      anchor.title || `${peek.file}:${peek.fromLine}-${peek.toLine}`;
+
+    state?.warnings?.push(
+      `CodePeek inside prose became a source link (${label})`,
+    );
+
+    return `[${label}](${sourceLink(peek)})`;
+  }
+
+  state?.warnings?.push(
+    `${node.name} inside prose kept only its text${text ? "" : " (none)"}`,
+  );
+
+  return text;
 }
 
 function plainText(nodes: ReviewNode[]): string {

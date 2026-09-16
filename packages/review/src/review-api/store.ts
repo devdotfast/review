@@ -153,6 +153,26 @@ export class ReviewStore {
       .exec(`CREATE TABLE IF NOT EXISTS repositories(id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id),
         kind TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);`);
+    // Import progress lives apart from the editable snapshots: restoring an
+    // older version or deleting the review must not look like an unfinished
+    // import to the next sweep.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL);`,
+    );
+  }
+  /** The last legacy revision imported for a review, kept after deletion. */
+  legacyImport(
+    reviewId: string,
+  ): { revision: string; importedAt: string } | null {
+    const row = this.db
+      .prepare(
+        "SELECT revision,imported_at FROM legacy_imports WHERE review_id=?",
+      )
+      .get(reviewId);
+
+    return row
+      ? { revision: String(row.revision), importedAt: String(row.imported_at) }
+      : null;
   }
   registerRepository(root: string) {
     this.db
@@ -544,7 +564,8 @@ export class ReviewStore {
   }
   /** Legacy import: every version is validated first, then all rows land in
    * one transaction, so a failure leaves no partial review. A new review
-   * starts at version 0; an existing one continues its numbering. */
+   * starts at version 0; an existing one continues its numbering. The last
+   * input's `origin.revision` becomes the review's import cursor. */
   importVersions(
     inputs: ImportedVersionInput[],
   ): Promise<{ version: number; warnings: string[] }> {
@@ -646,6 +667,15 @@ export class ReviewStore {
               attention.viewedAt ?? null,
               attention.dismissedAt ?? null,
             );
+
+        const cursor = inputs.at(-1)?.origin?.revision;
+
+        if (cursor)
+          this.db
+            .prepare(
+              "INSERT INTO legacy_imports(review_id,revision,imported_at) VALUES(?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,imported_at=excluded.imported_at",
+            )
+            .run(reviewId, cursor, new Date().toISOString());
         this.db.exec("COMMIT");
       } catch (error) {
         this.db.exec("ROLLBACK");

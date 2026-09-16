@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -304,6 +305,52 @@ describe("importLegacyReview", () => {
       const first = store.read(record.uuid).document[0];
       expect(first).toMatchObject({ type: "callout", tone: "warning" });
       expect(JSON.stringify(first)).toContain("head/missing.ts#L1-L2");
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("does not re-import after a restore or a delete", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 2 },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const run = () =>
+      importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+    try {
+      expect(await run()).toMatchObject({ kind: "imported", version: 1 });
+      await store.execute({
+        commandId: randomUUID(),
+        operation: { type: "restore", reviewId: record.uuid, version: 0 },
+      });
+      expect(store.read(record.uuid).origin?.revision).toBe(oids[0]);
+      expect(await run()).toEqual({ kind: "current", reviewId: record.uuid });
+      expect(store.read(record.uuid).version).toBe(2);
+
+      await store.execute({
+        commandId: randomUUID(),
+        operation: { type: "delete", reviewId: record.uuid },
+      });
+      expect(store.has(record.uuid)).toBe(false);
+      expect(await run()).toEqual({ kind: "current", reviewId: record.uuid });
+      expect(store.has(record.uuid)).toBe(false);
+      expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
     } finally {
       await store.close();
     }

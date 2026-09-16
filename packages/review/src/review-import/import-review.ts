@@ -83,15 +83,16 @@ export async function importLegacyReview(
   if (!record.presentedDocumentRevision)
     return { kind: "skipped", reviewId, reason: "never published" };
 
-  const imported = store.has(reviewId) ? store.read(reviewId) : null;
-  const importedRevision = imported?.origin?.revision ?? null;
+  const progress = store.legacyImport(reviewId);
+  const importedRevision = progress?.revision ?? null;
 
-  // A review imported before revisions were recorded cannot be resumed.
-  if (imported && importedRevision === null)
-    return { kind: "current", reviewId };
+  // The import record outlives the review: a deleted review stays deleted.
+  if (progress && !store.has(reviewId)) return { kind: "current", reviewId };
 
   if (importedRevision === record.presentedDocumentRevision)
     return { kind: "current", reviewId };
+
+  const imported = store.has(reviewId);
 
   let repositoryId: string;
 

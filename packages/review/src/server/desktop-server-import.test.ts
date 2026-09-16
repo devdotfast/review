@@ -166,7 +166,7 @@ describe("legacy review import triggers", () => {
   });
 
   it("lists without waiting for the sweep and hides imported reviews", async () => {
-    const { home, repo } = await seedLegacyReview();
+    const { home, repo, revision } = await seedLegacyReview();
 
     const { store, data } = openLocalReviewStore(
       path.join(home, "review-api.db"),
@@ -182,6 +182,7 @@ describe("legacy review import triggers", () => {
         pins: { repositoryId: registered.id, base: repo.base, head: repo.head },
         document: [],
         createdAt: "2026-09-01T00:00:00Z",
+        origin: { revision },
       });
 
       server = createGlobalReviewServer({
@@ -230,6 +231,7 @@ describe("legacy review import triggers", () => {
         pins: { repositoryId: registered.id, base: repo.base, head: repo.head },
         document: [],
         createdAt: "2026-09-01T00:00:00Z",
+        origin: { revision },
       });
 
       server = createGlobalReviewServer({

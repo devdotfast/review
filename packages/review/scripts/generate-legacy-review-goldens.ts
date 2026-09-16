@@ -13,12 +13,14 @@ import {
   listLegacyReviewFixtures,
   normalizeMigratedRecord,
 } from "../src/fixtures/legacy-reviews/legacy-review-fixture";
+import type { Block } from "../src/review-api/document";
 import {
   readReviewDocumentBundle,
   reviewDocumentBundleData,
 } from "../src/review-bundle";
 import type { ReviewDocumentData } from "../src/review-document-data";
 import { materializeReviewRevision } from "../src/review-home";
+import { legacyDocumentToBlocks } from "../src/review-import/legacy-blocks";
 import {
   type ReviewSoftwareMapBundle,
   readReviewSoftwareMapBundle,
@@ -28,7 +30,7 @@ import { migrateStoredReview } from "../src/stored-review-migration";
 async function writeGolden(
   name: string,
   kind: string,
-  value: JsonObject | ReviewDocumentData | ReviewSoftwareMapBundle,
+  value: JsonObject | ReviewDocumentData | ReviewSoftwareMapBundle | Block[],
 ) {
   const text = `${JSON.stringify(value, null, 2)}\n`;
 
@@ -66,10 +68,12 @@ for (const fixture of listLegacyReviewFixtures()) {
     const document = await readReviewDocumentBundle(documentDir, "/");
 
     if (!document) throw new Error(`${fixture.name} document did not convert`);
+    const documentData = reviewDocumentBundleData(document);
+    await writeGolden(fixture.name, "document", documentData);
     await writeGolden(
       fixture.name,
-      "document",
-      reviewDocumentBundleData(document),
+      "blocks",
+      legacyDocumentToBlocks(documentData).blocks,
     );
 
     if (outcome.record.presentedSoftwareMapRevision) {

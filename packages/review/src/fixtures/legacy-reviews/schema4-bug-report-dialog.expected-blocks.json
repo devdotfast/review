@@ -1,0 +1,56 @@
+[
+  {
+    "type": "markdown",
+    "markdown": "# Bug reports: screenshots and simpler consent\n\nBug reporting now starts with useful context and needs no written description. The tutorial keeps the Report bug and Version history controls visible, but disabled.\n"
+  },
+  {
+    "type": "section",
+    "title": "Interface change",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Interface change\n\nThe dialog captures the Review window before it opens. It shows the JPEG as a removable preview. A user can replace it by pasting or dropping a PNG, JPEG, or WebP image.\n\nThe form has two attachment choices:\n\n- **Review** sends both `include_review` and `include_map`.\n- **Changed-file diffs used by CodePeeks** sends `include_diff`.\n\nThe request keeps the existing wire flags and adds one optional field:\n\n```json\n{\n  \"description\": \"\",\n  \"include_review\": true,\n  \"include_map\": true,\n  \"include_diff\": true,\n  \"screenshot\": {\n    \"mime\": \"image/jpeg\",\n    \"base64\": \"...\"\n  }\n}\n```\n"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Screenshot flow",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Screenshot flow\n\n1. Review Desktop captures the window through the host screenshot service.\n1. The canvas limits the longest edge to 1600 pixels and re-encodes at JPEG quality 0.8.\n1. The local API accepts at most 6 MiB of JSON and validates a decoded screenshot limit of 3 MiB.\n1. Submission sends the existing gzipped multipart payload to the bug service.\n1. If the multipart payload is too large, the server drops diff, map, screenshot, then Review source. Metadata records whether the screenshot was sent or truncated.\n\nCapture failure and a 1.5 second timeout are non-blocking. The dialog still opens, and paste or drop remains available.\n"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Tutorial behavior",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Tutorial behavior\n\nReport bug and Version history use the same disabled visual state during the tutorial. The controls do not capture, load revisions, emit open telemetry, or open a dialog or menu.\n"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Testing",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Testing\n\n- Protocol build, protocol synchronization, and 133 Review Desktop tests passed. One existing test stayed skipped.\n- TypeScript typecheck passed.\n- All 25 focused dialog, tutorial-control, and request-parser tests passed.\n- The production desktop canvas build passed.\n- Focused formatting and lint checks passed.\n\nThe parallel full progressive-review run still trips three unrelated `review-info` cases. That file passes all 22 tests when run alone.\n"
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "title": "Decision log",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "## Decision log\n\n- The description is optional.\n- The label is **Review**, but it still drives both Review and software-map wire flags.\n- Automatic capture happens before the dialog renders, so the dialog is not in its own screenshot.\n- The screenshot is attached by default and can be removed.\n- Tutorial controls stay visible and grey instead of disappearing.\n"
+      }
+    ]
+  }
+]

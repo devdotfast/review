@@ -141,7 +141,11 @@ export interface PublishedSoftwareMap {
 export type RenderedReviewDocument = Omit<
   HydratedReviewDocument,
   "body" | "contentHash"
-> & { render: ComponentType; key: string };
+> & {
+  render: ComponentType;
+  key: string;
+  tocEntries?: import("./review-document-headings").ReviewTocEntry[];
+};
 
 export type ReviewDocumentAppState =
   | { state: "loading" }
@@ -498,8 +502,11 @@ function ReviewLayoutContent({
   });
 
   const tocEntries = useMemo(
-    () => reviewTocEntries(projectedBody),
-    [projectedBody],
+    () =>
+      documentState.state === "ready" && "render" in documentState.document
+        ? (documentState.document.tocEntries ?? [])
+        : reviewTocEntries(projectedBody),
+    [projectedBody, documentState],
   );
 
   // Subscribe before the canvas signals ready so a reveal immediately after

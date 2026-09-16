@@ -45,10 +45,12 @@ export function AgentMarkdown({
 export function MarkdownContent({
   source,
   h1: Heading,
+  headingId,
   renderLink,
 }: {
   source: string;
   h1?: ComponentType<{ children?: ReactNode }>;
+  headingId?: (index: number) => string;
   renderLink?: LinkRenderer;
 }): ReactElement {
   const { body, footnotes } = splitFootnotes(parseMarkdown(source));
@@ -60,6 +62,12 @@ export function MarkdownContent({
           <Heading key={index}>
             {renderMarkdownChildren(node.children ?? [], String(index))}
           </Heading>
+        ) : node.type === "heading" && headingId ? (
+          createElement(
+            `h${node.depth}`,
+            { key: index, id: headingId(index) },
+            renderMarkdownChildren(node.children ?? [], String(index)),
+          )
         ) : (
           renderMarkdownNode(node, String(index))
         ),

@@ -39,6 +39,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// A lens with operations routes its edges through libavoid; Vite serves the
+// wasm from node_modules when the test names it by file URL.
+const libavoidWasmUrl = new URL(
+  "../../../../node_modules/@mr_mint/elkjs-libavoid/dist/libavoid.wasm",
+  import.meta.url,
+).href;
+
 describe("desktop review document load states", () => {
   it("passes repair attention entries through the desktop Home canvas", async () => {
     const reviewUuid = "11111111-1111-4111-8111-111111111111";
@@ -242,7 +249,7 @@ describe("desktop review document load states", () => {
   });
   it("hoists the authored heading, collapses its body, and discovers database use cases", async () => {
     const bridge = testReviewBridge(
-      { sessionId: "rendered-data-behavior" },
+      { sessionId: "rendered-data-behavior", wasmUrl: libavoidWasmUrl },
       { request: requestStub, diffView: { create: createDiffView } },
     );
 
@@ -283,13 +290,40 @@ describe("desktop review document load states", () => {
                     props: {
                       id: "db:order-database",
                       title: "Order database",
-                      actors: {},
-                      stores: {},
+                      actors: { app: "App" },
+                      stores: {
+                        db: {
+                          label: "Orders DB",
+                          storage: "relational",
+                          collections: {
+                            orders: {
+                              label: "orders",
+                              fields: { id: { label: "id", dataType: "uuid" } },
+                            },
+                          },
+                        },
+                      },
                       useCases: [
                         {
                           id: "create",
                           label: "Create an order",
-                          operations: [],
+                          operations: [
+                            {
+                              id: "create-insert",
+                              kind: "write",
+                              store: "db",
+                              collection: "orders",
+                              field: "id",
+                              actor: "app",
+                              label: "Insert order",
+                              source: {
+                                side: "head",
+                                file: "src/orders.ts",
+                                fromLine: 1,
+                                toLine: 1,
+                              },
+                            },
+                          ],
                         },
                       ],
                     },

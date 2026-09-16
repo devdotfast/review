@@ -8,10 +8,8 @@ Review-owned workbench code lives directly in `code-oss/src/vs/review/`. See
 One desktop window owns one embedded global server. The app opens on Home with
 no repository. It opens pinned review worktrees only when a review needs them.
 Home scans `${DEV_REVIEW_HOME:-~/.dev}/reviews/*/review.json`; opening a review
-creates an in-memory active session rooted at that review's repository, while
-`review publish` validates and seals the revision in the CLI and asks the
-desktop (via `/publish-ready`) to materialize it, mount it off-screen, and
-promote it only when that mount is clean. Session URLs are routes on that global server; session-scoped
+creates an in-memory active session rooted at that review's repository.
+Session URLs are routes on that global server; session-scoped
 document caches, file watchers, and event clients do not bind their own ports
 or create additional HTTP servers.
 
@@ -71,15 +69,8 @@ an attached Desktop client before it reports readiness.
 Tests can set `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT` to keep the Code OSS profile
 under an isolated directory.
 
-Run `review app pick [--review <uuid>]` after publication. Bare `review app`
-starts the app. `review info` and `review publish` do not start it.
-
-Create and publish reviews independently from any worktree:
-
-```sh
-pnpm --filter @dev.fast/review review info
-pnpm --filter @dev.fast/review review publish
-```
+Run `review app pick [--review <uuid>]` to select a review. Bare `review app`
+starts the app. `review info` does not start it.
 
 Home lists review descriptors derived from `review.json`. Missing worktrees or
 documents remain visible but disabled. Reopening creates a desktop-owned active
@@ -87,14 +78,12 @@ session; candidates never appear on Home.
 
 ### Legacy review import
 
-Reviews published from MDX are imported into the JSON review store when Home
-lists them, when they are opened, and right after a successful `review
-publish`. A review is imported once its uuid has a row in the store: Home then
-shows only the JSON entry, opening routes to the JSON canvas, and `review
-publish`, `review map publish`, and `review repair` refuse it with `migrated`.
-Every sealed revision becomes a store version. Nothing is written back into the
-legacy review directory. A review whose repository is no longer on this machine
-stays legacy.
+Reviews published from MDX before this release were imported into the JSON
+review store when Home lists them or when they are opened. A review is
+imported once its uuid has a row in the store: Home then shows only the JSON
+entry, and opening routes to the JSON canvas. Every sealed revision becomes a
+store version. Nothing is written back into the legacy review directory. A
+review whose repository is no longer on this machine stays legacy.
 
 ### End-to-end checks
 

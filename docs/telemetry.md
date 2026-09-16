@@ -180,7 +180,6 @@ event includes only `reason`, `count`, and the random installation identifier.
 | `review_session_ended`         | Start properties plus `outcome`, `duration_ms`                                                               | A review is dismissed                   |
 | `review_review_deleted`        | None                                                                                                         | A user deletes a stored review          |
 | `review_review_reaped`         | `retention_days`                                                                                             | Retention deletes a dismissed review    |
-| `review_publish_gate_rejected` | `gate` in publish_ready, map_publish_ready                                                                   | A publish readiness gate rejects        |
 | `review_telemetry_dropped`     | `reason`, `count`                                                                                            | The queue drops one or more events      |
 
 `command_path` is a closed enum for all public commands. It includes `help`,
@@ -255,11 +254,6 @@ review_topbar, home.
 The server emits `review_review_restored` when a dismissal ends. Its property
 is `via` in home, open. The `home` value is the Undo button. The `open` value
 is the implicit undo: a reader who opens a dismissed review brings it back.
-
-“Presented” does not mean `review publish` returned successfully. It means the
-visible canvas loaded both the Review document and its optional software map,
-reported no render error, and fired the existing canvas-ready signal. The
-off-screen mount used by the publish validation gate does not emit this event.
 
 ## Suspected hangs
 

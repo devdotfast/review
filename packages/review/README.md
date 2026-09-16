@@ -1,11 +1,10 @@
 # dev.fast Review
 
-dev.fast Review is an MDX review canvas hosted by Review Desktop. Each review
-has a durable UUID directory under
-`${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/`. The CLI owns the publish flow
-(validation, bundling, sealing); it discovers the desktop server and notifies
-it of sealed revisions. The server owns review discovery, session state, and
-presentation.
+dev.fast Review is a JSON review canvas hosted by Review Desktop. The server
+owns review discovery, session state, and presentation. Legacy reviews
+published with the removed MDX toolchain have a durable UUID directory under
+`${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/` and are imported into the JSON
+store when Home lists them or when they are opened.
 
 ## Review guidance
 
@@ -40,33 +39,12 @@ repository and without a terminal:
 review app launch --json
 ```
 
-Run from the repository you want to review:
+Reviews are authored through the JSON API: `review api`, the Review MCP
+tools, or the dev-review skill. See
+[`skills/dev-review/SKILL.md`](skills/dev-review/SKILL.md) for the authoring
+workflow.
 
-```sh
-review scaffold
-```
-
-Edit the reported UUID directory with normal file tools, validate it locally,
-then publish:
-
-```sh
-cd "${DEV_REVIEW_HOME:-$HOME/.dev}/reviews/<uuid>"
-npm test
-review publish --review <uuid>
-```
-
-`publish` runs the whole gate in the CLI: the software-map check, MDX/TS
-compilation and bundling, and resolution of every source range against the
-pinned worktree. On success it seals the revision (bundle included)
-and notifies the desktop server, which materializes it, mounts it off-screen,
-and promotes it only when that mount is clean. A revision that fails either
-validation never replaces the visible canvas. Every `review` command accepts
-`--json`: stdout then carries only JSON events, one per line, human progress
-goes to stderr, and a failure prints a JSON error event too. `publish`, `app`,
-and `map publish` print human-readable progress without it. JavaScript belongs
-directly in `.mdx`; TypeScript belongs in neighboring `.ts` modules.
-
-To select a published Review, run:
+To select a review, run:
 
 ```sh
 review app pick
@@ -76,17 +54,10 @@ Use `review app pick --review <uuid>` to select a specific Review. Bare
 `review app` is an alias for `review app launch`. The old
 `review app --review <uuid>` form remains an alias for `review app pick`.
 
-`review scaffold` creates one new UUID directory and prints its JSONL `info`
-event. `review info` is read-only: it lists active Reviews bound to the current
+`review info` is read-only: it lists active Reviews bound to the current
 worktree, or every worktree in the repository with `--all`. Each result has a
 `matchesCheckout` field. It is true when the checkout equals or descends from
 the Review change.
-
-`review scaffold` materializes the pinned head and base worktrees. It runs each
-configured `devfast.prepare` command in those worktrees. This setup gives
-Review Desktop language services the dependencies and build output they need.
-Source ranges do not need an indexer. `review publish` reads each range from
-its pinned worktree and rejects paths or line numbers that are not valid.
 
 Review Desktop is the primary install path for Claude Code, Codex, Cursor, Pi,
 and other coding agents. On startup it detects installed agents, offers to

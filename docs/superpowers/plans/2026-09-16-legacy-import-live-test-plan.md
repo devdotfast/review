@@ -1,6 +1,6 @@
 # Legacy review import: live test plan
 
-For a tester driving the real app (computer use). PR #296, branch `feat/legacy-review-import`, worktree `/Users/aiansiti/workable/review-legacy-import`.
+For a tester driving the real app (computer use). Run it from the branch under test, in its worktree.
 
 The automated gates already prove the mechanics (`native-authoring-e2e.mjs` on the schema-4 fixtures; `legacy-import-smoke.mjs` on a copy of the real reviews). This plan covers what a script cannot judge: how imported reviews look and behave in the app, the Home cards, the CLI experience now that the MDX verbs are gone, persistence across restarts, and the tutorial.
 
@@ -13,7 +13,7 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
 1. Build the home and launch the Desktop on it:
 
    ```sh
-   cd /Users/aiansiti/workable/review-legacy-import
+   cd <worktree for the branch under test>
    pnpm install
    HOME_DIR=$(bash apps/review-desktop/scripts/legacy-import-live-home.sh | head -1)
    cat "$HOME_DIR/TESTER-README.md"     # inventory, expected outcomes, CLI env
@@ -26,7 +26,7 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
 
    ```sh
    export DEV_REVIEW_HOME="$HOME_DIR" DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 DEV_FAST_REVIEW_TELEMETRY_DISABLED=1
-   cd /Users/aiansiti/workable/review-legacy-import
+   cd <worktree for the branch under test>
    alias review='pnpm --filter @dev.fast/review review'
    ```
 

@@ -35,21 +35,18 @@ change ID, or GitHub pull request. Scaffolding resolves and pins exact base and
 head commits, then prepares Review-owned checkouts for them.
 
 The agent reads those pinned checkouts while it writes. Moving your current
-checkout does not silently change the code being reviewed. Run
-`review scaffold --update` when the bound branch, change, or pull request moves.
+checkout does not silently change the code being reviewed. Use `review_repin`
+(or the equivalent `review api` command) to start a fresh version at updated
+pins when the bound branch, change, or pull request moves.
 
-## Publishing is a validation boundary
+## Every edit saves immediately
 
-`review publish` validates the Review document, checks its software-map
-relationship, and resolves every source range against the pinned checkout. The
-CLI seals a revision only after these checks pass. Review Desktop then mounts
-the candidate before making it visible.
-
-Authoring remains `review.mdx` and `data.ts`. The CLI parses the document,
-checks authored TypeScript, and loads helpers in a disposable Node worker. It
-constructs and audits schema-checked JSON directly; it does not compile an MDX
-component or bundle authored modules. The installed runtime does not need
-esbuild. Release-time tools still build the CLI, worker, and app assets.
+Authoring goes through the JSON API: `review api`, the Review MCP tools, or
+the dev-review skill. Every accepted edit is saved as soon as it is applied;
+there is no publish, checkpoint, or render-report step. See
+[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md)
+and [`packages/review/src/review-api/README.md`](../packages/review/src/review-api/README.md)
+for the full authoring workflow.
 
 The published document is `.bundle/document/review-document.json`, with format
 `review-document/1` and a version-2 manifest. Software-map bundles contain
@@ -58,10 +55,6 @@ serves JSON and the canvas renders it with built-in components, without
 executing authored document or map JavaScript. The local server may evaluate
 legacy sealed JavaScript during migration to this JSON format; the renderer
 remains JSON-only.
-
-A failed publish does not replace the last good revision. The document can also
-publish before its architecture map; `review map publish` validates and
-promotes that artifact independently.
 
 ## Reviews have an explicit lifecycle
 
@@ -94,28 +87,12 @@ Transient mutation contention is reported as retryable busy, not corruption or
 a reason to repair.
 
 If sealed conversion fails, the record, authoring inputs, candidates, and
-private refs stay unchanged. Home lists an attention entry with the exact
-command to run: `review repair --review <uuid>`. That Review cannot be opened
-until repair succeeds. Malformed or unsupported records remain explicit list
-errors. A current-schema Review with broken artifacts instead shows the repair
-command in its document or map load state.
-
-Use `review repair --review <uuid> --json` for explicit current-artifact recovery.
-Repair tries the sealed artifacts first. If necessary, it can compile editable
-authoring inputs with full pinned-range and evidence validation, or validate
-saved map notes at the same pins. Reconcile unpublished edits before using
-source-based repair: validation does not prove that those edits preserve what
-the current Review says. Repair reports source fallback and does not overwrite
-authoring files. Missing inputs remain an actionable failure.
-
-Repair requires Review Desktop to validate and mount all required artifacts
-before promotion. Failures
-retain the old presentation; concurrent changes and pending agent writes block
-repair. Successful migration or repair preserves status, pins, title,
-dismissal, viewed and publication timestamps, and old history. Opening a Review
-still applies the ordinary viewed and dismissal lifecycle after migration.
-Healthy current-schema
-Reviews need no repair; unpresented drafts use ordinary publication instead.
+private refs stay unchanged. Home lists an attention entry: the review was
+published with the removed MDX toolchain and its stored files are damaged, so
+it cannot be imported. Delete it from Home and recreate it with the Review
+skill. Malformed or unsupported records remain explicit list errors. A
+current-schema Review with broken artifacts shows the same guidance in its
+document or map load state.
 
 Already-JSON historical revisions remain readable. Older pre-data revisions
 show “This older revision is unavailable in this version of Review” with
@@ -130,9 +107,10 @@ ${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/
 ```
 
 The directory contains the document, supporting TypeScript, pinned state,
-sealed revisions, and disposable build output. Review owns the
-infrastructure files; agents author `review.mdx` and `data.ts`, and use the CLI
-for publication.
+sealed revisions, and disposable build output. Review owns the infrastructure
+files; agents author content through the JSON API (`review api`, the Review
+MCP tools, or the dev-review skill), never by editing files in this directory
+directly.
 
 `review.json` uses store schema 5 and records the independent document and map
 presentation pointers. Candidate JSON bundles live under `.bundle/`; private

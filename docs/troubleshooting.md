@@ -52,67 +52,34 @@ Start or activate it explicitly:
 review app launch --json
 ```
 
-`review info`, `review publish`, and map publication need a
-healthy Review Desktop server. If launch reports success but those commands
-still cannot connect, quit all Review windows, reopen the app, and retry the
-launch command.
+`review info`, `review api`, and `review mcp` need a healthy Review Desktop
+server. If launch reports success but those commands still cannot connect,
+quit all Review windows, reopen the app, and retry the launch command.
 
 ## No Review appears for the checkout
 
 Run `review info` from the source repository. An empty `reviews` list means the
 current worktree has no matching active Review.
 
-Create one with:
-
-```sh
-review scaffold
-```
-
-For a detached Git checkout, pass `--head <ref>`. For a GitHub pull request,
-pass `--pr <number-or-url>`. Use `review info --all` to inspect active Reviews
-across every worktree in the repository.
+Create one with the dev-review skill, which registers the repository, resolves
+pins, and calls `review_create` (or the equivalent `review api` command). See
+[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md).
+Use `review info --all` to inspect active Reviews across every worktree in the
+repository.
 
 ## A Review is out of sync
 
-The bound branch, bookmark, change, or pull request moved after scaffolding.
-Re-pin it explicitly:
-
-```sh
-review scaffold --update --review <uuid>
-```
-
-The authoring agent must reread any changed source ranges, update invalid
-anchors, and publish again. Publication warns about stale pins but does not move
-them automatically.
-
-## Publish fails
-
-Read the first validation error. A failed publish keeps the last good revision
-visible, so it is safe to correct the document and retry.
-
-Common causes include:
-
-- an MDX or TypeScript error in the authored Review;
-- a source path or line range that does not exist in the pinned checkout;
-- a Review that needs to be updated after its source moved.
-
-The scaffolded Review directory contains its own validation command:
-
-```sh
-cd "${DEV_REVIEW_HOME:-$HOME/.dev}/reviews/<uuid>"
-npm test
-review publish --review <uuid>
-```
+The bound branch, bookmark, change, or pull request moved after the Review was
+created. Start a fresh version at updated pins with `review_repin` (or the
+equivalent `review api` command); examine the diff before carrying content
+over.
 
 ## The Map tab is missing or stale
 
-The document and software map publish independently. A valid Review can open
-before its map is ready. Ask the authoring agent to finish the map, or inspect
-the current state with:
+Ask the authoring agent to finish the map, or inspect the current state with:
 
 ```sh
 review map check --review <uuid>
-review map publish --review <uuid>
 ```
 
 Run `review map --help` before editing map scratch state manually.

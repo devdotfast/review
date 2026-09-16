@@ -33,12 +33,13 @@ store and the storage selection commands.
 ```sh
 review app launch
 review info
-review scaffold
-review publish --review <uuid>
+review api tools
 review app pick --review <uuid>
 ```
 
-Most people let the installed Review skill drive this workflow.
+Most people let the installed Review skill drive this workflow: it authors
+through `review api` or the Review MCP tools. See
+[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md).
 
 ## Machine-readable output
 
@@ -46,7 +47,7 @@ Commands that expose `--json` accept it after the complete command path:
 
 ```sh
 review info --json
-review scaffold --json
+review app pick --json
 review map check --json
 review version --json
 ```
@@ -70,10 +71,9 @@ $ review version --json
 | `review app launch`    | Start or activate Review Desktop.                                           |
 | `review app pick`      | Select a published Review and optionally choose its opened view.            |
 | `review info`          | List Reviews associated with the current checkout.                          |
-| `review scaffold`      | Create or update a pinned UUID Review.                                      |
-| `review publish`       | Validate and publish the Review document, optionally opening a chosen view. |
-| `review rebind`        | Move a Review to another branch, bookmark, or change ID.                    |
-| `review map`           | Author, validate, publish, and share experimental software maps.            |
+| `review api`           | Call a JSON Review authoring tool; `review api tools` lists them.           |
+| `review mcp`           | Serve the same authoring tools over stdio MCP.                              |
+| `review map`           | Author, validate, and share experimental software maps.                     |
 | `review install`       | Install Review skills for supported coding agents.                          |
 | `review migrate apply` | Migrate supported legacy Review data.                                       |
 | `review version`       | Print the Review package version.                                           |
@@ -96,38 +96,17 @@ active Reviews for every worktree in the current repository.
 The legacy `review app --review <uuid>` form remains a compatibility alias for
 `review app pick --review <uuid>`.
 
-Both `review app pick` and `review publish` accept `--view` with one of
-`review`, `commits`, `diff`, `map`, or `trace`.
+`review app pick` accepts `--view` with one of `review`, `commits`, `diff`,
+`map`, or `trace`.
 
-## Scaffold and update
+## Authoring
 
-```sh
-review scaffold
-review scaffold --pr <number-or-url>
-review scaffold --base <ref> --head <ref>
-review scaffold --update
-review scaffold --update --review <uuid>
-review scaffold --new
-```
-
-A bare scaffold uses the current checkout and its trunk fork point. Use
-`--head` for a detached Git checkout, `--pr` for a GitHub pull request, and
-`--new` when you intentionally want another Review for the same source.
-
-`--update` re-resolves an existing Review from its branch, bookmark, change, or
-pull-request binding. It creates a Review when none matches. Publication never
-moves the pins automatically.
-
-## Publish and rebind
-
-```sh
-review publish --review <uuid> --view diff
-review rebind <branch-bookmark-or-change> --review <uuid>
-```
-
-`review publish` validates source ranges and the document bundle before it asks
-the desktop to present the revision. `review rebind` changes the unit of change
-and immediately re-pins the Review.
+Reviews are created and edited through the JSON API: `review api`, the Review
+MCP tools, or the installed dev-review skill. See
+[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md)
+and [`packages/review/src/review-api/README.md`](../packages/review/src/review-api/README.md)
+for the authoring workflow and the full tool/route list. `review api tools`
+prints the current tool catalog.
 
 ## Software maps
 
@@ -135,7 +114,6 @@ and immediately re-pins the Review.
 review map open <rev>
 review map open <rev> --force
 review map check [<rev>] [--review <uuid>]
-review map publish [--review <uuid>]
 review map prune
 review map push
 review map fetch
@@ -146,7 +124,6 @@ Maps are stored per commit in Git notes under `refs/notes/dev-fast/*`.
 - `open` hydrates an editable scratch map for one revision. `--force` discards
   unflushed scratch edits.
 - `check` validates the scratch map and saves it to the revision's note.
-- `publish` presents the saved base and head maps for a published Review.
 - `prune` removes unreachable notes and fully flushed scratch buffers.
 - `push` and `fetch` share map notes through `origin`.
 

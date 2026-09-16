@@ -65,7 +65,7 @@ function reviewDocumentData(): ReviewDocumentData {
         name: "DatabaseLens",
         props: {
           id: "db:orders",
-          actors: {},
+          actors: { app: "App" },
           stores: {
             db: {
               label: "Orders DB",
@@ -78,7 +78,23 @@ function reviewDocumentData(): ReviewDocumentData {
               },
             },
           },
-          useCases: [],
+          // The legacy audit required a use case with an operation; a stored lens always has one.
+          useCases: [
+            {
+              label: "Create order",
+              operations: [
+                {
+                  kind: "write",
+                  store: "db",
+                  collection: "orders",
+                  field: "status",
+                  actor: "app",
+                  label: "Insert order",
+                  source: anchor.peek,
+                },
+              ],
+            },
+          ],
         },
         children: [],
       },

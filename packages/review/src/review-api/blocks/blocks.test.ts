@@ -4,7 +4,12 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { ReviewInputError, documentSchema } from "../document.js";
-import { type BlockType, blocks, checkReferences } from "./index.js";
+import {
+  type BlockType,
+  type Definitions,
+  blocks,
+  checkReferences,
+} from "./index.js";
 
 const fixturesDir = path.resolve(import.meta.dirname, "../../fixtures/blocks");
 
@@ -18,9 +23,11 @@ async function fixture<T extends BlockType>(type: T) {
     await readFile(path.join(fixturesDir, `${type}.json`), "utf8"),
   );
 
+  const definition: Definitions[T] = blocks[type];
+
   return documentSchema
     .parse(raw)
-    .map((block) => blocks[type].schema.parse(block));
+    .map((block) => definition.schema.parse(block));
 }
 
 describe("block definitions", () => {

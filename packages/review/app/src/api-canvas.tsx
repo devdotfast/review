@@ -15,6 +15,7 @@ import type { Snapshot } from "../../src/review-api/store";
 import {
   ApiDocument,
   type ApiDocumentData,
+  RevealAfterFirstPaint,
   createDocumentLoader,
 } from "./api-document";
 import { retainedTrace } from "./api-trace";
@@ -310,7 +311,9 @@ export function ApiCanvas({
             <DisplayedReviewVersionContext.Provider
               value={data.snapshot.version}
             >
-              <CanvasDocument data={data} findHost={findHost} />
+              <RevealAfterFirstPaint>
+                <CanvasDocument data={data} findHost={findHost} />
+              </RevealAfterFirstPaint>
             </DisplayedReviewVersionContext.Provider>
           </AuthoringActivityContext.Provider>
         </TutorialProvider>

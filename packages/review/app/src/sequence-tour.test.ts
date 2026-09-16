@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
 import {
-  createSequence,
+  type SequenceDiagramProps as AuthoredSequenceProps,
+  sequenceDiagramPropsSchema,
+} from "../../src/authoring";
+import { sequenceBlockFromProps } from "../../src/sequence-steps";
+import {
   createSequenceTourEntry,
   sequenceActiveMessageScrollTarget,
   sequenceActiveMessageScrollTopTarget,
@@ -10,13 +14,18 @@ import {
   sequenceMessageColor,
   sequenceMessageHandleTop,
   sequenceSelfMessagePath,
+  sequenceView,
 } from "./diagrams";
 import { createTestReviewDefinitionSession } from "./review-definition-test-utils";
-import { defineSoftwareModel } from "./software-map/model";
 
 const definitions = createTestReviewDefinitionSession();
 
 const { defineActors, defineAnchors } = definitions;
+
+/** Legacy authoring → canonical block → renderer view, the way a published
+ * legacy review reaches the diagram. */
+const view = (props: AuthoredSequenceProps) =>
+  sequenceView(sequenceBlockFromProps(props));
 
 describe("sequence diagram guided tour", () => {
   it("uses the same colours for sequence lines and arrowheads", () => {
@@ -57,7 +66,9 @@ describe("sequence diagram guided tour", () => {
       settingsOrgRead: anchorWithPeek("Settings reads organization state"),
     });
 
-    const sequence = createSequence({
+    await definitions.ready();
+
+    const sequence = view({
       label: "Sign in and workspace bootstrap",
       messages: [
         {
@@ -81,7 +92,6 @@ describe("sequence diagram guided tour", () => {
       ],
     });
 
-    await definitions.ready();
     const tour = createSequenceTourEntry(sequence);
 
     expect(tour.title).toBe("Sign in and workspace bootstrap");
@@ -121,7 +131,7 @@ describe("sequence diagram guided tour", () => {
       reviewDocuments: anchorWithPeek("Review document map imports"),
     });
 
-    const sequence = createSequence({
+    const sequence = view({
       label: "Review target resolution",
       messages: [
         {
@@ -173,75 +183,8 @@ describe("sequence diagram guided tour", () => {
     ]);
   });
 
-  it("derives sequence actors from software map elements", () => {
-    const model = defineSoftwareModel({
-      systems: {
-        progressiveReview: {
-          label: "Progressive Review",
-          containers: {
-            reviewApp: {
-              label: "Review app",
-              components: {
-                dbLens: { label: "Database lens" },
-                map: { label: "Software map" },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const definitions = createTestReviewDefinitionSession({
-      softwareMap: model,
-    });
-
-    const actors = definitions.defineSoftwareActors(model, {
-      dbLens: "progressiveReview.reviewApp.dbLens",
-      map: {
-        path: "progressiveReview.reviewApp.map",
-        label: "Map tab",
-      },
-    });
-
-    const anchors = definitions.defineAnchors({
-      focusMap: {
-        title: "Focus map element",
-        peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
-        softwareMapPath: "progressiveReview.reviewApp.map",
-      },
-    });
-
-    const sequence = createSequence({
-      label: "Map-backed inline sequence",
-      messages: [
-        {
-          from: actors.dbLens,
-          to: actors.map,
-          label: "opens element",
-          anchor: anchors.focusMap,
-        },
-      ],
-    });
-
-    expect(sequence.participants).toMatchObject([
-      {
-        id: "dbLens",
-        label: "Database lens",
-        softwareMapPath: "progressiveReview.reviewApp.dbLens",
-      },
-      {
-        id: "map",
-        label: "Map tab",
-        softwareMapPath: "progressiveReview.reviewApp.map",
-      },
-    ]);
-    expect(sequence.messages[0]?.anchor.softwareMapPath).toBe(
-      "progressiveReview.reviewApp.map",
-    );
-  });
-
-  it("synthesizes stable anchors for sequence messages with inline code", () => {
-    const sequence = createSequence({
+  it("keeps stable ids for messages with inline code and no anchor", () => {
+    const sequence = view({
       label: "Label readability",
       messages: [
         {
@@ -253,13 +196,17 @@ describe("sequence diagram guided tour", () => {
       ],
     });
 
-    expect(sequence.messages[0]?.anchor).toMatchObject({
+    expect(sequence.messages[0]).toMatchObject({
       id: "sequence-label-readability-message-1",
-      title: "allocates more horizontal room",
+      code: { language: "bash", text: "review map init/update" },
     });
     expect(createSequenceTourEntry(sequence).stops).toEqual([
       {
-        anchor: sequence.messages[0]!.anchor,
+        anchor: {
+          __kind: "db-anchor-ref",
+          id: "sequence-label-readability-message-1",
+          title: "allocates more horizontal room",
+        },
         label: "allocates more horizontal room",
         detail: "Code element node -> Symbol label",
         content: {
@@ -269,16 +216,12 @@ describe("sequence diagram guided tour", () => {
         },
       },
     ]);
-    expect(sequence.messages[0]?.code).toEqual({
-      language: "bash",
-      text: "review map init/update",
-    });
   });
 
-  it("rejects sequence messages without code evidence", () => {
+  it("rejects sequence messages without code evidence at the authoring boundary", () => {
     expectZodIssue(
       () =>
-        createSequence({
+        sequenceDiagramPropsSchema.parse({
           label: "No evidence",
           messages: [
             {
@@ -299,7 +242,7 @@ describe("sequence diagram guided tour", () => {
 
     expectZodIssue(
       () =>
-        createSequence({
+        sequenceDiagramPropsSchema.parse({
           label: "No code anchor",
           messages: [
             {
@@ -322,7 +265,9 @@ describe("sequence diagram guided tour", () => {
       },
     });
 
-    const sequence = createSequence({
+    await definitions.ready();
+
+    const sequence = view({
       label: "Reuse",
       messages: [
         {
@@ -340,12 +285,11 @@ describe("sequence diagram guided tour", () => {
       ],
     });
 
-    expect(sequence.messages.map((message) => message.anchor.id)).toEqual([
+    expect(sequence.messages.map((message) => message.id)).toEqual([
       "request",
       "request--sequence-use-2",
     ]);
-    expect(sequence.messages[1]?.anchor.peek).toBe(anchors.request.peek);
-    await definitions.ready();
+    expect(sequence.messages[1]?.source).toEqual(anchors.request.peek);
     expect(
       createSequenceTourEntry(sequence).stops.map((stop) => stop.anchor.id),
     ).toEqual(["request", "request--sequence-use-2"]);
@@ -366,7 +310,7 @@ describe("sequence diagram guided tour", () => {
       workerRefresh: anchorWithPeek("Refresh worker evidence"),
     });
 
-    const sequence = createSequence({
+    const sequence = view({
       label: "Evidence tour",
       messages: [
         {

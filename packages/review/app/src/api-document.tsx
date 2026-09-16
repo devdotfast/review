@@ -23,7 +23,7 @@ import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
 import { ResolvedDatabaseLens } from "./database-lens";
-import { ResolvedSequenceDiagram, type SequenceRef } from "./diagrams";
+import { SequenceDiagram } from "./diagrams";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import type { SoftwareMapResolvedDataPayload } from "./software-map/software-map-snapshot";
@@ -274,7 +274,14 @@ const DocumentNode = memo(function DocumentNode({
       content = <CodePeekCard source={node.source} />;
       break;
     case "sequence":
-      content = <ApiSequence node={node} data={data} />;
+      content = (
+        <SequenceDiagram
+          id={node.id!}
+          title={node.title}
+          actors={node.actors}
+          steps={node.steps}
+        />
+      );
       break;
     case "call_stack_diff":
       content = (
@@ -323,53 +330,6 @@ const DocumentNode = memo(function DocumentNode({
     </NodeReveal>
   );
 });
-
-function ApiSequence({
-  node,
-  data,
-}: {
-  node: Extract<Block, { type: "sequence" }>;
-  data: ApiDocumentData;
-}) {
-  // A stable ref keeps the diagram's tour and layout memos valid between snapshots.
-  const sequence = useMemo(() => sequenceFor(node, data), [node, data.anchors]);
-
-  return <ResolvedSequenceDiagram sequence={sequence} />;
-}
-
-export function sequenceFor(
-  node: Extract<Block, { type: "sequence" }>,
-  data: Pick<ApiDocumentData, "anchors">,
-): SequenceRef {
-  const actors = Object.fromEntries(
-    Object.entries(node.actors).map(([name, label]) => [
-      name,
-      actor(`${node.id}:${name}`, label),
-    ]),
-  );
-
-  return {
-    __kind: "review-sequence-ref",
-    stableItemIds: true,
-    id: node.id!,
-    label: node.title,
-    participants: Object.values(actors),
-    messages: node.steps.map((step) => ({
-      id: step.id!,
-      from: actors[step.from]!,
-      to: actors[step.to]!,
-      label: step.label,
-      anchor: data.anchors.get(step.id!) ?? {
-        __kind: "db-anchor-ref",
-        id: step.id!,
-        title: step.label,
-      },
-      code: step.code,
-      explanation: step.explanation,
-      style: step.style,
-    })),
-  };
-}
 
 const actor = (id: string, label: string): ActorRef => ({
   __kind: "db-actor-ref",

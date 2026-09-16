@@ -50,3 +50,23 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
 - The authoring registry type still describes authored MDX props; the app's
   runtime registry satisfies it for every component except `CallStackDiff`
   until Part I moves the registry to document props.
+
+## G: canonical sequence steps
+
+- `SequenceDiagram` documents store the canonical block props
+  (`{ id, title, actors: Record<name,label>, steps }`). Legacy messages convert
+  once on the server (`sequence-steps.ts`): at publish in materialize and for
+  sealed bundles in the read-time upgrade walker. Ids follow the old runtime's
+  rules (`sequence-<slug>` for the diagram; the anchor id, `--sequence-use-N`
+  for repeats, and `sequence-<slug>-message-N` for code-only messages for
+  steps), so persisted tour state and deep links still resolve.
+- A message with both an anchor and code becomes a `code` step (tour content
+  precedence was already code first). Actor `softwareMapPath` values are not
+  carried; the diagram never rendered them.
+- The renderer derives participants and edges with pure functions over step
+  actor names (`sequenceView`); `createSequence`, `SequenceRef`, actor
+  normalization and placeholder anchors are gone. Tour stops and edge handles
+  key on the step id.
+- The authoring input (`<SequenceDiagram label messages>` with anchors or
+  inline actors) is unchanged and still validated by the authoring schema at
+  publish.

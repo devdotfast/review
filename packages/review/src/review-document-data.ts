@@ -12,8 +12,10 @@ import {
   anchorRefSchema,
   callStackEntrySchema,
   reviewComponentDataSchemas,
+  sequenceDiagramPropsSchema,
 } from "./authoring";
 import { callStackFrames } from "./call-stack-frames";
+import { sequenceBlockFromProps } from "./sequence-steps";
 import {
   type SoftwareModelData,
   softwareModelDataSchema,
@@ -313,6 +315,24 @@ export function upgradeReviewDocumentJson(value: JsonValue): JsonValue {
 
     return { ...upgraded, props };
   }
+
+  // Sequences once listed messages between actor refs; they now store steps.
+  if (
+    upgraded.type === "component" &&
+    upgraded.name === "SequenceDiagram" &&
+    isJsonObject(upgraded.props) &&
+    upgraded.props.messages !== undefined
+  )
+    return {
+      ...upgraded,
+      props: parseJsonText(
+        JSON.stringify(
+          sequenceBlockFromProps(
+            sequenceDiagramPropsSchema.parse(upgraded.props),
+          ),
+        ),
+      ),
+    };
 
   return upgraded;
 }

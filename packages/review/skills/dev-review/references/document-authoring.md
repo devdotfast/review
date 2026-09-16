@@ -63,7 +63,7 @@ For example, call `review_edit` with:
 }
 ```
 
-Use this example only when it fits the change. A step takes exactly one of `explanation`, illustrative `code:{language,text}`, or a verified `source:{side,file,fromLine,toLine}`. Read the tool schema for the other components.
+Use this example only when it fits the change. A step takes exactly one of `explanation`, illustrative `code:{language,text}`, or a verified `source:{side,file,fromLine,toLine}`. A `source` must cover visible code; a whitespace-only range is rejected. Read the tool schema for the other components.
 
 The result contains the saved version and `targetId`. Read that target to get its step IDs. To change one step, use a field patch:
 
@@ -85,7 +85,7 @@ Use an actual returned ID, not the illustrative `step-2`. Patches preserve omitt
 
 Read exact source with `review_source({reviewId,version?,source:{side,file,fromLine,toLine}})`; `review_file` reads a whole file. Paths are repository-relative and refer to committed base/head content, not the working copy.
 
-A `code_peek` contains its source range directly. For a prose link, use `[save logic](review-source:head/src/save.ts#L10-L24)` (or `base`). A single line uses `#L10`; URL-encode spaces and reserved characters in the repository-relative path. The host validates the range before saving, and the link opens the existing native side peek at that version's pins. Reference-style Markdown links work too. Ordinary web links still open externally.
+A `code_peek` contains its source range directly. For a prose link, use `[save logic](review-source:head/src/save.ts#L10-L24)` (or `base`). A single line uses `#L10`; URL-encode spaces and reserved characters in the repository-relative path. The host validates the range before saving (a prose link may point at blank lines), and the link opens the existing native side peek at that version's pins. Reference-style Markdown links work too. Ordinary web links still open externally.
 
 Upload retained resources with `review_upload`. Set `kind` to `"image"` with `base64`, `"trace"` with `trace:{label,events:[{id,role,text}]}`, or `"map"` with `pins`, `side` and `model`. A trace quote references the returned resource ID, an event ID and an exact excerpt. Use only supplied evidence; do not invent a transcript or provenance.
 

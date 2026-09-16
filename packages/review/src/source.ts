@@ -49,12 +49,13 @@ export function sliceSourceRange(text: string, range: SourceRange): string {
   return lines.slice(range.fromLine - 1, range.toLine).join("\n");
 }
 
-/** A code peek shows source; a blank range is an authoring mistake. Prose
- * links may point at blank lines, so only peeks call this. */
+/** A source shown as a peek must contain visible text; a whitespace-only
+ * range is an authoring mistake. Prose links may point at blank lines, so
+ * only peek-rendering references call this. */
 export function requireVisibleSource(text: string, range: SourceRange): void {
   if (text.trim() === "")
     throw new SourceRangeError(
-      `Code peek range ${range.file}:${range.fromLine}-${range.toLine} contains only whitespace.`,
+      `Source range ${range.file}:${range.fromLine}-${range.toLine} contains only whitespace.`,
     );
 }
 

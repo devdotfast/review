@@ -292,6 +292,7 @@ export function sourceReferences(
       return [...element.base, ...element.head].map((frame) => ({
         ...frame,
         id: frame.id!,
+        peek: true,
       }));
 
     if (element.type === "database_lens")
@@ -299,16 +300,20 @@ export function sourceReferences(
         useCase.operations.map((operation) => ({
           ...operation,
           id: operation.id!,
+          peek: true,
         })),
       );
 
+    // A code peek, a sequence step, a frame and an operation all render the
+    // range as a peek, so a whitespace-only range is an authoring mistake for
+    // each of them. Prose links only need the range to exist.
     if ("source" in element && element.source)
       return [
         {
           id: element.id!,
           source: element.source,
           label: element.type === "step" ? element.label : element.caption,
-          peek: element.type === "code_peek",
+          peek: true,
         },
       ];
 

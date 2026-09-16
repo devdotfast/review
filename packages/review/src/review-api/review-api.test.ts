@@ -373,6 +373,86 @@ describe("snapshot authoring", () => {
     ).toBe("block-1");
   });
 
+  it("rejects whitespace-only ranges wherever they render as a peek", async () => {
+    const { reviewId } = await create();
+    const before = store.read(reviewId);
+    const calls: boolean[] = [];
+
+    providers.validateSource = async (_pins, _source, options) => {
+      calls.push(options.peek);
+
+      if (options.peek)
+        throw new ReviewInputError(
+          "Source range src/store.ts:1-5 contains only whitespace.",
+        );
+    };
+
+    const peekInserts = [
+      {
+        type: "sequence",
+        title: "Save",
+        actors: { a: "App", s: "Server" },
+        steps: [{ from: "a", to: "s", label: "save", source }],
+      },
+      {
+        type: "call_stack_diff",
+        title: "Save path",
+        base: [],
+        head: [{ key: "save", label: "save", source }],
+      },
+      {
+        type: "database_lens",
+        title: "Saves",
+        actors: { s: "Server" },
+        stores: {
+          db: {
+            label: "DB",
+            storage: "relational",
+            collections: {
+              saves: {
+                label: "Saves",
+                fields: { id: { label: "id", dataType: "text" } },
+              },
+            },
+          },
+        },
+        useCases: [
+          {
+            label: "Save",
+            operations: [
+              {
+                kind: "write",
+                store: "db",
+                collection: "saves",
+                actor: "s",
+                label: "insert",
+                source,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    for (const content of peekInserts)
+      await expect(edit(reviewId, { type: "insert", content })).rejects.toThrow(
+        /contains only whitespace/,
+      );
+
+    expect(store.read(reviewId)).toEqual(before);
+
+    const link = await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "markdown",
+        markdown: `[save](review-source:${source.side}/${source.file}#L${source.fromLine}-L${source.toLine})`,
+      },
+    });
+
+    expect(link.targetId).toBe("block-1");
+    expect(calls).toEqual([true, true, true, false]);
+  });
+
   it("serializes edits through async validation and preserves different-field patches", async () => {
     const { reviewId } = await create();
 

@@ -439,9 +439,11 @@ export function DatabaseLens(block: DatabaseLensProps) {
                       operations: activeUseCase.operations.map((operation) => {
                         const actor = operation.actor.label;
                         const target = operation.target.collectionLabel;
-                        const [from, to] = operation.kind === "read"
-                          ? [target, actor]
-                          : [actor, target];
+
+                        const [from, to] =
+                          operation.kind === "read"
+                            ? [target, actor]
+                            : [actor, target];
 
                         return `${operation.kind}: ${from} → ${to} — ${operation.label}`;
                       }),

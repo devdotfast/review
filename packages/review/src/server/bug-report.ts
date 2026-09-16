@@ -94,14 +94,24 @@ export class BugReportUpstreamError extends Error {
   }
 }
 
-export async function submitReviewBugReport(input: {
-  report: ReviewBugReportRequest;
-  reviewDocumentPath: string;
-  reviewRootPath: string;
-  clientErrorNames: string[];
-  fetchImpl?: typeof fetch;
-  readTraceAttachment?: typeof readAuthoringTraceAttachment;
-}) {
+export interface BugReportSource {
+  review(): Promise<{ files: Record<string, string>; omitted: string[] }>;
+  map(): Promise<string | null>;
+  diff(): Promise<ReviewDiffFilesResult>;
+  trace(): Promise<AuthoringTraceAttachment | null>;
+}
+
+export async function submitReviewBugReport(
+  input: {
+    report: ReviewBugReportRequest;
+    clientErrorNames: string[];
+    fetchImpl?: typeof fetch;
+    readTraceAttachment?: typeof readAuthoringTraceAttachment;
+  } & (
+    | { source: BugReportSource }
+    | { source?: undefined; reviewDocumentPath: string; reviewRootPath: string }
+  ),
+) {
   const cliVersion = readReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
 
@@ -126,16 +136,23 @@ export async function submitReviewBugReport(input: {
   let traceAttachment: AuthoringTraceAttachment | undefined;
   let sourceTargetPromise: Promise<ReviewSourceTarget> | undefined;
 
-  const sourceTarget = () =>
-    (sourceTargetPromise ??= resolveReviewSourceTarget({
+  const sourceTarget = () => {
+    if (input.source)
+      throw new Error("JSON reports use their pinned source readers.");
+
+    return (sourceTargetPromise ??= resolveReviewSourceTarget({
       reviewRootPath: input.reviewRootPath,
     }));
+  };
 
   const tasks: Array<Promise<void>> = [];
 
   if (input.report.include_review) {
     tasks.push(
-      readReviewSourceFiles(input.reviewDocumentPath).then(
+      (input.source
+        ? input.source.review()
+        : readReviewSourceFiles(input.reviewDocumentPath)
+      ).then(
         (result) => {
           reviewSource = result.files;
 
@@ -150,43 +167,48 @@ export async function submitReviewBugReport(input: {
 
   if (input.report.include_map) {
     tasks.push(
-      sourceTarget()
-        .then(readHeadSoftwareMap)
-        .then(
-          // A review does not need a software map: #840 split document and map
-          // publishing, so "no map" is a normal state, not a failed read.
-          // `readSoftwareMapSourceForRef` returns null when there is nothing to
-          // send and throws when a read fails, so only the throw is an error.
-          (source) => {
-            if (source !== null) mapSource = source;
-          },
-          () => {
-            attachmentErrors.push(unavailable("map"));
-          },
-        ),
+      (input.source
+        ? input.source.map()
+        : sourceTarget().then(readHeadSoftwareMap)
+      ).then(
+        // A review does not need a software map: #840 split document and map
+        // publishing, so "no map" is a normal state, not a failed read.
+        // `readSoftwareMapSourceForRef` returns null when there is nothing to
+        // send and throws when a read fails, so only the throw is an error.
+        (source) => {
+          if (source !== null) mapSource = source;
+        },
+        () => {
+          attachmentErrors.push(unavailable("map"));
+        },
+      ),
     );
   }
 
   if (input.report.include_diff) {
     tasks.push(
-      sourceTarget()
-        .then(readChangedFileDiffs)
-        .then(
-          (diff) => {
-            changedFileDiffs = diff;
-          },
-          () => {
-            attachmentErrors.push(unavailable("diff"));
-          },
-        ),
+      (input.source
+        ? input.source.diff()
+        : sourceTarget().then(readChangedFileDiffs)
+      ).then(
+        (diff) => {
+          changedFileDiffs = diff;
+        },
+        () => {
+          attachmentErrors.push(unavailable("diff"));
+        },
+      ),
     );
   }
 
   if (input.report.include_trace) {
     tasks.push(
-      (input.readTraceAttachment ?? readAuthoringTraceAttachment)({
-        reviewRootPath: input.reviewRootPath,
-      }).then(
+      (input.source
+        ? input.source.trace()
+        : (input.readTraceAttachment ?? readAuthoringTraceAttachment)({
+            reviewRootPath: input.reviewRootPath,
+          })
+      ).then(
         (trace) => {
           if (trace === null) {
             throw new BugReportUpstreamError(

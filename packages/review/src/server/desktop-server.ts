@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { jsonString } from "@dev.fast/json";
 import {
   type JsonObject,
   type JsonValue,
@@ -265,11 +266,9 @@ export function createGlobalReviewServer(
   app.put("/diffr-config", async (context) => {
     const body = await readBoundedRequestJson(context.req.raw);
 
-    const key = isJsonObject(body)
-      ? jsonString(jsonProperty(body, "key"))
-      : undefined;
+    const key = isJsonObject(body) ? jsonString(body.key) : undefined;
 
-    const value = isJsonObject(body) ? jsonProperty(body, "value") : undefined;
+    const value = isJsonObject(body) ? body.value : undefined;
 
     if (key === undefined || value === undefined) {
       throw new ReviewServerError("key and value are required.", 400);

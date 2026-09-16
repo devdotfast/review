@@ -399,16 +399,17 @@ export function createReviewApi(
         .strictObject({
           version: z.number().int().nonnegative().optional(),
           source: sourceSchema,
+          commit: z.string().min(1).optional(),
         })
         .parse(await readBoundedRequestJson(context.req.raw));
 
       return context.json(
         await data.quote(
-          (
-            await data.resolveSource(
-              readReview(context.req.param("id"), input.version),
-            )
-          ).pins,
+          await data.comparison(
+            (await data.resolveSource(readReview(context.req.param("id"), input.version))).pins,
+            input.commit,
+          ),
+
           input.source,
         ),
       );
@@ -555,10 +556,19 @@ export function createReviewApi(
       .pick({ version: true })
       .parse(context.req.query());
 
-    const snapshot = readReview(context.req.param("id"), query.version);
 
     const selection = AgentSelectionSchema.parse(
       await readBoundedRequestJson(context.req.raw),
+    );
+
+    const reviewId = context.req.param("id");
+
+    if (selection.apiSource && selection.apiSource.reviewId !== reviewId)
+      throw new ReviewInputError("Selection belongs to another review.");
+
+    const snapshot = readReview(
+      reviewId,
+      selection.apiSource?.version ?? query.version,
     );
 
     const target = selection.target;
@@ -567,12 +577,15 @@ export function createReviewApi(
     if (target.kind === "code" && !selection.selectedDiff) {
       if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 
-      const source = await data.quote(snapshot.pins, {
-        side: target.side,
-        file: target.path,
-        fromLine: target.startLine,
-        toLine: target.endLine,
-      });
+      const source = await data.quote(
+        await data.comparison((await data.resolveSource(snapshot)).pins, selection.apiSource?.commit),
+        {
+          side: target.side,
+          file: target.path,
+          fromLine: target.startLine,
+          toLine: target.endLine,
+        },
+      );
 
       excerpt =
         `## ${target.side}: ${target.path}:${target.startLine}-${target.endLine} (${source.commit})\n` +
@@ -597,6 +610,9 @@ export function createReviewApi(
         `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
         `Review ID: ${snapshot.reviewId}`,
         `Version: ${snapshot.version}`,
+        ...(selection.apiSource?.commit
+          ? [`Selected commit: ${selection.apiSource.commit}`]
+          : []),
         `Repository ID: ${snapshot.pins.repositoryId}`,
         `Review base: ${snapshot.pins.base}`,
         `Review head: ${snapshot.pins.head}`,

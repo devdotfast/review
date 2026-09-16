@@ -1145,10 +1145,17 @@ export const ReviewSelectedDiffSchema = z.strictObject({
   ),
 });
 
+export const ReviewApiSelectionSourceSchema = z.strictObject({
+  reviewId: requiredString,
+  version: z.number().int().nonnegative(),
+  commit: requiredString.optional(),
+});
+
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("editorSelectionChanged"),
     reviewId: requiredString,
+    apiSource: ReviewApiSelectionSourceSchema.optional(),
     anchor: z.object({ x: z.number(), y: z.number() }).optional(),
     path: requiredString,
     range: ReviewRangeSchema,

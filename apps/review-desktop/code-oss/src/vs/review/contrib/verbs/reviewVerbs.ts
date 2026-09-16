@@ -20,9 +20,9 @@ import {
 	type ReviewView,
 } from "../../common/reviewProtocol.js";
 import { IReviewApiCatalogService } from "../../services/reviewApiCatalogService.js";
-import { REVIEW_API_SOURCE_SCHEME } from "../../services/reviewApiSourceService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
 import { IReviewCodeResourceService } from "../../services/reviewCodeResourceService.js";
+import { apiSelectionEvent } from "./reviewApiSelection.js";
 
 export const IReviewVerbsService = createDecorator<IReviewVerbsService>("reviewVerbsService");
 
@@ -79,10 +79,6 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 		const model = editor.getModel();
 		const selection = editor.getSelection();
 		if (!model || !selection) return;
-		const unified = this.codeResources.unifiedResource(model.uri);
-		const apiSide =
-			model.uri.scheme === REVIEW_API_SOURCE_SCHEME ? new URLSearchParams(model.uri.query).get("side") : null;
-		if (!unified && apiSide !== "base" && apiSide !== "head") return;
 		const start = selection.getStartPosition();
 		const end = selection.getEndPosition();
 		const fromLine = start.lineNumber;
@@ -90,6 +86,12 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 		const rect = editor.getDomNode()?.getBoundingClientRect();
 		const position = editor.getScrolledVisiblePosition(selection.getPosition());
 		const anchor = rect && position ? { x: rect.left + position.left, y: rect.top + position.top } : undefined;
+		const apiSelection = apiSelectionEvent(model.uri, selection, anchor);
+		if (apiSelection) {
+			this._onDidEmitSurfaceEvent.fire(apiSelection);
+			return;
+		}
+		const unified = this.codeResources.unifiedResource(model.uri);
 		if (unified) {
 			const rows = unified.rows.slice(fromLine - 1, toLine);
 			if (!rows.length) return;
@@ -116,16 +118,6 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 						(rows.some((row) => row.kind !== "deleted") ? 1 : 0),
 					rows: rows.map((row) => ({ kind: row.kind, text: row.content })),
 				},
-			});
-		} else if (apiSide === "base" || apiSide === "head") {
-			this._onDidEmitSurfaceEvent.fire({
-				event: "editorSelectionChanged",
-				reviewId: model.uri.authority,
-				anchor,
-				path: model.uri.path.slice(1),
-				sideContext: apiSide,
-				isEmpty: selection.isEmpty(),
-				range: { fromLine, toLine },
 			});
 		}
 	}

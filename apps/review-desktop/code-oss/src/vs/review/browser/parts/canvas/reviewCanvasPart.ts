@@ -248,6 +248,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
     );
     this._register(
       verbs.onDidEmitSurfaceEvent((event) => {
+        if (
+          event.event === "editorSelectionChanged" &&
+          event.reviewId !== this.apiContent?.reviewId
+        )
+          return;
         this.surfaceEvents.fire(event);
       }),
     );

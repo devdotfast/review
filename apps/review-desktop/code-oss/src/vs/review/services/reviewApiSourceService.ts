@@ -69,6 +69,27 @@ export {
 
 export type ApiSourceTarget = ReviewApiSourceLocation;
 
+/** Recover the immutable source identity even when no legacy session is active. */
+export function apiSourceTarget(resource: URI): ApiSourceTarget | undefined {
+  if (resource.scheme !== REVIEW_API_SOURCE_SCHEME) return undefined;
+  const query = new URLSearchParams(resource.query);
+  const version = Number(query.get("version"));
+  const side = query.get("side");
+  if (
+    !resource.authority ||
+    !query.has("version") ||
+    !Number.isInteger(version) ||
+    version < 0 ||
+    (side !== "base" && side !== "head")
+  )
+    return undefined;
+  return {
+    view: { reviewId: resource.authority, version, commit: query.get("commit") ?? undefined, generation: query.get("generation") ?? undefined },
+    side,
+    file: resource.path.slice(1),
+  };
+}
+
 export const IReviewApiSourceService = createDecorator<IReviewApiSourceService>(
   "reviewApiSourceService",
 );

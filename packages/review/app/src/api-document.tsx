@@ -192,7 +192,13 @@ export function sourceAnchor(
   return { __kind: "db-anchor-ref", id, title, peek: source };
 }
 
-export function ApiDocument({ data }: { data: ApiDocumentData }) {
+export function ApiDocument({
+  data,
+  softwareMapEnabled = true,
+}: {
+  data: ApiDocumentData;
+  softwareMapEnabled?: boolean;
+}) {
   const hasTitle = useMemo(
     () =>
       elements(data.snapshot.document).some(
@@ -207,7 +213,12 @@ export function ApiDocument({ data }: { data: ApiDocumentData }) {
         <ReviewDocumentTitle>{data.snapshot.title}</ReviewDocumentTitle>
       )}
       {data.snapshot.document.map((node) => (
-        <DocumentNode key={node.id} node={stored(node)} data={data} />
+        <DocumentNode
+          key={node.id}
+          node={stored(node)}
+          data={data}
+          softwareMapEnabled={softwareMapEnabled}
+        />
       ))}
     </>
   );
@@ -217,17 +228,26 @@ export function ApiDocument({ data }: { data: ApiDocumentData }) {
 export const DocumentNode = memo(function DocumentNode({
   node,
   data,
+  softwareMapEnabled,
 }: {
   node: StoredBlock;
   data: ApiDocumentData;
+  softwareMapEnabled: boolean;
 }) {
   const revision = useMemo(() => JSON.stringify(node), [node]);
   const session = useReviewSession();
 
   const children = (nodes: Block[]) =>
     nodes.map((child) => (
-      <DocumentNode key={child.id} node={stored(child)} data={data} />
+      <DocumentNode
+        key={child.id}
+        node={stored(child)}
+        data={data}
+        softwareMapEnabled={softwareMapEnabled}
+      />
     ));
+
+  if (node.type === "software_map" && !softwareMapEnabled) return null;
 
   return (
     <NodeReveal id={node.id} revision={revision}>

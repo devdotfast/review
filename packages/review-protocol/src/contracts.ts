@@ -422,6 +422,7 @@ export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
       kind: "api";
+      softwareMapEnabled?: boolean;
       reviewId: string;
       version?: number;
       bridge: ReviewCanvasBridge;

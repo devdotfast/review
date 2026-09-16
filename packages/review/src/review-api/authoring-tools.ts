@@ -85,7 +85,7 @@ export function authoringTools() {
     ),
     tool(
       "open",
-      "Show a review in the running Desktop.",
+      "Show a review in the running Desktop and return softwareMapEnabled.",
       z.strictObject(review),
       "POST",
       "/:reviewId/open",

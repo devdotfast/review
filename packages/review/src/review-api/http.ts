@@ -14,7 +14,10 @@ import type { ReviewStore, Snapshot } from "./store.js";
 export function createReviewApi(
   store: ReviewStore,
   data?: LocalReviewData,
-  open?: (review: { reviewId: string; title: string }) => Promise<void>,
+  open?: (review: {
+    reviewId: string;
+    title: string;
+  }) => Promise<{ softwareMapEnabled: boolean }>,
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -138,9 +141,13 @@ export function createReviewApi(
     const review = store.read(context.req.param("id"));
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
-    await open({ reviewId: review.reviewId, title: review.title });
 
-    return context.json({ ok: true });
+    const settings = await open({
+      reviewId: review.reviewId,
+      title: review.title,
+    });
+
+    return context.json({ ok: true, ...settings });
   });
   app.get("/:id/watch", (context) => {
     const id = context.req.param("id");

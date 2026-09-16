@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createGlobalReviewServer } from "../server/desktop-server.js";
+import { GlobalReviewDesktopVerbRelay } from "../server/global-verb-relay.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
 import { ReviewApiClient } from "./client.js";
 import { ReviewInputError } from "./document.js";
@@ -540,6 +541,8 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     "../..",
   );
 
+  const relay = new GlobalReviewDesktopVerbRelay();
+
   const server = createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -548,6 +551,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     token: "test-token",
     discoveryPath: path.join(directory, "desktop.json"),
     reviewStore: store,
+    relay,
   });
 
   try {
@@ -588,6 +592,37 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     });
 
     const tools = await client.read<AuthoringTool[]>("/authoring");
+    let softwareMapEnabled = false;
+    relay.attach({
+      signal: new AbortController().signal,
+      write(frame) {
+        const { id, sessionId, request } = JSON.parse(frame.slice(6));
+        relay.acceptResult({
+          id,
+          sessionId,
+          response:
+            request.name === "openApiReview" &&
+            request.args.reviewId === reviewId
+              ? { ok: true, result: { softwareMapEnabled } }
+              : { ok: false, error: "Unexpected desktop request" },
+        });
+      },
+      close() {},
+    });
+
+    for (const enabled of [false, true, false]) {
+      softwareMapEnabled = enabled;
+      expect(
+        await callAuthoringTool(
+          client,
+          tools.find((t) => t.name === "review_open")!,
+          { reviewId },
+        ),
+      ).toEqual({ ok: true, softwareMapEnabled: enabled });
+    }
+
+    relay.close();
+
     expect(
       await callAuthoringTool(
         client,

@@ -1,6 +1,9 @@
 .api-document-node {
   display: contents;
 }
+.review-document .api-document-node > .review-trace-quote-container {
+  display: block;
+}
 .review-document
   .api-document-node
   > :is(

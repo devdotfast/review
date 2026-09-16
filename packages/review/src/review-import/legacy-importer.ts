@@ -32,8 +32,15 @@ export function createLegacyImporter(input: {
 }): LegacyImporter {
   const inFlight = new Map<string, Promise<ImportOutcome>>();
   const lock = input.lock ?? ((_uuid, operation) => operation());
-  // Every Home list sweeps again; a review that cannot import says so once.
-  const reportedSkips = new Map<string, string>();
+  // Every Home list sweeps again; a review that cannot import, or cannot
+  // import its map, says so once.
+  const reported = new Map<string, string>();
+
+  const report = (uuid: string, reason: string) => {
+    if (reported.get(uuid) === reason) return;
+    reported.set(uuid, reason);
+    input.log(`[Review import] ${uuid}: ${reason}`);
+  };
 
   // Imports of one review run one after another rather than joining: a
   // request that arrives while an older revision is importing waits, then
@@ -62,13 +69,12 @@ export function createLegacyImporter(input: {
         }),
       )
       .then(async (outcome) => {
-        if (
-          outcome.kind === "skipped" &&
-          reportedSkips.get(uuid) !== outcome.reason
-        ) {
-          reportedSkips.set(uuid, outcome.reason);
-          input.log(`[Review import] ${uuid}: skipped (${outcome.reason})`);
-        }
+        if (outcome.kind === "skipped")
+          report(uuid, `skipped (${outcome.reason})`);
+
+        // A current document whose map failed: the review still opens.
+        if (outcome.kind === "current" && outcome.warnings?.length)
+          report(uuid, outcome.warnings.join("; "));
 
         if (outcome.kind === "imported") {
           input.log(

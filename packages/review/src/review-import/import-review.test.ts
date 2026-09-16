@@ -15,6 +15,7 @@ import {
   materializeFromRevisionDirs,
   runImport,
   scratchGitRepo,
+  sealLegacyMapRevision,
   syntheticLegacyReview,
   text,
 } from "./import-test-utils";
@@ -660,7 +661,215 @@ describe("importLegacyReview", () => {
     });
     expect(store.read(record.uuid).version).toBe(0);
   });
+
+  it("imports a later map publish into the section it already wrote", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, dir, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-opencode-agentserver",
+      repo,
+      { map: { oid: mapOids[0] } },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const run = (review = stored) =>
+      importLegacyReview({
+        review,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+    try {
+      expect(await run()).toMatchObject({ kind: "imported", version: 0 });
+      const [published] = mapSections(store.read(record.uuid).document);
+      expect(published?.mapVersionIds).toHaveLength(2);
+      expect(mapCommit(store.resource(published!.mapVersionIds[0]!).data)).toBe(
+        repo.base,
+      );
+      expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[0]);
+
+      // A reader annotates the review between the two map publishes.
+      const note = await store.execute({
+        commandId: randomUUID(),
+        operation: {
+          type: "edit",
+          reviewId: record.uuid,
+          edit: {
+            type: "insert",
+            content: { type: "markdown", markdown: "Mine.\n" },
+          },
+        },
+      });
+
+      await sealLegacyMapRevision(dir, mapOids[1]!, {
+        headCommit: repo.head,
+        baseCommit: repo.base,
+      });
+
+      const republished = {
+        dir,
+        review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
+      };
+
+      expect(await run(republished)).toMatchObject({
+        kind: "imported",
+        version: 2,
+      });
+      const document = store.read(record.uuid).document;
+      const sections = mapSections(document);
+      expect(sections).toHaveLength(1);
+      expect(sections[0]!.id).toBe(published!.id);
+      expect(sections[0]!.mapVersionIds).not.toEqual(published!.mapVersionIds);
+      expect(document.some((block) => block.id === note.targetId)).toBe(true);
+      expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[1]);
+      expect(await run(republished)).toEqual({
+        kind: "current",
+        reviewId: record.uuid,
+      });
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("retries a map bundle sealed against other commits", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, dir, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-opencode-agentserver",
+      repo,
+      {
+        map: {
+          oid: mapOids[0]!,
+          headCommit: "c".repeat(40),
+          baseCommit: "d".repeat(40),
+        },
+      },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const run = () =>
+      importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+    try {
+      const first = await run();
+
+      // The document must not sink with the map it could not show.
+      expect(first).toMatchObject({ kind: "imported", version: 0 });
+      expect(first.kind === "imported" && first.warnings.join("\n")).toContain(
+        mapOids[0]!,
+      );
+      expect(mapSections(store.read(record.uuid).document)).toEqual([]);
+      expect(store.legacyImport(record.uuid)?.mapRevision).toBeNull();
+
+      // Still failing: the open path must not read this as a skipped review.
+      const again = await run();
+      expect(again.kind).toBe("current");
+      expect(again.kind === "current" && again.warnings?.join("\n")).toContain(
+        mapOids[0]!,
+      );
+      expect(store.read(record.uuid).version).toBe(0);
+
+      await sealLegacyMapRevision(dir, mapOids[0]!, {
+        headCommit: repo.head,
+        baseCommit: repo.base,
+      });
+      expect(await run()).toMatchObject({ kind: "imported", version: 1 });
+      expect(mapSections(store.read(record.uuid).document)).toHaveLength(1);
+      expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[0]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("leaves a deleted review deleted when only its map moved on", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, dir, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-opencode-agentserver",
+      repo,
+      { map: { oid: mapOids[0] } },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      expect(
+        await importLegacyReview({
+          review: stored,
+          store,
+          data,
+          materialize: materializeFromRevisionDirs,
+          log: logFromRevisionDirs(oids),
+          loadTrace: async () => null,
+        }),
+      ).toMatchObject({ kind: "imported" });
+      await store.execute({
+        commandId: randomUUID(),
+        operation: { type: "delete", reviewId: record.uuid },
+      });
+
+      expect(
+        await importLegacyReview({
+          review: {
+            dir,
+            review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
+          },
+          store,
+          data,
+          materialize: materializeFromRevisionDirs,
+          log: logFromRevisionDirs(oids),
+          loadTrace: async () => null,
+        }),
+      ).toEqual({ kind: "current", reviewId: record.uuid });
+      expect(store.has(record.uuid)).toBe(false);
+    } finally {
+      await store.close();
+    }
+  });
 });
+
+const mapOids = ["a".repeat(40), "b".repeat(40)];
+
+/** The top-level sections holding nothing but software maps, as the maps they
+ * show: what a map publish writes and a later one replaces. */
+const mapSections = (document: Block[]) =>
+  document.flatMap((block) =>
+    block.type === "section" &&
+    block.title === "Software map" &&
+    block.children.length > 0 &&
+    block.children.every((child) => child.type === "software_map")
+      ? [
+          {
+            id: block.id,
+            mapVersionIds: block.children.map((child) =>
+              child.type === "software_map" ? child.mapVersionId : "",
+            ),
+          },
+        ]
+      : [],
+  );
+
+/** The commit a stored `map` resource was published against. */
+const mapCommit = (data: Uint8Array) =>
+  (JSON.parse(Buffer.from(data).toString()) as { commit: string }).commit;
 
 const square = (background: string) =>
   sharp({ create: { width: 2, height: 2, channels: 3, background } })

@@ -8,6 +8,7 @@ import {
   logFromRevisionDirs,
   materializeFromRevisionDirs,
   scratchGitRepo,
+  sealLegacyMapRevision,
   syntheticLegacyReview,
 } from "./import-test-utils";
 import { createLegacyImporter } from "./legacy-importer";
@@ -117,6 +118,62 @@ describe("createLegacyImporter", () => {
         `[Review import] ${broken.record.uuid}: skipped (disk on fire)`,
       );
       expect(store.has(broken.record.uuid)).toBe(false);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("reports a map it cannot import once, then imports it", async () => {
+    const repo = await scratchGitRepo();
+    const mapOid = "a".repeat(40);
+
+    const { home, dir, record, stored } = await syntheticLegacyReview(
+      "schema4-opencode-agentserver",
+      repo,
+      {
+        map: {
+          oid: mapOid,
+          headCommit: "c".repeat(40),
+          baseCommit: "d".repeat(40),
+        },
+      },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const log = vi.fn<(message: string) => void>();
+
+    const importer = createLegacyImporter({
+      store,
+      data,
+      materialize: materializeFromRevisionDirs,
+      onImported: async () => {},
+      log,
+    });
+
+    const mapReports = () =>
+      log.mock.calls.filter(([message]) =>
+        message.startsWith(`[Review import] ${record.uuid}: map revision`),
+      );
+
+    try {
+      expect(await importer.ensure(stored)).toMatchObject({
+        kind: "imported",
+      });
+      expect(await importer.ensure(stored)).toMatchObject({ kind: "current" });
+      expect(await importer.ensure(stored)).toMatchObject({ kind: "current" });
+      expect(mapReports()).toHaveLength(1);
+
+      await sealLegacyMapRevision(dir, mapOid, {
+        headCommit: repo.head,
+        baseCommit: repo.base,
+      });
+      expect(await importer.ensure(stored)).toMatchObject({
+        kind: "imported",
+        version: 1,
+      });
     } finally {
       await store.close();
     }

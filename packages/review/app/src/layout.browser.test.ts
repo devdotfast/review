@@ -6,9 +6,41 @@ import { softwareMapOverlayClassName } from "./software-map/software-map-keyboar
 import mapCss from "./software-map/styles.css?raw";
 import canvasCss from "./styles.css?raw";
 import "./styles.css";
+import "./api-document.css";
 import "./software-map/styles.css";
 
 describe("Review layout", () => {
+  it("aligns standalone JSON trace quotes with prose while keeping nested quotes inline", () => {
+    const documentView = document.createElement("article");
+    documentView.className = "review-document";
+    documentView.style.width = "1000px";
+    documentView.innerHTML = `
+      <div class="api-document-node">
+        <p>Prose with <span class="review-trace-quote-container">an inline quote</span>.</p>
+      </div>
+      <div class="api-document-node">
+        <span class="review-trace-quote-container">A standalone quote</span>
+      </div>
+    `;
+    document.body.append(documentView);
+
+    try {
+      const prose = documentView.querySelector("p")!;
+
+      const [inline, standalone] = documentView.querySelectorAll<HTMLElement>(
+        ".review-trace-quote-container",
+      );
+
+      const proseBounds = prose.getBoundingClientRect();
+      const quoteBounds = standalone.getBoundingClientRect();
+      expect(quoteBounds.left).toBeCloseTo(proseBounds.left);
+      expect(quoteBounds.width).toBeCloseTo(proseBounds.width);
+      expect(getComputedStyle(inline).display).toBe("inline");
+    } finally {
+      documentView.remove();
+    }
+  });
+
   it("separates consecutive code peeks in document flow", () => {
     const documentView = document.createElement("article");
     documentView.className = "review-document";

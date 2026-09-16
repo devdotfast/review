@@ -2,12 +2,13 @@ import type { Writable } from "node:stream";
 
 import type { Command } from "commander";
 
-import type { CliInputStream } from "./cli-output";
+import type { CliInputStream, CliJsonOutput } from "./cli-output";
 import type {
   runTraceDisable,
   runTraceEnable,
   runTraceGitHook,
   runTraceHook,
+  runTraceInstallMachine,
   runTraceRepair,
   runTraceStatus,
   runTraceSync,
@@ -18,6 +19,8 @@ import type {
   runTraceDeny,
   runTraceOnboard,
   runTraceSessions,
+  runTraceStoreDelete,
+  runTraceStoreInfo,
 } from "./trace-hosted-cli";
 import type { runTraceBlame, runTraceShow } from "./trace-read-cli";
 import type { TraceStorageKind } from "./trace-storage/types";
@@ -59,6 +62,9 @@ export interface TraceCommandRuntime {
   runTraceGitHook: typeof runTraceGitHook;
   runTraceSync: typeof runTraceSync;
   runTraceOnboard: typeof runTraceOnboard;
+  runTraceStoreDelete: typeof runTraceStoreDelete;
+  runTraceStoreInfo: typeof runTraceStoreInfo;
+  runTraceInstallMachine: typeof runTraceInstallMachine;
   runTraceSessions: typeof runTraceSessions;
   runTraceAllow: typeof runTraceAllow;
   runTraceDeny: typeof runTraceDeny;
@@ -83,4 +89,15 @@ export interface RegisterTraceCommandsOptions {
   configureJsonOutput: <T extends Command>(command: T) => T;
   /** Receives every action's exit code. */
   setExitCode: (code: number) => void;
+  /**
+   * The command `allow` names on its last line, such as `dev-traces check`.
+   * `<prefix> status` when absent.
+   */
+  verifyCommand?: string;
+  /**
+   * Installs the CLI itself, and reports the command the harness hooks call.
+   * Only a CLI that ships its own command file supplies this; `install` then
+   * names that command file too.
+   */
+  installMachine?: (output: CliJsonOutput) => Promise<TraceCommand>;
 }

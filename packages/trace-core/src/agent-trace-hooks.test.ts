@@ -8,6 +8,8 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  agentTraceHomeDirectory,
+  agentTraceHookPath,
   describeTraceHookOwners,
   installClaudeTraceHook,
   installCodexTraceHook,
@@ -166,6 +168,51 @@ command = "review trace hook SessionEnd"
     );
     expect(await readFile(codex.path, "utf8")).toBe('model = "gpt-5"\n');
     expect(existsSync(pi.path)).toBe(false);
+  });
+});
+
+describe("the OpenCode configuration base", () => {
+  it("writes the plugin under XDG_CONFIG_HOME and looks for it there", async () => {
+    const homeDir = await makeTempHome();
+    const xdg = path.join(homeDir, "xdg");
+    const env: NodeJS.ProcessEnv = { XDG_CONFIG_HOME: xdg };
+
+    const result = await installOpenCodeTraceExtension(
+      homeDir,
+      "dev-traces",
+      env,
+    );
+
+    const expected = path.join(xdg, "opencode", "plugins", "review-trace.ts");
+    expect(result.path).toBe(expected);
+    expect(existsSync(expected)).toBe(true);
+    expect(
+      existsSync(path.join(homeDir, ".config", "opencode", "plugins")),
+    ).toBe(false);
+    // The presence check and the hook path read the same base.
+    expect(agentTraceHomeDirectory("opencode", homeDir, env)).toBe(
+      path.join(xdg, "opencode"),
+    );
+    expect(agentTraceHookPath("opencode", homeDir, env)).toBe(expected);
+    expect((await describeTraceHookOwners(homeDir, env)).opencode).toBe(
+      "dev-traces",
+    );
+    expect(
+      await removeAgentTraceHook("opencode", homeDir, "dev-traces", env),
+    ).toBe(true);
+    expect(existsSync(expected)).toBe(false);
+  });
+
+  it("falls back to ~/.config when XDG_CONFIG_HOME is not set", async () => {
+    const homeDir = await makeTempHome();
+    const result = await installOpenCodeTraceExtension(homeDir, "review", {});
+
+    expect(result.path).toBe(
+      path.join(homeDir, ".config", "opencode", "plugins", "review-trace.ts"),
+    );
+    expect(agentTraceHomeDirectory("opencode", homeDir, {})).toBe(
+      path.join(homeDir, ".config", "opencode"),
+    );
   });
 });
 

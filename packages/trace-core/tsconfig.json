@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "lib": ["ES2024", "ES2025.Iterator"],
     "types": ["node"]
   },
   "include": ["src", "vitest.config.ts"]

@@ -7,7 +7,7 @@ import { IDimension } from '../../../../base/browser/dom.js';
 import { findLast } from '../../../../base/common/arraysFind.js';
 import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
 import { Disposable, DisposableStore, IDisposable, IReference, toDisposable } from '../../../../base/common/lifecycle.js';
-import { IObservable, IObservableWithChange, ISettableObservable, autorun, autorunHandleChanges, autorunOpts, autorunWithStore, observableValue, transaction } from '../../../../base/common/observable.js';
+import { IObservable, IObservableWithChange, IReader, ISettableObservable, autorun, autorunHandleChanges, autorunOpts, autorunWithStore, observableValue, transaction } from '../../../../base/common/observable.js';
 import { ElementSizeObserver } from '../../config/elementSizeObserver.js';
 import { ICodeEditor, IOverlayWidget, IViewZone } from '../../editorBrowser.js';
 import { Position } from '../../../common/core/position.js';
@@ -538,4 +538,41 @@ class ClonedRefCounted<T> extends RefCounted<T> {
 		this._isDisposed = true;
 		this._base._decreaseRefCount(this._debugOwner);
 	}
+}
+
+/**
+ * The text shown under a band's title. A supplied label may begin with a
+ * `<comment> pseudocode` marker meant for terminals; it is dropped here.
+ */
+export function bandDetailText(label: string | undefined): string {
+	if (!label) { return ''; }
+	const lines = label.split('\n');
+	if (lines.length < 2) { return ''; }
+	const body = /^(\/\/|#|--|;|%)\s*pseudocode$/.test(lines[0].trim()) ? lines.slice(1) : lines;
+	return body.join('\n');
+}
+
+/** The band is 24px for its controls, plus one line of detail text per detail line. */
+export function bandHeightPx(label: string | undefined, lineHeight: number): number {
+	const detail = bandDetailText(label);
+	const lines = detail ? detail.split('\n').length : 0;
+	return 24 + (lines > 0 ? lines * lineHeight + 12 : 0);
+}
+
+/** What sizing a hidden-region band needs to know about its region. */
+export interface IBandRegion {
+	readonly label: string | undefined;
+	shouldHideControls(reader: IReader | undefined): boolean;
+}
+
+/**
+ * The height of the band the region at `index` shows, or undefined when it shows none: a fully revealed
+ * region has no band, and compact mode drops the first and last. The band zones and the side-by-side
+ * alignment both size a band here, so a one-sided band gets exactly its height of room on the other side.
+ */
+export function bandZoneHeightPx(regions: readonly IBandRegion[], index: number, compactMode: boolean, lineHeight: number, reader: IReader | undefined): number | undefined {
+	const region = regions[index];
+	if (region.shouldHideControls(reader)) { return undefined; }
+	if (compactMode) { return index === 0 || index === regions.length - 1 ? undefined : 12; }
+	return bandHeightPx(region.label, lineHeight);
 }

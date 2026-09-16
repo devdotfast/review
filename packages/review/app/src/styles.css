@@ -6826,6 +6826,30 @@ button.review-stack-row:disabled .review-stack-relation {
   cursor: pointer;
 }
 
+.review-settings-input {
+  min-width: 200px;
+  padding: 4px 8px;
+  border: 1px solid var(--review-home-rule-soft);
+  border-radius: 5px;
+  color: inherit;
+  background: var(--transparent);
+  font: inherit;
+}
+
+.review-settings-input:disabled {
+  opacity: 0.5;
+}
+
+.review-settings-diffr {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--review-home-rule-soft);
+}
+
+.review-settings-diffr-lede {
+  margin: 0 0 8px;
+}
+
 .review-settings-unavailable {
   color: var(--review-home-meta);
   font-size: 12px;

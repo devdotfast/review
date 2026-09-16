@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { CancellationToken } from '../../../base/common/cancellation.js';
+import { IRange } from '../core/range.js';
 import { Event } from '../../../base/common/event.js';
 import { MovedText } from './linesDiffComputer.js';
 import { DetailedLineRangeMapping } from './rangeMapping.js';
@@ -53,7 +54,49 @@ export interface IDocumentDiffProviderOptions {
  * Represents a diff between two text models.
  * @internal
  */
+/**
+ * A hidden region supplied by the diff provider, one-based and per side. A side
+ * with a zero count is absent there. `label` names the region (a gap, a folded
+ * body, a summary); a multi-line label is shown in full under its first line.
+ * @internal
+ */
+export interface IDocumentContextGap {
+	readonly originalStart: number;
+	readonly modifiedStart: number;
+	readonly originalCount: number;
+	readonly modifiedCount: number;
+	readonly label?: string;
+	/**
+	 * What the hidden lines are: unchanged context, lines that exist only on
+	 * the modified side, or only on the original side. Drives the band's tint.
+	 */
+	readonly kind?: 'unchanged' | 'inserted' | 'removed';
+	/**
+	 * Whether the band lists the symbols its hidden lines belong to. Default
+	 * `true`; `false` keeps the bare count.
+	 */
+	readonly breadcrumbs?: boolean;
+	/**
+	 * Whether the region starts hidden. `false` supplies a region that is
+	 * fully shown, so the editor keeps its fold control on the region's
+	 * first line. Default `true`.
+	 */
+	readonly collapsed?: boolean;
+}
+
 export interface IDocumentDiff {
+	/** Authoritative change paint, independent of replacement ranges used for layout.
+	 * When present (even empty), replaces inferred line and character highlighting. */
+	readonly changeHighlights?: {
+		readonly original: readonly IRange[];
+		readonly modified: readonly IRange[];
+		/** One-based source lines receiving a lighter whole-line background. */
+		readonly originalLines?: readonly number[];
+		readonly modifiedLines?: readonly number[];
+	};
+	/** Optional authoritative zero-based source row correspondence. Null denotes padding. */
+	readonly contextGaps?: readonly IDocumentContextGap[];
+	readonly sourceLineAlignment?: readonly (readonly [number | null, number | null])[];
 	/**
 	 * If true, both text models are identical (byte-wise).
 	 */

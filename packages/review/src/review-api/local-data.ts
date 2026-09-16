@@ -1,6 +1,7 @@
 import { type FSWatcher, existsSync, watch } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
 
+import type { JsonObject } from "@dev.fast/json";
 import {
   type BlobBatchReader,
   type LocalVcs,
@@ -25,6 +26,8 @@ import type {
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
+import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
+import { structuralDiff } from "../server/structural-diff.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
   type NormalizedSoftwareModel,
@@ -202,6 +205,36 @@ export class LocalReviewData {
       options.workspaceDatabase ?? ":memory:",
       store,
     );
+  }
+
+  async structuralChanges(
+    reviewId: string,
+    pins: Pins,
+    signal: AbortSignal,
+    onEvent: (event: JsonObject) => void,
+    file?: string,
+  ): Promise<void> {
+    if (file !== undefined) checkRelativePath(file);
+
+    const rootPath = await ensureReviewPinnedCheckout({
+      rootPath: this.store.repositoryPath(pins.repositoryId),
+      ref: pins.head,
+      reviewUuid: reviewId,
+    });
+
+    if (!rootPath)
+      throw new ReviewInputError(
+        "Cannot prepare the pinned repository for structural diffing.",
+      );
+    await structuralDiff({
+      rootPath,
+      baseRef: pins.base,
+      headRef: pins.head,
+      exactTrees: true,
+      paths: file === undefined ? undefined : [file],
+      signal,
+      onEvent,
+    });
   }
 
   private closed = false;

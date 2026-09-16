@@ -52,7 +52,13 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
       pullRequestUrl: "https://github.com/example/repo/pull/42",
     },
     document: [
-      { type: "markdown", markdown: "## Summary\n\nText\n\n### **Details**" },
+      {
+        type: "markdown",
+        // The footnote definition renders after the body, so the headings that
+        // follow it in the source are not where the renderer indexes them.
+        markdown:
+          "Intro[^1]\n\n[^1]: A note\n\n## Summary\n\nText\n\n### **Details**",
+      },
       {
         type: "section",
         title: "Implementation",

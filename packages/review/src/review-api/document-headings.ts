@@ -41,18 +41,23 @@ export function documentHeadings(blocks: Block[]): DocumentHeading[] {
 
     if (block.type !== "markdown") return [];
 
-    return (parseMarkdown(block.markdown).children ?? []).flatMap(
-      (node, index) =>
-        node.type === "heading" && (node.depth === 2 || node.depth === 3)
-          ? [
-              assign({
-                text: headingText(node),
-                level: node.depth === 2 ? "h2" : "h3",
-                block,
-                index,
-              }),
-            ]
-          : [],
+    // `index` addresses the heading in the rendered body, where footnote
+    // definitions have been lifted out to the end (see `MarkdownContent`).
+    const body = (parseMarkdown(block.markdown).children ?? []).filter(
+      (node) => node.type !== "footnoteDefinition",
+    );
+
+    return body.flatMap((node, index) =>
+      node.type === "heading" && (node.depth === 2 || node.depth === 3)
+        ? [
+            assign({
+              text: headingText(node),
+              level: node.depth === 2 ? "h2" : "h3",
+              block,
+              index,
+            }),
+          ]
+        : [],
     );
   });
 }

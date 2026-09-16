@@ -30,6 +30,18 @@ describe("documentHeadings", () => {
     ]);
   });
 
+  it("indexes past a footnote definition, as the renderer's body does", () => {
+    const block: Block = {
+      id: "b1",
+      type: "markdown",
+      markdown: "Intro[^1]\n\n[^1]: note\n\n## Heading\n",
+    };
+
+    expect(documentHeadings([block])).toMatchObject([
+      { id: "heading", index: 1 },
+    ]);
+  });
+
   it("numbers a repeated slug in document order across blocks", () => {
     const nested: Block = {
       id: "b2",

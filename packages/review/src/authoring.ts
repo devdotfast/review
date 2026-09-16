@@ -2,7 +2,11 @@ import { isObjectValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import type { ComponentType, ReactNode } from "react";
 import { z } from "zod";
 
-import { frameSchema, sequenceSchema } from "./review-api/document";
+import {
+  databaseLensSchema,
+  frameSchema,
+  sequenceSchema,
+} from "./review-api/document";
 import {
   type NormalizedSoftwareModel,
   type SoftwareDataStoreCollectionInput,
@@ -264,7 +268,7 @@ export const collectionKindSchema = z.enum(["tables", "documents"]);
 
 export type CollectionKind = z.infer<typeof collectionKindSchema>;
 
-const resolvedTargetRefSchema = z.strictObject({
+export const resolvedTargetRefSchema = z.strictObject({
   __kind: z.literal("db-target-ref"),
   storeId: nonEmptyStringSchema,
   storeKind: storeKindSchema,
@@ -776,36 +780,6 @@ export function storeRefData(store: StoreRefDataSource): StoreRefData {
   return data;
 }
 
-export function hydrateStoreRef(data: StoreRefData): StoreRef {
-  const collections = (
-    refs?: Record<string, CollectionRefData>,
-  ): Record<string, CollectionRef> | undefined =>
-    refs &&
-    Object.fromEntries(
-      Object.entries(refs).map(([id, ref]) => [
-        id,
-        collectionRefFromTarget(ref.target, ref.schema),
-      ]),
-    );
-
-  const store: StoreRef = {
-    __kind: "db-store-ref",
-    id: data.id,
-    kind: data.kind,
-    label: data.label,
-  };
-
-  if (data.dataStoreKind) store.dataStoreKind = data.dataStoreKind;
-
-  if (data.softwareMapPath) store.softwareMapPath = data.softwareMapPath;
-
-  if (data.tables) store.tables = collections(data.tables);
-
-  if (data.documents) store.documents = collections(data.documents);
-
-  return Object.freeze(store);
-}
-
 const collectionRefDataSchema = z.strictObject({
   target: resolvedTargetRefSchema,
   schema: softwareDataStoreFieldDataSchema,
@@ -827,11 +801,6 @@ export const storeRefDataSchema: z.ZodType<StoreRefData> = z.strictObject({
 // store handles are their data projection. Anchors are stored as-is: their
 // peek is already a plain source range. review-document-materialize.ts writes
 // exactly this.
-const documentDbOperationFields = {
-  label: nonEmptyStringSchema,
-  anchor: peekableAnchorRefSchema,
-};
-
 export const reviewComponentDataSchemas = {
   AnchorLink: z.strictObject({ anchor: peekableAnchorRefSchema }),
   CallStackDiff: z.strictObject({
@@ -841,24 +810,12 @@ export const reviewComponentDataSchemas = {
   }),
   CodePeek: z.strictObject({ anchor: peekableAnchorRefSchema }),
   DatabaseLens: z.strictObject({
-    title: optionalNonEmptyStringSchema,
-    stores: z.record(nonEmptyStringSchema, storeRefDataSchema),
-    height: z.number().positive().optional(),
-  }),
-  DbRead: z.strictObject({
-    from: resolvedTargetRefSchema,
-    to: actorRefSchema,
-    ...documentDbOperationFields,
-  }),
-  DbUseCase: z.strictObject({
     id: nonEmptyStringSchema,
-    label: nonEmptyStringSchema,
-    summary: optionalNonEmptyStringSchema,
-  }),
-  DbWrite: z.strictObject({
-    from: actorRefSchema,
-    to: resolvedTargetRefSchema,
-    ...documentDbOperationFields,
+    title: optionalNonEmptyStringSchema,
+    height: z.number().positive().optional(),
+    actors: databaseLensSchema.shape.actors,
+    stores: databaseLensSchema.shape.stores,
+    useCases: databaseLensSchema.shape.useCases,
   }),
   ReviewSection: z.strictObject({
     title: nonEmptyStringSchema,
@@ -883,7 +840,12 @@ export const reviewComponentDataSchemas = {
   TutorialViewButton: z.strictObject({
     view: z.enum(["review", "commits", "diff", "map"]),
   }),
-} satisfies Record<ReviewAuthoringComponentName, z.ZodType>;
+};
+
+/** The components a published document can contain. Authoring-only markers
+ * (`DbUseCase`, `DbRead`, `DbWrite`) lower into their lens at publish. */
+export type ReviewDocumentComponentName =
+  keyof typeof reviewComponentDataSchemas;
 
 export type CollectionRefs<T> =
   T extends Record<string, SoftwareDataStoreCollectionInput>

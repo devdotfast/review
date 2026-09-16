@@ -659,47 +659,52 @@
           "type": "component",
           "name": "DatabaseLens",
           "props": {
+            "id": "db:order-storage",
             "title": "Order storage",
+            "height": 440,
+            "actors": {
+              "orderService": {
+                "label": "Order service",
+                "softwareMapPath": "orderService.application.orders"
+              },
+              "worker": {
+                "label": "Fulfillment worker",
+                "softwareMapPath": "orderService.fulfillment.worker"
+              }
+            },
             "stores": {
               "orderDatabase": {
-                "__kind": "db-store-ref",
-                "id": "orderDatabase",
-                "kind": "relational",
                 "label": "Order database",
+                "storage": "relational",
                 "softwareMapPath": "orderService.data.ordersDatabase",
-                "tables": {
+                "collections": {
                   "orders": {
-                    "target": {
-                      "__kind": "db-target-ref",
-                      "storeId": "orderDatabase",
-                      "storeKind": "relational",
-                      "storeLabel": "Order database",
-                      "storeSoftwareMapPath": "orderService.data.ordersDatabase",
-                      "collectionKind": "tables",
-                      "collectionId": "orders",
-                      "collectionLabel": "orders",
-                      "path": []
-                    },
-                    "schema": {
+                    "label": "orders",
+                    "fields": {
                       "id": {
-                        "type": "text",
-                        "example": "order-customer-42",
-                        "pk": true
+                        "label": "id",
+                        "dataType": "text",
+                        "primaryKey": true,
+                        "example": "order-customer-42"
                       },
                       "customerId": {
-                        "type": "text",
+                        "label": "customerId",
+                        "dataType": "text",
                         "example": "customer-42"
                       },
                       "totalCents": {
-                        "type": "integer",
+                        "label": "totalCents",
+                        "dataType": "integer",
                         "example": 12500
                       },
                       "status": {
-                        "type": "text",
+                        "label": "status",
+                        "dataType": "text",
                         "example": "fulfilled"
                       },
                       "createdAt": {
-                        "type": "timestamp",
+                        "label": "createdAt",
+                        "dataType": "timestamp",
                         "example": "2026-08-10T12:00:00Z"
                       }
                     }
@@ -707,104 +712,52 @@
                 }
               }
             },
-            "height": 440
-          },
-          "children": [
-            {
-              "type": "component",
-              "name": "DbUseCase",
-              "props": {
+            "useCases": [
+              {
                 "id": "create-order",
-                "label": "Create an order"
-              },
-              "children": [
-                {
-                  "type": "component",
-                  "name": "DbWrite",
-                  "props": {
-                    "from": {
-                      "__kind": "db-actor-ref",
-                      "id": "orderService",
-                      "label": "Order service",
-                      "softwareMapPath": "orderService.application.orders"
-                    },
-                    "to": {
-                      "__kind": "db-target-ref",
-                      "storeId": "orderDatabase",
-                      "storeKind": "relational",
-                      "storeLabel": "Order database",
-                      "storeSoftwareMapPath": "orderService.data.ordersDatabase",
-                      "collectionKind": "tables",
-                      "collectionId": "orders",
-                      "collectionLabel": "orders",
-                      "path": ["status"]
-                    },
+                "label": "Create an order",
+                "operations": [
+                  {
+                    "id": "insertOrder",
+                    "kind": "write",
+                    "store": "orderDatabase",
+                    "collection": "orders",
+                    "field": "status",
+                    "actor": "orderService",
                     "label": "write pending order",
-                    "anchor": {
-                      "__kind": "db-anchor-ref",
-                      "id": "insertOrder",
-                      "title": "Repository writes and queues the order",
-                      "peek": {
-                        "side": "head",
-                        "file": "src/orders/orders-repository.ts",
-                        "fromLine": 9,
-                        "toLine": 12
-                      },
-                      "softwareMapPath": "orderService.data.ordersRepository"
+                    "source": {
+                      "side": "head",
+                      "file": "src/orders/orders-repository.ts",
+                      "fromLine": 9,
+                      "toLine": 12
                     }
-                  },
-                  "children": []
-                }
-              ]
-            },
-            {
-              "type": "component",
-              "name": "DbUseCase",
-              "props": {
-                "id": "fulfill-order",
-                "label": "Fulfill an order"
+                  }
+                ]
               },
-              "children": [
-                {
-                  "type": "component",
-                  "name": "DbWrite",
-                  "props": {
-                    "from": {
-                      "__kind": "db-actor-ref",
-                      "id": "worker",
-                      "label": "Fulfillment worker",
-                      "softwareMapPath": "orderService.fulfillment.worker"
-                    },
-                    "to": {
-                      "__kind": "db-target-ref",
-                      "storeId": "orderDatabase",
-                      "storeKind": "relational",
-                      "storeLabel": "Order database",
-                      "storeSoftwareMapPath": "orderService.data.ordersDatabase",
-                      "collectionKind": "tables",
-                      "collectionId": "orders",
-                      "collectionLabel": "orders",
-                      "path": ["status"]
-                    },
+              {
+                "id": "fulfill-order",
+                "label": "Fulfill an order",
+                "operations": [
+                  {
+                    "id": "ship",
+                    "kind": "write",
+                    "store": "orderDatabase",
+                    "collection": "orders",
+                    "field": "status",
+                    "actor": "worker",
                     "label": "write fulfilled status",
-                    "anchor": {
-                      "__kind": "db-anchor-ref",
-                      "id": "ship",
-                      "title": "Worker creates the shipment",
-                      "peek": {
-                        "side": "head",
-                        "file": "src/fulfillment/fulfillment-worker.ts",
-                        "fromLine": 17,
-                        "toLine": 19
-                      },
-                      "softwareMapPath": "orderService.fulfillment.worker"
+                    "source": {
+                      "side": "head",
+                      "file": "src/fulfillment/fulfillment-worker.ts",
+                      "fromLine": 17,
+                      "toLine": 19
                     }
-                  },
-                  "children": []
-                }
-              ]
-            }
-          ]
+                  }
+                ]
+              }
+            ]
+          },
+          "children": []
         },
         {
           "type": "component",

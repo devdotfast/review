@@ -1,13 +1,7 @@
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
 import { type ReactNode, memo, useLayoutEffect, useMemo, useRef } from "react";
 
-import {
-  type ActorRef,
-  type PeekableAnchorRef,
-  type StoreInput,
-  type StoreRef,
-  defineCollections,
-} from "../../src/authoring";
+import { type PeekableAnchorRef } from "../../src/authoring";
 import type { ReviewApiClient } from "../../src/review-api/client";
 import {
   type Block,
@@ -22,7 +16,7 @@ import { MarkdownContent, markdownHasTitle } from "./agent-markdown";
 import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
-import { ResolvedDatabaseLens } from "./database-lens";
+import { DatabaseLens } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
@@ -290,7 +284,15 @@ const DocumentNode = memo(function DocumentNode({
       break;
 
     case "database_lens":
-      content = <ApiDatabase node={node} data={data} />;
+      content = (
+        <DatabaseLens
+          id={node.id!}
+          title={node.title}
+          actors={node.actors}
+          stores={node.stores}
+          useCases={node.useCases}
+        />
+      );
       break;
     case "image":
       content = (
@@ -330,113 +332,6 @@ const DocumentNode = memo(function DocumentNode({
     </NodeReveal>
   );
 });
-
-const actor = (id: string, label: string): ActorRef => ({
-  __kind: "db-actor-ref",
-  id,
-  label,
-});
-
-function ApiDatabase({
-  node,
-  data,
-}: {
-  node: Extract<Block, { type: "database_lens" }>;
-  data: ApiDocumentData;
-}) {
-  const stores = useMemo(
-    () =>
-      Object.fromEntries(
-        Object.entries(node.stores).map(([name, store]) => {
-          const kind = store.storage === "relational" ? "tables" : "documents";
-          const input: StoreInput = { kind: store.storage, label: store.label };
-
-          const collections = Object.fromEntries(
-            Object.entries(store.collections).map(([name, collection]) => [
-              name,
-              {
-                label: collection.label,
-                schema: Object.fromEntries(
-                  Object.entries(collection.fields).map(([name, field]) => [
-                    name,
-                    {
-                      type: field.dataType + (field.nullable ? "?" : ""),
-                      pk: field.primaryKey,
-                      fk: field.references
-                        ? {
-                            store: field.references.store,
-                            table: field.references.collection,
-                            field: field.references.field,
-                          }
-                        : undefined,
-                    },
-                  ]),
-                ),
-              },
-            ]),
-          );
-
-          return [
-            name,
-            {
-              __kind: "db-store-ref",
-              id: name,
-              kind: input.kind,
-              label: input.label,
-              [kind]: defineCollections(name, input, kind, collections),
-            } satisfies StoreRef,
-          ];
-        }),
-      ),
-    [node.stores],
-  );
-
-  // Stable between snapshots: the lens re-applies its restored tour whenever these change.
-  const useCases = useMemo(
-    () =>
-      node.useCases.map((useCase) => ({
-        ...useCase,
-        id: useCase.id!,
-        operations: useCase.operations.map((op) => {
-          const store = node.stores[op.store]!;
-
-          const target = {
-            __kind: "db-target-ref" as const,
-            storeId: op.store,
-            storeKind: store.storage,
-            storeLabel: store.label,
-            collectionKind:
-              store.storage === "relational"
-                ? ("tables" as const)
-                : ("documents" as const),
-            collectionId: op.collection,
-            collectionLabel: store.collections[op.collection]!.label,
-            path: op.field ? [op.field] : [],
-          };
-
-          const from = actor(`${node.id}:${op.actor}`, node.actors[op.actor]!);
-
-          return {
-            kind: op.kind,
-            from: op.kind === "read" ? target : from,
-            to: op.kind === "read" ? from : target,
-            label: op.label,
-            anchor: data.anchors.get(op.id!)!,
-          };
-        }),
-      })),
-    [node, data.anchors],
-  );
-
-  return (
-    <ResolvedDatabaseLens
-      id={node.id}
-      title={node.title}
-      stores={stores}
-      useCases={useCases}
-    />
-  );
-}
 
 function NodeReveal({
   id,

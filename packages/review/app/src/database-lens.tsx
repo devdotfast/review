@@ -1,8 +1,6 @@
+import { type JsonValue, isStringValue } from "@dev.fast/review-protocol";
 import {
   type ChangeEvent,
-  Children,
-  type ReactNode,
-  isValidElement,
   useCallback,
   useEffect,
   useMemo,
@@ -11,46 +9,20 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import {
-  type ActorRef,
-  type AnchorRef,
-  type CollectionKind,
-  type CollectionRef,
-  type DatabaseLensProps,
-  type DbOperationProps,
-  type DbReadProps,
-  type DbUseCaseProps,
-  type DbWriteProps,
-  type PeekableAnchorRef,
-  type StoreRef,
-  type TargetRef,
-  collectionSchema,
-  collectionTargetRef,
-  databaseLensPropsSchema,
-  dbReadPropsSchema,
-  dbUseCasePropsSchema,
-  dbWritePropsSchema,
-  resolveTargetRef,
-  throwAuthoringIssue,
-} from "../../src/authoring";
+import type { AnchorRef } from "../../src/authoring";
+import type { DatabaseLensBlockProps } from "../../src/database-lens-block";
+import type {
+  DatabaseField,
+  DatabaseOperation,
+  DatabaseStore,
+} from "../../src/review-api/document";
 import type { Source } from "../../src/source";
 import { useAgentSelection } from "./agent-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import type { GuidedTour } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
-import {
-  type DataStoreFieldExample,
-  exampleForDataStoreField,
-  exampleForDataStoreSchema,
-  foreignKeyTarget,
-  formatSchemaExample,
-  isDataStoreFieldLeaf,
-} from "./software-map/c4-projection";
-import type {
-  SoftwareDataStoreFieldSchema,
-  SoftwareDataStoreForeignKeyRef,
-} from "./software-map/model";
+import { formatSchemaExample } from "./software-map/c4-projection";
 import {
   type SoftwareMapDataStoreSchemaRowSnapshot,
   SoftwareMapFrame,
@@ -62,19 +34,43 @@ import { captureUiEvent } from "./ui-telemetry";
 
 type OperationKind = "read" | "write";
 
-export type {
-  ActorRef,
-  AnchorRef,
-  DatabaseLensProps,
-  DbOperationProps,
-  DbUseCaseProps,
-  StoreRef,
-  TargetRef,
-};
+/** The canonical `database_lens` block as the document stores it. */
+export type DatabaseLensProps = DatabaseLensBlockProps;
 
-export type FieldSchema = SoftwareDataStoreFieldSchema;
+export type LensStores = Record<string, DatabaseStore>;
 
-export type ForeignKeyRef = SoftwareDataStoreForeignKeyRef;
+export type CollectionKind = "tables" | "documents";
+
+export interface LensActor {
+  id: string;
+  label: string;
+  softwareMapPath?: string;
+}
+
+/** One store collection (and optionally a field path inside it), resolved
+ * from an operation's `store` / `collection` / `field` names. */
+export interface LensTarget {
+  storeId: string;
+  storeKind: DatabaseStore["storage"];
+  storeLabel: string;
+  storeDataStoreKind?: DatabaseStore["dataStoreKind"];
+  storeSoftwareMapPath?: string;
+  collectionKind: CollectionKind;
+  collectionId: string;
+  collectionLabel: string;
+  collectionKey?: string;
+  path: string[];
+}
+
+export interface ParsedOperation {
+  id: string;
+  kind: OperationKind;
+  actor: LensActor;
+  target: LensTarget;
+  label: string;
+  detail?: string;
+  source: Source;
+}
 
 export interface ParsedUseCase {
   id: string;
@@ -83,19 +79,7 @@ export interface ParsedUseCase {
   operations: ParsedOperation[];
 }
 
-interface ParsedOperation {
-  kind: OperationKind;
-  from: ActorRef | TargetRef;
-  to: ActorRef | TargetRef;
-  label: string;
-  anchor: PeekableAnchorRef;
-}
-
-interface ResolvedOperation {
-  operation: ParsedOperation;
-  actor: ActorRef;
-  target: TargetRef;
-}
+export type ResolvedOperation = ParsedOperation;
 
 interface FieldRow {
   path: string[];
@@ -103,8 +87,110 @@ interface FieldRow {
   depth: number;
   type?: string;
   pk?: boolean;
-  fk?: ForeignKeyRef;
-  example?: DataStoreFieldExample;
+  fk?: DatabaseField["references"];
+  example?: JsonValue;
+}
+
+export function collectionKindForStore(store: DatabaseStore): CollectionKind {
+  return store.storage === "relational" ? "tables" : "documents";
+}
+
+/** Resolves an operation's names against the lens stores. The block was
+ * validated at ingestion, so a missing name is a programming error. */
+export function lensTarget(
+  stores: LensStores,
+  operation: Pick<DatabaseOperation, "store" | "collection" | "field">,
+): LensTarget {
+  const store = stores[operation.store];
+
+  if (!store)
+    throw new Error(`Database lens store "${operation.store}" is undefined.`);
+  const collection = store.collections[operation.collection];
+
+  if (!collection)
+    throw new Error(
+      `Database lens collection "${operation.store}.${operation.collection}" is undefined.`,
+    );
+
+  const target: LensTarget = {
+    storeId: operation.store,
+    storeKind: store.storage,
+    storeLabel: store.label,
+    collectionKind: collectionKindForStore(store),
+    collectionId: operation.collection,
+    collectionLabel: collection.label,
+    path: operation.field ? operation.field.split(".") : [],
+  };
+
+  if (store.dataStoreKind) target.storeDataStoreKind = store.dataStoreKind;
+
+  if (store.softwareMapPath)
+    target.storeSoftwareMapPath = store.softwareMapPath;
+
+  if (collection.key !== undefined) target.collectionKey = collection.key;
+
+  return target;
+}
+
+export function lensActor(
+  actors: DatabaseLensProps["actors"],
+  name: string,
+): LensActor {
+  const definition = actors[name];
+
+  if (definition === undefined) return { id: name, label: name };
+
+  if (isStringValue(definition)) return { id: name, label: definition };
+  const actor: LensActor = { id: name, label: definition.label };
+
+  if (definition.softwareMapPath)
+    actor.softwareMapPath = definition.softwareMapPath;
+
+  return actor;
+}
+
+/** Pure view input: every use case with its operations resolved to actors
+ * and store targets. */
+export function lensUseCases(block: DatabaseLensProps): ParsedUseCase[] {
+  return block.useCases.map((useCase, useCaseIndex) => {
+    const parsed: ParsedUseCase = {
+      id: useCase.id ?? `${block.id}-use-case-${useCaseIndex + 1}`,
+      label: useCase.label,
+      operations: useCase.operations.map((operation, index) => {
+        const resolved: ParsedOperation = {
+          id: operation.id ?? `${block.id}-operation-${index + 1}`,
+          kind: operation.kind,
+          actor: lensActor(block.actors, operation.actor),
+          target: lensTarget(block.stores, operation),
+          label: operation.label,
+          source: operation.source,
+        };
+
+        if (operation.detail !== undefined) resolved.detail = operation.detail;
+
+        return resolved;
+      }),
+    };
+
+    if (useCase.summary !== undefined) parsed.summary = useCase.summary;
+
+    return parsed;
+  });
+}
+
+/** The side panel and guided tour key their state by anchor; an operation
+ * is its own anchor. */
+function panelAnchor(operation: ParsedOperation): AnchorRef {
+  const anchor: AnchorRef = {
+    __kind: "db-anchor-ref",
+    id: operation.id,
+    title: operation.label,
+    peek: operation.source,
+  };
+
+  if (operation.detail !== undefined) anchor.detail = operation.detail;
+
+  return anchor;
 }
 
 export type DatabaseOperationHighlightState = "active" | "inactive";
@@ -161,83 +247,20 @@ export function databaseTourStopDetail({
   return anchorDetail ?? `${useCaseLabel}: ${operationLabel}`;
 }
 
-export function DbUseCase(props: DbUseCaseProps) {
-  dbUseCasePropsSchema.parse(props);
+export function DatabaseLens(block: DatabaseLensProps) {
+  const { id: lensId, title, actors, stores, height = 560 } = block;
 
-  return null;
-}
-
-export function DbRead(props: DbReadProps) {
-  dbReadPropsSchema.parse(props);
-
-  return null;
-}
-
-export function DbWrite(props: DbWriteProps) {
-  dbWritePropsSchema.parse(props);
-
-  return null;
-}
-
-export function DatabaseLens(props: DatabaseLensProps) {
-  const {
-    title,
-    stores,
-    height = 560,
-    children,
-  } = databaseLensPropsSchema.parse(props);
-
-  const validatedInput = useMemo(
+  // Memoize on the block's fields, not the props object: a live JSON snapshot
+  // keeps its node references stable, so the tour entries and restored tour
+  // state survive re-renders and edits elsewhere in the document.
+  const useCases = useMemo(
     () =>
-      validateDatabaseLensProps({
-        title,
-        stores,
-        height,
-        children,
-      }),
-    [children, height, stores, title],
+      lensUseCases({ id: lensId, actors, stores, useCases: block.useCases }),
+    [lensId, actors, stores, block.useCases],
   );
 
-  return (
-    <ResolvedDatabaseLens
-      title={title}
-      stores={stores}
-      height={height}
-      useCases={validatedInput.useCases}
-    />
-  );
-}
-
-export function ResolvedDatabaseLens({
-  title,
-  stores,
-  height = 560,
-  useCases,
-  id,
-}: {
-  title?: string;
-  stores: Record<string, StoreRef>;
-  height?: number;
-  useCases: ParsedUseCase[];
-  id?: string;
-}) {
   const selectForAgent = useAgentSelection();
   const session = useReviewSession();
-  const locatorScope = id ?? `db:${slugPart(title ?? "database")}`;
-  const lensId = locatorScope;
-
-  const peekInputs = useMemo(
-    () =>
-      new Map(
-        useCases.flatMap((useCase) =>
-          useCase.operations.map(
-            (operation) =>
-              [operation.anchor.id, operation.anchor.peek] as const,
-          ),
-        ),
-      ),
-    [useCases],
-  );
 
   const [activeUseCaseId, setActiveUseCaseId] = useState<string | null>(
     () => useCases[0]?.id ?? null,
@@ -254,20 +277,20 @@ export function ResolvedDatabaseLens({
         id: tourIdFor(lensId, useCase.id),
         title: `${title ?? "Database lens"}: ${useCase.label}`,
         stops: useCase.operations.map((operation) => ({
-          anchor: operation.anchor,
+          anchor: panelAnchor(operation),
           label: operation.label,
           detail: databaseTourStopDetail({
             useCaseLabel: useCase.label,
             operationLabel: operation.label,
-            anchorDetail: operation.anchor.detail,
+            anchorDetail: operation.detail,
           }),
           content: {
             kind: "source" as const,
-            source: peekInputs.get(operation.anchor.id)!,
+            source: operation.source,
           },
         })),
       })),
-    [lensId, peekInputs, title, useCases],
+    [lensId, title, useCases],
   );
 
   const restoredTour = useTourRestore(tourEntries);
@@ -299,7 +322,7 @@ export function ResolvedDatabaseLens({
 
   const openUseCase = (useCase: ParsedUseCase) => {
     setActiveUseCaseId(useCase.id);
-    const firstAnchor = useCase.operations[0]?.anchor.id;
+    const firstAnchor = useCase.operations[0]?.id;
     // Inline, the select only switches the diagram; with the tour open it
     // stays fullscreen and steps onto the new use case's tour.
     setTourState((state) =>
@@ -330,7 +353,7 @@ export function ResolvedDatabaseLens({
       }
 
       const nextAnchor =
-        anchor ?? tourAnchor ?? activeUseCase?.operations[0]?.anchor.id;
+        anchor ?? tourAnchor ?? activeUseCase?.operations[0]?.id;
 
       if (!nextAnchor) return;
 
@@ -414,12 +437,15 @@ export function ResolvedDatabaseLens({
                       kind: "database use case",
                       description: activeUseCase.summary,
                       operations: activeUseCase.operations.map((operation) => {
-                        const endpoint = (ref: ActorRef | TargetRef) =>
-                          ref.__kind === "db-actor-ref"
-                            ? ref.label
-                            : ref.collectionLabel;
+                        const actor = operation.actor.label;
+                        const target = operation.target.collectionLabel;
 
-                        return `${operation.kind}: ${endpoint(operation.from)} → ${endpoint(operation.to)} — ${operation.label}`;
+                        const [from, to] =
+                          operation.kind === "read"
+                            ? [target, actor]
+                            : [actor, target];
+
+                        return `${operation.kind}: ${from} → ${to} — ${operation.label}`;
                       }),
                     },
                   })
@@ -502,18 +528,15 @@ function DatabaseUseCaseDiagram({
   onOpenAnchor,
 }: {
   useCase: ParsedUseCase;
-  stores: Record<string, StoreRef>;
+  stores: LensStores;
   activeAnchor: string | null;
   onOpenAnchor: (anchor: string) => void;
 }) {
-  const resolvedOperations = useMemo(
-    () => resolveOperations(useCase),
-    [useCase],
-  );
+  const resolvedOperations = useCase.operations;
 
   const highlights = selectDatabaseOperationHighlights(
     resolvedOperations.map((resolved) => ({
-      anchorId: resolved.operation.anchor.id,
+      anchorId: resolved.id,
       targetKey: targetKey(resolved.target, resolved.target.path),
     })),
     activeAnchor,
@@ -538,7 +561,7 @@ function DatabaseC4UseCaseDiagram({
   onOpenAnchor,
 }: {
   useCase: ParsedUseCase;
-  stores: Record<string, StoreRef>;
+  stores: LensStores;
   resolvedOperations: ResolvedOperation[];
   highlights: ReturnType<typeof selectDatabaseOperationHighlights>;
   onOpenAnchor: (anchor: string) => void;
@@ -615,11 +638,11 @@ function DatabaseC4UseCaseDiagram({
 
   const openRelationship = (relationshipId: string) => {
     const operation = resolvedOperations.find(
-      (resolved) => resolved.operation.anchor.id === relationshipId,
-    )?.operation;
+      (resolved) => resolved.id === relationshipId,
+    );
 
     if (!operation) return;
-    onOpenAnchor(operation.anchor.id);
+    onOpenAnchor(operation.id);
   };
 
   const handleSelectNode = (node: SoftwareMapNodeSnapshot) => {
@@ -694,11 +717,7 @@ export function initialDatabaseC4ExpandedNodeIds(
   resolvedOperations: readonly ResolvedOperation[],
 ): Set<string> {
   return new Set(
-    resolvedOperations.flatMap((resolved) => {
-      const target = resolveTargetRef(resolved.target);
-
-      return target ? [storeNodeId(target)] : [];
-    }),
+    resolvedOperations.map((resolved) => storeNodeId(resolved.target)),
   );
 }
 
@@ -749,9 +768,9 @@ export function databaseC4Snapshot({
   selectedNodeId,
   expandedNodeIds,
 }: {
-  useCase: ParsedUseCase;
-  stores: Record<string, StoreRef>;
-  resolvedOperations: ResolvedOperation[];
+  useCase: Pick<ParsedUseCase, "id" | "label">;
+  stores: LensStores;
+  resolvedOperations: readonly ResolvedOperation[];
   highlights: ReturnType<typeof selectDatabaseOperationHighlights>;
   selectedNodeId: string | null;
   expandedNodeIds: ReadonlySet<string>;
@@ -761,9 +780,7 @@ export function databaseC4Snapshot({
   const expandedStoresWithSchemaEdges = new Set<string>();
 
   for (const resolved of resolvedOperations) {
-    const target = resolveTargetRef(resolved.target);
-
-    if (!target) continue;
+    const { target } = resolved;
     const actorId = actorNodeId(resolved.actor);
     const storeId = storeNodeId(target);
     const storeExpanded = expandedNodeIds.has(storeId);
@@ -785,6 +802,7 @@ export function databaseC4Snapshot({
 
     if (storeExpanded && operationStore) {
       for (const node of softwareMapCollectionNodesForStore({
+        storeId: target.storeId,
         store: operationStore,
         storeNodeId: storeId,
         highlights,
@@ -792,33 +810,34 @@ export function databaseC4Snapshot({
         nodes.set(node.id, node);
       }
 
-      if (!expandedStoresWithSchemaEdges.has(operationStore.id)) {
+      if (!expandedStoresWithSchemaEdges.has(target.storeId)) {
         relationships.push(
           ...softwareMapForeignKeyRelationshipsForStore(
+            target.storeId,
             operationStore,
             stores,
             expandedNodeIds,
           ),
         );
-        expandedStoresWithSchemaEdges.add(operationStore.id);
+        expandedStoresWithSchemaEdges.add(target.storeId);
       }
     }
 
     const relationship: SoftwareMapRelationshipSnapshot = {
-      id: resolved.operation.anchor.id,
-      from: resolved.operation.kind === "write" ? actorId : targetNodeId,
-      to: resolved.operation.kind === "write" ? targetNodeId : actorId,
+      id: resolved.id,
+      from: resolved.kind === "write" ? actorId : targetNodeId,
+      to: resolved.kind === "write" ? targetNodeId : actorId,
       kind: "semantic",
-      semanticKind: resolved.operation.kind,
-      label: resolved.operation.label,
+      semanticKind: resolved.kind,
+      label: resolved.label,
     };
 
-    if (storeExpanded && resolved.operation.kind === "write") {
+    if (storeExpanded && resolved.kind === "write") {
       relationship.toSchemaFieldPath = target.path;
       relationship.toSchemaEndpointKind = "field";
     }
 
-    if (storeExpanded && resolved.operation.kind === "read") {
+    if (storeExpanded && resolved.kind === "read") {
       relationship.fromSchemaFieldPath = target.path;
       relationship.fromSchemaEndpointKind = "field";
     }
@@ -827,12 +846,10 @@ export function databaseC4Snapshot({
   }
 
   const activeTarget = resolvedOperations
-    .map((resolved) => resolveTargetRef(resolved.target))
-    .find((target): target is TargetRef => {
-      if (!target) return false;
-
-      return highlights.activeTargetKeys.has(targetKey(target, target.path));
-    });
+    .map((resolved) => resolved.target)
+    .find((target) =>
+      highlights.activeTargetKeys.has(targetKey(target, target.path)),
+    );
 
   return {
     title: useCase.label,
@@ -850,7 +867,7 @@ export function databaseC4Snapshot({
   };
 }
 
-function softwareMapNodeForActor(actor: ActorRef): SoftwareMapNodeSnapshot {
+function softwareMapNodeForActor(actor: LensActor): SoftwareMapNodeSnapshot {
   return {
     id: actorNodeId(actor),
     type: "component",
@@ -864,14 +881,11 @@ function softwareMapNodeForStore({
   store,
   expanded,
 }: {
-  target: TargetRef;
-  store: StoreRef | undefined;
+  target: LensTarget;
+  store: DatabaseStore | undefined;
   expanded: boolean;
 }): SoftwareMapNodeSnapshot {
-  const childCount =
-    Object.keys(store?.tables ?? {}).length +
-    Object.keys(store?.documents ?? {}).length;
-
+  const childCount = Object.keys(store?.collections ?? {}).length;
   const id = storeNodeId(target);
 
   return {
@@ -890,39 +904,33 @@ function softwareMapNodeForStore({
 }
 
 function softwareMapCollectionNodesForStore({
+  storeId,
   store,
   storeNodeId,
   highlights,
 }: {
-  store: StoreRef;
+  storeId: string;
+  store: DatabaseStore;
   storeNodeId: string;
   highlights: ReturnType<typeof selectDatabaseOperationHighlights>;
 }): SoftwareMapNodeSnapshot[] {
-  return [
-    ...Object.entries(store.tables ?? {}).map(([id, collection]) =>
-      softwareMapCollectionNode({
-        store,
-        storeNodeId,
-        collectionKind: "tables",
-        collectionId: id,
-        collection,
-        highlights,
-      }),
-    ),
-    ...Object.entries(store.documents ?? {}).map(([id, collection]) =>
-      softwareMapCollectionNode({
-        store,
-        storeNodeId,
-        collectionKind: "documents",
-        collectionId: id,
-        collection,
-        highlights,
-      }),
-    ),
-  ];
+  const collectionKind = collectionKindForStore(store);
+
+  return Object.entries(store.collections).map(([collectionId, collection]) =>
+    softwareMapCollectionNode({
+      storeId,
+      store,
+      storeNodeId,
+      collectionKind,
+      collectionId,
+      collection,
+      highlights,
+    }),
+  );
 }
 
 function softwareMapCollectionNode({
+  storeId,
   store,
   storeNodeId,
   collectionKind,
@@ -930,20 +938,25 @@ function softwareMapCollectionNode({
   collection,
   highlights,
 }: {
-  store: StoreRef;
+  storeId: string;
+  store: DatabaseStore;
   storeNodeId: string;
   collectionKind: CollectionKind;
   collectionId: string;
-  collection: CollectionRef;
+  collection: DatabaseStore["collections"][string];
   highlights: ReturnType<typeof selectDatabaseOperationHighlights>;
 }): SoftwareMapNodeSnapshot {
   const kind = collectionKind === "tables" ? "table" : "document";
-  const collectionTarget = collectionTargetRef(collection);
 
   return {
-    id: storeCollectionNodeIdForStore(store, collectionKind, collectionId),
+    id: storeCollectionNodeIdForStore(
+      storeId,
+      store,
+      collectionKind,
+      collectionId,
+    ),
     type: "dataStoreCollection",
-    label: collectionTarget.collectionLabel,
+    label: collection.label,
     path: store.softwareMapPath
       ? `${store.softwareMapPath}.${collectionKind}.${collectionId}`
       : undefined,
@@ -953,9 +966,10 @@ function softwareMapCollectionNode({
       {
         id: `${kind}:${collectionId}`,
         kind,
-        label: collectionTarget.collectionLabel,
-        key: collectionTarget.collectionKey,
+        label: collection.label,
+        key: collection.key,
         rows: softwareMapSchemaRowsForCollection({
+          storeId,
           store,
           collectionKind,
           collectionId,
@@ -968,47 +982,48 @@ function softwareMapCollectionNode({
 }
 
 function softwareMapForeignKeyRelationshipsForStore(
-  store: StoreRef,
-  stores: Record<string, StoreRef>,
+  storeId: string,
+  store: DatabaseStore,
+  stores: LensStores,
   expandedNodeIds: ReadonlySet<string>,
 ): NonNullable<SoftwareMapResolvedSnapshot["relationships"]> {
   const relationships: NonNullable<
     SoftwareMapResolvedSnapshot["relationships"]
   > = [];
 
-  const collectionKind = store.kind === "relational" ? "tables" : "documents";
+  const collectionKind = collectionKindForStore(store);
 
-  for (const [collectionId, collection] of Object.entries(
-    store[collectionKind] ?? {},
-  )) {
+  for (const [collectionId, collection] of Object.entries(store.collections)) {
     const sourceCollectionNodeId = storeCollectionNodeIdForStore(
+      storeId,
       store,
       collectionKind,
       collectionId,
     );
 
-    for (const row of flattenSchemaRows(collectionSchema(collection))) {
+    for (const row of flattenSchemaRows(collection.fields)) {
       if (!row.fk) continue;
-      const target = foreignKeyTarget(row.fk);
+      const targetStore = stores[row.fk.store];
 
-      const targetStore =
-        !isStringValue(row.fk) && row.fk.store ? stores[row.fk.store] : store;
+      if (!targetStore) continue;
+      const targetKind = collectionKindForStore(targetStore);
 
-      if (!target || !targetStore) continue;
-
-      const targetKind =
-        targetStore.kind === "relational" ? "tables" : "documents";
-
-      if (!targetStore[targetKind]?.[target.table]) continue;
+      if (!targetStore.collections[row.fk.collection]) continue;
+      const fieldPath = row.fk.field.split(".").filter(Boolean);
 
       const targetCollectionNodeId = expandedNodeIds.has(
-        `store:${targetStore.id}`,
+        `store:${row.fk.store}`,
       )
-        ? storeCollectionNodeIdForStore(targetStore, targetKind, target.table)
-        : `store:${targetStore.id}`;
+        ? storeCollectionNodeIdForStore(
+            row.fk.store,
+            targetStore,
+            targetKind,
+            row.fk.collection,
+          )
+        : `store:${row.fk.store}`;
 
       if (targetCollectionNodeId === sourceCollectionNodeId) continue;
-      const id = `schema-fk:${sourceCollectionNodeId}.${row.path.join(".")}->${targetCollectionNodeId}.${target.fieldPath.join(".")}`;
+      const id = `schema-fk:${sourceCollectionNodeId}.${row.path.join(".")}->${targetCollectionNodeId}.${fieldPath.join(".")}`;
       relationships.push({
         id,
         from: sourceCollectionNodeId,
@@ -1028,33 +1043,29 @@ function softwareMapForeignKeyRelationshipsForStore(
 }
 
 function softwareMapSchemaRowsForCollection({
+  storeId,
   store,
   collectionKind,
   collectionId,
   collection,
   highlights,
 }: {
-  store: StoreRef;
+  storeId: string;
+  store: DatabaseStore;
   collectionKind: CollectionKind;
   collectionId: string;
-  collection: CollectionRef;
+  collection: DatabaseStore["collections"][string];
   highlights: ReturnType<typeof selectDatabaseOperationHighlights>;
 }): SoftwareMapDataStoreSchemaRowSnapshot[] {
-  const collectionTarget = collectionTargetRef(collection);
-
-  return flattenSchemaRows(collectionSchema(collection)).map((row) => {
+  return flattenSchemaRows(collection.fields).map((row) => {
     const rowTargetKey = targetKey(
       {
-        __kind: "db-target-ref",
-        storeId: store.id,
-        storeKind: store.kind,
+        storeId,
+        storeKind: store.storage,
         storeLabel: store.label,
-        storeDataStoreKind: store.dataStoreKind,
-        storeSoftwareMapPath: store.softwareMapPath,
         collectionKind,
         collectionId,
-        collectionLabel: collectionTarget.collectionLabel,
-        collectionKey: collectionTarget.collectionKey,
+        collectionLabel: collection.label,
         path: row.path,
       },
       row.path,
@@ -1064,7 +1075,7 @@ function softwareMapSchemaRowsForCollection({
       id: `${collectionId}:${row.path.join(".")}`,
       label: row.label,
       depth: row.depth,
-      type: schemaValue(row),
+      type: row.type ?? "object",
       example: formatSchemaExample(row.example),
       primaryKey: row.pk,
       foreignKey: Boolean(row.fk),
@@ -1075,204 +1086,93 @@ function softwareMapSchemaRowsForCollection({
   });
 }
 
-function storeNodeId(target: TargetRef): string {
+function storeNodeId(target: Pick<LensTarget, "storeId">): string {
   return `store:${target.storeId}`;
 }
 
-function storeCollectionNodeId(target: TargetRef): string {
+function storeCollectionNodeId(target: LensTarget): string {
   return target.storeSoftwareMapPath
     ? `${target.storeSoftwareMapPath}.${target.collectionKind}.${target.collectionId}`
     : `store:${target.storeId}.${target.collectionKind}.${target.collectionId}`;
 }
 
 function storeCollectionNodeIdForStore(
-  store: StoreRef,
+  storeId: string,
+  store: DatabaseStore,
   collectionKind: CollectionKind,
   collectionId: string,
 ): string {
   return store.softwareMapPath
     ? `${store.softwareMapPath}.${collectionKind}.${collectionId}`
-    : `store:${store.id}.${collectionKind}.${collectionId}`;
+    : `store:${storeId}.${collectionKind}.${collectionId}`;
 }
 
-function slugPart(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  return slug || "database";
-}
-
-function validateDatabaseLensProps(props: DatabaseLensProps) {
-  databaseLensPropsSchema.parse(props);
-  const useCases = parseUseCases(props.children);
-
-  if (useCases.length === 0) {
-    throwAuthoringIssue(["children"], "Must contain at least one DbUseCase");
-  }
-
-  const labels = new Set<string>();
-
-  for (const useCase of useCases) {
-    if (labels.has(useCase.label)) {
-      throwAuthoringIssue(
-        ["children"],
-        `DbUseCase label "${useCase.label}" must be unique within the lens`,
-      );
-    }
-
-    labels.add(useCase.label);
-  }
-
-  const peekInputs = new Map<string, Source>();
-
-  const validateAnchor = (anchor: PeekableAnchorRef) => {
-    if (!peekInputs.has(anchor.id)) {
-      peekInputs.set(anchor.id, anchor.peek);
-    }
-  };
-
-  for (const useCase of useCases) {
-    for (const operation of useCase.operations) {
-      validateAnchor(operation.anchor);
-    }
-  }
-
-  return { peekInputs, useCases };
-}
-
-function parseUseCases(children: ReactNode): ParsedUseCase[] {
-  const useCases: ParsedUseCase[] = [];
-  Children.forEach(children, (child) => {
-    if (!isValidElement(child) || child.type !== DbUseCase) return;
-    const props = dbUseCasePropsSchema.parse(child.props);
-    useCases.push({
-      id: props.id,
-      label: props.label,
-      summary: props.summary,
-      operations: parseOperations(props.children),
-    });
-  });
-
-  return useCases;
-}
-
-function parseOperations(children: ReactNode): ParsedOperation[] {
-  const operations: ParsedOperation[] = [];
-  Children.forEach(children, (child) => {
-    if (!isValidElement(child)) return;
-
-    if (child.type !== DbRead && child.type !== DbWrite) return;
-
-    const operationProps =
-      child.type === DbRead
-        ? dbReadPropsSchema.parse(child.props)
-        : dbWritePropsSchema.parse(child.props);
-
-    operations.push({
-      kind: child.type === DbRead ? "read" : "write",
-      from: operationProps.from,
-      to: operationProps.to,
-      label: operationProps.label,
-      anchor: operationProps.anchor,
-    });
-  });
-
-  return operations;
-}
-
-function resolveOperations(useCase: ParsedUseCase): ResolvedOperation[] {
-  return useCase.operations.map((operation) => {
-    const actor =
-      operation.kind === "write"
-        ? actorRef(operation.from)
-        : actorRef(operation.to);
-
-    const target =
-      operation.kind === "write"
-        ? targetRef(operation.to)
-        : targetRef(operation.from);
-
-    // The discriminated schemas make this unreachable; if a ref still slips
-    // through, a loud error beats a silently blank diagram.
-    if (!actor || !target) {
-      throwAuthoringIssue(
-        ["children"],
-        `Db${operation.kind === "write" ? "Write" : "Read"} "${operation.label}" in DbUseCase "${useCase.label}" must ${
-          operation.kind === "write"
-            ? "flow from an actor to a store target"
-            : "flow from a store target to an actor"
-        }`,
-      );
-    }
-
-    return { operation, actor, target };
-  });
-}
-
-function actorNodeId(actor: ActorRef): string {
+function actorNodeId(actor: LensActor): string {
   return `actor:${actor.id}`;
 }
 
-function actorRef(value: ActorRef | TargetRef): ActorRef | null {
-  return value.__kind === "db-actor-ref" ? value : null;
-}
-
-function targetRef(value: ActorRef | TargetRef): TargetRef | null {
-  return resolveTargetRef(value);
-}
-
-function collectionKey(target: TargetRef): string {
+function collectionKey(target: LensTarget): string {
   return `${target.storeId}.${target.collectionKind}.${target.collectionId}`;
 }
 
-function targetKey(target: TargetRef, path = target.path): string {
+function targetKey(target: LensTarget, path = target.path): string {
   return `${collectionKey(target)}.${path.join(".")}`;
 }
 
-function schemaValue(row: FieldRow): string {
-  return row.type ?? "object";
-}
-
-function flattenSchemaRows(schema: FieldSchema): FieldRow[] {
+/** Nested document fields flatten to indented rows, exactly as the legacy
+ * schema objects did. Nullability shows as the old `type?` suffix. */
+function flattenSchemaRows(fields: Record<string, DatabaseField>): FieldRow[] {
   const rows: FieldRow[] = [];
 
-  const visit = (node: FieldSchema, prefix: string[], depth: number) => {
-    for (const [field, value] of Object.entries(node)) {
-      const nextPath = [...prefix, field];
+  const visit = (
+    node: Record<string, DatabaseField>,
+    prefix: string[],
+    depth: number,
+  ) => {
+    for (const [name, field] of Object.entries(node)) {
+      const nextPath = [...prefix, name];
 
-      if (isDataStoreFieldLeaf(value)) {
-        rows.push({
-          path: nextPath,
-          label: field,
-          depth,
-          type: value.type,
-          pk: value.pk,
-          fk: value.fk,
-          example: exampleForDataStoreField(value),
-        });
+      const row: FieldRow = {
+        path: nextPath,
+        label: name,
+        depth,
+        type: field.nullable ? `${field.dataType}?` : field.dataType,
+      };
 
-        if (value.schema) visit(value.schema, nextPath, depth + 1);
-      } else {
-        rows.push({
-          path: nextPath,
-          label: field,
-          depth,
-          example: exampleForDataStoreSchema(value),
-        });
-        visit(value, nextPath, depth + 1);
-      }
+      if (field.primaryKey) row.pk = true;
+
+      if (field.references) row.fk = field.references;
+      const example = fieldExample(field);
+
+      if (example !== undefined) row.example = example;
+      rows.push(row);
+
+      if (field.fields) visit(field.fields, nextPath, depth + 1);
     }
   };
 
-  visit(schema, [], 0);
+  visit(fields, [], 0);
 
   return rows;
+}
+
+/** A field's own example, else the examples of its nested fields keyed by
+ * name, nested like the schema they illustrate. */
+function fieldExample(field: DatabaseField): JsonValue | undefined {
+  if (field.example !== undefined) return field.example;
+
+  if (!field.fields) return undefined;
+  const nested: Record<string, JsonValue> = {};
+
+  for (const [name, child] of Object.entries(field.fields)) {
+    const example = fieldExample(child);
+
+    if (example !== undefined) nested[name] = example;
+  }
+
+  return nested;
 }
 
 function tourIdFor(lensId: string, useCaseId: string): string {
   return `${lensId}-${useCaseId}`;
 }
-
-import { isStringValue } from "@dev.fast/json";

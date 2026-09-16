@@ -208,7 +208,7 @@ describe("materializeReviewDocument", () => {
     expect(JSON.parse(JSON.stringify(body))).toEqual(body);
   });
 
-  it("normalizes DatabaseLens stores to data", () => {
+  it("lowers a DatabaseLens and its use cases to the canonical block", () => {
     const session = createReviewDefinitionSession({
       softwareMap: null,
       baseSoftwareMap: null,
@@ -252,17 +252,33 @@ describe("materializeReviewDocument", () => {
       type: "component",
       name: "DatabaseLens",
       props: {
+        id: "db:database",
         stores: {
           db: {
-            tables: {
-              orders: {
-                schema: { status: { type: "text" } },
-                target: { collectionId: "orders" },
-              },
+            storage: "relational",
+            collections: {
+              orders: { fields: { status: { dataType: "text" } } },
             },
           },
         },
+        useCases: [
+          {
+            id: "u",
+            label: "U",
+            operations: [
+              {
+                kind: "write",
+                store: "db",
+                collection: "orders",
+                field: "status",
+                actor: "svc",
+                label: "w",
+              },
+            ],
+          },
+        ],
       },
+      children: [],
     });
     expect(JSON.parse(JSON.stringify(body))).toEqual(body);
   });

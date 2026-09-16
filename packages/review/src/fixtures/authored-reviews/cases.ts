@@ -1,7 +1,7 @@
 import {
   PROSE_TAGS,
   type ProseTag,
-  type ReviewAuthoringComponentName,
+  type ReviewDocumentComponentName,
 } from "../../review-document-data";
 
 // All paths are relative to packages/review. Add a case here;
@@ -17,7 +17,7 @@ export interface AuthoredReviewCase {
         baseDirectory: string;
         headDirectory: string;
       };
-  components: readonly ReviewAuthoringComponentName[];
+  components: readonly ReviewDocumentComponentName[];
   proseTags?: readonly ProseTag[];
   text?: readonly string[];
 }
@@ -26,8 +26,6 @@ const tutorialComponents = [
   "AnchorLink",
   "CodePeek",
   "DatabaseLens",
-  "DbUseCase",
-  "DbWrite",
   "ReviewSection",
   "SequenceDiagram",
   "TutorialAuthoringConversation",
@@ -81,9 +79,6 @@ export const authoredReviewCases: readonly AuthoredReviewCase[] = [
       "CallStackDiff",
       "CodePeek",
       "DatabaseLens",
-      "DbRead",
-      "DbUseCase",
-      "DbWrite",
       "ReviewSection",
       "SequenceDiagram",
     ],

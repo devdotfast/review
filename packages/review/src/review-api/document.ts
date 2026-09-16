@@ -1,3 +1,4 @@
+import { type JsonValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { markdownNodes, parseMarkdown } from "../markdown.js";
@@ -76,26 +77,55 @@ export const sequenceSchema = z.strictObject({
 
 export type SequenceBlock = z.infer<typeof sequenceSchema>;
 
-const fieldSchema = z.strictObject({
-  label,
-  dataType: label,
-  nullable: z.boolean().optional(),
-  primaryKey: z.boolean().optional(),
-  references: z
-    .strictObject({ store: label, collection: label, field: label })
-    .optional(),
-});
+export interface DatabaseField {
+  label: string;
+  dataType: string;
+  nullable?: boolean;
+  primaryKey?: boolean;
+  references?: { store: string; collection: string; field: string };
+  /** An illustrative value shown beside the field. */
+  example?: JsonValue;
+  /** Nested fields of a document-store object field. */
+  fields?: Record<string, DatabaseField>;
+}
 
-const storeSchema = z.strictObject({
+export const fieldSchema: z.ZodType<DatabaseField> = z.lazy(() =>
+  z.strictObject({
+    label,
+    dataType: label,
+    nullable: z.boolean().optional(),
+    primaryKey: z.boolean().optional(),
+    references: z
+      .strictObject({ store: label, collection: label, field: label })
+      .optional(),
+    example: jsonValueSchema.optional(),
+    fields: z.record(text, fieldSchema).optional(),
+  }),
+);
+
+export const databaseActorSchema = z.union([
+  label,
+  z.strictObject({ label, softwareMapPath: label.optional() }),
+]);
+
+export const storeSchema = z.strictObject({
   label,
   storage: z.enum(["relational", "document"]),
+  dataStoreKind: z
+    .enum(["database", "objectStore", "bucket", "artifactStore", "fileStore"])
+    .optional(),
+  softwareMapPath: label.optional(),
   collections: z.record(
     text,
-    z.strictObject({ label, fields: z.record(text, fieldSchema) }),
+    z.strictObject({
+      label,
+      key: label.optional(),
+      fields: z.record(text, fieldSchema),
+    }),
   ),
 });
 
-const operationSchema = z.strictObject({
+export const operationSchema = z.strictObject({
   ...identity,
   kind: z.enum(["read", "write"]),
   store: label,
@@ -103,8 +133,33 @@ const operationSchema = z.strictObject({
   field: label.optional(),
   actor: label,
   label,
+  detail: label.optional(),
   source: sourceSchema,
 });
+
+export const databaseLensSchema = z.strictObject({
+  ...identity,
+  type: z.literal("database_lens"),
+  title: label,
+  actors: z.record(text, databaseActorSchema),
+  stores: z.record(text, storeSchema),
+  useCases: z.array(
+    z.strictObject({
+      ...identity,
+      label,
+      summary: text.optional(),
+      operations: z.array(operationSchema),
+    }),
+  ),
+});
+
+export type DatabaseLensBlock = z.infer<typeof databaseLensSchema>;
+
+export type DatabaseActor = z.infer<typeof databaseActorSchema>;
+
+export type DatabaseStore = z.infer<typeof storeSchema>;
+
+export type DatabaseOperation = z.infer<typeof operationSchema>;
 
 const leafSchema = z.discriminatedUnion("type", [
   z.strictObject({
@@ -135,21 +190,7 @@ const leafSchema = z.discriminatedUnion("type", [
     base: z.array(frameSchema),
     head: z.array(frameSchema),
   }),
-  z.strictObject({
-    ...identity,
-    type: z.literal("database_lens"),
-    title: label,
-    actors: z.record(text, label),
-    stores: z.record(text, storeSchema),
-    useCases: z.array(
-      z.strictObject({
-        ...identity,
-        label,
-        summary: text.optional(),
-        operations: z.array(operationSchema),
-      }),
-    ),
-  }),
+  databaseLensSchema,
   z.strictObject({
     ...identity,
     type: z.literal("image"),
@@ -535,8 +576,18 @@ export function checkReferences(document: Block[]): void {
         const collections = block.stores[store]!.collections;
         requireKey(collections, collection);
 
-        if (name !== undefined)
-          requireKey(collections[collection]!.fields, name);
+        if (name === undefined) return;
+
+        // Nested document fields are addressed by dotted path.
+        let fields: Record<string, DatabaseField> | undefined =
+          collections[collection]!.fields;
+
+        for (const part of name.split(".")) {
+          if (!fields)
+            throw new ReviewInputError(`Unknown component name: ${name}`);
+          requireKey(fields, part);
+          fields = fields[part]!.fields;
+        }
       };
 
       for (const useCase of block.useCases)

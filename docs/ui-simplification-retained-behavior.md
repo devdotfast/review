@@ -70,3 +70,27 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
 - The authoring input (`<SequenceDiagram label messages>` with anchors or
   inline actors) is unchanged and still validated by the authoring schema at
   publish.
+
+## H: canonical database lens blocks
+
+- `DatabaseLens` documents store one canonical block (`{ id, title?, height?,
+  actors, stores, useCases }`). A legacy lens and its `DbUseCase` / `DbRead` /
+  `DbWrite` child nodes lower into that block once on the server
+  (`database-lens-block.ts`): at publish in materialize and for sealed bundles
+  in the read-time upgrade walker. The marker nodes do not survive into the
+  document; `reviewComponentDataSchemas` and the app registry no longer list
+  them (`ReviewDocumentComponentName` is the document's component set, while
+  `ReviewAuthoringComponentName` still types authored MDX).
+- Ids are kept: the lens id is `db:<slug(title)>`, use cases keep their authored
+  id, and an operation's id is its anchor id, so tour state and deep links
+  still resolve.
+- The canonical `database_lens` block gained optional, backwards-compatible
+  fields for everything the lens renders: actor `softwareMapPath`, store
+  `dataStoreKind` and `softwareMapPath`, collection `key`, field `example` and
+  nested `fields`, and operation `detail`. Nested document fields are addressed
+  by dotted `field` paths; `checkReferences` walks them.
+- The renderer resolves operations to plain actors and store targets
+  (`lensUseCases`, `lensTarget`) and builds its C4 snapshot from the block; the
+  React-child walk, the symbol-backed collection handles, `resolveTargetRef`
+  and the `"type?"` string round trip are gone from the render path. A field's
+  nullability still displays as the `type?` suffix.

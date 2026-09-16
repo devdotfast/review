@@ -87,8 +87,6 @@ describe("tutorial review document data", () => {
           "CodePeek",
           "SequenceDiagram",
           "DatabaseLens",
-          "DbUseCase",
-          "DbWrite",
           "TutorialKeymapPicker",
           "TutorialAuthoringConversation",
           "TutorialViewButton",

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+
 import { findReviewPackageRoot } from "../package-paths";
+import { openLocalReviewStore } from "../review-api/local-data";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
+import { devReviewHome } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
@@ -40,12 +45,35 @@ export async function runDesktopHost(
     telemetry,
   };
 
+  // The JSON review store is experimental: a failed open must not block the host.
+  let local: ReturnType<typeof openLocalReviewStore> | undefined;
+
+  try {
+    const home = devReviewHome(env);
+    await mkdir(home, { recursive: true });
+    local = openLocalReviewStore(path.join(home, "review-api.db"));
+    serverInput.reviewStore = local.store;
+    serverInput.reviewData = local.data;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `[Review API] Could not open the review store; /reviews-api is unavailable: ${reason}\n`,
+    );
+  }
+
   if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
     serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;
   }
 
   const server = createGlobalReviewServer(serverInput);
-  await server.listen();
+
+  try {
+    await server.listen();
+  } catch (error) {
+    await local?.store.close();
+    throw error;
+  }
+
   process.stdout.write(
     `${JSON.stringify({ event: "ready", ...server.discovery, installationId })}\n`,
   );
@@ -64,7 +92,7 @@ export async function runDesktopHost(
 
   const stop = () => {
     if (!stopping) {
-      stopping = server.close("app-exit");
+      stopping = server.close("app-exit").finally(() => local?.store.close());
     }
 
     return stopping;

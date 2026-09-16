@@ -54,6 +54,9 @@ import {
   materializePublishRevision,
   reviewWithPresentedDocumentPins,
 } from "../publish-stage";
+import { createReviewApi } from "../review-api/http.js";
+import type { LocalReviewData } from "../review-api/local-data.js";
+import type { ReviewStore } from "../review-api/store.js";
 import {
   dismissReview,
   markReviewViewed,
@@ -225,6 +228,9 @@ interface PreparedTutorial {
 }
 
 export interface GlobalReviewServerInput {
+  /** The desktop host owns this shared database and closes it after the server. */
+  reviewStore?: ReviewStore;
+  reviewData?: LocalReviewData;
   appPid: number;
   packageRoot: string;
   toolingRoot: string;
@@ -328,6 +334,12 @@ export function createGlobalReviewServer(
 
     await next();
   });
+
+  if (input.reviewStore)
+    app.route(
+      "/reviews-api",
+      createReviewApi(input.reviewStore, input.reviewData),
+    );
   app.post("/app/focus", async () => {
     const result = await relay.dispatch("review-desktop", {
       name: "focusWindow",

@@ -44,7 +44,12 @@ export async function scratchGitRepo() {
 export async function syntheticLegacyReview(
   name: string,
   repo: { root: string; base: string; head: string },
-  options: { revisions?: number; overrides?: Record<string, JsonValue> } = {},
+  options: {
+    revisions?: number;
+    /** Seal the same document in every revision, like a map-only publish. */
+    identical?: boolean;
+    overrides?: Record<string, JsonValue>;
+  } = {},
 ) {
   const home = await mkdtemp(path.join(os.tmpdir(), "import-home-"));
 
@@ -102,7 +107,9 @@ export async function syntheticLegacyReview(
     // Each revision differs so none is deduplicated.
     await writeFile(
       path.join(revisionDir, "review-document.json"),
-      document.replace(/"title": "([^"]*)"/, `"title": "$1 v${index}"`),
+      options.identical
+        ? document
+        : document.replace(/"title": "([^"]*)"/, `"title": "$1 v${index}"`),
     );
   }
 

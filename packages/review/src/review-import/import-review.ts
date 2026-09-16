@@ -216,6 +216,10 @@ export async function importLegacyReview(
       reason: "no sealed JSON document in any revision",
     };
 
+  // The cursor is the presented revision this import covered, even when that
+  // revision's document was identical to an earlier one and wrote no version.
+  last.origin = { ...last.origin, revision: entries.at(-1)!.oid };
+
   if (record.presentedSoftwareMapRevision) {
     // A map that cannot be imported must not sink the document.
     const mapSection = await importMapSection(

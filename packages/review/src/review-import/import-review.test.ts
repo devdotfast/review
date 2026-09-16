@@ -355,4 +355,37 @@ describe("importLegacyReview", () => {
       await store.close();
     }
   });
+
+  it("advances the cursor past revisions whose document did not change", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 2, identical: true },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const run = () =>
+      importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+    try {
+      expect(await run()).toMatchObject({ kind: "imported", version: 0 });
+      expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
+      expect(await run()).toEqual({ kind: "current", reviewId: record.uuid });
+      expect(store.read(record.uuid).version).toBe(0);
+    } finally {
+      await store.close();
+    }
+  });
 });

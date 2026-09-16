@@ -166,17 +166,11 @@ describe("materializeReviewDocument", () => {
 
         return react.jsx(FRAGMENT, {
           children: [
-            react.jsx("h1", {
-              "data-review-block-tag": "h1",
-              children: "Title",
-            }),
+            react.jsx("h1", { children: "Title" }),
             react.jsx(components.ReviewSection, {
               title: "Part",
               children: [
-                react.jsx("h2", {
-                  "data-review-block-tag": "h2",
-                  children: "Part",
-                }),
+                react.jsx("h2", { children: "Part" }),
                 react.jsx(components.CodePeek, { anchor }),
               ],
             }),
@@ -189,9 +183,7 @@ describe("materializeReviewDocument", () => {
     expect(body[0]).toEqual({
       type: "element",
       tag: "h1",
-      props: {
-        "data-review-block-tag": "h1",
-      },
+      props: {},
       children: [{ type: "text", value: "Title" }],
     });
     expect(body[1]).toMatchObject({

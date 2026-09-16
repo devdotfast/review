@@ -115,3 +115,13 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
   checks stay per path because only JSON reviews carry pins in the document.
 - `git grep 'src/authoring"' packages/review/app/src` (non-test) now lists only
   the test utility that builds a legacy definition session.
+
+## Heading ownership
+
+- `ReviewSection` renders its own `<h2>` from `title`; hydration drops the
+  heading child that published bundles carry.
+- Heading ids are assigned once, in the projection pass, to `h2`/`h3`
+  elements and to sections; the Contents rail reads the same ids. They are
+  DOM-only. Sequence and lens ids share the slug rule and are unchanged.
+- `data-review-block-tag` is no longer stamped; materialization drops it and
+  hydration strips it from older bundles.

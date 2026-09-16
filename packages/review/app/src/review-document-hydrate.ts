@@ -19,7 +19,6 @@ import {
   type NormalizedSoftwareModel,
   hydrateSoftwareModel,
 } from "../../src/software-map-model";
-import { assignReviewHeadingIds } from "./review-document-headings";
 import { reviewSectionSummary } from "./review-section-summary";
 
 export type HydratedReviewTextNode = ReviewTextNode;
@@ -29,8 +28,6 @@ export interface HydratedReviewElementNode extends Omit<
   "children"
 > {
   children: HydratedReviewNode[];
-  /** Runtime provenance: projected visibility may require new slug allocation. */
-  generatedHeadingId?: boolean;
 }
 
 export interface HydratedReviewComponentNode {
@@ -78,7 +75,6 @@ export function hydrateReviewDocument(
   const data = reviewDocumentDataSchema.parse(load.data);
   const anchors = new Map(Object.entries(data.anchors));
   const body = data.body.map((node) => hydrateNode(node, anchors));
-  assignReviewHeadingIds(body);
 
   return {
     contentHash: load.contentHash,
@@ -103,17 +99,22 @@ type ComponentHydrators = {
 };
 
 const componentHydrators: ComponentHydrators = {
-  ReviewSection: (node, props, children) => {
-    if (!(children[0]?.type === "element" && children[0].tag === "h2")) {
-      children.unshift({
-        type: "element",
-        tag: "h2",
-        props: {},
-        children: [{ type: "text", value: node.props.title }],
-      });
+  // Published sections still carry their heading as the first child (the
+  // remark plugin keeps it). The section renders its own heading from
+  // `title`, so the child would show twice.
+  ReviewSection: (_node, props, children) => {
+    const [first] = children;
+    const section = { ...props };
+
+    if (first?.type === "element" && first.tag === "h2") {
+      children.shift();
+
+      // An authored heading id (`## Title {#id}`) stays the section's id.
+      if (section.id === undefined && first.props.id !== undefined)
+        section.id = first.props.id;
     }
 
-    return { ...props, summary: reviewSectionSummary(children) };
+    return { ...section, summary: reviewSectionSummary(children) };
   },
 };
 
@@ -129,6 +130,7 @@ function hydrateNode(
       "data-review-table": _table,
       "data-review-row": _row,
       "data-review-column": _column,
+      "data-review-block-tag": _blockTag,
       ...props
     } = node.props;
 

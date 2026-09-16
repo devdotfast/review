@@ -18,6 +18,7 @@ import type {
   DatabaseOperation,
   DatabaseStore,
 } from "./review-api/document";
+import { slugify } from "./slug";
 import type {
   SoftwareDataStoreFieldLeaf,
   SoftwareDataStoreFieldSchema,
@@ -116,7 +117,7 @@ export function databaseLensBlockFromLegacy(
   };
 
   const block: DatabaseLensBlockProps = {
-    id: `db:${slugPart(props.title ?? "database")}`,
+    id: `db:${slugify(props.title ?? "database") || "database"}`,
     actors,
     stores,
     useCases: useCases.map((useCase) => {
@@ -300,13 +301,4 @@ function isFieldLeaf(
   value: SoftwareDataStoreFieldLeaf | SoftwareDataStoreFieldSchema,
 ): value is SoftwareDataStoreFieldLeaf {
   return "type" in value && isStringValue(value.type);
-}
-
-export function slugPart(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  return slug || "database";
 }

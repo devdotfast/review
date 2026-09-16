@@ -18,7 +18,6 @@ import { VFileMessage } from "vfile-message";
 import { maskReviewFrontmatter } from "../review-frontmatter";
 import { reviewTypescriptEstreeParser } from "../review-mdx-typescript-parser";
 import { headingText } from "./heading-text";
-import { rehypeReviewTargets } from "./rehype-review-targets";
 import { remarkReviewAnchorLinks } from "./remark-review-anchor-links";
 import { remarkReviewSections } from "./remark-review-sections";
 import { DocumentParseError } from "./syntax";
@@ -82,8 +81,7 @@ const parseDocument: DocumentParser = async (source) => {
         "mdxJsxFlowElement",
         "mdxJsxTextElement",
       ],
-    })
-    .use(rehypeReviewTargets);
+    });
 
   const masked = maskReviewFrontmatter(source);
   const parsed = processor.parse(masked);

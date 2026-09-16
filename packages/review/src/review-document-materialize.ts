@@ -143,7 +143,8 @@ function materializeChildren(
           name === "data-review-block-index" ||
           name === "data-review-table" ||
           name === "data-review-row" ||
-          name === "data-review-column"
+          name === "data-review-column" ||
+          name === "data-review-block-tag"
         ) {
           continue;
         }

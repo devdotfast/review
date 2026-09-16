@@ -5,14 +5,7 @@ import type {
   ReactNode,
   Ref,
 } from "react";
-import {
-  Children,
-  isValidElement,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ReviewComponentProps } from "../../src/review-document-data";
 import { AuthoredCodeSurface } from "./authored-code-surface";
@@ -139,21 +132,22 @@ function ReviewPanelFrame({
 }
 
 /**
- * Collapsible document section produced by the remark-review-sections plugin:
- * the first child is normally the section's H2 heading, the rest is the
- * section body. Older or manually authored modules may omit that heading; in
- * that case the title supplies it and every authored child remains in the body.
- * Collapse state persists per document+section in localStorage; sections
- * marked `[collapsed]` in the MDX start collapsed for first-time readers.
+ * Collapsible document section. The section owns its heading: it renders
+ * `title` as the H2, with the id the projection pass assigned (or the block id
+ * on the JSON path), and treats every child as body. Collapse state persists
+ * per document+section in localStorage; sections marked `[collapsed]` in the
+ * MDX start collapsed for first-time readers.
  */
 export function ReviewSection({
   stateKey,
   title,
   defaultCollapsed = false,
+  id,
   children,
   summary,
 }: ReviewComponentProps<"ReviewSection"> & {
   stateKey?: string;
+  id?: string;
   summary?: ReviewSectionSummary;
   children?: ReactNode;
 }) {
@@ -167,7 +161,6 @@ export function ReviewSection({
   );
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const { heading, body } = reviewSectionContent(title, children);
   const tutorialSection = useTutorialSection(title);
 
   // The active tutorial chapter opens itself. Other chapters keep the
@@ -215,7 +208,9 @@ export function ReviewSection({
             <path d="M3.5 2 L9 6 L3.5 10 Z" />
           </svg>
         </button>
-        <div className="review-section-heading">{heading}</div>
+        <div className="review-section-heading">
+          <h2 id={id}>{title}</h2>
+        </div>
         {collapsed && summary && (
           <span className="review-section-meta">
             {reviewSectionSummaryLabel(summary)}
@@ -227,34 +222,10 @@ export function ReviewSection({
         className="review-section-body"
         hidden={collapsed || undefined}
       >
-        {body}
+        {children}
       </div>
     </section>
   );
-}
-
-function reviewSectionContent(title: string, children: ReactNode) {
-  const childNodes = Children.toArray(children);
-  const [firstChild, ...remainingChildren] = childNodes;
-
-  if (isReviewSectionHeading(firstChild)) {
-    return { heading: firstChild, body: remainingChildren };
-  }
-
-  return { heading: <h2>{title}</h2>, body: childNodes };
-}
-
-/** Props of an authoring block that stands in for a heading element. */
-interface ReviewBlockTagProps {
-  "data-review-block-tag"?: string;
-}
-
-function isReviewSectionHeading(child: ReactNode): child is ReactElement {
-  if (!isValidElement<ReviewBlockTagProps>(child)) return false;
-
-  if (child.type === "h2") return true;
-
-  return child.props["data-review-block-tag"] === "h2";
 }
 
 function reviewSectionSummaryLabel(summary: ReviewSectionSummary): string {

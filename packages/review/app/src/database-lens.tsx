@@ -258,6 +258,7 @@ export function DatabaseLens(block: DatabaseLensProps) {
       lensUseCases({ id: lensId, actors, stores, useCases: block.useCases }),
     [lensId, actors, stores, block.useCases],
   );
+
   const selectForAgent = useAgentSelection();
   const session = useReviewSession();
 

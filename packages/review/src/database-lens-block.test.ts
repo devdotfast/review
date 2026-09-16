@@ -73,6 +73,7 @@ describe("databaseLensBlockFromLegacy", () => {
       title: "Current row",
       peek: { side: "head" as const, file: "src/x.ts", fromLine: 1, toLine: 2 },
     };
+
     const actor = { __kind: "db-actor-ref" as const, id: "api", label: "API" };
     const to = target("orders", "relational", "orders", []);
 

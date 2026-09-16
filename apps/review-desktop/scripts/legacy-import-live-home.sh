@@ -70,7 +70,7 @@ for uuid in sorted(os.listdir(reviews)):
         json.dump(record, open(record_path, "w"), indent=2)
         patched.append(uuid)
 
-print(f"patched worktreePath on {len(patched)} review(s): {' '.join(patched)}")
+print(f"patched worktreePath on {len(patched)} review(s): {' '.join(patched)}", file=sys.stderr)
 EOF
 
 first=$(git -C "$SCRATCH" rev-list --all --max-count=1 2>/dev/null || true)

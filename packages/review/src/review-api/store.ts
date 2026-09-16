@@ -18,6 +18,7 @@ import {
   editSchema,
   elements,
   pinsSchema,
+  resourceReferences,
   sourceReferences,
 } from "./document.js";
 
@@ -617,13 +618,8 @@ export class ReviewStore {
           if (warning) warnings.push(warning);
         }
 
-        for (const block of elements(document))
-          if (
-            block.type === "image" ||
-            block.type === "trace_quote" ||
-            block.type === "software_map"
-          )
-            await this.providers.validateResource(input.pins, block);
+        for (const block of resourceReferences(document))
+          await this.providers.validateResource(input.pins, block);
 
         version += 1;
 
@@ -705,14 +701,8 @@ export class ReviewStore {
       for (const { source, peek } of sourceReferences(document, { tolerant }))
         add(source, peek === true);
 
-      for (const block of elements(document)) {
-        if (
-          block.type === "image" ||
-          block.type === "trace_quote" ||
-          block.type === "software_map"
-        )
-          resources.set(JSON.stringify(block), block);
-      }
+      for (const block of resourceReferences(document))
+        resources.set(JSON.stringify(block), block);
 
       return { sources, resources };
     };

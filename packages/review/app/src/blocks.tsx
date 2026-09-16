@@ -1,6 +1,10 @@
 import { Component, type ReactNode } from "react";
 
-import type { Block, BlockType } from "../../src/review-api/document";
+import {
+  type Block,
+  type BlockType,
+  traceQuoteLink,
+} from "../../src/review-api/document";
 import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
 import { CallStackDiff } from "./call-stack-diff";
@@ -46,6 +50,25 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
       source={node.markdown}
       h1={ReviewDocumentTitle}
       renderLink={(href, children) => {
+        const quote = traceQuoteLink(href);
+
+        if (quote) {
+          const trace = data.traces.get(quote.traceId);
+
+          const event = trace?.events.findIndex(
+            (item) => item.id === quote.eventId,
+          );
+
+          if (event === undefined || event < 0)
+            return <q data-unavailable="trace">{children}</q>;
+
+          return (
+            <TraceQuote sessionId={quote.traceId} event={event}>
+              {children}
+            </TraceQuote>
+          );
+        }
+
         const anchor = data.anchors.get(`${node.id}:${href}`);
 
         return anchor ? (

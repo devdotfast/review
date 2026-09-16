@@ -52,13 +52,42 @@ export function legacyDocumentToBlocks(
   const warnings: string[] = [];
   const footnotes = collectFootnoteDefinitions(document.body);
 
+  const traceQuote = (
+    node: Extract<ReviewNode, { type: "component"; name: "TraceQuote" }>,
+  ): Extract<Block, { type: "trace_quote" }> => {
+    const placeholder = `trace-placeholder-${traces.length + 1}`;
+    const quote = plainText(node.children);
+    const eventIndex = node.props.event;
+    traces.push({
+      sessionId: node.props.sessionId,
+      trace: node.props.trace,
+      eventIndex,
+      quote,
+      placeholder,
+    });
+
+    return {
+      type: "trace_quote",
+      traceId: placeholder,
+      eventId: String(eventIndex ?? 0),
+      text: quote,
+    };
+  };
+
   const convert = (nodes: ReviewNode[]): Block[] => {
     const out: Block[] = [];
     let prose: ReviewNode[] = [];
 
     const flush = () => {
       if (prose.length === 0) return;
-      const markdown = proseToMarkdown(prose, footnotes, warnings).trim();
+
+      const markdown = proseToMarkdown(prose, footnotes, warnings, (node) => {
+        if (node.name !== "TraceQuote") return undefined;
+        const quote = traceQuote(node);
+        const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
+
+        return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
+      }).trim();
 
       if (markdown) out.push({ type: "markdown", markdown: `${markdown}\n` });
       prose = [];
@@ -132,23 +161,7 @@ export function legacyDocumentToBlocks(
         }
 
         case "TraceQuote": {
-          const placeholder = `trace-placeholder-${traces.length + 1}`;
-          const quote = plainText(node.children);
-          const eventIndex = node.props.event;
-
-          traces.push({
-            sessionId: node.props.sessionId,
-            trace: node.props.trace,
-            eventIndex,
-            quote,
-            placeholder,
-          });
-          out.push({
-            type: "trace_quote",
-            traceId: placeholder,
-            eventId: String(eventIndex ?? 0),
-            text: quote,
-          });
+          out.push(traceQuote(node));
           break;
         }
 

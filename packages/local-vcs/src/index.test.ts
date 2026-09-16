@@ -7,16 +7,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  changeIdentityForRevision,
   defaultBranch,
   detectLocalVcs,
   detectLocalVcsSync,
-  devfastPrepareCommands,
   diff,
   diffFileSummaries,
   diffFileSummariesTrees,
   diffNameStatus,
-  diffNameStatusTrees,
   diffTrees,
   gitAt,
   gitCommonDir,
@@ -179,19 +176,9 @@ describe("local vcs", () => {
     writeFileSync(path.join(rootPath, "src/app.ts"), "export const app = 1;\n");
     execFileSync("git", ["add", "src/app.ts"], { cwd: rootPath });
     execFileSync("git", ["commit", "-m", "initial"], { cwd: rootPath });
-    const commit = execGitOutput(rootPath, ["rev-parse", "HEAD"]);
-    const branch = execGitOutput(rootPath, ["symbolic-ref", "--short", "HEAD"]);
 
     expect(detectLocalVcsSync(rootPath)).toMatchObject({ kind: "git" });
     expect(listTrackedFilesSync({ rootPath })).toEqual(["src/app.ts"]);
-    await expect(changeIdentityForRevision(rootPath, branch)).resolves.toEqual({
-      kind: "git-branch",
-      name: branch,
-    });
-    await expect(changeIdentityForRevision(rootPath, commit)).resolves.toEqual({
-      kind: "git-commit",
-      name: commit,
-    });
   });
 
   it("limits git diffs to requested paths", async () => {
@@ -265,12 +252,6 @@ describe("local vcs", () => {
     ).resolves.toEqual({
       changedFiles: ["src/head-only.ts"],
       deletedFiles: [],
-    });
-    await expect(
-      diffNameStatusTrees({ rootPath, baseRef, headRef }),
-    ).resolves.toEqual({
-      changedFiles: ["src/head-only.ts"],
-      deletedFiles: ["src/base-only.ts"],
     });
     await expect(
       diffTrees({
@@ -583,84 +564,6 @@ describe("local vcs", () => {
         deletions: 1,
       },
     ]);
-    await expect(
-      changeIdentityForRevision(rootPath, headRef),
-    ).resolves.toMatchObject({
-      kind: "jj-change",
-      name: expect.stringMatching(new RegExp(`^${headRef}`)),
-    });
-  });
-
-  it("binds a Git-only commit by its exact commit id in a colocated jj repo", async () => {
-    if (!commandExists("jj")) return;
-
-    const rootPath = await mkdtemp(
-      path.join(tmpdir(), "local-vcs-jj-git-sha-"),
-    );
-
-    execJj(rootPath, ["git", "init", "--colocate"]);
-    execGit(rootPath, ["config", "user.email", "test@example.com"]);
-    execGit(rootPath, ["config", "user.name", "Test User"]);
-    writeFileSync(path.join(rootPath, "git-only.txt"), "git only\n");
-    execGit(rootPath, ["add", "git-only.txt"]);
-    const tree = execGitOutput(rootPath, ["write-tree"]);
-
-    const commit = execFileSync("git", ["-C", rootPath, "commit-tree", tree], {
-      input: "git-only commit\n",
-      encoding: "utf8",
-    }).trim();
-
-    expect(() =>
-      execFileSync("jj", ["-R", rootPath, "log", "--no-graph", "-r", commit], {
-        stdio: ["ignore", "pipe", "ignore"],
-      }),
-    ).toThrow(/./);
-    await expect(changeIdentityForRevision(rootPath, commit)).resolves.toEqual({
-      kind: "git-commit",
-      name: commit,
-    });
-  });
-
-  it("reads devfast.prepare commands in configuration order", async () => {
-    const rootPath = await mkdtemp(path.join(tmpdir(), "local-vcs-prepare-"));
-    execGit(rootPath, ["init"]);
-    execGit(rootPath, ["config", "devfast.prepare", "pnpm install"]);
-    execGit(rootPath, ["config", "--add", "devfast.prepare", "uv sync"]);
-
-    await expect(devfastPrepareCommands(rootPath)).resolves.toEqual([
-      "pnpm install",
-      "uv sync",
-    ]);
-  });
-
-  it("reads devfast.prepare through the shared git dir of a linked worktree", async () => {
-    const rootPath = await mkdtemp(
-      path.join(tmpdir(), "local-vcs-prepare-wt-"),
-    );
-
-    execGit(rootPath, ["init"]);
-    execGit(rootPath, ["config", "user.email", "test@example.com"]);
-    execGit(rootPath, ["config", "user.name", "Test User"]);
-    writeFileSync(path.join(rootPath, "README.md"), "prepare\n");
-    execGit(rootPath, ["add", "README.md"]);
-    execGit(rootPath, ["commit", "-m", "initial"]);
-    execGit(rootPath, ["config", "devfast.prepare", "pnpm install"]);
-    const worktreePath = path.join(rootPath, ".linked-worktree");
-    execGit(rootPath, ["worktree", "add", "--detach", worktreePath, "HEAD"]);
-
-    await expect(devfastPrepareCommands(worktreePath)).resolves.toEqual([
-      "pnpm install",
-    ]);
-  });
-
-  it("returns no devfast.prepare commands when none are configured", async () => {
-    const rootPath = await mkdtemp(
-      path.join(tmpdir(), "local-vcs-prepare-none-"),
-    );
-
-    execGit(rootPath, ["init"]);
-
-    await expect(devfastPrepareCommands(rootPath)).resolves.toEqual([]);
   });
 
   it("does not use an enclosing Git repository as the default branch for non-colocated jj workspaces", async () => {

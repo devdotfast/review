@@ -259,7 +259,7 @@ it("prefers an existing JavaScript file over a TypeScript replacement", async ()
 });
 
 it.each([false, true])(
-  "internal-test checks helper semantics even when imported=%s",
+  "typechecks helper semantics even when imported=%s",
   async (imported) => {
     const input = await fixture(
       imported
@@ -287,7 +287,7 @@ it.each([false, true])(
 );
 
 it.each([false, true])(
-  "internal-test checks nested helpers with relative path=%s",
+  "typechecks nested helpers with relative path=%s",
   async (relative) => {
     const input = await fixture("# Nested helpers\n", {
       "data.ts": 'export { value } from "./nested/helper.ts";',

@@ -64,7 +64,6 @@ async function maybeDelegateToDesktopCli(
   if (env.DEV_FAST_REVIEW_CLI_NO_DELEGATE || env.DEV_FAST_REVIEW_CLI_DELEGATED)
     return null;
 
-  // Internal commands must exercise this entry, not the app's.
   // api and mcp are thin HTTP clients whose tool catalog comes from the
   // server, so they cannot skew from it and must not be handed to a bundled
   // CLI that predates them.

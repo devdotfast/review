@@ -145,18 +145,6 @@ export async function readReviewSoftwareMapBundle(
   };
 }
 
-export function sameReviewSoftwareMapBundle(
-  left: ReviewSoftwareMapBundle,
-  right: ReviewSoftwareMapBundle,
-): boolean {
-  return (
-    left.headJson === right.headJson &&
-    left.baseJson === right.baseJson &&
-    left.headCommit === right.headCommit &&
-    left.baseCommit === right.baseCommit
-  );
-}
-
 function softwareMapDataJson(
   data: SoftwareModelData,
   side: "head" | "base",

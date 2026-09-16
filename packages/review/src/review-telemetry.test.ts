@@ -350,7 +350,7 @@ describe("ReviewTelemetry", () => {
     expect(events).toHaveLength(1);
   });
 
-  it("keeps one command run id across start, binding, and completion", async () => {
+  it("keeps one command run id across start and completion", async () => {
     const { events, rootPath, telemetry } = createTelemetry({
       env: { CODEX_THREAD_ID: "agent-session-secret" },
       commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
@@ -358,39 +358,26 @@ describe("ReviewTelemetry", () => {
 
     cleanupPaths.push(rootPath);
     const commandRunId = telemetry.createCommandRunId();
-    const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
 
     await telemetry.captureCommandStarted({
       command: "info",
       commandRunId,
     });
-    await telemetry.captureCommandBound({
-      command: "info",
-      commandRunId,
-      reviewUuid,
-    });
     await telemetry.captureCommandSucceeded({
       command: "info",
       commandRunId,
-      reviewUuid,
       exitCode: 0,
     });
 
     expect(events.map((event) => event.event)).toEqual([
       "review_command_started",
-      "review_command_bound",
       "review_command_succeeded",
     ]);
     expect(events.map((event) => event.properties?.command_run_id)).toEqual([
       commandRunId,
       commandRunId,
-      commandRunId,
     ]);
     expect(events[0].properties).toMatchObject({ agent_kind: "codex" });
-    expect(events[1].properties?.review_id).toBe(
-      events[2].properties?.review_id,
-    );
-    expect(JSON.stringify(events)).not.toContain(reviewUuid);
     expect(JSON.stringify(events)).not.toContain("agent-session-secret");
   });
 

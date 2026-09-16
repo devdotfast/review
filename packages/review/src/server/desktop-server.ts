@@ -562,7 +562,7 @@ export function createGlobalReviewServer(
 
     if (!review.review.presentedDocumentRevision) {
       throw new ReviewServerError(
-        "Review has no published revision yet. Run `review publish` first.",
+        "Review has no published revision yet and cannot be opened.",
         409,
         "review_unpublished",
       );

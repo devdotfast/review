@@ -33,10 +33,7 @@ const alias = {
   "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
 };
 
-const isolatedTests = [
-  "src/document/check.test.ts",
-  "src/review-source-ref-errors.test.ts",
-];
+const isolatedTests = ["src/document/check.test.ts"];
 
 export default defineConfig({
   test: {

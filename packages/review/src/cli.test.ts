@@ -253,6 +253,26 @@ describe("Review CLI", () => {
     );
   });
 
+  // The JSON authoring verbs are the only remaining surface no other case
+  // drives; both print the agent CLI help without contacting the Desktop.
+  it.each([["api"], ["mcp", "--help"]])(
+    "registers the JSON authoring verb %j",
+    async (...argv) => {
+      const stdout = outputStream();
+      let output = "";
+      stdout.on("data", (chunk) => (output += String(chunk)));
+
+      await expect(
+        runReviewCli({
+          argv,
+          stdout,
+          stderr: outputStream(),
+        }),
+      ).resolves.toBe(0);
+      expect(output).toContain("review api tools");
+    },
+  );
+
   it.each([
     [["app", "launch"], "launched"],
     [["app"], "running"],
@@ -310,9 +330,6 @@ describe("Review CLI", () => {
         async () => undefined,
       ),
       captureCommandStarted: vi.fn<() => Promise<undefined>>(
-        async () => undefined,
-      ),
-      captureCommandBound: vi.fn<() => Promise<undefined>>(
         async () => undefined,
       ),
       captureCommandSucceeded,
@@ -465,9 +482,6 @@ describe("Review CLI", () => {
         ReviewTelemetry["captureInstallationCreated"]
       >(async () => undefined),
       captureCommandStarted,
-      captureCommandBound: vi.fn<ReviewTelemetry["captureCommandBound"]>(
-        async () => undefined,
-      ),
       captureCommandSucceeded: vi.fn<
         ReviewTelemetry["captureCommandSucceeded"]
       >(async () => undefined),

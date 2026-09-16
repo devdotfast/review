@@ -158,27 +158,6 @@ export function traceCommandSync<T>(
   );
 }
 
-// Record an interval measured elsewhere (another process reporting its own
-// phase timings, e.g. Review Desktop's mount steps) as a child span.
-export function recordSpan(
-  name: string,
-  interval: { startEpochMs: number; endEpochMs: number },
-  options: { parentId?: number | null; detail?: string } = {},
-): void {
-  if (!traceEnabled) return;
-  spans.push({
-    id: nextId++,
-    parentId:
-      options.parentId !== undefined
-        ? options.parentId
-        : (context.getStore() ?? null),
-    name,
-    detail: options.detail,
-    start: interval.startEpochMs - performance.timeOrigin,
-    end: interval.endEpochMs - performance.timeOrigin,
-  });
-}
-
 // Zero-duration marker (e.g. "browser websocket connected").
 export function traceEvent(
   name: string,

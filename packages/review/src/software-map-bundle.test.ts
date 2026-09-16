@@ -9,7 +9,6 @@ import {
   REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
   bundleReviewSoftwareMap,
   readReviewSoftwareMapBundle,
-  sameReviewSoftwareMapBundle,
   writeReviewSoftwareMapBundle,
 } from "./software-map-bundle";
 import {
@@ -116,7 +115,12 @@ describe("software map bundle", () => {
         }),
       ).elementsByPath.get("app"),
     ).toEqual(head.elementsByPath.get("app"));
-    expect(sameReviewSoftwareMapBundle(read!, bundle)).toBe(true);
+    expect(read).toMatchObject({
+      headJson: bundle.headJson,
+      baseJson: bundle.baseJson,
+      headCommit: bundle.headCommit,
+      baseCommit: bundle.baseCommit,
+    });
   });
 
   it("returns null for a version-1 (JavaScript) bundle", async () => {

@@ -1,4 +1,13 @@
-import { cp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import {
+  chmod,
+  cp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
 import { afterEach, expect, it } from "vitest";
@@ -41,6 +50,55 @@ it("stages every replacement before touching live files", async () => {
   expect((await stat(path.join(input.reviewDir, ".git"))).ino).toBe(
     originalInode,
   );
+  expect(
+    await readFile(path.join(input.reviewDir, ".git", "HEAD"), "utf8"),
+  ).toBe("old-head");
+  expect((await readdir(root)).sort()).toEqual(["candidate", "review"]);
+});
+
+// Moving a directory to a new parent needs write permission on the directory
+// itself, so a read-only .git fails the second replacement — after .bundle has
+// already been swapped in — and drives the rollback.
+async function promoteWithUnmovableGit(
+  input: Awaited<ReturnType<typeof fixture>>,
+): Promise<void> {
+  const pinned = path.join(input.reviewDir, ".git");
+  await chmod(pinned, 0o500);
+
+  try {
+    await expect(promoteReviewArtifactFiles(input)).rejects.toMatchObject({
+      code: "EACCES",
+    });
+  } finally {
+    await chmod(pinned, 0o700);
+  }
+}
+
+it("restores a replaced artifact by rename when a later replacement fails", async (context) => {
+  // Root ignores the permission bits this case relies on.
+  if (process.getuid?.() === 0) context.skip();
+  const input = await fixture();
+  await promoteWithUnmovableGit(input);
+  expect(
+    await readFile(path.join(input.reviewDir, ".bundle", "document"), "utf8"),
+  ).toBe("old-document");
+  expect(
+    await readFile(path.join(input.reviewDir, ".git", "HEAD"), "utf8"),
+  ).toBe("old-head");
+  expect(
+    JSON.parse(
+      await readFile(path.join(input.reviewDir, "review.json"), "utf8"),
+    ).presentedDocumentRevision,
+  ).toBe("c".repeat(40));
+  expect((await readdir(root)).sort()).toEqual(["candidate", "review"]);
+});
+
+it("removes a replacement that had no original when a later replacement fails", async (context) => {
+  if (process.getuid?.() === 0) context.skip();
+  const input = await fixture();
+  await rm(path.join(input.reviewDir, ".bundle"), { recursive: true });
+  await promoteWithUnmovableGit(input);
+  expect(existsSync(path.join(input.reviewDir, ".bundle"))).toBe(false);
   expect(
     await readFile(path.join(input.reviewDir, ".git", "HEAD"), "utf8"),
   ).toBe("old-head");

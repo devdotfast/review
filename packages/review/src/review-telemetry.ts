@@ -121,7 +121,6 @@ export interface ReviewCommandTelemetryInput {
   exitCode: number;
   durationMs?: number;
   properties?: PostHogCaptureProperties;
-  reviewUuid?: string;
   errorName?: ReviewTelemetryErrorName;
   errorCategory?: ReviewTelemetryErrorCategory;
 }
@@ -129,10 +128,6 @@ export interface ReviewCommandTelemetryInput {
 export interface ReviewCommandStartedInput {
   command: ReviewCliCommandPath;
   commandRunId: string;
-}
-
-export interface ReviewCommandBoundInput extends ReviewCommandStartedInput {
-  reviewUuid: string;
 }
 
 export interface ReviewTelemetryContext {
@@ -214,7 +209,6 @@ export type ReviewCommandTelemetry = Pick<
   | "createCommandRunId"
   | "captureInstallationCreated"
   | "captureCommandStarted"
-  | "captureCommandBound"
   | "captureCommandSucceeded"
   | "captureCommandFailed"
   | "shutdown"
@@ -317,18 +311,6 @@ export class ReviewTelemetry {
       command_run_id: input.commandRunId,
       agent_kind: this.sessionAgent(),
     });
-  }
-
-  async captureCommandBound(input: ReviewCommandBoundInput): Promise<void> {
-    await this.captureEvent(
-      "review_command_bound",
-      {
-        command_path: input.command,
-        command_run_id: input.commandRunId,
-        agent_kind: this.sessionAgent(),
-      },
-      { reviewUuid: input.reviewUuid },
-    );
   }
 
   async captureSessionStarted(input: ReviewSessionStartedInput): Promise<void> {
@@ -463,9 +445,7 @@ export class ReviewTelemetry {
     if (input.errorName) properties.error_name = input.errorName;
 
     if (input.errorCategory) properties.error_category = input.errorCategory;
-    await this.captureEvent(event, properties, {
-      reviewUuid: input.reviewUuid,
-    });
+    await this.captureEvent(event, properties);
   }
 
   private async withTelemetry(

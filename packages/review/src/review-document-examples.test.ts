@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { hydrateReviewDocument } from "../app/src/review-document-hydrate";
 import { renderReviewNodes } from "../app/src/review-document-renderer";
 import { reviewDocumentComponents } from "../app/src/review-document-surface";
-import { patchChangedLines } from "./call-stack-diff";
+import { patchChangedLines } from "./call-stack-diff-test-utils";
 import { buildReviewDocument } from "./document/build";
 import {
   bundleReviewDocument,

@@ -12,7 +12,7 @@ import {
   reviewAuthoringPropsSchemas,
   reviewComponentDataSchemas,
 } from "./authoring";
-import { patchChangedLines } from "./call-stack-diff";
+import { patchChangedLines } from "./call-stack-diff-test-utils";
 import { buildReviewDocument } from "./document/build";
 import {
   type AuthoredReviewCase,

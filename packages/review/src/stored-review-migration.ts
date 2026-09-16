@@ -499,7 +499,7 @@ async function replaceCandidateSources(
   });
 }
 
-export async function legacySoftwareMapBundle(
+async function legacySoftwareMapBundle(
   legacyBuildDir: string,
 ): Promise<ReviewSoftwareMapBundle | null> {
   const mapDir = path.join(legacyBuildDir, ".bundle", "software-map");

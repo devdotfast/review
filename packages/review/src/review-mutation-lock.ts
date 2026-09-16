@@ -1,15 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  type JsonObject,
   type JsonValue,
   type ReviewErrorResponse,
   isJsonObject,
-  jsonObject,
-  parseJsonText,
 } from "@dev.fast/review-protocol";
 import { withFileLock } from "@dev.fast/trace-core";
 
@@ -61,17 +57,11 @@ export function reviewBusyResponse(
 export function reviewMutationFingerprint<
   Review extends Pick<StoredReviewRecord, GuardedReviewField>,
 >(record: Review): string {
-  return fingerprintGuardedValues(record);
-}
-
-function fingerprintGuardedValues(
-  values: JsonObject | Partial<Pick<StoredReviewRecord, GuardedReviewField>>,
-): string {
   const digest = createHash("sha256");
 
   for (const field of GUARDED_REVIEW_FIELDS) {
     digest.update(`${field}\0`);
-    digest.update(field in values ? stableJson(values[field]) : "\0absent");
+    digest.update(stableJson(record[field]));
     digest.update("\0");
   }
 

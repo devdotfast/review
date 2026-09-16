@@ -39,7 +39,7 @@ review app pick --review <uuid>
 
 Most people let the installed Review skill drive this workflow: it authors
 through `review api` or the Review MCP tools. See
-[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md).
+`packages/review/skills/dev-review/SKILL.md`.
 
 ## Machine-readable output
 
@@ -103,8 +103,8 @@ The legacy `review app --review <uuid>` form remains a compatibility alias for
 
 Reviews are created and edited through the JSON API: `review api`, the Review
 MCP tools, or the installed dev-review skill. See
-[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md)
-and [`packages/review/src/review-api/README.md`](../packages/review/src/review-api/README.md)
+`packages/review/skills/dev-review/SKILL.md`
+and `packages/review/src/review-api/README.md`
 for the authoring workflow and the full tool/route list. `review api tools`
 prints the current tool catalog.
 

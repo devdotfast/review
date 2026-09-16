@@ -44,8 +44,8 @@ pins when the bound branch, change, or pull request moves.
 Authoring goes through the JSON API: `review api`, the Review MCP tools, or
 the dev-review skill. Every accepted edit is saved as soon as it is applied;
 there is no publish, checkpoint, or render-report step. See
-[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md)
-and [`packages/review/src/review-api/README.md`](../packages/review/src/review-api/README.md)
+`packages/review/skills/dev-review/SKILL.md`
+and `packages/review/src/review-api/README.md`
 for the full authoring workflow.
 
 The published document is `.bundle/document/review-document.json`, with format

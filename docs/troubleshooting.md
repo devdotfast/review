@@ -63,7 +63,7 @@ current worktree has no matching active Review.
 
 Create one with the dev-review skill, which registers the repository, resolves
 pins, and calls `review_create` (or the equivalent `review api` command). See
-[`packages/review/skills/dev-review/SKILL.md`](../packages/review/skills/dev-review/SKILL.md).
+`packages/review/skills/dev-review/SKILL.md`.
 Use `review info --all` to inspect active Reviews across every worktree in the
 repository.
 

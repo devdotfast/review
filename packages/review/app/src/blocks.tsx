@@ -86,11 +86,16 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
       }}
       renderImage={({ url, alt }) =>
         // Only a remote image can be shown as authored; anything else was
-        // stored as an image block at import.
+        // stored as an image block at import. The image is phrasing content
+        // inside its paragraph, so it stays an <img>: a <figure> there would
+        // be invalid HTML. CSS gives it the block layout of an image block.
         url.startsWith("https:") ? (
-          <figure className="review-image">
-            <img src={url} alt={alt} loading="lazy" />
-          </figure>
+          <img
+            className="review-image-inline"
+            src={url}
+            alt={alt}
+            loading="lazy"
+          />
         ) : undefined
       }
     />

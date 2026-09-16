@@ -23,7 +23,8 @@
   max-width: calc(100cqi - 2 * var(--review-document-padding-inline));
   margin-inline: auto;
 }
-.review-image img {
+.review-image img,
+.review-image-inline {
   display: block;
   max-width: 100%;
   height: auto;

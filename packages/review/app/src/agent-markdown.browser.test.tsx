@@ -1,6 +1,6 @@
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MarkdownContent } from "./agent-markdown";
 
@@ -37,22 +37,31 @@ describe("MarkdownContent", () => {
   });
 
   it("renders an image through the renderer the document supplies", async () => {
+    // The image is phrasing content inside its paragraph, so a rendered image
+    // must stay phrasing-level: React reports invalid nesting on the console.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
     await act(async () =>
       root.render(
         <MarkdownContent
           source={`![A shot](${PIXEL})\n`}
           renderImage={({ url, alt }) => (
-            <figure className="review-image">
-              <img src={url} alt={alt} loading="lazy" />
-            </figure>
+            <img
+              className="review-image-inline"
+              src={url}
+              alt={alt}
+              loading="lazy"
+            />
           )}
         />,
       ),
     );
 
-    const image = container.querySelector("figure.review-image img");
+    const image = container.querySelector("p img.review-image-inline");
     expect(image?.getAttribute("alt")).toBe("A shot");
     expect(image?.getAttribute("src")).toBe(PIXEL);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 
   it("renders an image as its alt text when nothing renders it", async () => {

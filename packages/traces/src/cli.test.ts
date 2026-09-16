@@ -9,10 +9,16 @@ const run = promisify(execFile);
 
 const cliPath = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 
+const manifestPath = fileURLToPath(new URL("../package.json", import.meta.url));
+
 describe("dev-traces built entry", () => {
   it("prints the package version", async () => {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      version: string;
+    };
+
     const { stdout } = await run(process.execPath, [cliPath, "--version"]);
-    expect(stdout.trim()).toBe("0.1.0");
+    expect(stdout.trim()).toBe(manifest.version);
   });
 
   it("starts with the node shebang", async () => {

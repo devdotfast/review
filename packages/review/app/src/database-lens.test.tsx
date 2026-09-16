@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 
+import { createRequire } from "node:module";
+import path from "node:path";
+
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +18,17 @@ import {
   reviewSessionElement,
   testReviewSession,
 } from "./review-session-test-utils";
+
+// The lens mounts a live software-map canvas whose edge router loads the
+// libavoid wasm. The desktop serves it over the review API; the test hands the
+// session the package's copy so routing runs for real instead of failing
+// asynchronously after the test ends.
+const wasmUrl = path.join(
+  path.dirname(
+    createRequire(import.meta.url).resolve("@mr_mint/elkjs-libavoid"),
+  ),
+  "libavoid.wasm",
+);
 
 const block: DatabaseLensProps = {
   id: "db:checkout",
@@ -128,7 +142,7 @@ describe("DatabaseLens", () => {
     await act(async () => {
       root!.render(
         reviewSessionElement(
-          testReviewSession(),
+          testReviewSession({ wasmUrl }),
           <ReviewDebugSettingsProvider>
             <ReviewPanelProvider detailRevision={0}>
               <DatabaseLens {...block} />

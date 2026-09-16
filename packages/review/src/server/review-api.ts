@@ -92,7 +92,7 @@ const MAX_CLIENT_ERRORS_PER_SESSION = 20;
 
 const clientErrorsBySession = new Map<string, string[]>();
 
-function recordClientError(
+export function recordClientError(
   event: ReturnType<typeof sanitizeUiTelemetryEvent>,
 ): void {
   if (event?.event !== "review_client_error") return;
@@ -115,7 +115,7 @@ function recordClientError(
   }
 }
 
-function clientErrorsForSession(sessionId: string): string[] {
+export function clientErrorsForSession(sessionId: string): string[] {
   const names = clientErrorsBySession.get(sessionId) ?? [];
 
   if (names.length > 0) {

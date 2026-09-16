@@ -128,6 +128,7 @@ import {
   readBoundedRequestJson,
 } from "./hono-http";
 import { HttpJsonError, ReviewServerError } from "./http-json";
+import { createJsonReviewReporting } from "./json-review-reporting";
 import { captureSanitizedUiTelemetry } from "./review-api";
 import { promoteReviewRepair } from "./review-repair-promotion";
 import {
@@ -393,6 +394,12 @@ export function createGlobalReviewServer(
 
     await next();
   });
+
+  if (input.reviewStore)
+    app.route(
+      "/reviews-api",
+      createJsonReviewReporting(input.reviewStore, telemetry),
+    );
 
   if (input.reviewStore)
     app.route(

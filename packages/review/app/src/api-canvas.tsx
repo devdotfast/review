@@ -27,6 +27,7 @@ import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
 import { AuthoringActivityContext } from "./authoring-activity";
+import { jsonReviewApiUrl } from "./host/review-client";
 import {
   ReviewSessionProvider,
   createReviewSession,
@@ -210,9 +211,21 @@ export function ApiCanvas({
         ?.pinnedData;
 
     const apiFetch = session.fetch;
+    session.beaconUrl = (route) =>
+      jsonReviewApiUrl(session.config, content.reviewId, route, {
+        tokenInQuery: true,
+      });
     // The old views consume these small view models. Their data came from the API.
     session.fetch = async (route, init, options) => {
       const snapshot = dataRef.current?.snapshot;
+
+      if (route.startsWith("/telemetry/")) {
+        const url = jsonReviewApiUrl(session.config, content.reviewId, route, {
+          version: snapshot?.version,
+        });
+
+        return session.fetchUrl(url, init);
+      }
 
       if (route === "/copy-context" && snapshot) {
         const selection = AgentSelectionSchema.parse(

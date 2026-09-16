@@ -214,7 +214,9 @@ export function useTourRestore(
 }
 
 /** Keeps the persisted view state in step with a fullscreen diagram tour:
- * pass the open tour and its active anchor, or null when closed. */
+ * pass the open tour and its active anchor, or null when closed. An owner
+ * that has not opened a tour in this mount never writes: a stored tour may
+ * belong to another diagram that has yet to claim it. */
 export function useTourPersist(
   tour: GuidedTour | null,
   activeAnchor: string | null,
@@ -223,10 +225,16 @@ export function useTourPersist(
     ReviewTourStateContext,
   )?.persistOverlayTour;
 
+  const openedRef = useRef(false);
+
   useEffect(() => {
-    persistOverlayTour?.(
-      tour && activeAnchor ? { tourId: tour.id, activeAnchor } : null,
-    );
+    const open =
+      tour && activeAnchor ? { tourId: tour.id, activeAnchor } : null;
+
+    if (open) openedRef.current = true;
+    else if (!openedRef.current) return;
+
+    persistOverlayTour?.(open);
   }, [activeAnchor, persistOverlayTour, tour]);
 }
 

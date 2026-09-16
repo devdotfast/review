@@ -83,22 +83,6 @@ describe("parseSoftwareMapCliArgs", () => {
     }
   });
 
-  it("parses map publication options", () => {
-    expect(
-      parseSoftwareMapCliArgs([
-        "publish",
-        "--review",
-        "3b241101-e2bb-4255-8caf-4136c566a962",
-        "--json",
-      ]),
-    ).toMatchObject({
-      ok: true,
-      command: "publish",
-      review: "3b241101-e2bb-4255-8caf-4136c566a962",
-      json: true,
-    });
-  });
-
   it("parses an explicit notes remote for push and fetch", () => {
     expect(parseSoftwareMapCliArgs(["push", "--remote", "fork"])).toMatchObject(
       {
@@ -198,6 +182,23 @@ describe("removed commands point at their replacements", () => {
     expect(stderr.join("")).toContain("review map open <rev>");
   });
 
+  it.each(["publish", "present"])(
+    "review map %s is no longer a command",
+    async (command) => {
+      const stderr: string[] = [];
+
+      const exitCode = await runSoftwareMapCli({
+        args: [command],
+        cwd: "/repo",
+        stdout: writable([]),
+        stderr: writable(stderr),
+      });
+
+      expect(exitCode).toBe(1);
+      expect(stderr.join("")).toContain(`Unknown map command: ${command}`);
+    },
+  );
+
   it.each(["init", "update"])(
     "rejects review map %s with guidance",
     async (command) => {
@@ -242,7 +243,6 @@ describe("software map CLI help", () => {
     ["open", "HEAD", "--help"],
     ["open", "--help", "HEAD"],
     ["check", "-h"],
-    ["publish", "--help"],
     ["prune", "--help"],
     ["push", "--help"],
     ["fetch", "--help"],
@@ -261,7 +261,6 @@ describe("software map CLI help", () => {
     const help = stdout.join("");
     expect(help).toContain("review map open <rev>");
     expect(help).toContain("review map check [<rev>]");
-    expect(help).toContain("review map publish");
     expect(help).toContain("review map prune");
     expect(help).toContain("review map push");
     expect(help).toContain("refs/notes/dev-fast/*");

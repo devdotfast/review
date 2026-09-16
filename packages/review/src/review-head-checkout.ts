@@ -17,7 +17,6 @@ import {
   reviewManagedCheckoutRoot,
   reviewManagedCheckoutsDir,
 } from "./review-checkout-paths";
-import { removeReviewPrepareArtifacts } from "./review-prepare";
 
 // A review renders the pinned code on the canvas, but file reads against the
 // user's working tree see whatever is checked out there — including edits
@@ -101,14 +100,13 @@ async function materializeReviewPinnedCheckout(input: {
   // of code — and the graph would index that. Refuse with the remedy instead.
   if (await jjRevisionIsConflicted(input.rootPath, input.commit)) {
     throw new Error(
-      `Review cannot pin conflicted revision ${input.commit.slice(0, 12)}: the jj change has unresolved conflicts. Resolve them (jj resolve), then scaffold again.`,
+      `Review cannot pin conflicted revision ${input.commit.slice(0, 12)}: the jj change has unresolved conflicts. Resolve them (jj resolve), then re-pin the review.`,
     );
   }
 
   // A stale registration (e.g. a manually gutted or deleted directory) blocks
   // re-adding the same path: drop both the registration and any leftover
-  // directory before recreating the worktree. The tree is recreated bare, so
-  // its prepare marker must not survive into the new directory's lifetime.
+  // directory before recreating the worktree.
   await git(input.rootPath, ["worktree", "remove", "--force", checkoutPath], {
     allowFailure: true,
   });
@@ -386,4 +384,15 @@ function isInsideDirectory(filePath: string, directory: string): boolean {
     !relative.startsWith("..") &&
     !path.isAbsolute(relative)
   );
+}
+
+// Older releases prepared a pinned checkout's dependencies and recorded it in
+// a marker beside the worktree. Nothing writes those files now, so this only
+// clears what an earlier install left behind when a checkout is removed or
+// recreated.
+async function removeReviewPrepareArtifacts(
+  checkoutPath: string,
+): Promise<void> {
+  await rm(`${checkoutPath}.prepared`, { force: true });
+  await rm(`${checkoutPath}.prepare-log`, { force: true });
 }

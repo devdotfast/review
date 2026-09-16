@@ -4,11 +4,26 @@ import path from "node:path";
 
 import { afterEach, expect, it } from "vitest";
 
-import { runReviewInternalTest } from "../review-internal-test";
 import { authoringSpecifiers } from "./authoring-environment";
 import { buildReviewDocument } from "./build";
+import { formatReviewDocumentDiagnostics } from "./diagnostics";
 
 const roots: string[] = [];
+
+/** The review typecheck the removed `review internal-test` verb ran. */
+async function typecheckReview(reviewDir: string): Promise<void> {
+  const result = await buildReviewDocument({
+    reviewPath: path.join(reviewDir, "review.mdx"),
+    ranges: "skip",
+    typecheck: "review",
+  });
+
+  if (!result.document)
+    throw new Error(
+      formatReviewDocumentDiagnostics(result.diagnostics) ||
+        result.errors.join("\n"),
+    );
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -260,14 +275,14 @@ it.each([false, true])(
     expect(published.errors).toEqual([]);
     expect(published.diagnostics).toEqual([]);
     expect(published.document).not.toBeNull();
-    await expect(runReviewInternalTest(input.root)).rejects.toThrow(
+    await expect(typecheckReview(input.root)).rejects.toThrow(
       /helper\.ts:1:\d+ TS2322/,
     );
     await writeFile(
       path.join(input.root, "helper.ts"),
       'export const unused: number = 1; export const value = "valid content";',
     );
-    await expect(runReviewInternalTest(input.root)).resolves.toBeUndefined();
+    await expect(typecheckReview(input.root)).resolves.toBeUndefined();
   },
 );
 
@@ -280,7 +295,7 @@ it.each([false, true])(
     });
 
     await expect(
-      runReviewInternalTest(
+      typecheckReview(
         relative ? path.relative(process.cwd(), input.root) : input.root,
       ),
     ).rejects.toThrow(/nested\/helper\.ts:1:\d+ TS2322/);

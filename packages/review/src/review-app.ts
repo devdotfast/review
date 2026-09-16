@@ -134,7 +134,7 @@ async function selectAppReview(
 function requirePublishedReview(selected: StoredReview): StoredReview {
   if (selected.review.presentedDocumentRevision === null) {
     throw new Error(
-      `Review ${selected.review.uuid} is not published. Run \`review publish --review ${selected.review.uuid}\` first.`,
+      `Review ${selected.review.uuid} has no published revision to show.`,
     );
   }
 
@@ -157,7 +157,7 @@ async function pickAppReview(
   );
 
   if (openable.length === 0) {
-    throw new Error("No published review to show. Run `review publish` first.");
+    throw new Error("No published review to show.");
   }
 
   const items: ReviewPickerItem[] = [...openable]

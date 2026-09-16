@@ -40,7 +40,7 @@ describe("ReviewTelemetry", () => {
     await telemetry.captureInstallationCreated();
     await telemetry.captureInstallationCreated();
     await telemetry.captureCommandSucceeded({
-      command: "scaffold",
+      command: "info",
       commandRunId: "run-12345678",
       exitCode: 0,
       properties: { has_base_ref: false },
@@ -54,7 +54,7 @@ describe("ReviewTelemetry", () => {
     expect(events[1].distinctId).toBe("install-123");
     expect(events[1].properties).toMatchObject({
       product: "review-cli",
-      command_path: "scaffold",
+      command_path: "info",
       exit_code: 0,
       has_base_ref: false,
     });
@@ -309,7 +309,7 @@ describe("ReviewTelemetry", () => {
     cleanupPaths.push(rootPath);
 
     await telemetry.captureCommandFailed({
-      command: "publish",
+      command: "info",
       commandRunId: "run-12345678",
       exitCode: 1,
       errorName: "review_state_error",
@@ -361,16 +361,16 @@ describe("ReviewTelemetry", () => {
     const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
 
     await telemetry.captureCommandStarted({
-      command: "scaffold",
+      command: "info",
       commandRunId,
     });
     await telemetry.captureCommandBound({
-      command: "scaffold",
+      command: "info",
       commandRunId,
       reviewUuid,
     });
     await telemetry.captureCommandSucceeded({
-      command: "scaffold",
+      command: "info",
       commandRunId,
       reviewUuid,
       exitCode: 0,

@@ -47,7 +47,6 @@ import { resolveReviewDiffFiles } from "./review-diff-files";
 import { devReviewHome } from "./review-home-paths";
 import {
   ReviewBusyError,
-  assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
 import { reviewVcs } from "./review-vcs";
@@ -299,78 +298,6 @@ export async function sealReviewCandidate(
   message: string,
 ): Promise<string> {
   return withReviewMutationLock(dir, () => reviewVcs.seal(dir, message));
-}
-
-export async function updateReviewPins(
-  review: StoredReview,
-  pins: Parameters<typeof updateReviewPinsLocked>[1],
-): Promise<StoredReview> {
-  return withReviewMutationLock(review.dir, async () => {
-    await assertReviewUnchanged(review.dir, review.review);
-
-    return updateReviewPinsLocked(
-      {
-        ...review,
-        review: parseStoredReviewRecord(
-          parseJsonText(
-            await readFile(path.join(review.dir, "review.json"), "utf8"),
-          ),
-        ),
-      },
-      pins,
-    );
-  });
-}
-
-async function updateReviewPinsLocked(
-  review: StoredReview,
-  pins: {
-    baseRef: string;
-    baseCommit: string;
-    sourceCommit: string;
-    sourceIdentity: ReviewSourceIdentity;
-    sourceSession: string;
-  },
-): Promise<StoredReview> {
-  if (
-    review.review.baseRef === pins.baseRef &&
-    review.review.baseCommit === pins.baseCommit &&
-    review.review.sourceCommit === pins.sourceCommit &&
-    review.review.sourceSession === pins.sourceSession &&
-    review.review.sourceIdentity?.kind === pins.sourceIdentity.kind &&
-    review.review.sourceIdentity.name === pins.sourceIdentity.name
-  ) {
-    return review;
-  }
-
-  const now = new Date().toISOString();
-
-  const sourceAttribution = parseAuthoringSessionKey(pins.sourceSession)
-    ? {
-        agentSessions: {
-          ...review.review.agentSessions,
-          [pins.sourceSession]: {
-            roles: ["updater" as const],
-            firstSeenAt:
-              review.review.agentSessions?.[pins.sourceSession]?.firstSeenAt ??
-              now,
-            lastSeenAt: now,
-          },
-        },
-      }
-    : {};
-
-  const refreshed: StoredReview = {
-    ...review,
-    review: { ...review.review, ...pins, ...sourceAttribution },
-  };
-
-  await writePrivateJsonAtomic(
-    path.join(refreshed.dir, "review.json"),
-    refreshed.review,
-  );
-
-  return refreshed;
 }
 
 export function createReviewUuid(): string {

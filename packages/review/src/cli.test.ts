@@ -26,11 +26,7 @@ import {
 } from "./posthog-capture-client";
 import { runReviewApp as runReviewAppActual } from "./review-app";
 import { runReviewAppLaunch as runReviewAppLaunchActual } from "./review-app-launcher";
-import type { StoredReview } from "./review-home";
 import { runReviewInfo as runReviewInfoActual } from "./review-info";
-import { runReviewPublish as runReviewPublishActual } from "./review-publish";
-import { runReviewRepair as runReviewRepairActual } from "./review-repair";
-import { runReviewScaffold as runReviewScaffoldActual } from "./review-scaffold";
 import {
   type ReviewCommandTelemetry,
   ReviewTelemetry,
@@ -67,37 +63,6 @@ describe("Review CLI", () => {
     );
   });
 
-  it("routes explicit current-review repair and rejects implicit or historical selection", async () => {
-    const runReviewRepair = vi.fn<typeof runReviewRepairActual>(async () => 0);
-    const uuid = "11111111-1111-4111-8111-111111111111";
-    expect(
-      await runReviewCli({
-        argv: ["repair", "--review", uuid, "--json"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runReviewRepair },
-      }),
-    ).toBe(0);
-    expect(runReviewRepair).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: uuid, json: true }),
-    );
-
-    for (const argv of [
-      ["repair"],
-      ["repair", "--review", uuid, "--revision", "a".repeat(40)],
-    ]) {
-      expect(
-        await runReviewCli({
-          argv,
-          stdout: outputStream(),
-          stderr: outputStream(),
-          runtime: { runReviewRepair },
-        }),
-      ).toBe(1);
-    }
-
-    expect(runReviewRepair).toHaveBeenCalledTimes(1);
-  });
   it("installs the review command with headless skills", async () => {
     const rootPath = await mkdtemp(
       path.join(os.tmpdir(), "review-cli-shim-install-"),
@@ -254,7 +219,7 @@ describe("Review CLI", () => {
     expect(output).toBe("1.2.3\n");
   });
 
-  it("registers app pick, info, scaffold, and publish without the removed start command", async () => {
+  it("registers app pick and info", async () => {
     const runReviewApp = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app" as const,
       action: "pick" as const,
@@ -266,14 +231,6 @@ describe("Review CLI", () => {
       event: "info" as const,
       reviews: [],
     }));
-
-    const runReviewPublish = vi.fn<typeof runReviewPublishActual>(
-      async () => 0,
-    );
-
-    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
-      emptyScaffoldEvent(),
-    );
 
     await runReviewCli({
       argv: ["app", "pick", "--review", "review-uuid"],
@@ -287,33 +244,12 @@ describe("Review CLI", () => {
       stderr: outputStream(),
       runtime: { runReviewInfo },
     });
-    await runReviewCli({
-      argv: ["publish", "--review", "review-uuid"],
-      stdout: outputStream(),
-      stderr: outputStream(),
-      runtime: { runReviewPublish },
-    });
-    await runReviewCli({
-      argv: ["scaffold", "--base", "main", "--head", "feature"],
-      stdout: outputStream(),
-      stderr: outputStream(),
-      runtime: { runReviewScaffold },
-    });
 
     expect(runReviewApp).toHaveBeenCalledWith(
       expect.objectContaining({ reviewUuid: "review-uuid" }),
     );
     expect(runReviewInfo).toHaveBeenCalledWith(
       expect.objectContaining({ reviewUuid: "review-uuid" }),
-    );
-    expect(runReviewPublish).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid" }),
-    );
-    expect(runReviewScaffold).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseRef: "main",
-        headRef: "feature",
-      }),
     );
   });
 
@@ -566,65 +502,6 @@ describe("Review CLI", () => {
     );
   });
 
-  it("binds scaffold telemetry and enriches the terminal event", async () => {
-    const reviewUuid = "86df96ed-65ef-46de-9348-c94811e3bb46";
-
-    const captureCommandBound = vi.fn<ReviewTelemetry["captureCommandBound"]>(
-      async () => undefined,
-    );
-
-    const captureCommandSucceeded = vi.fn<
-      ReviewTelemetry["captureCommandSucceeded"]
-    >(async () => undefined);
-
-    const telemetry = {
-      createCommandRunId: () => "8b733d48-1172-46a7-9df0-3cc71930c25a",
-      captureInstallationCreated: vi.fn<
-        ReviewTelemetry["captureInstallationCreated"]
-      >(async () => undefined),
-      captureCommandStarted: vi.fn<ReviewTelemetry["captureCommandStarted"]>(
-        async () => undefined,
-      ),
-      captureCommandBound,
-      captureCommandSucceeded,
-      captureCommandFailed: vi.fn<ReviewTelemetry["captureCommandFailed"]>(
-        async () => undefined,
-      ),
-      shutdown: vi.fn<ReviewTelemetry["shutdown"]>(async () => undefined),
-    } satisfies ReviewCommandTelemetry;
-
-    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(
-      async (input) => {
-        await input.onReviewBound?.(reviewUuid);
-
-        return emptyScaffoldEvent();
-      },
-    );
-
-    await expect(
-      runReviewCli({
-        argv: ["scaffold"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        telemetry,
-        runtime: { runReviewScaffold },
-      }),
-    ).resolves.toBe(0);
-
-    expect(captureCommandBound).toHaveBeenCalledWith({
-      command: "scaffold",
-      commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
-      reviewUuid,
-    });
-    expect(captureCommandSucceeded).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: "scaffold",
-        commandRunId: "8b733d48-1172-46a7-9df0-3cc71930c25a",
-        reviewUuid,
-      }),
-    );
-  });
-
   it.each([
     [
       "pick subcommand",
@@ -664,71 +541,14 @@ describe("Review CLI", () => {
     });
   });
 
-  it("forwards the selected view when publishing", async () => {
-    const runReviewPublish = vi.fn<typeof runReviewPublishActual>(
-      async () => 0,
-    );
-
+  it("rejects an invalid --view for app pick", async () => {
     await expect(
       runReviewCli({
-        argv: ["publish", "--review", "review-uuid", "--view", "diff"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runReviewPublish },
-      }),
-    ).resolves.toBe(0);
-    expect(runReviewPublish).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid", view: "diff" }),
-    );
-  });
-
-  it.each([
-    ["app pick", ["app", "pick", "--review", "review-uuid"]],
-    ["publish", ["publish", "--review", "review-uuid"]],
-  ])("rejects an invalid --view for %s", async (_label, argv) => {
-    await expect(
-      runReviewCli({
-        argv: [...argv, "--view", "files"],
+        argv: ["app", "pick", "--review", "review-uuid", "--view", "files"],
         stdout: outputStream(),
         stderr: outputStream(),
       }),
     ).resolves.toBe(1);
-  });
-
-  it("accepts --json on scaffold and keeps stdout to one JSON line", async () => {
-    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
-      emptyScaffoldEvent(),
-    );
-
-    const stdout = outputStream();
-    let output = "";
-    stdout.on("data", (chunk) => (output += String(chunk)));
-
-    await expect(
-      runReviewCli({
-        argv: ["scaffold", "--pr", "879", "--json"],
-        stdout,
-        stderr: outputStream(),
-        runtime: { runReviewScaffold },
-      }),
-    ).resolves.toBe(0);
-
-    const lines = output.trimEnd().split("\n");
-    expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toEqual({
-      event: "info",
-      reviews: [],
-      traces: {
-        sessions: [],
-        corpusRoot: null,
-        repository: null,
-        materializedSessions: [],
-        unavailableSessions: [],
-        events: 0,
-        files: 0,
-        paths: [],
-      },
-    });
   });
 
   it("rejects the removed info --new option", async () => {
@@ -770,79 +590,6 @@ describe("Review CLI", () => {
     expect(runTraceSessions).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 50 }),
     );
-  });
-
-  it("passes scaffold update options to the runtime", async () => {
-    const runReviewScaffold = vi.fn<typeof runReviewScaffoldActual>(async () =>
-      emptyScaffoldEvent(),
-    );
-
-    await expect(
-      runReviewCli({
-        argv: ["scaffold", "--review", "review-uuid-1"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runReviewScaffold },
-      }),
-    ).resolves.toBe(0);
-    expect(runReviewScaffold).toHaveBeenCalledWith(
-      expect.objectContaining({ update: true, reviewUuid: "review-uuid-1" }),
-    );
-
-    await expect(
-      runReviewCli({
-        argv: ["scaffold", "--update", "--head", "feature"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runReviewScaffold },
-      }),
-    ).resolves.toBe(1);
-
-    for (const argv of [
-      ["scaffold", "--new", "--update"],
-      ["scaffold", "--new", "--review", "review-uuid-1"],
-    ]) {
-      await expect(
-        runReviewCli({
-          argv,
-          stdout: outputStream(),
-          stderr: outputStream(),
-          runtime: { runReviewScaffold },
-        }),
-      ).resolves.toBe(1);
-    }
-
-    await expect(
-      runReviewCli({
-        argv: ["scaffold", "--new"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { runReviewScaffold },
-      }),
-    ).resolves.toBe(0);
-    expect(runReviewScaffold).toHaveBeenLastCalledWith(
-      expect.objectContaining({ newReview: true }),
-    );
-  });
-
-  it("accepts source selectors only on scaffold", async () => {
-    await expect(
-      runReviewCli({
-        argv: ["info", "--base", "main"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-      }),
-    ).resolves.toBe(1);
-  });
-
-  it("rejects the removed publish --with-map option", async () => {
-    await expect(
-      runReviewCli({
-        argv: ["publish", "--with-map"],
-        stdout: outputStream(),
-        stderr: outputStream(),
-      }),
-    ).resolves.toBe(1);
   });
 
   it("rejects the removed tools ensure command", async () => {
@@ -903,6 +650,13 @@ describe("Review CLI", () => {
     ["migrate", "plan"],
     ["migrate", "verify"],
     ["migrate", "cleanup"],
+    ["scaffold"],
+    ["publish"],
+    ["present"],
+    ["repair", "--review", "11111111-1111-4111-8111-111111111111"],
+    ["rebind", "feature"],
+    ["internal-test"],
+    ["prepare-worktree", "/tmp/checkout", "--commit", "a".repeat(40)],
   ])("rejects removed command surface: %s", async (...argv) => {
     await expect(
       runReviewCli({
@@ -912,53 +666,7 @@ describe("Review CLI", () => {
       }),
     ).resolves.toBe(1);
   });
-
-  it("handles the internal prepare-worktree command", async () => {
-    const prepareReviewPinnedCheckout = vi.fn<
-      () => Promise<{ prepared: true }>
-    >(async () => ({ prepared: true }));
-
-    await expect(
-      runReviewCli({
-        argv: [
-          "prepare-worktree",
-          "/tmp/test-checkout",
-          "--commit",
-          "0123456789abcdef0123456789abcdef01234567",
-        ],
-        stdout: outputStream(),
-        stderr: outputStream(),
-        runtime: { prepareReviewPinnedCheckout },
-      }),
-    ).resolves.toBe(0);
-
-    expect(prepareReviewPinnedCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkoutPath: expect.stringContaining("test-checkout"),
-        commit: "0123456789abcdef0123456789abcdef01234567",
-      }),
-    );
-  });
 });
-
-function emptyScaffoldEvent(): Awaited<
-  ReturnType<typeof runReviewScaffoldActual>
-> {
-  return {
-    event: "info",
-    reviews: [],
-    traces: {
-      sessions: [],
-      corpusRoot: null,
-      repository: null,
-      materializedSessions: [],
-      unavailableSessions: [],
-      events: 0,
-      files: 0,
-      paths: [],
-    },
-  };
-}
 
 function outputStream(): PassThrough {
   return new PassThrough();

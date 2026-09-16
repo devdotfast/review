@@ -23,7 +23,6 @@ import {
   ReviewListResponseSchema,
   ReviewOpenEditorSchema,
   ReviewOpenResponseSchema,
-  ReviewPublishReadyRequestSchema,
   ReviewRangeSchema,
   ReviewRecordSchema,
   ReviewRepositoryIdentitySchema,
@@ -162,16 +161,6 @@ const contracts: Array<[string, ZodType, JsonObject]> = [
     },
   ],
   ["repository identity", ReviewRepositoryIdentitySchema, repository],
-  [
-    "publish-ready request",
-    ReviewPublishReadyRequestSchema,
-    {
-      reviewUuid: reviewRecord.uuid,
-      revision: "a".repeat(40),
-      agent: { harness: "codex", sessionId: "session-1" },
-      view: "diff",
-    },
-  ],
   ["session descriptor", ReviewSessionDescriptorSchema, descriptor],
   [
     "open response",

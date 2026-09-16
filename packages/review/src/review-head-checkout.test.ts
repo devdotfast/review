@@ -11,7 +11,6 @@ import {
   ensureReviewPinnedCheckout,
   removeReviewPinnedCheckout,
 } from "./review-head-checkout";
-import { reviewPrepareMarkerPath } from "./review-prepare";
 
 const TEST_REVIEW_UUID = "00000000-0000-4000-8000-00000000dddd";
 
@@ -121,33 +120,6 @@ describe("ensureReviewPinnedCheckout", () => {
     expect(gitOutput(second ?? "", ["rev-parse", "HEAD"])).toBe(
       repo.headCommit,
     );
-  });
-
-  it("drops the prepare marker when a gutted checkout is recreated", async () => {
-    const repo = await createRepoWithFeature(cleanupPaths);
-
-    const first = await ensureReviewPinnedCheckout({
-      rootPath: repo.rootPath,
-      ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
-    });
-
-    await writeFile(
-      reviewPrepareMarkerPath(first ?? ""),
-      JSON.stringify({ commandsHash: "cafecafecafecafe", preparedAt: 1 }),
-      "utf8",
-    );
-    rmSync(first ?? "", { recursive: true, force: true });
-
-    await ensureReviewPinnedCheckout({
-      rootPath: repo.rootPath,
-      ref: repo.headCommit,
-      reviewUuid: TEST_REVIEW_UUID,
-    });
-
-    // The recreated tree is bare; a surviving marker would silently skip
-    // devfast.prepare for it.
-    expect(existsSync(reviewPrepareMarkerPath(first ?? ""))).toBe(false);
   });
 
   it("refuses to materialize a conflicted jj revision", async () => {
@@ -285,11 +257,6 @@ describe("removeReviewPinnedCheckout", () => {
       reviewUuid: TEST_REVIEW_UUID,
     });
 
-    await writeFile(
-      reviewPrepareMarkerPath(first ?? ""),
-      JSON.stringify({ commandsHash: "cafecafecafecafe", preparedAt: 1 }),
-      "utf8",
-    );
     await expect(
       removeReviewPinnedCheckout({
         rootPath: repo.rootPath,
@@ -299,8 +266,6 @@ describe("removeReviewPinnedCheckout", () => {
     ).resolves.toBe(true);
 
     expect(existsSync(first ?? "")).toBe(false);
-    // The prepare marker dies with its tree.
-    expect(existsSync(reviewPrepareMarkerPath(first ?? ""))).toBe(false);
     expect(readFileSync(path.join(other ?? "", "README.md"), "utf8")).toBe(
       "head-2\n",
     );

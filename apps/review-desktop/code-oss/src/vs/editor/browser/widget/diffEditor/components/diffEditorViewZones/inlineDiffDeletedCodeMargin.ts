@@ -48,6 +48,7 @@ export class InlineDiffDeletedCodeMargin extends Disposable {
 		private readonly _originalTextModel: ITextModel,
 		private readonly _contextMenuService: IContextMenuService,
 		private readonly _clipboardService: IClipboardService,
+		private readonly _originalLineNumbers?: readonly number[],
 	) {
 		super();
 
@@ -171,7 +172,7 @@ export class InlineDiffDeletedCodeMargin extends Disposable {
 			for (let i = 0; i < this._renderLinesResult.viewLineCounts.length; i++) {
 				acc += this._renderLinesResult.viewLineCounts[i];
 				if (lineNumberOffset < acc) {
-					return i;
+					return this._originalLineNumbers ? this._originalLineNumbers[i] - this._diff.original.startLineNumber : i;
 				}
 			}
 		}

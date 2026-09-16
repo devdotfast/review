@@ -24,12 +24,14 @@
 
 export const REVIEW_KEYMAP_SETTING = 'review.keymap';
 export const REVIEW_TELEMETRY_SETTING = 'review.telemetry.enabled';
+export const REVIEW_STRUCTURAL_DIFF_SETTING = 'review.experimental.structuralDiff.enabled';
 export const REVIEW_SOFTWARE_MAP_SETTING = 'review.experimental.softwareMap.enabled';
 export const REVIEW_KEYMAPS = ['none', 'vim', 'emacs'] as const;
 export type ReviewKeymap = typeof REVIEW_KEYMAPS[number];
 
 export const reviewConfigurationDefaults = {
 	[REVIEW_SOFTWARE_MAP_SETTING]: false,
+	[REVIEW_STRUCTURAL_DIFF_SETTING]: false,
 	[REVIEW_TELEMETRY_SETTING]: true,
 	'telemetry.telemetryLevel': 'off',
 	'telemetry.enableTelemetry': false,

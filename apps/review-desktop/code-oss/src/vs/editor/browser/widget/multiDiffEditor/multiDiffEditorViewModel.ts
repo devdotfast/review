@@ -136,8 +136,8 @@ export class DocumentDiffItemViewModel extends Disposable {
 
 	public get originalUri(): URI | undefined { return this.documentDiffItem.original?.uri; }
 	public get modifiedUri(): URI | undefined { return this.documentDiffItem.modified?.uri; }
-	public get originalLabelUri(): URI | undefined { return this.documentDiffItem.labelUris?.original ?? this.originalUri; }
-	public get modifiedLabelUri(): URI | undefined { return this.documentDiffItem.labelUris?.modified ?? this.modifiedUri; }
+	public get originalLabelUri(): URI | undefined { return this.documentDiffItem.labelUris ? this.documentDiffItem.labelUris.original : this.originalUri; }
+	public get modifiedLabelUri(): URI | undefined { return this.documentDiffItem.labelUris ? this.documentDiffItem.labelUris.modified : this.modifiedUri; }
 
 	public readonly isActive: IObservable<boolean> = derived(this, reader => this._editorViewModel.activeDiffItem.read(reader) === this);
 

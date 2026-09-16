@@ -1,3 +1,4 @@
+import type { JsonObject } from "@dev.fast/json";
 import { errorMessage } from "@dev.fast/trace-core";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
@@ -504,6 +505,54 @@ export function createReviewApi(
           : undefined;
 
       return context.json({ ...file, ...local });
+    });
+    app.get("/:id/structural-diff", async (context) => {
+      const input = readQuerySchemas.diff.parse(context.req.query());
+      const id = context.req.param("id");
+
+      const { pins } = await data.resolveSource(
+        readReview(id, input.version),
+        input.commit,
+      );
+
+      const abort = new AbortController();
+      const encoder = new TextEncoder();
+
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (event: JsonObject) => {
+            if (!abort.signal.aborted)
+              controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+          };
+
+          try {
+            await data.structuralChanges(
+              id,
+              pins,
+              AbortSignal.any([context.req.raw.signal, abort.signal]),
+              send,
+              input.file,
+            );
+          } catch (error) {
+            send({
+              type: "error",
+              message: error instanceof Error ? error.message : String(error),
+            });
+          } finally {
+            if (!abort.signal.aborted) controller.close();
+          }
+        },
+        cancel() {
+          abort.abort();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "content-type": "application/x-ndjson",
+          "cache-control": "no-store",
+        },
+      });
     });
     app.get("/:id/diff", async (context) => {
       const input = readQuerySchemas.diff.parse(context.req.query());

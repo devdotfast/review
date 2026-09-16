@@ -23,8 +23,8 @@ import type {
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
 import { resolveReviewSourceView, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
-import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
+import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import type { ReviewCodeModelReference, ReviewCodeDiffTarget } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService, reviewResponseError } from "./reviewDesktopConnectionService.js";
@@ -268,11 +268,19 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		};
 		const diffSource: ReviewDiffViewSource = {
 			files: scope => files(reviewSourceComparison(view(), scope?.commit)),
-			load: async scope => {
+			load: async (scope) => {
 				// Capture the comparison once; live checkout bytes may change during the load.
 				const current = reviewSourceComparison(view(), scope?.commit);
 				const entries = await files(current);
 				return {
+					structuralDiff: async (signal: AbortSignal) => {
+						const { serverUrl, token } = await this.session.getConnection();
+						const query = new URLSearchParams(Object.entries(reviewSourceQuery(current)).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
+						return fetch(
+							`${serverUrl}/reviews-api/${encodeURIComponent(current.reviewId)}/structural-diff?${query}`,
+							{ headers: { "x-review-token": token }, signal },
+						);
+					},
 					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.reviewId, path: `/${current.version}/${current.generation ?? ""}`, query: current.commit ? `commit=${encodeURIComponent(current.commit)}` : undefined }),
 					entries: await Promise.all(entries.map(async file => {
 						const original = file.status === "added" ? undefined : await this.sourceResource({ view: current, side: "base", file: file.previousPath ?? file.path });

@@ -1092,3 +1092,111 @@ body
   background: var(--vscode-diffEditor-unchangedRegionBackground);
   font: inherit;
 }
+
+/* Give commenting and folding separate hit targets in the Files view. */
+.review-files-editor .monaco-editor .margin-view-overlays .cldr:is(
+  .codicon-folding-expanded,
+  .codicon-folding-collapsed,
+  .codicon-folding-manual-expanded,
+  .codicon-folding-manual-collapsed
+) {
+  margin-left: 30px;
+  width: 20px !important;
+}
+
+.review-files-editor-diffs { position: relative; }
+.review-files-editor-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vscode-sideBar-border, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.review-files-editor-summary[hidden] {
+  display: none;
+}
+
+.review-files-editor-summary-added {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.review-files-editor-summary-removed {
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.review-files-editor-summary-bar {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.review-files-editor-summary-block {
+  width: 8px;
+  height: 8px;
+  background: var(--vscode-editorWidget-border);
+}
+
+.review-files-editor-summary-block.added {
+  background: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.review-files-editor-summary-block.removed {
+  background: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.review-multidiff-note {
+  padding: 0 6px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+
+.review-multidiff-note[hidden] {
+  display: none;
+}
+
+.review-structural-label-inline {
+  color: var(--vscode-editor-foldPlaceholderForeground);
+  font-style: italic;
+}
+
+.review-structural-label-zone {
+  background-color: var(--vscode-editor-foldBackground);
+  color: var(--vscode-editor-foldPlaceholderForeground);
+}
+
+.review-structural-label-zone pre {
+  margin: 0;
+  padding-left: 4ch;
+  font: inherit;
+  white-space: pre;
+}
+
+.review-structural-stream-status:not([hidden]) {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+}
+.review-structural-stream-status.loading::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: review-structural-loading 1s linear infinite;
+}
+@keyframes review-structural-loading { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .review-structural-stream-status.loading::before { animation: none; }
+}

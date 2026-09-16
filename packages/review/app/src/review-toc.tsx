@@ -2,6 +2,11 @@ import { type ReactElement, useEffect, useState } from "react";
 
 import { ContentsIcon } from "./icons";
 import type { ReviewTocEntry } from "./review-document-headings";
+import {
+  cssIdentifier,
+  getReviewScrollRoot,
+  scrollToReviewHeading,
+} from "./review-heading-scroll";
 import { useReviewRoots } from "./review-root-context";
 
 interface NumberedReviewTocEntry extends ReviewTocEntry {
@@ -194,44 +199,11 @@ export function ReviewToc({
   if (entries.length < 2) return null;
 
   const scrollTo = (id: string) => {
-    const article = articleRef?.current;
-
-    const heading = article?.querySelector<HTMLElement>(
-      `#${cssIdentifier(id)}`,
+    scrollToReviewHeading(
+      id,
+      articleRef?.current ?? null,
+      scrollRegionRef?.current ?? null,
     );
-
-    if (article && heading) {
-      // Headings inside a collapsed section have no scroll position until
-      // the section expands, so expand first and scroll on the next frame.
-      const collapsedSection = heading.closest(".review-section--collapsed");
-      collapsedSection?.dispatchEvent(new CustomEvent("review-section-expand"));
-
-      const performScroll = () => {
-        const scrollRoot = getReviewScrollRoot(
-          article,
-          scrollRegionRef?.current ?? null,
-        );
-
-        if (scrollRoot?.contains(heading)) {
-          scrollRoot.scrollTo({
-            top:
-              scrollRoot.scrollTop +
-              heading.getBoundingClientRect().top -
-              scrollRoot.getBoundingClientRect().top,
-            behavior: "smooth",
-          });
-        } else {
-          heading.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      };
-
-      if (collapsedSection) {
-        requestAnimationFrame(performScroll);
-      } else {
-        performScroll();
-      }
-    }
-
     setActive(id);
     setIsDrawerOpen(false);
   };
@@ -341,53 +313,8 @@ function isVisibleHeadingForActiveTracking(heading: HTMLElement): boolean {
   return rect.width !== 0 || rect.height !== 0;
 }
 
-function getReviewScrollRoot(
-  article: HTMLElement,
-  scrollRegion: HTMLElement | null,
-): HTMLElement | null {
-  return scrollRegion ?? getNearestScrollableAncestor(article);
-}
-
-function getNearestScrollableAncestor(
-  element: HTMLElement,
-): HTMLElement | null {
-  let current = element.parentElement;
-
-  while (current) {
-    const style = window.getComputedStyle(current);
-
-    if (
-      current.scrollHeight > current.clientHeight &&
-      isScrollableOverflow(style.overflowY, style.overflow)
-    ) {
-      return current;
-    }
-
-    current = current.parentElement;
-  }
-
-  return null;
-}
-
-function isScrollableOverflow(overflowY: string, overflow: string): boolean {
-  return (
-    overflowY === "auto" ||
-    overflowY === "scroll" ||
-    overflowY === "overlay" ||
-    overflow === "auto" ||
-    overflow === "scroll" ||
-    overflow === "overlay"
-  );
-}
-
 function getScrollRootActiveLine(scrollRoot: HTMLElement | null): number {
   if (!scrollRoot) return ACTIVE_HEADING_TOP_SLACK_PX;
 
   return scrollRoot.getBoundingClientRect().top + ACTIVE_HEADING_TOP_SLACK_PX;
-}
-
-function cssIdentifier(value: string): string {
-  if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(value);
-
-  return value.replace(/["\\]/g, "\\$&");
 }

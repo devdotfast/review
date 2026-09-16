@@ -24,6 +24,7 @@ import type { Snapshot } from "../../src/review-api/store";
 import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { markdownHasTitle } from "./agent-markdown";
+import { type ApiHeadingIds, apiHeadingIds } from "./api-document-headings";
 import {
   BlockErrorBoundary,
   type StoredBlock,
@@ -44,6 +45,8 @@ interface Trace {
 
 export interface ApiDocumentData {
   snapshot: Snapshot;
+  /** The document's heading slugs, resolved once per snapshot. */
+  headings: ApiHeadingIds;
   commits: ReviewCommitSummary[];
   anchors: Map<string, DocumentPeekableAnchor>;
   images: Map<string, string>;
@@ -89,6 +92,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
     async load(snapshot: Snapshot): Promise<ApiDocumentData> {
       const data: ApiDocumentData = {
         snapshot,
+        headings: apiHeadingIds(snapshot.document),
         commits: await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
           client.read<ReviewCommitSummary[]>(
             `/${snapshot.reviewId}/commits?version=${snapshot.version}`,

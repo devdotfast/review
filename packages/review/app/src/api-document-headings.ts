@@ -1,33 +1,42 @@
-import { type MarkdownNode, parseMarkdown } from "../../src/markdown";
-import { type Block, elements } from "../../src/review-api/document";
+import type { Block } from "../../src/review-api/document";
+import { documentHeadings } from "../../src/review-api/document-headings";
 import type { ReviewTocEntry } from "./review-document-headings";
 
-export function apiHeadingId(blockId: string, index: number): string {
-  return `${blockId}-heading-${index}`;
-}
-
-function text(node: MarkdownNode): string {
-  return node.value ?? node.children?.map(text).join("") ?? "";
+/** The heading slugs of one document snapshot, for the renderer. */
+export interface ApiHeadingIds {
+  /** The slug of a section block, or of the h2/h3 at `index` among a markdown
+   * block's root nodes. */
+  get(blockId: string, index?: number): string | undefined;
+  /** Whether a `#fragment` link names a heading of this document. */
+  has(id: string): boolean;
 }
 
 export function apiDocumentHeadings(blocks: Block[]): ReviewTocEntry[] {
-  return elements(blocks).flatMap((block): ReviewTocEntry[] => {
-    if (block.type === "section")
-      return [{ id: block.id!, text: block.title, level: "h2" }];
+  return documentHeadings(blocks).map(({ id, text, level }) => ({
+    id,
+    text,
+    level,
+  }));
+}
 
-    if (block.type !== "markdown") return [];
+export function apiHeadingIds(blocks: Block[]): ApiHeadingIds {
+  const headings = documentHeadings(blocks);
 
-    return (parseMarkdown(block.markdown).children ?? []).flatMap(
-      (node, index) =>
-        node.type === "heading" && (node.depth === 2 || node.depth === 3)
-          ? [
-              {
-                id: apiHeadingId(block.id!, index),
-                text: text(node),
-                level: node.depth === 2 ? ("h2" as const) : ("h3" as const),
-              },
-            ]
-          : [],
-    );
-  });
+  const slugs = new Map(
+    headings.map((heading) => [
+      headingKey(heading.block.id!, heading.index),
+      heading.id,
+    ]),
+  );
+
+  const ids = new Set(headings.map((heading) => heading.id));
+
+  return {
+    get: (blockId, index) => slugs.get(headingKey(blockId, index)),
+    has: (id) => ids.has(id),
+  };
+}
+
+function headingKey(blockId: string, index?: number): string {
+  return index === undefined ? blockId : `${blockId}:${index}`;
 }

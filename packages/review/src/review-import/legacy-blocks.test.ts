@@ -326,4 +326,43 @@ describe("legacyDocumentToBlocks", () => {
       children: [{ markdown: expect.stringContaining(definition) }],
     });
   });
+
+  it("reports links whose fragment matches no heading", () => {
+    const link = (href: string, text: string): JsonValue => ({
+      type: "element",
+      tag: "a",
+      props: { href },
+      children: [{ type: "text", value: text }],
+    });
+
+    const { warnings } = legacyDocumentToBlocks(
+      documentOf([
+        {
+          type: "element",
+          tag: "p",
+          props: {},
+          children: [
+            link("#design", "the design"),
+            link("#user-content-fn-1", "1"),
+            link("#gone", "the rest"),
+          ],
+        },
+        {
+          type: "component",
+          name: "ReviewSection",
+          props: { title: "Design" },
+          children: [
+            {
+              type: "element",
+              tag: "p",
+              props: {},
+              children: [{ type: "text", value: "Body." }],
+            },
+          ],
+        },
+      ]),
+    );
+
+    expect(warnings).toEqual(["Link to #gone matches no heading."]);
+  });
 });

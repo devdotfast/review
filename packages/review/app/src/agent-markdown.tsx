@@ -54,7 +54,8 @@ export function MarkdownContent({
 }: {
   source: string;
   h1?: ComponentType<{ children?: ReactNode }>;
-  headingId?: (index: number) => string;
+  /** Undefined leaves the heading unaddressable: only h2/h3 carry link targets. */
+  headingId?: (index: number) => string | undefined;
   renderLink?: LinkRenderer;
   allowRemoteImages?: boolean;
 }): ReactElement {

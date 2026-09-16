@@ -1,0 +1,117 @@
+import { act, createRef } from "react";
+import { type Root, createRoot } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
+import type { Block } from "../../src/review-api/document";
+import type { Snapshot } from "../../src/review-api/store";
+import { ApiDocument, type ApiDocumentData } from "./api-document";
+import { apiHeadingIds } from "./api-document-headings";
+import { ReviewSessionProvider } from "./host/review-session";
+import type { ReviewRoots } from "./review-root-context";
+import { ReviewRootsProvider } from "./review-root-context";
+import { testReviewSession } from "./review-session-test-utils";
+
+const blocks: Block[] = [
+  {
+    id: "b1",
+    type: "markdown",
+    markdown:
+      "## Summary\n\n### Details\n\nSee [the nested notes](#details-2) or [what left](#gone).\n",
+  },
+  {
+    id: "b2",
+    type: "section",
+    title: "Implementation",
+    defaultCollapsed: true,
+    children: [
+      { id: "b3", type: "markdown", markdown: "## Details\n\nNested text\n" },
+    ],
+  },
+];
+
+const snapshot: Snapshot = {
+  reviewId: "11111111-1111-4111-8111-111111111111",
+  version: 1,
+  title: "Imported",
+  pins: { repositoryId: "repo", base: "base", head: "head" },
+  document: blocks,
+  createdAt: new Date().toISOString(),
+};
+
+const data: ApiDocumentData = {
+  snapshot,
+  commits: [],
+  anchors: new Map(),
+  images: new Map(),
+  traces: new Map(),
+  maps: new Map(),
+  headings: apiHeadingIds(blocks),
+};
+
+let container: HTMLElement, article: HTMLElement, root: Root;
+
+beforeEach(() => {
+  window.sessionStorage.clear();
+  window.localStorage.clear();
+  article = document.createElement("article");
+  article.className = "review-document";
+  container = document.createElement("div");
+  article.append(container);
+  document.body.append(article);
+});
+
+afterEach(async () => {
+  await act(async () => root.unmount());
+  article.remove();
+});
+
+const render = async () => {
+  const roots: ReviewRoots = {
+    appRef: createRef<HTMLDivElement>(),
+    shellRef: createRef<HTMLElement>(),
+    scrollRegionRef: createRef<HTMLElement>(),
+    articleRef: { current: article },
+  };
+
+  root = createRoot(container);
+  await act(async () =>
+    root.render(
+      <ReviewSessionProvider session={testReviewSession()}>
+        <ReviewRootsProvider roots={roots}>
+          <ApiDocument data={data} />
+        </ReviewRootsProvider>
+      </ReviewSessionProvider>,
+    ),
+  );
+};
+
+it("expands a collapsed section and scrolls when a fragment link is followed", async () => {
+  await render();
+
+  const body = article.querySelector<HTMLElement>(".review-section-body")!;
+  expect(body.hidden).toBe(true);
+
+  // The nested "Details" repeats the loose one, so its slug is `details-2`.
+  const target = article.querySelector<HTMLElement>("#details-2")!;
+  const scroll = vi.fn<() => void>();
+  target.scrollIntoView = scroll;
+
+  const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+  await act(async () =>
+    article.querySelector('a[href="#details-2"]')!.dispatchEvent(click),
+  );
+
+  // The anchor navigates the document itself, so the browser must not.
+  expect(click.defaultPrevented).toBe(true);
+  expect(body.hidden).toBe(false);
+  await vi.waitFor(() => expect(scroll).toHaveBeenCalled());
+});
+
+it("leaves a fragment that names no heading to the browser", async () => {
+  await render();
+
+  const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+  article.querySelector('a[href="#gone"]')!.dispatchEvent(click);
+
+  expect(click.defaultPrevented).toBe(false);
+});

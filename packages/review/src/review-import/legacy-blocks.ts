@@ -1,6 +1,10 @@
 import type { Block } from "../review-api/document";
 import type { ReviewDocumentData, ReviewNode } from "../review-document-data";
-import { isProseNode, proseToMarkdown } from "./prose-markdown";
+import {
+  collectFootnoteDefinitions,
+  isProseNode,
+  proseToMarkdown,
+} from "./prose-markdown";
 
 /** A trace quote the caller must resolve against trace storage: the block in
  * `blocks` carries `placeholder` as its `traceId` until then. */
@@ -46,6 +50,7 @@ export function legacyDocumentToBlocks(
 ): LegacyConversion {
   const traces: TraceRequest[] = [];
   const warnings: string[] = [];
+  const footnotes = collectFootnoteDefinitions(document.body);
 
   const convert = (nodes: ReviewNode[]): Block[] => {
     const out: Block[] = [];
@@ -53,7 +58,7 @@ export function legacyDocumentToBlocks(
 
     const flush = () => {
       if (prose.length === 0) return;
-      const markdown = proseToMarkdown(prose).trim();
+      const markdown = proseToMarkdown(prose, footnotes).trim();
 
       if (markdown) out.push({ type: "markdown", markdown: `${markdown}\n` });
       prose = [];

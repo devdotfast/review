@@ -15,7 +15,12 @@ import {
   reviewDocumentDataSchema,
   upgradeReviewDocumentJson,
 } from "../review-document-data";
-import { isProseNode, proseToMarkdown, sourceLink } from "./prose-markdown";
+import {
+  collectFootnoteDefinitions,
+  isProseNode,
+  proseToMarkdown,
+  sourceLink,
+} from "./prose-markdown";
 
 const el = (
   tag: string,
@@ -156,6 +161,49 @@ describe("proseToMarkdown", () => {
         ),
       ]),
     ).toBe("A note[^1].\n\n[^1]: Native pipeline footnote.\n");
+  });
+
+  it("carries word-labelled footnote definitions into the referencing block", () => {
+    const reference = el("p", [
+      text("A footnote"),
+      el("sup", [
+        el("a", [text("1")], {
+          href: "#user-content-fn-note",
+          id: "user-content-fnref-note",
+          "data-footnote-ref": "true",
+        }),
+      ]),
+      text("."),
+    ]);
+
+    const definitions = el(
+      "section",
+      [
+        el("ol", [
+          el(
+            "li",
+            [
+              el("p", [
+                text("Native pipeline footnote. "),
+                el("a", [text("↩")], {
+                  href: "#user-content-fnref-note",
+                  "data-footnote-backref": "",
+                }),
+              ]),
+            ],
+            { id: "user-content-fn-note" },
+          ),
+        ]),
+      ],
+      { "data-footnotes": "true", className: "footnotes" },
+    );
+
+    const footnotes = collectFootnoteDefinitions([reference, definitions]);
+    expect([...footnotes]).toEqual([["note", "Native pipeline footnote."]]);
+    expect(proseToMarkdown([reference], footnotes)).toBe(
+      "A footnote[^note].\n\n[^note]: Native pipeline footnote.\n",
+    );
+    expect(proseToMarkdown([definitions], footnotes)).toBe("\n");
   });
 
   it("degrades kbd and blockquotes", () => {

@@ -59,22 +59,88 @@ function alignRow(align: ReviewElementProps[string] | undefined): string {
   }
 }
 
-/** Sealed review prose (a `review-document/1` element tree) as GFM Markdown
- * that `parseMarkdown` reads back. Footnote definitions collect at the end. */
-export function proseToMarkdown(nodes: ReviewNode[]): string {
-  const footnotes: string[] = [];
-  const body = blocks(nodes, footnotes).trimEnd();
+/** Footnote definitions by label. Markdown blocks parse independently, so a
+ * block must carry the definitions of the footnotes it references. */
+export type FootnoteDefinitions = Map<string, string>;
 
-  return `${[body, ...footnotes].filter(Boolean).join("\n\n")}\n`;
+interface FootnoteState {
+  definitions: FootnoteDefinitions;
+  referenced: Set<string>;
 }
 
-function blocks(nodes: ReviewNode[], footnotes: string[], indent = ""): string {
+/** Every footnote definition in a document, from any `section[data-footnotes]`. */
+export function collectFootnoteDefinitions(
+  nodes: ReviewNode[],
+): FootnoteDefinitions {
+  const state: FootnoteState = {
+    definitions: new Map(),
+    referenced: new Set(),
+  };
+
+  const visit = (node: ReviewNode) => {
+    if (
+      node.type === "element" &&
+      node.tag === "section" &&
+      isFootnoteSection(node)
+    )
+      collectFootnotes(node, state);
+    else if (node.type !== "text") node.children.forEach(visit);
+  };
+
+  nodes.forEach(visit);
+
+  return state.definitions;
+}
+
+/** Sealed review prose (a `review-document/1` element tree) as GFM Markdown
+ * that `parseMarkdown` reads back. Definitions of the footnotes referenced in
+ * `nodes` are appended, taken from `footnotes` when given, else from the
+ * footnote section inside `nodes`. */
+export function proseToMarkdown(
+  nodes: ReviewNode[],
+  footnotes?: FootnoteDefinitions,
+): string {
+  const state: FootnoteState = {
+    definitions: footnotes ?? new Map(),
+    referenced: new Set(),
+  };
+
+  const body = blocks(nodes, state).trimEnd();
+
+  const definitions = [...state.referenced].flatMap((label) => {
+    const text = state.definitions.get(label);
+
+    return text === undefined ? [] : [`[^${label}]: ${text}`];
+  });
+
+  return `${[body, ...definitions].filter(Boolean).join("\n\n")}\n`;
+}
+
+function isFootnoteSection(node: ElementNode): boolean {
+  return "data-footnotes" in node.props;
+}
+
+/** Footnote labels come from `#user-content-fn-<label>` (refs) and
+ * `user-content-fn-<label>` (definitions), falling back to trailing digits. */
+function footnoteLabel(value: string): string | null {
+  return (
+    /user-content-fn(?:ref)?-(.+)$/.exec(value)?.[1] ??
+    /(\d+)$/.exec(value)?.[1] ??
+    null
+  );
+}
+
+function blocks(
+  nodes: ReviewNode[],
+  state: FootnoteState,
+  indent = "",
+): string {
   const out: string[] = [];
   let inline: ReviewNode[] = [];
 
   const flush = () => {
     if (inline.length === 0) return;
-    const text = inlines(inline).trim();
+    const text = inlines(inline, state).trim();
 
     if (text) out.push(indent + text);
     inline = [];
@@ -83,7 +149,7 @@ function blocks(nodes: ReviewNode[], footnotes: string[], indent = ""): string {
   for (const node of nodes) {
     if (node.type === "element" && BLOCK_TAGS.has(node.tag)) {
       flush();
-      const rendered = block(node, footnotes, indent);
+      const rendered = block(node, state, indent);
 
       if (rendered) out.push(rendered);
     } else inline.push(node);
@@ -94,23 +160,27 @@ function blocks(nodes: ReviewNode[], footnotes: string[], indent = ""): string {
   return out.join("\n\n");
 }
 
-function block(node: ElementNode, footnotes: string[], indent: string): string {
+function block(
+  node: ElementNode,
+  state: FootnoteState,
+  indent: string,
+): string {
   const { tag, children, props } = node;
 
   switch (tag) {
     case "p":
-      return indent + inlines(children).trim();
+      return indent + inlines(children, state).trim();
     case "h1":
     case "h2":
     case "h3":
     case "h4":
     case "h5":
     case "h6":
-      return `${indent}${"#".repeat(Number(tag[1]))} ${inlines(children).trim()}`;
+      return `${indent}${"#".repeat(Number(tag[1]))} ${inlines(children, state).trim()}`;
     case "hr":
       return `${indent}---`;
     case "blockquote":
-      return blocks(children, footnotes)
+      return blocks(children, state)
         .split("\n")
         .map((line) => `${indent}> ${line}`.trimEnd())
         .join("\n");
@@ -123,22 +193,20 @@ function block(node: ElementNode, footnotes: string[], indent: string): string {
           (child): child is ElementNode =>
             child.type === "element" && child.tag === "li",
         )
-        .map((li) =>
-          listItem(li, tag === "ol" ? "1. " : "- ", footnotes, indent),
-        )
+        .map((li) => listItem(li, tag === "ol" ? "1. " : "- ", state, indent))
         .join("\n");
     case "table":
-      return table(node, indent);
+      return table(node, state, indent);
     case "section":
-      if (props["data-footnotes"]) {
-        collectFootnotes(node, footnotes);
+      if (isFootnoteSection(node)) {
+        collectFootnotes(node, state);
 
         return "";
       }
 
-      return blocks(children, footnotes, indent);
+      return blocks(children, state, indent);
     default:
-      return blocks(children, footnotes, indent);
+      return blocks(children, state, indent);
   }
 }
 
@@ -169,7 +237,7 @@ function fencedCode(node: ElementNode, indent: string): string {
 function listItem(
   li: ElementNode,
   marker: string,
-  footnotes: string[],
+  state: FootnoteState,
   indent: string,
 ): string {
   let prefix = marker;
@@ -181,7 +249,7 @@ function listItem(
     children = children.slice(1);
   }
 
-  const inner = blocks(children, footnotes, indent + " ".repeat(marker.length));
+  const inner = blocks(children, state, indent + " ".repeat(marker.length));
   const [head = "", ...rest] = inner.split("\n");
 
   return [
@@ -190,7 +258,11 @@ function listItem(
   ].join("\n");
 }
 
-function table(node: ElementNode, indent: string): string {
+function table(
+  node: ElementNode,
+  state: FootnoteState,
+  indent: string,
+): string {
   const rows: ElementNode[] = [];
 
   for (const part of node.children)
@@ -206,7 +278,9 @@ function table(node: ElementNode, indent: string): string {
 
   const render = (row: ElementNode) =>
     `${indent}| ${cells(row)
-      .map((cell) => inlines(cell.children).trim().replaceAll("|", "\\|"))
+      .map((cell) =>
+        inlines(cell.children, state).trim().replaceAll("|", "\\|"),
+      )
       .join(" | ")} |`;
 
   const [header, ...body] = rows;
@@ -222,17 +296,23 @@ function table(node: ElementNode, indent: string): string {
   ].join("\n");
 }
 
-function collectFootnotes(section: ElementNode, footnotes: string[]): void {
+function collectFootnotes(section: ElementNode, state: FootnoteState): void {
   for (const list of section.children)
     if (list.type === "element" && list.tag === "ol")
       for (const li of list.children)
         if (li.type === "element" && li.tag === "li") {
-          const n =
-            /(\d+)$/.exec(String(li.props.id ?? ""))?.[1] ??
-            String(footnotes.length + 1);
+          const label =
+            footnoteLabel(String(li.props.id ?? "")) ??
+            String(state.definitions.size + 1);
 
-          footnotes.push(
-            `[^${n}]: ${blocks(stripBackrefs(li.children), []).trim()}`,
+          const inner: FootnoteState = {
+            definitions: state.definitions,
+            referenced: new Set(),
+          };
+
+          state.definitions.set(
+            label,
+            blocks(stripBackrefs(li.children), inner).trim(),
           );
         }
 }
@@ -241,17 +321,17 @@ function stripBackrefs(nodes: ReviewNode[]): ReviewNode[] {
   return nodes.flatMap((node): ReviewNode[] => {
     if (node.type !== "element") return [node];
 
-    if (node.props["data-footnote-backref"]) return [];
+    if ("data-footnote-backref" in node.props) return [];
 
     return [{ ...node, children: stripBackrefs(node.children) }];
   });
 }
 
-function inlines(nodes: ReviewNode[]): string {
-  return nodes.map(inline).join("");
+function inlines(nodes: ReviewNode[], state?: FootnoteState): string {
+  return nodes.map((node) => inline(node, state)).join("");
 }
 
-function inline(node: ReviewNode): string {
+function inline(node: ReviewNode, state?: FootnoteState): string {
   if (node.type === "text") return escapeText(node.value);
 
   if (node.type === "component") {
@@ -261,7 +341,7 @@ function inline(node: ReviewNode): string {
       node.props as { anchor?: { title?: string; peek?: Source } }
     ).anchor;
 
-    const label = inlines(node.children) || anchor?.title || "";
+    const label = inlines(node.children, state) || anchor?.title || "";
 
     return node.name === "AnchorLink" && anchor?.peek
       ? `[${label}](${sourceLink(anchor.peek)})`
@@ -273,13 +353,13 @@ function inline(node: ReviewNode): string {
   switch (tag) {
     case "strong":
     case "b":
-      return `**${inlines(children)}**`;
+      return `**${inlines(children, state)}**`;
     case "em":
     case "i":
-      return `*${inlines(children)}*`;
+      return `*${inlines(children, state)}*`;
     case "del":
     case "s":
-      return `~~${inlines(children)}~~`;
+      return `~~${inlines(children, state)}~~`;
     case "code":
     case "kbd": {
       const text = plainText(children);
@@ -289,12 +369,16 @@ function inline(node: ReviewNode): string {
     }
 
     case "a":
-      if (props["data-footnote-ref"])
-        return `[^${/(\d+)$/.exec(String(props.href ?? ""))?.[1] ?? "1"}]`;
+      if ("data-footnote-ref" in props) {
+        const label = footnoteLabel(String(props.href ?? "")) ?? "1";
+        state?.referenced.add(label);
 
-      if (props["data-footnote-backref"]) return "";
+        return `[^${label}]`;
+      }
 
-      return `[${inlines(children)}](${String(props.href ?? "")})`;
+      if ("data-footnote-backref" in props) return "";
+
+      return `[${inlines(children, state)}](${String(props.href ?? "")})`;
     case "img":
       return `![${String(props.alt ?? "")}](${String(props.src ?? "")})`;
     case "br":
@@ -302,7 +386,12 @@ function inline(node: ReviewNode): string {
     case "input":
       return "";
     default:
-      return BLOCK_TAGS.has(tag) ? blocks([node], []) : inlines(children);
+      return BLOCK_TAGS.has(tag)
+        ? blocks(
+            [node],
+            state ?? { definitions: new Map(), referenced: new Set() },
+          )
+        : inlines(children, state);
   }
 }
 

@@ -85,6 +85,26 @@ Home lists review descriptors derived from `review.json`. Missing worktrees or
 documents remain visible but disabled. Reopening creates a desktop-owned active
 session; candidates never appear on Home.
 
+### Legacy review import
+
+Reviews published from MDX are imported into the JSON review store when Home
+lists them, when they are opened, and right after a successful `review
+publish`. A review is imported once its uuid has a row in the store: Home then
+shows only the JSON entry, opening routes to the JSON canvas, and `review
+publish`, `review map publish`, and `review repair` refuse it with `migrated`.
+Every sealed revision becomes a store version. Nothing is written back into the
+legacy review directory. A review whose repository is no longer on this machine
+stays legacy.
+
+### End-to-end checks
+
+`scripts/native-authoring-e2e.mjs --runtime <installed package>` drives the
+built Desktop through the installed CLI with fixture reviews, including the
+legacy import path. `scripts/legacy-import-smoke.mjs --home <copy>` launches the
+built Desktop on a copy of a real review home and checks that every published
+review imports, opens in the JSON canvas, and renders without page errors. Copy
+`~/.dev/reviews` into a scratch home first; the smoke refuses the live home.
+
 ## Packaging and releases
 
 macOS arm64 is the only packaged platform with release channels; Linux has a

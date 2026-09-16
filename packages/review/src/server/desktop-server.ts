@@ -31,7 +31,7 @@ import {
   parseReviewPublishReadyRequest,
   reviewViewSchema,
 } from "@dev.fast/review-protocol";
-import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
+import { errorMessage, writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -303,9 +303,9 @@ export function createGlobalReviewServer(
         })
       : undefined);
 
-  /** After an import the JSON canvas is the review: close any legacy
-   * session, open the JSON tab in its place, and drop the legacy list
-   * entry (the desktop handles `review-deleted` as "remove from list"). */
+  /** After an import the JSON canvas is the review: open the JSON tab and
+   * close any legacy session in its place. Home hides the legacy entry once
+   * the JSON catalog lists the uuid. */
   async function replaceLegacySessions(review: StoredReview): Promise<void> {
     const uuid = review.review.uuid;
 
@@ -313,14 +313,22 @@ export function createGlobalReviewServer(
       (session) => session.review.review.uuid === uuid,
     );
 
-    if (live.length)
-      await relay.dispatch("review-desktop", {
-        name: "openApiReview",
-        args: { reviewId: uuid, title: review.review.title },
-      });
+    if (live.length === 0) return;
+    await relay.dispatch("review-desktop", {
+      name: "openApiReview",
+      args: { reviewId: uuid, title: review.review.title },
+    });
 
     for (const session of live) await closeSession(session, "replaced", false);
-    broadcastGlobal({ event: "review-deleted", uuid });
+  }
+
+  function importAfterPromotion(uuid: string): void {
+    if (!legacyImporter) return;
+    void findReview(uuid)
+      .then((promoted) => (promoted ? legacyImporter.ensure(promoted) : null))
+      .catch((error) =>
+        console.warn(`[Review import] ${uuid}: ${errorMessage(error)}`),
+      );
   }
 
   function migratedError(uuid: string, verb: string): ReviewServerError {
@@ -1017,10 +1025,17 @@ export function createGlobalReviewServer(
         );
       }
 
-      return globalJson(
-        201,
-        await mountPublishedDocument(review, request.revision, request.view),
+      const mounted = await mountPublishedDocument(
+        review,
+        request.revision,
+        request.view,
       );
+
+      // The first successful publish is the handoff into the JSON store; the
+      // import replaces the legacy session just mounted with the JSON canvas.
+      importAfterPromotion(request.reviewUuid);
+
+      return globalJson(201, mounted);
     } catch (error) {
       await telemetry.capturePublishGateRejected({ gate: "publish_ready" });
       throw error;
@@ -1078,10 +1093,10 @@ export function createGlobalReviewServer(
         );
       }
 
-      return globalJson(
-        201,
-        await mountPublishedSoftwareMap(review, request.revision),
-      );
+      const mounted = await mountPublishedSoftwareMap(review, request.revision);
+      importAfterPromotion(request.reviewUuid);
+
+      return globalJson(201, mounted);
     } catch (error) {
       await telemetry.capturePublishGateRejected({
         gate: "map_publish_ready",

@@ -593,7 +593,10 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			const renderHome = async () =>
 				{
 					const seq = ++renderSeq;
-					const reviews = [...this.sessionService.reviews, ...this.apiCatalog.reviews];
+					// A legacy review imported into the JSON store is listed by the
+					// catalog; its legacy entry disappears on the next list fetch.
+					const apiIds = new Set(this.apiCatalog.reviews.map(review => review.uuid));
+					const reviews = [...this.sessionService.reviews.filter(review => !apiIds.has(review.uuid)), ...this.apiCatalog.reviews];
 					const isEmpty = reviews.length === 0;
 					// Only the Welcome rail needs install status; the list must
 					// render without waiting on it. One fetch serves both the

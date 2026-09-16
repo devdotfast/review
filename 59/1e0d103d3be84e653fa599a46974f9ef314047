@@ -21,7 +21,7 @@ export default defineSoftwareMap({
         backend: {
           label: "Local Review server",
           components: {
-            selectionFormat: { label: "Selection Markdown formatter", description: "Validates independent prose, code, and diagram selection shapes; renders quoted prose, semantic diagram context, or selected unified diff rows.", coverage: { files: ["packages/review/src/agent-selection.ts"] } },
+            selectionFormat: { label: "Selection Markdown formatter", description: "Validates independent prose, code, and diagram selection shapes; renders quoted prose, semantic diagram context, or selected unified diff rows. Diff metadata stays outside the fence: File identifies the relative path; Base and Head identify pinned repository roots; Range describes old and new spans.", coverage: { files: ["packages/review/src/agent-selection.ts"] } },
             server: { label: "Authenticated session and publication API", coverage: { files: ["packages/review/src/server/desktop-server.ts", "packages/review/src/server/review-api.ts", "packages/review/src/server/session-handler.ts", "packages/review/src/server/tutorial-service.ts"] } },
             lifecycle: { label: "Review discovery and migration", coverage: { files: ["packages/review/src/review-home.ts", "packages/review/src/review-attention.ts", "packages/review/src/migrate.ts", "packages/review/src/stored-review-migration.ts"] } },
             publication: { label: "MDX compilation and publication", coverage: { files: ["packages/review/src/review-publication-preparation.ts", "packages/review/src/publish-stage.ts"] } },

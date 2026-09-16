@@ -33,6 +33,7 @@ import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { z } from "zod";
 
 import { parseAuthoringSessionKey } from "../agent-session-ref";
 import {

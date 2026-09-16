@@ -419,9 +419,13 @@ describe("ReviewHome", () => {
         .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
         ?.click(),
     );
-    expect(writeText.mock.calls[0]?.[0]).toContain(
-      "Delete it from Home and recreate it with the Review skill.",
+    const copiedPrompt = writeText.mock.calls[0]?.[0];
+
+    expect(copiedPrompt).toContain(
+      "Delete this review from Home and recreate it with the Review skill; it cannot be repaired.",
     );
+    expect(copiedPrompt).not.toContain("Do not use --force or delete data");
+    expect(copiedPrompt).not.toContain("opens afterward");
     expect(
       container.querySelector('[aria-label="Prompt copied"]'),
     ).not.toBeNull();

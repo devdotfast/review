@@ -11,7 +11,7 @@ and system views around that document.
 ```mermaid
 flowchart LR
   A[Branch, change, or PR] --> B[Agent authors a Review]
-  B --> C[CLI validates and publishes]
+  B --> C[Server saves each edit through the Review API]
   C --> D[Reviewer reads in Review Desktop]
 ```
 
@@ -58,10 +58,10 @@ remains JSON-only.
 
 ## Reviews have an explicit lifecycle
 
-| State             | What happens next                                  |
-| ----------------- | -------------------------------------------------- |
-| `draft`           | The agent authors and publishes the Review.        |
-| `awaiting-review` | The reviewer reads the Review or dismisses it.     |
+| State             | What happens next                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `draft`           | The agent authors the Review through the Review API; every accepted edit is saved.   |
+| `awaiting-review` | The reviewer reads the Review or dismisses it.                                       |
 
 Reviews created by earlier versions may also be `awaiting-agent-updates`,
 `accepted`, or `rejected`. Accepted and rejected Reviews cannot be republished.

@@ -285,31 +285,42 @@ export function ReviewHome({
 function unavailableReviewGuidance(error: ReviewListError) {
   let explanation: string;
   let command: string | undefined;
+  let nextStep: string;
 
   switch (error.code) {
     case "MIGRATION_REQUIRED":
       explanation =
         "This review needs manual migration. Copy the prompt to your agent.";
       command = "review migrate apply";
+      nextStep = `Inspect the affected review and create any necessary backup yourself before making changes; do not ask me to do manual backup steps. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`;
       break;
     case "REPAIR_REQUIRED":
       explanation = damagedLegacyReviewMessage;
+      nextStep =
+        "Delete this review from Home and recreate it with the Review skill; it cannot be repaired.";
       break;
     default:
       explanation =
         "This review could not be opened. Copy the prompt to your agent.";
+      nextStep =
+        "Inspect the diagnostic and fix the underlying access or storage problem.";
   }
 
-  const nextStep = command
-    ? `Inspect the affected review and create any necessary backup yourself before making changes; do not ask me to do manual backup steps. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`
-    : "Inspect the diagnostic and fix the underlying access or storage problem.";
+  // A damaged legacy review is deleted and recreated, not preserved in place,
+  // so the "do not delete data" boilerplate below would contradict nextStep.
+  const closingLines =
+    error.code === "REPAIR_REQUIRED"
+      ? []
+      : [
+          "Preserve reviews and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
+        ];
 
   const prompt = [
     `Help me open this Review: ${JSON.stringify(error.title || error.reviewUuid || error.reviewDir)}.`,
     `Review directory: ${JSON.stringify(error.reviewDir)}.`,
     `Diagnostic: ${JSON.stringify(error.message)}.`,
     nextStep,
-    "Preserve reviews and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
+    ...closingLines,
   ].join("\n");
 
   return {

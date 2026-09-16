@@ -38,7 +38,14 @@ export function createReviewApi(
     // Provider failures may contain local paths/subprocess output; do not return them.
     return context.json({ error: "Review operation failed." }, 500);
   });
-  app.get("/", (context) => context.json(store.list()));
+
+  const catalog = () => {
+    void data?.populateCatalogStats();
+
+    return store.list();
+  };
+
+  app.get("/", (context) => context.json(catalog()));
   app.get("/authoring", (context) => context.json(authoringTools()));
   app.get("/:id/activity", (context) => {
     const id = context.req.param("id");
@@ -98,7 +105,7 @@ export function createReviewApi(
               return {
                 value:
                   reviewId === null
-                    ? store.list()
+                    ? catalog()
                     : {
                         ...store.read(reviewId),
                         activity: store.activity.read(reviewId),
@@ -133,10 +140,7 @@ export function createReviewApi(
       );
     }
 
-    return watch(
-      () => store.list(),
-      (notify) => store.subscribeCatalog(notify),
-    );
+    return watch(catalog, (notify) => store.subscribeCatalog(notify));
   });
   app.post("/:id/open", async (context) => {
     const review = store.read(context.req.param("id"));

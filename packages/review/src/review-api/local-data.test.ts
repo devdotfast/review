@@ -129,6 +129,28 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it("lists the full repository path and hydrates diff counts from pinned commits", async () => {
+  await local.store.execute(
+    command({ type: "create", title: "Home metadata", pins }),
+  );
+  const app = createReviewApi(local.store, local.data);
+  const first = await (await app.request("/")).json();
+  expect(first[0].repositoryPath).toBe(realpathSync(repository));
+  await local.data.populateCatalogStats();
+  const ready = await (await app.request("/")).json();
+  expect(ready[0].diffStats).toEqual({
+    fileCount: 3,
+    additions: 4,
+    deletions: 1,
+  });
+  // Working-tree edits and attention changes cannot alter an immutable pinned diff.
+  await local.store.execute(
+    command({ type: "attention", reviewId: ready[0].reviewId, action: "view" }),
+  );
+  await local.data.populateCatalogStats();
+  expect(local.store.list()[0]?.diffStats).toEqual(ready[0].diffStats);
+});
+
 it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {
   const app = createReviewApi(local.store, local.data);
   const edge = { kind: "semantic", from: "api", to: "missing" };

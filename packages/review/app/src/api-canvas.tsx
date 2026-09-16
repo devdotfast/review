@@ -42,10 +42,13 @@ type ApiContent = Extract<ReviewCanvasContent, { kind: "api" }>;
 
 const DocumentData = createContext<ApiDocumentData | null>(null);
 
+const MapEnabled = createContext(false);
+
 // A stable component type keeps sections, diagram tours and selections mounted.
 function DocumentBody() {
   const data = useContext(DocumentData)!;
   const session = useReviewSession();
+  const softwareMapEnabled = useContext(MapEnabled);
 
   // App keys its boundary on the review id; this one recovers on the next version.
   return (
@@ -56,7 +59,7 @@ function DocumentBody() {
         reportReviewDocumentRenderError(session, error)
       }
     >
-      <ApiDocument data={data} />
+      <ApiDocument data={data} softwareMapEnabled={softwareMapEnabled} />
     </ReviewDocumentBoundary>
   );
 }
@@ -386,7 +389,15 @@ export function ApiCanvas({
               value={data.snapshot.version}
             >
               <RevealAfterFirstPaint>
-                <CanvasDocument data={data} findHost={findHost} />
+                <MapEnabled.Provider
+                  value={content.softwareMapEnabled === true}
+                >
+                  <CanvasDocument
+                    data={data}
+                    findHost={findHost}
+                    softwareMapEnabled={content.softwareMapEnabled === true}
+                  />
+                </MapEnabled.Provider>
               </RevealAfterFirstPaint>
             </DisplayedReviewVersionContext.Provider>
           </AuthoringActivityContext.Provider>
@@ -400,9 +411,11 @@ export function ApiCanvas({
 const CanvasDocument = memo(function CanvasDocument({
   data,
   findHost,
+  softwareMapEnabled,
 }: {
   data: ApiDocumentData;
   findHost?: ReviewFindHost;
+  softwareMapEnabled: boolean;
 }) {
   const snapshot = data.snapshot;
 
@@ -432,7 +445,7 @@ const CanvasDocument = memo(function CanvasDocument({
             ) ?? null,
         },
       }}
-      softwareMapEnabled={data.maps.size > 0}
+      softwareMapEnabled={softwareMapEnabled && data.maps.size > 0}
       range={{
         baseRef: snapshot.pins.base,
         headRef: snapshot.pins.head,

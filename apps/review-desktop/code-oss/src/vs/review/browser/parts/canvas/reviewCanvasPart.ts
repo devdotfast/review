@@ -222,6 +222,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private container: HTMLElement | null = null;
 	private canvasMount: HTMLElement | null = null;
 	private targetDocument: Document | null = null;
+	private apiContent: Extract<ReviewCanvasContent, { kind: "api" }> | undefined;
 	private loadGeneration = 0;
 	private openingGeneration: number | undefined;
 	private readonly refreshProgress: LongRunningOperation;
@@ -318,6 +319,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this._register(
 			configurationService.onDidChangeConfiguration((event) => {
 				if (!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING)) return;
+				if (this.apiContent) {
+					this.apiContent = { ...this.apiContent, softwareMapEnabled: this.currentSoftwareMapEnabled() };
+					this.canvas.value?.update(this.apiContent);
+					return;
+				}
 				const input = this.renderedInput;
 				const model = this.renderedModel;
 				if (!input || !model || model.state !== "active") return;
@@ -530,7 +536,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				let version = 0;
 				const source = this.apiSource.canvas(reviewId, () => version, this.inlineEditors, this.diffViews);
 				await this.render({
-					kind: "api", reviewId,
+					kind: "api", reviewId, softwareMapEnabled: this.currentSoftwareMapEnabled(),
 					setTitle: title => input.setApiTitle(title),
 					setVersion: next => { version = next; },
 					openSource: (source, range) => this.apiSource.open({ reviewId, ...source }, range),
@@ -746,6 +752,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	override async clearInput(): Promise<void> {
+		this.apiContent = undefined;
 		this.refreshProgress.stop();
 		if (this.detachedScrollRestoreFrame !== null) {
 			cancelAnimationFrame(this.detachedScrollRestoreFrame);
@@ -1468,6 +1475,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		if (!this.canvasMount) return;
 		const assets = loadedAssets ?? (await this.loadAssets());
 		if (generation !== this.loadGeneration) return;
+		this.apiContent = content.kind === "api" ? content : undefined;
 		if (this.canvas.value) {
 			this.canvas.value.update(content);
 		} else {

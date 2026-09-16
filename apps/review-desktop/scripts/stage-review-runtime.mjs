@@ -47,7 +47,6 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "app/src",
   "skills/dev-review/SKILL.md",
   "skills/dev-review/docs/README.md",
-  "skills/dev-review-map/SKILL.md",
   "skills/trace-archaeology/SKILL.md",
   "tutorial/runtime-manifest.json",
   "node_modules",

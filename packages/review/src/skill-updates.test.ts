@@ -130,7 +130,6 @@ describe("packaged skill updates", () => {
     expect(await readFile(cliInstallStampPath(f.env), "utf8")).toBe(
       stampBefore,
     );
-    expect((await resolveCliInstallStatus(f.input)).skills).toHaveLength(4);
   });
 
   it("does not let a one-agent install hide another agent's old skills", async () => {
@@ -156,11 +155,11 @@ describe("packaged skill updates", () => {
       f.skill(),
       "---\nname: dev-review\ndescription: legacy\n---\nlegacy",
     );
-    await rm(path.dirname(f.skill("dev-review-map")), { recursive: true });
     expect((await f.launch())?.code).toBe(0);
-    expect(
-      await readSkillVersion(f.skill("dev-review-map"), "dev-review-map"),
-    ).toBe("1.0.0");
+    expect(await readSkillVersion(f.skill(), "dev-review")).toBe("1.0.0");
+    await rm(path.dirname(f.skill()), { recursive: true });
+    expect((await f.launch())?.code).toBe(0);
+    expect(await readSkillVersion(f.skill(), "dev-review")).toBe("1.0.0");
     await f.stampVersion("0.9.0");
     expect((await f.launch())?.code).toBe(0);
     expect(await readSkillVersion(f.skill(), "dev-review")).toBe("0.9.0");

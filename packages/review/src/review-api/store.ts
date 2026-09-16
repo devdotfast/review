@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { ReviewApiSummary } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { ReviewActivity } from "./activity.js";
 import {
   type Block,
   type Pins,
@@ -65,11 +66,6 @@ export interface Result {
   deleted?: true;
 }
 
-export interface ReviewChange extends Result {
-  /** The committed snapshot, serialized once for every subscriber. */
-  serialized: string;
-}
-
 export interface ReviewProviders {
   validatePins(pins: Pins): Promise<void>;
   validateSource(pins: Pins, source: Source): Promise<void>;
@@ -81,6 +77,7 @@ export interface ReviewProviders {
  * This prototype uses a new, explicitly supplied database, never an existing profile.
  */
 export class ReviewStore {
+  readonly activity = new ReviewActivity();
   private readonly db: DatabaseSync;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
@@ -186,7 +183,13 @@ export class ReviewStore {
     await this.pending;
     this.listeners.clear();
     this.catalogListeners.clear();
+    this.activity.close();
     this.db.close();
+  }
+  /** The 404 check alone, without loading a snapshot. */
+  assertExists(id: string) {
+    if (!this.db.prepare("SELECT 1 FROM reviews WHERE id=?").get(id))
+      throw new ReviewInputError("Review not found.", 404);
   }
   read(id: string, version?: number): Snapshot {
     const row =
@@ -470,10 +473,22 @@ export class ReviewStore {
       throw error;
     }
 
-    if (!result.attention)
-      for (const listener of this.listeners) listener(result);
+    if (result.deleted) this.activity.remove(result.reviewId);
 
-    for (const listener of this.catalogListeners) listener();
+    if (!result.attention)
+      for (const listener of this.listeners)
+        try {
+          listener(result);
+        } catch {
+          // A subscriber failure must not reject the committed command.
+        }
+
+    for (const listener of this.catalogListeners)
+      try {
+        listener();
+      } catch {
+        // The saved command must remain successful if a viewer disconnects.
+      }
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
     const references = (document: Block[]) => {

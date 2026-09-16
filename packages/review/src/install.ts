@@ -27,13 +27,14 @@ import { withSkillInstallLock } from "./skill-install-lock";
 
 export type InstallTarget = "claude" | "codex" | "cursor" | "opencode" | "pi";
 
-const REQUIRED_SKILL_NAMES = ["dev-review", "dev-review-map"] as const;
+const REQUIRED_SKILL_NAMES = ["dev-review"] as const;
 
 // Installed only on machines that capture traces; removed when capture is
 // disabled so agents are not steered toward an unconfigured feature.
 const TRACE_SKILL_NAMES = ["trace-archaeology"] as const;
 
 const STALE_SKILL_NAMES = [
+  "dev-review-map",
   "review",
   "review-map",
   "review-stop",

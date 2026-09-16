@@ -63,6 +63,8 @@ export type ReviewCliCommandPath =
   | "trace.deny"
   | "trace.storage.use"
   | "trace.config.migrate"
+  | "api"
+  | "mcp"
   | "invalid";
 
 export type ReviewTelemetryErrorName =

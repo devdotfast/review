@@ -4,13 +4,18 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { ReviewInlineEditorSpec } from "@dev.fast/review-protocol";
+import type {
+  ReviewCanvasBridge,
+  ReviewInlineEditorSpec,
+  ReviewSurfaceEvent,
+} from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { createReviewApi } from "../../src/review-api/http";
 import { ReviewStore } from "../../src/review-api/store";
+import * as clipboard from "./copy-text";
 import { mountReviewCanvas as mount } from "./desktop-entry";
 import { createSequenceTourEntry, sequenceView } from "./diagrams";
 import { testReviewBridge } from "./review-session-test-utils";
@@ -523,4 +528,148 @@ it("renders a code peek block on its pinned side without fetching source text", 
     ranges: [{ startLine: 7, endLine: 9 }],
   });
   expect(requested.filter((url) => url.includes("/source"))).toEqual([]);
+});
+
+it("copies prose and code from the displayed historical JSON review", async () => {
+  const review = await command({ type: "create", title: "Copy review", pins });
+
+  const inserted = await command({
+    type: "edit",
+    reviewId: review.reviewId,
+    edit: {
+      type: "insert",
+      content: { type: "markdown", markdown: "Selected historical prose" },
+    },
+  });
+
+  await command({
+    type: "repin",
+    reviewId: review.reviewId,
+    pins: { ...pins, head: "new-head" },
+  });
+  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  app.get("/reviews-api/:id/commits", (context) => context.json([]));
+  app.post("/reviews-api/:id/source", async (context) => {
+    const input = await context.req.json();
+    const snapshot = store.read(context.req.param("id"), input.version);
+    expect(input.source).toEqual({
+      side: "head",
+      file: "example.ts",
+      fromLine: 2,
+      toLine: 2,
+    });
+
+    return context.json({
+      commit: snapshot.pins.head,
+      text:
+        snapshot.pins.head === "head" ? "historical source" : "latest source",
+    });
+  });
+  const listeners = new Set<Parameters<ReviewCanvasBridge["subscribe"]>[0]>();
+
+  const bridge = testReviewBridge(
+    {},
+    {
+      request: async (url, init) => app.request(url, init),
+      subscribe: (listener) => {
+        listeners.add(listener);
+
+        return {
+          dispose: () => {
+            listeners.delete(listener);
+          },
+        };
+      },
+    },
+  );
+
+  const write = vi.spyOn(clipboard, "copyText").mockResolvedValue(true);
+  const container = document.createElement("div");
+  document.body.append(container);
+
+  try {
+    await act(async () => {
+      canvas = mount(container, {
+        kind: "api",
+        reviewId: review.reviewId,
+        version: inserted.version,
+        bridge,
+      });
+    });
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain("Selected historical prose"),
+      );
+    });
+
+    const prose = [...container.querySelectorAll("p")].find(
+      (node) => node.textContent === "Selected historical prose",
+    )!;
+
+    const range = document.createRange();
+    range.selectNodeContents(prose);
+    range.getBoundingClientRect = () => new DOMRect(10, 50, 100, 20);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(range);
+    await act(async () => document.dispatchEvent(new Event("selectionchange")));
+
+    const copy = async () => {
+      await act(async () =>
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Copy for Agent"]')!
+          .click(),
+      );
+
+      return write.mock.lastCall![0];
+    };
+
+    const text = await copy();
+    expect(text).toContain(
+      `Review ID: ${review.reviewId}\nVersion: ${inserted.version}`,
+    );
+    expect(text).toContain("> Selected historical prose");
+    expect(text).toContain(
+      `review_get({"reviewId":"${review.reviewId}","version":${inserted.version},"full":true})`,
+    );
+    expect(text).not.toContain("review.mdx");
+
+    const selected: ReviewSurfaceEvent = {
+      event: "editorSelectionChanged",
+      path: "example.ts",
+      range: { fromLine: 2, toLine: 2 },
+      sideContext: "head",
+      isEmpty: false,
+    };
+
+    await act(async () => {
+      for (const listener of listeners) listener(selected);
+    });
+    const code = await copy();
+    expect(code).toContain("historical source");
+    expect(code).toContain("example.ts:2-2 (head)");
+    expect(code).not.toContain("latest source");
+    expect(code).not.toContain("new-head");
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          ...selected,
+          selectedDiff: {
+            oldPath: "old.ts",
+            newPath: "example.ts",
+            oldStart: 2,
+            newStart: 2,
+            rows: [
+              { kind: "deleted", text: "before" },
+              { kind: "added", text: "after" },
+            ],
+          },
+        });
+    });
+    const diff = await copy();
+    expect(diff).toContain("Base: a/old.ts\nHead: b/example.ts");
+    expect(diff).toContain("-before\n+after");
+  } finally {
+    write.mockRestore();
+    document.getSelection()!.removeAllRanges();
+  }
 });

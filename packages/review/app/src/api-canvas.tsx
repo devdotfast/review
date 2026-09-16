@@ -9,6 +9,10 @@ import {
   useState,
 } from "react";
 
+import {
+  AgentSelectionSchema,
+  selectionMarkdown,
+} from "../../src/agent-selection";
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import { ReviewApiClient, ReviewApiError } from "../../src/review-api/client";
 import type { Snapshot } from "../../src/review-api/store";
@@ -205,6 +209,66 @@ export function ApiCanvas({
     // The old views consume these small view models. Their data came from the API.
     session.fetch = async (route, init, options) => {
       const snapshot = dataRef.current?.snapshot;
+
+      if (route === "/copy-context" && snapshot) {
+        const selection = AgentSelectionSchema.parse(
+          JSON.parse(String(init?.body)),
+        );
+
+        const target = selection.target;
+        let excerpt = "";
+
+        if (target.kind === "code" && !selection.selectedDiff) {
+          const source = await client.post<{ commit: string; text: string }>(
+            `/${snapshot.reviewId}/source`,
+            {
+              version: snapshot.version,
+              source: {
+                side: target.side,
+                file: target.path,
+                fromLine: target.startLine,
+                toLine: target.endLine,
+              },
+            },
+          );
+
+          excerpt =
+            `## ${target.side}: ${target.path}:${target.startLine}-${target.endLine} (${source.commit})\n` +
+            source.text
+              .split("\n")
+              .map((line) => `    ${line}`)
+              .join("\n");
+        }
+
+        const diff = selection.selectedDiff;
+
+        const text = selectionMarkdown(
+          selection,
+          excerpt,
+          diff
+            ? {
+                base: `a/${diff.oldPath}`,
+                head: `b/${diff.newPath}`,
+              }
+            : undefined,
+        );
+
+        return Response.json({
+          text: [
+            `Selected ${target.kind === "text" ? "text" : target.kind === "code" ? "code" : "diagram element"} from Review: ${snapshot.title}`,
+            `Review ID: ${snapshot.reviewId}`,
+            `Version: ${snapshot.version}`,
+            `Repository ID: ${snapshot.pins.repositoryId}`,
+            `Review base: ${snapshot.pins.base}`,
+            `Review head: ${snapshot.pins.head}`,
+            `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
+            "",
+            text,
+            "",
+            "",
+          ].join("\n"),
+        });
+      }
 
       if (route === "/dismiss") {
         await client.post("/commands", {

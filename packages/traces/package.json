@@ -9,7 +9,7 @@
     "directory": "packages/traces"
   },
   "bin": {
-    "dev-traces": "./dist/cli.js"
+    "dev-traces": "dist/cli.js"
   },
   "files": [
     "dist",

@@ -32,6 +32,13 @@ export type ReviewCanvasEditorTarget =
   | { readonly kind: "settings" }
   | { readonly kind: "source" }
   | {
+      readonly kind: "api-source";
+      readonly reviewId: string;
+      readonly version: number;
+      readonly title: string;
+    }
+  | { readonly kind: "api"; readonly reviewId: string; readonly title: string }
+  | {
       readonly kind: "review";
       readonly reviewUuid: string;
       readonly revision?: string;
@@ -79,6 +86,8 @@ export class ReviewCanvasEditorInput extends EditorInput {
       path:
         target.kind === "review"
           ? `/${target.reviewUuid}${target.revision ? `/rev/${target.revision}` : ""}`
+          : target.kind === "api-source" ? `/${target.reviewId}/${target.version}`
+          : target.kind === "api" ? `/${target.reviewId}`
           : `/${target.kind}`,
     });
     if (target.kind === "source") {
@@ -94,6 +103,12 @@ export class ReviewCanvasEditorInput extends EditorInput {
 
   get target(): ReviewCanvasEditorTarget {
     return this._target;
+  }
+
+  setApiTitle(title: string): void {
+    if (this._target.kind !== "api" || this._target.title === title) return;
+    this._target = { ...this._target, title };
+    this._onDidChangeLabel.fire();
   }
 
   get resolvedModel(): ReviewSessionModel | undefined {
@@ -264,6 +279,8 @@ export class ReviewCanvasEditorInput extends EditorInput {
   }
 
   override getName(): string {
+    if (this.target.kind === "api-source") return `Source — ${this.target.title} (v${this.target.version})`;
+    if (this.target.kind === "api") return this.target.title;
     if (this.target.kind === "home") return "Home";
     if (this.target.kind === "welcome") return "Welcome";
     if (this.target.kind === "settings") return "Settings";
@@ -294,7 +311,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 
   override getIcon(): ThemeIcon | undefined {
     if (this.target.kind === "home") return Codicon.home;
-    if (this.target.kind === "source") return Codicon.repo;
+    if (this.target.kind === "source" || this.target.kind === "api-source") return Codicon.repo;
     return undefined;
   }
 

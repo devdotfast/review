@@ -72,6 +72,7 @@ export interface SoftwareMapDiffCountsResult {
 
 export interface ResolveSoftwareMapDiffCountsInput {
   sourceRootPath: string;
+  side?: "base" | "head";
   baseRef?: string;
   headRef?: string;
   codeElements: SoftwareMapCodeElementInput[];
@@ -112,7 +113,7 @@ export async function resolveSoftwareMapDiffCounts(
     };
   }
 
-  const countsByFile = parseGitUnifiedDiffLineCounts(diff);
+  const countsByFile = parseGitUnifiedDiffLineCounts(diff, input.side);
 
   if (countsByFile.size === 0) {
     return {
@@ -141,32 +142,63 @@ export async function resolveSoftwareMapDiffCounts(
   };
 }
 
-export function parseGitUnifiedDiffLineCounts(diff: string): FileLineCounts {
+export function parseGitUnifiedDiffLineCounts(
+  diff: string,
+  side: "base" | "head" = "head",
+): FileLineCounts {
   const countsByFile: FileLineCounts = new Map();
 
   for (const fileDiff of splitGitDiff(diff)) {
-    const file = fileDiff.newFile ?? fileDiff.oldFile;
+    const file =
+      side === "base"
+        ? (fileDiff.oldFile ?? fileDiff.newFile)
+        : (fileDiff.newFile ?? fileDiff.oldFile);
 
     if (!file) continue;
 
     for (const hunk of parseUnifiedPatch(file, fileDiff.patch)) {
       let currentNewLine = Math.max(1, hunk.newStart);
+      let currentOldLine = Math.max(1, hunk.oldStart);
+      // Base-side additions belong on the line the removed block occupied,
+      // mirroring how the head side places deletions on the replacing line.
+      let replacedOldLine: number | null = null;
 
       for (const line of hunk.lines) {
         if (line.kind === "add" && line.newLine !== null) {
-          addLineCount(countsByFile, file, line.newLine, "additions", line);
+          addLineCount(
+            countsByFile,
+            file,
+            side === "base"
+              ? (replacedOldLine ?? currentOldLine)
+              : line.newLine,
+            "additions",
+            line,
+          );
           currentNewLine = line.newLine + 1;
           continue;
         }
 
         if (line.kind === "remove") {
-          addLineCount(countsByFile, file, currentNewLine, "deletions", line);
+          const oldLine = line.oldLine ?? currentOldLine;
+          addLineCount(
+            countsByFile,
+            file,
+            side === "base" ? oldLine : currentNewLine,
+            "deletions",
+            line,
+          );
+          replacedOldLine ??= oldLine;
+          currentOldLine = oldLine + 1;
           continue;
         }
+
+        replacedOldLine = null;
 
         if (line.newLine !== null) {
           currentNewLine = line.newLine + 1;
         }
+
+        if (line.oldLine !== null) currentOldLine = line.oldLine + 1;
       }
     }
   }

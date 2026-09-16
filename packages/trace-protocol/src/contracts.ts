@@ -73,6 +73,7 @@ export type ReviewAgentTraceEvent = z.infer<typeof ReviewAgentTraceEventSchema>;
 
 export const ReviewAgentTraceSessionSchema = z.strictObject({
   sessionId: nonBlankString,
+  title: z.string().optional(),
   harness: z.enum(["claude-code", "codex", "opencode", "pi", "unknown"]),
   available: z.boolean(),
   source: z.enum(["r2"]).nullable(),

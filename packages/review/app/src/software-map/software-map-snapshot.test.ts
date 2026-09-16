@@ -12,6 +12,44 @@ import {
 } from "./software-map-snapshot";
 
 describe("SoftwareMap snapshot helpers", () => {
+  it("opens unchanged code at the map's explicit pinned side", () => {
+    const model = defineSoftwareModel({
+      systems: {
+        app: {
+          containers: {
+            ui: {
+              components: {
+                view: {
+                  codeElements: {
+                    render: {
+                      sourceRanges: [
+                        { file: "view.ts", fromLine: 2, toLine: 8 },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const changeSummaries = buildSoftwareMapChangeSummaries(
+      model,
+      new Map(),
+      new Map(),
+    );
+
+    expect(
+      softwareMapNodeDiffPeeks({
+        model,
+        elementPath: "app",
+        changeSummaries,
+        sourceSide: "base",
+      }),
+    ).toEqual([{ file: "view.ts", fromLine: 2, toLine: 8, graph: "base" }]);
+  });
   it("derives coverage and source-range diffs for an aggregate map node", () => {
     const model = defineSoftwareModel({
       systems: {

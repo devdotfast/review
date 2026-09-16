@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 
+import type { ReviewApiSummary } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import {
@@ -21,6 +22,12 @@ const reviewId = z.string().min(1);
 export const commandSchema = z.strictObject({
   commandId: z.uuid(),
   operation: z.discriminatedUnion("type", [
+    z.strictObject({ type: z.literal("delete"), reviewId }),
+    z.strictObject({
+      type: z.literal("attention"),
+      reviewId,
+      action: z.enum(["view", "dismiss", "restore"]),
+    }),
     z.strictObject({
       type: z.literal("create"),
       title: z.string().trim().min(1),
@@ -54,6 +61,8 @@ export interface Result {
   reviewId: string;
   version: number;
   targetId?: string;
+  attention?: true;
+  deleted?: true;
 }
 
 export interface ReviewChange extends Result {
@@ -76,6 +85,14 @@ export class ReviewStore {
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
   private readonly listeners = new Set<(result: Result) => void>();
+  private readonly catalogListeners = new Set<() => void>();
+  subscribeCatalog(listener: () => void) {
+    this.catalogListeners.add(listener);
+
+    return () => {
+      this.catalogListeners.delete(listener);
+    };
+  }
   subscribe(listener: (result: Result) => void) {
     this.listeners.add(listener);
 
@@ -95,6 +112,9 @@ export class ReviewStore {
       CREATE TABLE IF NOT EXISTS versions(review_id TEXT REFERENCES reviews(id), version INTEGER, snapshot TEXT NOT NULL,
         PRIMARY KEY(review_id,version));
       CREATE TABLE IF NOT EXISTS receipts(command_id TEXT PRIMARY KEY, request TEXT NOT NULL, response TEXT NOT NULL);`);
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS review_attention(review_id TEXT PRIMARY KEY REFERENCES reviews(id), viewed_at TEXT, dismissed_at TEXT);`,
+    );
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS repositories(id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id),
@@ -165,6 +185,7 @@ export class ReviewStore {
     this.closing = true;
     await this.pending;
     this.listeners.clear();
+    this.catalogListeners.clear();
     this.db.close();
   }
   read(id: string, version?: number): Snapshot {
@@ -186,14 +207,35 @@ export class ReviewStore {
     // SAFETY: versions contains only snapshots validated by execute before committing.
     return JSON.parse(String(row.snapshot)) as Snapshot;
   }
-  list() {
+  list(): ReviewApiSummary[] {
+    // One query, and the document never leaves SQLite: every catalog watcher
+    // re-lists on every command.
     return this.db
-      .prepare("SELECT id FROM reviews ORDER BY rowid")
+      .prepare(
+        `SELECT json_remove(versions.snapshot,'$.document') AS summary,
+          review_attention.viewed_at, review_attention.dismissed_at, repositories.name AS repository_name
+        FROM reviews
+        JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
+        LEFT JOIN review_attention ON review_attention.review_id=reviews.id
+        LEFT JOIN repositories ON repositories.id=json_extract(versions.snapshot,'$.pins.repositoryId')
+        ORDER BY reviews.rowid`,
+      )
       .all()
       .map((row) => {
-        const { document: _, ...summary } = this.read(String(row.id));
+        // SAFETY: versions contains only snapshots validated by execute before committing.
+        const summary = JSON.parse(String(row.summary)) as Omit<
+          Snapshot,
+          "document"
+        >;
 
-        return summary;
+        return {
+          ...summary,
+          repositoryName: row.repository_name
+            ? String(row.repository_name)
+            : summary.pins.repositoryId,
+          viewedAt: row.viewed_at ? String(row.viewed_at) : null,
+          dismissedAt: row.dismissed_at ? String(row.dismissed_at) : null,
+        };
       });
   }
   history(id: string) {
@@ -248,6 +290,9 @@ export class ReviewStore {
         .get(command.commandId);
 
       if (receipt) {
+        if (receipt.request === "null")
+          throw new ReviewInputError("This command's review was deleted.", 404);
+
         if (!isDeepStrictEqual(JSON.parse(String(receipt.request)), command))
           throw new ReviewInputError(
             "Command ID was already used for different input.",
@@ -259,6 +304,66 @@ export class ReviewStore {
       }
 
       const op = command.operation;
+
+      if (op.type === "delete") {
+        const result: Result = {
+          reviewId: op.reviewId,
+          version: this.read(op.reviewId).version,
+          deleted: true,
+        };
+
+        this.commitCommand(command.commandId, request, result, () => {
+          for (const table of ["review_attention", "versions"])
+            this.db
+              .prepare(`DELETE FROM ${table} WHERE review_id=?`)
+              .run(op.reviewId);
+          this.db.prepare("DELETE FROM reviews WHERE id=?").run(op.reviewId);
+          // Keep command IDs so a delayed retry cannot recreate deleted content.
+          // Erase their saved inputs while retaining the retry record.
+          this.db
+            .prepare(
+              "UPDATE receipts SET request='null',response=? WHERE json_extract(response,'$.reviewId')=?",
+            )
+            .run(JSON.stringify(result), op.reviewId);
+        });
+
+        return result;
+      }
+
+      if (op.type === "attention") {
+        const result: Result = {
+          reviewId: op.reviewId,
+          version: this.read(op.reviewId).version,
+          attention: true,
+        };
+
+        this.commitCommand(command.commandId, request, result, () => {
+          this.db
+            .prepare(
+              "INSERT OR IGNORE INTO review_attention(review_id) VALUES(?)",
+            )
+            .run(op.reviewId);
+
+          if (op.action === "view")
+            this.db
+              .prepare(
+                "UPDATE review_attention SET viewed_at=? WHERE review_id=?",
+              )
+              .run(new Date().toISOString(), op.reviewId);
+          else
+            this.db
+              .prepare(
+                "UPDATE review_attention SET dismissed_at=? WHERE review_id=?",
+              )
+              .run(
+                op.action === "dismiss" ? new Date().toISOString() : null,
+                op.reviewId,
+              );
+        });
+
+        return result;
+      }
+
       const id = op.type === "create" ? randomUUID() : op.reviewId;
       const previous = op.type === "create" ? undefined : this.read(id);
 
@@ -324,9 +429,7 @@ export class ReviewStore {
         targetId,
       };
 
-      this.db.exec("BEGIN IMMEDIATE");
-
-      try {
+      this.commitCommand(command.commandId, request, result, () => {
         this.db
           .prepare(
             "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
@@ -337,18 +440,7 @@ export class ReviewStore {
             "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
           )
           .run(id, snapshot.version, JSON.stringify(snapshot));
-        this.db
-          .prepare(
-            "INSERT INTO receipts(command_id,request,response) VALUES(?,?,?)",
-          )
-          .run(command.commandId, request, JSON.stringify(result));
-        this.db.exec("COMMIT");
-      } catch (error) {
-        this.db.exec("ROLLBACK");
-        throw error;
-      }
-
-      for (const listener of this.listeners) listener(result);
+      });
 
       return result;
     });
@@ -356,6 +448,32 @@ export class ReviewStore {
     this.pending = run.catch(() => {});
 
     return run;
+  }
+  private commitCommand(
+    commandId: string,
+    request: string,
+    result: Result,
+    apply: () => void,
+  ) {
+    this.db.exec("BEGIN IMMEDIATE");
+
+    try {
+      apply();
+      this.db
+        .prepare(
+          "INSERT INTO receipts(command_id,request,response) VALUES(?,?,?)",
+        )
+        .run(commandId, request, JSON.stringify(result));
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+
+    if (!result.attention)
+      for (const listener of this.listeners) listener(result);
+
+    for (const listener of this.catalogListeners) listener();
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
     const references = (document: Block[]) => {

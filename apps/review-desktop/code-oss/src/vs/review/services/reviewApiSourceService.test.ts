@@ -35,6 +35,7 @@ function setup() {
     } as never,
     { createByFilepathOrFirstLine: () => ({ languageId: "typescript" }) } as never,
     {} as never,
+    { registerReviewEditor() {} } as never,
   );
   return { service, models, disposed: () => disposed };
 }
@@ -162,4 +163,24 @@ test("unavailable pinned files report the API error instead of falling back to d
   } as never);
   await assert.rejects(source.snippet(), /unavailable at the pinned commit/);
   assert.equal(disposed(), 0);
+});
+
+test("tree entries retain version, side and selected commit when opening a child", async (t) => {
+  const { service } = setup();
+  t.after(() => service.dispose());
+  t.mock.method(globalThis, "fetch", async (value: string) => {
+    const url = new URL(value);
+    assert.equal(url.pathname, "/reviews-api/review-a/tree");
+    assert.equal(url.searchParams.get("path"), "src");
+    assert.equal(url.searchParams.get("version"), "3");
+    assert.equal(url.searchParams.get("side"), "base");
+    assert.equal(url.searchParams.get("commit"), "chosen-commit");
+    return Response.json([{ path: "src/[route].ts", kind: "file" }, { path: "src/lib", kind: "directory" }]);
+  });
+  const root = apiSourceUri({ reviewId: "review-a", version: 3, side: "base", file: "src", commit: "chosen-commit" });
+  const [file, folder] = await service.children(root);
+  assert.equal(file!.resource.path, "/src/[route].ts");
+  assert.equal(file!.resource.query, root.query);
+  assert.equal(file!.readonly, true);
+  assert.equal(folder!.isDirectory, true);
 });

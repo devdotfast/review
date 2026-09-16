@@ -14,7 +14,11 @@ const version = z.preprocess(
 );
 
 /** Mounted behind the desktop server's existing token authentication. */
-export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
+export function createReviewApi(
+  store: ReviewStore,
+  data?: LocalReviewData,
+  open?: (review: { reviewId: string; title: string }) => Promise<void>,
+) {
   const app = new Hono();
   app.onError((error, context) => {
     if (error instanceof HttpJsonError)
@@ -33,55 +37,64 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
     return context.json({ error: "Review operation failed." }, 500);
   });
   app.get("/", (context) => context.json(store.list()));
+  app.get("/watch", () =>
+    watch(
+      () => store.list(),
+      (notify) => store.subscribeCatalog(notify),
+    ),
+  );
+  app.post("/:id/open", async (context) => {
+    const review = store.read(context.req.param("id"));
+
+    if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
+    await open({ reviewId: review.reviewId, title: review.title });
+
+    return context.json({ ok: true });
+  });
   app.get("/:id/watch", (context) => {
     const id = context.req.param("id");
-    store.read(id); // Return a normal 404 before opening the response.
-    let stop = () => {};
 
-    let dirty = true;
-    const encoder = new TextEncoder();
-
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const send = () => {
-          if (controller.desiredSize === null || controller.desiredSize <= 0)
-            return;
-          controller.enqueue(
-            encoder.encode(JSON.stringify(store.read(id)) + "\n"),
-          );
-          dirty = false;
-        };
-
-        stop = store.subscribe((result) => {
-          if (result.reviewId === id) {
-            dirty = true;
-            send();
-          }
-        });
-        send();
-      },
-      pull(controller) {
-        if (dirty) {
-          controller.enqueue(
-            encoder.encode(JSON.stringify(store.read(id)) + "\n"),
-          );
-          dirty = false;
-        }
-      },
-      cancel() {
-        stop();
-      },
-    });
-
-    return new Response(body, {
-      headers: {
-        "content-type": "application/x-ndjson",
-        "cache-control": "no-store",
-      },
-    });
+    return watch(
+      () => store.read(id),
+      (notify) =>
+        store.subscribe((result) => {
+          if (result.reviewId === id) notify();
+        }),
+    );
   });
 
   if (data) {
+    app.get("/:id/tree", async (context) => {
+      const input = z
+        .strictObject({
+          version: z.coerce.number().int().nonnegative().optional(),
+          side: z.enum(["base", "head"]).default("head"),
+          path: z.string().default(""),
+          commit: z.string().min(1).optional(),
+        })
+        .parse(context.req.query());
+
+      const pins = await data.comparison(
+        store.read(context.req.param("id"), input.version).pins,
+        input.commit,
+      );
+
+      return context.json(await data.tree(pins, input.side, input.path));
+    });
+    app.get("/:id/maps/:resourceId", async (context) => {
+      const query = z
+        .strictObject({
+          version: z.coerce.number().int().nonnegative().optional(),
+        })
+        .parse(context.req.query());
+
+      return context.json(
+        await data.map(
+          store.read(context.req.param("id"), query.version).pins,
+          context.req.param("resourceId"),
+        ),
+      );
+    });
     app.post("/repositories", async (context) => {
       const input = z
         .strictObject({ path: z.string().min(1) })
@@ -214,4 +227,56 @@ export function createReviewApi(store: ReviewStore, data?: LocalReviewData) {
   );
 
   return app;
+}
+
+/** Send committed state, coalescing updates when the reader falls behind. */
+function watch<T>(
+  read: () => T,
+  subscribe: (notify: () => void) => () => void,
+) {
+  read(); // Return a normal 404 before opening the response.
+  let stop = () => {};
+
+  let dirty = true;
+  const encoder = new TextEncoder();
+
+  const send = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if (
+      !dirty ||
+      controller.desiredSize === null ||
+      controller.desiredSize <= 0
+    )
+      return;
+
+    try {
+      controller.enqueue(encoder.encode(JSON.stringify(read()) + "\n"));
+      dirty = false;
+    } catch (error) {
+      // A review can be deleted while this stream is open. Do not throw into
+      // the already-committed writer; close this reader and unsubscribe it.
+      stop();
+      controller.error(error);
+    }
+  };
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      stop = subscribe(() => {
+        dirty = true;
+        send(controller);
+      });
+      send(controller);
+    },
+    pull: send,
+    cancel() {
+      stop();
+    },
+  });
+
+  return new Response(body, {
+    headers: {
+      "content-type": "application/x-ndjson",
+      "cache-control": "no-store",
+    },
+  });
 }

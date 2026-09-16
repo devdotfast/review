@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import type { Edge as ReactFlowEdge } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -120,6 +118,45 @@ describe("SoftwareMap C4 layout geometry", () => {
         "source-node",
       ),
     ).toEqual([]);
+  });
+
+  it("keeps selected implied edges dashed and unlabelled", async () => {
+    const nodes: SoftwareMapNodeSnapshot[] = [
+      { id: "source", label: "Source", type: "container" },
+      { id: "target", label: "Target", type: "container" },
+    ];
+
+    const relationships: SoftwareMapRelationshipSnapshot[] = [
+      {
+        id: "elided:source->target",
+        from: "source",
+        to: "target",
+        kind: "implied",
+        label: "Through hidden nodes",
+        hideLabel: true,
+      },
+    ];
+
+    const { layout } = await runInlineC4Layout(nodes, relationships);
+
+    const flow = createC4MapFlowFromLayout(
+      { viewType: "inlineC4", selectedNodeId: "source", nodes, relationships },
+      layout,
+    );
+
+    expect(flow.edges).toEqual([
+      expect.objectContaining({
+        source: "source",
+        target: "target",
+        label: undefined,
+        style: expect.objectContaining({
+          stroke: "var(--accent)",
+          strokeDasharray: "2 8",
+          strokeLinecap: "round",
+        }),
+        markerEnd: expect.objectContaining({ color: "var(--accent)" }),
+      }),
+    ]);
   });
 
   it("updates the first map layout when resolved children and edges arrive", async () => {

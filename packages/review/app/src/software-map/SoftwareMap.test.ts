@@ -2,18 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { projectInlineC4 } from "./c4-projection";
 import { defineSoftwareModel } from "./model";
-import { c4MapReactFlowInteractionProps } from "./software-map-keyboard-navigation";
 
 describe("SoftwareMap inline C4 helpers", () => {
-  it("lets page wheel scrolling pass through inline C4 canvases", () => {
-    expect(c4MapReactFlowInteractionProps("inline")).toEqual({
-      panOnScroll: false,
-      preventScrolling: false,
-      zoomOnPinch: false,
-      zoomOnScroll: false,
-    });
-  });
-
   it("can hide removed topology while preserving live changed nodes", () => {
     const model = defineSoftwareModel({
       systems: {

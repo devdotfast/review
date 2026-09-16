@@ -218,14 +218,19 @@ describe("importLegacyReview", () => {
     const { home, record, stored, oids } = await syntheticLegacyReview(
       "schema4-bug-report-dialog",
       repo,
-      { revisions: 2, assets: { "shots/flow.png": await redSquare() } },
+      { revisions: 2, assets: { "shots/flow.png": await square("red") } },
     );
 
-    for (const oid of oids)
+    for (const oid of oids) {
       await appendImage(documentPath(stored.dir, oid), {
         src: "./shots/flow.png",
         alt: "The flow",
       });
+      await appendImage(documentPath(stored.dir, oid), {
+        src: "/shots/flow.png",
+        alt: "The flow again",
+      });
+    }
 
     const { store, data } = openLocalReviewStore(
       path.join(home, "review-api.db"),
@@ -242,21 +247,83 @@ describe("importLegacyReview", () => {
       });
 
       expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
-      const image = store.read(record.uuid).document.at(-1);
-      expect(image).toMatchObject({ type: "image", alt: "The flow" });
-      // One file published in both revisions is one stored resource.
+
+      const images = store.read(record.uuid).document.slice(-2);
+
+      expect(images).toMatchObject([
+        { type: "image", alt: "The flow" },
+        { type: "image", alt: "The flow again" },
+      ]);
+
+      const assetId = images[0]!.type === "image" ? images[0].assetId : "";
+
+      // A root-relative source addresses the review directory, and one file is
+      // one resource however it was addressed or however often republished.
+      expect(images[1]).toMatchObject({ assetId });
       expect(store.read(record.uuid, 0).document.at(-1)).toMatchObject({
-        assetId: image!.type === "image" && image.assetId,
+        assetId,
       });
 
-      const resource = store.resource(
-        image!.type === "image" ? image.assetId : "",
-      );
+      const resource = store.resource(assetId);
 
       expect(resource.mimeType).toBe("image/png");
       expect((await sharp(Buffer.from(resource.data)).metadata()).width).toBe(
         2,
       );
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("stores an image edited between revisions as a second resource", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 2, assets: { "shots/flow.png": await square("red") } },
+    );
+
+    for (const oid of oids)
+      await appendImage(documentPath(stored.dir, oid), {
+        src: "./shots/flow.png",
+        alt: "The flow",
+      });
+    // The second revision republished the screenshot with new content.
+    await writeFile(
+      path.join(stored.dir, ".revisions", oids[1]!, "shots/flow.png"),
+      await square("blue"),
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      const outcome = await importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+      expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
+
+      const first = store.read(record.uuid, 0).document.at(-1)!;
+      const second = store.read(record.uuid).document.at(-1)!;
+
+      const assetId = (block: typeof first) =>
+        block.type === "image" ? block.assetId : "";
+
+      expect(assetId(first)).not.toBe(assetId(second));
+      // Each version keeps the image it was published with.
+      expect(
+        Buffer.from(store.resource(assetId(first)).data).equals(
+          store.resource(assetId(second)).data,
+        ),
+      ).toBe(false);
     } finally {
       await store.close();
     }
@@ -680,8 +747,8 @@ describe("importLegacyReview", () => {
   });
 });
 
-const redSquare = () =>
-  sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } })
+const square = (background: string) =>
+  sharp({ create: { width: 2, height: 2, channels: 3, background } })
     .png()
     .toBuffer();
 

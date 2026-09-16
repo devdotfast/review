@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -675,10 +675,11 @@ class TraceResolver {
 }
 
 /** Stores each published image once per review and rewrites placeholder
- * blocks. An image published in several revisions is one resource: the file is
- * keyed by the source it was authored with, not by the revision it came from. */
+ * blocks. Resources are keyed by what the file decoded to, so a screenshot
+ * republished unchanged across revisions is one resource, while one edited
+ * between revisions becomes a second and each version keeps what it showed. */
 class ImageResolver {
-  private readonly stored = new Map<string, Promise<string>>();
+  private readonly stored = new Map<string, string>();
 
   constructor(
     private readonly input: { store: ReviewStore; repositoryId: string },
@@ -714,24 +715,21 @@ class ImageResolver {
     return replace(blocks, replacements);
   }
 
-  private resource(src: string, dir: string): Promise<string> {
-    let pending = this.stored.get(src);
-
-    if (!pending) {
-      pending = this.put(src, dir);
-      this.stored.set(src, pending);
-    }
-
-    return pending;
-  }
-
-  private async put(src: string, dir: string): Promise<string> {
+  private async resource(src: string, dir: string): Promise<string> {
     const root = path.resolve(dir);
-    const file = path.resolve(root, src);
+    // A legacy review addressed its published files from its own root, so a
+    // leading slash is the review directory, not the filesystem.
+    const file = path.resolve(root, src.replace(/^\/+/, ""));
 
     // The sealed revision is the whole of what the review published.
     if (file !== root && !file.startsWith(root + path.sep))
       throw new Error("outside the review");
+
+    const png = await decodeImage(await readFile(file));
+    const digest = createHash("sha256").update(png).digest("hex");
+    const kept = this.stored.get(digest);
+
+    if (kept) return kept;
 
     const id = randomUUID();
     this.input.store.putResource(
@@ -739,8 +737,9 @@ class ImageResolver {
       this.input.repositoryId,
       "image",
       "image/png",
-      await decodeImage(await readFile(file)),
+      png,
     );
+    this.stored.set(digest, id);
 
     return id;
   }

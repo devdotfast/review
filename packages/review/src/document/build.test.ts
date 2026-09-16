@@ -51,7 +51,7 @@ describe("native document builder", () => {
     const document = result.document!;
     expect(document.title).toBe("Order persistence — café ☕");
     expect(document.anchors.unused.title).toBe("Unused but retained");
-    expect(document.anchors.previous.peek?.props.graph).toBe("base");
+    expect(document.anchors.previous.peek?.side).toBe("base");
     const nodes: ReviewNode[] = [];
     walkReviewNodes(document.body, (node) => nodes.push(node));
     expect(nodes).toContainEqual(

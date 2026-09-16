@@ -42,11 +42,7 @@ function reviewDocumentData(): ReviewDocumentData {
     __kind: "db-anchor-ref" as const,
     id: "create-order",
     title: "Create order",
-    peek: {
-      __kind: "code-peek-ref" as const,
-      props: { file: "src/orders.ts", fromLine: 3, toLine: 7 },
-      resolution: null,
-    },
+    peek: { side: "head", file: "src/orders.ts", fromLine: 3, toLine: 7 },
   };
 
   const data = {

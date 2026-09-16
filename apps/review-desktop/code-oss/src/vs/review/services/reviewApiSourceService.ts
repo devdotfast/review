@@ -10,12 +10,12 @@ import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
-import type { IFileStat } from "../../platform/files/common/files.js";
 import {
   reviewPeekWindows,
   reviewPeekDiffWindows,
   reviewPeekLineMappings,
 } from "../common/reviewPeek.js";
+import type { IFileStat } from "../../platform/files/common/files.js";
 import type {
   ReviewDiffSide,
   ReviewInlineEditorRange,
@@ -31,8 +31,8 @@ import type {
 } from "./reviewCodeResourceService.js";
 import type { ReviewInlineEditorService, ReviewInlineSource } from "./reviewInlineEditorService.js";
 import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffViewService.js";
-import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import { IReviewSessionService, reviewResponseError } from "./reviewSessionService.js";
+import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 
 export interface ApiSourceTarget extends ReviewApiSourceLocation {
   reviewId: string;

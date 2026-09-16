@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { markdownNodes, parseMarkdown } from "../markdown.js";
+import { type Source, sourceSchema } from "../source.js";
 
 /** Deliberately safe to show to API clients, unlike filesystem/provider errors. */
 export class ReviewInputError extends Error {
@@ -18,14 +19,7 @@ const label = text.trim().min(1);
 
 const identity = { id: text.optional() };
 
-export const sourceSchema = z
-  .strictObject({
-    side: z.enum(["base", "head"]),
-    file: label,
-    fromLine: z.number().int().positive(),
-    toLine: z.number().int().positive(),
-  })
-  .refine((s) => s.toLine >= s.fromLine, "Source range ends before it starts.");
+export { type Source, sourceSchema };
 
 export const pinsSchema = z.strictObject({
   repositoryId: label,
@@ -34,8 +28,6 @@ export const pinsSchema = z.strictObject({
 });
 
 export type Pins = z.infer<typeof pinsSchema>;
-
-export type Source = z.infer<typeof sourceSchema>;
 
 const code = z.strictObject({ language: text.default("text"), text });
 
@@ -203,7 +195,7 @@ export type Element = Block | Step;
 export function sourceReferences(
   document: Block[],
   { tolerant = false }: { tolerant?: boolean } = {},
-): { id: string; source: Source; label?: string }[] {
+): { id: string; source: Source; label?: string; peek?: boolean }[] {
   const reject = (message: string): [] => {
     if (tolerant) return [];
     throw new ReviewInputError(message);
@@ -269,6 +261,7 @@ export function sourceReferences(
           id: element.id!,
           source: element.source,
           label: element.type === "step" ? element.label : element.caption,
+          peek: element.type === "code_peek",
         },
       ];
 

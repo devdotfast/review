@@ -29,6 +29,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { codePeekSource } from "../../../src/authoring";
 import { useAgentSelection } from "../agent-selection";
 import { CodePeekGroup } from "../CodePeek";
 import { useReviewDebugSettings } from "../debug-settings";
@@ -1313,6 +1314,11 @@ function SoftwareMapCodeInspector({
 }) {
   const [diffsCollapsed, setDiffsCollapsed] = useState(false);
 
+  const diffPeekSources = useMemo(
+    () => diffPeeks.map(codePeekSource),
+    [diffPeeks],
+  );
+
   const collapseActionLabel = diffsCollapsed
     ? "Expand all diffs"
     : "Collapse all diffs";
@@ -1361,7 +1367,7 @@ function SoftwareMapCodeInspector({
       </header>
       <div className="software-map-code-inspector-diffs">
         {diffPeeks.length > 0 ? (
-          <CodePeekGroup peeks={diffPeeks} collapsed={diffsCollapsed} />
+          <CodePeekGroup peeks={diffPeekSources} collapsed={diffsCollapsed} />
         ) : (
           <div className="software-map-code-inspector-empty">
             No changed code is mapped to this node.

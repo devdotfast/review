@@ -12,7 +12,6 @@ import { ReviewDebugSettingsProvider } from "./debug-settings";
 import { ReviewSessionProvider } from "./host/review-session";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { ReviewProvider } from "./review-context";
-import { testCodePeekResolution } from "./review-definition-test-utils";
 import { hydrateReviewDocument } from "./review-document-hydrate";
 import { renderReviewNodes } from "./review-document-renderer";
 import { reviewDocumentComponents } from "./review-document-surface";
@@ -57,10 +56,6 @@ describe("shipped tutorial JSON document", () => {
       contentHash: "tutorial-fixture",
       data: parseJsonText(JSON.stringify(data)),
     });
-
-    for (const anchor of hydrated.anchors.values()) {
-      if (anchor.peek) anchor.peek.resolution = testCodePeekResolution();
-    }
 
     const rendered = renderReviewNodes(hydrated.body, reviewDocumentComponents);
     const components = new Set<string>();

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 
 import {
-  type CodePeekResolution,
   type StoreRefData,
   collectionSchema,
   createReviewDefinitionSession,
@@ -23,29 +22,6 @@ function reviewMap() {
       },
     },
   });
-}
-
-function resolvedCodePeek(): CodePeekResolution {
-  const sourceId = "source-range:src/example.ts:1-1";
-
-  return {
-    snapshot: {
-      roots: [{ kind: "source", sourceId }],
-      resolved: {
-        [sourceId]: {
-          source: {
-            id: sourceId,
-            name: "example.ts L1-L1",
-            kind: "source-range",
-            file: "src/example.ts",
-            line: 1,
-            endLine: 1,
-          },
-          lines: [[{ t: "export function example() {}", k: "t" }]],
-        },
-      },
-    },
-  };
 }
 
 describe("Review definition session", () => {
@@ -173,20 +149,23 @@ describe("Review definition session", () => {
     });
 
     await expect(session.ready()).resolves.toBeUndefined();
-    expect(anchors.startup.peek.resolution).toBeNull();
+    expect(anchors.startup.peek).toEqual({
+      side: "head",
+      file: "src/example.ts",
+      fromLine: 1,
+      toLine: 3,
+    });
   });
 
-  it("resolves range anchors before the document module becomes ready", async () => {
-    const resolveCodePeek = vi.fn<() => Promise<CodePeekResolution>>(async () =>
-      resolvedCodePeek(),
-    );
+  it("validates range anchors before the document module becomes ready", async () => {
+    const validateCodePeek = vi.fn<() => Promise<void>>(async () => {});
 
     const map = reviewMap();
 
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
-      resolveCodePeek,
+      validateCodePeek,
     });
 
     const anchors = session.defineAnchors({
@@ -197,13 +176,17 @@ describe("Review definition session", () => {
       },
     });
 
-    expect(anchors.startup.peek.resolution).toBeNull();
     await session.ready();
-    expect(resolveCodePeek).toHaveBeenCalledWith(
+    expect(validateCodePeek).toHaveBeenCalledWith(
       { file: "src/example.ts", fromLine: 1, toLine: 3 },
       { anchorId: "startup" },
     );
-    expect(anchors.startup.peek.resolution).toEqual(resolvedCodePeek());
+    expect(anchors.startup.peek).toEqual({
+      side: "head",
+      file: "src/example.ts",
+      fromLine: 1,
+      toLine: 3,
+    });
   });
 
   it("rejects nonexistent software-map paths at the define boundary", () => {
@@ -212,9 +195,6 @@ describe("Review definition session", () => {
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
-      resolveCodePeek: async () => ({
-        snapshot: { roots: [], resolved: {} },
-      }),
     });
 
     expect(() =>
@@ -260,7 +240,7 @@ describe("Review definition session", () => {
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
-      resolveCodePeek: async () => {
+      validateCodePeek: async () => {
         throw new Error("Source range exceeds the file length");
       },
     });
@@ -277,14 +257,13 @@ describe("Review definition session", () => {
     );
   });
 
-  it("allows anchors to use resolved source outside the diff", async () => {
+  it("allows anchors to use validated source outside the diff", async () => {
     const map = reviewMap();
-    const emptyResolution = resolvedCodePeek();
 
     const session = createReviewDefinitionSession({
       softwareMap: map,
       baseSoftwareMap: map,
-      resolveCodePeek: async () => emptyResolution,
+      validateCodePeek: async () => {},
     });
 
     session.defineAnchors({
@@ -295,28 +274,5 @@ describe("Review definition session", () => {
     });
 
     await expect(session.ready()).resolves.toBeUndefined();
-  });
-
-  it("rejects anchors whose code peek resolves without source", async () => {
-    const map = reviewMap();
-
-    const session = createReviewDefinitionSession({
-      softwareMap: map,
-      baseSoftwareMap: map,
-      resolveCodePeek: async () => ({
-        snapshot: { roots: [], resolved: {} },
-      }),
-    });
-
-    session.defineAnchors({
-      empty: {
-        title: "Empty",
-        peek: { file: "src/example.ts", fromLine: 1, toLine: 3 },
-      },
-    });
-
-    await expect(session.ready()).rejects.toThrow(
-      "Code reference resolved without source",
-    );
   });
 });

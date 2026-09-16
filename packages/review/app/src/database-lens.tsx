@@ -247,9 +247,16 @@ export function databaseTourStopDetail({
 }
 
 export function DatabaseLens(block: DatabaseLensProps) {
-  const { title, stores, height = 560 } = block;
-  const useCases = useMemo(() => lensUseCases(block), [block]);
-  const lensId = block.id;
+  const { id: lensId, title, actors, stores, height = 560 } = block;
+
+  // Memoize on the block's fields, not the props object: a live JSON snapshot
+  // keeps its node references stable, so the tour entries and restored tour
+  // state survive re-renders and edits elsewhere in the document.
+  const useCases = useMemo(
+    () =>
+      lensUseCases({ id: lensId, actors, stores, useCases: block.useCases }),
+    [lensId, actors, stores, block.useCases],
+  );
   const session = useReviewSession();
 
   const [activeUseCaseId, setActiveUseCaseId] = useState<string | null>(

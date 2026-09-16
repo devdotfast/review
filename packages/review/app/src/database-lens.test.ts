@@ -152,19 +152,18 @@ describe("software map backed database lenses", () => {
     ]);
 
     const ordersOnly = databaseC4Snapshot({
-      useCase: { id: "read", label: "Read", operations: [] },
+      useCase: { id: "read", label: "Read" },
       stores,
-      resolvedOperations: targets.slice(0, 1).map((target) => ({
-        actor,
-        target,
-        operation: {
+      resolvedOperations: [
+        operation(stores, {
+          id: "readOwner",
           kind: "read",
-          from: target,
-          to: actor,
-          label: "Read",
-          anchor,
-        },
-      })),
+          actor: "reader",
+          store: "orders",
+          collection: "orders",
+          field: "owner",
+        }),
+      ],
       highlights: selectDatabaseOperationHighlights([], null),
       selectedNodeId: null,
       expandedNodeIds: new Set(["store:orders"]),

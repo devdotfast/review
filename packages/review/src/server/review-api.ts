@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   type LocalVcsCommitSummary,
   currentHead,
+  detectLocalVcs,
   listCommitRange,
   resolveRevision,
 } from "@dev.fast/local-vcs";
@@ -33,6 +34,7 @@ import { type Context, Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
+import { AgentSelectionSchema, selectionMarkdown } from "../agent-selection";
 import { mergeErrorTelemetryProperties } from "../error-telemetry";
 import { resolveReviewCommitScope } from "../review-commits";
 import type { ReviewDiffFilesResult } from "../review-diff-files";
@@ -270,6 +272,69 @@ export function createReviewApi(options: ReviewApiOptions): ReviewApi {
         });
       }
     };
+
+  app.post(
+    "/copy-context",
+    route("read", async (context) => {
+      const input = AgentSelectionSchema.parse(await readJson(context.req.raw));
+      const target = input.target;
+
+      const pinnedRoot = (root: string | undefined, file: string) => {
+        if (!root) throw new Error("Pinned worktree unavailable");
+
+        if (path.isAbsolute(file) || file.split(/[\\/]/).includes(".."))
+          throw new Error("Invalid diff path");
+
+        return path.resolve(root);
+      };
+
+      let excerpt = "";
+
+      if (target.kind === "code" && !input.selectedDiff) {
+        pinnedRoot(
+          target.side === "base" ? session.baseRootPath : session.headRootPath,
+          target.path,
+        );
+        const vcs = await detectLocalVcs(rootPath);
+
+        const commit =
+          target.side === "base" ? session.baseRef : session.headRef;
+
+        if (!vcs || !commit) throw new Error("Pinned source unavailable");
+        const source = await vcs.readFileAtRef(commit, target.path);
+
+        if (source === null) throw new Error("Pinned source unavailable");
+        excerpt =
+          `## ${target.side}: ${target.path}:${target.startLine}-${target.endLine} (${commit})\n` +
+          source
+            .split("\n")
+            .slice(target.startLine - 1, target.endLine)
+            .map((line) => `    ${line}`)
+            .join("\n");
+      }
+
+      const diff = input.selectedDiff;
+
+      const paths = diff
+        ? {
+            base: pinnedRoot(session.baseRootPath, diff.oldPath),
+            head: pinnedRoot(session.headRootPath, diff.newPath),
+          }
+        : undefined;
+
+      const text = selectionMarkdown(input, excerpt, paths);
+      const authoringFile = path.resolve(stateReviewPath ?? reviewPath);
+
+      const clipboardText =
+        target.kind === "text"
+          ? `Selected text from Review document:\n${authoringFile}\n\n${text}`
+          : target.kind === "code"
+            ? `Selected code from Review:\nReview document: ${authoringFile}\nFile: ${diff?.newPath || diff?.oldPath || target.path}\n\n${text}`
+            : `Selected ${input.diagramContext?.kind === "node" ? "diagram node" : (input.diagramContext?.kind ?? "diagram element")} from Review:\nReview document: ${authoringFile}\n\n${text}`;
+
+      return context.json({ text: `${clipboardText}\n\n` });
+    }),
+  );
 
   app.post("/telemetry/tab", route("read", telemetryTab));
   app.post("/telemetry/event", route("read", telemetryEvent));

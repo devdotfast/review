@@ -1,0 +1,50 @@
+{
+  "name": "@dev.fast/traces",
+  "version": "0.1.0",
+  "description": "Capture and publish agent session traces to the hosted dev.fast trace store.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/devdotfast/review.git",
+    "directory": "packages/traces"
+  },
+  "bin": {
+    "dev-traces": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "postbuild": "node scripts/check-bundle.mjs",
+    "pretest": "pnpm run build",
+    "test": "node --test scripts/check-bundle.test.mjs && vitest run --config vitest.config.ts",
+    "typecheck": "pnpm -w exec tsc -p packages/traces/tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm run build && pnpm run test"
+  },
+  "devDependencies": {
+    "@dev.fast/json": "workspace:*",
+    "@dev.fast/local-vcs": "workspace:*",
+    "@dev.fast/trace-core": "workspace:*",
+    "@dev.fast/trace-protocol": "workspace:*",
+    "@types/node": "24.12.2",
+    "@types/proper-lockfile": "4.1.4",
+    "commander": "14.0.3",
+    "git-url-parse": "16.1.0",
+    "proper-lockfile": "4.1.2",
+    "tsdown": "^0.22.3",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.11",
+    "zod": "4.4.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

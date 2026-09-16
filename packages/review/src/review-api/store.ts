@@ -187,11 +187,12 @@ export class ReviewStore {
     // older version or deleting the review must not look like an unfinished
     // import to the next sweep.
     this.db.exec(
-      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL);`,
+      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
     );
 
     // The map is published apart from the document, so its progress is a
-    // column a home written before map resumption does not have yet.
+    // column a home written before map resumption lacks; new homes get it
+    // from the table definition above.
     if (
       !this.db
         .prepare("PRAGMA table_info(legacy_imports)")

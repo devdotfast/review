@@ -15,7 +15,7 @@ import { z } from "zod";
 import { writePrivateJsonAtomic } from "./atomic-write";
 import { StoreApiError, type StoreClient } from "./store-client";
 import { normalizeStoreOrigin } from "./store-origin";
-import { traceCliName } from "./trace-command";
+import { traceCommandPrefix } from "./trace-command";
 import {
   type TraceRepositoryConsent,
   findTraceRepository,
@@ -215,7 +215,7 @@ export async function resolveTraceRepositoryTarget(input: {
     throw new StoreApiError(
       "not_found",
       404,
-      `This repository has no active hosted trace store. Run \`${traceCliName()} trace onboard\`.`,
+      `This repository has no active hosted trace store. Run \`${traceCommandPrefix()} store create\`.`,
     );
   }
 
@@ -264,11 +264,11 @@ export async function requireTraceConsent(
 
   if (entry) {
     throw new Error(
-      `${entry.name} is allowed to publish traces to ${entry.enabledOrigins.join(", ")}, not ${target.origin}. Run \`${traceCliName()} trace allow .\` while logged in there.`,
+      `${entry.name} is allowed to publish traces to ${entry.enabledOrigins.join(", ")}, not ${target.origin}. Run \`${traceCommandPrefix()} allow .\` while logged in there.`,
     );
   }
 
   throw new Error(
-    `This repository is not allowed for trace publication. Run \`${traceCliName()} trace allow .\`.`,
+    `This repository is not allowed for trace publication. Run \`${traceCommandPrefix()} allow .\`.`,
   );
 }

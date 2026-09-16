@@ -8,6 +8,14 @@ export async function copyText(text: string): Promise<boolean> {
   }
 
   const active = document.activeElement;
+  const selection = document.getSelection();
+
+  const ranges = selection
+    ? Array.from({ length: selection.rangeCount }, (_, i) =>
+        selection.getRangeAt(i).cloneRange(),
+      )
+    : [];
+
   const scratch = document.createElement("textarea");
   scratch.value = text;
   scratch.style.position = "fixed";
@@ -25,6 +33,12 @@ export async function copyText(text: string): Promise<boolean> {
   scratch.remove();
 
   if (active instanceof HTMLElement) active.focus();
+
+  if (selection && ranges.length) {
+    selection.removeAllRanges();
+
+    for (const range of ranges) selection.addRange(range);
+  }
 
   return copied;
 }

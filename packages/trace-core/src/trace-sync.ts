@@ -1,5 +1,6 @@
 import { commitShaSchema, sessionIdSchema } from "@dev.fast/trace-protocol";
 
+import { traceCommandPrefix } from "./trace-command";
 import { readRepoMetaFields, readSubjectPullNumber } from "./trace-corpus";
 import { findLocalTrace } from "./trace-local-sessions";
 import { storageFor } from "./trace-read";
@@ -49,7 +50,7 @@ export async function syncReviewTrace(input: {
 
   if (!storage) {
     throw new Error(
-      "S3/R2 storage is not configured. Use Review Agent Setup to configure trace capture.",
+      `S3/R2 storage is not configured. Run \`${traceCommandPrefix()} allow .\` to configure trace capture.`,
     );
   }
 

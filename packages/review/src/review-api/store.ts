@@ -59,6 +59,8 @@ export interface SnapshotOrigin {
   baseRef?: string;
   pullRequestNumber?: number;
   pullRequestUrl?: string;
+  /** The legacy review revision this version was imported from. */
+  revision?: string;
 }
 
 export interface Snapshot {
@@ -534,68 +536,90 @@ export class ReviewStore {
       undefined
     );
   }
-  /** Legacy import: a new review becomes version 0, an existing one gets the
-   * next version. All fallible checks run before the transaction. */
+  /** Legacy import of one version. See `importVersions`. */
   importVersion(
     input: ImportedVersionInput,
+  ): Promise<{ version: number; warnings: string[] }> {
+    return this.importVersions([input]);
+  }
+  /** Legacy import: every version is validated first, then all rows land in
+   * one transaction, so a failure leaves no partial review. A new review
+   * starts at version 0; an existing one continues its numbering. */
+  importVersions(
+    inputs: ImportedVersionInput[],
   ): Promise<{ version: number; warnings: string[] }> {
     if (this.closing)
       return Promise.reject(new Error("Review store is closing."));
 
+    if (inputs.length === 0)
+      return Promise.reject(new Error("Nothing to import."));
+
+    const reviewId = inputs[0]!.reviewId;
+
+    if (inputs.some((input) => input.reviewId !== reviewId))
+      return Promise.reject(new Error("Import versions of one review only."));
+
     const run = this.pending.then(async () => {
       const existing = this.db
         .prepare("SELECT version,next_id FROM reviews WHERE id=?")
-        .get(input.reviewId);
+        .get(reviewId);
 
-      const document = structuredClone(documentSchema.parse(input.document));
       let nextId = existing ? Number(existing.next_id) : 0;
-
-      for (const block of document)
-        assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
-      checkReferences(document);
-      await this.providers.validatePins(input.pins);
-
+      let version = existing ? Number(existing.version) : -1;
+      const snapshots: Snapshot[] = [];
       const warnings: string[] = [];
-      const seen = new Set<string>();
 
-      for (const { source, peek } of sourceReferences(document, {
-        tolerant: true,
-      })) {
-        const key = JSON.stringify(source);
+      for (const input of inputs) {
+        const document = structuredClone(documentSchema.parse(input.document));
 
-        if (seen.has(key)) continue;
-        seen.add(key);
+        for (const block of document)
+          assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
+        checkReferences(document);
+        await this.providers.validatePins(input.pins);
 
-        const warning = this.providers.validateSourceTolerant
-          ? await this.providers.validateSourceTolerant(input.pins, source, {
-              peek: peek === true,
-            })
-          : null;
+        const seen = new Set<string>();
 
-        if (warning) warnings.push(warning);
+        for (const { source, peek } of sourceReferences(document, {
+          tolerant: true,
+        })) {
+          const key = JSON.stringify(source);
+
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          const warning = this.providers.validateSourceTolerant
+            ? await this.providers.validateSourceTolerant(input.pins, source, {
+                peek: peek === true,
+              })
+            : null;
+
+          if (warning) warnings.push(warning);
+        }
+
+        for (const block of elements(document))
+          if (
+            block.type === "image" ||
+            block.type === "trace_quote" ||
+            block.type === "software_map"
+          )
+            await this.providers.validateResource(input.pins, block);
+
+        version += 1;
+
+        const snapshot: Snapshot = {
+          reviewId,
+          version,
+          title: input.title,
+          pins: input.pins,
+          document,
+          createdAt: input.createdAt,
+        };
+
+        if (input.origin) snapshot.origin = input.origin;
+        snapshots.push(snapshot);
       }
 
-      for (const block of elements(document))
-        if (
-          block.type === "image" ||
-          block.type === "trace_quote" ||
-          block.type === "software_map"
-        )
-          await this.providers.validateResource(input.pins, block);
-
-      const version = existing ? Number(existing.version) + 1 : 0;
-
-      const snapshot: Snapshot = {
-        reviewId: input.reviewId,
-        version,
-        title: input.title,
-        pins: input.pins,
-        document,
-        createdAt: input.createdAt,
-      };
-
-      if (input.origin) snapshot.origin = input.origin;
-
+      const attention = inputs[0]!.attention;
       this.db.exec("BEGIN IMMEDIATE");
 
       try {
@@ -603,22 +627,24 @@ export class ReviewStore {
           .prepare(
             "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
           )
-          .run(input.reviewId, version, nextId);
-        this.db
-          .prepare(
-            "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
-          )
-          .run(input.reviewId, version, JSON.stringify(snapshot));
+          .run(reviewId, version, nextId);
 
-        if (!existing && input.attention)
+        for (const snapshot of snapshots)
+          this.db
+            .prepare(
+              "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
+            )
+            .run(reviewId, snapshot.version, JSON.stringify(snapshot));
+
+        if (!existing && attention)
           this.db
             .prepare(
               "INSERT INTO review_attention(review_id,viewed_at,dismissed_at) VALUES(?,?,?)",
             )
             .run(
-              input.reviewId,
-              input.attention.viewedAt ?? null,
-              input.attention.dismissedAt ?? null,
+              reviewId,
+              attention.viewedAt ?? null,
+              attention.dismissedAt ?? null,
             );
         this.db.exec("COMMIT");
       } catch (error) {
@@ -626,9 +652,9 @@ export class ReviewStore {
         throw error;
       }
 
-      this.notify({ reviewId: input.reviewId, version });
+      this.notify({ reviewId, version });
 
-      return { version, warnings };
+      return { version, warnings: [...new Set(warnings)] };
     });
 
     this.pending = run.catch(() => {});

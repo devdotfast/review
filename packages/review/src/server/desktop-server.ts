@@ -300,6 +300,7 @@ export function createGlobalReviewServer(
             publishRuntime.materializePublishRevision({ review, revision }),
           onImported: replaceLegacySessions,
           log: (message) => console.warn(message),
+          lock: withReviewLock,
         })
       : undefined);
 

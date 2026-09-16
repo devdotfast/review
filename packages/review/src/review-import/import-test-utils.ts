@@ -72,9 +72,29 @@ export async function syntheticLegacyReview(
     "utf8",
   );
 
+  const record = parseStoredReviewRecord({
+    ...golden,
+    worktreePath: repo.root,
+    baseCommit: repo.base,
+    sourceCommit: repo.head,
+    presentedDocumentRevision: oids.at(-1) ?? null,
+    presentedSoftwareMapRevision: null,
+    ...options.overrides,
+  });
+
   for (const [index, oid] of oids.entries()) {
     const revisionDir = path.join(dir, ".revisions", oid, ".bundle/document");
     await mkdir(revisionDir, { recursive: true });
+    // Every revision but the last was sealed while head was still the base
+    // commit, so imported versions carry the pins of their time.
+    await writeFile(
+      path.join(dir, ".revisions", oid, "review.json"),
+      JSON.stringify({
+        ...record,
+        sourceCommit: index === oids.length - 1 ? repo.head : repo.base,
+        presentedDocumentRevision: oid,
+      }),
+    );
     await writeFile(
       path.join(revisionDir, "manifest.json"),
       JSON.stringify({ version: 2, routePath: "/", sourcePath: "review.mdx" }),
@@ -85,16 +105,6 @@ export async function syntheticLegacyReview(
       document.replace(/"title": "([^"]*)"/, `"title": "$1 v${index}"`),
     );
   }
-
-  const record = parseStoredReviewRecord({
-    ...golden,
-    worktreePath: repo.root,
-    baseCommit: repo.base,
-    sourceCommit: repo.head,
-    presentedDocumentRevision: oids.at(-1) ?? null,
-    presentedSoftwareMapRevision: null,
-    ...options.overrides,
-  });
 
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "review.json"), JSON.stringify(record));

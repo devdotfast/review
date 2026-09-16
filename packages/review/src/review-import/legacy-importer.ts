@@ -3,6 +3,7 @@ import { errorMessage } from "@dev.fast/trace-core";
 import type { LocalReviewData } from "../review-api/local-data";
 import type { ReviewStore } from "../review-api/store";
 import type { StoredReview } from "../review-home";
+import type { ReviewVcsLogEntry } from "../review-vcs";
 import { type ImportOutcome, importLegacyReview } from "./import-review";
 
 export type ImportedOutcome = Extract<ImportOutcome, { kind: "imported" }>;
@@ -22,22 +23,35 @@ export function createLegacyImporter(input: {
   materialize: (review: StoredReview, revision: string) => Promise<string>;
   onImported: (review: StoredReview, outcome: ImportedOutcome) => Promise<void>;
   log: (message: string) => void;
+  /** The server's per-review lock, so an import never interleaves with a
+   * promotion of the same review. */
+  lock?: <T>(uuid: string, operation: () => Promise<T>) => Promise<T>;
+  /** Test seam for the review's sealed-revision log. */
+  revisionLog?: (dir: string) => Promise<ReviewVcsLogEntry[]>;
   concurrency?: number;
 }): LegacyImporter {
   const inFlight = new Map<string, Promise<ImportOutcome>>();
+  const lock = input.lock ?? ((_uuid, operation) => operation());
 
+  // Imports of one review run one after another rather than joining: a
+  // request that arrives while an older revision is importing waits, then
+  // imports whatever that run left behind.
   const ensure = (review: StoredReview): Promise<ImportOutcome> => {
     const uuid = review.review.uuid;
-    const running = inFlight.get(uuid);
+    const previous = inFlight.get(uuid) ?? Promise.resolve();
 
-    if (running) return running;
-
-    const run = importLegacyReview({
-      review,
-      store: input.store,
-      data: input.data,
-      materialize: input.materialize,
-    })
+    const run = previous
+      .then(() =>
+        lock(uuid, () =>
+          importLegacyReview({
+            review,
+            store: input.store,
+            data: input.data,
+            materialize: input.materialize,
+            log: input.revisionLog,
+          }),
+        ),
+      )
       .catch(
         (error): ImportOutcome => ({
           kind: "skipped",
@@ -51,7 +65,11 @@ export function createLegacyImporter(input: {
 
         if (outcome.kind === "imported") {
           input.log(
-            `[Review import] ${uuid}: imported as version ${outcome.version}`,
+            `[Review import] ${uuid}: imported as version ${outcome.version}${
+              outcome.warnings.length
+                ? ` with warnings: ${outcome.warnings.join("; ")}`
+                : ""
+            }`,
           );
 
           try {
@@ -63,7 +81,9 @@ export function createLegacyImporter(input: {
 
         return outcome;
       })
-      .finally(() => inFlight.delete(uuid));
+      .finally(() => {
+        if (inFlight.get(uuid) === run) inFlight.delete(uuid);
+      });
 
     inFlight.set(uuid, run);
 

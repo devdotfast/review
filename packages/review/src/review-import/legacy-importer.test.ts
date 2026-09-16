@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { openLocalReviewStore } from "../review-api/local-data";
 import type { StoredReview } from "../review-home";
 import {
+  logFromRevisionDirs,
   materializeFromRevisionDirs,
   scratchGitRepo,
   syntheticLegacyReview,
@@ -12,7 +13,7 @@ import {
 import { createLegacyImporter } from "./legacy-importer";
 
 describe("createLegacyImporter", () => {
-  it("sweeps once, reports current afterwards, and shares in-flight imports", async () => {
+  it("sweeps once, reports current afterwards, and serializes concurrent requests", async () => {
     const repo = await scratchGitRepo();
 
     const first = await syntheticLegacyReview(
@@ -29,7 +30,7 @@ describe("createLegacyImporter", () => {
       path.join(first.home, "review-api.db"),
     );
 
-    const importVersion = vi.spyOn(store, "importVersion");
+    const importVersions = vi.spyOn(store, "importVersions");
     const onImported = vi.fn<() => Promise<void>>(async () => {});
 
     const importer = createLegacyImporter({
@@ -49,8 +50,9 @@ describe("createLegacyImporter", () => {
         "imported",
         "imported",
       ]);
-      expect(joined.kind).toBe("imported");
-      expect(importVersion).toHaveBeenCalledTimes(2);
+      // A request during an import waits for it, then finds nothing left.
+      expect(joined.kind).toBe("current");
+      expect(importVersions).toHaveBeenCalledTimes(2);
       expect(onImported).toHaveBeenCalledTimes(2);
 
       const again = await importer.sweep([first.stored, second.stored]);
@@ -115,6 +117,48 @@ describe("createLegacyImporter", () => {
         `[Review import] ${broken.record.uuid}: skipped (disk on fire)`,
       );
       expect(store.has(broken.record.uuid)).toBe(false);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("imports a revision published while an older one was importing", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 2 },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const importer = createLegacyImporter({
+      store,
+      data,
+      materialize: materializeFromRevisionDirs,
+      onImported: async () => {},
+      log: () => {},
+      revisionLog: logFromRevisionDirs(oids),
+    });
+
+    try {
+      // The sweep saw the record when only the first revision was presented.
+      const older: StoredReview = {
+        dir: stored.dir,
+        review: { ...record, presentedDocumentRevision: oids[0]! },
+      };
+
+      const [first, second] = await Promise.all([
+        importer.ensure(older),
+        importer.ensure(stored),
+      ]);
+
+      expect(first).toMatchObject({ kind: "imported", version: 0 });
+      expect(second).toMatchObject({ kind: "imported", version: 1 });
+      expect(store.read(record.uuid).origin?.revision).toBe(oids[1]);
     } finally {
       await store.close();
     }

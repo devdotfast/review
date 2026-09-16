@@ -54,7 +54,12 @@ describe("importLegacyReview", () => {
       expect(store.read(record.uuid).origin).toMatchObject({
         branch: record.sourceIdentity?.name,
         baseRef: record.baseRef,
+        revision: oids[2],
       });
+      // Older revisions keep the pins they were sealed with.
+      expect(store.read(record.uuid, 0).pins.head).toBe(repo.base);
+      expect(store.read(record.uuid, 2).pins.head).toBe(repo.head);
+      expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
       expect(
         await importLegacyReview({
           review: stored,
@@ -169,10 +174,10 @@ describe("importLegacyReview", () => {
         loadTrace: async () => null,
       });
 
-      expect(outcome).toMatchObject({
-        kind: "imported",
-        warnings: ["trace s1 unavailable; quoted as text"],
-      });
+      expect(outcome.kind).toBe("imported");
+      expect(outcome.kind === "imported" && outcome.warnings).toContain(
+        "trace s1 unavailable; quoted as text",
+      );
       const document = store.read(record.uuid).document;
       expect(document[0]).toMatchObject({
         type: "callout",
@@ -183,6 +188,122 @@ describe("importLegacyReview", () => {
         type: "markdown",
         markdown: "> agent said so\n",
       });
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("resumes after a partial import and imports only the missing revisions", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 3 },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      const registered = await data.register(repo.root);
+      await store.importVersions([
+        {
+          reviewId: record.uuid,
+          title: "partial",
+          pins: {
+            repositoryId: registered.id,
+            base: repo.base,
+            head: repo.base,
+          },
+          document: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          origin: { revision: oids[0] },
+        },
+      ]);
+
+      const outcome = await importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+      expect(outcome).toMatchObject({ kind: "imported", version: 2 });
+      expect(store.history(record.uuid).map((entry) => entry.version)).toEqual([
+        0, 1, 2,
+      ]);
+      expect(store.read(record.uuid, 1).origin?.revision).toBe(oids[1]);
+      expect(store.read(record.uuid, 2).origin?.revision).toBe(oids[2]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("reports an unresolved source range in the callout", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+    );
+
+    const docPath = path.join(
+      stored.dir,
+      ".revisions",
+      oids[0]!,
+      ".bundle/document/review-document.json",
+    );
+
+    const doc = JSON.parse(await readFile(docPath, "utf8"));
+    doc.body.push({
+      type: "element",
+      tag: "p",
+      props: {},
+      children: [
+        {
+          type: "component",
+          name: "AnchorLink",
+          props: {
+            anchor: {
+              __kind: "db-anchor-ref",
+              id: "gone",
+              title: "Gone",
+              peek: {
+                side: "head",
+                file: "missing.ts",
+                fromLine: 1,
+                toLine: 2,
+              },
+            },
+          },
+          children: [{ type: "text", value: "a vanished file" }],
+        },
+      ],
+    });
+    await writeFile(docPath, JSON.stringify(doc));
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      const outcome = await importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+      expect(outcome.kind).toBe("imported");
+      const first = store.read(record.uuid).document[0];
+      expect(first).toMatchObject({ type: "callout", tone: "warning" });
+      expect(JSON.stringify(first)).toContain("head/missing.ts#L1-L2");
     } finally {
       await store.close();
     }

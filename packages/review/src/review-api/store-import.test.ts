@@ -134,4 +134,29 @@ describe("importVersion", () => {
     ).rejects.toThrow(/IDs are assigned by the server/);
     expect(store.has(id)).toBe(false);
   });
+
+  it("writes nothing when a later version fails validation", async () => {
+    const catalog = vi.fn<() => void>();
+    store.subscribeCatalog(catalog);
+    await expect(
+      store.importVersions([
+        {
+          reviewId: id,
+          title: "v0",
+          pins,
+          document: [{ type: "divider" }],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          reviewId: id,
+          title: "v1",
+          pins,
+          document: [{ id: "x", type: "divider" }],
+          createdAt: "2026-01-02T00:00:00.000Z",
+        },
+      ]),
+    ).rejects.toThrow(/IDs are assigned by the server/);
+    expect(store.has(id)).toBe(false);
+    expect(catalog).not.toHaveBeenCalled();
+  });
 });

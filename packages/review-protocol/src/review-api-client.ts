@@ -13,6 +13,7 @@ export interface ReviewApiSummary {
     baseRef?: string;
     pullRequestNumber?: number;
     pullRequestUrl?: string;
+    revision?: string;
   };
   repositoryName: string;
   viewedAt: string | null;

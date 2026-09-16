@@ -25,7 +25,7 @@ const PublishReadyResponseSchema = z.object({
   url: z.string().optional(),
   focusWarning: z.string().optional(),
   error: z.string().optional(),
-  // Mount step timings the desktop measured, folded into the CLI spans.
+  // Desktop-side publish phases, folded into the CLI spans.
   timings: z
     .array(
       z.object({

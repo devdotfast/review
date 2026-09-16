@@ -54,9 +54,7 @@ import {
 } from "../../../../workbench/services/layout/browser/layoutService.js";
 import { ITelemetryService } from "../../../../platform/telemetry/common/telemetry.js";
 import {
-	parseReviewListResponse,
 	parseReviewVerbRequest,
-	parseReviewSessionResponse,
 	DEFAULT_DISMISSED_RETENTION_DAYS,
 	REVIEW_CANVAS_RESUME_EVENT,
 	REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
@@ -82,12 +80,10 @@ import type {
 	ReviewCliInstallStatus,
 	ReviewKeymapChoice,
 	ReviewRuntimeConfig,
-	ReviewSessionDescriptor,
 	ReviewSurfaceEvent,
 	ReviewTheme,
 	TutorialProgressV1,
 	TutorialStepId,
-	ReviewVerbResponse,
 } from "../../../common/reviewProtocol.js";
 import {
 	REVIEW_KEYMAP_SETTING,
@@ -117,8 +113,6 @@ import { IReviewTelemetryService } from "../../../services/reviewTelemetryServic
 import { IReviewSessionService } from "../../../services/reviewSessionService.js";
 import {
 	IReviewSessionModelService,
-	loadReviewSessionDocument,
-	loadReviewSessionSoftwareMap,
 	type ReviewDesktopSession,
 	type ReviewSessionModel,
 } from "../../../services/reviewSessionModelService.js";
@@ -371,11 +365,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					{ mode: FocusMode.Force },
 				);
 				return { ok: true };
-			}
-			// Mount validation targets an unpromoted session; it must never open
-			// a visible tab or touch the active model.
-			if (request.name === "validateCanvasMount") {
-				return this.validateSessionMount(sessionId);
 			}
 			const input = await this.tabsService.openSession(sessionId, true);
 			const model = await input.resolve();
@@ -1624,217 +1613,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				{ keepalive: true },
 			),
 		).catch(() => undefined);
-	}
-
-	/**
-	 * Publish gate: mount a not-yet-promoted session's document into an
-	 * off-screen container and report whether it reaches its first React
-	 * commit and stays free of error diagnostics through the settle window.
-	 * The visible canvas and the active model stay untouched. A clean
-	 * validation also warms the document-data cache for the visible mount
-	 * that follows promotion.
-	 */
-	private async validateSessionMount(
-		sessionId: string,
-	): Promise<ReviewVerbResponse> {
-		const targetDocument = this.targetDocument;
-		if (!targetDocument) {
-			return { ok: false, error: "Review canvas is unavailable." };
-		}
-		let container: HTMLElement | undefined;
-		let handle: ReviewCanvasHandle | undefined;
-		let loadTimeout: ReturnType<typeof setTimeout> | undefined;
-		// Each step of the off-screen mount reports its wall-clock interval back
-		// to the server, which folds it into the publish timings the CLI shows.
-		const timings: { name: string; startEpochMs: number; endEpochMs: number }[] = [];
-		const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
-			const startEpochMs = Date.now();
-			try {
-				return await fn();
-			} finally {
-				timings.push({ name, startEpochMs, endEpochMs: Date.now() });
-			}
-		};
-		try {
-			const assets = await timed("load canvas assets", () => this.loadAssets());
-			const session = await timed("fetch session descriptor", () => this.resolveValidationSession(sessionId));
-			const documentPromise = timed("fetch + load document data", () =>
-				loadReviewSessionDocument(session, loadReviewDocumentData),
-			);
-			const softwareMapPromise = timed("fetch + load software map", () =>
-				loadReviewSessionSoftwareMap(session, loadReviewSoftwareMaps),
-			);
-			let finished = false;
-			let mountedAt = Date.now();
-			let finishMount!: (error: Error | null) => void;
-			const mountResult = new Promise<Error | null>((resolve) => {
-				finishMount = (error) => {
-					if (finished) return;
-					finished = true;
-					resolve(error);
-				};
-			});
-			const bridge: ReviewCanvasBridge = {
-				appSessionId: this.reviewTelemetryService.appSessionId,
-				config: this.reviewRuntimeConfig(sessionConnection(session), assets),
-				inlineEditors: this.inlineEditors,
-				// A validation mount must build no diff widgets off-screen and
-				// must not write the visible pane's view-state cache.
-				diffView: {
-					create: () => ({
-						dispose: () => undefined,
-						focus: () => undefined,
-						onDidError: () => ({ dispose: () => undefined }),
-					}),
-				},
-				request: (url, init) => fetch(url, init),
-				// Verbs act on the visible workbench; a validation mount must not
-				// touch it, so verb posts succeed as no-ops.
-				post: async () => ({ ok: true }),
-				subscribe: () => ({ dispose: () => undefined }),
-				currentTheme: () => this.colorScheme(),
-				onDidChangeTheme: () => ({ dispose: () => undefined }),
-				currentDiffLayout: () => this.diffViews.diffLayout.get(),
-				// The layout is a user setting; a validation mount must not write it.
-				setDiffLayout: async () => undefined,
-				onDidChangeDiffLayout: () => ({ dispose: () => undefined }),
-				// First commit is the success signal. Errors reported from effects
-				// that run before it still fail the mount via reportDiagnostic;
-				// later ones are the visible pane's problem, not publish's.
-				ready: () => {
-					if (finished) {
-						return;
-					}
-					timings.push({ name: "first commit", startEpochMs: mountedAt, endEpochMs: Date.now() });
-					finishMount(null);
-				},
-				reportDiagnostic: (diagnostic) => {
-					if (diagnostic.level === "error") {
-						finishMount(new Error(diagnostic.message));
-					}
-				},
-			};
-			container = targetDocument.createElement("div");
-			container.style.position = "fixed";
-			container.style.left = "-10000px";
-			container.style.top = "0";
-			container.style.width = "1280px";
-			container.style.height = "800px";
-			container.style.overflow = "hidden";
-			container.style.pointerEvents = "none";
-			targetDocument.body.appendChild(container);
-			mountedAt = Date.now();
-			handle = assets.mountReviewCanvas(container, {
-				kind: "session",
-				purpose: "validation",
-				bridge,
-				document: documentPromise,
-				softwareMap: softwareMapPromise,
-				softwareMapEnabled: true,
-				reviewErrors: this.sessionService.reviewErrors,
-				commits: session.review.commits ?? [],
-				range: {
-					sourceUnavailable: session.descriptor.sourceUnavailable,
-					baseRef: session.review.baseRef ?? session.session.baseRef,
-					headRef: session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
-					baseCommit: session.session.baseRef,
-					headCommit: session.session.headRef ?? session.session.baseRef,
-				},
-			});
-			loadTimeout = setTimeout(
-				() =>
-					finishMount(
-						new Error(
-							"Review document did not complete its first React commit within 30 seconds.",
-						),
-					),
-				30_000,
-			);
-			const error = await mountResult;
-			return error
-				? { ok: false, error: error.message }
-				: { ok: true, result: { timings } };
-		} catch (error) {
-			return {
-				ok: false,
-				error: error instanceof Error ? error.message : String(error),
-			};
-		} finally {
-			if (loadTimeout) clearTimeout(loadTimeout);
-			handle?.dispose();
-			container?.remove();
-		}
-	}
-
-	private async resolveValidationSession(
-		sessionId: string,
-	): Promise<ReviewDesktopSession> {
-		// The draft session must stay invisible to the UI: fetch descriptors
-		// straight from the server instead of refreshing the session service,
-		// whose list events would open a tab for the unpromoted session.
-		const connection = await this.sessionService.getConnection();
-		const sessionsResponse = await fetch(
-			`${connection.serverUrl}/sessions?limit=100`,
-			{
-				headers: { "x-review-token": connection.token },
-				signal: AbortSignal.timeout(5_000),
-			},
-		);
-		if (!sessionsResponse.ok) {
-			throw new Error(
-				`Review sessions returned ${sessionsResponse.status}.`,
-			);
-		}
-		const descriptor = (
-			(await sessionsResponse.json()) as {
-				items: ReviewSessionDescriptor[];
-			}
-		).items.find((candidate) => candidate.sessionId === sessionId);
-		if (!descriptor) {
-			throw new Error(`Review session is unavailable: ${sessionId}`);
-		}
-		const reviewsResponse = await fetch(
-			`${connection.serverUrl}/reviews?limit=100`,
-			{
-				headers: { "x-review-token": connection.token },
-				signal: AbortSignal.timeout(5_000),
-			},
-		);
-		if (!reviewsResponse.ok) {
-			throw new Error(`Review list returned ${reviewsResponse.status}.`);
-		}
-		const review = parseReviewListResponse(
-			await reviewsResponse.json(),
-		).reviews.find((candidate) => candidate.uuid === descriptor.reviewUuid);
-		if (!review) {
-			throw new Error(`Review is unavailable: ${descriptor.reviewUuid}`);
-		}
-		const response = await fetch(
-			`${descriptor.sessionUrl}/__progressive-review/session`,
-			{
-				headers: { "x-review-token": connection.token },
-				signal: AbortSignal.timeout(5_000),
-			},
-		);
-		const payload = parseReviewSessionResponse(await response.json());
-		if (!response.ok || !payload.ok) {
-			throw new Error(
-				payload.ok
-					? `Review session returned ${response.status}.`
-					: payload.error,
-			);
-		}
-		if (!payload.session.sessionId || !payload.session.storageDir) {
-			throw new Error("Review server session is missing desktop fields.");
-		}
-		return {
-			serverUrl: connection.serverUrl,
-			sessionUrl: descriptor.sessionUrl,
-			token: connection.token,
-			descriptor,
-			review,
-			session: payload.session as ReviewDesktopSession["session"],
-		};
 	}
 
 	private async resetSessionForGeneration(

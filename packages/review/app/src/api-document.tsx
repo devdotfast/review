@@ -22,17 +22,17 @@ import type { LocalReviewData } from "../../src/review-api/local-data";
 import type { Snapshot } from "../../src/review-api/store";
 import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
-import { MarkdownContent, markdownHasTitle } from "./agent-markdown";
-import { CallStackDiff } from "./call-stack-diff";
-import { RenderedCodeBlock } from "./code-block";
-import { CodePeekCard } from "./CodePeek";
-import { DatabaseLens } from "./database-lens";
-import { SequenceDiagram } from "./diagrams";
-import { AnchorLink, ReviewSection } from "./review-components";
+import { markdownHasTitle } from "./agent-markdown";
+import {
+  BlockErrorBoundary,
+  type StoredBlock,
+  renderBlock,
+  stored,
+} from "./blocks";
+import { useReviewSession } from "./host/review-session";
+import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import type { SoftwareMapResolvedDataPayload } from "./software-map/software-map-snapshot";
-import { SoftwareMap } from "./software-map/SoftwareMap";
-import { TraceQuote } from "./trace-quote";
 
 import "./api-document.css";
 
@@ -132,15 +132,16 @@ export function createDocumentLoader(client: ReviewApiClient) {
             data.images.set(node.assetId, url);
           }
 
-          if (node.type === "trace_quote")
-            data.traces.set(
-              node.traceId,
-              await once(`trace:${node.traceId}`, () =>
-                client.read<Trace>(
-                  `/resources/${encodeURIComponent(node.traceId)}`,
-                ),
+          // A trace that cannot be loaded leaves its quote to render as text.
+          if (node.type === "trace_quote") {
+            const loaded = await once(`trace:${node.traceId}`, () =>
+              client.read<Trace>(
+                `/resources/${encodeURIComponent(node.traceId)}`,
               ),
-            );
+            ).catch(() => undefined);
+
+            if (loaded) data.traces.set(node.traceId, loaded);
+          }
 
           if (node.type === "software_map") {
             const model = await once(
@@ -205,141 +206,36 @@ export function ApiDocument({ data }: { data: ApiDocumentData }) {
         <ReviewDocumentTitle>{data.snapshot.title}</ReviewDocumentTitle>
       )}
       {data.snapshot.document.map((node) => (
-        <DocumentNode key={node.id} node={node} data={data} />
+        <DocumentNode key={node.id} node={stored(node)} data={data} />
       ))}
     </>
   );
 }
 
 // Memoized: unrelated App renders must not rebuild every block's view models.
-const DocumentNode = memo(function DocumentNode({
+export const DocumentNode = memo(function DocumentNode({
   node,
   data,
 }: {
-  node: Block;
+  node: StoredBlock;
   data: ApiDocumentData;
 }) {
   const revision = useMemo(() => JSON.stringify(node), [node]);
+  const session = useReviewSession();
 
   const children = (nodes: Block[]) =>
     nodes.map((child) => (
-      <DocumentNode key={child.id} node={child} data={data} />
+      <DocumentNode key={child.id} node={stored(child)} data={data} />
     ));
 
-  let content: ReactNode;
-
-  switch (node.type) {
-    case "markdown":
-      content = (
-        <MarkdownContent
-          source={node.markdown}
-          h1={ReviewDocumentTitle}
-          renderLink={(href, children) => {
-            const anchor = data.anchors.get(`${node.id}:${href}`);
-
-            return anchor ? (
-              <AnchorLink anchor={anchor}>{children}</AnchorLink>
-            ) : undefined;
-          }}
-        />
-      );
-      break;
-    case "code":
-      content = (
-        <>
-          <RenderedCodeBlock code={node.text} language={node.language} />
-          {node.caption && <p>{node.caption}</p>}
-        </>
-      );
-      break;
-    case "divider":
-      content = <hr />;
-      break;
-    case "section":
-      content = (
-        <ReviewSection
-          stateKey={`${data.snapshot.reviewId}:${node.id}`}
-          title={node.title}
-          id={node.id}
-          defaultCollapsed={node.defaultCollapsed}
-        >
-          {children(node.children)}
-        </ReviewSection>
-      );
-      break;
-    case "callout":
-      content = (
-        <blockquote data-tone={node.tone}>
-          {node.title && <strong>{node.title}</strong>}
-          {children(node.children)}
-        </blockquote>
-      );
-      break;
-    case "code_peek":
-      content = <CodePeekCard source={node.source} />;
-      break;
-    case "sequence":
-      content = (
-        <SequenceDiagram
-          id={node.id!}
-          title={node.title}
-          actors={node.actors}
-          steps={node.steps}
-        />
-      );
-      break;
-    case "call_stack_diff":
-      content = (
-        <CallStackDiff title={node.title} base={node.base} head={node.head} />
-      );
-      break;
-
-    case "database_lens":
-      content = (
-        <DatabaseLens
-          id={node.id!}
-          title={node.title}
-          actors={node.actors}
-          stores={node.stores}
-          useCases={node.useCases}
-        />
-      );
-      break;
-    case "image":
-      content = (
-        <figure className="review-image">
-          <img src={data.images.get(node.assetId)} alt={node.alt} />
-          {node.caption && <figcaption>{node.caption}</figcaption>}
-        </figure>
-      );
-      break;
-    case "trace_quote":
-      content = (
-        <TraceQuote
-          sessionId={node.traceId}
-          event={data.traces
-            .get(node.traceId)!
-            .events.findIndex((event) => event.id === node.eventId)}
-        >
-          {node.text}
-        </TraceQuote>
-      );
-      break;
-    case "software_map":
-      content = (
-        <SoftwareMap
-          diagramId={node.id}
-          model={data.maps.get(node.mapVersionId)}
-          pinnedData={data.maps.get(node.mapVersionId)?.pinnedData}
-          view={node.focusElementId}
-        />
-      );
-      break;
-  }
-
   return (
-    <NodeReveal id={node.id!} revision={revision}>
-      {content}
+    <NodeReveal id={node.id} revision={revision}>
+      <BlockErrorBoundary
+        type={node.type}
+        onError={(error) => reportReviewDocumentRenderError(session, error)}
+      >
+        {renderBlock(node.type, node, data, children)}
+      </BlockErrorBoundary>
     </NodeReveal>
   );
 });

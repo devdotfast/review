@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { type JsonObject, jsonObject } from "@dev.fast/review-protocol";
+import type { JsonObject } from "@dev.fast/review-protocol";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +12,7 @@ import {
   listLegacyReviewFixtures,
   readLegacyReviewGolden,
 } from "../fixtures/legacy-reviews/legacy-review-fixture";
+import { materializePublishRevision } from "../publish-stage";
 import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
@@ -530,15 +531,22 @@ it("rejects a publication whose review moved its base ref during the command", a
   );
   const revision = await reviewVcs.seal(stored.dir, "Review publish candidate");
   const relay = new GlobalReviewDesktopVerbRelay();
-  relay.dispatch = async (_sessionId, verb) => {
-    if (jsonObject(verb)?.name === "validateCanvasMount") {
+  relay.dispatch = async () => ({ ok: true });
+
+  // The record moves while the command is preparing: after the server read it
+  // and materialized the build, before it takes the review lock to promote.
+  const publishRuntime = {
+    materializePublishRevision: async (
+      input: Parameters<typeof materializePublishRevision>[0],
+    ) => {
+      const built = await materializePublishRevision(input);
       await writeFile(
         path.join(stored.dir, "review.json"),
         JSON.stringify({ ...stored.review, baseRef: "release" }),
       );
-    }
 
-    return { ok: true };
+      return built;
+    },
   };
 
   const token = "publication-race-secret";
@@ -551,6 +559,7 @@ it("rejects a publication whose review moved its base ref during the command", a
     token,
     discoveryPath: path.join(directory, "desktop.json"),
     relay,
+    publishRuntime,
   });
 
   try {
@@ -565,10 +574,12 @@ it("rejects a publication whose review moved its base ref during the command", a
       body: JSON.stringify({ reviewUuid: stored.review.uuid, revision }),
     });
 
+    // Registration re-reads the record and refuses the stale command before
+    // promotion; the lock's own conflict guard sits behind it.
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
       ok: false,
-      code: "review_publication_conflict",
+      code: "review_changed",
     });
     await expect(
       readFile(path.join(stored.dir, "review.json"), "utf8").then(JSON.parse),

@@ -39,6 +39,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// A lens with operations routes its edges through libavoid; Vite serves the
+// wasm from node_modules when the test names it by file URL.
+const libavoidWasmUrl = new URL(
+  "../../../../node_modules/@mr_mint/elkjs-libavoid/dist/libavoid.wasm",
+  import.meta.url,
+).href;
+
 describe("desktop review document load states", () => {
   it("passes repair attention entries through the desktop Home canvas", async () => {
     const reviewUuid = "11111111-1111-4111-8111-111111111111";
@@ -242,7 +249,7 @@ describe("desktop review document load states", () => {
   });
   it("hoists the authored heading, collapses its body, and discovers database use cases", async () => {
     const bridge = testReviewBridge(
-      { sessionId: "rendered-data-behavior" },
+      { sessionId: "rendered-data-behavior", wasmUrl: libavoidWasmUrl },
       { request: requestStub, diffView: { create: createDiffView } },
     );
 
@@ -283,13 +290,40 @@ describe("desktop review document load states", () => {
                     props: {
                       id: "db:order-database",
                       title: "Order database",
-                      actors: {},
-                      stores: {},
+                      actors: { app: "App" },
+                      stores: {
+                        db: {
+                          label: "Orders DB",
+                          storage: "relational",
+                          collections: {
+                            orders: {
+                              label: "orders",
+                              fields: { id: { label: "id", dataType: "uuid" } },
+                            },
+                          },
+                        },
+                      },
                       useCases: [
                         {
                           id: "create",
                           label: "Create an order",
-                          operations: [],
+                          operations: [
+                            {
+                              id: "create-insert",
+                              kind: "write",
+                              store: "db",
+                              collection: "orders",
+                              field: "id",
+                              actor: "app",
+                              label: "Insert order",
+                              source: {
+                                side: "head",
+                                file: "src/orders.ts",
+                                fromLine: 1,
+                                toLine: 1,
+                              },
+                            },
+                          ],
                         },
                       ],
                     },
@@ -637,114 +671,6 @@ describe("desktop review document load states", () => {
       await act(async () => handle?.dispose());
     },
   );
-});
-
-describe("publication validation mounts", () => {
-  it.each([
-    "document-unavailable",
-    "document-republish",
-    "historical-unavailable",
-    "malformed-document",
-    "map-unavailable",
-    "map-republish",
-    "malformed-map",
-    "render-failure",
-    "absent-map",
-  ] as const)("settles %s before publication", async (scenario) => {
-    const order: string[] = [];
-
-    const bridge = testReviewBridge(
-      { sessionId: `validation-${scenario}` },
-      {
-        ready: () => order.push("ready"),
-        reportDiagnostic: (diagnostic) => {
-          if (diagnostic.level === "error") order.push("error");
-        },
-        diffView: { create: createDiffView },
-      },
-    );
-
-    let documentLoad: ReviewDocumentLoad = codePeekDocument(
-      "validation-document",
-    );
-
-    let mapLoad: ReviewSoftwareMapLoad | null = null;
-    const reviewUuid = "11111111-1111-4111-8111-111111111111";
-
-    if (
-      scenario === "document-unavailable" ||
-      scenario === "historical-unavailable"
-    )
-      documentLoad = {
-        state: "unavailable",
-        message: "Unavailable",
-      };
-
-    if (
-      scenario === "historical-unavailable" &&
-      documentLoad.state === "unavailable"
-    )
-      documentLoad.currentReviewUuid = reviewUuid;
-
-    if (scenario === "document-republish")
-      documentLoad = { state: "needs-republish", reviewUuid, mapStale: false };
-
-    if (scenario === "malformed-document")
-      documentLoad = { state: "ready", contentHash: "invalid", data: {} };
-
-    if (scenario === "map-unavailable")
-      mapLoad = { state: "unavailable", message: "Unavailable map" };
-
-    if (scenario === "map-republish")
-      mapLoad = { state: "needs-republish", reviewUuid };
-
-    if (scenario === "malformed-map")
-      mapLoad = { state: "ready", contentHash: "invalid", head: {}, base: {} };
-
-    if (scenario === "render-failure") {
-      documentLoad = {
-        state: "ready",
-        contentHash: "render-failure",
-        data: {
-          format: "review-document/1",
-          title: "Broken render",
-          routePath: "/",
-          sourcePath: "review.mdx",
-          anchors: {},
-          anchorContents: {},
-          softwareModels: [],
-          body: [
-            {
-              type: "component",
-              name: "DatabaseLens",
-              props: { stores: {} },
-              children: [],
-            },
-          ],
-        },
-      };
-    }
-
-    const container = document.createElement("div");
-    document.body.append(container);
-    let handle: ReturnType<typeof mountReviewCanvas> | undefined;
-
-    try {
-      await act(async () => {
-        handle = mountReviewCanvas(container, {
-          ...sessionContent(bridge, {
-            document: Promise.resolve(documentLoad),
-            softwareMap: Promise.resolve(mapLoad),
-          }),
-          purpose: "validation",
-        });
-      });
-      expect(order).toEqual(scenario === "absent-map" ? ["ready"] : ["error"]);
-      expect(container.textContent).toContain("Open source tree");
-    } finally {
-      await act(async () => handle?.dispose());
-    }
-  });
 });
 
 function sessionContent(

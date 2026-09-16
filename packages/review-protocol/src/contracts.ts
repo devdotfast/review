@@ -492,8 +492,6 @@ export type ReviewCanvasContent =
     }
   | {
       kind: "session";
-      /** Internal publication checks require usable artifacts before readiness. */
-      purpose?: "display" | "validation";
       bridge: ReviewCanvasBridge;
       document: Promise<ReviewDocumentLoad>;
       softwareMap: Promise<ReviewSoftwareMapLoad | null>;
@@ -1377,12 +1375,6 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openApiReview"),
     args: z.strictObject({ reviewId: z.uuid(), title: requiredString }),
-  }),
-  // Server-to-app only: mount the (unpromoted) session's document off-screen
-  // and report the result, so publish can gate promotion on a clean mount.
-  z.strictObject({
-    name: z.literal("validateCanvasMount"),
-    args: z.strictObject({}),
   }),
 ]);
 

@@ -1,26 +1,48 @@
-import { type JsonValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { markdownNodes, parseMarkdown } from "../markdown.js";
 import { type Source, sourceSchema } from "../source.js";
+import { type Block, blockSchema } from "./blocks/index.js";
+import { type Step, stepSchema } from "./blocks/sequence.js";
+import { ReviewInputError } from "./input-error.js";
 
-/** Deliberately safe to show to API clients, unlike filesystem/provider errors. */
-export class ReviewInputError extends Error {
-  constructor(
-    message: string,
-    readonly status: 400 | 404 | 409 = 400,
-  ) {
-    super(message);
-  }
-}
+export { ReviewInputError } from "./input-error.js";
+
+export { type Source, sourceSchema };
+
+export {
+  type Block,
+  type BlockType,
+  blockSchema,
+  blocks,
+  checkReferences,
+} from "./blocks/index.js";
+
+export { type Frame, frameSchema } from "./blocks/call_stack_diff.js";
+
+export {
+  type DatabaseActor,
+  type DatabaseField,
+  type DatabaseLensBlock,
+  type DatabaseOperation,
+  type DatabaseStore,
+  databaseActorSchema,
+  databaseLensSchema,
+  fieldSchema,
+  operationSchema,
+  storeSchema,
+} from "./blocks/database_lens.js";
+
+export {
+  type SequenceBlock,
+  type Step,
+  sequenceSchema,
+  stepSchema,
+} from "./blocks/sequence.js";
 
 const text = z.string();
 
 const label = text.trim().min(1);
-
-const identity = { id: text.optional() };
-
-export { type Source, sourceSchema };
 
 export const pinsSchema = z.strictObject({
   repositoryId: label,
@@ -29,208 +51,6 @@ export const pinsSchema = z.strictObject({
 });
 
 export type Pins = z.infer<typeof pinsSchema>;
-
-const code = z.strictObject({ language: text.default("text"), text });
-
-export const stepSchema = z
-  .strictObject({
-    ...identity,
-    type: z.literal("step").default("step"),
-    from: label,
-    to: label,
-    label,
-    style: z.enum(["call", "return", "async"]).default("call"),
-    source: sourceSchema.optional(),
-    explanation: label.optional(),
-    code: code.optional(),
-  })
-  .refine(
-    (s) =>
-      [s.source, s.explanation, s.code].filter((v) => v !== undefined)
-        .length === 1,
-    "A step needs exactly one of source, explanation, or code.",
-  );
-
-export const frameSchema = z.strictObject({
-  ...identity,
-  // Optional component-local name for the same frame on both sides (even if moved).
-  key: label.optional(),
-  source: sourceSchema,
-  label: label.optional(),
-  via: z
-    .strictObject({
-      kind: z.enum(["call", "queue", "callback", "rpc"]),
-      reason: label,
-    })
-    .optional(),
-});
-
-export type Frame = z.infer<typeof frameSchema>;
-
-export const sequenceSchema = z.strictObject({
-  ...identity,
-  type: z.literal("sequence"),
-  title: label,
-  actors: z.record(text, label),
-  steps: z.array(stepSchema),
-});
-
-export type SequenceBlock = z.infer<typeof sequenceSchema>;
-
-export interface DatabaseField {
-  label: string;
-  dataType: string;
-  nullable?: boolean;
-  primaryKey?: boolean;
-  references?: { store: string; collection: string; field: string };
-  /** An illustrative value shown beside the field. */
-  example?: JsonValue;
-  /** Nested fields of a document-store object field. */
-  fields?: Record<string, DatabaseField>;
-}
-
-export const fieldSchema: z.ZodType<DatabaseField> = z.lazy(() =>
-  z.strictObject({
-    label,
-    dataType: label,
-    nullable: z.boolean().optional(),
-    primaryKey: z.boolean().optional(),
-    references: z
-      .strictObject({ store: label, collection: label, field: label })
-      .optional(),
-    example: jsonValueSchema.optional(),
-    fields: z.record(text, fieldSchema).optional(),
-  }),
-);
-
-export const databaseActorSchema = z.union([
-  label,
-  z.strictObject({ label, softwareMapPath: label.optional() }),
-]);
-
-export const storeSchema = z.strictObject({
-  label,
-  storage: z.enum(["relational", "document"]),
-  dataStoreKind: z
-    .enum(["database", "objectStore", "bucket", "artifactStore", "fileStore"])
-    .optional(),
-  softwareMapPath: label.optional(),
-  collections: z.record(
-    text,
-    z.strictObject({
-      label,
-      key: label.optional(),
-      fields: z.record(text, fieldSchema),
-    }),
-  ),
-});
-
-export const operationSchema = z.strictObject({
-  ...identity,
-  kind: z.enum(["read", "write"]),
-  store: label,
-  collection: label,
-  field: label.optional(),
-  actor: label,
-  label,
-  detail: label.optional(),
-  source: sourceSchema,
-});
-
-export const databaseLensSchema = z.strictObject({
-  ...identity,
-  type: z.literal("database_lens"),
-  title: label,
-  actors: z.record(text, databaseActorSchema),
-  stores: z.record(text, storeSchema),
-  useCases: z.array(
-    z.strictObject({
-      ...identity,
-      label,
-      summary: text.optional(),
-      operations: z.array(operationSchema),
-    }),
-  ),
-});
-
-export type DatabaseLensBlock = z.infer<typeof databaseLensSchema>;
-
-export type DatabaseActor = z.infer<typeof databaseActorSchema>;
-
-export type DatabaseStore = z.infer<typeof storeSchema>;
-
-export type DatabaseOperation = z.infer<typeof operationSchema>;
-
-const leafSchema = z.discriminatedUnion("type", [
-  z.strictObject({
-    ...identity,
-    type: z.literal("markdown"),
-    markdown: text.describe(
-      "Safe Markdown. Use [label](review-source:head/path#L10-L24) or base for a validated native source peek.",
-    ),
-  }),
-  z.strictObject({
-    ...identity,
-    type: z.literal("code"),
-    ...code.shape,
-    caption: text.optional(),
-  }),
-  z.strictObject({ ...identity, type: z.literal("divider") }),
-  z.strictObject({
-    ...identity,
-    type: z.literal("code_peek"),
-    source: sourceSchema,
-    caption: text.optional(),
-  }),
-  sequenceSchema,
-  z.strictObject({
-    ...identity,
-    type: z.literal("call_stack_diff"),
-    title: label,
-    base: z.array(frameSchema),
-    head: z.array(frameSchema),
-  }),
-  databaseLensSchema,
-  z.strictObject({
-    ...identity,
-    type: z.literal("image"),
-    assetId: label,
-    alt: label,
-    caption: text.optional(),
-  }),
-  z.strictObject({
-    ...identity,
-    type: z.literal("trace_quote"),
-    traceId: label,
-    eventId: label,
-    text: label,
-  }),
-  z.strictObject({
-    ...identity,
-    type: z.literal("software_map"),
-    mapVersionId: label,
-    focusElementId: label.optional(),
-  }),
-]);
-
-export type Block =
-  | z.infer<typeof leafSchema>
-  | {
-      id?: string;
-      type: "section";
-      title: string;
-      defaultCollapsed?: boolean;
-      children: Block[];
-    }
-  | {
-      id?: string;
-      type: "callout";
-      title?: string;
-      tone: "info" | "warning" | "danger" | "success";
-      children: Block[];
-    };
-
-export type Step = z.infer<typeof stepSchema>;
 
 export type Element = Block | Step;
 
@@ -320,26 +140,6 @@ export function sourceReferences(
     return [];
   });
 }
-
-export const blockSchema: z.ZodType<Block> = z.lazy(() =>
-  z.union([
-    leafSchema,
-    z.strictObject({
-      ...identity,
-      type: z.literal("section"),
-      title: label,
-      defaultCollapsed: z.boolean().optional(),
-      children: z.array(blockSchema),
-    }),
-    z.strictObject({
-      ...identity,
-      type: z.literal("callout"),
-      title: label.optional(),
-      tone: z.enum(["info", "warning", "danger", "success"]).default("info"),
-      children: z.array(blockSchema),
-    }),
-  ]),
-);
 
 export const documentSchema = z.array(blockSchema);
 
@@ -549,73 +349,4 @@ export function applyEdit(
   }
 
   return edit.targetId;
-}
-
-/** Relationships not expressible in a field schema. Sources/resources are checked by host providers. */
-export function checkReferences(document: Block[]): void {
-  for (const block of elements(document)) {
-    const requireKey = <T>(record: Record<string, T>, name: string) => {
-      if (!Object.hasOwn(record, name))
-        throw new ReviewInputError(`Unknown component name: ${name}`);
-    };
-
-    if (block.type === "sequence")
-      for (const step of block.steps) {
-        requireKey(block.actors, step.from);
-        requireKey(block.actors, step.to);
-      }
-
-    if (block.type === "call_stack_diff")
-      for (const side of ["base", "head"] as const) {
-        const keys = block[side].flatMap((frame) =>
-          frame.key ? [frame.key] : [],
-        );
-
-        if (new Set(keys).size !== keys.length)
-          throw new ReviewInputError(
-            `Frame keys must be unique within ${side}.`,
-          );
-
-        for (const frame of block[side])
-          if (frame.source.side !== side)
-            throw new ReviewInputError(`A ${side} frame needs ${side} source.`);
-      }
-
-    if (block.type === "database_lens") {
-      const field = (store: string, collection: string, name?: string) => {
-        requireKey(block.stores, store);
-        const collections = block.stores[store]!.collections;
-        requireKey(collections, collection);
-
-        if (name === undefined) return;
-
-        // Nested document fields are addressed by dotted path.
-        let fields: Record<string, DatabaseField> | undefined =
-          collections[collection]!.fields;
-
-        for (const part of name.split(".")) {
-          if (!fields)
-            throw new ReviewInputError(`Unknown component name: ${name}`);
-          requireKey(fields, part);
-          fields = fields[part]!.fields;
-        }
-      };
-
-      for (const useCase of block.useCases)
-        for (const op of useCase.operations) {
-          requireKey(block.actors, op.actor);
-          field(op.store, op.collection, op.field);
-        }
-
-      for (const store of Object.values(block.stores))
-        for (const collection of Object.values(store.collections))
-          for (const value of Object.values(collection.fields))
-            if (value.references)
-              field(
-                value.references.store,
-                value.references.collection,
-                value.references.field,
-              );
-    }
-  }
 }

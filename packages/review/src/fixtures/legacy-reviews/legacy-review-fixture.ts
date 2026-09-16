@@ -153,7 +153,7 @@ export async function snapshotReviewTree(
 
 export async function readLegacyReviewGolden(
   name: string,
-  kind: "record" | "document" | "map",
+  kind: "record" | "document" | "map" | "blocks",
 ): Promise<JsonValue> {
   readMetadata(name);
 

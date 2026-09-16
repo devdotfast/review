@@ -1,0 +1,11 @@
+[
+  {
+    "id": "block-1",
+    "type": "callout",
+    "title": "Note",
+    "tone": "warning",
+    "children": [
+      { "id": "block-2", "type": "markdown", "markdown": "Careful.\n" }
+    ]
+  }
+]

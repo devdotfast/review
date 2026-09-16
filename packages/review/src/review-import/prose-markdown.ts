@@ -374,7 +374,7 @@ function inlines(nodes: ReviewNode[], state?: FootnoteState): string {
 }
 
 function inline(node: ReviewNode, state?: FootnoteState): string {
-  if (node.type === "text") return escapeText(node.value);
+  if (node.type === "text") return escapeMarkdownText(node.value);
 
   if (node.type === "component") return inlineComponent(node, state);
 
@@ -486,7 +486,8 @@ function longestRun(text: string, ch: string): number {
   );
 }
 
-function escapeText(value: string): string {
+/** Escape a run of text so markdown renders it verbatim. */
+export function escapeMarkdownText(value: string): string {
   return value
     .replace(/([\\`*_[\]<>])/g, "\\$1")
     .replace(/^(\s*)(\d+)\./gm, "$1$2\\.")

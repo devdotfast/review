@@ -343,7 +343,7 @@ describe("importLegacyReview", () => {
     });
     await appendImage(documentPath(stored.dir, oids[0]!), {
       src: "../../order.ts",
-      alt: "Escaping shot",
+      alt: "Escaping *shot* [1]",
     });
 
     const { store, data } = openLocalReviewStore(
@@ -369,7 +369,10 @@ describe("importLegacyReview", () => {
       ]);
       expect(store.read(record.uuid).document.slice(-2)).toMatchObject([
         { type: "markdown", markdown: "*Missing shot*\n" },
-        { type: "markdown", markdown: "*Escaping shot*\n" },
+        {
+          type: "markdown",
+          markdown: "*Escaping \\*shot\\* \\[1\\]*\n",
+        },
       ]);
     } finally {
       await store.close();

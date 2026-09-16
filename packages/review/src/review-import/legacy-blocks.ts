@@ -10,6 +10,7 @@ import type {
 import {
   type RenderProseNode,
   collectFootnoteDefinitions,
+  escapeMarkdownText,
   isFootnoteSection,
   isProseNode,
   proseToMarkdown,
@@ -98,7 +99,7 @@ export function legacyDocumentToBlocks(
     if (node.name !== "TraceQuote") return undefined;
 
     const quote = traceQuote(node);
-    const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
+    const label = escapeMarkdownText(quote.text);
 
     return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
   };

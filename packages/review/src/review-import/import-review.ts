@@ -41,6 +41,7 @@ import {
   mapResourcesFromBundle,
   traceResourceFromLoaded,
 } from "./legacy-resources";
+import { escapeMarkdownText } from "./prose-markdown";
 
 export type ImportOutcome =
   | {
@@ -707,7 +708,7 @@ class ImageResolver {
         );
         replacements.set(request.placeholder, {
           type: "markdown",
-          markdown: `*${request.alt}*\n`,
+          markdown: `*${escapeMarkdownText(request.alt)}*\n`,
         });
       }
     }

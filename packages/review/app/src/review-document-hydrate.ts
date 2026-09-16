@@ -129,6 +129,7 @@ function hydrateNode(
       "data-review-table": _table,
       "data-review-row": _row,
       "data-review-column": _column,
+      "data-review-block-tag": _blockTag,
       ...props
     } = node.props;
 

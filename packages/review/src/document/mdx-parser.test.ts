@@ -10,21 +10,14 @@ describe("review MDX transform", () => {
     expect(reviewHelperImports()).toContain("defineSoftwareStores");
   });
 
-  it("preserves GFM table cells, alignment, and block tags", async () => {
+  it("preserves GFM table cells and alignment", async () => {
     const parsed = await parseReviewDocument(
       "# Heading\n\n| Left | Right |\n| :--- | ---: |\n| A | B |\n\nParagraph.\n\n```ts\nconst value = 1;\n```\n",
     );
 
     const text = JSON.stringify(parsed.body);
 
-    for (const value of [
-      "table",
-      "th",
-      "data-review-block-tag",
-      "h1",
-      "p",
-      "pre",
-    ])
+    for (const value of ["table", "th", "h1", "p", "pre"])
       expect(text).toContain(value);
     expect(text).toContain('"name":"align","value":"left"');
     expect(text).toContain('"name":"align","value":"right"');

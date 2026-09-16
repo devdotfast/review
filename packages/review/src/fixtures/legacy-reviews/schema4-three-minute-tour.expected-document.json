@@ -7,9 +7,7 @@
     {
       "type": "element",
       "tag": "h1",
-      "props": {
-        "data-review-block-tag": "h1"
-      },
+      "props": {},
       "children": [
         {
           "type": "text",
@@ -31,9 +29,7 @@
         {
           "type": "element",
           "tag": "h2",
-          "props": {
-            "data-review-block-tag": "h2"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -44,9 +40,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -78,9 +72,7 @@
         {
           "type": "element",
           "tag": "h3",
-          "props": {
-            "data-review-block-tag": "h3"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -91,9 +83,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -110,9 +100,7 @@
         {
           "type": "element",
           "tag": "h3",
-          "props": {
-            "data-review-block-tag": "h3"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -123,9 +111,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -185,9 +171,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -239,9 +223,7 @@
         {
           "type": "element",
           "tag": "h2",
-          "props": {
-            "data-review-block-tag": "h2"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -252,9 +234,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -295,9 +275,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -345,9 +323,7 @@
             {
               "type": "element",
               "tag": "p",
-              "props": {
-                "data-review-block-tag": "p"
-              },
+              "props": {},
               "children": [
                 {
                   "type": "text",
@@ -373,9 +349,7 @@
         {
           "type": "element",
           "tag": "h2",
-          "props": {
-            "data-review-block-tag": "h2"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -386,9 +360,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -418,9 +390,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -446,9 +416,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -489,9 +457,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -530,9 +496,7 @@
         {
           "type": "element",
           "tag": "h2",
-          "props": {
-            "data-review-block-tag": "h2"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -543,9 +507,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -645,9 +607,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -769,9 +729,7 @@
             {
               "type": "element",
               "tag": "p",
-              "props": {
-                "data-review-block-tag": "p"
-              },
+              "props": {},
               "children": [
                 {
                   "type": "text",
@@ -825,9 +783,7 @@
         {
           "type": "element",
           "tag": "h2",
-          "props": {
-            "data-review-block-tag": "h2"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",
@@ -838,9 +794,7 @@
         {
           "type": "element",
           "tag": "p",
-          "props": {
-            "data-review-block-tag": "p"
-          },
+          "props": {},
           "children": [
             {
               "type": "text",

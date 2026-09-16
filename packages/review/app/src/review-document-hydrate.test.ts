@@ -163,10 +163,7 @@ describe("hydrateReviewDocument", () => {
     }
 
     expect(codePeek.props.anchor).toEqual(anchor);
-    expect(heading.props).toEqual({
-      "data-review-block-tag": "h1",
-      id: "orders-heading",
-    });
+    expect(heading.props).toEqual({ id: "orders-heading" });
     expect(sealed.body[0]).toMatchObject({
       props: {
         "data-review-block-index": 0,

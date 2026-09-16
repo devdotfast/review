@@ -33,9 +33,7 @@ describe("review document data", () => {
         {
           type: "element",
           tag: "h1",
-          props: {
-            "data-review-block-tag": "h1",
-          },
+          props: {},
           children: [{ type: "text", value: "T" }],
         },
         {

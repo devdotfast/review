@@ -90,7 +90,7 @@ describe("renderReviewNodes", () => {
           {
             type: "element",
             tag: "h2",
-            props: { "data-review-block-tag": "h2" },
+            props: {},
             children: [{ type: "text", value: "Data" }],
           },
         ],

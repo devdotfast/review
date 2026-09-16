@@ -1113,6 +1113,17 @@ it("decodes images and checks trace/map evidence before accepting components", a
       text: "Redesign everything",
     }),
   ).rejects.toThrow(/does not match/);
+  await insert(review.reviewId, {
+    type: "markdown",
+    markdown: `A quote: [old components](review-trace:${trace.id}#answer).`,
+  });
+  await expect(
+    insert(review.reviewId, {
+      type: "markdown",
+      markdown: `[Redesign everything](review-trace:${trace.id}#answer)`,
+    }),
+  ).rejects.toThrow(/does not match/);
+
   await expect(
     local.data.upload({
       ...trace,
@@ -1240,7 +1251,7 @@ it("decodes images and checks trace/map evidence before accepting components", a
       alt: "Not an image",
     }),
   ).rejects.toThrow(/component type/);
-  expect(local.store.read(review.reviewId).document).toHaveLength(3);
+  expect(local.store.read(review.reviewId).document).toHaveLength(4);
   await local.store.close();
   await local.data.close();
   local = openLocalReviewStore(database);

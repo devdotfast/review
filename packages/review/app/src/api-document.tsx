@@ -16,6 +16,7 @@ import {
   type Block,
   type Source,
   elements,
+  resourceReferences,
   sourceReferences,
 } from "../../src/review-api/document";
 import type { LocalReviewData } from "../../src/review-api/local-data";
@@ -113,7 +114,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
       }
 
       await Promise.all(
-        elements(snapshot.document).map(async (node) => {
+        resourceReferences(snapshot.document).map(async (node) => {
           if (node.type === "image") {
             const url = await once(`image:${node.assetId}`, async () => {
               const blob = await (

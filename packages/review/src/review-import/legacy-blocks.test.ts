@@ -8,7 +8,12 @@ import {
   LEGACY_REVIEW_FIXTURES_ROOT,
   listLegacyReviewFixtures,
 } from "../fixtures/legacy-reviews/legacy-review-fixture";
-import { blockSchema, checkReferences, elements } from "../review-api/document";
+import {
+  blockSchema,
+  checkReferences,
+  elements,
+  resourceReferences,
+} from "../review-api/document";
 import {
   reviewDocumentDataSchema,
   upgradeReviewDocumentJson,
@@ -126,6 +131,54 @@ describe("legacyDocumentToBlocks", () => {
       eventId: "4",
       text: "quoted words",
     });
+  });
+
+  it("keeps nested quotes in their paragraph and list with trace references", async () => {
+    const document = await load("schema4-opencode-agentserver");
+
+    const quote = {
+      type: "component",
+      name: "TraceQuote",
+      props: { sessionId: "s1", event: 4 },
+      children: [{ type: "text", value: "quoted [words]\nnext line" }],
+    } as const;
+
+    document.body = reviewDocumentDataSchema.parse({
+      ...document,
+      body: [
+        {
+          type: "element",
+          tag: "p",
+          props: {},
+          children: [
+            { type: "text", value: "Before " },
+            quote,
+            { type: "text", value: " after." },
+          ],
+        },
+        {
+          type: "element",
+          tag: "ol",
+          props: { start: 3 },
+          children: [
+            { type: "element", tag: "li", props: {}, children: [quote] },
+          ],
+        },
+      ],
+    }).body;
+    const { blocks, traces, warnings } = legacyDocumentToBlocks(document);
+    expect(warnings).toEqual([]);
+    expect(traces).toHaveLength(2);
+    expect(blocks[0]).toMatchObject({
+      type: "markdown",
+      markdown: expect.stringContaining("Before [quoted"),
+    });
+    expect(JSON.stringify(blocks)).toContain("3. ");
+    expect(
+      resourceReferences(blocks).map(
+        (quote) => quote.type === "trace_quote" && quote.text,
+      ),
+    ).toEqual(["quoted [words]\nnext line", "quoted [words]\nnext line"]);
   });
 
   it("matches the committed goldens", async () => {

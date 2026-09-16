@@ -68,6 +68,9 @@ interface FootnoteState {
   referenced: Set<string>;
   /** Components found inside prose that Markdown cannot carry. */
   warnings?: string[];
+  renderComponent?: (
+    node: Extract<ReviewNode, { type: "component" }>,
+  ) => string | undefined;
 }
 
 /** Every footnote definition in a document, from any `section[data-footnotes]`. */
@@ -102,11 +105,13 @@ export function proseToMarkdown(
   nodes: ReviewNode[],
   footnotes?: FootnoteDefinitions,
   warnings?: string[],
+  renderComponent?: FootnoteState["renderComponent"],
 ): string {
   const state: FootnoteState = {
     definitions: footnotes ?? new Map(),
     referenced: new Set(),
     warnings,
+    renderComponent,
   };
 
   const body = blocks(nodes, state).trimEnd();
@@ -425,6 +430,10 @@ function inlineComponent(
   node: Extract<ReviewNode, { type: "component" }>,
   state?: FootnoteState,
 ): string {
+  const rendered = state?.renderComponent?.(node);
+
+  if (rendered !== undefined) return rendered;
+
   // SAFETY: reviewDocumentDataSchema validated the component props against
   // reviewComponentDataSchemas when the sealed document was parsed.
   const anchor = (node.props as { anchor?: { title?: string; peek?: Source } })

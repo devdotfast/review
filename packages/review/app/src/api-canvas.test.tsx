@@ -335,102 +335,115 @@ it("dismisses through the API without changing the document or promising automat
   expect(store.read(reviewId).version).toBe(0);
 });
 
-it("adds a retained trace live and opens its full conversation in the existing Trace tab", async () => {
-  const review = await command({
-    type: "create",
-    title: "Retained conversation",
-    pins,
-  });
+it.each([false, true])(
+  "adds a retained trace (inline=%s) live and opens its full conversation",
+  async (inline) => {
+    const review = await command({
+      type: "create",
+      title: "Retained conversation",
+      pins,
+    });
 
-  const traceId = randomUUID();
+    const traceId = randomUUID();
 
-  const trace = {
-    label: "Imported authoring conversation",
-    events: [
-      { id: "question", role: "user", text: "Keep the original components." },
+    const trace = {
+      label: "Imported authoring conversation",
+      events: [
+        { id: "question", role: "user", text: "Keep the original components." },
+        {
+          id: "answer",
+          role: "assistant",
+          text: "The source remains pinned while the canvas changes.",
+        },
+        { id: "result", role: "tool", text: "Saved successfully." },
+      ],
+    };
+
+    const app = new Hono().route("/reviews-api", createReviewApi(store));
+    app.get("/reviews-api/:id/commits", (context) => context.json([]));
+    app.get(`/reviews-api/resources/${traceId}`, (context) =>
+      context.json(trace),
+    );
+
+    const bridge = testReviewBridge(
+      {},
       {
-        id: "answer",
-        role: "assistant",
-        text: "The source remains pinned while the canvas changes.",
-      },
-      { id: "result", role: "tool", text: "Saved successfully." },
-    ],
-  };
-
-  const app = new Hono().route("/reviews-api", createReviewApi(store));
-  app.get("/reviews-api/:id/commits", (context) => context.json([]));
-  app.get(`/reviews-api/resources/${traceId}`, (context) =>
-    context.json(trace),
-  );
-
-  const bridge = testReviewBridge(
-    {},
-    {
-      request: async (url, init) => app.request(url, init),
-      diffView: {
-        files: async () => [],
-        create: () => {
-          throw new Error("Diff is not used here.");
+        request: async (url, init) => app.request(url, init),
+        diffView: {
+          files: async () => [],
+          create: () => {
+            throw new Error("Diff is not used here.");
+          },
         },
       },
-    },
-  );
+    );
 
-  const container = document.createElement("div");
-  document.body.append(container);
-  await act(async () => {
-    canvas = mount(container, {
-      kind: "api",
-      reviewId: review.reviewId,
-      bridge,
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => {
+      canvas = mount(container, {
+        kind: "api",
+        reviewId: review.reviewId,
+        bridge,
+      });
     });
-  });
 
-  const traceTab = () =>
-    [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "Trace",
-    );
+    const traceTab = () =>
+      [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "Trace",
+      );
 
-  await act(async () => {
-    await vi.waitFor(() =>
-      expect(container.querySelector("h1")?.textContent).toBe(
-        "Retained conversation",
-      ),
-    );
-  });
-  expect(traceTab()).toBeUndefined();
-  await act(async () => {
-    await command({
-      type: "edit",
-      reviewId: review.reviewId,
-      edit: {
-        type: "insert",
-        content: {
-          type: "trace_quote",
-          traceId,
-          eventId: "answer",
-          text: "source remains pinned",
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.querySelector("h1")?.textContent).toBe(
+          "Retained conversation",
+        ),
+      );
+    });
+    expect(traceTab()).toBeUndefined();
+    await act(async () => {
+      await command({
+        type: "edit",
+        reviewId: review.reviewId,
+        edit: {
+          type: "insert",
+          content: inline
+            ? {
+                type: "markdown",
+                markdown: `- Before [source remains pinned](review-trace:${traceId}#answer) after.`,
+              }
+            : {
+                type: "trace_quote",
+                traceId,
+                eventId: "answer",
+                text: "source remains pinned",
+              },
         },
-      },
+      });
     });
-  });
-  await act(async () => {
-    await vi.waitFor(() => expect(traceTab()).toBeTruthy());
-  });
-  await act(async () => traceTab()!.click());
-  await act(async () => {
-    await vi.waitFor(() =>
-      expect(container.textContent).toContain(
-        "Imported authoring conversation",
-      ),
+    await act(async () => {
+      await vi.waitFor(() => expect(traceTab()).toBeTruthy());
+    });
+    expect(container.querySelector(".review-trace-quote")).toBeTruthy();
+
+    expect(container.querySelector("li")?.textContent).toBe(
+      inline ? "Before source remains pinned after." : undefined,
     );
-  });
-  expect(container.textContent).toContain("Keep the original components.");
-  expect(container.textContent).toContain(
-    "The source remains pinned while the canvas changes.",
-  );
-  expect(container.textContent).not.toContain("Unable to load trace");
-});
+    await act(async () => traceTab()!.click());
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Imported authoring conversation",
+        ),
+      );
+    });
+    expect(container.textContent).toContain("Keep the original components.");
+    expect(container.textContent).toContain(
+      "The source remains pinned while the canvas changes.",
+    );
+    expect(container.textContent).not.toContain("Unable to load trace");
+  },
+);
 
 it("renders a code peek block on its pinned side without fetching source text", async () => {
   const review = await command({ type: "create", title: "Peek review", pins });

@@ -54,6 +54,47 @@ export type Pins = z.infer<typeof pinsSchema>;
 
 export type Element = Block | Step;
 
+/** Inline trace quotes keep paragraph/list layout while using retained resources. */
+export function traceQuoteLink(
+  href: string,
+): { traceId: string; eventId: string } | undefined {
+  const match = /^review-trace:([^#]+)#(.+)$/.exec(href);
+
+  return match
+    ? {
+        traceId: decodeURIComponent(match[1]!),
+        eventId: decodeURIComponent(match[2]!),
+      }
+    : undefined;
+}
+
+export function resourceReferences(document: Block[]): Block[] {
+  return elements(document).flatMap((block): Block[] => {
+    if (block.type !== "markdown")
+      return block.type === "image" ||
+        block.type === "trace_quote" ||
+        block.type === "software_map"
+        ? [block]
+        : [];
+
+    return [...markdownNodes(parseMarkdown(block.markdown))].flatMap(
+      (node): Block[] => {
+        if (node.type !== "link" || !node.url?.startsWith("review-trace:"))
+          return [];
+        const quote = traceQuoteLink(node.url);
+
+        if (!quote) throw new ReviewInputError("Invalid trace quote link.");
+
+        const text = [...markdownNodes(node)]
+          .map((child) => child.value ?? "")
+          .join("");
+
+        return [{ type: "trace_quote", ...quote, text }];
+      },
+    );
+  });
+}
+
 /**
  * Source-bearing items share their owning element's stable identity.
  * `tolerant` skips malformed Markdown source links instead of rejecting, for

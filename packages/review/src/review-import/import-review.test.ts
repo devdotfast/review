@@ -137,7 +137,7 @@ describe("importLegacyReview", () => {
     }
   });
 
-  it("quotes a trace as text and surfaces the warning in a callout", async () => {
+  it("preserves unavailable quotes and reports import warnings outside the document", async () => {
     const repo = await scratchGitRepo();
 
     const { home, record, stored, oids } = await syntheticLegacyReview(
@@ -180,11 +180,9 @@ describe("importLegacyReview", () => {
         "trace s1 unavailable; quoted as text",
       );
       const document = store.read(record.uuid).document;
-      expect(document[0]).toMatchObject({
-        type: "callout",
-        tone: "warning",
-        title: "Imported from the MDX review",
-      });
+      expect(JSON.stringify(document)).not.toContain(
+        "Imported from the MDX review",
+      );
       expect(document.at(-1)).toMatchObject({
         type: "markdown",
         markdown: "> agent said so\n",
@@ -244,7 +242,7 @@ describe("importLegacyReview", () => {
     }
   });
 
-  it("reports an unresolved source range in the callout", async () => {
+  it("reports an unresolved source range without adding document content", async () => {
     const repo = await scratchGitRepo();
 
     const { home, record, stored, oids } = await syntheticLegacyReview(
@@ -302,9 +300,12 @@ describe("importLegacyReview", () => {
       });
 
       expect(outcome.kind).toBe("imported");
-      const first = store.read(record.uuid).document[0];
-      expect(first).toMatchObject({ type: "callout", tone: "warning" });
-      expect(JSON.stringify(first)).toContain("head/missing.ts#L1-L2");
+      expect(
+        outcome.kind === "imported" && outcome.warnings.join("\n"),
+      ).toContain("head/missing.ts#L1-L2");
+      expect(JSON.stringify(store.read(record.uuid).document)).not.toContain(
+        "Imported from the MDX review",
+      );
     } finally {
       await store.close();
     }

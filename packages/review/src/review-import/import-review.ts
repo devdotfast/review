@@ -234,24 +234,10 @@ export async function importLegacyReview(
     if (mapSection) last.document.push(mapSection);
   }
 
-  // Source ranges that no longer resolve are reported in the document, so the
-  // check runs now, before the callout is built.
+  // Keep migration diagnostics in the import result/log, not authored content.
   lastWarnings.push(...(await unresolvedSources(last, data)));
 
-  const calloutWarnings = [...new Set(lastWarnings)];
-
-  if (calloutWarnings.length)
-    last.document.unshift({
-      type: "callout",
-      tone: "warning",
-      title: "Imported from the MDX review",
-      children: [
-        {
-          type: "markdown",
-          markdown: `${calloutWarnings.map((warning) => `- ${warning}`).join("\n")}\n`,
-        },
-      ],
-    });
+  const importWarnings = [...new Set(lastWarnings)];
 
   if (!imported) versions[0]!.attention = attentionFrom(record);
   const result = await store.importVersions(versions);
@@ -262,7 +248,7 @@ export async function importLegacyReview(
     title: last.title,
     version: result.version,
     warnings: [
-      ...new Set([...warnings, ...calloutWarnings, ...result.warnings]),
+      ...new Set([...warnings, ...importWarnings, ...result.warnings]),
     ],
   };
 }
@@ -478,7 +464,10 @@ class TraceResolver {
     for (const request of requests) {
       const quoted: Block = {
         type: "markdown",
-        markdown: `> ${request.quote}\n`,
+        markdown: `${request.quote
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n")}\n`,
       };
 
       const trace = await this.load(request);
@@ -551,6 +540,22 @@ class TraceResolver {
 
 function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
   return blocks.map((block) => {
+    if (block.type === "markdown") {
+      return {
+        ...block,
+        markdown: block.markdown.replace(
+          /\[((?:\\[\s\S]|[^\]\\])*)\]\(review-trace:(trace-placeholder-\d+)#[^)]+\)/g,
+          (link, label: string, id: string) => {
+            const quote = replacements.get(id);
+
+            return quote?.type === "trace_quote"
+              ? `[${label}](review-trace:${quote.traceId}#${encodeURIComponent(quote.eventId)})`
+              : `“${label}”`;
+          },
+        ),
+      };
+    }
+
     if (block.type === "trace_quote") {
       return replacements.get(block.traceId) ?? block;
     }

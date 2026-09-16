@@ -6,6 +6,8 @@ import type {
 import { type ReactNode, createContext, useContext } from "react";
 
 import type { HydratedReviewDocument } from "../review-document-hydrate";
+import type { NormalizedSoftwareModel } from "../software-map/model";
+import type { PinnedSoftwareMapData } from "../software-map/SoftwareMap";
 import { createReviewAppSessionId } from "../tab-dwell-telemetry";
 import {
   type ReviewRequestOptions,
@@ -27,6 +29,10 @@ export interface ReviewSession {
    * a module-global map with its own eviction policy.
    */
   documents: Map<string, HydratedReviewDocument>;
+  softwareMapData?(
+    model: NormalizedSoftwareModel,
+  ): PinnedSoftwareMapData | undefined;
+  keepsDismissedReviews?: boolean;
   apiUrl(endpoint: `/${string}`, options?: ReviewRequestOptions): string;
   fetch: (
     endpoint: `/${string}`,

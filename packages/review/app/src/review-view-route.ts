@@ -6,8 +6,11 @@ export function normalizeReviewView(
   view: ReviewView,
   softwareMapEnabled: boolean,
   hasChangeRange = true,
+  hasTraceSessions = true,
 ): ReviewView {
   if (view === "map" && !softwareMapEnabled) return "review";
+
+  if (view === "trace" && !hasTraceSessions) return "review";
 
   if (
     !hasChangeRange &&

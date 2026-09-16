@@ -10,6 +10,7 @@ import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
+import type { IFileStat } from "../../platform/files/common/files.js";
 import {
   reviewPeekWindows,
   reviewPeekDiffWindows,
@@ -21,6 +22,7 @@ import type {
   ReviewDiffFileWire,
   ReviewInlineEditorFactory,
   ReviewDiffViewFactory,
+  ReviewSourceEntry,
 } from "../common/reviewProtocol.js";
 import type {
   ReviewCodeModelReference,
@@ -28,6 +30,7 @@ import type {
 } from "./reviewCodeResourceService.js";
 import type { ReviewInlineEditorService, ReviewInlineSource } from "./reviewInlineEditorService.js";
 import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffViewService.js";
+import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import { IReviewSessionService, reviewResponseError } from "./reviewSessionService.js";
 
 export interface ApiSourceTarget {
@@ -56,6 +59,7 @@ export const IReviewApiSourceService =
 export interface IReviewApiSourceService {
   readonly _serviceBrand: undefined;
   open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void>;
+  children(resource: URI): Promise<IFileStat[]>;
   canvas(
     reviewId: string,
     version: () => number,
@@ -77,6 +81,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
     @IModelService modelService: IModelService,
     @ILanguageService languages: ILanguageService,
     @IEditorService private readonly editors: IEditorService,
+    @IReviewCanvasEditorTabsService private readonly tabs: IReviewCanvasEditorTabsService,
   ) {
     super();
     this._register(
@@ -130,7 +135,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
   }
 
   async open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void> {
-    await this.editors.openEditor({
+    const pane = await this.editors.openEditor({
       resource: apiSourceUri(target),
       options: {
         pinned: true,
@@ -146,6 +151,26 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
           : {}),
       },
     });
+    if (pane?.input) this.tabs.registerReviewEditor(target.reviewId, pane.input);
+  }
+
+  async children(resource: URI): Promise<IFileStat[]> {
+    const query = new URLSearchParams(resource.query);
+    const entries = await this.read<ReviewSourceEntry[]>(resource.authority, "/tree", {
+      version: Number(query.get("version")),
+      side: query.get("side") ?? "head",
+      path: resource.path.slice(1),
+      commit: query.get("commit") ?? undefined,
+    });
+    return entries.map((entry) => ({
+      resource: resource.with({ path: `/${entry.path}` }),
+      name: entry.path.split("/").at(-1)!,
+      isFile: entry.kind === "file",
+      isDirectory: entry.kind === "directory",
+      isSymbolicLink: false,
+      readonly: true,
+      children: undefined,
+    }));
   }
 
   private async snippet(

@@ -6,12 +6,16 @@ import {
   diffFileSummariesTrees,
   diffTrees,
   listCommitRange,
+  listTrackedFiles,
   readFileAtRevision,
   resolveRevision,
 } from "@dev.fast/local-vcs";
+import type { ReviewSourceEntry } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
+  type NormalizedSoftwareModel,
   SoftwareModelValidationError,
   defineSoftwareMap,
 } from "../software-map-model.js";
@@ -91,6 +95,8 @@ function sliceRange(file: { commit: string; text: string }, source: Source) {
 
 /** Local implementation of the host's source/resource boundary. No client gets a filesystem path. */
 export class LocalReviewData {
+  // A commit's tree never changes, so one listing serves every folder expansion.
+  private readonly trackedFiles = new Map<string, Promise<string[]>>();
   constructor(private readonly store: ReviewStore) {}
   async register(root: string) {
     const resolved = await realpath(root).catch(() => {
@@ -161,6 +167,50 @@ export class LocalReviewData {
 
     return { file, side, commit: result.commit, text: result.source };
   }
+
+  async tree(
+    pins: Pins,
+    side: "base" | "head",
+    directory: string,
+  ): Promise<ReviewSourceEntry[]> {
+    checkSourcePath(directory);
+    const prefix = directory ? directory.replace(/\/$/, "") + "/" : "";
+    const entries = new Map<string, ReviewSourceEntry>();
+
+    for (const file of await this.trackedFilesAt(
+      pins.repositoryId,
+      pins[side],
+    )) {
+      if (!file.startsWith(prefix)) continue;
+      const relative = file.slice(prefix.length);
+      const name = relative.split("/", 1)[0]!;
+      entries.set(name, {
+        path: prefix + name,
+        kind: relative.includes("/") ? "directory" : "file",
+      });
+    }
+
+    if (directory && entries.size === 0)
+      throw new ReviewInputError(
+        "Directory is unavailable at the pinned commit.",
+        404,
+      );
+
+    return [...entries.values()];
+  }
+  private trackedFilesAt(repositoryId: string, ref: string) {
+    const rootPath = this.store.repositoryPath(repositoryId);
+    const key = `${repositoryId}\0${ref}`;
+    let files = this.trackedFiles.get(key);
+
+    if (!files) {
+      files = listTrackedFiles({ rootPath, ref });
+      this.trackedFiles.set(key, files);
+      files.catch(() => this.trackedFiles.delete(key));
+    }
+
+    return files;
+  }
   async quote(pins: Pins, source: Source) {
     source = sourceSchema.parse(source);
 
@@ -214,6 +264,39 @@ export class LocalReviewData {
       );
 
     return { ...pins, base: selected.parentCommit, head: selected.commit };
+  }
+  async map(pins: Pins, resourceId: string) {
+    await this.validateResource(pins, {
+      type: "software_map",
+      mapVersionId: resourceId,
+    });
+
+    // SAFETY: map resources are normalized and validated by upload before storage.
+    const saved = JSON.parse(
+      Buffer.from(this.store.resource(resourceId).data).toString(),
+    ) as Pick<NormalizedSoftwareModel, "elements" | "relationships"> & {
+      side: "base" | "head";
+      commit: string;
+    };
+
+    const resolved = await resolveSoftwareMapDiffCounts({
+      sourceRootPath: this.store.repositoryPath(pins.repositoryId),
+      baseRef: pins.base,
+      headRef: pins.head,
+      side: saved.side,
+      codeElements: saved.elements.filter(
+        (element) => element.type === "codeElement",
+      ),
+      coverageClaims: saved.elements.flatMap((element) =>
+        element.coverage ? [{ path: element.path, ...element.coverage }] : [],
+      ),
+    });
+
+    return {
+      ...saved,
+      countsByElementPath: resolved.countsByElementPath,
+      unmappedByElementPath: resolved.unmappedByElementPath,
+    };
   }
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Upload boundary: uploadSchema.parse below validates incoming JSON.
   async upload(value: unknown) {
@@ -383,6 +466,18 @@ export class LocalReviewData {
         throw new ReviewInputError("Map focus element does not exist.");
     }
   }
+}
+
+function checkSourcePath(file: string) {
+  if (
+    path.posix.isAbsolute(file) ||
+    file.includes("\\") ||
+    file.split("/").some((part) => part === ".." || part === ".") ||
+    /[\u0000-\u001f]/.test(file)
+  )
+    throw new ReviewInputError(
+      "Source file must be a repository-relative path.",
+    );
 }
 
 export function openLocalReviewStore(databasePath: string) {

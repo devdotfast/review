@@ -58,6 +58,75 @@ afterEach(async () => {
 });
 
 describe("snapshot authoring", () => {
+  it("deletes one review and its history, keeps other reviews, and cannot replay deleted content", async () => {
+    const input = request({ type: "create", title: "Delete me", pins });
+    const { reviewId } = await store.execute(input);
+    const other = await create();
+    await edit(reviewId, {
+      type: "insert",
+      content: { type: "markdown", markdown: "Private review text" },
+    });
+    const deletion = request({ type: "delete", reviewId });
+    const result = await store.execute(deletion);
+    expect(result).toMatchObject({ reviewId, deleted: true });
+    expect(await store.execute(deletion)).toEqual(result);
+    expect(() => store.read(reviewId)).toThrow(/not found/);
+    expect(store.history(reviewId)).toEqual([]);
+    expect(store.read(other.reviewId)).toMatchObject({
+      version: 0,
+      title: "Example",
+    });
+    await store.close();
+    store = new ReviewStore(database, providers);
+    expect(store.list().map((review) => review.reviewId)).toEqual([
+      other.reviewId,
+    ]);
+    await expect(store.execute(input)).rejects.toThrow(/was deleted/);
+    expect(await store.execute(deletion)).toEqual(result);
+  });
+  it("persists attention without creating a document version or notifying its readers", async () => {
+    const { reviewId } = await create();
+    const other = await create();
+    const document = store.read(reviewId);
+
+    const documents = vi.fn<Parameters<ReviewStore["subscribe"]>[0]>(),
+      catalog = vi.fn<() => void>();
+
+    store.subscribe(documents);
+    store.subscribeCatalog(catalog);
+    const dismiss = request({ type: "attention", reviewId, action: "dismiss" });
+    const result = await store.execute(dismiss);
+    await store.execute(dismiss);
+    await store.execute(
+      request({ type: "attention", reviewId, action: "view" }),
+    );
+    expect(result).toMatchObject({ version: 0, attention: true });
+    expect(documents).not.toHaveBeenCalled();
+    expect(catalog).toHaveBeenCalledTimes(2);
+    expect(store.read(reviewId)).toEqual(document);
+    expect(store.history(reviewId)).toHaveLength(1);
+    await store.close();
+    store = new ReviewStore(database, providers);
+    expect(
+      store.list().find((review) => review.reviewId === reviewId),
+    ).toMatchObject({
+      viewedAt: expect.any(String),
+      dismissedAt: expect.any(String),
+    });
+    expect(
+      store.list().find((review) => review.reviewId === other.reviewId),
+    ).toMatchObject({
+      viewedAt: null,
+      dismissedAt: null,
+    });
+    await store.execute(
+      request({ type: "attention", reviewId, action: "restore" }),
+    );
+    expect(
+      store.list().find((review) => review.reviewId === reviewId)?.dismissedAt,
+    ).toBeNull();
+  });
+
   it.each([
     { type: "markdown", markdown: "# Summary\n**Ordinary Markdown**" },
     { type: "code", language: "ts", text: "const value = 1" },
@@ -420,6 +489,17 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     const response = await post({ type: "create", title: "HTTP review", pins });
     expect(response.status).toBe(200);
     const { reviewId } = await response.json();
+    expect(
+      (await fetch(`${url}/${reviewId}/open`, { method: "POST" })).status,
+    ).toBe(401);
+    expect(
+      (await fetch(`${url}/missing/open`, { method: "POST", headers })).status,
+    ).toBe(404);
+    // A server without a desktop must not report that it opened a window.
+    expect(
+      (await fetch(`${url}/${reviewId}/open`, { method: "POST", headers }))
+        .status,
+    ).toBe(409);
 
     const client = new ReviewApiClient({
       serverUrl: server.url,
@@ -427,6 +507,15 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     });
 
     const abort = new AbortController();
+    const catalog = client.watch(null, abort.signal);
+    expect((await catalog.next()).value).toMatchObject([
+      { reviewId, dismissedAt: null },
+    ]);
+    await post({ type: "attention", reviewId, action: "dismiss" });
+    expect((await catalog.next()).value).toMatchObject([
+      { reviewId, dismissedAt: expect.any(String) },
+    ]);
+    await catalog.return(undefined);
     const live = client.watch(reviewId, abort.signal);
     expect((await live.next()).value).toMatchObject({
       reviewId,
@@ -477,6 +566,18 @@ it("serves the experiment through the real desktop HTTP server and existing auth
         })
       ).status,
     ).toBe(413);
+    const watching = client.watch(reviewId, new AbortController().signal);
+    await watching.next();
+
+    await Promise.all([
+      expect(watching.next()).rejects.toThrow(Error),
+      post({ type: "delete", reviewId }).then((response) => {
+        expect(response.status).toBe(200);
+      }),
+    ]);
+    expect(
+      (await fetch(`${url}/${reviewId}?full=true`, { headers })).status,
+    ).toBe(404);
   } finally {
     await server.close();
   }

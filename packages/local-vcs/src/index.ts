@@ -877,6 +877,50 @@ export function listTrackedFilesSync(input: {
   });
 }
 
+/** {@link listTrackedFilesSync} without blocking: servers list trees while serving other requests. */
+export async function listTrackedFiles(input: {
+  rootPath: string;
+  ref?: string;
+}): Promise<string[]> {
+  const vcs = await detectLocalVcs(input.rootPath);
+
+  if (!vcs) return [];
+
+  const run = (command: string, args: string[]) =>
+    commandOutput(command, args, { cwd: vcs.rootPath }).catch(() => null);
+
+  if (vcs.kind === "jj") {
+    const args = ["-R", vcs.rootPath, "file", "list", "--ignore-working-copy"];
+
+    if (input.ref) args.push("-r", input.ref);
+    const output = await run("jj", args);
+
+    if (output !== null) return splitLines(output);
+
+    const gitRoot = await run("git", [
+      "-C",
+      vcs.rootPath,
+      "rev-parse",
+      "--show-toplevel",
+    ]);
+
+    if (
+      gitRoot === null ||
+      canonicalPath(gitRoot) !== canonicalPath(vcs.rootPath)
+    )
+      return [];
+  }
+
+  const output = await run(
+    "git",
+    input.ref
+      ? ["-C", vcs.rootPath, "ls-tree", "-r", "-z", "--name-only", input.ref]
+      : ["-C", vcs.rootPath, "ls-files", "-z"],
+  );
+
+  return output === null ? [] : output.split("\0").filter(Boolean);
+}
+
 function listTrackedFilesForKind(input: {
   rootPath: string;
   ref?: string;

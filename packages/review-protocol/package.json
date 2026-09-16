@@ -12,11 +12,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./bug-report": {
-      "types": "./dist/bug-report.d.ts",
-      "import": "./dist/bug-report.js",
-      "default": "./dist/bug-report.js"
     }
   },
   "scripts": {

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { parseJsonText } from "@dev.fast/review-protocol";
+import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,6 +19,33 @@ import {
   upgradeReviewDocumentJson,
 } from "../review-document-data";
 import { legacyDocumentToBlocks } from "./legacy-blocks";
+
+/** A sealed document whose body is `body`, for the nesting cases no fixture has. */
+const documentOf = (body: JsonValue[]) =>
+  reviewDocumentDataSchema.parse({
+    format: "review-document/1",
+    title: "T",
+    routePath: "/",
+    sourcePath: "review.mdx",
+    anchors: {},
+    anchorContents: {},
+    softwareModels: [],
+    body,
+  });
+
+const sequence = (title: string): JsonValue => ({
+  type: "component",
+  name: "SequenceDiagram",
+  props: {
+    id: title,
+    title,
+    actors: { caller: "Caller", callee: "Callee" },
+    steps: [
+      { from: "caller", to: "callee", label: "call", explanation: "why" },
+    ],
+  },
+  children: [],
+});
 
 const load = async (name: string) =>
   reviewDocumentDataSchema.parse(
@@ -179,6 +206,197 @@ describe("legacyDocumentToBlocks", () => {
         (quote) => quote.type === "trace_quote" && quote.text,
       ),
     ).toEqual(["quoted [words]\nnext line", "quoted [words]\nnext line"]);
+  });
+
+  it("hoists diagrams nested in prose to just after that prose", () => {
+    const { blocks, warnings } = legacyDocumentToBlocks(
+      documentOf([
+        {
+          type: "element",
+          tag: "p",
+          props: {},
+          children: [
+            { type: "text", value: "Two flows: " },
+            sequence("First flow"),
+            { type: "text", value: " and " },
+            sequence("Second flow"),
+          ],
+        },
+        {
+          type: "element",
+          tag: "p",
+          props: {},
+          children: [{ type: "text", value: "After." }],
+        },
+      ]),
+    );
+
+    expect(blocks.map((block) => block.type)).toEqual([
+      "markdown",
+      "sequence",
+      "sequence",
+      "markdown",
+    ]);
+    expect(blocks[0]).toMatchObject({
+      markdown: expect.stringContaining("Two flows:"),
+    });
+    expect(blocks[1]).toMatchObject({ title: "First flow" });
+    expect(blocks[2]).toMatchObject({ title: "Second flow" });
+    expect(blocks[3]).toMatchObject({ markdown: "After.\n" });
+    expect(warnings).toEqual([
+      "SequenceDiagram inside p was moved after it",
+      "SequenceDiagram inside p was moved after it",
+    ]);
+
+    for (const block of blocks) blockSchema.parse(block);
+  });
+
+  it("hoists a diagram out of a list item, leaving the item empty", () => {
+    const { blocks, warnings } = legacyDocumentToBlocks(
+      documentOf([
+        {
+          type: "element",
+          tag: "ul",
+          props: {},
+          children: [
+            {
+              type: "element",
+              tag: "li",
+              props: {},
+              children: [sequence("Sole child")],
+            },
+          ],
+        },
+      ]),
+    );
+
+    expect(blocks).toEqual([
+      { type: "markdown", markdown: "-\n" },
+      expect.objectContaining({ type: "sequence", title: "Sole child" }),
+    ]);
+    expect(warnings).toEqual(["SequenceDiagram inside li was moved after it"]);
+  });
+
+  it("hoists a diagram out of a blockquote", () => {
+    const { blocks, warnings } = legacyDocumentToBlocks(
+      documentOf([
+        {
+          type: "element",
+          tag: "blockquote",
+          props: {},
+          children: [
+            {
+              type: "element",
+              tag: "p",
+              props: {},
+              children: [{ type: "text", value: "Quoted." }],
+            },
+            sequence("Quoted flow"),
+          ],
+        },
+      ]),
+    );
+
+    expect(blocks).toEqual([
+      { type: "markdown", markdown: "> Quoted.\n" },
+      expect.objectContaining({ type: "sequence", title: "Quoted flow" }),
+    ]);
+    expect(warnings).toEqual([
+      "SequenceDiagram inside blockquote was moved after it",
+    ]);
+  });
+
+  it("registers a footnote's trace quote once, whatever cites the footnote", () => {
+    const reference = () => ({
+      type: "element",
+      tag: "sup",
+      props: {},
+      children: [
+        {
+          type: "element",
+          tag: "a",
+          props: {
+            href: "#user-content-fn-1",
+            id: "user-content-fnref-1",
+            "data-footnote-ref": "true",
+          },
+          children: [{ type: "text", value: "1" }],
+        },
+      ],
+    });
+
+    const { blocks, traces, warnings } = legacyDocumentToBlocks(
+      documentOf([
+        {
+          type: "element",
+          tag: "p",
+          props: {},
+          children: [{ type: "text", value: "First" }, reference()],
+        },
+        {
+          type: "component",
+          name: "ReviewSection",
+          props: { title: "Detail" },
+          children: [
+            {
+              type: "element",
+              tag: "p",
+              props: {},
+              children: [{ type: "text", value: "Second" }, reference()],
+            },
+          ],
+        },
+        {
+          type: "element",
+          tag: "section",
+          props: { "data-footnotes": "true" },
+          children: [
+            {
+              type: "element",
+              tag: "ol",
+              props: {},
+              children: [
+                {
+                  type: "element",
+                  tag: "li",
+                  props: { id: "user-content-fn-1" },
+                  children: [
+                    {
+                      type: "element",
+                      tag: "p",
+                      props: {},
+                      children: [
+                        { type: "text", value: "The agent " },
+                        {
+                          type: "component",
+                          name: "TraceQuote",
+                          props: { sessionId: "s1", event: 4 },
+                          children: [{ type: "text", value: "said so" }],
+                        },
+                        { type: "text", value: "." },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
+
+    const definition =
+      "[^1]: The agent [said so](review-trace:trace-placeholder-1#4).";
+
+    expect(traces).toHaveLength(1);
+    expect(warnings).toEqual([]);
+    expect(blocks.map((block) => block.type)).toEqual(["markdown", "section"]);
+    expect(blocks[0]).toMatchObject({
+      markdown: expect.stringContaining(definition),
+    });
+    expect(blocks[1]).toMatchObject({
+      children: [{ markdown: expect.stringContaining(definition) }],
+    });
   });
 
   it("matches the committed goldens", async () => {

@@ -192,6 +192,119 @@ describe("importLegacyReview", () => {
     }
   });
 
+  it("links a footnote's trace quote to the imported trace", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+    );
+
+    await appendFootnoteTraceQuote(
+      path.join(
+        stored.dir,
+        ".revisions",
+        oids[0]!,
+        ".bundle/document/review-document.json",
+      ),
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      const outcome = await importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => ({
+          parserVersion: "1",
+          descriptor: {
+            sessionId: "s1",
+            harness: "claude-code",
+            available: true,
+            source: null,
+            commits: [],
+          },
+          trace: {
+            harness: "claude-code",
+            title: "Session",
+            events: [
+              { kind: "user", text: "why?" },
+              { kind: "user", text: "and then?" },
+              { kind: "assistant", markdown: "agent said so, plainly" },
+            ],
+            startedAt: null,
+            endedAt: null,
+            activeMs: null,
+            userTurns: 2,
+            toolCalls: 0,
+          },
+          subagents: [],
+          traceName: null,
+          cacheStatus: "current",
+        }),
+      });
+
+      expect(outcome.kind).toBe("imported");
+      expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
+      expect(store.read(record.uuid).document.at(-1)).toMatchObject({
+        type: "markdown",
+        markdown: expect.stringMatching(
+          /\[\^1\]: The agent \[agent said so\]\(review-trace:[\da-f-]{36}#2\)\.\n$/,
+        ),
+      });
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("quotes a footnote's trace as text when the trace is gone", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-opencode-agentserver",
+      repo,
+    );
+
+    await appendFootnoteTraceQuote(
+      path.join(
+        stored.dir,
+        ".revisions",
+        oids[0]!,
+        ".bundle/document/review-document.json",
+      ),
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      const outcome = await importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+      expect(outcome.kind === "imported" && outcome.warnings).toContain(
+        "trace s1 unavailable; quoted as text",
+      );
+      expect(store.read(record.uuid).document.at(-1)).toMatchObject({
+        type: "markdown",
+        markdown: expect.stringContaining("[^1]: The agent “agent said so”.\n"),
+      });
+    } finally {
+      await store.close();
+    }
+  });
+
   it("resumes after a partial import and imports only the missing revisions", async () => {
     const repo = await scratchGitRepo();
 
@@ -390,3 +503,75 @@ describe("importLegacyReview", () => {
     }
   });
 });
+
+/** Appends a paragraph whose footnote definition quotes a trace, the shape a
+ * legacy review takes when an aside cites an agent session. */
+async function appendFootnoteTraceQuote(docPath: string): Promise<void> {
+  const doc = JSON.parse(await readFile(docPath, "utf8"));
+
+  doc.body.push(
+    {
+      type: "element",
+      tag: "p",
+      props: {},
+      children: [
+        { type: "text", value: "Why" },
+        {
+          type: "element",
+          tag: "sup",
+          props: {},
+          children: [
+            {
+              type: "element",
+              tag: "a",
+              props: {
+                href: "#user-content-fn-1",
+                id: "user-content-fnref-1",
+                "data-footnote-ref": "true",
+              },
+              children: [{ type: "text", value: "1" }],
+            },
+          ],
+        },
+        { type: "text", value: "?" },
+      ],
+    },
+    {
+      type: "element",
+      tag: "section",
+      props: { "data-footnotes": "true" },
+      children: [
+        {
+          type: "element",
+          tag: "ol",
+          props: {},
+          children: [
+            {
+              type: "element",
+              tag: "li",
+              props: { id: "user-content-fn-1" },
+              children: [
+                {
+                  type: "element",
+                  tag: "p",
+                  props: {},
+                  children: [
+                    { type: "text", value: "The agent " },
+                    {
+                      type: "component",
+                      name: "TraceQuote",
+                      props: { sessionId: "s1", event: 2 },
+                      children: [{ type: "text", value: "agent said so" }],
+                    },
+                    { type: "text", value: "." },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  );
+  await writeFile(docPath, JSON.stringify(doc));
+}

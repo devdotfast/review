@@ -66,7 +66,7 @@ export default defineConfig({
             ...isolatedTests,
             "app/src/**/*.browser.test.{ts,tsx}",
           ],
-          // Individual full-pipeline compiler cases can exceed Vitest's
+          // Integration cases can exceed Vitest's
           // 5 second default while sharing a two-core hosted runner.
           testTimeout: 15_000,
         },

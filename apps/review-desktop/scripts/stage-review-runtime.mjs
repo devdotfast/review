@@ -51,8 +51,6 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "tutorial/runtime-manifest.json",
   "node_modules",
   "node_modules/@dev.fast/local-vcs/dist/index.js",
-  "dist/document/worker.js",
-  "dist/authoring.d.ts",
 ];
 
 export function runtimeRootForPackagedRoot(packagedRoot) {

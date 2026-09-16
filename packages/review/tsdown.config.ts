@@ -34,8 +34,6 @@ const desktopHostPath = resolve(
 
 export default defineConfig({
   entry: {
-    authoring: "src/authoring.ts",
-    "document/worker": "src/document/worker.ts",
     cli: "src/cli.ts",
     runtime: "src/runtime.ts",
     "server/desktop-host": "src/server/desktop-host.ts",

@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-import { reviewMdxPath } from "./review-file";
-
 export async function resolveReviewRoot(
   cwd: string,
   execFile: typeof execFilePromise = execFilePromise,
@@ -38,10 +36,6 @@ export async function resolveReviewRoot(
   }
 
   return initialCwd;
-}
-
-export function activeReviewMdxPath(rootPath: string): string {
-  return reviewMdxPath(rootPath);
 }
 
 function execFilePromise(

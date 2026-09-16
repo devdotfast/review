@@ -1,6 +1,14 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
-import { nodeFloorMessage, supportedNodeRuntime } from "./node-floor";
+import {
+  NODE_FLOOR_MAJOR,
+  nodeFloorMessage,
+  supportedNodeRuntime,
+} from "./node-floor";
 
 describe("node floor", () => {
   it("accepts 22 and newer", () => {
@@ -19,6 +27,23 @@ describe("node floor", () => {
     expect(supportedNodeRuntime("")).toBe(false);
     expect(supportedNodeRuntime("v22.0.0")).toBe(false);
     expect(supportedNodeRuntime("lts.0.0")).toBe(false);
+  });
+
+  it("matches the floor the package manifest declares", async () => {
+    const manifestPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "package.json",
+    );
+
+    const manifest: { engines?: { node?: string } } = JSON.parse(
+      await readFile(manifestPath, "utf8"),
+    );
+
+    const engines = manifest.engines?.node ?? "";
+    const major = /(\d+)/.exec(engines)?.[1];
+    expect(major).toBeDefined();
+    expect(Number(major)).toBe(NODE_FLOOR_MAJOR);
   });
 
   it("names the floor and the found version", () => {

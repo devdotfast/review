@@ -1,13 +1,12 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import path from "node:path";
 import type { Writable } from "node:stream";
 import { promisify } from "node:util";
 
 import {
-  type AgentTraceHookAgent,
-  type CliInputStream,
+  AGENT_TRACE_HOOK_AGENTS,
   type CliJsonOutput,
   StoreApiError,
   StoreClient,
@@ -40,14 +39,6 @@ import { selfInstallStatus, shimPath } from "./self-install.js";
 
 const exec = promisify(execFile);
 
-/** The harnesses whose hooks this package owns, in report order. */
-const HOOK_AGENTS: AgentTraceHookAgent[] = [
-  "claude",
-  "codex",
-  "opencode",
-  "pi",
-];
-
 const INSTALL_FIX = "npx @dev.fast/traces install";
 
 const ALLOW_FIX = "dev-traces allow .";
@@ -73,7 +64,6 @@ export interface RunTracesCheckInput {
   json?: boolean;
   stdout: NodeJS.WritableStream;
   stderr: NodeJS.WritableStream;
-  stdin?: CliInputStream;
   client?: StoreClient;
   /** How long the runtime probe waits. Tests shorten it. */
   probeTimeoutMs?: number;
@@ -84,6 +74,18 @@ async function executable(filePath: string): Promise<boolean> {
     () => true,
     () => false,
   );
+}
+
+/**
+ * True when the path is a file this process can run. A directory named `node`
+ * passes the executable bit, and `command -v` in the shim would skip it.
+ */
+async function executableFile(filePath: string): Promise<boolean> {
+  const info = await stat(filePath).catch(() => null);
+
+  if (!info?.isFile()) return false;
+
+  return executable(filePath);
 }
 
 /**
@@ -124,7 +126,7 @@ async function nodeOnPath(env: NodeJS.ProcessEnv): Promise<string | null> {
     if (!entry) continue;
     const candidate = path.join(entry, "node");
 
-    if (await executable(candidate)) return candidate;
+    if (await executableFile(candidate)) return candidate;
   }
 
   return null;
@@ -350,13 +352,16 @@ export async function runTracesCheck(
                 `${origin} refused the check: ${error.code}: ${error.message}`,
               ),
         );
+        // A store that answered can answer the repository read too; only an
+        // expired login cannot.
+
+        if (error.code === "unauthorized") client = null;
       } else {
         checks.push(
           fail("login", `Could not reach ${origin}: ${errorMessage(error)}`),
         );
+        client = null;
       }
-
-      client = null;
     }
   }
 
@@ -425,14 +430,36 @@ export async function runTracesCheck(
   if (!repository) {
     checks.push(fail("consent", "skipped: no repository"));
   } else {
-    const consent = findTraceRepository(
-      await readTraceUserConfig(scope.devHome),
-      repository,
-    );
+    // readTraceUserConfig throws on a malformed config file, while
+    // selectTraceStorage reports the same fault as `selection.error`. The
+    // catch keeps both faults on this line instead of ending the report.
+    let allowed = false;
+    let consentError: string | null = null;
 
-    const allowed = consent?.enabledOrigins.includes(origin) ?? false;
+    try {
+      const consent = findTraceRepository(
+        await readTraceUserConfig(scope.devHome),
+        repository,
+      );
 
-    if (!allowed) {
+      allowed = consent?.enabledOrigins.includes(origin) ?? false;
+    } catch (error) {
+      consentError = errorMessage(error);
+    }
+
+    if (consentError) {
+      // The read error is the one that happened here; a selection error from
+      // the same file is extra detail, never a replacement. An EACCES must not
+      // read as a missing S3 credential.
+      const detail =
+        selection.error && selection.error !== consentError
+          ? `${consentError} (${selection.error})`
+          : consentError;
+
+      checks.push(
+        fail("consent", `the trace configuration is unreadable: ${detail}`),
+      );
+    } else if (!allowed) {
       checks.push(
         fail("consent", `${repository} is not allowed at ${origin}`, ALLOW_FIX),
       );
@@ -460,17 +487,17 @@ export async function runTracesCheck(
   // 6. The harness hooks and the Git hooks. `review` and `dev-traces` capture
   // to the same store, so a hook either command owns passes. Only a hook file
   // that neither command wrote is foreign.
-  const owners = await describeTraceHookOwners(scope.homeDir);
+  const owners = await describeTraceHookOwners(scope.homeDir, scope.env);
   const ownerParts: string[] = [];
   const foreign: string[] = [];
 
-  for (const agent of HOOK_AGENTS) {
+  for (const agent of AGENT_TRACE_HOOK_AGENTS) {
     const owner = owners[agent];
     ownerParts.push(`${agent} -> ${owner ?? "none"}`);
 
     if (owner !== null) continue;
 
-    if (await present(agentTraceHookPath(agent, scope.homeDir))) {
+    if (await present(agentTraceHookPath(agent, scope.homeDir, scope.env))) {
       foreign.push(agent);
     }
   }

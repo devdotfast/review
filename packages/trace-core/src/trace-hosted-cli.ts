@@ -11,6 +11,7 @@ import {
 import {
   describeTraceHookOwners,
   installHarnessHooks,
+  skippedHarnessesLine,
 } from "./agent-trace-hooks";
 import {
   type CliJsonOutput,
@@ -349,6 +350,8 @@ export async function runTraceAllow(
     cwd: string;
     client?: StoreClient;
     harnessHooks?: boolean;
+    /** Write every harness hook, even for a harness this machine lacks. */
+    allHarnesses?: boolean;
     /** The executable the installed hooks run; the CLI name when absent. */
     traceCommand?: TraceCommand;
     /**
@@ -377,11 +380,17 @@ export async function runTraceAllow(
     const storeOrigin = ctx.origin;
     const store = await requireActiveStore(ctx);
 
-    await installHarnessHooks({
+    const { skipped } = await installHarnessHooks({
       homeDir: input.scope.homeDir,
+      env: input.scope.env,
       executable: input.traceCommand?.file,
       harnessHooks: input.harnessHooks,
+      allHarnesses: input.allHarnesses,
     });
+
+    if (skipped.length > 0) {
+      humanStream(input).write(skippedHarnessesLine(skipped));
+    }
 
     await enableTraceRepository({
       cwd: input.cwd,
@@ -693,7 +702,11 @@ export async function writeHostedTraceStatus(
     `Capture switch: ${hostedCaptureEnabled(readTraceConfigFile({ devHome }).config) ? "on" : "off"}\n`,
   );
 
-  const owners = await describeTraceHookOwners(input.scope.homeDir);
+  const owners = await describeTraceHookOwners(
+    input.scope.homeDir,
+    input.scope.env,
+  );
+
   stream.write(
     `Harness hooks: claude -> ${owners.claude ?? "none"}, codex -> ${owners.codex ?? "none"}, opencode -> ${owners.opencode ?? "none"}, pi -> ${owners.pi ?? "none"}\n`,
   );

@@ -370,7 +370,74 @@ describe("shell profile PATH setup", () => {
       await shellProfilesWithPathSetup({ homeDir: home, devHome, env: {} }),
     ).toEqual([file(".profile")]);
     await remove();
-    expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\r\n");
+    // The removal normalizes the file it rewrites, so the rest comes back LF.
+    expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\n");
+  });
+
+  it("removes a legacy block from a CRLF file", async () => {
+    await writeFile(
+      file(".profile"),
+      `export A=1\r\n\r\n${LEGACY_PROFILE_MARKER}\r\nexport PATH="$HOME/.local/bin:$PATH"\r\n`,
+    );
+    expect(await remove()).toEqual([file(".profile")]);
+    expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\n");
+  });
+
+  it("removes an escaped rc line whose trace home holds a quote", async () => {
+    const odd = path.join(home, 'quo"ted');
+    const line = posixSourceLine(odd, home);
+    expect(line).toContain('\\"');
+    await writeFile(file(".profile"), `export A=1\n${line}\n`);
+    expect(await remove()).toEqual([file(".profile")]);
+    expect(await readFile(file(".profile"), "utf8")).toBe("export A=1\n");
+  });
+
+  it("keeps a foreign line whose path only ends in traces/env", async () => {
+    const foreign =
+      '. "/home/u/mytraces/env"\nsource "/home/u/mytraces/env.fish"\n';
+
+    await writeFile(file(".profile"), `export A=1\n${foreign}`);
+    expect(await remove()).toEqual([]);
+    expect(await readFile(file(".profile"), "utf8")).toBe(
+      `export A=1\n${foreign}`,
+    );
+  });
+
+  it("escapes a custom trace home inside the quoted rc line", async () => {
+    const odd = path.join(home, 'we$ird "home"`x`\\y');
+    const line = posixSourceLine(odd, home);
+
+    expect(line).toBe(
+      `. "${path.join(odd, "traces", "env").replaceAll(/[\\$"`]/g, (each) => `\\${each}`)}"`,
+    );
+    expect(fishSourceLine(odd, home)).toContain("\\$ird");
+    // `/bin/sh` must read the line as the one path it names.
+
+    const probe = await run("/bin/sh", [
+      "-c",
+      `set -- ; printf '%s' "${line.slice(3, -1)}"`,
+    ]);
+
+    expect(probe.stdout).toBe(path.join(odd, "traces", "env"));
+  });
+
+  it("keeps the manual hint when every shell file fails", async (context) => {
+    if (process.getuid?.() === 0) context.skip();
+    await writeFile(file(".profile"), "# locked\n");
+    await chmod(file(".profile"), 0o444);
+    const result = await ensure({ SHELL: "/bin/sh" });
+    expect(result.added).toEqual([]);
+    expect(result.output).toContain("[warn] could not update");
+    expect(result.output).toContain(
+      `To set up PATH in another shell, run: ${posixLine}`,
+    );
+    await chmod(file(".profile"), 0o644);
+  });
+
+  it("removes a source line written under another DEV_REVIEW_HOME", async () => {
+    await writeFile(file(".profile"), `. "/other/home/traces/env"\n`);
+    expect(await remove()).toEqual([file(".profile")]);
+    expect(await readFile(file(".profile"), "utf8")).toBe("");
   });
 
   it("warns about a file it cannot write and goes on", async (context) => {

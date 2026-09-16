@@ -12,6 +12,7 @@ import {
 import path from "node:path";
 
 import {
+  AGENT_TRACE_HOOK_AGENTS,
   type AgentTraceHookAgent,
   disableTraceRepository,
   errorMessage,
@@ -40,13 +41,6 @@ export const SHIM_MARKER = "# Managed by @dev.fast/traces. Do not edit.";
 
 /** The versions the install keeps beside the one in use. */
 const KEEP_PREVIOUS_VERSIONS = 2;
-
-const HOOK_AGENTS: AgentTraceHookAgent[] = [
-  "claude",
-  "codex",
-  "opencode",
-  "pi",
-];
 
 const installStateSchema = z.object({
   version: z.string().min(1),
@@ -253,6 +247,10 @@ async function copyPackage(packageRoot: string, target: string): Promise<void> {
   const previous = `${target}.old-${process.pid}`;
   await rm(previous, { recursive: true, force: true });
 
+  // Set when the moved-aside copy is the only one left: the cleanup must not
+  // remove it, and the error names it so the user can move it back.
+  let keepPrevious = false;
+
   try {
     await cp(packageRoot, staging, {
       recursive: true,
@@ -269,13 +267,24 @@ async function copyPackage(packageRoot: string, target: string): Promise<void> {
     try {
       await rename(staging, target);
     } catch (error) {
-      if (replaced) await rename(previous, target).catch(() => undefined);
+      if (!replaced) throw error;
 
-      throw error;
+      const restored = await rename(previous, target).then(
+        () => true,
+        () => false,
+      );
+
+      if (restored) throw error;
+      keepPrevious = true;
+
+      throw new Error(
+        `Could not install ${target}: ${errorMessage(error)}. The earlier version is at ${previous}; move it back to ${target}.`,
+      );
     }
   } finally {
     await rm(staging, { recursive: true, force: true });
-    await rm(previous, { recursive: true, force: true });
+
+    if (!keepPrevious) await rm(previous, { recursive: true, force: true });
   }
 }
 
@@ -289,15 +298,54 @@ async function pointCurrent(devHome: string, version: string): Promise<void> {
   await rename(staging, link);
 }
 
+/** The staging and set-aside names a killed install leaves behind. */
+const LEFTOVER_NAME = /\.(?:tmp|old)-(\d+)$/;
+
+/**
+ * True when a process with this id still runs, or the answer is unknown. The
+ * operating system reuses a pid, so a new process can hold the id of the
+ * install that died. That keeps a leftover one extra round; nothing reads it,
+ * and the next prune removes it.
+ */
+function processRuns(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+
+  try {
+    process.kill(pid, 0);
+
+    return true;
+  } catch (error) {
+    // ESRCH is the only answer that means the process is gone. EPERM means it
+    // runs under another user, so the directory stays.
+    // SAFETY: process.kill throws a Node system error, which carries `code`.
+    const failure = error as NodeJS.ErrnoException;
+
+    return failure.code !== "ESRCH";
+  }
+}
+
 /** Removes the oldest versions, and never the one `current` points at. */
 async function pruneVersions(devHome: string): Promise<string[]> {
   const root = versionsDir(devHome);
   const keep = await realpath(currentLink(devHome)).catch(() => null);
   const entries = await readdir(root).catch(() => []);
   const candidates: { dir: string; name: string; mtimeMs: number }[] = [];
+  const removedLeftovers: string[] = [];
 
   for (const name of entries) {
-    if (name.includes(".tmp-") || name.includes(".old-")) continue;
+    const leftover = LEFTOVER_NAME.exec(name);
+
+    if (leftover) {
+      // A kill leaves `<version>.tmp-<pid>` or `<version>.old-<pid>` behind.
+      // Nothing reads it once its process is gone, so the prune removes it.
+      if (!processRuns(Number(leftover[1]))) {
+        await rm(path.join(root, name), { recursive: true, force: true });
+        removedLeftovers.push(path.join(root, name));
+      }
+
+      continue;
+    }
+
     const dir = path.join(root, name);
 
     if ((await realpath(dir).catch(() => null)) === keep) continue;
@@ -313,7 +361,7 @@ async function pruneVersions(devHome: string): Promise<string[]> {
     (a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name),
   );
 
-  const removed: string[] = [];
+  const removed: string[] = [...removedLeftovers];
 
   for (const candidate of candidates.slice(KEEP_PREVIOUS_VERSIONS)) {
     await rm(candidate.dir, { recursive: true, force: true });
@@ -424,8 +472,10 @@ export async function uninstallSelf(
 
   const hooksRemoved: AgentTraceHookAgent[] = [];
 
-  for (const agent of HOOK_AGENTS) {
-    if (await removeAgentTraceHook(agent, input.homeDir, "dev-traces")) {
+  for (const agent of AGENT_TRACE_HOOK_AGENTS) {
+    if (
+      await removeAgentTraceHook(agent, input.homeDir, "dev-traces", input.env)
+    ) {
       hooksRemoved.push(agent);
     }
   }
@@ -553,7 +603,9 @@ export async function selfInstallStatus(
       : "";
 
   status.lines.push(
-    `Command: ${shim} (on PATH: ${status.shim.onPath ? "yes" : "no"}${setUpIn})\n`,
+    status.shim.present
+      ? `Command: ${shim} (on PATH: ${status.shim.onPath ? "yes" : "no"}${setUpIn})\n`
+      : `Command: ${shim} missing; run npx @dev.fast/traces install\n`,
   );
 
   if (status.runtimePath) status.lines.push(`Runtime: ${status.runtimePath}\n`);

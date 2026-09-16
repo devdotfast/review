@@ -16,6 +16,14 @@ import { shellQuote, traceCliName } from "./trace-command";
 
 export type AgentTraceHookAgent = "claude" | "codex" | "opencode" | "pi";
 
+/** Every harness whose trace hook this package writes, in report order. */
+export const AGENT_TRACE_HOOK_AGENTS: readonly AgentTraceHookAgent[] = [
+  "claude",
+  "codex",
+  "opencode",
+  "pi",
+];
+
 export interface AgentTraceHookInstallResult {
   agent: AgentTraceHookAgent;
   path: string;
@@ -40,11 +48,27 @@ function piExtensionPath(homeDir: string): string {
   return path.join(homeDir, ".pi", "agent", "extensions", "review-trace.ts");
 }
 
-function openCodePluginPath(homeDir: string): string {
+/** The configuration base OpenCode reads: `$XDG_CONFIG_HOME`, else `~/.config`. */
+function configHome(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return env.XDG_CONFIG_HOME?.trim() || path.join(homeDir, ".config");
+}
+
+function openCodeDirectory(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.join(configHome(homeDir, env), "opencode");
+}
+
+function openCodePluginPath(
+  homeDir: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   return path.join(
-    homeDir,
-    ".config",
-    "opencode",
+    openCodeDirectory(homeDir, env),
     "plugins",
     "review-trace.ts",
   );
@@ -231,15 +255,62 @@ export async function installHarnessHooks(input: {
   executable?: string;
   /** False skips every installer. */
   harnessHooks?: boolean;
-}): Promise<AgentTraceHookInstallResult[]> {
-  if (input.harnessHooks === false) return [];
+  /** True writes every hook, even for a harness this machine lacks. */
+  allHarnesses?: boolean;
+  env?: NodeJS.ProcessEnv;
+}): Promise<{
+  installed: AgentTraceHookInstallResult[];
+  skipped: AgentTraceHookAgent[];
+}> {
+  const installed: AgentTraceHookInstallResult[] = [];
+  const skipped: AgentTraceHookAgent[] = [];
 
-  return [
-    await installClaudeTraceHook(input.homeDir, input.executable),
-    await installCodexTraceHook(input.homeDir, input.executable),
-    await installOpenCodeTraceExtension(input.homeDir, input.executable),
-    await installPiTraceExtension(input.homeDir, input.executable),
-  ];
+  if (input.harnessHooks === false) return { installed, skipped };
+
+  const env = input.env ?? process.env;
+
+  for (const agent of AGENT_TRACE_HOOK_AGENTS) {
+    const present = existsSync(
+      agentTraceHomeDirectory(agent, input.homeDir, env),
+    );
+
+    if (input.allHarnesses !== true && !present) {
+      skipped.push(agent);
+      continue;
+    }
+
+    installed.push(
+      await HARNESS_HOOK_INSTALLERS[agent](
+        input.homeDir,
+        input.executable,
+        env,
+      ),
+    );
+  }
+
+  return { installed, skipped };
+}
+
+/** The installer of one harness hook, keyed by the harness. */
+const HARNESS_HOOK_INSTALLERS: Record<
+  AgentTraceHookAgent,
+  (
+    homeDir: string,
+    command?: string,
+    env?: NodeJS.ProcessEnv,
+  ) => Promise<AgentTraceHookInstallResult>
+> = {
+  claude: installClaudeTraceHook,
+  codex: installCodexTraceHook,
+  opencode: installOpenCodeTraceExtension,
+  pi: installPiTraceExtension,
+};
+
+/** One line that names the harnesses an install left alone. */
+export function skippedHarnessesLine(
+  skipped: readonly AgentTraceHookAgent[],
+): string {
+  return `Skipped the ${skipped.join(", ")} hook${skipped.length === 1 ? "" : "s"}: this machine has no such harness. Use --all-harnesses to write them anyway.\n`;
 }
 
 /**
@@ -405,9 +476,10 @@ export async function installPiTraceExtension(
 export async function installOpenCodeTraceExtension(
   homeDir = os.homedir(),
   reviewCommand = traceCliName(),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<AgentTraceHookInstallResult> {
-  const pluginsDir = path.join(homeDir, ".config", "opencode", "plugins");
-  const pluginPath = openCodePluginPath(homeDir);
+  const pluginPath = openCodePluginPath(homeDir, env);
+  const pluginsDir = path.dirname(pluginPath);
 
   let existing = "";
 
@@ -432,6 +504,7 @@ export async function removeAgentTraceHook(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
   owner: TraceHookOwner = "review",
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<boolean> {
   if (agent === "claude") {
     const settingsPath = claudeSettingsPath(homeDir);
@@ -513,7 +586,9 @@ export async function removeAgentTraceHook(
   }
 
   const extensionPath =
-    agent === "pi" ? piExtensionPath(homeDir) : openCodePluginPath(homeDir);
+    agent === "pi"
+      ? piExtensionPath(homeDir)
+      : openCodePluginPath(homeDir, env);
 
   if (!existsSync(extensionPath)) return false;
   const existing = await readFile(extensionPath, "utf8");
@@ -619,23 +694,49 @@ async function readTextOrEmpty(filePath: string): Promise<string> {
   return existsSync(filePath) ? readFile(filePath, "utf8") : "";
 }
 
+/**
+ * The directory one harness keeps its own configuration in. A machine without
+ * that directory does not run the harness, so an install writes it no hook.
+ */
+export function agentTraceHomeDirectory(
+  agent: AgentTraceHookAgent,
+  homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (agent === "claude") return path.join(homeDir, ".claude");
+
+  if (agent === "codex") return path.join(homeDir, ".codex");
+
+  if (agent === "opencode") return openCodeDirectory(homeDir, env);
+
+  if (agent === "pi") return path.join(homeDir, ".pi");
+  const _exhaustive: never = agent;
+
+  throw new Error(`Unknown trace hook agent: ${String(_exhaustive)}`);
+}
+
 /** The file one harness reads its trace hook from. */
 export function agentTraceHookPath(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   if (agent === "claude") return claudeSettingsPath(homeDir);
 
   if (agent === "codex") return codexConfigPath(homeDir);
 
-  if (agent === "opencode") return openCodePluginPath(homeDir);
+  if (agent === "opencode") return openCodePluginPath(homeDir, env);
 
-  return piExtensionPath(homeDir);
+  if (agent === "pi") return piExtensionPath(homeDir);
+  const _exhaustive: never = agent;
+
+  throw new Error(`Unknown trace hook agent: ${String(_exhaustive)}`);
 }
 
 /** Reports recognized SessionStart owners and extension owners without changing files. */
 export async function describeTraceHookOwners(
   homeDir = os.homedir(),
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<TraceHookOwners> {
   let claude: TraceHookOwner | null = null;
 
@@ -677,7 +778,7 @@ export async function describeTraceHookOwners(
     claude,
     codex,
     opencode: extensionOwner(
-      await readTextOrEmpty(openCodePluginPath(homeDir)),
+      await readTextOrEmpty(openCodePluginPath(homeDir, env)),
     ),
     pi: extensionOwner(await readTextOrEmpty(piExtensionPath(homeDir))),
   };

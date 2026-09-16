@@ -72,6 +72,8 @@ export {
   type AgentTraceHookAgent,
   type TraceHookOwner,
   type TraceHookOwners,
+  AGENT_TRACE_HOOK_AGENTS,
+  agentTraceHomeDirectory,
   agentTraceHookPath,
   describeTraceHookOwners,
   removeAgentTraceHook,
@@ -79,6 +81,7 @@ export {
   installClaudeTraceHook,
   installCodexTraceHook,
   installHarnessHooks,
+  skippedHarnessesLine,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
 } from "./agent-trace-hooks";

@@ -107,7 +107,7 @@ export function selectTraceStorage(
         config,
         s3,
         hosted,
-        error: `S3 trace storage is selected but no bucket credentials are configured. Run \`review trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>\` or Review Agent Setup.`,
+        error: `S3 trace storage is selected but no bucket credentials are configured. Run \`review trace storage use s3 --endpoint <url> --bucket <name> --key <id> --secret <secret>\`.`,
       };
     }
 

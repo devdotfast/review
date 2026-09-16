@@ -21,6 +21,8 @@ import {
   type SoftwareMapTopologyDiff,
   diffSoftwareMaps,
 } from "../../src/software-map-topology-diff";
+import { AgentSelectionProvider, useAgentSelection } from "./agent-selection";
+import { observeAgentTextSelection } from "./agent-text-selection";
 import { BugReportControl } from "./bug-report-dialog";
 import {
   ReviewDebugSettingsProvider,
@@ -262,32 +264,34 @@ function ReviewLayout({
             softwareMapEnabled={softwareMapEnabled}
             openTraceSession={setTraceSelection}
           >
-            <ReviewPanelProvider detailRevision={documentRevision}>
-              <ReviewLayoutContent
-                appRef={appRef}
-                shellRef={shellRef}
-                scrollRegionRef={scrollRegionRef}
-                articleRef={articleRef}
-                documentState={documentState}
-                documentRevision={documentRevision}
-                softwareModels={[
-                  ...(softwareMap ? [softwareMap.head] : []),
-                  ...(document?.documentSoftwareModels ?? []),
-                ]}
-                softwareMapState={softwareMapState}
-                repoSoftwareMap={softwareMap?.head ?? null}
-                baseSoftwareMap={softwareMap?.base ?? null}
-                softwareMapTopologyDiff={
-                  softwareMap
-                    ? diffSoftwareMaps(softwareMap.base, softwareMap.head)
-                    : null
-                }
-                softwareMapEnabled={softwareMapEnabled}
-                range={range}
-                commits={commits}
-                traceSelection={traceSelection}
-              />
-            </ReviewPanelProvider>
+            <AgentSelectionProvider revision={documentRevision}>
+              <ReviewPanelProvider detailRevision={documentRevision}>
+                <ReviewLayoutContent
+                  appRef={appRef}
+                  shellRef={shellRef}
+                  scrollRegionRef={scrollRegionRef}
+                  articleRef={articleRef}
+                  documentState={documentState}
+                  documentRevision={documentRevision}
+                  softwareModels={[
+                    ...(softwareMap ? [softwareMap.head] : []),
+                    ...(document?.documentSoftwareModels ?? []),
+                  ]}
+                  softwareMapState={softwareMapState}
+                  repoSoftwareMap={softwareMap?.head ?? null}
+                  baseSoftwareMap={softwareMap?.base ?? null}
+                  softwareMapTopologyDiff={
+                    softwareMap
+                      ? diffSoftwareMaps(softwareMap.base, softwareMap.head)
+                      : null
+                  }
+                  softwareMapEnabled={softwareMapEnabled}
+                  range={range}
+                  commits={commits}
+                  traceSelection={traceSelection}
+                />
+              </ReviewPanelProvider>
+            </AgentSelectionProvider>
           </ReviewProvider>
         </ReviewDebugSettingsProvider>
       </ReviewFindProvider>
@@ -364,6 +368,18 @@ function ReviewLayoutContent({
   );
 
   const [diffScope, setDiffScope] = useState<ReviewCommitSummary | null>(null);
+  const selectForAgent = useAgentSelection();
+  useEffect(() => {
+    selectForAgent(null);
+  }, [activeView, diffScope, selectForAgent]);
+  useEffect(() => {
+    const article = articleRef.current;
+
+    if (activeView !== "review" || !article) return;
+
+    return observeAgentTextSelection(article, selectForAgent);
+  }, [activeView, documentRevision, articleRef, selectForAgent]);
+
   const reviewFind = useReviewFindRegistration();
   useEffect(() => {
     reviewFind?.setReviewActive(activeView === "review");

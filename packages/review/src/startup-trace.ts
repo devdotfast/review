@@ -21,7 +21,7 @@ import { performance } from "node:perf_hooks";
 import { setLocalVcsCommandObserver } from "@dev.fast/local-vcs";
 import { errorMessage } from "@dev.fast/trace-core";
 
-export interface TraceSpanRecord {
+interface TraceSpanRecord {
   id: number;
   parentId: number | null;
   name: string;
@@ -31,9 +31,9 @@ export interface TraceSpanRecord {
   ok?: boolean;
 }
 
-export const TRACE_FILE_ENV = "DEV_FAST_REVIEW_TRACE";
+const TRACE_FILE_ENV = "DEV_FAST_REVIEW_TRACE";
 
-export const TRACE_DIR_ENV = "DEV_FAST_REVIEW_TRACE_DIR";
+const TRACE_DIR_ENV = "DEV_FAST_REVIEW_TRACE_DIR";
 
 const traceFile = resolveTraceFile(process.env);
 
@@ -47,7 +47,7 @@ let nextId = 1;
 
 const context = new AsyncLocalStorage<number>();
 
-export interface SpanHandle {
+interface SpanHandle {
   id: number;
   end: (detail?: string) => void;
   fail: (detail?: string) => void;
@@ -115,7 +115,7 @@ export async function span<T>(
   }
 }
 
-export function spanSync<T>(name: string, fn: () => T, detail?: string): T {
+function spanSync<T>(name: string, fn: () => T, detail?: string): T {
   if (!traceEnabled) return fn();
   const handle = startSpan(name, { detail });
 
@@ -198,7 +198,7 @@ export function setTraceAttribute(
   attributes[key] = value;
 }
 
-export function flushTrace(): void {
+function flushTrace(): void {
   if (!traceEnabled || !traceFile) return;
   const now = performance.now();
 

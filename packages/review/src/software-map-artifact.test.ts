@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -19,9 +19,7 @@ import {
   hydrateScratch,
   localizeModelImport,
   materializeSoftwareMapAtRef,
-  materializeSoftwareMapAtRefSync,
   readSoftwareMapSourceForRef,
-  readSoftwareMapSourceForRefSync,
   scratchSoftwareMapPath,
 } from "./software-map-artifact";
 import {
@@ -124,14 +122,6 @@ describe("the read ladder", () => {
         expect(read).toMatchObject({ commit, tier: "note" });
         expect(read?.source).toContain("Note");
       }
-
-      const syncRead = readSoftwareMapSourceForRefSync({
-        repoRootPath: repo,
-        ref: "HEAD",
-        role: "base",
-      });
-
-      expect(syncRead).toMatchObject({ commit, tier: "note" });
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -180,13 +170,6 @@ describe("the read ladder", () => {
       for (const role of ["head", "base"] as const) {
         expect(
           await readSoftwareMapSourceForRef({
-            repoRootPath: repo,
-            ref: "HEAD",
-            role,
-          }),
-        ).toBeNull();
-        expect(
-          readSoftwareMapSourceForRefSync({
             repoRootPath: repo,
             ref: "HEAD",
             role,
@@ -671,40 +654,6 @@ describe("materialization", () => {
       expect(artifact).toContain("Materialized");
       expect(artifact).not.toContain(CANONICAL_SOFTWARE_MAP_MODEL_IMPORT);
       expect(artifact).toContain("tolerant-software-map-model");
-    } finally {
-      await rm(repo, { recursive: true, force: true });
-    }
-  });
-
-  it("is write-if-changed: re-materializing does not rewrite the file", async () => {
-    const repo = await gitFixture("map-materialize-stable-");
-
-    try {
-      const commit = head(repo);
-      await writeNote({
-        rootPath: repo,
-        ref: SOFTWARE_MAP_NOTES_REF,
-        commit,
-        content: MAP_SOURCE("Stable"),
-      });
-
-      const first = materializeSoftwareMapAtRefSync({
-        repoRootPath: repo,
-        ref: "HEAD",
-        role: "base",
-      });
-
-      const before = statSync(first!).mtimeMs;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      const second = materializeSoftwareMapAtRefSync({
-        repoRootPath: repo,
-        ref: "HEAD",
-        role: "base",
-      });
-
-      expect(second).toBe(first);
-      expect(statSync(first!).mtimeMs).toBe(before);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

@@ -23,7 +23,6 @@ import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 
 export {
   runTraceDisable,
-  runTraceDoctor,
   runTraceEnable,
   runTraceGitHook,
   runTraceHook,
@@ -34,7 +33,6 @@ export {
   type TracePullScope,
   type TraceReviewScope,
   runTraceBlame,
-  runTraceLookupBlame,
   runTraceLookupCommit,
   runTraceLookupSession,
   runTraceShow,

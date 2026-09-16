@@ -5,7 +5,7 @@ import {
 } from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
 
-import { runReviewApp } from "./review-app";
+import { runReviewAppPick as runReviewApp } from "./review-app";
 
 function fakeTty(): NodeJS.ReadStream {
   return { isTTY: true } as NodeJS.ReadStream;

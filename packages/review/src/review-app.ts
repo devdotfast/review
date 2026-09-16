@@ -99,8 +99,6 @@ export async function runReviewAppPick(
   };
 }
 
-export const runReviewApp = runReviewAppPick;
-
 async function selectAppReview(
   input: RunReviewAppInput,
   reviewRoot: string,

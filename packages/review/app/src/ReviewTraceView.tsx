@@ -10,7 +10,7 @@ import { TraceRuler } from "./trace-ruler";
 import {
   type AgentTraceStorage,
   type LoadedAgentTrace,
-  makeTraceKey,
+  makeAgentTraceKey,
   useAgentTrace,
 } from "./use-agent-trace";
 
@@ -51,7 +51,7 @@ export function ReviewTraceView({
 
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
-      ? makeTraceKey(initialSelection.sessionId, initialSelection.trace)
+      ? makeAgentTraceKey(initialSelection.sessionId, initialSelection.trace)
       : null,
   );
 
@@ -85,7 +85,7 @@ export function ReviewTraceView({
   useEffect(() => {
     if (initialSelection) {
       setSelectedKey(
-        makeTraceKey(initialSelection.sessionId, initialSelection.trace),
+        makeAgentTraceKey(initialSelection.sessionId, initialSelection.trace),
       );
     }
   }, [initialSelection]);
@@ -372,7 +372,7 @@ export function ReviewTraceView({
             }
             targetEventIndex={
               initialSelection &&
-              makeTraceKey(
+              makeAgentTraceKey(
                 initialSelection.sessionId,
                 initialSelection.trace,
               ) === activeKey

@@ -26,8 +26,6 @@ export function makeAgentTraceKey(
   return storage ? `${base}@${storage}` : base;
 }
 
-export const makeTraceKey = makeAgentTraceKey;
-
 export function makeAgentTraceUrl(
   sessionId: string,
   trace?: string | null,

@@ -6,10 +6,6 @@
 import type { PostHogCaptureInput } from "./posthog-capture-client";
 import type { ReviewTelemetryCaptureClient } from "./review-telemetry";
 
-export const REVIEW_TELEMETRY_DEBUG_ENV = "DEV_FAST_REVIEW_TELEMETRY_DEBUG";
-
-export const REVIEW_TELEMETRY_DEBUG_PREFIX = "[review-telemetry]";
-
 /**
  * The debug sink, or `undefined` when the switch is off. The sink replaces the
  * PostHog client: a developer run never reaches the production project.
@@ -18,7 +14,7 @@ export function createTelemetryDebugSink(
   env: NodeJS.ProcessEnv,
   output: NodeJS.WritableStream = process.stderr,
 ): ReviewTelemetryCaptureClient | undefined {
-  if (!isEnabledEnvValue(env[REVIEW_TELEMETRY_DEBUG_ENV])) return undefined;
+  if (!isEnabledEnvValue(env.DEV_FAST_REVIEW_TELEMETRY_DEBUG)) return undefined;
 
   return {
     enabled: true,
@@ -27,9 +23,7 @@ export function createTelemetryDebugSink(
     ignoresOptOut: true,
     capture(input: PostHogCaptureInput): Promise<void> {
       try {
-        output.write(
-          `${REVIEW_TELEMETRY_DEBUG_PREFIX} ${JSON.stringify(input)}\n`,
-        );
+        output.write(`[review-telemetry] ${JSON.stringify(input)}\n`);
       } catch {
         // The sink is a developer aid and must never affect Review behavior.
       }

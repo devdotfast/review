@@ -11,12 +11,9 @@ import {
   gitCommonDirSync,
   listNoteCommits,
   readNote,
-  readNoteSync,
   remoteNotesRef,
   resolveRevision,
-  resolveRevisionSync,
   writeNote,
-  writeNoteSync,
 } from "@dev.fast/local-vcs";
 
 import { relativeImportPath, reviewModelModulePath } from "./package-paths";
@@ -51,7 +48,7 @@ const MATERIALIZED_MODEL_FILE = "tolerant-software-map-model.ts";
 /** Strict model module used for validation (never the tolerant one). */
 const STRICT_MODEL_FILE = "software-map-model.ts";
 
-export type SoftwareMapModelFile =
+type SoftwareMapModelFile =
   | typeof MATERIALIZED_MODEL_FILE
   | typeof STRICT_MODEL_FILE;
 
@@ -120,7 +117,7 @@ function escapeRegExp(value: string) {
 // old tier 4 — live-map fallback for the head role — was deleted with the
 // live map itself).
 
-export interface SoftwareMapSourceReadResult {
+interface SoftwareMapSourceReadResult {
   commit: string;
   source: string;
   tier: "note" | "remote-note" | "evolog";
@@ -172,55 +169,6 @@ export async function readSoftwareMapSourceForRef(input: {
     return { commit: resolved.commit, source: recovered, tier: "evolog" };
   }
 
-  return null;
-}
-
-export function readSoftwareMapSourceForRefSync(input: {
-  repoRootPath: string;
-  ref: string;
-  role: SoftwareMapArtifactRole;
-}): SoftwareMapSourceReadResult | null {
-  const gitDir = gitCommonDirSync(input.repoRootPath);
-
-  if (!gitDir) return null;
-
-  const resolved = resolveRevisionSync(input.repoRootPath, input.ref);
-
-  if (!resolved?.commit) return null;
-
-  const local = readNoteSync({
-    rootPath: input.repoRootPath,
-    ref: SOFTWARE_MAP_NOTES_REF,
-    commit: resolved.commit,
-  });
-
-  if (local !== null) {
-    return { commit: resolved.commit, source: local, tier: "note" };
-  }
-
-  const remote = readNoteSync({
-    rootPath: input.repoRootPath,
-    ref: remoteNotesRef(SOFTWARE_MAP_NOTES_REF),
-    commit: resolved.commit,
-  });
-
-  if (remote !== null) {
-    try {
-      writeNoteSync({
-        rootPath: input.repoRootPath,
-        ref: SOFTWARE_MAP_NOTES_REF,
-        commit: resolved.commit,
-        content: remote,
-      });
-    } catch {
-      // Backfill is best-effort.
-    }
-
-    return { commit: resolved.commit, source: remote, tier: "remote-note" };
-  }
-
-  // Evolog recovery is async-only; the async scan is the perf path and the
-  // sync path self-heals on the next async pass.
   return null;
 }
 
@@ -612,23 +560,6 @@ export async function materializeSoftwareMapAtRef(input: {
   }
 
   return written.outputPath;
-}
-
-export function materializeSoftwareMapAtRefSync(input: {
-  repoRootPath: string;
-  ref: string;
-  role: SoftwareMapArtifactRole;
-}): string | null {
-  const read = readSoftwareMapSourceForRefSync(input);
-
-  if (!read) return null;
-  const gitDir = gitCommonDirSync(input.repoRootPath);
-
-  if (!gitDir) return null;
-
-  // Strict-validation warning is async-only (dynamic import); the async
-  // materialization pass over the same commit covers it.
-  return writeMaterializedArtifact({ gitDir, read }).outputPath;
 }
 
 function writeMaterializedArtifact(input: {

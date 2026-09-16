@@ -271,8 +271,6 @@ export async function runTraceRepair(input: {
   return result.enabled ? 0 : 1;
 }
 
-export const runTraceDoctor = runTraceStatus;
-
 export async function runTraceSync(input: {
   scope: TraceScope;
   cwd: string;

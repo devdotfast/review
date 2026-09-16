@@ -21,14 +21,14 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  runTraceDoctor,
+  runTraceBlame,
   runTraceEnable,
   runTraceList,
-  runTraceLookupBlame,
   runTraceLookupCommit,
   runTraceLookupSession,
   runTracePull,
   runTraceShow,
+  runTraceStatus,
   runTraceSync,
 } from "./trace-cli";
 
@@ -183,7 +183,7 @@ describe("trace-cli", () => {
     });
     const stderr = new PassThrough();
 
-    const exitCode = await runTraceDoctor({
+    const exitCode = await runTraceStatus({
       scope: traceScope(),
       cwd: tempDir,
       stdout: stdout as any,
@@ -459,7 +459,7 @@ describe("trace-cli", () => {
         error: "upload failed earlier",
       });
       const status: string[] = [];
-      await runTraceDoctor({
+      await runTraceStatus({
         scope: traceScope(),
         cwd: tempDir,
         stdout: collectingWritable(status),
@@ -553,7 +553,7 @@ describe("trace-cli", () => {
       jsonOut += d.toString();
     });
 
-    const exitCodeJson = await runTraceLookupBlame({
+    const exitCodeJson = await runTraceBlame({
       cwd: gitDir,
       file: "app.ts",
       lines: "1,2",
@@ -578,7 +578,7 @@ describe("trace-cli", () => {
       textOut += d.toString();
     });
 
-    const exitCodeText = await runTraceLookupBlame({
+    const exitCodeText = await runTraceBlame({
       cwd: gitDir,
       file: "app.ts",
       stdout: stdoutText as any,

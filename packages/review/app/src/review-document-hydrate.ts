@@ -103,11 +103,18 @@ const componentHydrators: ComponentHydrators = {
   // remark plugin keeps it). The section renders its own heading from
   // `title`, so the child would show twice.
   ReviewSection: (_node, props, children) => {
-    if (children[0]?.type === "element" && children[0].tag === "h2") {
+    const [first] = children;
+    const section = { ...props };
+
+    if (first?.type === "element" && first.tag === "h2") {
       children.shift();
+
+      // An authored heading id (`## Title {#id}`) stays the section's id.
+      if (section.id === undefined && first.props.id !== undefined)
+        section.id = first.props.id;
     }
 
-    return { ...props, summary: reviewSectionSummary(children) };
+    return { ...section, summary: reviewSectionSummary(children) };
   },
 };
 

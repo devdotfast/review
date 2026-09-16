@@ -97,7 +97,7 @@ function ready(data = reviewDocumentData(), contentHash = "document-hash") {
 }
 
 describe("hydrateReviewDocument", () => {
-  it("drops the published section heading and leaves ids to projection", () => {
+  it("drops the published section heading, keeps its authored id, and leaves generated ids to projection", () => {
     const data = reviewDocumentData();
     data.body = [
       {
@@ -127,7 +127,7 @@ describe("hydrateReviewDocument", () => {
           {
             type: "element",
             tag: "h2",
-            props: {},
+            props: { id: "authored" },
             children: [{ type: "text", value: "Data flow" }],
           },
         ],
@@ -146,7 +146,10 @@ describe("hydrateReviewDocument", () => {
       paragraphs: 1,
     });
     expect(first.children).toHaveLength(2);
-    expect(reviewTocEntries(hydrated.body)).toEqual([]);
+    // Only the authored id exists before projection assigns the rest.
+    expect(reviewTocEntries(hydrated.body)).toEqual([
+      { id: "authored", text: "Data flow", level: "h2" },
+    ]);
 
     const projected = projectReviewDocument(hydrated.body, {
       tutorial: false,
@@ -156,7 +159,7 @@ describe("hydrateReviewDocument", () => {
     expect(reviewTocEntries(projected.body)).toEqual([
       { id: "data-flow", text: "Data flow", level: "h2" },
       { id: "details", text: "Details", level: "h3" },
-      { id: "data-flow-2", text: "Data flow", level: "h2" },
+      { id: "authored", text: "Data flow", level: "h2" },
     ]);
     expect(JSON.stringify(data)).toBe(saved);
   });

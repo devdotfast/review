@@ -31,11 +31,12 @@ export function AgentMarkdown({
   className?: string;
   highlightQuote?: string;
 }): ReactElement {
-  const tree = parseMarkdown(source);
+  const { body, footnotes } = splitFootnotes(parseMarkdown(source));
 
   return (
     <div className={["agent-markdown", className].filter(Boolean).join(" ")}>
-      {renderMarkdownChildren(tree.children ?? [], "root", highlightQuote)}
+      {renderMarkdownChildren(body, "root", highlightQuote)}
+      {renderFootnotes(footnotes, "root", highlightQuote)}
     </div>
   );
 }
@@ -50,9 +51,11 @@ export function MarkdownContent({
   h1?: ComponentType<{ children?: ReactNode }>;
   renderLink?: LinkRenderer;
 }): ReactElement {
+  const { body, footnotes } = splitFootnotes(parseMarkdown(source));
+
   return (
     <DocumentLink.Provider value={renderLink}>
-      {(parseMarkdown(source).children ?? []).map((node, index) =>
+      {body.map((node, index) =>
         node.type === "heading" && node.depth === 1 && Heading ? (
           <Heading key={index}>
             {renderMarkdownChildren(node.children ?? [], String(index))}
@@ -61,7 +64,46 @@ export function MarkdownContent({
           renderMarkdownNode(node, String(index))
         ),
       )}
+      {renderFootnotes(footnotes, "document")}
     </DocumentLink.Provider>
+  );
+}
+
+/** GFM footnote definitions render once, after the body, in reference order. */
+function splitFootnotes(tree: MarkdownNode) {
+  const body: MarkdownNode[] = [];
+  const footnotes: MarkdownNode[] = [];
+
+  for (const node of tree.children ?? [])
+    (node.type === "footnoteDefinition" ? footnotes : body).push(node);
+
+  return { body, footnotes };
+}
+
+function renderFootnotes(
+  footnotes: MarkdownNode[],
+  keyPrefix: string,
+  highlightQuote?: string,
+): ReactNode {
+  if (footnotes.length === 0) return null;
+
+  return (
+    <section data-footnotes="" className="footnotes">
+      <ol>
+        {footnotes.map((definition, index) => (
+          <li
+            key={`${keyPrefix}:fn:${index}`}
+            id={`fn-${definition.label ?? definition.identifier ?? index}`}
+          >
+            {renderMarkdownChildren(
+              definition.children ?? [],
+              `${keyPrefix}:fn:${index}`,
+              highlightQuote,
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 
@@ -205,13 +247,25 @@ function renderMarkdownNode(
     case "table":
       return renderTable(node, key);
     case "tableRow":
-      return (
-        <tr key={key}>{renderMarkdownChildren(node.children ?? [], key)}</tr>
-      );
+      return renderTableRow(node, key, false, null);
     case "tableCell":
       return (
         <td key={key}>{renderMarkdownChildren(node.children ?? [], key)}</td>
       );
+    case "footnoteReference": {
+      const label = node.label ?? node.identifier ?? "";
+
+      return (
+        <sup key={key}>
+          <a data-footnote-ref="" href={`#fn-${label}`} id={`fnref-${label}`}>
+            {label}
+          </a>
+        </sup>
+      );
+    }
+
+    case "footnoteDefinition":
+      return null;
     case "html":
       return node.value ?? "";
     default:
@@ -235,12 +289,16 @@ function renderTable(node: MarkdownNode, key: string): ReactElement {
   const rows = node.children ?? [];
   const [header, ...body] = rows;
 
+  const align = node.align ?? null;
+
   return (
     <table key={key}>
-      {header && <thead>{renderTableRow(header, `${key}:head`, true)}</thead>}
+      {header && (
+        <thead>{renderTableRow(header, `${key}:head`, true, align)}</thead>
+      )}
       <tbody>
         {body.map((row, index) =>
-          renderTableRow(row, `${key}:body:${index}`, false),
+          renderTableRow(row, `${key}:body:${index}`, false, align),
         )}
       </tbody>
     </table>
@@ -251,20 +309,39 @@ function renderTableRow(
   node: MarkdownNode,
   key: string,
   isHeader: boolean,
+  align: Array<string | null> | null,
 ): ReactElement {
   const Cell = isHeader ? "th" : "td";
 
   return (
     <tr key={key}>
-      {(node.children ?? []).map((cell, index) =>
-        createElement(
+      {(node.children ?? []).map((cell, index) => {
+        const textAlign = cellAlignment(align?.[index]);
+
+        return createElement(
           Cell,
-          { key: `${key}:cell:${index}` },
+          {
+            key: `${key}:cell:${index}`,
+            style: textAlign ? { textAlign } : undefined,
+          },
           renderMarkdownChildren(cell.children ?? [], `${key}:cell:${index}`),
-        ),
-      )}
+        );
+      })}
     </tr>
   );
+}
+
+function cellAlignment(
+  align: string | null | undefined,
+): "left" | "center" | "right" | undefined {
+  switch (align) {
+    case "left":
+    case "center":
+    case "right":
+      return align;
+    default:
+      return undefined;
+  }
 }
 
 function MarkdownLink({

@@ -16,6 +16,7 @@ export interface MarkdownNode {
   align?: Array<string | null> | null;
   alt?: string | null;
   identifier?: string;
+  label?: string | null;
 }
 
 export function* markdownNodes(node: MarkdownNode): Generator<MarkdownNode> {

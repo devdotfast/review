@@ -9,11 +9,14 @@ import { createReviewPanelStore } from "./review-panel-store";
 import { testReviewSession } from "./review-session-test-utils";
 import { writeReviewUiState } from "./review-ui-state";
 import {
+  ReviewViewStateProvider,
   clearPersistedReviewViewState,
   createReviewTourRestoreClaim,
   readPersistedReviewViewState,
   reviewViewStateKey,
   useReviewViewStateSync,
+  useTourPersist,
+  useTourRestore,
 } from "./review-view-state";
 
 type TestReviewSession = ReturnType<typeof testReviewSession>;
@@ -257,6 +260,45 @@ describe("review view state", () => {
     );
   });
 
+  it("keeps a stored tour until the diagram that owns it mounts", () => {
+    const session = testReviewSession();
+    const otherTour: GuidedTour = { ...tour, id: "other" };
+    storeState(session, {
+      overlayTour: { tourId: "flow", activeAnchor: "second" },
+    });
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    const render = (owners: readonly GuidedTour[]) =>
+      act(() => {
+        root?.render(
+          <ReviewSessionProvider session={session}>
+            <TourHarness owners={owners} />
+          </ReviewSessionProvider>,
+        );
+      });
+
+    // A diagram that does not own the stored tour mounts first (and closed).
+    render([otherTour]);
+    expect(container.querySelector("[data-tour=other]")?.textContent).toBe("");
+    expect(readPersistedReviewViewState(session.config).overlayTour).toEqual({
+      tourId: "flow",
+      activeAnchor: "second",
+    });
+
+    // The owner mounts later, claims the restore, and keeps persisting it.
+    render([otherTour, tour]);
+    expect(container.querySelector("[data-tour=flow]")?.textContent).toBe(
+      "second",
+    );
+    expect(readPersistedReviewViewState(session.config).overlayTour).toEqual({
+      tourId: "flow",
+      activeAnchor: "second",
+    });
+  });
+
   it("lets the matching tour owner claim a restore exactly once", () => {
     const claim = createReviewTourRestoreClaim({
       tourId: "flow",
@@ -352,6 +394,35 @@ function renderViewState({
   });
 
   return { element: element!, store };
+}
+
+function TourOwner({ tour }: { tour: GuidedTour }) {
+  const restored = useTourRestore(tour);
+  useTourPersist(restored?.tour ?? null, restored?.activeAnchor ?? null);
+
+  return <span data-tour={tour.id}>{restored?.activeAnchor ?? ""}</span>;
+}
+
+function TourHarness({ owners }: { owners: readonly GuidedTour[] }) {
+  const scrollRegionRef = useRef<HTMLDivElement | null>(null);
+
+  const sync = useReviewViewStateSync({
+    scrollRegionRef: scrollRegionRef as RefObject<HTMLElement | null>,
+    panelStore: createReviewPanelStore(),
+  });
+
+  return (
+    <ReviewViewStateProvider
+      tourRestore={sync.tourRestore}
+      persistOverlayTour={sync.persistOverlayTour}
+    >
+      <div ref={scrollRegionRef}>
+        {owners.map((owner) => (
+          <TourOwner key={owner.id} tour={owner} />
+        ))}
+      </div>
+    </ReviewViewStateProvider>
+  );
 }
 
 function ViewStateHarness({

@@ -7,6 +7,7 @@ import {
 } from "../../src/review-api/document";
 import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
+import { apiHeadingId } from "./api-document-headings";
 import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
@@ -48,6 +49,7 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
   return (
     <MarkdownContent
       source={node.markdown}
+      headingId={(index) => apiHeadingId(node.id, index)}
       h1={ReviewDocumentTitle}
       renderLink={(href, children) => {
         const quote = traceQuoteLink(href);

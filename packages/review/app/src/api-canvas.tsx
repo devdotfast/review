@@ -22,6 +22,7 @@ import {
   RevealAfterFirstPaint,
   createDocumentLoader,
 } from "./api-document";
+import { apiDocumentHeadings } from "./api-document-headings";
 import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
@@ -317,7 +318,16 @@ export function ApiCanvas({
         return Response.json({
           ok: true,
           updatedAtMs: Date.parse(snapshot.createdAt),
+          pullRequestNumber: snapshot.origin?.pullRequestNumber,
+          pullRequestUrl: snapshot.origin?.pullRequestUrl,
         });
+
+      if (route === "/stack" && snapshot)
+        return Response.json(
+          await client.read(
+            `/${snapshot.reviewId}/stack?version=${snapshot.version}`,
+          ),
+        );
 
       if (route === "/revisions") {
         const history = await client.read<
@@ -403,6 +413,7 @@ const CanvasDocument = memo(function CanvasDocument({
     documentSoftwareModels: [...data.maps.values()],
     anchors: data.anchors,
     render: DocumentBody,
+    tocEntries: apiDocumentHeadings(snapshot.document),
   };
 
   return (

@@ -81,6 +81,25 @@ interface InlineFindMatch {
   readonly range: Range;
 }
 
+/** The existing widgets also accept source loaded from the review API. */
+export interface ReviewInlineSource {
+  snippet(): Promise<ReviewCodeModelReference>;
+  diff(): Promise<import("./reviewCodeResourceService.js").ReviewCodeDiffTarget | undefined>;
+}
+
+/** API sources feed the same unified diff builder as legacy sources. */
+async function acquireUnifiedFromSource(
+  resources: IReviewCodeResourceService,
+  spec: Pick<ReviewInlineFindSpec, "path" | "side" | "ranges">,
+  source: ReviewInlineSource,
+) {
+  const target = await source.diff();
+  return (
+    target &&
+    resources.acquireUnifiedDiffForTarget(spec.path, spec.side, spec.ranges, target)
+  );
+}
+
 export class ReviewInlineEditorService
   extends Disposable
   implements ReviewInlineEditorFactory, ICompositeCodeEditor
@@ -227,7 +246,7 @@ export class ReviewInlineEditorService
     this.overflowWidgetsDomNode = node;
   }
 
-  create(spec: ReviewInlineEditorSpec): ReviewInlineEditorHandle {
+  create(spec: ReviewInlineEditorSpec, source?: ReviewInlineSource): ReviewInlineEditorHandle {
     const handle = new InlineEditorHandle(
       spec,
       this.instantiationService,
@@ -258,6 +277,7 @@ export class ReviewInlineEditorService
         });
       },
       (control) => this.handlesByEditor.set(control, handle),
+      source,
     );
     this.handles.add(handle);
     this.updateMetrics(spec.container.ownerDocument);
@@ -267,14 +287,13 @@ export class ReviewInlineEditorService
   async find(
     spec: ReviewInlineFindSpec,
     query: ReviewFindQuery,
+    source?: ReviewInlineSource,
   ): Promise<ReviewInlineFindResult> {
     if (!query.text) return { matchCount: 0 };
     {
-      const unified = await this.resources.acquireUnifiedDiff(
-        spec.path,
-        spec.side,
-        spec.ranges,
-      );
+      const unified = source
+        ? await acquireUnifiedFromSource(this.resources, spec, source)
+        : await this.resources.acquireUnifiedDiff(spec.path, spec.side, spec.ranges);
       if (unified) {
         try {
           return {
@@ -289,11 +308,9 @@ export class ReviewInlineEditorService
         }
       }
     }
-    const snippet = await this.resources.acquireSnippet(
-      spec.path,
-      spec.side,
-      spec.ranges,
-    );
+    const snippet = source
+      ? await source.snippet()
+      : await this.resources.acquireSnippet(spec.path, spec.side, spec.ranges);
     try {
       return {
         matchCount: findModelRanges(snippet.model, snippet.windows, query).length,
@@ -404,6 +421,7 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
     private readonly onDidFocusControl: (control: ICodeEditor) => void,
     private readonly onDidBlurControl: () => void,
     private readonly onDidBindControl: (control: ICodeEditor) => void,
+    private readonly source?: ReviewInlineSource,
   ) {
     super();
     if (spec.ranges.length === 0) {
@@ -541,11 +559,13 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
   private async initialize(): Promise<void> {
     try {
       {
-        const unifiedReference = await this.resources.acquireUnifiedDiff(
-          this.spec.path,
-          this.spec.side,
-          this.spec.ranges,
-        );
+        const unifiedReference = this.source
+          ? await acquireUnifiedFromSource(this.resources, this.spec, this.source)
+          : await this.resources.acquireUnifiedDiff(
+              this.spec.path,
+              this.spec.side,
+              this.spec.ranges,
+            );
         if (unifiedReference) {
           if (this.disposed) {
             unifiedReference.dispose();
@@ -555,11 +575,13 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
           return;
         }
       }
-      const modelReference = await this.resources.acquireSnippet(
-        this.spec.path,
-        this.spec.side,
-        this.spec.ranges,
-      );
+      const modelReference = this.source
+        ? await this.source.snippet()
+        : await this.resources.acquireSnippet(
+            this.spec.path,
+            this.spec.side,
+            this.spec.ranges,
+          );
       if (this.disposed) {
         modelReference.dispose();
         return;

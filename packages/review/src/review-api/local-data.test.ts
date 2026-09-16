@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { Hono } from "hono";
 import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -77,6 +78,71 @@ afterEach(async () => {
   await local.store.close();
   vi.unstubAllEnvs();
   rmSync(directory, { recursive: true, force: true });
+});
+
+it("lists the version's commits and reads a selected commit's diff against its parent", async () => {
+  const firstHead = pins.head;
+  writeFileSync(
+    path.join(repository, source.file),
+    "export const value = 3;\n",
+  );
+  git("add", ".");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Second head");
+
+  const updatedPins = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.base,
+    "HEAD",
+  );
+
+  const review = await local.store.execute(
+    command({ type: "create", title: "Two commits", pins: updatedPins }),
+  );
+
+  const app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(local.store, local.data),
+  );
+
+  const route = `/reviews-api/${review.reviewId}`;
+
+  const commits = await (
+    await app.request(`${route}/commits?version=0`)
+  ).json();
+
+  expect(commits.map((item: { commit: string }) => item.commit)).toEqual([
+    updatedPins.head,
+    firstHead,
+  ]);
+  const selected = `version=0&commit=${firstHead}`;
+
+  const file = await (
+    await app.request(`${route}/file?${selected}&side=head&file=example.ts`)
+  ).json();
+
+  expect(file.text).toContain("value = 2");
+
+  const patch = await (
+    await app.request(`${route}/diff?${selected}&file=example.ts`)
+  ).json();
+
+  expect(patch).toContain("-export const value = 1;");
+  expect(patch).toContain("+export const value = 2;");
+  expect(patch).not.toContain("value = 3");
+  expect((await app.request(`${route}/diff?commit=${pins.base}`)).status).toBe(
+    404,
+  );
+  await local.store.execute(
+    command({
+      type: "repin",
+      reviewId: review.reviewId,
+      pins: { ...updatedPins, base: firstHead },
+    }),
+  );
+  expect((await app.request(`${route}/diff?commit=${firstHead}`)).status).toBe(
+    404,
+  );
+  expect((await app.request(`${route}/diff?${selected}`)).status).toBe(200);
 });
 
 it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {

@@ -7,6 +7,7 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 import {
+  type ComponentType,
   Fragment,
   type ReactElement,
   type ReactNode,
@@ -60,6 +61,34 @@ export function AgentMarkdown({
     </div>
   );
 }
+
+/** Reuse safe Markdown parsing in documents without the chat-message wrapper. */
+export function MarkdownContent({
+  source,
+  h1: Heading,
+}: {
+  source: string;
+  h1?: ComponentType<{ children?: ReactNode }>;
+}): ReactElement {
+  return (
+    <>
+      {(parseMarkdown(source).children ?? []).map((node, index) =>
+        node.type === "heading" && node.depth === 1 && Heading ? (
+          <Heading key={index}>
+            {renderMarkdownChildren(node.children ?? [], String(index))}
+          </Heading>
+        ) : (
+          renderMarkdownNode(node, String(index))
+        ),
+      )}
+    </>
+  );
+}
+
+export const markdownHasTitle = (source: string) =>
+  (parseMarkdown(source).children ?? []).some(
+    (node) => node.type === "heading" && node.depth === 1,
+  );
 
 function renderMarkdownChildren(
   children: MarkdownNode[],

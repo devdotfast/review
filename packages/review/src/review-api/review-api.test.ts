@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createGlobalReviewServer } from "../server/desktop-server.js";
+import { ReviewApiClient } from "./client.js";
 import { ReviewInputError } from "./document.js";
 import { type ReviewProviders, ReviewStore } from "./store.js";
 
@@ -295,7 +296,7 @@ describe("snapshot authoring", () => {
       }),
     ).rejects.toThrow(/Range/);
     expect(store.read(reviewId)).toEqual(before);
-    expect(store.history(reviewId)).toEqual([0]);
+    expect(store.history(reviewId).map((item) => item.version)).toEqual([0]);
     expect(
       (await edit(reviewId, { type: "insert", content: { type: "divider" } }))
         .targetId,
@@ -419,6 +420,19 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     const response = await post({ type: "create", title: "HTTP review", pins });
     expect(response.status).toBe(200);
     const { reviewId } = await response.json();
+
+    const client = new ReviewApiClient({
+      serverUrl: server.url,
+      token: "test-token",
+    });
+
+    const abort = new AbortController();
+    const live = client.watch(reviewId, abort.signal);
+    expect((await live.next()).value).toMatchObject({
+      reviewId,
+      version: 0,
+      document: [],
+    });
     expect(
       (
         await post({
@@ -429,6 +443,15 @@ it("serves the experiment through the real desktop HTTP server and existing auth
       ).status,
     ).toBe(200);
     const read = await fetch(url + "/" + reviewId + "?full=true", { headers });
+    expect((await live.next()).value).toMatchObject({
+      version: 1,
+      document: [{ type: "sequence" }],
+    });
+    await live.return(undefined);
+    abort.abort();
+    const reconnect = client.watch(reviewId, new AbortController().signal);
+    expect((await reconnect.next()).value).toMatchObject({ version: 1 });
+    await reconnect.return(undefined);
     expect(await read.json()).toMatchObject({
       title: "HTTP review",
       version: 1,

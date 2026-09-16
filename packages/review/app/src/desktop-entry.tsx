@@ -8,6 +8,7 @@ import type {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import { ApiCanvas } from "./api-canvas";
 import {
   App,
   type ReviewDocumentAppState,
@@ -279,6 +280,11 @@ function ReviewCanvas({
   content: ReviewCanvasContent;
   findHost: ReviewFindHost;
 }) {
+  if (content.kind === "api")
+    return (
+      <ApiCanvas key={content.reviewId} content={content} findHost={findHost} />
+    );
+
   if (content.kind === "session") {
     return (
       <DesktopReviewApp
@@ -451,7 +457,7 @@ export function mountReviewCanvas(
     themeSubscription?.dispose();
     themeSubscription = null;
 
-    if (content.kind === "session") {
+    if (content.kind === "session" || content.kind === "api") {
       resetSessionDiagnostics(container);
 
       if (session?.bridge !== content.bridge) {
@@ -461,7 +467,7 @@ export function mountReviewCanvas(
       session = null;
     }
 
-    if (content.kind === "session") {
+    if (content.kind === "session" || content.kind === "api") {
       applyTheme(content.bridge.currentTheme());
       themeSubscription = content.bridge.onDidChangeTheme(applyTheme);
     } else {
@@ -508,7 +514,10 @@ export function mountReviewCanvas(
       container.focus();
     },
     showFind(seed) {
-      return content.kind === "session" && findHost.showFind(seed);
+      return (
+        (content.kind === "session" || content.kind === "api") &&
+        findHost.showFind(seed)
+      );
     },
     dispose() {
       if (disposed) return;

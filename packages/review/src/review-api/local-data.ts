@@ -5,6 +5,7 @@ import {
   detectLocalVcs,
   diffFileSummariesTrees,
   diffTrees,
+  listCommitRange,
   readFileAtRevision,
   resolveRevision,
 } from "@dev.fast/local-vcs";
@@ -177,6 +178,42 @@ export class LocalReviewData {
     return file === undefined
       ? diffFileSummariesTrees(input)
       : diffTrees({ ...input, paths: [file], literalPaths: true });
+  }
+  // Pins are immutable commit ids, so a listed range never changes.
+  private readonly commitLists = new Map<
+    string,
+    ReturnType<typeof listCommitRange>
+  >();
+  commits(pins: Pins) {
+    const key = JSON.stringify([pins.repositoryId, pins.base, pins.head]);
+    let commits = this.commitLists.get(key);
+
+    if (!commits) {
+      commits = listCommitRange({
+        rootPath: this.store.repositoryPath(pins.repositoryId),
+        baseRef: pins.base,
+        headRef: pins.head,
+      });
+      commits.catch(() => this.commitLists.delete(key));
+      this.commitLists.set(key, commits);
+    }
+
+    return commits;
+  }
+  async comparison(pins: Pins, commit?: string): Promise<Pins> {
+    if (!commit) return pins;
+
+    const selected = (await this.commits(pins)).find(
+      (item) => item.commit === commit,
+    );
+
+    if (!selected)
+      throw new ReviewInputError(
+        "The selected commit is not part of this review version.",
+        404,
+      );
+
+    return { ...pins, base: selected.parentCommit, head: selected.commit };
   }
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Upload boundary: uploadSchema.parse below validates incoming JSON.
   async upload(value: unknown) {

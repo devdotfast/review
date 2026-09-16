@@ -338,6 +338,7 @@ import {
   IReviewCodeResourceService,
   ReviewCodeResourceService,
 } from "./services/reviewCodeResourceService.js";
+import { IReviewApiSourceService, ReviewApiSourceService } from "./services/reviewApiSourceService.js";
 import {
   IReviewSessionService,
   ReviewSessionService,
@@ -398,6 +399,7 @@ registerSingleton(
   ReviewCodeResourceService,
   InstantiationType.Delayed,
 );
+registerSingleton(IReviewApiSourceService, ReviewApiSourceService, InstantiationType.Delayed);
 registerSingleton(
   IReviewVerbsService,
   ReviewVerbsService,

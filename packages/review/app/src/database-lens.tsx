@@ -79,7 +79,7 @@ export type FieldSchema = SoftwareDataStoreFieldSchema;
 
 export type ForeignKeyRef = SoftwareDataStoreForeignKeyRef;
 
-interface ParsedUseCase {
+export interface ParsedUseCase {
   id: string;
   label: string;
   summary?: string;
@@ -183,18 +183,12 @@ export function DbWrite(props: DbWriteProps) {
 }
 
 export function DatabaseLens(props: DatabaseLensProps) {
-  const selectForAgent = useAgentSelection();
-  const session = useReviewSession();
-
   const {
     title,
     stores,
     height = 560,
     children,
   } = databaseLensPropsSchema.parse(props);
-
-  const locatorScope = `db:${slugPart(title ?? "database")}`;
-  const lensId = locatorScope;
 
   const validatedInput = useMemo(
     () =>
@@ -207,7 +201,49 @@ export function DatabaseLens(props: DatabaseLensProps) {
     [children, height, stores, title],
   );
 
-  const { peekInputs, useCases } = validatedInput;
+  return (
+    <ResolvedDatabaseLens
+      title={title}
+      stores={stores}
+      height={height}
+      useCases={validatedInput.useCases}
+    />
+  );
+}
+
+export function ResolvedDatabaseLens({
+  title,
+  stores,
+  height = 560,
+  useCases,
+  id,
+}: {
+  title?: string;
+  stores: Record<string, StoreRef>;
+  height?: number;
+  useCases: ParsedUseCase[];
+  id?: string;
+}) {
+  const selectForAgent = useAgentSelection();
+  const session = useReviewSession();
+  const locatorScope = id ?? `db:${slugPart(title ?? "database")}`;
+  const lensId = locatorScope;
+
+  const peekInputs = useMemo(
+    () =>
+      new Map(
+        useCases.flatMap((useCase) =>
+          useCase.operations.map(
+            (operation) =>
+              [
+                operation.anchor.id,
+                validatedCodePeekInputFromRef(operation.anchor.peek),
+              ] as const,
+          ),
+        ),
+      ),
+    [useCases],
+  );
 
   const [activeUseCaseId, setActiveUseCaseId] = useState<string | null>(
     () => useCases[0]?.id ?? null,

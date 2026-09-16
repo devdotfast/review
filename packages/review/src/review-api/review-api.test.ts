@@ -60,6 +60,28 @@ afterEach(async () => {
 });
 
 describe("snapshot authoring", () => {
+  it("compares execution paths in the same snapshot without changing their source pins", async () => {
+    const { reviewId } = await create();
+    await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "call_stack_diff",
+        title: "Mouse versus keyboard",
+        base: [{ key: "mouse", label: "selectionchange", source }],
+        head: [{ key: "keyboard", label: "keydown", source }],
+      },
+    });
+    const saved = store.read(reviewId).document[0]!;
+    expect(saved).toMatchObject({
+      type: "call_stack_diff",
+      base: [{ source }],
+      head: [{ source }],
+    });
+    expect(providers.validateSource).toHaveBeenCalledWith(pins, source, {
+      peek: true,
+    });
+  });
+
   it("deletes one review and its history, keeps other reviews, and cannot replay deleted content", async () => {
     const input = request({ type: "create", title: "Delete me", pins });
     const { reviewId } = await store.execute(input);

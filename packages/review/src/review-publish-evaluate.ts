@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { errorMessage } from "@dev.fast/trace-core";
 import { init as initModuleLexer, parse as parseModule } from "es-module-lexer";
 
+import type { StoreRef } from "./authoring";
 import {
   type PublishValidationRuntime,
   type ReviewPublishEvaluationInput,
@@ -70,8 +71,58 @@ export async function evaluateReviewDocumentBundleForPublish(
   },
 ): Promise<ReviewPublishEvaluationResult> {
   return evaluateReviewDocumentForPublish(input, (runtime) =>
-    loadSealedReviewDocument(input, runtime),
+    loadSealedReviewDocument(input, {
+      ...runtime,
+      createBrowserReviewDefinitionSession: (options) => {
+        const session = runtime.createBrowserReviewDefinitionSession(options);
+
+        return {
+          ...session,
+          defineStores: (stores) =>
+            legacyStoreFields(session.defineStores(stores)),
+          defineSoftwareStores: (model, stores) =>
+            legacyStoreFields(session.defineSoftwareStores(model, stores)),
+        };
+      },
+    }),
   );
+}
+
+/** Only sealed legacy bundles can use the former collection.fields accessor.
+ * Keep direct fields and symbol-backed targets intact, including a real field
+ * named "fields". Native authoring never receives these handles. */
+function legacyStoreFields<T extends Record<string, StoreRef>>(stores: T): T {
+  // SAFETY: these keys come from the same generic store map being indexed.
+  for (const key of Object.keys(stores) as (keyof T)[]) {
+    const store = { ...stores[key]! };
+
+    for (const kind of ["tables", "documents"] as const) {
+      const collections = store[kind];
+
+      if (!collections) continue;
+      store[kind] = Object.fromEntries(
+        Object.entries(collections).map(([id, collection]) => [
+          id,
+          "fields" in collection
+            ? collection
+            : Object.freeze(
+                Object.defineProperty(
+                  Object.create(
+                    Object.getPrototypeOf(collection),
+                    Object.getOwnPropertyDescriptors(collection),
+                  ),
+                  "fields",
+                  { value: collection },
+                ),
+              ),
+        ]),
+      );
+    }
+
+    stores[key] = store;
+  }
+
+  return stores;
 }
 
 function rewriteRuntimeSpecifier(bundleCode: string): string {

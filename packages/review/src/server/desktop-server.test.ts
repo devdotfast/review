@@ -12,20 +12,18 @@ import {
   listLegacyReviewFixtures,
   readLegacyReviewGolden,
 } from "../fixtures/legacy-reviews/legacy-review-fixture";
-import { materializePublishRevision } from "../publish-stage";
 import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
 } from "../review-bundle";
 import { reviewDocumentDataSchema } from "../review-document-data";
-import { createReviewDir, reviewTitleFromDocument } from "../review-home";
+import { reviewTitleFromDocument } from "../review-home";
 import { reviewVcs } from "../review-vcs";
 import {
   type ReviewAgentSessionSource,
   createGlobalReviewServer,
   reviewAgentKind,
 } from "./desktop-server";
-import { GlobalReviewDesktopVerbRelay } from "./global-verb-relay";
 
 let directory: string | undefined;
 
@@ -501,96 +499,6 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       await server.close();
     }
   });
-});
-
-it("rejects a publication whose review moved its base ref during the command", async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "review-publish-race-"));
-  vi.stubEnv("DEV_REVIEW_HOME", directory);
-  const source = await makeSourceRepository(directory);
-
-  const stored = await createReviewDir({
-    worktreePath: source.root,
-    baseRef: "main",
-    baseCommit: source.commit,
-    sourceCommit: source.commit,
-    sourceIdentity: { kind: "git-branch", name: "main" },
-  });
-
-  await writeReviewDocumentBundle(
-    stored.dir,
-    bundleReviewDocument({
-      format: "review-document/1",
-      title: "Concurrent publication",
-      routePath: "/",
-      sourcePath: "review.mdx",
-      body: [],
-      anchors: {},
-      anchorContents: {},
-      softwareModels: [],
-    }),
-  );
-  const revision = await reviewVcs.seal(stored.dir, "Review publish candidate");
-  const relay = new GlobalReviewDesktopVerbRelay();
-  relay.dispatch = async () => ({ ok: true });
-
-  // The record moves while the command is preparing: after the server read it
-  // and materialized the build, before it takes the review lock to promote.
-  const publishRuntime = {
-    materializePublishRevision: async (
-      input: Parameters<typeof materializePublishRevision>[0],
-    ) => {
-      const built = await materializePublishRevision(input);
-      await writeFile(
-        path.join(stored.dir, "review.json"),
-        JSON.stringify({ ...stored.review, baseRef: "release" }),
-      );
-
-      return built;
-    },
-  };
-
-  const token = "publication-race-secret";
-
-  const server = createGlobalReviewServer({
-    appPid: process.pid,
-    packageRoot,
-    toolingRoot: packageRoot,
-    port: 0,
-    token,
-    discoveryPath: path.join(directory, "desktop.json"),
-    relay,
-    publishRuntime,
-  });
-
-  try {
-    await server.listen();
-
-    const response = await fetch(`${server.url}/publish-ready`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-review-token": token,
-      },
-      body: JSON.stringify({ reviewUuid: stored.review.uuid, revision }),
-    });
-
-    // Registration re-reads the record and refuses the stale command before
-    // promotion; the lock's own conflict guard sits behind it.
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      code: "review_changed",
-    });
-    await expect(
-      readFile(path.join(stored.dir, "review.json"), "utf8").then(JSON.parse),
-    ).resolves.toMatchObject({
-      baseRef: "release",
-      presentedDocumentRevision: null,
-    });
-  } finally {
-    await server.close();
-    vi.unstubAllEnvs();
-  }
 });
 
 const legacyOpenFixtures = listLegacyReviewFixtures().filter(

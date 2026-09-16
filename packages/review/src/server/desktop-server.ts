@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, readdir, rm, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -28,7 +28,6 @@ import {
   jsonProperty,
   jsonString,
   parseReviewCliInstallApplyRequest,
-  parseReviewPublishReadyRequest,
   reviewViewSchema,
 } from "@dev.fast/review-protocol";
 import { errorMessage, writePrivateJsonAtomic } from "@dev.fast/trace-core";
@@ -37,10 +36,7 @@ import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
 
-import {
-  authoringSessionKey,
-  parseAuthoringSessionKey,
-} from "../agent-session-ref";
+import { parseAuthoringSessionKey } from "../agent-session-ref";
 import {
   applyCliInstall,
   declineCliInstall,
@@ -78,18 +74,12 @@ import {
   findReviewForRepair,
   listReviews,
   parseAnyStoredReviewRecord,
-  parseStoredReviewRecord,
   reviewDescriptor,
-  reviewTitleFromDocument,
   reviewsHomeDir,
-  touchReviewAgentSession,
 } from "../review-home";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import { devReviewHome } from "../review-home-paths";
-import {
-  type LegacyImporter,
-  createLegacyImporter,
-} from "../review-import/legacy-importer";
+import type { LegacyImporter } from "../review-import/legacy-importer";
 import type { RunReviewInfoInput } from "../review-info";
 import { resolveReviewInfo } from "../review-info-resolver";
 import {
@@ -102,14 +92,12 @@ import {
   readReviewPreferences,
   writeReviewPreferences,
 } from "../review-preferences";
-import { ReviewRepairReadyRequestSchema } from "../review-repair-state";
 import {
   type ReviewSessionAgent,
   type ReviewSessionOutcome,
   type ReviewSourceKind,
   ReviewTelemetry,
 } from "../review-telemetry";
-import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import {
   REVIEW_APP_SESSION_ID_HEADER,
   isValidReviewAppSessionId,
@@ -130,18 +118,11 @@ import {
 import { HttpJsonError, ReviewServerError } from "./http-json";
 import { createJsonReviewReporting } from "./json-review-reporting";
 import { captureSanitizedUiTelemetry } from "./review-api";
-import { promoteReviewRepair } from "./review-repair-promotion";
 import {
   type ReviewSessionHandler,
   createReviewSessionHandler,
 } from "./session-handler";
 import { createTutorialService } from "./tutorial-service";
-
-export interface PublishMountTiming {
-  name: string;
-  startEpochMs: number;
-  endEpochMs: number;
-}
 
 const REVIEW_REAPER_INTERVAL_MS = 60 * 60 * 1_000;
 
@@ -274,61 +255,8 @@ export function createGlobalReviewServer(
   const sessions = new Map<string, ActiveReviewSession>();
   const reviewStore = input.reviewStore;
 
-  // A review is imported once its uuid has a row in the JSON store. The Home
-  // list sweeps in the background, open imports first, and the MDX verbs
-  // refuse an imported review.
-  const legacyImporter: LegacyImporter | undefined =
-    input.legacyImporter ??
-    (reviewStore && input.reviewData
-      ? createLegacyImporter({
-          store: reviewStore,
-          data: input.reviewData,
-          materialize: (review, revision) =>
-            publishRuntime.materializePublishRevision({ review, revision }),
-          onImported: replaceLegacySessions,
-          log: (message) => console.warn(message),
-          lock: withReviewLock,
-        })
-      : undefined);
-
-  /** After an import the JSON canvas is the review: open the JSON tab and
-   * close any legacy session in its place. Home hides the legacy entry once
-   * the JSON catalog lists the uuid. */
-  async function replaceLegacySessions(review: StoredReview): Promise<void> {
-    const uuid = review.review.uuid;
-
-    const live = [...sessions.values()].filter(
-      (session) => session.review.review.uuid === uuid,
-    );
-
-    // Only presented sessions are replaced: an unpromoted candidate mid
-    // validation belongs to a publish, which meets the in-lock re-check itself.
-    const promoted = live.filter((session) => session.promoted);
-
-    if (promoted.length === 0) return;
-
-    const opened = await relay.dispatch("review-desktop", {
-      name: "openApiReview",
-      args: { reviewId: uuid, title: review.review.title },
-    });
-
-    if (!opened.ok)
-      throw new Error(
-        `Desktop did not open the imported review, keeping its legacy session: ${opened.error ?? "unknown error"}`,
-      );
-
-    for (const session of promoted)
-      await closeSession(session, "replaced", false);
-  }
-
-  function importAfterPromotion(uuid: string): void {
-    if (!legacyImporter) return;
-    void findReview(uuid)
-      .then((promoted) => (promoted ? legacyImporter.ensure(promoted) : null))
-      .catch((error) =>
-        console.warn(`[Review import] ${uuid}: ${errorMessage(error)}`),
-      );
-  }
+  // Production completes its storage migration before constructing the host.
+  const legacyImporter = input.legacyImporter;
 
   function migratedError(uuid: string, verb: string): ReviewServerError {
     return new ReviewServerError(
@@ -452,17 +380,16 @@ export function createGlobalReviewServer(
     return globalJson(200, { ok: true });
   });
   app.get("/reviews", async () => {
+    if (reviewStore) return globalJson(200, { reviews: [], errors: [] });
     const { dismissedRetentionDays } = await readReviewPreferences();
     await reapDismissedReviews(dismissedRetentionDays);
     const listed = await listReviews();
     void legacyImporter?.sweep(listed.reviews);
 
     const reviews = await Promise.all(
-      listed.reviews
-        .filter((stored) => !reviewStore?.legacyImport(stored.review.uuid))
-        .map((stored) =>
-          reviewDescriptor(stored, { retentionDays: dismissedRetentionDays }),
-        ),
+      listed.reviews.map((stored) =>
+        reviewDescriptor(stored, { retentionDays: dismissedRetentionDays }),
+      ),
     );
 
     reviews.sort(
@@ -527,6 +454,33 @@ export function createGlobalReviewServer(
     /* A background open keeps the canvas where it is: the Source tab opens
        sessions purely to root its file tree. Body-less requests (the CLI)
        stay foreground. */
+    if (reviewStore && !(await tutorial.referencesReview(uuid))) {
+      if (!reviewStore.has(uuid))
+        throw new ReviewServerError(
+          "Review is not in the JSON store. Inspect the JSON migration report; legacy sessions are retired.",
+          404,
+          "review_unavailable",
+        );
+      const snapshot = reviewStore.read(uuid);
+
+      const opened = await relay.dispatch("review-desktop", {
+        name: "openApiReview",
+        args: { reviewId: uuid, title: snapshot.title },
+      });
+
+      if (!opened.ok)
+        throw new ReviewServerError(
+          opened.error ?? "Desktop unavailable",
+          503,
+          "desktop_unavailable",
+        );
+      throw new ReviewServerError(
+        "Review opened in the JSON canvas.",
+        409,
+        "imported",
+      );
+    }
+
     const openBodyValue = await readBoundedRequestJson(
       context.req.raw,
       undefined,
@@ -851,6 +805,19 @@ export function createGlobalReviewServer(
   }
 
   app.post("/reviews/:uuid/dismiss", async (context) => {
+    if (reviewStore)
+      return globalJson(
+        200,
+        await reviewStore.execute({
+          commandId: crypto.randomUUID(),
+          operation: {
+            type: "attention",
+            reviewId: context.req.param("uuid"),
+            action: "dismiss",
+          },
+        }),
+      );
+
     const descriptor = await setReviewDismissed(
       context.req.param("uuid"),
       true,
@@ -866,6 +833,19 @@ export function createGlobalReviewServer(
     return globalJson(200, descriptor);
   });
   app.post("/reviews/:uuid/restore", async (context) => {
+    if (reviewStore)
+      return globalJson(
+        200,
+        await reviewStore.execute({
+          commandId: crypto.randomUUID(),
+          operation: {
+            type: "attention",
+            reviewId: context.req.param("uuid"),
+            action: "restore",
+          },
+        }),
+      );
+
     const descriptor = await setReviewDismissed(
       context.req.param("uuid"),
       false,
@@ -932,6 +912,11 @@ export function createGlobalReviewServer(
         }
 
         await deleteReviewByUuid(uuid);
+      });
+    } else if (reviewStore) {
+      await reviewStore.execute({
+        commandId: crypto.randomUUID(),
+        operation: { type: "delete", reviewId: uuid },
       });
     } else {
       await deleteReviewByUuid(uuid);
@@ -1022,117 +1007,6 @@ export function createGlobalReviewServer(
     await resetCliInstall();
 
     return globalJson(200, { ok: true });
-  });
-  app.post("/publish-ready", async (context) => {
-    try {
-      const request = parseReviewPublishReadyRequest(
-        await readBoundedRequestJson(context.req.raw),
-      );
-
-      let review = await findReview(request.reviewUuid);
-
-      if (!review) throw new ReviewServerError("Review not found.", 404);
-
-      if (reviewStore?.legacyImport(request.reviewUuid))
-        throw migratedError(request.reviewUuid, "publish");
-      const agent = request.agent;
-
-      if (agent) {
-        const found = review;
-        review = await withReviewLock(request.reviewUuid, () =>
-          touchReviewAgentSession(
-            found,
-            authoringSessionKey(agent),
-            "publisher",
-          ),
-        );
-      }
-
-      const mounted = await mountPublishedDocument(
-        review,
-        request.revision,
-        request.view,
-      );
-
-      // The first successful publish is the handoff into the JSON store; the
-      // import replaces the legacy session just mounted with the JSON canvas.
-      importAfterPromotion(request.reviewUuid);
-
-      return globalJson(201, mounted);
-    } catch (error) {
-      await telemetry.capturePublishGateRejected({ gate: "publish_ready" });
-      throw error;
-    }
-  });
-  app.post("/repair-ready", async (context) => {
-    const request = ReviewRepairReadyRequestSchema.parse(
-      await readBoundedRequestJson(context.req.raw),
-    );
-
-    const review = await findReviewForRepair(request.reviewUuid);
-
-    if (!review) throw new ReviewServerError("Review not found.", 404);
-
-    if (reviewStore?.legacyImport(request.reviewUuid))
-      throw migratedError(request.reviewUuid, "repair");
-
-    return globalJson(
-      201,
-      await promoteReviewRepair({
-        review,
-        request,
-        sessions,
-        registerSerialized,
-        withReviewLock: (uuid, operation) =>
-          withReviewLock(uuid, async () => {
-            if (reviewStore?.legacyImport(uuid))
-              throw migratedError(uuid, "repair");
-
-            return operation();
-          }),
-        dispatch: (sessionId, verb) => relay.dispatch(sessionId, verb),
-        startSessionTelemetry,
-        closeSession: (session, reason) => closeSession(session, reason, false),
-        broadcast: broadcastGlobal,
-        materializePublishRevision: publishRuntime.materializePublishRevision,
-      }),
-    );
-  });
-  app.post("/map-publish-ready", async (context) => {
-    try {
-      const request = parseReviewPublishReadyRequest(
-        await readBoundedRequestJson(context.req.raw),
-      );
-
-      let review = await findReview(request.reviewUuid);
-
-      if (!review) throw new ReviewServerError("Review not found.", 404);
-
-      if (reviewStore?.legacyImport(request.reviewUuid))
-        throw migratedError(request.reviewUuid, "map publish");
-      const agent = request.agent;
-
-      if (agent) {
-        const found = review;
-        review = await withReviewLock(request.reviewUuid, () =>
-          touchReviewAgentSession(
-            found,
-            authoringSessionKey(agent),
-            "publisher",
-          ),
-        );
-      }
-
-      const mounted = await mountPublishedSoftwareMap(review, request.revision);
-      importAfterPromotion(request.reviewUuid);
-
-      return globalJson(201, mounted);
-    } catch (error) {
-      await telemetry.capturePublishGateRejected({
-        gate: "map_publish_ready",
-      });
-      throw error;
-    }
   });
   app.get("/events", (context) => openGlobalEvents(context));
   app.get("/control", (context) => openControlEvents(context));
@@ -1287,305 +1161,6 @@ export function createGlobalReviewServer(
     response.headers.set("content-type", "text/event-stream; charset=utf-8");
 
     return response;
-  }
-
-  // The CLI already validated, bundled, and sealed the revision; the server
-  // materializes it and promotes it.
-  async function mountPublishedDocument(
-    review: StoredReview,
-    revision: string,
-    view?: ReviewView,
-  ): Promise<{
-    ok: true;
-    revision: string;
-    sessionId: string;
-    url: string;
-    focusWarning?: string;
-    timings: PublishMountTiming[];
-  }> {
-    // Each mount step reports its wall-clock interval so the publishing CLI
-    // can show where desktop time went; the CLI only sees the round-trip.
-    const timings: PublishMountTiming[] = [];
-
-    const timed = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
-      const startEpochMs = Date.now();
-
-      try {
-        return await fn();
-      } finally {
-        timings.push({ name, startEpochMs, endEpochMs: Date.now() });
-      }
-    };
-
-    const sourceCommit = review.review.sourceCommit;
-    const sourceBranch = review.review.sourceIdentity?.name;
-
-    if (!sourceCommit || !sourceBranch) {
-      throw new ReviewServerError(
-        `Review ${review.review.uuid} is not bound to a source commit.`,
-        409,
-        "review_unbound",
-      );
-    }
-
-    const source = { sourceCommit, sourceBranch };
-
-    const buildDir = await timed("materialize document revision", () =>
-      publishRuntime.materializePublishRevision({ review, revision }),
-    );
-
-    // A revision this server sealed is current by construction; a legacy record here
-    // is a bug, not something to upgrade silently.
-    const preparedRecord = parseStoredReviewRecord(
-      JSON.parse(await readFile(path.join(buildDir, "review.json"), "utf8")),
-    );
-
-    rejectConcurrentPublication(review, {
-      dir: buildDir,
-      review: preparedRecord,
-    });
-
-    const softwareMapRootPath = review.review.presentedSoftwareMapRevision
-      ? await timed("materialize software map revision", () =>
-          publishRuntime.materializePublishRevision({
-            review,
-            revision: review.review.presentedSoftwareMapRevision!,
-          }),
-        )
-      : undefined;
-
-    const documentPath = path.join(buildDir, "review.mdx");
-
-    const successor = await timed("register session", () =>
-      registerSerialized({
-        review,
-        canonicalRecord: review.review,
-        documentPath,
-        softwareMapRootPath,
-        revision,
-        source,
-        promoted: false,
-      }),
-    );
-
-    try {
-      await timed("promote", () =>
-        withReviewLock(review.review.uuid, async () => {
-          // The guard ran before validation; an import may have landed since.
-          if (reviewStore?.legacyImport(review.review.uuid))
-            throw migratedError(review.review.uuid, "publish");
-
-          if (
-            successor.closing ||
-            sessions.get(successor.descriptor.sessionId) !== successor ||
-            !successor.revision ||
-            !successor.source
-          ) {
-            throw new ReviewServerError("Review session is unavailable.", 404);
-          }
-
-          const latest = await findReview(review.review.uuid);
-
-          if (!latest) throw new ReviewServerError("Review not found.", 404);
-          rejectTerminalPublication(latest);
-          rejectConcurrentPublication(latest, review);
-          successor.review = await promoteReview(
-            latest,
-            successor.revision,
-            successor.source,
-            await reviewTitleFromDocument(documentPath),
-          );
-          successor.promoted = true;
-          await startSessionTelemetry(successor);
-          broadcastGlobal({
-            event: "review-status-changed",
-            uuid: successor.review.review.uuid,
-            status: "awaiting-review",
-          });
-          broadcastGlobal({
-            event: "session-registered",
-            session: successor.descriptor,
-            review: await reviewDescriptor(successor.review, {
-              retentionDays: (await readReviewPreferences())
-                .dismissedRetentionDays,
-            }),
-          });
-
-          const replaced = [...sessions.values()].filter(
-            (session) =>
-              session !== successor &&
-              session.review.review.uuid === successor.review.review.uuid &&
-              session.promoted,
-          );
-
-          await Promise.all(
-            replaced.map((session) => closeSession(session, "replaced", false)),
-          );
-        }),
-      );
-    } finally {
-      if (!successor.promoted) {
-        await closeSession(successor, "closed", false);
-      }
-    }
-
-    // Promotion already happened: from here on nothing can fail the publish.
-    // A focus failure is a warning — the promoted revision is live either
-    // way — and a prune failure is ignored.
-    const focus = await timed("focus canvas", () =>
-      relay.dispatch(successor.descriptor.sessionId, revealVerb(view)),
-    );
-
-    await timed("prune builds", () =>
-      pruneReviewBuilds(review.dir, [
-        revision,
-        ...(successor.review.review.presentedSoftwareMapRevision
-          ? [successor.review.review.presentedSoftwareMapRevision]
-          : []),
-      ]).catch(() => undefined),
-    );
-
-    const mounted: Awaited<ReturnType<typeof mountPublishedDocument>> = {
-      ok: true,
-      revision,
-      sessionId: successor.descriptor.sessionId,
-      url: successor.descriptor.sessionUrl,
-      timings,
-    };
-
-    if (!focus.ok) mounted.focusWarning = focus.error;
-
-    return mounted;
-  }
-
-  async function mountPublishedSoftwareMap(
-    review: StoredReview,
-    revision: string,
-  ): Promise<{ ok: true; revision: string }> {
-    const documentRevision = review.review.presentedDocumentRevision;
-
-    if (!documentRevision) {
-      throw new ReviewServerError(
-        "The Review document is not published.",
-        409,
-        "review_unpublished",
-      );
-    }
-
-    const [documentBuildDir, softwareMapRootPath] = await Promise.all([
-      publishRuntime.materializePublishRevision({
-        review,
-        revision: documentRevision,
-      }),
-      publishRuntime.materializePublishRevision({ review, revision }),
-    ]);
-
-    // A revision this server sealed is current by construction; a legacy record here
-    // is a bug, not something to upgrade silently.
-    const preparedMapRecord = parseStoredReviewRecord(
-      JSON.parse(
-        await readFile(path.join(softwareMapRootPath, "review.json"), "utf8"),
-      ),
-    );
-
-    rejectConcurrentPublication(review, {
-      dir: softwareMapRootPath,
-      review: preparedMapRecord,
-    });
-    const mapBundle = await readReviewSoftwareMapBundle(softwareMapRootPath);
-
-    if (!mapBundle) {
-      throw new ReviewServerError(
-        "The published software map bundle is missing.",
-        422,
-        "map_bundle_missing",
-      );
-    }
-
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      review,
-      documentBuildDir,
-    );
-
-    if (
-      mapBundle.headCommit !== presentedReview.review.sourceCommit ||
-      mapBundle.baseCommit !== presentedReview.review.baseCommit
-    ) {
-      throw new ReviewServerError(
-        "The software map pins do not match the published Review document.",
-        422,
-        "map_pins_mismatch",
-      );
-    }
-
-    const sourceCommit = presentedReview.review.sourceCommit;
-    const sourceBranch = presentedReview.review.sourceIdentity?.name;
-
-    if (!sourceCommit || !sourceBranch) {
-      throw new ReviewServerError(
-        "The published Review document has no source pins.",
-        409,
-        "review_unbound",
-      );
-    }
-
-    const successor = await registerSerialized({
-      review: presentedReview,
-      canonicalRecord: review.review,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
-      revision: documentRevision,
-      source: { sourceCommit, sourceBranch },
-      promoted: false,
-    });
-
-    try {
-      await withReviewLock(review.review.uuid, async () => {
-        if (reviewStore?.legacyImport(review.review.uuid))
-          throw migratedError(review.review.uuid, "map publish");
-        const latest = await findReview(review.review.uuid);
-
-        if (!latest) throw new ReviewServerError("Review not found.", 404);
-        rejectTerminalPublication(latest);
-        rejectConcurrentPublication(latest, review);
-        successor.review = await promoteSoftwareMap(latest, revision);
-        successor.promoted = true;
-        await startSessionTelemetry(successor);
-        broadcastGlobal({
-          event: "session-registered",
-          session: successor.descriptor,
-          review: await reviewDescriptor(successor.review, {
-            retentionDays: (await readReviewPreferences())
-              .dismissedRetentionDays,
-          }),
-        });
-
-        const replaced = [...sessions.values()].filter(
-          (session) =>
-            session !== successor &&
-            session.review.review.uuid === successor.review.review.uuid &&
-            session.promoted,
-        );
-
-        await Promise.all(
-          replaced.map((session) => closeSession(session, "replaced", false)),
-        );
-      });
-    } finally {
-      if (!successor.promoted) {
-        await closeSession(successor, "closed", false);
-      }
-    }
-
-    void relay.dispatch(successor.descriptor.sessionId, {
-      name: "focusCanvas",
-      args: {},
-    });
-    await pruneReviewBuilds(review.dir, [documentRevision, revision]).catch(
-      () => undefined,
-    );
-
-    return { ok: true, revision };
   }
 
   /* Match by path rather than tutorial.find(): an invalid stamp or repo must
@@ -2191,7 +1766,8 @@ export function createGlobalReviewServer(
   async function reapDismissedReviews(
     retentionDays: number | null,
   ): Promise<void> {
-    if (retentionDays === null) return;
+    // The original directories are migration archives after the JSON cutover.
+    if (reviewStore || retentionDays === null) return;
     const listed = await listReviews().catch(() => null);
 
     if (!listed) return;
@@ -2503,48 +2079,6 @@ function parseInfoRequest(input: JsonValue): RunReviewInfoInput {
   return request;
 }
 
-async function pruneReviewBuilds(
-  reviewDirPath: string,
-  currentRevisions: readonly string[],
-): Promise<void> {
-  const buildsPath = path.join(reviewDirPath, ".build");
-  let entries;
-
-  try {
-    entries = await readdir(buildsPath, { withFileTypes: true });
-  } catch (error) {
-    // SAFETY: fs/promises rejects with a Node ErrnoException carrying `code`.
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw error;
-  }
-
-  const builds = await Promise.all(
-    entries
-      .filter(
-        (entry) => entry.isDirectory() && /^[0-9a-f]{40}$/i.test(entry.name),
-      )
-      .map(async (entry) => ({
-        name: entry.name,
-        modifiedAt: (await stat(path.join(buildsPath, entry.name))).mtimeMs,
-      })),
-  );
-
-  const keep = new Set(currentRevisions);
-
-  const previous = builds
-    .filter((build) => !keep.has(build.name))
-    .sort((left, right) => right.modifiedAt - left.modifiedAt)
-    .at(0)?.name;
-
-  await Promise.all(
-    builds
-      .filter((build) => !keep.has(build.name) && build.name !== previous)
-      .map((build) =>
-        rm(path.join(buildsPath, build.name), { recursive: true, force: true }),
-      ),
-  );
-}
-
 function sessionRouteSuffix(pathname: string): string {
   const match = pathname.match(/^\/sessions\/([^/]+)(\/.*)?$/);
 
@@ -2636,45 +2170,6 @@ function sessionWireFor(
   return wire;
 }
 
-async function promoteReview(
-  stored: StoredReview,
-  revision: string,
-  source: { sourceCommit: string; sourceBranch: string },
-  title: string | undefined,
-): Promise<StoredReview> {
-  const review: StoredReviewRecord = {
-    ...stored.review,
-    sourceCommit: source.sourceCommit,
-    status: "awaiting-review",
-    presentedDocumentRevision: revision,
-    lastPublishedAt: new Date().toISOString(),
-    /* A publish is new work, so the review earns attention again and returns
-       to Home as new. This also rescues a review that was dismissed and then
-       updated rather than dropped. */
-    viewedAt: null,
-    dismissedAt: null,
-  };
-
-  if (title) review.title = title;
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
-
-  return { ...stored, review };
-}
-
-async function promoteSoftwareMap(
-  stored: StoredReview,
-  revision: string,
-): Promise<StoredReview> {
-  const review: StoredReviewRecord = {
-    ...stored.review,
-    presentedSoftwareMapRevision: revision,
-  };
-
-  await writePrivateJsonAtomic(path.join(stored.dir, "review.json"), review);
-
-  return { ...stored, review };
-}
-
 async function presentedMapRoot(
   root: string,
   allowAbsent: boolean,
@@ -2690,36 +2185,6 @@ async function presentedMapRoot(
   }
 
   return root;
-}
-
-function rejectTerminalPublication(review: StoredReview): void {
-  if (
-    review.review.status === "accepted" ||
-    review.review.status === "rejected"
-  ) {
-    throw new ReviewServerError(
-      `Review ${review.review.uuid} is ${review.review.status}; publication pointers are frozen.`,
-      409,
-      "review_terminal",
-    );
-  }
-}
-
-function rejectConcurrentPublication(
-  latest: StoredReview,
-  startedFrom: StoredReview,
-): void {
-  // The same guarded fields assertReviewUnchanged compares; only the message differs.
-  if (
-    reviewMutationFingerprint(latest.review) !==
-    reviewMutationFingerprint(startedFrom.review)
-  ) {
-    throw new ReviewServerError(
-      "The presented Review artifacts changed during publication. Retry the command.",
-      409,
-      "review_publication_conflict",
-    );
-  }
 }
 
 function httpJsonStatus(cause: unknown): number {

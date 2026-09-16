@@ -569,16 +569,19 @@ export class ReviewStore {
    * input's `origin.revision` becomes the review's import cursor. */
   importVersions(
     inputs: ImportedVersionInput[],
+    options: { preserveCurrent?: Snapshot; revision?: string } = {},
   ): Promise<{ version: number; warnings: string[] }> {
     if (this.closing)
       return Promise.reject(new Error("Review store is closing."));
 
-    if (inputs.length === 0)
-      return Promise.reject(new Error("Nothing to import."));
+    const reviewId = inputs[0]?.reviewId ?? options.preserveCurrent?.reviewId;
 
-    const reviewId = inputs[0]!.reviewId;
+    if (!reviewId) return Promise.reject(new Error("Nothing to import."));
 
-    if (inputs.some((input) => input.reviewId !== reviewId))
+    if (
+      inputs.some((input) => input.reviewId !== reviewId) ||
+      (options.preserveCurrent && options.preserveCurrent.reviewId !== reviewId)
+    )
       return Promise.reject(new Error("Import versions of one review only."));
 
     const run = this.pending.then(async () => {
@@ -636,7 +639,16 @@ export class ReviewStore {
         snapshots.push(snapshot);
       }
 
-      const attention = inputs[0]!.attention;
+      // Backfilling sealed history must not replace an edited JSON document.
+      // Keep all existing version numbers and element IDs stable.
+      if (existing && options.preserveCurrent) {
+        if (options.preserveCurrent.version !== Number(existing.version))
+          throw new ReviewInputError("Review changed during migration.", 409);
+        documentSchema.parse(options.preserveCurrent.document);
+        snapshots.push({ ...options.preserveCurrent, version: ++version });
+      }
+
+      const attention = inputs[0]?.attention;
       this.db.exec("BEGIN IMMEDIATE");
 
       try {
@@ -664,7 +676,7 @@ export class ReviewStore {
               attention.dismissedAt ?? null,
             );
 
-        const cursor = inputs.at(-1)?.origin?.revision;
+        const cursor = options.revision ?? inputs.at(-1)?.origin?.revision;
 
         if (cursor)
           this.db

@@ -275,7 +275,7 @@ describe("diagram rules", () => {
     );
   });
 
-  it("rejects duplicate frame keys and frames sourced from the other side", async () => {
+  it("rejects duplicate frame keys", async () => {
     const baseSource = { ...head("src/store.ts", 1), side: "base" as const };
 
     await expectRejected(
@@ -290,16 +290,6 @@ describe("diagram rules", () => {
           head: [],
         }),
       "Frame keys must be unique within base.",
-    );
-    await expectRejected(
-      () =>
-        insert({
-          type: "call_stack_diff",
-          title: "Save",
-          base: [{ source: head("src/store.ts", 1) }],
-          head: [],
-        }),
-      "A base frame needs base source.",
     );
   });
 });

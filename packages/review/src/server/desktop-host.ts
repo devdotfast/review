@@ -7,6 +7,7 @@ import { findReviewPackageRoot } from "../package-paths";
 import { openLocalReviewStore } from "../review-api/local-data";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
 import { devReviewHome } from "../review-home-paths";
+import { ensureJsonCutover } from "../review-import/json-cutover";
 import { ReviewTelemetry } from "../review-telemetry";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
@@ -45,21 +46,30 @@ export async function runDesktopHost(
     telemetry,
   };
 
-  // The JSON review store is experimental: a failed open must not block the host.
-  let local: ReturnType<typeof openLocalReviewStore> | undefined;
+  const home = devReviewHome(env);
+  await mkdir(home, { recursive: true });
+
+  const migrationProgress = (message: string) =>
+    process.stdout.write(
+      `${JSON.stringify({ event: "migration", message })}\n`,
+    );
+
+  const heartbeat = setInterval(
+    () => migrationProgress("Migrating saved reviews"),
+    5_000,
+  );
 
   try {
-    const home = devReviewHome(env);
-    await mkdir(home, { recursive: true });
-    local = openLocalReviewStore(path.join(home, "review-api.db"));
-    serverInput.reviewStore = local.store;
-    serverInput.reviewData = local.data;
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    process.stderr.write(
-      `[Review API] Could not open the review store; /reviews-api is unavailable: ${reason}\n`,
-    );
+    await ensureJsonCutover(home, migrationProgress);
+  } finally {
+    clearInterval(heartbeat);
   }
+
+  // JSON is the sole user-review store. A failure is surfaced, never replaced
+  // by a second catalog or an old document renderer.
+  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  serverInput.reviewStore = local.store;
+  serverInput.reviewData = local.data;
 
   if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
     serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;

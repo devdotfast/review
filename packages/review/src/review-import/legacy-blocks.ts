@@ -1,4 +1,4 @@
-import type { Block } from "../review-api/document";
+import { type Block, elements } from "../review-api/document";
 import type { ReviewDocumentData, ReviewNode } from "../review-document-data";
 import {
   collectFootnoteDefinitions,
@@ -108,7 +108,8 @@ export function legacyDocumentToBlocks(
           const section: Block = {
             type: "section",
             title: node.props.title,
-            children: convert(node.children),
+            // The old renderer consumed this heading as section metadata.
+            children: convert(sectionBody(node)),
           };
 
           if (node.props.defaultCollapsed === true)
@@ -213,4 +214,70 @@ function plainText(nodes: ReviewNode[]): string {
     )
     .join("")
     .trim();
+}
+
+function sectionBody(
+  node: Extract<ReviewNode, { name: "ReviewSection" }>,
+): ReviewNode[] {
+  const first = node.children[0];
+
+  return first?.type === "element" && first.tag === "h2"
+    ? node.children.slice(1)
+    : node.children;
+}
+
+/** Repair only headings proven to come from the sealed document. Keep edits,
+ * element IDs, and every historical JSON snapshot intact. */
+export function repairImportedSectionHeadings(
+  current: Block[],
+  sealed: ReviewDocumentData,
+): Block[] | undefined {
+  const headings = new Map<string, Set<string>>();
+  const footnotes = collectFootnoteDefinitions(sealed.body);
+
+  const visit = (nodes: ReviewNode[]) => {
+    for (const node of nodes) {
+      if (node.type === "text") continue;
+
+      if (node.type === "component" && node.name === "ReviewSection") {
+        const first = node.children[0];
+
+        if (first?.type === "element" && first.tag === "h2") {
+          const heading = proseToMarkdown([first], footnotes, []).trim();
+          const matches = headings.get(node.props.title) ?? new Set<string>();
+          matches.add(heading);
+          headings.set(node.props.title, matches);
+        }
+      }
+
+      visit(node.children);
+    }
+  };
+
+  visit(sealed.body);
+  const document = structuredClone(current);
+  let changed = false;
+
+  for (const block of elements(document)) {
+    if (block.type !== "section") continue;
+    const first = block.children[0];
+
+    if (first?.type !== "markdown") continue;
+
+    for (const heading of headings.get(block.title) ?? []) {
+      if (first.markdown.trimEnd() === heading) {
+        block.children.shift();
+        changed = true;
+        break;
+      }
+
+      if (first.markdown.startsWith(`${heading}\n\n`)) {
+        first.markdown = first.markdown.slice(heading.length + 2);
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  return changed ? document : undefined;
 }

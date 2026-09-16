@@ -19,6 +19,50 @@ describe("publish range evaluation", () => {
     }
   });
 
+  it("recovers the former fields accessor when evaluating a sealed database diagram", async () => {
+    const result = await evaluateReviewDocumentBundleForPublish({
+      reviewDir: fixtureDir("legacy-fields"),
+      ranges: "skip",
+      bundleCode: `import { createBrowserReviewDefinitionSession, createActiveReviewDocument, jsx } from "review-doc-runtime";
+        const session = createBrowserReviewDefinitionSession({});
+        const stores = session.defineStores({ db: { kind: "relational", label: "DB", tables: {
+          issues: { schema: { is_blocked: { type: "integer" } } }
+        } } });
+        const actors = session.defineActors({ app: { label: "App" } });
+        const anchors = session.defineAnchors({ write: { title: "Write", peek: { file: "write.ts", fromLine: 1, toLine: 1 } } });
+        export default createActiveReviewDocument({ title: "Old schema access", routePath: "/", filePath: "review.mdx", modelNames: [], models: {},
+          Component: ({ components: c }) => jsx(c.DatabaseLens, { title: "Repair", stores, children:
+            jsx(c.DbUseCase, { id: "repair", label: "Repair", children:
+              jsx(c.DbWrite, { from: actors.app, to: stores.db.tables.issues.fields.is_blocked, label: "Mark", anchor: anchors.write }) }) }),
+          isDefault: true });`,
+    });
+
+    expect(result.errors).toEqual([]);
+
+    const lens = result.document?.body.find(
+      (node) => node.type === "component" && node.name === "DatabaseLens",
+    );
+
+    expect(lens).toMatchObject({
+      type: "component",
+      name: "DatabaseLens",
+      props: {
+        useCases: [
+          {
+            operations: [
+              {
+                kind: "write",
+                store: "db",
+                collection: "issues",
+                field: "is_blocked",
+              },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
   it("reads head and base peeks from their exact pinned worktrees", async () => {
     const reviewDir = fixtureDir("review");
     const head = sourceFixture("head line");

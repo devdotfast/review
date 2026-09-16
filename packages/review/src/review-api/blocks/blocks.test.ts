@@ -91,10 +91,10 @@ describe("block definitions", () => {
         new ReviewInputError("Frame keys must be unique within head."),
       );
     });
-    it("call_stack_diff: a frame carries a source on its own side", async () => {
+    it("call_stack_diff: columns can compare paths in the same pinned snapshot", async () => {
       const [diff] = await fixture("call_stack_diff");
 
-      const broken = {
+      const comparison = {
         ...diff!,
         base: [
           {
@@ -104,9 +104,7 @@ describe("block definitions", () => {
         ],
       };
 
-      expect(() => checkReferences([broken])).toThrow(
-        new ReviewInputError("A base frame needs base source."),
-      );
+      expect(() => checkReferences([comparison])).not.toThrow();
     });
     it.each([
       ["actor", { actor: "nobody" }, "Unknown component name: nobody"],

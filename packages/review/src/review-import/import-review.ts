@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parseJsonText } from "@dev.fast/review-protocol";
@@ -25,9 +25,15 @@ import {
   upgradeReviewDocumentJson,
 } from "../review-document-data";
 import { type StoredReview, parseAnyStoredReviewRecord } from "../review-home";
+import { evaluateSealedReviewDocument } from "../review-sealed-document";
 import { type ReviewVcsLogEntry, reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
-import { type TraceRequest, legacyDocumentToBlocks } from "./legacy-blocks";
+import { legacySoftwareMapBundle } from "../stored-review-migration";
+import {
+  type TraceRequest,
+  legacyDocumentToBlocks,
+  repairImportedSectionHeadings,
+} from "./legacy-blocks";
 import {
   type TraceResource,
   mapResourcesFromBundle,
@@ -54,6 +60,16 @@ export interface ImportLegacyReviewInput {
   log?: (dir: string) => Promise<ReviewVcsLogEntry[]>;
   loadTrace?: typeof loadReviewAgentTrace;
   now?: () => Date;
+  /** Surviving checkouts of the same repository, used only after pin verification. */
+  repositoryPaths?: string[];
+  /** Recover sealed history skipped by earlier importers without replacing edits. */
+  completeHistory?: boolean;
+  archiveMap?: (map: {
+    reviewId: string;
+    documentRevision: string;
+    mapRevision: string;
+    blocks: Block[];
+  }) => void;
 }
 
 const SEALED_DOCUMENT_FILE = "review-document.json";
@@ -89,43 +105,50 @@ export async function importLegacyReview(
   // The import record outlives the review: a deleted review stays deleted.
   if (progress && !store.has(reviewId)) return { kind: "current", reviewId };
 
-  if (importedRevision === record.presentedDocumentRevision)
+  if (
+    !input.completeHistory &&
+    importedRevision === record.presentedDocumentRevision
+  )
     return { kind: "current", reviewId };
 
   const imported = store.has(reviewId);
 
-  let repositoryId: string;
+  let resolved:
+    | { repositoryId: string; pins: Pins; worktreePath: string }
+    | undefined;
 
-  try {
-    repositoryId = (await data.register(record.worktreePath)).id;
-  } catch (error) {
-    if (error instanceof ReviewInputError)
-      return {
-        kind: "skipped",
-        reviewId,
-        reason: `repository unavailable at ${record.worktreePath}`,
-      };
-    throw error;
+  for (const worktreePath of new Set([
+    record.worktreePath,
+    ...(input.repositoryPaths ?? []),
+  ])) {
+    try {
+      const repositoryId = (await data.register(worktreePath)).id;
+
+      const pins = await data.resolvePins(
+        repositoryId,
+        record.baseCommit,
+        record.sourceCommit ?? record.baseRef,
+      );
+
+      resolved = { repositoryId, pins, worktreePath };
+      break;
+    } catch (error) {
+      if (!(error instanceof ReviewInputError)) throw error;
+    }
   }
 
-  let currentPins: Pins;
-
-  try {
-    currentPins = await data.resolvePins(
-      repositoryId,
-      record.baseCommit,
-      record.sourceCommit ?? record.baseRef,
-    );
-  } catch (error) {
-    if (error instanceof ReviewInputError)
-      return { kind: "skipped", reviewId, reason: error.message };
-    throw error;
-  }
+  if (!resolved)
+    return {
+      kind: "skipped",
+      reviewId,
+      reason: `repository unavailable at ${record.worktreePath}`,
+    };
+  const { repositoryId, worktreePath } = resolved;
 
   const entries = await pendingRevisions(
     review,
     record.presentedDocumentRevision,
-    importedRevision,
+    input.completeHistory ? null : importedRevision,
     input.log ?? reviewVcs.log,
   );
 
@@ -138,6 +161,18 @@ export async function importLegacyReview(
         : "presented revision is not in the review log",
     };
 
+  const known = new Set(
+    input.completeHistory && imported
+      ? store
+          .history(reviewId)
+          .map(({ version }) => store.read(reviewId, version).origin?.revision)
+      : [],
+  );
+
+  const preserved =
+    input.completeHistory && imported ? store.read(reviewId) : undefined;
+
+  let repaired = false;
   const warnings: string[] = [];
   const versions: ImportedVersionInput[] = [];
   let lastWarnings: string[] = [];
@@ -147,7 +182,7 @@ export async function importLegacyReview(
   const traces = new TraceResolver({
     store,
     repositoryId,
-    worktreePath: record.worktreePath,
+    worktreePath,
     loadTrace: input.loadTrace ?? loadReviewAgentTrace,
   });
 
@@ -156,12 +191,75 @@ export async function importLegacyReview(
     const raw = await readSealedDocument(dir);
 
     if (raw === null) {
+      if (entry.oid === record.presentedDocumentRevision)
+        throw new Error(
+          `Published revision ${entry.oid} has no sealed document.`,
+        );
       warnings.push(`revision ${entry.oid} has no sealed JSON document`);
       continue;
     }
 
-    if (raw === previousRaw) continue;
-    previousRaw = raw;
+    const sealedRecord = parseAnyStoredReviewRecord(
+      parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
+    );
+
+    const mapRevision =
+      index === entries.length - 1
+        ? record.presentedSoftwareMapRevision
+        : sealedRecord.presentedSoftwareMapRevision;
+
+    const signature = JSON.stringify([
+      raw,
+      sealedRecord.baseCommit,
+      sealedRecord.sourceCommit,
+      mapRevision,
+    ]);
+
+    if (
+      mapRevision &&
+      input.archiveMap &&
+      entry.oid !== record.presentedDocumentRevision
+    ) {
+      const mapWarnings: string[] = [];
+
+      const map = await importMapSection(
+        review,
+        mapRevision,
+        input.materialize,
+        store,
+        repositoryId,
+        mapWarnings,
+      );
+
+      if (!map) throw new Error(mapWarnings.join("; "));
+      input.archiveMap({
+        reviewId,
+        documentRevision: entry.oid,
+        mapRevision,
+        blocks: [map],
+      });
+    }
+
+    if (preserved?.origin?.revision === entry.oid) {
+      const sealed = reviewDocumentDataSchema.parse(
+        upgradeReviewDocumentJson(parseJsonText(raw)),
+      );
+
+      const document = repairImportedSectionHeadings(
+        preserved.document,
+        sealed,
+      );
+
+      if (document) {
+        preserved.document = document;
+        repaired = true;
+      }
+    }
+
+    if (signature === previousRaw) continue;
+    previousRaw = signature;
+
+    if (known.has(entry.oid)) continue;
 
     const document = reviewDocumentDataSchema.parse(
       upgradeReviewDocumentJson(parseJsonText(raw)),
@@ -176,16 +274,28 @@ export async function importLegacyReview(
       versionWarnings,
     );
 
+    if (input.completeHistory && versionWarnings.length)
+      throw new Error(`revision ${entry.oid}: ${versionWarnings.join("; ")}`);
+
     // Each sealed revision carries the record it was sealed with, so its
     // peeks resolve against the pins of that time, not today's.
-    const pins = await revisionPins(
-      dir,
-      entry.oid,
-      data,
-      repositoryId,
-      currentPins,
-      versionWarnings,
-    );
+    const pins = await revisionPins(dir, entry.oid, data, repositoryId);
+
+    if (mapRevision && entry.oid === record.presentedDocumentRevision) {
+      const map = await importMapSection(
+        review,
+        mapRevision,
+        input.materialize,
+        store,
+        repositoryId,
+        versionWarnings,
+      );
+
+      if (!map && input.completeHistory)
+        throw new Error(versionWarnings.join("; "));
+
+      if (map) blocks.push(map);
+    }
 
     const isLast = index === entries.length - 1;
 
@@ -197,17 +307,39 @@ export async function importLegacyReview(
 
     versions.push({
       reviewId,
-      title: record.title || document.title,
+      title: (isLast ? record.title : sealedRecord.title) || document.title,
       pins,
       document: blocks,
       createdAt,
-      origin: { ...origin, revision: entry.oid },
+      origin: {
+        ...(isLast ? origin : originFrom(sealedRecord)),
+        revision: entry.oid,
+      },
     });
     lastWarnings = versionWarnings;
     warnings.push(...versionWarnings);
   }
 
   const last = versions.at(-1);
+
+  if (!last && imported) {
+    if (repaired) {
+      const result = await store.importVersions([], {
+        preserveCurrent: preserved,
+        revision: record.presentedDocumentRevision,
+      });
+
+      return {
+        kind: "imported",
+        reviewId,
+        title: store.read(reviewId).title,
+        version: result.version,
+        warnings: result.warnings,
+      };
+    }
+
+    return { kind: "current", reviewId };
+  }
 
   if (!last)
     return {
@@ -218,21 +350,7 @@ export async function importLegacyReview(
 
   // The cursor is the presented revision this import covered, even when that
   // revision's document was identical to an earlier one and wrote no version.
-  last.origin = { ...last.origin, revision: entries.at(-1)!.oid };
-
-  if (record.presentedSoftwareMapRevision) {
-    // A map that cannot be imported must not sink the document.
-    const mapSection = await importMapSection(
-      review,
-      record.presentedSoftwareMapRevision,
-      input.materialize,
-      store,
-      repositoryId,
-      lastWarnings,
-    );
-
-    if (mapSection) last.document.push(mapSection);
-  }
+  // The import cursor is separate from each historical snapshot's provenance.
 
   // Keep migration diagnostics in the import result/log, not authored content.
   lastWarnings.push(...(await unresolvedSources(last, data)));
@@ -240,7 +358,11 @@ export async function importLegacyReview(
   const importWarnings = [...new Set(lastWarnings)];
 
   if (!imported) versions[0]!.attention = attentionFrom(record);
-  const result = await store.importVersions(versions);
+
+  const result = await store.importVersions(versions, {
+    preserveCurrent: preserved,
+    revision: record.presentedDocumentRevision,
+  });
 
   return {
     kind: "imported",
@@ -262,9 +384,11 @@ async function importMapSection(
   warnings: string[],
 ): Promise<Block | null> {
   try {
-    const bundle = await readReviewSoftwareMapBundle(
-      await materialize(review, revision),
-    );
+    const dir = await materialize(review, revision);
+
+    const bundle =
+      (await readReviewSoftwareMapBundle(dir)) ??
+      (await legacySoftwareMapBundle(dir));
 
     if (!bundle) {
       warnings.push(`map revision ${revision} has no bundle`);
@@ -343,8 +467,23 @@ async function readSealedDocument(dir: string): Promise<string | null> {
       "utf8",
     );
   } catch (error) {
-    if (isMissingFileError(error)) return null;
-    throw error;
+    if (!isMissingFileError(error)) throw error;
+
+    // Import sealed presentations, never rebuild mutable authoring inputs.
+    for (const bundleDir of [REVIEW_DOCUMENT_BUNDLE_DIR, ".bundle"]) {
+      try {
+        await access(path.join(dir, bundleDir, "review-document.js"));
+      } catch (missing) {
+        if (isMissingFileError(missing)) continue;
+        throw missing;
+      }
+
+      const evaluated = await evaluateSealedReviewDocument(dir);
+
+      return JSON.stringify(evaluated.document);
+    }
+
+    return null;
   }
 }
 
@@ -353,36 +492,21 @@ async function revisionPins(
   oid: string,
   data: LocalReviewData,
   repositoryId: string,
-  fallback: Pins,
-  warnings: string[],
 ): Promise<Pins> {
-  let record: StoredRecord;
-
   try {
-    record = parseAnyStoredReviewRecord(
+    const record = parseAnyStoredReviewRecord(
       parseJsonText(await readFile(path.join(dir, "review.json"), "utf8")),
     );
-  } catch (error) {
-    warnings.push(
-      `revision ${oid}: record unreadable (${errorMessage(error)}); using current pins`,
-    );
 
-    return fallback;
-  }
-
-  try {
     return await data.resolvePins(
       repositoryId,
       record.baseCommit,
       record.sourceCommit ?? record.baseRef,
     );
   } catch (error) {
-    if (!(error instanceof ReviewInputError)) throw error;
-    warnings.push(
-      `revision ${oid}: pins unresolved (${error.message}); using current pins`,
+    throw new Error(
+      `revision ${oid}: cannot recover exact source pins (${errorMessage(error)})`,
     );
-
-    return fallback;
   }
 }
 

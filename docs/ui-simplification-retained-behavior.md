@@ -118,18 +118,10 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
 
 ## Heading ownership
 
-- `ReviewSection` renders its own `<h2>` from `title`; a published section's
-  first-child heading is dropped at hydration so it never renders twice.
-- Heading ids are assigned once, by the projection pass
-  (`assignReviewHeadingIds`), to `h2`/`h3` elements and to sections. The
-  Contents rail reads the same ids. Ids are DOM-only; nothing persists them.
-  A heading whose source has no id keeps the generated id a previous projection
-  showed for it across feature toggles.
-- One slug rule (`packages/review/src/slug.ts`) serves headings, sequence
-  steps and database lenses. Sequence and lens ids are unchanged; heading ids
-  no longer strip apostrophes (`it-s` rather than `its`).
-- `data-review-block-tag` is no longer stamped on prose: materialization drops
-  it like the table indices, and hydration strips it from bundles sealed
-  before the change.
-- JSON sections render `id="<block id>"`; JSON reviews still have no Contents
-  rail (JSON host convergence follow-up).
+- `ReviewSection` renders its own `<h2>` from `title`; hydration drops the
+  heading child that published bundles carry.
+- Heading ids are assigned once, in the projection pass, to `h2`/`h3`
+  elements and to sections; the Contents rail reads the same ids. They are
+  DOM-only. Sequence and lens ids share the slug rule and are unchanged.
+- `data-review-block-tag` is no longer stamped; materialization drops it and
+  hydration strips it from older bundles.

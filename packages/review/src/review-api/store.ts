@@ -12,7 +12,9 @@ import {
   ReviewInputError,
   type Source,
   applyEdit,
+  assignFreshIds,
   checkReferences,
+  documentSchema,
   editSchema,
   elements,
   pinsSchema,
@@ -50,6 +52,15 @@ export const commandSchema = z.strictObject({
   ]),
 });
 
+/** Where a review came from, for Home cards. Set by legacy import; the
+ * authoring API leaves it absent. */
+export interface SnapshotOrigin {
+  branch?: string;
+  baseRef?: string;
+  pullRequestNumber?: number;
+  pullRequestUrl?: string;
+}
+
 export interface Snapshot {
   reviewId: string;
   version: number;
@@ -57,6 +68,19 @@ export interface Snapshot {
   pins: Pins;
   document: Block[];
   createdAt: string;
+  origin?: SnapshotOrigin;
+}
+
+/** A whole version written by legacy import: ids are assigned here, sources
+ * are checked tolerantly, and attention is applied only for a new review. */
+export interface ImportedVersionInput {
+  reviewId: string;
+  title: string;
+  pins: Pins;
+  document: Block[];
+  createdAt: string;
+  origin?: SnapshotOrigin;
+  attention?: { viewedAt?: string | null; dismissedAt?: string | null };
 }
 
 export interface Result {
@@ -75,6 +99,12 @@ export interface ReviewProviders {
     options: { peek: boolean },
   ): Promise<void>;
   validateResource(pins: Pins, block: Block): Promise<void>;
+  /** Import only: report a problem as a warning instead of rejecting. */
+  validateSourceTolerant?(
+    pins: Pins,
+    source: Source,
+    options: { peek: boolean },
+  ): Promise<string | null>;
 }
 
 /** One instance owned by the desktop server. All writers go through execute().
@@ -479,7 +509,10 @@ export class ReviewStore {
     }
 
     if (result.deleted) this.activity.remove(result.reviewId);
+    this.notify(result);
+  }
 
+  private notify(result: Result) {
     if (!result.attention)
       for (const listener of this.listeners)
         try {
@@ -494,6 +527,113 @@ export class ReviewStore {
       } catch {
         // The saved command must remain successful if a viewer disconnects.
       }
+  }
+  has(reviewId: string): boolean {
+    return (
+      this.db.prepare("SELECT 1 FROM reviews WHERE id=?").get(reviewId) !==
+      undefined
+    );
+  }
+  /** Legacy import: a new review becomes version 0, an existing one gets the
+   * next version. All fallible checks run before the transaction. */
+  importVersion(
+    input: ImportedVersionInput,
+  ): Promise<{ version: number; warnings: string[] }> {
+    if (this.closing)
+      return Promise.reject(new Error("Review store is closing."));
+
+    const run = this.pending.then(async () => {
+      const existing = this.db
+        .prepare("SELECT version,next_id FROM reviews WHERE id=?")
+        .get(input.reviewId);
+
+      const document = structuredClone(documentSchema.parse(input.document));
+      let nextId = existing ? Number(existing.next_id) : 0;
+
+      for (const block of document)
+        assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
+      checkReferences(document);
+      await this.providers.validatePins(input.pins);
+
+      const warnings: string[] = [];
+      const seen = new Set<string>();
+
+      for (const { source, peek } of sourceReferences(document, {
+        tolerant: true,
+      })) {
+        const key = JSON.stringify(source);
+
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        const warning = this.providers.validateSourceTolerant
+          ? await this.providers.validateSourceTolerant(input.pins, source, {
+              peek: peek === true,
+            })
+          : null;
+
+        if (warning) warnings.push(warning);
+      }
+
+      for (const block of elements(document))
+        if (
+          block.type === "image" ||
+          block.type === "trace_quote" ||
+          block.type === "software_map"
+        )
+          await this.providers.validateResource(input.pins, block);
+
+      const version = existing ? Number(existing.version) + 1 : 0;
+
+      const snapshot: Snapshot = {
+        reviewId: input.reviewId,
+        version,
+        title: input.title,
+        pins: input.pins,
+        document,
+        createdAt: input.createdAt,
+      };
+
+      if (input.origin) snapshot.origin = input.origin;
+
+      this.db.exec("BEGIN IMMEDIATE");
+
+      try {
+        this.db
+          .prepare(
+            "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
+          )
+          .run(input.reviewId, version, nextId);
+        this.db
+          .prepare(
+            "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
+          )
+          .run(input.reviewId, version, JSON.stringify(snapshot));
+
+        if (!existing && input.attention)
+          this.db
+            .prepare(
+              "INSERT INTO review_attention(review_id,viewed_at,dismissed_at) VALUES(?,?,?)",
+            )
+            .run(
+              input.reviewId,
+              input.attention.viewedAt ?? null,
+              input.attention.dismissedAt ?? null,
+            );
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+
+      this.notify({ reviewId: input.reviewId, version });
+
+      return { version, warnings };
+    });
+
+    this.pending = run.catch(() => {});
+
+    return run;
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
     const references = (document: Block[], tolerant = false) => {

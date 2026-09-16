@@ -7,6 +7,13 @@ export interface ReviewApiSummary {
   title: string;
   pins: { repositoryId: string; base: string; head: string };
   createdAt: string;
+  /** Present on reviews imported from the legacy MDX store. */
+  origin?: {
+    branch?: string;
+    baseRef?: string;
+    pullRequestNumber?: number;
+    pullRequestUrl?: string;
+  };
   repositoryName: string;
   viewedAt: string | null;
   dismissedAt: string | null;

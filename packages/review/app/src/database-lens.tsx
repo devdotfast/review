@@ -33,6 +33,7 @@ import {
   resolveTargetRef,
   throwAuthoringIssue,
 } from "../../src/authoring";
+import { useAgentSelection } from "./agent-selection";
 import {
   type ValidatedCodePeekInput,
   validatedCodePeekInputFromRef,
@@ -223,6 +224,7 @@ export function ResolvedDatabaseLens({
   useCases: ParsedUseCase[];
   id?: string;
 }) {
+  const selectForAgent = useAgentSelection();
   const session = useReviewSession();
   const locatorScope = id ?? `db:${slugPart(title ?? "database")}`;
   const lensId = locatorScope;
@@ -403,6 +405,34 @@ export function ResolvedDatabaseLens({
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() =>
+                  selectForAgent({
+                    target: {
+                      kind: "graph",
+                      diagram: title ?? "Database lens",
+                      label: activeUseCase.label,
+                      elementType: "node",
+                    },
+                    title: activeUseCase.label,
+                    diagramContext: {
+                      kind: "database use case",
+                      description: activeUseCase.summary,
+                      operations: activeUseCase.operations.map((operation) => {
+                        const endpoint = (ref: ActorRef | TargetRef) =>
+                          ref.__kind === "db-actor-ref"
+                            ? ref.label
+                            : ref.collectionLabel;
+
+                        return `${operation.kind}: ${endpoint(operation.from)} → ${endpoint(operation.to)} — ${operation.label}`;
+                      }),
+                    },
+                  })
+                }
+              >
+                Select for Agent
+              </button>
             </div>
           )}
           {!stage && activeTourId && (

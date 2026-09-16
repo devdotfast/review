@@ -22,8 +22,11 @@ import {
   runStoreWhoami,
   runTraceAllow,
   runTraceDeny,
+  runTraceInstallMachine,
   runTraceOnboard,
   runTraceSessions,
+  runTraceStoreDelete,
+  runTraceStoreInfo,
   traceHomeDir,
   traceScope,
 } from "@dev.fast/trace-core";
@@ -114,7 +117,10 @@ interface ReviewCliRuntime {
   runTraceSync: typeof runTraceSync;
   runTraceStorageUse: typeof runTraceStorageUse;
   runTraceConfigMigrate: typeof runTraceConfigMigrate;
+  runTraceInstallMachine: typeof runTraceInstallMachine;
   runTraceOnboard: typeof runTraceOnboard;
+  runTraceStoreDelete: typeof runTraceStoreDelete;
+  runTraceStoreInfo: typeof runTraceStoreInfo;
   runTraceSessions: typeof runTraceSessions;
   runTraceAllow: typeof runTraceAllow;
   runTraceDeny: typeof runTraceDeny;
@@ -777,6 +783,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     stderr: input.stderr,
     configureOutput: (command) => configureOutput(command, "plain"),
     configureJsonOutput: (command) => configureJsonOutput(command, "plain"),
+    verifyCommand: "review trace status",
     setExitCode: (code) => {
       state.exitCode = code;
     },
@@ -1150,7 +1157,10 @@ function reviewCliRuntime(
     runTraceSync,
     runTraceStorageUse,
     runTraceConfigMigrate,
+    runTraceInstallMachine,
     runTraceOnboard,
+    runTraceStoreDelete,
+    runTraceStoreInfo,
     runTraceSessions,
     runTraceAllow,
     runTraceDeny,
@@ -1464,8 +1474,14 @@ function telemetryCommandPath(
   if (parent === "migrate" && name === "apply") return "migrate.apply";
 
   if (parent === "trace") {
-    if (name === "onboard" || name === "allow" || name === "deny") {
+    if (name === "allow" || name === "deny" || name === "install") {
       return `trace.${name}`;
+    }
+  }
+
+  if (parent === "store" && command.parent?.parent?.name() === "trace") {
+    if (name === "create" || name === "delete" || name === "info") {
+      return `trace.store.${name}`;
     }
   }
 

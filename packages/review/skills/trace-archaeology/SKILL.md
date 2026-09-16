@@ -11,12 +11,14 @@ metadata:
 
 Agent-written commits record `Agent-Session: <id>` trailers. Use the `review trace` CLI to resolve and pull those sessions. Use FFF to find candidate events. Use `review trace show` for exact evidence.
 
+On a machine that has the standalone `dev-traces` command instead of `review`, the same subcommands exist without the `trace` prefix: `dev-traces list --commit <rev> --json`, `dev-traces pull --session <id> --json`, `dev-traces show <id> --json`, `dev-traces blame <file> -L <start,end> --json`, and `dev-traces sessions --json`. `dev-traces check` reports whether that machine captures and publishes traces for the repository. `--review <uuid>` and `--storage` are not available there.
+
 ## Configuration
 
 Before hosted setup, explain: full transcripts go to the chosen origin. Writers can upload and check their own status; only admins can read transcripts.
 
 - Enable only user-authorized repositories and origins. Existing authorization is sufficient unless later revoked, including by `review trace deny`.
-- Check `review trace status`; `--session <id>` narrows uploads. If authorized, run `review trace onboard` when needed, then `review trace allow .`. Check status again.
+- Check `review trace status`; `--session <id>` narrows uploads. If authorized, run `review trace store create` when needed, then `review trace allow .`. Check status again.
 - Without authorization, leave capture off and continue read-only investigation. Trace lookup does not require publication.
 
 FFF setup is human-owned. If FFF is unavailable, report the setup gap. Do not replace or reconfigure it.

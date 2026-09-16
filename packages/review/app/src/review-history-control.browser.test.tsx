@@ -17,7 +17,10 @@ import {
 
 import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewProvider } from "./review-context";
-import { ReviewHistoryControl } from "./review-history-control";
+import {
+  DisplayedReviewVersionContext,
+  ReviewHistoryControl,
+} from "./review-history-control";
 import { testReviewSession } from "./review-session-test-utils";
 import { TutorialProvider } from "./tutorial-context";
 
@@ -103,9 +106,58 @@ describe("ReviewHistoryControl", () => {
     });
   });
 
+  it("steps through saved versions and returns to the live latest version", async () => {
+    const saved = [3, 1, 2].map((revision) => ({
+      revision: String(revision),
+      sealedAt: Date.UTC(2026, 7, revision),
+      isCurrent: revision === 3,
+    }));
+    request.mockImplementation(async (url) =>
+      url.includes("/revisions")
+        ? jsonResponse({ ok: true, versions: saved })
+        : jsonResponse({ ok: true }),
+    );
+    const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
+    const arrow = (label: string) =>
+      container.querySelector<HTMLButtonElement>(
+        `[aria-label="${label} version"]`,
+      )!;
+
+    await renderControl(undefined, post, 3);
+    await expect.poll(() => historyButton().textContent).toContain("Version 3");
+    expect(arrow("Next").disabled).toBe(true);
+    await act(async () => arrow("Previous").click());
+    expect(post).toHaveBeenLastCalledWith({
+      name: "openReviewRevision",
+      args: { revision: "2", sealedAt: Date.UTC(2026, 7, 2) },
+    });
+
+    await renderControl(undefined, post, 2);
+    await expect.poll(() => historyButton().textContent).toContain("Version 2");
+    expect(historyButton().querySelector("time")?.dateTime).toBe(
+      new Date(Date.UTC(2026, 7, 2)).toISOString(),
+    );
+    expect(arrow("Previous").disabled).toBe(false);
+    expect(arrow("Next").disabled).toBe(false);
+    await act(async () => arrow("Next").click());
+    expect(post).toHaveBeenLastCalledWith({
+      name: "openReviewRevision",
+      args: {},
+    });
+
+    await renderControl(undefined, post, 1);
+    expect(arrow("Previous").disabled).toBe(true);
+    await act(async () => arrow("Next").click());
+    expect(post).toHaveBeenLastCalledWith({
+      name: "openReviewRevision",
+      args: { revision: "2", sealedAt: Date.UTC(2026, 7, 2) },
+    });
+  });
+
   async function renderControl(
     tutorial?: ReviewCanvasTutorialBridge,
     post?: ReturnType<typeof testReviewSession>["bridge"]["post"],
+    displayedVersion?: number,
   ) {
     await act(async () => {
       root.render(
@@ -114,7 +166,9 @@ describe("ReviewHistoryControl", () => {
         >
           <ReviewProvider>
             <TutorialProvider tutorial={tutorial}>
-              <ReviewHistoryControl />
+              <DisplayedReviewVersionContext.Provider value={displayedVersion}>
+                <ReviewHistoryControl />
+              </DisplayedReviewVersionContext.Provider>
             </TutorialProvider>
           </ReviewProvider>
         </ReviewSessionProvider>,

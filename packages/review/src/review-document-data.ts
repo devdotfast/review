@@ -4,6 +4,7 @@ import {
   isStringValue,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import type { ComponentType, ReactNode } from "react";
 import { z } from "zod";
 
 import {
@@ -34,6 +35,8 @@ import {
 export const REVIEW_DOCUMENT_FORMAT = "review-document/1";
 
 export type {
+  AnchorRef as DocumentAnchor,
+  PeekableAnchorRef as DocumentPeekableAnchor,
   ReviewAuthoringComponentName,
   ReviewDocumentComponentName,
 } from "./authoring";
@@ -144,6 +147,17 @@ interface ReviewComponentNodeOf<Name extends ReviewDocumentComponentName> {
 export type ReviewComponentNode = {
   [Name in ReviewDocumentComponentName]: ReviewComponentNodeOf<Name>;
 }[ReviewDocumentComponentName];
+
+export type ReviewComponentProps<Name extends ReviewDocumentComponentName> =
+  ReviewComponentNodeOf<Name>["props"];
+
+/** The renderer registry: one component per document component, typed by the
+ * props the sealed JSON carries. Prose children arrive positionally. */
+export type ReviewDocumentComponentRegistry = {
+  [Name in ReviewDocumentComponentName]: ComponentType<
+    ReviewComponentProps<Name> & { children?: ReactNode }
+  >;
+};
 
 export type ReviewNode =
   | ReviewTextNode

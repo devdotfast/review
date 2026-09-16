@@ -23,14 +23,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { AnchorRef } from "../../src/authoring";
 import type { Step } from "../../src/review-api/document";
 import { useReviewDebugSettings } from "./debug-settings";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import { useReviewPanel } from "./review-panel";
-import type { GuidedTour } from "./review-panel-model";
+import type { GuidedTour, PeekAnchor } from "./review-panel-model";
 import { useTourPersist, useTourRestore } from "./review-view-state";
 import { captureUiEvent } from "./ui-telemetry";
 
@@ -139,9 +138,8 @@ export function sequenceView(block: SequenceDiagramProps): SequenceView {
 
 /** The side panel and guided tour key their state by anchor; a message is
  * its own anchor. */
-function panelAnchor(message: SequenceMessage): AnchorRef {
-  const anchor: AnchorRef = {
-    __kind: "db-anchor-ref",
+function panelAnchor(message: SequenceMessage): PeekAnchor {
+  const anchor: PeekAnchor = {
     id: message.id,
     title: message.label,
   };

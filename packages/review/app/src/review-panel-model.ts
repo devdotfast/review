@@ -3,7 +3,6 @@ import type {
   ReviewDiffFileWire,
 } from "@dev.fast/review-protocol";
 
-import type { AnchorRef } from "../../src/authoring";
 import type { Source } from "../../src/source";
 
 export type ReviewPeekContent =
@@ -18,8 +17,19 @@ export type ReviewPeekContent =
       quote: string;
     };
 
+/** What a peek or tour stop needs to know about its subject. Components build
+ * one from their own document props; it is the panel's contract, not the
+ * authoring anchor. */
+export interface PeekAnchor {
+  id: string;
+  title: string;
+  detail?: string;
+  peek?: Source;
+  softwareMapPath?: string;
+}
+
 export interface GuidedTourStop {
-  anchor: AnchorRef;
+  anchor: PeekAnchor;
   label: string;
   detail?: string;
   content: ReviewPeekContent;
@@ -34,7 +44,7 @@ export interface GuidedTour {
 
 export interface PeekPanel {
   kind: "peek";
-  anchor?: AnchorRef;
+  anchor?: PeekAnchor;
   content: ReviewPeekContent;
 }
 

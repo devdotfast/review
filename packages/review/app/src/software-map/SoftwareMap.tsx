@@ -29,7 +29,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { codePeekSource } from "../../../src/authoring";
+import { codePeekSource } from "../../../src/source";
 import { CodePeekGroup } from "../CodePeek";
 import { useReviewDebugSettings } from "../debug-settings";
 import { hasTextSelectionWithin } from "../diagram-text-selection";

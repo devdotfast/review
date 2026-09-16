@@ -23,6 +23,7 @@ import {
   diffCallStacks,
 } from "./call-stack-diff";
 import { callStackFrames } from "./call-stack-frames";
+import { textIncludesQuote } from "./evidence";
 import {
   REVIEW_DOCUMENT_FORMAT,
   type ReviewDocumentData,
@@ -412,14 +413,13 @@ async function validateTraceQuotes(input: {
       continue;
     }
 
-    const normQuote = cleanQuote.replace(/\s+/g, " ");
     const matchingIndices: number[] = [];
 
     for (let i = 0; i < loaded.trace.events.length; i++) {
       const event = loaded.trace.events[i];
-      const text = extractTraceEventText(event).replace(/\s+/g, " ");
 
-      if (text.includes(normQuote)) matchingIndices.push(i);
+      if (textIncludesQuote(extractTraceEventText(event), cleanQuote))
+        matchingIndices.push(i);
     }
 
     const quoteLabel =

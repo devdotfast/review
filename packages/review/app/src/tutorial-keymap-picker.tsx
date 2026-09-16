@@ -1,7 +1,7 @@
 import type { ReviewKeymapChoice } from "@dev.fast/review-protocol";
 import { useState } from "react";
 
-import type { TutorialKeymapPickerProps } from "../../src/authoring";
+import type { ReviewComponentProps } from "../../src/review-document-data";
 import { useTutorial } from "./tutorial-context";
 
 const choices: readonly { value: ReviewKeymapChoice; label: string }[] = [
@@ -10,7 +10,9 @@ const choices: readonly { value: ReviewKeymapChoice; label: string }[] = [
   { value: "emacs", label: "Emacs" },
 ];
 
-export function TutorialKeymapPicker(_props: TutorialKeymapPickerProps) {
+export function TutorialKeymapPicker(
+  _props: ReviewComponentProps<"TutorialKeymapPicker">,
+) {
   const tutorial = useTutorial();
   const [pending, setPending] = useState<ReviewKeymapChoice | null>(null);
 

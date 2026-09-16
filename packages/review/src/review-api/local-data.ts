@@ -12,6 +12,7 @@ import {
 import type { ReviewSourceEntry } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { textIncludesQuote } from "../evidence.js";
 import { resolveSoftwareMapDiffCounts } from "../software-map-diff-counts.js";
 import {
   type NormalizedSoftwareModel,
@@ -434,11 +435,9 @@ export class LocalReviewData {
         .passthrough()
         .parse(JSON.parse(Buffer.from(resource.data).toString()));
 
-      if (
-        !trace.events
-          .find((event) => event.id === block.eventId)
-          ?.text.includes(block.text)
-      )
+      const event = trace.events.find((event) => event.id === block.eventId);
+
+      if (!event || !textIncludesQuote(event.text, block.text))
         throw new ReviewInputError(
           "Quote does not match the retained trace event.",
         );

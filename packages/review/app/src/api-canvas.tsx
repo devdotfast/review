@@ -29,6 +29,7 @@ import {
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
+import { DisplayedReviewVersionContext } from "./review-history-control";
 import { TutorialProvider } from "./tutorial-context";
 
 type ApiContent = Extract<ReviewCanvasContent, { kind: "api" }>;
@@ -306,7 +307,11 @@ export function ApiCanvas({
           <AuthoringActivityContext.Provider
             value={version === undefined ? activity : undefined}
           >
-            <CanvasDocument data={data} findHost={findHost} />
+            <DisplayedReviewVersionContext.Provider
+              value={data.snapshot.version}
+            >
+              <CanvasDocument data={data} findHost={findHost} />
+            </DisplayedReviewVersionContext.Provider>
           </AuthoringActivityContext.Provider>
         </TutorialProvider>
       </DocumentData.Provider>

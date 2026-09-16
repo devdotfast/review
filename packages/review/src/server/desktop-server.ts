@@ -142,20 +142,6 @@ export interface PublishMountTiming {
   endEpochMs: number;
 }
 
-// The renderer returns its mount step timings inside the verb result; parse
-// them at this boundary rather than trusting the shape.
-const MountVerbResultSchema = z.object({
-  timings: z
-    .array(
-      z.object({
-        name: z.string(),
-        startEpochMs: z.number(),
-        endEpochMs: z.number(),
-      }),
-    )
-    .optional(),
-});
-
 const REVIEW_REAPER_INTERVAL_MS = 60 * 60 * 1_000;
 
 const TUTORIAL_LIFECYCLE_LOCK_KEY = "tutorial-lifecycle";
@@ -1101,6 +1087,7 @@ export function createGlobalReviewServer(
         startSessionTelemetry,
         closeSession: (session, reason) => closeSession(session, reason, false),
         broadcast: broadcastGlobal,
+        materializePublishRevision: publishRuntime.materializePublishRevision,
       }),
     );
   });
@@ -1296,17 +1283,7 @@ export function createGlobalReviewServer(
   }
 
   // The CLI already validated, bundled, and sealed the revision; the server
-  // materializes it, has the app mount it off-screen, and promotes it only
-  // when that mount is clean.
-  function mountStepTimings(
-    validation: ReviewVerbResponse,
-  ): PublishMountTiming[] {
-    if (!validation.ok) return [];
-    const parsed = MountVerbResultSchema.safeParse(validation.result);
-
-    return parsed.success ? (parsed.data.timings ?? []) : [];
-  }
-
+  // materializes it and promotes it.
   async function mountPublishedDocument(
     review: StoredReview,
     revision: string,
@@ -1385,30 +1362,6 @@ export function createGlobalReviewServer(
     );
 
     try {
-      // The app mounts the unpromoted session off-screen first. A failed
-      // mount fails the publish before promotion, so the reviewer keeps the
-      // last good revision on screen.
-      const validation = await timed("validate canvas mount", () =>
-        relay.dispatch(successor.descriptor.sessionId, {
-          name: "validateCanvasMount",
-          args: {},
-        }),
-      );
-
-      if (!validation.ok) {
-        throw new ReviewServerError(
-          `Review document failed to mount: ${validation.error ?? "unknown error"}`,
-          422,
-          "mount_validation_failed",
-        );
-      }
-
-      // The renderer reports the mount's own steps (asset load, session and
-      // module fetches, first commit, settle timer) inside the verb result.
-      for (const step of mountStepTimings(validation)) {
-        timings.push({ ...step, name: `mount: ${step.name}` });
-      }
-
       await timed("promote", () =>
         withReviewLock(review.review.uuid, async () => {
           // The guard ran before validation; an import may have landed since.
@@ -1580,19 +1533,6 @@ export function createGlobalReviewServer(
     });
 
     try {
-      const validation = await relay.dispatch(successor.descriptor.sessionId, {
-        name: "validateCanvasMount",
-        args: {},
-      });
-
-      if (!validation.ok) {
-        throw new ReviewServerError(
-          `Software map failed to load: ${validation.error ?? "unknown error"}`,
-          422,
-          "map_validation_failed",
-        );
-      }
-
       await withReviewLock(review.review.uuid, async () => {
         if (reviewStore?.legacyImport(review.review.uuid))
           throw migratedError(review.review.uuid, "map publish");

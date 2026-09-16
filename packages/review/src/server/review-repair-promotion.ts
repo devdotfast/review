@@ -218,8 +218,7 @@ export interface RepairPromotionSession {
 }
 
 /** The CLI already validated, bundled, and sealed the revision; the server
- * materializes it, has the app mount it off-screen, and promotes it only
- * when that mount is clean. */
+ * materializes it and promotes it under the review lock. */
 export async function promoteReviewRepair<
   Session extends RepairPromotionSession & {
     descriptor: ReviewSessionDescriptor;
@@ -248,6 +247,8 @@ export async function promoteReviewRepair<
     reason: "closed" | "replaced",
   ) => Promise<void>;
   broadcast: (event: ReviewDesktopGlobalEvent) => void;
+  /** Object seam shared with publish; a test can pause or mutate mid-command here. */
+  materializePublishRevision: typeof materializePublishRevision;
 }): Promise<ReviewRepairReadyResponse> {
   const { review, request } = input;
   const stagingDir = await realpath(request.stagingDir);
@@ -279,7 +280,7 @@ export async function promoteReviewRepair<
         createdBuilds.push(destination);
       }
 
-      return materializePublishRevision({
+      return input.materializePublishRevision({
         review,
         revision,
         sourceDir: stagingDir,
@@ -367,17 +368,6 @@ export async function promoteReviewRepair<
       repairValidation: true,
     });
 
-    const validation = await input.dispatch(successor.descriptor.sessionId, {
-      name: "validateCanvasMount",
-      args: {},
-    });
-
-    if (!validation.ok)
-      throw new ReviewServerError(
-        `Repaired Review failed to mount: ${validation.error ?? "unknown error"}`,
-        422,
-        "repair_mount_failed",
-      );
     const mounted = successor;
     await input.withReviewLock(request.reviewUuid, async () => {
       if (
@@ -389,9 +379,7 @@ export async function promoteReviewRepair<
       if (
         (await fingerprintReviewRepairInputs(stagingDir)) !== stageFingerprint
       )
-        throw new Error(
-          "Prepared repair changed after mount validation; retry.",
-        );
+        throw new Error("Prepared repair changed before promotion; retry.");
       mounted.review = {
         dir: review.dir,
         review: await applyPreparedReviewRepair(review.dir, request),

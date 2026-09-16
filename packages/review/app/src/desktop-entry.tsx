@@ -5,7 +5,7 @@ import type {
   ReviewDocumentLoad,
   ReviewSoftwareMapLoad,
 } from "@dev.fast/review-protocol";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { ApiCanvas } from "./api-canvas";
@@ -41,7 +41,6 @@ function DesktopReviewApp({
   documentBundle,
   softwareMapBundle,
   softwareMapEnabled,
-  purpose = "display",
   range,
   commits,
   tutorial,
@@ -50,31 +49,12 @@ function DesktopReviewApp({
   documentBundle: Promise<ReviewDocumentLoad>;
   softwareMapBundle: Promise<ReviewSoftwareMapLoad | null>;
   softwareMapEnabled: boolean;
-  purpose?: "display" | "validation";
   range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
   commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
   tutorial?: Extract<ReviewCanvasContent, { kind: "session" }>["tutorial"];
   findHost: ReviewFindHost;
 }) {
   const session = useReviewSession();
-
-  // Render boundaries report during commit, before our readiness effect.
-  // Keep their failure authoritative for this pair of validation artifacts.
-  const settlementSession = useMemo(() => {
-    if (purpose === "display") return session;
-    let failed = false;
-
-    return {
-      ...session,
-      signalReady: () => {
-        if (!failed) session.signalReady();
-      },
-      reportDiagnostic: (diagnostic: ReviewCanvasDiagnostic) => {
-        if (diagnostic.level === "error") failed = true;
-        session.reportDiagnostic(diagnostic);
-      },
-    };
-  }, [session, purpose, documentBundle, softwareMapBundle]);
 
   const sessionRef = useRef(session);
   sessionRef.current = session;
@@ -126,48 +106,32 @@ function DesktopReviewApp({
     }
 
     // The display host opens a usable recovery shell before diagnostics.
-    // Validation instead reports every unusable artifact before success.
-    if (purpose === "display") settlementSession.signalReady();
+    session.signalReady();
 
     if (
       reportedDocumentBundle.current !== documentBundle &&
-      reportLoadFailure(settlementSession, "document", documentState, purpose)
+      reportLoadFailure(session, "document", documentState)
     ) {
       reportedDocumentBundle.current = documentBundle;
     }
 
     if (
       reportedSoftwareMapBundle.current !== softwareMapBundle &&
-      reportLoadFailure(
-        settlementSession,
-        "software-map",
-        softwareMapState,
-        purpose,
-      )
+      reportLoadFailure(session, "software-map", softwareMapState)
     ) {
       reportedSoftwareMapBundle.current = softwareMapBundle;
-    }
-
-    if (
-      purpose === "validation" &&
-      documentState.state === "ready" &&
-      (softwareMapState.state === "ready" ||
-        softwareMapState.state === "absent")
-    ) {
-      settlementSession.signalReady();
     }
   }, [
     documentBundle,
     documentState,
     softwareMapBundle,
     softwareMapState,
-    purpose,
-    settlementSession,
+    session,
   ]);
 
   return (
     <div className="review-session-content">
-      <ReviewSessionProvider session={settlementSession}>
+      <ReviewSessionProvider session={session}>
         <TutorialProvider tutorial={tutorial}>
           <App
             documentState={documentState}
@@ -238,25 +202,7 @@ function reportLoadFailure(
   session: ReviewSession,
   source: "document" | "software-map",
   state: ReviewDocumentAppState | ReviewSoftwareMapAppState,
-  purpose: "display" | "validation",
 ): boolean {
-  if (
-    purpose === "validation" &&
-    (state.state === "needs-republish" ||
-      (state.state === "unavailable" && state.currentReviewUuid))
-  ) {
-    session.reportDiagnostic({
-      level: "error",
-      source: "loader",
-      message:
-        state.state === "unavailable"
-          ? state.message
-          : `The ${source} needs repair before publication.`,
-    });
-
-    return true;
-  }
-
   if (state.state !== "unavailable" || state.currentReviewUuid) return false;
   const cause = state.cause ?? new Error(state.message);
   captureClientError(session, source, cause);
@@ -299,7 +245,6 @@ function ReviewCanvas({
         documentBundle={content.document}
         softwareMapBundle={content.softwareMap}
         softwareMapEnabled={content.softwareMapEnabled}
-        purpose={content.purpose}
         range={content.range}
         commits={content.commits}
         tutorial={content.tutorial}

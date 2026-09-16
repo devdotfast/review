@@ -11,15 +11,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  type JsonObject,
-  type JsonValue,
-  type ReviewVerbResponse,
-  jsonObject,
-} from "@dev.fast/review-protocol";
+import { type JsonObject } from "@dev.fast/review-protocol";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { snapshotReviewTree } from "../fixtures/legacy-reviews/legacy-review-fixture";
+import { materializePublishRevision } from "../publish-stage";
 import {
   bundleReviewDocument,
   writeReviewDocumentBundle,
@@ -39,31 +35,21 @@ import {
 
 let root: string | undefined;
 
-type DispatchVerb = (
-  sessionId: string,
-  value: JsonValue,
-) => Promise<ReviewVerbResponse>;
+/** What a test does while the server is between its input checks and its lock. */
+let duringPreparation: () => Promise<void> = async () => {};
 
-let dispatchVerb: DispatchVerb = async () => ({ ok: true });
+/** The app is not attached in these tests; every verb succeeds silently. */
+function acceptingRelay(): ReviewDesktopVerbRelay {
+  const relay = new GlobalReviewDesktopVerbRelay();
+  relay.dispatch = async () => ({ ok: true });
 
-function recordingRelay(): ReviewDesktopVerbRelay {
-  const inner = new GlobalReviewDesktopVerbRelay();
-
-  return {
-    get attached() {
-      return inner.attached;
-    },
-    attach: (writer) => inner.attach(writer),
-    dispatch: (sessionId, value) => dispatchVerb(sessionId, value),
-    acceptResult: (value) => inner.acceptResult(value),
-    close: () => inner.close(),
-  };
+  return relay;
 }
 
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
-  dispatchVerb = async () => ({ ok: true });
+  duringPreparation = async () => {};
 
   if (root) await rm(root, { recursive: true, force: true });
 });
@@ -217,7 +203,17 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
     port: 0,
     token,
     discoveryPath: path.join(root, "desktop.json"),
-    relay: recordingRelay(),
+    relay: acceptingRelay(),
+    // Runs after the request's inputs were checked and before the review
+    // lock, so a test can change the world in the middle of a command.
+    publishRuntime: {
+      materializePublishRevision: async (input) => {
+        const built = await materializePublishRevision(input);
+        await duringPreparation();
+
+        return built;
+      },
+    },
   });
 
   await server.listen();
@@ -240,8 +236,8 @@ async function fixture(schemaVersion: 4 | 5 = 4) {
   return { stored, record, request, server, post, list, visible, get };
 }
 
-it.each(["success", "mount-failure", "live-change", "stage-change"])(
-  "repairs a legacy review with the document only after mount validation: %s",
+it.each(["success", "live-change", "stage-change"])(
+  "repairs a legacy review with the document only when nothing changed during the command: %s",
   async (outcome) => {
     const { stored, server, post, get } = await fixture();
     const before = await snapshotReviewTree(stored.dir);
@@ -250,16 +246,12 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
 
     if (prepared.kind !== "prepared") throw new Error("Expected legacy repair");
     expect(prepared.request.sourceFallback.document).toBe(true);
-    let validated = false;
-    dispatchVerb = async (sessionId, value) => {
-      if (jsonObject(value)?.name !== "validateCanvasMount")
-        return { ok: true };
-      const prefix = `/sessions/${sessionId}/__progressive-review`;
-      expect((await get(`${prefix}/session`)).status).toBe(200);
-      const duringMount = await snapshotReviewTree(stored.dir);
+    let paused = false;
+    duringPreparation = async () => {
+      const duringCommand = await snapshotReviewTree(stored.dir);
       expect(
         Object.fromEntries(
-          Object.entries(duringMount).filter(
+          Object.entries(duringCommand).filter(
             ([name]) => !name.startsWith(".build/"),
           ),
         ),
@@ -284,19 +276,13 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
         }
       }
 
-      validated = true;
-
-      return outcome === "mount-failure"
-        ? { ok: false, error: "test mount failure" }
-        : { ok: true };
+      paused = true;
     };
 
     try {
       const response = await post("/repair-ready", prepared.request);
-      expect(validated).toBe(true);
-      expect(response.status).toBe(
-        outcome === "success" ? 201 : outcome === "mount-failure" ? 422 : 400,
-      );
+      expect(paused).toBe(true);
+      expect(response.status).toBe(outcome === "success" ? 201 : 400);
 
       if (outcome !== "success") {
         await expectReviewTree(stored.dir, expectedAfterFailure);
@@ -314,67 +300,53 @@ it.each(["success", "mount-failure", "live-change", "stage-change"])(
   },
 );
 
-it.each([true, false])(
-  "replaces only the repaired current-schema session when mount succeeds: %s",
-  async (mountSucceeds) => {
-    const { stored, record, request, server, post, list, get } =
-      await fixture(5);
+it("replaces only the repaired current-schema session", async () => {
+  const { stored, record, request, server, post, list, get } = await fixture(5);
 
-    dispatchVerb = async (_sessionId, value) =>
-      jsonObject(value)?.name === "validateCanvasMount" && !mountSucceeds
-        ? { ok: false, error: "test mount failure" }
-        : { ok: true };
+  try {
+    const opened = await post(`/reviews/${record.uuid}/open`, {});
+    expect(opened.status).toBe(201);
+    const old = await opened.json();
 
-    try {
-      const opened = await post(`/reviews/${record.uuid}/open`, {});
-      expect(opened.status).toBe(201);
-      const old = await opened.json();
+    const document = await get(
+      `/sessions/${old.sessionId}/__progressive-review/document`,
+    );
 
-      const document = await get(
-        `/sessions/${old.sessionId}/__progressive-review/document`,
-      );
-
-      expect(document.status).toBe(409);
-      expect(await document.json()).toMatchObject({
-        detail: { code: "needs_republish" },
-      });
-      const response = await post("/repair-ready", request);
-      const result = await response.json();
-      expect(response.status).toBe(mountSucceeds ? 201 : 422);
-      expect(
-        (await list()).items.map(
-          (session: { sessionId: string }) => session.sessionId,
-        ),
-      ).toEqual([mountSucceeds ? result.sessionId : old.sessionId]);
-      const expectedRecord = JSON.parse(request.expectedRecord);
-
-      if (mountSucceeds)
-        expectedRecord.presentedDocumentRevision = request.newDocumentRevision;
-      expect(
-        JSON.parse(
-          await readFile(path.join(stored.dir, "review.json"), "utf8"),
-        ),
-      ).toEqual(expectedRecord);
-      expect(
-        (await fingerprintReviewRepairInputs(stored.dir)) ===
-          request.expectedFingerprint,
-      ).toBe(!mountSucceeds);
-    } finally {
-      await server.close();
-    }
-  },
-);
+    expect(document.status).toBe(409);
+    expect(await document.json()).toMatchObject({
+      detail: { code: "needs_republish" },
+    });
+    const response = await post("/repair-ready", request);
+    const result = await response.json();
+    expect(response.status).toBe(201);
+    expect(
+      (await list()).items.map(
+        (session: { sessionId: string }) => session.sessionId,
+      ),
+    ).toEqual([result.sessionId]);
+    const expectedRecord = JSON.parse(request.expectedRecord);
+    expectedRecord.presentedDocumentRevision = request.newDocumentRevision;
+    expect(
+      JSON.parse(await readFile(path.join(stored.dir, "review.json"), "utf8")),
+    ).toEqual(expectedRecord);
+    expect(
+      (await fingerprintReviewRepairInputs(stored.dir)) ===
+        request.expectedFingerprint,
+    ).toBe(false);
+  } finally {
+    await server.close();
+  }
+});
 
 it.each([
   "success",
-  "mount-failure",
   "concurrent-edit",
   "changed-pins",
   "staging-link",
 ] as const)(
   "repair server preserves lifecycle and visible session on %s",
   async (outcome) => {
-    const { stored, record, request, server, post, list, visible, get } =
+    const { stored, record, request, server, post, list, visible } =
       await fixture();
 
     if (outcome === "changed-pins") {
@@ -403,29 +375,13 @@ it.each([
       await symlink("HEAD", index);
     }
 
-    const validationReads: Array<{ status: number; record: string }> = [];
-    dispatchVerb = async (sessionId, value) => {
-      if (jsonObject(value)?.name === "validateCanvasMount") {
-        const versions = await get(
-          `/sessions/${sessionId}/__progressive-review/revisions`,
+    // A live edit during the command must fail the final promotion guard.
+    duringPreparation = async () => {
+      if (outcome === "concurrent-edit")
+        await writeFile(
+          path.join(stored.dir, "data.ts"),
+          "export const concurrent = true;\n",
         );
-
-        validationReads.push({
-          status: versions.status,
-          record: await readFile(path.join(stored.dir, "review.json"), "utf8"),
-        });
-
-        if (outcome === "mount-failure")
-          return { ok: false, error: "test mount failure" };
-
-        if (outcome === "concurrent-edit")
-          await writeFile(
-            path.join(stored.dir, "data.ts"),
-            "export const concurrent = true;\n",
-          );
-      }
-
-      return { ok: true };
     };
 
     try {
@@ -440,18 +396,9 @@ it.each([
       const response = await post("/repair-ready", request);
       const result = await response.json();
       const success = outcome === "success";
-      expect(validationReads).toEqual(
-        outcome === "changed-pins" || outcome === "staging-link"
-          ? []
-          : [{ status: 200, record: request.expectedRecord }],
-      );
       const errorMessage = expect.any(String);
       expect(response.status).toBe(
-        success
-          ? 201
-          : outcome === "mount-failure" || outcome === "changed-pins"
-            ? 422
-            : 400,
+        success ? 201 : outcome === "changed-pins" ? 422 : 400,
       );
       expect(result).toMatchObject(
         success

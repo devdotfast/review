@@ -34,7 +34,8 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
 - The peek side panel content is `{ kind: "source", source }`; `CodePeekCard`
   and `CodePeekGroup` take `Source` values. JSON `code_peek` blocks render
   directly, with no source-text fetch during document load.
-- JSON commands still commit without the off-screen test-render gate.
+- No command runs an off-screen render: every block kind's schema and check
+  in `review-api/blocks/` run in the store before a write.
 
 ## F: canonical call-stack frames
 

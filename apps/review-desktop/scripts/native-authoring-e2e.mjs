@@ -123,18 +123,20 @@ const legacyRoot = path.join(sourcePackage, "src/fixtures/legacy-reviews");
 
 const legacyFixtures = [];
 
-for (const archive of (await readdir(legacyRoot))
-  .filter((name) => name.endsWith(".tgz"))
-  .sort()) {
-  const name = archive.slice(0, -4);
+// Extracted only after the Desktop attaches, so `app pick` exercises
+// import-on-open rather than the Home sweep.
+const DEFERRED_FIXTURE = "schema4-bug-report-dialog";
 
-  const metadata = JSON.parse(
-    await readFile(path.join(legacyRoot, `${name}.json`), "utf8"),
-  );
-
+async function extractFixture(fixture) {
+  const { name, metadata } = fixture;
   const legacyDir = path.join(home, "reviews", metadata.sourceUuid);
   await mkdir(legacyDir, { recursive: true });
-  await exec("tar", ["-xzf", path.join(legacyRoot, archive), "-C", legacyDir]);
+  await exec("tar", [
+    "-xzf",
+    path.join(legacyRoot, `${name}.tgz`),
+    "-C",
+    legacyDir,
+  ]);
   let worktreePath = repo;
 
   if (metadata.sourceRepository === "devdotfast/review") {
@@ -164,14 +166,27 @@ for (const archive of (await readdir(legacyRoot))
     legacyRecordPath,
     JSON.stringify({ ...original, worktreePath }),
   );
-  legacyFixtures.push({
-    name,
-    metadata,
+  Object.assign(fixture, {
     legacyDir,
     worktreePath,
     legacyRecordPath,
     original,
   });
+}
+
+for (const archive of (await readdir(legacyRoot))
+  .filter((name) => name.endsWith(".tgz"))
+  .sort()) {
+  const name = archive.slice(0, -4);
+
+  const metadata = JSON.parse(
+    await readFile(path.join(legacyRoot, `${name}.json`), "utf8"),
+  );
+
+  const fixture = { name, metadata, deferred: name === DEFERRED_FIXTURE };
+
+  if (!fixture.deferred) await extractFixture(fixture);
+  legacyFixtures.push(fixture);
 }
 
 const portServer = createServer();
@@ -312,6 +327,72 @@ try {
   );
   await watchPage(page);
 
+  const api = async (route, method = "GET", body) => {
+    const response = await fetch(new URL(route, discovery.url), {
+      method,
+      headers: {
+        "x-review-token": discovery.token,
+        "content-type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+
+    return { status: response.status, value: await response.json() };
+  };
+
+  const stripIds = (value) =>
+    Array.isArray(value)
+      ? value.map(stripIds)
+      : value?.constructor === Object
+        ? Object.fromEntries(
+            Object.entries(value)
+              .filter(([key]) => key !== "id")
+              .map(([key, child]) => [key, stripIds(child)]),
+          )
+        : value;
+
+  // The JSON canvas for a review; a legacy canvas may still be mounted elsewhere.
+  const apiCanvasFor = (title) =>
+    until(async () => {
+      for (const candidate of browser
+        .contexts()
+        .flatMap((context) => context.pages()))
+        if (
+          (await candidate
+            .locator(".review-canvas-root [data-review-api]")
+            .count()
+            .catch(() => 0)) > 0 &&
+          (await candidate
+            .getByRole("heading", { name: title, exact: true })
+            .isVisible()
+            .catch(() => false))
+        )
+          return candidate;
+
+      return null;
+    }, `JSON canvas for ${title}`);
+
+  // Listing Home starts the sweep, which is how the Desktop imports too.
+  const waitForImport = (reviewId) =>
+    until(async () => {
+      await api("/reviews");
+      const snapshot = await api(`/reviews-api/${reviewId}?full=true`);
+
+      return snapshot.status === 200 ? snapshot.value : null;
+    }, `${reviewId} imported`);
+
+  const expectMigratedError = (events) =>
+    assert.ok(
+      events.some(
+        (event) =>
+          event.event === "error" &&
+          [...(event.diagnostics ?? []), event.message ?? ""].some((text) =>
+            /migrated to the JSON review store/.test(text),
+          ),
+      ),
+      JSON.stringify(events),
+    );
+
   async function cli(args, expectedCode = 0, cwd = repo) {
     // Reload temporarily detaches Desktop. Wait before app pick can interpret
     // that gap as a reason to launch the system-installed application.
@@ -434,54 +515,9 @@ try {
     "\n\n<CodePeek anchor={anchors.current} />\n\n{label}\n" +
     gfm;
 
-  await writeFile(path.join(dir, "review.mdx"), authored);
-
-  const published = (await cli(["publish", "--review", uuid])).find(
-    (event) => event.event === "published",
-  );
-
-  assert.ok(published?.revision);
-  let canvas = page.locator(".review-canvas-root");
-  await canvas
-    .getByRole("heading", { name: "Order persistence — café ☕", exact: true })
-    .waitFor({ timeout: 30000 });
-  await canvas.getByText("Before helper edit", { exact: false }).waitFor();
-  assert.equal(
-    await canvas
-      .locator("th")
-      .nth(1)
-      .evaluate((element) => getComputedStyle(element).textAlign),
-    "right",
-  );
-  await canvas.locator("a[data-footnote-ref]").click();
-  await canvas
-    .getByText("Native pipeline footnote.", { exact: false })
-    .waitFor();
-  await canvas
-    .getByRole("button", { name: "Expand Storage details", exact: true })
-    .click();
-  await canvas
-    .getByRole("combobox")
-    .filter({ has: page.locator('option[value="persist"]') })
-    .waitFor();
-  assert.doesNotMatch(await canvas.innerText(), /Layout failed:/);
-  assert.match(await page.locator("body").innerText(), /draft/);
-  console.log("E2E checkpoint", report.checks.length);
-  report.checks.push(
-    "installed CLI publishes validated JSON rendered as tables, footnotes, peeks and DatabaseLens",
-    "installed helpers resolve .js specifiers to TypeScript and elide ordinary interface imports",
-  );
   const recordPath = path.join(dir, "review.json");
-  const before = JSON.parse(await readFile(recordPath, "utf8"));
-  assert.equal(before.presentedSoftwareMapRevision, null);
-  await writeFile(path.join(dir, "label.ts"), labelSource("After helper edit"));
 
-  const updated = (await cli(["publish", "--review", uuid])).find(
-    (event) => event.event === "published",
-  );
-
-  assert.notEqual(updated.revision, published.revision);
-  await canvas.getByText("After helper edit", { exact: false }).waitFor();
+  // E1: publish errors before any successful publish import nothing.
   await writeFile(
     path.join(dir, "review.mdx"),
     authored + "\n\n<ReviewSection title={123}>Invalid</ReviewSection>\n",
@@ -493,9 +529,15 @@ try {
         event.event === "error" && event.file && event.line && event.column,
     ),
   );
-  const invalid = JSON.parse(await readFile(recordPath, "utf8"));
-  assert.equal(invalid.presentedDocumentRevision, updated.revision);
-  await canvas.getByText("After helper edit", { exact: false }).waitFor();
+  assert.equal(
+    JSON.parse(await readFile(recordPath, "utf8")).presentedDocumentRevision,
+    null,
+  );
+  assert.equal(
+    (await api(`/reviews-api/${uuid}`)).status,
+    404,
+    "failed publish does not import",
+  );
   await writeFile(
     path.join(dir, "broken.tsx"),
     "export const label = <strong>broken;",
@@ -516,15 +558,66 @@ try {
     JSON.stringify(helperErrors),
   );
   assert.equal(
-    JSON.parse(await readFile(recordPath, "utf8")).presentedDocumentRevision,
-    updated.revision,
+    (await api(`/reviews-api/${uuid}`)).status,
+    404,
+    "failed publish does not import",
   );
   await writeFile(path.join(dir, "review.mdx"), authored);
   await rm(path.join(dir, "broken.tsx"));
   console.log("E2E checkpoint", report.checks.length);
-  report.checks.push(
-    "transitive helper edits refresh; positioned errors preserve the last good presentation",
+  report.checks.push("positioned publish errors import nothing");
+
+  // E2, E3: the first successful publish is the handoff into the JSON store.
+  const published = (await cli(["publish", "--review", uuid])).find(
+    (event) => event.event === "published",
   );
+
+  assert.ok(published?.revision);
+  const snapshotA = await waitForImport(uuid);
+  assert.equal(snapshotA.version, 0);
+  page = await apiCanvasFor("Order persistence — café ☕");
+  await watchPage(page);
+  let canvas = page.locator(".review-canvas-root");
+  await canvas.getByText("Before helper edit", { exact: false }).waitFor();
+  assert.equal(
+    await canvas
+      .locator("th")
+      .nth(1)
+      .evaluate((element) => getComputedStyle(element).textAlign),
+    "right",
+  );
+  await canvas.locator("a[data-footnote-ref]").click();
+  await canvas
+    .getByText("Native pipeline footnote.", { exact: false })
+    .waitFor();
+  await canvas
+    .getByRole("button", { name: "Expand Storage details", exact: true })
+    .click();
+  await canvas
+    .getByRole("combobox")
+    .filter({ has: page.locator("option", { hasText: "Persist an order" }) })
+    .waitFor();
+  assert.doesNotMatch(await canvas.innerText(), /Layout failed:/);
+  assert.match(await page.locator("body").innerText(), /draft/);
+  console.log("E2E checkpoint", report.checks.length);
+  report.checks.push(
+    "first publish imports and renders in the JSON canvas",
+    "JSON canvas renders tables, footnotes, peeks and DatabaseLens from the imported document",
+    "installed helpers resolve .js specifiers to TypeScript and elide ordinary interface imports",
+  );
+
+  // E4: a migrated review refuses every MDX verb that would republish it.
+  const scaffoldB = (
+    await cli(["scaffold", "--base", base, "--head", head, "--new"])
+  ).find((event) => event.reviews?.length);
+
+  assert.ok(scaffoldB, "Second scaffold must return a Review binding");
+  const { uuid: uuidB, dir: dirB } = scaffoldB.reviews[0];
+  await cp(
+    path.join(sourcePackage, "src/fixtures/document-json/data.ts.txt"),
+    path.join(dirB, "data.ts"),
+  );
+  await writeFile(path.join(dirB, "review.mdx"), source);
 
   for (const revision of [base, head]) {
     const opened = (await cli(["map", "open", revision])).find(
@@ -536,70 +629,54 @@ try {
       opened.scratch,
       'import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";\nexport default defineSoftwareMap({systems: {orders: {label: "Order service", containers: {api: {label: "Order API", components: {handler: {label: "Order handler", coverage: {files: ["order.ts"]}}}}}}}});\n',
     );
-    await cli(["map", "check", revision, "--review", uuid]);
+    await cli(["map", "check", revision, "--review", uuidB]);
   }
 
-  await cli(["map", "publish", "--review", uuid]);
-  const mapped = JSON.parse(await readFile(recordPath, "utf8"));
-  assert.equal(mapped.presentedDocumentRevision, updated.revision);
-  assert.ok(mapped.presentedSoftwareMapRevision);
-  await cli(["app", "pick", "--review", uuid, "--view", "map"]);
-  await page
-    .getByRole("button", { name: "Map (Experimental)", pressed: true })
-    .waitFor();
-  const mapView = page.locator(".review-map-view .software-map");
-  await mapView.waitFor();
-  await mapView
-    .getByText("Order service", { exact: true })
-    .filter({ visible: true })
-    .first()
-    .waitFor({ timeout: 30000 });
-  await page.screenshot({ path: path.join(root, "map.png") });
-  console.log("E2E checkpoint", report.checks.length);
-  report.checks.push(
-    "software maps publish and render independently of the document",
+  assert.ok(
+    (await cli(["publish", "--review", uuidB])).find(
+      (event) => event.event === "published",
+    ),
   );
-  await cli(["app", "pick", "--review", uuid, "--view", "review"]);
-  await page
-    .getByRole("button", { name: "Review", exact: true, pressed: true })
-    .waitFor();
-  // InlineCodeEditor.test.tsx covers the unavailable state; missing-source integration uses the separate live smoke.
-  // Seal a deliberately damaged snapshot in this disposable fixture to force
-  // repair through editable sources, rather than merely testing a healthy noop.
-  await rm(path.join(dir, ".bundle/document"), {
+  await waitForImport(uuidB);
+  expectMigratedError(await cli(["publish", "--review", uuidB], 1));
+  expectMigratedError(await cli(["map", "publish", "--review", uuidB], 1));
+  // Healthy artifacts make repair a local no-op; damage them so it reaches
+  // the server and meets the guard.
+  await rm(path.join(dirB, ".bundle/document"), {
     recursive: true,
     force: true,
   });
-  await exec("git", ["add", "-A"], { cwd: dir, env });
+  await exec("git", ["add", "-A"], { cwd: dirB, env });
   await exec("git", ["commit", "-qm", "E2E damaged document artifact"], {
-    cwd: dir,
+    cwd: dirB,
     env,
   });
 
   const damagedRevision = (
-    await exec("git", ["rev-parse", "HEAD"], { cwd: dir, env })
+    await exec("git", ["rev-parse", "HEAD"], { cwd: dirB, env })
   ).stdout.trim();
 
+  const recordB = JSON.parse(
+    await readFile(path.join(dirB, "review.json"), "utf8"),
+  );
+
   await writeFile(
-    recordPath,
-    JSON.stringify({ ...mapped, presentedDocumentRevision: damagedRevision }),
+    path.join(dirB, "review.json"),
+    JSON.stringify({ ...recordB, presentedDocumentRevision: damagedRevision }),
   );
-  const repairEvents = await cli(["repair", "--review", uuid]);
+  expectMigratedError(await cli(["repair", "--review", uuidB], 1));
   assert.ok(
-    repairEvents.some(
-      (event) =>
-        event.event === "warning" && event.message.includes("Using editable"),
-    ),
-    JSON.stringify(repairEvents),
+    !(await api("/reviews")).value.reviews.some((row) => row.uuid === uuidB),
+    "migrated review leaves the legacy list",
   );
-  const repaired = JSON.parse(await readFile(recordPath, "utf8"));
-  assert.equal(repaired.status, mapped.status);
-  await canvas
-    .getByRole("heading", { name: "Order persistence — café ☕", exact: true })
-    .waitFor();
+  assert.equal(
+    (await api(`/reviews-api/${uuidB}?full=true`)).value.version,
+    0,
+    "refused verbs create no versions",
+  );
   console.log("E2E checkpoint", report.checks.length);
   report.checks.push(
-    "repair validates through the installed runtime and preserves lifecycle state",
+    "a migrated review refuses publish, map publish and repair",
   );
 
   const benchmarkCases = [
@@ -624,27 +701,18 @@ try {
     },
   ];
 
-  const api = async (route, method = "GET", body) => {
-    const response = await fetch(new URL(route, discovery.url), {
-      method,
-      headers: {
-        "x-review-token": discovery.token,
-        "content-type": "application/json",
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+  for (const fixture of legacyFixtures) {
+    if (fixture.deferred) await extractFixture(fixture);
 
-    return { status: response.status, value: await response.json() };
-  };
+    const {
+      name,
+      metadata,
+      legacyDir,
+      worktreePath,
+      legacyRecordPath,
+      original,
+    } = fixture;
 
-  for (const {
-    name,
-    metadata,
-    legacyDir,
-    worktreePath,
-    legacyRecordPath,
-    original,
-  } of legacyFixtures) {
     await cli(["info", "--review", metadata.sourceUuid], 0, worktreePath);
     const migrated = JSON.parse(await readFile(legacyRecordPath, "utf8"));
 
@@ -667,89 +735,141 @@ try {
     assert.deepEqual(JSON.parse(sealed.stdout), golden);
     assert.equal(migrated.status, original.status);
     assert.equal(migrated.createdAt, original.createdAt);
-    await cli(["repair", "--review", metadata.sourceUuid], 0, worktreePath);
 
-    if (metadata.sourceRepository === "devdotfast/review") {
-      await cli(
-        ["app", "pick", "--review", metadata.sourceUuid],
-        0,
-        worktreePath,
+    const revisions = Number(
+      (
+        await exec(
+          "git",
+          ["rev-list", "--count", migrated.presentedDocumentRevision],
+          { cwd: legacyDir },
+        )
+      ).stdout.trim(),
+    );
+
+    if (metadata.sourceRepository !== "devdotfast/review") {
+      // Its source repository is not on this machine and it is a system
+      // review: it stays legacy.
+      await api("/reviews");
+      assert.equal(
+        (await api(`/reviews-api/${metadata.sourceUuid}`)).status,
+        404,
+        `${name} without its repository stays legacy`,
       );
-      page = await until(async () => {
-        for (const candidate of browser
-          .contexts()
-          .flatMap((context) => context.pages()))
-          if (
-            await candidate
-              .getByRole("heading", { name: golden.title, exact: true })
-              .isVisible()
-              .catch(() => false)
-          )
-            return candidate;
-
-        return null;
-      }, `Desktop window for ${name}`);
-      await watchPage(page);
-      canvas = page.locator(".review-canvas-root");
-
-      const opened = await api(
-        `/reviews/${metadata.sourceUuid}/open`,
-        "POST",
-        {},
-      );
-
-      assert.ok([200, 201].includes(opened.status));
-      const prefix = `/sessions/${opened.value.sessionId}/__progressive-review`;
-      const document = await api(`${prefix}/document`);
-      assert.deepEqual((await api(document.value.documentUrl)).value, golden);
-
-      if (metadata.hasMap) {
-        const map = await api(`${prefix}/software-map`);
-
-        const mapGolden = JSON.parse(
-          await readFile(
-            path.join(legacyRoot, `${name}.expected-map.json`),
-            "utf8",
-          ),
-        );
-
-        assert.equal(map.value.contentHash, mapGolden.contentHash);
-      }
-
-      benchmarkCases.push({
-        name,
-        input: {
-          reviewPath: path.join(legacyDir, "review.mdx"),
-          evidence: {
-            head: {
-              sourceRootPath: path.join(
-                worktreePath,
-                ".git/dev-fast/reviews",
-                metadata.sourceUuid,
-                "head",
-                metadata.sourceCommit,
-              ),
-            },
-            base: {
-              sourceRootPath: path.join(
-                worktreePath,
-                ".git/dev-fast/reviews",
-                metadata.sourceUuid,
-                "base",
-                metadata.baseCommit,
-              ),
-            },
-          },
-        },
-        cli: { uuid: metadata.sourceUuid, cwd: worktreePath },
-      });
-    } else
+      // A system review (the tutorial) is never listed on Home; the legacy
+      // verbs keep working on it.
+      await cli(["repair", "--review", metadata.sourceUuid], 0, worktreePath);
       benchmarkCases.push({
         name,
         input: { reviewPath: path.join(legacyDir, "review.mdx") },
       });
+      report.checks.push(
+        `${name}: installed migration matches sealed JSON golden; unimportable review keeps legacy repair`,
+      );
+      console.log("E2E legacy fixture passed", name);
+      continue;
+    }
+
+    // E5: the Home sweep imported the eager fixtures during startup, so this
+    // `app pick` only routes to the JSON canvas. E8: the deferred fixture is
+    // imported by this open.
+    if (!fixture.deferred) await waitForImport(metadata.sourceUuid);
+    await cli(
+      ["app", "pick", "--review", metadata.sourceUuid],
+      0,
+      worktreePath,
+    );
+    const snapshot = await waitForImport(metadata.sourceUuid);
+
+    // E6: the imported document matches the block golden.
+    const blocksGolden = JSON.parse(
+      await readFile(
+        path.join(legacyRoot, `${name}.expected-blocks.json`),
+        "utf8",
+      ),
+    );
+
+    const document = snapshot.document;
+    const withoutMap = metadata.hasMap ? document.slice(0, -1) : document;
+
+    const withoutCallout =
+      withoutMap[0]?.type === "callout" &&
+      withoutMap[0].title === "Imported from the MDX review"
+        ? withoutMap.slice(1)
+        : withoutMap;
+
+    assert.deepEqual(stripIds(withoutCallout), blocksGolden);
+
+    if (metadata.hasMap) {
+      assert.equal(document.at(-1).title, "Software map");
+      assert.equal(
+        document
+          .at(-1)
+          .children.filter((block) => block.type === "software_map").length,
+        2,
+      );
+    }
+
+    // E7: origin and history survive.
+    assert.ok(
+      snapshot.origin?.branch || snapshot.origin?.baseRef,
+      `${name} carries origin`,
+    );
+
+    const history = await api(`/reviews-api/${metadata.sourceUuid}/history`);
+    assert.equal(history.value.length, snapshot.version + 1);
+    assert.ok(
+      snapshot.version + 1 <= revisions,
+      `${name}: ${snapshot.version + 1} versions from ${revisions} revisions`,
+    );
+    assert.ok(
+      !(await api("/reviews")).value.reviews.some(
+        (row) => row.uuid === metadata.sourceUuid,
+      ),
+      `${name} left the legacy list`,
+    );
+
+    // E9: the JSON canvas shows it.
+    page = await apiCanvasFor(golden.title);
+    await watchPage(page);
+    canvas = page.locator(".review-canvas-root");
+
+    if (metadata.hasMap) {
+      // The imported map section starts collapsed.
+      await canvas
+        .getByRole("button", { name: "Expand Software map", exact: true })
+        .click();
+      await canvas.locator(".software-map").first().waitFor({ timeout: 30000 });
+    }
+
+    benchmarkCases.push({
+      name,
+      input: {
+        reviewPath: path.join(legacyDir, "review.mdx"),
+        evidence: {
+          head: {
+            sourceRootPath: path.join(
+              worktreePath,
+              ".git/dev-fast/reviews",
+              metadata.sourceUuid,
+              "head",
+              metadata.sourceCommit,
+            ),
+          },
+          base: {
+            sourceRootPath: path.join(
+              worktreePath,
+              ".git/dev-fast/reviews",
+              metadata.sourceUuid,
+              "base",
+              metadata.baseCommit,
+            ),
+          },
+        },
+      },
+      cli: { uuid: metadata.sourceUuid, cwd: worktreePath },
+    });
     report.checks.push(
-      `${name}: installed migration matches sealed JSON golden; repair preserves lifecycle`,
+      `${name}: imported ${snapshot.version + 1} version(s) matching the block golden and rendered in the JSON canvas`,
     );
     console.log("E2E legacy fixture passed", name);
   }
@@ -758,7 +878,7 @@ try {
   await page.locator(".review-canvas-root").click({ trial: true });
   await page.screenshot({ path: path.join(root, "document.png") });
   console.log("E2E checkpoint", report.checks.length);
-  report.checks.push("no renderer page errors during authoring and repair");
+  report.checks.push("no renderer page errors during authoring and import");
   report.functionalSuccess = true;
 
   if (values["baseline-runtime"]) {

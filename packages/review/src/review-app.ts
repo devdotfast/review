@@ -86,7 +86,8 @@ export async function runReviewAppPick(
 
   const payload: JsonValue = await response.json();
 
-  if (!response.ok) {
+  // An imported review opens in the JSON canvas; the desktop already did so.
+  if (!response.ok && jsonObject(payload)?.code !== "imported") {
     throw new Error(reviewAppResponseError(payload, response.status));
   }
 

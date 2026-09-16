@@ -1,5 +1,15 @@
 import type { ReviewCommitSummary } from "@dev.fast/review-protocol";
-import { type ReactNode, memo, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  type ReactNode,
+  createContext,
+  memo,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { ReviewApiClient } from "../../src/review-api/client";
 import {
@@ -334,6 +344,23 @@ const DocumentNode = memo(function DocumentNode({
   );
 });
 
+/** False until the document has painted once: the reveal is for blocks that
+ * change or arrive afterwards, not for a whole document appearing at once. */
+const RevealSettled = createContext(false);
+
+/** Wrap the first render of a document so its blocks do not all wipe in. */
+export function RevealAfterFirstPaint({ children }: { children: ReactNode }) {
+  const [settled, setSettled] = useState(false);
+
+  useEffect(() => {
+    setSettled(true);
+  }, []);
+
+  return (
+    <RevealSettled.Provider value={settled}>{children}</RevealSettled.Provider>
+  );
+}
+
 function NodeReveal({
   id,
   revision,
@@ -344,7 +371,10 @@ function NodeReveal({
   children: ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const settled = useContext(RevealSettled);
   useLayoutEffect(() => {
+    if (!settled) return;
+
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     // Clip each content box; no overlay can spill onto adjacent document content.

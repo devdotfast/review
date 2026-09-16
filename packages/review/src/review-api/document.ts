@@ -397,6 +397,41 @@ const structural = new Set([
 ]);
 
 /** Mutate a private candidate. Only the store owns allocation and commits. */
+/** Assign server ids to an element tree that arrives without any. */
+export function assignFreshIds(
+  element: Element,
+  allocate: (prefix: string) => string,
+): void {
+  if (element.id !== undefined)
+    throw new ReviewInputError("IDs are assigned by the server.");
+  element.id = allocate(
+    element.type === "sequence"
+      ? "diagram"
+      : element.type === "step"
+        ? "step"
+        : "block",
+  );
+
+  for (const child of children(element)) assignFreshIds(child, allocate);
+
+  const assign = (item: { id?: string }, prefix: string) => {
+    if (item.id !== undefined)
+      throw new ReviewInputError("IDs are assigned by the server.");
+    item.id = allocate(prefix);
+  };
+
+  if (element.type === "call_stack_diff")
+    for (const frame of [...element.base, ...element.head])
+      assign(frame, "frame");
+
+  if (element.type === "database_lens")
+    for (const useCase of element.useCases) {
+      assign(useCase, "case");
+
+      for (const op of useCase.operations) assign(op, "operation");
+    }
+}
+
 export function applyEdit(
   document: Block[],
   edit: Edit,
@@ -421,36 +456,7 @@ export function applyEdit(
     return found;
   };
 
-  const fresh = (element: Element) => {
-    if (element.id !== undefined)
-      throw new ReviewInputError("IDs are assigned by the server.");
-    element.id = allocate(
-      element.type === "sequence"
-        ? "diagram"
-        : element.type === "step"
-          ? "step"
-          : "block",
-    );
-
-    for (const child of children(element)) fresh(child);
-
-    const assign = (item: { id?: string }, prefix: string) => {
-      if (item.id !== undefined)
-        throw new ReviewInputError("IDs are assigned by the server.");
-      item.id = allocate(prefix);
-    };
-
-    if (element.type === "call_stack_diff")
-      for (const frame of [...element.base, ...element.head])
-        assign(frame, "frame");
-
-    if (element.type === "database_lens")
-      for (const useCase of element.useCases) {
-        assign(useCase, "case");
-
-        for (const op of useCase.operations) assign(op, "operation");
-      }
-  };
+  const fresh = (element: Element) => assignFreshIds(element, allocate);
 
   const place = (
     element: Element,

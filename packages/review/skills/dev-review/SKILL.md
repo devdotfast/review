@@ -40,6 +40,6 @@ While authoring, call `review_activity({reviewId,action:"begin",leaseId})` with 
 
 `review_repin({commandId,reviewId,pins})` starts a blank version at new source pins. Examine the diff before carrying content over. `review_restore({commandId,reviewId,version})` restores title, pins and content.
 
-Legacy `review scaffold/publish/map` commands do not operate on JSON reviews.
+Legacy `review scaffold/publish/map` commands do not operate on JSON reviews. A review published from MDX is imported into the JSON store when Home lists it, when it is opened, or right after its first successful `review publish`; from then on `review publish`, `review map publish` and `review repair` refuse it with `migrated`, and it is edited through `review api` or these MCP tools. Its legacy directory is left untouched.
 
 Do not run repository tests, typechecks or lints merely to write a review unless the user requested those checks. Explain the code and cite evidence; do not turn authoring into an unrelated implementation task.

@@ -282,7 +282,14 @@ function ReviewCanvas({
 }) {
   if (content.kind === "api")
     return (
-      <ApiCanvas key={content.reviewId} content={content} findHost={findHost} />
+      // The marker lets tests tell the JSON canvas from a legacy session canvas.
+      <div data-review-api="" style={{ display: "contents" }}>
+        <ApiCanvas
+          key={content.reviewId}
+          content={content}
+          findHost={findHost}
+        />
+      </div>
     );
 
   if (content.kind === "session") {

@@ -12,7 +12,9 @@ import {
   ReviewInputError,
   type Source,
   applyEdit,
+  assignFreshIds,
   checkReferences,
+  documentSchema,
   editSchema,
   elements,
   pinsSchema,
@@ -50,6 +52,17 @@ export const commandSchema = z.strictObject({
   ]),
 });
 
+/** Where a review came from, for Home cards. Set by legacy import; the
+ * authoring API leaves it absent. */
+export interface SnapshotOrigin {
+  branch?: string;
+  baseRef?: string;
+  pullRequestNumber?: number;
+  pullRequestUrl?: string;
+  /** The legacy review revision this version was imported from. */
+  revision?: string;
+}
+
 export interface Snapshot {
   reviewId: string;
   version: number;
@@ -57,6 +70,19 @@ export interface Snapshot {
   pins: Pins;
   document: Block[];
   createdAt: string;
+  origin?: SnapshotOrigin;
+}
+
+/** A whole version written by legacy import: ids are assigned here, sources
+ * are checked tolerantly, and attention is applied only for a new review. */
+export interface ImportedVersionInput {
+  reviewId: string;
+  title: string;
+  pins: Pins;
+  document: Block[];
+  createdAt: string;
+  origin?: SnapshotOrigin;
+  attention?: { viewedAt?: string | null; dismissedAt?: string | null };
 }
 
 export interface Result {
@@ -75,6 +101,12 @@ export interface ReviewProviders {
     options: { peek: boolean },
   ): Promise<void>;
   validateResource(pins: Pins, block: Block): Promise<void>;
+  /** Import only: report a problem as a warning instead of rejecting. */
+  validateSourceTolerant?(
+    pins: Pins,
+    source: Source,
+    options: { peek: boolean },
+  ): Promise<string | null>;
 }
 
 /** One instance owned by the desktop server. All writers go through execute().
@@ -121,6 +153,26 @@ export class ReviewStore {
       .exec(`CREATE TABLE IF NOT EXISTS repositories(id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id),
         kind TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);`);
+    // Import progress lives apart from the editable snapshots: restoring an
+    // older version or deleting the review must not look like an unfinished
+    // import to the next sweep.
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL);`,
+    );
+  }
+  /** The last legacy revision imported for a review, kept after deletion. */
+  legacyImport(
+    reviewId: string,
+  ): { revision: string; importedAt: string } | null {
+    const row = this.db
+      .prepare(
+        "SELECT revision,imported_at FROM legacy_imports WHERE review_id=?",
+      )
+      .get(reviewId);
+
+    return row
+      ? { revision: String(row.revision), importedAt: String(row.imported_at) }
+      : null;
   }
   registerRepository(root: string) {
     this.db
@@ -479,7 +531,10 @@ export class ReviewStore {
     }
 
     if (result.deleted) this.activity.remove(result.reviewId);
+    this.notify(result);
+  }
 
+  private notify(result: Result) {
     if (!result.attention)
       for (const listener of this.listeners)
         try {
@@ -494,6 +549,147 @@ export class ReviewStore {
       } catch {
         // The saved command must remain successful if a viewer disconnects.
       }
+  }
+  has(reviewId: string): boolean {
+    return (
+      this.db.prepare("SELECT 1 FROM reviews WHERE id=?").get(reviewId) !==
+      undefined
+    );
+  }
+  /** Legacy import of one version. See `importVersions`. */
+  importVersion(
+    input: ImportedVersionInput,
+  ): Promise<{ version: number; warnings: string[] }> {
+    return this.importVersions([input]);
+  }
+  /** Legacy import: every version is validated first, then all rows land in
+   * one transaction, so a failure leaves no partial review. A new review
+   * starts at version 0; an existing one continues its numbering. The last
+   * input's `origin.revision` becomes the review's import cursor. */
+  importVersions(
+    inputs: ImportedVersionInput[],
+  ): Promise<{ version: number; warnings: string[] }> {
+    if (this.closing)
+      return Promise.reject(new Error("Review store is closing."));
+
+    if (inputs.length === 0)
+      return Promise.reject(new Error("Nothing to import."));
+
+    const reviewId = inputs[0]!.reviewId;
+
+    if (inputs.some((input) => input.reviewId !== reviewId))
+      return Promise.reject(new Error("Import versions of one review only."));
+
+    const run = this.pending.then(async () => {
+      const existing = this.db
+        .prepare("SELECT version,next_id FROM reviews WHERE id=?")
+        .get(reviewId);
+
+      let nextId = existing ? Number(existing.next_id) : 0;
+      let version = existing ? Number(existing.version) : -1;
+      const snapshots: Snapshot[] = [];
+      const warnings: string[] = [];
+
+      for (const input of inputs) {
+        const document = structuredClone(documentSchema.parse(input.document));
+
+        for (const block of document)
+          assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
+        checkReferences(document);
+        await this.providers.validatePins(input.pins);
+
+        const seen = new Set<string>();
+
+        for (const { source, peek } of sourceReferences(document, {
+          tolerant: true,
+        })) {
+          const key = JSON.stringify(source);
+
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          const warning = this.providers.validateSourceTolerant
+            ? await this.providers.validateSourceTolerant(input.pins, source, {
+                peek: peek === true,
+              })
+            : null;
+
+          if (warning) warnings.push(warning);
+        }
+
+        for (const block of elements(document))
+          if (
+            block.type === "image" ||
+            block.type === "trace_quote" ||
+            block.type === "software_map"
+          )
+            await this.providers.validateResource(input.pins, block);
+
+        version += 1;
+
+        const snapshot: Snapshot = {
+          reviewId,
+          version,
+          title: input.title,
+          pins: input.pins,
+          document,
+          createdAt: input.createdAt,
+        };
+
+        if (input.origin) snapshot.origin = input.origin;
+        snapshots.push(snapshot);
+      }
+
+      const attention = inputs[0]!.attention;
+      this.db.exec("BEGIN IMMEDIATE");
+
+      try {
+        this.db
+          .prepare(
+            "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
+          )
+          .run(reviewId, version, nextId);
+
+        for (const snapshot of snapshots)
+          this.db
+            .prepare(
+              "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
+            )
+            .run(reviewId, snapshot.version, JSON.stringify(snapshot));
+
+        if (!existing && attention)
+          this.db
+            .prepare(
+              "INSERT INTO review_attention(review_id,viewed_at,dismissed_at) VALUES(?,?,?)",
+            )
+            .run(
+              reviewId,
+              attention.viewedAt ?? null,
+              attention.dismissedAt ?? null,
+            );
+
+        const cursor = inputs.at(-1)?.origin?.revision;
+
+        if (cursor)
+          this.db
+            .prepare(
+              "INSERT INTO legacy_imports(review_id,revision,imported_at) VALUES(?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,imported_at=excluded.imported_at",
+            )
+            .run(reviewId, cursor, new Date().toISOString());
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+
+      this.notify({ reviewId, version });
+
+      return { version, warnings: [...new Set(warnings)] };
+    });
+
+    this.pending = run.catch(() => {});
+
+    return run;
   }
   private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
     const references = (document: Block[], tolerant = false) => {

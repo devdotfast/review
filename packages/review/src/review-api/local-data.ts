@@ -344,6 +344,23 @@ export class LocalReviewData {
     if (options.peek)
       inputError(() => requireVisibleSource(quote.text, source));
   }
+  /** Legacy import keeps a document whose source ranges no longer resolve;
+   * the problem becomes a warning instead of a rejection. */
+  async validateSourceTolerant(
+    pins: Pins,
+    source: Source,
+    options: { peek: boolean },
+  ): Promise<string | null> {
+    try {
+      await this.validateSource(pins, source, options);
+
+      return null;
+    } catch (error) {
+      if (error instanceof ReviewInputError)
+        return `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`;
+      throw error;
+    }
+  }
   async changes(pins: Pins, file?: string) {
     if (file !== undefined) checkRelativePath(file);
 
@@ -620,6 +637,8 @@ export function openLocalReviewStore(
     validateSource: (pins, source, options) =>
       data.validateSource(pins, source, options),
     validateResource: (pins, block) => data.validateResource(pins, block),
+    validateSourceTolerant: (pins, source, options) =>
+      data.validateSourceTolerant(pins, source, options),
   });
 
   const data = new LocalReviewData(store, options);

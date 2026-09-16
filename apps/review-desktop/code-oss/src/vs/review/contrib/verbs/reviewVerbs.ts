@@ -6,12 +6,14 @@
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
-import { Disposable } from "../../../base/common/lifecycle.js";
+import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
 import {
   type ICodeEditor,
   isCodeEditor,
   isDiffEditor,
 } from "../../../editor/browser/editorBrowser.js";
+import { ICodeEditorService } from "../../../editor/browser/services/codeEditorService.js";
+import { reviewResourceIdentity, REVIEW_BASE_SCHEME } from "../../common/reviewCodeResources.js";
 import { Range } from "../../../editor/common/core/range.js";
 import type { IEditorDecorationsCollection } from "../../../editor/common/editorCommon.js";
 import {
@@ -74,9 +76,12 @@ export class ReviewVerbsService
   );
   readonly onDidRequestCanvasFocus = this._onDidRequestCanvasFocus.event;
 
+  private readonly selectionEditors = new Map<string, DisposableStore>();
+
   private revealDecoration: IEditorDecorationsCollection | undefined;
 
   constructor(
+    @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
     @IEditorService private readonly editorService: IEditorService,
     @IEditorGroupsService
     private readonly editorGroupsService: IEditorGroupsService,
@@ -100,6 +105,92 @@ export class ReviewVerbsService
     private readonly apiCatalog: IReviewApiCatalogService,
   ) {
     super();
+    for (const editor of this.codeEditorService.listCodeEditors()) this.trackSelection(editor);
+    this._register(this.codeEditorService.onCodeEditorAdd(editor => this.trackSelection(editor)));
+    this._register(this.codeEditorService.onCodeEditorRemove(editor => {
+      this.selectionEditors.get(editor.getId())?.dispose();
+      this.selectionEditors.delete(editor.getId());
+    }));
+  }
+
+  private trackSelection(editor: ICodeEditor): void {
+    if (this.selectionEditors.has(editor.getId())) return;
+    const store = this._register(new DisposableStore());
+    this.selectionEditors.set(editor.getId(), store);
+    store.add(
+      editor.onDidChangeCursorSelection(() => this.emitSelection(editor)),
+    );
+    store.add(editor.onDidFocusEditorText(() => this.emitSelection(editor)));
+    store.add(editor.onDidScrollChange(() => this.emitSelection(editor)));
+  }
+
+  private emitSelection(editor: ICodeEditor): void {
+    if (!editor.hasTextFocus()) return;
+    const session = this.sessionModelService.activeModel?.session;
+    const model = editor.getModel();
+    const selection = editor.getSelection();
+    if (!session || !model || !selection) return;
+    const unified = this.codeResources.unifiedResource(model.uri);
+    const identity = reviewResourceIdentity(session, model.uri);
+    if (!unified && !identity) return;
+    const start = selection.getStartPosition();
+    const end = selection.getEndPosition();
+    const fromLine = start.lineNumber;
+    const toLine = Math.max(
+      fromLine,
+      end.lineNumber - (end.column === 1 && end.lineNumber > fromLine ? 1 : 0),
+    );
+    const rect = editor.getDomNode()?.getBoundingClientRect();
+    const position = editor.getScrolledVisiblePosition(selection.getPosition());
+    const anchor =
+      rect && position
+        ? { x: rect.left + position.left, y: rect.top + position.top }
+        : undefined;
+    if (unified) {
+      const rows = unified.rows.slice(fromLine - 1, toLine);
+      if (!rows.length) return;
+      const previous = unified.rows.slice(0, fromLine - 1);
+      const source = unified.targetForRange(fromLine, toLine);
+      this._onDidEmitSurfaceEvent.fire({
+        event: "editorSelectionChanged",
+        anchor,
+        path: unified.path,
+        sideContext: source?.side ?? "head",
+        isEmpty: selection.isEmpty(),
+        range: {
+          fromLine: source?.startLine ?? fromLine,
+          toLine: source?.endLine ?? toLine,
+        },
+        selectedDiff: {
+          oldPath:
+            unified.diffFile.status === "added"
+              ? ""
+              : (unified.diffFile.previousPath ?? unified.path),
+          newPath: unified.diffFile.status === "deleted" ? "" : unified.path,
+          oldStart:
+            previous.filter((row) => row.kind !== "added").length +
+            (rows.some((row) => row.kind !== "added") ? 1 : 0),
+          newStart:
+            previous.filter((row) => row.kind !== "deleted").length +
+            (rows.some((row) => row.kind !== "deleted") ? 1 : 0),
+          rows: rows.map((row) => ({ kind: row.kind, text: row.content })),
+        },
+      });
+    } else if (identity) {
+      this._onDidEmitSurfaceEvent.fire({
+        event: "editorSelectionChanged",
+        anchor,
+        path: identity.path,
+        sideContext:
+          model.uri.scheme === REVIEW_BASE_SCHEME ||
+          (session.session.baseRootPath &&
+            model.uri.fsPath.startsWith(session.session.baseRootPath + "/"))
+            ? "base"
+            : "head",
+        isEmpty: selection.isEmpty(),
+        range: { fromLine, toLine },
+      });
+    }
   }
 
   async dispatch(

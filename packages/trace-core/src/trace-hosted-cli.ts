@@ -10,10 +10,8 @@ import {
 
 import {
   describeTraceHookOwners,
-  installClaudeTraceHook,
-  installCodexTraceHook,
-  installOpenCodeTraceExtension,
-  installPiTraceExtension,
+  installHarnessHooks,
+  skippedHarnessesLine,
 } from "./agent-trace-hooks";
 import {
   type CliJsonOutput,
@@ -30,6 +28,7 @@ import {
   type TraceCommand,
   type TraceScope,
   traceCliName,
+  traceCommandPrefix,
 } from "./trace-command";
 import {
   allowTraceRepository,
@@ -76,9 +75,9 @@ function describeStoreFailure(
     case "forbidden":
       return `You cannot read the traces of ${repository}: ${error.message}`;
     case "store_deleted":
-      return `The trace store of ${repository} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`;
+      return `The trace store of ${repository} was deleted. Run \`${traceCommandPrefix()} store create\` to create a new one.`;
     case "not_found":
-      return `${repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`;
+      return `${repository} has no trace store. Run \`${traceCommandPrefix()} store create\` first.`;
     default:
       return `The trace store at ${origin} answered ${error.code}: ${error.message}`;
   }
@@ -92,7 +91,7 @@ interface HostedRepositoryContext {
   repository: string;
   origin: string;
   client: StoreClient;
-  stage: "onboard" | "allow" | "sessions";
+  stage: "store.create" | "store.delete" | "store.info" | "allow" | "sessions";
 }
 
 /** Shares repository inference without changing each command's login policy. */
@@ -120,7 +119,7 @@ async function withHostedRepository(
   let origin = input.origin ?? DEFAULT_HOSTED_ORIGIN;
   let client = input.client;
 
-  if (stage === "onboard") {
+  if (stage === "store.create") {
     try {
       client ??= await requireStoreClient(input.scope.env);
     } catch (error) {
@@ -185,13 +184,13 @@ async function requireActiveStore(
 
   if (!store) {
     throw new HostedCommandFailure(
-      `${ctx.repository} is not onboarded. Run \`${traceCliName()} trace onboard\` first.`,
+      `${ctx.repository} has no trace store. Run \`${traceCommandPrefix()} store create\` first.`,
     );
   }
 
   if (store.status !== "active") {
     throw new HostedCommandFailure(
-      `The trace store of ${store.displayName} was deleted. Run \`${traceCliName()} trace onboard\` to create a new one.`,
+      `The trace store of ${store.displayName} was deleted. Run \`${traceCommandPrefix()} store create\` to create a new one.`,
     );
   }
 
@@ -212,7 +211,7 @@ export async function runTraceOnboard(
     client?: StoreClient;
   },
 ): Promise<number> {
-  return withHostedRepository(input, "onboard", async (ctx) => {
+  return withHostedRepository(input, "store.create", async (ctx) => {
     let store: Awaited<ReturnType<StoreClient["createStore"]>>;
 
     try {
@@ -223,7 +222,7 @@ export async function runTraceOnboard(
     } catch (error) {
       if (error instanceof StoreApiError && error.code === "forbidden") {
         throw new HostedCommandFailure(
-          `You need write access to ${ctx.repository} to onboard it.`,
+          `You need push access to ${ctx.repository} to create its trace store.`,
         );
       }
 
@@ -231,17 +230,115 @@ export async function runTraceOnboard(
     }
 
     emitJsonEvent(input, {
-      event: "trace.onboard",
+      event: "trace.store.create",
       repositoryId: store.repositoryId,
       displayName: store.displayName,
       created: store.created === true,
     });
     const stream = humanStream(input);
     stream.write(
-      `Onboarded ${store.displayName} (id ${store.repositoryId}).\n`,
+      `Created the trace store of ${store.displayName} (id ${store.repositoryId}).\n`,
     );
     stream.write(
-      `Run \`${traceCliName()} trace allow .\` to send traces from this repository.\n`,
+      `Run \`${traceCommandPrefix()} allow .\` to send traces from this repository.\n`,
+    );
+
+    return 0;
+  });
+}
+
+/** Reports the hosted store of one repository, or exits 1 without one. */
+export async function runTraceStoreInfo(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    cwd: string;
+    client?: StoreClient;
+  },
+): Promise<number> {
+  return withHostedRepository(input, "store.info", async (ctx) => {
+    let store: StoreResponse | null;
+
+    try {
+      store = await ctx.client.findStore({
+        owner: ctx.name.owner,
+        name: ctx.name.repo,
+      });
+    } catch (error) {
+      throw new HostedCommandFailure(
+        describeStoreFailure(
+          error instanceof Error ? error : new Error(String(error)),
+          ctx.origin,
+          ctx.repository,
+        ),
+      );
+    }
+
+    if (!store) {
+      throw new HostedCommandFailure(
+        `${ctx.repository} has no trace store. Run \`${traceCommandPrefix()} store create\` first.`,
+      );
+    }
+
+    emitJsonEvent(input, {
+      event: "trace.store",
+      repository: store.displayName,
+      repositoryId: store.repositoryId,
+      storeId: store.storeId,
+      status: store.status,
+      bytesStored: store.bytesStored ?? null,
+    });
+    const stream = humanStream(input);
+    stream.write(
+      `Repository: ${store.displayName} (id ${store.repositoryId})\n`,
+    );
+    stream.write(`Store: ${store.storeId} (${store.status})\n`);
+
+    if (store.bytesStored !== undefined) {
+      stream.write(`Stored bytes: ${store.bytesStored}\n`);
+    }
+
+    return 0;
+  });
+}
+
+/**
+ * Deletes the hosted store of one repository. The deletion is logical: the
+ * store stops every read and write at once, and an operator removes the
+ * objects later. The consent of this machine stays; `deny` removes that.
+ */
+export async function runTraceStoreDelete(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    cwd: string;
+    client?: StoreClient;
+  },
+): Promise<number> {
+  return withHostedRepository(input, "store.delete", async (ctx) => {
+    const store = await requireActiveStore(ctx);
+
+    let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>>;
+
+    try {
+      deletion = await ctx.client.deleteStore(store.repositoryId);
+    } catch (error) {
+      if (error instanceof StoreApiError && error.code === "forbidden") {
+        throw new HostedCommandFailure(
+          `Deleting the store of ${ctx.repository} needs admin access to the repository.`,
+        );
+      }
+
+      throw new HostedCommandFailure(errorMessage(error));
+    }
+
+    emitJsonEvent(input, {
+      event: "trace.store.delete",
+      repository: store.displayName,
+      repositoryId: deletion.repositoryId,
+      storeId: deletion.storeId,
+      status: deletion.status,
+    });
+    humanStream(input).write(
+      `Store deletion requested for ${store.displayName} (store ${deletion.storeId}). Uploaded objects are removed by a later operator cleanup.\n`,
     );
 
     return 0;
@@ -253,8 +350,15 @@ export async function runTraceAllow(
     cwd: string;
     client?: StoreClient;
     harnessHooks?: boolean;
+    /** Write every harness hook, even for a harness this machine lacks. */
+    allHarnesses?: boolean;
     /** The executable the installed hooks run; the CLI name when absent. */
     traceCommand?: TraceCommand;
+    /**
+     * The command the last line names, because only the CLI knows which one
+     * it registers. `<prefix> status` when absent.
+     */
+    verifyCommand?: string;
   },
 ): Promise<number> {
   return withHostedRepository(input, "allow", async (ctx) => {
@@ -269,20 +373,23 @@ export async function runTraceAllow(
       return failWithJsonError(
         input,
         "allow",
-        `This machine sends traces to a bucket. Run \`${traceCliName()} trace storage use hosted\` first.`,
+        `This machine sends traces to a bucket. Run \`review trace storage use hosted\` first.`,
       );
     }
 
     const storeOrigin = ctx.origin;
     const store = await requireActiveStore(ctx);
 
-    const hookExecutable = input.traceCommand?.file;
+    const { skipped } = await installHarnessHooks({
+      homeDir: input.scope.homeDir,
+      env: input.scope.env,
+      executable: input.traceCommand?.file,
+      harnessHooks: input.harnessHooks,
+      allHarnesses: input.allHarnesses,
+    });
 
-    if (input.harnessHooks !== false) {
-      await installClaudeTraceHook(input.scope.homeDir, hookExecutable);
-      await installCodexTraceHook(input.scope.homeDir, hookExecutable);
-      await installOpenCodeTraceExtension(input.scope.homeDir, hookExecutable);
-      await installPiTraceExtension(input.scope.homeDir, hookExecutable);
+    if (skipped.length > 0) {
+      humanStream(input).write(skippedHarnessesLine(skipped));
     }
 
     await enableTraceRepository({
@@ -306,8 +413,12 @@ export async function runTraceAllow(
       name: store.displayName,
       store: storeOrigin,
     });
+
+    const verifyCommand =
+      input.verifyCommand ?? `${traceCommandPrefix()} status`;
+
     humanStream(input).write(
-      `Traces from ${store.displayName} may be published to ${storeOrigin}.\n`,
+      `Traces from ${store.displayName} may be published to ${storeOrigin}. Run \`${verifyCommand}\` to verify.\n`,
     );
 
     return 0;
@@ -343,9 +454,6 @@ async function enableHostedCapture(
 export async function runTraceDeny(
   input: CliJsonOutput & { scope: TraceScope } & {
     cwd: string;
-    /** Also delete the hosted store (repository admins only). */
-    deleteStore?: boolean;
-    client?: StoreClient;
   },
 ): Promise<number> {
   let name: string;
@@ -371,55 +479,12 @@ export async function runTraceDeny(
     devHome,
   );
 
-  let deletion: Awaited<ReturnType<StoreClient["deleteStore"]>> | null = null;
-
-  if (input.deleteStore) {
-    try {
-      const client =
-        input.client ?? (await requireStoreClient(input.scope.env));
-
-      const repositoryId = cached?.repositoryId ?? null;
-
-      if (repositoryId === null) {
-        throw new HostedCommandFailure(
-          `${name} has no resolved hosted store on this machine. Run \`${traceCliName()} trace allow .\` once, then deny with --delete-store.`,
-        );
-      }
-
-      try {
-        deletion = await client.deleteStore(repositoryId);
-      } catch (error) {
-        if (error instanceof StoreApiError && error.code === "forbidden") {
-          throw new HostedCommandFailure(
-            `Deleting the store of ${name} needs admin access to the repository.`,
-          );
-        }
-
-        throw error;
-      }
-    } catch (error) {
-      return failWithJsonError(input, "deny", errorMessage(error));
-    }
-  }
-
-  emitJsonEvent(input, {
-    event: "trace.deny",
-    name,
-    removed,
-    storeDeleted: deletion !== null,
-  });
-  const stream = humanStream(input);
-  stream.write(
+  emitJsonEvent(input, { event: "trace.deny", name, removed });
+  humanStream(input).write(
     removed
       ? `${name} will no longer publish traces.\n`
       : `${name} was not allowed to publish traces.\n`,
   );
-
-  if (deletion) {
-    stream.write(
-      `Store deletion requested for ${name} (store ${deletion.storeId}). Uploaded objects are removed by a later operator cleanup.\n`,
-    );
-  }
 
   return 0;
 }
@@ -509,7 +574,7 @@ export async function runTraceSessions(
   // on here.
   if (mode === "s3") {
     return fail(
-      `\`${traceCliName()} trace sessions\` lists the hosted store only. Run \`${traceCliName()} trace storage use hosted\`, or pass \`--storage hosted\`.`,
+      `\`${traceCommandPrefix()} sessions\` lists the hosted store only. Run \`review trace storage use hosted\`, or pass \`--storage hosted\`.`,
     );
   }
 
@@ -522,7 +587,7 @@ export async function runTraceSessions(
 
   if (!selection.hosted) {
     return fail(
-      `Hosted trace storage is not configured. Run \`${traceCliName()} trace allow .\` or \`${traceCliName()} trace storage use hosted\`.`,
+      `Hosted trace storage is not configured. Run \`${traceCommandPrefix()} allow .\` or \`review trace storage use hosted\`.`,
     );
   }
 
@@ -551,7 +616,7 @@ export async function runTraceSessions(
           error.code === "invalid_request"
         ) {
           throw new HostedCommandFailure(
-            `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`${traceCliName()} trace list --commit <sha>\`.`,
+            `The trace store at ${origin} does not support listing every session yet. Update the store, or use \`${traceCommandPrefix()} list --commit <sha>\`.`,
           );
         }
 
@@ -598,7 +663,7 @@ export async function runTraceSessions(
 
       stream.write(
         page.nextCursor
-          ? `Sessions are ordered by id. More follow: run \`${traceCliName()} trace sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
+          ? `Sessions are ordered by id. More follow: run \`${traceCommandPrefix()} sessions${nextPageFlags} --cursor ${page.nextCursor}\`.\n`
           : "Sessions are ordered by id. This is the last page.\n",
       );
 
@@ -637,7 +702,11 @@ export async function writeHostedTraceStatus(
     `Capture switch: ${hostedCaptureEnabled(readTraceConfigFile({ devHome }).config) ? "on" : "off"}\n`,
   );
 
-  const owners = await describeTraceHookOwners(input.scope.homeDir);
+  const owners = await describeTraceHookOwners(
+    input.scope.homeDir,
+    input.scope.env,
+  );
+
   stream.write(
     `Harness hooks: claude -> ${owners.claude ?? "none"}, codex -> ${owners.codex ?? "none"}, opencode -> ${owners.opencode ?? "none"}, pi -> ${owners.pi ?? "none"}\n`,
   );
@@ -649,7 +718,7 @@ export async function writeHostedTraceStatus(
 
   if (config.repositories.length === 0) {
     stream.write(
-      `Allowed repositories: none. Run \`${traceCliName()} trace allow .\`.\n`,
+      `Allowed repositories: none. Run \`${traceCommandPrefix()} allow .\`.\n`,
     );
   } else {
     for (const repository of config.repositories) {
@@ -675,11 +744,11 @@ export async function writeHostedTraceStatus(
 
     if (!entry) {
       stream.write(
-        `This repository (${name}) is not allowed. Run \`${traceCliName()} trace allow .\`.\n`,
+        `This repository (${name}) is not allowed. Run \`${traceCommandPrefix()} allow .\`.\n`,
       );
     } else if (!entry.enabledOrigins.includes(input.origin)) {
       stream.write(
-        `This repository (${name}) is allowed at ${entry.enabledOrigins.join(", ")}, not the selected ${input.origin}. Run \`${traceCliName()} trace allow .\` while logged in there.\n`,
+        `This repository (${name}) is allowed at ${entry.enabledOrigins.join(", ")}, not the selected ${input.origin}. Run \`${traceCommandPrefix()} allow .\` while logged in there.\n`,
       );
     } else {
       stream.write(

@@ -3006,7 +3006,7 @@ button {
   cursor: default;
 }
 
-.bug-report-toast {
+.review-toast {
   position: fixed;
   z-index: 10001;
   right: 18px;
@@ -3021,11 +3021,11 @@ button {
   font: 11px/1.4 var(--font-mono);
 }
 
-.bug-report-toast--success {
+.review-toast--success {
   border-color: var(--diff-added);
 }
 
-.bug-report-toast--error {
+.review-toast--error {
   border-color: var(--diff-modified);
 }
 
@@ -8002,4 +8002,52 @@ button.review-stack-row:disabled .review-stack-relation {
   border: 1px solid var(--review-border, currentColor);
   border-radius: 4px;
   padding: 0.15rem 0.4rem;
+}
+
+/* Rendered in the workbench document so native Monaco and prose use one affordance. */
+.copy-for-agent-popover {
+  position: fixed;
+  z-index: 10002;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px;
+  border: 1px solid var(--vscode-editorWidget-border, #3b3b3b);
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background, #202020);
+  color: var(--vscode-editor-foreground, #eee);
+  box-shadow: 0 3px 12px #0004;
+  font:
+    13px/20px -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.copy-for-agent-popover:hover {
+  background: color-mix(
+    in srgb,
+    var(--vscode-editorWidget-background, #202020) 90%,
+    var(--vscode-editor-foreground, #eee) 10%
+  );
+}
+.copy-for-agent-popover:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, #87baff);
+}
+.copy-for-agent-popover kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #8882;
+  color: var(--vscode-descriptionForeground, #aaa);
+  font:
+    500 13px/20px -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  letter-spacing: 0;
+}
+.copy-for-agent-popover kbd span {
+  display: inline-block;
 }

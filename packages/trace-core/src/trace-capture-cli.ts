@@ -1,11 +1,13 @@
 import type { Writable } from "node:stream";
 
+import { installHarnessHooks, skippedHarnessesLine } from "./agent-trace-hooks";
+import { type CliJsonOutput, emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import { inferRepoFromGit, syncReviewTrace } from "./review-agent-traces";
 import {
   type TraceCommand,
   type TraceScope,
-  traceCliName,
+  traceCommandPrefix,
 } from "./trace-command";
 import { runTraceGitHook } from "./trace-git-hook-runner";
 import { runTraceHook } from "./trace-hook-runner";
@@ -90,10 +92,11 @@ export async function runTraceStatus(input: {
     return 1;
   }
 
-  const [{ S3TraceStorage }, { describeS3Setup }] = await Promise.all([
-    import("./trace-storage/s3"),
-    import("./trace-storage/s3-config"),
-  ]);
+  const [{ S3TraceStorage }, { describeS3Setup, noTraceConfigurationMessage }] =
+    await Promise.all([
+      import("./trace-storage/s3"),
+      import("./trace-storage/s3-config"),
+    ]);
 
   const setup = describeS3Setup(input.scope.env);
   input.stdout.write(`Checking trace configuration (${setup.envPath})…\n`);
@@ -104,7 +107,7 @@ export async function runTraceStatus(input: {
 
   if (!setup.config) {
     input.stderr.write(
-      `trace status: ${setup.error ?? "No trace configuration found. Use Review Agent Setup to configure trace capture."}\n`,
+      `trace status: ${setup.error ?? noTraceConfigurationMessage()}\n`,
     );
 
     return 1;
@@ -146,7 +149,7 @@ export async function runTraceEnable(input: {
 }): Promise<number> {
   if (!(await traceMachineStatus(input.scope)).enabled) {
     input.stderr.write(
-      "trace enable: Trace capture is not enabled. Use Review Agent Setup first.\n",
+      `trace enable: Trace capture is not enabled. Run \`${traceCommandPrefix()} allow .\`\n`,
     );
 
     return 1;
@@ -161,6 +164,63 @@ export async function runTraceEnable(input: {
   (result.enabled ? input.stdout : input.stderr).write(`${result.message}\n`);
 
   return result.enabled ? 0 : 1;
+}
+
+/**
+ * Installs the machine parts of trace capture: the harness hooks of every
+ * agent, and the CLI itself when the CLI passes an installer. The command
+ * touches no repository; `allow` keeps the consent and the Git hooks.
+ *
+ * The CLI install runs first, because it reports the command file the
+ * harness hooks must call.
+ */
+export async function runTraceInstallMachine(
+  input: CliJsonOutput & {
+    scope: TraceScope;
+    /** False skips the four harness hook installers. */
+    harnessHooks?: boolean;
+    /** True writes every hook, even for a harness this machine lacks. */
+    allHarnesses?: boolean;
+    /** The command the harness hooks run; the CLI name when absent. */
+    traceCommand?: TraceCommand;
+    /** Installs the CLI itself and reports the command the hooks call. */
+    installMachine?: (output: CliJsonOutput) => Promise<TraceCommand>;
+  },
+): Promise<number> {
+  const output: CliJsonOutput = {
+    json: input.json,
+    stdout: input.stdout,
+    stderr: input.stderr,
+  };
+
+  const traceCommand = input.installMachine
+    ? await input.installMachine(output)
+    : input.traceCommand;
+
+  const { installed, skipped } = await installHarnessHooks({
+    homeDir: input.scope.homeDir,
+    env: input.scope.env,
+    executable: traceCommand?.file,
+    harnessHooks: input.harnessHooks,
+    allHarnesses: input.allHarnesses,
+  });
+
+  emitJsonEvent(output, { event: "trace.install", hooks: installed, skipped });
+  const stream = humanStream(output);
+
+  if (input.harnessHooks === false) {
+    stream.write("Harness hooks: skipped.\n");
+
+    return 0;
+  }
+
+  for (const hook of installed) {
+    stream.write(`Harness hook: ${hook.agent} -> ${hook.path}\n`);
+  }
+
+  if (skipped.length > 0) stream.write(skippedHarnessesLine(skipped));
+
+  return 0;
 }
 
 export async function runTraceDisable(input: {
@@ -188,7 +248,7 @@ export async function runTraceRepair(input: {
 }): Promise<number> {
   if (!(await traceMachineStatus(input.scope)).enabled) {
     input.stderr.write(
-      "trace repair: Trace capture is not enabled. Use Review Agent Setup first.\n",
+      `trace repair: Trace capture is not enabled. Run \`${traceCommandPrefix()} allow .\`\n`,
     );
 
     return 1;
@@ -230,7 +290,7 @@ export async function runTraceSync(input: {
 
       if (current !== input.expectStorage) {
         throw new Error(
-          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCliName()} trace sync ${input.sessionId}\` to publish to the current selection.`,
+          `The trace storage selection changed since this capture started (expected ${input.expectStorage}, now ${current}). Run \`${traceCommandPrefix()} sync ${input.sessionId}\` to publish to the current selection.`,
         );
       }
     }

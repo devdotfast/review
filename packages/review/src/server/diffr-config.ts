@@ -9,6 +9,7 @@ import {
   parseJsonText,
 } from "@dev.fast/json";
 
+import { invalidateStructuralComparisons } from "./structural-comparisons.js";
 import { diffrExecutable, diffrMissingError } from "./structural-diff";
 
 const execFileAsync = promisify(execFile);
@@ -87,5 +88,6 @@ export async function setDiffrConfigValue(
 
   await diffr(["config", "set", key, diffrConfigValueText(value)], rootPath);
 
+  invalidateStructuralComparisons();
   return readDiffrConfig(rootPath);
 }

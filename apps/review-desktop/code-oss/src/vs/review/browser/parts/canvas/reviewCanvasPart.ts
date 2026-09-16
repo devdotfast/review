@@ -188,6 +188,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		);
 		this._register(
 			verbs.onDidEmitSurfaceEvent((event) => {
+				if (
+					event.event === "editorSelectionChanged" &&
+					event.reviewId !== this.apiContent?.reviewId
+				)
+					return;
 				this.surfaceEvents.fire(event);
 			}),
 		);
@@ -369,7 +374,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 						softwareMapEnabled: this.currentSoftwareMapEnabled(),
 						setTitle: (title) => input.setApiTitle(title),
-						setSourceView: (selection, next) => { sourceSelection = selection; sourceView = next; },
+						setSourceView: (selection, next) => {
+							sourceSelection = selection;
+							sourceView = next;
+							source.openStructuralComparison();
+						},
 						openSource: (source, range) => this.apiSource.open(source, range),
 						bridge: {
 							...source,

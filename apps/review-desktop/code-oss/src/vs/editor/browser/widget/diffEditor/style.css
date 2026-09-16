@@ -101,15 +101,15 @@
 	overflow: hidden;
 }
 
-/* A band over lines that exist on one side only takes that side's change tint, so it reads as added or removed code. */
+/* Match code-line tinting: the gutter stays neutral, including beside summaries. */
 .monaco-editor .diff-hidden-lines.kind-inserted .center,
 .monaco-editor .diff-hidden-lines.kind-inserted .detail {
-	background: var(--vscode-diffEditor-insertedLineBackground);
+	background: linear-gradient(to right, var(--vscode-editorGutter-background, var(--vscode-editor-background)) var(--diff-fold-content-left), var(--vscode-diffEditor-insertedLineBackground) var(--diff-fold-content-left));
 }
 
 .monaco-editor .diff-hidden-lines.kind-removed .center,
 .monaco-editor .diff-hidden-lines.kind-removed .detail {
-	background: var(--vscode-diffEditor-removedLineBackground);
+	background: linear-gradient(to right, var(--vscode-editorGutter-background, var(--vscode-editor-background)) var(--diff-fold-content-left), var(--vscode-diffEditor-removedLineBackground) var(--diff-fold-content-left));
 }
 
 /* Pseudocode reads as a comment: the theme's comment colour, italic, one step smaller than code, with a thin rule. */

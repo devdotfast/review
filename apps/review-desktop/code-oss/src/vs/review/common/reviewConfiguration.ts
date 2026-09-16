@@ -43,7 +43,7 @@ configurationRegistry.registerConfiguration({
 		},
 		[REVIEW_STRUCTURAL_DIFF_SETTING]: {
 			type: 'boolean',
-			default: false,
+			default: true,
 			description: localize('review.experimental.structuralDiff.enabled', "Replace the standard diff view with structural diffs from diffr. Requires the diffr CLI."),
 		},
 		[REVIEW_SOFTWARE_MAP_SETTING]: {

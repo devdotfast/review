@@ -24,6 +24,7 @@ test("Review Files handles missing source locally and releases partial models", 
       Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
     }
     window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+    process.noDeprecation = true;
     registerHooks({ load(url, context, next) {
       if (url.endsWith(".css")) return { format: "module", source: "", shortCircuit: true };
       return next(url, context);

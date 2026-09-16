@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import { Hono } from "hono";
 import { act } from "react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { createReviewApi } from "../../src/review-api/http";
 import { ReviewStore } from "../../src/review-api/store";
@@ -14,10 +14,17 @@ let canvas: ReturnType<typeof mountReviewCanvas> | undefined;
 
 let store: ReviewStore;
 
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+});
+
 afterEach(async () => {
   await act(async () => canvas?.dispose());
   await store?.close();
   document.body.replaceChildren();
+  localStorage.clear();
+  sessionStorage.clear();
   vi.unstubAllGlobals();
 });
 

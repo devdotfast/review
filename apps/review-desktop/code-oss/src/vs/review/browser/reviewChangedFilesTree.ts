@@ -128,7 +128,7 @@ class ChangedFilesTreeRenderer
   static readonly TEMPLATE_ID = "review.changedFiles.entry";
   readonly templateId = ChangedFilesTreeRenderer.TEMPLATE_ID;
 
-  constructor(private readonly states: Map<string, { status: "loading" | "error"; message?: string }>) {}
+	constructor(private readonly states: Map<string, { status: "loading" | "error"; message?: string }>) { }
 
   renderTemplate(container: HTMLElement): ChangedFilesTreeTemplate {
     const row = append(container, $(".review-changed-files-row"));
@@ -168,10 +168,10 @@ class ChangedFilesTreeRenderer
     template.icon.className = isFile
       ? `review-changed-files-icon review-changed-files-icon-${element.file.status} ${ThemeIcon.asClassName(fileStatusIcon(element.file.status))}`
       : "review-changed-files-icon";
-    const state = isFile ? this.states.get(element.file.path) : undefined;
-    if (state) template.icon.className = `review-changed-files-icon codicon codicon-${state.status === "loading" ? "loading codicon-modifier-spin" : "error"}`;
-    template.row.title = state?.message ?? (state?.status === "loading" ? "Loading diff…" : "");
-    template.row.setAttribute("aria-busy", String(state?.status === "loading"));
+		const state = isFile ? this.states.get(element.file.path) : undefined;
+		if (state) template.icon.className = `review-changed-files-icon codicon codicon-${state.status === "loading" ? "loading codicon-modifier-spin" : "error"}`;
+		template.row.title = state?.message ?? (state?.status === "loading" ? "Loading diff…" : "");
+		template.row.setAttribute("aria-busy", String(state?.status === "loading"));
     template.label.textContent = isFile
       ? element.name
       : elements.map((item) => item.name).join("/");
@@ -192,7 +192,7 @@ export class ReviewChangedFilesTree extends Disposable {
   >;
   private readonly fileElements = new Map<string, ChangedFileElement>();
   private files: readonly ReviewDiffFileWire[] = [];
-  private readonly states = new Map<string, { status: "loading" | "error"; message?: string }>();
+	private readonly states = new Map<string, { status: "loading" | "error"; message?: string }>();
   private activePath: string | undefined;
   private syncingActiveFile = false;
 
@@ -206,7 +206,7 @@ export class ReviewChangedFilesTree extends Disposable {
       container,
       $(".review-changed-files-tree"),
     );
-    const renderer = new ChangedFilesTreeRenderer(this.states);
+		const renderer = new ChangedFilesTreeRenderer(this.states);
     this.tree = this._register(
       instantiationService.createInstance(
         WorkbenchCompressibleObjectTree<ChangedTreeElement, void>,
@@ -261,17 +261,17 @@ export class ReviewChangedFilesTree extends Disposable {
     this.refresh(selectedPath);
   }
 
-  setFileState(path: string, status: "loading" | "error" | undefined, message?: string): void {
-    if (status) this.states.set(path, { status, message });
-    else this.states.delete(path);
-    const element = this.fileElements.get(path);
-    if (element) this.tree.rerender(element);
-  }
+	setFileState(path: string, status: "loading" | "error" | undefined, message?: string): void {
+		if (status) this.states.set(path, { status, message });
+		else this.states.delete(path);
+		const element = this.fileElements.get(path);
+		if (element) this.tree.rerender(element);
+	}
 
-  setActiveFile(path: string | undefined, reveal = true): void {
-    if (!reveal && this.activePath === path) return;
+	setActiveFile(path: string | undefined, reveal = true): void {
+		if (!reveal && this.activePath === path) return;
     this.activePath = path;
-    this.syncSelection(path, reveal);
+		this.syncSelection(path, reveal);
   }
 
   layout(height: number, width: number): void {
@@ -286,13 +286,13 @@ export class ReviewChangedFilesTree extends Disposable {
     this.syncSelection(this.activePath ?? selectedPath);
   }
 
-  private syncSelection(path: string | undefined, reveal = true): void {
+	private syncSelection(path: string | undefined, reveal = true): void {
     const element = path ? this.fileElements.get(path) : undefined;
     this.syncingActiveFile = true;
     try {
       this.tree.setSelection(element ? [element] : []);
       this.tree.setFocus(element ? [element] : []);
-      if (element && reveal) this.tree.reveal(element);
+			if (element && reveal) this.tree.reveal(element);
     } finally {
       this.syncingActiveFile = false;
     }

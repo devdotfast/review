@@ -2,35 +2,21 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 import {
-  type JsonObject,
-  type JsonValue,
-  isJsonObject,
-  isStringValue,
-  jsonNumber,
-  parseJsonText,
-} from "@dev.fast/json";
+  decodeStructuralDiffEvent,
+  STRUCTURAL_DIFF_WIRE_VERSION,
+  type StructuralDiffEvent,
+  type StructuralProblem,
+} from "@dev.fast/review-protocol";
 
-/** The diffr wire version this host reads. Changes within it are additive. */
-export const STRUCTURAL_DIFF_WIRE_VERSION = 3;
+export type DiffComparison =
+  | { kind: "trees"; base: string; head: string }
+  | { kind: "merge-base"; base: string; head: string };
 
-/** The one error shape diffr uses for file failures, aborts and fallbacks. */
-export interface StructuralProblem {
-  code: string;
-  message: string;
-}
-
-export function structuralProblem(
-  value: JsonValue | undefined,
-): StructuralProblem {
-  if (
-    !isJsonObject(value) ||
-    !isStringValue(value.code) ||
-    !isStringValue(value.message)
-  ) {
-    throw new Error("diffr sent a malformed error record.");
-  }
-
-  return { code: value.code, message: value.message };
+export interface StructuralDiffRequest {
+  repositoryPath: string;
+  comparison: DiffComparison;
+  paths?: readonly string[];
+  signal: AbortSignal;
 }
 
 export function diffrExecutable(): string {
@@ -44,42 +30,20 @@ export function diffrMissingError(): Error {
 }
 
 /**
- * Runs one diffr comparison and reads its v3 NDJSON stream: a `start`
- * header, one `file` record per changed file in completion order, and a
- * `complete` footer. The frontend setting opts in; the host selects the
- * executable, never the request.
- *
- * With `onEvent`, records are forwarded as they arrive, including per-file
- * errors and a `complete` that carries `aborted`. Without it, records are
- * collected and any per-file error or abort rejects the whole comparison.
+ * Stream validated diffr records. File errors and aborted completion are data;
+ * launch failures, malformed/truncated streams and unexpected exits throw.
+ * Closing the iterator (including a consumer's break) terminates the child.
  */
-export async function structuralDiff(input: {
-  rootPath: string;
-  baseRef?: string;
-  headRef?: string;
-  paths?: readonly string[];
-  /** Compare the exact pinned trees instead of merge-base to head. */
-  exactTrees?: boolean;
-  signal?: AbortSignal;
-  onEvent?: (event: JsonObject) => void;
-}): Promise<{ enabled: boolean; events: JsonObject[] }> {
-  if (!input.baseRef)
-    throw new Error("Structural review requires a base revision.");
-  const args = ["--repo", input.rootPath, "--format", "ndjson"];
-
-  // Match Review's merge-base-to-head comparison, including commit scopes.
-  if (input.exactTrees && input.headRef)
-    args.push(input.baseRef, input.headRef);
-  else
-    args.push(
-      input.headRef ? `${input.baseRef}...${input.headRef}` : input.baseRef,
-    );
+export async function* structuralDiff(
+  input: StructuralDiffRequest,
+): AsyncGenerator<StructuralDiffEvent> {
+  input.signal.throwIfAborted();
+  const { base, head, kind } = input.comparison;
+  const args = ["--repo", input.repositoryPath, "--format", "ndjson"];
+  args.push(...(kind === "trees" ? [base, head] : [`${base}...${head}`]));
   args.push("--", ...(input.paths ?? []));
 
-  const signal = AbortSignal.any([
-    AbortSignal.timeout(120_000),
-    ...(input.signal ? [input.signal] : []),
-  ]);
+  const signal = AbortSignal.any([AbortSignal.timeout(120_000), input.signal]);
 
   // The host inherits its own environment and runs from the repository, so
   // diffr reads the user's config and keys exactly as it would from a shell.
@@ -88,7 +52,7 @@ export async function structuralDiff(input: {
   );
 
   const child = spawn(diffrExecutable(), args, {
-    cwd: input.rootPath,
+    cwd: input.repositoryPath,
     stdio: ["ignore", "pipe", "pipe"],
     signal,
   });
@@ -111,7 +75,6 @@ export async function structuralDiff(input: {
 
   // Observe process errors immediately, including before stdout closes.
   void exited.catch(() => {});
-  const events: JsonObject[] = [];
   let bytes = 0;
   let started = false;
   let completed = false;
@@ -127,10 +90,7 @@ export async function structuralDiff(input: {
         throw new Error("Structural diff exceeded 64 MiB.");
 
       if (!line.trim()) continue;
-      const event = parseJsonText(line);
-
-      if (!isJsonObject(event) || !isStringValue(event.type))
-        throw new Error("diffr sent a record without a type.");
+      const event = decodeStructuralDiffEvent(line);
 
       if (completed) throw new Error("diffr emitted data after completion.");
 
@@ -146,20 +106,13 @@ export async function structuralDiff(input: {
       } else if (event.type === "complete") {
         completed = true;
 
-        failed = jsonNumber(event.failed) ?? 0;
-
-        if (event.aborted !== undefined)
-          aborted = structuralProblem(event.aborted);
-      } else if (event.type === "file") {
-        if (event.error !== undefined && !input.onEvent) {
-          throw new Error(`diffr: ${structuralProblem(event.error).message}`);
-        }
-      } else {
+        failed = event.failed;
+        aborted = event.aborted;
+      } else if (event.type !== "file") {
         throw new Error(`Unexpected diffr event: ${event.type}`);
       }
 
-      if (input.onEvent) input.onEvent(event);
-      else events.push(event);
+      yield event;
     }
 
     if (!completed) {
@@ -169,19 +122,11 @@ export async function structuralDiff(input: {
       throw new Error("diffr stream ended before completion.");
     }
 
-    if (aborted) {
-      // Files already emitted stay valid; the run itself failed.
-      if (!input.onEvent) throw new Error(`diffr aborted: ${aborted.message}`);
-
-      return { enabled: true, events };
-    }
-
     // diffr exits 2 when any file failed; those files already carry their error records.
     const code = await exited;
 
-    if (code !== 0 && !(code === 2 && failed > 0)) throw exitError(code);
-
-    return { enabled: true, events };
+    if (code !== 0 && !(code === 2 && (failed > 0 || aborted !== undefined)))
+      throw exitError(code);
   } finally {
     lines.close();
 

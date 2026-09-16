@@ -16,8 +16,8 @@ type ReviewDesktopConnection,
 import { consumeReviewEventStream } from "../common/reviewEventStream.js";
 import {
 type JsonValue,
-type ReviewDiffrConfig,
-parseReviewDiffrConfig,
+	type ReviewDiffrConfig,
+	parseReviewDiffrConfig,
 parseReviewCliInstallApplyResponse,
 parseReviewCliInstallStatus,
 parseReviewDesktopVerbFrame,

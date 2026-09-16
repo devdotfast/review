@@ -78,8 +78,8 @@ const revisions = args.slice(args.indexOf('ndjson') + 1, args.indexOf('--'));
 const range = revisions.length === 1 ? revisions[0].split('...') : revisions;
 const file = args[args.indexOf('--') + 1];
 const read = rev => execFileSync('git', ['-C', repo, 'show', rev + ':' + file], {encoding:'utf8'});
-console.log(JSON.stringify({type:'start',version:3,files:[]}));
-console.log(JSON.stringify({type:'file',file:{rhs:{path:file}},before:read(range[0]),after:read(range[1])}));
+console.log(JSON.stringify({type:'start',version:3,lhs:{type:'revision',rev:range[0]},rhs:{type:'revision',rev:range[1]},files:[]}));
+console.log(JSON.stringify({type:'file',file:{rhs:{path:file,oid:range[1],mode:'100644'}},diff:{type:'text',lhs:{text:read(range[0])},rhs:{text:read(range[1])},stats:{textual:{added:1,removed:1},visible:{added:1,removed:1}},structural_changes:{base:[[0,1]],head:[[0,1]]}}}));
 console.log(JSON.stringify({type:'complete',succeeded:1,failed:0}));
 `,
       { mode: 0o755 },
@@ -124,8 +124,10 @@ console.log(JSON.stringify({type:'complete',succeeded:1,failed:0}));
 
         expect(events.find((event) => event.type === "error")).toBeUndefined();
         expect(events.find((event) => event.type === "file")).toMatchObject({
-          before: commit ? "base\n" : "divergent base\n",
-          after: "head\n",
+          diff: {
+            lhs: { text: commit ? "base\n" : "divergent base\n" },
+            rhs: { text: "head\n" },
+          },
         });
       }
 

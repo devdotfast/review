@@ -1083,16 +1083,6 @@ body
   );
 }
 
-.review-unified-expand-context {
-  width: 100%;
-  border: 0;
-  text-align: left;
-  cursor: pointer;
-  color: var(--vscode-descriptionForeground);
-  background: var(--vscode-diffEditor-unchangedRegionBackground);
-  font: inherit;
-}
-
 /* Give commenting and folding separate hit targets in the Files view. */
 .review-files-editor .monaco-editor .margin-view-overlays .cldr:is(
   .codicon-folding-expanded,

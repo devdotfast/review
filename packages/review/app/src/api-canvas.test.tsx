@@ -32,6 +32,8 @@ const command = <Operation,>(operation: Operation) =>
   store.execute({ commandId: randomUUID(), operation });
 
 beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
   directory = mkdtempSync(path.join(tmpdir(), "review-api-canvas-"));
   store = new ReviewStore(path.join(directory, "review.db"), {
     validatePins: async () => {},
@@ -59,6 +61,8 @@ afterEach(async () => {
   canvas = undefined;
   await store.close();
   document.body.innerHTML = "";
+  localStorage.clear();
+  sessionStorage.clear();
   vi.unstubAllGlobals();
   rmSync(directory, { recursive: true, force: true });
 });
@@ -614,9 +618,15 @@ it("copies prose and code from the displayed historical JSON review", async () =
   });
   const data = new LocalReviewData(store);
   vi.spyOn(data, "commits").mockResolvedValue([]);
+  vi.spyOn(data, "sourcePins").mockImplementation(
+    async (snapshot) => snapshot.pins,
+  );
+  vi.spyOn(data, "comparison").mockImplementation(async (pins, commit) =>
+    commit ? { ...pins, base: "selected-parent", head: commit } : pins,
+  );
   vi.spyOn(data, "quote").mockImplementation(async (sourcePins, source) => {
     expect(source).toEqual({
-      side: "head",
+      side: sourcePins.head === "selected-commit" ? "base" : "head",
       file: "example.ts",
       fromLine: 2,
       toLine: 2,
@@ -624,8 +634,16 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
     return {
       ...source,
-      commit: sourcePins.head,
-      text: sourcePins.head === "head" ? "historical source" : "latest source",
+      commit:
+        sourcePins.head === "selected-commit"
+          ? "selected-parent"
+          : sourcePins.head,
+      text:
+        sourcePins.head === "selected-commit"
+          ? "selected parent code"
+          : sourcePins.head === "head"
+            ? "historical source"
+            : "latest source",
     };
   });
   const app = new Hono().route("/reviews-api", createReviewApi(store, data));
@@ -714,6 +732,24 @@ it("copies prose and code from the displayed historical JSON review", async () =
     expect(code).toContain("example.ts:2-2 (head)");
     expect(code).not.toContain("latest source");
     expect(code).not.toContain("new-head");
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          ...selected,
+          sideContext: "base",
+          apiSource: {
+            reviewId: review.reviewId,
+            version: inserted.version,
+            commit: "selected-commit",
+          },
+        });
+    });
+    const scopedCode = await copy();
+    expect(scopedCode).toContain("selected parent code");
+    expect(scopedCode).toContain("base: example.ts:2-2 (selected-parent)");
+    expect(scopedCode).toContain("Selected commit: selected-commit");
+    expect(scopedCode).not.toContain("historical source");
+
     await act(async () => {
       for (const listener of listeners)
         listener({

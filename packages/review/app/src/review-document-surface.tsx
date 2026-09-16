@@ -4,7 +4,6 @@ import {
   type ReactElement,
 } from "react";
 
-import type { ReviewDocumentComponentName } from "../../src/review-document-data";
 import { MarkdownCodeBlock } from "./code-block";
 import { reviewAuthoringComponents } from "./review-authoring-components";
 import { a } from "./review-components";
@@ -19,15 +18,7 @@ import {
 } from "./review-document-renderer";
 
 export const reviewDocumentComponents: ReviewDocumentComponents = {
-  // SAFETY: publish validated every component's props against its authoring
-  // schema (reviewAuthoringPropsSchemas) and hydration rebuilt exactly the
-  // runtime handles those props declare, so each registry entry accepts the
-  // hydrated props carried by a node with its own name.
-  components: reviewAuthoringComponents as typeof reviewAuthoringComponents &
-    Record<
-      ReviewDocumentComponentName,
-      FunctionComponent<HydratedReviewComponentProps>
-    >,
+  components: reviewAuthoringComponents,
   elementOverrides: {
     a,
     pre: MarkdownCodeBlock,

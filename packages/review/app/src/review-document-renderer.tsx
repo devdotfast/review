@@ -7,7 +7,7 @@ import {
 
 import {
   type ProseTag,
-  type ReviewDocumentComponentName,
+  type ReviewDocumentComponentRegistry,
   type ReviewElementProps,
   tableAlignSchema,
 } from "../../src/review-document-data";
@@ -22,10 +22,7 @@ export type ProseElementComponent = FunctionComponent<
 >;
 
 export interface ReviewDocumentComponents {
-  components: Record<
-    ReviewDocumentComponentName,
-    FunctionComponent<HydratedReviewComponentProps>
-  >;
+  components: ReviewDocumentComponentRegistry;
   elementOverrides: Partial<Record<ProseTag, ProseElementComponent>>;
 }
 
@@ -48,11 +45,13 @@ function renderNode(
   const children = node.children.map((child) => renderNode(child, components));
 
   if (node.type === "component") {
-    return createElement(
-      components.components[node.name],
-      node.props,
-      ...children,
-    );
+    // SAFETY: the document schema validated `node.props` against the component
+    // named by `node.name`, so that registry entry accepts exactly these props.
+    const component = components.components[
+      node.name
+    ] as FunctionComponent<HydratedReviewComponentProps>;
+
+    return createElement(component, node.props, ...children);
   }
 
   const override = components.elementOverrides[node.tag];

@@ -203,7 +203,6 @@ describe("sequence diagram guided tour", () => {
     expect(createSequenceTourEntry(sequence).stops).toEqual([
       {
         anchor: {
-          __kind: "db-anchor-ref",
           id: "sequence-label-readability-message-1",
           title: "allocates more horizontal room",
         },

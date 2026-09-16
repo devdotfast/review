@@ -13,17 +13,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { z } from "zod";
 
-import type {
-  AnchorLinkProps,
-  AnchorRef,
-  ReviewSectionProps,
-} from "../../src/authoring";
-import {
-  anchorLinkPropsSchema,
-  reviewSectionPropsSchema,
-} from "../../src/authoring";
+import type { ReviewComponentProps } from "../../src/review-document-data";
 import { AuthoredCodeSurface } from "./authored-code-surface";
 import { CodePeekCard } from "./CodePeek";
 import { findWhitespaceNormalizedSpan } from "./highlighted-text";
@@ -38,6 +29,7 @@ import { useOptionalReviewPanelStore, useReviewPanel } from "./review-panel";
 import type {
   GuidedTour,
   GuidedTourStop,
+  PeekAnchor,
   ReviewPeekContent,
 } from "./review-panel-model";
 import { useReviewRoots } from "./review-root-context";
@@ -146,16 +138,6 @@ function ReviewPanelFrame({
   );
 }
 
-const reviewSectionRenderPropsSchema = reviewSectionPropsSchema.extend({
-  summary: z
-    .object({
-      diagrams: z.number(),
-      codeRefs: z.number(),
-      paragraphs: z.number(),
-    })
-    .optional(),
-});
-
 /**
  * Collapsible document section produced by the remark-review-sections plugin:
  * the first child is normally the section's H2 heading, the rest is the
@@ -166,15 +148,15 @@ const reviewSectionRenderPropsSchema = reviewSectionPropsSchema.extend({
  */
 export function ReviewSection({
   stateKey,
-  ...props
-}: ReviewSectionProps & { stateKey?: string; summary?: ReviewSectionSummary }) {
-  const {
-    title,
-    defaultCollapsed = false,
-    children,
-    summary,
-  } = reviewSectionRenderPropsSchema.parse(props);
-
+  title,
+  defaultCollapsed = false,
+  children,
+  summary,
+}: ReviewComponentProps<"ReviewSection"> & {
+  stateKey?: string;
+  summary?: ReviewSectionSummary;
+  children?: ReactNode;
+}) {
   const [collapsed, setCollapsed] = useReviewUiState(
     stateKey ?? title,
     defaultCollapsed,
@@ -361,8 +343,10 @@ export function ProsePeekAnchor({
   );
 }
 
-export function AnchorLink(props: AnchorLinkProps) {
-  const { anchor, children } = anchorLinkPropsSchema.parse(props);
+export function AnchorLink({
+  anchor,
+  children,
+}: ReviewComponentProps<"AnchorLink"> & { children?: ReactNode }) {
   const openPeek = useReviewPanel((state) => state.openPeek);
 
   const peekOpen = useReviewPanel(
@@ -657,7 +641,7 @@ function ReviewPeekPanel({
   content,
   onClose,
 }: {
-  anchor?: AnchorRef;
+  anchor?: PeekAnchor;
   content: ReviewPeekContent;
   onClose: () => void;
 }) {
@@ -685,7 +669,7 @@ function CodeReviewPeekPanel({
   content,
   onClose,
 }: {
-  anchor: AnchorRef;
+  anchor: PeekAnchor;
   content: Extract<
     ReviewPeekContent,
     { kind: "source" | "inline-code" | "explanation" }
@@ -1101,7 +1085,7 @@ function ReviewPeekContentView({
   active,
   onNativeFocus,
 }: {
-  anchor: AnchorRef;
+  anchor: PeekAnchor;
   content: ReviewPeekContent;
   active?: boolean;
   onNativeFocus?: () => void;

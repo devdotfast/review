@@ -13,6 +13,7 @@ import {
   ReviewInputError,
   sourceReferences,
 } from "../review-api/document";
+import { decodeImage } from "../review-api/image-decode";
 import type { LocalReviewData } from "../review-api/local-data";
 import type {
   ImportedVersionInput,
@@ -30,6 +31,7 @@ import { type ReviewVcsLogEntry, reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { legacySoftwareMapBundle } from "../stored-review-migration";
 import {
+  type ImageRequest,
   type TraceRequest,
   legacyDocumentToBlocks,
   repairImportedSectionHeadings,
@@ -187,6 +189,8 @@ export async function importLegacyReview(
     loadTrace: input.loadTrace ?? loadReviewAgentTrace,
   });
 
+  const images = new ImageResolver({ store, repositoryId });
+
   for (const [index, entry] of entries.entries()) {
     const dir = await input.materialize(review, entry.oid);
     const raw = await readSealedDocument(dir);
@@ -269,9 +273,14 @@ export async function importLegacyReview(
     const conversion = legacyDocumentToBlocks(document);
     const versionWarnings = [...conversion.warnings];
 
-    const blocks = await traces.resolve(
-      conversion.blocks,
-      conversion.traces,
+    const blocks = await images.resolve(
+      await traces.resolve(
+        conversion.blocks,
+        conversion.traces,
+        versionWarnings,
+      ),
+      conversion.images,
+      dir,
       versionWarnings,
     );
 
@@ -665,6 +674,78 @@ class TraceResolver {
   }
 }
 
+/** Stores each published image once per review and rewrites placeholder
+ * blocks. An image published in several revisions is one resource: the file is
+ * keyed by the source it was authored with, not by the revision it came from. */
+class ImageResolver {
+  private readonly stored = new Map<string, Promise<string>>();
+
+  constructor(
+    private readonly input: { store: ReviewStore; repositoryId: string },
+  ) {}
+
+  async resolve(
+    blocks: Block[],
+    requests: ImageRequest[],
+    dir: string,
+    warnings: string[],
+  ): Promise<Block[]> {
+    if (requests.length === 0) return blocks;
+    const replacements = new Map<string, Block>();
+
+    for (const request of requests) {
+      try {
+        replacements.set(request.placeholder, {
+          type: "image",
+          assetId: await this.resource(request.src, dir),
+          alt: request.alt,
+        });
+      } catch (error) {
+        warnings.push(
+          `image "${request.src}" could not be imported: ${errorMessage(error)}`,
+        );
+        replacements.set(request.placeholder, {
+          type: "markdown",
+          markdown: `*${request.alt}*\n`,
+        });
+      }
+    }
+
+    return replace(blocks, replacements);
+  }
+
+  private resource(src: string, dir: string): Promise<string> {
+    let pending = this.stored.get(src);
+
+    if (!pending) {
+      pending = this.put(src, dir);
+      this.stored.set(src, pending);
+    }
+
+    return pending;
+  }
+
+  private async put(src: string, dir: string): Promise<string> {
+    const root = path.resolve(dir);
+    const file = path.resolve(root, src);
+
+    // The sealed revision is the whole of what the review published.
+    if (file !== root && !file.startsWith(root + path.sep))
+      throw new Error("outside the review");
+
+    const id = randomUUID();
+    this.input.store.putResource(
+      id,
+      this.input.repositoryId,
+      "image",
+      "image/png",
+      await decodeImage(await readFile(file)),
+    );
+
+    return id;
+  }
+}
+
 function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
   return blocks.map((block) => {
     if (block.type === "markdown") {
@@ -685,6 +766,10 @@ function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
 
     if (block.type === "trace_quote") {
       return replacements.get(block.traceId) ?? block;
+    }
+
+    if (block.type === "image") {
+      return replacements.get(block.assetId) ?? block;
     }
 
     if (block.type === "section" || block.type === "callout")

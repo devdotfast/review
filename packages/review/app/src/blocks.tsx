@@ -84,6 +84,15 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
           <AnchorLink anchor={anchor}>{children}</AnchorLink>
         ) : undefined;
       }}
+      renderImage={({ url, alt }) =>
+        // Only a remote image can be shown as authored; anything else was
+        // stored as an image block at import.
+        url.startsWith("https:") ? (
+          <figure className="review-image">
+            <img src={url} alt={alt} loading="lazy" />
+          </figure>
+        ) : undefined
+      }
     />
   );
 }

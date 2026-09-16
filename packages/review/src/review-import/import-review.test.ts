@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
 import { openLocalReviewStore } from "../review-api/local-data";
@@ -209,6 +210,103 @@ describe("importLegacyReview", () => {
         /\[\^1\]: The agent \[agent said so\]\(review-trace:[\da-f-]{36}#2\)\.\n$/,
       ),
     });
+  });
+
+  it("stores a published image once for every revision that shows it", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 2, assets: { "shots/flow.png": await redSquare() } },
+    );
+
+    for (const oid of oids)
+      await appendImage(documentPath(stored.dir, oid), {
+        src: "./shots/flow.png",
+        alt: "The flow",
+      });
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      const outcome = await importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+      expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
+      const image = store.read(record.uuid).document.at(-1);
+      expect(image).toMatchObject({ type: "image", alt: "The flow" });
+      // One file published in both revisions is one stored resource.
+      expect(store.read(record.uuid, 0).document.at(-1)).toMatchObject({
+        assetId: image!.type === "image" && image.assetId,
+      });
+
+      const resource = store.resource(
+        image!.type === "image" ? image.assetId : "",
+      );
+
+      expect(resource.mimeType).toBe("image/png");
+      expect((await sharp(Buffer.from(resource.data)).metadata()).width).toBe(
+        2,
+      );
+    } finally {
+      await store.close();
+    }
+  });
+
+  it("keeps the alt text of an image it cannot read", async () => {
+    const repo = await scratchGitRepo();
+
+    const { home, record, stored, oids } = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+    );
+
+    await appendImage(documentPath(stored.dir, oids[0]!), {
+      src: "gone.png",
+      alt: "Missing shot",
+    });
+    await appendImage(documentPath(stored.dir, oids[0]!), {
+      src: "../../order.ts",
+      alt: "Escaping shot",
+    });
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    try {
+      const outcome = await importLegacyReview({
+        review: stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(oids),
+        loadTrace: async () => null,
+      });
+
+      const warnings = outcome.kind === "imported" ? outcome.warnings : [];
+      expect(warnings).toEqual([
+        expect.stringContaining('image "gone.png" could not be imported'),
+        expect.stringContaining(
+          'image "../../order.ts" could not be imported: outside the review',
+        ),
+      ]);
+      expect(store.read(record.uuid).document.slice(-2)).toMatchObject([
+        { type: "markdown", markdown: "*Missing shot*\n" },
+        { type: "markdown", markdown: "*Escaping shot*\n" },
+      ]);
+    } finally {
+      await store.close();
+    }
   });
 
   it("resumes after a partial import and imports only the missing revisions", async () => {
@@ -581,6 +679,31 @@ describe("importLegacyReview", () => {
     expect(store.read(record.uuid).version).toBe(0);
   });
 });
+
+const redSquare = () =>
+  sharp({ create: { width: 2, height: 2, channels: 3, background: "red" } })
+    .png()
+    .toBuffer();
+
+const documentPath = (dir: string, oid: string) =>
+  path.join(dir, ".revisions", oid, ".bundle/document/review-document.json");
+
+/** Appends a paragraph holding one image, the shape a legacy review takes when
+ * it shows a screenshot published beside its document. */
+async function appendImage(
+  docPath: string,
+  props: { src: string; alt: string },
+): Promise<void> {
+  const doc = JSON.parse(await readFile(docPath, "utf8"));
+
+  doc.body.push({
+    type: "element",
+    tag: "p",
+    props: {},
+    children: [{ type: "element", tag: "img", props, children: [] }],
+  });
+  await writeFile(docPath, JSON.stringify(doc));
+}
 
 /** Appends nodes to a sealed document, the way a legacy review carried shapes
  * the fixtures do not. */

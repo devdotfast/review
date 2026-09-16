@@ -92,6 +92,8 @@ export async function syntheticLegacyReview(
     revisions?: number;
     /** Seal the same document in every revision, like a map-only publish. */
     identical?: boolean;
+    /** Files published beside the document, by path within the revision. */
+    assets?: Record<string, Buffer>;
     overrides?: Record<string, JsonValue>;
   } = {},
 ) {
@@ -155,6 +157,12 @@ export async function syntheticLegacyReview(
         ? document
         : document.replace(/"title": "([^"]*)"/, `"title": "$1 v${index}"`),
     );
+
+    for (const [asset, bytes] of Object.entries(options.assets ?? {})) {
+      const file = path.join(dir, ".revisions", oid, asset);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, bytes);
+    }
   }
 
   await mkdir(dir, { recursive: true });

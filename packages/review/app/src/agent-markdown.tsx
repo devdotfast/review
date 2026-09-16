@@ -20,7 +20,15 @@ import { newTabLinkProps } from "./link-props";
 
 type LinkRenderer = (href: string, children: ReactNode) => ReactNode;
 
+type ImageRenderer = (image: {
+  url: string;
+  alt: string;
+  title?: string;
+}) => ReactNode | undefined;
+
 const DocumentLink = createContext<LinkRenderer | undefined>(undefined);
+
+const DocumentImage = createContext<ImageRenderer | undefined>(undefined);
 
 export function AgentMarkdown({
   source,
@@ -47,32 +55,36 @@ export function MarkdownContent({
   h1: Heading,
   headingId,
   renderLink,
+  renderImage,
 }: {
   source: string;
   h1?: ComponentType<{ children?: ReactNode }>;
   headingId?: (index: number) => string;
   renderLink?: LinkRenderer;
+  renderImage?: ImageRenderer;
 }): ReactElement {
   const { body, footnotes } = splitFootnotes(parseMarkdown(source));
 
   return (
     <DocumentLink.Provider value={renderLink}>
-      {body.map((node, index) =>
-        node.type === "heading" && node.depth === 1 && Heading ? (
-          <Heading key={index}>
-            {renderMarkdownChildren(node.children ?? [], String(index))}
-          </Heading>
-        ) : node.type === "heading" && headingId ? (
-          createElement(
-            `h${node.depth}`,
-            { key: index, id: headingId(index) },
-            renderMarkdownChildren(node.children ?? [], String(index)),
-          )
-        ) : (
-          renderMarkdownNode(node, String(index))
-        ),
-      )}
-      {renderFootnotes(footnotes, "document")}
+      <DocumentImage.Provider value={renderImage}>
+        {body.map((node, index) =>
+          node.type === "heading" && node.depth === 1 && Heading ? (
+            <Heading key={index}>
+              {renderMarkdownChildren(node.children ?? [], String(index))}
+            </Heading>
+          ) : node.type === "heading" && headingId ? (
+            createElement(
+              `h${node.depth}`,
+              { key: index, id: headingId(index) },
+              renderMarkdownChildren(node.children ?? [], String(index)),
+            )
+          ) : (
+            renderMarkdownNode(node, String(index))
+          ),
+        )}
+        {renderFootnotes(footnotes, "document")}
+      </DocumentImage.Provider>
     </DocumentLink.Provider>
   );
 }
@@ -251,7 +263,14 @@ function renderMarkdownNode(
     }
 
     case "image":
-      return node.alt ? <em key={key}>{node.alt}</em> : null;
+      return (
+        <MarkdownImage
+          key={key}
+          url={node.url ?? ""}
+          alt={node.alt ?? ""}
+          title={node.title ?? undefined}
+        />
+      );
     case "table":
       return renderTable(node, key);
     case "tableRow":
@@ -350,6 +369,24 @@ function cellAlignment(
     default:
       return undefined;
   }
+}
+
+function MarkdownImage({
+  url,
+  alt,
+  title,
+}: {
+  url: string;
+  alt: string;
+  title?: string;
+}): ReactNode {
+  const renderImage = useContext(DocumentImage);
+  const custom = renderImage?.({ url, alt, title });
+
+  if (custom !== undefined) return <>{custom}</>;
+
+  // Chat has no store to resolve an image against, so its alt text stands in.
+  return alt ? <em>{alt}</em> : null;
 }
 
 function MarkdownLink({

@@ -1,7 +1,10 @@
+import path from "node:path";
+
 import { type Block, elements } from "../review-api/document";
 import type {
   ReviewComponentNode,
   ReviewDocumentData,
+  ReviewElementNode,
   ReviewNode,
 } from "../review-document-data";
 import {
@@ -22,9 +25,18 @@ export interface TraceRequest {
   placeholder: string;
 }
 
+/** An image file the caller must read beside the sealed document: the block in
+ * `blocks` carries `placeholder` as its `assetId` until then. */
+export interface ImageRequest {
+  src: string;
+  alt: string;
+  placeholder: string;
+}
+
 export interface LegacyConversion {
   blocks: Block[];
   traces: TraceRequest[];
+  images: ImageRequest[];
   warnings: string[];
 }
 
@@ -42,6 +54,7 @@ export function legacyDocumentToBlocks(
   document: ReviewDocumentData,
 ): LegacyConversion {
   const traces: TraceRequest[] = [];
+  const images: ImageRequest[] = [];
   const warnings: string[] = [];
 
   const traceQuote = (
@@ -66,6 +79,21 @@ export function legacyDocumentToBlocks(
     };
   };
 
+  const imageRequest = (
+    node: ReviewElementNode,
+  ): Extract<Block, { type: "image" }> => {
+    const placeholder = `image-placeholder-${images.length + 1}`;
+    const src = String(node.props.src ?? "");
+    // `alt` is a label, so a decorative image still needs a name to show.
+    const alt =
+      String(node.props.alt ?? "").trim() ||
+      path.posix.basename(src) ||
+      "Image";
+    images.push({ src, alt, placeholder });
+
+    return { type: "image", assetId: placeholder, alt };
+  };
+
   const render: RenderProseNode = (node) => {
     if (node.name !== "TraceQuote") return undefined;
 
@@ -73,6 +101,53 @@ export function legacyDocumentToBlocks(
     const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
 
     return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
+  };
+
+  /** The block a node nested in prose becomes, Markdown carrying neither a
+   * diagram nor a stored image. */
+  const hoistable = (node: ReviewNode): Block | undefined => {
+    if (node.type === "element")
+      return isStoredImage(node) ? imageRequest(node) : undefined;
+
+    return node.type === "component" ? diagramBlock(node) : undefined;
+  };
+
+  const withoutHoisted = (node: ReviewNode, hoisted: Block[]): ReviewNode => {
+    if (node.type === "text") return node;
+
+    const children = node.children.flatMap((child): ReviewNode[] => {
+      const block = hoistable(child);
+
+      if (!block) return [withoutHoisted(child, hoisted)];
+
+      hoisted.push(block);
+
+      return [];
+    });
+
+    return { ...node, children };
+  };
+
+  /** `nodes` with each hoistable node lifted out of the prose that held it and
+   * emitted right after it. Footnote sections are dropped, their definitions
+   * already collected, so what a definition holds stays inside it. */
+  const hoistBlocks = (nodes: ReviewNode[]): Array<ReviewNode | Block> => {
+    const out: Array<ReviewNode | Block> = [];
+
+    for (const node of nodes) {
+      if (!isProseNode(node)) {
+        out.push(node);
+        continue;
+      }
+
+      if (isFootnoteSection(node)) continue;
+
+      const hoisted: Block[] = [];
+
+      out.push(withoutHoisted(node, hoisted), ...hoisted);
+    }
+
+    return out;
   };
 
   const footnotes = collectFootnoteDefinitions(document.body, warnings, render);
@@ -95,7 +170,7 @@ export function legacyDocumentToBlocks(
       prose = [];
     };
 
-    for (const node of hoistDiagrams(nodes)) {
+    for (const node of hoistBlocks(nodes)) {
       if (
         node.type !== "text" &&
         node.type !== "element" &&
@@ -189,7 +264,7 @@ export function legacyDocumentToBlocks(
     return out;
   };
 
-  return { blocks: convert(document.body), traces, warnings };
+  return { blocks: convert(document.body), traces, images, warnings };
 }
 
 /** The diagram components as blocks, wherever they were authored. */
@@ -229,42 +304,14 @@ function diagramBlock(node: ReviewComponentNode): Block | undefined {
   }
 }
 
-/** `nodes` with each diagram nested in prose lifted out and emitted right after
- * that prose. Footnote sections are skipped: their definitions are already
- * collected, and Markdown cannot carry what they hold. */
-function hoistDiagrams(nodes: ReviewNode[]): Array<ReviewNode | Block> {
-  const out: Array<ReviewNode | Block> = [];
-
-  for (const node of nodes) {
-    if (!isProseNode(node)) {
-      out.push(node);
-      continue;
-    }
-
-    if (isFootnoteSection(node)) continue;
-
-    const hoisted: Block[] = [];
-
-    out.push(withoutDiagrams(node, hoisted), ...hoisted);
-  }
-
-  return out;
-}
-
-function withoutDiagrams(node: ReviewNode, hoisted: Block[]): ReviewNode {
-  if (node.type === "text") return node;
-
-  const children = node.children.flatMap((child): ReviewNode[] => {
-    const diagram =
-      child.type === "component" ? diagramBlock(child) : undefined;
-
-    if (!diagram) return [withoutDiagrams(child, hoisted)];
-    hoisted.push(diagram);
-
-    return [];
-  });
-
-  return { ...node, children };
+/** An image the review published alongside its document, so the import has a
+ * file to store. One with a scheme (`https:`, `data:`) stays a Markdown image,
+ * which the reader can still fetch. */
+function isStoredImage(node: ReviewElementNode): boolean {
+  return (
+    node.tag === "img" &&
+    !/^[a-z][\d+.a-z-]*:/i.test(String(node.props.src ?? ""))
+  );
 }
 
 function stripIds<T extends WithId>(items: T[]): Omit<T, "id">[] {

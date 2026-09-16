@@ -56,6 +56,9 @@ const sequence = (title: string): ReviewNode => ({
   children: [],
 });
 
+const image = (src: string, alt?: string): ReviewNode =>
+  el("img", [], alt === undefined ? { src } : { src, alt });
+
 const load = async (name: string) =>
   reviewDocumentDataSchema.parse(
     upgradeReviewDocumentJson(
@@ -241,6 +244,63 @@ describe("legacyDocumentToBlocks", () => {
       blocks,
       warnings: [],
     });
+  });
+
+  it("hoists relative images out of prose as image blocks", () => {
+    const { blocks, images, warnings } = legacyDocumentToBlocks(
+      documentOf([
+        el("p", [
+          text("Shots: "),
+          image("./shots/flow.png", "The flow"),
+          image("shots/empty.png"),
+        ]),
+        el("p", [text("After.")]),
+      ]),
+    );
+
+    expect(blocks).toEqual([
+      { type: "markdown", markdown: "Shots:\n" },
+      { type: "image", assetId: "image-placeholder-1", alt: "The flow" },
+      { type: "image", assetId: "image-placeholder-2", alt: "empty.png" },
+      { type: "markdown", markdown: "After.\n" },
+    ]);
+    expect(images).toEqual([
+      {
+        src: "./shots/flow.png",
+        alt: "The flow",
+        placeholder: "image-placeholder-1",
+      },
+      {
+        src: "shots/empty.png",
+        alt: "empty.png",
+        placeholder: "image-placeholder-2",
+      },
+    ]);
+    expect(warnings).toEqual([]);
+
+    for (const block of blocks) blockSchema.parse(block);
+  });
+
+  it("hoists an image out of a list item", () => {
+    const { blocks } = legacyDocumentToBlocks(
+      documentOf([el("ul", [el("li", [image("./a.png", "A")])])]),
+    );
+
+    expect(blocks).toEqual([
+      { type: "markdown", markdown: "-\n" },
+      { type: "image", assetId: "image-placeholder-1", alt: "A" },
+    ]);
+  });
+
+  it("leaves a remote image in the Markdown", () => {
+    const { blocks, images } = legacyDocumentToBlocks(
+      documentOf([el("p", [image("https://img.example/a.png", "Remote")])]),
+    );
+
+    expect(blocks).toEqual([
+      { type: "markdown", markdown: "![Remote](https://img.example/a.png)\n" },
+    ]);
+    expect(images).toEqual([]);
   });
 
   it("registers a footnote's trace quote once, whatever cites the footnote", () => {

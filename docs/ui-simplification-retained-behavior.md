@@ -28,10 +28,9 @@ Runtime code-peek resolution and its success/failure telemetry are removed. Sour
   returning `void`; `CodePeekResolutionContext` is `CodePeekValidationContext`.
 - Path, bounds and blank-range checks are shared by legacy publish and JSON
   accept (`source.ts`). Legacy still reads the pinned worktree; JSON reads the
-  blob at the pinned commit. The blank-range rule applies to every source that
-  renders as a peek: code peeks, sequence steps, call-stack frames and
-  database-lens operations, on both the legacy publish path and the JSON API.
-  Prose `review-source:` links only need the range to exist.
+  blob at the pinned commit. Whitespace-only ranges are rejected wherever the
+  range renders as a peek (code peeks, steps, frames, lens operations); prose
+  links only need the range to exist.
 - The peek side panel content is `{ kind: "source", source }`; `CodePeekCard`
   and `CodePeekGroup` take `Source` values. JSON `code_peek` blocks render
   directly, with no source-text fetch during document load.

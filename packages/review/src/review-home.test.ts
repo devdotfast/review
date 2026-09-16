@@ -218,9 +218,7 @@ describe("review home", () => {
     await expect(
       readFile(path.join(created.dir, ".gitignore"), "utf8"),
     ).resolves.toBe(".build/\nreview.db\nreview.db-wal\nreview.db-shm\n");
-    await expect(
-      readFile(path.join(created.dir, "package.json"), "utf8"),
-    ).resolves.toContain('"test": "node review-test.mjs"');
+    expect(existsSync(path.join(created.dir, "review-test.mjs"))).toBe(false);
     expect(existsSync(path.join(created.dir, "review.db"))).toBe(false);
     expect(existsSync(path.join(created.dir, "comments.json"))).toBe(false);
     expect(existsSync(path.join(created.dir, "questions.json"))).toBe(false);
@@ -830,10 +828,10 @@ describe("legacy records on read", () => {
       reviewUuid: created.review.uuid,
     });
     expect(listed.errors[0]?.message).toContain(
-      `review repair --review ${created.review.uuid}`,
+      "Delete it from Home and recreate it with the Review skill.",
     );
     await expect(findReview(created.review.uuid)).rejects.toThrow(
-      "review repair --review",
+      "Delete it from Home and recreate it with the Review skill.",
     );
     await expect(findReview(created.review.uuid)).rejects.toMatchObject({
       errors: [{ code: "REPAIR_REQUIRED" }],

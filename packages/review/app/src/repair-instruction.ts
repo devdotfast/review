@@ -1,14 +1,2 @@
-export function repairCommand(reviewUuid: string): string {
-  return `review repair --review ${reviewUuid}`;
-}
-
-export function repairInstruction(
-  reviewUuid: string,
-  mapStale: boolean,
-): string {
-  const base = `This review's published artifacts could not be loaded. Run ${repairCommand(reviewUuid)} to regenerate them; repair keeps the review status and pinned commits.`;
-
-  return mapStale
-    ? `${base} The published software map also needs repair.`
-    : base;
-}
+export const damagedLegacyReviewMessage =
+  "This review was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Review skill.";

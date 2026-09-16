@@ -80,7 +80,9 @@ describe("desktop review document load states", () => {
     expect(entry?.textContent).toContain("Old review");
     expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
     await act(async () => entry?.click());
-    expect(container.textContent).toContain("This review needs manual repair.");
+    expect(container.textContent).toContain(
+      "Delete it from Home and recreate it with the Review skill.",
+    );
     expect(
       container.querySelector('[aria-label="Copy prompt"]'),
     ).not.toBeNull();
@@ -189,7 +191,7 @@ describe("desktop review document load states", () => {
         .click(),
     );
     expect(container.querySelector(".review-map-view")?.textContent).toContain(
-      "review repair --review 11111111-1111-4111-8111-111111111111",
+      "Delete it from Home and recreate it with the Review skill.",
     );
     expect(container.querySelector(".review-republish")).toBeNull();
     expect(reportDiagnostic).not.toHaveBeenCalled();
@@ -627,19 +629,7 @@ describe("desktop review document load states", () => {
       ).toBe("Review unavailable");
       expect(
         container.querySelector(".review-empty-state")?.textContent,
-      ).toContain(
-        "review repair --review 11111111-1111-4111-8111-111111111111",
-      );
-      expect(
-        container.querySelector(".review-empty-state")?.textContent,
-      ).toContain("repair keeps the review status and pinned commits");
-      expect(
-        container
-          .querySelector(".review-empty-state")
-          ?.textContent?.includes(
-            "The published software map also needs repair.",
-          ),
-      ).toBe(mapStale);
+      ).toContain("Delete it from Home and recreate it with the Review skill.");
       expect(
         container.querySelector(".review-empty-state")?.textContent,
       ).not.toContain("review publish");
@@ -663,7 +653,9 @@ describe("desktop review document load states", () => {
       expect(
         container
           .querySelector(".review-map-view")
-          ?.textContent?.includes("review repair --review") ?? false,
+          ?.textContent?.includes(
+            "Delete it from Home and recreate it with the Review skill.",
+          ) ?? false,
       ).toBe(mapStale);
       expect(
         container.querySelector(".review-map-view")?.textContent ?? "",

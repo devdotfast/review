@@ -34,7 +34,7 @@ import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
 import { useReviewSession } from "./host/review-session";
 import { SettingsSlidersIcon } from "./icons";
-import { repairInstruction } from "./repair-instruction";
+import { damagedLegacyReviewMessage } from "./repair-instruction";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -801,7 +801,7 @@ function ReviewDocumentLoadState({
       return (
         <ReviewUnavailable
           title="Review unavailable"
-          message={repairInstruction(state.reviewUuid, state.mapStale)}
+          message={damagedLegacyReviewMessage}
         />
       );
     case "unavailable":
@@ -837,11 +837,7 @@ function ReviewSoftwareMapLoadState({
     case "loading":
       return null;
     case "needs-republish":
-      return (
-        <ReviewUnavailable
-          message={repairInstruction(state.reviewUuid, true)}
-        />
-      );
+      return <ReviewUnavailable message={damagedLegacyReviewMessage} />;
     case "unavailable":
       return (
         <ReviewUnavailable

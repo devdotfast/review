@@ -447,7 +447,9 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       expect(await current.json()).toMatchObject({
         ok: false,
         code: "repair_required",
-        error: expect.stringContaining(`review repair --review ${uuid}`),
+        error: expect.stringContaining(
+          "Delete it from Home and recreate it with the Review skill.",
+        ),
       });
       const listed = await (await request("/reviews")).json();
       expect(listed.reviews).toEqual([]);

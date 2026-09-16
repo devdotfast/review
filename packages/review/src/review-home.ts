@@ -218,7 +218,6 @@ export async function createReviewDir(
         `${JSON.stringify(reviewPackageJson(uuid), null, 2)}\n`,
         "utf8",
       ),
-      writeFile(path.join(dir, "review-test.mjs"), reviewTestShim, "utf8"),
       writeFile(path.join(dir, ".gitignore"), reviewGitignore, "utf8"),
     ]);
     await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
@@ -693,7 +692,8 @@ export async function readStoredReview(
         return {
           error: reviewHomeError(dir, jsonObject(value), {
             code: "REPAIR_REQUIRED",
-            message: `${errorMessage(error)} Run \`review repair --review ${path.basename(dir)}\` to regenerate this Review's artifacts.`,
+            message:
+              "This review was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Review skill.",
           }),
         };
       }
@@ -908,7 +908,6 @@ function reviewPackageJson(uuid: string) {
     name: `review-${uuid}`,
     private: true,
     type: "module",
-    scripts: { test: "node review-test.mjs" },
   };
 }
 
@@ -920,25 +919,5 @@ const reviewGitignore = [
   "review.db",
   "review.db-wal",
   "review.db-shm",
-  "",
-].join("\n");
-
-const reviewTestShim = [
-  'import { spawn } from "node:child_process";',
-  "",
-  "const rawCommand = process.env.DEV_FAST_REVIEW_INTERNAL_COMMAND;",
-  "if (!rawCommand) {",
-  '  console.error("DEV_FAST_REVIEW_INTERNAL_COMMAND is required.");',
-  "  process.exitCode = 1;",
-  "} else {",
-  "  const command = JSON.parse(rawCommand);",
-  '  const child = spawn(command[0], [...command.slice(1), "internal-test", ...process.argv.slice(2)], {',
-  '    stdio: "inherit",',
-  "  });",
-  '  child.once("error", (error) => { console.error(error); process.exitCode = 1; });',
-  '  child.once("exit", (code, signal) => {',
-  "    process.exitCode = code ?? (signal ? 1 : 0);",
-  "  });",
-  "}",
   "",
 ].join("\n");

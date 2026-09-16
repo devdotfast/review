@@ -59,8 +59,8 @@ export class ReviewDocumentBoundary extends Component<
             <>
               Your coding agent is writing the canvas now…
               <br />
-              Your agent is debugging the canvas candidate from{" "}
-              <code>review publish</code>.
+              Edit the review through the Review MCP tools or{" "}
+              <code>review api</code> to replace the failing block.
             </>
           }
         />

@@ -30,7 +30,7 @@ import {
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
 import { CopyIcon, copyText } from "./copy-text";
-import { repairCommand } from "./repair-instruction";
+import { damagedLegacyReviewMessage } from "./repair-instruction";
 import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
@@ -293,11 +293,7 @@ function unavailableReviewGuidance(error: ReviewListError) {
       command = "review migrate apply";
       break;
     case "REPAIR_REQUIRED":
-      explanation =
-        "This review needs manual repair. Copy the prompt to your agent.";
-      command = error.reviewUuid
-        ? repairCommand(error.reviewUuid)
-        : "review migrate apply";
+      explanation = damagedLegacyReviewMessage;
       break;
     default:
       explanation =

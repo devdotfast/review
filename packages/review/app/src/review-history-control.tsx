@@ -77,13 +77,16 @@ export function ReviewHistoryControl(): ReactElement | null {
           : a.sealedAt - b.sealedAt,
       )
     : [];
+
   const selectedRevision =
     displayedVersion !== undefined
       ? String(displayedVersion)
       : historicalRevision;
+
   const selectedIndex = versionItems.findIndex((item) =>
     selectedRevision ? item.revision === selectedRevision : item.isCurrent,
   );
+
   const selected = versionItems[selectedIndex];
   const previous = versionItems[selectedIndex - 1];
   const next = selected ? versionItems[selectedIndex + 1] : undefined;

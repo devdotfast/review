@@ -13,6 +13,7 @@ import {
   type HydratedReviewComponentNode,
   hydrateReviewDocument,
 } from "./review-document-hydrate";
+import { projectReviewDocument } from "./review-document-projection";
 
 function reviewDocumentData(): ReviewDocumentData {
   const definition = createReviewDefinitionSession({
@@ -96,7 +97,7 @@ function ready(data = reviewDocumentData(), contentHash = "document-hash") {
 }
 
 describe("hydrateReviewDocument", () => {
-  it("includes synthesized section headings in navigation without changing saved data", () => {
+  it("drops the published section heading and leaves ids to projection", () => {
     const data = reviewDocumentData();
     data.body = [
       {
@@ -134,18 +135,29 @@ describe("hydrateReviewDocument", () => {
     ];
     const saved = JSON.stringify(data);
     const hydrated = hydrateReviewDocument(ready(data));
-    expect(reviewTocEntries(hydrated.body)).toEqual([
-      { id: "data-flow", text: "Data flow", level: "h2" },
-      { id: "details", text: "Details", level: "h3" },
-      { id: "data-flow-2", text: "Data flow", level: "h2" },
-    ]);
-    const section = hydrated.body[0] as HydratedReviewComponentNode;
-    expect(section.props.summary).toEqual({
+    const section = hydrated.body[1] as HydratedReviewComponentNode;
+
+    // The published heading child is dropped; the section renders its title.
+    expect(section.children).toEqual([]);
+    const first = hydrated.body[0] as HydratedReviewComponentNode;
+    expect(first.props.summary).toEqual({
       diagrams: 0,
       codeRefs: 0,
       paragraphs: 1,
     });
-    expect(section.children).toHaveLength(3);
+    expect(first.children).toHaveLength(2);
+    expect(reviewTocEntries(hydrated.body)).toEqual([]);
+
+    const projected = projectReviewDocument(hydrated.body, {
+      tutorial: false,
+      softwareMapEnabled: false,
+    });
+
+    expect(reviewTocEntries(projected.body)).toEqual([
+      { id: "data-flow", text: "Data flow", level: "h2" },
+      { id: "details", text: "Details", level: "h3" },
+      { id: "data-flow-2", text: "Data flow", level: "h2" },
+    ]);
     expect(JSON.stringify(data)).toBe(saved);
   });
 

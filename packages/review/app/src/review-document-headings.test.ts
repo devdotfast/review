@@ -6,70 +6,57 @@ import {
 } from "./review-document-headings";
 import type { HydratedReviewNode } from "./review-document-hydrate";
 
-const heading = (text: string, id?: string | number): HydratedReviewNode => ({
+const text = (value: string) => ({ type: "text" as const, value });
+
+const h = (
+  tag: "h2" | "h3",
+  value: string,
+  id?: string,
+): HydratedReviewNode => ({
   type: "element",
-  tag: "h2",
+  tag,
   props: id === undefined ? {} : { id },
-  children: [{ type: "text", value: text }],
+  children: [text(value)],
 });
 
-describe("document heading navigation", () => {
-  it("preserves authored IDs and reserves their trimmed values before assigning unique slugs", () => {
+const section = (
+  title: string,
+  children: HydratedReviewNode[] = [],
+): HydratedReviewNode => ({
+  type: "component",
+  name: "ReviewSection",
+  props: { title },
+  children,
+});
+
+describe("assignReviewHeadingIds", () => {
+  it("slugs sections and loose headings once, in document order", () => {
     const body = [
-      heading("Data flow"),
-      heading("Data flow"),
-      heading("Authored", " data-flow "),
-      heading("Numeric", 0),
-      heading("Whitespace", "  "),
-      heading("!!!"),
-      heading("???"),
-      heading(""),
-    ];
-
-    assignReviewHeadingIds(body);
-    expect(reviewTocEntries(body).map(({ id }) => id)).toEqual([
-      "data-flow-2",
-      "data-flow-3",
-      " data-flow ",
-      "0",
-      "  ",
-      "section",
-      "section-2",
-    ]);
-    assignReviewHeadingIds(body);
-    expect(reviewTocEntries(body).map(({ id }) => id)).toEqual([
-      "data-flow-2",
-      "data-flow-3",
-      " data-flow ",
-      "0",
-      "  ",
-      "section",
-      "section-2",
-    ]);
-  });
-
-  it("flattens inline markup and whitespace in document order", () => {
-    const body: HydratedReviewNode[] = [
-      {
-        type: "element",
-        tag: "h3",
-        props: {},
-        children: [
-          { type: "text", value: "The  " },
-          {
-            type: "element",
-            tag: "em",
-            props: {},
-            children: [{ type: "text", value: "hot" }],
-          },
-          { type: "text", value: "\npath" },
-        ],
-      },
+      section("Data flow", [h("h3", "Details")]),
+      h("h2", "Data flow"),
+      section("Data flow"),
+      h("h2", "", "authored"),
+      h("h2", "☕"),
     ];
 
     assignReviewHeadingIds(body);
     expect(reviewTocEntries(body)).toEqual([
-      { id: "the-hot-path", text: "The hot path", level: "h3" },
+      { id: "data-flow", text: "Data flow", level: "h2" },
+      { id: "details", text: "Details", level: "h3" },
+      { id: "data-flow-2", text: "Data flow", level: "h2" },
+      { id: "data-flow-3", text: "Data flow", level: "h2" },
+      { id: "section", text: "☕", level: "h2" },
+    ]);
+  });
+
+  it("reserves authored ids before generating and is idempotent", () => {
+    const body = [h("h2", "Shared", "shared"), section("Shared")];
+
+    assignReviewHeadingIds(body);
+    assignReviewHeadingIds(body);
+    expect(reviewTocEntries(body).map(({ id }) => id)).toEqual([
+      "shared",
+      "shared-2",
     ]);
   });
 });

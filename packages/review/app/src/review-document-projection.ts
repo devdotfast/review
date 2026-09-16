@@ -1,7 +1,9 @@
+import { isStringValue } from "@dev.fast/review-protocol";
 import { useState } from "react";
 
 import { assignReviewHeadingIds } from "./review-document-headings";
 import type {
+  HydratedReviewComponentNode,
   HydratedReviewElementNode,
   HydratedReviewNode,
 } from "./review-document-hydrate";
@@ -12,27 +14,31 @@ import {
   tutorialViewVisible,
 } from "./tutorial-render-visibility";
 
+/** Nodes that may own a heading id: loose h2/h3 elements and sections. */
+type HeadingOwner = HydratedReviewElementNode | HydratedReviewComponentNode;
+
 /**
  * Project only conditional render visibility, not a second component renderer.
- * The source remains reusable across feature settings. Retain IDs on headings
- * that stay mounted, just as the former DOM collector retained existing IDs.
+ * The source remains reusable across feature settings. Heading ids are
+ * assigned here, once per projection; a heading that stays mounted keeps the
+ * generated id a previous projection showed for it, just as the former DOM
+ * collector retained existing IDs.
  */
 export function projectReviewDocument(
   source: HydratedReviewNode[] | null,
   context: TutorialRenderContext,
   previous?: ReviewDocumentProjection,
 ): ReviewDocumentProjection {
-  const visibleIds =
-    previous?.source === source ? previous.visibleIds : undefined;
+  const generatedIds =
+    previous?.source === source ? previous.generatedIds : undefined;
 
-  const elements = new Map<
-    HydratedReviewElementNode,
-    HydratedReviewElementNode
-  >();
+  const owners = new Map<HeadingOwner, HeadingOwner>();
 
   const project = (nodes: HydratedReviewNode[]): HydratedReviewNode[] =>
     nodes.flatMap((node): HydratedReviewNode[] => {
       if (node.type === "text") return [node];
+
+      const children = project(node.children);
 
       if (node.type === "component") {
         if (node.name === "TutorialFeature" && !tutorialFeatureVisible(context))
@@ -43,34 +49,34 @@ export function projectReviewDocument(
           !tutorialViewVisible(context, String(node.props.view))
         )
           return [];
-      }
 
-      const children = project(node.children);
+        const props = { ...node.props };
 
-      if (node.type === "component") {
-        return [
-          {
-            ...node,
-            children,
-            props:
-              node.name === "ReviewSection"
-                ? { ...node.props, summary: reviewSectionSummary(children) }
-                : node.props,
-          },
-        ];
+        if (node.name === "ReviewSection")
+          props.summary = reviewSectionSummary(children);
+
+        const retained = generatedIds?.get(node);
+
+        if (props.id === undefined && retained !== undefined)
+          props.id = retained;
+
+        const projected: HydratedReviewComponentNode = {
+          ...node,
+          props,
+          children,
+        };
+
+        owners.set(node, projected);
+
+        return [projected];
       }
 
       const props = { ...node.props };
+      const retained = generatedIds?.get(node);
 
-      if (node.generatedHeadingId) {
-        delete props.id;
-        const retained = visibleIds?.get(node);
-
-        if (retained !== undefined) props.id = retained;
-      }
-
-      const projected = { ...node, props, children };
-      elements.set(node, projected);
+      if (props.id === undefined && retained !== undefined) props.id = retained;
+      const projected: HydratedReviewElementNode = { ...node, props, children };
+      owners.set(node, projected);
 
       return [projected];
     });
@@ -78,23 +84,25 @@ export function projectReviewDocument(
   const body = project(source ?? []);
   assignReviewHeadingIds(body);
 
-  return {
-    source,
-    context,
-    body,
-    visibleIds: new Map(
-      [...elements].flatMap(([node, projected]) =>
-        projected.props.id === undefined ? [] : [[node, projected.props.id]],
-      ),
-    ),
-  };
+  // Only generated ids are retained: a source node with no id of its own
+  // received one from assignReviewHeadingIds, and it is always a string.
+  const retainedIds = new Map<HeadingOwner, string>();
+
+  for (const [node, projected] of owners) {
+    const id = projected.props.id;
+
+    if (node.props.id === undefined && isStringValue(id))
+      retainedIds.set(node, id);
+  }
+
+  return { source, context, body, generatedIds: retainedIds };
 }
 
 interface ReviewDocumentProjection {
   source: HydratedReviewNode[] | null;
   context: TutorialRenderContext;
   body: HydratedReviewNode[];
-  visibleIds: ReadonlyMap<HydratedReviewElementNode, string | number | boolean>;
+  generatedIds: ReadonlyMap<HeadingOwner, string>;
 }
 
 /** React owns the retained projection, so abandoned renders cannot commit IDs. */

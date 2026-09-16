@@ -11,6 +11,7 @@ import {
 import {
   describeTraceHookOwners,
   installHarnessHooks,
+  keptHarnessesLine,
   skippedHarnessesLine,
 } from "./agent-trace-hooks";
 import {
@@ -380,7 +381,7 @@ export async function runTraceAllow(
     const storeOrigin = ctx.origin;
     const store = await requireActiveStore(ctx);
 
-    const { skipped } = await installHarnessHooks({
+    const { skipped, kept } = await installHarnessHooks({
       homeDir: input.scope.homeDir,
       env: input.scope.env,
       executable: input.traceCommand?.file,
@@ -390,6 +391,10 @@ export async function runTraceAllow(
 
     if (skipped.length > 0) {
       humanStream(input).write(skippedHarnessesLine(skipped));
+    }
+
+    if (kept.length > 0) {
+      humanStream(input).write(keptHarnessesLine(kept));
     }
 
     await enableTraceRepository({
@@ -412,6 +417,7 @@ export async function runTraceAllow(
       repositoryId: store.repositoryId,
       name: store.displayName,
       store: storeOrigin,
+      keptHooks: kept,
     });
 
     const verifyCommand =

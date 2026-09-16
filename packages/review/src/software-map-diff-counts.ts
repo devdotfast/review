@@ -1,4 +1,7 @@
-import { diff as readLocalVcsDiff } from "@dev.fast/local-vcs";
+import {
+  type LocalVcsKind,
+  diff as readLocalVcsDiff,
+} from "@dev.fast/local-vcs";
 import { jsonString, parseJsonText } from "@dev.fast/review-protocol";
 
 import { type DiffHunkLine, parseUnifiedPatch } from "./unified-diff";
@@ -72,6 +75,8 @@ export interface SoftwareMapDiffCountsResult {
 
 export interface ResolveSoftwareMapDiffCountsInput {
   sourceRootPath: string;
+  /** The source repository's kind, when the caller already detected it. */
+  sourceVcsKind?: LocalVcsKind;
   side?: "base" | "head";
   baseRef?: string;
   headRef?: string;
@@ -99,6 +104,7 @@ export async function resolveSoftwareMapDiffCounts(
 
   const diff = await readLocalVcsDiff({
     rootPath: sourceRootPath,
+    kind: input.sourceVcsKind,
     baseRef,
     headRef,
     contextLines: 0,

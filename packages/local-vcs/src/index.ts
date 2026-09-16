@@ -3,7 +3,10 @@ import path from "node:path";
 
 import gitUrlParse from "git-url-parse";
 
+import { BlobBatchReader } from "./blob-batch-reader";
 import { execFileAsync, execFileSyncObserved } from "./exec";
+
+export { type BlobBatchReader } from "./blob-batch-reader";
 
 export {
   type LocalVcsCommandObserver,
@@ -150,6 +153,18 @@ export function detectLocalVcsSync(rootPath: string): LocalVcs | null {
   return null;
 }
 
+/**
+ * The handle for a root whose kind the caller already knows, skipping the two
+ * detection subprocesses. Callers that hold a `LocalVcs` pass `vcs.rootPath`
+ * with `vcs.kind`, so the root is already canonical.
+ */
+async function knownOrDetectedVcs(
+  rootPath: string,
+  kind: LocalVcsKind | undefined,
+): Promise<LocalVcs | null> {
+  return kind ? createLocalVcs(kind, rootPath) : detectLocalVcs(rootPath);
+}
+
 // ---------------------------------------------------------------------------
 // Shared git directory resolution
 // ---------------------------------------------------------------------------
@@ -283,6 +298,38 @@ export function resolveRepoContextSync(rootPath: string): RepoContext | null {
   };
 
   return context;
+}
+
+/**
+ * Git argv prefix that pins a command to the object store holding a root's
+ * commits. A git root reads through its own worktree; a jj workspace reads
+ * through its backing store, which is inside `.jj` when not colocated.
+ */
+export async function objectStoreArgs(input: {
+  rootPath: string;
+  kind: LocalVcsKind;
+}): Promise<string[]> {
+  if (input.kind === "git") return ["-C", input.rootPath];
+
+  const gitDir = await gitCommonDir(input.rootPath);
+
+  return gitDir ? ["--git-dir", gitDir] : ["-C", input.rootPath];
+}
+
+/**
+ * A reader serving every pinned blob read for one root through a single
+ * `git cat-file --batch`. The caller owns it and must `close()` it.
+ */
+export function createBlobBatchReader(input: {
+  rootPath: string;
+  kind: LocalVcsKind;
+  idleTimeoutMs?: number;
+}): BlobBatchReader {
+  return new BlobBatchReader({
+    objectStoreArgs: () => objectStoreArgs(input),
+    env: localGitEnvironment(),
+    idleTimeoutMs: input.idleTimeoutMs,
+  });
 }
 
 /** Git argv prefix that pins a command to the repo's shared git dir. */
@@ -921,6 +968,45 @@ export async function listTrackedFiles(input: {
   return output === null ? [] : output.split("\0").filter(Boolean);
 }
 
+/**
+ * List the files tracked at an already-resolved commit id. Async twin of
+ * `listTrackedFilesSync` for callers that know the kind and must not block
+ * the event loop on a spawn.
+ */
+export async function listTrackedFilesAtCommit(input: {
+  rootPath: string;
+  kind: LocalVcsKind;
+  commit: string;
+}): Promise<string[]> {
+  if (input.kind === "jj") {
+    const output = await commandOutput(
+      "jj",
+      [
+        "-R",
+        input.rootPath,
+        "file",
+        "list",
+        "--ignore-working-copy",
+        "-r",
+        input.commit,
+      ],
+      { cwd: input.rootPath },
+    ).catch(() => null);
+
+    if (output !== null) return splitLines(output);
+
+    if (!(await canUseGitFallback(input.rootPath, input.kind))) return [];
+  }
+
+  const output = await commandOutput(
+    "git",
+    ["-C", input.rootPath, "ls-tree", "-r", "-z", "--name-only", input.commit],
+    { cwd: input.rootPath },
+  ).catch(() => null);
+
+  return output === null ? [] : output.split("\0").filter(Boolean);
+}
+
 function listTrackedFilesForKind(input: {
   rootPath: string;
   ref?: string;
@@ -990,6 +1076,133 @@ export async function readFileAtRevision(input: {
   });
 }
 
+/**
+ * Read a file at an already-resolved commit id. Unlike `readFileAtRevision`
+ * this spends no subprocess resolving the revision: the blob comes out of the
+ * caller's batch reader, which costs no process at all once it is running. A
+ * caller with no reader pays one short-lived batch process for the read.
+ *
+ * A jj kind reads a conflicted revision through `jj file show`, which
+ * materializes the conflict the way the diff shows it. The git store cannot
+ * serve that revision: jj writes one side of each conflicted file into the
+ * git-visible tree, so reading it would answer content no jj tool agrees
+ * with. Whether a revision is conflicted is a marker read on the same batch
+ * process, remembered per commit.
+ *
+ * Returns null when the commit or the path is not there, and when the path
+ * holds something that is not a blob: a directory is not a file to read, for
+ * either kind, and the jj fallback is skipped for it because `jj file show`
+ * would print every file underneath.
+ */
+export async function readFileAtCommit(input: {
+  rootPath: string;
+  kind: LocalVcsKind;
+  commit: string;
+  relativePath: string;
+  reader?: BlobBatchReader;
+}): Promise<string | null> {
+  if (input.reader) return readFileWithReader(input, input.reader);
+
+  const reader = createBlobBatchReader({
+    rootPath: input.rootPath,
+    kind: input.kind,
+  });
+
+  try {
+    return await readFileWithReader(input, reader);
+  } finally {
+    await reader.close();
+  }
+}
+
+async function readFileWithReader(
+  input: {
+    rootPath: string;
+    kind: LocalVcsKind;
+    commit: string;
+    relativePath: string;
+  },
+  reader: BlobBatchReader,
+): Promise<string | null> {
+  if (
+    input.kind === "jj" &&
+    (await jjCommitIsConflicted(reader, input.commit))
+  ) {
+    return readJjFileAtCommit(input);
+  }
+
+  const answer = await reader
+    .readObject(input.commit, input.relativePath)
+    .catch(() => ({ found: "nothing" }) as const);
+
+  if (answer.found === "blob") return answer.blob.toString("utf8");
+
+  if (answer.found === "other" || input.kind !== "jj") return null;
+
+  return readJjFileAtCommit(input);
+}
+
+/** jj's own read, which materializes a conflict and knows jj-only revisions. */
+async function readJjFileAtCommit(input: {
+  rootPath: string;
+  commit: string;
+  relativePath: string;
+}): Promise<string | null> {
+  return commandOutput(
+    "jj",
+    [
+      "-R",
+      input.rootPath,
+      "file",
+      "show",
+      "-r",
+      input.commit,
+      "--ignore-working-copy",
+      "--",
+      toJjRootFilePattern(input.relativePath),
+    ],
+    { cwd: input.rootPath, maxBuffer: 10 * 1024 * 1024, trim: false },
+  ).catch(() => null);
+}
+
+/**
+ * jj marks a commit whose files conflict by committing this README beside the
+ * `.jjconflict-*` trees that hold the conflict's inputs, so one batch read
+ * tells a conflicted revision from a clean one. Remembered per commit: a
+ * commit id is immutable, and the map dies with its reader.
+ */
+const JJ_CONFLICT_MARKER = "JJ-CONFLICT-README";
+
+const jjConflictedCommits = new WeakMap<
+  BlobBatchReader,
+  Map<string, Promise<boolean>>
+>();
+
+async function jjCommitIsConflicted(
+  reader: BlobBatchReader,
+  commit: string,
+): Promise<boolean> {
+  let known = jjConflictedCommits.get(reader);
+
+  if (!known) {
+    known = new Map();
+    jjConflictedCommits.set(reader, known);
+  }
+
+  const answered = known.get(commit);
+
+  if (answered) return answered;
+
+  const probe = reader.read(commit, JJ_CONFLICT_MARKER).then(
+    (marker) => marker !== null,
+    () => false,
+  );
+
+  known.set(commit, probe);
+
+  return probe;
+}
+
 function readFileAtRevisionForKind(input: {
   rootPath: string;
   ref: string;
@@ -1034,8 +1247,10 @@ export async function diff(input: {
   contextLines?: number;
   nameOnly?: boolean;
   paths?: string[];
+  /** Kind from the same detected handle as `rootPath`, to skip detection. */
+  kind?: LocalVcsKind;
 }): Promise<string> {
-  const vcs = await detectLocalVcs(input.rootPath);
+  const vcs = await knownOrDetectedVcs(input.rootPath, input.kind);
 
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
@@ -1053,8 +1268,10 @@ export async function diffTrees(input: {
   paths?: string[];
   /** Treat supplied paths as exact filenames, not Git/jj patterns. */
   literalPaths?: boolean;
+  /** Kind from the same detected handle as `rootPath`, to skip detection. */
+  kind?: LocalVcsKind;
 }): Promise<string> {
-  const vcs = await detectLocalVcs(input.rootPath);
+  const vcs = await knownOrDetectedVcs(input.rootPath, input.kind);
 
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
@@ -1092,8 +1309,10 @@ export async function listCommitRange(input: {
   rootPath: string;
   baseRef: string;
   headRef: string;
+  /** Kind from the same detected handle as `rootPath`, to skip detection. */
+  kind?: LocalVcsKind;
 }): Promise<LocalVcsCommitSummary[]> {
-  const vcs = await detectLocalVcs(input.rootPath);
+  const vcs = await knownOrDetectedVcs(input.rootPath, input.kind);
 
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
@@ -1243,8 +1462,10 @@ export async function diffFileSummariesTrees(input: {
   baseRef: string;
   headRef: string;
   paths?: string[];
+  /** Kind from the same detected handle as `rootPath`, to skip detection. */
+  kind?: LocalVcsKind;
 }): Promise<LocalVcsDiffFileSummary[]> {
-  const vcs = await detectLocalVcs(input.rootPath);
+  const vcs = await knownOrDetectedVcs(input.rootPath, input.kind);
 
   if (!vcs) {
     throw new Error(`No Git or jj repository found for ${input.rootPath}.`);
@@ -1927,44 +2148,27 @@ async function readGitDiffFileSummaries(input: {
       : [`${input.baseRef}...${input.headRef}`]
     : [input.baseRef];
 
-  const commonArgs = [
-    "-C",
-    input.rootPath,
-    "diff",
-    "--no-ext-diff",
-    "--no-color",
-    "-M",
-    "-z",
-    ...diffRefs,
-    "--",
-    ...paths,
-  ];
+  // `--raw` and `--numstat` together answer both halves from one diff.
+  const { stdout } = await execFileAsync(
+    "git",
+    [
+      "-C",
+      input.rootPath,
+      "diff",
+      "--no-ext-diff",
+      "--no-color",
+      "-M",
+      "-z",
+      "--raw",
+      "--numstat",
+      ...diffRefs,
+      "--",
+      ...paths,
+    ],
+    { cwd: input.rootPath, maxBuffer: 25 * 1024 * 1024 },
+  );
 
-  const [{ stdout: nameStatus }, { stdout: numStat }] = await Promise.all([
-    execFileAsync(
-      "git",
-      [...commonArgs.slice(0, 7), "--name-status", ...commonArgs.slice(7)],
-      {
-        cwd: input.rootPath,
-        maxBuffer: 25 * 1024 * 1024,
-      },
-    ),
-    execFileAsync(
-      "git",
-      [...commonArgs.slice(0, 7), "--numstat", ...commonArgs.slice(7)],
-      {
-        cwd: input.rootPath,
-        maxBuffer: 25 * 1024 * 1024,
-      },
-    ),
-  ]);
-
-  const counts = parseGitNumStat(numStat);
-
-  return parseGitNameStatusSummaries(nameStatus).map((file) => ({
-    ...file,
-    ...(counts.get(file.path) ?? { additions: 0, deletions: 0 }),
-  }));
+  return parseGitRawNumStatSummaries(stdout);
 }
 
 async function readJjDiff(input: {
@@ -2006,27 +2210,49 @@ async function readJjDiff(input: {
   return stdout;
 }
 
-function parseGitNameStatusSummaries(
+/**
+ * Parse one NUL-delimited `git diff --raw --numstat` output. The raw section
+ * comes first — a record `:<mode> <mode> <sha> <sha> <status>` followed by its
+ * path, or a rename's two paths — and carries every changed file's status. The
+ * counts section follows, `<additions>\t<deletions>\t<path>` with a rename's
+ * paths again as their own fields, and is keyed by the file's current path. A
+ * field that does not open a raw record is where the counts begin, so a path
+ * of any shape stays with the record that owns it.
+ */
+export function parseGitRawNumStatSummaries(
   output: string,
-): Array<Omit<LocalVcsDiffFileSummary, "additions" | "deletions">> {
+): LocalVcsDiffFileSummary[] {
   const fields = output.split("\0");
 
   const files: Array<Omit<LocalVcsDiffFileSummary, "additions" | "deletions">> =
     [];
 
-  for (let index = 0; index < fields.length; ) {
-    const rawStatus = fields[index++];
+  const counts = new Map<string, { additions: number; deletions: number }>();
+  let index = 0;
 
-    if (!rawStatus) continue;
-    const kind = rawStatus[0];
+  while (index < fields.length) {
+    const record = fields[index];
 
-    if (kind === "R") {
-      const previousPath = fields[index++];
+    if (record === undefined || !record.startsWith(":")) break;
+    index += 1;
+    // The status is the record's last field, `R085` for a scored rename.
+    const kind = record.slice(record.lastIndexOf(" ") + 1)[0];
+
+    /* A rename and a copy both carry a source and a destination path, and
+       consuming only one of them would read the other as a record and drop
+       every file after it. Only the rename moved its file: a copy's source is
+       still there, so the copy keeps no previousPath, which is what a caller
+       follows a rename by. */
+    if (kind === "R" || kind === "C") {
+      const source = fields[index++];
       const path = fields[index++];
 
-      if (previousPath && path) {
-        files.push({ path, previousPath, status: "renamed" });
-      }
+      if (!source || !path) continue;
+      files.push(
+        kind === "R"
+          ? { path, previousPath: source, status: "renamed" }
+          : { path, status: "added" },
+      );
 
       continue;
     }
@@ -2040,16 +2266,7 @@ function parseGitNameStatusSummaries(
     });
   }
 
-  return files;
-}
-
-function parseGitNumStat(
-  output: string,
-): Map<string, { additions: number; deletions: number }> {
-  const fields = output.split("\0");
-  const counts = new Map<string, { additions: number; deletions: number }>();
-
-  for (let index = 0; index < fields.length; ) {
+  while (index < fields.length) {
     const record = fields[index++];
 
     if (!record) continue;
@@ -2073,7 +2290,16 @@ function parseGitNumStat(
     });
   }
 
-  return counts;
+  /* Counts with no files behind them mean the sections did not arrive in the
+     order this parse assumes, and an empty list would read as "no changes". */
+  if (files.length === 0 && counts.size > 0) {
+    throw new Error("git diff returned its counts before its raw records.");
+  }
+
+  return files.map((file) => ({
+    ...file,
+    ...(counts.get(file.path) ?? { additions: 0, deletions: 0 }),
+  }));
 }
 
 function parseGitNumStatCount(value: string): number {
@@ -2242,6 +2468,21 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   ];
 }
 
+async function canUseGitFallback(
+  rootPath: string,
+  preferred: LocalVcsKind,
+): Promise<boolean> {
+  if (preferred !== "jj") return true;
+
+  const gitRoot = await commandOutput(
+    "git",
+    ["-C", rootPath, "rev-parse", "--show-toplevel"],
+    { cwd: rootPath },
+  ).catch(() => null);
+
+  return gitRoot !== null && canonicalPath(gitRoot) === canonicalPath(rootPath);
+}
+
 function canUseGitFallbackSync(
   rootPath: string,
   preferred: LocalVcsKind,
@@ -2333,6 +2574,14 @@ function commandEnvironment(
     return undefined;
   }
 
+  return localGitEnvironment();
+}
+
+/**
+ * This process's environment without the per-repository git variables, which
+ * would redirect a git command aimed at an explicit object store.
+ */
+function localGitEnvironment(): NodeJS.ProcessEnv {
   const env = { ...process.env };
 
   for (const key of LOCAL_GIT_ENV_KEYS) {

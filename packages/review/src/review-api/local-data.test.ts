@@ -1,10 +1,19 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { setLocalVcsCommandObserver } from "@dev.fast/local-vcs";
 import { Hono } from "hono";
 import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -32,6 +41,50 @@ const source = {
 
 const git = (...args: string[]) =>
   execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim();
+
+/** Every git/jj subprocess recorded since the last `recordSpawns()`. */
+const spawns: string[][] = [];
+
+const recordSpawns = () => {
+  spawns.length = 0;
+  setLocalVcsCommandObserver({
+    start: ({ file, args }) => {
+      spawns.push([file, ...args]);
+
+      return () => {};
+    },
+  });
+};
+
+/** This process's live `git cat-file` children, by pid. */
+const batchProcesses = () =>
+  spawnSync("pgrep", ["-P", String(process.pid), "-f", "cat-file"], {
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .filter(Boolean);
+
+const isJjRootProbe = (spawn: string[] | undefined) =>
+  spawn?.[0] === "jj" && spawn[3] === "root";
+
+/**
+ * The two probes `detectLocalVcs` runs, in the order it runs them: the git
+ * probe counts only when it follows the jj probe, so the identically shaped
+ * `canUseGitFallback` probe is never read as another detection.
+ */
+const detections = () =>
+  spawns.filter(
+    (spawn, index) =>
+      isJjRootProbe(spawn) ||
+      (spawn[0] === "git" &&
+        spawn[4] === "--show-toplevel" &&
+        isJjRootProbe(spawns[index - 1])),
+  );
+
+const detectionPair = (root: string) => [
+  ["jj", "-R", root, "root", "--ignore-working-copy"],
+  ["git", "-C", root, "rev-parse", "--show-toplevel"],
+];
 
 const insert = <Content>(reviewId: string, content: Content) =>
   local.store.execute(
@@ -75,7 +128,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setLocalVcsCommandObserver(null);
   await local.store.close();
+  // Resolves once every batch process this test started has exited.
+  await local.data.close();
   vi.unstubAllEnvs();
   rmSync(directory, { recursive: true, force: true });
 });
@@ -259,6 +315,95 @@ it("lists the version's commits and reads a selected commit's diff against its p
   expect((await app.request(`${route}/diff?${selected}`)).status).toBe(200);
 });
 
+it("reads each version of one review at its own pins", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Versions", pins }),
+  );
+
+  writeFileSync(
+    path.join(repository, source.file),
+    "export const value = 3;\n",
+  );
+  git("add", ".");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Third");
+
+  const later = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.head,
+    "HEAD",
+  );
+
+  await local.store.execute(command({ type: "repin", reviewId, pins: later }));
+  const first = local.store.read(reviewId, 0).pins;
+  const second = local.store.read(reviewId, 1).pins;
+
+  expect([first, second]).toEqual([pins, later]);
+  expect((await local.data.commits(first)).map((item) => item.commit)).toEqual([
+    pins.head,
+  ]);
+  expect((await local.data.commits(second)).map((item) => item.commit)).toEqual(
+    [later.head],
+  );
+  expect(await local.data.comparison(first, pins.head)).toEqual(pins);
+  await expect(local.data.comparison(second, pins.head)).rejects.toThrow(
+    "The selected commit is not part of this review version.",
+  );
+  expect(await local.data.file(first, "head", source.file)).toMatchObject({
+    commit: pins.head,
+    text: "export const value = 2;\nexport const saved = true;\n",
+  });
+  expect(await local.data.file(second, "head", source.file)).toMatchObject({
+    commit: later.head,
+    text: "export const value = 3;\n",
+  });
+});
+
+it("serves a historical version's file at the pins that version was saved with", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Snapshot", pins }),
+  );
+
+  await insert(reviewId, { type: "code_peek", source });
+  writeFileSync(
+    path.join(repository, source.file),
+    "export const value = 3;\n",
+  );
+  git("add", ".");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Third");
+
+  const later = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.head,
+    "HEAD",
+  );
+
+  await local.store.execute(command({ type: "repin", reviewId, pins: later }));
+  expect(local.store.read(reviewId).version).toBe(2);
+
+  const app = new Hono().route(
+    "/reviews-api",
+    createReviewApi(local.store, local.data),
+  );
+
+  const read = async (query: string) =>
+    (
+      await app.request(`/reviews-api/${reviewId}/file?side=head&${query}`)
+    ).json();
+
+  expect(await read(`version=1&file=${source.file}`)).toEqual({
+    file: source.file,
+    side: "head",
+    commit: pins.head,
+    text: "export const value = 2;\nexport const saved = true;\n",
+  });
+  expect(await read(`file=${source.file}`)).toEqual({
+    file: source.file,
+    side: "head",
+    commit: later.head,
+    text: "export const value = 3;\n",
+  });
+});
+
 it("browses committed directories, including history, without listing untracked files", async () => {
   mkdirSync(path.join(repository, "nested", "deeper"), { recursive: true });
   writeFileSync(
@@ -355,12 +500,383 @@ it("reads pinned Git objects, rejects invalid evidence before saving, and retain
   ).rejects.toThrow(/resolved commit/);
   expect(local.store.read(review.reviewId).version).toBe(1);
   await local.store.close();
+  await local.data.close();
   local = openLocalReviewStore(database);
   expect((await local.data.register(repository)).id).toBe(pins.repositoryId);
   expect(local.store.read(review.reviewId).document).toHaveLength(1);
   expect(await local.data.quote(pins, source)).toMatchObject({
     commit: pins.head,
   });
+});
+
+it("refuses a committed binary file as a code reference", async () => {
+  writeFileSync(path.join(repository, "binary.bin"), "text\u0000more\n");
+  git("add", "binary.bin");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Binary");
+
+  const binaryPins = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.head,
+    "HEAD",
+  );
+
+  await expect(
+    local.data.file(binaryPins, "head", "binary.bin"),
+  ).rejects.toThrow("Binary files cannot be used as code references.");
+});
+
+it("reads a committed empty file as empty text, not a missing file", async () => {
+  writeFileSync(path.join(repository, "blank.ts"), "");
+  git("add", "blank.ts");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Blank");
+
+  const blankPins = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.head,
+    "HEAD",
+  );
+
+  expect(await local.data.file(blankPins, "head", "blank.ts")).toMatchObject({
+    text: "",
+  });
+});
+
+it("reads a committed symlink as its target path, not the file it points at", async () => {
+  const outside = path.join(directory, "outside.txt");
+
+  writeFileSync(outside, "text outside the repository\n");
+  symlinkSync(outside, path.join(repository, "link.ts"));
+  git("add", "link.ts");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Symlink");
+
+  const linkPins = await local.data.resolvePins(
+    pins.repositoryId,
+    pins.head,
+    "HEAD",
+  );
+
+  expect(await local.data.file(linkPins, "head", "link.ts")).toEqual({
+    file: "link.ts",
+    side: "head",
+    commit: linkPins.head,
+    text: outside,
+  });
+});
+
+it("reads pinned files through one batch process per repository", async () => {
+  const root = realpathSync.native(repository);
+
+  // Listing the tree warms the handle without starting a blob reader.
+  await local.data.tree(pins, "head", "");
+  recordSpawns();
+
+  expect(await local.data.file(pins, "head", source.file)).toMatchObject({
+    commit: pins.head,
+    text: "export const value = 2;\nexport const saved = true;\n",
+  });
+  expect(spawns).toEqual([["git", "-C", root, "cat-file", "--batch"]]);
+  recordSpawns();
+
+  // Every later read, hit or miss, is answered by that process.
+  expect(await local.data.file(pins, "head", source.file)).toMatchObject({
+    text: "export const value = 2;\nexport const saved = true;\n",
+  });
+  await expect(local.data.file(pins, "head", "missing.ts")).rejects.toThrow(
+    "File is unavailable at the pinned commit.",
+  );
+  expect(spawns).toEqual([]);
+});
+
+it("answers concurrent pinned reads without spawning", async () => {
+  await local.data.file(pins, "head", source.file);
+  recordSpawns();
+
+  const reads = await Promise.all(
+    Array.from({ length: 23 }, (_, index) =>
+      local.data.file(
+        pins,
+        "head",
+        index % 2 === 0 ? source.file : "literal[1].ts",
+      ),
+    ),
+  );
+
+  expect(reads.map((read) => read.text)).toEqual(
+    Array.from({ length: 23 }, (_, index) =>
+      index % 2 === 0
+        ? "export const value = 2;\nexport const saved = true;\n"
+        : "exact filename\n",
+    ),
+  );
+  expect(spawns).toEqual([]);
+});
+
+it("starts a new batch process for the read after an idle one ended", async () => {
+  const root = realpathSync.native(repository);
+
+  const fresh = openLocalReviewStore(path.join(directory, "idle.db"), {
+    blobReaderIdleTimeoutMs: 20,
+  });
+
+  try {
+    const registered = await fresh.data.register(repository);
+    const freshPins = { ...pins, repositoryId: registered.id };
+
+    await fresh.data.file(freshPins, "head", source.file);
+    recordSpawns();
+
+    /* A wait, not a measurement: the injected 20 ms idle timer has long since
+       killed that process, and the assertion is the spawn it costs to read
+       again. */
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(await fresh.data.file(freshPins, "head", source.file)).toMatchObject(
+      { text: "export const value = 2;\nexport const saved = true;\n" },
+    );
+    expect(spawns).toEqual([["git", "-C", root, "cat-file", "--batch"]]);
+  } finally {
+    await fresh.store.close();
+    await fresh.data.close();
+  }
+});
+
+it("fails a commit that is not in the repository without spawning", async () => {
+  const absent = "0".repeat(40);
+
+  await local.data.file(pins, "head", source.file);
+  recordSpawns();
+
+  // A resolved pin is read directly, so a missing commit costs no rev-parse.
+  await expect(
+    local.data.file({ ...pins, head: absent }, "head", source.file),
+  ).rejects.toThrow("File is unavailable at the pinned commit.");
+  expect(spawns).toEqual([]);
+});
+
+it("rejects a path outside the repository before spawning anything", async () => {
+  recordSpawns();
+
+  for (const file of ["../outside.ts", "/etc/passwd", "nested/../../up.ts"])
+    await expect(local.data.file(pins, "head", file)).rejects.toThrow(
+      "Source file must be a repository-relative path.",
+    );
+  expect(spawns).toEqual([]);
+});
+
+it("keeps one repository detection across tree, commit and diff reads", async () => {
+  await local.data.tree(pins, "head", "");
+  await local.data.commits(pins);
+  await local.data.changes(pins);
+  await local.data.changes(pins, source.file);
+  recordSpawns();
+
+  expect(await local.data.tree(pins, "head", "")).toContainEqual({
+    path: source.file,
+    kind: "file",
+  });
+  expect(await local.data.commits(pins)).toMatchObject([
+    { commit: pins.head, parentCommit: pins.base },
+  ]);
+  expect(await local.data.changes(pins)).toContainEqual(
+    expect.objectContaining({ path: source.file, status: "modified" }),
+  );
+  expect(await local.data.changes(pins, source.file)).toContain(
+    "+export const value = 2;",
+  );
+  expect(detections()).toEqual([]);
+});
+
+it("lists a pinned tree in one spawn without blocking the event loop", async () => {
+  const root = realpathSync.native(repository);
+
+  // The handle is warm from resolvePins; the first listing is the one measured.
+  recordSpawns();
+
+  /* A synchronous spawn would run to completion inside the microtask that
+     started it, leaving no loop turn for this callback before the listing
+     resolves. */
+  let interleaved = false;
+  const listing = local.data.tree(pins, "head", "");
+
+  setImmediate(() => {
+    interleaved = true;
+  });
+
+  expect(await listing).toContainEqual({ path: source.file, kind: "file" });
+  expect(interleaved).toBe(true);
+  expect(spawns).toEqual([
+    ["git", "-C", root, "ls-tree", "-r", "-z", "--name-only", pins.head],
+  ]);
+
+  // A commit's tree never changes, so a repeated listing is served from memory.
+  recordSpawns();
+  await local.data.tree(pins, "head", "");
+  expect(spawns).toEqual([]);
+});
+
+it("detects again when the repository root goes away and comes back", async () => {
+  const root = realpathSync.native(repository);
+  const backup = path.join(directory, "backup");
+
+  git("clone", "--quiet", repository, backup);
+  await local.data.file(pins, "head", source.file);
+  recordSpawns();
+  rmSync(repository, { recursive: true, force: true });
+
+  // The handle is dropped with its root, and the miss is not cached either.
+  await expect(local.data.file(pins, "head", source.file)).rejects.toThrow(
+    "File is unavailable at the pinned commit.",
+  );
+  expect(detections()).toEqual(detectionPair(root));
+  execFileSync("git", ["clone", "--quiet", backup, repository], {
+    stdio: "pipe",
+  });
+
+  expect(await local.data.file(pins, "head", source.file)).toMatchObject({
+    text: "export const value = 2;\nexport const saved = true;\n",
+  });
+  expect(detections()).toEqual([
+    ...detectionPair(root),
+    ...detectionPair(root),
+  ]);
+});
+
+it("relists a pinned tree after the repository root comes back", async () => {
+  const backup = path.join(directory, "backup");
+
+  git("clone", "--quiet", repository, backup);
+  rmSync(repository, { recursive: true, force: true });
+
+  // An absent repository is an empty listing, and that answer is not kept.
+  expect(await local.data.tree(pins, "head", "")).toEqual([]);
+  execFileSync("git", ["clone", "--quiet", backup, repository], {
+    stdio: "pipe",
+  });
+
+  expect(await local.data.tree(pins, "head", "")).toContainEqual({
+    path: source.file,
+    kind: "file",
+  });
+});
+
+it("detects again after a detection that could not run", async () => {
+  const root = realpathSync.native(repository);
+  const fresh = openLocalReviewStore(path.join(directory, "refused.db"));
+
+  try {
+    const registered = await fresh.data.register(repository);
+    const freshPins = { ...pins, repositoryId: registered.id };
+
+    // No subprocess starts, so this cold detection finds nothing.
+    setLocalVcsCommandObserver({
+      start: () => {
+        throw new Error("spawn refused");
+      },
+    });
+    await expect(
+      fresh.data.file(freshPins, "head", source.file),
+    ).rejects.toThrow("File is unavailable at the pinned commit.");
+    recordSpawns();
+
+    expect(await fresh.data.file(freshPins, "head", source.file)).toMatchObject(
+      { text: "export const value = 2;\nexport const saved = true;\n" },
+    );
+    expect(detections()).toEqual(detectionPair(root));
+  } finally {
+    await fresh.store.close();
+    await fresh.data.close();
+  }
+});
+
+it("retries the commit list after a failed read instead of caching the failure", async () => {
+  setLocalVcsCommandObserver({
+    start: () => {
+      throw new Error("spawn refused");
+    },
+  });
+  await expect(local.data.commits(pins)).rejects.toThrow("spawn refused");
+  recordSpawns();
+
+  expect(await local.data.commits(pins)).toMatchObject([
+    { commit: pins.head, parentCommit: pins.base },
+  ]);
+  expect(spawns.some((spawn) => spawn.includes("log"))).toBe(true);
+});
+
+it("reuses the version's commit list when a selected commit is compared", async () => {
+  const root = realpathSync.native(repository);
+  const [selected] = await local.data.commits(pins);
+  recordSpawns();
+
+  const compared = await local.data.comparison(pins, selected!.commit);
+
+  expect(await local.data.file(compared, "head", source.file)).toMatchObject({
+    commit: pins.head,
+  });
+  expect(spawns).toEqual([["git", "-C", root, "cat-file", "--batch"]]);
+});
+
+it("detects each registered repository once across interleaved reads", async () => {
+  const clone = path.join(directory, "clone");
+
+  git("clone", "--quiet", repository, clone);
+  // A fresh store leaves both repositories undetected, as a restart does.
+  const fresh = openLocalReviewStore(path.join(directory, "interleaved.db"));
+
+  try {
+    const first = await fresh.data.register(repository);
+    const second = await fresh.data.register(clone);
+
+    recordSpawns();
+    const firstPins = await fresh.data.resolvePins(first.id, "HEAD^", "HEAD");
+    const secondPins = await fresh.data.resolvePins(second.id, "HEAD^", "HEAD");
+
+    await fresh.data.file(firstPins, "head", source.file);
+    await fresh.data.file(secondPins, "head", source.file);
+    await fresh.data.commits(secondPins);
+    await fresh.data.tree(firstPins, "head", "");
+    await fresh.data.changes(secondPins);
+    await fresh.data.changes(firstPins, source.file);
+
+    expect(detections()).toEqual([
+      ...detectionPair(realpathSync.native(repository)),
+      ...detectionPair(realpathSync.native(clone)),
+    ]);
+  } finally {
+    await fresh.store.close();
+    await fresh.data.close();
+  }
+});
+
+it("shares one detection across concurrent cold reads", async () => {
+  const fresh = openLocalReviewStore(path.join(directory, "concurrent.db"));
+
+  try {
+    const registered = await fresh.data.register(repository);
+    recordSpawns();
+
+    const reads = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        fresh.data.file(
+          { ...pins, repositoryId: registered.id },
+          "head",
+          source.file,
+        ),
+      ),
+    );
+
+    expect(reads.map((read) => read.commit)).toEqual(
+      Array.from({ length: 10 }, () => pins.head),
+    );
+    expect(detections()).toEqual(
+      detectionPair(realpathSync.native(repository)),
+    );
+    // The detection pair, and one batch process for all ten reads.
+    expect(spawns).toHaveLength(3);
+  } finally {
+    await fresh.store.close();
+    await fresh.data.close();
+  }
 });
 
 it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
@@ -379,6 +895,204 @@ it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
     const diff = await local.data.changes(pins, "literal[1].ts");
     expect(diff).toContain("+exact filename");
     expect(diff).not.toContain("wrong pattern match");
+
+    // A store opened after the conversion detects jj, not the colocated Git.
+    const fresh = openLocalReviewStore(path.join(directory, "jj.db"));
+
+    try {
+      const registered = await fresh.data.register(repository);
+      const jjPins = { ...pins, repositoryId: registered.id };
+
+      expect(await fresh.data.tree(jjPins, "head", "")).toContainEqual({
+        path: source.file,
+        kind: "file",
+      });
+      // The warm jj handle reads the pinned file without detecting again.
+      recordSpawns();
+
+      expect(await fresh.data.file(jjPins, "head", source.file)).toMatchObject({
+        text: "export const value = 2;\nexport const saved = true;\n",
+      });
+      expect(detections()).toEqual([]);
+
+      /* Removing the workspace leaves the root in place, so the cached jj
+         handle survives and the reads have to reach the colocated Git. */
+      rmSync(path.join(repository, ".jj"), { recursive: true, force: true });
+      expect(await fresh.data.file(jjPins, "head", source.file)).toMatchObject({
+        text: "export const value = 2;\nexport const saved = true;\n",
+      });
+      expect(await fresh.data.tree(jjPins, "head", "")).toContainEqual({
+        path: source.file,
+        kind: "file",
+      });
+    } finally {
+      await fresh.store.close();
+      await fresh.data.close();
+    }
+  },
+);
+
+it.skipIf(spawnSync("pgrep", ["-P", String(process.pid)]).error !== undefined)(
+  "closes the reader a read started after the data layer closed",
+  async () => {
+    recordSpawns();
+
+    /* The read is suspended on the repository handle when the close runs, so
+       it reaches the reader lookup with nothing left to own its process. */
+    const read = local.data.file(pins, "head", source.file);
+
+    await local.data.close();
+
+    expect(await read).toMatchObject({
+      text: "export const value = 2;\nexport const saved = true;\n",
+    });
+    expect(spawns.filter((spawn) => spawn.includes("cat-file"))).toHaveLength(
+      1,
+    );
+    // A reader nobody owns would leave its process running behind it.
+    expect(batchProcesses()).toEqual([]);
+  },
+);
+
+it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
+  "reads a conflicted jj revision as its diff materializes it",
+  async () => {
+    const workspace = path.join(directory, "jj-conflict");
+
+    const jj = (...args: string[]) =>
+      execFileSync("jj", args, {
+        cwd: workspace,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+
+    const commitId = () =>
+      jj("log", "-r", "@-", "--no-graph", "-T", "commit_id");
+
+    execFileSync("jj", ["git", "init", workspace], { stdio: "pipe" });
+    jj("config", "set", "--repo", "user.name", "Review Test");
+    jj("config", "set", "--repo", "user.email", "review-test@example.invalid");
+    const conflicted = path.join(workspace, "conflict.ts");
+
+    writeFileSync(conflicted, "line1\nline2\nline3\n");
+    jj("commit", "-m", "Base");
+    const base = commitId();
+
+    writeFileSync(conflicted, "left\nline2\nline3\n");
+    jj("commit", "-m", "Left");
+    const left = commitId();
+
+    jj("new", base);
+    writeFileSync(conflicted, "right\nline2\nline3\n");
+    jj("commit", "-m", "Right");
+    const right = commitId();
+
+    // Merging both sides of one line leaves the merge commit conflicted.
+    jj("new", left, right, "-m", "Merge");
+    jj("commit", "-m", "Merged");
+    const merge = commitId();
+
+    const registered = await local.data.register(workspace);
+
+    const mergePins = await local.data.resolvePins(registered.id, base, merge);
+
+    const file = await local.data.file(mergePins, "head", "conflict.ts");
+
+    /* jj commits one side of the conflict into the Git tree, so the object
+       store would answer "left" while every jj tool shows the conflict. */
+    expect(file.text).toContain("<<<<<<< conflict");
+    expect(file.text).toBe(
+      jj(
+        "file",
+        "show",
+        "-r",
+        merge,
+        "--ignore-working-copy",
+        "--",
+        'root-file:"conflict.ts"',
+      ) + "\n",
+    );
+
+    /* The file the API serves has the length the diff's new side claims, so a
+       quote past the first line lands where the diff shows it. Counting the
+       diff's `+` lines would not do: the conflict body has lines of its own
+       that start with `+`. */
+    const diff = await local.data.changes(mergePins, "conflict.ts");
+    const hunk = /^@@ -\d+,\d+ \+\d+,(\d+) @@/m.exec(String(diff));
+
+    expect(file.text.split("\n").slice(0, -1)).toHaveLength(Number(hunk?.[1]));
+
+    // A clean revision in the same repository still reads with no spawn.
+    const cleanPins = await local.data.resolvePins(registered.id, base, left);
+
+    await local.data.file(cleanPins, "head", "conflict.ts");
+    recordSpawns();
+
+    expect(
+      await local.data.file(cleanPins, "head", "conflict.ts"),
+    ).toMatchObject({ text: "left\nline2\nline3\n" });
+    expect(spawns).toEqual([]);
+  },
+);
+
+it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
+  "reads pinned files from a non-colocated jj workspace",
+  async () => {
+    const workspace = path.join(directory, "jj-workspace");
+
+    const jj = (...args: string[]) =>
+      execFileSync("jj", args, {
+        cwd: workspace,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+
+    /* jj 0.42 colocates by default, so a non-colocated workspace has to ask
+       for it: `git.colocate=false` leaves the Git objects inside `.jj`. */
+    execFileSync(
+      "jj",
+      ["git", "init", "--config=git.colocate=false", workspace],
+      { stdio: "pipe" },
+    );
+    jj("config", "set", "--repo", "user.name", "Review Test");
+    jj("config", "set", "--repo", "user.email", "review-test@example.invalid");
+    writeFileSync(
+      path.join(workspace, source.file),
+      "export const value = 1;\n",
+    );
+    jj("commit", "-m", "Base");
+    const base = jj("log", "-r", "@-", "--no-graph", "-T", "commit_id");
+    writeFileSync(
+      path.join(workspace, source.file),
+      "export const value = 2;\n",
+    );
+    jj("commit", "-m", "Head");
+    const head = jj("log", "-r", "@-", "--no-graph", "-T", "commit_id");
+    const registered = await local.data.register(workspace);
+
+    // No colocated Git to fall back to: the jj reads have to answer.
+    expect(existsSync(path.join(workspace, ".git"))).toBe(false);
+
+    const workspacePins = await local.data.resolvePins(
+      registered.id,
+      base,
+      head,
+    );
+
+    expect(workspacePins).toEqual({
+      repositoryId: registered.id,
+      base,
+      head,
+    });
+    expect(await local.data.file(workspacePins, "head", source.file)).toEqual({
+      file: source.file,
+      side: "head",
+      commit: head,
+      text: "export const value = 2;\n",
+    });
+    expect(await local.data.tree(workspacePins, "head", "")).toEqual([
+      { path: source.file, kind: "file" },
+    ]);
   },
 );
 
@@ -566,6 +1280,7 @@ it("decodes images and checks trace/map evidence before accepting components", a
   ).rejects.toThrow(/component type/);
   expect(local.store.read(review.reviewId).document).toHaveLength(3);
   await local.store.close();
+  await local.data.close();
   local = openLocalReviewStore(database);
   expect(await local.data.upload(image)).toMatchObject({ id: image.id });
   expect(
@@ -639,12 +1354,64 @@ it("exposes real source and resource operations through the authenticated deskto
       await post("/commands", command({ type: "create", title: "HTTP", pins }))
     ).json();
 
+    const read = async (route: string) =>
+      (await fetch(url + route, { headers })).json();
+
     const quote = await post(`/${review.reviewId}/source`, { source });
     expect(quote.status).toBe(200);
-    expect(await quote.json()).toMatchObject({
+    expect(await quote.json()).toEqual({
+      side: "head",
+      file: source.file,
+      fromLine: 1,
+      toLine: 2,
       commit: pins.head,
-      text: expect.stringContaining("value = 2"),
+      text: "export const value = 2;\nexport const saved = true;",
     });
+    expect(
+      await read(`/${review.reviewId}/file?side=head&file=${source.file}`),
+    ).toEqual({
+      file: source.file,
+      side: "head",
+      commit: pins.head,
+      text: "export const value = 2;\nexport const saved = true;\n",
+    });
+    expect(await read(`/${review.reviewId}/tree`)).toEqual([
+      { path: source.file, kind: "file" },
+      { path: "literal1.ts", kind: "file" },
+      { path: "literal[1].ts", kind: "file" },
+    ]);
+    expect(await read(`/${review.reviewId}/diff`)).toEqual([
+      { path: source.file, status: "modified", additions: 2, deletions: 1 },
+      { path: "literal1.ts", status: "added", additions: 1, deletions: 0 },
+      { path: "literal[1].ts", status: "added", additions: 1, deletions: 0 },
+    ]);
+    expect(
+      // The blob hashes of the index line are the patch's only unstable part.
+      (await read(`/${review.reviewId}/diff?file=${source.file}`))
+        .split("\n")
+        .filter((line: string) => !line.startsWith("index ")),
+    ).toEqual([
+      `diff --git a/${source.file} b/${source.file}`,
+      `--- a/${source.file}`,
+      `+++ b/${source.file}`,
+      "@@ -1 +1,2 @@",
+      "-export const value = 1;",
+      "+export const value = 2;",
+      "+export const saved = true;",
+      "",
+    ]);
+    expect(await read(`/${review.reviewId}/commits`)).toEqual([
+      {
+        commit: pins.head,
+        parentCommit: pins.base,
+        subject: "Head",
+        author: "Review Test",
+        authoredAt: expect.any(String),
+        fileCount: 3,
+        additions: 4,
+        deletions: 1,
+      },
+    ]);
 
     const resource = {
       id: randomUUID(),

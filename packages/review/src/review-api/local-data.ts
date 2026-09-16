@@ -1,14 +1,19 @@
+import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  type BlobBatchReader,
+  type LocalVcs,
+  type LocalVcsCommitSummary,
+  type LocalVcsKind,
+  createBlobBatchReader,
   detectLocalVcs,
   diffFileSummariesTrees,
   diffTrees,
   listCommitRange,
-  listTrackedFiles,
-  readFileAtRevision,
-  resolveRevision,
+  listTrackedFilesAtCommit,
+  readFileAtCommit,
 } from "@dev.fast/local-vcs";
 import type { ReviewSourceEntry } from "@dev.fast/review-protocol";
 import { z } from "zod";
@@ -93,11 +98,136 @@ function sliceRange(file: { commit: string; text: string }, source: Source) {
   };
 }
 
+/** A repository's detection, and its handle once the detection resolved. */
+interface RepositoryVcs {
+  detection: Promise<LocalVcs | null>;
+  vcs?: LocalVcs;
+}
+
 /** Local implementation of the host's source/resource boundary. No client gets a filesystem path. */
 export class LocalReviewData {
   // A commit's tree never changes, so one listing serves every folder expansion.
   private readonly trackedFiles = new Map<string, Promise<string[]>>();
-  constructor(private readonly store: ReviewStore) {}
+
+  /** One handle per repository: detecting git-versus-jj costs two subprocesses. */
+  private readonly repositories = new Map<string, RepositoryVcs>();
+
+  /** One blob reader per repository, so a pinned read costs no subprocess. */
+  private readonly readers = new Map<string, BlobBatchReader>();
+
+  /** Commit lists keyed by repository and pins, which are immutable commits. */
+  private readonly commitRanges = new Map<
+    string,
+    Promise<LocalVcsCommitSummary[]>
+  >();
+
+  constructor(
+    private readonly store: ReviewStore,
+    private readonly options: { blobReaderIdleTimeoutMs?: number } = {},
+  ) {}
+
+  /** Set once closed, so no read can start a reader this instance would leak. */
+  private closed = false;
+
+  /** Stop every batch reader. Later reads pay their own short-lived process. */
+  async close(): Promise<void> {
+    this.closed = true;
+    const readers = [...this.readers.values()];
+
+    this.readers.clear();
+
+    await Promise.all(readers.map((reader) => reader.close()));
+  }
+
+  /**
+   * The repository's VCS handle, detected once. A cached handle stays good
+   * while its root is on disk; a removed root, a detection that found no
+   * repository, and a failed detection all detect again next time.
+   */
+  private vcs(repositoryId: string): Promise<LocalVcs | null> {
+    const cached = this.repositories.get(repositoryId);
+
+    if (cached && (!cached.vcs || existsSync(cached.vcs.rootPath)))
+      return cached.detection;
+
+    // A handle dropped with its root takes its reader's object store with it.
+    this.closeReader(repositoryId);
+    const rootPath = this.store.repositoryPath(repositoryId);
+
+    const forget = () => {
+      this.repositories.delete(repositoryId);
+      this.closeReader(repositoryId);
+    };
+
+    // Cold callers share this one pending detection.
+    const entry: RepositoryVcs = {
+      detection: detectLocalVcs(rootPath).then(
+        (vcs) => {
+          if (vcs) entry.vcs = vcs;
+          else forget();
+
+          return vcs;
+        },
+        (cause: unknown) => {
+          forget();
+
+          throw cause;
+        },
+      ),
+    };
+
+    this.repositories.set(repositoryId, entry);
+
+    return entry.detection;
+  }
+
+  /**
+   * The repository's blob reader, started beside its handle on first use, and
+   * none at all once closed: a read that was already suspended when the close
+   * ran gets its own process, which it closes itself.
+   */
+  private reader(
+    repositoryId: string,
+    vcs: LocalVcs,
+  ): BlobBatchReader | undefined {
+    if (this.closed) return undefined;
+    const existing = this.readers.get(repositoryId);
+
+    if (existing) return existing;
+
+    const reader = createBlobBatchReader({
+      rootPath: vcs.rootPath,
+      kind: vcs.kind,
+      idleTimeoutMs: this.options.blobReaderIdleTimeoutMs,
+    });
+
+    this.readers.set(repositoryId, reader);
+
+    return reader;
+  }
+
+  private closeReader(repositoryId: string): void {
+    const reader = this.readers.get(repositoryId);
+
+    if (!reader) return;
+    this.readers.delete(repositoryId);
+    void reader.close();
+  }
+
+  /**
+   * The repository root for the local-vcs calls, carrying its kind once
+   * detection found one so those calls skip their own detection.
+   */
+  private async vcsTarget(
+    repositoryId: string,
+  ): Promise<{ rootPath: string; kind?: LocalVcsKind }> {
+    const vcs = await this.vcs(repositoryId);
+
+    return vcs
+      ? { rootPath: vcs.rootPath, kind: vcs.kind }
+      : { rootPath: this.store.repositoryPath(repositoryId) };
+  }
+
   async register(root: string) {
     const resolved = await realpath(root).catch(() => {
       throw new ReviewInputError(
@@ -116,12 +246,14 @@ export class LocalReviewData {
     base: string,
     head: string,
   ): Promise<Pins> {
-    const root = this.store.repositoryPath(repositoryId);
+    const vcs = await this.vcs(repositoryId);
 
-    const [left, right] = await Promise.all([
-      resolveRevision(root, base),
-      resolveRevision(root, head),
-    ]);
+    const [left, right] = vcs
+      ? await Promise.all([
+          vcs.resolveRevision(base),
+          vcs.resolveRevision(head),
+        ])
+      : [null, null];
 
     if (!left || !right)
       throw new ReviewInputError("Base or head revision does not exist.");
@@ -142,30 +274,32 @@ export class LocalReviewData {
   }
   async file(pins: Pins, side: "base" | "head", file: string) {
     checkRelativePath(file);
+    const commit = pins[side];
+    const vcs = await this.vcs(pins.repositoryId);
 
-    const result = await readFileAtRevision({
-      rootPath: this.store.repositoryPath(pins.repositoryId),
-      ref: pins[side],
-      relativePath: file,
-    });
+    // Pins are resolved commit ids, so the object reads without a rev-parse.
+    const text = vcs
+      ? await readFileAtCommit({
+          rootPath: vcs.rootPath,
+          kind: vcs.kind,
+          commit,
+          relativePath: file,
+          reader: this.reader(pins.repositoryId, vcs),
+        })
+      : null;
 
-    // `git show <commit>:<dir>` prints a "tree <commit>:<dir>" listing instead of failing.
-    if (
-      !result ||
-      result.commit !== pins[side] ||
-      result.source.startsWith(`tree ${result.commit}:`)
-    )
+    if (text === null)
       throw new ReviewInputError(
         "File is unavailable at the pinned commit.",
         404,
       );
 
-    if (result.source.includes("\0"))
+    if (text.includes("\0"))
       throw new ReviewInputError(
         "Binary files cannot be used as code references.",
       );
 
-    return { file, side, commit: result.commit, text: result.source };
+    return { file, side, commit, text };
   }
 
   async tree(
@@ -199,12 +333,24 @@ export class LocalReviewData {
     return [...entries.values()];
   }
   private trackedFilesAt(repositoryId: string, ref: string) {
-    const rootPath = this.store.repositoryPath(repositoryId);
     const key = `${repositoryId}\0${ref}`;
     let files = this.trackedFiles.get(key);
 
     if (!files) {
-      files = listTrackedFiles({ rootPath, ref });
+      files = this.vcs(repositoryId).then((vcs) => {
+        // No repository is not a listing to keep: the next call detects again.
+        if (!vcs) {
+          this.trackedFiles.delete(key);
+
+          return [];
+        }
+
+        return listTrackedFilesAtCommit({
+          rootPath: vcs.rootPath,
+          kind: vcs.kind,
+          commit: ref,
+        });
+      });
       this.trackedFiles.set(key, files);
       files.catch(() => this.trackedFiles.delete(key));
     }
@@ -220,7 +366,7 @@ export class LocalReviewData {
     if (file !== undefined) checkRelativePath(file);
 
     const input = {
-      rootPath: this.store.repositoryPath(pins.repositoryId),
+      ...(await this.vcsTarget(pins.repositoryId)),
       baseRef: pins.base,
       headRef: pins.head,
     };
@@ -229,26 +375,31 @@ export class LocalReviewData {
       ? diffFileSummariesTrees(input)
       : diffTrees({ ...input, paths: [file], literalPaths: true });
   }
-  // Pins are immutable commit ids, so a listed range never changes.
-  private readonly commitLists = new Map<
-    string,
-    ReturnType<typeof listCommitRange>
-  >();
   commits(pins: Pins) {
-    const key = JSON.stringify([pins.repositoryId, pins.base, pins.head]);
-    let commits = this.commitLists.get(key);
+    const key = `${pins.repositoryId}:${pins.base}:${pins.head}`;
+    const cached = this.commitRanges.get(key);
 
-    if (!commits) {
-      commits = listCommitRange({
-        rootPath: this.store.repositoryPath(pins.repositoryId),
-        baseRef: pins.base,
-        headRef: pins.head,
-      });
-      commits.catch(() => this.commitLists.delete(key));
-      this.commitLists.set(key, commits);
-    }
+    if (cached) return cached;
 
-    return commits;
+    /* Pins are immutable commit ids, so one list answers every request that
+       carries them. A rejection is evicted: a transient git failure must not
+       outlive the request that hit it. */
+    const pending = this.readCommitRange(pins).catch((cause: unknown) => {
+      this.commitRanges.delete(key);
+
+      throw cause;
+    });
+
+    this.commitRanges.set(key, pending);
+
+    return pending;
+  }
+  private async readCommitRange(pins: Pins) {
+    return listCommitRange({
+      ...(await this.vcsTarget(pins.repositoryId)),
+      baseRef: pins.base,
+      headRef: pins.head,
+    });
   }
   async comparison(pins: Pins, commit?: string): Promise<Pins> {
     if (!commit) return pins;
@@ -279,8 +430,11 @@ export class LocalReviewData {
       commit: string;
     };
 
+    const target = await this.vcsTarget(pins.repositoryId);
+
     const resolved = await resolveSoftwareMapDiffCounts({
-      sourceRootPath: this.store.repositoryPath(pins.repositoryId),
+      sourceRootPath: target.rootPath,
+      sourceVcsKind: target.kind,
       baseRef: pins.base,
       headRef: pins.head,
       side: saved.side,
@@ -480,7 +634,10 @@ function checkSourcePath(file: string) {
     );
 }
 
-export function openLocalReviewStore(databasePath: string) {
+export function openLocalReviewStore(
+  databasePath: string,
+  options: { blobReaderIdleTimeoutMs?: number } = {},
+) {
   const store: ReviewStore = new ReviewStore(databasePath, {
     validatePins: (pins) => data.validatePins(pins),
     validateSource: async (pins, source) => {
@@ -489,7 +646,7 @@ export function openLocalReviewStore(databasePath: string) {
     validateResource: (pins, block) => data.validateResource(pins, block),
   });
 
-  const data = new LocalReviewData(store);
+  const data = new LocalReviewData(store, options);
 
   return { store, data };
 }

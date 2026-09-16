@@ -56,6 +56,8 @@ export const commandSchema = z.strictObject({
 /** Where a review came from, for Home cards. Set by legacy import; the
  * authoring API leaves it absent. */
 export interface SnapshotOrigin {
+  /** Managed tutorial; readable by ID but excluded from the user catalog. */
+  tutorial?: boolean;
   branch?: string;
   baseRef?: string;
   pullRequestNumber?: number;
@@ -286,6 +288,16 @@ export class ReviewStore {
     }
   }
 
+  /** Managed records are discoverable even if their preparation stamp was lost. */
+  tutorialIds(): string[] {
+    return this.db
+      .prepare(
+        `SELECT reviews.id FROM reviews JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version WHERE json_extract(versions.snapshot,'$.origin.tutorial') = 1`,
+      )
+      .all()
+      .map((row) => String(row.id));
+  }
+
   list(): ReviewApiSummary[] {
     // One query, and the document never leaves SQLite: every catalog watcher
     // re-lists on every command.
@@ -297,6 +309,7 @@ export class ReviewStore {
         JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
         LEFT JOIN review_attention ON review_attention.review_id=reviews.id
         LEFT JOIN repositories ON repositories.id=json_extract(versions.snapshot,'$.pins.repositoryId')
+        WHERE COALESCE(json_extract(versions.snapshot,'$.origin.tutorial'), 0) = 0
         ORDER BY reviews.rowid`,
       )
       .all()
@@ -360,12 +373,19 @@ export class ReviewStore {
               : undefined,
     }));
   }
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command boundary: commandSchema.parse below rejects malformed input before mutation.
-  execute(input: unknown): Promise<Result> {
+  /** The host can seed a managed document; transport callers only supply a command. */
+  execute(
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command boundary: commandSchema.parse below rejects malformed input before mutation.
+    input: unknown,
+    initial?: { document: Block[]; origin: SnapshotOrigin },
+  ): Promise<Result> {
     if (this.closing)
       return Promise.reject(new Error("Review store is closing."));
     const command = commandSchema.parse(input);
-    const request = JSON.stringify(command);
+
+    if (initial && command.operation.type !== "create")
+      throw new ReviewInputError("Initial content requires a create command.");
+    const request = JSON.stringify(initial ? { command, initial } : command);
 
     const run = this.pending.then(async () => {
       const receipt = this.db
@@ -376,7 +396,12 @@ export class ReviewStore {
         if (receipt.request === "null")
           throw new ReviewInputError("This command's review was deleted.", 404);
 
-        if (!isDeepStrictEqual(JSON.parse(String(receipt.request)), command))
+        if (
+          !isDeepStrictEqual(
+            JSON.parse(String(receipt.request)),
+            JSON.parse(request),
+          )
+        )
           throw new ReviewInputError(
             "Command ID was already used for different input.",
             409,
@@ -473,6 +498,14 @@ export class ReviewStore {
 
       switch (op.type) {
         case "create":
+          if (initial) {
+            snapshot.document = documentSchema.parse(initial.document);
+            snapshot.origin = structuredClone(initial.origin);
+
+            for (const block of snapshot.document)
+              assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
+          }
+
           break;
         case "rename":
           snapshot.title = op.title;

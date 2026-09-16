@@ -263,11 +263,9 @@ test("tutorial deletion suppresses auto-prepare across restarts until explicit o
 		requests.push(`${init?.method ?? "GET"} ${url}`);
 		if (url.endsWith("/tutorial/open")) {
 			return Response.json({
+				kind: "api",
 				reviewUuid: uuid,
-				sessionId: session.sessionId,
-				url: session.sessionUrl,
 				review,
-				session,
 			});
 		}
 		return Response.json({ ok: true });
@@ -284,7 +282,7 @@ test("tutorial deletion suppresses auto-prepare across restarts until explicit o
 	assert.deepEqual(suppressedService.tutorialReview, review);
 	assert.equal(requests.length, 2);
 	assert.match(requests[1] ?? "", /POST .*\/tutorial\/open$/);
-	assert.deepEqual(suppressedService.sessions, [session]);
+	assert.deepEqual(suppressedService.sessions, []);
 	suppressedService.dispose();
 
 	const restoredService = serviceWith([], storage);

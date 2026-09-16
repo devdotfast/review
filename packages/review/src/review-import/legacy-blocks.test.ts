@@ -79,22 +79,6 @@ describe("legacyDocumentToBlocks", () => {
     expect(stray).toEqual([]);
   });
 
-  it("converts the canonical lens and degrades tutorial components", async () => {
-    const { blocks, warnings, traces } = legacyDocumentToBlocks(
-      await load("schema4-three-minute-tour"),
-    );
-
-    const json = JSON.stringify(blocks);
-    expect(json).toContain('"type":"database_lens"');
-    expect(json).toContain('"useCases"');
-    expect(json).toContain('"type":"callout"');
-    expect(warnings.some((warning) => /Tutorial/.test(warning))).toBe(true);
-    expect(traces).toEqual([]);
-
-    for (const block of blocks) blockSchema.parse(block);
-    checkReferences(blocks);
-  });
-
   it("emits a trace request per TraceQuote", () => {
     const document = reviewDocumentDataSchema.parse({
       format: "review-document/1",

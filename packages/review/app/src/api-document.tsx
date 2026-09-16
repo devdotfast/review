@@ -247,7 +247,11 @@ export const DocumentNode = memo(function DocumentNode({
       />
     ));
 
-  if (node.type === "software_map" && !softwareMapEnabled) return null;
+  if (
+    node.type === "software_map" &&
+    (!softwareMapEnabled || data.snapshot.origin?.tutorial)
+  )
+    return null;
 
   return (
     <NodeReveal id={node.id} revision={revision}>

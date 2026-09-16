@@ -153,7 +153,6 @@ interface ActiveReviewSession {
   telemetryStarted: boolean;
   telemetryEnded: boolean;
   appSessionId?: string;
-  tutorialPreparation?: PreparedTutorial;
 }
 
 interface RegisterSessionInput {
@@ -176,7 +175,6 @@ interface RegisterSessionInput {
   // the session-registered broadcast so the app suppresses the document tab.
   background?: boolean;
   checkoutRoots?: ReviewCheckoutRoots;
-  tutorialPreparation?: PreparedTutorial;
 }
 
 interface ReviewCheckoutRoots {
@@ -188,14 +186,6 @@ function revealVerb(view?: ReviewView): ReviewVerbRequest {
   return view
     ? { name: "showReviewView", args: { view } }
     : { name: "focusCanvas", args: {} };
-}
-
-interface PreparedTutorial {
-  review: StoredReview;
-  canonicalRecord: StoredReviewRecord;
-  documentPath: string;
-  softwareMapRootPath: string;
-  checkoutRoots: ReviewCheckoutRoots;
 }
 
 export interface GlobalReviewServerInput {
@@ -261,10 +251,10 @@ export function createGlobalReviewServer(
 
   const tutorial = createTutorialService({
     packageRoot: input.packageRoot,
-    deleteReview: deleteStoredReview,
+    store: reviewStore,
+    data: input.reviewData,
   });
 
-  let preparedTutorial: PreparedTutorial | null = null;
   let reviewReaper: ReturnType<typeof setInterval> | undefined;
   let closing = false;
   const cliPath = path.join(input.packageRoot, "dist", "cli.js");
@@ -409,7 +399,7 @@ export function createGlobalReviewServer(
 
     return globalJson(200, {
       ok: true,
-      reviewUuid: prepared.review.review.uuid,
+      reviewUuid: prepared.reviewId,
     });
   });
   // The tutorial descriptor is not in `GET /reviews`, so tooling and
@@ -421,7 +411,7 @@ export function createGlobalReviewServer(
       throw new ReviewServerError("Review not found.", 404);
     }
 
-    return globalJson(200, await reviewDescriptor(stored));
+    return globalJson(200, tutorial.descriptor(stored));
   });
   app.post("/tutorial/open", async () => {
     return globalJson(
@@ -444,7 +434,7 @@ export function createGlobalReviewServer(
     /* A background open keeps the canvas where it is: the Source tab opens
        sessions purely to root its file tree. Body-less requests (the CLI)
        stay foreground. */
-    if (reviewStore && !(await tutorial.referencesReview(uuid))) {
+    if (reviewStore) {
       if (!reviewStore.has(uuid))
         throw new ReviewServerError(
           "Review is not in the JSON store. Inspect the JSON migration report; legacy sessions are retired.",
@@ -521,13 +511,6 @@ export function createGlobalReviewServer(
       : null;
 
     if (imported && imported.kind !== "skipped") {
-      if (reviewStore && !reviewStore.has(uuid))
-        throw new ReviewServerError(
-          "This review was imported into the JSON review store and then deleted there.",
-          404,
-          "deleted",
-        );
-
       const opened = await relay.dispatch("review-desktop", {
         name: "openApiReview",
         args: { reviewId: uuid, title: review.review.title },
@@ -881,15 +864,11 @@ export function createGlobalReviewServer(
       throw new ReviewServerError("Review not found.", 404);
     }
 
-    const referencesTutorial =
-      preparedTutorial?.review.review.uuid === uuid ||
-      (await tutorial.referencesReview(uuid));
+    const referencesTutorial = await tutorial.referencesReview(uuid);
 
     if (referencesTutorial) {
       await withReviewLock(TUTORIAL_LIFECYCLE_LOCK_KEY, async () => {
-        const stillReferencesTutorial =
-          preparedTutorial?.review.review.uuid === uuid ||
-          (await tutorial.referencesReview(uuid));
+        const stillReferencesTutorial = await tutorial.referencesReview(uuid);
 
         if (stillReferencesTutorial) {
           await deleteTutorialLocked();
@@ -1159,8 +1138,6 @@ export function createGlobalReviewServer(
     const tutorialRoot = path.resolve(devReviewHome(), "tutorial");
 
     const open = [...sessions.values()].filter((session) => {
-      if (session.tutorialPreparation) return true;
-
       const relative = path.relative(
         tutorialRoot,
         path.resolve(session.review.review.worktreePath),
@@ -1177,161 +1154,21 @@ export function createGlobalReviewServer(
     );
   }
 
-  async function prepareTutorialLocked(): Promise<PreparedTutorial> {
-    const cached = await validPreparedTutorial();
-
-    if (cached) return cached;
-    const prepared = await prepareTutorialLocally();
-    preparedTutorial = prepared;
-
-    return prepared;
+  async function prepareTutorialLocked() {
+    return tutorial.prepare({ beforeReset: closeTutorialSessions });
   }
 
-  async function validPreparedTutorial(): Promise<PreparedTutorial | null> {
-    const cached = preparedTutorial;
-
-    if (!cached) return null;
-
-    const current = await withReviewLock(cached.review.review.uuid, () =>
-      tutorial.find().catch(() => null),
-    );
-
-    const currentReview = current?.review;
-    const cachedReview = cached.review.review;
-    const documentExists = existsSync(cached.documentPath);
-    const softwareMapExists = existsSync(cached.softwareMapRootPath);
-
-    const pathsExist =
-      documentExists &&
-      softwareMapExists &&
-      existsSync(cached.checkoutRoots.baseRootPath) &&
-      existsSync(cached.checkoutRoots.headRootPath);
-
-    if (
-      !currentReview ||
-      currentReview.uuid !== cachedReview.uuid ||
-      currentReview.presentedDocumentRevision !==
-        cachedReview.presentedDocumentRevision ||
-      currentReview.presentedSoftwareMapRevision !==
-        cachedReview.presentedSoftwareMapRevision ||
-      !pathsExist
-    ) {
-      preparedTutorial = null;
-      await closeTutorialSessions();
-
-      if (!documentExists) {
-        await rm(path.dirname(cached.documentPath), {
-          recursive: true,
-          force: true,
-        });
-      } else if (!softwareMapExists) {
-        await rm(cached.softwareMapRootPath, { recursive: true, force: true });
-      }
-
-      return null;
-    }
-
-    cached.review = current;
-    cached.canonicalRecord = current.review;
-
-    return cached;
-  }
-
-  /* The Welcome page invokes only this local preparation path: materialize the
-     shipped Review and warm both managed Git checkouts. */
-  async function prepareTutorialLocally(): Promise<PreparedTutorial> {
-    const startedAt = Date.now();
-
-    const review = await tutorial.prepare({
-      beforeReset: async () => {
-        preparedTutorial = null;
-        await closeTutorialSessions();
-      },
-    });
-
-    const documentRevision = review.review.presentedDocumentRevision;
-    const softwareMapRevision = review.review.presentedSoftwareMapRevision;
-
-    if (!documentRevision || !softwareMapRevision) {
-      throw new ReviewServerError(
-        "Tutorial Review has no published revision.",
-        409,
-        "review_unpublished",
-      );
-    }
-
-    const documentBuildDir = await publishRuntime.materializePublishRevision({
-      review,
-      revision: documentRevision,
-    });
-
-    const softwareMapRootPath = await publishRuntime.materializePublishRevision(
-      {
-        review,
-        revision: softwareMapRevision,
-      },
-    );
-
-    const presentedReview = await reviewWithPresentedDocumentPins(
-      review,
-      documentBuildDir,
-    );
-
-    const checkoutRoots = await ensureReviewCheckouts(presentedReview);
-    console.info(
-      `[Review tutorial] local preparation completed in ${Date.now() - startedAt}ms.`,
-    );
-
-    return {
-      review: presentedReview,
-      canonicalRecord: review.review,
-      documentPath: path.join(documentBuildDir, "review.mdx"),
-      softwareMapRootPath,
-      checkoutRoots,
-    };
-  }
-
-  /* Open mounts the already-prepared artifacts immediately. */
   async function openTutorialLocked(): Promise<ReviewTutorialOpenResponse> {
-    const prepared = await prepareTutorialLocked();
-    let existing = activeSessionForReview(prepared.review.review.uuid);
-
-    if (existing && existing.tutorialPreparation !== prepared) {
-      await closeSession(existing, "replaced", false);
-      existing = undefined;
-    }
-
-    if (existing) {
-      void relay.dispatch(existing.descriptor.sessionId, {
-        name: "focusCanvas",
-        args: {},
-      });
-    }
-
-    const session =
-      existing ??
-      (await registerSerialized({
-        review: prepared.review,
-        canonicalRecord: prepared.canonicalRecord,
-        documentPath: prepared.documentPath,
-        softwareMapRootPath: prepared.softwareMapRootPath,
-        checkoutRoots: prepared.checkoutRoots,
-        tutorialPreparation: prepared,
-        promoted: true,
-        focusCanvas: true,
-      }));
+    const snapshot = await prepareTutorialLocked();
 
     return {
-      reviewUuid: session.review.review.uuid,
-      sessionId: session.descriptor.sessionId,
-      url: session.descriptor.sessionUrl,
-      review: await reviewDescriptor(session.review),
-      session: session.descriptor,
+      kind: "api",
+      reviewUuid: snapshot.reviewId,
+      review: tutorial.descriptor(snapshot),
     };
   }
 
   async function deleteTutorialLocked(): Promise<void> {
-    preparedTutorial = null;
     await closeTutorialSessions();
     await tutorial.cleanup();
   }
@@ -1625,7 +1462,6 @@ export function createGlobalReviewServer(
       telemetryStarted: false,
       telemetryEnded: false,
       appSessionId: registration.appSessionId,
-      tutorialPreparation: registration.tutorialPreparation,
     };
 
     return active;

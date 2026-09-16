@@ -17,6 +17,12 @@ import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import { SoftwareMap } from "./software-map/SoftwareMap";
 import { TraceQuote } from "./trace-quote";
+import { TutorialAuthoringConversation } from "./tutorial-authoring-conversation";
+import {
+  TutorialFeature,
+  TutorialViewButton,
+} from "./tutorial-dynamic-content";
+import { TutorialKeymapPicker } from "./tutorial-keymap-picker";
 
 /** A block the store has written: ids are assigned before any write. */
 export type StoredBlock = Block & { id: string };
@@ -188,7 +194,27 @@ function SoftwareMapBlock({ node, data }: BlockProps<"software_map">) {
 type Components = { [K in BlockType]: BlockComponent<K> };
 
 /** Every block kind's component, keyed by type. A kind without a component is a compile error. */
+function TutorialBlock({ node, children }: BlockProps<"tutorial">) {
+  switch (node.kind) {
+    case "keymap":
+      return <TutorialKeymapPicker />;
+    case "conversation":
+      return <TutorialAuthoringConversation conversation={node.conversation} />;
+    case "view":
+      return (
+        <TutorialViewButton view={node.view}>{node.label}</TutorialViewButton>
+      );
+    case "feature":
+      return (
+        <TutorialFeature feature={node.feature}>
+          {children(node.children)}
+        </TutorialFeature>
+      );
+  }
+}
+
 export const blockComponents = {
+  tutorial: TutorialBlock,
   markdown: MarkdownBlock,
   code: CodeBlock,
   divider: DividerBlock,

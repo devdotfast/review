@@ -1,4 +1,8 @@
-import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+import {
+  type JsonValue,
+  type ReviewCanvasTutorialBridge,
+  parseJsonText,
+} from "@dev.fast/review-protocol";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,9 +13,17 @@ import {
   FIXTURE_TRACE_EVENT_ID,
   FIXTURE_TRACE_ID,
 } from "../../src/fixtures/blocks/ids";
-import { documentSchema, elements } from "../../src/review-api/document";
+import {
+  assignFreshIds,
+  documentSchema,
+  elements,
+} from "../../src/review-api/document";
+import { mapInputSchema } from "../../src/review-api/map-input";
 import type { Snapshot } from "../../src/review-api/store";
 import { defineSoftwareMap } from "../../src/software-map-model";
+import tutorialDocument from "../../tutorial/document.json";
+import tutorialModel from "../../tutorial/software-map.json";
+import tutorialTrace from "../../tutorial/trace.json";
 import { BlockErrorBoundary, blockComponents } from "./blocks";
 import { mountReviewCanvas as mount } from "./desktop-entry";
 import { fixtureReviewBridge, settled } from "./fixture-review-bridge";
@@ -121,6 +133,9 @@ const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
     !has(c, ".software-map-code-status"),
   section: (c) =>
     has(c, "button[aria-expanded='true']") && text(c).includes("Hello."),
+  tutorial: (c) =>
+    has(c, ".tutorial-authoring-conversation") &&
+    text(c).includes("Explain this change."),
   callout: (c) =>
     c.querySelector("blockquote[data-tone='warning'] strong")?.textContent ===
       "Note" && text(c).includes("Careful."),
@@ -133,15 +148,30 @@ afterEach(async () => {
   canvas = undefined;
 });
 
-async function mountFixture(kind: Kind, resources: { trace?: null } = {}) {
+async function mountFixture(
+  kind: Kind,
+  resources: { trace?: null } = {},
+  tutorial?: ReviewCanvasTutorialBridge,
+  shippedTutorial = false,
+) {
   const snapshot: Snapshot = {
     reviewId: `fixture-${kind}`,
     version: 0,
     title: "Fixture review",
     pins: { repositoryId: "repo", base: "base", head: "head" },
-    document: fixtures.get(kind)!,
+    document: shippedTutorial
+      ? documentSchema.parse(tutorialDocument.document)
+      : fixtures.get(kind)!,
+    origin: shippedTutorial ? { tutorial: true } : undefined,
     createdAt: "2026-09-16T00:00:00.000Z",
   };
+
+  if (shippedTutorial) {
+    let nextId = 0;
+
+    for (const block of snapshot.document)
+      assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
+  }
 
   const image = { bytes: png, type: "image/png" };
 
@@ -150,8 +180,28 @@ async function mountFixture(kind: Kind, resources: { trace?: null } = {}) {
     resources:
       resources.trace === null
         ? { [FIXTURE_IMAGE_ID]: image }
-        : { [FIXTURE_IMAGE_ID]: image, [FIXTURE_TRACE_ID]: trace },
-    maps: { [FIXTURE_MAP_ID]: savedMap },
+        : {
+            [FIXTURE_IMAGE_ID]: image,
+            [FIXTURE_TRACE_ID]: trace,
+            "tutorial-trace": parseJsonText(JSON.stringify(tutorialTrace)),
+          },
+    maps: {
+      [FIXTURE_MAP_ID]: savedMap,
+      ...Object.fromEntries(
+        (["base", "head"] as const).map((side) => [
+          `tutorial-map-${side}`,
+          parseJsonText(
+            JSON.stringify({
+              ...defineSoftwareMap(mapInputSchema.parse(tutorialModel)),
+              side,
+              commit: side,
+              countsByElementPath: {},
+              unmappedByElementPath: {},
+            }),
+          ),
+        ]),
+      ),
+    },
   });
 
   const container = document.createElement("div");
@@ -159,6 +209,22 @@ async function mountFixture(kind: Kind, resources: { trace?: null } = {}) {
   await act(async () => {
     canvas = mount(container, {
       kind: "api",
+      tutorial:
+        tutorial ??
+        (kind === "tutorial"
+          ? {
+              content: {
+                reviewUuid: snapshot.reviewId,
+                progress: { version: 1, checked: [], dismissed: false },
+                keymap: "none",
+              },
+              setStep() {},
+              dismiss() {},
+              reopen() {},
+              async selectKeymap() {},
+              close() {},
+            }
+          : undefined),
       softwareMapEnabled: true,
       reviewId: snapshot.reviewId,
       version: 0,
@@ -170,6 +236,56 @@ async function mountFixture(kind: Kind, resources: { trace?: null } = {}) {
 }
 
 describe("block components", () => {
+  it("keeps shipped tutorial keybindings and view buttons interactive in the JSON canvas", async () => {
+    const selectKeymap = vi.fn<ReviewCanvasTutorialBridge["selectKeymap"]>(
+      async () => {},
+    );
+
+    const tutorial: ReviewCanvasTutorialBridge = {
+      content: {
+        reviewUuid: "fixture-tutorial",
+        progress: { version: 1, checked: [], dismissed: true },
+        keymap: "none",
+      },
+      setStep() {},
+      dismiss() {},
+      reopen() {},
+      selectKeymap,
+      close() {},
+    };
+
+    const { container } = await mountFixture("tutorial", {}, tutorial, true);
+    expect(
+      await settled(
+        () =>
+          has(container, ".tutorial-keymap-picker") &&
+          has(container, ".tutorial-authoring-conversation"),
+      ),
+    ).toBe(true);
+
+    const vim = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        ".tutorial-keymap-picker button",
+      ),
+    ].find((button) => button.textContent === "Vim")!;
+
+    expect(vim.disabled).toBe(false);
+    await act(async () => vim.click());
+    expect(selectKeymap).toHaveBeenCalledWith("vim");
+
+    const commits = container.querySelector<HTMLButtonElement>(
+      '[data-tutorial-view="commits"]',
+    )!;
+
+    expect(commits).not.toBeNull();
+    await act(async () => commits.click());
+    expect(
+      container
+        .querySelector('[aria-label="Commits"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
   it("has a component for every fixture kind", () => {
     expect(Object.keys(blockComponents).sort()).toEqual(
       [...fixtures.keys()].sort(),

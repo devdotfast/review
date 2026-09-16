@@ -354,8 +354,7 @@ export interface ReviewCanvasTutorialBridge {
   dismiss(): void;
   reopen(): void;
   selectKeymap(keymap: ReviewKeymapChoice): Promise<void>;
-  // Closes the tutorial tab. The tutorial is not in the review store, so
-  // there is nothing to dismiss — finishing it just means closing it.
+  // Closes the managed tutorial tab without dismissing it from a user catalog.
   close(): void;
 }
 
@@ -421,6 +420,8 @@ export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
       kind: "api";
+      tutorial?: ReviewCanvasTutorialBridge;
+      setTutorial?(enabled: boolean): void;
       softwareMapEnabled?: boolean;
       reviewId: string;
       version?: number;
@@ -783,15 +784,11 @@ export const ReviewOpenResponseSchema = z.strictObject({
 
 export type ReviewOpenResponse = z.infer<typeof ReviewOpenResponseSchema>;
 
-/* The tutorial Review is not in the review store, so `GET /reviews` never
-   lists it. The open response carries its descriptor and live session so the
-   app can open the tab without the Home list. */
+/** Managed tutorials use the native JSON canvas and stay out of Home. */
 export const ReviewTutorialOpenResponseSchema = z.strictObject({
+  kind: z.literal("api"),
   reviewUuid: z.uuid({ error: "must be a UUID" }),
-  sessionId: requiredString,
-  url: loopbackUrlSchema,
   review: ReviewDescriptorSchema,
-  session: ReviewSessionDescriptorSchema,
 });
 
 export type ReviewTutorialOpenResponse = z.infer<

@@ -22,19 +22,6 @@ export interface LegacyConversion {
   warnings: string[];
 }
 
-function viewLabel(view: "review" | "commits" | "diff" | "map"): string {
-  switch (view) {
-    case "review":
-      return "Review";
-    case "commits":
-      return "Commits";
-    case "diff":
-      return "Files";
-    case "map":
-      return "Map";
-  }
-}
-
 interface WithId {
   id?: string;
 }
@@ -168,26 +155,28 @@ export function legacyDocumentToBlocks(
 
         case "TutorialViewButton":
           out.push({
-            type: "markdown",
-            markdown: `Open the **${viewLabel(node.props.view)}** tab.\n`,
+            type: "tutorial",
+            kind: "view",
+            view: node.props.view,
+            label: proseToMarkdown(node.children, footnotes, warnings).trim(),
           });
           break;
         case "TutorialFeature":
-        case "TutorialKeymapPicker":
-        case "TutorialAuthoringConversation":
-          warnings.push(
-            `${node.name} has no JSON block; rendered as a callout.`,
-          );
           out.push({
-            type: "callout",
-            tone: "info",
-            title: "Tutorial",
-            children: [
-              {
-                type: "markdown",
-                markdown: `This step used the interactive ${node.name} component.\n`,
-              },
-            ],
+            type: "tutorial",
+            kind: "feature",
+            feature: node.props.feature,
+            children: convert(node.children),
+          });
+          break;
+        case "TutorialKeymapPicker":
+          out.push({ type: "tutorial", kind: "keymap" });
+          break;
+        case "TutorialAuthoringConversation":
+          out.push({
+            type: "tutorial",
+            kind: "conversation",
+            conversation: node.props.conversation,
           });
           break;
         default:

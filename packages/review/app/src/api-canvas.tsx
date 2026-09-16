@@ -378,6 +378,10 @@ export function ApiCanvas({
     if (data) content.bridge.ready();
   }, [Boolean(data), content.bridge]);
 
+  useEffect(() => {
+    if (data) content.setTutorial?.(data.snapshot.origin?.tutorial === true);
+  }, [data?.snapshot.origin?.tutorial, content.setTutorial]);
+
   if (!data)
     return (
       <>
@@ -393,7 +397,7 @@ export function ApiCanvas({
   return (
     <ReviewSessionProvider session={session}>
       <DocumentData.Provider value={data}>
-        <TutorialProvider>
+        <TutorialProvider tutorial={content.tutorial}>
           {error && <p role="status">{error}</p>}
           <AuthoringActivityContext.Provider
             value={version === undefined ? activity : undefined}

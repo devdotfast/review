@@ -1,17 +1,12 @@
 {
   "version": 1,
-  "reviewFiles": ["review.mdx", "data.ts", "authoring-conversation.json"],
+  "reviewFiles": ["document.json", "trace.json", "software-map.json"],
   "requiredPaths": [
     "sample-service/package.json",
-    "review.mdx",
-    "data.ts",
-    "authoring-conversation.json",
-    "software-map.ts",
-    "git-stub/HEAD",
-    ".bundle/document/review-document.json",
-    ".bundle/document/manifest.json",
-    ".bundle/software-map/head-map.json",
-    ".bundle/software-map/base-map.json",
-    ".bundle/software-map/manifest.json"
+    "document.json",
+    "trace.json",
+    "software-map.json",
+    "pins.json",
+    "git-stub/HEAD"
   ]
 }

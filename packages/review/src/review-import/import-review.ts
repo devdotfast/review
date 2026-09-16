@@ -177,6 +177,7 @@ export async function importLegacyReview(
   const versions: ImportedVersionInput[] = [];
   let lastWarnings: string[] = [];
   let previousRaw: string | null = null;
+
   const origin = originFrom(record);
 
   const traces = new TraceResolver({
@@ -305,6 +306,8 @@ export async function importLegacyReview(
         ? (record.lastPublishedAt ?? now().toISOString())
         : record.createdAt;
 
+    const versionOrigin = isLast ? origin : originFrom(sealedRecord);
+
     versions.push({
       reviewId,
       title: (isLast ? record.title : sealedRecord.title) || document.title,
@@ -312,7 +315,7 @@ export async function importLegacyReview(
       document: blocks,
       createdAt,
       origin: {
-        ...(isLast ? origin : originFrom(sealedRecord)),
+        ...versionOrigin,
         revision: entry.oid,
       },
     });

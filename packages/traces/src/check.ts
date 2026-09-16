@@ -10,7 +10,6 @@ import {
   type CliJsonOutput,
   StoreApiError,
   StoreClient,
-  type TraceHookOwner,
   type TraceScope,
   type TraceSyncFailure,
   agentTraceHookPath,

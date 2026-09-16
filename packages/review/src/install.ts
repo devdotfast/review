@@ -8,6 +8,7 @@ import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
 import {
   type AgentTraceHookInstallResult,
   type TraceCredentialsInput,
+  type TraceHookOwner,
   configureTraceMachine,
   emitJsonEvent,
   failWithJsonError,
@@ -173,6 +174,7 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     traceEnabled || (await traceMachineEnabled({ homeDir, env }));
 
   const installed: InstalledItem[] = [];
+  const keptHooks: { target: InstallTarget; owner: TraceHookOwner }[] = [];
   const visitedRoots = new Set<string>();
 
   for (const target of input.targets) {
@@ -235,6 +237,7 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     }
 
     if (hook?.kept) {
+      keptHooks.push({ target, owner: hook.kept });
       human.write(
         `[skip] kept the ${target} trace hook that ${hook.kept} installed\n`,
       );
@@ -308,6 +311,7 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     targets: input.targets,
     skills: skillDirs.map((skill) => skill.name),
     items: installed,
+    keptHooks,
     gitNotesConfigured,
     traceEnabled,
   });

@@ -417,6 +417,7 @@ export async function runTraceAllow(
       repositoryId: store.repositoryId,
       name: store.displayName,
       store: storeOrigin,
+      keptHooks: kept,
     });
 
     const verifyCommand =

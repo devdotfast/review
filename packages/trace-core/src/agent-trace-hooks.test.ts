@@ -440,9 +440,35 @@ describe("hook coexistence", () => {
     const tracesShim = path.join(home, ".local", "bin", "dev-traces");
     await mkdir(path.dirname(reviewShim), { recursive: true });
     await writeFile(reviewShim, "#!/bin/sh\n");
+    await writeFile(tracesShim, "#!/bin/sh\n");
+
+    // The app install keeps a live dev-traces hook.
+    for (const install of installers) {
+      await install(home, tracesShim);
+      expect(await install(home, reviewShim)).toMatchObject({
+        modified: false,
+        kept: "dev-traces",
+      });
+    }
+
+    expect(await describeTraceHookOwners(home)).toEqual({
+      claude: "dev-traces",
+      codex: "dev-traces",
+      pi: "dev-traces",
+      opencode: "dev-traces",
+    });
+
+    // Once dev-traces is gone, review takes the hooks, and then keeps them
+    // against a dev-traces install.
+    await rm(tracesShim);
 
     for (const install of installers) {
-      await install(home, reviewShim);
+      expect((await install(home, reviewShim)).modified).toBe(true);
+    }
+
+    await writeFile(tracesShim, "#!/bin/sh\n");
+
+    for (const install of installers) {
       expect(await install(home, tracesShim)).toMatchObject({
         modified: false,
         kept: "review",

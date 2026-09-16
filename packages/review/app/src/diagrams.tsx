@@ -259,6 +259,7 @@ export function SequenceDiagram(block: SequenceDiagramProps) {
     () => sequenceView({ id, title, actors, steps }),
     [id, title, actors, steps],
   );
+
   const session = useReviewSession();
   const { theme } = useReviewDebugSettings();
   const tour = useMemo(() => createSequenceTourEntry(sequence), [sequence]);

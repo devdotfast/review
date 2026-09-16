@@ -33,7 +33,6 @@ import type {
   SequenceMessageCodeInput,
   SequenceMessageInput,
 } from "../../src/authoring";
-import { validatedCodePeekInputFromRef } from "./CodePeek";
 import { useReviewDebugSettings } from "./debug-settings";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
@@ -323,8 +322,8 @@ export function createSequenceTourEntry(sequence: SequenceRef): GuidedTour {
           }
         : message.anchor.peek
           ? {
-              kind: "resolved-code" as const,
-              input: validatedCodePeekInputFromRef(message.anchor.peek),
+              kind: "source" as const,
+              source: message.anchor.peek,
             }
           : { kind: "explanation" as const, text: message.explanation },
     })),

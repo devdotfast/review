@@ -4,7 +4,7 @@ import {
   PROSE_TAGS,
   REVIEW_DOCUMENT_FORMAT,
   reviewDocumentDataSchema,
-  toReviewDocumentJson,
+  upgradeReviewDocumentJson,
   walkReviewNodes,
 } from "./review-document-data";
 
@@ -12,11 +12,7 @@ const anchor = {
   __kind: "db-anchor-ref",
   id: "a",
   title: "A",
-  peek: {
-    __kind: "code-peek-ref",
-    props: { file: "x.ts", fromLine: 1, toLine: 2 },
-    resolution: null,
-  },
+  peek: { side: "head", file: "x.ts", fromLine: 1, toLine: 2 },
 };
 
 const base = {
@@ -241,47 +237,93 @@ describe("review document data", () => {
     ).toBe(true);
   });
 
-  it("rejects anchors whose peek resolution was not stripped", () => {
-    const resolvedAnchor = {
-      ...anchor,
-      peek: { ...anchor.peek, resolution: { snapshot: {} } },
-    };
-
-    expect(
-      reviewDocumentDataSchema.safeParse({
-        ...base,
-        body: [],
-        anchors: { a: resolvedAnchor },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("projects a materialized document to JSON with peek resolutions stripped", () => {
-    const input = {
-      body: [
-        {
+  it("upgrades stored code-peek refs to plain source ranges, anywhere", () => {
+    const stored = {
+      anchors: {
+        a: {
+          __kind: "db-anchor-ref",
+          id: "a",
+          title: "A",
           peek: {
             __kind: "code-peek-ref",
-            props: { file: "a.ts", fromLine: 1, toLine: 2 },
-            resolution: { snapshot: { roots: [], resolved: {} } },
-          },
-        },
-      ],
-    };
-
-    const json = toReviewDocumentJson(input);
-    expect(json).toEqual({
-      body: [
-        {
-          peek: {
-            __kind: "code-peek-ref",
-            props: { file: "a.ts", fromLine: 1, toLine: 2 },
+            props: {
+              file: "src/a.ts",
+              fromLine: 2,
+              toLine: 4,
+              graph: "base",
+              theme: "dark",
+            },
             resolution: null,
           },
         },
+      },
+      body: [
+        {
+          type: "component",
+          name: "CallStackDiff",
+          props: {
+            base: [
+              {
+                __kind: "db-anchor-ref",
+                id: "a",
+                title: "A",
+                peek: {
+                  __kind: "code-peek-ref",
+                  props: { file: "src/a.ts", fromLine: 2, toLine: 4 },
+                  resolution: null,
+                },
+              },
+            ],
+          },
+          children: [],
+        },
+      ],
+    };
+
+    expect(upgradeReviewDocumentJson(stored)).toEqual({
+      anchors: {
+        a: {
+          __kind: "db-anchor-ref",
+          id: "a",
+          title: "A",
+          peek: { side: "base", file: "src/a.ts", fromLine: 2, toLine: 4 },
+        },
+      },
+      body: [
+        {
+          type: "component",
+          name: "CallStackDiff",
+          props: {
+            base: [
+              {
+                __kind: "db-anchor-ref",
+                id: "a",
+                title: "A",
+                peek: {
+                  side: "head",
+                  file: "src/a.ts",
+                  fromLine: 2,
+                  toLine: 4,
+                },
+              },
+            ],
+          },
+          children: [],
+        },
       ],
     });
-    expect(input.body[0]!.peek.resolution).not.toBeNull();
+  });
+
+  it("leaves already-upgraded documents byte-identical", () => {
+    const current = {
+      anchors: {
+        a: { peek: { side: "head", file: "f", fromLine: 1, toLine: 1 } },
+      },
+    };
+
+    expect(JSON.stringify(upgradeReviewDocumentJson(current))).toBe(
+      JSON.stringify(current),
+    );
   });
 
   it("walks components with their parent", () => {

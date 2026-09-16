@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { parseJsonText } from "@dev.fast/review-protocol";
 import {
   errorMessage,
   extractTraceEventText,
@@ -9,8 +11,7 @@ import {
 import {
   type CallStackDiffProps,
   type CodePeekProps,
-  type CodePeekResolution,
-  type CodePeekResolutionContext,
+  type CodePeekValidationContext,
   type ReviewDefinitionSession,
   callStackEntryAnchor,
   calls,
@@ -26,7 +27,6 @@ import {
   REVIEW_DOCUMENT_FORMAT,
   type ReviewDocumentData,
   reviewDocumentDataSchema,
-  toReviewDocumentJson,
 } from "./review-document-data";
 import {
   type CollectedReviewAnchors,
@@ -52,7 +52,11 @@ import {
   softwareModelData,
   softwareModelDataSchema,
 } from "./software-map-model";
-import { resolveReviewSourceRange } from "./source-range-resolver";
+import {
+  checkSourcePath,
+  requireVisibleSource,
+  sliceSourceRange,
+} from "./source";
 import { span, startSpan } from "./startup-trace";
 
 export interface ReviewPublishSourceTarget {
@@ -128,35 +132,14 @@ export async function evaluateReviewDocumentForPublish(
     return (evidencePromise ??= input.prepareEvidence());
   };
 
-  const resolveCodePeek = async (
+  const validateCodePeek = async (
     props: CodePeekProps,
-    context?: CodePeekResolutionContext,
-  ): Promise<CodePeekResolution> => {
+    context?: CodePeekValidationContext,
+  ): Promise<void> => {
     peekCount += 1;
     rangePeeks.push({ ...props, anchorId: context?.anchorId });
 
-    if (ranges === "skip") {
-      const sourceId = `source-range:${props.file}:${props.fromLine}-${props.toLine}`;
-
-      return {
-        snapshot: {
-          roots: [{ kind: "source", sourceId }],
-          resolved: {
-            [sourceId]: {
-              source: {
-                id: sourceId,
-                name: props.file,
-                kind: "source-range",
-                file: props.file,
-                line: props.fromLine,
-                endLine: props.toLine,
-              },
-              lines: [[{ t: props.file, k: "t" }]],
-            },
-          },
-        },
-      };
-    }
+    if (ranges === "skip") return;
 
     const peekSpan = startSpan("evaluate: code peek", {
       detail: `${props.graph ?? "head"} ${props.file}:${props.fromLine}-${props.toLine}`,
@@ -170,19 +153,23 @@ export async function evaluateReviewDocumentForPublish(
         throw new Error("The pinned base worktree is unavailable.");
       }
 
-      const snapshot = await resolveReviewSourceRange({
-        rootPath: primary.sourceRootPath,
-        root: {
-          kind: "range",
-          file: props.file,
-          fromLine: props.fromLine,
-          toLine: props.toLine,
-        },
-      });
+      // Authors may write "./src/x.ts"; the shared check wants the
+      // repository-relative form, and the pinned worktree read tolerates both.
+      const range = {
+        file: path.posix.normalize(props.file),
+        fromLine: props.fromLine,
+        toLine: props.toLine,
+      };
 
+      checkSourcePath(range.file);
+
+      const text = await readFile(
+        path.join(primary.sourceRootPath, range.file),
+        "utf8",
+      );
+
+      requireVisibleSource(sliceSourceRange(text, range), range);
       peekSpan.end();
-
-      return { snapshot };
     } catch (error) {
       peekSpan.fail();
       const message = `Code peek range ${props.file}:${props.fromLine}-${props.toLine}: ${errorMessage(error)}`;
@@ -199,7 +186,7 @@ export async function evaluateReviewDocumentForPublish(
     createSession: (session) => {
       sessions.push(session);
     },
-    resolveCodePeek,
+    validateCodePeek,
     reportAuditError: (message) => {
       if (!failures.includes(message)) failures.push(message);
     },
@@ -367,7 +354,7 @@ async function validateCallStackEvidence(input: {
     for (const row of rows) {
       if (row.change === "unchanged") continue;
       const side: CallStackSide = row.change === "removed" ? "base" : "head";
-      const file = callStackEntryAnchor(row.entry).peek.props.file;
+      const file = callStackEntryAnchor(row.entry).peek.file;
       const key = `${side}\0${file}`;
 
       if (!changedLines.has(key)) {
@@ -468,16 +455,18 @@ function assembleReviewDocument(input: {
   softwareModels: SoftwareModelData[];
 }): { document: ReviewDocumentData } | { errors: string[] } {
   const parsed = reviewDocumentDataSchema.safeParse(
-    toReviewDocumentJson({
-      format: REVIEW_DOCUMENT_FORMAT,
-      title: input.document.title,
-      routePath: input.document.routePath,
-      sourcePath: path.basename(input.document.filePath),
-      body: input.body,
-      anchors: input.anchors.anchors,
-      anchorContents: input.anchors.anchorContents,
-      softwareModels: input.softwareModels,
-    }),
+    parseJsonText(
+      JSON.stringify({
+        format: REVIEW_DOCUMENT_FORMAT,
+        title: input.document.title,
+        routePath: input.document.routePath,
+        sourcePath: path.basename(input.document.filePath),
+        body: input.body,
+        anchors: input.anchors.anchors,
+        anchorContents: input.anchors.anchorContents,
+        softwareModels: input.softwareModels,
+      }),
+    ),
   );
 
   return parsed.success
@@ -509,10 +498,10 @@ interface PublishDocumentCapture {
 function validationRuntimeExports(input: {
   captureDefinition: (value: ReviewDocumentExport) => void;
   createSession: (session: ReviewDefinitionSession) => void;
-  resolveCodePeek: (
+  validateCodePeek: (
     props: CodePeekProps,
-    context?: CodePeekResolutionContext,
-  ) => Promise<CodePeekResolution>;
+    context?: CodePeekValidationContext,
+  ) => Promise<void>;
   reportAuditError: (message: string) => void;
   collectCallStackDiff: (props: CallStackDiffProps) => void;
   collectTraceQuote: (quote: PublishAuditTraceQuote) => void;
@@ -546,7 +535,7 @@ function validationRuntimeExports(input: {
         softwareMap: sessionInput.softwareMap ?? null,
         baseSoftwareMap: sessionInput.baseSoftwareMap ?? null,
         mapDependentComponents: sessionInput.mapDependentComponents,
-        resolveCodePeek: input.resolveCodePeek,
+        validateCodePeek: input.validateCodePeek,
       });
 
       input.createSession(session);

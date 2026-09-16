@@ -676,3 +676,33 @@ it("exposes real source and resource operations through the authenticated deskto
     await server.close();
   }
 });
+
+it("rejects a code peek on blank lines but accepts a prose link to them", async () => {
+  mkdirSync(path.join(repository, "src"));
+  writeFileSync(
+    path.join(repository, "src/blank.ts"),
+    "export const a = 1;\n\n\n// end\n",
+  );
+  git("add", ".");
+  git("-c", "commit.gpgsign=false", "commit", "-qm", "Blank lines");
+
+  const blankPins = await local.data.resolvePins(
+    pins.repositoryId,
+    "HEAD^",
+    "HEAD",
+  );
+
+  const blank = {
+    side: "head",
+    file: "src/blank.ts",
+    fromLine: 2,
+    toLine: 3,
+  } as const;
+
+  await expect(
+    local.data.validateSource(blankPins, blank, { peek: true }),
+  ).rejects.toThrow("src/blank.ts:2-3 contains only whitespace");
+  await expect(
+    local.data.validateSource(blankPins, blank, { peek: false }),
+  ).resolves.toBeUndefined();
+});

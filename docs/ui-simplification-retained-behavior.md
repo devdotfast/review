@@ -13,3 +13,23 @@ The post-comments UI cleanup leaves these candidates in place:
 - The README hero and four redesign PNGs remain out of scope. The hero still needs a separate capture reflecting the removed Ask/Threads UI.
 
 Runtime code-peek resolution and its success/failure telemetry are removed. Source validation remains part of publication. Native editors still report unavailable sources locally, and native headers retain exact authored-range counts, including original grouped selections before display-range merging.
+
+## E: canonical source ranges
+
+- `AnchorRef.peek` is the canonical `Source` (`{ side, file, fromLine, toLine }`)
+  from `packages/review/src/source.ts`. The authoring *input* (`peek: { file,
+  fromLine, toLine, graph?, theme? }`) is unchanged; `graph` maps to `side`
+  (default `head`) and `theme` is accepted but no longer carried.
+- Sealed bundles written before this change store
+  `{ __kind: "code-peek-ref", props, resolution: null }`. The server upgrades
+  them when it reads the bundle (`readReviewDocumentBundle`); files on disk
+  are not rewritten.
+- `ReviewDefinitionEnvironment.resolveCodePeek` became `validateCodePeek`,
+  returning `void`; `CodePeekResolutionContext` is `CodePeekValidationContext`.
+- Path, bounds and blank-range checks are shared by legacy publish and JSON
+  accept (`source.ts`). Legacy still reads the pinned worktree; JSON reads the
+  blob at the pinned commit. The blank-range rule applies to code peeks only.
+- The peek side panel content is `{ kind: "source", source }`; `CodePeekCard`
+  and `CodePeekGroup` take `Source` values. JSON `code_peek` blocks render
+  directly, with no source-text fetch during document load.
+- JSON commands still commit without the off-screen test-render gate.

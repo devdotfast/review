@@ -172,13 +172,10 @@
               "id": "placeOrder",
               "title": "Order service creates the order",
               "peek": {
-                "__kind": "code-peek-ref",
-                "props": {
-                  "file": "src/orders/order-service.ts",
-                  "fromLine": 13,
-                  "toLine": 29
-                },
-                "resolution": null
+                "side": "head",
+                "file": "src/orders/order-service.ts",
+                "fromLine": 13,
+                "toLine": 29
               },
               "softwareMapPath": "orderService.application.orders"
             }
@@ -205,13 +202,10 @@
                   "id": "placeOrder",
                   "title": "Order service creates the order",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "src/orders/order-service.ts",
-                      "fromLine": 13,
-                      "toLine": 29
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "src/orders/order-service.ts",
+                    "fromLine": 13,
+                    "toLine": 29
                   },
                   "softwareMapPath": "orderService.application.orders"
                 }
@@ -411,13 +405,10 @@
               "id": "validateInventory",
               "title": "Inventory rejects invalid quantities",
               "peek": {
-                "__kind": "code-peek-ref",
-                "props": {
-                  "file": "src/inventory/inventory-service.ts",
-                  "fromLine": 4,
-                  "toLine": 8
-                },
-                "resolution": null
+                "side": "head",
+                "file": "src/inventory/inventory-service.ts",
+                "fromLine": 4,
+                "toLine": 8
               },
               "softwareMapPath": "orderService.application.orders"
             }
@@ -587,13 +578,10 @@
                   "id": "checkout",
                   "title": "Checkout API calls the order service",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "src/api/checkout-api.ts",
-                      "fromLine": 12,
-                      "toLine": 15
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "src/api/checkout-api.ts",
+                    "fromLine": 12,
+                    "toLine": 15
                   },
                   "softwareMapPath": "orderService.api.checkout"
                 }
@@ -617,13 +605,10 @@
                   "id": "placeOrder",
                   "title": "Order service creates the order",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "src/orders/order-service.ts",
-                      "fromLine": 13,
-                      "toLine": 29
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "src/orders/order-service.ts",
+                    "fromLine": 13,
+                    "toLine": 29
                   },
                   "softwareMapPath": "orderService.application.orders"
                 }
@@ -647,13 +632,10 @@
                   "id": "insertOrder",
                   "title": "Repository writes and queues the order",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "src/orders/orders-repository.ts",
-                      "fromLine": 9,
-                      "toLine": 12
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "src/orders/orders-repository.ts",
+                    "fromLine": 9,
+                    "toLine": 12
                   },
                   "softwareMapPath": "orderService.data.ordersRepository"
                 }
@@ -677,13 +659,10 @@
                   "id": "dequeue",
                   "title": "Queue gives work to the fulfillment worker",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "src/fulfillment/fulfillment-worker.ts",
-                      "fromLine": 13,
-                      "toLine": 14
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "src/fulfillment/fulfillment-worker.ts",
+                    "fromLine": 13,
+                    "toLine": 14
                   },
                   "softwareMapPath": "orderService.fulfillment.worker"
                 }
@@ -707,13 +686,10 @@
                   "id": "ship",
                   "title": "Worker creates the shipment",
                   "peek": {
-                    "__kind": "code-peek-ref",
-                    "props": {
-                      "file": "src/fulfillment/fulfillment-worker.ts",
-                      "fromLine": 17,
-                      "toLine": 19
-                    },
-                    "resolution": null
+                    "side": "head",
+                    "file": "src/fulfillment/fulfillment-worker.ts",
+                    "fromLine": 17,
+                    "toLine": 19
                   },
                   "softwareMapPath": "orderService.fulfillment.worker"
                 }
@@ -763,8 +739,8 @@
                     "schema": {
                       "id": {
                         "type": "text",
-                        "pk": true,
-                        "example": "order-customer-42"
+                        "example": "order-customer-42",
+                        "pk": true
                       },
                       "customerId": {
                         "type": "text",
@@ -825,13 +801,10 @@
                       "id": "insertOrder",
                       "title": "Repository writes and queues the order",
                       "peek": {
-                        "__kind": "code-peek-ref",
-                        "props": {
-                          "file": "src/orders/orders-repository.ts",
-                          "fromLine": 9,
-                          "toLine": 12
-                        },
-                        "resolution": null
+                        "side": "head",
+                        "file": "src/orders/orders-repository.ts",
+                        "fromLine": 9,
+                        "toLine": 12
                       },
                       "softwareMapPath": "orderService.data.ordersRepository"
                     }
@@ -875,13 +848,10 @@
                       "id": "ship",
                       "title": "Worker creates the shipment",
                       "peek": {
-                        "__kind": "code-peek-ref",
-                        "props": {
-                          "file": "src/fulfillment/fulfillment-worker.ts",
-                          "fromLine": 17,
-                          "toLine": 19
-                        },
-                        "resolution": null
+                        "side": "head",
+                        "file": "src/fulfillment/fulfillment-worker.ts",
+                        "fromLine": 17,
+                        "toLine": 19
                       },
                       "softwareMapPath": "orderService.fulfillment.worker"
                     }
@@ -1020,13 +990,10 @@
       "id": "checkout",
       "title": "Checkout API calls the order service",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "src/api/checkout-api.ts",
-          "fromLine": 12,
-          "toLine": 15
-        },
-        "resolution": null
+        "side": "head",
+        "file": "src/api/checkout-api.ts",
+        "fromLine": 12,
+        "toLine": 15
       },
       "softwareMapPath": "orderService.api.checkout"
     },
@@ -1035,13 +1002,10 @@
       "id": "placeOrder",
       "title": "Order service creates the order",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "src/orders/order-service.ts",
-          "fromLine": 13,
-          "toLine": 29
-        },
-        "resolution": null
+        "side": "head",
+        "file": "src/orders/order-service.ts",
+        "fromLine": 13,
+        "toLine": 29
       },
       "softwareMapPath": "orderService.application.orders"
     },
@@ -1050,13 +1014,10 @@
       "id": "insertOrder",
       "title": "Repository writes and queues the order",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "src/orders/orders-repository.ts",
-          "fromLine": 9,
-          "toLine": 12
-        },
-        "resolution": null
+        "side": "head",
+        "file": "src/orders/orders-repository.ts",
+        "fromLine": 9,
+        "toLine": 12
       },
       "softwareMapPath": "orderService.data.ordersRepository"
     },
@@ -1065,13 +1026,10 @@
       "id": "validateInventory",
       "title": "Inventory rejects invalid quantities",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "src/inventory/inventory-service.ts",
-          "fromLine": 4,
-          "toLine": 8
-        },
-        "resolution": null
+        "side": "head",
+        "file": "src/inventory/inventory-service.ts",
+        "fromLine": 4,
+        "toLine": 8
       },
       "softwareMapPath": "orderService.application.orders"
     },
@@ -1080,13 +1038,10 @@
       "id": "dequeue",
       "title": "Queue gives work to the fulfillment worker",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "src/fulfillment/fulfillment-worker.ts",
-          "fromLine": 13,
-          "toLine": 14
-        },
-        "resolution": null
+        "side": "head",
+        "file": "src/fulfillment/fulfillment-worker.ts",
+        "fromLine": 13,
+        "toLine": 14
       },
       "softwareMapPath": "orderService.fulfillment.worker"
     },
@@ -1095,13 +1050,10 @@
       "id": "ship",
       "title": "Worker creates the shipment",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "src/fulfillment/fulfillment-worker.ts",
-          "fromLine": 17,
-          "toLine": 19
-        },
-        "resolution": null
+        "side": "head",
+        "file": "src/fulfillment/fulfillment-worker.ts",
+        "fromLine": 17,
+        "toLine": 19
       },
       "softwareMapPath": "orderService.fulfillment.worker"
     },
@@ -1110,13 +1062,10 @@
       "id": "ordersTable",
       "title": "Orders table",
       "peek": {
-        "__kind": "code-peek-ref",
-        "props": {
-          "file": "src/database/schema.ts",
-          "fromLine": 1,
-          "toLine": 10
-        },
-        "resolution": null
+        "side": "head",
+        "file": "src/database/schema.ts",
+        "fromLine": 1,
+        "toLine": 10
       },
       "softwareMapPath": "orderService.data.ordersDatabase"
     }

@@ -135,8 +135,8 @@ async function prepare(input: AuthoredReviewCase) {
       } else {
         const referenced = new Set(
           Object.values(expected.anchors).flatMap((anchor) =>
-            anchor.peek && (anchor.peek.props.graph ?? "head") === graph
-              ? [anchor.peek.props.file]
+            anchor.peek && (anchor.peek.side ?? "head") === graph
+              ? [anchor.peek.file]
               : [],
           ),
         );

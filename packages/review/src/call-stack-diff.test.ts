@@ -4,6 +4,7 @@ import {
   type PeekableAnchorRef,
   callStackDiffPropsSchema,
   calls,
+  codePeekSource,
 } from "./authoring";
 import {
   callStackConnectorPrefix,
@@ -32,11 +33,7 @@ function anchor(id: string, graph?: "base" | "head"): PeekableAnchorRef {
     __kind: "db-anchor-ref",
     id,
     title: `Anchor ${id}`,
-    peek: {
-      __kind: "code-peek-ref",
-      props,
-      resolution: null,
-    },
+    peek: codePeekSource(props),
   }) as PeekableAnchorRef;
 }
 

@@ -93,17 +93,102 @@ export function registerTraceCaptureCommands(
     },
   );
 
-  configureJsonOutput(
+  const repositoryCwd = (repoPath: string | undefined): string =>
+    repoPath ? path.resolve(cwd, repoPath) : cwd;
+
+  const createStore = async (
+    repoPath: string | undefined,
+    options: { json?: boolean },
+  ): Promise<void> => {
+    settings.setExitCode(
+      await runtime.runTraceOnboard({
+        scope,
+        cwd: repositoryCwd(repoPath),
+        json: options.json,
+        stdout: settings.stdout,
+        stderr: settings.stderr,
+      }),
+    );
+  };
+
+  const store = configureOutput(
     trace
-      .command("onboard [path]")
-      .description("Create the hosted trace store for one repository"),
+      .command("store")
+      .description("Manage this repository's hosted trace store"),
+  );
+
+  configureJsonOutput(
+    store
+      .command("create [path]")
+      .description(
+        "Create the hosted trace store for one repository (needs push access)",
+      ),
+  ).action(createStore);
+
+  configureJsonOutput(
+    store
+      .command("delete [path]")
+      .description(
+        "Delete the hosted trace store of one repository (admins only)",
+      ),
   ).action(
     async (repoPath: string | undefined, options: { json?: boolean }) => {
       settings.setExitCode(
-        await runtime.runTraceOnboard({
+        await runtime.runTraceStoreDelete({
           scope,
-          cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+          cwd: repositoryCwd(repoPath),
           json: options.json,
+          stdout: settings.stdout,
+          stderr: settings.stderr,
+        }),
+      );
+    },
+  );
+
+  configureJsonOutput(
+    store
+      .command("info [path]")
+      .description("Show the hosted trace store of one repository"),
+  ).action(
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
+      settings.setExitCode(
+        await runtime.runTraceStoreInfo({
+          scope,
+          cwd: repositoryCwd(repoPath),
+          json: options.json,
+          stdout: settings.stdout,
+          stderr: settings.stderr,
+        }),
+      );
+    },
+  );
+
+  configureJsonOutput(
+    trace
+      .command("install")
+      .description("Install the agent hooks on this machine")
+      .option(
+        "--no-harness-hooks",
+        "skip the Claude, Codex, OpenCode, and pi hook installers",
+      )
+      .option(
+        "--all-harnesses",
+        "write every harness hook, even for a harness this machine lacks",
+      ),
+  ).action(
+    async (options: {
+      json?: boolean;
+      harnessHooks?: boolean;
+      allHarnesses?: boolean;
+    }) => {
+      settings.setExitCode(
+        await runtime.runTraceInstallMachine({
+          scope,
+          json: options.json,
+          harnessHooks: options.harnessHooks,
+          allHarnesses: options.allHarnesses,
+          traceCommand,
+          installMachine: settings.installMachine,
           stdout: settings.stdout,
           stderr: settings.stderr,
         }),
@@ -118,19 +203,29 @@ export function registerTraceCaptureCommands(
       .option(
         "--no-harness-hooks",
         "skip the Claude, Codex, OpenCode, and pi hook installers",
+      )
+      .option(
+        "--all-harnesses",
+        "write every harness hook, even for a harness this machine lacks",
       ),
   ).action(
     async (
       repoPath: string | undefined,
-      options: { json?: boolean; harnessHooks?: boolean },
+      options: {
+        json?: boolean;
+        harnessHooks?: boolean;
+        allHarnesses?: boolean;
+      },
     ) => {
       settings.setExitCode(
         await runtime.runTraceAllow({
           scope,
-          cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+          cwd: repositoryCwd(repoPath),
           json: options.json,
           harnessHooks: options.harnessHooks,
+          allHarnesses: options.allHarnesses,
           traceCommand,
+          verifyCommand: settings.verifyCommand,
           stdout: settings.stdout,
           stderr: settings.stderr,
         }),
@@ -143,22 +238,14 @@ export function registerTraceCaptureCommands(
       .command("deny [path]")
       .description(
         "Stop publishing traces from one repository to the hosted store",
-      )
-      .option(
-        "--delete-store",
-        "also delete the hosted store; needs repository admin access",
       ),
   ).action(
-    async (
-      repoPath: string | undefined,
-      options: { json?: boolean; deleteStore?: boolean },
-    ) => {
+    async (repoPath: string | undefined, options: { json?: boolean }) => {
       settings.setExitCode(
         await runtime.runTraceDeny({
           scope,
-          cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+          cwd: repositoryCwd(repoPath),
           json: options.json,
-          deleteStore: options.deleteStore,
           stdout: settings.stdout,
           stderr: settings.stderr,
         }),
@@ -174,7 +261,7 @@ export function registerTraceCaptureCommands(
     settings.setExitCode(
       await runtime.runTraceEnable({
         scope,
-        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        cwd: repositoryCwd(repoPath),
         stdout: settings.stdout,
         stderr: settings.stderr,
         traceCommand,
@@ -185,12 +272,12 @@ export function registerTraceCaptureCommands(
   configureOutput(
     trace
       .command("disable [path]")
-      .description("Disable Review trace hooks for one Git repository"),
+      .description("Disable the trace hooks of one Git repository"),
   ).action(async (repoPath?: string) => {
     settings.setExitCode(
       await runtime.runTraceDisable({
         scope,
-        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        cwd: repositoryCwd(repoPath),
         stdout: settings.stdout,
       }),
     );
@@ -199,12 +286,12 @@ export function registerTraceCaptureCommands(
   configureOutput(
     trace
       .command("repair [path]")
-      .description("Repair Review trace hooks for one Git repository"),
+      .description("Repair the trace hooks of one Git repository"),
   ).action(async (repoPath?: string) => {
     settings.setExitCode(
       await runtime.runTraceRepair({
         scope,
-        cwd: repoPath ? path.resolve(cwd, repoPath) : cwd,
+        cwd: repositoryCwd(repoPath),
         stdout: settings.stdout,
         stderr: settings.stderr,
         traceCommand,

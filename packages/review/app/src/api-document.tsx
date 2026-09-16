@@ -250,6 +250,7 @@ const DocumentNode = memo(function DocumentNode({
         <ReviewSection
           stateKey={`${data.snapshot.reviewId}:${node.id}`}
           title={node.title}
+          id={node.id}
           defaultCollapsed={node.defaultCollapsed}
         >
           {children(node.children)}

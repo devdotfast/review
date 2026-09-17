@@ -528,7 +528,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	override async clearInput(): Promise<void> {
-		this.apiContent = undefined;
+		// Keep apiContent with the mounted canvas so resuming it preserves its review identity.
+		// render() replaces both when another input is shown.
 		this.refreshProgress.stop();
 		await super.clearInput();
 	}

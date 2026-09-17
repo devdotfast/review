@@ -167,7 +167,8 @@ export function createReviewApi(
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
-    void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
+    if (review.target?.kind !== "worktree")
+      void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
 
     const settings = await open({
       reviewId: review.reviewId,
@@ -342,6 +343,17 @@ export function createReviewApi(
         .parse(context.req.query());
 
       const snapshot = store.read(context.req.param("id"), input.version);
+
+      if (snapshot.target?.kind === "worktree") {
+        const local = await data.languageContext(snapshot.pins.repositoryId);
+
+        return context.json({
+          ...local,
+          generation: local.rootPath ?? "unavailable",
+          state: local.rootPath ? "ready" : "failed",
+        });
+      }
+
       const pins = await data.comparison(snapshot.pins, input.commit);
 
       return context.json(

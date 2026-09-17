@@ -12,8 +12,10 @@ type ReviewTarget =
   | { kind: "commits"; repositoryId: string; head: string; base?: string };
 ```
 
-`repositoryId` identifies one registered local checkout. There is no worktree ID,
-checkout creation, dependency installation, or automatic repository selection.
+`repositoryId` identifies one registered local checkout. Worktree targets reuse
+that checkout without preparation. Commit targets use Review-owned checkouts at
+their resolved commits, prepared through the existing `devfast.prepare` Git config.
+There is no separate environment-selection field or automatic repository selection.
 
 | Target | Source | Comparison |
 | --- | --- | --- |
@@ -29,14 +31,15 @@ the original result even after a branch moves.
 
 ## Delivery phases
 
-1. Restore working-file source and native local LSP through the JSON API. Keep
+1. Restore prepared base/head environments for the existing JSON pins API (#332).
+2. Restore working-file source and native local LSP through the JSON API (#335). Keep
    explicit committed targets and compatibility adapters for `pins` / `repin`.
    Retargeting preserves content and component IDs and returns repair warnings.
-2. Support a whole worktree without base, including clean and unborn repositories.
+3. Support a whole worktree without base (#333), including clean and unborn repositories.
    Retain source generations independently of authored history; carry generations
    through source trees, peeks, full files, diffs and language-service requests.
 
-Both phases use `review_create({commandId,title,target})` and
+The live-target phases use `review_create({commandId,title,target})` and
 `review_set_target({commandId,reviewId,target})`. Existing records remain committed
 reviews until explicitly retargeted. No migration rewrites historical versions.
 
@@ -84,7 +87,11 @@ When integrating that branch:
   after the chosen checkout changes. These tests belong with that branch's
   importer and attachment implementation.
 
-Explicit creation of a pinned checkout remains deferred.
+Commit targets automatically acquire matching prepared checkouts on open or language access.
+Worktree targets, including their base side and retained versions, never do.
+Historical worktree queries can therefore reflect current project semantics;
+line mapping protects positions rather than reproducing historical dependencies.
+Preparation status, logs, and retry are local state, excluded from shared documents.
 
 ## Validation
 

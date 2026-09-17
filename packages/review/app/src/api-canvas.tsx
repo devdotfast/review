@@ -301,10 +301,12 @@ export function ApiCanvas({
             <DisplayedReviewVersionContext.Provider
               value={data.snapshot.version}
             >
-              <ProjectPreparation
-                client={client}
-                reviewId={data.snapshot.reviewId}
-              />
+              {data.snapshot.target?.kind !== "worktree" && (
+                <ProjectPreparation
+                  client={client}
+                  reviewId={data.snapshot.reviewId}
+                />
+              )}
               <RevealAfterFirstPaint>
                 <MapEnabled.Provider
                   value={content.softwareMapEnabled === true}

@@ -1271,6 +1271,13 @@ try {
   );
 
   const repositoryId = live.pins.repositoryId;
+  const liveTreesBefore = await git(
+    liveFixture.repo,
+    "worktree",
+    "list",
+    "--porcelain",
+  );
+
   await probe({ command: "workbench.action.closeModalEditor" });
   await api(`/${live.reviewId}/open`, "POST");
 
@@ -1319,6 +1326,46 @@ try {
   await record(
     "worktree JSON review uses real native TypeScript and Python language services",
   );
+  await writeFile(
+    path.join(liveFixture.repo, "library.ts"),
+    "// shifted locally\n" + libraryText("number", "42"),
+  );
+  await expectHover(uri(live), greetAt, "number");
+  await expectDefinition(
+    uri(live),
+    greetAt,
+    path.join(liveFixture.repo, "library.ts"),
+    3,
+  );
+  await writeFile(
+    path.join(liveFixture.repo, "main.ts"),
+    mainText("head").replace(
+      "export const value = greet();",
+      "export const value = service.run();",
+    ),
+  );
+  const changedLiveLine = await probe({
+    uri: uri(live),
+    ...greetAt,
+    feature: definition,
+    open: true,
+  });
+  assert.equal(changedLiveLine.result?.length ?? 0, 0);
+  await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
+  await writeFile(
+    path.join(liveFixture.repo, "library.ts"),
+    libraryText("string", JSON.stringify("live")),
+  );
+  assert.equal(
+    await git(liveFixture.repo, "worktree", "list", "--porcelain"),
+    liveTreesBefore,
+  );
+  assert.deepEqual(await api(`/${live.reviewId}/workspaces`), []);
+  await assert.rejects(readFile(path.join(liveFixture.repo, ".prepare-count")));
+  await record(
+    "retained worktree source borrows current semantics conservatively without running preparation",
+  );
+
   await probe({ command: "workbench.action.closeModalEditor" });
   await api(`/${live.reviewId}/open`, "POST");
   await writeFile(

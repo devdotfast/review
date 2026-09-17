@@ -1969,3 +1969,40 @@ it("retargets a live review without losing authored content or component IDs", a
     ).text,
   ).toContain("uncommitted text");
 });
+
+it("worktree language contexts never prepare or create checkouts, including historical/base requests", async () => {
+  git("config", "devfast.prepare", "echo unexpected > prepared");
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Live LSP",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+  const app = createReviewApi(local.store, local.data, async () => ({
+    softwareMapEnabled: false,
+  }));
+  const before = git("worktree", "list", "--porcelain");
+  expect(
+    (await app.request(`/${created.reviewId}/open`, { method: "POST" })).status,
+  ).toBe(200);
+
+  for (const side of ["base", "head"]) {
+    const response = await app.request(
+      `/${created.reviewId}/language-context?version=0&side=${side}`,
+    );
+    expect(await response.json()).toMatchObject({
+      rootPath: realpathSync(repository),
+      state: "ready",
+    });
+  }
+
+  await local.data.workspaces.idle();
+  expect(local.data.workspaces.list(created.reviewId)).toEqual([]);
+  expect(git("worktree", "list", "--porcelain")).toBe(before);
+  expect(existsSync(path.join(repository, "prepared"))).toBe(false);
+});

@@ -1358,6 +1358,7 @@ try {
     path.join(liveFixture.repo, "main.ts"),
     "// unrelated local edit\n" + mainText("head"),
   );
+
   for (const feature of [definition, "vscode.executeHoverProvider"]) {
     const result = await probe({
       uri: uri(live),

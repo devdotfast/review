@@ -51,7 +51,7 @@ export type ImportOutcome =
       version: number;
       warnings: string[];
     }
-  | { kind: "current"; reviewId: string; warnings?: string[] }
+  | { kind: "current"; reviewId: string; warnings: string[] }
   | { kind: "skipped"; reviewId: string; reason: string };
 
 export interface ImportLegacyReviewInput {
@@ -108,7 +108,8 @@ export async function importLegacyReview(
   const importedRevision = progress?.revision ?? null;
 
   // The import record outlives the review: a deleted review stays deleted.
-  if (progress && !store.has(reviewId)) return { kind: "current", reviewId };
+  if (progress && !store.has(reviewId))
+    return { kind: "current", reviewId, warnings: [] };
 
   const presentedMapRevision = record.presentedSoftwareMapRevision;
 
@@ -126,14 +127,8 @@ export async function importLegacyReview(
   // A current document leaves the map as the only thing left to import.
   if (!documentPending)
     return mapPending
-      ? importPresentedMap({
-          review,
-          store,
-          materialize: input.materialize,
-          revision: presentedMapRevision,
-          documentRevision: record.presentedDocumentRevision,
-        })
-      : { kind: "current", reviewId };
+      ? importPresentedMap(input, presentedMapRevision)
+      : { kind: "current", reviewId, warnings: [] };
 
   const imported = store.has(reviewId);
 
@@ -376,7 +371,7 @@ export async function importLegacyReview(
       };
     }
 
-    return { kind: "current", reviewId };
+    return { kind: "current", reviewId, warnings: [] };
   }
 
   if (!last)
@@ -390,10 +385,6 @@ export async function importLegacyReview(
   // revision's document was identical to an earlier one and wrote no version.
   // The import cursor is separate from each historical snapshot's provenance.
 
-  // The map is published apart from the document, so its cursor only moves
-  // once the section it names has landed.
-  if (importedMap) last.origin = { ...last.origin, mapRevision: importedMap };
-
   // Keep migration diagnostics in the import result/log, not authored content.
   lastWarnings.push(...(await unresolvedSources(last, data)));
 
@@ -404,6 +395,13 @@ export async function importLegacyReview(
   const result = await store.importVersions(versions, {
     preserveCurrent: preserved,
     revision: record.presentedDocumentRevision,
+  });
+
+  // The map is published apart from the document, so its cursor only moves
+  // once the section it names has landed.
+  store.recordLegacyImport(reviewId, {
+    revision: record.presentedDocumentRevision,
+    mapRevision: importedMap,
   });
 
   return {
@@ -419,15 +417,13 @@ export async function importLegacyReview(
 
 /** Imports a map published after the document it belongs to: the section is
  * replaced in place, so ids and any edits the reader made elsewhere survive. */
-async function importPresentedMap(input: {
-  review: StoredReview;
-  store: ReviewStore;
-  materialize: ImportLegacyReviewInput["materialize"];
-  revision: string;
-  documentRevision: string;
-}): Promise<ImportOutcome> {
-  const { review, store, revision } = input;
-  const reviewId = review.review.uuid;
+async function importPresentedMap(
+  input: ImportLegacyReviewInput,
+  revision: string,
+): Promise<ImportOutcome> {
+  const { review, store } = input;
+  const record = review.review;
+  const reviewId = record.uuid;
   const head = store.read(reviewId);
   const warnings: string[] = [];
 
@@ -458,7 +454,7 @@ async function importPresentedMap(input: {
   });
 
   store.recordLegacyImport(reviewId, {
-    revision: input.documentRevision,
+    revision: record.presentedDocumentRevision!,
     mapRevision: revision,
   });
 
@@ -473,7 +469,9 @@ async function importPresentedMap(input: {
 
 /** The section a map import writes: a reader who added their own blocks to it
  * keeps them, because this then finds no section to replace. */
-function isMapSection(block: Block): boolean {
+export function isMapSection(
+  block: Block,
+): block is Extract<Block, { type: "section" }> {
   return (
     block.type === "section" &&
     block.title === MAP_SECTION_TITLE &&

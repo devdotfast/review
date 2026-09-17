@@ -88,8 +88,6 @@ export interface SnapshotOrigin {
   pullRequestUrl?: string;
   /** The legacy review revision this version was imported from. */
   revision?: string;
-  /** The legacy map revision this version's software map came from. */
-  mapRevision?: string;
 }
 
 export interface Snapshot {
@@ -218,24 +216,22 @@ export class ReviewStore {
         }
       : null;
   }
-  /** Record import progress for a map imported on its own, without a version
-   * of its own: the document cursor stays where the last import left it. */
+  /** Record how far legacy import has got. The map is published on its own,
+   * so a map imported without a version of its own is recorded here too. */
   recordLegacyImport(
     reviewId: string,
     progress: { revision: string; mapRevision: string | null },
-  ) {
-    this.writeLegacyImport(reviewId, progress.revision, progress.mapRevision);
-  }
-  private writeLegacyImport(
-    reviewId: string,
-    revision: string,
-    mapRevision: string | null,
   ) {
     this.db
       .prepare(
         "INSERT INTO legacy_imports(review_id,revision,map_revision,imported_at) VALUES(?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,map_revision=excluded.map_revision,imported_at=excluded.imported_at",
       )
-      .run(reviewId, revision, mapRevision, new Date().toISOString());
+      .run(
+        reviewId,
+        progress.revision,
+        progress.mapRevision,
+        new Date().toISOString(),
+      );
   }
   registerRepository(root: string) {
     this.db
@@ -698,8 +694,7 @@ export class ReviewStore {
   /** Legacy import: every version is validated first, then all rows land in
    * one transaction, so a failure leaves no partial review. A new review
    * starts at version 0; an existing one continues its numbering. The last
-   * input's `origin.revision` and `origin.mapRevision` become the review's
-   * import cursors. */
+   * input's `origin.revision` becomes the review's import cursor. */
   importVersions(
     inputs: ImportedVersionInput[],
     options: { preserveCurrent?: Snapshot; revision?: string } = {},
@@ -811,14 +806,13 @@ export class ReviewStore {
 
         const cursor = options.revision ?? inputs.at(-1)?.origin?.revision;
 
-        // A map left out of this import stays pending, so the next sweep
-        // retries it on its own.
+        // The map is recorded by the importer once it knows whether it landed,
+        // so a map left out of this import stays pending for the next sweep.
         if (cursor)
-          this.writeLegacyImport(
-            reviewId,
-            cursor,
-            inputs.at(-1)?.origin?.mapRevision ?? null,
-          );
+          this.recordLegacyImport(reviewId, {
+            revision: cursor,
+            mapRevision: null,
+          });
         this.db.exec("COMMIT");
       } catch (error) {
         this.db.exec("ROLLBACK");

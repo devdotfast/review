@@ -136,19 +136,19 @@ describe("importVersion", () => {
     expect(store.has(id)).toBe(false);
   });
 
-  it("records the map revision the imported version carried", async () => {
+  it("leaves the map cursor for the importer to record", async () => {
     await store.importVersion({
       reviewId: id,
       title: "Imported",
       pins,
       document: [],
       createdAt: "2026-01-01T00:00:00.000Z",
-      origin: { revision: "rev-1", mapRevision: "map-1" },
+      origin: { revision: "rev-1" },
     });
 
     expect(store.legacyImport(id)).toMatchObject({
       revision: "rev-1",
-      mapRevision: "map-1",
+      mapRevision: null,
     });
   });
 

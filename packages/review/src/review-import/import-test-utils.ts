@@ -210,9 +210,10 @@ export async function runImport(
         oid,
         ".bundle/document/review-document.json",
       ),
-    importReview: () =>
+    /** `stored` overrides the review record, for a revision published later. */
+    importReview: (stored: StoredReview = review.stored) =>
       importLegacyReview({
-        review: review.stored,
+        review: stored,
         store,
         data,
         materialize: materializeFromRevisionDirs,

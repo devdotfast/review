@@ -1,4 +1,4 @@
-// Loaded only by lsp-e2e.mjs into its disposable extension host. No fake providers.
+// Loaded only by lsp-e2e.mjs into its disposable extension host.
 const vscode = require("vscode");
 
 const fs = require("node:fs/promises");
@@ -15,6 +15,7 @@ exports.activate = function (context) {
       );
 
       let response;
+      let delayedProvider;
 
       try {
         const uri = request.uri && vscode.Uri.parse(request.uri);
@@ -45,12 +46,43 @@ exports.activate = function (context) {
 
         let result;
 
-        if (request.feature) {
-          result = await vscode.commands.executeCommand(
-            request.feature,
-            uri,
-            position,
+        if (request.delayedHover) {
+          delayedProvider = vscode.languages.registerHoverProvider(
+            { scheme: "file", pattern: "**/main.ts" },
+            {
+              async provideHover() {
+                await fs.writeFile(
+                  path.join(root, "provider-started"),
+                  "ready",
+                );
+                const deadline = Date.now() + 20000;
+
+                while (Date.now() < deadline) {
+                  try {
+                    await fs.access(path.join(root, "provider-release"));
+                    break;
+                  } catch {
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+                  }
+                }
+
+                return new vscode.Hover(
+                  "delayed old environment",
+                  new vscode.Range(position, position.translate(0, 1)),
+                );
+              },
+            },
           );
+        }
+
+        if (request.feature) {
+          result = (
+            await Promise.all(
+              Array.from({ length: request.repeat ?? 1 }, () =>
+                vscode.commands.executeCommand(request.feature, uri, position),
+              ),
+            )
+          ).flat();
 
           if (request.feature === "vscode.executeHoverProvider") {
             result = (result ?? []).map((hover) => ({
@@ -109,6 +141,8 @@ exports.activate = function (context) {
         };
       } catch (error) {
         response = { error: String(error?.stack ?? error) };
+      } finally {
+        delayedProvider?.dispose();
       }
 
       await fs.writeFile(

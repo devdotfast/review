@@ -1459,6 +1459,74 @@ try {
   await record(
     "review source, diff and peek block edits, preserve dirty workspace buffers and follow external saves",
   );
+
+  let environmentRequests = 0;
+
+  const countEnvironment = (request) => {
+    if (request.url().includes(`/${live.reviewId}/language-context?`))
+      environmentRequests++;
+  };
+
+  await expectHover(uri(live), greetAt, "string");
+  page.on("request", countEnvironment);
+
+  try {
+    // Late file notifications from the preceding save/revert may correctly
+    // reject a wave. Measure a completed wave once those changes settle.
+    await until(async () => {
+      environmentRequests = 0;
+
+      const repeated = await probe({
+        uri: uri(live),
+        ...greetAt,
+        feature: hover,
+        repeat: 20,
+        open: true,
+      });
+
+      return repeated.result.length >= 20;
+    }, "concurrent native hovers after file refresh");
+    assert.ok(
+      environmentRequests >= 2 && environmentRequests < 40,
+      `expected overlapping providers to share requests (fewer than 40); got ${environmentRequests}`,
+    );
+    console.log(
+      `20 concurrent native hovers used ${environmentRequests} environment requests (uncoalesced: 40).`,
+    );
+  } finally {
+    page.off("request", countEnvironment);
+  }
+
+  const delayed = probe({
+    uri: uri(live),
+    ...greetAt,
+    feature: hover,
+    delayedHover: true,
+    open: true,
+  });
+
+  const movedLive = `${liveFixture.repo}-pending-query`;
+  await until(
+    async () => readFile(path.join(root, "provider-started"), "utf8"),
+    "delayed language provider",
+  );
+  await rename(liveFixture.repo, movedLive);
+
+  try {
+    await writeFile(path.join(root, "provider-release"), "release");
+    assert.equal(
+      (await delayed).result.length,
+      0,
+      "removed environment must reject the delayed hover",
+    );
+  } finally {
+    await rename(movedLive, liveFixture.repo);
+  }
+
+  await expectHover(uri(live), greetAt, "string");
+  await record(
+    "concurrent native hovers coalesce environment reads and delayed results are rejected after checkout removal",
+  );
   await writeFile(
     path.join(liveFixture.repo, "library.ts"),
     "// shifted locally\n" + libraryText("number", "42"),

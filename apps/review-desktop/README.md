@@ -87,6 +87,21 @@ review whose repository is no longer on this machine stays legacy.
 
 ### End-to-end checks
 
+Language-environment requests coalesce by connection, review, authored version,
+side, and selected commit; source refresh tokens do not split that lookup. Model
+references are retained per display model and server-provided environment identity.
+The current control stream does not order preparation, retargeting, or checkout
+replacement against HTTP responses. Therefore completed environment responses are
+not cached: every query retains a post-provider HTTP validation that starts after
+the provider finishes. Simultaneous queued validations can share a request, but
+cannot join one already in flight. Disconnect/reconnect invalidates pending work
+and model references; late responses from an earlier connection epoch are discarded.
+Persistent caching requires an authoritative server epoch and ordered reconnect
+handshake first. After a connection/environment loss, clean open native project
+buffers are reloaded before queries because restored watchers have no readiness
+acknowledgement; dirty workspace buffers remain untouched. File/model generation
+checks and exact-buffer equality still apply.
+
 `scripts/native-authoring-e2e.mjs --runtime <installed package>` drives the
 built Desktop through the installed CLI with fixture reviews, including the
 legacy import path. `scripts/legacy-import-smoke.mjs --home <copy>` launches the

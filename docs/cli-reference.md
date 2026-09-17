@@ -119,7 +119,7 @@ as source changes. Choose a commit target when source must stay fixed.
 
 | Target | Source and comparison |
 | --- | --- |
-| `{kind:"worktree", repositoryId, base}` | Saved working files, including staged, unstaged and nonignored untracked files, compared with `base`. Unsaved editor buffers are excluded. |
+| `{kind:"worktree", repositoryId, base?}` | Saved working files, including staged, unstaged and nonignored untracked files. Compare with `base`, or omit it to review the whole checkout with working changes against current HEAD (an empty baseline in an unborn repository). Unsaved editor buffers are excluded. |
 | `{kind:"commits", repositoryId, head, base?}` | Fixed commits. Omit `base` for source at `head` with no diff; supply a base for a comparison. |
 
 Revisions resolve when the command is accepted. To review the changes introduced

@@ -27,6 +27,7 @@ import { IReviewDesktopConnectionService } from "../../../services/reviewDesktop
 import { ReviewApiEditorSerializer } from "./reviewApiEditorSerializer.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import { ReviewCanvasEditorPane } from "./reviewCanvasPart.js";
+import { isReviewReadonlySource } from "../../../common/reviewReadonlySource.js";
 
 Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(
 	ReviewCanvasEditorInput.ID,
@@ -52,6 +53,11 @@ class ReviewCanvasEditorContribution extends Disposable implements IWorkbenchCon
 		private readonly tabsService: IReviewCanvasEditorTabsService,
 	) {
 		super();
+		this._register(this.editorService.onDidActiveEditorChange(() => {
+			const editor = this.editorService.activeEditor;
+			const resource = EditorResourceAccessor.getCanonicalUri(editor, { supportSideBySide: SideBySideEditor.PRIMARY });
+			if (editor && resource && isReviewReadonlySource(resource)) this.tabsService.registerReviewEditor(resource.authority, editor);
+		}));
 		this._register(
 			this.editorService.onDidCloseEditor(({ editor }) => {
 				if (!(editor instanceof ReviewCanvasEditorInput)) return;
@@ -76,7 +82,7 @@ class ReviewCanvasEditorContribution extends Disposable implements IWorkbenchCon
 				const resource = EditorResourceAccessor.getCanonicalUri(editor, {
 					supportSideBySide: SideBySideEditor.PRIMARY,
 				});
-				if (resource?.scheme === "review-api-source") this.tabsService.registerReviewEditor(resource.authority, editor);
+				if (resource && isReviewReadonlySource(resource)) this.tabsService.registerReviewEditor(resource.authority, editor);
 			}
 		}
 		this.closeRestoredApiTabsMissingFromCatalog();

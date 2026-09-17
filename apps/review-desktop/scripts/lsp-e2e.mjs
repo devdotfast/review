@@ -97,6 +97,7 @@ await writeFile(
     "telemetry.telemetryLevel": "off",
     "workbench.startupEditor": "none",
     "editor.hover.delay": 100,
+    "files.autoSave": "off",
     "editor.gotoLocation.multipleDefinitions": "goto",
     "editor.gotoLocation.multipleImplementations": "goto",
     "python.defaultInterpreterPath": (
@@ -491,6 +492,14 @@ function uri(review, side = "head", file = "main.ts", commit) {
   return locationUri(`review-api-source://${review.reviewId}/${file}?${query}`);
 }
 
+function environmentUri(review, file) {
+  const resource = new URL(uri(review));
+  resource.protocol = "review-language-source:";
+  resource.pathname = file;
+
+  return locationUri(resource.href);
+}
+
 const hover = "vscode.executeHoverProvider",
   definition = "vscode.executeDefinitionProvider";
 
@@ -548,7 +557,8 @@ async function expectDefinition(sourceUri, position, target, targetLine) {
     const found = locations(response.result).find(
       (item) =>
         locationUri(item.uri) ===
-        (target.startsWith("review-api-source:")
+        (target.startsWith("review-api-source:") ||
+        target.startsWith("review-language-source:")
           ? target
           : pathToFileURL(target).href),
     );
@@ -720,9 +730,12 @@ try {
   await expectDefinition(
     uri(review),
     at(mainText("head"), 6, "dependencyValue"),
-    path.join(
-      headEnvironment.rootPath,
-      "node_modules/fixture-dependency/index.d.ts",
+    environmentUri(
+      review,
+      path.join(
+        headEnvironment.rootPath,
+        "node_modules/fixture-dependency/index.d.ts",
+      ),
     ),
     0,
   );
@@ -795,7 +808,7 @@ try {
   await expectDefinition(
     uri(review),
     greetAt,
-    path.join(headEnvironment.rootPath, "library.ts"),
+    environmentUri(review, path.join(headEnvironment.rootPath, "library.ts")),
     3,
   );
 
@@ -1332,11 +1345,16 @@ try {
   );
   await probe({ command: "editor.action.hideHover" });
   await clickGreet(liveLine);
+  await probe({ command: "type", args: [{ text: "should not edit peek" }] });
+  assert.equal(
+    await readFile(path.join(liveFixture.repo, "main.ts"), "utf8"),
+    mainText("head"),
+  );
   await page.keyboard.press("F12");
   await until(
     async () =>
-      (await probe({})).active?.uri ===
-      pathToFileURL(path.join(liveFixture.repo, "library.ts")).href,
+      locationUri((await probe({})).active?.uri) ===
+      uri(live, "head", "library.ts"),
     "live inline definition",
   );
   await expectHover(
@@ -1346,6 +1364,107 @@ try {
   );
   await record(
     "worktree JSON review uses real native TypeScript and Python language services",
+  );
+
+  const workspaceLibrary = pathToFileURL(
+    path.join(liveFixture.repo, "library.ts"),
+  ).href;
+
+  await probe({
+    uri: workspaceLibrary,
+    open: true,
+    edit: { uri: workspaceLibrary, text: "// unsaved destination\n" },
+  });
+
+  const dirtyDestination = await probe({
+    uri: uri(live),
+    ...greetAt,
+    feature: definition,
+    open: true,
+  });
+
+  assert.equal(
+    dirtyDestination.result.length,
+    0,
+    "unsaved destination coordinates cannot navigate into a saved buffer",
+  );
+  await probe({ uri: workspaceLibrary, open: true });
+  assert.ok((await probe({})).active.text.startsWith("// unsaved destination"));
+  await probe({ command: "workbench.action.files.revert" });
+
+  const workspaceMain = pathToFileURL(
+    path.join(liveFixture.repo, "main.ts"),
+  ).href;
+
+  const unsaved = "// workspace buffer\r\n" + mainText("head");
+  await probe({
+    uri: workspaceMain,
+    open: true,
+    edit: { uri: workspaceMain, text: "// workspace buffer\r\n" },
+  });
+  assert.equal((await probe({})).active.text, unsaved);
+
+  for (const diff of [false, true]) {
+    if (diff)
+      await probe({ diff: { base: uri(live, "base"), head: uri(live) } });
+    else await probe({ uri: uri(live), open: true });
+    assert.equal((await probe({})).active.text, mainText("head"));
+
+    for (const [command, args] of [
+      ["type", [{ text: "forbidden" }]],
+      [
+        "paste",
+        [{ text: "forbidden", pasteOnNewLine: false, multicursorText: null }],
+      ],
+      ["editor.action.formatDocument", []],
+      ["editor.action.quickFix", []],
+      ["workbench.action.files.save", []],
+      ["workbench.action.files.saveAs", []],
+    ]) {
+      await probe({ command, args });
+      assert.equal((await probe({})).active.text, mainText("head"), command);
+    }
+
+    assert.equal(
+      (await probe({ edit: { uri: workspaceMain, text: "forbidden" } })).result,
+      false,
+    );
+    assert.equal(
+      (await probe({ edit: { uri: uri(live), text: "forbidden" } })).result,
+      false,
+    );
+    assert.equal(
+      await readFile(path.join(liveFixture.repo, "main.ts"), "utf8"),
+      mainText("head"),
+    );
+  }
+
+  await probe({
+    uri: uri(live),
+    open: true,
+    command: "review.openInWorkspace",
+  });
+  assert.equal((await probe({})).active.uri, workspaceMain);
+  assert.equal((await probe({})).active.text, unsaved);
+  assert.equal((await probe({})).active.dirty, true);
+  await probe({ command: "workbench.action.files.save" });
+  assert.equal(
+    await readFile(path.join(liveFixture.repo, "main.ts"), "utf8"),
+    unsaved,
+  );
+  await probe({ uri: uri(live), open: true });
+  await until(
+    async () => (await probe({})).active.text === unsaved,
+    "review follows ordinary editor save",
+  );
+  await page.screenshot({ path: path.join(root, "readonly-source.png") });
+  await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
+  await until(
+    async () => (await probe({})).active.text === mainText("head"),
+    "review disk refresh",
+  );
+  await record(
+    "review source, diff and peek isolate commands and workspace edits while workspace buffers remain editable",
   );
   await writeFile(
     path.join(liveFixture.repo, "library.ts"),

@@ -68,14 +68,28 @@ exports.activate = function (context) {
           }
         }
 
+        if (request.edit) {
+          const edit = new vscode.WorkspaceEdit();
+          edit.insert(
+            vscode.Uri.parse(request.edit.uri),
+            new vscode.Position(0, 0),
+            request.edit.text,
+          );
+          result = await vscode.workspace.applyEdit(edit);
+        }
+
         if (request.command)
-          await vscode.commands.executeCommand(request.command);
+          await vscode.commands.executeCommand(
+            request.command,
+            ...(request.args ?? []),
+          );
         const active = vscode.window.activeTextEditor;
         response = {
           result,
           active: active && {
             uri: active.document.uri.toString(),
             text: active.document.getText(),
+            dirty: active.document.isDirty,
             line: active.selection.active.line,
             character: active.selection.active.character,
           },

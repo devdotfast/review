@@ -18,6 +18,7 @@ import { ITextFileService } from "../../workbench/services/textfile/common/textf
 import { IWorkspaceEditingService } from "../../workbench/services/workspaces/common/workspaceEditing.js";
 import { reviewSourceQuery, type ReviewLanguageEnvironment } from "../common/reviewProtocol.js";
 import { sourceLocation } from "../common/reviewSourceView.js";
+import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
 import { REVIEW_UNIFIED_SCHEME } from "../common/reviewCodeResources.js";
 import { REVIEW_API_SOURCE_SCHEME } from "./reviewApiSourceService.js";
 import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
@@ -57,15 +58,17 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		}));
 		// Warm language servers while source is being displayed, not at the first click.
 		const warm = (model: ITextModel) => {
-			if (model.uri.scheme === REVIEW_API_SOURCE_SCHEME) void this.localSource(model);
+			if ([REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(model.uri.scheme)) void this.localSource(model);
 		};
 		this._register(modelService.onModelAdded(warm));
 		modelService.getModels().forEach(warm);
-		const selector = { scheme: REVIEW_API_SOURCE_SCHEME, exclusive: true };
-		this._register(languages.hoverProvider.register(selector, { provideHover: (model, position, token) => this.hover(model, position, token) }));
-		this._register(languages.definitionProvider.register(selector, { provideDefinition: (model, position, token) => this.locations(model, position, token, "definition") }));
+		for (const scheme of [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME]) {
+			const selector = { scheme, exclusive: true };
+			this._register(languages.hoverProvider.register(selector, { provideHover: (model, position, token) => this.hover(model, position, token) }));
+			this._register(languages.definitionProvider.register(selector, { provideDefinition: (model, position, token) => this.locations(model, position, token, "definition") }));
+		}
 		// Unified hover/definition already delegate to the pinned side model.
-		for (const scheme of [REVIEW_API_SOURCE_SCHEME, REVIEW_UNIFIED_SCHEME]) {
+		for (const scheme of [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME, REVIEW_UNIFIED_SCHEME]) {
 			const target = { scheme, exclusive: true };
 			this._register(languages.typeDefinitionProvider.register(target, { provideTypeDefinition: (model, position, token) => this.locations(model, position, token, "type") }));
 			this._register(languages.implementationProvider.register(target, { provideImplementation: (model, position, token) => this.locations(model, position, token, "implementation") }));
@@ -112,7 +115,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		const root = URI.file(context.rootPath);
 		const relative = model.uri.path.slice(1);
 		if (!relative || relative.split(/[\\/]/).some(part => part === "..")) return undefined;
-		const resource = URI.joinPath(root, relative);
+		const resource = model.uri.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME ? URI.file(model.uri.path) : URI.joinPath(root, relative);
 		if (!await this.files.exists(resource) || model.isDisposed()) return undefined;
 		const owned = new DisposableStore();
 		try {
@@ -191,9 +194,9 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 
 	/** Keep navigation in the same saved version/side only when destination contents match. */
 	private async reviewLocations<T extends LocationLink>(pinned: ITextModel, locations: T[], token: CancellationToken): Promise<T[]> {
-		if (pinned.uri.scheme !== REVIEW_API_SOURCE_SCHEME) return locations;
+		if (![REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(pinned.uri.scheme)) return locations;
 		const source = await this.localSource(pinned);
-		if (!source) return locations;
+		if (!source) return [];
 		const prefix = source.root.path.replace(/\/$/, "") + "/";
 		// References often share a file. Resolve and compare each destination once per request.
 		const groups = new Map<string, T[]>();
@@ -206,25 +209,37 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		const mapped = new Map<T, T>();
 		await Promise.all([...groups.values()].map(async group => {
 			const target = group[0].uri;
-			if (target.scheme !== "file" || target.authority !== source.root.authority || !target.path.startsWith(prefix)) return;
-			const candidate = pinned.uri.with({ path: "/" + target.path.slice(prefix.length) });
+			if (target.scheme !== "file") return;
 			const owned = new DisposableStore();
 			try {
-				const original = owned.add(await this.models.createModelReference(candidate)).object.textEditorModel;
 				const local = owned.add(await this.models.createModelReference(target)).object.textEditorModel;
 				await this.textFiles.files.resolve(target, { reload: { async: false } });
+				let original: ITextModel | undefined;
+				if (target.authority === source.root.authority && target.path.startsWith(prefix)) {
+					const candidate = pinned.uri.with({ scheme: REVIEW_API_SOURCE_SCHEME, path: "/" + target.path.slice(prefix.length) });
+					try { original = owned.add(await this.models.createModelReference(candidate)).object.textEditorModel; }
+					catch { /* Dependencies and generated files may have no review counterpart. */ }
+				}
+				if (!original?.equalsTextBuffer(local.getTextBuffer())) {
+					const candidate = pinned.uri.with({ scheme: REVIEW_LANGUAGE_SOURCE_SCHEME, path: target.path });
+					original = owned.add(await this.models.createModelReference(candidate)).object.textEditorModel;
+				}
+				const destination = original;
 				const results = await withCurrentLocalContext([original, local], token, () => this.generation, async () => {
-					if (!original.equalsTextBuffer(local.getTextBuffer())) return [];
-					return group.map(location => [location, { ...location, uri: candidate }] as const);
+					if (!destination.equalsTextBuffer(local.getTextBuffer())) return [];
+					return group.map(location => [location, { ...location, uri: destination.uri }] as const);
 				});
 				for (const [before, after] of results ?? []) mapped.set(before, after);
 			} catch {
-				// Dependencies, generated files, and newer files may have no saved counterpart.
+				// Missing destinations cannot be presented at the provider's coordinates.
 			} finally {
 				owned.dispose();
 			}
 		}));
-		return locations.map(location => mapped.get(location) ?? location);
+		return locations.flatMap(location => {
+			const match = mapped.get(location);
+			return match ? [match] : [];
+		});
 	}
 
 	override dispose(): void {

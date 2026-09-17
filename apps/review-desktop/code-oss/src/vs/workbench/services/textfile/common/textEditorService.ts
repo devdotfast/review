@@ -24,6 +24,8 @@ import { IEditorResolverService, RegisteredEditorPriority } from '../../editor/c
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
 import { onUnexpectedError } from '../../../../base/common/errors.js';
+import { isReviewReadonlySource } from '../../../../review/common/reviewReadonlySource.js';
+import { ReviewSourceEditorInput } from '../../../../review/services/reviewSourceEditorInput.js';
 
 export const ITextEditorService = createDecorator<ITextEditorService>('textEditorService');
 
@@ -177,6 +179,9 @@ export class TextEditorService extends Disposable implements ITextEditorService 
 			const canonicalResource = this.uriIdentityService.asCanonicalUri(preferredResource);
 
 			return this.createOrGetCached(canonicalResource, () => {
+				if (isReviewReadonlySource(canonicalResource)) {
+					return this.instantiationService.createInstance(ReviewSourceEditorInput, canonicalResource, textResourceEditorInput.label, textResourceEditorInput.description, undefined, undefined);
+				}
 
 				// File
 				if (textResourceEditorInput.forceFile || this.fileService.hasProvider(canonicalResource)) {

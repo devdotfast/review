@@ -91,43 +91,58 @@ describe("store-auth", () => {
     expect(errors).toContain("https");
   });
 
-  it("completes a device login and stores the token", async () => {
-    vi.stubEnv("DEV_REVIEW_HOME", tmp);
-    const stdout = outputStream();
-    const stderr = outputStream();
+  it.each([false, true])(
+    "completes device login even with an expired saved token: %s",
+    async (expired) => {
+      vi.stubEnv("DEV_REVIEW_HOME", tmp);
+      const stdout = outputStream();
+      const stderr = outputStream();
 
-    const responses = [
-      json({
-        device_code: "dc",
-        user_code: "ABCD-1234",
-        verification_uri_complete:
-          "https://app.dev.fast/device?user_code=ABCD-1234",
-        expires_in: 900,
-        interval: 1,
-      }),
-      json({ error: "authorization_pending" }, 400),
-      json({ access_token: "tok", token_type: "Bearer" }),
-      json({ user: { name: "dev" } }),
-    ];
+      if (expired)
+        await writeStoreAuth({
+          origin: "https://app.dev.fast",
+          token: "expired",
+          login: "old",
+          savedAt: "2026-09-02T00:00:00Z",
+        });
 
-    const fetch = vi.fn<typeof globalThis.fetch>(
-      async () => responses.shift()!,
-    );
+      const responses = [
+        ...(expired
+          ? [json({ error: { code: "unauthorized", message: "expired" } }, 401)]
+          : []),
+        json({
+          device_code: "dc",
+          user_code: "ABCD-1234",
+          verification_uri_complete:
+            "https://app.dev.fast/device?user_code=ABCD-1234",
+          expires_in: 900,
+          interval: 1,
+        }),
+        json({ error: "authorization_pending" }, 400),
+        json({ access_token: "tok", token_type: "Bearer" }),
+        json({ user: { id: "user-1", name: "dev" } }),
+      ];
 
-    const opened: string[] = [];
+      const fetch = vi.fn<typeof globalThis.fetch>(
+        async () => responses.shift()!,
+      );
 
-    const code = await runStoreLogin({
-      stdout,
-      stderr,
-      fetch,
-      openUrl: async (u) => {
-        opened.push(u);
-      },
-      sleep: async () => {},
-    });
+      const opened: string[] = [];
 
-    expect(code).toBe(0);
-    expect(opened[0]).toContain("user_code=ABCD-1234");
-    expect((await readStoreAuth())?.token).toBe("tok");
-  });
+      const code = await runStoreLogin({
+        traces: true,
+        stdout,
+        stderr,
+        fetch,
+        openUrl: async (u) => {
+          opened.push(u);
+        },
+        sleep: async () => {},
+      });
+
+      expect(code).toBe(0);
+      expect(opened[0]).toContain("user_code=ABCD-1234");
+      expect((await readStoreAuth())?.token).toBe("tok");
+    },
+  );
 });

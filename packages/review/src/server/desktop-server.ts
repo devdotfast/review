@@ -35,6 +35,7 @@ import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
+import type { SharedReviewStore } from "../sharing/import.js";
 import type { ReviewStore } from "../review-api/store.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
@@ -64,6 +65,7 @@ const UUID_PATTERN =
 export interface GlobalReviewServerInput {
   /** The desktop host owns this shared database and closes it after the server. */
   reviewStore: ReviewStore;
+  sharedReviews?: SharedReviewStore;
   reviewData: LocalReviewData;
   appPid: number;
   packageRoot: string;
@@ -156,7 +158,7 @@ export function createGlobalReviewServer(
 
   app.route(
     "/reviews-api",
-    createJsonReviewReporting(input.reviewStore, telemetry),
+    createJsonReviewReporting(input.reviewStore, telemetry, { shared: input.sharedReviews }),
   );
 
   app.route(
@@ -170,7 +172,7 @@ export function createGlobalReviewServer(
       if (!result.ok) throw new ReviewInputError(result.error, 409);
 
       return z.object({ softwareMapEnabled: z.boolean() }).parse(result.result);
-    }),
+    }, input.sharedReviews),
   );
   app.post("/app/focus", async () => {
     const result = await relay.dispatch({

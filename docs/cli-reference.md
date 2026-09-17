@@ -139,7 +139,7 @@ review trace storage use hosted [--origin <url>]
 review trace config migrate [--dry-run] [--keep-legacy]
 review trace list|show|pull|blame ... [--storage s3|hosted]
 review trace sessions [--limit <n>] [--cursor <session-id>] [--storage s3|hosted] [--json]
-review login [--origin <url>] [--no-browser]
+review login [--traces] [--origin <url>] [--no-browser] [--json]
 review logout
 review whoami
 review trace store create|delete|info [path]
@@ -147,6 +147,42 @@ review trace install [--no-harness-hooks] [--all-harnesses] [--json]
 review trace allow [path] [--no-harness-hooks] [--all-harnesses]
 review trace deny [path]
 ```
+
+`review login` signs in with GitHub identity and verified email access. It does
+not enable trace collection. `review login --traces` also requests GitHub
+repository access. Use `--no-browser` on a remote machine, then open the printed
+URL on your desktop. Repository access does not replace per-repository trace
+capture consent.
+
+A foreground hosted trace command offers to authorize repositories and resumes
+once login succeeds. With `--json`, redirected input, or a hook, it never prompts.
+A missing grant produces `repository_authorization_required` and the remedy
+`review login --traces`. Local and direct S3 operations do not request GitHub
+permissions. `dev-traces login` keeps its trace-oriented repository login.
+
+### Sharing a review
+
+```sh
+review share --review <id> [--version <number>] [--json]
+review share revoke <share-id> [--json]
+```
+
+The local Review host must be running. Sharing uploads one immutable saved
+version; an omitted version is resolved once when the request starts. The result
+contains `shareId`, `version`, and `url`. Running Share again creates a new link.
+Recipients do not need an account or a repository checkout. Open the link in
+Review Desktop, or use **Open Shared Review** in the command palette.
+
+A share includes full referenced source files, embedded images and maps, and
+whole retained trace conversations. Anyone with its link can download it.
+Imported reviews are read-only and remain available offline. Revocation stops
+new downloads; already-issued object URLs may work for up to five minutes, and
+saved copies remain readable. The desktop offers an optional repository clone
+for advanced code navigation. Private clones need separate Git access.
+
+The exporter, importer and hosted client are available from
+`@dev.fast/review/sharing` for a future standalone host. Shipping a headless host
+is separate from this change.
 
 Review stores traces in one selected place per machine: an **s3** store (an
 S3-compatible bucket you own, R2 included) or the **hosted** store at

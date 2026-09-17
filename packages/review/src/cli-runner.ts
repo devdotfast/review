@@ -1,7 +1,13 @@
 import path from "node:path";
+import { createInterface } from "node:readline/promises";
 import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
+import {
+  StoreApiError,
+  readStoreAuth,
+  withStoreAuthorization,
+} from "@dev.fast/trace-core";
 import {
   type CliInputStream,
   DEFAULT_STORE_ORIGIN,
@@ -466,25 +472,61 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     });
   });
 
+  const share = configureJsonOutput(
+    program
+      .command("share")
+      .description(
+        "Upload an immutable review snapshot and return its share link",
+      ),
+    "plain",
+  )
+    .option("--review <id>", "Review ID")
+    .option("--version <number>", "Saved version to share")
+    .action(
+      async (options: {
+        review?: string;
+        version?: string;
+        json?: boolean;
+      }) => {
+        const { runShareCli } = await import("./sharing/cli.js");
+        state.exitCode = await runShareCli({ ...input, ...options });
+      },
+    );
+
+  configureJsonOutput(
+    share
+      .command("revoke <share-id>")
+      .description("Revoke future downloads of a share"),
+    "plain",
+  ).action(async (shareId: string, options: { json?: boolean }) => {
+    const { runShareCli } = await import("./sharing/cli.js");
+    state.exitCode = await runShareCli({
+      ...input,
+      ...options,
+      revoke: shareId,
+    });
+  });
+
   // Hosted trace store login. Logging in authenticates a user; it selects
   // no storage by itself.
   configureJsonOutput(
-    program
-      .command("login")
-      .description("Log in to the hosted trace store with GitHub"),
+    program.command("login").description("Log in to Review with GitHub"),
     "plain",
   )
-    .option("--origin <url>", "Store origin", DEFAULT_STORE_ORIGIN)
+    .option("--origin <url>", "Review service origin", DEFAULT_STORE_ORIGIN)
+    .option("--traces", "Also authorize GitHub repositories for hosted traces")
     .option("--no-browser", "Print the URL instead of opening a browser")
     .action(
       async (options: {
         origin?: string;
         browser?: boolean;
+        traces?: boolean;
         json?: boolean;
       }) => {
         state.exitCode = await runtime.runStoreLogin({
           origin: options.origin,
-          noBrowser: !options.browser,
+          noBrowser: options.browser === false,
+          traces: options.traces === true,
           json: options.json,
           stdout: input.stdout,
           stderr: input.stderr,
@@ -693,7 +735,45 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   });
 
   try {
-    await program.parseAsync(input.argv, { from: "user" });
+    await withStoreAuthorization(
+      async (origin) => {
+        if (
+          state.json ||
+          input.stdin?.isTTY !== true ||
+          input.argv[0] !== "trace" ||
+          input.argv.some((arg) => /hook/i.test(arg))
+        )
+          return undefined;
+
+        const prompt = createInterface({
+          input: input.stdin,
+          output: input.stderr,
+        });
+
+        let answer: string;
+
+        try {
+          answer = await prompt.question(
+            "Authorize GitHub repositories for hosted traces? [y/N] ",
+          );
+        } finally {
+          prompt.close();
+        }
+
+        if (!/^y(es)?$/i.test(answer.trim())) return undefined;
+
+        const code = await runtime.runStoreLogin({
+          origin,
+          traces: true,
+          stdout: input.stdout,
+          stderr: input.stderr,
+          env: input.env,
+        });
+
+        return code === 0 ? (await readStoreAuth(input.env))?.token : undefined;
+      },
+      () => program.parseAsync(input.argv, { from: "user" }),
+    );
 
     return state.exitCode;
   } catch (error) {
@@ -747,10 +827,20 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     }
 
     if (state.json) {
-      emitReviewEvent(input.stdout, {
-        event: "error",
-        error: serializeReviewError(error),
-      });
+      const serialized: ReturnType<typeof serializeReviewError> & {
+        code?: string;
+        remedy?: string;
+      } = serializeReviewError(error);
+
+      if (
+        error instanceof StoreApiError &&
+        error.code === "repository_authorization_required"
+      ) {
+        serialized.code = error.code;
+        serialized.remedy = "review login --traces";
+      }
+
+      emitReviewEvent(input.stdout, { event: "error", error: serialized });
     } else {
       input.stderr.write(ensureTrailingNewline(formatCliError(error)));
     }

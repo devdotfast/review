@@ -90,6 +90,7 @@ export interface SnapshotOrigin {
 }
 
 export interface Snapshot {
+  shared?: { login?: string; sharedAt?: number; cloneUrl?: string };
   reviewId: string;
   version: number;
   title: string;
@@ -400,29 +401,7 @@ export class ReviewStore {
   inspect(id: string, targetId?: string, version?: number) {
     const snapshot = this.read(id, version);
 
-    if (targetId !== undefined) {
-      const target = elements(snapshot.document).find(
-        (element) => element.id === targetId,
-      );
-
-      if (!target)
-        throw new ReviewInputError("Target not found in this version.", 404);
-
-      return target;
-    }
-
-    return elements(snapshot.document).map((element) => ({
-      id: element.id,
-      type: element.type,
-      label:
-        "title" in element
-          ? element.title
-          : "label" in element
-            ? element.label
-            : element.type === "markdown"
-              ? element.markdown.slice(0, 120)
-              : undefined,
-    }));
+    return inspectSnapshot(snapshot, targetId);
   }
   /** The host can seed a managed document; transport callers only supply a command. */
   execute(
@@ -922,4 +901,30 @@ function setPullRequest(snapshot: Snapshot, url: string | null | undefined) {
     pullRequestUrl: url,
     pullRequestNumber: Number(url.split("/").at(-1)),
   };
+}
+
+export function inspectSnapshot(snapshot: Snapshot, targetId?: string) {
+  if (targetId !== undefined) {
+    const target = elements(snapshot.document).find(
+      (element) => element.id === targetId,
+    );
+
+    if (!target)
+      throw new ReviewInputError("Target not found in this version.", 404);
+
+    return target;
+  }
+
+  return elements(snapshot.document).map((element) => ({
+    id: element.id,
+    type: element.type,
+    label:
+      "title" in element
+        ? element.title
+        : "label" in element
+          ? element.label
+          : element.type === "markdown"
+            ? element.markdown.slice(0, 120)
+            : undefined,
+  }));
 }

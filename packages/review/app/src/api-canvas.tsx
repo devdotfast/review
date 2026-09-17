@@ -1,3 +1,4 @@
+import { SharingContext } from "./share-control";
 import {
   type ReviewCanvasContent,
   parseReviewStackResponse,
@@ -268,6 +269,8 @@ export function ApiCanvas({
     if (data) content.setTutorial?.(data.snapshot.origin?.tutorial === true);
   }, [data?.snapshot.origin?.tutorial, content.setTutorial]);
 
+  const sharing = useMemo(() => data ? { client, reviewId: content.reviewId, version: data.snapshot.version, sender: data.snapshot.shared?.login } : null, [client, content.reviewId, data]);
+
   if (!data)
     return (
       <>
@@ -281,6 +284,7 @@ export function ApiCanvas({
     );
 
   return (
+    <SharingContext.Provider value={sharing}>
     <ReviewSessionProvider session={session}>
       <DocumentData.Provider value={data}>
         <TutorialProvider tutorial={content.tutorial}>
@@ -311,6 +315,7 @@ export function ApiCanvas({
         </TutorialProvider>
       </DocumentData.Provider>
     </ReviewSessionProvider>
+    </SharingContext.Provider>
   );
 }
 

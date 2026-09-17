@@ -2,10 +2,11 @@ import { isJsonObject } from "@dev.fast/review-protocol";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
-import { resourceReferences } from "../review-api/document";
+import { ReviewInputError, resourceReferences } from "../review-api/document";
 import { readQuerySchemas } from "../review-api/read-schemas";
 import { ReviewStore, type Snapshot } from "../review-api/store";
 import { resolveReviewDiffFiles } from "../review-diff-files";
+import type { SharedReviewStore } from "../sharing/import.js";
 import type { ReviewTelemetry } from "../telemetry";
 import {
   type BugReportSource,
@@ -70,8 +71,12 @@ export function jsonReviewBugReportSource(
 export function createJsonReviewReporting(
   store: ReviewStore,
   telemetry: Pick<ReviewTelemetry, "captureUiEvent" | "captureTabViewed">,
-  submit = submitReviewBugReport,
+  options: {
+    submit?: typeof submitReviewBugReport;
+    shared?: SharedReviewStore;
+  } = {},
 ) {
+  const { submit = submitReviewBugReport, shared } = options;
   const app = new Hono();
   app.onError((error, context) =>
     context.json(
@@ -79,11 +84,19 @@ export function createJsonReviewReporting(
       // SAFETY: the report uploader returns HTTP error statuses; parser failures are 4xx.
       (error instanceof BugReportUpstreamError
         ? error.status
-        : requestJsonErrorStatus(error)) as ContentfulStatusCode,
+        : error instanceof ReviewInputError
+          ? error.status
+          : requestJsonErrorStatus(error)) as ContentfulStatusCode,
     ),
   );
   app.use("/:id/telemetry/*", async (context, next) => {
-    store.assertExists(context.req.param("id")!);
+    const id = context.req.param("id")!;
+
+    if (id.startsWith("shared-")) {
+      if (!shared)
+        throw new ReviewInputError("Shared review is not available.", 404);
+      shared.get(id);
+    } else store.assertExists(id);
     await next();
   });
   app.post("/:id/telemetry/event", async (context) => {
@@ -117,7 +130,9 @@ export function createJsonReviewReporting(
       version: context.req.query("version"),
     });
 
-    const snapshot = store.read(context.req.param("id"), query.version);
+    const id = context.req.param("id");
+    const imported = id.startsWith("shared-") ? shared?.get(id) : undefined;
+    const snapshot = imported?.snapshot ?? store.read(id, query.version);
 
     const report = parseReviewBugReportInput(
       await readBoundedRequestJson(context.req.raw, 6 * 1024 * 1024, {}),
@@ -126,7 +141,29 @@ export function createJsonReviewReporting(
     return context.json(
       await submit({
         report,
-        source: jsonReviewBugReportSource(store, snapshot),
+        source: imported
+          ? {
+              review: async () => ({
+                files: { "review.json": JSON.stringify(snapshot) },
+                omitted: [],
+              }),
+              map: async () => JSON.stringify(imported.presentation.maps),
+              diff: async () => ({
+                files: imported.presentation.diffs.map((file) => ({
+                  ...file,
+                  status:
+                    file.status === "copied" ||
+                    file.status === "unmerged" ||
+                    file.status === "unknown"
+                      ? "modified"
+                      : file.status,
+                })),
+                baseRef: snapshot.pins.base,
+                headRef: snapshot.pins.head,
+              }),
+              trace: async () => null,
+            }
+          : jsonReviewBugReportSource(store, snapshot),
         clientErrorNames: clientErrorsForSession(report.app_session_id),
       }),
     );

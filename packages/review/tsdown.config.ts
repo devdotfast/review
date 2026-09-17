@@ -34,6 +34,7 @@ const desktopHostPath = resolve(
 
 export default defineConfig({
   entry: {
+    "sharing/index": "src/sharing/index.ts",
     cli: "src/cli.ts",
     runtime: "src/runtime.ts",
     "server/desktop-host": "src/server/desktop-host.ts",
@@ -58,6 +59,7 @@ export default defineConfig({
       /^@dev\.fast\/json$/,
       /^@dev\.fast\/local-vcs$/,
       /^@dev\.fast\/review-protocol$/,
+      /^@dev\.fast\/review-share-protocol$/,
       /^@dev\.fast\/trace-protocol$/,
       /^isomorphic-git$/,
     ],

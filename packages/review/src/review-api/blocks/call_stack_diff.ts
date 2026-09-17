@@ -45,9 +45,7 @@ export const call_stack_diff = {
       if (new Set(keys).size !== keys.length)
         throw new ReviewInputError(`Frame keys must be unique within ${side}.`);
 
-      for (const frame of block[side])
-        if (frame.source.side !== side)
-          throw new ReviewInputError(`A ${side} frame needs ${side} source.`);
+      // Columns may compare two paths in one snapshot. Each source keeps its own pin.
     }
   },
 } satisfies BlockDefinition<CallStackDiffBlock>;

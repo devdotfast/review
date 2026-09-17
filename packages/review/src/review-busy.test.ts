@@ -91,7 +91,7 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
   try {
     await server.listen();
 
-    const [loaded, response, exitCode, ...readyResponses] = await Promise.all([
+    const [loaded, response, exitCode] = await Promise.all([
       readStoredReview(review.dir),
       fetch(`${server.url}/reviews/${review.review.uuid}/open`, {
         method: "POST",
@@ -107,28 +107,6 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
         json: true,
         stdout,
       }),
-      ...["publish-ready", "map-publish-ready", "repair-ready"].map((route) =>
-        fetch(`${server.url}/${route}`, {
-          method: "POST",
-          headers: {
-            "x-review-token": "busy-token",
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(
-            route === "repair-ready"
-              ? {
-                  reviewUuid: review.review.uuid,
-                  stagingDir: root,
-                  expectedRecord: recordBytes,
-                  expectedFingerprint: "a".repeat(64),
-                  newDocumentRevision: "a".repeat(40),
-                  newMapRevision: null,
-                  sourceFallback: { document: false, map: false },
-                }
-              : { reviewUuid: review.review.uuid, revision: "a".repeat(40) },
-          ),
-        }),
-      ),
     ]);
 
     expect(loaded).toMatchObject({
@@ -145,15 +123,6 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
       code: "review_busy",
       retryable: true,
     });
-
-    for (const readyResponse of readyResponses) {
-      expect(readyResponse.status).toBe(409);
-      expect(await readyResponse.json()).toMatchObject({
-        ok: false,
-        code: "review_busy",
-        retryable: true,
-      });
-    }
 
     expect(exitCode).toBe(1);
     expect(output).toContain("Retry after its current operation completes");

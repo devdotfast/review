@@ -357,6 +357,245 @@ describe("importLegacyReview", () => {
     }
   });
 
+  it("recovers a deleted checkout only from a candidate containing the pinned commits", async () => {
+    const repo = await scratchGitRepo();
+
+    const fixture = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      {
+        overrides: { worktreePath: path.join(repo.root, "removed-workspace") },
+      },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(fixture.home, "api.db"),
+    );
+
+    try {
+      expect(
+        await importLegacyReview({
+          review: fixture.stored,
+          store,
+          data,
+          repositoryPaths: [repo.root],
+          materialize: materializeFromRevisionDirs,
+          log: logFromRevisionDirs(fixture.oids),
+          loadTrace: async () => null,
+        }),
+      ).toMatchObject({ kind: "imported" });
+      expect(store.read(fixture.record.uuid).pins).toMatchObject({
+        base: repo.base,
+        head: repo.head,
+      });
+      expect(
+        JSON.parse(
+          await readFile(path.join(fixture.dir, "review.json"), "utf8"),
+        ).worktreePath,
+      ).toBe(path.join(repo.root, "removed-workspace"));
+    } finally {
+      await data.close();
+      await store.close();
+    }
+  });
+
+  it("backfills missing publications without replacing JSON edits or existing version IDs", async () => {
+    const repo = await scratchGitRepo();
+
+    const fixture = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+      { revisions: 2 },
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(fixture.home, "api.db"),
+    );
+
+    const input = {
+      review: fixture.stored,
+      store,
+      data,
+      materialize: materializeFromRevisionDirs,
+      loadTrace: async () => null,
+    };
+
+    try {
+      await importLegacyReview({
+        ...input,
+        log: logFromRevisionDirs([fixture.oids[1]!]),
+      });
+      const original = store.read(fixture.record.uuid, 0);
+      await store.execute({
+        commandId: randomUUID(),
+        operation: {
+          type: "edit",
+          reviewId: fixture.record.uuid,
+          edit: {
+            type: "insert",
+            content: {
+              type: "markdown",
+              markdown: "An edit made after migration.",
+            },
+          },
+        },
+      });
+      const edited = store.read(fixture.record.uuid);
+
+      const complete = {
+        ...input,
+        completeHistory: true,
+        log: logFromRevisionDirs(fixture.oids),
+      };
+
+      await importLegacyReview(complete);
+      const current = store.read(fixture.record.uuid);
+      expect(current.document).toEqual(edited.document);
+      expect(current.pins).toEqual(edited.pins);
+      expect(current.createdAt).toEqual(edited.createdAt);
+      expect(store.read(fixture.record.uuid, 0)).toEqual(original);
+
+      const recovered = store
+        .history(fixture.record.uuid)
+        .map((v) => store.read(fixture.record.uuid, v.version))
+        .find((v) => v.origin?.revision === fixture.oids[0]);
+
+      expect(recovered?.pins.head).toBe(repo.base);
+      expect(await importLegacyReview(complete)).toMatchObject({
+        kind: "current",
+      });
+      expect(store.read(fixture.record.uuid).version).toBe(current.version);
+    } finally {
+      await data.close();
+      await store.close();
+    }
+  });
+
+  it("repairs imported section headings once while preserving edits and history", async () => {
+    const repo = await scratchGitRepo();
+
+    const fixture = await syntheticLegacyReview(
+      "schema4-bug-report-dialog",
+      repo,
+    );
+
+    const sealed = {
+      format: "review-document/1",
+      title: "Copy",
+      routePath: "/",
+      sourcePath: "review.mdx",
+      anchors: {},
+      anchorContents: {},
+      softwareModels: [],
+      body: [
+        {
+          type: "component",
+          name: "ReviewSection",
+          props: { title: "Copy" },
+          children: [
+            {
+              type: "element",
+              tag: "h2",
+              props: {},
+              children: [{ type: "text", value: "Copy" }],
+            },
+            {
+              type: "element",
+              tag: "p",
+              props: {},
+              children: [{ type: "text", value: "Original prose." }],
+            },
+          ],
+        },
+      ],
+    };
+
+    await writeFile(
+      path.join(
+        fixture.dir,
+        ".revisions",
+        fixture.oids[0]!,
+        ".bundle/document/review-document.json",
+      ),
+      JSON.stringify(sealed),
+    );
+
+    const { store, data } = openLocalReviewStore(
+      path.join(fixture.home, "api.db"),
+    );
+
+    const input = {
+      review: fixture.stored,
+      store,
+      data,
+      materialize: materializeFromRevisionDirs,
+      log: logFromRevisionDirs(fixture.oids),
+    };
+
+    try {
+      await importLegacyReview(input);
+      const clean = store.read(fixture.record.uuid);
+      expect(clean.document).toMatchObject([
+        {
+          type: "section",
+          title: "Copy",
+          children: [{ type: "markdown", markdown: "Original prose.\n" }],
+        },
+      ]);
+      // Reproduce a version written by the old importer, plus later user edits.
+      await store.importVersions([
+        {
+          ...clean,
+          document: [
+            {
+              type: "section",
+              title: "Copy",
+              children: [
+                { type: "markdown", markdown: "## Copy\n\nEdited prose.\n" },
+                {
+                  type: "markdown",
+                  markdown: "## An intentional subheading\n",
+                },
+              ],
+            },
+            {
+              type: "section",
+              title: "Copy",
+              children: [
+                {
+                  type: "markdown",
+                  markdown: "## User changed this heading\n\nKeep me.\n",
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      const before = store.read(fixture.record.uuid);
+      const expected = structuredClone(before.document);
+      const first = expected[0];
+
+      if (first?.type !== "section" || first.children[0]?.type !== "markdown")
+        throw new Error("Missing imported prose");
+      first.children[0].markdown = "Edited prose.\n";
+      await importLegacyReview({ ...input, completeHistory: true });
+      const after = store.read(fixture.record.uuid);
+      expect(after).toEqual({
+        ...before,
+        version: before.version + 1,
+        document: expected,
+      });
+      expect(store.read(fixture.record.uuid, before.version)).toEqual(before);
+      expect(
+        await importLegacyReview({ ...input, completeHistory: true }),
+      ).toMatchObject({ kind: "current" });
+      expect(store.read(fixture.record.uuid)).toEqual(after);
+    } finally {
+      await data.close();
+      await store.close();
+    }
+  });
+
   it("advances the cursor past revisions whose document did not change", async () => {
     const repo = await scratchGitRepo();
 
@@ -364,6 +603,19 @@ describe("importLegacyReview", () => {
       "schema4-bug-report-dialog",
       repo,
       { revisions: 2, identical: true },
+    );
+
+    // Both the prose and its source pins are identical in this publication.
+    const firstRecord = path.join(
+      stored.dir,
+      ".revisions",
+      oids[0]!,
+      "review.json",
+    );
+
+    await writeFile(
+      firstRecord,
+      JSON.stringify({ ...record, presentedDocumentRevision: oids[0] }),
     );
 
     const { store, data } = openLocalReviewStore(

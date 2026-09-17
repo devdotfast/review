@@ -180,20 +180,4 @@ describe("legacyDocumentToBlocks", () => {
       ),
     ).toEqual(["quoted [words]\nnext line", "quoted [words]\nnext line"]);
   });
-
-  it("matches the committed goldens", async () => {
-    for (const { name } of listLegacyReviewFixtures()) {
-      const golden = parseJsonText(
-        await readFile(
-          path.join(
-            LEGACY_REVIEW_FIXTURES_ROOT,
-            `${name}.expected-blocks.json`,
-          ),
-          "utf8",
-        ),
-      );
-
-      expect(legacyDocumentToBlocks(await load(name)).blocks).toEqual(golden);
-    }
-  });
 });

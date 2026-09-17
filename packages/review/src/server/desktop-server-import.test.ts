@@ -193,7 +193,43 @@ describe("legacy review import triggers", () => {
     expect(dispatched).not.toContain("openApiReview");
   });
 
-  it("lists without waiting for the sweep and hides imported reviews", async () => {
+  it("never falls back to a legacy session for a review missing from the JSON store", async () => {
+    const { home } = await seedLegacyReview();
+
+    const { store, data } = openLocalReviewStore(
+      path.join(home, "review-api.db"),
+    );
+
+    const handler = vi.fn<() => Promise<never>>(async () => {
+      throw new Error("Must not load a legacy document");
+    });
+
+    try {
+      server = createGlobalReviewServer({
+        appPid: process.pid,
+        packageRoot,
+        toolingRoot: packageRoot,
+        port: 0,
+        token,
+        discoveryPath: path.join(home, "desktop.json"),
+        reviewStore: store,
+        reviewData: data,
+        sessionHandlerFactory: handler,
+      });
+      await server.listen();
+      const opened = await request(`/reviews/${uuid}/open`, {});
+      expect(opened.status).toBe(404);
+      expect(handler).not.toHaveBeenCalled();
+      expect((await request("/reviews")).value?.reviews).toEqual([]);
+    } finally {
+      await server?.close();
+      server = undefined;
+      await data.close();
+      await store.close();
+    }
+  });
+
+  it("uses only the JSON catalog without triggering a runtime import", async () => {
     const { home, repo, revision } = await seedLegacyReview();
 
     const { store, data } = openLocalReviewStore(
@@ -231,85 +267,12 @@ describe("legacy review import triggers", () => {
 
       const listed = await request("/reviews");
       expect(listed.status).toBe(200);
-      expect(sweep).toHaveBeenCalledTimes(1);
+      expect(sweep).not.toHaveBeenCalled();
       expect(
         (listed.value?.reviews as { uuid: string }[]).some(
           (review) => review.uuid === uuid,
         ),
       ).toBe(false);
-    } finally {
-      await server?.close();
-      server = undefined;
-      await store.close();
-    }
-  });
-
-  it("refuses publish, map publish and repair for an imported review", async () => {
-    const { home, repo, revision } = await seedLegacyReview();
-
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
-    );
-
-    try {
-      const registered = await data.register(repo.root);
-      await store.importVersion({
-        reviewId: uuid,
-        title: "Imported",
-        pins: { repositoryId: registered.id, base: repo.base, head: repo.head },
-        document: [],
-        createdAt: "2026-09-01T00:00:00Z",
-        origin: { revision },
-      });
-
-      server = createGlobalReviewServer({
-        appPid: process.pid,
-        packageRoot,
-        toolingRoot: packageRoot,
-        port: 0,
-        token,
-        discoveryPath: path.join(home, "desktop.json"),
-        reviewStore: store,
-        reviewData: data,
-        legacyImporter: {
-          sweep: async () => [],
-          ensure: async () => ({ kind: "current", reviewId: uuid }),
-        },
-      });
-      await server.listen();
-
-      const bodies: [string, string, JsonObject][] = [
-        ["/publish-ready", "publish", { reviewUuid: uuid, revision }],
-        ["/map-publish-ready", "map publish", { reviewUuid: uuid, revision }],
-        [
-          "/repair-ready",
-          "repair",
-          {
-            reviewUuid: uuid,
-            stagingDir: repo.root,
-            expectedRecord: "{}",
-            expectedFingerprint: "0".repeat(64),
-            newDocumentRevision: revision,
-            newMapRevision: null,
-            sourceFallback: { document: false, map: false },
-          },
-        ],
-      ];
-
-      for (const [route, verb, body] of bodies) {
-        const refused = await request(route, body);
-
-        expect(refused.status).toBe(409);
-        expect(refused.value).toMatchObject({
-          ok: false,
-          code: "migrated",
-          error: expect.stringMatching(
-            new RegExp(
-              `migrated to the JSON review store\\. \`review ${verb}\``,
-            ),
-          ),
-        });
-      }
     } finally {
       await server?.close();
       server = undefined;

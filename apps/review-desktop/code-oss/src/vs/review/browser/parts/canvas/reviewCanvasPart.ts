@@ -591,10 +591,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			const renderHome = async () =>
 				{
 					const seq = ++renderSeq;
-					// A legacy review imported into the JSON store is listed by the
-					// catalog; its legacy entry disappears on the next list fetch.
-					const apiIds = new Set(this.apiCatalog.reviews.map(review => review.uuid));
-					const reviews = [...this.sessionService.reviews.filter(review => !apiIds.has(review.uuid)), ...this.apiCatalog.reviews];
+					const reviews = this.apiCatalog.reviews;
 					const isEmpty = reviews.length === 0;
 					// Only the Welcome rail needs install status; the list must
 					// render without waiting on it. One fetch serves both the
@@ -612,7 +609,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							via: "home",
 						});
 						const api = this.apiCatalog.reviews.find(review => review.uuid === uuid);
-						return api ? this.tabsService.openApiReview(uuid, api.title) : this.tabsService.openReview(uuid, true);
+						return api ? this.tabsService.openApiReview(uuid, api.title) : Promise.resolve();
 					};
 					return this.render(
 					{

@@ -114,8 +114,8 @@ export async function createNativeTutorial(input: {
 
 export function createTutorialService(input: {
   packageRoot: string;
-  store?: ReviewStore;
-  data?: LocalReviewData;
+  store: ReviewStore;
+  data: LocalReviewData;
 }) {
   const tutorialRoot = path.join(devReviewHome(), "tutorial");
   const sampleRoot = path.join(tutorialRoot, "sample-service");
@@ -133,7 +133,7 @@ export function createTutorialService(input: {
     try {
       const stamp = await readStamp();
 
-      if (!stamp || !input.store?.has(stamp.reviewUuid)) return null;
+      if (!stamp || !input.store.has(stamp.reviewUuid)) return null;
       const snapshot = input.store.read(stamp.reviewUuid);
       const assets = await readTutorialAssets(assetsRoot);
 
@@ -156,8 +156,8 @@ export function createTutorialService(input: {
   }
 
   async function cleanup() {
-    for (const reviewId of input.store?.tutorialIds() ?? [])
-      await input.store!.execute({
+    for (const reviewId of input.store.tutorialIds())
+      await input.store.execute({
         commandId: randomUUID(),
         operation: { type: "delete", reviewId },
       });
@@ -174,8 +174,7 @@ export function createTutorialService(input: {
     },
     async referencesReview(id: string) {
       return (
-        input.store?.has(id) === true &&
-        input.store.read(id).origin?.tutorial === true
+        input.store.has(id) && input.store.read(id).origin?.tutorial === true
       );
     },
     async prepare(options?: { beforeReset(): Promise<void> }) {
@@ -183,8 +182,6 @@ export function createTutorialService(input: {
 
       if (current) return current;
 
-      if (!input.store || !input.data)
-        throw new Error("Tutorial requires the native review store.");
       await readTutorialAssets(assetsRoot);
       await options?.beforeReset();
       await cleanup();

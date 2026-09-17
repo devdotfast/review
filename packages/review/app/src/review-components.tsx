@@ -209,7 +209,9 @@ export function ReviewSection({
           </svg>
         </button>
         <div className="review-section-heading">
-          <h2 id={id}>{title}</h2>
+          <h2 id={id} data-review-copy-prose>
+            {title}
+          </h2>
         </div>
         {collapsed && summary && (
           <span className="review-section-meta">

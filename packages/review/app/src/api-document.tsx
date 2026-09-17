@@ -254,7 +254,11 @@ export const DocumentNode = memo(function DocumentNode({
     return null;
 
   return (
-    <NodeReveal id={node.id} revision={revision}>
+    <NodeReveal
+      id={node.id}
+      revision={revision}
+      copyProse={node.type === "markdown" || node.type === "trace_quote"}
+    >
       <BlockErrorBoundary
         type={node.type}
         onError={(error) => reportReviewDocumentRenderError(session, error)}
@@ -283,10 +287,12 @@ export function RevealAfterFirstPaint({ children }: { children: ReactNode }) {
 }
 
 function NodeReveal({
+  copyProse,
   id,
   revision,
   children,
 }: {
+  copyProse: boolean;
   id: string;
   revision: string;
   children: ReactNode;
@@ -313,7 +319,12 @@ function NodeReveal({
   }, [revision]);
 
   return (
-    <div className="api-document-node" data-review-node-id={id} ref={root}>
+    <div
+      className="api-document-node"
+      data-review-node-id={id}
+      data-review-copy-prose={copyProse || undefined}
+      ref={root}
+    >
       {children}
     </div>
   );

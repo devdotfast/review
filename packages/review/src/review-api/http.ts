@@ -341,7 +341,7 @@ export function createReviewApi(
 
     return context.json({
       text: [
-        `Selected ${target.kind === "text" ? "text" : target.kind === "code" ? "code" : "diagram element"} from Review: ${snapshot.title}`,
+        `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
         `Review ID: ${snapshot.reviewId}`,
         `Version: ${snapshot.version}`,
         `Repository ID: ${snapshot.pins.repositoryId}`,

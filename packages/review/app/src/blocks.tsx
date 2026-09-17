@@ -118,7 +118,7 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
 function CalloutBlock({ node, children }: BlockProps<"callout">) {
   return (
     <blockquote data-tone={node.tone}>
-      {node.title && <strong>{node.title}</strong>}
+      {node.title && <strong data-review-copy-prose>{node.title}</strong>}
       {children(node.children)}
     </blockquote>
   );

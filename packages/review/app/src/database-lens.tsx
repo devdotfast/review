@@ -16,7 +16,6 @@ import type {
   DatabaseStore,
 } from "../../src/review-api/document";
 import type { Source } from "../../src/source";
-import { useAgentSelection } from "./agent-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import type { GuidedTour, PeekAnchor } from "./review-panel-model";
@@ -257,7 +256,6 @@ export function DatabaseLens(block: DatabaseLensProps) {
     [lensId, actors, stores, block.useCases],
   );
 
-  const selectForAgent = useAgentSelection();
   const session = useReviewSession();
 
   const [activeUseCaseId, setActiveUseCaseId] = useState<string | null>(
@@ -420,37 +418,6 @@ export function DatabaseLens(block: DatabaseLensProps) {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={() =>
-                  selectForAgent({
-                    target: {
-                      kind: "graph",
-                      diagram: title ?? "Database lens",
-                      label: activeUseCase.label,
-                      elementType: "node",
-                    },
-                    title: activeUseCase.label,
-                    diagramContext: {
-                      kind: "database use case",
-                      description: activeUseCase.summary,
-                      operations: activeUseCase.operations.map((operation) => {
-                        const actor = operation.actor.label;
-                        const target = operation.target.collectionLabel;
-
-                        const [from, to] =
-                          operation.kind === "read"
-                            ? [target, actor]
-                            : [actor, target];
-
-                        return `${operation.kind}: ${from} → ${to} — ${operation.label}`;
-                      }),
-                    },
-                  })
-                }
-              >
-                Select for Agent
-              </button>
             </div>
           )}
           {!stage && activeTourId && (

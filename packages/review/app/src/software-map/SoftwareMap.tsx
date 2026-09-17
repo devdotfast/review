@@ -29,7 +29,6 @@ import {
 import { createPortal } from "react-dom";
 
 import { codePeekSource } from "../../../src/source";
-import { useAgentSelection } from "../agent-selection";
 import { CodePeekGroup } from "../CodePeek";
 import { useReviewDebugSettings } from "../debug-settings";
 import { hasTextSelectionWithin } from "../diagram-text-selection";
@@ -51,7 +50,6 @@ import {
   c4EdgeEndpointBubbles,
   c4LayoutSignature,
   c4PreviousInlineLayoutForRelationships,
-  c4RelationshipEdgeId,
   createC4MapFlowFromLayout,
   fitC4MapView,
   focusC4MapNodeAndKeyboard,
@@ -848,7 +846,6 @@ export function SoftwareMapFrame({
   viewportFocusRequiresExpanded,
   onViewportFocusComplete,
 }: SoftwareMapFrameProps) {
-  const selectForAgent = useAgentSelection();
   const session = useReviewSession();
   const frameRef = useRef<HTMLElement | null>(null);
 
@@ -900,35 +897,7 @@ export function SoftwareMapFrame({
     });
   };
 
-  const endpoint = (id: string) =>
-    snapshot.nodes?.find((node) => node.id === id)?.label ?? id;
-
-  const relationshipText = (r: { from: string; to: string; label?: string }) =>
-    `${endpoint(r.from)} → ${endpoint(r.to)}${r.label ? `: ${r.label}` : ""}`;
-
   const selectNodeWithTelemetry = (node: SoftwareMapNodeSnapshot) => {
-    selectForAgent({
-      target: {
-        kind: "graph",
-        diagram: title,
-        label: node.label,
-        elementType: "node",
-      },
-      title: node.label,
-      diagramContext: {
-        kind: "node",
-        description: node.description,
-        incoming: (snapshot.relationships ?? [])
-          .filter((r) => r.to === node.id)
-          .map(relationshipText),
-        outgoing: (snapshot.relationships ?? [])
-          .filter((r) => r.from === node.id)
-          .map(relationshipText),
-        references: node.file
-          ? [`${node.file}${node.line ? `:${node.line}` : ""}`]
-          : undefined,
-      },
-    });
     captureUiEvent(session, "peek_opened", { via: "map" });
     onSelectNode?.(node);
   };
@@ -1056,28 +1025,7 @@ export function SoftwareMapFrame({
             onToggleNodeExpansion={toggleNodeExpansionWithTelemetry}
             onFocusNode={onFocusNode}
             relationshipStateById={relationshipStateById}
-            onOpenRelationship={(id) => {
-              const relationship = snapshot.relationships?.find(
-                (r, index) => (r.id ?? c4RelationshipEdgeId(r, index)) === id,
-              );
-
-              if (relationship)
-                selectForAgent({
-                  target: {
-                    kind: "graph",
-                    diagram: title,
-                    label: relationship.label ?? relationshipText(relationship),
-                    elementType: "edge",
-                  },
-                  title: relationship.label ?? id,
-                  diagramContext: {
-                    kind: "relationship",
-                    from: endpoint(relationship.from),
-                    to: endpoint(relationship.to),
-                  },
-                });
-              onOpenRelationship?.(id);
-            }}
+            onOpenRelationship={onOpenRelationship}
             selectChildNodeIdForDrill={selectChildNodeIdForDrill}
             viewportFocusNodeId={viewportFocusNodeId}
             viewportFocusRequiresExpanded={viewportFocusRequiresExpanded}

@@ -286,6 +286,36 @@ describe("block components", () => {
     ).toBe("true");
   });
 
+  it.each(["sequence", "database_lens", "software_map"] as const)(
+    "keeps %s interactions without offering Copy for Agent",
+    async (kind) => {
+      const { container } = await mountFixture(kind);
+      expect(await settled(() => rendered[kind](container))).toBe(true);
+      const buttons = [...container.querySelectorAll("button")];
+      expect(
+        buttons.some((button) =>
+          button.textContent?.includes("Select for Agent"),
+        ),
+      ).toBe(false);
+
+      const target = container.querySelector<HTMLElement>(
+        kind === "sequence"
+          ? ".sequence-participant-label"
+          : kind === "database_lens"
+            ? ".database-lens-header"
+            : ".software-map .react-flow__node",
+      );
+
+      expect(target).not.toBeNull();
+      await act(async () => target!.click());
+      expect(
+        [...container.querySelectorAll("button")].some(
+          (button) => button.textContent === "Copy for Agent",
+        ),
+      ).toBe(false);
+    },
+  );
+
   it("has a component for every fixture kind", () => {
     expect(Object.keys(blockComponents).sort()).toEqual(
       [...fixtures.keys()].sort(),

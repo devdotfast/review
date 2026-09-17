@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { ReviewRecord } from "@dev.fast/review-protocol";
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 
 import {
@@ -9,6 +8,7 @@ import {
   type StoredReviewRecord,
   parseStoredReviewRecord,
 } from "./review-home";
+import type { ReviewRecord } from "./review-import/legacy-record";
 import { withReviewMutationLock } from "./review-mutation-lock";
 
 /**

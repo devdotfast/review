@@ -1,223 +1,19 @@
 import type {
   ReviewCanvasContent,
-  ReviewCanvasDiagnostic,
   ReviewCanvasHandle,
-  ReviewDocumentLoad,
-  ReviewSoftwareMapLoad,
 } from "@dev.fast/review-protocol";
-import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { ApiCanvas } from "./api-canvas";
-import {
-  App,
-  type ReviewDocumentAppState,
-  type ReviewSoftwareMapAppState,
-} from "./App";
-import {
-  type ReviewSession,
-  ReviewSessionProvider,
-  createReviewSession,
-  useReviewSession,
-} from "./host/review-session";
-import { hydratePublishedSoftwareMap } from "./hydrate-published-software-map";
-import { hydrateReviewDocument } from "./review-document-hydrate";
 import { type ReviewFindHost, createReviewFindHost } from "./review-find";
 import { ReviewHome } from "./review-home-view";
-import {
-  ReviewContainerProvider,
-  useReviewContainer,
-} from "./review-root-context";
+import { ReviewContainerProvider } from "./review-root-context";
 import { SettingsPage } from "./settings-page";
-import { TutorialProvider } from "./tutorial-context";
-import { captureClientError } from "./ui-telemetry";
 import { WelcomePage } from "./welcome-page";
 
 import "./styles.css";
 
 export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
-
-function DesktopReviewApp({
-  documentBundle,
-  softwareMapBundle,
-  softwareMapEnabled,
-  range,
-  commits,
-  tutorial,
-  findHost,
-}: {
-  documentBundle: Promise<ReviewDocumentLoad>;
-  softwareMapBundle: Promise<ReviewSoftwareMapLoad | null>;
-  softwareMapEnabled: boolean;
-  range: Extract<ReviewCanvasContent, { kind: "session" }>["range"];
-  commits: Extract<ReviewCanvasContent, { kind: "session" }>["commits"];
-  tutorial?: Extract<ReviewCanvasContent, { kind: "session" }>["tutorial"];
-  findHost: ReviewFindHost;
-}) {
-  const session = useReviewSession();
-
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
-  const container = useReviewContainer();
-
-  const reportedDocumentBundle = useRef<Promise<ReviewDocumentLoad> | null>(
-    null,
-  );
-
-  const reportedSoftwareMapBundle =
-    useRef<Promise<ReviewSoftwareMapLoad | null> | null>(null);
-
-  const documentState = useSettledLoad(
-    documentBundle,
-    (load): ReviewDocumentAppState => {
-      if (load.state !== "ready") return load;
-      const session = sessionRef.current;
-      let document = session.documents.get(load.contentHash);
-
-      if (!document) {
-        document = hydrateReviewDocument(load);
-        session.documents.set(load.contentHash, document);
-      }
-
-      return { state: "ready", document };
-    },
-  );
-
-  const softwareMapState = useSettledLoad(
-    softwareMapBundle,
-    (load): ReviewSoftwareMapAppState => {
-      if (load === null) return { state: "absent" };
-
-      if (load.state !== "ready") return load;
-
-      return {
-        state: "ready",
-        softwareMap: hydratePublishedSoftwareMap(load),
-      };
-    },
-  );
-
-  useEffect(() => {
-    if (
-      documentState.state === "loading" ||
-      softwareMapState.state === "loading"
-    ) {
-      return;
-    }
-
-    // The display host opens a usable recovery shell before diagnostics.
-    session.signalReady();
-
-    if (
-      reportedDocumentBundle.current !== documentBundle &&
-      reportLoadFailure(session, "document", documentState)
-    ) {
-      reportedDocumentBundle.current = documentBundle;
-    }
-
-    if (
-      reportedSoftwareMapBundle.current !== softwareMapBundle &&
-      reportLoadFailure(session, "software-map", softwareMapState)
-    ) {
-      reportedSoftwareMapBundle.current = softwareMapBundle;
-    }
-  }, [
-    documentBundle,
-    documentState,
-    softwareMapBundle,
-    softwareMapState,
-    session,
-  ]);
-
-  return (
-    <div className="review-session-content">
-      <ReviewSessionProvider session={session}>
-        <TutorialProvider tutorial={tutorial}>
-          <App
-            documentState={documentState}
-            softwareMapState={softwareMapState}
-            softwareMapEnabled={softwareMapEnabled}
-            range={range}
-            commits={commits}
-            findHost={findHost}
-          />
-        </TutorialProvider>
-      </ReviewSessionProvider>
-    </div>
-  );
-}
-
-type ReviewLoadFallback =
-  | { state: "loading" }
-  | { state: "unavailable"; message: string; cause: Error };
-
-const reviewLoadLoading: ReviewLoadFallback = { state: "loading" };
-
-/**
- * Settles one canvas bundle into its app state. A load that rejects becomes
- * the unavailable state carrying its cause, so nothing has to re-derive the
- * failure from a ref afterwards.
- */
-function useSettledLoad<TLoad, TState>(
-  bundle: Promise<TLoad>,
-  settle: (load: TLoad) => TState | Promise<TState>,
-): TState | ReviewLoadFallback {
-  const settleRef = useRef(settle);
-  settleRef.current = settle;
-
-  const [settledLoad, setSettledLoad] = useState<{
-    bundle: Promise<TLoad>;
-    value: TState | ReviewLoadFallback;
-  }>(() => ({ bundle, value: reviewLoadLoading }));
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const load = await bundle;
-
-        if (cancelled) return;
-        const settled = await settleRef.current(load);
-
-        if (!cancelled) setSettledLoad({ bundle, value: settled });
-      } catch (error) {
-        if (cancelled) return;
-        const cause = error instanceof Error ? error : new Error(String(error));
-        setSettledLoad({
-          bundle,
-          value: { state: "unavailable", message: cause.message, cause },
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [bundle]);
-
-  return settledLoad.bundle === bundle ? settledLoad.value : reviewLoadLoading;
-}
-
-function reportLoadFailure(
-  session: ReviewSession,
-  source: "document" | "software-map",
-  state: ReviewDocumentAppState | ReviewSoftwareMapAppState,
-): boolean {
-  if (state.state !== "unavailable" || state.currentReviewUuid) return false;
-  const cause = state.cause ?? new Error(state.message);
-  captureClientError(session, source, cause);
-
-  const diagnostic: ReviewCanvasDiagnostic = {
-    level: "error",
-    source: "loader",
-    message: cause.message,
-  };
-
-  if (cause.stack) diagnostic.stack = cause.stack;
-  session.reportDiagnostic(diagnostic);
-
-  return true;
-}
 
 function ReviewCanvas({
   content,
@@ -228,7 +24,6 @@ function ReviewCanvas({
 }) {
   if (content.kind === "api")
     return (
-      // The marker lets tests tell the JSON canvas from a legacy session canvas.
       <div data-review-api="" style={{ display: "contents" }}>
         <ApiCanvas
           key={content.reviewId}
@@ -237,21 +32,6 @@ function ReviewCanvas({
         />
       </div>
     );
-
-  if (content.kind === "session") {
-    return (
-      <DesktopReviewApp
-        key={content.bridge.config.sessionId}
-        documentBundle={content.document}
-        softwareMapBundle={content.softwareMap}
-        softwareMapEnabled={content.softwareMapEnabled}
-        range={content.range}
-        commits={content.commits}
-        tutorial={content.tutorial}
-        findHost={findHost}
-      />
-    );
-  }
 
   if (content.kind === "home") return <Home content={content} />;
 
@@ -288,23 +68,6 @@ function ReviewCanvas({
     return <SettingsPage settings={content.settings} />;
   }
 
-  if (content.kind === "completed") {
-    return (
-      <CanvasShell title="Review completed">
-        <p>{content.reviewPath ?? "The review was submitted successfully."}</p>
-        <p>
-          <button
-            type="button"
-            className="review-shell-primary"
-            onClick={content.showHome}
-          >
-            Back to Home
-          </button>
-        </p>
-      </CanvasShell>
-    );
-  }
-
   if (content.kind === "error") {
     return (
       <CanvasShell title="Review unavailable">
@@ -329,19 +92,18 @@ function Home({
   return (
     <ReviewHome
       reviews={content.reviews}
-      reviewErrors={content.reviewErrors}
-      onOpen={(review) => content.openReview(review.uuid)}
+      onOpen={(review) => content.openReview(review.reviewId)}
       onDelete={
-        deleteReview ? (review) => deleteReview(review.uuid) : undefined
+        deleteReview ? (review) => deleteReview(review.reviewId) : undefined
       }
       onDismiss={
-        dismissReview ? (review) => dismissReview(review.uuid) : undefined
+        dismissReview ? (review) => dismissReview(review.reviewId) : undefined
       }
       onRestore={
-        restoreReview ? (review) => restoreReview(review.uuid) : undefined
+        restoreReview ? (review) => restoreReview(review.reviewId) : undefined
       }
       onOpenSourceTree={
-        openSourceTree ? (review) => openSourceTree(review.uuid) : undefined
+        openSourceTree ? (review) => openSourceTree(review.reviewId) : undefined
       }
       setup={content.setup}
       install={content.install}
@@ -385,7 +147,7 @@ export function mountReviewCanvas(
   initialContent: ReviewCanvasContent,
 ): ReviewCanvasHandle {
   let content = initialContent;
-  let session: ReviewSession | null = null;
+
   let disposed = false;
   let themeSubscription: { dispose(): void } | null = null;
   const findHost = createReviewFindHost();
@@ -409,17 +171,9 @@ export function mountReviewCanvas(
     themeSubscription?.dispose();
     themeSubscription = null;
 
-    if (content.kind === "session" || content.kind === "api") {
-      resetSessionDiagnostics(container);
+    resetSessionDiagnostics(container);
 
-      if (session?.bridge !== content.bridge) {
-        session = createReviewSession(content.bridge);
-      }
-    } else {
-      session = null;
-    }
-
-    if (content.kind === "session" || content.kind === "api") {
+    if (content.kind === "api") {
       applyTheme(content.bridge.currentTheme());
       themeSubscription = content.bridge.onDidChangeTheme(applyTheme);
     } else {
@@ -443,13 +197,7 @@ export function mountReviewCanvas(
 
     root.render(
       <ReviewContainerProvider container={container}>
-        {session ? (
-          <ReviewSessionProvider session={session}>
-            <ReviewCanvas content={content} findHost={findHost} />
-          </ReviewSessionProvider>
-        ) : (
-          <ReviewCanvas content={content} findHost={findHost} />
-        )}
+        <ReviewCanvas content={content} findHost={findHost} />
       </ReviewContainerProvider>,
     );
   };
@@ -466,10 +214,7 @@ export function mountReviewCanvas(
       container.focus();
     },
     showFind(seed) {
-      return (
-        (content.kind === "session" || content.kind === "api") &&
-        findHost.showFind(seed)
-      );
+      return content.kind === "api" && findHost.showFind(seed);
     },
     dispose() {
       if (disposed) return;

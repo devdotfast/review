@@ -12,7 +12,7 @@ describe("global Review Desktop verb relay", () => {
     expect(relay.attach(second.writer)).toBe(false);
     expect(relay.attached).toBe(true);
 
-    const result = relay.dispatch("session-one", {
+    const result = relay.dispatch({
       name: "focusCanvas",
       args: {},
     });
@@ -21,20 +21,17 @@ describe("global Review Desktop verb relay", () => {
 
     const message = JSON.parse(first.frames[0].slice(6)) as {
       id: string;
-      sessionId: string;
     };
 
     expect(
       relay.acceptResult({
-        id: message.id,
-        sessionId: "wrong-session",
+        id: "unknown-request",
         response: { ok: true },
       }),
     ).toBe(false);
     expect(
       relay.acceptResult({
         id: message.id,
-        sessionId: message.sessionId,
         response: { ok: true, result: { focused: true } },
       }),
     ).toBe(true);
@@ -46,7 +43,7 @@ describe("global Review Desktop verb relay", () => {
     first.abort.abort();
     expect(relay.attached).toBe(false);
     await expect(
-      relay.dispatch("session-one", { name: "focusCanvas", args: {} }),
+      relay.dispatch({ name: "focusCanvas", args: {} }),
     ).resolves.toEqual({
       ok: false,
       error: "No Review Desktop is attached.",
@@ -61,7 +58,7 @@ describe("global Review Desktop verb relay", () => {
       const timeoutWriter = createWriter();
       timeoutRelay.attach(timeoutWriter.writer);
 
-      const timedOut = timeoutRelay.dispatch("session-one", {
+      const timedOut = timeoutRelay.dispatch({
         name: "focusCanvas",
         args: {},
       });
@@ -76,7 +73,7 @@ describe("global Review Desktop verb relay", () => {
       const disconnectWriter = createWriter();
       disconnectRelay.attach(disconnectWriter.writer);
 
-      const disconnected = disconnectRelay.dispatch("session-one", {
+      const disconnected = disconnectRelay.dispatch({
         name: "focusCanvas",
         args: {},
       });
@@ -91,7 +88,7 @@ describe("global Review Desktop verb relay", () => {
       const closedWriter = createWriter();
       closedRelay.attach(closedWriter.writer);
 
-      const closed = closedRelay.dispatch("session-one", {
+      const closed = closedRelay.dispatch({
         name: "focusCanvas",
         args: {},
       });

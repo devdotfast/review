@@ -3,443 +3,189 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
 import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
-import {
-  type ICodeEditor,
-  isCodeEditor,
-  isDiffEditor,
-} from "../../../editor/browser/editorBrowser.js";
+import { type ICodeEditor } from "../../../editor/browser/editorBrowser.js";
 import { ICodeEditorService } from "../../../editor/browser/services/codeEditorService.js";
-import { reviewResourceIdentity, REVIEW_BASE_SCHEME } from "../../common/reviewCodeResources.js";
-import { Range } from "../../../editor/common/core/range.js";
-import type { IEditorDecorationsCollection } from "../../../editor/common/editorCommon.js";
-import {
-  createDecorator,
-} from "../../../platform/instantiation/common/instantiation.js";
-import type { IEditorPane } from "../../../workbench/common/editor.js";
-import { IEditorGroupsService } from "../../../workbench/services/editor/common/editorGroupsService.js";
-import { IEditorService } from "../../../workbench/services/editor/common/editorService.js";
-import {
-  IWorkbenchLayoutService,
-  Parts,
-} from "../../../workbench/services/layout/browser/layoutService.js";
+import { createDecorator } from "../../../platform/instantiation/common/instantiation.js";
+import { IOpenerService } from "../../../platform/opener/common/opener.js";
 import { IHostService } from "../../../workbench/services/host/browser/host.js";
 import {
-  type ReviewDiffSide,
-  type JsonValue,
-  type ReviewSurfaceEvent,
-  type ReviewVerbResponse,
-  type ReviewView,
-  parseReviewVerbRequest,
-  REVIEW_DISCORD_URL,
+	type JsonValue,
+	parseReviewVerbRequest,
+	REVIEW_DISCORD_URL,
+	type ReviewSurfaceEvent,
+	type ReviewVerbResponse,
+	type ReviewView,
 } from "../../common/reviewProtocol.js";
-import {
-  IReviewCodeResourceService,
-} from "../../services/reviewCodeResourceService.js";
 import { IReviewApiCatalogService } from "../../services/reviewApiCatalogService.js";
+import { REVIEW_API_SOURCE_SCHEME } from "../../services/reviewApiSourceService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
-import {
-  IReviewSessionModelService,
-  type ReviewDesktopSession,
-} from "../../services/reviewSessionModelService.js";
-import { IReviewSessionService } from "../../services/reviewSessionService.js";
-import { IReviewDiffTabsService } from "../../services/reviewDiffTabs.js";
-import { ReviewCanvasEditorInput } from "../../browser/parts/canvas/reviewCanvasEditorInput.js";
-import { IReviewExplorerPartsService } from "../../browser/parts/explorer/reviewExplorerPart.js";
+import { IReviewCodeResourceService } from "../../services/reviewCodeResourceService.js";
 
-export const IReviewVerbsService =
-  createDecorator<IReviewVerbsService>("reviewVerbsService");
+export const IReviewVerbsService = createDecorator<IReviewVerbsService>("reviewVerbsService");
 
 export interface IReviewVerbsService {
-  readonly _serviceBrand: undefined;
-  readonly onDidEmitSurfaceEvent: Event<ReviewSurfaceEvent>;
-  readonly onDidRequestCanvasFocus: Event<void>;
-  dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse>;
-  resetSession(): Promise<void>;
+	readonly _serviceBrand: undefined;
+	readonly onDidEmitSurfaceEvent: Event<ReviewSurfaceEvent>;
+	readonly onDidRequestCanvasFocus: Event<void>;
+	dispatch(value: JsonValue): Promise<ReviewVerbResponse>;
 }
 
-export class ReviewVerbsService
-  extends Disposable
-  implements IReviewVerbsService
-{
-  declare readonly _serviceBrand: undefined;
+export class ReviewVerbsService extends Disposable implements IReviewVerbsService {
+	declare readonly _serviceBrand: undefined;
 
-  private readonly _onDidEmitSurfaceEvent = this._register(
-    new Emitter<ReviewSurfaceEvent>(),
-  );
-  readonly onDidEmitSurfaceEvent = this._onDidEmitSurfaceEvent.event;
-  private readonly _onDidRequestCanvasFocus = this._register(
-    new Emitter<void>(),
-  );
-  readonly onDidRequestCanvasFocus = this._onDidRequestCanvasFocus.event;
+	private readonly _onDidEmitSurfaceEvent = this._register(new Emitter<ReviewSurfaceEvent>());
+	readonly onDidEmitSurfaceEvent = this._onDidEmitSurfaceEvent.event;
+	private readonly _onDidRequestCanvasFocus = this._register(new Emitter<void>());
+	readonly onDidRequestCanvasFocus = this._onDidRequestCanvasFocus.event;
 
-  private readonly selectionEditors = new Map<string, DisposableStore>();
+	private readonly selectionEditors = new Map<string, DisposableStore>();
 
-  private revealDecoration: IEditorDecorationsCollection | undefined;
+	constructor(
+		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
+		@IReviewCodeResourceService
+		private readonly codeResources: IReviewCodeResourceService,
+		@IReviewCanvasEditorTabsService
+		private readonly tabsService: IReviewCanvasEditorTabsService,
+		@IHostService private readonly hostService: IHostService,
+		@IOpenerService private readonly openerService: IOpenerService,
+		@IReviewApiCatalogService
+		private readonly apiCatalog: IReviewApiCatalogService,
+	) {
+		super();
+		for (const editor of this.codeEditorService.listCodeEditors()) this.trackSelection(editor);
+		this._register(this.codeEditorService.onCodeEditorAdd((editor) => this.trackSelection(editor)));
+		this._register(
+			this.codeEditorService.onCodeEditorRemove((editor) => {
+				this.selectionEditors.get(editor.getId())?.dispose();
+				this.selectionEditors.delete(editor.getId());
+			}),
+		);
+	}
 
-  constructor(
-    @ICodeEditorService private readonly codeEditorService: ICodeEditorService,
-    @IEditorService private readonly editorService: IEditorService,
-    @IEditorGroupsService
-    private readonly editorGroupsService: IEditorGroupsService,
-    @IWorkbenchLayoutService
-    private readonly layoutService: IWorkbenchLayoutService,
-    @IReviewCodeResourceService
-    private readonly codeResources: IReviewCodeResourceService,
-    @IReviewSessionModelService
-    private readonly sessionModelService: IReviewSessionModelService,
-    @IReviewSessionService
-    private readonly sessionService: IReviewSessionService,
-    @IReviewDiffTabsService
-    private readonly reviewDiffTabsService: IReviewDiffTabsService,
-    @IReviewCanvasEditorTabsService
-    private readonly tabsService: IReviewCanvasEditorTabsService,
-    @IReviewExplorerPartsService
-    private readonly explorerParts: IReviewExplorerPartsService,
-    @IHostService private readonly hostService: IHostService,
-    @IOpenerService private readonly openerService: IOpenerService,
-    @IReviewApiCatalogService
-    private readonly apiCatalog: IReviewApiCatalogService,
-  ) {
-    super();
-    for (const editor of this.codeEditorService.listCodeEditors()) this.trackSelection(editor);
-    this._register(this.codeEditorService.onCodeEditorAdd(editor => this.trackSelection(editor)));
-    this._register(this.codeEditorService.onCodeEditorRemove(editor => {
-      this.selectionEditors.get(editor.getId())?.dispose();
-      this.selectionEditors.delete(editor.getId());
-    }));
-  }
+	private trackSelection(editor: ICodeEditor): void {
+		if (this.selectionEditors.has(editor.getId())) return;
+		const store = this._register(new DisposableStore());
+		this.selectionEditors.set(editor.getId(), store);
+		store.add(editor.onDidChangeCursorSelection(() => this.emitSelection(editor)));
+		store.add(editor.onDidFocusEditorText(() => this.emitSelection(editor)));
+		store.add(editor.onDidScrollChange(() => this.emitSelection(editor)));
+	}
 
-  private trackSelection(editor: ICodeEditor): void {
-    if (this.selectionEditors.has(editor.getId())) return;
-    const store = this._register(new DisposableStore());
-    this.selectionEditors.set(editor.getId(), store);
-    store.add(
-      editor.onDidChangeCursorSelection(() => this.emitSelection(editor)),
-    );
-    store.add(editor.onDidFocusEditorText(() => this.emitSelection(editor)));
-    store.add(editor.onDidScrollChange(() => this.emitSelection(editor)));
-  }
+	private emitSelection(editor: ICodeEditor): void {
+		if (!editor.hasTextFocus()) return;
+		const model = editor.getModel();
+		const selection = editor.getSelection();
+		if (!model || !selection) return;
+		const unified = this.codeResources.unifiedResource(model.uri);
+		const apiSide =
+			model.uri.scheme === REVIEW_API_SOURCE_SCHEME ? new URLSearchParams(model.uri.query).get("side") : null;
+		if (!unified && apiSide !== "base" && apiSide !== "head") return;
+		const start = selection.getStartPosition();
+		const end = selection.getEndPosition();
+		const fromLine = start.lineNumber;
+		const toLine = Math.max(fromLine, end.lineNumber - (end.column === 1 && end.lineNumber > fromLine ? 1 : 0));
+		const rect = editor.getDomNode()?.getBoundingClientRect();
+		const position = editor.getScrolledVisiblePosition(selection.getPosition());
+		const anchor = rect && position ? { x: rect.left + position.left, y: rect.top + position.top } : undefined;
+		if (unified) {
+			const rows = unified.rows.slice(fromLine - 1, toLine);
+			if (!rows.length) return;
+			const previous = unified.rows.slice(0, fromLine - 1);
+			const source = unified.targetForRange(fromLine, toLine);
+			this._onDidEmitSurfaceEvent.fire({
+				event: "editorSelectionChanged",
+				reviewId: (unified?.modified ?? model.uri).authority,
+				anchor,
+				path: unified.path,
+				sideContext: source?.side ?? "head",
+				isEmpty: selection.isEmpty(),
+				range: {
+					fromLine: source?.startLine ?? fromLine,
+					toLine: source?.endLine ?? toLine,
+				},
+				selectedDiff: {
+					oldPath: unified.diffFile.status === "added" ? "" : (unified.diffFile.previousPath ?? unified.path),
+					newPath: unified.diffFile.status === "deleted" ? "" : unified.path,
+					oldStart:
+						previous.filter((row) => row.kind !== "added").length + (rows.some((row) => row.kind !== "added") ? 1 : 0),
+					newStart:
+						previous.filter((row) => row.kind !== "deleted").length +
+						(rows.some((row) => row.kind !== "deleted") ? 1 : 0),
+					rows: rows.map((row) => ({ kind: row.kind, text: row.content })),
+				},
+			});
+		} else if (apiSide === "base" || apiSide === "head") {
+			this._onDidEmitSurfaceEvent.fire({
+				event: "editorSelectionChanged",
+				reviewId: model.uri.authority,
+				anchor,
+				path: model.uri.path.slice(1),
+				sideContext: apiSide,
+				isEmpty: selection.isEmpty(),
+				range: { fromLine, toLine },
+			});
+		}
+	}
 
-  private emitSelection(editor: ICodeEditor): void {
-    if (!editor.hasTextFocus()) return;
-    const session = this.sessionModelService.activeModel?.session;
-    const model = editor.getModel();
-    const selection = editor.getSelection();
-    if (!session || !model || !selection) return;
-    const unified = this.codeResources.unifiedResource(model.uri);
-    const identity = reviewResourceIdentity(session, model.uri);
-    if (!unified && !identity) return;
-    const start = selection.getStartPosition();
-    const end = selection.getEndPosition();
-    const fromLine = start.lineNumber;
-    const toLine = Math.max(
-      fromLine,
-      end.lineNumber - (end.column === 1 && end.lineNumber > fromLine ? 1 : 0),
-    );
-    const rect = editor.getDomNode()?.getBoundingClientRect();
-    const position = editor.getScrolledVisiblePosition(selection.getPosition());
-    const anchor =
-      rect && position
-        ? { x: rect.left + position.left, y: rect.top + position.top }
-        : undefined;
-    if (unified) {
-      const rows = unified.rows.slice(fromLine - 1, toLine);
-      if (!rows.length) return;
-      const previous = unified.rows.slice(0, fromLine - 1);
-      const source = unified.targetForRange(fromLine, toLine);
-      this._onDidEmitSurfaceEvent.fire({
-        event: "editorSelectionChanged",
-        anchor,
-        path: unified.path,
-        sideContext: source?.side ?? "head",
-        isEmpty: selection.isEmpty(),
-        range: {
-          fromLine: source?.startLine ?? fromLine,
-          toLine: source?.endLine ?? toLine,
-        },
-        selectedDiff: {
-          oldPath:
-            unified.diffFile.status === "added"
-              ? ""
-              : (unified.diffFile.previousPath ?? unified.path),
-          newPath: unified.diffFile.status === "deleted" ? "" : unified.path,
-          oldStart:
-            previous.filter((row) => row.kind !== "added").length +
-            (rows.some((row) => row.kind !== "added") ? 1 : 0),
-          newStart:
-            previous.filter((row) => row.kind !== "deleted").length +
-            (rows.some((row) => row.kind !== "deleted") ? 1 : 0),
-          rows: rows.map((row) => ({ kind: row.kind, text: row.content })),
-        },
-      });
-    } else if (identity) {
-      this._onDidEmitSurfaceEvent.fire({
-        event: "editorSelectionChanged",
-        anchor,
-        path: identity.path,
-        sideContext:
-          model.uri.scheme === REVIEW_BASE_SCHEME ||
-          (session.session.baseRootPath &&
-            model.uri.fsPath.startsWith(session.session.baseRootPath + "/"))
-            ? "base"
-            : "head",
-        isEmpty: selection.isEmpty(),
-        range: { fromLine, toLine },
-      });
-    }
-  }
+	async dispatch(value: JsonValue): Promise<ReviewVerbResponse> {
+		try {
+			const request = parseReviewVerbRequest(value);
+			switch (request.name) {
+				case "joinDiscord":
+					await this.openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
+					break;
+				case "showReviewView":
+					await this.showReviewView(request.args.view);
+					break;
+				case "openSourceTree":
+				case "openDiff":
+				case "reveal":
+				case "openReviewRevision":
+					throw new Error("This action requires a pinned review canvas.");
+				case "focusCanvas":
+					this._onDidRequestCanvasFocus.fire();
+					break;
+				case "captureScreenshot":
+					return { ok: true, result: await this.captureScreenshot() };
+				case "openReview": {
+					const review = this.apiCatalog.reviews.find((review) => review.reviewId === request.args.reviewUuid);
+					if (!review) throw new Error("Review not found.");
+					await this.tabsService.openApiReview(review.reviewId, review.title, request.args.active);
+					break;
+				}
+				case "openApiReview":
+					await this.tabsService.openApiReview(request.args.reviewId, request.args.title);
+					break;
+			}
+			return { ok: true };
+		} catch (error) {
+			return {
+				ok: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+	}
 
-  async dispatch(
-    sessionId: string,
-    value: JsonValue,
-  ): Promise<ReviewVerbResponse> {
-    try {
-      const request = parseReviewVerbRequest(value);
-      switch (request.name) {
-        case "joinDiscord":
-          await this.openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
-          break;
-        case "showReviewView":
-          await this.showReviewView(request.args.view);
-          break;
-        case "openSourceTree":
-          // Bind the tab to the active review so a later re-activation can
-          // re-acquire the session after Home clears the active model.
-          await this.tabsService.openSource(
-            true,
-            this.sessionModelService.activeModel?.session.review.uuid,
-          );
-          this.explorerParts.show();
-          break;
-        case "openDiff":
-          await this.openDiff(request.args.path, request.args.previousPath);
-          break;
-        case "reveal":
-          await this.revealCode(request.args);
-          break;
-        case "focusCanvas":
-          this._onDidRequestCanvasFocus.fire();
-          break;
-        case "captureScreenshot":
-          return { ok: true, result: await this.captureScreenshot() };
-        case "openReviewRevision": {
-          const descriptor = this.sessionService.sessions.find(
-            (candidate) => candidate.sessionId === sessionId,
-          );
-          if (!descriptor) {
-            throw new Error("Unknown review session for openReviewRevision.");
-          }
-          if (request.args.revision) {
-            await this.tabsService.openReviewRevision(
-              descriptor.reviewUuid,
-              request.args.revision,
-              request.args.sealedAt,
-              true,
-            );
-          } else {
-            await this.tabsService.openReview(descriptor.reviewUuid, true);
-          }
-          break;
-        }
-        case "openReview": {
-          const api = this.apiCatalog.reviews.find(
-            (review) => review.uuid === request.args.reviewUuid,
-          );
-          if (api) {
-            await this.tabsService.openApiReview(
-              api.uuid,
-              api.title,
-              request.args.active,
-            );
-          } else {
-            await this.tabsService.openReview(
-              request.args.reviewUuid,
-              request.args.active,
-            );
-          }
-          break;
-        }
-        case "openApiReview":
-          await this.tabsService.openApiReview(request.args.reviewId, request.args.title);
-          break;
-      }
-      return { ok: true };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
+	private async captureScreenshot(): Promise<{ dataUrl: string } | undefined> {
+		try {
+			const screenshot = await this.hostService.getScreenshot();
+			if (!screenshot) return undefined;
+			return {
+				dataUrl: `data:image/jpeg;base64,${encodeBase64(screenshot)}`,
+			};
+		} catch {
+			return undefined;
+		}
+	}
 
-  private async captureScreenshot(): Promise<
-    { dataUrl: string } | undefined
-  > {
-    try {
-      const screenshot = await this.hostService.getScreenshot();
-      if (!screenshot) return undefined;
-      return {
-        dataUrl: `data:image/jpeg;base64,${encodeBase64(screenshot)}`,
-      };
-    } catch {
-      return undefined;
-    }
-  }
-
-  async resetSession(): Promise<void> {
-    this.clearRevealDecoration();
-    await Promise.all(
-      this.editorGroupsService.parts.flatMap((part) =>
-        part.groups.map((group) =>
-          group.closeEditors(
-            group.editors.filter(
-              (editor) => !(editor instanceof ReviewCanvasEditorInput),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  private async openFileEditor(args: {
-    path: string;
-    line?: number;
-    column?: number;
-    endLine?: number;
-    preserveFocus?: boolean;
-  }): Promise<IEditorPane | undefined> {
-    this.requireSession();
-    this.layoutService.setPartHidden(false, Parts.EDITOR_PART);
-    const resource = (await this.codeResources.target(args.path, "head"))
-      .resource;
-    return this.editorService.openEditor(
-      {
-        resource,
-        options: {
-          pinned: true,
-          preserveFocus: args.preserveFocus,
-          revealIfVisible: true,
-          selection:
-            args.line === undefined
-              ? undefined
-              : {
-                  startLineNumber: args.line,
-                  startColumn: args.column ?? 1,
-                  endLineNumber: args.endLine ?? args.line,
-                  endColumn: Number.MAX_SAFE_INTEGER,
-                },
-        },
-      },
-      this.editorGroupsService.mainPart.activeGroup,
-    );
-  }
-
-  private async openDiff(
-    filePath: string,
-    previousPath?: string,
-  ): Promise<void> {
-    const pane = await this.openDiffEditor({ filePath, previousPath });
-    if (!pane) throw new Error(`Unable to open review diff: ${filePath}`);
-  }
-
-  /**
-   * The dispatcher reveals the Review tab before asking the app to show a view.
-   */
-  private async showReviewView(view: ReviewView): Promise<void> {
-    this.requireSession();
-    this._onDidRequestCanvasFocus.fire();
-    this._onDidEmitSurfaceEvent.fire({ event: "showReviewView", view });
-  }
-
-  private async openDiffEditor(args: {
-    filePath: string;
-    previousPath?: string;
-    selection?: Range;
-    preserveFocus?: boolean;
-  }): Promise<IEditorPane | undefined> {
-    return this.reviewDiffTabsService.open(args);
-  }
-
-  private async revealCode(args: {
-    path: string;
-    startLine: number;
-    endLine: number;
-    side?: ReviewDiffSide;
-    highlight?: boolean;
-    preserveFocus?: boolean;
-  }): Promise<void> {
-    const side = args.side ?? "head";
-    const preserveFocus = args.preserveFocus ?? true;
-    this.clearRevealDecoration();
-    const range = new Range(
-      args.startLine,
-      1,
-      args.endLine,
-      Number.MAX_SAFE_INTEGER,
-    );
-    const diffFile = (await this.codeResources.target(args.path, side))
-      .diffFile;
-
-    let pane: IEditorPane | undefined;
-    let targetEditor: ICodeEditor;
-    if (diffFile) {
-      pane = await this.openDiffEditor({
-        filePath: diffFile.path,
-        previousPath: diffFile.previousPath,
-        selection: side === "head" ? range : undefined,
-        preserveFocus,
-      });
-      const control = pane?.getControl();
-      if (!pane || !isDiffEditor(control)) {
-        throw new Error(`Unable to open review diff: ${diffFile.path}`);
-      }
-      targetEditor =
-        side === "base"
-          ? control.getOriginalEditor()
-          : control.getModifiedEditor();
-    } else {
-      pane = await this.openFileEditor({
-        path: args.path,
-        line: args.startLine,
-        endLine: args.endLine,
-        preserveFocus,
-      });
-      const control = pane?.getControl();
-      if (!pane || !isCodeEditor(control)) {
-        throw new Error(`Unable to open review file: ${args.path}`);
-      }
-      targetEditor = control;
-    }
-
-    targetEditor.setSelection(range);
-    targetEditor.revealRangeInCenter(range);
-    if (!preserveFocus) targetEditor.focus();
-    if (args.highlight === true) {
-      this.revealDecoration = targetEditor.createDecorationsCollection([
-        {
-          range,
-          options: {
-            description: "Review reveal range",
-            isWholeLine: true,
-            className: "review-reveal-line",
-          },
-        },
-      ]);
-    }
-  }
-
-  private clearRevealDecoration(): void {
-    this.revealDecoration?.clear();
-    this.revealDecoration = undefined;
-  }
-
-  private requireSession(): ReviewDesktopSession {
-    const session = this.sessionModelService.activeModel?.session;
-    if (!session) throw new Error("No active Review Desktop session.");
-    return session;
-  }
+	/**
+	 * The dispatcher reveals the Review tab before asking the app to show a view.
+	 */
+	private async showReviewView(view: ReviewView): Promise<void> {
+		this._onDidRequestCanvasFocus.fire();
+		this._onDidEmitSurfaceEvent.fire({ event: "showReviewView", view });
+	}
 }

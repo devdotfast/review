@@ -13,9 +13,7 @@ import {
 
 export const TEST_REVIEW_CONFIG = {
   serverUrl: "http://127.0.0.1:5570",
-  sessionUrl: "http://127.0.0.1:5570/sessions/test-session",
-  routePath: "/review.mdx",
-  sessionId: "test-session",
+  reviewId: "test-session",
   token: "secret-token",
   wasmUrl: "vscode-file://review/libavoid.wasm",
   appVersion: "0.0.13",
@@ -30,6 +28,7 @@ export function testReviewBridge(
   return {
     config: { ...TEST_REVIEW_CONFIG, ...config },
     diffView: {
+      files: async () => [],
       create: () => {
         throw new Error("unused test diff view");
       },
@@ -59,7 +58,23 @@ export function testReviewSession(
   config: Partial<ReviewRuntimeConfig> = {},
   bridge: Partial<Omit<ReviewCanvasBridge, "config">> = {},
 ): ReviewSession {
-  return createReviewSession(testReviewBridge(config, bridge));
+  return {
+    ...createReviewSession(testReviewBridge(config, bridge), {
+      jsonReview: {
+        id: config.reviewId ?? "test-review",
+        version: () => undefined,
+      },
+    }),
+    review: {
+      pins: { base: "a".repeat(40), head: "b".repeat(40) },
+      historicalRevision: null,
+      updatedAtMs: Date.now(),
+      traces: new Map(),
+      listVersions: async () => [],
+      stack: async () => [],
+      dismiss: async () => {},
+    },
+  };
 }
 
 // Test files that are plain .ts cannot write JSX, and passing `children`

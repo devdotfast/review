@@ -4,13 +4,10 @@ import { type Root, createRoot, hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  ReviewSessionProvider,
-  createReviewSession,
-} from "./host/review-session";
+import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
 import { DisplayedReviewVersionContext } from "./review-history-control";
-import { testReviewBridge } from "./review-session-test-utils";
+import { testReviewSession } from "./review-session-test-utils";
 
 let root: Root | null = null;
 
@@ -31,18 +28,8 @@ describe("ReviewDocumentMetaLine", () => {
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(Date.UTC(2026, 6, 22, 12, 1));
 
-    const session = createReviewSession(
-      testReviewBridge(
-        {},
-        {
-          request: async () =>
-            Response.json({
-              ok: true,
-              updatedAtMs: Date.UTC(2026, 6, 22, 12, 0),
-            }),
-        },
-      ),
-    );
+    const session = testReviewSession();
+    session.review!.updatedAtMs = Date.UTC(2026, 6, 22, 12, 0);
 
     const tree = (
       <ReviewSessionProvider session={session}>
@@ -87,23 +74,20 @@ describe("ReviewDocumentMetaLine", () => {
       pullRequestUrl: null as string | null,
     };
 
-    const session = createReviewSession(
-      testReviewBridge(
-        {},
-        {
-          request: async (url) =>
-            url.includes("/document-meta")
-              ? Response.json(meta)
-              : Response.json({ layers: [] }),
-        },
-      ),
-    );
+    const session = testReviewSession();
 
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
 
     const render = async (version: number) => {
+      session.review = {
+        ...session.review!,
+        updatedAtMs: meta.updatedAtMs,
+        pullRequestNumber: meta.pullRequestNumber ?? undefined,
+        pullRequestUrl: meta.pullRequestUrl ?? undefined,
+      };
+
       await act(async () => {
         root?.render(
           <ReviewSessionProvider session={session}>
@@ -147,50 +131,34 @@ describe("ReviewDocumentMetaLine", () => {
   it("opens an available later Review in a background tab", async () => {
     const post = vi.fn<ReviewCanvasBridge["post"]>(async () => ({ ok: true }));
 
-    const stackSession = createReviewSession(
-      testReviewBridge(
-        {},
-        {
-          request: async (url) => {
-            if (url.includes("/document-meta")) {
-              return Response.json({ ok: true, pullRequestNumber: 20 });
-            }
-
-            expect(url).toContain("/stack");
-
-            return Response.json({
-              layers: [
-                {
-                  branch: "feature-b",
-                  relation: "current",
-                  pullRequestNumber: 20,
-                  pullRequestUrl: "https://github.com/o/r/pull/20",
-                  reviewUuid: "22222222-2222-4222-8222-222222222222",
-                  reviewTitle: "Review B",
-                },
-                {
-                  branch: "feature-c",
-                  relation: "later",
-                  pullRequestNumber: 30,
-                  pullRequestUrl: "https://github.com/o/r/pull/30",
-                  reviewUuid: "11111111-1111-4111-8111-111111111111",
-                  reviewTitle: "Review C",
-                },
-                {
-                  branch: "feature-d",
-                  relation: "later",
-                  pullRequestNumber: 40,
-                  pullRequestUrl: "https://github.com/o/r/pull/40",
-                  reviewUuid: null,
-                  reviewTitle: null,
-                },
-              ],
-            });
-          },
-          post,
-        },
-      ),
-    );
+    const stackSession = testReviewSession({}, { post });
+    stackSession.review!.pullRequestNumber = 20;
+    stackSession.review!.stack = async () => [
+      {
+        branch: "feature-b",
+        relation: "current",
+        pullRequestNumber: 20,
+        pullRequestUrl: "https://github.com/o/r/pull/20",
+        reviewUuid: "22222222-2222-4222-8222-222222222222",
+        reviewTitle: "Review B",
+      },
+      {
+        branch: "feature-c",
+        relation: "later",
+        pullRequestNumber: 30,
+        pullRequestUrl: "https://github.com/o/r/pull/30",
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        reviewTitle: "Review C",
+      },
+      {
+        branch: "feature-d",
+        relation: "later",
+        pullRequestNumber: 40,
+        pullRequestUrl: "https://github.com/o/r/pull/40",
+        reviewUuid: null,
+        reviewTitle: null,
+      },
+    ];
 
     const container = document.createElement("div");
     document.body.append(container);

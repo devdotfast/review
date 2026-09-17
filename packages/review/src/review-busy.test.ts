@@ -2,17 +2,11 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { afterEach, expect, it, vi } from "vitest";
 
 import { createReviewDir, readStoredReview } from "./review-home";
-import {
-  ReviewBusyError,
-  withReviewMutationLock,
-} from "./review-mutation-lock";
-import { createGlobalReviewServer } from "./server/desktop-server";
-import { createReviewSessionHandler } from "./server/session-handler";
+import { withReviewMutationLock } from "./review-mutation-lock";
 
 const roots: string[] = [];
 
@@ -57,20 +51,6 @@ it("reports loader and open contention as busy and allows migration after releas
   const recordBytes = JSON.stringify({ ...review.review, schemaVersion: 4 });
   await writeFile(recordPath, recordBytes);
 
-  const packageRoot = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "..",
-  );
-
-  const server = createGlobalReviewServer({
-    appPid: process.pid,
-    packageRoot,
-    toolingRoot: packageRoot,
-    token: "busy-token",
-    port: 0,
-    discoveryPath: path.join(home, "desktop.json"),
-  });
-
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
 
@@ -82,19 +62,7 @@ it("reports loader and open contention as busy and allows migration after releas
   await entered.promise;
 
   try {
-    await server.listen();
-
-    const [loaded, response] = await Promise.all([
-      readStoredReview(review.dir),
-      fetch(`${server.url}/reviews/${review.review.uuid}/open`, {
-        method: "POST",
-        headers: {
-          "x-review-token": "busy-token",
-          "content-type": "application/json",
-        },
-        body: "{}",
-      }),
-    ]);
+    const loaded = await readStoredReview(review.dir);
 
     expect(loaded).toMatchObject({
       error: {
@@ -104,70 +72,13 @@ it("reports loader and open contention as busy and allows migration after releas
         ),
       },
     });
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      code: "review_busy",
-      retryable: true,
-    });
-
     expect(await readFile(recordPath, "utf8")).toBe(recordBytes);
   } finally {
     release.resolve();
     await holding;
-    await server.close();
   }
 
   expect(await readStoredReview(review.dir)).toMatchObject({
     review: { schemaVersion: 5 },
   });
 }, 20_000);
-
-it("returns a retryable HTTP conflict for busy revisions requests", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "review-busy-session-"));
-  roots.push(root);
-  const reviewPath = path.join(root, "review.mdx");
-  await writeFile(reviewPath, "# Review\n");
-
-  const handler = await createReviewSessionHandler({
-    rootPath: root,
-    reviewPath,
-    toolingRoot: root,
-    routePath: "/",
-    token: "busy-token",
-    session: {
-      rootPath: root,
-      reviewPath,
-      baseRef: "HEAD",
-      appUrl: "http://127.0.0.1:5570",
-      startedAt: Date.now(),
-    },
-    listDocumentVersions: async () => {
-      throw new ReviewBusyError(root);
-    },
-  });
-
-  try {
-    const response = await handler.handle(
-      new Request("http://127.0.0.1:5570/__progressive-review/revisions", {
-        method: "GET",
-        headers: {
-          "x-review-token": "busy-token",
-          "content-type": "application/json",
-        },
-      }),
-    );
-
-    expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      code: "review_busy",
-      retryable: true,
-      error: expect.stringContaining(
-        "Retry after its current operation completes",
-      ),
-    });
-  } finally {
-    await handler.close();
-  }
-});

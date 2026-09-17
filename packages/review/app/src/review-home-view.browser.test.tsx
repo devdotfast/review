@@ -1,7 +1,6 @@
 import type {
+  ReviewApiSummary,
   ReviewCliInstallStatus,
-  ReviewDescriptor,
-  ReviewListError,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
@@ -33,78 +32,23 @@ describe("ReviewHome", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps unsupported and unreadable reviews selectable without banners", async () => {
-    const errors: ReviewListError[] = [
-      {
-        reviewDir: "/reviews/unsupported",
-        reviewUuid: uuid(2),
-        title: "Unsupported review",
-        worktreePath: "/repo",
-        lastPublishedAt: null,
-        code: "MIGRATION_REQUIRED",
-        message: "Unsupported review schema.",
-      },
-      {
-        reviewDir: "/reviews/unreadable",
-        reviewUuid: null,
-        title: "",
-        worktreePath: "/repo",
-        lastPublishedAt: null,
-        code: "EACCES",
-        message: "Cannot read review.json.",
-      },
-    ];
-
-    await act(async () =>
-      root.render(
-        <ReviewHome reviews={[]} onOpen={() => {}} reviewErrors={errors} />,
-      ),
-    );
-
-    const entries = container.querySelectorAll<HTMLButtonElement>(
-      ".review-home-unavailable-entries button",
-    );
-
-    expect(entries).toHaveLength(2);
-    expect(container.querySelector(".review-home-attention")).toBeNull();
-    expect(container.textContent).not.toContain(errors[0]!.message);
-    expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
-    await act(async () => entries[0]?.click());
-    expect(container.textContent).toContain(
-      "This review needs manual migration.",
-    );
-    const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
-    await act(async () =>
-      container
-        .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
-        ?.click(),
-    );
-    expect(writeText.mock.calls[0]?.[0]).toContain("review migrate apply");
-    expect(writeText.mock.calls[0]?.[0]).toContain(errors[0]!.reviewDir);
-    expect(writeText.mock.calls[0]?.[0]).toContain("Do not use --force");
-    await act(async () =>
-      [...container.querySelectorAll("button")]
-        .find((button) => button.textContent === "Back to reviews")
-        ?.click(),
-    );
-    expect(
-      container.querySelectorAll(".review-home-unavailable-entries button"),
-    ).toHaveLength(2);
-  });
-
   it("groups reviews by worktree without changing their order", () => {
     const reviews = [
-      descriptor({ uuid: uuid(1), worktreePath: "/repo/dev", title: "First" }),
-      descriptor({
-        uuid: uuid(2),
-        worktreePath: "/repo/other",
+      summary({
+        reviewId: uuid(1),
+        repositoryPath: "/repo/dev",
+        title: "First",
+      }),
+      summary({
+        reviewId: uuid(2),
+        repositoryPath: "/repo/other",
         title: "Second",
       }),
-      descriptor({ uuid: uuid(3), worktreePath: "/repo/dev", title: "Third" }),
+      summary({
+        reviewId: uuid(3),
+        repositoryPath: "/repo/dev",
+        title: "Third",
+      }),
     ];
 
     expect(groupReviewsByWorktree(reviews)).toMatchObject([
@@ -114,8 +58,8 @@ describe("ReviewHome", () => {
   });
 
   it("opens API reviews grouped by repository without needing a checkout path", async () => {
-    const { worktreePath: _, ...review } = descriptor({ title: "API review" });
-    const item = { ...review, repositoryLabel: "Review repository" };
+    const { repositoryPath: _, ...review } = summary({ title: "API review" });
+    const item = { ...review, repositoryName: "Review repository" };
     const onOpen = vi.fn<(review: typeof item) => void>();
     await act(async () =>
       root.render(<ReviewHome reviews={[item]} onOpen={onOpen} />),
@@ -133,8 +77,8 @@ describe("ReviewHome", () => {
 
   it("does not show a pinned commit as a workspace branch", () => {
     const [workspace] = groupReviewsByWorktree([
-      descriptor({
-        sourceBranch: "19398e1af4117b1e131a74edb4d198678a310409",
+      summary({
+        origin: { branch: "19398e1af4117b1e131a74edb4d198678a310409" },
       }),
     ]);
 
@@ -142,16 +86,14 @@ describe("ReviewHome", () => {
   });
 
   it("toggles between the Paper card and list views and remembers the choice", async () => {
-    const onOpen = vi.fn<(review: ReviewDescriptor) => void>();
+    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
 
     const reviews = [
-      descriptor({
-        uuid: uuid(1),
+      summary({
+        reviewId: uuid(1),
         title: "Store reviews in SQLite",
-        pullRequestNumber: 636,
+        origin: { pullRequestNumber: 636 },
         diffStats: { fileCount: 18, additions: 804, deletions: 356 },
-        presentedDocumentRevision: "presented",
-        presentedSoftwareMapRevision: null,
       }),
     ];
 
@@ -190,12 +132,12 @@ describe("ReviewHome", () => {
 
   it("groups cards under workspace headers", async () => {
     const reviews = [
-      descriptor({ uuid: uuid(1), title: "First dev review" }),
-      descriptor({ uuid: uuid(2), title: "Second dev review" }),
-      descriptor({
-        uuid: uuid(3),
+      summary({ reviewId: uuid(1), title: "First dev review" }),
+      summary({ reviewId: uuid(2), title: "Second dev review" }),
+      summary({
+        reviewId: uuid(3),
         title: "Other workspace review",
-        worktreePath: "/repo/other",
+        repositoryPath: "/repo/other",
       }),
     ];
 
@@ -215,21 +157,21 @@ describe("ReviewHome", () => {
     localStorage.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, "list");
 
     const reviews = [
-      descriptor({
-        uuid: uuid(1),
+      summary({
+        reviewId: uuid(1),
         title: "Later PR",
-        pullRequestNumber: 900,
+        origin: { pullRequestNumber: 900 },
       }),
-      descriptor({
-        uuid: uuid(2),
+      summary({
+        reviewId: uuid(2),
         title: "Early PR",
-        pullRequestNumber: 100,
+        origin: { pullRequestNumber: 100 },
       }),
-      descriptor({
-        uuid: uuid(3),
+      summary({
+        reviewId: uuid(3),
         title: "Other workspace",
-        worktreePath: "/repo/other",
-        pullRequestNumber: 500,
+        repositoryPath: "/repo/other",
+        origin: { pullRequestNumber: 500 },
       }),
     ];
 
@@ -272,20 +214,20 @@ describe("ReviewHome", () => {
     const devWorktreePath = "/Users/ketanagrawal/monorepo/repos/dev";
 
     const reviews = [
-      descriptor({
-        uuid: uuid(1),
+      summary({
+        reviewId: uuid(1),
         title: "First dev review",
-        worktreePath: devWorktreePath,
+        repositoryPath: devWorktreePath,
       }),
-      descriptor({
-        uuid: uuid(2),
+      summary({
+        reviewId: uuid(2),
         title: "Second dev review",
-        worktreePath: devWorktreePath,
+        repositoryPath: devWorktreePath,
       }),
-      descriptor({
-        uuid: uuid(3),
+      summary({
+        reviewId: uuid(3),
         title: "Other workspace review",
-        worktreePath: "/repo/other",
+        repositoryPath: "/repo/other",
       }),
     ];
 
@@ -325,15 +267,15 @@ describe("ReviewHome", () => {
   });
 
   it("deletes a review after an arming click without opening it", async () => {
-    const onOpen = vi.fn<(review: ReviewDescriptor) => void>();
+    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
 
-    const onDelete = vi.fn<(review: ReviewDescriptor) => Promise<void>>(
+    const onDelete = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
       async () => undefined,
     );
 
     const reviews = [
-      descriptor({
-        uuid: uuid(1),
+      summary({
+        reviewId: uuid(1),
         title: "Removable",
         dismissedAt: "2026-08-13T20:00:00.000Z",
       }),
@@ -368,73 +310,93 @@ describe("ReviewHome", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("hides the delete action when the host does not support deletion", async () => {
-    await act(async () =>
-      root.render(<ReviewHome reviews={[descriptor()]} onOpen={() => {}} />),
-    );
-    expect(container.querySelector(".review-home-delete")).toBeNull();
-  });
+  it("opens version-zero source and keeps attention actions on native summaries", async () => {
+    const review = summary({
+      title: "Native review",
+      version: 0,
+      origin: { pullRequestNumber: 320 },
+    });
 
-  it("shows recovery guidance only after opening a failed conversion", async () => {
-    const error: ReviewListError = {
-      reviewDir: `/tmp/reviews/${uuid(2)}`,
-      reviewUuid: uuid(2),
-      title: "Old review",
-      worktreePath: "/repo/old",
-      lastPublishedAt: null,
-      code: "REPAIR_REQUIRED",
-      message:
-        "This review was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Review skill.",
-    };
+    const onOpen = vi.fn<(review: ReviewApiSummary) => void>();
+    const onOpenSourceTree = vi.fn<(review: ReviewApiSummary) => void>();
 
-    await act(async () =>
-      root.render(
-        <ReviewHome
-          reviews={[descriptor()]}
-          reviewErrors={[error]}
-          onOpen={() => {}}
-        />,
-      ),
+    const onDismiss = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+      async () => {},
     );
 
-    expect(container.querySelector(".review-home-attention")).toBeNull();
-    expect(container.querySelector('[aria-label="Copy prompt"]')).toBeNull();
+    const onRestore = vi.fn<(review: ReviewApiSummary) => Promise<void>>(
+      async () => {},
+    );
+
+    const render = async (item: ReviewApiSummary) =>
+      act(async () =>
+        root.render(
+          <ReviewHome
+            reviews={[item]}
+            onOpen={onOpen}
+            onOpenSourceTree={onOpenSourceTree}
+            onDismiss={onDismiss}
+            onRestore={onRestore}
+          />,
+        ),
+      );
+
+    await render(review);
+    expect(container.textContent).toContain("PR #320");
+    expect(container.querySelector(".review-home-status")?.textContent).toBe(
+      "New",
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Browse dev source"]')!
+        .click(),
+    );
+    expect(onOpenSourceTree).toHaveBeenCalledWith(review);
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>(
-          ".review-home-unavailable-entries button",
-        )
-        ?.click(),
+          '[aria-label="Dismiss Native review"]',
+        )!
+        .click(),
     );
-    expect(container.textContent).toContain(
-      "Delete it from Home and recreate it with the Review skill.",
-    );
-    const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
+    expect(onDismiss).toHaveBeenCalledWith(review);
+    expect(onOpen).not.toHaveBeenCalled();
+
+    const dismissed = {
+      ...review,
+      viewedAt: "2026-09-01T00:00:00Z",
+      dismissedAt: "2026-09-02T00:00:00Z",
+    };
+
+    await render(dismissed);
     await act(async () =>
       container
-        .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
-        ?.click(),
+        .querySelector<HTMLButtonElement>(".review-home-dismissed-toggle")!
+        .click(),
     );
-    const copiedPrompt = writeText.mock.calls[0]?.[0];
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".review-home-restore")!
+        .click(),
+    );
+    expect(onRestore).toHaveBeenCalledWith(dismissed);
+    await render({ ...dismissed, dismissedAt: null });
+    expect(container.querySelector(".review-home-status")?.textContent).toBe(
+      "Review ready",
+    );
+  });
 
-    expect(copiedPrompt).toContain(
-      "Delete this review from Home and recreate it with the Review skill; it cannot be repaired.",
+  it("hides the delete action when the host does not support deletion", async () => {
+    await act(async () =>
+      root.render(<ReviewHome reviews={[summary()]} onOpen={() => {}} />),
     );
-    expect(copiedPrompt).not.toContain("Do not use --force or delete data");
-    expect(copiedPrompt).not.toContain("opens afterward");
-    expect(
-      container.querySelector('[aria-label="Prompt copied"]'),
-    ).not.toBeNull();
+    expect(container.querySelector(".review-home-delete")).toBeNull();
   });
 
   it("restores list view from storage", async () => {
     localStorage.setItem(REVIEW_HOME_VIEW_STORAGE_KEY, "list");
     await act(async () =>
-      root.render(<ReviewHome reviews={[descriptor()]} onOpen={() => {}} />),
+      root.render(<ReviewHome reviews={[summary()]} onOpen={() => {}} />),
     );
     expect(container.querySelector(".review-home-list-table")).not.toBeNull();
     expect(
@@ -444,14 +406,13 @@ describe("ReviewHome", () => {
     ).toBe("true");
   });
 
-  it("shows the document update time for an unpublished review", async () => {
+  it("shows the native snapshot update time in cards and list", async () => {
     vi.spyOn(Date, "now").mockReturnValue(
       Date.parse("2026-07-29T12:00:00.000Z"),
     );
 
-    const review = descriptor({
-      documentUpdatedAt: "2026-07-29T11:54:00.000Z",
-      lastPublishedAt: null,
+    const review = summary({
+      createdAt: "2026-07-29T11:54:00.000Z",
     });
 
     await act(async () =>
@@ -518,28 +479,25 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime("2026-07-28T12:00:00.000Z", now)).toBe(
       "1 day ago",
     );
-    expect(formatRelativeTime(null, now)).toBe("not published");
+    expect(formatRelativeTime(null, now)).toBe("unknown");
   });
 });
 
-function descriptor(
-  overrides: Partial<ReviewDescriptor> = {},
-): ReviewDescriptor {
+function summary(overrides: Partial<ReviewApiSummary> = {}): ReviewApiSummary {
   return {
-    uuid: uuid(9),
+    reviewId: uuid(9),
+    version: 0,
     title: "Progressive Review",
-    status: "awaiting-review",
-    worktreePath: "/repo/dev",
-    repoKey: "repo-1",
-    sourceBranch: "feature/home",
-    pullRequestNumber: null,
-    pullRequestUrl: null,
+    repositoryPath: "/repo/dev",
+    repositoryName: (overrides.repositoryPath ?? "/repo/dev")
+      .split("/")
+      .at(-1)!,
+    pins: { repositoryId: "repo-1", base: "base", head: "head" },
+    origin: { branch: "feature/home" },
     diffStats: null,
-    documentUpdatedAt: null,
-    presentedDocumentRevision: null,
-    presentedSoftwareMapRevision: null,
-    lastPublishedAt: "2026-07-29T11:54:00.000Z",
-    available: true,
+    createdAt: "2026-07-29T11:54:00.000Z",
+    viewedAt: null,
+    dismissedAt: null,
     ...overrides,
   };
 }

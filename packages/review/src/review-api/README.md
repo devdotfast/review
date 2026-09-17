@@ -2,10 +2,10 @@
 
 Desktop startup owns one `review-api.db` under `DEV_REVIEW_HOME`. Its routes use
 the existing desktop token authentication and bounded JSON request reader.
-The canvas accepts an API-backed content mode using the existing components;
-`POST /:id/open` opens it in Desktop without a legacy review session. Home lists
-API reviews alongside legacy reviews; API tabs reopen after restart. Existing saved reviews remain
-untouched. Tests can inject a store and data provider into the desktop server.
+The canvas and Home read only the native JSON store. `POST /:id/open` opens a review
+in Desktop, and pinned tabs reopen after restart. The startup importer migrates
+saved MDX reviews before the server starts; there is no legacy runtime or second
+catalog. Tests inject the native store and source-data provider.
 
 ## Storage and ownership
 

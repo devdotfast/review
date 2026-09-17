@@ -110,22 +110,6 @@ describe("review view state", () => {
     expect(readPersistedReviewViewState(session.config)).toEqual({});
   });
 
-  it("keeps the tour from legacy layered panel state", () => {
-    const session = testReviewSession();
-    storeState(session, {
-      panel: {
-        thread: { kind: "threads" },
-        tour: { tourId: "flow", activeAnchor: "second" },
-      },
-    });
-
-    expect(readPersistedReviewViewState(session.config).panel).toEqual({
-      kind: "tour",
-      tourId: "flow",
-      activeAnchor: "second",
-    });
-  });
-
   it("flushes the final scroll position when cleanup cancels a pending frame", () => {
     const session = testReviewSession();
     const harness = renderViewState({ session });
@@ -270,7 +254,7 @@ describe("review view state", () => {
   });
 
   it("ignores a persisted Threads panel from an older build", () => {
-    const legacySession = testReviewSession({ sessionId: "legacy-threads" });
+    const legacySession = testReviewSession({ reviewId: "legacy-threads" });
     const legacyStore = createReviewPanelStore();
     storeState(legacySession, {
       panel: { kind: "threads" },
@@ -352,24 +336,16 @@ describe("review view state", () => {
     ).toBeUndefined();
   });
 
-  it("keys state by both session and document route", () => {
-    const first = testReviewSession({
-      sessionId: "session-a",
-      routePath: "/first.mdx",
-    });
+  it("keys state by review identity", () => {
+    const first = testReviewSession({ reviewId: "session-a" });
 
-    const second = testReviewSession({
-      sessionId: "session-b",
-      routePath: "/second.mdx",
-    });
+    const second = testReviewSession({ reviewId: "session-b" });
 
     expect(reviewViewStateKey(first.config)).not.toBe(
       reviewViewStateKey(second.config),
     );
-    expect(reviewViewStateKey(first.config)).toContain("session-a:/first.mdx");
-    expect(reviewViewStateKey(second.config)).toContain(
-      "session-b:/second.mdx",
-    );
+    expect(reviewViewStateKey(first.config)).toContain("session-a");
+    expect(reviewViewStateKey(second.config)).toContain("session-b");
   });
 });
 

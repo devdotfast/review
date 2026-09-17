@@ -1,4 +1,4 @@
-import type { JsonValue, ReviewDiffFileWire } from "@dev.fast/review-protocol";
+import type { ReviewDiffFileWire } from "@dev.fast/review-protocol";
 import { act, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,8 +11,6 @@ import {
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: ReturnType<typeof createRoot> | undefined;
-
-const session = testReviewSession();
 
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -77,21 +75,32 @@ describe("ReviewDiffFilesProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("starts one patch-free request after commit and shares it with every consumer", async () => {
+  it("starts one request after commit and shares it with every consumer", async () => {
     let committed = false;
-    let resolveRequest!: (response: Response) => void;
+    let resolveRequest!: (response: ReviewDiffFileWire[]) => void;
 
-    const pendingResponse = new Promise<Response>((resolve) => {
+    const pendingResponse = new Promise<ReviewDiffFileWire[]>((resolve) => {
       resolveRequest = resolve;
     });
 
-    const fetchMock = vi.fn<typeof fetch>(() => {
+    const files = vi.fn<() => Promise<ReviewDiffFileWire[]>>(() => {
       expect(committed).toBe(true);
 
       return pendingResponse;
     });
 
-    vi.stubGlobal("fetch", fetchMock);
+    const session = testReviewSession(
+      {},
+      {
+        diffView: {
+          create: () => {
+            throw new Error("unused");
+          },
+          files,
+        },
+      },
+    );
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -120,71 +129,67 @@ describe("ReviewDiffFilesProvider", () => {
         </ReviewSessionProvider>,
       );
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      method: "POST",
-      body: JSON.stringify({ includePatch: false }),
-    });
+    expect(files).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      resolveRequest(
-        new Response(
-          JSON.stringify({
-            ok: true,
-            files: [
-              {
-                path: "src/current.ts",
-                status: "modified",
-                additions: 8,
-                deletions: 3,
-              },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-      );
+      resolveRequest([
+        {
+          path: "src/current.ts",
+          status: "modified",
+          additions: 8,
+          deletions: 3,
+        },
+      ]);
       await pendingResponse;
     });
     expect(container.textContent).toContain("one:loaded:1");
     expect(container.textContent).toContain("two:loaded:1");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(files).toHaveBeenCalledTimes(1);
   });
 
   it("never exposes or restores files from a previous document key", async () => {
-    let resolveSecondDocument!: (value: JsonValue) => void;
+    let resolveSecondDocument!: (value: ReviewDiffFileWire[]) => void;
 
-    const secondDocument = new Promise<JsonValue>((resolve) => {
+    const secondDocument = new Promise<ReviewDiffFileWire[]>((resolve) => {
       resolveSecondDocument = resolve;
     });
 
     const responses = [
-      responseWithJson({
-        ok: true,
-        files: [
-          {
-            path: "src/first.ts",
-            status: "modified",
-            additions: 1,
-            deletions: 0,
-          },
-        ],
-      }),
-      responseWithJson(secondDocument),
-      responseWithJson({
-        ok: true,
-        files: [
-          {
-            path: "src/third.ts",
-            status: "modified",
-            additions: 3,
-            deletions: 0,
-          },
-        ],
-      }),
+      Promise.resolve([
+        {
+          path: "src/first.ts",
+          status: "modified" as const,
+          additions: 1,
+          deletions: 0,
+        },
+      ]),
+      secondDocument,
+      Promise.resolve([
+        {
+          path: "src/third.ts",
+          status: "modified" as const,
+          additions: 3,
+          deletions: 0,
+        },
+      ]),
     ];
 
-    const fetchMock = vi.fn<typeof fetch>(async () => responses.shift()!);
-    vi.stubGlobal("fetch", fetchMock);
+    const files = vi.fn<() => Promise<ReviewDiffFileWire[]>>(
+      async () => responses.shift()!,
+    );
+
+    const session = testReviewSession(
+      {},
+      {
+        diffView: {
+          create: () => {
+            throw new Error("unused");
+          },
+          files,
+        },
+      },
+    );
+
     const container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -243,27 +248,17 @@ describe("ReviewDiffFilesProvider", () => {
     expect(container.textContent).toBe("loaded:src/third.ts");
 
     await act(async () => {
-      resolveSecondDocument({
-        ok: true,
-        files: [
-          {
-            path: "src/second.ts",
-            status: "modified",
-            additions: 2,
-            deletions: 0,
-          },
-        ],
-      });
+      resolveSecondDocument([
+        {
+          path: "src/second.ts",
+          status: "modified",
+          additions: 2,
+          deletions: 0,
+        },
+      ]);
       await secondDocument;
     });
     expect(container.textContent).toBe("loaded:src/third.ts");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(files).toHaveBeenCalledTimes(3);
   });
 });
-
-function responseWithJson(json: JsonValue | Promise<JsonValue>): Response {
-  return {
-    ok: true,
-    json: async () => json,
-  } as Response;
-}

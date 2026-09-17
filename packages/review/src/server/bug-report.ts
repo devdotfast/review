@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
-import path from "node:path";
 import { gzipSync } from "node:zlib";
 
 import {
@@ -11,19 +9,10 @@ import {
 } from "@dev.fast/review-protocol";
 
 import { readReviewPackageVersion } from "../package-paths";
-import {
-  type ReviewDiffFilesResult,
-  resolveReviewDiffFiles,
-} from "../review-diff-files";
-import {
-  type ReviewSourceTarget,
-  resolveReviewSourceTarget,
-} from "../review-worktree-target";
-import { readSoftwareMapSourceForRef } from "../software-map-artifact";
+import { type ReviewDiffFilesResult } from "../review-diff-files";
 import {
   type AuthoringTraceAttachment,
   type AuthoringTracePayload,
-  readAuthoringTraceAttachment,
 } from "./bug-report-trace";
 
 const BUG_REPORT_URL = "https://bug.dev.fast/api/v2/reports";
@@ -36,23 +25,6 @@ const TRACE_UPSTREAM_TIMEOUT_MS = 5 * 60_000;
 
 // Keep room for multipart headers and boundaries below the Worker request cap.
 const MAX_MULTIPART_CONTENT_BYTES = 99_000_000;
-
-// The review directory is a git repo, but its tracked set also holds
-// `review.json` (an absolute home path, the repo key, the pull request URL) and
-// the compiled `.bundle/` output. So the report attaches an explicit source set
-// instead: the current document, plus the TypeScript modules it imports. A
-// non-recursive scan keeps `.build/` and `.bundle/` out, which matters because
-// `.build/<revision>/` holds a second copy of every source file.
-const REVIEW_SOURCE_MODULE_RE = /\.tsx?$/;
-
-const MAX_REVIEW_SOURCE_FILES = 20;
-
-// Not a transfer limit: `MAX_PAYLOAD_BYTES` already bounds what reaches the
-// Worker. This bounds one file, because the size ladder below drops the whole
-// review attachment rather than one module. So a single huge file would cost
-// the report its entire review. Authored modules run to a few kilobytes, and
-// 2 MiB leaves room for a generated one.
-const MAX_REVIEW_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
 type AttachmentName = "review" | "map" | "diff" | "trace";
 
@@ -101,17 +73,12 @@ export interface BugReportSource {
   trace(): Promise<AuthoringTraceAttachment | null>;
 }
 
-export async function submitReviewBugReport(
-  input: {
-    report: ReviewBugReportRequest;
-    clientErrorNames: string[];
-    fetchImpl?: typeof fetch;
-    readTraceAttachment?: typeof readAuthoringTraceAttachment;
-  } & (
-    | { source: BugReportSource }
-    | { source?: undefined; reviewDocumentPath: string; reviewRootPath: string }
-  ),
-) {
+export async function submitReviewBugReport(input: {
+  report: ReviewBugReportRequest;
+  clientErrorNames: string[];
+  fetchImpl?: typeof fetch;
+  source: BugReportSource;
+}) {
   const cliVersion = readReviewPackageVersion();
   const attachmentErrors: AttachmentError[] = [];
 
@@ -134,25 +101,11 @@ export async function submitReviewBugReport(
   let mapSource: string | undefined;
   let changedFileDiffs: ReviewDiffFilesResult | undefined;
   let traceAttachment: AuthoringTraceAttachment | undefined;
-  let sourceTargetPromise: Promise<ReviewSourceTarget> | undefined;
-
-  const sourceTarget = () => {
-    if (input.source)
-      throw new Error("JSON reports use their pinned source readers.");
-
-    return (sourceTargetPromise ??= resolveReviewSourceTarget({
-      reviewRootPath: input.reviewRootPath,
-    }));
-  };
-
   const tasks: Array<Promise<void>> = [];
 
   if (input.report.include_review) {
     tasks.push(
-      (input.source
-        ? input.source.review()
-        : readReviewSourceFiles(input.reviewDocumentPath)
-      ).then(
+      input.source.review().then(
         (result) => {
           reviewSource = result.files;
 
@@ -167,10 +120,7 @@ export async function submitReviewBugReport(
 
   if (input.report.include_map) {
     tasks.push(
-      (input.source
-        ? input.source.map()
-        : sourceTarget().then(readHeadSoftwareMap)
-      ).then(
+      input.source.map().then(
         // A review does not need a software map: #840 split document and map
         // publishing, so "no map" is a normal state, not a failed read.
         // `readSoftwareMapSourceForRef` returns null when there is nothing to
@@ -187,10 +137,7 @@ export async function submitReviewBugReport(
 
   if (input.report.include_diff) {
     tasks.push(
-      (input.source
-        ? input.source.diff()
-        : sourceTarget().then(readChangedFileDiffs)
-      ).then(
+      input.source.diff().then(
         (diff) => {
           changedFileDiffs = diff;
         },
@@ -203,12 +150,7 @@ export async function submitReviewBugReport(
 
   if (input.report.include_trace) {
     tasks.push(
-      (input.source
-        ? input.source.trace()
-        : (input.readTraceAttachment ?? readAuthoringTraceAttachment)({
-            reviewRootPath: input.reviewRootPath,
-          })
-      ).then(
+      input.source.trace().then(
         (trace) => {
           if (trace === null) {
             throw new BugReportUpstreamError(
@@ -452,81 +394,6 @@ function sha256Bytes(bytes: Uint8Array): string {
 // The document is required: a failure to read it makes the attachment
 // unavailable. Each TypeScript module is optional, because a report that loses
 // one module is still better than a report that loses the review.
-async function readReviewSourceFiles(
-  documentPath: string,
-): Promise<{ files: Record<string, string>; omitted: string[] }> {
-  const documentName = path.basename(documentPath);
-  const files = { [documentName]: await readFile(documentPath, "utf8") };
-  const omitted: string[] = [];
-
-  const directory = path.dirname(documentPath);
-
-  const entries = await readdir(directory, { withFileTypes: true }).catch(
-    () => [],
-  );
-
-  const moduleNames = entries
-    .filter(
-      (entry) => entry.isFile() && REVIEW_SOURCE_MODULE_RE.test(entry.name),
-    )
-    .map((entry) => entry.name)
-    .sort();
-
-  for (const name of moduleNames.slice(MAX_REVIEW_SOURCE_FILES - 1)) {
-    omitted.push(name);
-  }
-
-  await Promise.all(
-    moduleNames.slice(0, MAX_REVIEW_SOURCE_FILES - 1).map(async (name) => {
-      if (name === documentName) return;
-
-      const source = await readFile(path.join(directory, name), "utf8").catch(
-        () => null,
-      );
-
-      // Name what the report drops. A truncated module is invalid TypeScript,
-      // and a silently missing one reads during triage as a rendering bug.
-      if (
-        source === null ||
-        Buffer.byteLength(source) > MAX_REVIEW_SOURCE_FILE_BYTES
-      ) {
-        omitted.push(name);
-
-        return;
-      }
-
-      files[name] = source;
-    }),
-  );
-
-  return { files, omitted: omitted.sort() };
-}
-
-async function readHeadSoftwareMap(target: ReviewSourceTarget) {
-  if (!target.headRef) return null;
-
-  return (
-    (
-      await readSoftwareMapSourceForRef({
-        repoRootPath: target.repoRoot,
-        ref: target.headRef,
-        role: "head",
-      })
-    )?.source ?? null
-  );
-}
-
-async function readChangedFileDiffs(
-  target: ReviewSourceTarget,
-): Promise<ReviewDiffFilesResult> {
-  return resolveReviewDiffFiles({
-    rootPath: target.diffRootPath,
-    baseRef: target.baseRef,
-    headRef: target.headRef,
-    includePatch: true,
-  });
-}
-
 function unavailable(attachment: AttachmentName): AttachmentError {
   return { attachment, error: "unavailable" };
 }

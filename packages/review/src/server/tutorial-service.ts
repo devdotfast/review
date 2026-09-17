@@ -3,7 +3,6 @@ import { cp, mkdir, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { resolveRevision } from "@dev.fast/local-vcs";
-import type { ReviewDescriptor } from "@dev.fast/review-protocol";
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { z } from "zod";
 
@@ -224,22 +223,6 @@ export function createTutorialService(input: {
       } finally {
         await rm(temporaryRoot, { recursive: true, force: true });
       }
-    },
-    descriptor(snapshot: Snapshot): ReviewDescriptor {
-      return {
-        uuid: snapshot.reviewId,
-        title: snapshot.title,
-        status: "awaiting-review",
-        worktreePath: sampleRoot,
-        repoKey: snapshot.pins.repositoryId,
-        sourceBranch: "main",
-        baseRef: snapshot.pins.base,
-        headRef: snapshot.pins.head,
-        presentedDocumentRevision: null,
-        presentedSoftwareMapRevision: null,
-        lastPublishedAt: snapshot.createdAt,
-        available: true,
-      };
     },
     cleanup,
   };

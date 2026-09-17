@@ -89,7 +89,7 @@ export function InlineCodeEditor({
   const collapsedRef = useRef(collapsed);
   collapsedRef.current = collapsed;
   const inlineEditorFactory = session.bridge.inlineEditors;
-  const inlineEditorSessionId = session.config.sessionId;
+  const inlineEditorSessionId = session.config.reviewId;
   const reviewFind = useReviewFindRegistration();
 
   const ensureEditor = useCallback(async () => {

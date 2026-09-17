@@ -1,9 +1,6 @@
 import {
-  type JsonValue,
   type ReviewCanvasRange,
   type ReviewCommitSummary,
-  isJsonObject,
-  jsonArray,
 } from "@dev.fast/review-protocol";
 import {
   type CSSProperties,
@@ -34,7 +31,6 @@ import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
 import { useReviewSession } from "./host/review-session";
 import { SettingsSlidersIcon } from "./icons";
-import { damagedLegacyReviewMessage } from "./repair-instruction";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -42,16 +38,10 @@ import {
   useReview,
 } from "./review-context";
 import { ReviewCornerAction } from "./review-corner-action";
-import {
-  ReviewDiffFilesProvider,
-  useReviewDiffFiles,
-} from "./review-diff-files-context";
+import { useReviewDiffFiles } from "./review-diff-files-context";
+import { ReviewDiffFilesProvider } from "./review-diff-files-context";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
-import { reviewTocEntries } from "./review-document-headings";
-import type { HydratedReviewDocument } from "./review-document-hydrate";
-import { useReviewDocumentProjection } from "./review-document-projection";
-import { ReviewDocumentContent } from "./review-document-surface";
 import { ReviewUnavailable } from "./review-empty-state";
 import {
   type ReviewFindHost,
@@ -138,25 +128,24 @@ export interface PublishedSoftwareMap {
   base: NormalizedSoftwareModel | null;
 }
 
-export type RenderedReviewDocument = Omit<
-  HydratedReviewDocument,
-  "body" | "contentHash"
-> & {
+export interface RenderedReviewDocument {
   render: ComponentType;
   key: string;
+  routePath: string;
+  filePath: string;
+  anchors: ReadonlyMap<
+    string,
+    import("../../src/review-document-data").DocumentAnchor
+  >;
+  documentSoftwareModels: NormalizedSoftwareModel[];
   tocEntries?: import("./review-document-headings").ReviewTocEntry[];
-};
+}
 
 export type ReviewDocumentAppState =
   | { state: "loading" }
   | {
       state: "ready";
-      document: HydratedReviewDocument | RenderedReviewDocument;
-    }
-  | {
-      state: "needs-republish";
-      reviewUuid: string;
-      mapStale: boolean;
+      document: RenderedReviewDocument;
     }
   | {
       state: "unavailable";
@@ -170,7 +159,6 @@ export type ReviewSoftwareMapAppState =
   | { state: "loading" }
   | { state: "ready"; softwareMap: PublishedSoftwareMap }
   | { state: "absent" }
-  | { state: "needs-republish"; reviewUuid: string }
   | {
       state: "unavailable";
       message: string;
@@ -179,7 +167,7 @@ export type ReviewSoftwareMapAppState =
     };
 
 interface ResolvedReviewDocument {
-  document: HydratedReviewDocument | RenderedReviewDocument | null;
+  document: RenderedReviewDocument | null;
   routePath: string;
   filePath: string;
   /** Identity of what the panes render: content hash, or the load state. */
@@ -196,18 +184,14 @@ function useResolvedReviewDocument(
     const document =
       documentState.state === "ready" ? documentState.document : null;
 
-    const routePath = document?.routePath ?? session.config.routePath ?? "/";
+    const routePath = document?.routePath ?? "/";
     const filePath = document?.filePath ?? routePath;
 
     return {
       document,
       routePath,
       filePath,
-      revision: document
-        ? "render" in document
-          ? document.key
-          : document.contentHash
-        : `${documentState.state}:${routePath}`,
+      revision: document?.key ?? `${documentState.state}:${routePath}`,
       diffDocumentKey: [routePath, filePath].join("\0"),
     };
   }, [documentState, session]);
@@ -402,35 +386,8 @@ function ReviewLayoutContent({
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
 
-  const [legacyHasTraceSessions, setLegacyHasTraceSessions] = useState<
-    boolean | null
-  >(null);
-
-  useEffect(() => {
-    if (session.review) return;
-    const controller = new AbortController();
-    session
-      .fetch("/agent-traces", { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) return;
-        const data: JsonValue = await res.json();
-
-        const sessions =
-          isJsonObject(data) && data.ok === true
-            ? jsonArray(data.sessions)
-            : undefined;
-
-        setLegacyHasTraceSessions((sessions?.length ?? 0) > 0);
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [session]);
   const diffFiles = useReviewDiffFiles();
-
-  const hasTraceSessions = session.review
-    ? session.review.traces.size > 0
-    : legacyHasTraceSessions;
+  const hasTraceSessions = session.review!.traces.size > 0;
 
   const filesTabFileCount = diffScope
     ? diffScope.fileCount
@@ -494,24 +451,10 @@ function ReviewLayoutContent({
 
   const tutorial = useTutorial() !== null;
 
-  // A rendered (JSON) document draws itself; only hydrated bodies project.
-  const sourceBody =
-    documentState.state === "ready" && !("render" in documentState.document)
-      ? documentState.document.body
-      : null;
-
-  const projectedBody = useReviewDocumentProjection(sourceBody, {
-    tutorial,
-    softwareMapEnabled,
-  });
-
-  const tocEntries = useMemo(
-    () =>
-      documentState.state === "ready" && "render" in documentState.document
-        ? (documentState.document.tocEntries ?? [])
-        : reviewTocEntries(projectedBody),
-    [projectedBody, documentState],
-  );
+  const tocEntries =
+    documentState.state === "ready"
+      ? (documentState.document.tocEntries ?? [])
+      : [];
 
   // Subscribe before the canvas signals ready so a reveal immediately after
   // mounting cannot outrun the listener.
@@ -696,11 +639,7 @@ function ReviewLayoutContent({
                         tourRestore={viewStateSync.tourRestore}
                         persistOverlayTour={viewStateSync.persistOverlayTour}
                       >
-                        {"render" in documentState.document ? (
-                          <documentState.document.render />
-                        ) : (
-                          <ReviewDocumentContent body={projectedBody} />
-                        )}
+                        <documentState.document.render />
                       </ReviewViewStateProvider>
                     </ReviewDocumentBoundary>
                   </article>
@@ -801,13 +740,6 @@ function ReviewDocumentLoadState({
   switch (state.state) {
     case "loading":
       return null;
-    case "needs-republish":
-      return (
-        <ReviewUnavailable
-          title="Review unavailable"
-          message={damagedLegacyReviewMessage}
-        />
-      );
     case "unavailable":
       return (
         <ReviewUnavailable
@@ -840,8 +772,6 @@ function ReviewSoftwareMapLoadState({
   switch (state.state) {
     case "loading":
       return null;
-    case "needs-republish":
-      return <ReviewUnavailable message={damagedLegacyReviewMessage} />;
     case "unavailable":
       return (
         <ReviewUnavailable

@@ -36,7 +36,7 @@ export async function runDesktopHost(
   // a later in-app enable also reaches telemetry instances created elsewhere.
   delete env.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
 
-  const serverInput: Parameters<typeof createGlobalReviewServer>[0] = {
+  const serverInput = {
     appPid,
     packageRoot,
     toolingRoot,
@@ -68,14 +68,13 @@ export async function runDesktopHost(
   // JSON is the sole user-review store. A failure is surfaced, never replaced
   // by a second catalog or an old document renderer.
   const local = openLocalReviewStore(path.join(home, "review-api.db"));
-  serverInput.reviewStore = local.store;
-  serverInput.reviewData = local.data;
 
-  if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
-    serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;
-  }
-
-  const server = createGlobalReviewServer(serverInput);
+  const server = createGlobalReviewServer({
+    ...serverInput,
+    reviewStore: local.store,
+    reviewData: local.data,
+    cliRuntimePath: env.DEV_FAST_REVIEW_CLI_RUNTIME,
+  });
 
   try {
     await server.listen();

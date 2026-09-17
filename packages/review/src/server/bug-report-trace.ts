@@ -26,7 +26,6 @@ import {
   type ReviewAgentHarness,
   parseAuthoringSessionKey,
 } from "../agent-session-ref";
-import { readReviewStoreRecord } from "../review-worktree-target";
 import { USER_DATA_REGEXES } from "../telemetry-clean-text";
 
 const MAX_SUBAGENT_TRACE_BYTES = 5 * 1024 * 1024;
@@ -107,10 +106,11 @@ const TRACE_SECRET_REGEXES = TRACE_SECRET_LABELS.map((label) => {
 });
 
 export async function readAuthoringTraceAttachment(input: {
-  reviewRootPath: string;
+  sourceSession: string | null;
 }): Promise<AuthoringTraceAttachment | null> {
-  const review = readReviewStoreRecord(input.reviewRootPath);
-  const sourceSession = parseAuthoringSessionKey(review.sourceSession);
+  const sourceSession = input.sourceSession
+    ? parseAuthoringSessionKey(input.sourceSession)
+    : null;
 
   if (!sourceSession) return null;
 

@@ -9,10 +9,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { elements } from "../review-api/document";
 import { openLocalReviewStore } from "../review-api/local-data";
 import { createGlobalReviewServer } from "./desktop-server";
-import type {
-  ReviewSessionHandler,
-  ReviewSessionHandlerInput,
-} from "./session-handler";
 import { createTutorialService } from "./tutorial-service";
 
 const packageRoot = path.resolve(
@@ -24,16 +20,63 @@ const token = "tutorial-test-token";
 
 type GlobalServerInput = Parameters<typeof createGlobalReviewServer>[0];
 
-type TutorialServerOverrides = Partial<
-  Pick<
-    GlobalServerInput,
-    "publishRuntime" | "sessionHandlerFactory" | "reviewStore" | "reviewData"
-  >
+type TutorialServerOverrides = Pick<
+  GlobalServerInput,
+  "reviewStore" | "reviewData"
 >;
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("Review Desktop tutorial preparation", () => {
+  it("serves native reviews while removed session and publishing routes return 404", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "review-native-routes-"));
+    vi.stubEnv("DEV_REVIEW_HOME", home);
+    const local = openLocalReviewStore(path.join(home, "review-api.db"));
+
+    const server = tutorialServer(home, {
+      reviewStore: local.store,
+      reviewData: local.data,
+    });
+
+    try {
+      await server.listen();
+
+      const headers = {
+        "x-review-token": token,
+        "content-type": "application/json",
+      };
+
+      const catalog = await fetch(`${server.url}/reviews-api`, { headers });
+      expect(catalog.status).toBe(200);
+      expect(await catalog.json()).toEqual([]);
+
+      for (const route of [
+        "/reviews",
+        "/sessions",
+        "/sessions/old",
+        "/reviews/old/publish",
+        "/reviews/old/repair",
+        "/reviews/old/map/publish",
+      ]) {
+        for (const method of ["GET", "POST"]) {
+          const response = await fetch(`${server.url}${route}`, {
+            headers,
+            method,
+          });
+
+          expect(response.status, `${method} ${route}`).toBe(404);
+        }
+      }
+
+      expect(local.store.list()).toEqual([]);
+    } finally {
+      await server.close();
+      await local.data.close();
+      await local.store.close();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("opens a prepared native tutorial into the JSON canvas with interactive content, pins and resources", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "review-tutorial-json-"));
     vi.stubEnv("DEV_REVIEW_HOME", home);
@@ -45,9 +88,7 @@ describe("Review Desktop tutorial preparation", () => {
       ...local,
     }).prepare();
 
-    const handlers: ReviewSessionHandlerInput[] = [];
-
-    const server = tutorialServer(home, handlers, {
+    const server = tutorialServer(home, {
       reviewStore: local.store,
       reviewData: local.data,
     });
@@ -67,7 +108,6 @@ describe("Review Desktop tutorial preparation", () => {
         kind: "api",
         reviewUuid: original.reviewId,
       });
-      expect(handlers).toHaveLength(0);
       const snapshot = local.store.read(original.reviewId);
       expect(snapshot.pins).toMatchObject({
         base: original.pins.base,
@@ -100,19 +140,6 @@ describe("Review Desktop tutorial preparation", () => {
       expect(fresh.kind).toBe("api");
       expect(fresh.reviewUuid).not.toBe(original.reviewId);
       expect(local.store.list()).toEqual([]);
-      expect(
-        (
-          await tutorialRequest(
-            server.url,
-            `/reviews/${String(fresh.reviewUuid)}`,
-            "DELETE",
-          )
-        ).status,
-      ).toBe(200);
-      expect(local.store.has(String(fresh.reviewUuid))).toBe(false);
-      expect(
-        (await tutorialJson(server.url, "/tutorial/open", "POST")).reviewUuid,
-      ).not.toBe(fresh.reviewUuid);
     } finally {
       await server.close();
       await local.data.close();
@@ -122,11 +149,7 @@ describe("Review Desktop tutorial preparation", () => {
   });
 });
 
-function tutorialServer(
-  home: string,
-  handlers: ReviewSessionHandlerInput[],
-  overrides: TutorialServerOverrides = {},
-) {
+function tutorialServer(home: string, overrides: TutorialServerOverrides) {
   return createGlobalReviewServer({
     appPid: process.pid,
     packageRoot,
@@ -134,21 +157,8 @@ function tutorialServer(
     port: 0,
     token,
     discoveryPath: path.join(home, "desktop.json"),
-    sessionHandlerFactory: async (input) => {
-      handlers.push(input);
-
-      return stubSessionHandler();
-    },
     ...overrides,
   });
-}
-
-function stubSessionHandler(): ReviewSessionHandler {
-  return {
-    token,
-    handle: async () => new Response("not found", { status: 404 }),
-    close: async () => undefined,
-  };
 }
 
 function tutorialRequest(

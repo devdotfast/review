@@ -1,6 +1,7 @@
 import {
   type ReviewCanvasContent,
   parseReviewStackResponse,
+  resolveReviewSourceView,
 } from "@dev.fast/review-protocol";
 import {
   createContext,
@@ -97,19 +98,25 @@ export function ApiCanvas({
       const next = await loader.load(snapshot);
 
       if (abort.signal.aborted) return;
+
       // Native source widgets must use these pins on their first mount.
-      const key = JSON.stringify([snapshot.reviewId, snapshot.pins]);
+      const key = JSON.stringify([
+        snapshot.reviewId,
+        snapshot.pins,
+        version === undefined ? "current" : version,
+      ]);
 
       if (sourceRef.current?.key !== key)
         sourceRef.current = { key, version: snapshot.version };
 
-      if (snapshot.pins.sourceGeneration)
-        content.setVersion?.(
-          sourceRef.current.version,
-          snapshot.pins.sourceGeneration,
-          version === undefined && snapshot.target?.kind === "worktree",
-        );
-      else content.setVersion?.(sourceRef.current.version);
+      content.setSourceView?.(
+        resolveReviewSourceView(
+          { ...snapshot, version: sourceRef.current.version },
+          version === undefined
+            ? { kind: "current" }
+            : { kind: "version", version },
+        ),
+      );
       setData(next);
       setError(undefined);
       content.setTitle?.(snapshot.title);

@@ -5,9 +5,12 @@ import { URI } from "../../base/common/uri.js";
 import type { ITextModelContentProvider } from "../../editor/common/services/resolverService.js";
 import { apiSourceUri, ReviewApiSourceService } from "./reviewApiSourceService.js";
 import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
+import { resolveReviewSourceView, reviewSourceComparison } from "../common/reviewProtocol.js";
 import type { ReviewInlineSource } from "./reviewInlineEditorService.js";
 
-function setup() {
+const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a", version, pins: {} }, { kind: "version", version });
+
+function setup(dirty = false) {
 	let provider: ITextModelContentProvider;
 	let disposed = 0;
 	const models = new Map<string, { uri: URI; text: string; getLineCount(): number }>();
@@ -48,8 +51,8 @@ function setup() {
 				registered.push(reviewId);
 			},
 		} as never,
-		{ addFolders: async () => { } } as never,
-		{ isDirty: () => false } as never,
+		{ addFolders: async () => { }, removeFolders: async () => { } } as never,
+		{ isDirty: () => dirty } as never,
 	);
 	return {
 		service,
@@ -75,8 +78,7 @@ test("a native peek reads the pinned version through the authenticated API, not 
 	let version = 3;
 	let source!: ReviewInlineSource;
 	const canvas = service.canvas(
-		"review-a",
-		() => version,
+		() => view(version),
 		{
 			create: (_: unknown, input: ReviewInlineSource) => {
 				source = input;
@@ -97,14 +99,12 @@ test("a native peek reads the pinned version through the authenticated API, not 
 	assert.equal(disposed(), 1);
 	assert.notEqual(
 		apiSourceUri({
-			reviewId: "review-a",
-			version: 3,
+			view: view(3),
 			file: "src/[route].ts",
 			side: "base",
 		}).toString(),
 		apiSourceUri({
-			reviewId: "review-a",
-			version: 4,
+			view: view(4),
 			file: "src/[route].ts",
 			side: "base",
 		}).toString(),
@@ -115,11 +115,13 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 	const { service } = setup();
 	t.after(() => service.dispose());
 	let version = 7;
+	let generation = "a".repeat(64);
 	t.mock.method(globalThis, "fetch", async (value: string) => {
 		const url = new URL(value);
 		assert.equal(url.searchParams.get("version"), "7");
 		assert.equal(url.searchParams.get("commit"), "selected-commit");
 		version = 8;
+		generation = "b".repeat(64);
 		return Response.json([
 			{ path: "new.ts", previousPath: "old.ts", status: "renamed", additions: 0, deletions: 0 },
 			{ path: "added.ts", status: "added", additions: 1, deletions: 0 },
@@ -128,8 +130,7 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 	});
 	let source!: ReviewDiffViewSource;
 	const canvas = service.canvas(
-		"review-a",
-		() => version,
+		() => resolveReviewSourceView({ reviewId: "review-a", version, pins: { sourceGeneration: generation }, target: { kind: "worktree" } }, { kind: "current" }),
 		{} as never,
 		{
 			create: (_: unknown, input: ReviewDiffViewSource) => {
@@ -148,6 +149,8 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 		assert.equal(new URLSearchParams(entry.goToFileResource.query).get("version"), "7");
 		assert.equal(new URLSearchParams(entry.goToFileResource.query).get("commit"), "selected-commit");
 		assert.equal(entry.goToFileResource.scheme, "review-api-source");
+		assert.equal(new URLSearchParams(entry.goToFileResource.query).get("generation"), "a".repeat(64));
+		assert.equal(new URLSearchParams(entry.goToFileResource.query).has("live"), false);
 	}
 });
 
@@ -159,8 +162,7 @@ test("unavailable pinned files report the API error instead of falling back to d
 	);
 	let source!: ReviewInlineSource;
 	const canvas = service.canvas(
-		"review-a",
-		() => 0,
+		() => view(0),
 		{
 			create: (_: unknown, input: ReviewInlineSource) => {
 				source = input;
@@ -193,7 +195,7 @@ test("tree entries retain version, side and selected commit when opening a child
 			{ path: "src/lib", kind: "directory" },
 		]);
 	});
-	const root = apiSourceUri({ reviewId: "review-a", version: 3, side: "base", file: "src", commit: "chosen-commit" });
+	const root = apiSourceUri({ view: reviewSourceComparison(view(3), "chosen-commit"), side: "base", file: "src" });
 	const [file, folder] = await service.children(root);
 	assert.equal(file!.resource.path, "/src/[route].ts");
 	assert.equal(file!.resource.query, root.query);
@@ -212,7 +214,7 @@ test("opening a native diff preserves renames and empty sides at the selected ve
 			{ path: "removed.ts", status: "deleted", additions: 0, deletions: 1 },
 		]);
 	});
-	for (const file of ["new.ts", "added.ts", "removed.ts"]) await service.openDiff("review-a", 3, file);
+	for (const file of ["new.ts", "added.ts", "removed.ts"]) await service.openDiff(view(3), file);
 	assert.equal(opened[0]!.original.resource.path, "/old.ts");
 	assert.equal(opened[0]!.modified.resource.path, "/new.ts");
 	assert.equal(new URLSearchParams(opened[1]!.original.resource.query).get("empty"), "true");
@@ -223,6 +225,24 @@ test("opening a native diff preserves renames and empty sides at the selected ve
 			assert.equal(side.resource.scheme, "review-api-source");
 			assert.equal(new URLSearchParams(side.resource.query).get("version"), "3");
 		}
-	await assert.rejects(service.openDiff("review-a", 3, "unchanged.ts"), /not changed/);
+	await assert.rejects(service.openDiff(view(3), "unchanged.ts"), /not changed/);
 	assert.equal(opened.length, 3);
 });
+
+for (const scenario of ["live", "saved", "selected-commit", "base", "dirty", "mismatch"] as const) {
+  test(`source opening uses the checkout only for eligible matching files: ${scenario}`, async t => {
+    const { service, opened } = setup(scenario === "dirty");
+    t.after(() => service.dispose());
+    let requests = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      requests++;
+      return Response.json(scenario === "mismatch" ? { text: "retained" } : { localRoot: "/project", localPath: "/project/file.ts" });
+    });
+    const snapshot = { reviewId: "review-a", version: 3, pins: { sourceGeneration: "a".repeat(64) }, target: { kind: "worktree" } };
+    const current = resolveReviewSourceView(snapshot, scenario === "saved" ? { kind: "version", version: 3 } : { kind: "current" }, scenario === "selected-commit" ? "commit" : undefined);
+    await service.open({ view: current, side: scenario === "base" ? "base" : "head", file: "file.ts" });
+    const resource = (opened[0] as unknown as { resource: URI }).resource;
+    assert.equal(resource.scheme, scenario === "live" ? "file" : "review-api-source");
+    assert.equal(requests, ["live", "dirty", "mismatch"].includes(scenario) ? 1 : 0);
+  });
+}

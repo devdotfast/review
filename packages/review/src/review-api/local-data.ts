@@ -1,5 +1,5 @@
 import { type FSWatcher, existsSync, watch } from "node:fs";
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 
 import {
   type BlobBatchReader,
@@ -16,7 +16,10 @@ import {
   listTrackedFilesAtCommit,
   readFileAtCommit,
 } from "@dev.fast/local-vcs";
-import type { ReviewSourceEntry } from "@dev.fast/review-protocol";
+import type {
+  ReviewLanguageEnvironment,
+  ReviewSourceEntry,
+} from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
@@ -133,16 +136,63 @@ export class LocalReviewData {
 
     return undefined;
   }
-  async languageContext(
-    repositoryId: string,
-  ): Promise<{ rootPath: string | null }> {
-    const rootPath = this.store.repositoryPath(repositoryId);
-    const resolved = await realpath(rootPath).catch(() => null);
+  /** Source bytes and the language workspace have independent lifetimes. */
+  async languageEnvironment(
+    snapshot: Snapshot,
+    side: "base" | "head",
+    commit?: string,
+  ): Promise<ReviewLanguageEnvironment> {
+    if (snapshot.target.kind === "commits") {
+      const pins = await this.comparison(snapshot.pins, commit);
 
-    if (!resolved) return { rootPath: null };
-    const vcs = await this.vcs(repositoryId);
+      const environment = await this.workspaces.source(
+        snapshot.reviewId,
+        pins,
+        side,
+      );
 
-    return { rootPath: vcs ? resolved : null };
+      return {
+        rootPath:
+          environment.state === "preparing" || environment.state === "pending"
+            ? null
+            : environment.rootPath,
+        identity: environment.generation,
+      };
+    }
+
+    // Validate selected commits for both target kinds, but never prepare a live checkout.
+    await this.comparison(snapshot.pins, commit);
+    const repositoryId = snapshot.pins.repositoryId;
+
+    const rootPath = await realpath(
+      this.store.repositoryPath(repositoryId),
+    ).catch(() => null);
+
+    if (!rootPath || !(await this.vcs(repositoryId)))
+      return { rootPath: null, identity: `${repositoryId}:unavailable` };
+    const info = await stat(rootPath, { bigint: true }).catch(() => null);
+
+    return info
+      ? {
+          rootPath,
+          identity: `${repositoryId}:${rootPath}:${info.dev}:${info.ino}:${info.birthtimeNs}`,
+        }
+      : { rootPath: null, identity: `${repositoryId}:unavailable` };
+  }
+
+  /** Normalize legacy read parameters once, before any source IO. */
+  async resolveSource(
+    reviewId: string,
+    selection: { version?: number; generation?: string; commit?: string },
+  ) {
+    const snapshot = this.store.read(reviewId, selection.version);
+
+    const pins = await this.comparison(
+      this.sourcePins(snapshot, selection.generation),
+      selection.commit,
+    );
+
+    return { snapshot, pins };
   }
 
   // A commit's tree never changes, so one listing serves every folder expansion.
@@ -372,6 +422,7 @@ export class LocalReviewData {
   }
   async projectSource(snapshot: Snapshot, pins: Pins): Promise<Snapshot> {
     const projected = structuredClone(snapshot);
+    delete projected.sourceUnavailable;
     projected.staleSources = [];
     projected.sourceOrigins = { ...snapshot.sourceOrigins };
     const links = new Map<string, Map<string, string>>();

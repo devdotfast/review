@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   watch,
@@ -167,7 +168,9 @@ it("uses a managed pinned worktree for language services without changing local 
 
   expect(response.status).toBe(200);
   const environment = await response.json();
-  expect(environment.state).toBe("unconfigured");
+  expect(local.data.workspaces.list(created.reviewId)[0]?.state).toBe(
+    "unconfigured",
+  );
   expect(environment.rootPath).not.toBe(realpathSync(repository));
   expect(
     execFileSync("git", ["rev-parse", "HEAD"], {
@@ -191,7 +194,7 @@ it("uses a managed pinned worktree for language services without changing local 
     await (
       await app.request(`/${created.reviewId}/language-context?version=0`)
     ).json(),
-  ).toMatchObject({ rootPath: null, state: "failed" });
+  ).toMatchObject({ rootPath: null });
 });
 
 it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {
@@ -2003,7 +2006,7 @@ it("worktree language contexts never prepare or create checkouts, including hist
 
     expect(await response.json()).toMatchObject({
       rootPath: realpathSync(repository),
-      state: "ready",
+      identity: expect.any(String),
     });
   }
 
@@ -2215,5 +2218,44 @@ it("continues capturing after watchers fail and stop emitting changes", async ()
         )
       ).text,
     ).toBe(value);
+  }
+});
+
+it("keeps live language identity across edits but replaces it with a checkout at the same path", async () => {
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Environment identity",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  const saved = local.store.read(created.reviewId, created.version);
+  const before = await local.data.languageEnvironment(saved, "head");
+  const retained = await local.data.file(saved.pins, "head", source.file);
+  writeFileSync(path.join(repository, "identity.ts"), "const changed = true;");
+  expect(await local.data.languageEnvironment(saved, "head")).toEqual(before);
+  const moved = `${repository}-previous`;
+  renameSync(repository, moved);
+
+  try {
+    expect(
+      (await local.data.languageEnvironment(saved, "head")).rootPath,
+    ).toBeNull();
+    mkdirSync(repository);
+    execFileSync("git", ["clone", "--quiet", moved, repository]);
+    const replacement = await local.data.languageEnvironment(saved, "head");
+    expect(replacement.rootPath).toBe(before.rootPath);
+    expect(replacement.identity).not.toBe(before.identity);
+    expect(local.data.workspaces.list(created.reviewId)).toEqual([]);
+    expect(await local.data.file(saved.pins, "head", source.file)).toEqual(
+      retained,
+    );
+  } finally {
+    rmSync(moved, { recursive: true, force: true });
   }
 });

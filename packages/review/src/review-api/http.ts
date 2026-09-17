@@ -244,13 +244,7 @@ export function createReviewApi(
     app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 
-      const pins = await data.comparison(
-        data.sourcePins(
-          store.read(context.req.param("id"), input.version),
-          "generation" in input ? input.generation : undefined,
-        ),
-        input.commit,
-      );
+      const { pins } = await data.resolveSource(context.req.param("id"), input);
 
       return context.json(await data.tree(pins, input.side, input.path));
     });
@@ -259,10 +253,7 @@ export function createReviewApi(
 
       return context.json(
         await data.map(
-          data.sourcePins(
-            store.read(context.req.param("id"), query.version),
-            query.generation,
-          ),
+          (await data.resolveSource(context.req.param("id"), query)).pins,
           context.req.param("resourceId"),
         ),
       );
@@ -318,10 +309,7 @@ export function createReviewApi(
 
       return context.json(
         await data.quote(
-          data.sourcePins(
-            store.read(context.req.param("id"), input.version),
-            "generation" in input ? input.generation : undefined,
-          ),
+          (await data.resolveSource(context.req.param("id"), input)).pins,
           input.source,
         ),
       );
@@ -336,20 +324,8 @@ export function createReviewApi(
 
       const snapshot = store.read(context.req.param("id"), input.version);
 
-      if (snapshot.target.kind === "worktree") {
-        const local = await data.languageContext(snapshot.pins.repositoryId);
-
-        return context.json({
-          ...local,
-          generation: local.rootPath ?? "unavailable",
-          state: local.rootPath ? "ready" : "failed",
-        });
-      }
-
-      const pins = await data.comparison(snapshot.pins, input.commit);
-
       return context.json(
-        await data.workspaces.source(snapshot.reviewId, pins, input.side),
+        await data.languageEnvironment(snapshot, input.side, input.commit),
       );
     });
     app.get("/workspace-cleanup", (context) =>
@@ -375,11 +351,10 @@ export function createReviewApi(
     });
     app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());
-      const snapshot = store.read(context.req.param("id"), input.version);
 
-      const pins = await data.comparison(
-        data.sourcePins(snapshot, input.generation),
-        input.commit,
+      const { snapshot, pins } = await data.resolveSource(
+        context.req.param("id"),
+        input,
       );
 
       const file = await data.file(pins, input.side, input.file);
@@ -403,13 +378,7 @@ export function createReviewApi(
 
       return context.json(
         await data.changes(
-          await data.comparison(
-            data.sourcePins(
-              store.read(context.req.param("id"), input.version),
-              "generation" in input ? input.generation : undefined,
-            ),
-            input.commit,
-          ),
+          (await data.resolveSource(context.req.param("id"), input)).pins,
           input.file,
         ),
       );
@@ -419,10 +388,7 @@ export function createReviewApi(
 
       return context.json(
         await data.commits(
-          data.sourcePins(
-            store.read(context.req.param("id"), input.version),
-            "generation" in input ? input.generation : undefined,
-          ),
+          (await data.resolveSource(context.req.param("id"), input)).pins,
         ),
       );
     });

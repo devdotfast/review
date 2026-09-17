@@ -1,3 +1,4 @@
+import { resolveReviewSourceView, type ReviewSourceView } from "../../../common/reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -320,10 +321,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				void this.apiCatalog
 					.attention(reviewId, "view")
 					.catch((error) => this.logService.warn("[Review] Could not mark review viewed:", error));
-				let version = 0;
-				let sourceGeneration: string | undefined;
-				let liveSource = false;
-				const source = this.apiSource.canvas(reviewId, () => version, this.inlineEditors, this.diffViews, () => ({ generation: sourceGeneration, live: liveSource }));
+				let sourceView: ReviewSourceView = resolveReviewSourceView({ reviewId, version: 0, pins: {} }, { kind: "current" });
+				const source = this.apiSource.canvas(() => sourceView, this.inlineEditors, this.diffViews);
 				const closeTutorial = () => void this.group.closeEditor(input);
 				const updateTutorial = (progress: TutorialProgressV1) => {
 					this.writeTutorialProgress(progress);
@@ -355,12 +354,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						reviewId,
 						softwareMapEnabled: this.currentSoftwareMapEnabled(),
 						setTitle: (title) => input.setApiTitle(title),
-						setVersion: (next, nextGeneration, live) => {
-							sourceGeneration = nextGeneration;
-							liveSource = live ?? false;
-							version = next;
-						},
-						openSource: (source, range) => this.apiSource.open({ reviewId, generation: sourceGeneration, live: liveSource, ...source }, range),
+						setSourceView: next => { sourceView = next; },
+						openSource: (source, range) => this.apiSource.open(source, range),
 						bridge: {
 							...source,
 							...this.sharedBridge(generation, () => {
@@ -376,20 +371,20 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							request: requestReviewApi,
 							post: async (request) => {
 								if (request.name === "openSourceTree") {
-									await this.tabsService.openApiSource(reviewId, version, input.getName(), { generation: sourceGeneration, live: liveSource });
+									await this.tabsService.openApiSource(sourceView, input.getName());
 									this.explorerParts.show();
 									return { ok: true };
 								}
 								if (request.name === "reveal") {
 									const range = { startLine: request.args.startLine, endLine: request.args.endLine };
 									await this.apiSource.open(
-										{ reviewId, version, generation: sourceGeneration, live: liveSource, file: request.args.path, side: request.args.side ?? "head" },
+										{ view: sourceView, file: request.args.path, side: request.args.side ?? "head" },
 										range,
 									);
 									return { ok: true };
 								}
 								if (request.name === "openDiff") {
-									await this.apiSource.openDiff(reviewId, version, request.args.path, { generation: sourceGeneration, live: liveSource });
+									await this.apiSource.openDiff(sourceView, request.args.path);
 									return { ok: true };
 								}
 								return this.verbs.dispatch(request);
@@ -446,7 +441,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						openSourceTree: (uuid) => {
 							const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
 							if (api) {
-								void this.tabsService.openApiSource(uuid, api.version, api.title, { generation: api.pins.sourceGeneration, live: api.target?.kind === "worktree" }).then(() => this.explorerParts.show());
+								void this.tabsService.openApiSource(resolveReviewSourceView(api, { kind: "current" }), api.title).then(() => this.explorerParts.show());
 								return;
 							}
 						},

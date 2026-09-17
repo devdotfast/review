@@ -180,6 +180,24 @@ export class ReviewStore {
     };
   }
 
+  private async projectWorktree(
+    snapshot: Snapshot,
+    current = snapshot,
+  ): Promise<Snapshot> {
+    if (snapshot.target.kind !== "worktree") return snapshot;
+    const { pins } = await this.providers.resolveTarget!(snapshot.target);
+
+    if (
+      JSON.stringify(current.pins) === JSON.stringify(pins) &&
+      !current.sourceUnavailable
+    )
+      return current;
+
+    return this.providers.projectSource
+      ? this.providers.projectSource(snapshot, pins)
+      : { ...snapshot, pins, sourceUnavailable: undefined };
+  }
+
   private refreshPending: Promise<void> | undefined;
 
   /** Refresh source state without writing authored document versions. Serialized with edits. */
@@ -195,24 +213,15 @@ export class ReviewStore {
         if (snapshot.target.kind !== "worktree") continue;
 
         try {
-          const resolved = await this.providers.resolveTarget!(snapshot.target);
           const last = this.read(snapshot.reviewId);
           const previous = last.pins;
+          const projected = await this.projectWorktree(snapshot, last);
+
+          if (projected === last) continue;
+          this.liveSources.set(snapshot.reviewId, projected);
 
           if (
-            JSON.stringify(previous) === JSON.stringify(resolved.pins) &&
-            !last.sourceUnavailable
-          )
-            continue;
-          this.liveSources.set(
-            snapshot.reviewId,
-            this.providers.projectSource
-              ? await this.providers.projectSource(snapshot, resolved.pins)
-              : { ...snapshot, pins: resolved.pins },
-          );
-
-          if (
-            JSON.stringify(previous) !== JSON.stringify(resolved.pins) ||
+            JSON.stringify(previous) !== JSON.stringify(projected.pins) ||
             last.sourceUnavailable
           )
             this.notify({
@@ -782,10 +791,7 @@ export class ReviewStore {
         op.type !== "restore" &&
         !resolvedTarget
       ) {
-        const captured = await this.providers.resolveTarget!(snapshot.target);
-        snapshot = this.providers.projectSource
-          ? await this.providers.projectSource(snapshot, captured.pins)
-          : { ...snapshot, pins: captured.pins };
+        snapshot = await this.projectWorktree(snapshot);
       }
 
       // Component shapes were checked at entry (or when merging a field patch).

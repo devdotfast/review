@@ -1,3 +1,5 @@
+import type { ReviewSourceView } from "../../../common/reviewProtocol.js";
+import { sourceLocation, sourceTreeIdentity } from "../../../common/reviewSourceView.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -80,7 +82,7 @@ function accompaniesEditor(input: EditorInput | undefined): boolean {
  * One tree per pinned version. Editors opened from that tree carry their own
  * side and commit in the query, which must not re-root or hide the tree.
  */
-function apiSourceRoot(target: { reviewId: string; version: number; generation?: string; live?: boolean }): URI {
+function apiSourceRoot(target: { view: ReviewSourceView }): URI {
 	return apiSourceUri({ ...target, file: "", side: "head" });
 }
 
@@ -319,14 +321,7 @@ export class ReviewExplorerPart extends Part {
 				[renderer],
 				dataSource,
 				{
-					identityProvider: { getId: (stat: IFileStat) => {
-						const query = new URLSearchParams(stat.resource.query);
-						if (query.has("live")) {
-							query.delete("version");
-							query.delete("generation");
-						}
-						return stat.resource.with({ query: query.toString() }).toString();
-					} },
+					identityProvider: { getId: (stat: IFileStat) => stat.resource.scheme === REVIEW_API_SOURCE_SCHEME ? sourceTreeIdentity(stat.resource) : stat.resource.toString() },
 					accessibilityProvider: reviewExplorerAccessibilityProvider,
 					keyboardNavigationLabelProvider: {
 						getKeyboardNavigationLabel: (stat: IFileStat) => basename(stat.resource),
@@ -373,7 +368,7 @@ export class ReviewExplorerPart extends Part {
 		this._register(this.editorService.onDidActiveEditorChange(() => this.updateRoot()));
 		let revision: string | undefined;
 		this._register(this.catalog.onDidChange(() => {
-			if (!this.root || !new URLSearchParams(this.root.query).has("live")) return;
+			if (!this.root || sourceLocation(this.root).view.selection !== "current") return;
 			const review = this.catalog.reviews.find(review => review.reviewId === this.root!.authority);
 			const next = JSON.stringify([review?.reviewId, review?.version, review?.pins.sourceGeneration]);
 			if (next === revision) return;
@@ -406,12 +401,7 @@ export class ReviewExplorerPart extends Part {
 			input instanceof ReviewCanvasEditorInput && input.target.kind === "api-source"
 				? apiSourceRoot(input.target)
 				: resource?.scheme === REVIEW_API_SOURCE_SCHEME
-					? apiSourceRoot({
-						reviewId: resource.authority,
-						version: Number(new URLSearchParams(resource.query).get("version")),
-						generation: new URLSearchParams(resource.query).get("generation") ?? undefined,
-						live: new URLSearchParams(resource.query).has("live"),
-					})
+					? apiSourceRoot(sourceLocation(resource))
 					: undefined;
 		if (folder && this.root && isEqual(folder, this.root)) {
 			return;

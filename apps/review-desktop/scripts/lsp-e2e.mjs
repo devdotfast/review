@@ -488,7 +488,7 @@ function uri(review, side = "head", file = "main.ts", commit) {
 
   if (commit) query.set("commit", commit);
 
-  return `review-api-source://${review.reviewId}/${file}?${query}`;
+  return locationUri(`review-api-source://${review.reviewId}/${file}?${query}`);
 }
 
 const hover = "vscode.executeHoverProvider",
@@ -506,7 +506,16 @@ function locations(result) {
 }
 
 function locationUri(value) {
-  return value?.replace(/\?.*$/, (query) => decodeURIComponent(query));
+  return value?.replace(/\?(.*)$/, (_query, encoded) => {
+    const query = new URLSearchParams(decodeURIComponent(encoded));
+
+    // Tab-follow policy is not a source coordinate. Check version, side,
+    // generation and selected commit regardless of query serialization order.
+    query.delete("current");
+    query.sort();
+
+    return `?${query}`;
+  });
 }
 
 async function readyEnvironment(review, side = "head") {
@@ -515,9 +524,15 @@ async function readyEnvironment(review, side = "head") {
       `/${review.reviewId}/language-context?version=${review.version}&side=${side}`,
     );
 
-    assert.notEqual(result.state, "failed", result.log);
+    const environments = await api(`/${review.reviewId}/workspaces`);
 
-    return result.state === "ready" && result;
+    const prepared = environments.find(
+      (item) => item.generation === result.identity,
+    );
+
+    assert.notEqual(prepared?.state, "failed", prepared?.log);
+
+    return prepared?.state === "ready" && prepared;
   }, "prepared pinned environment");
 }
 
@@ -1233,7 +1248,12 @@ try {
       `/${exact.reviewId}/language-context?side=head&version=${exact.version}`,
     );
 
-    return environment.state === "failed" && environment;
+    const environments = await api(`/${exact.reviewId}/workspaces`);
+
+    return environments.find(
+      (item) =>
+        item.generation === environment.identity && item.state === "failed",
+    );
   }, "preparation failure");
 
   await probe({ command: "workbench.action.closeModalEditor" });

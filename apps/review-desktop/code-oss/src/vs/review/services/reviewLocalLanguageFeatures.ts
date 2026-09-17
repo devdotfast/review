@@ -16,6 +16,8 @@ import { registerWorkbenchContribution2, WorkbenchPhase } from "../../workbench/
 import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
 import { ITextFileService } from "../../workbench/services/textfile/common/textfiles.js";
 import { IWorkspaceEditingService } from "../../workbench/services/workspaces/common/workspaceEditing.js";
+import { reviewSourceQuery, type ReviewLanguageEnvironment } from "../common/reviewProtocol.js";
+import { sourceLocation } from "../common/reviewSourceView.js";
 import { REVIEW_UNIFIED_SCHEME } from "../common/reviewCodeResources.js";
 import { REVIEW_API_SOURCE_SCHEME } from "./reviewApiSourceService.js";
 import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
@@ -24,7 +26,7 @@ import { withCurrentLocalContext } from "./reviewLocalRequest.js";
 import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
 
 interface LocalSource {
-	generation: string;
+	identity: string;
 	root: URI;
 	reference: IReference<IResolvedTextEditorModel>;
 	dispose(): void;
@@ -80,19 +82,21 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		if (new URLSearchParams(model.uri.query).has("empty")) return undefined;
 		try {
 			const { serverUrl, token } = await this.connection.getConnection();
-			const query = new URLSearchParams(model.uri.query);
-			const params = new URLSearchParams({ version: query.get("version") ?? "", side: query.get("side") ?? "head" });
-			if (query.has("commit")) params.set("commit", query.get("commit")!);
+			const target = sourceLocation(model.uri);
+			const params = new URLSearchParams({ side: target.side });
+			for (const [key, value] of Object.entries(reviewSourceQuery(target.view))) {
+				if (value !== undefined) params.set(key, String(value));
+			}
 			const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(model.uri.authority)}/language-context?${params}`, {
 				headers: { "x-review-token": token }, signal: AbortSignal.timeout(10_000),
 			});
 			if (!response.ok) return undefined;
-			const context: { rootPath: string | null; generation: string; state?: string } = await response.json();
+			const context: ReviewLanguageEnvironment = await response.json();
 			const cached = await this.sources.get(model);
-			if (cached && cached.generation === context.generation && context.state !== "preparing" && context.rootPath) return cached;
+			if (cached && cached.identity === context.identity && context.rootPath) return cached;
 			if (cached) { cached.dispose(); this.sources.delete(model); this.generation++; }
-			if (!context.rootPath || context.state === "preparing" || context.state === "pending" || model.isDisposed()) return undefined;
-			const pending = this.acquire(model, { rootPath: context.rootPath, generation: context.generation });
+			if (!context.rootPath || model.isDisposed()) return undefined;
+			const pending = this.acquire(model, { rootPath: context.rootPath, identity: context.identity });
 			this.sources.set(model, pending);
 			const result = await pending;
 			if (!result) this.sources.delete(model);
@@ -104,7 +108,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		}
 	}
 
-	private async acquire(model: ITextModel, context: { rootPath: string; generation: string }): Promise<LocalSource | undefined> {
+	private async acquire(model: ITextModel, context: { rootPath: string; identity: string }): Promise<LocalSource | undefined> {
 		const root = URI.file(context.rootPath);
 		const relative = model.uri.path.slice(1);
 		if (!relative || relative.split(/[\\/]/).some(part => part === "..")) return undefined;
@@ -126,7 +130,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			owned.add(model.onWillDispose(() => { this.sources.delete(model); owned.dispose(); }));
 			if (model.isDisposed()) { owned.dispose(); return undefined; }
 			await this.extensions.activateByEvent(`onLanguage:${reference.object.textEditorModel.getLanguageId()}`);
-			return { root, reference, generation: context.generation, dispose: () => owned.dispose() };
+			return { root, reference, identity: context.identity, dispose: () => owned.dispose() };
 		} catch (error) { owned.dispose(); throw error; }
 	}
 
@@ -152,7 +156,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			if (!model.equalsTextBuffer(local.getTextBuffer())) return undefined;
 			const result = await run(local, position, model);
 			const current = await this.localSource(model);
-			return current?.generation === source.generation ? result : undefined;
+			return current?.identity === source.identity ? result : undefined;
 		});
 	}
 
@@ -175,7 +179,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 				let origin = result.originSelectionRange;
 				if (origin && model.uri.scheme === REVIEW_UNIFIED_SCHEME) {
 					const unified = this.resources.unifiedResource(model.uri);
-					const side = new URLSearchParams(pinned.uri.query).get("side");
+					const side = sourceLocation(pinned.uri).side;
 					const row = unified?.rows.find(row => (side === "base" ? row.baseLine : row.headLine) === origin!.startLineNumber);
 					origin = row && origin.startLineNumber === origin.endLineNumber
 						? new Range(row.lineNumber, origin.startColumn, row.lineNumber, origin.endColumn) : undefined;

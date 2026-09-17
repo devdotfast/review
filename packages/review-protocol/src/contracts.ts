@@ -371,13 +371,79 @@ export interface ReviewCanvasSettingsContent {
   install?: ReviewCanvasInstallContent;
 }
 
+/** Workspace attachment identity is independent of the displayed source generation. */
+export interface ReviewLanguageEnvironment {
+  readonly rootPath: string | null;
+  readonly identity: string;
+}
+
+/** User intent is distinct from the immutable source identity used by a read. */
+export type ReviewSourceSelection =
+  | { readonly kind: "current" }
+  | { readonly kind: "version"; readonly version: number };
+
+export interface ReviewSourceView {
+  readonly reviewId: string;
+  readonly version: number;
+  readonly generation?: string;
+  readonly selection: "current" | "version";
+  readonly access: "local" | "retained";
+  readonly commit?: string;
+}
+
+export function resolveReviewSourceView(
+  snapshot: {
+    reviewId: string;
+    version: number;
+    pins: { sourceGeneration?: string };
+    target?: { kind: string };
+  },
+  selection: ReviewSourceSelection,
+  commit?: string,
+): ReviewSourceView {
+  return Object.freeze({
+    reviewId: snapshot.reviewId,
+    version:
+      selection.kind === "version" ? selection.version : snapshot.version,
+    generation: snapshot.pins.sourceGeneration,
+    selection: commit ? "version" : selection.kind,
+    access:
+      selection.kind === "current" &&
+      snapshot.target?.kind === "worktree" &&
+      !commit
+        ? "local"
+        : "retained",
+    commit,
+  });
+}
+
+export function reviewSourceComparison(
+  view: ReviewSourceView,
+  commit?: string,
+): ReviewSourceView {
+  return commit
+    ? Object.freeze({
+        ...view,
+        commit,
+        selection: "version",
+        access: "retained",
+      })
+    : view;
+}
+
+/** Existing HTTP parameters are an adapter, not the internal view model. */
+export function reviewSourceQuery(view: ReviewSourceView) {
+  return {
+    version: view.version,
+    generation: view.generation,
+    commit: view.commit,
+  };
+}
+
 export interface ReviewApiSourceLocation {
-  version: number;
-  generation?: string;
-  live?: boolean;
-  file: string;
-  side: ReviewDiffSide;
-  commit?: string;
+  readonly view: ReviewSourceView;
+  readonly file: string;
+  readonly side: ReviewDiffSide;
 }
 
 export type ReviewCanvasContent =
@@ -391,7 +457,7 @@ export type ReviewCanvasContent =
       version?: number;
       bridge: ReviewCanvasBridge;
       setTitle?(title: string): void;
-      setVersion?(version: number, generation?: string, live?: boolean): void;
+      setSourceView?(view: ReviewSourceView): void;
       openSource?(
         source: ReviewApiSourceLocation,
         range: ReviewInlineEditorRange,

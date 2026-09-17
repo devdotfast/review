@@ -1,3 +1,5 @@
+> Current implementation checklist: [sharing-simplification-todo.md](sharing-simplification-todo.md). The required-checkout design supersedes repository-free viewing and optional cloning below.
+
 # Review sharing simplification plan
 
 Status: separate follow-up audit; changes below are not yet applied.

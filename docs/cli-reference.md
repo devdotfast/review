@@ -170,15 +170,27 @@ review share revoke <share-id> [--json]
 The local Review host must be running. Sharing uploads one immutable saved
 version; an omitted version is resolved once when the request starts. The result
 contains `shareId`, `version`, and `url`. Running Share again creates a new link.
-Recipients do not need an account or a repository checkout. Open the link in
-Review Desktop, or use **Open Shared Review** in the command palette.
+Recipients do not need a Review account. They do need Git access to the GitHub
+repository. Open the link in Review Desktop, or use **Open Shared Review** in
+the command palette. The app downloads the review and fetches its exact base
+and head commits into a dedicated managed checkout before opening it.
 
-A share includes full referenced source files, embedded images and maps, and
-whole retained trace conversations. Anyone with its link can download it.
-Imported reviews are read-only and remain available offline. Revocation stops
-new downloads; already-issued object URLs may work for up to five minutes, and
-saved copies remain readable. The desktop offers an optional repository clone
-for advanced code navigation. Private clones need separate Git access.
+Push the reviewed commits to GitHub before sharing. Publication verifies both
+commits through a fresh fetch and never pushes them for you. Git uses the
+machine's existing credentials. Sharing does not request hosted-trace scopes;
+use `review login --traces` only when enabling hosted traces.
+
+A share includes the saved review, sender attribution, images, retained maps,
+and whole retained trace conversations. Code, diffs, and commit lists come
+from Git. Anyone with the link can download retained resources, while GitHub
+separately controls repository access. Imported reviews are read-only and
+remain available offline after the initial fetch. If fetching fails, configure
+Git credentials and retry. Missing managed checkouts can be fetched again from
+the same link. Deleting a local share removes only its managed checkout.
+
+Revocation stops new downloads. Already-issued object URLs may work for up to
+five minutes, and saved copies remain readable. Branch movement and later
+edits do not change a published snapshot.
 
 The exporter, importer and hosted client are available from
 `@dev.fast/review/sharing` for a future standalone host. Shipping a headless host

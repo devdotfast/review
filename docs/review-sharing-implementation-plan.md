@@ -1,3 +1,5 @@
+> Current implementation checklist: [sharing-simplification-todo.md](sharing-simplification-todo.md). The required-checkout design supersedes repository-free viewing and optional cloning below.
+
 # Review sharing implementation plan
 
 Status: implemented locally; hosted and packaged release gates remain open. Product decisions are recorded in

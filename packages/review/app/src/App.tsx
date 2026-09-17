@@ -402,7 +402,6 @@ function ReviewLayoutContent({
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
 
-  // Legacy trace availability stays unknown until loaded, preserving a restored Trace tab.
   const [legacyHasTraceSessions, setLegacyHasTraceSessions] = useState<
     boolean | null
   >(null);

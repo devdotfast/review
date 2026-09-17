@@ -142,8 +142,6 @@ export function ReviewProvider({
     );
   }, [documentRoute, reviewFetch, review]);
 
-  // Legacy sessions load their saved outcome and resolved refs from the server.
-  // JSON reviews read their pins and historical revision from session.review.
   useEffect(() => {
     if (review) return;
     let disposed = false;

@@ -14,11 +14,6 @@ import {
   useAgentTrace,
 } from "./use-agent-trace";
 
-/**
- * The Trace tab shows retained traces for JSON reviews. Legacy sessions resolve
- * traces from `Agent-Session:` commit trailers and the configured trace store.
- */
-
 type TraceListState =
   | { status: "loading" }
   | { status: "error"; error: string }

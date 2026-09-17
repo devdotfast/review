@@ -2,7 +2,6 @@ import { markdownNodes, parseMarkdown } from "../../src/markdown";
 import type { Block } from "../../src/review-api/document";
 import type { ReviewSectionSummary } from "./review-section-summary";
 
-/** Summarize authored content, including nested sections and callouts. */
 export function blockSectionSummary(children: Block[]): ReviewSectionSummary {
   const summary = { diagrams: 0, codeRefs: 0, paragraphs: 0 };
 

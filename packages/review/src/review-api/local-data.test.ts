@@ -1541,7 +1541,7 @@ it("copies selected diff rows with rename paths without resolving an unavailable
     command({ type: "create", title: "Rename", pins }),
   );
 
-  // Diff selections carry their displayed rows and must not load the new path on the old side.
+  // Use selected diff rows; the new path may not exist on the base commit.
   const app = createReviewApi(local.store);
 
   const response = await app.request(`/${reviewId}/copy-context?version=0`, {

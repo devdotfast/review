@@ -5,7 +5,6 @@ import type {
 
 import type { LoadedAgentTrace } from "../use-agent-trace";
 
-/** Facts and actions for the JSON version currently displayed in the canvas. */
 export interface ReviewSessionData {
   pins: { base: string; head: string };
   historicalRevision: string | null;

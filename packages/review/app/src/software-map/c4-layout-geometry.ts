@@ -2086,9 +2086,7 @@ async function runC4ElkLayout(
     };
   });
 
-  // ELK's routing and label inputs influence node placement, even though
-  // libavoid supplies the final edge geometry. Keep those inputs stable;
-  // consume only the node positions from ELK's output.
+  // Keep ELK edge inputs: they affect node placement even though libavoid routes edges.
   const layoutOptions: LayoutOptions = {
     "elk.algorithm": "layered",
     "elk.direction": c4ElkDirectionForAxis(layoutAxis),

@@ -72,9 +72,9 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			this._register(languages.typeDefinitionProvider.register(target, { provideTypeDefinition: (model, position, token) => this.locations(model, position, token, "type") }));
 			this._register(languages.implementationProvider.register(target, { provideImplementation: (model, position, token) => this.locations(model, position, token, "implementation") }));
 			this._register(languages.referenceProvider.register(target, {
-				provideReferences: (model, position, context, token) => this.withSource(model, position, token, async (local, at) => {
+				provideReferences: (model, position, context, token) => this.withSource(model, position, token, async (local, at, _mapping, pinned) => {
 					const results = await Promise.all(languages.referenceProvider.ordered(local).map(provider => provider.provideReferences(local, at, context, token)));
-					return results.flatMap(result => result ?? []);
+					return this.reviewLocations(pinned, results.flatMap(result => result ?? []), token);
 				}),
 			}));
 		}
@@ -178,7 +178,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			const results = kind === "definition" ? await getDefinitionsAtPosition(this.languages.definitionProvider, local, at, false, token)
 				: kind === "type" ? await getTypeDefinitionsAtPosition(this.languages.typeDefinitionProvider, local, at, false, token)
 				: await getImplementationsAtPosition(this.languages.implementationProvider, local, at, false, token);
-			return results.map(result => {
+			return this.reviewLocations(pinned, results.map(result => {
 				let origin = result.originSelectionRange ? mapping.toReview(Range.lift(result.originSelectionRange)) : undefined;
 				if (origin && model.uri.scheme === REVIEW_UNIFIED_SCHEME) {
 					const unified = this.resources.unifiedResource(model.uri);
@@ -188,8 +188,53 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 						? new Range(row.lineNumber, origin.startColumn, row.lineNumber, origin.endColumn) : undefined;
 				}
 				return { ...result, originSelectionRange: origin };
-			});
+			}), token);
 		});
+	}
+
+	/** Keep navigation in the same saved version/side only where destination bytes align. */
+	private async reviewLocations<T extends LocationLink>(pinned: ITextModel, locations: T[], token: CancellationToken): Promise<T[]> {
+		if (pinned.uri.scheme !== REVIEW_API_SOURCE_SCHEME) return locations;
+		const source = await this.localSource(pinned);
+		if (!source) return locations;
+		const prefix = source.root.path.replace(/\/$/, "") + "/";
+		// References often share a file. Resolve and diff each destination once per request.
+		const groups = new Map<string, T[]>();
+		for (const location of locations) {
+			const key = location.uri.toString();
+			const group = groups.get(key) ?? [];
+			group.push(location);
+			groups.set(key, group);
+		}
+		const mapped = new Map<T, T>();
+		await Promise.all([...groups.values()].map(async group => {
+			const target = group[0].uri;
+			if (target.scheme !== "file" || target.authority !== source.root.authority || !target.path.startsWith(prefix)) return;
+			const candidate = pinned.uri.with({ path: "/" + target.path.slice(prefix.length) });
+			const owned = new DisposableStore();
+			try {
+				const original = owned.add(await this.models.createModelReference(candidate)).object.textEditorModel;
+				const local = owned.add(await this.models.createModelReference(target)).object.textEditorModel;
+				await this.textFiles.files.resolve(target, { reload: { async: false } });
+				const results = await withCurrentLocalContext([original, local], token, () => this.generation, async () => {
+					const diff = await this.worker.computeDiff(candidate, target, { ignoreTrimWhitespace: false, maxComputationTimeMs: 1000, computeMoves: false }, "advanced");
+					if (!diff || diff.quitEarly) return [];
+					const mapping = new ReviewLocalLineMapping(original, local, diff);
+					return group.flatMap(location => {
+						const range = mapping.toReview(Range.lift(location.range));
+						const selection = location.targetSelectionRange && mapping.toReview(Range.lift(location.targetSelectionRange));
+						if (!range || (location.targetSelectionRange && !selection)) return [];
+						return [[location, { ...location, uri: candidate, range, ...(selection ? { targetSelectionRange: selection } : {}) }] as const];
+					});
+				});
+				for (const [before, after] of results ?? []) mapped.set(before, after);
+			} catch {
+				// Dependencies, generated files, and newer files may have no saved counterpart.
+			} finally {
+				owned.dispose();
+			}
+		}));
+		return locations.map(location => mapped.get(location) ?? location);
 	}
 
 	override dispose(): void {

@@ -465,7 +465,7 @@ function locations(result) {
 }
 
 function locationUri(value) {
-  return value;
+  return value?.replace(/\?.*$/, (query) => decodeURIComponent(query));
 }
 
 async function expectDefinition(sourceUri, position, target, targetLine) {
@@ -478,7 +478,11 @@ async function expectDefinition(sourceUri, position, target, targetLine) {
     });
 
     const found = locations(response.result).find(
-      (item) => locationUri(item.uri) === pathToFileURL(target).href,
+      (item) =>
+        locationUri(item.uri) ===
+        (target.startsWith("review-api-source:")
+          ? target
+          : pathToFileURL(target).href),
     );
 
     if (!found) return false;
@@ -549,7 +553,7 @@ try {
     await expectDefinition(
       uri(review, side),
       greetAt,
-      path.join(first.repo, "library.ts"),
+      uri(review, side, "library.ts"),
       2,
     );
     await expectHover(uri(review, side), greetAt, "string");
@@ -574,7 +578,7 @@ try {
   await expectDefinition(
     uri(review, "head", "main.py"),
     { line: 2, character: 9 },
-    path.join(first.repo, "library_py.py"),
+    uri(review, "head", "library_py.py"),
     0,
   );
   await expectHover(
@@ -606,8 +610,7 @@ try {
 
       return locations(result.result).some(
         (item) =>
-          locationUri(item.uri) ===
-            pathToFileURL(path.join(first.repo, "library.ts")).href &&
+          locationUri(item.uri) === uri(review, "head", "library.ts") &&
           (item.range[0]?.line ?? item.range.start?.line) === targetLine,
       );
     }, feature);
@@ -622,9 +625,7 @@ try {
 
   assert.ok(
     locations(refs.result).some(
-      (item) =>
-        locationUri(item.uri) ===
-        pathToFileURL(path.join(first.repo, "main.ts")).href,
+      (item) => locationUri(item.uri) === uri(review),
     ),
   );
   await expectDefinition(
@@ -636,7 +637,7 @@ try {
   await expectDefinition(
     uri(review),
     at(mainText("head"), 9, "greet()"),
-    path.join(first.repo, "library.ts"),
+    uri(review, "head", "library.ts"),
     2,
   );
 
@@ -648,7 +649,7 @@ try {
         character:
           mainText("head").split(/\r?\n/)[line].lastIndexOf("shared") + 1,
       },
-      path.join(first.repo, "main.ts"),
+      uri(review, "head", "main.ts"),
       line,
     );
   await record(
@@ -658,13 +659,13 @@ try {
   await expectDefinition(
     uri(other),
     greetAt,
-    path.join(second.repo, "library.ts"),
+    uri(other, "head", "library.ts"),
     2,
   );
   await expectDefinition(
     uri(review),
     greetAt,
-    path.join(first.repo, "library.ts"),
+    uri(review, "head", "library.ts"),
     2,
   );
 
@@ -676,12 +677,49 @@ try {
   await expectDefinition(
     uri(concurrent),
     greetAt,
-    path.join(first.repo, "library.ts"),
+    uri(concurrent, "head", "library.ts"),
     2,
   );
   await record(
     "simultaneous reviews never cross repository or version contexts",
   );
+
+  const originalLibrary = await readFile(
+    path.join(first.repo, "library.ts"),
+    "utf8",
+  );
+
+  await writeFile(
+    path.join(first.repo, "library.ts"),
+    "// local header\n" + originalLibrary,
+  );
+
+  for (const side of ["base", "head"]) {
+    await expectDefinition(
+      uri(review, side),
+      greetAt,
+      uri(review, side, "library.ts"),
+      2,
+    );
+  }
+
+  await writeFile(path.join(first.repo, "library.ts"), originalLibrary);
+  await record("cross-file destination line shifts map back to the saved side");
+
+  await writeFile(path.join(first.repo, "new-library.ts"), originalLibrary);
+  await writeFile(
+    path.join(first.repo, "main.ts"),
+    mainText("head").replace('"./library"', '"./new-library"'),
+  );
+  await expectDefinition(
+    uri(review),
+    greetAt,
+    path.join(first.repo, "new-library.ts"),
+    2,
+  );
+  await writeFile(path.join(first.repo, "main.ts"), mainText("head"));
+  await rm(path.join(first.repo, "new-library.ts"));
+  await record("destinations absent from the saved commit remain local");
 
   await writeFile(
     path.join(first.repo, "main.ts"),
@@ -723,8 +761,8 @@ try {
         line: 7,
         character: mainText("head").split(/\r?\n/)[7].lastIndexOf("shared") + 1,
       },
-      path.join(first.repo, "main.ts"),
-      10,
+      uri(review, side, "main.ts"),
+      7,
     );
   }
 
@@ -785,8 +823,8 @@ try {
       line: 7,
       character: mainText("head").split(/\r?\n/)[7].lastIndexOf("shared") + 1,
     },
-    path.join(first.repo, "main.ts"),
-    11,
+    uri(review, "head", "main.ts"),
+    7,
   );
   await record(
     "changed symbols are unavailable and further edits invalidate mappings",
@@ -798,14 +836,14 @@ try {
   await expectDefinition(
     uri(review),
     greetAt,
-    path.join(first.repo, "library.ts"),
+    uri(review, "head", "library.ts"),
     2,
   );
   await git(first.repo, "checkout", "main");
   await expectDefinition(
     uri(review),
     greetAt,
-    path.join(first.repo, "library.ts"),
+    uri(review, "head", "library.ts"),
     2,
   );
   await record(
@@ -824,7 +862,7 @@ try {
   await expectDefinition(
     uri(review, "head", "renamed.ts"),
     { line: 0, character: 25 },
-    path.join(first.repo, "library.ts"),
+    uri(review, "head", "library.ts"),
     2,
   );
 
@@ -850,7 +888,7 @@ try {
   await expectDefinition(
     uri(review, "head", "main.ts", first.head),
     greetAt,
-    path.join(first.repo, "library.ts"),
+    uri(review, "head", "library.ts", first.head),
     2,
   );
   await record("selected-commit source retains its own pinned coordinates");
@@ -887,21 +925,24 @@ try {
     const state = await probe({});
 
     return (
-      state.active?.uri ===
-        pathToFileURL(path.join(first.repo, "library.ts")).href && state
+      locationUri(state.active?.uri) === uri(review, "head", "library.ts") &&
+      state
     );
   }, "rendered definition target");
 
   assert.equal(
-    navigated.active.uri,
-    pathToFileURL(path.join(first.repo, "library.ts")).href,
+    locationUri(navigated.active.uri),
+    uri(review, "head", "library.ts"),
   );
   assert.equal(navigated.active.line, 2);
   await page.screenshot({ path: path.join(root, "definition-target.png") });
-  await record("real Go to Definition opens the correct local file and line");
+  await record(
+    "real Go to Definition stays in the saved review version and side",
+  );
 
   await probe({ command: "workbench.action.closeModalEditor" });
   await api(`/${review.reviewId}/open`, "POST");
+  const restoredReview = await api(`/${review.reviewId}?full=true`);
 
   for (const side of ["base", "head"]) {
     const inline = page
@@ -936,8 +977,8 @@ try {
   await page.keyboard.press("F12");
   await until(
     async () =>
-      (await probe({})).active?.uri ===
-      pathToFileURL(path.join(first.repo, "library.ts")).href,
+      locationUri((await probe({})).active?.uri) ===
+      uri(restoredReview, "head", "library.ts"),
     "inline definition navigation",
   );
   await record(
@@ -977,20 +1018,20 @@ try {
   await expectDefinition(
     uri(review),
     greetAt,
-    path.join(first.repo, "library.ts"),
+    uri(review, "head", "library.ts"),
     2,
   );
   await expectDefinition(
     uri(review, "head", "main.py"),
     { line: 2, character: 9 },
-    path.join(first.repo, "library_py.py"),
+    uri(review, "head", "library_py.py"),
     0,
   );
   await record("Desktop restart restores language-service context");
   await expectDefinition(
     uri(other),
     greetAt,
-    path.join(second.repo, "library.ts"),
+    uri(other, "head", "library.ts"),
     2,
   );
   await rename(second.repo, `${second.repo}-missing`);
@@ -1007,7 +1048,7 @@ try {
   await expectDefinition(
     uri(other),
     greetAt,
-    path.join(second.repo, "library.ts"),
+    uri(other, "head", "library.ts"),
     2,
   );
   await record(

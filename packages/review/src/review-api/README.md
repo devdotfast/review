@@ -191,3 +191,26 @@ history/restart, retries, asynchronous validation, isolation, and the actual
 desktop HTTP route. The local-data tests use a real Git repository with dirty
 working-copy files, decoded images and saved trace/map evidence, including real
 HTTP requests and restart. Existing desktop-server tests remain unchanged.
+
+### Language information and committed source
+
+Committed review source remains fixed to its saved version and side. Desktop
+language queries reuse the registered local checkout and its installed dependencies;
+opening a committed review does not create a worktree or install dependencies.
+Unchanged source lines are mapped to the local file. Changed or missing query
+lines do not produce language results.
+
+Definitions, type definitions, implementations, and references stay in the same
+review version, side, and selected commit when the destination range can be
+mapped back to unchanged saved source. Changed destination ranges, newer files,
+and dependency-only files retain their native local destinations. Navigation may
+therefore leave the committed review when no safe saved destination exists.
+
+Line mapping protects coordinates, not historical semantics: an unchanged call
+site can have a different type or resolve to a different symbol in the current
+project. Installing a pinned checkout would also require matching dependencies,
+generated files, and toolchain configuration to reproduce historical semantics.
+An optional prepared environment could provide that context in the future;
+source target selection and language-environment selection are separate concerns.
+Local language features require an available checkout even when review source can
+be displayed from retained data. No managed-environment mode is implemented here.

@@ -15,8 +15,8 @@ import {
 } from "./use-agent-trace";
 
 /**
- * The Trace tab shows the raw agent traces behind a review, resolved from
- * `Agent-Session:` commit trailers and fetched from the shared R2 trace store.
+ * The Trace tab shows retained traces for JSON reviews. Legacy sessions resolve
+ * traces from `Agent-Session:` commit trailers and the configured trace store.
  */
 
 type TraceListState =
@@ -47,7 +47,10 @@ export function ReviewTraceView({
 }) {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
-  const [legacyList, setList] = useState<TraceListState>({ status: "loading" });
+
+  const [legacyList, setLegacyList] = useState<TraceListState>({
+    status: "loading",
+  });
 
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
@@ -109,7 +112,7 @@ export function ReviewTraceView({
         }
 
         if (controller.signal.aborted) return;
-        setList({
+        setLegacyList({
           status: "loaded",
           configured: result.configured !== false,
           storage:
@@ -123,7 +126,7 @@ export function ReviewTraceView({
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
-        setList({
+        setLegacyList({
           status: "error",
           error: cause instanceof Error ? cause.message : String(cause),
         });

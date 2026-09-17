@@ -106,19 +106,16 @@ export function ReviewProvider({
   const dismissReview = useCallback(async () => {
     if (review) {
       await review.dismiss();
-      setSubmissionOutcome("dismissed");
+    } else {
+      const response = await reviewFetch(
+        "/dismiss",
+        { method: "POST", headers: reviewAppTelemetryHeaders(session) },
+        { routePath: documentRoute },
+      );
 
-      return;
-    }
-
-    const response = await reviewFetch(
-      "/dismiss",
-      { method: "POST", headers: reviewAppTelemetryHeaders(session) },
-      { routePath: documentRoute },
-    );
-
-    if (!response.ok) {
-      throw new Error(`Review dismiss failed (${response.status}).`);
+      if (!response.ok) {
+        throw new Error(`Review dismiss failed (${response.status}).`);
+      }
     }
 
     setSubmissionOutcome("dismissed");
@@ -145,11 +142,8 @@ export function ReviewProvider({
     );
   }, [documentRoute, reviewFetch, review]);
 
-  // Session facts travel the data plane, not the build plane: a fetch always
-  // reflects the running server. A review opened after a terminal decision
-  // must show its outcome banner from the first render, not only in the
-  // session where the decision happened, and the Map's topology banner names
-  // the resolved base and head refs.
+  // Legacy sessions load their saved outcome and resolved refs from the server.
+  // JSON reviews read their pins and historical revision from session.review.
   useEffect(() => {
     if (review) return;
     let disposed = false;

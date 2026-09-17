@@ -402,8 +402,8 @@ function ReviewLayoutContent({
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
 
-  // Unknown until the first answer, so a restored Trace tab survives the fetch.
-  const [legacyHasTraceSessions, setHasTraceSessions] = useState<
+  // Legacy trace availability stays unknown until loaded, preserving a restored Trace tab.
+  const [legacyHasTraceSessions, setLegacyHasTraceSessions] = useState<
     boolean | null
   >(null);
 
@@ -421,7 +421,7 @@ function ReviewLayoutContent({
             ? jsonArray(data.sessions)
             : undefined;
 
-        setHasTraceSessions((sessions?.length ?? 0) > 0);
+        setLegacyHasTraceSessions((sessions?.length ?? 0) > 0);
       })
       .catch(() => {});
 

@@ -34,7 +34,10 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
   const diffFiles = useReviewDiffFiles();
-  const [legacyMeta, setMeta] = useState<ReviewDocumentMetaState | null>(null);
+
+  const [legacyMeta, setLegacyMeta] = useState<ReviewDocumentMetaState | null>(
+    null,
+  );
 
   const review = session.review;
   const meta = review ? documentMetaState(review) : legacyMeta;
@@ -58,7 +61,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
         const json: JsonValue = await response.json();
 
         if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
-        setMeta(
+        setLegacyMeta(
           documentMetaState({
             updatedAtMs: jsonNumber(json.updatedAtMs),
             pullRequestNumber: jsonNumber(json.pullRequestNumber),

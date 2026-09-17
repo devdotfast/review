@@ -19,7 +19,6 @@ import {
 } from "./migrate";
 import { createReviewDir, sealReviewCandidate } from "./review-home";
 import { cleanupTempDirs, gitRepository, tempDir } from "./review-test-utils";
-import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 
 type TestRunCommand = (
   command: string,
@@ -37,6 +36,40 @@ type TestRunProcess = (input: {
 afterEach(cleanupTempDirs);
 
 describe("review migrate apply", () => {
+  it("leaves retired draft MDX untouched without reporting authoring blockers", async () => {
+    const { reviewHome, reviewDir } = await canonicalReview();
+
+    const source =
+      'import type { AnchorRef } from "@dev.fast/review/authoring";\n';
+
+    const documentPath = path.join(reviewDir, "review.mdx");
+
+    await writeFile(documentPath, source);
+    const io = streams();
+    const cleanup = async () => ({ checked: 0, removed: 0, blockers: [] });
+
+    const code = await runReviewMigration({
+      homeDir: reviewHome,
+      env: { DEV_REVIEW_HOME: reviewHome },
+      json: true,
+      stdout: io.stdout,
+      stderr: io.stderr,
+      runtime: {
+        removeLegacyDesktopCatalog: cleanup,
+        removeLegacyReviewSkills: cleanup,
+        removeLegacyGlobalReviewInstalls: cleanup,
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(await readFile(documentPath, "utf8")).toBe(source);
+    expect(JSON.parse(io.out.join(""))).toMatchObject({
+      event: "migrated",
+      issues: [],
+      blockers: [],
+    });
+  });
+
   it("keeps a migrated terminal colocated-jj presentation and old history through every follow-on phase", async () => {
     const { reviewHome, reviewDir } = await canonicalReview();
     await mkdir(path.join(reviewDir, ".bundle/document"), { recursive: true });
@@ -109,7 +142,7 @@ describe("review migrate apply", () => {
       "{broken unpublished source",
     );
   });
-  it("does not reparse a failed legacy review or audit unrelated editable sources after sealed conversion", async () => {
+  it("does not reparse a failed legacy review in subsequent migration phases", async () => {
     const io = streams();
     const uuid = "3b241101-e2bb-4255-8caf-4136c566a962";
 
@@ -118,11 +151,6 @@ describe("review migrate apply", () => {
       created: 0,
       legacyRemoved: 0,
       blockers: [],
-    }));
-
-    const audit = vi.fn<typeof auditStoredReviewDocuments>(async () => ({
-      documents: 0,
-      issues: [],
     }));
 
     const jj = vi.fn<typeof migrateJjReviewRepositories>(async () => ({
@@ -155,7 +183,6 @@ describe("review migrate apply", () => {
         },
         migrateJjReviewRepositories: jj,
         migrateReviewManagedCheckouts: managed,
-        auditStoredReviewDocuments: audit,
         removeLegacyDesktopCatalog: cleanup,
         removeLegacyReviewSkills: cleanup,
         removeLegacyGlobalReviewInstalls: cleanup,
@@ -168,12 +195,6 @@ describe("review migrate apply", () => {
     );
     expect(jj).toHaveBeenCalledWith(
       expect.objectContaining({ skipReviewUuids: [uuid] }),
-    );
-    expect(audit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        skipReviewUuids: [uuid],
-        onlyUnpresented: true,
-      }),
     );
     expect(io.out.join("")).toContain("1 blocker");
   });
@@ -197,10 +218,6 @@ describe("review migrate apply", () => {
           checked: 1,
           migrated: 1,
           blockers: [],
-        }),
-        auditStoredReviewDocuments: async () => ({
-          documents: 3,
-          issues: [],
         }),
         removeLegacyDesktopCatalog: async () => ({
           checked: 2,
@@ -255,10 +272,6 @@ describe("review migrate apply", () => {
           migrated: 0,
           blockers: [],
         }),
-        auditStoredReviewDocuments: async () => ({
-          documents: 0,
-          issues: [],
-        }),
         removeLegacyDesktopCatalog: catalogCleanup,
         removeLegacyReviewSkills: async () => ({
           checked: 0,
@@ -305,10 +318,6 @@ describe("review migrate apply", () => {
           checked: 0,
           migrated: 0,
           blockers: [],
-        }),
-        auditStoredReviewDocuments: async () => ({
-          documents: 2,
-          issues: [],
         }),
         removeLegacyDesktopCatalog: async () => ({
           checked: 0,

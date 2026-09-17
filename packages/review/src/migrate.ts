@@ -41,7 +41,6 @@ import {
 } from "./review-home";
 import { devReviewHome } from "./review-home-paths";
 import { reviewVcs } from "./review-vcs";
-import { auditStoredReviewDocuments } from "./stored-review-document-audit";
 import { migrateStoredReviewData } from "./stored-review-migration";
 
 const PACKAGE_NAME = "@dev.fast/review";
@@ -87,7 +86,6 @@ interface RunReviewMigrationRuntime {
   migrateStoredReviewData: typeof migrateStoredReviewData;
   migrateJjReviewRepositories: typeof migrateJjReviewRepositories;
   migrateReviewManagedCheckouts: typeof migrateReviewManagedCheckouts;
-  auditStoredReviewDocuments: typeof auditStoredReviewDocuments;
   removeLegacyDesktopCatalog: typeof removeLegacyDesktopCatalog;
   removeLegacyReviewSkills: typeof removeLegacyReviewSkills;
   removeLegacyGlobalReviewInstalls: typeof removeLegacyGlobalReviewInstalls;
@@ -113,7 +111,6 @@ export async function runReviewMigration(input: {
     migrateStoredReviewData,
     migrateJjReviewRepositories,
     migrateReviewManagedCheckouts,
-    auditStoredReviewDocuments,
     removeLegacyDesktopCatalog,
     removeLegacyReviewSkills,
     removeLegacyGlobalReviewInstalls,
@@ -164,18 +161,6 @@ export async function runReviewMigration(input: {
     blockers,
   );
 
-  const audit = await runMigrationPhase(
-    "Review document audit",
-    { documents: 0, issues: [] },
-    () =>
-      runtime.auditStoredReviewDocuments({
-        reviewHome,
-        skipReviewUuids: stored.failedReviewUuids,
-        onlyUnpresented: true,
-      }),
-    blockers,
-  );
-
   const catalog = await runMigrationPhase(
     "obsolete Desktop catalog cleanup",
     { checked: 0, removed: 0, blockers: [] },
@@ -217,26 +202,6 @@ export async function runReviewMigration(input: {
     ...globalCli.blockers,
   );
 
-  if (audit.issues.length > 0) {
-    const affectedDocuments = new Set(
-      audit.issues.map((issue) => issue.filePath),
-    ).size;
-
-    blockers.push(
-      `${count(audit.issues.length, "authoring issue")} across ${count(affectedDocuments, "Review document")} needs an agent.`,
-    );
-
-    for (const issue of audit.issues) {
-      human.write(
-        `${issue.filePath}:${issue.line} ${issue.code}: ${issue.message}\n`,
-      );
-    }
-
-    human.write(
-      "Correct these Review documents and rerun `review migrate apply`.\n",
-    );
-  }
-
   human.write(
     [
       `Review migration: ${count(stored.documents, "document")} checked;`,
@@ -268,12 +233,7 @@ export async function runReviewMigration(input: {
     catalogEntries: catalog.removed,
     skills: skills.removed,
     globalCliInstallations: globalCli.removed,
-    issues: audit.issues.map((issue) => ({
-      file: issue.filePath,
-      line: issue.line,
-      code: issue.code,
-      message: issue.message,
-    })),
+    issues: [],
     blockers,
   });
 

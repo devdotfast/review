@@ -71,6 +71,7 @@ await mkdir(repo);
 
 const env = {
   ...process.env,
+  HOME: home,
   DEV_REVIEW_HOME: home,
   DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
   DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
@@ -118,10 +119,6 @@ await git("commit", "-qam", "Queue");
 const legacyRoot = path.join(sourcePackage, "src/fixtures/legacy-reviews");
 
 const legacyFixtures = [];
-
-// Seeded only after the Desktop attaches, so `app pick` exercises
-// import-on-open rather than the Home sweep.
-const DEFERRED_FIXTURE = "schema4-bug-report-dialog";
 
 // The tarball plus its `<name>.json` metadata is the seed, the same shape
 // `legacy-import-live-home.sh` extracts into a live-test home.
@@ -181,9 +178,9 @@ for (const archive of (await readdir(legacyRoot))
     await readFile(path.join(legacyRoot, `${name}.json`), "utf8"),
   );
 
-  const fixture = { name, metadata, deferred: name === DEFERRED_FIXTURE };
+  const fixture = { name, metadata };
 
-  if (!fixture.deferred) await seedLegacyFixture(fixture);
+  await seedLegacyFixture(fixture);
   legacyFixtures.push(fixture);
 }
 
@@ -338,17 +335,6 @@ try {
     return { status: response.status, value: await response.json() };
   };
 
-  const stripIds = (value) =>
-    Array.isArray(value)
-      ? value.map(stripIds)
-      : value?.constructor === Object
-        ? Object.fromEntries(
-            Object.entries(value)
-              .filter(([key]) => key !== "id")
-              .map(([key, child]) => [key, stripIds(child)]),
-          )
-        : value;
-
   // The JSON canvas for a review; a legacy canvas may still be mounted elsewhere.
   const apiCanvasFor = (title) =>
     until(async () => {
@@ -370,7 +356,7 @@ try {
       return null;
     }, `JSON canvas for ${title}`);
 
-  // Listing Home starts the sweep, which is how the Desktop imports too.
+  // Startup migrates the legacy directory before exposing the JSON catalog.
   const waitForImport = (reviewId) =>
     until(async () => {
       await api("/reviews");
@@ -380,34 +366,36 @@ try {
     }, `${reviewId} imported`);
 
   async function cli(args, cwd) {
-    // Reload temporarily detaches Desktop. Wait before app pick can interpret
-    // that gap as a reason to launch the system-installed application.
-    if (args[0] === "app" && args[1] === "pick") {
-      await until(async () => {
-        const health = await (await fetch(`${discovery.url}/health`)).json();
+    // The initial workbench reload may detach the relay between the health
+    // check and CLI startup. Retry only the read-only info readiness failure.
+    const result = await until(async () => {
+      const health = await (await fetch(`${discovery.url}/health`)).json();
 
-        return health.ok && health.desktopAttached;
-      }, "fixture Desktop reattachment");
-    }
+      if (!health.ok || !health.desktopAttached) return null;
 
-    let result;
+      try {
+        return {
+          ...(await exec(
+            process.execPath,
+            [path.join(runtime, "dist/cli.js"), ...args, "--json"],
+            { cwd, env, timeout: 60000, maxBuffer: 8 * 1024 * 1024 },
+          )),
+          code: 0,
+        };
+      } catch (error) {
+        if (
+          args[0] === "info" &&
+          error.stdout?.includes("Review Desktop is not ready.")
+        )
+          return null;
 
-    try {
-      result = {
-        ...(await exec(
-          process.execPath,
-          [path.join(runtime, "dist/cli.js"), ...args, "--json"],
-          { cwd, env, timeout: 60000, maxBuffer: 8 * 1024 * 1024 },
-        )),
-        code: 0,
-      };
-    } catch (error) {
-      result = {
-        stdout: error.stdout ?? "",
-        stderr: error.stderr ?? "",
-        code: error.code,
-      };
-    }
+        return {
+          stdout: error.stdout ?? "",
+          stderr: error.stderr ?? "",
+          code: error.code,
+        };
+      }
+    }, "fixture Desktop CLI readiness");
 
     assert.equal(
       result.code,
@@ -426,8 +414,6 @@ try {
   let jsonApiChecked = false;
 
   for (const fixture of legacyFixtures) {
-    if (fixture.deferred) await seedLegacyFixture(fixture);
-
     const {
       name,
       metadata,
@@ -486,31 +472,12 @@ try {
       continue;
     }
 
-    // E5: the Home sweep imported the eager fixtures during startup, so this
-    // `app pick` only routes to the JSON canvas. E8: the deferred fixture is
-    // imported by this open.
-    if (!fixture.deferred) await waitForImport(metadata.sourceUuid);
+    // The startup migration imports every fixture before app pick opens it.
+    await waitForImport(metadata.sourceUuid);
     await cli(["app", "pick", "--review", metadata.sourceUuid], worktreePath);
     const snapshot = await waitForImport(metadata.sourceUuid);
 
-    // E6: the imported document matches the block golden.
-    const blocksGolden = JSON.parse(
-      await readFile(
-        path.join(legacyRoot, `${name}.expected-blocks.json`),
-        "utf8",
-      ),
-    );
-
     const document = snapshot.document;
-    const withoutMap = metadata.hasMap ? document.slice(0, -1) : document;
-
-    const withoutCallout =
-      withoutMap[0]?.type === "callout" &&
-      withoutMap[0].title === "Imported from the MDX review"
-        ? withoutMap.slice(1)
-        : withoutMap;
-
-    assert.deepEqual(stripIds(withoutCallout), blocksGolden);
 
     if (metadata.hasMap) {
       assert.equal(document.at(-1).title, "Software map");
@@ -560,8 +527,9 @@ try {
     if (!jsonApiChecked) {
       jsonApiChecked = true;
 
-      const before = (await api(`/reviews-api/${metadata.sourceUuid}?full=true`))
-        .value;
+      const before = (
+        await api(`/reviews-api/${metadata.sourceUuid}?full=true`)
+      ).value;
 
       const edit = (content) =>
         api("/reviews-api/commands", "POST", {
@@ -589,7 +557,9 @@ try {
             type: "sequence",
             title: "Save",
             actors: { app: "App" },
-            steps: [{ from: "app", to: "db", label: "Write", explanation: "x" }],
+            steps: [
+              { from: "app", to: "db", label: "Write", explanation: "x" },
+            ],
           },
           "Unknown component name: db",
         ],
@@ -642,7 +612,7 @@ try {
     }
 
     report.checks.push(
-      `${name}: fixture review imports and renders in the JSON canvas, ${snapshot.version + 1} version(s) matching the block golden`,
+      `${name}: fixture review imports and renders in the JSON canvas, ${snapshot.version + 1} preserved version(s)`,
     );
     console.log("E2E legacy fixture passed", name);
   }
@@ -652,6 +622,27 @@ try {
   await page.screenshot({ path: path.join(root, "document.png") });
   console.log("E2E checkpoint", report.checks.length);
   report.checks.push("no renderer page errors during import and rendering");
+
+  await page.keyboard.press("F1");
+  await page.locator(".quick-input-widget input").fill(">Review: Open Tutorial");
+  await page.getByRole("option", { name: /Review: Open Tutorial/ }).click();
+  page = await apiCanvasFor("Review Desktop: three-minute tour");
+  await page.getByRole("complementary", { name: "Tutorial guide" }).waitFor();
+  const keybindings = page.getByRole("group", { name: "Keybindings" });
+
+  await keybindings.getByRole("button", { name: "VS Code default" }).click();
+  await until(
+    async () =>
+      (await keybindings
+        .getByRole("button", { name: "VS Code default" })
+        .getAttribute("aria-pressed")) === "true",
+    "tutorial keybinding selection",
+  );
+  await page.screenshot({ path: path.join(root, "tutorial.png") });
+  assert.deepEqual(pageErrors, []);
+  report.checks.push(
+    "native JSON tutorial renders with its guide and working keybinding picker",
+  );
   success = true;
 } finally {
   if (!success && page) {

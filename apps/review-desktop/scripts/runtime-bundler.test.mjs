@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  RUNTIME_CLI_ENTRY,
   assertNoRuntimeBundler,
   assertPackagedArtifacts,
   assertRuntimeClosure,
@@ -79,7 +80,7 @@ test("runtime inspection rejects checkout paths and escaping links while accepti
       "dist/entry.js",
       "dist/entry.cjs",
       "dist/entry.js.map",
-      "dist/authoring.d.ts",
+      "dist/entry.d.ts",
     ]) {
       const file = path.join(root, relative);
       await writeFile(file, JSON.stringify({ checkout }));
@@ -107,18 +108,18 @@ test("runtime inspection rejects checkout paths and escaping links while accepti
   }
 });
 
-test("final package verification requires authoring declarations and rechecks archives outside the runtime", async () => {
+test("final package verification requires the CLI and rechecks archives outside the runtime", async () => {
   const root = await mkdtemp(
     path.join(os.tmpdir(), "review-package-inspection-"),
   );
 
   const packaged = path.join(root, "Review.app");
   const runtime = runtimeRootForPackagedRoot(packaged);
-  const declarations = path.join(runtime, "dist/authoring.d.ts");
+  const cli = path.join(runtime, RUNTIME_CLI_ENTRY);
 
   try {
     for (const artifact of requiredPackagedArtifacts(packaged)) {
-      if (artifact === declarations) continue;
+      if (artifact === cli) continue;
       await mkdir(path.dirname(artifact), { recursive: true });
 
       if (artifact === path.join(runtime, "app/src")) {
@@ -139,13 +140,13 @@ test("final package verification requires authoring declarations and rechecks ar
     await writeFile(path.join(runtime, "tutorial/review.mdx"), "# Tutorial\n");
     await assert.rejects(
       assertRuntimeClosure(runtime),
-      /missing dist\/authoring\.d\.ts/,
+      /missing dist\/cli\.js/,
     );
     await assert.rejects(
       assertPackagedArtifacts(packaged),
-      /missing .*authoring\.d\.ts/,
+      /missing .*cli\.js/,
     );
-    await writeFile(declarations, "export {};\n");
+    await writeFile(cli, "export {};\n");
     await assertRuntimeClosure(runtime);
     await assertPackagedArtifacts(packaged);
 

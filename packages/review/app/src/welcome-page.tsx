@@ -56,7 +56,10 @@ export function WelcomePage({
       done: installed,
       note: installedLabels(status) ?? "not installed yet",
       body: install ? (
-        <AgentSetupCard install={install} onStatusChange={setCardStatus} />
+        <AgentSetupCard
+          install={{ ...install, status: status ?? install.status }}
+          onStatusChange={setCardStatus}
+        />
       ) : (
         <p className="review-home-empty">
           The install status is unavailable. Restart Review Desktop and open
@@ -74,7 +77,7 @@ export function WelcomePage({
         <>
           <p className="review-home-zero-hint">
             A real review of a small sample repo, with live code, system views,
-            and your installed agent. About three minutes.
+            and interactive examples. About three minutes.
           </p>
           {onOpenTutorial ? (
             <button type="button" onClick={onOpenTutorial}>
@@ -92,12 +95,11 @@ export function WelcomePage({
     },
   ];
 
-  /* "auto" follows progress: the first unfinished step is open. Clicking a
-     header pins a step (or -1 for none) until the pane remounts, which it
-     does whenever another canvas kind renders. */
-  const [openStep, setOpenStep] = useState<number | "auto">("auto");
-  const firstUnfinished = steps.findIndex((step) => !step.done);
-  const activeStep = openStep === "auto" ? firstUnfinished : openStep;
+  // Pick the initial step from progress, then let the reader navigate. An
+  // installation must leave its confirmation visible and other agents usable.
+  const [activeStep, setOpenStep] = useState(() =>
+    steps.findIndex((step) => !step.done),
+  );
 
   return (
     <main className="review-home">
@@ -180,22 +182,9 @@ function onboardingSetupComplete(status: ReviewCliInstallStatus): boolean {
 
   if (installedAgents.length === 0) return false;
 
-  const fffAgents = installedAgents.filter(
-    (agent) => agent.target === "claude" || agent.target === "codex",
-  );
-
-  // Trace capture is experimental and lives in Settings; onboarding does
-  // not depend on it.
-  return (
-    (!status.cli || status.shim.installed) &&
-    (fffAgents.length === 0 ||
-      fffAgents.every((agent) =>
-        status.fff.registrations.some(
-          (registration) =>
-            registration.target === agent.target && registration.present,
-        ),
-      ))
-  );
+  // Optional trace-search registrations are managed in Settings and do not
+  // determine whether Review skills are installed.
+  return !status.cli || status.shim.installed;
 }
 
 interface WelcomeStep {

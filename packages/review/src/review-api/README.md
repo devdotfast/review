@@ -243,4 +243,4 @@ staged, unstaged and nonignored untracked files. Whole-worktree targets without 
 Source ranges default to the head side. File saves update source generations,
 not authored version history. Explicit version reads retain their original source.
 
-See [worktree target semantics and sharing boundary](../../../../docs/worktree-review-targets.md).
+See [review targets](../../../../docs/cli-reference.md#review-targets) for the supported source and comparison options.

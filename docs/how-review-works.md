@@ -1,7 +1,7 @@
 # How Review works
 
 <!--
-Outline: Product model -> Review contents -> Pins -> Publication -> Lifecycle -> Storage.
+Outline: Product model -> Review contents -> Targets -> Publication -> Lifecycle -> Storage.
 -->
 
 Review separates authoring from reading. A coding agent studies a change and
@@ -28,30 +28,16 @@ Each Review can combine:
 The changed-file diff remains available in the Files tab, but it is supporting
 evidence rather than the only way to understand the change.
 
-## Changes are pinned before authoring
+## Live and pinned worktrees
 
-A Review binds to one unit of change: a Git branch, Jujutsu bookmark, Jujutsu
-change ID, or GitHub pull request. Creating the review through the Review API
-resolves and pins exact base and head commits. Review reads source directly
-from those commits.
+A live review follows saved files in your existing worktree and uses its current
+project and dependencies for language services. A commit review keeps source fixed
+and uses Review-owned worktrees pinned to its commits, running `devfast.prepare`
+to set up dependencies. Choose live for ongoing work and pinned for a fixed comparison.
 
-The agent reads that pinned source through the Review API while it writes. Moving your current
-checkout does not silently change the code being reviewed. Use `review_repin`
-(or the equivalent `review api` command) to start a fresh version at updated
-pins when the bound branch, change, or pull request moves.
-
-Hover, definitions, and references use prepared worktrees pinned to the requested
-base or head commit. Review runs the repository's `devfast.prepare` commands in
-those worktrees so each language server has the matching project and dependencies.
-Language queries require the displayed file to match the environment file. If
-preparation or later edits change that file, queries are unavailable until the
-contents match again. Navigation stays in the saved review when the destination
-file matches, and otherwise opens the file in the language environment.
-
-Live worktree targets use the user's existing checkout and dependencies, without
-creating or preparing another worktree. Native live files use its language services
-directly. Base-side and historical files require matching contents; even when a
-file matches, language information reflects the current project's dependencies.
+Base-side and historical files get language services only when their contents match
+the environment file; live reviews still use the current project's dependencies.
+See [review targets](cli-reference.md#review-targets) for the API options.
 
 ## Every edit saves immediately
 

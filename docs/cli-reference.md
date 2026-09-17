@@ -108,6 +108,25 @@ and `packages/review/src/review-api/README.md`
 for the authoring workflow and the full tool/route list. `review api tools`
 prints the current tool catalog.
 
+### Review targets
+
+Register a local checkout with `review_register_repository({path})`, then pass
+its `repositoryId` in `target` to `review_create`. Use `review_set_target` to
+change an existing review's target while preserving its authored content.
+These tools are available through `review api` and MCP.
+
+| Target | Source and comparison |
+| --- | --- |
+| `{kind:"worktree", repositoryId, base}` | Saved working files, including staged, unstaged and nonignored untracked files, compared with `base`. Unsaved editor buffers are excluded. |
+| `{kind:"commits", repositoryId, head, base?}` | Fixed commits. Omit `base` for source at `head` with no diff; supply a base for a comparison. |
+
+Revisions resolve when the command is accepted. To review the changes introduced
+by one commit, use its parent as `base`; omitting the base is equivalent to
+`base=head`. For a GitHub PR, resolve its comparison and pass `pullRequestUrl`
+to `review_create`; the URL records identity and does not track new commits.
+See [live and pinned worktrees](how-review-works.md#live-and-pinned-worktrees)
+for how each target runs language services.
+
 ## Software maps
 
 ```sh

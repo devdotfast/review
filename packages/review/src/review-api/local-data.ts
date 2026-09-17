@@ -45,10 +45,10 @@ import {
 } from "./document.js";
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
-import { ReviewWorkspaces } from "./workspaces.js";
 import { sourceDiff } from "./source-diff.js";
 import { mapSourceRange } from "./source-ranges.js";
 import { ReviewStore, type Snapshot } from "./store.js";
+import { ReviewWorkspaces } from "./workspaces.js";
 import {
   EMPTY_SOURCE,
   captureWorktree,

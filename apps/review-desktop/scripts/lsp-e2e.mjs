@@ -18,6 +18,7 @@ import {
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 
@@ -70,6 +71,24 @@ for (const key of [
 await mkdir(path.join(profile, "User"), { recursive: true });
 
 await mkdir(extension);
+
+// This suite exercises language services, not first-run community onboarding.
+// Seed only its disposable profile, before Electron opens the storage database.
+await mkdir(path.join(profile, "User/globalStorage"), { recursive: true });
+
+const storage = new DatabaseSync(
+  path.join(profile, "User/globalStorage/state.vscdb"),
+);
+
+storage.exec(
+  "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)",
+);
+
+storage
+  .prepare("INSERT INTO ItemTable (key, value) VALUES (?, ?)")
+  .run("review.community.dontShowAgain", "true");
+
+storage.close();
 
 await writeFile(
   path.join(profile, "User/settings.json"),
@@ -338,13 +357,6 @@ async function launch() {
     "workbench",
   );
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.addLocatorHandler(
-    page.getByText("Join the Review community", { exact: true }),
-    async () => {
-      await page.getByRole("checkbox", { name: "Don't show again" }).check();
-      await page.getByRole("button", { name: "Not now", exact: true }).click();
-    },
-  );
 }
 
 async function stop() {

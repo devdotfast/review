@@ -9,11 +9,14 @@ import { HttpJsonError } from "../server/http-json.js";
 import { mountSharingHost } from "../sharing/host.js";
 import type { SharedReviewStore } from "../sharing/import.js";
 import { SharedReviewData } from "../sharing/routes.js";
+import { scopedCoverage } from "../viewed-coverage.js";
+
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
+import { progressUpdateSchema, reviewProgress } from "./review-progress.js";
 import {
   type ReviewStore,
   type Snapshot,
@@ -112,6 +115,60 @@ export function createReviewApi(
 
   app.get("/", (context) => context.json(catalog()));
   app.get("/authoring", (context) => context.json(authoringTools()));
+  app.get("/:id/progress", async (context) => {
+    if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+
+    const query = readQuerySchemas.get
+      .pick({ version: true })
+      .parse(context.req.query());
+
+    return context.json(
+      await reviewProgress(
+        store,
+        data,
+        store.read(context.req.param("id"), query.version),
+      ),
+    );
+  });
+  app.post("/:id/progress", async (context) => {
+    if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
+
+    const input = progressUpdateSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    const id = context.req.param("id");
+
+    const snapshot = store.read(id);
+    const progress = await reviewProgress(store, data, snapshot);
+
+    const files = input.files.map((update) => {
+      const file = progress.files.find((file) => file.path === update.path);
+
+      if (!file || file.fingerprint !== update.fingerprint)
+        throw new ReviewInputError(
+          "This file changed. Reload before marking it viewed.",
+          409,
+        );
+
+      return {
+        path: file.path,
+        fingerprint: file.fingerprint,
+        scope: scopedCoverage(file, update.sources),
+      };
+    });
+
+    if (store.read(id).version !== snapshot.version)
+      throw new ReviewInputError(
+        "Review changed during this update. Try again.",
+        409,
+      );
+    store.updateViewedCoverage(id, files, input.viewed);
+
+    return context.json(
+      await reviewProgress(store, data, store.read(id, input.version)),
+    );
+  });
   app.get("/:id/activity", (context) => {
     const id = context.req.param("id");
     readReview(id);
@@ -406,7 +463,11 @@ export function createReviewApi(
       return context.json(
         await data.quote(
           await data.comparison(
-            (await data.resolveSource(readReview(context.req.param("id"), input.version))).pins,
+            (
+              await data.resolveSource(
+                readReview(context.req.param("id"), input.version),
+              )
+            ).pins,
             input.commit,
           ),
 
@@ -556,7 +617,6 @@ export function createReviewApi(
       .pick({ version: true })
       .parse(context.req.query());
 
-
     const selection = AgentSelectionSchema.parse(
       await readBoundedRequestJson(context.req.raw),
     );
@@ -578,7 +638,10 @@ export function createReviewApi(
       if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 
       const source = await data.quote(
-        await data.comparison((await data.resolveSource(snapshot)).pins, selection.apiSource?.commit),
+        await data.comparison(
+          (await data.resolveSource(snapshot)).pins,
+          selection.apiSource?.commit,
+        ),
         {
           side: target.side,
           file: target.path,

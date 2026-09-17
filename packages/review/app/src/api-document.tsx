@@ -36,6 +36,7 @@ import { useReviewSession } from "./host/review-session";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import { cssIdentifier, scrollToReviewHeading } from "./review-heading-scroll";
+import { DiagramActions } from "./review-lenses";
 import { useReviewRoots } from "./review-root-context";
 import type { SoftwareMapResolvedDataPayload } from "./software-map/software-map-snapshot";
 
@@ -297,6 +298,8 @@ export const DocumentNode = memo(function DocumentNode({
       />
     ));
 
+  if (node.type === "file_lens") return null;
+
   if (
     node.type === "software_map" &&
     (!softwareMapEnabled || data.snapshot.origin?.tutorial)
@@ -327,6 +330,7 @@ export const DocumentNode = memo(function DocumentNode({
         ) : (
           renderBlock(node.type, node, data, children)
         )}
+        <DiagramActions id={node.id} />
       </BlockErrorBoundary>
     </NodeReveal>
   );

@@ -5,6 +5,12 @@ import { isDeepStrictEqual } from "node:util";
 import type { ReviewApiSummary } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import {
+  type Coverage,
+  coverageSchema,
+  emptyCoverage,
+  updateCoverage,
+} from "../viewed-coverage.js";
 import { ReviewActivity } from "./activity.js";
 import {
   type Block,
@@ -290,6 +296,10 @@ export class ReviewStore {
       .exec(`CREATE TABLE IF NOT EXISTS repositories(id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id),
         kind TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);`);
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS review_coverage(review_id TEXT REFERENCES reviews(id), file TEXT, fingerprint TEXT NOT NULL, coverage TEXT NOT NULL, PRIMARY KEY(review_id,file));",
+    );
+    this.db.exec("DROP TABLE IF EXISTS review_viewed");
     // Import progress lives apart from the editable snapshots: restoring an
     // older version or deleting the review must not look like an unfinished
     // import to the next sweep.
@@ -305,6 +315,62 @@ export class ReviewStore {
         .some((column) => String(column.name) === "map_revision")
     )
       this.db.exec("ALTER TABLE legacy_imports ADD COLUMN map_revision TEXT");
+  }
+  /** Reader progress never creates a document version or authoring event. */
+  viewedCoverage(
+    reviewId: string,
+  ): Map<string, { fingerprint: string; coverage: Coverage }> {
+    this.assertExists(reviewId);
+
+    return new Map(
+      this.db
+        .prepare(
+          "SELECT file,fingerprint,coverage FROM review_coverage WHERE review_id=?",
+        )
+        .all(reviewId)
+        .map((row) => [
+          String(row.file),
+          {
+            fingerprint: String(row.fingerprint),
+            coverage: coverageSchema.parse(JSON.parse(String(row.coverage))),
+          },
+        ]),
+    );
+  }
+  updateViewedCoverage(
+    reviewId: string,
+    files: { path: string; fingerprint: string; scope: Coverage }[],
+    viewed: boolean,
+  ): void {
+    this.assertExists(reviewId);
+    this.db.exec("BEGIN IMMEDIATE");
+
+    try {
+      const current = this.viewedCoverage(reviewId);
+
+      for (const file of files) {
+        const previous = current.get(file.path);
+
+        const coverage = updateCoverage(
+          previous?.fingerprint === file.fingerprint
+            ? previous.coverage
+            : emptyCoverage(),
+          file.scope,
+          viewed,
+        );
+
+        this.db
+          .prepare(
+            "INSERT OR REPLACE INTO review_coverage(review_id,file,fingerprint,coverage) VALUES(?,?,?,?)",
+          )
+          .run(reviewId, file.path, file.fingerprint, JSON.stringify(coverage));
+      }
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
   /** The last legacy revisions imported for a review, kept after deletion. */
   legacyImport(reviewId: string): LegacyImportProgress | null {
@@ -615,7 +681,11 @@ export class ReviewStore {
         };
 
         this.commitCommand(command.commandId, request, result, () => {
-          for (const table of ["review_attention", "versions"])
+          for (const table of [
+            "review_coverage",
+            "review_attention",
+            "versions",
+          ])
             this.db
               .prepare(`DELETE FROM ${table} WHERE review_id=?`)
               .run(op.reviewId);

@@ -1189,3 +1189,18 @@ body
 @media (prefers-reduced-motion: reduce) {
   .review-structural-stream-status.loading::before { animation: none; }
 }
+.review-file-viewed { opacity: .42; }
+.review-header-viewed { width: 16px; height: 16px; padding: 0; margin: 0 8px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 3px; color: var(--vscode-editor-foreground); background: transparent; font: 12px/14px sans-serif; cursor: pointer; }
+.review-header-viewed[aria-checked="true"], .review-counts-viewed { opacity: .45; }
+.review-tree-counts { display:inline-flex; flex-shrink:0; gap:4px; margin-left:auto; padding-left:8px; padding-right:8px; font:10px/22px var(--vscode-editor-font-family, monospace); font-variant-numeric:tabular-nums; }
+.review-tree-added { color:var(--vscode-gitDecoration-addedResourceForeground); }
+.review-tree-removed { color:var(--vscode-gitDecoration-deletedResourceForeground); }
+.review-changed-files-label { flex:1; min-width:0; }
+.review-diff-group { height:48px; min-height:48px; box-sizing:border-box; display:flex; align-items:center; gap:12px; padding:12px 16px 4px; border-top:1px solid var(--vscode-panel-border); background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); }
+.review-diff-group[hidden] { display:none; }
+.review-diff-group-title { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.review-diff-group-counts { margin-left:auto; font:11px var(--vscode-editor-font-family, monospace); color:var(--vscode-descriptionForeground); white-space:nowrap; }
+.review-diff-group.is-viewed > span { opacity:.45; }
+
+.review-diff-group-toggle { display:flex; align-items:center; gap:8px; min-width:0; border:0; padding:0; color:inherit; background:transparent; cursor:pointer; text-align:left; }
+.review-diff-group-toggle:focus-visible { outline:1px solid var(--vscode-focusBorder); }

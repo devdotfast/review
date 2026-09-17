@@ -175,13 +175,67 @@ export interface ReviewInlineEditorFactory {
   ): Promise<ReviewInlineFindResult>;
 }
 
+/** A lens is scoped to one immutable saved review version. */
+export interface ReviewDiffLens {
+  /** Filter files while retaining ordinary diff context/folding within them. */
+  wholeFiles?: boolean;
+  id: string;
+  title: string;
+  reviewId: string;
+  version: number;
+  ranges: readonly {
+    side: "base" | "head";
+    file: string;
+    fromLine: number;
+    toLine: number;
+  }[];
+}
+
+/** Reader progress is supplied independently of the immutable comparison. */
+export interface ReviewDiffProgressFile {
+  path: string;
+  state: "unread" | "partial" | "viewed";
+  remaining: { additions: number; deletions: number };
+  total: { additions: number; deletions: number };
+  viewedRanges: ReviewDiffLens["ranges"];
+  changedRanges: ReviewDiffLens["ranges"];
+  unfoldRanges?: ReviewDiffLens["ranges"];
+}
+
+export interface ReviewDiffSection {
+  files?: readonly ReviewDiffProgressFile[];
+  id: string;
+  label: string;
+  sources: ReviewDiffLens["ranges"];
+  state: "unread" | "partial" | "viewed";
+  total: { additions: number; deletions: number };
+  remaining: { additions: number; deletions: number };
+}
+
+export interface ReviewDiffProgress {
+  sections?: readonly ReviewDiffSection[];
+  files: readonly ReviewDiffProgressFile[];
+  /** Only present while applying a new viewed action, to reset affected fold overrides. */
+  changedPaths?: readonly string[];
+}
+
 export interface ReviewDiffViewSpec {
   container: HTMLElement;
+  fileTreeContainer?: HTMLElement;
+  progress?: ReviewDiffProgress;
+  onToggleViewed?: (path: string, sectionId?: string) => void;
+  onToggleSection?: (id: string) => void;
+  lens?: ReviewDiffLens;
   scope?: ReviewCommitScope;
 }
 
 export interface ReviewDiffViewHandle extends ReviewDisposable {
   focus(): void;
+  setProgress?(progress: ReviewDiffProgress): void;
+  revealSource?(
+    source: ReviewDiffLens["ranges"][number],
+    sectionId?: string,
+  ): void;
   onDidError(listener: (message: string) => void): ReviewDisposable;
 }
 
@@ -899,7 +953,7 @@ export type ReviewCliInstallApplyResponse = z.infer<
 export const ReviewDiffFileSchema = z.strictObject({
   path: requiredString,
   previousPath: requiredString.optional(),
-  status: z.enum(["added", "modified", "deleted", "renamed"]),
+  status: z.enum(["added", "modified", "deleted", "renamed", "unchanged"]),
   additions: nonNegativeInteger,
   deletions: nonNegativeInteger,
   patch: requiredString.optional(),

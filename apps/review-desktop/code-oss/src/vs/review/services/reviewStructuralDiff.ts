@@ -59,6 +59,7 @@ export async function prepareStructuralReview(
   /** Fires when a file's visible counts change: on arrival and on every fold toggle. */
   onDidChangeCounts: Event<{ path: string; counts: StructuralFileCounts }>;
 }> {
+  const unchanged = new Set(entries.filter(entry => entry.file.status === "unchanged").map(entry => entry.file.path));
   const files = new Map<string, StructuralTextDiff>();
   const binary = new Set<string>();
   /** Collapse state by `${path}:${fold_state_id}`, seeded from the wire's initial visibility. A fold-state id spans sides. */
@@ -124,6 +125,8 @@ export async function prepareStructuralReview(
   async function load(
     onFile: (path: string, outcome: StructuralFileOutcome) => void,
   ): Promise<void> {
+    for (const path of unchanged) onFile(path, {});
+    if (unchanged.size === entries.length) return;
     const abort = new AbortController();
     lifetime.add(toDisposable(() => abort.abort()));
     const response = await request(abort.signal);
@@ -172,7 +175,7 @@ export async function prepareStructuralReview(
       }
       await line(buffer);
       if (!complete) throw new Error("diffr stream ended before completion.");
-      for (const entry of entries) if (!seen.has(entry.file.path))
+      for (const entry of entries) if (!seen.has(entry.file.path) && !unchanged.has(entry.file.path))
         onFile(entry.file.path, { error: "diffr did not supply a result for this file." });
     } finally {
       await reader.cancel().catch(() => {});
@@ -189,7 +192,11 @@ export async function prepareStructuralReview(
         onDidChange: providerChanged.event,
         async computeDiff(original, modified, _options, token) {
           if (token.isCancellationRequested) throw new CancellationError();
-          const path = pairs.get(original.uri.toString() + "\n" + modified.uri.toString());
+          const path = pairs.get(original.uri.with({ fragment: "" }).toString() + "\n" + modified.uri.with({ fragment: "" }).toString());
+          if (path !== undefined && unchanged.has(path)) {
+            if (original.getValue() !== modified.getValue()) throw new Error("Referenced context file changed; reload the review.");
+            return { changes: [], moves: [], identical: true, quitEarly: false };
+          }
           if (path !== undefined && binary.has(path)) {
             return { changes: [], moves: [], identical: false, quitEarly: false, changeHighlights: { original: [], modified: [] } };
           }
@@ -287,7 +294,7 @@ function attachStructuralEditors(
     store.add(
       autorun((reader) => {
         const model = editor.getModel();
-        const path = model && pairs.get(model.original.uri.toString() + "\n" + model.modified.uri.toString());
+        const path = model && pairs.get(model.original.uri.with({ fragment: "" }).toString() + "\n" + model.modified.uri.with({ fragment: "" }).toString());
         const regions = widget.unchangedRegions!.read(reader);
         if (!path || !files.has(path)) return;
         const gaps = structuralContextGaps(files.get(path)!, (id) => collapsed.get(path, id) === true, (id) => collapsed.get(path, id));

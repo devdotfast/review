@@ -240,6 +240,7 @@ export const blockComponents = {
   database_lens: DatabaseLensBlock,
   image: ImageBlock,
   trace_quote: TraceQuoteBlock,
+  file_lens: () => null,
   software_map: SoftwareMapBlock,
   section: SectionBlock,
   callout: CalloutBlock,

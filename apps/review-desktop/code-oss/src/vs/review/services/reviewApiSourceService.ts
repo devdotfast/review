@@ -1,3 +1,4 @@
+import { lensFiles } from "../common/reviewLensFiles.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -456,10 +457,12 @@ export class ReviewApiSourceService
     };
     const diffSource: ReviewDiffViewSource = {
       files: (scope) => files(reviewSourceComparison(view(), scope?.commit)),
-      load: async (scope) => {
+      load: async (scope, lens) => {
+        if (lens && (scope || lens.reviewId !== view().reviewId)) throw new Error("A lens must use its review comparison.");
         // Capture the comparison once; live checkout bytes may change during the load.
         const current = reviewSourceComparison(view(), scope?.commit);
-        const entries = await files(current);
+        const entries = lensFiles(await files(current), lens);
+
         return {
           structuralDiff: async (signal: AbortSignal) => {
             const { serverUrl, token } = await this.session.getConnection();

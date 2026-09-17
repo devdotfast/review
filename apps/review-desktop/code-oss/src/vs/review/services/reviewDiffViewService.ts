@@ -1,3 +1,5 @@
+import type { ReviewDiffProgress } from "../common/reviewProtocol.js";
+import { lensRanges, withLens } from "./reviewLens.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -13,6 +15,7 @@ import { IInstantiationService } from "../../platform/instantiation/common/insta
 import { REVIEW_STRUCTURAL_DIFF_SETTING } from "../common/reviewConfigurationDefaults.js";
 import type {
 	ReviewCommitScope,
+ ReviewDiffLens,
 	ReviewDiffFileWire,
 	ReviewDiffViewHandle,
 	ReviewDiffViewSpec,
@@ -25,7 +28,7 @@ import type { ReviewInlineEditorService } from "./reviewInlineEditorService.js";
 import { prepareStructuralReview } from "./reviewStructuralDiff.js";
 
 export interface ReviewDiffViewSource {
-	load(scope?: ReviewCommitScope): Promise<{ sourceUri: URI; entries: readonly ReviewFilesEditorEntry[] ;
+	load(scope?: ReviewCommitScope, lens?: ReviewDiffLens): Promise<{ sourceUri: URI; entries: readonly ReviewFilesEditorEntry[] ;
 		structuralDiff?: (signal: AbortSignal) => Promise<Response>;
 	}>;
 	files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
@@ -91,6 +94,12 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 	readonly onDidError = this._onDidError.event;
 	private readonly activeControlStore = this._register(new DisposableStore());
 	private view: ReviewFilesDiffView | undefined;
+    private progress: ReviewDiffProgress | undefined;
+    private readonly progressChanged = this._register(new Emitter<void>());
+    private pendingSectionId: string | undefined;
+    private pendingSource: ReviewDiffLens['ranges'][number] | undefined;
+    setProgress(progress: ReviewDiffProgress): void { this.progress = progress; this.view?.setProgress(progress); this.progressChanged.fire(); }
+    revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
 	private viewStateKey: string | undefined;
 	private adoptedEditors: readonly ICodeEditor[] = [];
 	private disposed = false;
@@ -106,6 +115,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 		private readonly source: ReviewDiffViewSource,
 	) {
 		super();
+        this.progress = spec.progress;
 		void this.initialize();
 	}
 
@@ -130,7 +140,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 
 	private async initialize(): Promise<void> {
 		try {
-			const data = await this.source.load(this.spec.scope);
+			const data = await this.source.load(this.spec.scope, this.spec.lens);
 			const { sourceUri, entries } = data;
 			const structuralEnabled = this.instantiationService.invokeFunction(
 				(a) =>
@@ -138,7 +148,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 						.get(IConfigurationService)
 						.getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === true,
 			);
-			this.viewStateKey = `${sourceUri.toString()}:${structuralEnabled}`;
+			this.viewStateKey = `${sourceUri.toString()}:${structuralEnabled}:${JSON.stringify(this.spec.lens ?? null)}`;
 			if (this.disposed) return;
 			if (structuralEnabled && !data.structuralDiff) throw new Error("Structural diffs are unavailable for this source.");
 			const store = this._register(new DisposableStore());
@@ -157,35 +167,48 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 						onDidChangeCounts: undefined,
 					};
 			if (this.disposed) return;
-			// The input owns the text-model references its view model resolves, so
+			const lens = this.spec.lens;
+      const sections = this.progress?.sections;
+      const selected = lens && sections?.length ? sections.flatMap(section => {
+        const matches = structural.entries.filter(entry => lensRanges({ ...lens, ranges: section.sources }, entry).length > 0);
+        return matches.map((entry, index) => ({ ...entry, sectionId: section.id, sectionStart: index === 0, original: entry.original?.with({ fragment: section.id }), modified: entry.modified?.with({ fragment: section.id }) }));
+      }) : lens ? structural.entries.filter(entry => lensRanges(lens, entry).length > 0) : structural.entries;
+      const selectedPaths = new Set(selected.map(entry => entry.file.path));
+      const instantiation = withLens(structural.instantiation, selected, lens, store, () => this.progress, this.progressChanged.event);
+      // The input owns the text-model references its view model resolves, so
 			// this handle disposes it alongside the view.
-			const input = store.add(structural.instantiation.createInstance(ReviewFilesEditorInput, sourceUri, structural.entries,
-					structural.enabled));
+			const input = store.add(instantiation.createInstance(ReviewFilesEditorInput, sourceUri, selected,
+					structural.enabled, !!lens || !!this.spec.onToggleViewed));
 			const view = store.add(
-				structural.instantiation.createInstance(
+				instantiation.createInstance(
 					ReviewFilesDiffView,
 					this.spec.container,
 					this.overflowWidgetsDomNode,
 					this.diffLayout,
+                    this.spec.fileTreeContainer,
+                    this.spec.onToggleViewed,
+                    this.spec.onToggleSection,
 				),
 			);
 			this.view = view;
-			if (structural.enabled) view.startLoading(structural.entries);
+            if (this.progress) view.setProgress(this.progress);
+			if (structural.enabled) view.startLoading(selected);
 			store.add(view.onDidChangeActiveControl(() => this.bindActiveControl(view)));
 			// A saved whole-list offset cannot be restored into a partial streamed list.
 			await view.setInput(input, structural.enabled ? undefined : this.viewStates.get(this.viewStateKey),
 			);
 			if (this.disposed) return;
 			this.bindActiveControl(view);
+        if (this.pendingSource) view.revealSource(this.pendingSource, this.pendingSectionId);
 		if (structural.load) {
 				store.add(
 					structural.onDidChangeCounts(({ path, counts }) => {
-						if (!this.disposed) view.fileCounts(path, counts);
+						if (!this.disposed && selectedPaths.has(path)) view.fileCounts(path, counts);
 					}),
 				);
 				void structural
 					.load((path, outcome) => {
-						if (this.disposed) return;
+						if (this.disposed || !selectedPaths.has(path)) return;
 						if (outcome.hidden !== undefined)
 							view.hideFile(path, outcome.hidden);
 						view.fileLoaded(path, outcome.error, outcome.stats);

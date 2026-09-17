@@ -166,6 +166,11 @@ jobs:
       - name: Check repository quality
         run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
 
+      - name: Configure Electron sandbox
+        run: |
+          sudo chown root:root apps/review-desktop/code-oss/.build/electron/chrome-sandbox
+          sudo chmod 4755 apps/review-desktop/code-oss/.build/electron/chrome-sandbox
+
       - name: Desktop language services E2E
         run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:lsp --keep
 

@@ -351,13 +351,21 @@ async function stop() {
   await browser?.close();
   browser = undefined;
 
-  if (app && app.exitCode === null) {
+  if (app && app.exitCode === null && app.signalCode === null) {
     const exited = new Promise((resolve) => app.once("exit", resolve));
-    process.kill(-app.pid, "SIGTERM");
+    const kill = (signal) => {
+      try {
+        process.kill(-app.pid, signal);
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    };
+
+    kill("SIGTERM");
     await Promise.race([exited, sleep(5000)]);
 
     if (app.exitCode === null && app.signalCode === null)
-      process.kill(-app.pid, "SIGKILL");
+      kill("SIGKILL");
   }
 
   app = undefined;

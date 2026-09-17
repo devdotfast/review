@@ -21,7 +21,7 @@ export function authoringTools() {
     edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs. Accepted edits are saved immediately. Omitted placement appends; null removes an optional field in a patch.",
     rename: "Change the review title.",
     repin:
-      "Update source pins or PR identity. Identical pins preserve the document; changed pins start a blank version. Previous content remains in history. Omitted pullRequestUrl preserves PR identity within the same repository; changing repositories clears it. Supply a URL to replace it or null to detach.",
+      "Update source pins or PR identity while preserving the document and component IDs. Returns warnings for retained source ranges to verify and resources that no longer match; fix them with review_edit. Previous pins and content remain in history. Omitted pullRequestUrl preserves PR identity within the same repository; changing repositories clears it. Supply a URL to replace it or null to detach.",
     restore:
       "Restore title, source pins, PR identity and content from a saved version. Comments are not rolled back.",
     attention:

@@ -87,7 +87,7 @@ Commands: `create {title,pins,pullRequestUrl?}`, `edit {reviewId,edit}`, `rename
 `repin {reviewId,pins,pullRequestUrl?}`, `restore {reviewId,version}`. Pins contain
 `{repositoryId,base,head}` and must identify immutable commits.
 Repinning creates a blank snapshot. Restore restores title, pins, PR identity, and content.
-PR URLs must be canonical `https://github.com/owner/repository/pull/123` URLs. The PR number is derived from the URL; identity is metadata alongside immutable pins, not a moving source reference, and does not fetch or refresh PR commits. Resolve the intended comparison separately. `repin` with unchanged pins binds or detaches (null) without clearing content. Repin preserves omitted PR identity within one repository, clears it when switching repositories, and accepts an explicit URL or null.
+PR URLs must be canonical `https://github.com/owner/repository/pull/123` URLs. The PR number is derived from the URL; identity is metadata alongside immutable pins, not a moving source reference, and does not fetch or refresh PR commits. Resolve the intended comparison separately. `repin` preserves the document and component IDs, including when source commits change. Its response reports retained source ranges to verify and resources that no longer match the pins; agents repair these with `edit`. Existing versions keep their original pins and content. Repin preserves omitted PR identity within one repository, clears it when switching repositories, and accepts an explicit URL or null.
 
 `attention {reviewId,action:"view"|"dismiss"|"restore"}` records viewing or
 reversible dismissal without creating a document version. Home summaries include

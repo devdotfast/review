@@ -377,6 +377,7 @@ describe("snapshot authoring", () => {
     });
 
     expect(next.targetId).not.toBe(inserted.targetId);
+    const beforeRepin = store.read(first.reviewId);
     await store.execute(
       request({
         type: "repin",
@@ -385,7 +386,7 @@ describe("snapshot authoring", () => {
       }),
     );
     expect(store.read(first.reviewId)).toMatchObject({
-      document: [],
+      document: beforeRepin.document,
       pins: { head: "new-head" },
     });
     expect(store.read(second.reviewId)).toMatchObject({
@@ -394,6 +395,111 @@ describe("snapshot authoring", () => {
       pins,
     });
     expect(store.list()).toHaveLength(2);
+  });
+
+  it("retains stale references on repin, reports them, and allows incremental repairs", async () => {
+    const { reviewId } = await create();
+    await edit(reviewId, {
+      type: "insert",
+      content: { type: "code_peek", source },
+    });
+    await edit(reviewId, {
+      type: "insert",
+      content: { type: "software_map", mapVersionId: "map" },
+    });
+    const original = store.read(reviewId);
+    vi.mocked(providers.validateSource).mockRejectedValue(
+      new ReviewInputError("File is unavailable at the pinned commit.", 404),
+    );
+    vi.mocked(providers.validateResource).mockRejectedValue(
+      new ReviewInputError("Map does not match this review's source pins."),
+    );
+
+    const command = request({
+      type: "repin",
+      reviewId,
+      pins: { ...pins, head: "new-head" },
+    });
+
+    const result = await store.execute(command);
+
+    expect(result.warnings).toEqual([
+      "block-2 (software_map): Map does not match this review's source pins.",
+      "head/src/store.ts#L1-L5: File is unavailable at the pinned commit.",
+    ]);
+    expect(await store.execute(command)).toEqual(result);
+    expect(store.read(reviewId).document).toEqual(original.document);
+    expect(store.read(reviewId, original.version)).toEqual(original);
+    await edit(reviewId, {
+      type: "insert",
+      content: { type: "markdown", markdown: "Working on the update" },
+    });
+    vi.mocked(providers.validateSource).mockResolvedValue();
+    await edit(reviewId, {
+      type: "update",
+      targetId: original.document[0]!.id!,
+      changes: { source: { ...source, file: "renamed.ts" } },
+    });
+    expect(store.read(reviewId).document[0]).toMatchObject({
+      id: original.document[0]!.id,
+      source: { file: "renamed.ts" },
+    });
+  });
+
+  it("asks agents to verify retained ranges even when their line numbers remain valid", async () => {
+    const { reviewId } = await create();
+    await edit(reviewId, {
+      type: "insert",
+      content: { type: "code_peek", source },
+    });
+
+    const result = await store.execute(
+      request({ type: "repin", reviewId, pins: { ...pins, head: "new-head" } }),
+    );
+
+    expect(result.warnings).toEqual([
+      "head/src/store.ts#L1-L5: source pins changed; verify that this range still supports the document.",
+    ]);
+
+    const samePins = await store.execute(
+      request({ type: "repin", reviewId, pins: { ...pins, head: "new-head" } }),
+    );
+
+    expect(samePins.warnings).toBeUndefined();
+  });
+
+  it("does not save a repin when pin resolution or source infrastructure fails", async () => {
+    const { reviewId } = await create();
+    await edit(reviewId, {
+      type: "insert",
+      content: { type: "code_peek", source },
+    });
+    const original = store.read(reviewId);
+    vi.mocked(providers.validatePins).mockRejectedValueOnce(
+      new ReviewInputError("Missing commit"),
+    );
+    await expect(
+      store.execute(
+        request({
+          type: "repin",
+          reviewId,
+          pins: { ...pins, head: "missing" },
+        }),
+      ),
+    ).rejects.toThrow("Missing commit");
+    vi.mocked(providers.validateSource).mockRejectedValueOnce(
+      new Error("Repository read failed"),
+    );
+    await expect(
+      store.execute(
+        request({
+          type: "repin",
+          reviewId,
+          pins: { ...pins, head: "new-head" },
+        }),
+      ),
+    ).rejects.toThrow("Repository read failed");
+    expect(store.read(reviewId)).toEqual(original);
   });
 
   it("patches and reorders individual steps, and replacement gives descendants new IDs", async () => {

@@ -110,6 +110,7 @@ export interface Result {
   targetId?: string;
   attention?: true;
   deleted?: true;
+  warnings?: string[];
 }
 
 export interface ReviewProviders {
@@ -537,12 +538,6 @@ export class ReviewStore {
                 : undefined),
           );
 
-          if (
-            snapshot.pins.repositoryId !== op.pins.repositoryId ||
-            snapshot.pins.base !== op.pins.base ||
-            snapshot.pins.head !== op.pins.head
-          )
-            snapshot.document = [];
           snapshot.pins = op.pins;
           break;
         case "restore":
@@ -566,7 +561,13 @@ export class ReviewStore {
         JSON.stringify(previous.pins) !== JSON.stringify(snapshot.pins)
       )
         await this.providers.validatePins(snapshot.pins);
-      await this.validateExternal(snapshot, previous);
+
+      const warnings = await this.validateExternal(
+        snapshot,
+        previous,
+        op.type === "repin",
+      );
+
       snapshot.version = previous ? previous.version + 1 : 0;
       snapshot.createdAt = new Date().toISOString();
 
@@ -575,6 +576,8 @@ export class ReviewStore {
         version: snapshot.version,
         targetId,
       };
+
+      if (warnings.length) result.warnings = warnings;
 
       this.commitCommand(command.commandId, request, result, () => {
         this.db
@@ -785,7 +788,13 @@ export class ReviewStore {
 
     return run;
   }
-  private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
+  private async validateExternal(
+    snapshot: Snapshot,
+    previous?: Snapshot,
+    repin = false,
+  ) {
+    const warnings: string[] = [];
+
     const references = (document: Block[], tolerant = false) => {
       const sources = new Map<string, { source: Source; peek: boolean }>();
       const resources = new Map<string, Block>();
@@ -805,7 +814,7 @@ export class ReviewStore {
       return { sources, resources };
     };
 
-    const current = references(snapshot.document);
+    const current = references(snapshot.document, repin);
 
     // Stored content is not re-validated: an edit may fix a link that the
     // current rules reject.
@@ -827,15 +836,37 @@ export class ReviewStore {
       // the first time a code peek points at it.
       if (!kept || (peek && !kept.peek))
         checks.push(
-          this.providers.validateSource(snapshot.pins, source, { peek }),
+          this.providers.validateSource(snapshot.pins, source, { peek }).then(
+            () => {
+              if (repin)
+                warnings.push(
+                  `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: source pins changed; verify that this range still supports the document.`,
+                );
+            },
+            (error) => {
+              if (!repin || !(error instanceof ReviewInputError)) throw error;
+              warnings.push(
+                `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`,
+              );
+            },
+          ),
         );
     }
 
     for (const [key, block] of current.resources)
       if (!retained.resources.has(key))
-        checks.push(this.providers.validateResource(snapshot.pins, block));
+        checks.push(
+          this.providers
+            .validateResource(snapshot.pins, block)
+            .catch((error) => {
+              if (!repin || !(error instanceof ReviewInputError)) throw error;
+              warnings.push(`${block.id} (${block.type}): ${error.message}`);
+            }),
+        );
 
     await Promise.all(checks);
+
+    return warnings.sort();
   }
 }
 

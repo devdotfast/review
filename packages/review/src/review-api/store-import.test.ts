@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,12 +16,12 @@ const pins = {
 
 const id = "11111111-1111-4111-8111-111111111111";
 
-let directory: string, store: ReviewStore;
+let directory: string, store: ReviewStore, providers: ReviewProviders;
 
 beforeEach(() => {
   directory = mkdtempSync(path.join(tmpdir(), "review-import-"));
 
-  const providers: ReviewProviders = {
+  providers = {
     validatePins: vi.fn<ReviewProviders["validatePins"]>(async () => {}),
     validateSource: vi.fn<ReviewProviders["validateSource"]>(async () => {}),
     validateResource: vi.fn<ReviewProviders["validateResource"]>(
@@ -133,6 +134,52 @@ describe("importVersion", () => {
       }),
     ).rejects.toThrow(/IDs are assigned by the server/);
     expect(store.has(id)).toBe(false);
+  });
+
+  it("leaves the map cursor for the importer to record", async () => {
+    await store.importVersion({
+      reviewId: id,
+      title: "Imported",
+      pins,
+      document: [],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      origin: { revision: "rev-1" },
+    });
+
+    expect(store.legacyImport(id)).toMatchObject({
+      revision: "rev-1",
+      mapRevision: null,
+    });
+  });
+
+  it("adds map progress to a database written before it existed", async () => {
+    const file = path.join(directory, "legacy.db");
+    const legacy = new DatabaseSync(file);
+    legacy.exec(
+      "CREATE TABLE legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL)",
+    );
+    legacy
+      .prepare(
+        "INSERT INTO legacy_imports(review_id,revision,imported_at) VALUES(?,?,?)",
+      )
+      .run(id, "rev-1", "2026-01-01T00:00:00.000Z");
+    legacy.close();
+    const upgraded = new ReviewStore(file, providers);
+
+    try {
+      expect(upgraded.legacyImport(id)).toEqual({
+        revision: "rev-1",
+        mapRevision: null,
+        importedAt: "2026-01-01T00:00:00.000Z",
+      });
+      upgraded.recordLegacyImport(id, {
+        revision: "rev-1",
+        mapRevision: "map-1",
+      });
+      expect(upgraded.legacyImport(id)?.mapRevision).toBe("map-1");
+    } finally {
+      await upgraded.close();
+    }
   });
 
   it("writes nothing when a later version fails validation", async () => {

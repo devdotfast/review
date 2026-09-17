@@ -70,6 +70,13 @@ export const commandSchema = z.strictObject({
   ]),
 });
 
+/** How far legacy import has got with a review; the map has its own cursor. */
+export interface LegacyImportProgress {
+  revision: string;
+  mapRevision: string | null;
+  importedAt: string;
+}
+
 /** Source identity displayed in the review header and Home, alongside immutable pins. */
 export interface SnapshotOrigin {
   /** Managed tutorial; readable by ID but excluded from the user catalog. */
@@ -177,22 +184,49 @@ export class ReviewStore {
     // older version or deleting the review must not look like an unfinished
     // import to the next sweep.
     this.db.exec(
-      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL);`,
+      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
     );
+
+    // Homes written before map resumption lack the column.
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(legacy_imports)")
+        .all()
+        .some((column) => String(column.name) === "map_revision")
+    )
+      this.db.exec("ALTER TABLE legacy_imports ADD COLUMN map_revision TEXT");
   }
-  /** The last legacy revision imported for a review, kept after deletion. */
-  legacyImport(
-    reviewId: string,
-  ): { revision: string; importedAt: string } | null {
+  /** The last legacy revisions imported for a review, kept after deletion. */
+  legacyImport(reviewId: string): LegacyImportProgress | null {
     const row = this.db
       .prepare(
-        "SELECT revision,imported_at FROM legacy_imports WHERE review_id=?",
+        "SELECT revision,map_revision,imported_at FROM legacy_imports WHERE review_id=?",
       )
       .get(reviewId);
 
     return row
-      ? { revision: String(row.revision), importedAt: String(row.imported_at) }
+      ? {
+          revision: String(row.revision),
+          mapRevision:
+            row.map_revision === null ? null : String(row.map_revision),
+          importedAt: String(row.imported_at),
+        }
       : null;
+  }
+  recordLegacyImport(
+    reviewId: string,
+    progress: Omit<LegacyImportProgress, "importedAt">,
+  ) {
+    this.db
+      .prepare(
+        "INSERT INTO legacy_imports(review_id,revision,map_revision,imported_at) VALUES(?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,map_revision=excluded.map_revision,imported_at=excluded.imported_at",
+      )
+      .run(
+        reviewId,
+        progress.revision,
+        progress.mapRevision,
+        new Date().toISOString(),
+      );
   }
   registerRepository(root: string) {
     this.db
@@ -767,12 +801,12 @@ export class ReviewStore {
 
         const cursor = options.revision ?? inputs.at(-1)?.origin?.revision;
 
+        // The importer records the map once it knows whether it landed.
         if (cursor)
-          this.db
-            .prepare(
-              "INSERT INTO legacy_imports(review_id,revision,imported_at) VALUES(?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,imported_at=excluded.imported_at",
-            )
-            .run(reviewId, cursor, new Date().toISOString());
+          this.recordLegacyImport(reviewId, {
+            revision: cursor,
+            mapRevision: null,
+          });
         this.db.exec("COMMIT");
       } catch (error) {
         this.db.exec("ROLLBACK");

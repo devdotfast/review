@@ -16,6 +16,7 @@ import { openLocalReviewStore } from "../review-api/local-data";
 import type { ProseTag, ReviewNode } from "../review-document-data";
 import { type StoredReview, parseStoredReviewRecord } from "../review-home";
 import type { ReviewVcsLogEntry } from "../review-vcs";
+import { REVIEW_SOFTWARE_MAP_BUNDLE_DIR } from "../software-map-bundle";
 import {
   type ImportLegacyReviewInput,
   importLegacyReview,
@@ -93,6 +94,8 @@ export async function syntheticLegacyReview(
     identical?: boolean;
     /** Files published beside the document, by path within the revision. */
     assets?: Record<string, Buffer>;
+    /** A presented software map, sealed as its own revision. */
+    map?: { oid: string; headCommit?: string; baseCommit?: string };
     overrides?: Record<string, JsonValue>;
   } = {},
 ) {
@@ -128,7 +131,7 @@ export async function syntheticLegacyReview(
     baseCommit: repo.base,
     sourceCommit: repo.head,
     presentedDocumentRevision: oids.at(-1) ?? null,
-    presentedSoftwareMapRevision: null,
+    presentedSoftwareMapRevision: options.map?.oid ?? null,
     ...options.overrides,
   });
 
@@ -166,6 +169,12 @@ export async function syntheticLegacyReview(
 
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "review.json"), JSON.stringify(record));
+
+  if (options.map)
+    await sealLegacyMapRevision(dir, options.map.oid, {
+      headCommit: options.map.headCommit ?? repo.head,
+      baseCommit: options.map.baseCommit ?? repo.base,
+    });
   const stored: StoredReview = { dir, review: record };
 
   return { home, dir, record, stored, oids };
@@ -201,9 +210,10 @@ export async function runImport(
         oid,
         ".bundle/document/review-document.json",
       ),
-    importReview: () =>
+    /** `stored` overrides the review record, for a revision published later. */
+    importReview: (stored: StoredReview = review.stored) =>
       importLegacyReview({
-        review: review.stored,
+        review: stored,
         store,
         data,
         materialize: materializeFromRevisionDirs,
@@ -211,6 +221,44 @@ export async function runImport(
         loadTrace: options.loadTrace ?? (async () => null),
       }),
   };
+}
+
+/** Seals a map bundle as a revision of its own, as `review map publish` did. */
+export async function sealLegacyMapRevision(
+  dir: string,
+  oid: string,
+  commits: { headCommit: string; baseCommit: string },
+): Promise<void> {
+  const bundleDir = path.join(
+    dir,
+    ".revisions",
+    oid,
+    REVIEW_SOFTWARE_MAP_BUNDLE_DIR,
+  );
+
+  await mkdir(bundleDir, { recursive: true });
+
+  const golden = jsonObject(
+    parseJsonText(
+      await readFile(
+        path.join(
+          LEGACY_REVIEW_FIXTURES_ROOT,
+          "schema4-opencode-agentserver.expected-map.json",
+        ),
+        "utf8",
+      ),
+    ),
+  );
+
+  if (!golden) throw new Error("the software map golden is unreadable");
+  await Promise.all([
+    writeFile(path.join(bundleDir, "head-map.json"), String(golden.headJson)),
+    writeFile(path.join(bundleDir, "base-map.json"), String(golden.baseJson)),
+    writeFile(
+      path.join(bundleDir, "manifest.json"),
+      JSON.stringify({ version: 2, ...commits }),
+    ),
+  ]);
 }
 
 /** Serves every revision from the review's own `.revisions` directory. */

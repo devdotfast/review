@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Block } from "../review-api/document";
 import { openLocalReviewStore } from "../review-api/local-data";
-import { importLegacyReview } from "./import-review";
+import { importLegacyReview, isMapSection } from "./import-review";
 import {
   el,
   footnoteTraceQuoteSection,
@@ -15,6 +15,7 @@ import {
   materializeFromRevisionDirs,
   runImport,
   scratchGitRepo,
+  sealLegacyMapRevision,
   syntheticLegacyReview,
   text,
 } from "./import-test-utils";
@@ -660,7 +661,143 @@ describe("importLegacyReview", () => {
     });
     expect(store.read(record.uuid).version).toBe(0);
   });
+
+  it("imports a later map publish into the section it already wrote", async () => {
+    const { repo, dir, record, store, importReview } = await runImport(
+      "schema4-opencode-agentserver",
+      { map: { oid: mapOids[0] } },
+    );
+
+    expect(await importReview()).toMatchObject({
+      kind: "imported",
+      version: 0,
+    });
+
+    const [published] = mapSections(store.read(record.uuid).document);
+
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[0]);
+
+    // A reader annotates the review between the two map publishes.
+    const note = await store.execute({
+      commandId: randomUUID(),
+      operation: {
+        type: "edit",
+        reviewId: record.uuid,
+        edit: {
+          type: "insert",
+          content: { type: "markdown", markdown: "Mine.\n" },
+        },
+      },
+    });
+
+    await sealLegacyMapRevision(dir, mapOids[1]!, {
+      headCommit: repo.head,
+      baseCommit: repo.base,
+    });
+
+    const republished = {
+      dir,
+      review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
+    };
+
+    expect(await importReview(republished)).toMatchObject({
+      kind: "imported",
+      version: 2,
+    });
+
+    const document = store.read(record.uuid).document;
+    const sections = mapSections(document);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.id).toBe(published!.id);
+    expect(sections[0]!.mapVersionIds).not.toEqual(published!.mapVersionIds);
+    expect(document.some((block) => block.id === note.targetId)).toBe(true);
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[1]);
+    expect(await importReview(republished)).toEqual({
+      kind: "current",
+      reviewId: record.uuid,
+    });
+  });
+
+  it("retries a map bundle sealed against other commits", async () => {
+    const { repo, dir, record, store, importReview } = await runImport(
+      "schema4-opencode-agentserver",
+      {
+        map: {
+          oid: mapOids[0]!,
+          headCommit: "c".repeat(40),
+          baseCommit: "d".repeat(40),
+        },
+      },
+    );
+
+    const first = await importReview();
+
+    // The document must not sink with the map it could not show.
+    expect(first).toMatchObject({ kind: "imported", version: 0 });
+    expect(first.kind === "imported" && first.warnings.join("\n")).toContain(
+      mapOids[0]!,
+    );
+    expect(mapSections(store.read(record.uuid).document)).toEqual([]);
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBeNull();
+
+    // Still failing: the open path must not read this as a skipped review.
+    expect(await importReview()).toMatchObject({
+      kind: "current",
+      warnings: [expect.stringContaining(mapOids[0]!)],
+    });
+    expect(store.read(record.uuid).version).toBe(0);
+
+    await sealLegacyMapRevision(dir, mapOids[0]!, {
+      headCommit: repo.head,
+      baseCommit: repo.base,
+    });
+    expect(await importReview()).toMatchObject({
+      kind: "imported",
+      version: 1,
+    });
+    expect(mapSections(store.read(record.uuid).document)).toHaveLength(1);
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[0]);
+  });
+
+  it("leaves a deleted review deleted when only its map moved on", async () => {
+    const { dir, record, store, importReview } = await runImport(
+      "schema4-opencode-agentserver",
+      { map: { oid: mapOids[0] } },
+    );
+
+    expect(await importReview()).toMatchObject({ kind: "imported" });
+    await store.execute({
+      commandId: randomUUID(),
+      operation: { type: "delete", reviewId: record.uuid },
+    });
+
+    expect(
+      await importReview({
+        dir,
+        review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
+      }),
+    ).toEqual({ kind: "current", reviewId: record.uuid });
+    expect(store.has(record.uuid)).toBe(false);
+  });
 });
+
+const mapOids = ["a".repeat(40), "b".repeat(40)];
+
+/** The map sections of a document, as the maps they show. */
+const mapSections = (document: Block[]) =>
+  document.flatMap((block) =>
+    isMapSection(block)
+      ? [
+          {
+            id: block.id,
+            mapVersionIds: block.children.map((child) =>
+              child.type === "software_map" ? child.mapVersionId : "",
+            ),
+          },
+        ]
+      : [],
+  );
 
 const square = (background: string) =>
   sharp({ create: { width: 2, height: 2, channels: 3, background } })

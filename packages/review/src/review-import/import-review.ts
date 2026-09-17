@@ -51,7 +51,7 @@ export type ImportOutcome =
       version: number;
       warnings: string[];
     }
-  | { kind: "current"; reviewId: string }
+  | { kind: "current"; reviewId: string; warnings?: string[] }
   | { kind: "skipped"; reviewId: string; reason: string };
 
 export interface ImportLegacyReviewInput {
@@ -76,6 +76,8 @@ export interface ImportLegacyReviewInput {
 }
 
 const SEALED_DOCUMENT_FILE = "review-document.json";
+
+const MAP_SECTION_TITLE = "Software map";
 
 type StoredRecord = StoredReview["review"];
 
@@ -108,11 +110,22 @@ export async function importLegacyReview(
   // The import record outlives the review: a deleted review stays deleted.
   if (progress && !store.has(reviewId)) return { kind: "current", reviewId };
 
-  if (
-    !input.completeHistory &&
-    importedRevision === record.presentedDocumentRevision
-  )
-    return { kind: "current", reviewId };
+  const presentedMapRevision = record.presentedSoftwareMapRevision;
+
+  // Recovering history walks every revision, whatever the cursor says.
+  const documentPending =
+    input.completeHistory ||
+    importedRevision !== record.presentedDocumentRevision;
+
+  // The map is published on its own, so it can lag a current document.
+  const mapPending =
+    presentedMapRevision !== null &&
+    progress?.mapRevision !== presentedMapRevision;
+
+  if (!documentPending)
+    return mapPending
+      ? importPresentedMap(input, presentedMapRevision)
+      : { kind: "current", reviewId };
 
   const imported = store.has(reviewId);
 
@@ -176,6 +189,7 @@ export async function importLegacyReview(
     input.completeHistory && imported ? store.read(reviewId) : undefined;
 
   let repaired = false;
+  let importedMap: string | null = null;
   const warnings: string[] = [];
   const versions: ImportedVersionInput[] = [];
   let lastWarnings: string[] = [];
@@ -290,6 +304,7 @@ export async function importLegacyReview(
     const pins = await revisionPins(dir, entry.oid, data, repositoryId);
 
     if (mapRevision && entry.oid === record.presentedDocumentRevision) {
+      // A map that fails stays pending for the next sweep; the document lands.
       const map = await importMapSection(
         review,
         mapRevision,
@@ -297,12 +312,16 @@ export async function importLegacyReview(
         store,
         repositoryId,
         versionWarnings,
+        pins,
       );
 
       if (!map && input.completeHistory)
         throw new Error(versionWarnings.join("; "));
 
-      if (map) blocks.push(map);
+      if (map) {
+        blocks.push(map);
+        importedMap = mapRevision;
+      }
     }
 
     const isLast = index === entries.length - 1;
@@ -374,6 +393,12 @@ export async function importLegacyReview(
     revision: record.presentedDocumentRevision,
   });
 
+  // The map cursor moves only once its section has landed.
+  store.recordLegacyImport(reviewId, {
+    revision: record.presentedDocumentRevision,
+    mapRevision: importedMap,
+  });
+
   return {
     kind: "imported",
     reviewId,
@@ -385,6 +410,73 @@ export async function importLegacyReview(
   };
 }
 
+/** Imports a map published after its document, replacing the section in place
+ * so ids and the reader's edits survive. */
+async function importPresentedMap(
+  input: ImportLegacyReviewInput,
+  revision: string,
+): Promise<ImportOutcome> {
+  const { review, store } = input;
+  const record = review.review;
+  const reviewId = record.uuid;
+  const head = store.read(reviewId);
+  const warnings: string[] = [];
+
+  const section = await importMapSection(
+    review,
+    revision,
+    input.materialize,
+    store,
+    head.pins.repositoryId,
+    warnings,
+    head.pins,
+  );
+
+  // Never `skipped`: an imported review must still open in the JSON canvas.
+  if (!section) return { kind: "current", reviewId, warnings };
+
+  const replaced = head.document.find(isMapSection);
+
+  const result = await store.execute({
+    commandId: randomUUID(),
+    operation: {
+      type: "edit",
+      reviewId,
+      edit: replaced
+        ? { type: "replace", targetId: replaced.id!, content: section }
+        : { type: "insert", content: section },
+    },
+  });
+
+  store.recordLegacyImport(reviewId, {
+    revision: record.presentedDocumentRevision!,
+    mapRevision: revision,
+  });
+
+  return {
+    kind: "imported",
+    reviewId,
+    title: head.title,
+    version: result.version,
+    warnings,
+  };
+}
+
+/** The section a map import wrote; one a reader added blocks to is left alone. */
+export function isMapSection(
+  block: Block,
+): block is Extract<Block, { type: "section" }> {
+  return (
+    block.type === "section" &&
+    block.title === MAP_SECTION_TITLE &&
+    block.children.length > 0 &&
+    block.children.every((child) => child.type === "software_map")
+  );
+}
+
+/** The map section for `revision`. `pins` are the version's it joins: a map
+ * sealed against other commits is refused here, where it fails alone rather
+ * than the whole import; an archived map joins no version. */
 async function importMapSection(
   review: StoredReview,
   revision: string,
@@ -392,6 +484,7 @@ async function importMapSection(
   store: ReviewStore,
   repositoryId: string,
   warnings: string[],
+  pins?: Pins,
 ): Promise<Block | null> {
   try {
     const dir = await materialize(review, revision);
@@ -402,6 +495,17 @@ async function importMapSection(
 
     if (!bundle) {
       warnings.push(`map revision ${revision} has no bundle`);
+
+      return null;
+    }
+
+    if (
+      pins &&
+      (bundle.headCommit !== pins.head || bundle.baseCommit !== pins.base)
+    ) {
+      warnings.push(
+        `map revision ${revision} was published against other commits`,
+      );
 
       return null;
     }
@@ -422,7 +526,7 @@ async function importMapSection(
 
     return {
       type: "section",
-      title: "Software map",
+      title: MAP_SECTION_TITLE,
       defaultCollapsed: true,
       children,
     };

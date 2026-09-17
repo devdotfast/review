@@ -128,6 +128,10 @@ const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
     has(c, ".review-trace-quote") && text(c).includes("queue the order"),
   // The map has drawn its system and is neither refreshing nor failed.
   file_lens: (c) => !text(c).includes("Test file bucket"),
+  flow_diagram: (c) =>
+    has(c, ".flow-node") &&
+    text(c).includes("Queue order") &&
+    !text(c).includes("Laying out"),
   software_map: (c) =>
     has(c, ".software-map-canvas") &&
     text(c).includes("Order service") &&
@@ -466,4 +470,33 @@ describe("tutorial guide placement", () => {
     expect(guide.top).toBeGreaterThanOrEqual(host.top);
     expect(guide.bottom).toBeLessThanOrEqual(host.bottom);
   });
+});
+
+it("opens a flow node in a full-screen tour with all its code attachments", async () => {
+  const { container } = await mountFixture("flow_diagram");
+  await settled(() => container.querySelector(".flow-node"));
+  await act(async () =>
+    container
+      .querySelector(".flow-node")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  );
+  expect(
+    await settled(
+      () =>
+        container.querySelectorAll(".diagram-tour-panel .fixture-inline-editor")
+          .length === 2,
+    ),
+  ).toBe(true);
+  expect(container.querySelector(".diagram-tour-panel")?.textContent).toContain(
+    "Validation",
+  );
+  expect(
+    container.querySelector('[role="dialog"][aria-modal="true"]'),
+  ).not.toBeNull();
+  expect(container.querySelector(".flow-diagram aside")).toBeNull();
+  await act(async () =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
+  );
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(container.querySelector(".flow-node")).not.toBeNull();
 });

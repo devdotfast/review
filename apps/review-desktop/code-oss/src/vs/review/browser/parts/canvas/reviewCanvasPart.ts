@@ -3,66 +3,66 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { $,getWindow,type Dimension } from "../../../../base/browser/dom.js";
+import { $, getWindow, type Dimension } from "../../../../base/browser/dom.js";
 import { createTrustedTypesPolicy } from "../../../../base/browser/trustedTypes.js";
 import type { CancellationToken } from "../../../../base/common/cancellation.js";
 import { Emitter } from "../../../../base/common/event.js";
-import { Disposable,DisposableStore,MutableDisposable,toDisposable } from "../../../../base/common/lifecycle.js";
+import { Disposable, DisposableStore, MutableDisposable, toDisposable } from "../../../../base/common/lifecycle.js";
 import { FileAccess } from "../../../../base/common/network.js";
 import type { ICursorPositionChangedEvent } from "../../../../editor/common/cursorEvents.js";
 import { ICommandService } from "../../../../platform/commands/common/commands.js";
-import { ConfigurationTarget,IConfigurationService } from "../../../../platform/configuration/common/configuration.js";
-import { TextEditorSelectionSource,type IEditorOptions } from "../../../../platform/editor/common/editor.js";
-import { createDecorator,IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
+import { ConfigurationTarget, IConfigurationService } from "../../../../platform/configuration/common/configuration.js";
+import { TextEditorSelectionSource, type IEditorOptions } from "../../../../platform/editor/common/editor.js";
+import { createDecorator, IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
 import { FocusMode } from "../../../../platform/native/common/native.js";
 import { IProductService } from "../../../../platform/product/common/productService.js";
-import { IEditorProgressService,LongRunningOperation } from "../../../../platform/progress/common/progress.js";
-import { IStorageService,StorageScope,StorageTarget } from "../../../../platform/storage/common/storage.js";
+import { IEditorProgressService, LongRunningOperation } from "../../../../platform/progress/common/progress.js";
+import { IStorageService, StorageScope, StorageTarget } from "../../../../platform/storage/common/storage.js";
 import { ITelemetryService } from "../../../../platform/telemetry/common/telemetry.js";
 import { ColorScheme } from "../../../../platform/theme/common/theme.js";
 import { IThemeService } from "../../../../platform/theme/common/themeService.js";
 import { Part } from "../../../../workbench/browser/part.js";
 import { EditorPane } from "../../../../workbench/browser/parts/editor/editorPane.js";
 import type {
-IEditorControl,
-IEditorOpenContext,
-IEditorPaneSelection,
-IEditorPaneSelectionChangeEvent,
+	IEditorControl,
+	IEditorOpenContext,
+	IEditorPaneSelection,
+	IEditorPaneSelectionChangeEvent,
 } from "../../../../workbench/common/editor.js";
 import { EditorPaneSelectionChangeReason } from "../../../../workbench/common/editor.js";
 import type { IEditorGroup } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 import { IHostService } from "../../../../workbench/services/host/browser/host.js";
-import { IWorkbenchLayoutService,Parts } from "../../../../workbench/services/layout/browser/layoutService.js";
+import { IWorkbenchLayoutService, Parts } from "../../../../workbench/services/layout/browser/layoutService.js";
 import {
-REVIEW_KEYMAP_SETTING,
-REVIEW_SOFTWARE_MAP_SETTING,
-REVIEW_TELEMETRY_SETTING,
+	REVIEW_KEYMAP_SETTING,
+	REVIEW_SOFTWARE_MAP_SETTING,
+	REVIEW_TELEMETRY_SETTING,
 } from "../../../common/reviewConfigurationDefaults.js";
 import type {
-ReviewCanvasBridge,
-ReviewCanvasContent,
-ReviewCanvasDiagnostic,
-ReviewCanvasHandle,
-ReviewCanvasHomeSetup,
-ReviewCanvasInstallContent,
-ReviewCanvasModule,
-ReviewCanvasOnboarding,
-ReviewCanvasSettingsContent,
-ReviewCanvasTutorialBridge,
-ReviewCliInstallStatus,
-ReviewKeymapChoice,
-ReviewRuntimeConfig,
-ReviewSurfaceEvent,
-ReviewTheme,
-TutorialProgressV1,
-TutorialStepId,
+	ReviewCanvasBridge,
+	ReviewCanvasContent,
+	ReviewCanvasDiagnostic,
+	ReviewCanvasHandle,
+	ReviewCanvasHomeSetup,
+	ReviewCanvasInstallContent,
+	ReviewCanvasModule,
+	ReviewCanvasOnboarding,
+	ReviewCanvasSettingsContent,
+	ReviewCanvasTutorialBridge,
+	ReviewCliInstallStatus,
+	ReviewKeymapChoice,
+	ReviewRuntimeConfig,
+	ReviewSurfaceEvent,
+	ReviewTheme,
+	TutorialProgressV1,
+	TutorialStepId,
 } from "../../../common/reviewProtocol.js";
 import {
-parseReviewVerbRequest,
-REVIEW_CANVAS_RESUME_EVENT,
-REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
-REVIEW_TUTORIAL_STEP_IDS
+	parseReviewVerbRequest,
+	REVIEW_CANVAS_RESUME_EVENT,
+	REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
+	REVIEW_TUTORIAL_STEP_IDS
 } from "../../../common/reviewProtocol.js";
 import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
 import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
@@ -71,14 +71,14 @@ import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEd
 import { IReviewDesktopConnectionService } from "../../../services/reviewDesktopConnectionService.js";
 import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
 import {
-ReviewEmbeddedEditorSelection,
-reviewEmbeddedSelectionFromOptions,
+	ReviewEmbeddedEditorSelection,
+	reviewEmbeddedSelectionFromOptions,
 } from "../../../services/reviewEmbeddedNavigation.js";
 import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
 import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
 
 import "../../media/review.css";
-import { applyReviewThemeChoice,currentReviewThemeChoice } from "../../reviewThemeChoice.js";
+import { applyReviewThemeChoice, currentReviewThemeChoice } from "../../reviewThemeChoice.js";
 import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 
@@ -321,7 +321,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					.attention(reviewId, "view")
 					.catch((error) => this.logService.warn("[Review] Could not mark review viewed:", error));
 				let version = 0;
-				const source = this.apiSource.canvas(reviewId, () => version, this.inlineEditors, this.diffViews);
+				let sourceGeneration: string | undefined;
+				let liveSource = false;
+				const source = this.apiSource.canvas(reviewId, () => version, this.inlineEditors, this.diffViews, () => ({ generation: sourceGeneration, live: liveSource }));
 				const closeTutorial = () => void this.group.closeEditor(input);
 				const updateTutorial = (progress: TutorialProgressV1) => {
 					this.writeTutorialProgress(progress);
@@ -353,10 +355,12 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						reviewId,
 						softwareMapEnabled: this.currentSoftwareMapEnabled(),
 						setTitle: (title) => input.setApiTitle(title),
-						setVersion: (next) => {
+						setVersion: (next, nextGeneration, live) => {
+							sourceGeneration = nextGeneration;
+							liveSource = live ?? false;
 							version = next;
 						},
-						openSource: (source, range) => this.apiSource.open({ reviewId, ...source }, range),
+						openSource: (source, range) => this.apiSource.open({ reviewId, generation: sourceGeneration, live: liveSource, ...source }, range),
 						bridge: {
 							...source,
 							...this.sharedBridge(generation, () => {
@@ -372,20 +376,20 @@ export class ReviewCanvasEditorPane extends EditorPane {
 							request: requestReviewApi,
 							post: async (request) => {
 								if (request.name === "openSourceTree") {
-									await this.tabsService.openApiSource(reviewId, version, input.getName());
+									await this.tabsService.openApiSource(reviewId, version, input.getName(), { generation: sourceGeneration, live: liveSource });
 									this.explorerParts.show();
 									return { ok: true };
 								}
 								if (request.name === "reveal") {
 									const range = { startLine: request.args.startLine, endLine: request.args.endLine };
 									await this.apiSource.open(
-										{ reviewId, version, file: request.args.path, side: request.args.side ?? "head" },
+										{ reviewId, version, generation: sourceGeneration, live: liveSource, file: request.args.path, side: request.args.side ?? "head" },
 										range,
 									);
 									return { ok: true };
 								}
 								if (request.name === "openDiff") {
-									await this.apiSource.openDiff(reviewId, version, request.args.path);
+									await this.apiSource.openDiff(reviewId, version, request.args.path, { generation: sourceGeneration, live: liveSource });
 									return { ok: true };
 								}
 								return this.verbs.dispatch(request);

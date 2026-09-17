@@ -74,6 +74,8 @@ interface SoftwareMapDiffCountsResult {
 }
 
 interface ResolveSoftwareMapDiffCountsInput {
+  /** Already retained source diff, when the source is a working generation. */
+  patch?: string;
   sourceRootPath: string;
   /** The source repository's kind, when the caller already detected it. */
   sourceVcsKind?: LocalVcsKind;
@@ -102,13 +104,15 @@ export async function resolveSoftwareMapDiffCounts(
   const headRef = input.headRef?.trim() || undefined;
   const sourceRootPath = input.sourceRootPath;
 
-  const diff = await readLocalVcsDiff({
-    rootPath: sourceRootPath,
-    kind: input.sourceVcsKind,
-    baseRef,
-    headRef,
-    contextLines: 0,
-  }).catch(() => "");
+  const diff =
+    input.patch ??
+    (await readLocalVcsDiff({
+      rootPath: sourceRootPath,
+      kind: input.sourceVcsKind,
+      baseRef,
+      headRef,
+      contextLines: 0,
+    }).catch(() => ""));
 
   if (!diff.trim()) {
     return {

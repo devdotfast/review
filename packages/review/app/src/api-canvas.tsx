@@ -53,7 +53,7 @@ function DocumentBody() {
   return (
     <ReviewDocumentBoundary
       session={session}
-      revision={`${data.snapshot.reviewId}:${data.snapshot.version}`}
+      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins.sourceGeneration ?? ""}`}
       onError={(_revision, error) =>
         reportReviewDocumentRenderError(session, error)
       }
@@ -85,7 +85,7 @@ export function ApiCanvas({
   const dataRef = useRef(data);
   dataRef.current = data;
   const sourceRef = useRef<{ key: string; version: number }>(undefined);
-  const sourceVersion = sourceRef.current?.version;
+  const sourceVersion = sourceRef.current?.key;
   const [error, setError] = useState<string>();
   useEffect(() => {
     const abort = new AbortController();
@@ -102,7 +102,14 @@ export function ApiCanvas({
 
       if (sourceRef.current?.key !== key)
         sourceRef.current = { key, version: snapshot.version };
-      content.setVersion?.(sourceRef.current.version);
+
+      if (snapshot.pins.sourceGeneration)
+        content.setVersion?.(
+          sourceRef.current.version,
+          snapshot.pins.sourceGeneration,
+          version === undefined && snapshot.target?.kind === "worktree",
+        );
+      else content.setVersion?.(sourceRef.current.version);
       setData(next);
       setError(undefined);
       content.setTitle?.(snapshot.title);
@@ -124,14 +131,17 @@ export function ApiCanvas({
         return;
       }
 
-      let shownVersion: number | undefined;
+      let shownVersion: string | undefined;
       await client.follow<Snapshot & { activity: ActivitySnapshot }>(
         content.reviewId,
         abort.signal,
         async (snapshot) => {
           setActivity(snapshot.activity);
 
-          if (shownVersion === snapshot.version) {
+          if (
+            shownVersion ===
+            `${snapshot.version}:${snapshot.pins.sourceGeneration ?? ""}:${snapshot.sourceUnavailable ?? false}`
+          ) {
             setError(undefined);
 
             return;
@@ -139,7 +149,7 @@ export function ApiCanvas({
 
           try {
             await show(snapshot);
-            shownVersion = snapshot.version;
+            shownVersion = `${snapshot.version}:${snapshot.pins.sourceGeneration ?? ""}:${snapshot.sourceUnavailable ?? false}`;
           } catch (cause) {
             // A failed resource or source fetch is a document problem. The
             // stream and the activity signal are still healthy, so do not

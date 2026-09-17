@@ -50,7 +50,24 @@ export const pinsSchema = z.strictObject({
   head: label,
 });
 
-export type Pins = z.infer<typeof pinsSchema>;
+/** Source identity retained internally for a saved worktree generation. */
+export type Pins = z.infer<typeof pinsSchema> & { sourceGeneration?: string };
+
+export const reviewTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("worktree"),
+    repositoryId: label,
+    base: label,
+  }),
+  z.strictObject({
+    kind: z.literal("commits"),
+    repositoryId: label,
+    head: label,
+    base: label.optional(),
+  }),
+]);
+
+export type ReviewTarget = z.infer<typeof reviewTargetSchema>;
 
 export type Element = Block | Step;
 

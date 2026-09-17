@@ -11,6 +11,11 @@ const version = z
   ])
   .optional();
 
+const generation = z
+  .string()
+  .regex(/^[a-f0-9]{64}$/)
+  .optional();
+
 const commit = z.string().min(1).optional();
 
 const side = z.enum(["base", "head"]);
@@ -28,14 +33,27 @@ export const readQuerySchemas = {
     targetId: z.string().min(1).optional(),
     full: z.union([z.literal(true), z.literal("true")]).optional(),
   }),
-  maps: z.strictObject({ version }),
+  maps: z.strictObject({ version, generation }),
   tree: z.strictObject({
     version,
     commit,
+    generation,
     side: side.default("head"),
     path: z.string().default(""),
   }),
-  file: z.strictObject({ version, commit, side, file: z.string().min(1) }),
-  diff: z.strictObject({ version, commit, file: z.string().min(1).optional() }),
-  commits: z.strictObject({ version }),
+  file: z.strictObject({
+    version,
+    generation,
+    live: z.literal("true").optional(),
+    commit,
+    side,
+    file: z.string().min(1),
+  }),
+  diff: z.strictObject({
+    version,
+    generation,
+    commit,
+    file: z.string().min(1).optional(),
+  }),
+  commits: z.strictObject({ version, generation }),
 };

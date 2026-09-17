@@ -1653,3 +1653,316 @@ it("reports invalid copy requests, unavailable versions, and missing source file
     expect(await response.json()).toMatchObject({ error: expect.any(String) });
   }
 });
+
+it("resolves omitted commit base once and preserves explicit parent comparisons", async () => {
+  const repositoryId = pins.repositoryId;
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Single commit",
+      target: { kind: "commits", repositoryId, head: "HEAD" },
+    }),
+  );
+
+  const snapshot = local.store.read(result.reviewId);
+  expect(snapshot.pins).toEqual({
+    repositoryId,
+    base: pins.head,
+    head: pins.head,
+  });
+  expect(await local.data.changes(snapshot.pins)).toEqual([]);
+  expect(await local.data.file(snapshot.pins, "head", "example.ts")).toEqual(
+    await local.data.file(pins, "head", "example.ts"),
+  );
+
+  const explicit = await local.data.resolveTarget({
+    kind: "commits",
+    repositoryId,
+    head: "HEAD",
+    base: "HEAD",
+  });
+
+  expect(explicit.pins).toEqual(snapshot.pins);
+
+  const comparison = await local.data.resolveTarget({
+    kind: "commits",
+    repositoryId,
+    head: pins.head,
+    base: pins.base,
+  });
+
+  expect(await local.data.changes(comparison.pins)).not.toEqual([]);
+});
+
+it("moves unchanged authored ranges and marks edited ranges stale without rewriting history", async () => {
+  writeFileSync(
+    path.join(repository, "range.ts"),
+    "const first = 1;\nconst second = 2;\nconst third = 3;\n",
+  );
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Ranges",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  await insert(result.reviewId, {
+    type: "code_peek",
+    source: { file: "range.ts", fromLine: 2, toLine: 2 },
+  });
+  const saved = local.store.read(result.reviewId);
+  writeFileSync(
+    path.join(repository, "range.ts"),
+    "// inserted\nconst first = 1;\nconst second = 2;\nconst third = 3;\n",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  expect(local.store.read(result.reviewId).document[0]).toMatchObject({
+    source: { fromLine: 3, toLine: 3 },
+  });
+  expect(
+    local.store.read(result.reviewId, saved.version).document[0],
+  ).toMatchObject({ source: { fromLine: 2, toLine: 2 } });
+  writeFileSync(
+    path.join(repository, "range.ts"),
+    "// inserted\nconst first = 1;\nconst second = 99;\nconst third = 3;\n",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  expect(local.store.read(result.reviewId).staleSources).toEqual([
+    saved.document[0]!.id,
+  ]);
+});
+
+it("serves a coherent requested generation after a later save and keeps version reads historical", async () => {
+  const api = createReviewApi(local.store, local.data);
+  writeFileSync(path.join(repository, "example.ts"), "const generation = 1;\n");
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Coherence",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  const snapshot = local.store.read(result.reviewId);
+  writeFileSync(path.join(repository, "example.ts"), "const generation = 2;\n");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const read = async (query: string) =>
+    (
+      await api.request(
+        `/${result.reviewId}/file?side=head&file=example.ts${query}`,
+      )
+    ).json();
+
+  expect(await read("")).toMatchObject({ text: "const generation = 2;\n" });
+  expect(
+    await read(`&version=0&generation=${snapshot.pins.sourceGeneration}`),
+  ).toMatchObject({ text: "const generation = 1;\n" });
+  expect(await read("&version=0")).toMatchObject({
+    text: "const generation = 1;\n",
+  });
+  expect(await read("&live=true")).toMatchObject({
+    localPath: realpathSync(path.join(repository, "example.ts")),
+  });
+  expect(await read("&version=0")).not.toHaveProperty("localPath");
+});
+
+it("keeps multiple worktrees bound to their selected directory and survives reopening the store", async () => {
+  const otherPath = path.join(directory, "other-worktree");
+  git("worktree", "add", "--detach", otherPath, pins.head);
+  writeFileSync(
+    path.join(otherPath, "example.ts"),
+    "const otherCheckout = true;\n",
+  );
+  const other = await local.data.register(otherPath);
+
+  const one = await local.store.execute(
+    command({
+      type: "create",
+      title: "First",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  const two = await local.store.execute(
+    command({
+      type: "create",
+      title: "Second",
+      target: { kind: "worktree", repositoryId: other.id, base: pins.base },
+    }),
+  );
+
+  const retained = local.store.read(two.reviewId);
+  await local.store.close();
+  await local.data.close();
+  local = openLocalReviewStore(database);
+  await local.store.refreshWorktrees();
+  expect(
+    (
+      await local.data.file(
+        local.store.read(one.reviewId).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("uncommitted text");
+  expect(
+    (
+      await local.data.file(
+        local.store.read(two.reviewId).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("otherCheckout");
+  expect(
+    (
+      await local.data.file(
+        local.store.read(two.reviewId, retained.version).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("otherCheckout");
+  expect(
+    git("worktree", "list", "--porcelain").match(/^worktree /gm),
+  ).toHaveLength(2);
+});
+
+it("includes saved additions and deletions while keeping ignored and binary sources explicit", async () => {
+  writeFileSync(path.join(repository, ".gitignore"), "ignored.ts\n");
+  writeFileSync(path.join(repository, "ignored.ts"), "secret\n");
+  writeFileSync(path.join(repository, "binary.dat"), Buffer.from([0, 1, 2]));
+  writeFileSync(path.join(repository, "__proto__"), "legitimate filename\n");
+  rmSync(path.join(repository, "example.ts"));
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Files",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  const snapshot = local.store.read(result.reviewId);
+  const files = await local.data.tree(snapshot.pins, "head", "");
+  expect(files).not.toContainEqual({ path: "ignored.ts", kind: "file" });
+  expect(files).not.toContainEqual({ path: "example.ts", kind: "file" });
+  expect((await local.data.file(snapshot.pins, "head", "__proto__")).text).toBe(
+    "legitimate filename\n",
+  );
+  await expect(
+    local.data.file(snapshot.pins, "head", "binary.dat"),
+  ).rejects.toThrow("Binary");
+  expect(await local.data.changes(snapshot.pins)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "example.ts", status: "deleted" }),
+      expect.objectContaining({ path: "binary.dat", status: "added" }),
+    ]),
+  );
+});
+
+it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
+  "reads unsnapshotted jj working files without changing the operation or Git index",
+  async () => {
+    const root = path.join(directory, "jj-working");
+    execFileSync("jj", ["git", "init", root]);
+
+    const jj = (...args: string[]) =>
+      execFileSync("jj", ["-R", root, ...args, "--ignore-working-copy"], {
+        encoding: "utf8",
+      }).trim();
+
+    const repo = await local.data.register(root);
+    const base = jj("log", "--no-graph", "-r", "@", "-T", "commit_id");
+    const operation = jj("op", "log", "--no-graph", "--limit", "1", "-T", "id");
+    writeFileSync(
+      path.join(root, "new.ts"),
+      "export const unsnapshotted = 1;\n",
+    );
+
+    const result = await local.store.execute(
+      command({
+        type: "create",
+        title: "jj working",
+        target: { kind: "worktree", repositoryId: repo.id, base },
+      }),
+    );
+
+    expect(
+      (
+        await local.data.file(
+          local.store.read(result.reviewId).pins,
+          "head",
+          "new.ts",
+        )
+      ).text,
+    ).toContain("unsnapshotted");
+    expect(jj("op", "log", "--no-graph", "--limit", "1", "-T", "id")).toBe(
+      operation,
+    );
+  },
+);
+
+it("retargets a live review without losing authored content or component IDs", async () => {
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Retarget",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+  await insert(created.reviewId, {
+    type: "code_peek",
+    source: { file: "example.ts", fromLine: 1, toLine: 1 },
+  });
+  const before = local.store.read(created.reviewId);
+  const result = await local.store.execute(
+    command({
+      type: "set_target",
+      reviewId: created.reviewId,
+      target: {
+        kind: "commits",
+        repositoryId: pins.repositoryId,
+        head: pins.head,
+      },
+    }),
+  );
+  expect(local.store.read(created.reviewId).document).toEqual(before.document);
+  expect(result.warnings?.length).toBeGreaterThan(0);
+  expect(
+    (
+      await local.data.file(
+        local.store.read(created.reviewId, before.version).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("uncommitted text");
+});

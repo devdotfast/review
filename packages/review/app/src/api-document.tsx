@@ -97,7 +97,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
         headings: apiHeadingIds(snapshot.document),
         commits: await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
           client.read<ReviewCommitSummary[]>(
-            `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
+            `/${snapshot.reviewId}/commits?version=${snapshot.version}${snapshot.pins.sourceGeneration ? `&generation=${snapshot.pins.sourceGeneration}` : ""}`,
           ),
         ),
         anchors: new Map(),
@@ -109,6 +109,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
       for (const { id, source, label } of sourceReferences(snapshot.document, {
         tolerant: true,
       })) {
+        if (snapshot.staleSources?.includes(id)) continue;
         data.anchors.set(
           id,
           sourceAnchor(
@@ -157,7 +158,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
                 const saved = await client.read<
                   Awaited<ReturnType<LocalReviewData["map"]>>
                 >(
-                  `/${snapshot.reviewId}/maps/${encodeURIComponent(node.mapVersionId)}?version=${snapshot.version}`,
+                  `/${snapshot.reviewId}/maps/${encodeURIComponent(node.mapVersionId)}?version=${snapshot.version}${snapshot.pins.sourceGeneration ? `&generation=${snapshot.pins.sourceGeneration}` : ""}`,
                 );
 
                 return {
@@ -219,6 +220,13 @@ export function ApiDocument({
     <>
       {!hasTitle && (
         <ReviewDocumentTitle>{data.snapshot.title}</ReviewDocumentTitle>
+      )}
+      {data.snapshot.target?.kind === "worktree" && (
+        <p className="review-source-context">
+          {data.snapshot.sourceUnavailable
+            ? "Local checkout unavailable. Showing retained source."
+            : "Working tree"}
+        </p>
       )}
       {data.snapshot.document.map((node) => (
         <DocumentNode
@@ -295,6 +303,12 @@ export const DocumentNode = memo(function DocumentNode({
   )
     return null;
 
+  const stale =
+    node.type !== "section" &&
+    sourceReferences([node], { tolerant: true }).some((reference) =>
+      data.snapshot.staleSources?.includes(reference.id),
+    );
+
   return (
     <NodeReveal
       id={node.id}
@@ -306,7 +320,13 @@ export const DocumentNode = memo(function DocumentNode({
         type={node.type}
         onError={(error) => reportReviewDocumentRenderError(session, error)}
       >
-        {renderBlock(node.type, node, data, children)}
+        {stale ? (
+          <p role="status">
+            This source range changed. Update the reference to view it.
+          </p>
+        ) : (
+          renderBlock(node.type, node, data, children)
+        )}
       </BlockErrorBoundary>
     </NodeReveal>
   );

@@ -10,6 +10,8 @@ import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
 import type { IFileStat } from "../../platform/files/common/files.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
+import { IWorkspaceEditingService } from "../../workbench/services/workspaces/common/workspaceEditing.js";
+import { ITextFileService } from "../../workbench/services/textfile/common/textfiles.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import { reviewPeekWindows, reviewPeekDiffWindows, reviewPeekLineMappings } from "../common/reviewPeek.js";
 import type {
@@ -21,6 +23,7 @@ import type {
 	ReviewSourceEntry,
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
+import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import type { ReviewCodeModelReference, ReviewCodeDiffTarget } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService, reviewResponseError } from "./reviewDesktopConnectionService.js";
@@ -34,6 +37,8 @@ export interface ApiSourceTarget extends ReviewApiSourceLocation {
 export const REVIEW_API_SOURCE_SCHEME = "review-api-source";
 export function apiSourceUri(target: ApiSourceTarget, empty = false): URI {
 	const query = new URLSearchParams({ version: String(target.version), side: target.side });
+	if (target.generation) query.set("generation", target.generation);
+	if (target.live) query.set("live", "true");
 	if (target.commit) query.set("commit", target.commit);
 	if (empty) query.set("empty", "true");
 	return URI.from({
@@ -49,12 +54,13 @@ export interface IReviewApiSourceService {
 	readonly _serviceBrand: undefined;
 	open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void>;
 	children(resource: URI): Promise<IFileStat[]>;
-	openDiff(reviewId: string, version: number, path: string): Promise<void>;
+	openDiff(reviewId: string, version: number, path: string, state?: { generation?: string; live?: boolean }): Promise<void>;
 	canvas(
 		reviewId: string,
 		version: () => number,
 		inline: ReviewInlineEditorService,
 		diff: ReviewDiffViewService,
+		sourceState?: () => { generation?: string; live?: boolean },
 	): {
 		inlineEditors: ReviewInlineEditorFactory;
 		diffView: ReviewDiffViewFactory;
@@ -72,6 +78,8 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		@ILanguageService languages: ILanguageService,
 		@IEditorService private readonly editors: IEditorService,
 		@IReviewCanvasEditorTabsService private readonly tabs: IReviewCanvasEditorTabsService,
+		@IWorkspaceEditingService private readonly workspace: IWorkspaceEditingService,
+		@ITextFileService private readonly textFiles: ITextFileService,
 	) {
 		super();
 		this._register(
@@ -81,6 +89,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 					const target = {
 						reviewId: resource.authority,
 						version: Number(query.get("version")),
+						generation: query.get("generation") ?? undefined,
 						side: query.get("side") ?? "",
 						file: resource.path.slice(1),
 						commit: query.get("commit") ?? undefined,
@@ -120,36 +129,57 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		return response.json();
 	}
 
+	private readonly localRoots = new Map<string, Promise<void>>();
+	private async sourceResource(target: ApiSourceTarget, empty = false): Promise<URI> {
+		if (!empty && target.live && target.side === "head" && !target.commit) {
+			const file = await this.read<{ localPath?: string; localRoot?: string }>(target.reviewId, "/file", { version: target.version, generation: target.generation, file: target.file, side: target.side, live: "true" });
+			if (file.localPath && file.localRoot) {
+				const resource = URI.file(file.localPath);
+				if (!this.textFiles.isDirty(resource)) {
+					let acquired = this.localRoots.get(file.localRoot);
+					if (!acquired) {
+						acquired = acquireReviewLanguageRoot(this.workspace, URI.file(file.localRoot)).then(root => { this._register(root); });
+						this.localRoots.set(file.localRoot, acquired);
+						acquired.catch(() => this.localRoots.delete(file.localRoot!));
+					}
+					await acquired;
+					return resource;
+				}
+			}
+		}
+		return apiSourceUri(target, empty);
+	}
+
 	async open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void> {
 		const pane = await this.editors.openEditor({
-			resource: apiSourceUri(target),
+			resource: await this.sourceResource(target),
 			options: {
 				pinned: true,
 				...(range
 					? {
-							selection: {
-								startLineNumber: range.startLine,
-								startColumn: 1,
-								endLineNumber: range.endLine,
-								endColumn: Number.MAX_SAFE_INTEGER,
-							},
-						}
+						selection: {
+							startLineNumber: range.startLine,
+							startColumn: 1,
+							endLineNumber: range.endLine,
+							endColumn: Number.MAX_SAFE_INTEGER,
+						},
+					}
 					: {}),
 			},
 		});
 		if (pane?.input) this.tabs.registerReviewEditor(target.reviewId, pane.input);
 	}
 
-	async openDiff(reviewId: string, version: number, path: string): Promise<void> {
-		const files = await this.read<ReviewDiffFileWire[]>(reviewId, "/diff", { version });
+	async openDiff(reviewId: string, version: number, path: string, state?: { generation?: string; live?: boolean }): Promise<void> {
+		const files = await this.read<ReviewDiffFileWire[]>(reviewId, "/diff", { version, generation: state?.generation });
 		const file = files.find((file) => file.path === path);
 		if (!file) throw new Error(`File is not changed in this review version: ${path}`);
-		const target = { reviewId, version, file: path };
+		const target = { reviewId, version, file: path, ...state };
 		const pane = await this.editors.openEditor({
 			original: {
-				resource: apiSourceUri({ ...target, file: file.previousPath ?? path, side: "base" }, file.status === "added"),
+				resource: await this.sourceResource({ ...target, file: file.previousPath ?? path, side: "base" }, file.status === "added"),
 			},
-			modified: { resource: apiSourceUri({ ...target, side: "head" }, file.status === "deleted") },
+			modified: { resource: await this.sourceResource({ ...target, side: "head" }, file.status === "deleted") },
 			options: { pinned: true },
 		});
 		if (pane?.input) this.tabs.registerReviewEditor(reviewId, pane.input);
@@ -157,14 +187,20 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 
 	async children(resource: URI): Promise<IFileStat[]> {
 		const query = new URLSearchParams(resource.query);
+		const state = query.has("live") ? await this.read<{ version: number; pins: { sourceGeneration?: string } }>(resource.authority, "", { full: "true" }) : undefined;
+		if (state) {
+			query.set("version", String(state.version));
+			if (state.pins.sourceGeneration) query.set("generation", state.pins.sourceGeneration);
+		}
 		const entries = await this.read<ReviewSourceEntry[]>(resource.authority, "/tree", {
 			version: Number(query.get("version")),
+			generation: query.get("generation") ?? undefined,
 			side: query.get("side") ?? "head",
 			path: resource.path.slice(1),
 			commit: query.get("commit") ?? undefined,
 		});
 		return entries.map((entry) => ({
-			resource: resource.with({ path: `/${entry.path}` }),
+			resource: resource.with({ path: `/${entry.path}`, query: query.toString() }),
 			name: entry.path.split("/").at(-1)!,
 			isFile: entry.kind === "file",
 			isDirectory: entry.kind === "directory",
@@ -178,7 +214,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		target: ApiSourceTarget,
 		ranges: readonly ReviewInlineEditorRange[],
 	): Promise<ReviewCodeModelReference> {
-		const resource = apiSourceUri(target);
+		const resource = await this.sourceResource(target);
 		const reference = await this.models.createModelReference(resource);
 		try {
 			const model = reference.object.textEditorModel;
@@ -208,30 +244,31 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			file.patch ??
 			(await this.read<string>(target.reviewId, "/diff", {
 				version: target.version,
+				generation: target.generation,
 				commit: target.commit,
 				file: file.path,
 			}));
 		const mappings = reviewPeekLineMappings(patch);
 		return {
-			original: apiSourceUri(
+			original: await this.sourceResource(
 				{ ...target, side: "base", file: file.previousPath ?? file.path },
 				file.status === "added",
 			),
-			modified: apiSourceUri({ ...target, side: "head", file: file.path }, file.status === "deleted"),
+			modified: await this.sourceResource({ ...target, side: "head", file: file.path }, file.status === "deleted"),
 			diffFile: file,
 			mappings,
 			windows: (leftCount, rightCount) => reviewPeekDiffWindows(leftCount, rightCount, ranges, target.side, mappings),
 		};
 	}
 
-	canvas(reviewId: string, version: () => number, inline: ReviewInlineEditorService, diff: ReviewDiffViewService) {
+	canvas(reviewId: string, version: () => number, inline: ReviewInlineEditorService, diff: ReviewDiffViewService, sourceState: () => { generation?: string; live?: boolean } = () => ({})) {
 		// A version's diff list is immutable: every peek and the diff view share one read.
 		const lists = new Map<string, Promise<readonly ReviewDiffFileWire[]>>();
-		const files = (current: number, commit?: string) => {
-			const key = `${current}:${commit ?? ""}`;
+		const files = (current: number, commit?: string, generation = sourceState().generation) => {
+			const key = `${current}:${generation ?? ""}:${commit ?? ""}`;
 			let list = lists.get(key);
 			if (!list) {
-				list = this.read<ReviewDiffFileWire[]>(reviewId, "/diff", { version: current, commit });
+				list = this.read<ReviewDiffFileWire[]>(reviewId, "/diff", { version: current, generation, commit });
 				list.catch(() => lists.delete(key));
 				lists.set(key, list);
 			}
@@ -242,10 +279,10 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			side: ReviewDiffSide,
 			ranges: readonly ReviewInlineEditorRange[],
 		): ReviewInlineSource => {
-			const target = { reviewId, version: version(), file, side };
+			const target: ApiSourceTarget = { reviewId, version: version(), file, side, ...sourceState() };
 			return {
 				snippet: () => this.snippet(target, ranges),
-				diff: () => this.peekDiff(target, ranges, files(target.version)),
+				diff: () => this.peekDiff(target, ranges, files(target.version, target.commit, target.generation)),
 			};
 		};
 		const diffSource: ReviewDiffViewSource = {
@@ -253,38 +290,41 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			load: async (scope) => {
 				// Capture before awaiting: a live edit must not mix two versions' pins.
 				const current = version();
+				const state = sourceState();
 				const commit = scope?.commit;
 				const entries = await files(current, commit);
 				return {
 					sourceUri: URI.from({
 						scheme: "review-api-diff",
 						authority: reviewId,
-						path: `/${current}`,
+						path: `/${current}/${state.generation ?? ""}`,
 						query: commit ? `commit=${encodeURIComponent(commit)}` : undefined,
 					}),
-					entries: entries.map((file) => {
+					entries: await Promise.all(entries.map(async (file) => {
 						const original =
 							file.status === "added"
 								? undefined
-								: apiSourceUri({
-										reviewId,
-										version: current,
-										side: "base",
-										file: file.previousPath ?? file.path,
-										commit,
-									});
+								: await this.sourceResource({
+									reviewId,
+									version: current,
+									...state,
+									side: "base",
+									file: file.previousPath ?? file.path,
+									commit,
+								});
 						const modified =
 							file.status === "deleted"
 								? undefined
-								: apiSourceUri({
-										reviewId,
-										version: current,
-										side: "head",
-										file: file.path,
-										commit,
-									});
+								: await this.sourceResource({
+									reviewId,
+									version: current,
+									...state,
+									side: "head",
+									file: file.path,
+									commit,
+								});
 						return { file, original, modified, goToFileResource: (modified ?? original)! };
-					}),
+					})),
 				};
 			},
 		};

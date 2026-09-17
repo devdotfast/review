@@ -402,7 +402,7 @@ async function api(route, method = "GET", body) {
 const command = (operation) =>
   api("/commands", "POST", { commandId: randomUUID(), operation });
 
-async function createReview(fix, title) {
+async function createReview(fix, title, kind = "commits") {
   const repository = await api("/repositories", "POST", { path: fix.repo });
 
   const pins = await api("/pins", "POST", {
@@ -411,7 +411,14 @@ async function createReview(fix, title) {
     head: fix.head,
   });
 
-  const review = await command({ type: "create", title, pins });
+  const review = await command({
+    type: "create",
+    title,
+    ...(kind === "worktree"
+      ? { target: { kind, repositoryId: repository.id, base: fix.base } }
+      : { pins }),
+  });
+
   const reviewId = review.reviewId;
   await command({
     type: "edit",
@@ -475,6 +482,9 @@ async function probe(request) {
 
 function uri(review, side = "head", file = "main.ts", commit) {
   const query = new URLSearchParams({ version: String(review.version), side });
+
+  if (review.pins.sourceGeneration)
+    query.set("generation", review.pins.sourceGeneration);
 
   if (commit) query.set("commit", commit);
 
@@ -1251,6 +1261,169 @@ try {
   await readyEnvironment(exact);
   await record(
     "rendered preparation failure exposes logs and retries successfully",
+  );
+  const liveFixture = await fixture("live");
+
+  const live = await createReview(
+    liveFixture,
+    "Working tree language services",
+    "worktree",
+  );
+
+  const repositoryId = live.pins.repositoryId;
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await api(`/${live.reviewId}/open`, "POST");
+
+  const liveInline = page
+    .locator(
+      '[data-review-inline-editor-path="main.ts"][data-review-inline-editor-side="head"]',
+    )
+    .first();
+
+  const liveLine = liveInline
+    .locator(".view-line")
+    .filter({ hasText: "export const value = greet();" })
+    .first();
+
+  await until(async () => {
+    await liveLine.scrollIntoViewIfNeeded({ timeout: 2000 });
+    await clickGreet(liveLine);
+
+    return true;
+  }, "live inline source");
+  await probe({ command: "editor.action.showHover" });
+  await page
+    .locator(".monaco-hover:visible")
+    .filter({ hasText: "greet" })
+    .first()
+    .waitFor();
+  assert.ok(
+    !(await page.locator(".monaco-hover:visible").first().innerText()).includes(
+      "Language information from local checkout",
+    ),
+  );
+  await probe({ command: "editor.action.hideHover" });
+  await clickGreet(liveLine);
+  await page.keyboard.press("F12");
+  await until(
+    async () =>
+      (await probe({})).active?.uri ===
+      pathToFileURL(path.join(liveFixture.repo, "library.ts")).href,
+    "live inline definition",
+  );
+  await expectHover(
+    pathToFileURL(path.join(liveFixture.repo, "main.py")).href,
+    { line: 2, character: 9 },
+    "str",
+  );
+  await record(
+    "worktree JSON review uses real native TypeScript and Python language services",
+  );
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await api(`/${live.reviewId}/open`, "POST");
+  await writeFile(
+    path.join(liveFixture.repo, "main.ts"),
+    "// saved staged line\n" + mainText("head"),
+  );
+  await git(liveFixture.repo, "add", "main.ts");
+  await writeFile(
+    path.join(liveFixture.repo, "main.ts"),
+    "// saved unstaged line\n// saved staged line\n" + mainText("head"),
+  );
+  await writeFile(
+    path.join(liveFixture.repo, "fresh.ts"),
+    "export const fresh = 1;\n",
+  );
+  await until(
+    async () =>
+      (
+        await api(`/${live.reviewId}/file?side=head&file=main.ts`)
+      ).text.startsWith("// saved unstaged line"),
+    "saved worktree API bytes",
+  );
+  const updated = await api(`/${live.reviewId}?full=true`);
+  assert.equal(updated.version, live.version);
+  assert.equal(updated.document[0].children[2].source.fromLine, 5);
+
+  const historicalWorktree = await api(
+    `/${live.reviewId}/file?side=head&file=main.ts&version=${live.version}`,
+  );
+
+  assert.equal(historicalWorktree.text, mainText("head"));
+  assert.ok(
+    (await api(`/${live.reviewId}/tree`)).some(
+      (file) => file.path === "fresh.ts",
+    ),
+  );
+  await expectDefinition(
+    pathToFileURL(path.join(liveFixture.repo, "main.ts")).href,
+    at(
+      "// saved unstaged line\n// saved staged line\n" + mainText("head"),
+      5,
+      "greet",
+    ),
+    path.join(liveFixture.repo, "library.ts"),
+    2,
+  );
+  await record(
+    "staged, unstaged, and untracked saved files refresh while authored history stays fixed",
+  );
+
+  await git(liveFixture.repo, "add", ".");
+  await git(liveFixture.repo, "commit", "-qm", "Current working files");
+
+  const single = await command({
+    type: "create",
+    title: "Single commit",
+    target: { kind: "commits", repositoryId, head: "HEAD" },
+  });
+
+  assert.deepEqual(await api(`/${single.reviewId}/diff`), []);
+  await git(liveFixture.repo, "checkout", "--detach", liveFixture.head);
+  await until(
+    async () =>
+      (await api(`/${live.reviewId}/file?side=head&file=main.ts`)).text ===
+      mainText("head"),
+    "worktree follows branch switch",
+  );
+  assert.ok(
+    (
+      await api(`/${single.reviewId}/file?side=head&file=main.ts`)
+    ).text.startsWith("// saved unstaged line"),
+  );
+  await record(
+    "live worktree and explicit commit target stay distinct across checkout changes",
+  );
+  await stop();
+  await launch();
+  await until(async () => {
+    await api(`/${live.reviewId}/open`, "POST");
+
+    return true;
+  }, "reopen live review");
+  await expectDefinition(
+    uri(await api(`/${live.reviewId}?full=true`)),
+    greetAt,
+    path.join(liveFixture.repo, "library.ts"),
+    2,
+  );
+  assert.equal(
+    (
+      await api(
+        `/${live.reviewId}/file?side=head&file=main.ts&version=${live.version}`,
+      )
+    ).text,
+    mainText("head"),
+  );
+  assert.equal(
+    (await git(liveFixture.repo, "worktree", "list", "--porcelain"))
+      .split("\n")
+      .filter((line) => line.startsWith("worktree ")).length,
+    1,
+  );
+  await page.screenshot({ path: path.join(root, "live-worktree-restart.png") });
+  await record(
+    "live worktree review and retained history recover after Desktop restart without pinning",
   );
   assert.deepEqual(errors, []);
   success = true;

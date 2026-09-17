@@ -41,6 +41,17 @@ export function createReviewApi(
     return context.json({ error: "Review operation failed." }, 500);
   });
 
+  if (data)
+    app.use("*", async (context, next) => {
+      if (
+        context.req.method === "GET" &&
+        !context.req.query("version") &&
+        !context.req.query("generation")
+      )
+        await store.refreshWorktrees();
+      await next();
+    });
+
   const catalog = () => {
     void data?.populateCatalogStats();
 
@@ -123,7 +134,14 @@ export function createReviewApi(
             }
           }),
         (notify) => {
+          const refresh = setInterval(() => {
+            void store.refreshWorktrees();
+          }, 1000);
+
+          refresh.unref();
+
           const stops = [
+            () => clearInterval(refresh),
             store.subscribe((result) => {
               if (mark(result.reviewId)) notify();
             }),
@@ -170,6 +188,12 @@ export function createReviewApi(
         activity: store.activity.read(id),
       }),
       (notify) => {
+        const refresh = setInterval(() => {
+          void store.refreshWorktrees();
+        }, 1000);
+
+        refresh.unref();
+
         const stopDocument = store.subscribe((result) => {
           if (result.reviewId === id) {
             document = undefined;
@@ -182,6 +206,7 @@ export function createReviewApi(
         });
 
         return () => {
+          clearInterval(refresh);
           stopDocument();
           stopActivity();
         };
@@ -227,7 +252,10 @@ export function createReviewApi(
       const input = readQuerySchemas.tree.parse(context.req.query());
 
       const pins = await data.comparison(
-        store.read(context.req.param("id"), input.version).pins,
+        data.sourcePins(
+          store.read(context.req.param("id"), input.version),
+          "generation" in input ? input.generation : undefined,
+        ),
         input.commit,
       );
 
@@ -238,7 +266,10 @@ export function createReviewApi(
 
       return context.json(
         await data.map(
-          store.read(context.req.param("id"), query.version).pins,
+          data.sourcePins(
+            store.read(context.req.param("id"), query.version),
+            query.generation,
+          ),
           context.req.param("resourceId"),
         ),
       );
@@ -284,13 +315,20 @@ export function createReviewApi(
       const input = z
         .strictObject({
           version: z.number().int().nonnegative().optional(),
+          generation: z
+            .string()
+            .regex(/^[a-f0-9]{64}$/)
+            .optional(),
           source: sourceSchema,
         })
         .parse(await readBoundedRequestJson(context.req.raw));
 
       return context.json(
         await data.quote(
-          store.read(context.req.param("id"), input.version).pins,
+          data.sourcePins(
+            store.read(context.req.param("id"), input.version),
+            "generation" in input ? input.generation : undefined,
+          ),
           input.source,
         ),
       );
@@ -333,17 +371,28 @@ export function createReviewApi(
     });
     app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());
+      const snapshot = store.read(context.req.param("id"), input.version);
 
-      return context.json(
-        await data.file(
-          await data.comparison(
-            store.read(context.req.param("id"), input.version).pins,
-            input.commit,
-          ),
-          input.side,
-          input.file,
-        ),
+      const pins = await data.comparison(
+        data.sourcePins(snapshot, input.generation),
+        input.commit,
       );
+
+      const file = await data.file(pins, input.side, input.file);
+
+      const local =
+        input.live &&
+        !input.commit &&
+        input.side === "head" &&
+        snapshot.target?.kind === "worktree"
+          ? await data.liveFile(
+              snapshot.pins.repositoryId,
+              input.file,
+              file.text,
+            )
+          : undefined;
+
+      return context.json({ ...file, ...local });
     });
     app.get("/:id/diff", async (context) => {
       const input = readQuerySchemas.diff.parse(context.req.query());
@@ -351,7 +400,10 @@ export function createReviewApi(
       return context.json(
         await data.changes(
           await data.comparison(
-            store.read(context.req.param("id"), input.version).pins,
+            data.sourcePins(
+              store.read(context.req.param("id"), input.version),
+              "generation" in input ? input.generation : undefined,
+            ),
             input.commit,
           ),
           input.file,
@@ -363,7 +415,10 @@ export function createReviewApi(
 
       return context.json(
         await data.commits(
-          store.read(context.req.param("id"), input.version).pins,
+          data.sourcePins(
+            store.read(context.req.param("id"), input.version),
+            "generation" in input ? input.generation : undefined,
+          ),
         ),
       );
     });

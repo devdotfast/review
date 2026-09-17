@@ -20,11 +20,13 @@ export type ReviewCanvasEditorTarget =
 	| { readonly kind: "welcome" }
 	| { readonly kind: "settings" }
 	| {
-			readonly kind: "api-source";
-			readonly reviewId: string;
-			readonly version: number;
-			readonly title: string;
-	  }
+		readonly kind: "api-source";
+		readonly reviewId: string;
+		readonly version: number;
+		readonly generation?: string;
+		readonly live?: boolean;
+		readonly title: string;
+	}
 	| { readonly kind: "api"; readonly reviewId: string; readonly title: string };
 
 export class ReviewCanvasEditorInput extends EditorInput {
@@ -45,7 +47,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 			authority: target.kind,
 			path:
 				target.kind === "api-source"
-					? `/${target.reviewId}/${target.version}`
+					? target.live ? `/${target.reviewId}/live` : `/${target.reviewId}/${target.version}/${target.generation ?? ""}`
 					: target.kind === "api"
 						? `/${target.reviewId}`
 						: `/${target.kind}`,
@@ -90,7 +92,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 	}
 
 	override getName(): string {
-		if (this.target.kind === "api-source") return `Source — ${this.target.title} (v${this.target.version})`;
+		if (this.target.kind === "api-source") return this.target.live ? `Source — ${this.target.title}` : `Source — ${this.target.title} (v${this.target.version})`;
 		if (this.target.kind === "api") return this.target.title;
 		if (this.target.kind === "home") return "Home";
 		if (this.target.kind === "welcome") return "Welcome";

@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { type FSWatcher, existsSync, watch } from "node:fs";
+import { readFile, realpath } from "node:fs/promises";
 
 import {
   type BlobBatchReader,
@@ -11,6 +11,7 @@ import {
   detectLocalVcs,
   diffFileSummariesTrees,
   diffTrees,
+  gitCommonDir,
   listCommitRange,
   listTrackedFilesAtCommit,
   readFileAtCommit,
@@ -35,14 +36,25 @@ import {
   type Block,
   type Pins,
   ReviewInputError,
+  type ReviewTarget,
   type Source,
+  elements,
   pinsSchema,
+  sourceReferences,
   sourceSchema,
 } from "./document.js";
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
-import { ReviewStore } from "./store.js";
 import { ReviewWorkspaces } from "./workspaces.js";
+import { sourceDiff } from "./source-diff.js";
+import { mapSourceRange } from "./source-ranges.js";
+import { ReviewStore, type Snapshot } from "./store.js";
+import {
+  EMPTY_SOURCE,
+  captureWorktree,
+  localSourcePath,
+  retainedWorktree,
+} from "./worktree-source.js";
 
 const traceSchema = z.strictObject({
   label: z.string(),
@@ -106,6 +118,20 @@ export class LocalReviewData {
   readonly workspaces: ReviewWorkspaces;
 
   /** Local checkout context for live worktree targets only. */
+  /** Desktop language services borrow the registered checkout, never create one. */
+  async liveFile(repositoryId: string, file: string, text: string) {
+    try {
+      const rootPath = await realpath(this.store.repositoryPath(repositoryId));
+      const localPath = await localSourcePath(rootPath, file);
+
+      if ((await readFile(localPath, "utf8")) === text)
+        return { localPath, localRoot: rootPath };
+    } catch {
+      /* A moved or changed file falls back to retained source. */
+    }
+
+    return undefined;
+  }
   async languageContext(
     repositoryId: string,
   ): Promise<{ rootPath: string | null }> {
@@ -144,10 +170,90 @@ export class LocalReviewData {
   }
 
   private closed = false;
+  private readonly worktrees = new Map<
+    string,
+    {
+      epoch: number;
+      capturedEpoch: number;
+      watchers: FSWatcher[];
+      capture?: Awaited<ReturnType<typeof captureWorktree>>;
+    }
+  >();
+
+  private forgetWorktree(repositoryId: string) {
+    const entry = this.worktrees.get(repositoryId);
+
+    if (entry) for (const watcher of entry.watchers) watcher.close();
+    this.worktrees.delete(repositoryId);
+  }
+
+  private async capture(repositoryId: string, vcs: LocalVcs) {
+    let entry = this.worktrees.get(repositoryId);
+
+    if (!entry) {
+      entry = { epoch: 0, capturedEpoch: -1, watchers: [] };
+      this.worktrees.set(repositoryId, entry);
+      const state = entry;
+      const roots = new Set([vcs.rootPath]);
+      const common = await gitCommonDir(vcs.rootPath);
+
+      if (common) roots.add(common);
+
+      for (const root of roots) {
+        try {
+          const watcher = watch(root, { recursive: true }, () => {
+            state.epoch++;
+          });
+
+          watcher.on("error", () => {
+            state.epoch++;
+            state.capturedEpoch = -1;
+          });
+          watcher.unref();
+          state.watchers.push(watcher);
+        } catch {
+          /* An unavailable watcher disables the cache below. */
+        }
+      }
+    }
+
+    if (
+      entry.capture &&
+      entry.capturedEpoch === entry.epoch &&
+      entry.watchers.length
+    )
+      return entry.capture;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const epoch = entry.epoch;
+
+      const captured = await captureWorktree(
+        this.store,
+        repositoryId,
+        vcs,
+        entry.capture,
+      );
+
+      if (entry.epoch !== epoch) continue;
+      entry.capture = captured;
+      entry.capturedEpoch = epoch;
+
+      return captured;
+    }
+
+    throw new ReviewInputError(
+      "The worktree is changing. Retry after saving finishes.",
+      409,
+    );
+  }
 
   async close(): Promise<void> {
     this.closed = true;
     await this.workspaces.close();
+
+    for (const entry of this.worktrees.values())
+      for (const watcher of entry.watchers) watcher.close();
+    this.worktrees.clear();
     const readers = [...this.readers.values()];
 
     this.readers.clear();
@@ -163,6 +269,7 @@ export class LocalReviewData {
       return cached.detection;
 
     this.closeReader(repositoryId);
+    this.forgetWorktree(repositoryId);
     const rootPath = this.store.repositoryPath(repositoryId);
 
     const forget = () => {
@@ -253,6 +360,139 @@ export class LocalReviewData {
 
     return repository;
   }
+  async projectSource(snapshot: Snapshot, pins: Pins): Promise<Snapshot> {
+    const projected = structuredClone(snapshot);
+    projected.staleSources = [...(snapshot.staleSources ?? [])];
+
+    for (const reference of sourceReferences(projected.document, {
+      tolerant: true,
+    })) {
+      if (
+        reference.source.side !== "head" ||
+        projected.staleSources.includes(reference.id)
+      )
+        continue;
+
+      try {
+        const [before, after] = await Promise.all([
+          this.file(snapshot.pins, "head", reference.source.file),
+          this.file(pins, "head", reference.source.file),
+        ]);
+
+        const mapped = await mapSourceRange(
+          reference.source,
+          before.text,
+          after.text,
+        );
+
+        if (!mapped) {
+          projected.staleSources.push(reference.id);
+          continue;
+        }
+
+        if (reference.id.includes(":review-source:")) {
+          const index = reference.id.indexOf(":review-source:");
+
+          const element = elements(projected.document).find(
+            (item) => item.id === reference.id.slice(0, index),
+          );
+
+          if (element?.type === "markdown")
+            element.markdown = element.markdown.replaceAll(
+              reference.id.slice(index + 1),
+              `review-source:head/${encodeURI(mapped.file)}#L${mapped.fromLine}-L${mapped.toLine}`,
+            );
+        } else Object.assign(reference.source, mapped);
+      } catch (error) {
+        if (!(error instanceof ReviewInputError)) throw error;
+        projected.staleSources.push(reference.id);
+      }
+    }
+
+    projected.pins = pins;
+
+    return projected;
+  }
+  sourcePins(snapshot: Snapshot, generation?: string): Pins {
+    if (!generation) return snapshot.pins;
+
+    if (snapshot.target?.kind !== "worktree")
+      throw new ReviewInputError(
+        "Committed targets have no working source generation.",
+      );
+    const resource = this.store.resource(generation);
+
+    if (resource.repositoryId !== snapshot.pins.repositoryId)
+      throw new ReviewInputError("Source belongs to another repository.");
+    const source = retainedWorktree(this.store, generation);
+
+    return {
+      repositoryId: snapshot.pins.repositoryId,
+      base: snapshot.target.base ?? source.commit,
+      head: source.commit,
+      sourceGeneration: generation,
+    };
+  }
+  async resolveTarget(
+    target: ReviewTarget,
+  ): Promise<{ target: ReviewTarget; pins: Pins }> {
+    const vcs = await this.vcs(target.repositoryId);
+
+    if (!vcs)
+      throw new ReviewInputError(
+        "The selected local checkout is unavailable.",
+        404,
+      );
+
+    if (target.kind === "commits") {
+      const head = await vcs.resolveRevision(target.head);
+
+      if (!head) throw new ReviewInputError("Head revision does not exist.");
+
+      const base =
+        target.base === undefined
+          ? head
+          : await vcs.resolveRevision(target.base);
+
+      if (!base) throw new ReviewInputError("Base revision does not exist.");
+
+      const resolved = { ...target, head: head.commit };
+
+      if (target.base !== undefined) resolved.base = base.commit;
+
+      return {
+        target: resolved,
+        pins: {
+          repositoryId: target.repositoryId,
+          base: base.commit,
+          head: head.commit,
+        },
+      };
+    }
+
+    const base =
+      target.base === undefined
+        ? undefined
+        : await vcs.resolveRevision(target.base);
+
+    if (target.base !== undefined && !base)
+      throw new ReviewInputError("Base revision does not exist.");
+    const { generation, source } = await this.capture(target.repositoryId, vcs);
+
+    const resolved = { ...target };
+
+    if (base) resolved.base = base.commit;
+
+    return {
+      target: resolved,
+      pins: {
+        repositoryId: target.repositoryId,
+        base: base?.commit ?? source.commit,
+        head: source.commit,
+        sourceGeneration: generation,
+      },
+    };
+  }
   async resolvePins(
     repositoryId: string,
     base: string,
@@ -273,6 +513,18 @@ export class LocalReviewData {
     return { repositoryId, base: left.commit, head: right.commit };
   }
   async validatePins(pins: Pins) {
+    if (pins.sourceGeneration) {
+      const resource = this.store.resource(pins.sourceGeneration);
+
+      if (
+        resource.repositoryId !== pins.repositoryId ||
+        resource.kind !== "source-tree"
+      )
+        throw new ReviewInputError("Source belongs to another repository.");
+
+      return;
+    }
+
     const resolved = await this.resolvePins(
       pins.repositoryId,
       pins.base,
@@ -284,20 +536,43 @@ export class LocalReviewData {
         "Use resolved commit IDs, not moving branch names.",
       );
   }
-  async file(pins: Pins, side: "base" | "head", file: string) {
+  async file(
+    pins: Pins,
+    side: "base" | "head",
+    file: string,
+    allowBinary = false,
+  ) {
     checkRelativePath(file);
     const commit = pins[side];
     const vcs = await this.vcs(pins.repositoryId);
 
-    const text = vcs
-      ? await readFileAtCommit({
-          rootPath: vcs.rootPath,
-          kind: vcs.kind,
-          commit,
-          relativePath: file,
-          reader: this.reader(pins.repositoryId, vcs),
-        })
-      : null;
+    const retained =
+      pins.sourceGeneration && side === "head"
+        ? retainedWorktree(this.store, pins.sourceGeneration).files[file]
+        : undefined;
+
+    if (
+      retained?.error &&
+      !(allowBinary && (retained.blob || retained.committed))
+    )
+      throw new ReviewInputError(retained.error);
+
+    const text =
+      pins.sourceGeneration && side === "head" && !retained?.committed
+        ? retained?.blob
+          ? Buffer.from(this.store.resource(retained.blob).data).toString()
+          : null
+        : commit === EMPTY_SOURCE
+          ? null
+          : vcs
+            ? await readFileAtCommit({
+                rootPath: vcs.rootPath,
+                kind: vcs.kind,
+                commit,
+                relativePath: file,
+                reader: this.reader(pins.repositoryId, vcs),
+              })
+            : null;
 
     if (text === null)
       throw new ReviewInputError(
@@ -305,7 +580,7 @@ export class LocalReviewData {
         404,
       );
 
-    if (text.includes("\0"))
+    if (!allowBinary && text.includes("\0"))
       throw new ReviewInputError(
         "Binary files cannot be used as code references.",
       );
@@ -322,10 +597,14 @@ export class LocalReviewData {
     const prefix = directory ? directory.replace(/\/$/, "") + "/" : "";
     const entries = new Map<string, ReviewSourceEntry>();
 
-    for (const file of await this.trackedFilesAt(
-      pins.repositoryId,
-      pins[side],
-    )) {
+    const files =
+      pins.sourceGeneration && side === "head"
+        ? Object.keys(retainedWorktree(this.store, pins.sourceGeneration).files)
+        : pins[side] === EMPTY_SOURCE
+          ? []
+          : await this.trackedFilesAt(pins.repositoryId, pins[side]);
+
+    for (const file of files) {
       if (!file.startsWith(prefix)) continue;
       const relative = file.slice(prefix.length);
       const name = relative.split("/", 1)[0]!;
@@ -439,6 +718,84 @@ export class LocalReviewData {
   async changes(pins: Pins, file?: string) {
     if (file !== undefined) checkRelativePath(file);
 
+    if (pins.sourceGeneration) {
+      const head = retainedWorktree(this.store, pins.sourceGeneration);
+
+      const committedChanges =
+        pins.base === pins.head ||
+        pins.base === EMPTY_SOURCE ||
+        pins.head === EMPTY_SOURCE
+          ? []
+          : await diffFileSummariesTrees({
+              ...(await this.vcsTarget(pins.repositoryId)),
+              baseRef: pins.base,
+              headRef: pins.head,
+            });
+
+      const currentFiles =
+        pins.head === EMPTY_SOURCE
+          ? []
+          : await this.trackedFilesAt(pins.repositoryId, pins.head);
+
+      const paths =
+        file === undefined
+          ? [
+              ...new Set([
+                ...committedChanges.flatMap((change) =>
+                  change.previousPath
+                    ? [change.previousPath, change.path]
+                    : [change.path],
+                ),
+                ...Object.keys(head.files).filter(
+                  (path) =>
+                    !head.files[path]?.committed || pins.base === EMPTY_SOURCE,
+                ),
+                ...currentFiles.filter(
+                  (path) => !Object.hasOwn(head.files, path),
+                ),
+              ]),
+            ]
+          : [file];
+
+      const result: (LocalVcsDiffFileSummary & { patch: string })[] = [];
+
+      for (const path of paths) {
+        if (head.files[path]?.committed && pins.base === pins.head) continue;
+
+        if (
+          head.files[path]?.error &&
+          !head.files[path]?.blob &&
+          !head.files[path]?.committed
+        ) {
+          result.push({
+            path,
+            status: "modified",
+            additions: 0,
+            deletions: 0,
+            patch: `Source unavailable: ${head.files[path]!.error}\n`,
+          });
+          continue;
+        }
+
+        const read = async (side: "base" | "head") => {
+          try {
+            return (await this.file(pins, side, path, true)).text;
+          } catch (error) {
+            if (error instanceof ReviewInputError && error.status === 404)
+              return null;
+            throw error;
+          }
+        };
+
+        const [before, after] = await Promise.all([read("base"), read("head")]);
+        const change = await sourceDiff(path, before, after);
+
+        if (change) result.push(change);
+      }
+
+      return file === undefined ? result : (result[0]?.patch ?? "");
+    }
+
     const input = {
       ...(await this.vcsTarget(pins.repositoryId)),
       baseRef: pins.base,
@@ -450,6 +807,12 @@ export class LocalReviewData {
       : diffTrees({ ...input, paths: [file], literalPaths: true });
   }
   commits(pins: Pins) {
+    if (
+      pins.base === pins.head ||
+      pins.base === EMPTY_SOURCE ||
+      pins.head === EMPTY_SOURCE
+    )
+      return Promise.resolve([]);
     const key = `${pins.repositoryId}:${pins.base}:${pins.head}`;
     const cached = this.commitRanges.get(key);
 
@@ -486,7 +849,11 @@ export class LocalReviewData {
         404,
       );
 
-    return { ...pins, base: selected.parentCommit, head: selected.commit };
+    return {
+      repositoryId: pins.repositoryId,
+      base: selected.parentCommit,
+      head: selected.commit,
+    };
   }
   async map(pins: Pins, resourceId: string) {
     await this.validateResource(pins, {
@@ -504,7 +871,20 @@ export class LocalReviewData {
 
     const target = await this.vcsTarget(pins.repositoryId);
 
+    const changes = pins.sourceGeneration
+      ? await this.changes(pins)
+      : undefined;
+
+    const patch = changes
+      ? (
+          await Promise.all(
+            changes.map((change) => this.changes(pins, change.path)),
+          )
+        ).join("\n")
+      : undefined;
+
     const resolved = await resolveSoftwareMapDiffCounts({
+      patch,
       sourceRootPath: target.rootPath,
       sourceVcsKind: target.kind,
       baseRef: pins.base,
@@ -684,6 +1064,8 @@ export function openLocalReviewStore(
   options: { blobReaderIdleTimeoutMs?: number } = {},
 ) {
   const store: ReviewStore = new ReviewStore(databasePath, {
+    projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
+    resolveTarget: (target) => data.resolveTarget(target),
     validatePins: (pins) => data.validatePins(pins),
     validateSource: (pins, source, options) =>
       data.validateSource(pins, source, options),

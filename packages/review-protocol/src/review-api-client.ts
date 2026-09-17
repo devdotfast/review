@@ -5,7 +5,15 @@ export interface ReviewApiSummary {
   reviewId: string;
   version: number;
   title: string;
-  pins: { repositoryId: string; base: string; head: string };
+  pins: {
+    repositoryId: string;
+    base: string;
+    head: string;
+    sourceGeneration?: string;
+  };
+  target?:
+    | { kind: "worktree"; repositoryId: string; base?: string }
+    | { kind: "commits"; repositoryId: string; head: string; base?: string };
   createdAt: string;
   /** Present on reviews imported from the legacy MDX store. */
   origin?: {

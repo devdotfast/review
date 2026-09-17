@@ -79,8 +79,8 @@ function accompaniesEditor(input: EditorInput | undefined): boolean {
  * One tree per pinned version. Editors opened from that tree carry their own
  * side and commit in the query, which must not re-root or hide the tree.
  */
-function apiSourceRoot(target: { reviewId: string; version: number }): URI {
-	return apiSourceUri({ reviewId: target.reviewId, version: target.version, file: "", side: "head" });
+function apiSourceRoot(target: { reviewId: string; version: number; generation?: string; live?: boolean }): URI {
+	return apiSourceUri({ ...target, file: "", side: "head" });
 }
 
 function isSamePinnedTree(resource: URI, root: URI): boolean {
@@ -125,7 +125,7 @@ class ReviewExplorerDataSource implements IAsyncDataSource<URI | null, IFileStat
 		private readonly excludes: ResourceGlobMatcher,
 		private readonly logService: ILogService,
 		private readonly apiSource: IReviewApiSourceService,
-	) {}
+	) { }
 
 	hasChildren(element: URI | null | IFileStat): boolean {
 		if (element === null) {
@@ -389,9 +389,11 @@ export class ReviewExplorerPart extends Part {
 				? apiSourceRoot(input.target)
 				: resource?.scheme === REVIEW_API_SOURCE_SCHEME
 					? apiSourceRoot({
-							reviewId: resource.authority,
-							version: Number(new URLSearchParams(resource.query).get("version")),
-						})
+						reviewId: resource.authority,
+						version: Number(new URLSearchParams(resource.query).get("version")),
+						generation: new URLSearchParams(resource.query).get("generation") ?? undefined,
+						live: new URLSearchParams(resource.query).has("live"),
+					})
 					: undefined;
 		if (folder && this.root && isEqual(folder, this.root)) {
 			return;

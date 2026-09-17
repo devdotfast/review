@@ -373,6 +373,8 @@ export interface ReviewCanvasSettingsContent {
 
 export interface ReviewApiSourceLocation {
   version: number;
+  generation?: string;
+  live?: boolean;
   file: string;
   side: ReviewDiffSide;
   commit?: string;
@@ -389,7 +391,7 @@ export type ReviewCanvasContent =
       version?: number;
       bridge: ReviewCanvasBridge;
       setTitle?(title: string): void;
-      setVersion?(version: number): void;
+      setVersion?(version: number, generation?: string, live?: boolean): void;
       openSource?(
         source: ReviewApiSourceLocation,
         range: ReviewInlineEditorRange,

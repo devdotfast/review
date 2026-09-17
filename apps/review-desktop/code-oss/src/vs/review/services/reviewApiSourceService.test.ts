@@ -21,7 +21,7 @@ function setup() {
 		{
 			registerTextModelContentProvider: (_: string, value: ITextModelContentProvider) => {
 				provider = value;
-				return { dispose() {} };
+				return { dispose() { } };
 			},
 			createModelReference: async (uri: URI) => ({
 				object: { textEditorModel: await provider.provideTextContent(uri) },
@@ -48,6 +48,8 @@ function setup() {
 				registered.push(reviewId);
 			},
 		} as never,
+		{ addFolders: async () => { } } as never,
+		{ isDirty: () => false } as never,
 	);
 	return {
 		service,

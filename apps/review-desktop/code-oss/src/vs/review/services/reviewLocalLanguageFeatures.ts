@@ -1,4 +1,3 @@
-import { Queue } from "../../base/common/async.js";
 import type { CancellationToken } from "../../base/common/cancellation.js";
 import { Disposable, DisposableStore, type IReference } from "../../base/common/lifecycle.js";
 import { URI } from "../../base/common/uri.js";
@@ -22,6 +21,7 @@ import { REVIEW_API_SOURCE_SCHEME } from "./reviewApiSourceService.js";
 import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService } from "./reviewDesktopConnectionService.js";
 import { withCurrentLocalContext } from "./reviewLocalRequest.js";
+import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
 
 interface LocalSource {
 	generation: string;
@@ -35,7 +35,6 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 	static readonly ID = "review.localLanguageFeatures";
 	private readonly sources = new Map<ITextModel, Promise<LocalSource | undefined>>();
 	private readonly roots = new Map<string, number>();
-	private readonly folders = this._register(new Queue<void>());
 	private generation = 0;
 
 	constructor(
@@ -113,18 +112,15 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		if (!await this.files.exists(resource) || model.isDisposed()) return undefined;
 		const owned = new DisposableStore();
 		try {
-			await this.folders.queue(async () => {
-				const key = root.toString();
-				if (!this.roots.has(key)) await this.workspace.addFolders([{ uri: root, name: `${root.path.split("/").at(-1)} (review environment)` }]);
-				this.roots.set(key, (this.roots.get(key) ?? 0) + 1);
-			});
-			owned.add({ dispose: () => {
-				void this.folders.queue(async () => {
+			owned.add(await acquireReviewLanguageRoot(this.workspace, root));
+			this.roots.set(root.toString(), (this.roots.get(root.toString()) ?? 0) + 1);
+			owned.add({
+				dispose: () => {
 					const count = (this.roots.get(root.toString()) ?? 1) - 1;
 					if (count > 0) this.roots.set(root.toString(), count);
-					else { this.roots.delete(root.toString()); await this.workspace.removeFolders([root]); }
-				}).catch(error => this.log.warn("[Review] Could not release local workspace", error));
-			} });
+					else this.roots.delete(root.toString());
+				}
+			});
 			const reference = owned.add(await this.models.createModelReference(resource));
 			owned.add(reference.object.textEditorModel.onDidChangeContent(() => this.generation++));
 			owned.add(model.onWillDispose(() => { this.sources.delete(model); owned.dispose(); }));
@@ -144,6 +140,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			try { return await this.withSource(ref.object.textEditorModel, new Position(mapped.startLine, position.column), token, run); }
 			finally { ref.dispose(); }
 		}
+		if (model.uri.scheme === "file") return withCurrentLocalContext([model], token, () => this.generation, async () => run(model, position, model));
 		const source = await this.localSource(model);
 		if (!source || token.isCancellationRequested || model.isDisposed()) return undefined;
 		const local = source.reference.object.textEditorModel;

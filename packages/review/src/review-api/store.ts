@@ -268,13 +268,31 @@ export class ReviewStore {
     // SAFETY: versions contains only snapshots validated by execute before committing.
     return JSON.parse(String(row.snapshot)) as Snapshot;
   }
+  private readonly diffStats = new Map<
+    string,
+    NonNullable<ReviewApiSummary["diffStats"]>
+  >();
+
+  setDiffStats(pins: Pins, stats: NonNullable<ReviewApiSummary["diffStats"]>) {
+    if (this.closing) return;
+    this.diffStats.set(JSON.stringify(pins), stats);
+
+    for (const listener of this.catalogListeners) {
+      try {
+        listener();
+      } catch {
+        /* A disconnected viewer must not block other catalog subscribers. */
+      }
+    }
+  }
+
   list(): ReviewApiSummary[] {
     // One query, and the document never leaves SQLite: every catalog watcher
     // re-lists on every command.
     return this.db
       .prepare(
         `SELECT json_remove(versions.snapshot,'$.document') AS summary,
-          review_attention.viewed_at, review_attention.dismissed_at, repositories.name AS repository_name
+          review_attention.viewed_at, review_attention.dismissed_at, repositories.name AS repository_name, repositories.path AS repository_path
         FROM reviews
         JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
         LEFT JOIN review_attention ON review_attention.review_id=reviews.id
@@ -291,6 +309,10 @@ export class ReviewStore {
 
         return {
           ...summary,
+          repositoryPath: row.repository_path
+            ? String(row.repository_path)
+            : undefined,
+          diffStats: this.diffStats.get(JSON.stringify(summary.pins)) ?? null,
           repositoryName: row.repository_name
             ? String(row.repository_name)
             : summary.pins.repositoryId,

@@ -5,6 +5,7 @@ import {
   type BlobBatchReader,
   type LocalVcs,
   type LocalVcsCommitSummary,
+  type LocalVcsDiffFileSummary,
   type LocalVcsKind,
   createBlobBatchReader,
   detectLocalVcs,
@@ -361,6 +362,44 @@ export class LocalReviewData {
       throw error;
     }
   }
+  private readonly catalogStats = new Map<string, Promise<void>>();
+
+  /** Hydrate immutable source statistics once per pin pair, without delaying Home. */
+  populateCatalogStats(): Promise<void> {
+    if (this.closed) return Promise.resolve();
+
+    return Promise.all(
+      this.store.list().map((review) => {
+        const key = JSON.stringify(review.pins);
+        let pending = this.catalogStats.get(key);
+
+        if (!pending) {
+          pending = this.changes(review.pins)
+            .then((files) => {
+              if (this.closed) return;
+              this.store.setDiffStats(review.pins, {
+                fileCount: files.length,
+                additions: files.reduce((sum, file) => sum + file.additions, 0),
+                deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+              });
+            })
+            .catch(() => {
+              /* An unavailable checkout leaves counts unknown, never zero. */
+            });
+          this.catalogStats.set(key, pending);
+        }
+
+        return pending;
+      }),
+    ).then(() => {});
+  }
+
+  changes(pins: Pins): Promise<LocalVcsDiffFileSummary[]>;
+  changes(pins: Pins, file: string): Promise<string>;
+  changes(
+    pins: Pins,
+    file?: string,
+  ): Promise<LocalVcsDiffFileSummary[] | string>;
   async changes(pins: Pins, file?: string) {
     if (file !== undefined) checkRelativePath(file);
 

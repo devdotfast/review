@@ -69,6 +69,8 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
         available: true,
         repoKey: review.pins.repositoryId,
         repositoryLabel: review.repositoryName,
+        worktreePath: review.repositoryPath,
+        diffStats: review.diffStats,
         sourceBranch: review.origin?.branch ?? null,
         baseRef: review.origin?.baseRef ?? review.pins.base,
         headRef: review.pins.head,

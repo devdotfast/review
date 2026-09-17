@@ -1,6 +1,6 @@
 import type { JsonValue } from "@dev.fast/json";
 
-/** List metadata only: document contents and repository paths stay on the host. */
+/** List metadata for the authenticated local catalog; document contents stay in snapshots. */
 export interface ReviewApiSummary {
   reviewId: string;
   version: number;
@@ -16,6 +16,12 @@ export interface ReviewApiSummary {
     revision?: string;
   };
   repositoryName: string;
+  repositoryPath?: string;
+  diffStats?: {
+    fileCount: number;
+    additions: number;
+    deletions: number;
+  } | null;
   viewedAt: string | null;
   dismissedAt: string | null;
 }

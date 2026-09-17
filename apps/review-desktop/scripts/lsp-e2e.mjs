@@ -573,7 +573,14 @@ try {
   const greetAt = at(mainText("head"), 3, "greet");
   const headEnvironment = await readyEnvironment(review);
   const baseEnvironment = await readyEnvironment(review, "base");
-  await page.getByText("Language environment ready", { exact: true }).waitFor();
+  await until(async () => {
+    await api(`/${review.reviewId}/open`, "POST");
+    await page
+      .getByText("Language environment ready", { exact: true })
+      .waitFor({ timeout: 2000 });
+
+    return true;
+  }, "prepared review rendered");
   await page.screenshot({ path: path.join(root, "preparation-ready.png") });
   assert.notEqual(headEnvironment.rootPath, baseEnvironment.rootPath);
   assert.equal(

@@ -863,6 +863,7 @@ try {
     path.join(headEnvironment.rootPath, "main.ts"),
     "// another shift\n" + managedMain,
   );
+
   for (const feature of [
     definition,
     "vscode.executeHoverProvider",
@@ -876,12 +877,14 @@ try {
       feature,
       open: true,
     });
+
     assert.equal(
       result.result?.length ?? 0,
       0,
       `${feature} must reject a file with shifted contents`,
     );
   }
+
   await record(
     "changed or shifted source files suppress language queries, including unchanged lines",
   );

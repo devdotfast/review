@@ -102,6 +102,21 @@ describe("runTraceGitHook", () => {
 
   it("detaches the hosted publish instead of uploading inside the push", async () => {
     await selectHosted();
+    const sessionsRoot = path.join(repo, ".codex", "sessions");
+    await mkdir(sessionsRoot, { recursive: true });
+    await writeFile(
+      path.join(
+        sessionsRoot,
+        "rollout-test-01a015e4-0477-7055-a0fd-21a0f72a4ec9.jsonl",
+      ),
+      "{}\n",
+    );
+    await git(repo, [
+      "commit",
+      "--allow-empty",
+      "-m",
+      "Imported change\n\nAgent-Session: 01a015e4-0477-7055-a0fd-21a0f72a4ec8",
+    ]);
 
     const spawned = vi
       .spyOn(hookRunner, "spawnDetachedTraceSync")
@@ -115,5 +130,6 @@ describe("runTraceGitHook", () => {
         command: { file: "/opt/dev-traces" },
       }),
     );
+    expect(stderrText).not.toContain("No local trace");
   });
 });

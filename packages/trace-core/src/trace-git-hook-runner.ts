@@ -14,9 +14,8 @@ import {
   writeTraceSessions,
 } from "./trace-agent-sessions";
 import type { TraceCommand, TraceScope } from "./trace-command";
-// The namespace import keeps the detached spawn observable to tests, which
-// intercept it through the module namespace.
-import * as hookRunner from "./trace-hook-runner";
+import { spawnDetachedTraceSync } from "./trace-hook-runner";
+import { findLocalTrace } from "./trace-local-sessions";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { selectTraceStorage } from "./trace-storage/resolve";
 
@@ -177,10 +176,14 @@ async function runPrePush(input: {
   const selection = selectTraceStorage(input.scope);
 
   for (const [sessionId, values] of sessionCommits) {
+    // Pushed history can include sessions authored on another machine. Keep
+    // their commit links, but only publish transcripts that exist locally.
+    if (!(await findLocalTrace(sessionId))) continue;
+
     if (selection.mode === "hosted") {
       // A hosted publish may take minutes; a push never waits for it. The
       // detached sync discovers this session's commits from the trailers.
-      hookRunner.spawnDetachedTraceSync({
+      spawnDetachedTraceSync({
         sessionId,
         cwd: input.cwd,
         scope: input.scope,

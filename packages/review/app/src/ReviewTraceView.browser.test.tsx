@@ -1,16 +1,23 @@
 import type {
+  ReviewAgentTraceListResponse,
   ReviewAgentTraceResponse,
-  ReviewAgentTraceSession,
+  ReviewCanvasBridge,
 } from "@dev.fast/review-protocol";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReviewSessionProvider } from "./host/review-session";
-import { testReviewSession } from "./review-session-test-utils";
+import {
+  ReviewSessionProvider,
+  createReviewSession,
+} from "./host/review-session";
+import {
+  testReviewBridge,
+  testReviewSession,
+} from "./review-session-test-utils";
 import { ReviewTraceView } from "./ReviewTraceView";
 
-const mockListResponse = {
+const mockListResponse: Extract<ReviewAgentTraceListResponse, { ok: true }> = {
   ok: true,
   configured: true,
   sessions: [
@@ -23,10 +30,6 @@ const mockListResponse = {
       subagents: ["sub-1"],
     },
   ],
-} satisfies {
-  ok: true;
-  configured: boolean;
-  sessions: ReviewAgentTraceSession[];
 };
 
 const mockTraceDetail: Extract<ReviewAgentTraceResponse, { ok: true }> = {
@@ -76,9 +79,211 @@ describe("ReviewTraceView", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads session list and active trace detail without getting stuck in loading state", async () => {
-    const session = testReviewSession();
-    session.review!.traces = new Map([["session-1", mockTraceDetail]]);
+  it.each([false, true])(
+    "loads stored traces with JSON review mode %s",
+    async (jsonReview) => {
+      const requestMock = vi
+        .fn<ReviewCanvasBridge["request"]>()
+        .mockImplementation((url) => {
+          if (url.includes("/agent-traces/session-1")) {
+            return Promise.resolve(
+              new Response(JSON.stringify(mockTraceDetail), { status: 200 }),
+            );
+          }
+
+          if (url.includes("/agent-traces")) {
+            return Promise.resolve(
+              new Response(JSON.stringify(mockListResponse), { status: 200 }),
+            );
+          }
+
+          return Promise.reject(new Error(`Unexpected URL: ${url}`));
+        });
+
+      const session = jsonReview
+        ? createReviewSession(testReviewBridge({}, { request: requestMock }), {
+            jsonReview: { id: "json-review", version: () => 0 },
+          })
+        : testReviewSession({}, { request: requestMock });
+
+      if (jsonReview)
+        session.review = {
+          pins: { base: "base", head: "head" },
+          historicalRevision: null,
+          updatedAtMs: 0,
+          traces: new Map(),
+          listVersions: async () => [],
+          stack: async () => [],
+          dismiss: async () => {},
+        };
+
+      await act(async () => {
+        root?.render(
+          <ReviewSessionProvider session={session}>
+            <ReviewTraceView />
+          </ReviewSessionProvider>,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Upgraded Trace Title");
+      });
+
+      expect(container.textContent).toContain("User turn text");
+      expect(container.textContent).not.toContain("Loading trace…");
+    },
+  );
+
+  it("offers a source control when two stores are readable and labels offline copies", async () => {
+    const requested: string[] = [];
+
+    const requestMock = vi
+      .fn<ReviewCanvasBridge["request"]>()
+      .mockImplementation((url) => {
+        requested.push(url);
+
+        if (url.includes("/agent-traces/session-1")) {
+          const detail = {
+            ...mockTraceDetail,
+            cacheStatus: url.includes("storage=hosted") ? "offline" : "current",
+          };
+
+          return Promise.resolve(
+            new Response(JSON.stringify(detail), { status: 200 }),
+          );
+        }
+
+        if (url.includes("/agent-traces")) {
+          const list = {
+            ...mockListResponse,
+            storage: url.includes("storage=hosted") ? "hosted" : "s3",
+            sources: ["s3", "hosted"],
+          };
+
+          return Promise.resolve(
+            new Response(JSON.stringify(list), { status: 200 }),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+    const session = testReviewSession({}, { request: requestMock });
+
+    await act(async () => {
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <ReviewTraceView />
+        </ReviewSessionProvider>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(
+        container.querySelector('select[aria-label="Trace source"]'),
+      ).not.toBeNull();
+    });
+
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Trace source"]',
+    );
+
+    expect(select).not.toBeNull();
+    expect(select?.value).toBe("s3");
+    expect(container.textContent).not.toContain("Showing a saved copy");
+
+    await act(async () => {
+      if (!select) throw new Error("missing select");
+
+      // React tracks the value; only the prototype setter leaves it unaware
+      // of the new value, so the change event is delivered.
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )?.set;
+
+      setter?.call(select, "hosted");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain(
+        "Showing a saved copy; the trace store did not answer.",
+      );
+    });
+
+    expect(
+      requested.some((url) => url.includes("/agent-traces?storage=hosted")),
+    ).toBe(true);
+    expect(
+      requested.some(
+        (url) =>
+          url.includes("/agent-traces/session-1?") &&
+          url.includes("storage=hosted"),
+      ),
+    ).toBe(true);
+  });
+
+  it("shows the storage error instead of the unconfigured hint", async () => {
+    const requestMock = vi
+      .fn<ReviewCanvasBridge["request"]>()
+      .mockImplementation((url) => {
+        if (url.includes("/agent-traces")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ...mockListResponse,
+                configured: false,
+                sessions: [],
+                storageError: "Set current-store in config.json.",
+              }),
+              { status: 200 },
+            ),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+    const session = testReviewSession({}, { request: requestMock });
+    await act(async () => {
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <ReviewTraceView />
+        </ReviewSessionProvider>,
+      );
+    });
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain(
+        "Set current-store in config.json.",
+      );
+    });
+    expect(container.textContent).not.toContain(
+      "Agent traces are not configured.",
+    );
+  });
+
+  it("shows unconfigured state when list returns configured: false", async () => {
+    const unconfiguredList: Extract<
+      ReviewAgentTraceListResponse,
+      { ok: true }
+    > = {
+      ok: true,
+      configured: false,
+      sessions: [],
+    };
+
+    const requestMock = vi
+      .fn<ReviewCanvasBridge["request"]>()
+      .mockImplementation((url) => {
+        if (url.includes("/agent-traces")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(unconfiguredList), { status: 200 }),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+    const session = testReviewSession({}, { request: requestMock });
 
     await act(async () => {
       root?.render(
@@ -89,11 +294,10 @@ describe("ReviewTraceView", () => {
     });
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Upgraded Trace Title");
+      expect(container.textContent).toContain(
+        "Agent traces are not configured",
+      );
     });
-
-    expect(container.textContent).toContain("User turn text");
-    expect(container.textContent).not.toContain("Loading trace…");
   });
 
   it("renders thinking events collapsed by default under a Thinking tool section", async () => {
@@ -144,8 +348,25 @@ describe("ReviewTraceView", () => {
       ],
     };
 
-    const session = testReviewSession();
-    session.review!.traces = new Map([["session-1", traceWithThinking]]);
+    const requestMock = vi
+      .fn<ReviewCanvasBridge["request"]>()
+      .mockImplementation((url) => {
+        if (url.includes("/agent-traces/session-1")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(traceWithThinking), { status: 200 }),
+          );
+        }
+
+        if (url.includes("/agent-traces")) {
+          return Promise.resolve(
+            new Response(JSON.stringify(mockListResponse), { status: 200 }),
+          );
+        }
+
+        return Promise.reject(new Error(`Unexpected URL: ${url}`));
+      });
+
+    const session = testReviewSession({}, { request: requestMock });
 
     await act(async () => {
       root?.render(

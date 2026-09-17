@@ -1,4 +1,7 @@
 import {
+  type JsonValue,
+  isJsonObject,
+  jsonArray,
   type ReviewCanvasRange,
   type ReviewCommitSummary,
 } from "@dev.fast/review-protocol";
@@ -386,8 +389,34 @@ function ReviewLayoutContent({
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
 
+  const [storedHasTraceSessions, setStoredHasTraceSessions] = useState<
+    boolean | null
+  >(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    session
+      .fetch("/agent-traces", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data: JsonValue = await res.json();
+
+        const sessions =
+          isJsonObject(data) && data.ok === true
+            ? jsonArray(data.sessions)
+            : undefined;
+
+        setStoredHasTraceSessions((sessions?.length ?? 0) > 0);
+      })
+      .catch(() => {});
+
+    return () => controller.abort();
+  }, [session]);
   const diffFiles = useReviewDiffFiles();
-  const hasTraceSessions = session.review!.traces.size > 0;
+
+  const hasTraceSessions =
+    (session.review?.traces.size ?? 0) > 0 || storedHasTraceSessions;
+
 
   const filesTabFileCount = diffScope
     ? diffScope.fileCount

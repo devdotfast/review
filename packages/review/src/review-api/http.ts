@@ -11,6 +11,7 @@ import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import type { ReviewStore, Snapshot } from "./store.js";
+import { listPinnedTraces, readStoredTrace } from "./traces.js";
 
 /** Mounted behind the desktop server's existing token authentication. */
 export function createReviewApi(
@@ -187,6 +188,36 @@ export function createReviewApi(
   });
 
   if (data) {
+    const traceQuery = readQuerySchemas.maps.extend({
+      storage: z.enum(["s3", "hosted"]).optional(),
+      trace: z.string().min(1).optional(),
+    });
+
+    app.get("/:id/agent-traces", async (context) => {
+      const query = traceQuery.parse(context.req.query());
+      const { pins } = store.read(context.req.param("id"), query.version);
+
+      return context.json(
+        await listPinnedTraces(
+          store.repositoryPath(pins.repositoryId),
+          pins,
+          query.storage,
+        ),
+      );
+    });
+    app.get("/:id/agent-traces/:sessionId", async (context) => {
+      const query = traceQuery.parse(context.req.query());
+      const { pins } = store.read(context.req.param("id"), query.version);
+
+      const result = await readStoredTrace(
+        store.repositoryPath(pins.repositoryId),
+        context.req.param("sessionId"),
+        query.trace,
+        query.storage,
+      );
+
+      return context.json(result, result.ok ? 200 : 404);
+    });
     app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 

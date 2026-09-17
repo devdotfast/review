@@ -12,8 +12,6 @@ export {
 } from "./code-peek-diff.js";
 
 import {
-  type ReviewAgentTraceListResponse,
-  ReviewAgentTraceListResponseSchema,
   type ReviewAgentTraceResponse,
   ReviewAgentTraceResponseSchema,
   type ReviewCliInstallApplyRequest,
@@ -25,8 +23,6 @@ import {
   type ReviewCliInstallTarget,
   type ReviewDesktopDiscovery,
   ReviewDesktopDiscoverySchema,
-  type ReviewDesktopGlobalEvent,
-  ReviewDesktopGlobalEventSchema,
   type ReviewDesktopVerbFrame,
   ReviewDesktopVerbFrameSchema,
   type ReviewDesktopVerbResult,
@@ -37,12 +33,6 @@ import {
   ReviewFileContentRequestSchema,
   type ReviewFileContentResponse,
   ReviewFileContentResponseSchema,
-  type ReviewListResponse,
-  ReviewListResponseSchema,
-  type ReviewOpenResponse,
-  ReviewOpenResponseSchema,
-  type ReviewSessionResponse,
-  ReviewSessionResponseSchema,
   type ReviewStackResponse,
   ReviewStackResponseSchema,
   type ReviewTutorialOpenResponse,
@@ -106,10 +96,6 @@ export function parseReviewDesktopDiscovery(
   return parseZod(ReviewDesktopDiscoverySchema, value);
 }
 
-export function parseReviewListResponse(value: JsonValue): ReviewListResponse {
-  return parseZod(ReviewListResponseSchema, value);
-}
-
 export function parseReviewStackResponse(
   value: JsonValue,
 ): ReviewStackResponse {
@@ -134,20 +120,10 @@ export function parseReviewCliInstallApplyResponse(
   return parseZod(ReviewCliInstallApplyResponseSchema, value);
 }
 
-export function parseReviewOpenResponse(value: JsonValue): ReviewOpenResponse {
-  return parseZod(ReviewOpenResponseSchema, value);
-}
-
 export function parseReviewTutorialOpenResponse(
   value: JsonValue,
 ): ReviewTutorialOpenResponse {
   return parseZod(ReviewTutorialOpenResponseSchema, value);
-}
-
-export function parseReviewDesktopGlobalEvent(
-  value: JsonValue,
-): ReviewDesktopGlobalEvent {
-  return parseZod(ReviewDesktopGlobalEventSchema, value);
 }
 
 export function parseReviewDesktopVerbFrame(
@@ -160,12 +136,6 @@ export function parseReviewDesktopVerbResult(
   value: JsonValue,
 ): ReviewDesktopVerbResult {
   return parseZod(ReviewDesktopVerbResultSchema, value);
-}
-
-export function parseReviewSessionResponse(
-  value: JsonValue,
-): ReviewSessionResponse {
-  return parseZod(ReviewSessionResponseSchema, value);
 }
 
 export function parseReviewDiffFilesResponse(
@@ -192,12 +162,6 @@ export function parseReviewVerbRequest(value: JsonValue): ReviewVerbRequest {
 
 export function parseReviewVerbResponse(value: JsonValue): ReviewVerbResponse {
   return parseZod(ReviewVerbResponseSchema, value);
-}
-
-export function parseReviewAgentTraceListResponse(
-  value: JsonValue,
-): ReviewAgentTraceListResponse {
-  return parseZod(ReviewAgentTraceListResponseSchema, value);
 }
 
 export function parseReviewAgentTraceResponse(

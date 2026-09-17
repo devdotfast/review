@@ -1,11 +1,6 @@
 import {
-  type JsonValue,
   type ReviewDiffStats,
   type ReviewStackLayer,
-  isJsonObject,
-  jsonNumber,
-  jsonString,
-  parseReviewStackResponse,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 import {
@@ -38,12 +33,8 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   const displayedVersion = useContext(DisplayedReviewVersionContext);
   const diffFiles = useReviewDiffFiles();
 
-  const [legacyMeta, setLegacyMeta] = useState<ReviewDocumentMetaState | null>(
-    null,
-  );
-
-  const review = session.review;
-  const meta = review ? documentMetaState(review) : legacyMeta;
+  const review = session.review!;
+  const meta = documentMetaState(review);
 
   const [relativeTimeNowMs, setRelativeTimeNowMs] = useState<number | null>(
     null,
@@ -56,34 +47,6 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   }, [displayedVersion]);
 
   useEffect(() => {
-    if (review) return;
-    const controller = new AbortController();
-
-    reviewFetch("/document-meta", { signal: controller.signal })
-      .then(async (response) => {
-        const json: JsonValue = await response.json();
-
-        if (
-          controller.signal.aborted ||
-          !response.ok ||
-          !isJsonObject(json) ||
-          json.ok !== true
-        )
-          return;
-        setLegacyMeta(
-          documentMetaState({
-            updatedAtMs: jsonNumber(json.updatedAtMs),
-            pullRequestNumber: jsonNumber(json.pullRequestNumber),
-            pullRequestUrl: jsonString(json.pullRequestUrl),
-          }),
-        );
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [reviewFetch, review, displayedVersion]);
-
-  useEffect(() => {
     const controller = new AbortController();
 
     if (!meta?.pullRequestNumber) {
@@ -92,14 +55,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       return () => controller.abort();
     }
 
-    const layers = review
-      ? review.stack(controller.signal)
-      : reviewFetch("/stack", { signal: controller.signal }).then(
-          async (response) =>
-            response.ok
-              ? parseReviewStackResponse(await response.json()).layers
-              : [],
-        );
+    const layers = review.stack(controller.signal);
 
     layers
       .then((next) => {

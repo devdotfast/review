@@ -3,18 +3,19 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
-import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { Disposable } from "../../base/common/lifecycle.js";
+import { createDecorator, IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import type { EditorInput } from "../../workbench/common/editor/editorInput.js";
 import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
-import { ReviewCanvasEditorInput, type ReviewCanvasEditorTarget } from "../browser/parts/canvas/reviewCanvasEditorInput.js";
-import { IReviewSessionService } from "./reviewSessionService.js";
-import { shortPath } from "../common/reviewPaths.js";
+import {
+	ReviewCanvasEditorInput,
+	type ReviewCanvasEditorTarget,
+} from "../browser/parts/canvas/reviewCanvasEditorInput.js";
 
-export const IReviewCanvasEditorTabsService =
-	createDecorator<IReviewCanvasEditorTabsService>("reviewCanvasEditorTabsService");
+export const IReviewCanvasEditorTabsService = createDecorator<IReviewCanvasEditorTabsService>(
+	"reviewCanvasEditorTabsService",
+);
 
 export interface IReviewCanvasEditorTabsService {
 	readonly _serviceBrand: undefined;
@@ -24,39 +25,11 @@ export interface IReviewCanvasEditorTabsService {
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
-	/**
-	 * Opens the Source tab. With a `reviewUuid`, binds the tab to that review
-	 * so its activation can root the file tree at the review's pinned worktree.
-	 * (Callers reveal the tree themselves: this service must not import the
-	 * explorer — `reviewDiffTabs` already imports this module, and the cycle
-	 * is a boot-time TDZ crash.)
-	 */
-	openSource(
-		active: boolean,
-		reviewUuid?: string,
-	): Promise<ReviewCanvasEditorInput>;
-	openReview(
-		reviewUuid: string,
-		active: boolean,
-	): Promise<ReviewCanvasEditorInput>;
-	openReviewRevision(
-		reviewUuid: string,
-		revision: string,
-		sealedAt: number | undefined,
-		active: boolean,
-	): Promise<ReviewCanvasEditorInput>;
-	openSession(
-		sessionId: string,
-		active: boolean,
-	): Promise<ReviewCanvasEditorInput>;
 	registerReviewEditor(reviewUuid: string, input: EditorInput): void;
 	closeReview(reviewUuid: string): Promise<void>;
 }
 
-export class ReviewCanvasEditorTabsService
-	extends Disposable
-	implements IReviewCanvasEditorTabsService
-{
+export class ReviewCanvasEditorTabsService extends Disposable implements IReviewCanvasEditorTabsService {
 	declare readonly _serviceBrand: undefined;
 
 	private readonly inputs = new Map<string, ReviewCanvasEditorInput>();
@@ -68,23 +41,30 @@ export class ReviewCanvasEditorTabsService
 		@IEditorService private readonly editorService: IEditorService,
 		@IEditorGroupsService
 		private readonly editorGroupsService: IEditorGroupsService,
-		@IReviewSessionService
-		private readonly sessionService: IReviewSessionService,
 	) {
 		super();
-		this._register(this.editorService.onDidCloseEditor((event) => {
-			queueMicrotask(() => this.pruneReviewEditor(event.editor));
-		}));
+		this._register(
+			this.editorService.onDidCloseEditor((event) => {
+				queueMicrotask(() => this.pruneReviewEditor(event.editor));
+			}),
+		);
 	}
 
 	async openHome(active: boolean): Promise<ReviewCanvasEditorInput> {
 		const input = await this.openSingleton({ kind: "home" }, active);
-		this.editorGroupsService.groups.find(group => group.contains(input))?.stickEditor(input);
+		this.editorGroupsService.groups.find((group) => group.contains(input))?.stickEditor(input);
 		return input;
 	}
 
-	inputFor(target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>): ReviewCanvasEditorInput {
-		const key = target.kind === "home" ? "home" : target.kind === "api" ? `api:${target.reviewId}` : `api:${target.reviewId}:source:${target.version}`;
+	inputFor(
+		target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>,
+	): ReviewCanvasEditorInput {
+		const key =
+			target.kind === "home"
+				? "home"
+				: target.kind === "api"
+					? `api:${target.reviewId}`
+					: `api:${target.reviewId}:source:${target.version}`;
 		let input = this.inputs.get(key);
 		if (!input || input.isDisposed()) {
 			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, target);
@@ -114,163 +94,45 @@ export class ReviewCanvasEditorTabsService
 		return this.openSingleton({ kind: "settings" }, active);
 	}
 
-	openSource(
-		active: boolean,
-		reviewUuid?: string,
-	): Promise<ReviewCanvasEditorInput> {
-		return this.openSingleton({ kind: "source" }, active, (input) => {
-			if (reviewUuid) {
-				input.preferReview(reviewUuid);
-			}
-		});
-	}
-
 	/** One tab per non-review kind; `configure` runs before the tab opens. */
 	private async openSingleton(
-		target:
-			| { kind: "home" }
-			| { kind: "welcome" }
-			| { kind: "settings" }
-			| { kind: "source" },
+		target: { kind: "home" } | { kind: "welcome" } | { kind: "settings" },
 		active: boolean,
 		configure?: (input: ReviewCanvasEditorInput) => void,
 	): Promise<ReviewCanvasEditorInput> {
 		let input = this.inputs.get(target.kind);
 		if (!input || input.isDisposed()) {
-			input = this.instantiationService.createInstance(
-				ReviewCanvasEditorInput,
-				target,
-			);
+			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, target);
 			this.inputs.set(target.kind, input);
 		}
 		configure?.(input);
 		// A control command may arrive while an Ask's loading pane has focus.
 		// Reuse the review's group instead of mounting a second canvas there.
-		const existingGroup = this.editorGroupsService.groups.find(group => group.contains(input));
-		const targetGroup = existingGroup === undefined
-			? this.editorGroupsService.mainPart.activeGroup
-			: existingGroup;
-		await this.editorService.openEditor(
-			input,
-			{ pinned: true, inactive: !active, revealIfVisible: true },
-			targetGroup,
-		);
+		const existingGroup = this.editorGroupsService.groups.find((group) => group.contains(input));
+		const targetGroup = existingGroup === undefined ? this.editorGroupsService.mainPart.activeGroup : existingGroup;
+		await this.editorService.openEditor(input, { pinned: true, inactive: !active, revealIfVisible: true }, targetGroup);
 		return input;
 	}
 
-	async openReview(
-		reviewUuid: string,
-		active: boolean,
-	): Promise<ReviewCanvasEditorInput> {
-		const input = this.reviewInput(reviewUuid);
-		await this.openReviewInput(input, active);
-		return input;
-	}
-
-	async openReviewRevision(
-		reviewUuid: string,
-		revision: string,
-		sealedAt: number | undefined,
-		active: boolean,
-	): Promise<ReviewCanvasEditorInput> {
-		const review = this.sessionService.reviews.find(
-			(candidate) => candidate.uuid === reviewUuid,
-		);
-		const key = `${reviewUuid}@${revision}`;
-		let input = this.inputs.get(key);
-		if (!input || input.isDisposed()) {
-			input = this.instantiationService.createInstance(
-				ReviewCanvasEditorInput,
-				{
-					kind: "review",
-					reviewUuid,
-					revision,
-					sealedAt: sealedAt ?? null,
-					title: review?.title ?? "",
-					repoLabel: shortPath(review?.worktreePath ?? ""),
-					lastPublishedAt: review?.lastPublishedAt ?? null,
-				},
-			);
-			this.inputs.set(key, input);
-		}
-		await this.openReviewInput(input, active);
-		return input;
-	}
-
-	private reviewInput(reviewUuid: string): ReviewCanvasEditorInput {
-		/* The tutorial Review is not in the store-backed list; its descriptor
-		   comes from the tutorial open response instead. */
-		const review =
-			this.sessionService.reviews.find(
-				(candidate) => candidate.uuid === reviewUuid,
-			) ??
-			(this.sessionService.tutorialReview?.uuid === reviewUuid
-				? this.sessionService.tutorialReview
-				: undefined);
-		const reviewError = this.sessionService.reviewErrors.find(
-			(candidate) => candidate.reviewUuid === reviewUuid,
-		);
-		if (!review && !reviewError) {
-			throw new Error(`Review descriptor is unavailable for ${reviewUuid}.`);
-		}
-		let input = this.inputs.get(reviewUuid);
-		if (!input || input.isDisposed()) {
-			input = this.instantiationService.createInstance(
-				ReviewCanvasEditorInput,
-					{
-						kind: "review",
-						reviewUuid,
-						title: review?.title ?? reviewError?.title ?? "",
-						repoLabel: shortPath(
-							review?.worktreePath ?? reviewError?.worktreePath ?? "",
-						),
-						lastPublishedAt:
-							review?.lastPublishedAt ?? reviewError?.lastPublishedAt ?? null,
-				},
-			);
-			this.inputs.set(reviewUuid, input);
-		}
-		return input;
-	}
-
-	private async openReviewInput(
-		input: ReviewCanvasEditorInput,
-		active: boolean,
-	): Promise<void> {
+	private async openReviewInput(input: ReviewCanvasEditorInput, active: boolean): Promise<void> {
 		// A control command may arrive while an Ask's loading pane has focus.
 		// Reuse the review's group instead of mounting a second canvas there.
-		const existingGroup = this.editorGroupsService.groups.find(group => group.contains(input));
-		const targetGroup = existingGroup === undefined
-			? this.editorGroupsService.mainPart.activeGroup
-			: existingGroup;
-		await this.editorService.openEditor(
-			input,
-			{ pinned: true, inactive: !active, revealIfVisible: true },
-			targetGroup,
-		);
+		const existingGroup = this.editorGroupsService.groups.find((group) => group.contains(input));
+		const targetGroup = existingGroup === undefined ? this.editorGroupsService.mainPart.activeGroup : existingGroup;
+		await this.editorService.openEditor(input, { pinned: true, inactive: !active, revealIfVisible: true }, targetGroup);
 	}
 
 	async closeReview(reviewUuid: string): Promise<void> {
 		const keys = [...this.inputs.keys()].filter(
-			(key) => key === reviewUuid || key === `api:${reviewUuid}` || key.startsWith(`api:${reviewUuid}:source:`) || key.startsWith(`${reviewUuid}@`),
+			(key) =>
+				key === reviewUuid ||
+				key === `api:${reviewUuid}` ||
+				key.startsWith(`api:${reviewUuid}:source:`) ||
+				key.startsWith(`${reviewUuid}@`),
 		);
 		const reviewInputs = keys
 			.map((key) => this.inputs.get(key))
-			.filter(
-				(input): input is ReviewCanvasEditorInput =>
-					Boolean(input && !input.isDisposed()),
-			);
-		// A Source tab bound to this review goes with it: it would only show
-		// "Worktree unavailable" from here on, and closing it disposes the
-		// input, which releases the background session lease.
-		const source = this.inputs.get("source");
-		if (
-			source &&
-			!source.isDisposed() &&
-			source.preferredReview === reviewUuid
-		) {
-			reviewInputs.push(source);
-		}
+			.filter((input): input is ReviewCanvasEditorInput => Boolean(input && !input.isDisposed()));
 		const reviewEditors = [...(this.reviewEditors.get(reviewUuid) ?? [])];
 		for (const key of keys) this.inputs.delete(key);
 		this.reviewEditors.delete(reviewUuid);
@@ -287,9 +149,7 @@ export class ReviewCanvasEditorTabsService
 			),
 		];
 		if (editors.length === 0) return;
-		await this.editorService.closeEditors(
-			editors,
-		);
+		await this.editorService.closeEditors(editors);
 	}
 
 	registerReviewEditor(reviewUuid: string, input: EditorInput): void {
@@ -311,34 +171,5 @@ export class ReviewCanvasEditorTabsService
 				this.reviewEditors.delete(reviewUuid);
 			}
 		}
-	}
-
-	async openSession(
-		sessionId: string,
-		active: boolean,
-	): Promise<ReviewCanvasEditorInput> {
-		let session = this.sessionService.sessions.find(
-			(candidate) => candidate.sessionId === sessionId,
-		);
-		if (!session) {
-			await this.sessionService.refresh();
-			session = this.sessionService.sessions.find(
-				(candidate) => candidate.sessionId === sessionId,
-			);
-		}
-		if (!session) {
-			throw new Error(`Review session is unavailable: ${sessionId}`);
-		}
-		const input = session.historicalRevision
-			? await this.openReviewRevision(
-				session.reviewUuid,
-				session.historicalRevision,
-				undefined,
-				false,
-			)
-			: this.reviewInput(session.reviewUuid);
-		input.preferSession(sessionId);
-		await this.openReviewInput(input, active);
-		return input;
 	}
 }

@@ -150,14 +150,6 @@ export function promptAgent(
     key: "installed" | "present",
   ) => status.agents.some((agent) => agent.target === target && agent[key]);
 
-  const stored = readStoredPromptAgent();
-
-  if (stored === "generic") return "generic";
-
-  if (stored && (has(stored, "installed") || has(stored, "present"))) {
-    return stored;
-  }
-
   for (const key of ["installed", "present"] as const) {
     if (has("claude", key)) return "claude";
 
@@ -167,25 +159,6 @@ export function promptAgent(
   }
 
   return "generic";
-}
-
-/** Written by the Home agent tabs that #891 removed; never written today. */
-const LEGACY_PROMPT_AGENT_STORAGE_KEY = "dev.fast.review.homePromptAgent";
-
-function readStoredPromptAgent(): PromptAgent | undefined {
-  try {
-    const stored = globalThis.localStorage?.getItem(
-      LEGACY_PROMPT_AGENT_STORAGE_KEY,
-    );
-
-    if (stored === "claude" || stored === "codex" || stored === "generic") {
-      return stored;
-    }
-  } catch {
-    // Fall through to the derived choice when DOM storage is unavailable.
-  }
-
-  return undefined;
 }
 
 function readStoredPromptKind(): PromptKind {

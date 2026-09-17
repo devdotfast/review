@@ -1,11 +1,9 @@
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ZodError } from "zod";
 
 import type {
   AuthoredTargetRef,
   CodePeekProps,
-  ReviewAuthoringComponentRegistry,
   SequenceDiagramProps,
   SequenceMessageInput,
 } from "../../src/authoring";
@@ -23,19 +21,11 @@ import {
   tutorialFeaturePropsSchema,
   tutorialViewButtonPropsSchema,
 } from "../../src/authoring";
-import type { ReviewDocumentComponentRegistry } from "../../src/review-document-data";
-import { reviewAuthoringComponents } from "./review-authoring-components";
 import { createTestReviewDefinitionSession } from "./review-definition-test-utils";
-import { ReviewDocumentContent } from "./review-document-surface";
 
 const definitionSession = createTestReviewDefinitionSession();
 
 const { defineActors, defineAnchors, defineStores } = definitionSession;
-
-// CallStackDiff renders canonical frames, not authored anchor lists; Part I
-// moves the rest of the registry to document props too.
-const runtimeRegistry =
-  reviewAuthoringComponents satisfies ReviewDocumentComponentRegistry;
 
 const actors = defineActors({
   browser: { label: "Browser" },
@@ -183,39 +173,6 @@ void invalidEmptyMessage;
 void invalidSequenceChildren;
 
 describe("review authoring contract", () => {
-  it("is satisfied by the exact runtime component registry", () => {
-    expect(Object.keys(runtimeRegistry).sort()).toEqual([
-      "AnchorLink",
-      "CallStackDiff",
-      "CodePeek",
-      "DatabaseLens",
-      "ReviewSection",
-      "SequenceDiagram",
-      "TraceQuote",
-      "TutorialAuthoringConversation",
-      "TutorialFeature",
-      "TutorialKeymapPicker",
-      "TutorialViewButton",
-    ]);
-  });
-
-  it("renders map-free review document content without either repo map", () => {
-    const html = renderToStaticMarkup(
-      <ReviewDocumentContent
-        body={[
-          {
-            type: "element",
-            tag: "p",
-            props: {},
-            children: [{ type: "text", value: "Map-free review prose" }],
-          },
-        ]}
-      />,
-    );
-
-    expect(html).toContain("Map-free review prose");
-  });
-
   it("uses the package-owned helper implementation at runtime", () => {
     expect(actorKeyInference).toMatchObject({
       __kind: "db-actor-ref",

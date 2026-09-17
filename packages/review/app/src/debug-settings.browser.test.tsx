@@ -61,7 +61,7 @@ describe("ReviewDebugSettingsProvider theme", () => {
 
   it("preserves an explicit preference to show every software-map node", async () => {
     window.localStorage.setItem(
-      "progressive-review:debug-settings:theme-test:/review.mdx",
+      "progressive-review:debug-settings:theme-test",
       JSON.stringify({ showModifiedOnly: false }),
     );
     const container = document.createElement("div");
@@ -83,7 +83,7 @@ describe("ReviewDebugSettingsProvider theme", () => {
     "uses the dark host theme instead of a stored %s preference",
     async (storedTheme) => {
       window.localStorage.setItem(
-        "progressive-review:debug-settings:theme-test:/review.mdx",
+        "progressive-review:debug-settings:theme-test",
         JSON.stringify({
           settingsVersion: 2,
           theme: storedTheme,
@@ -115,7 +115,7 @@ describe("ReviewDebugSettingsProvider theme", () => {
 
       const persisted = parseJsonText(
         window.localStorage.getItem(
-          "progressive-review:debug-settings:theme-test:/review.mdx",
+          "progressive-review:debug-settings:theme-test",
         ) ?? "{}",
       );
 
@@ -172,14 +172,13 @@ function createTestSession(): ReviewSession {
   return testReviewSession(
     {
       serverUrl: "http://127.0.0.1:4100",
-      sessionUrl: "http://127.0.0.1:4101",
-      routePath: "/review.mdx",
-      sessionId: "theme-test",
+      reviewId: "theme-test",
       token: "",
       theme,
     },
     {
       diffView: {
+        files: async () => [],
         create: () => {
           throw new Error("unused test diff view");
         },

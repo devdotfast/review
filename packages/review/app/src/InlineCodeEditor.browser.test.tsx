@@ -69,6 +69,7 @@ function renderPeek(active: boolean) {
     {},
     {
       diffView: {
+        files: async () => [],
         create: () => {
           throw new Error("unused test diff view");
         },

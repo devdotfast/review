@@ -1,28 +1,18 @@
 import type { Writable } from "node:stream";
 
 import {
-  type JsonValue,
-  type ReviewView,
-  jsonObject,
-  jsonString,
+  ReviewApiClient,
+  type ReviewApiSummary,
 } from "@dev.fast/review-protocol";
 
 import { readReviewDesktopDiscovery } from "./desktop-discovery";
 import { runReviewAppLaunch } from "./review-app-launcher";
-import { type ReviewPickerItem, pickReview } from "./review-app-picker";
-import { actionableReviewsForCheckout } from "./review-change-scope";
-import {
-  type StoredReview,
-  findScopedReview,
-  listReviews,
-} from "./review-home";
+import { pickReview } from "./review-app-picker";
 import { resolveReviewRoot } from "./runtime";
 
 interface ReviewAppRuntime {
   launch: typeof runReviewAppLaunch;
   readReviewDesktopDiscovery: typeof readReviewDesktopDiscovery;
-  listReviews: typeof listReviews;
-  findScopedReview: typeof findScopedReview;
   resolveReviewRoot: typeof resolveReviewRoot;
   pickReview: typeof pickReview;
   fetch: typeof globalThis.fetch;
@@ -31,7 +21,6 @@ interface ReviewAppRuntime {
 export interface RunReviewAppInput {
   cwd: string;
   reviewUuid?: string;
-  view?: ReviewView;
   stdin: NodeJS.ReadStream;
   stdout: Writable;
 }
@@ -48,11 +37,9 @@ export async function runReviewAppPick(
   input: RunReviewAppInput,
   overrides: Partial<ReviewAppRuntime> = {},
 ): Promise<ReviewAppEvent | null> {
-  const runtime: ReviewAppRuntime = {
+  const runtime = {
     launch: runReviewAppLaunch,
     readReviewDesktopDiscovery,
-    listReviews,
-    findScopedReview,
     resolveReviewRoot,
     pickReview,
     fetch: globalThis.fetch,
@@ -60,133 +47,55 @@ export async function runReviewAppPick(
   };
 
   await runtime.launch();
-  const reviewRoot = await runtime.resolveReviewRoot(input.cwd);
-  const review = await selectAppReview(input, reviewRoot, runtime);
-
-  if (!review) return null;
   const discovery = await runtime.readReviewDesktopDiscovery();
 
-  if (!discovery) {
+  if (!discovery)
     throw new Error(
       "Review Desktop is not ready. Run `review app launch` and retry `review app pick`.",
     );
-  }
 
-  const response = await runtime.fetch(
-    `${discovery.url}/reviews/${encodeURIComponent(review.review.uuid)}/open`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-review-token": discovery.token,
-      },
-      body: JSON.stringify(input.view ? { view: input.view } : {}),
-    },
+  const client = new ReviewApiClient(
+    { serverUrl: discovery.url, token: discovery.token },
+    runtime.fetch,
   );
 
-  const payload: JsonValue = await response.json();
+  let review: Pick<ReviewApiSummary, "reviewId" | "title">;
 
-  // An imported review opens in the JSON canvas; the desktop already did so.
-  if (!response.ok && jsonObject(payload)?.code !== "imported") {
-    throw new Error(reviewAppResponseError(payload, response.status));
+  if (input.reviewUuid) {
+    review = await client.read(`/${encodeURIComponent(input.reviewUuid)}`);
+  } else {
+    if (!input.stdin.isTTY)
+      throw new Error(
+        "review app pick needs a terminal without --review. Pass --review <uuid> or run it in a terminal.",
+      );
+    const root = await runtime.resolveReviewRoot(input.cwd);
+
+    const reviews = (await client.read<ReviewApiSummary[]>("/"))
+      .filter((review) => review.repositoryPath === root && !review.dismissedAt)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+    if (!reviews.length) throw new Error("No review to show.");
+
+    const picked = await runtime.pickReview(
+      reviews.map((review) => ({
+        uuid: review.reviewId,
+        title: review.title,
+        status: review.viewedAt ? "viewed" : "new",
+        lastPublishedAt: review.createdAt,
+      })),
+      input,
+    );
+
+    if (!picked) return null;
+    review = { reviewId: picked.uuid, title: picked.title };
   }
+
+  await client.post(`/${encodeURIComponent(review.reviewId)}/open`, {});
 
   return {
     event: "app",
     action: "pick",
-    reviewUuid: review.review.uuid,
-    title: review.review.title,
+    reviewUuid: review.reviewId,
+    title: review.title,
   };
-}
-
-async function selectAppReview(
-  input: RunReviewAppInput,
-  reviewRoot: string,
-  runtime: ReviewAppRuntime,
-): Promise<StoredReview | null> {
-  if (input.reviewUuid) {
-    const selected = await runtime.findScopedReview(input.reviewUuid, {
-      worktreePath: reviewRoot,
-      includeTerminal: true,
-    });
-
-    if (!selected) throw new Error(`Review not found: ${input.reviewUuid}`);
-
-    return requirePublishedReview(selected);
-  }
-
-  const listed = await runtime.listReviews({ worktreePath: reviewRoot });
-
-  if (listed.errors.length > 0)
-    throw new Error(
-      `Could not read reviews:\n${listed.errors.map((error) => error.message).join("\n")}`,
-    );
-
-  return pickAppReview(
-    await actionableReviewsForCheckout(listed.reviews, reviewRoot),
-    input,
-    runtime,
-  );
-}
-
-function requirePublishedReview(selected: StoredReview): StoredReview {
-  if (selected.review.presentedDocumentRevision === null) {
-    throw new Error(
-      `Review ${selected.review.uuid} has no published revision to show.`,
-    );
-  }
-
-  return selected;
-}
-
-async function pickAppReview(
-  reviews: readonly StoredReview[],
-  input: RunReviewAppInput,
-  runtime: ReviewAppRuntime,
-): Promise<StoredReview | null> {
-  if (!input.stdin.isTTY) {
-    throw new Error(
-      "review app pick needs a terminal without --review. Pass --review <uuid> or run it in a terminal.",
-    );
-  }
-
-  const openable = reviews.filter(
-    (review) => review.review.presentedDocumentRevision !== null,
-  );
-
-  if (openable.length === 0) {
-    throw new Error("No published review to show.");
-  }
-
-  const items: ReviewPickerItem[] = [...openable]
-    .sort((left, right) =>
-      (right.review.lastPublishedAt ?? "").localeCompare(
-        left.review.lastPublishedAt ?? "",
-      ),
-    )
-    .map((review) => ({
-      uuid: review.review.uuid,
-      title: review.review.title,
-      status: review.review.status,
-      lastPublishedAt: review.review.lastPublishedAt,
-    }));
-
-  const picked = await runtime.pickReview(items, {
-    stdin: input.stdin,
-    stdout: input.stdout,
-  });
-
-  if (!picked) return null;
-  const selected = reviews.find((review) => review.review.uuid === picked.uuid);
-
-  if (!selected) throw new Error(`Review not found: ${picked.uuid}`);
-
-  return requirePublishedReview(selected);
-}
-
-function reviewAppResponseError(payload: JsonValue, status: number): string {
-  return (
-    jsonString(jsonObject(payload)?.error) ??
-    `Review Desktop returned ${status} for app open.`
-  );
 }

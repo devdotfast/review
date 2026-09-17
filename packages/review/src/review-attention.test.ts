@@ -2,10 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  REVIEW_SCHEMA_VERSION,
-  type ReviewRecord,
-} from "@dev.fast/review-protocol";
+import { REVIEW_SCHEMA_VERSION } from "@dev.fast/review-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -18,6 +15,10 @@ import {
   selectReapableReviews,
 } from "./review-attention";
 import type { StoredReview } from "./review-home";
+import {
+  type ReviewRecord,
+  ReviewRecordSchema,
+} from "./review-import/legacy-record";
 
 const DISMISSED_AT = "2026-01-01T00:00:00.000Z";
 

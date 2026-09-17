@@ -1,24 +1,14 @@
-import {
-  type JsonValue,
-  ReviewDocumentVersionSchema,
-  type ReviewDocumentVersionWire,
-  isJsonObject,
-  jsonObject,
-  jsonString,
-  parseZod,
-} from "@dev.fast/review-protocol";
+import { type ReviewDocumentVersionWire } from "@dev.fast/review-protocol";
 import {
   type ReactNode,
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
 } from "react";
 
 import { useReviewSession } from "./host/review-session";
-import { reviewAppTelemetryHeaders } from "./ui-telemetry";
 
 export type ReviewSubmissionOutcome =
   | "approved"
@@ -73,7 +63,7 @@ export function ReviewProvider({
 }) {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
-  const review = session.review;
+  const review = session.review!;
 
   const [softwareMapFocusRequest, setSoftwareMapFocusRequest] =
     useState<SoftwareMapFocusRequest | null>(null);
@@ -82,15 +72,6 @@ export function ReviewProvider({
   // the canvas can show that state instead of a live-looking document.
   const [submissionOutcome, setSubmissionOutcome] =
     useState<ReviewSubmissionOutcome | null>(null);
-
-  const [historicalRevision, setHistoricalRevision] = useState<string | null>(
-    null,
-  );
-
-  const [resolvedRefs, setResolvedRefs] = useState<{
-    base: string | null;
-    head: string | null;
-  }>({ base: null, head: null });
 
   const openSoftwareMapElement = useCallback(
     (elementPath: string) => {
@@ -104,85 +85,11 @@ export function ReviewProvider({
   );
 
   const dismissReview = useCallback(async () => {
-    if (review) {
-      await review.dismiss();
-    } else {
-      const response = await reviewFetch(
-        "/dismiss",
-        { method: "POST", headers: reviewAppTelemetryHeaders(session) },
-        { routePath: documentRoute },
-      );
-
-      if (!response.ok) {
-        throw new Error(`Review dismiss failed (${response.status}).`);
-      }
-    }
-
+    await review.dismiss();
     setSubmissionOutcome("dismissed");
-  }, [documentRoute, reviewFetch, session, review]);
+  }, [review]);
 
-  const listVersions = useCallback(async () => {
-    if (review) return review.listVersions();
-
-    const response = await reviewFetch(
-      "/revisions",
-      {},
-      { routePath: documentRoute },
-    );
-
-    if (!response.ok) return null;
-    const body: JsonValue = await response.json();
-
-    if (!isJsonObject(body) || body.ok !== true) return null;
-
-    return parseZod(
-      ReviewDocumentVersionSchema.array(),
-      body.versions ?? [],
-      "versions",
-    );
-  }, [documentRoute, reviewFetch, review]);
-
-  useEffect(() => {
-    if (review) return;
-    let disposed = false;
-    void reviewFetch("/session", {}, { routePath: documentRoute })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(
-            `Review session request failed (${response.status}).`,
-          );
-        }
-
-        const body: JsonValue = await response.json();
-
-        const reviewSession = isJsonObject(body)
-          ? jsonObject(body.session)
-          : undefined;
-
-        if (disposed) return;
-        setHistoricalRevision(
-          jsonString(reviewSession?.historicalRevision) ?? null,
-        );
-        setResolvedRefs({
-          base: jsonString(reviewSession?.resolvedBaseRef) ?? null,
-          head: jsonString(reviewSession?.headRef) ?? null,
-        });
-        const reviewStatus = jsonString(reviewSession?.reviewStatus);
-
-        if (reviewStatus === "accepted") {
-          setSubmissionOutcome("approved");
-        } else if (reviewStatus === "awaiting-agent-updates") {
-          setSubmissionOutcome("changes-requested");
-        }
-      })
-      .catch((cause: unknown) => {
-        console.error("Review session fetch failed", cause);
-      });
-
-    return () => {
-      disposed = true;
-    };
-  }, [documentRoute, reviewFetch, review]);
+  const listVersions = useCallback(() => review.listVersions(), [review]);
 
   const actions = useMemo<ReviewActionsValue>(
     () => ({
@@ -203,21 +110,13 @@ export function ReviewProvider({
 
   const state = useMemo<ReviewStateValue>(
     () => ({
-      historicalRevision: review
-        ? review.historicalRevision
-        : historicalRevision,
-      resolvedBaseRef: review ? review.pins.base : resolvedRefs.base,
-      resolvedHeadRef: review ? review.pins.head : resolvedRefs.head,
+      historicalRevision: review.historicalRevision,
+      resolvedBaseRef: review.pins.base,
+      resolvedHeadRef: review.pins.head,
       softwareMapFocusRequest,
       submissionOutcome,
     }),
-    [
-      historicalRevision,
-      resolvedRefs,
-      review,
-      softwareMapFocusRequest,
-      submissionOutcome,
-    ],
+    [review, softwareMapFocusRequest, submissionOutcome],
   );
 
   return (

@@ -665,6 +665,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
     const selected: ReviewSurfaceEvent = {
       event: "editorSelectionChanged",
+      reviewId: bridge.config.reviewId,
       path: "example.ts",
       range: { fromLine: 2, toLine: 2 },
       sideContext: "head",
@@ -679,6 +680,15 @@ it("copies prose and code from the displayed historical JSON review", async () =
     expect(code).toContain("example.ts:2-2 (head)");
     expect(code).not.toContain("latest source");
     expect(code).not.toContain("new-head");
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          ...selected,
+          reviewId: "another-review",
+          path: "unrelated.ts",
+        });
+    });
+    expect(container.querySelector('[aria-label="Copy for Agent"]')).toBeNull();
     await act(async () => {
       for (const listener of listeners)
         listener({

@@ -315,8 +315,6 @@ describe("Review CLI", () => {
     ["app launch", ["app", "launch"], "app.launch"],
     ["bare app", ["app"], "app.launch"],
     ["app pick", ["app", "pick", "--review", "review-uuid"], "app.pick"],
-    ["app pick alias", ["app", "--review", "review-uuid"], "app.pick"],
-    ["app pick equals alias", ["app", "--review=review-uuid"], "app.pick"],
   ])("tracks %s as %s", async (_label, argv, command) => {
     const captureCommandSucceeded = vi.fn<() => Promise<undefined>>(
       async () => undefined,
@@ -516,16 +514,9 @@ describe("Review CLI", () => {
     );
   });
 
-  it.each([
-    [
-      "pick subcommand",
-      ["app", "pick", "--review", "review-uuid", "--view", "diff"],
-    ],
-    [
-      "compatibility alias",
-      ["app", "--review", "review-uuid", "--view", "diff"],
-    ],
-  ])("supports the app %s", async (_label, argv) => {
+  it("supports the app pick subcommand", async () => {
+    const argv = ["app", "pick", "--review", "review-uuid"];
+
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
       action: "pick",
@@ -546,7 +537,7 @@ describe("Review CLI", () => {
       }),
     ).resolves.toBe(0);
     expect(runReviewAppPick).toHaveBeenCalledWith(
-      expect.objectContaining({ reviewUuid: "review-uuid", view: "diff" }),
+      expect.objectContaining({ reviewUuid: "review-uuid" }),
     );
     expect(JSON.parse(output)).toMatchObject({
       event: "app",

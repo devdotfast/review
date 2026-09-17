@@ -1,6 +1,5 @@
 import { type ReactElement, useEffect, useRef, useState } from "react";
 
-import { useOptionalReviewSession } from "./host/review-session";
 import { useReviewActions, useReviewState } from "./review-context";
 import { useTutorial } from "./tutorial-context";
 
@@ -15,9 +14,6 @@ export function ReviewCornerAction(): ReactElement | null {
   const { dismissReview } = useReviewActions();
   const { submissionOutcome } = useReviewState();
   const tutorial = useTutorial();
-
-  const keepsDismissedReviews =
-    useOptionalReviewSession()?.keepsDismissedReviews;
 
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -109,10 +105,8 @@ export function ReviewCornerAction(): ReactElement | null {
         >
           <strong>Dismiss this review?</strong>
           <p>
-            {keepsDismissedReviews
-              ? "It leaves your active list but stays saved. Closing the tab does not dismiss it."
-              : "It leaves your active list and deletes itself later. Closing the tab does neither."}{" "}
-            You can undo this from Home.
+            It leaves your active list but stays saved. Closing the tab does not
+            dismiss it. You can undo this from Home.
           </p>
           {failed ? (
             <span className="review-corner-error" role="alert">

@@ -1,4 +1,3 @@
-import type { ReviewDescriptor } from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import { type RunGhStackView, resolveReviewStackLayers } from "./review-stack";
@@ -8,7 +7,7 @@ const publishedReview = (input: {
   repoKey: string;
   pullRequestNumber: number;
   title: string;
-}): ReviewDescriptor => ({
+}) => ({
   ...input,
   status: "awaiting-review",
   worktreePath: "/repo",

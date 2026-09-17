@@ -206,8 +206,6 @@ export function ApiCanvas({
       },
     });
 
-    session.keepsDismissedReviews = true;
-
     session.softwareMapData = (model) =>
       [...(dataRef.current?.maps.values() ?? [])].find((map) => map === model)
         ?.pinnedData;

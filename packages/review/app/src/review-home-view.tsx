@@ -1,10 +1,9 @@
 import type {
+  ReviewApiSummary,
   ReviewCanvasHomeSetup,
   ReviewCanvasInstallContent,
   ReviewCanvasOnboarding,
   ReviewCliInstallStatus,
-  ReviewHomeItem,
-  ReviewListError,
 } from "@dev.fast/review-protocol";
 import {
   type ColumnDef,
@@ -29,8 +28,6 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
-import { CopyIcon, copyText } from "./copy-text";
-import { damagedLegacyReviewMessage } from "./repair-instruction";
 import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
@@ -39,19 +36,18 @@ export type ReviewHomeView = "cards" | "list";
 export const REVIEW_HOME_VIEW_STORAGE_KEY = "dev.fast.review.homeView";
 
 interface ReviewHomeProps {
-  reviews: readonly ReviewHomeItem[];
-  reviewErrors?: readonly ReviewListError[];
-  onOpen(review: ReviewHomeItem): void;
+  reviews: readonly ReviewApiSummary[];
+  onOpen(review: ReviewApiSummary): void;
   // Deletion is immediate and permanent, so only a dismissed review offers it.
   // Absent when the host does not support deletion.
-  onDelete?(review: ReviewHomeItem): Promise<void>;
-  // Dismissal is reversible and reaped later. Absent when the host does not
+  onDelete?(review: ReviewApiSummary): Promise<void>;
+  // Dismissal is reversible. Absent when the host does not
   // support them.
-  onDismiss?(review: ReviewHomeItem): Promise<void>;
-  onRestore?(review: ReviewHomeItem): Promise<void>;
+  onDismiss?(review: ReviewApiSummary): Promise<void>;
+  onRestore?(review: ReviewApiSummary): Promise<void>;
   // Opens the review and pins its read-only source tree open. Absent when the
   // host cannot show the tree.
-  onOpenSourceTree?(review: ReviewHomeItem): void;
+  onOpenSourceTree?(review: ReviewApiSummary): void;
   setup?: ReviewCanvasHomeSetup;
   // Present only while the list is empty: Home then renders Welcome.
   install?: ReviewCanvasInstallContent;
@@ -60,9 +56,9 @@ interface ReviewHomeProps {
 }
 
 interface ReviewAttentionActions {
-  onDismiss?(review: ReviewHomeItem): Promise<void>;
-  onRestore?(review: ReviewHomeItem): Promise<void>;
-  onOpenSourceTree?(review: ReviewHomeItem): void;
+  onDismiss?(review: ReviewApiSummary): Promise<void>;
+  onRestore?(review: ReviewApiSummary): Promise<void>;
+  onOpenSourceTree?(review: ReviewApiSummary): void;
 }
 
 /* Passed by context rather than through every list and card signature: the
@@ -98,37 +94,20 @@ function MatchedText({ text }: { text: string }) {
   );
 }
 
-/** Days left before the reaper deletes a dismissed review. */
-export function reapCountdownLabel(
-  review: ReviewHomeItem,
-  now = Date.now(),
-): string | null {
-  if (!review.reapsAt) return null;
-  const remainingMs = Date.parse(review.reapsAt) - now;
-
-  if (!Number.isFinite(remainingMs)) return null;
-
-  if (remainingMs <= 0) return "deletes soon";
-  const days = Math.ceil(remainingMs / 86_400_000);
-
-  return days === 1 ? "deletes tomorrow" : `deletes in ${days}d`;
-}
-
 interface ReviewWorkspace {
   path: string;
   label: string;
   branch: string | null;
-  reviews: ReviewHomeItem[];
+  reviews: ReviewApiSummary[];
 }
 
 interface ReviewStatusDisplay {
   label: string;
-  tone: "in-review" | "ready" | "submitted" | "dismissed";
+  tone: "ready" | "dismissed";
 }
 
 export function ReviewHome({
   reviews,
-  reviewErrors = [],
   onOpen,
   onDelete,
   onDismiss,
@@ -142,11 +121,6 @@ export function ReviewHome({
   const [view, setView] = useState<ReviewHomeView>(readStoredHomeView);
   const [showDismissed, setShowDismissed] = useState(false);
   const [query, setQuery] = useState("");
-  const [openedErrorDir, setOpenedErrorDir] = useState<string | null>(null);
-
-  const openedError = reviewErrors.find(
-    (error) => error.reviewDir === openedErrorDir,
-  );
 
   const actions = useMemo(
     () => ({ onDismiss, onRestore, onOpenSourceTree }),
@@ -154,16 +128,6 @@ export function ReviewHome({
   );
 
   const needle = query.trim();
-
-  const foundErrors = reviewErrors.filter((error) =>
-    fuzzyMatches(
-      needle,
-      error.title ?? "",
-      error.worktreePath ?? "",
-      error.reviewUuid ?? "",
-      error.reviewDir,
-    ),
-  );
 
   const found = useMemo(
     () => reviews.filter((review) => matchesQuery(review, needle)),
@@ -196,24 +160,13 @@ export function ReviewHome({
 
   /* With nothing to list, Home is the Welcome rail rather than a zero state
      of its own: the same three steps, in the place the reader already is.
-     Scan errors keep the list shell so broken reviews do not look like
-     a fresh installation. */
-  if (reviews.length === 0 && reviewErrors.length === 0) {
+ */
+  if (reviews.length === 0) {
     return (
       <WelcomePage
         install={install}
         onboarding={onboarding}
         onOpenTutorial={onOpenTutorial}
-      />
-    );
-  }
-
-  if (openedError) {
-    return (
-      <UnavailableReview
-        key={openedError.reviewDir}
-        error={openedError}
-        onBack={() => setOpenedErrorDir(null)}
       />
     );
   }
@@ -230,28 +183,10 @@ export function ReviewHome({
               <ViewToggle view={view} onChange={selectView} />
             </div>
           </div>
-          <div
-            className="review-home-unavailable-entries"
-            aria-label="Unavailable reviews"
-          >
-            {foundErrors.map((error) => (
-              <button
-                key={error.reviewDir}
-                type="button"
-                className="review-home-card"
-                onClick={() => setOpenedErrorDir(error.reviewDir)}
-              >
-                <span className="review-home-review-title">
-                  {error.title || error.reviewUuid || error.reviewDir}
-                </span>
-                <span>Unavailable</span>
-              </button>
-            ))}
-          </div>
           {/* Keyed off the active list, not the whole result: a query that hits
               only dismissed reviews empties the main area, and the collapsed
               Dismissed count alone does not explain why. */}
-          {needle && active.length === 0 && foundErrors.length === 0 ? (
+          {needle && active.length === 0 ? (
             <p className="review-home-search-empty">
               {dismissed.length > 0
                 ? `No active reviews match “${needle}”. Look in Dismissed below.`
@@ -277,111 +212,6 @@ export function ReviewHome({
             </AttentionActionsContext.Provider>
           </SearchQueryContext.Provider>
         </div>
-      </div>
-    </main>
-  );
-}
-
-function unavailableReviewGuidance(error: ReviewListError) {
-  let explanation: string;
-  let command: string | undefined;
-  let nextStep: string;
-
-  switch (error.code) {
-    case "MIGRATION_REQUIRED":
-      explanation =
-        "This review needs manual migration. Copy the prompt to your agent.";
-      command = "review migrate apply";
-      nextStep = `Inspect the affected review and create any necessary backup yourself before making changes; do not ask me to do manual backup steps. Use the supported local review CLI (${command}) if appropriate. If the data was created by a newer Review version, update Review instead of downgrading its data.`;
-      break;
-    case "REPAIR_REQUIRED":
-      explanation = damagedLegacyReviewMessage;
-      nextStep =
-        "Delete this review from Home and recreate it with the Review skill; it cannot be repaired.";
-      break;
-    default:
-      explanation =
-        "This review could not be opened. Copy the prompt to your agent.";
-      nextStep =
-        "Inspect the diagnostic and fix the underlying access or storage problem.";
-  }
-
-  // A damaged legacy review is deleted and recreated, not preserved in place,
-  // so the "do not delete data" boilerplate below would contradict nextStep.
-  const closingLines =
-    error.code === "REPAIR_REQUIRED"
-      ? []
-      : [
-          "Preserve reviews and history. Do not use --force or delete data. Confirm that the affected review opens afterward.",
-        ];
-
-  const prompt = [
-    `Help me open this Review: ${JSON.stringify(error.title || error.reviewUuid || error.reviewDir)}.`,
-    `Review directory: ${JSON.stringify(error.reviewDir)}.`,
-    `Diagnostic: ${JSON.stringify(error.message)}.`,
-    nextStep,
-    ...closingLines,
-  ].join("\n");
-
-  return {
-    explanation,
-    prompt,
-    promptLabel: command ? "Migration prompt" : "Recovery prompt",
-  };
-}
-
-function UnavailableReview({
-  error,
-  onBack,
-}: {
-  error: ReviewListError;
-  onBack(): void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
-  const { explanation, prompt, promptLabel } = unavailableReviewGuidance(error);
-
-  return (
-    <main className="review-home">
-      <div className="review-home-scroll">
-        <section
-          className="review-home-content review-unavailable"
-          aria-label="Review unavailable"
-        >
-          <button type="button" onClick={onBack}>
-            Back to reviews
-          </button>
-          <h1>{error.title || "Review unavailable"}</h1>
-          <p>{explanation}</p>
-          <button
-            type="button"
-            className="review-home-prompt-copy"
-            aria-live="polite"
-            aria-label={copied ? "Prompt copied" : "Copy prompt"}
-            onClick={() => {
-              void copyText(prompt).then((ok) => {
-                setCopied(ok);
-                setCopyFailed(!ok);
-              });
-            }}
-          >
-            <CopyIcon />
-            {copied ? "Copied" : "Copy prompt"}
-          </button>
-          {copyFailed ? (
-            <p role="alert">
-              Could not copy the prompt. Select it below and copy it manually.
-            </p>
-          ) : null}
-          <details>
-            <summary>{promptLabel}</summary>
-            <pre>{prompt}</pre>
-          </details>
-          <details>
-            <summary>Technical details</summary>
-            <pre>{error.message}</pre>
-          </details>
-        </section>
       </div>
     </main>
   );
@@ -522,7 +352,7 @@ function ViewToggle({
 
 /**
  * Dismissed reviews, collapsed by default and kept out of the workspace
- * grouping. Each row states its own deadline, so the reap never surprises.
+ * grouping. Reviews stay saved until the reader deletes them.
  */
 function DismissedSection({
   reviews,
@@ -531,11 +361,11 @@ function DismissedSection({
   onOpen,
   onDelete,
 }: {
-  reviews: readonly ReviewHomeItem[];
+  reviews: readonly ReviewApiSummary[];
   expanded: boolean;
   onToggle(): void;
-  onOpen(review: ReviewHomeItem): void;
-  onDelete?(review: ReviewHomeItem): Promise<void>;
+  onOpen(review: ReviewApiSummary): void;
+  onDelete?(review: ReviewApiSummary): Promise<void>;
 }) {
   return (
     <section className="review-home-dismissed" aria-label="Dismissed reviews">
@@ -551,18 +381,15 @@ function DismissedSection({
       {expanded ? (
         <div className="review-home-dismissed-rows">
           {reviews.map((review) => (
-            <div key={review.uuid} className="review-home-dismissed-row">
+            <div key={review.reviewId} className="review-home-dismissed-row">
               <button
                 type="button"
                 className="review-home-dismissed-open"
-                disabled={!review.available}
                 onClick={() => onOpen(review)}
               >
                 <MatchedText text={reviewTitle(review)} />
               </button>
-              <span className="review-home-dismissed-clock">
-                {reapCountdownLabel(review) ?? "kept"}
-              </span>
+              <span className="review-home-dismissed-clock">kept</span>
               <RestoreReviewButton review={review} />
               {onDelete ? (
                 <DeleteReviewButton review={review} onDelete={onDelete} />
@@ -575,8 +402,8 @@ function DismissedSection({
   );
 }
 
-/** Undo. It clears the stamp, which also stops the reap clock. */
-function RestoreReviewButton({ review }: { review: ReviewHomeItem }) {
+/** Undo clears the dismissal stamp. */
+function RestoreReviewButton({ review }: { review: ReviewApiSummary }) {
   const { onRestore } = useContext(AttentionActionsContext);
   const [busy, setBusy] = useState(false);
 
@@ -605,7 +432,7 @@ function CardView({
   onOpen,
 }: {
   workspaces: readonly ReviewWorkspace[];
-  onOpen(review: ReviewHomeItem): void;
+  onOpen(review: ReviewApiSummary): void;
 }) {
   return (
     <div className="review-home-workspaces">
@@ -625,14 +452,14 @@ function CardWorkspace({
   onOpen,
 }: {
   workspace: ReviewWorkspace;
-  onOpen(review: ReviewHomeItem): void;
+  onOpen(review: ReviewApiSummary): void;
 }) {
   return (
     <section className="review-home-workspace">
       <WorkspaceHeader workspace={workspace} />
       <div className="review-home-cards">
         {workspace.reviews.map((review) => (
-          <ReviewCard key={review.uuid} review={review} onOpen={onOpen} />
+          <ReviewCard key={review.reviewId} review={review} onOpen={onOpen} />
         ))}
       </div>
     </section>
@@ -643,15 +470,14 @@ function ReviewCard({
   review,
   onOpen,
 }: {
-  review: ReviewHomeItem;
-  onOpen(review: ReviewHomeItem): void;
+  review: ReviewApiSummary;
+  onOpen(review: ReviewApiSummary): void;
 }) {
   return (
     <div className="review-home-card-shell">
       <button
         type="button"
         className="review-home-card"
-        disabled={!review.available}
         onClick={() => onOpen(review)}
       >
         <span className="review-home-card-main">
@@ -674,7 +500,7 @@ function ReviewCard({
  * so it needs no arming step. It stays enabled for unavailable reviews so a
  * dead review can still leave the list.
  */
-function DismissReviewButton({ review }: { review: ReviewHomeItem }) {
+function DismissReviewButton({ review }: { review: ReviewApiSummary }) {
   const { onDismiss } = useContext(AttentionActionsContext);
   const [busy, setBusy] = useState(false);
 
@@ -704,21 +530,14 @@ function DismissReviewButton({ review }: { review: ReviewHomeItem }) {
 
 /**
  * The most recently updated review whose source tree the workspace can open.
- * Requires a publish: an available-but-never-published review has no session
- * to acquire, so its pinned worktree cannot root the tree.
  */
 function workspaceSourceReview(
   workspace: ReviewWorkspace,
-): ReviewHomeItem | null {
-  let selected: ReviewHomeItem | null = null;
+): ReviewApiSummary | null {
+  let selected: ReviewApiSummary | null = null;
   let selectedUpdatedAt = 0;
 
   for (const review of workspace.reviews) {
-    if (
-      !review.available ||
-      !(review.lastPublishedAt || review.presentedDocumentRevision)
-    )
-      continue;
     const updatedAt = reviewUpdatedAtMs(review);
 
     if (!selected || updatedAt > selectedUpdatedAt) {
@@ -739,8 +558,8 @@ function DeleteReviewButton({
   review,
   onDelete,
 }: {
-  review: ReviewHomeItem;
-  onDelete(review: ReviewHomeItem): Promise<void>;
+  review: ReviewApiSummary;
+  onDelete(review: ReviewApiSummary): Promise<void>;
 }) {
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -782,8 +601,8 @@ function ListView({
   reviews,
   onOpen,
 }: {
-  reviews: readonly ReviewHomeItem[];
-  onOpen(review: ReviewHomeItem): void;
+  reviews: readonly ReviewApiSummary[];
+  onOpen(review: ReviewApiSummary): void;
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const data = useMemo(() => [...reviews], [reviews]);
@@ -796,7 +615,7 @@ function ListView({
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
     getGroupedRowModel: getGroupedRowModel(),
-    getRowId: (review) => review.uuid,
+    getRowId: (review) => review.reviewId,
     getSortedRowModel: getSortedRowModel(),
     initialState: {
       columnVisibility: { workspace: false },
@@ -841,7 +660,11 @@ function ListView({
   );
 }
 
-function ReviewListColumnHeaders({ table }: { table: Table<ReviewHomeItem> }) {
+function ReviewListColumnHeaders({
+  table,
+}: {
+  table: Table<ReviewApiSummary>;
+}) {
   return table.getHeaderGroups().map((headerGroup) => (
     <tr className="review-home-list-columns" key={headerGroup.id}>
       {headerGroup.headers.map((header) => {
@@ -894,15 +717,15 @@ function WorkspaceGroupRow({
   row,
   columnCount,
 }: {
-  row: Row<ReviewHomeItem>;
+  row: Row<ReviewApiSummary>;
   columnCount: number;
 }) {
   const path = row.getValue<string>("workspace");
 
   const workspace: ReviewWorkspace = {
     path,
-    label: row.original.repositoryLabel ?? worktreeLabel(path),
-    branch: readableSourceBranch(row.original.sourceBranch),
+    label: row.original.repositoryName ?? worktreeLabel(path),
+    branch: readableSourceBranch(row.original.origin?.branch),
     reviews: row.subRows.map((child) => child.original),
   };
 
@@ -919,20 +742,19 @@ function ReviewRow({
   row,
   onOpen,
 }: {
-  row: Row<ReviewHomeItem>;
-  onOpen(review: ReviewHomeItem): void;
+  row: Row<ReviewApiSummary>;
+  onOpen(review: ReviewApiSummary): void;
 }) {
   const review = row.original;
 
   const open = () => {
-    if (review.available) onOpen(review);
+    onOpen(review);
   };
 
   return (
     <tr
       className="review-home-list-row"
-      aria-disabled={!review.available}
-      tabIndex={review.available ? 0 : -1}
+      tabIndex={0}
       onClick={open}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
@@ -949,10 +771,10 @@ function ReviewRow({
   );
 }
 
-const reviewListColumns: ColumnDef<ReviewHomeItem>[] = [
+const reviewListColumns: ColumnDef<ReviewApiSummary>[] = [
   {
     id: "workspace",
-    accessorFn: (review) => review.worktreePath ?? review.repoKey,
+    accessorFn: (review) => review.repositoryPath ?? review.pins.repositoryId,
     enableSorting: false,
   },
   {
@@ -969,15 +791,15 @@ const reviewListColumns: ColumnDef<ReviewHomeItem>[] = [
   },
   {
     id: "pr",
-    accessorFn: (review) => review.pullRequestNumber ?? undefined,
+    accessorFn: (review) => review.origin?.pullRequestNumber ?? undefined,
     header: "PR",
     size: 74,
     sortDescFirst: false,
     sortUndefined: "last",
     cell: ({ row }) => (
       <span className="review-home-pr">
-        {row.original.pullRequestNumber
-          ? `PR #${row.original.pullRequestNumber}`
+        {row.original.origin?.pullRequestNumber
+          ? `PR #${row.original.origin?.pullRequestNumber}`
           : "—"}
       </span>
     ),
@@ -1044,7 +866,7 @@ const reviewListColumns: ColumnDef<ReviewHomeItem>[] = [
 // preserves workspace order while TanStack sorts the leaf reviews within them.
 const reviewListDefaultColumn = {
   aggregationFn: () => undefined,
-} satisfies Partial<ColumnDef<ReviewHomeItem>>;
+} satisfies Partial<ColumnDef<ReviewApiSummary>>;
 
 function WorkspaceHeader({ workspace }: { workspace: ReviewWorkspace }) {
   const { onOpenSourceTree } = useContext(AttentionActionsContext);
@@ -1072,7 +894,7 @@ function WorkspaceHeader({ workspace }: { workspace: ReviewWorkspace }) {
         name
       )}
       <span>
-        {workspace.reviews[0]?.worktreePath}
+        {workspace.reviews[0]?.repositoryPath}
         {workspace.branch ? ` · ${workspace.branch}` : ""}
       </span>
       {onOpenSourceTree && review ? (
@@ -1089,13 +911,15 @@ function WorkspaceHeader({ workspace }: { workspace: ReviewWorkspace }) {
   );
 }
 
-function ReviewMeta({ review }: { review: ReviewHomeItem }) {
+function ReviewMeta({ review }: { review: ReviewApiSummary }) {
   const stats = review.diffStats;
 
   return (
     <span className="review-home-card-meta">
-      {review.pullRequestNumber ? (
-        <span className="review-home-pr">PR #{review.pullRequestNumber}</span>
+      {review.origin?.pullRequestNumber ? (
+        <span className="review-home-pr">
+          PR #{review.origin?.pullRequestNumber}
+        </span>
       ) : null}
       {stats ? (
         <>
@@ -1111,7 +935,7 @@ function ReviewMeta({ review }: { review: ReviewHomeItem }) {
   );
 }
 
-function StatusPill({ review }: { review: ReviewHomeItem }) {
+function StatusPill({ review }: { review: ReviewApiSummary }) {
   const status = statusDisplay(review);
 
   return (
@@ -1123,12 +947,7 @@ function StatusPill({ review }: { review: ReviewHomeItem }) {
 }
 
 function StatusIcon({ tone }: { tone: ReviewStatusDisplay["tone"] }) {
-  const path =
-    tone === "in-review"
-      ? "M6 3.3v3l2 1.2"
-      : tone === "dismissed"
-        ? "M3.5 6h5"
-        : "M3.7 6.1l1.4 1.4 3.2-3.1";
+  const path = tone === "dismissed" ? "M3.5 6h5" : "M3.7 6.1l1.4 1.4 3.2-3.1";
 
   return (
     <svg aria-hidden="true" viewBox="0 0 12 12">
@@ -1139,21 +958,21 @@ function StatusIcon({ tone }: { tone: ReviewStatusDisplay["tone"] }) {
 }
 
 export function groupReviewsByWorktree(
-  reviews: readonly ReviewHomeItem[],
+  reviews: readonly ReviewApiSummary[],
 ): ReviewWorkspace[] {
   const groups = new Map<string, ReviewWorkspace>();
 
   for (const review of reviews) {
-    const path = review.worktreePath ?? review.repoKey;
+    const path = review.repositoryPath ?? review.pins.repositoryId;
     let workspace = groups.get(path);
 
     if (!workspace) {
       workspace = {
         path,
         label:
-          review.repositoryLabel ??
-          worktreeLabel(review.worktreePath ?? review.repoKey),
-        branch: readableSourceBranch(review.sourceBranch),
+          review.repositoryName ??
+          worktreeLabel(review.repositoryPath ?? review.pins.repositoryId),
+        branch: readableSourceBranch(review.origin?.branch),
         reviews: [],
       };
       groups.set(path, workspace);
@@ -1165,20 +984,12 @@ export function groupReviewsByWorktree(
   return [...groups.values()];
 }
 
-// A publish does not touch review.mdx, so the document mtime alone goes stale
-// on a review that was republished. Show the most recent activity instead.
-export function reviewUpdatedAt(review: ReviewHomeItem): string | null {
-  const candidates = [review.documentUpdatedAt, review.lastPublishedAt].filter(
-    (value): value is string => Boolean(value),
-  );
-
-  if (candidates.length === 0) return null;
-
-  return candidates.reduce((a, b) => (Date.parse(a) >= Date.parse(b) ? a : b));
+export function reviewUpdatedAt(review: ReviewApiSummary): string {
+  return review.createdAt;
 }
 
 /** {@link reviewUpdatedAt} as epoch milliseconds; 0 when unknown. */
-function reviewUpdatedAtMs(review: ReviewHomeItem): number {
+function reviewUpdatedAtMs(review: ReviewApiSummary): number {
   return Date.parse(reviewUpdatedAt(review) ?? "") || 0;
 }
 
@@ -1186,7 +997,7 @@ export function formatRelativeTime(
   timestamp: string | null | undefined,
   now = Date.now(),
 ): string {
-  if (!timestamp) return "not published";
+  if (!timestamp) return "unknown";
   const then = Date.parse(timestamp);
 
   if (!Number.isFinite(then)) return "unknown";
@@ -1209,38 +1020,10 @@ export function formatRelativeTime(
   }).format(then);
 }
 
-function statusDisplay(review: ReviewHomeItem): ReviewStatusDisplay {
-  // The attention state outranks the handoff status: a dismissed review is
-  // finished for the reader whatever the agent thinks.
-  if (review.dismissedAt) {
-    return { label: "Dismissed", tone: "dismissed" };
-  }
+function statusDisplay(review: ReviewApiSummary): ReviewStatusDisplay {
+  if (review.dismissedAt) return { label: "Dismissed", tone: "dismissed" };
 
-  if (!review.viewedAt && review.presentedDocumentRevision) {
-    return { label: "New", tone: "ready" };
-  }
-
-  if (review.status === "draft") {
-    return { label: "Draft", tone: "in-review" };
-  }
-
-  if (review.status === "rejected") {
-    return { label: "Rejected", tone: "dismissed" };
-  }
-
-  if (review.status === "accepted") {
-    return { label: "Accepted", tone: "submitted" };
-  }
-
-  if (review.status === "awaiting-agent-updates") {
-    return { label: "Awaiting updates", tone: "in-review" };
-  }
-
-  if (review.presentedDocumentRevision) {
-    return { label: "Review ready", tone: "ready" };
-  }
-
-  return { label: "In review", tone: "in-review" };
+  return { label: review.viewedAt ? "Review ready" : "New", tone: "ready" };
 }
 
 function readStoredHomeView(): ReviewHomeView {
@@ -1254,20 +1037,20 @@ function readStoredHomeView(): ReviewHomeView {
   }
 }
 
-function reviewTitle(review: ReviewHomeItem): string {
+function reviewTitle(review: ReviewApiSummary): string {
   return review.title.trim() || "Untitled review";
 }
 
-function matchesQuery(review: ReviewHomeItem, query: string): boolean {
+function matchesQuery(review: ReviewApiSummary, query: string): boolean {
   return fuzzyMatches(
     query,
     reviewTitle(review),
-    review.repositoryLabel ??
-      worktreeLabel(review.worktreePath ?? review.repoKey),
+    review.repositoryName ??
+      worktreeLabel(review.repositoryPath ?? review.pins.repositoryId),
   );
 }
 
-function readableSourceBranch(value: string | null): string | null {
+function readableSourceBranch(value: string | null | undefined): string | null {
   if (!value || /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value)) return null;
 
   return value;

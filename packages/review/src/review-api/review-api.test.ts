@@ -11,6 +11,7 @@ import { GlobalReviewDesktopVerbRelay } from "../server/global-verb-relay.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
 import { ReviewApiClient } from "./client.js";
 import { ReviewInputError } from "./document.js";
+import { LocalReviewData } from "./local-data";
 import { type ReviewProviders, ReviewStore } from "./store.js";
 
 const pins = { repositoryId: "repo", base: "base-commit", head: "head-commit" };
@@ -693,6 +694,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     token: "test-token",
     discoveryPath: path.join(directory, "desktop.json"),
     reviewStore: store,
+    reviewData: new LocalReviewData(store),
     relay,
   });
 
@@ -738,10 +740,9 @@ it("serves the experiment through the real desktop HTTP server and existing auth
     relay.attach({
       signal: new AbortController().signal,
       write(frame) {
-        const { id, sessionId, request } = JSON.parse(frame.slice(6));
+        const { id, request } = JSON.parse(frame.slice(6));
         relay.acceptResult({
           id,
-          sessionId,
           response:
             request.name === "openApiReview" &&
             request.args.reviewId === reviewId

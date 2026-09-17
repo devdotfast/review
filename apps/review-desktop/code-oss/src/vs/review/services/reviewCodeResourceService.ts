@@ -8,638 +8,286 @@ import { URI } from "../../base/common/uri.js";
 import { ILanguageService } from "../../editor/common/languages/language.js";
 import type { ITextModel } from "../../editor/common/model.js";
 import { IModelService } from "../../editor/common/services/model.js";
-import {
-  ITextModelService,
-  type IResolvedTextEditorModel,
-} from "../../editor/common/services/resolverService.js";
-import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
+import { ITextModelService, type IResolvedTextEditorModel } from "../../editor/common/services/resolverService.js";
 import { FileOperationError, FileOperationResult } from "../../platform/files/common/files.js";
+import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
+import { REVIEW_UNIFIED_SCHEME } from "../common/reviewCodeResources.js";
+import { type ReviewPeekLineMapping, type ReviewPeekWindow } from "../common/reviewPeek.js";
+import type { ReviewDiffFileWire, ReviewDiffSide, ReviewInlineEditorRange } from "../common/reviewProtocol.js";
 import {
-  REVIEW_BASE_SCHEME,
-  REVIEW_HEAD_SCHEME,
-  REVIEW_UNIFIED_SCHEME,
-  reviewBaseFileUri,
-  reviewFileUri,
-  reviewHeadFileUri,
-  reviewVirtualUri,
-} from "../common/reviewCodeResources.js";
-import {
-  buildReviewUnifiedDiff,
-  reviewUnifiedRangesForSelections,
-  reviewUnifiedTargetForRange,
-  reviewUnifiedWindows,
-  type ReviewUnifiedDiffRow,
-  type ReviewUnifiedLineRange,
+	buildReviewUnifiedDiff,
+	reviewUnifiedRangesForSelections,
+	reviewUnifiedTargetForRange,
+	reviewUnifiedWindows,
+	type ReviewUnifiedDiffRow,
+	type ReviewUnifiedLineRange,
 } from "../common/reviewUnifiedDiff.js";
-export {
-  REVIEW_BASE_SCHEME,
-  REVIEW_HEAD_SCHEME,
-  reviewBaseFileUri,
-  reviewFileUri,
-  reviewHeadFileUri,
-  reviewResourceIdentity,
-  reviewVirtualUri,
-} from "../common/reviewCodeResources.js";
-import {
-  reviewPeekDiffWindows,
-  reviewPeekLineMappings,
-  reviewPeekSideAvailable,
-  reviewPeekWindows,
-  type ReviewPeekLineMapping,
-  type ReviewPeekWindow,
-} from "../common/reviewPeek.js";
-import type {
-  ReviewCommitScope,
-  ReviewDiffFileWire,
-  ReviewDiffSide,
-  ReviewInlineEditorRange,
-} from "../common/reviewProtocol.js";
-import {
-  parseReviewFileContentResponse,
-} from "../common/reviewProtocol.js";
-import {
-  reviewDiffFileForReveal,
-} from "../common/reviewReveal.js";
-import { IReviewDiffService } from "./reviewDiffService.js";
-import {
-  IReviewSessionModelService,
-  type ReviewDesktopSession,
-} from "./reviewSessionModelService.js";
-
 export interface ReviewCodeResourceTarget {
-  readonly resource: URI;
-  readonly diffFile?: ReviewDiffFileWire;
-  readonly workingTreeFallback: boolean;
+	readonly resource: URI;
+	readonly diffFile?: ReviewDiffFileWire;
 }
 
 export interface ReviewCodeModelReference {
-  readonly model: ITextModel;
-  readonly target: ReviewCodeResourceTarget;
-  readonly windows: readonly ReviewPeekWindow[];
-  dispose(): void;
+	readonly model: ITextModel;
+	readonly target: ReviewCodeResourceTarget;
+	readonly windows: readonly ReviewPeekWindow[];
+	dispose(): void;
 }
 
 export interface ReviewCodeDiffTarget {
-  readonly original: URI;
-  readonly modified: URI;
-  readonly diffFile: ReviewDiffFileWire;
-  readonly mappings: readonly ReviewPeekLineMapping[];
-  windows(
-    originalLineCount: number,
-    modifiedLineCount: number,
-  ): {
-    readonly original: readonly ReviewPeekWindow[];
-    readonly modified: readonly ReviewPeekWindow[];
-  };
+	readonly original: URI;
+	readonly modified: URI;
+	readonly diffFile: ReviewDiffFileWire;
+	readonly mappings: readonly ReviewPeekLineMapping[];
+	windows(
+		originalLineCount: number,
+		modifiedLineCount: number,
+	): {
+		readonly original: readonly ReviewPeekWindow[];
+		readonly modified: readonly ReviewPeekWindow[];
+	};
 }
 
 export interface ReviewUnifiedResourceInfo {
-  readonly path: string;
-  readonly diffFile: ReviewDiffFileWire;
-  readonly rows: readonly ReviewUnifiedDiffRow[];
-  targetForRange(
-    startLine: number,
-    endLine: number,
-  ): {
-    readonly path: string;
-    readonly side: ReviewDiffSide;
-    readonly startLine: number;
-    readonly endLine: number;
-  } | null;
+	readonly original: URI;
+	readonly modified: URI;
+	readonly path: string;
+	readonly diffFile: ReviewDiffFileWire;
+	readonly rows: readonly ReviewUnifiedDiffRow[];
+	targetForRange(
+		startLine: number,
+		endLine: number,
+	): {
+		readonly path: string;
+		readonly side: ReviewDiffSide;
+		readonly startLine: number;
+		readonly endLine: number;
+	} | null;
 }
 
 export interface ReviewUnifiedCodeModelReference {
-  readonly model: ITextModel;
-  readonly target: ReviewCodeDiffTarget;
-  readonly rows: readonly ReviewUnifiedDiffRow[];
-  readonly windows: readonly ReviewPeekWindow[];
-  readonly ranges: readonly ReviewUnifiedLineRange[];
-  dispose(): void;
+	readonly model: ITextModel;
+	readonly target: ReviewCodeDiffTarget;
+	readonly rows: readonly ReviewUnifiedDiffRow[];
+	readonly windows: readonly ReviewPeekWindow[];
+	readonly ranges: readonly ReviewUnifiedLineRange[];
+	dispose(): void;
 }
 
 interface ReviewUnifiedResourceEntry {
-  readonly model: ITextModel;
-  readonly info: ReviewUnifiedResourceInfo;
-  readonly rows: readonly ReviewUnifiedDiffRow[];
-  readonly originalLineCount: number;
-  readonly modifiedLineCount: number;
-  references: number;
-  dispose(): void;
+	readonly model: ITextModel;
+	readonly info: ReviewUnifiedResourceInfo;
+	readonly rows: readonly ReviewUnifiedDiffRow[];
+	readonly originalLineCount: number;
+	readonly modifiedLineCount: number;
+	references: number;
+	dispose(): void;
 }
 
-export const IReviewCodeResourceService =
-  createDecorator<IReviewCodeResourceService>("reviewCodeResourceService");
+export const IReviewCodeResourceService = createDecorator<IReviewCodeResourceService>("reviewCodeResourceService");
 
 export interface IReviewCodeResourceService {
-  readonly _serviceBrand: undefined;
-  files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
-  target(
-    path: string,
-    side: ReviewDiffSide,
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewCodeResourceTarget>;
-  acquireSnippet(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-  ): Promise<ReviewCodeModelReference>;
-  acquireUnifiedDiff(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewUnifiedCodeModelReference | undefined>;
-  /** The unified view of a target the caller resolved, such as pinned API models. */
-  acquireUnifiedDiffForTarget(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-    target: ReviewCodeDiffTarget,
-  ): Promise<ReviewUnifiedCodeModelReference | undefined>;
-  unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined;
-  reset(): void;
+	readonly _serviceBrand: undefined;
+	/** The unified view of a target the caller resolved, such as pinned API models. */
+	acquireUnifiedDiffForTarget(
+		path: string,
+		side: ReviewDiffSide,
+		ranges: readonly ReviewInlineEditorRange[],
+		target: ReviewCodeDiffTarget,
+	): Promise<ReviewUnifiedCodeModelReference | undefined>;
+	unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined;
+	reset(): void;
 }
 
-export class ReviewCodeResourceService
-  extends Disposable
-  implements IReviewCodeResourceService
-{
-  declare readonly _serviceBrand: undefined;
+export class ReviewCodeResourceService extends Disposable implements IReviewCodeResourceService {
+	declare readonly _serviceBrand: undefined;
+	private generation = 0;
+	private readonly unifiedResources = new Map<string, ReviewUnifiedResourceEntry>();
+	private readonly unifiedResourcesInFlight = new Map<string, Promise<ReviewUnifiedResourceEntry>>();
 
-  private readonly unavailableSnippetResources = new Set<string>();
-  private generation = 0;
-  private readonly unifiedResources = new Map<
-    string,
-    ReviewUnifiedResourceEntry
-  >();
-  private readonly unifiedResourcesInFlight = new Map<
-    string,
-    Promise<ReviewUnifiedResourceEntry>
-  >();
-  private codeRevision: string | undefined;
+	constructor(
+		@ITextModelService private readonly textModelService: ITextModelService,
+		@IModelService private readonly modelService: IModelService,
+		@ILanguageService private readonly languageService: ILanguageService,
+	) {
+		super();
+		this._register(
+			textModelService.registerTextModelContentProvider(REVIEW_UNIFIED_SCHEME, {
+				provideTextContent: (resource) => Promise.resolve(this.modelService.getModel(resource)),
+			}),
+		);
+	}
 
-  constructor(
-    @ITextModelService private readonly textModelService: ITextModelService,
-    @IModelService private readonly modelService: IModelService,
-    @ILanguageService private readonly languageService: ILanguageService,
-    @IReviewSessionModelService
-    private readonly sessionModelService: IReviewSessionModelService,
-    @IReviewDiffService private readonly diffService: IReviewDiffService,
-  ) {
-    super();
-    this.codeRevision = this.currentCodeRevision();
-    this._register(
-      this.sessionModelService.onDidChangeActiveModel(() => {
-        const nextRevision = this.currentCodeRevision();
-        if (nextRevision === this.codeRevision) return;
-        this.codeRevision = nextRevision;
-        this.reset();
-      }),
-    );
-    this._register(
-      textModelService.registerTextModelContentProvider(REVIEW_BASE_SCHEME, {
-        provideTextContent: (resource) =>
-          this.provideDiffContent("base", resource),
-      }),
-    );
-    this._register(
-      textModelService.registerTextModelContentProvider(REVIEW_HEAD_SCHEME, {
-        provideTextContent: (resource) =>
-          this.provideDiffContent("head", resource),
-      }),
-    );
-    this._register(
-      textModelService.registerTextModelContentProvider(
-        REVIEW_UNIFIED_SCHEME,
-        {
-          provideTextContent: (resource) =>
-            Promise.resolve(this.modelService.getModel(resource)),
-        },
-      ),
-    );
-  }
+	async acquireUnifiedDiffForTarget(
+		path: string,
+		side: ReviewDiffSide,
+		ranges: readonly ReviewInlineEditorRange[],
+		target: ReviewCodeDiffTarget,
+	): Promise<ReviewUnifiedCodeModelReference | undefined> {
+		// Pinned sides identify the content; no session is involved.
+		const query = new URLSearchParams({
+			path,
+			side,
+			original: target.original.toString(),
+			modified: target.modified.toString(),
+		});
+		return this.acquireUnifiedFor(path, side, ranges, target, query);
+	}
 
-  async target(
-    path: string,
-    side: ReviewDiffSide,
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewCodeResourceTarget> {
-    return this.targetForSession(this.requireSession(), path, side, scope);
-  }
+	private async acquireUnifiedFor(
+		path: string,
+		side: ReviewDiffSide,
+		ranges: readonly ReviewInlineEditorRange[],
+		target: ReviewCodeDiffTarget,
+		query: URLSearchParams,
+	): Promise<ReviewUnifiedCodeModelReference | undefined> {
+		const generation = this.generation;
+		const resource = URI.from({
+			scheme: REVIEW_UNIFIED_SCHEME,
+			path: `/${path}`,
+			query: query.toString(),
+		});
+		const key = resource.toString();
+		let entry = this.unifiedResources.get(key);
+		if (!entry) {
+			let pending = this.unifiedResourcesInFlight.get(key);
+			if (!pending) {
+				pending = this.createUnifiedResource(path, side, resource, target);
+				this.unifiedResourcesInFlight.set(key, pending);
+				const clearPending = () => {
+					if (this.unifiedResourcesInFlight.get(key) === pending) {
+						this.unifiedResourcesInFlight.delete(key);
+					}
+				};
+				void pending.then(clearPending, clearPending);
+			}
+			entry = await pending;
+			if (generation !== this.generation) {
+				entry.dispose();
+				return undefined;
+			}
+			this.unifiedResources.set(key, entry);
+		}
+		entry.references += 1;
+		const diffWindows = target.windows(entry.originalLineCount, entry.modifiedLineCount);
+		let disposed = false;
+		return {
+			model: entry.model,
+			target,
+			rows: entry.rows,
+			windows: reviewUnifiedWindows(entry.rows, diffWindows.original, diffWindows.modified),
+			ranges: reviewUnifiedRangesForSelections(entry.rows, ranges, side),
+			dispose: () => {
+				if (disposed) return;
+				disposed = true;
+				entry.references -= 1;
+				if (entry.references > 0) return;
+				if (this.unifiedResources.get(key) === entry) {
+					this.unifiedResources.delete(key);
+				}
+				entry.dispose();
+			},
+		};
+	}
 
-  private async targetForSession(
-    session: ReviewDesktopSession,
-    path: string,
-    side: ReviewDiffSide,
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewCodeResourceTarget> {
-    const files = await this.diffService.files(scope);
-    const diffFile = reviewDiffFileForReveal(files, path, side);
-    if (!diffFile) {
-      const pinnedResource = !scope
-        ? side === "base"
-          ? reviewBaseFileUri(session, path)
-          : reviewHeadFileUri(session, path)
-        : undefined;
-      return {
-        resource: pinnedResource ?? reviewFileUri(session, path),
-        workingTreeFallback: !pinnedResource,
-      };
-    }
-    const displayPath =
-      side === "base"
-        ? (diffFile.previousPath ?? diffFile.path)
-        : diffFile.path;
-    const pinnedResource = !scope
-      ? side === "base" && diffFile.status !== "added"
-        ? reviewBaseFileUri(session, displayPath)
-        : side === "head" && diffFile.status !== "deleted"
-          ? reviewHeadFileUri(session, displayPath)
-          : undefined
-      : undefined;
-    return {
-      resource:
-        pinnedResource ??
-        reviewVirtualUri(
-          side,
-          displayPath,
-          diffFile.path,
-          session.session.sessionId,
-          scope?.commit,
-        ),
-      diffFile,
-      workingTreeFallback: false,
-    };
-  }
+	unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined {
+		return this.unifiedResources.get(resource.toString())?.info;
+	}
 
-  async files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]> {
-    this.requireSession();
-    return this.diffService.files(scope);
-  }
+	reset(): void {
+		for (const entry of this.unifiedResources.values()) entry.dispose();
+		this.unifiedResources.clear();
+		this.unifiedResourcesInFlight.clear();
+		this.generation += 1;
+	}
 
-  async acquireSnippet(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-  ): Promise<ReviewCodeModelReference> {
-    const target = await this.target(path, side);
-    if (!reviewPeekSideAvailable(target.diffFile?.status, side)) {
-      throw new Error(`Requested ${side} content is not present: ${path}`);
-    }
-    const reference = await this.textModelService.createModelReference(
-      target.resource,
-    );
-    const model = reference.object.textEditorModel;
-    if (!model) {
-      reference.dispose();
-      throw new Error(`Native preview could not resolve text content: ${path}`);
-    }
-    if (this.unavailableSnippetResources.has(target.resource.toString())) {
-      reference.dispose();
-      throw new Error(`Native preview content is unavailable: ${path}`);
-    }
-    const windows = reviewPeekWindows(model.getLineCount(), ranges, "content");
-    return {
-      model,
-      target,
-      windows,
-      dispose: () => reference.dispose(),
-    };
-  }
+	private async createUnifiedResource(
+		path: string,
+		side: ReviewDiffSide,
+		resource: URI,
+		target: ReviewCodeDiffTarget,
+	): Promise<ReviewUnifiedResourceEntry> {
+		const [original, modified] = await Promise.allSettled([
+			this.textModelService.createModelReference(target.original),
+			this.textModelService.createModelReference(target.modified),
+		]);
+		// A missing side must also release the other side, even if that reference
+		// finishes loading after the failure. Preserve the resolver's error.
+		if (original.status === "rejected") {
+			if (modified.status === "fulfilled") modified.value.dispose();
+			// A missing base must not hide an unexpected failure on the head.
+			if (
+				modified.status === "rejected" &&
+				original.reason instanceof FileOperationError &&
+				original.reason.fileOperationResult === FileOperationResult.FILE_NOT_FOUND
+			) {
+				throw modified.reason;
+			}
+			throw original.reason;
+		}
+		if (modified.status === "rejected") {
+			original.value.dispose();
+			throw modified.reason;
+		}
+		const originalReference = original.value;
+		const modifiedReference = modified.value;
+		const originalModel = originalReference.object.textEditorModel;
+		const modifiedModel = modifiedReference.object.textEditorModel;
+		if (!originalModel || !modifiedModel) {
+			originalReference.dispose();
+			modifiedReference.dispose();
+			throw new Error(`Unified preview could not resolve text content: ${path}`);
+		}
 
-  private async resolveDiff(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewCodeDiffTarget | undefined> {
-    const session = this.requireSession();
-    const target = await this.targetForSession(session, path, side, scope);
-    const diffFile = target.diffFile;
-    if (!diffFile) return undefined;
-
-    const [originalTarget, modifiedTarget] = await Promise.all([
-      this.targetForSession(
-        session,
-        diffFile.previousPath ?? diffFile.path,
-        "base",
-        scope,
-      ),
-      this.targetForSession(session, diffFile.path, "head", scope),
-    ]);
-    const patch =
-      diffFile.patch ??
-      (scope ? undefined : await this.diffService.patch(diffFile.path));
-    if (!patch) return undefined;
-
-    const mappings = reviewPeekLineMappings(patch);
-    return {
-      original: originalTarget.resource,
-      modified: modifiedTarget.resource,
-      diffFile,
-      mappings,
-      windows: (originalLineCount, modifiedLineCount) =>
-        reviewPeekDiffWindows(
-          originalLineCount,
-          modifiedLineCount,
-          ranges,
-          side,
-          mappings,
-        ),
-    };
-  }
-
-  async acquireUnifiedDiff(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-    scope?: ReviewCommitScope,
-  ): Promise<ReviewUnifiedCodeModelReference | undefined> {
-    const target = await this.resolveDiff(path, side, ranges, scope);
-    if (!target) return undefined;
-    const session = this.requireSession();
-    const query = new URLSearchParams({
-      path,
-      version: session.session.sessionId,
-      side,
-      revision: String(this.generation),
-      ...(scope?.commit ? { commit: scope.commit } : {}),
-    });
-    return this.acquireUnifiedFor(path, side, ranges, target, query);
-  }
-
-  async acquireUnifiedDiffForTarget(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-    target: ReviewCodeDiffTarget,
-  ): Promise<ReviewUnifiedCodeModelReference | undefined> {
-    // Pinned sides identify the content; no session is involved.
-    const query = new URLSearchParams({
-      path,
-      side,
-      original: target.original.toString(),
-      modified: target.modified.toString(),
-    });
-    return this.acquireUnifiedFor(path, side, ranges, target, query);
-  }
-
-  private async acquireUnifiedFor(
-    path: string,
-    side: ReviewDiffSide,
-    ranges: readonly ReviewInlineEditorRange[],
-    target: ReviewCodeDiffTarget,
-    query: URLSearchParams,
-  ): Promise<ReviewUnifiedCodeModelReference | undefined> {
-    const generation = this.generation;
-    const resource = URI.from({
-      scheme: REVIEW_UNIFIED_SCHEME,
-      path: `/${path}`,
-      query: query.toString(),
-    });
-    const key = resource.toString();
-    let entry = this.unifiedResources.get(key);
-    if (!entry) {
-      let pending = this.unifiedResourcesInFlight.get(key);
-      if (!pending) {
-        pending = this.createUnifiedResource(path, side, resource, target);
-        this.unifiedResourcesInFlight.set(key, pending);
-        const clearPending = () => {
-          if (this.unifiedResourcesInFlight.get(key) === pending) {
-            this.unifiedResourcesInFlight.delete(key);
-          }
-        };
-        void pending.then(clearPending, clearPending);
-      }
-      entry = await pending;
-      if (generation !== this.generation) {
-        entry.dispose();
-        return undefined;
-      }
-      this.unifiedResources.set(key, entry);
-    }
-    entry.references += 1;
-    const diffWindows = target.windows(
-      entry.originalLineCount,
-      entry.modifiedLineCount,
-    );
-    let disposed = false;
-    return {
-      model: entry.model,
-      target,
-      rows: entry.rows,
-      windows: reviewUnifiedWindows(
-        entry.rows,
-        diffWindows.original,
-        diffWindows.modified,
-      ),
-      ranges: reviewUnifiedRangesForSelections(entry.rows, ranges, side),
-      dispose: () => {
-        if (disposed) return;
-        disposed = true;
-        entry.references -= 1;
-        if (entry.references > 0) return;
-        if (this.unifiedResources.get(key) === entry) {
-          this.unifiedResources.delete(key);
-        }
-        entry.dispose();
-      },
-    };
-  }
-
-  unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined {
-    return this.unifiedResources.get(resource.toString())?.info;
-  }
-
-  reset(): void {
-    this.unavailableSnippetResources.clear();
-    for (const entry of this.unifiedResources.values()) entry.dispose();
-    this.unifiedResources.clear();
-    this.unifiedResourcesInFlight.clear();
-    this.generation += 1;
-  }
-
-  private async createUnifiedResource(
-    path: string,
-    side: ReviewDiffSide,
-    resource: URI,
-    target: ReviewCodeDiffTarget,
-  ): Promise<ReviewUnifiedResourceEntry> {
-    const [original, modified] = await Promise.allSettled([
-      this.textModelService.createModelReference(target.original),
-      this.textModelService.createModelReference(target.modified),
-    ]);
-    // A missing side must also release the other side, even if that reference
-    // finishes loading after the failure. Preserve the resolver's error.
-    if (original.status === "rejected") {
-      if (modified.status === "fulfilled") modified.value.dispose();
-      // A missing base must not hide an unexpected failure on the head.
-      if (modified.status === "rejected" && original.reason instanceof FileOperationError && original.reason.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
-        throw modified.reason;
-      }
-      throw original.reason;
-    }
-    if (modified.status === "rejected") {
-      original.value.dispose();
-      throw modified.reason;
-    }
-    const originalReference = original.value;
-    const modifiedReference = modified.value;
-    const originalModel = originalReference.object.textEditorModel;
-    const modifiedModel = modifiedReference.object.textEditorModel;
-    if (!originalModel || !modifiedModel) {
-      originalReference.dispose();
-      modifiedReference.dispose();
-      throw new Error(
-        `Unified preview could not resolve text content: ${path}`,
-      );
-    }
-
-    const baseLines =
-      target.diffFile.status === "added" ? [] : originalModel.getLinesContent();
-    const headLines =
-      target.diffFile.status === "deleted"
-        ? []
-        : modifiedModel.getLinesContent();
-    const unified = buildReviewUnifiedDiff(
-      baseLines,
-      headLines,
-      target.mappings,
-      side,
-    );
-    const sourceModel =
-      target.diffFile.status === "deleted" ? originalModel : modifiedModel;
-    let model: ITextModel;
-    try {
-      model = this.modelService.createModel(
-        unified.content,
-        this.languageService.createById(sourceModel.getLanguageId()),
-        resource,
-      );
-    } catch (error) {
-      originalReference.dispose();
-      modifiedReference.dispose();
-      throw error;
-    }
-    let resolverReference: IReference<IResolvedTextEditorModel>;
-    try {
-      // References and Peek Definition resolve this resource independently.
-      // Keep one resolver owner until the inline CodePeek releases the model.
-      resolverReference = await this.textModelService.createModelReference(
-        resource,
-      );
-    } catch (error) {
-      model.dispose();
-      originalReference.dispose();
-      modifiedReference.dispose();
-      throw error;
-    }
-    let disposed = false;
-    return {
-      model,
-      rows: unified.rows,
-      originalLineCount: originalModel.getLineCount(),
-      modifiedLineCount: modifiedModel.getLineCount(),
-      references: 0,
-      info: {
-        path,
-        diffFile: target.diffFile,
-        rows: unified.rows,
-        targetForRange: (startLine, endLine) =>
-          reviewUnifiedTargetForRange(path, unified.rows, startLine, endLine),
-      },
-      dispose: () => {
-        if (disposed) return;
-        disposed = true;
-        resolverReference.dispose();
-        originalReference.dispose();
-        modifiedReference.dispose();
-      },
-    };
-  }
-
-  private currentCodeRevision(): string | undefined {
-    const session = this.sessionModelService.activeModel?.session.session;
-    if (!session) return undefined;
-    return [
-      session.sessionId,
-      session.resolvedBaseRef,
-      session.headRef,
-      session.routePath ?? "",
-      session.rootPath,
-      session.baseRootPath ?? "",
-      session.headRootPath ?? "",
-    ].join("\n");
-  }
-
-  private async provideDiffContent(
-    side: ReviewDiffSide,
-    resource: URI,
-  ): Promise<ITextModel> {
-    const existing = this.modelService.getModel(resource);
-    if (existing) return existing;
-    const session = this.requireSession();
-    const query = new URLSearchParams(resource.query);
-    const canonicalPath = query.get("path");
-    if (!canonicalPath) throw new Error("Review diff URI is missing its path.");
-    if (query.get("version") !== session.session.sessionId) {
-      throw new Error("Review diff content belongs to a stale session.");
-    }
-    const commit = query.get("commit");
-    const url = new URL(
-      `${session.sessionUrl}/__progressive-review/file-content`,
-    );
-    url.searchParams.set("path", canonicalPath);
-    url.searchParams.set("side", side);
-    if (commit) url.searchParams.set("commit", commit);
-    if (session.session.routePath && session.session.routePath !== "/") {
-      url.searchParams.set("document", session.session.routePath);
-    }
-    const response = await this.request(session, url, {
-      headers: { "x-review-token": session.token },
-    });
-    const result = parseReviewFileContentResponse(await response.json());
-    if (!response.ok || !result.ok) {
-      throw new Error(
-        result.ok
-          ? `Review file content returned ${response.status}.`
-          : result.error,
-      );
-    }
-    if ("binary" in result) {
-      throw new Error(`Binary file cannot be displayed: ${canonicalPath}`);
-    }
-    const content = "content" in result ? result.content : "";
-    if ("absent" in result || ("truncated" in result && result.truncated)) {
-      this.unavailableSnippetResources.add(resource.toString());
-    } else {
-      this.unavailableSnippetResources.delete(resource.toString());
-    }
-    return this.modelService.createModel(
-      content,
-      this.languageService.createByFilepathOrFirstLine(
-        resource,
-        content.split(/\r?\n/, 1)[0],
-      ),
-      resource,
-    );
-  }
-
-  private requireSession(): ReviewDesktopSession {
-    const session = this.sessionModelService.activeModel?.session;
-    if (!session) throw new Error("No active Review Desktop session.");
-    return session;
-  }
-
-  private request(
-    session: ReviewDesktopSession,
-    url: string | URL,
-    init?: RequestInit,
-  ): Promise<Response> {
-    const model = this.sessionModelService.activeModel;
-    if (model?.session.session.sessionId !== session.session.sessionId) {
-      throw new Error("Review code request belongs to a stale session.");
-    }
-    return model.request(String(url), init);
-  }
+		const baseLines = target.diffFile.status === "added" ? [] : originalModel.getLinesContent();
+		const headLines = target.diffFile.status === "deleted" ? [] : modifiedModel.getLinesContent();
+		const unified = buildReviewUnifiedDiff(baseLines, headLines, target.mappings, side);
+		const sourceModel = target.diffFile.status === "deleted" ? originalModel : modifiedModel;
+		let model: ITextModel;
+		try {
+			model = this.modelService.createModel(
+				unified.content,
+				this.languageService.createById(sourceModel.getLanguageId()),
+				resource,
+			);
+		} catch (error) {
+			originalReference.dispose();
+			modifiedReference.dispose();
+			throw error;
+		}
+		let resolverReference: IReference<IResolvedTextEditorModel>;
+		try {
+			// References and Peek Definition resolve this resource independently.
+			// Keep one resolver owner until the inline CodePeek releases the model.
+			resolverReference = await this.textModelService.createModelReference(resource);
+		} catch (error) {
+			model.dispose();
+			originalReference.dispose();
+			modifiedReference.dispose();
+			throw error;
+		}
+		let disposed = false;
+		return {
+			model,
+			rows: unified.rows,
+			originalLineCount: originalModel.getLineCount(),
+			modifiedLineCount: modifiedModel.getLineCount(),
+			references: 0,
+			info: {
+				original: target.original,
+				modified: target.modified,
+				path,
+				diffFile: target.diffFile,
+				rows: unified.rows,
+				targetForRange: (startLine, endLine) => reviewUnifiedTargetForRange(path, unified.rows, startLine, endLine),
+			},
+			dispose: () => {
+				if (disposed) return;
+				disposed = true;
+				resolverReference.dispose();
+				originalReference.dispose();
+				modifiedReference.dispose();
+			},
+		};
+	}
 }

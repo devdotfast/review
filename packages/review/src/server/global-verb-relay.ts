@@ -11,7 +11,6 @@ import {
 const DEFAULT_VERB_TIMEOUT_MS = 45_000;
 
 interface PendingVerb {
-  sessionId: string;
   resolve(response: ReviewVerbResponse): void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -26,7 +25,7 @@ export interface GlobalReviewDesktopVerbWriter {
 export interface ReviewDesktopVerbRelay {
   readonly attached: boolean;
   attach(writer: GlobalReviewDesktopVerbWriter): boolean;
-  dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse>;
+  dispatch(value: JsonValue): Promise<ReviewVerbResponse>;
   acceptResult(value: JsonValue): boolean;
   close(): void;
 }
@@ -52,7 +51,7 @@ export class GlobalReviewDesktopVerbRelay implements ReviewDesktopVerbRelay {
     return true;
   }
 
-  dispatch(sessionId: string, value: JsonValue): Promise<ReviewVerbResponse> {
+  dispatch(value: JsonValue): Promise<ReviewVerbResponse> {
     const request: ReviewVerbRequest = parseReviewVerbRequest(value);
     const control = this.controlWriter;
 
@@ -72,8 +71,8 @@ export class GlobalReviewDesktopVerbRelay implements ReviewDesktopVerbRelay {
       }, this.timeoutMs);
 
       timer.unref?.();
-      this.pending.set(id, { sessionId, resolve, timer });
-      const frame = `data: ${JSON.stringify({ event: "desktop-verb", id, sessionId, request })}\n\n`;
+      this.pending.set(id, { resolve, timer });
+      const frame = `data: ${JSON.stringify({ event: "desktop-verb", id, request })}\n\n`;
 
       try {
         void Promise.resolve(control.write(frame)).catch(() => {
@@ -89,7 +88,7 @@ export class GlobalReviewDesktopVerbRelay implements ReviewDesktopVerbRelay {
     const result = parseReviewDesktopVerbResult(value);
     const pending = this.pending.get(result.id);
 
-    if (!pending || pending.sessionId !== result.sessionId) return false;
+    if (!pending) return false;
     this.pending.delete(result.id);
     clearTimeout(pending.timer);
     pending.resolve(result.response);

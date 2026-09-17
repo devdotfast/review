@@ -7,256 +7,118 @@ import { Event } from "../../../../base/common/event.js";
 import { Disposable } from "../../../../base/common/lifecycle.js";
 import { SyncDescriptor } from "../../../../platform/instantiation/common/descriptors.js";
 import { Registry } from "../../../../platform/registry/common/platform.js";
+import { EditorPaneDescriptor, IEditorPaneRegistry } from "../../../../workbench/browser/editor.js";
 import {
-  IStorageService,
-  StorageScope,
-  StorageTarget,
-} from "../../../../platform/storage/common/storage.js";
-import {
-  EditorPaneDescriptor,
-  IEditorPaneRegistry,
-} from "../../../../workbench/browser/editor.js";
-import { EditorExtensions, type IEditorFactoryRegistry } from "../../../../workbench/common/editor.js";
-import {
-  IWorkbenchContribution,
-  registerWorkbenchContribution2,
-  WorkbenchPhase,
+	IWorkbenchContribution,
+	registerWorkbenchContribution2,
+	WorkbenchPhase,
 } from "../../../../workbench/common/contributions.js";
+import {
+	EditorExtensions,
+	EditorResourceAccessor,
+	SideBySideEditor,
+	type IEditorFactoryRegistry,
+} from "../../../../workbench/common/editor.js";
 import { IEditorGroupsService } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../../../workbench/services/editor/common/editorService.js";
-import { ILifecycleService } from "../../../../workbench/services/lifecycle/common/lifecycle.js";
-import { IReviewSessionService } from "../../../services/reviewSessionService.js";
 import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
+import { IReviewDesktopConnectionService } from "../../../services/reviewDesktopConnectionService.js";
+import { ReviewApiEditorSerializer } from "./reviewApiEditorSerializer.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
 import { ReviewCanvasEditorPane } from "./reviewCanvasPart.js";
-import { ReviewApiEditorSerializer } from "./reviewApiEditorSerializer.js";
 
-const OPEN_REVIEW_TABS_STORAGE_KEY = "review.canvas.openTabs";
-
-Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory)
-  .registerEditorSerializer(ReviewCanvasEditorInput.ID, ReviewApiEditorSerializer);
-
-interface StoredReviewTabs {
-  readonly open: readonly string[];
-  readonly active?: string;
-}
-
-Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
-  EditorPaneDescriptor.create(
-    ReviewCanvasEditorPane,
-    ReviewCanvasEditorPane.ID,
-    "Review",
-  ),
-  [new SyncDescriptor(ReviewCanvasEditorInput)],
+Registry.as<IEditorFactoryRegistry>(EditorExtensions.EditorFactory).registerEditorSerializer(
+	ReviewCanvasEditorInput.ID,
+	ReviewApiEditorSerializer,
 );
 
-class ReviewCanvasEditorContribution
-  extends Disposable
-  implements IWorkbenchContribution
-{
-  static readonly ID = "workbench.contrib.devfast.reviewCanvasEditor";
+Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
+	EditorPaneDescriptor.create(ReviewCanvasEditorPane, ReviewCanvasEditorPane.ID, "Review"),
+	[new SyncDescriptor(ReviewCanvasEditorInput)],
+);
 
-  private restored = false;
+class ReviewCanvasEditorContribution extends Disposable implements IWorkbenchContribution {
+	static readonly ID = "workbench.contrib.devfast.reviewCanvasEditor";
 
-  constructor(
-    @IEditorService private readonly editorService: IEditorService,
-    @IEditorGroupsService
-    private readonly editorGroupsService: IEditorGroupsService,
-    @ILifecycleService private readonly lifecycleService: ILifecycleService,
-    @IStorageService private readonly storageService: IStorageService,
-    @IReviewSessionService
-    private readonly sessionService: IReviewSessionService,
-    @IReviewApiCatalogService private readonly apiCatalog: IReviewApiCatalogService,
-    @IReviewCanvasEditorTabsService
-    private readonly tabsService: IReviewCanvasEditorTabsService,
-  ) {
-    super();
-    this._register(
-      this.editorService.onDidCloseEditor(({ editor }) => {
-        if (!(editor instanceof ReviewCanvasEditorInput)) return;
-        if (editor.target.kind !== "review" && editor.target.kind !== "api") {
-          void this.tabsService.openHome(true);
-        }
-      }),
-    );
-    this._register(
-      sessionService.onDidDismissReview((uuid) => {
-        void this.tabsService.closeReview(uuid);
-      }),
-    );
-    this._register(
-      sessionService.onDidDeleteReview((uuid) => {
-        void this.tabsService.closeReview(uuid);
-      }),
-    );
-    this._register(apiCatalog.onDidCloseReview(uuid => {
-      void this.tabsService.closeReview(uuid);
-    }));
-    this._register(
-      sessionService.onDidRegisterSession(({ session, background }) => {
-        // A background open (the Source tab rooting its file tree) must not
-        // surface the review document tab. The server stamps the intent on
-        // the event itself, so there is no ordering to get right here.
-        if (background) {
-          return;
-        }
-        const active = this.editorService.activeEditor;
-        void this.tabsService.openReview(
-          session.reviewUuid,
-          active instanceof ReviewCanvasEditorInput &&
-            active.target.kind === "home",
-        );
-      }),
-    );
-    void this.initialize();
-  }
+	constructor(
+		@IEditorService private readonly editorService: IEditorService,
+		@IEditorGroupsService
+		private readonly editorGroupsService: IEditorGroupsService,
+		@IReviewDesktopConnectionService
+		private readonly desktopConnection: IReviewDesktopConnectionService,
+		@IReviewApiCatalogService private readonly apiCatalog: IReviewApiCatalogService,
+		@IReviewCanvasEditorTabsService
+		private readonly tabsService: IReviewCanvasEditorTabsService,
+	) {
+		super();
+		this._register(
+			this.editorService.onDidCloseEditor(({ editor }) => {
+				if (!(editor instanceof ReviewCanvasEditorInput)) return;
+				if (editor.target.kind !== "api") {
+					void this.tabsService.openHome(true);
+				}
+			}),
+		);
+		this._register(
+			apiCatalog.onDidCloseReview((uuid) => {
+				void this.tabsService.closeReview(uuid);
+			}),
+		);
+		void this.initialize();
+	}
 
-  private async initialize(): Promise<void> {
-    await this.editorGroupsService.whenRestored;
-    // Only canvas tabs come back: a restored worktree file or diff editor
-    // would outlive its review lease and escape closeReview.
-    for (const group of this.editorGroupsService.groups) {
-      const foreign = group.editors.filter(editor => !(editor instanceof ReviewCanvasEditorInput));
-      if (foreign.length > 0) await group.closeEditors(foreign);
-    }
-    this.closeRestoredApiTabsMissingFromCatalog();
-    await this.tabsService.openHome(!this.editorService.activeEditor);
-    await this.sessionService.initialize();
-    await this.apiCatalog.initialize();
-    await this.restoreTabs();
-    this.restored = true;
-    this._register(
-      this.editorService.onDidEditorsChange(() => this.persistOpenTabs()),
-    );
-    this._register(
-      this.lifecycleService.onWillShutdown(() => {
-        this.persistOpenTabs();
-        this.restored = false;
-      }),
-    );
-  }
+	private async initialize(): Promise<void> {
+		await this.editorGroupsService.whenRestored;
+		// Restored pinned source editors belong to the same review as their URI.
+		for (const group of this.editorGroupsService.groups) {
+			for (const editor of group.editors) {
+				const resource = EditorResourceAccessor.getCanonicalUri(editor, {
+					supportSideBySide: SideBySideEditor.PRIMARY,
+				});
+				if (resource?.scheme === "review-api-source") this.tabsService.registerReviewEditor(resource.authority, editor);
+			}
+		}
+		this.closeRestoredApiTabsMissingFromCatalog();
+		await this.tabsService.openHome(!this.editorService.activeEditor);
+		await this.desktopConnection.initialize();
+		await this.apiCatalog.initialize();
+	}
 
-  /** Restored API tabs may belong to reviews deleted or dismissed while the app was closed. */
-  private closeRestoredApiTabsMissingFromCatalog(): void {
-    const restored = new Set(
-      this.editorGroupsService.groups.flatMap(group =>
-        group.editors.flatMap(editor =>
-          editor instanceof ReviewCanvasEditorInput &&
-          (editor.target.kind === "api" || editor.target.kind === "api-source")
-            ? [editor.target.reviewId]
-            : [],
-        ),
-      ),
-    );
-    if (restored.size === 0) return;
-    const reconcile = async () => {
-      // The managed tutorial is intentionally absent from the Home catalog.
-      const tutorial = await this.sessionService.getTutorialStatus().catch(() => undefined);
-      for (const reviewId of restored) {
-        if (reviewId === tutorial?.reviewUuid) continue;
-        const review = this.apiCatalog.reviews.find(review => review.uuid === reviewId);
-        if (!review || review.dismissedAt) void this.tabsService.closeReview(reviewId);
-      }
-    };
-    if (this.apiCatalog.loaded) void reconcile();
-    else this._register(Event.once(this.apiCatalog.onDidChange)(() => { void reconcile(); }));
-  }
-
-  private async restoreTabs(): Promise<void> {
-    const stored = this.readStoredTabs();
-    const available = new Set(
-      this.sessionService.reviews.map((review) => review.uuid),
-    );
-    /* The tutorial intentionally lives outside the store-backed review list,
-       so normal tab restoration cannot resolve it. Restore it only when it
-       was the active tab: this is the path used by the keymap reload prompt,
-       and avoids reopening an inactive tutorial on an ordinary app launch. */
-    let restoreActiveTutorial = false;
-    if (stored.active && !stored.active.startsWith("api:") && !available.has(stored.active)) {
-      try {
-        const status = await this.sessionService.getTutorialStatus();
-        restoreActiveTutorial = status.reviewUuid === stored.active;
-      } catch {
-        // A tutorial status failure must not prevent real review tabs restoring.
-      }
-    }
-    for (const reviewUuid of stored.open) {
-      if (reviewUuid.startsWith("api:")) {
-        // API tabs now restore through the workbench serializer.
-        continue;
-      }
-      if (!available.has(reviewUuid)) continue;
-      await this.tabsService.openReview(
-        reviewUuid,
-        reviewUuid === stored.active && !restoreActiveTutorial,
-      );
-    }
-    if (restoreActiveTutorial) {
-      try {
-        const opened = await this.sessionService.openTutorial();
-        await this.tabsService.openApiReview(opened.reviewUuid, opened.review.title);
-      } catch {
-        // Home remains usable when the off-store tutorial cannot be prepared.
-      }
-    }
-  }
-
-  private readStoredTabs(): StoredReviewTabs {
-    const value = this.storageService.get(
-      OPEN_REVIEW_TABS_STORAGE_KEY,
-      StorageScope.APPLICATION,
-    );
-    if (!value) return { open: [] };
-    try {
-      const candidate = JSON.parse(value) as {
-        open?: unknown;
-        active?: unknown;
-      };
-      if (
-        !Array.isArray(candidate.open) ||
-        !candidate.open.every((uuid) => typeof uuid === "string") ||
-        (candidate.active !== undefined &&
-          typeof candidate.active !== "string")
-      ) {
-        return { open: [] };
-      }
-      const open = [...new Set(candidate.open)];
-      return {
-        open,
-        ...(candidate.active && open.includes(candidate.active)
-          ? { active: candidate.active }
-          : {}),
-      };
-    } catch {
-      return { open: [] };
-    }
-  }
-
-  private persistOpenTabs(): void {
-    if (!this.restored) return;
-    const group = this.editorGroupsService.mainPart.activeGroup;
-    const key = (editor: unknown): string | undefined => {
-      if (!(editor instanceof ReviewCanvasEditorInput)) return;
-      if (editor.target.kind === "review") return editor.target.reviewUuid;
-      return undefined;
-    };
-    const open = group.editors.flatMap(editor => {
-      const id = key(editor);
-      return id ? [id] : [];
-    });
-    const active = key(group.activeEditor);
-    this.storageService.store(
-      OPEN_REVIEW_TABS_STORAGE_KEY,
-      JSON.stringify({ open, ...(active ? { active } : {}) }),
-      StorageScope.APPLICATION,
-      StorageTarget.MACHINE,
-    );
-  }
+	/** Restored API tabs may belong to reviews deleted or dismissed while the app was closed. */
+	private closeRestoredApiTabsMissingFromCatalog(): void {
+		const restored = new Set(
+			this.editorGroupsService.groups.flatMap((group) =>
+				group.editors.flatMap((editor) =>
+					editor instanceof ReviewCanvasEditorInput &&
+					(editor.target.kind === "api" || editor.target.kind === "api-source")
+						? [editor.target.reviewId]
+						: [],
+				),
+			),
+		);
+		if (restored.size === 0) return;
+		const reconcile = async () => {
+			// The managed tutorial is intentionally absent from the Home catalog.
+			const tutorial = await this.desktopConnection.getTutorialStatus().catch(() => undefined);
+			for (const reviewId of restored) {
+				if (reviewId === tutorial?.reviewUuid) continue;
+				const review = this.apiCatalog.reviews.find((review) => review.reviewId === reviewId);
+				if (!review || review.dismissedAt) void this.tabsService.closeReview(reviewId);
+			}
+		};
+		if (this.apiCatalog.loaded) void reconcile();
+		else
+			this._register(
+				Event.once(this.apiCatalog.onDidChange)(() => {
+					void reconcile();
+				}),
+			);
+	}
 }
 
 registerWorkbenchContribution2(
-  ReviewCanvasEditorContribution.ID,
-  ReviewCanvasEditorContribution,
-  WorkbenchPhase.AfterRestored,
+	ReviewCanvasEditorContribution.ID,
+	ReviewCanvasEditorContribution,
+	WorkbenchPhase.AfterRestored,
 );

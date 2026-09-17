@@ -313,16 +313,12 @@ function renderWithSession(node: ReactNode) {
   );
 }
 
-function createTestSession(sessionId = "test"): ReviewSession {
+function createTestSession(reviewId = "test"): ReviewSession {
   return testReviewSession(
-    {
-      sessionUrl: "http://127.0.0.1:5570/sessions/test",
-      routePath: "/",
-      sessionId,
-      token: "",
-    },
+    { reviewId, token: "" },
     {
       diffView: {
+        files: async () => [],
         create: () => {
           throw new Error("unused test diff view");
         },

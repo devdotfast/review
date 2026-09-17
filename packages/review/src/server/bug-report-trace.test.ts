@@ -67,12 +67,20 @@ describe("readAuthoringTraceAttachment", () => {
   it("returns null without an attributable source session or local trace", async () => {
     writeReview("disabled:review");
     await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
+      readAuthoringTraceAttachment({
+        sourceSession: JSON.parse(
+          readFileSync(path.join(reviewRootPath, "review.json"), "utf8"),
+        ).sourceSession,
+      }),
     ).resolves.toBeNull();
 
     writeReview("codex:missing-session");
     await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
+      readAuthoringTraceAttachment({
+        sourceSession: JSON.parse(
+          readFileSync(path.join(reviewRootPath, "review.json"), "utf8"),
+        ).sourceSession,
+      }),
     ).resolves.toBeNull();
   });
 
@@ -264,7 +272,11 @@ describe("readAuthoringTraceAttachment", () => {
     writeReview("codex:" + childId);
 
     await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
+      readAuthoringTraceAttachment({
+        sourceSession: JSON.parse(
+          readFileSync(path.join(reviewRootPath, "review.json"), "utf8"),
+        ).sourceSession,
+      }),
     ).rejects.toThrow("history base is malformed");
   });
 
@@ -468,7 +480,11 @@ describe("readAuthoringTraceAttachment", () => {
 
     truncateSync(childPath, MAX_AUTHORING_TRACE_BYTES + 1);
     await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
+      readAuthoringTraceAttachment({
+        sourceSession: JSON.parse(
+          readFileSync(path.join(reviewRootPath, "review.json"), "utf8"),
+        ).sourceSession,
+      }),
     ).rejects.toThrow("exceeds the supported size");
   });
 
@@ -490,7 +506,11 @@ describe("readAuthoringTraceAttachment", () => {
     writeHarnessTrace("claude-code", id, "{");
 
     await expect(
-      readAuthoringTraceAttachment({ reviewRootPath }),
+      readAuthoringTraceAttachment({
+        sourceSession: JSON.parse(
+          readFileSync(path.join(reviewRootPath, "review.json"), "utf8"),
+        ).sourceSession,
+      }),
     ).rejects.toThrow("Trace file is empty");
   });
 
@@ -599,7 +619,11 @@ describe("readAuthoringTraceAttachment", () => {
   });
 
   async function requiredAttachment(): Promise<AuthoringTraceAttachment> {
-    const attachment = await readAuthoringTraceAttachment({ reviewRootPath });
+    const attachment = await readAuthoringTraceAttachment({
+      sourceSession: JSON.parse(
+        readFileSync(path.join(reviewRootPath, "review.json"), "utf8"),
+      ).sourceSession,
+    });
 
     if (!attachment) throw new Error("Expected an authoring trace.");
 

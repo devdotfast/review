@@ -1,14 +1,10 @@
 import {
-  type JsonValue,
-  ReviewStatusSchema,
-  jsonObject,
-  jsonString,
+  ReviewApiClient,
+  type ReviewApiSummary,
 } from "@dev.fast/review-protocol";
-import { z } from "zod";
 
 import { requireHealthyReviewDesktop } from "./desktop-discovery";
-import type { StoredReview } from "./review-home";
-import { span } from "./startup-trace";
+import { resolveReviewRoot } from "./runtime";
 
 export interface RunReviewInfoInput {
   cwd: string;
@@ -18,74 +14,41 @@ export interface RunReviewInfoInput {
 
 export interface ReviewInfoEvent {
   event: "info";
-  warnings?: string[];
-  reviews: Array<{
-    uuid: string;
-    dir: string;
-    change: string | null;
-    inSync: boolean;
-    matchesCheckout: boolean;
-    status: StoredReview["review"]["status"];
-    title: string;
-  }>;
+  reviews: ReviewApiSummary[];
 }
-
-const ReviewInfoEventSchema: z.ZodType<ReviewInfoEvent> = z.object({
-  event: z.literal("info"),
-  warnings: z.array(z.string()).optional(),
-  reviews: z.array(
-    z.object({
-      uuid: z.string(),
-      dir: z.string(),
-      change: z.string().nullable(),
-      inSync: z.boolean(),
-      matchesCheckout: z.boolean(),
-      status: ReviewStatusSchema,
-      title: z.string(),
-    }),
-  ),
-});
 
 export async function runReviewInfo(
   input: RunReviewInfoInput,
+  runtime = { requireHealthyReviewDesktop, resolveReviewRoot },
 ): Promise<ReviewInfoEvent> {
-  const discovery = await span("info: desktop health", () =>
-    requireHealthyReviewDesktop("review info"),
-  );
+  if (input.all && input.reviewUuid)
+    throw new Error("Review info cannot combine all and reviewUuid.");
+  const discovery = await runtime.requireHealthyReviewDesktop("review info");
 
-  const response = await span("info: POST /info", () =>
-    fetch(`${discovery.url}/info`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-review-token": discovery.token,
-      },
-      body: JSON.stringify(input),
-    }),
-  );
+  const client = new ReviewApiClient({
+    serverUrl: discovery.url,
+    token: discovery.token,
+  });
 
-  const payload: JsonValue = await response.json();
+  const reviews = await client.read<ReviewApiSummary[]>("/");
 
-  if (!response.ok) {
-    throw new Error(reviewInfoResponseError(payload, response.status));
+  if (input.reviewUuid) {
+    const selected = reviews.find(
+      (review) => review.reviewId === input.reviewUuid,
+    );
+
+    if (!selected) throw new Error(`Review not found: ${input.reviewUuid}`);
+
+    return { event: "info", reviews: [selected] };
   }
 
-  return parseReviewInfoEvent(payload);
-}
+  const root = await runtime.resolveReviewRoot(input.cwd);
 
-function parseReviewInfoEvent(value: JsonValue): ReviewInfoEvent {
-  const parsed = ReviewInfoEventSchema.safeParse(value);
-
-  if (!parsed.success) {
-    throw new Error("Review Desktop returned an invalid info response.");
-  }
-
-  return parsed.data;
-}
-
-function reviewInfoResponseError(payload: JsonValue, status: number): string {
-  return (
-    jsonString(jsonObject(payload)?.error) ??
-    `Review Desktop returned ${status} for info.`
-  );
+  return {
+    event: "info",
+    reviews: reviews.filter(
+      (review) =>
+        review.repositoryPath === root && (input.all || !review.dismissedAt),
+    ),
+  };
 }

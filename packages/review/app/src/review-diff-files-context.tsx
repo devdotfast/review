@@ -1,5 +1,4 @@
 import type { ReviewDiffFileWire } from "@dev.fast/review-protocol";
-import { parseReviewDiffFilesResponse } from "@dev.fast/review-protocol";
 import {
   type ReactNode,
   createContext,
@@ -38,7 +37,6 @@ export function ReviewDiffFilesProvider({
   children: ReactNode;
 }) {
   const session = useReviewSession();
-  const reviewFetch = session.fetch;
   const diffView = session.bridge.diffView;
   const container = useReviewContainer();
 
@@ -64,24 +62,7 @@ export function ReviewDiffFilesProvider({
     );
     recordDiffSummaryRequest(container);
 
-    const request = diffView.files
-      ? diffView.files().then((files) => [...files])
-      : reviewFetch("/diff-files", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ includePatch: false }),
-          signal: controller.signal,
-        }).then(async (response) => {
-          const result = parseReviewDiffFilesResponse(await response.json());
-
-          if (!response.ok || !result.ok) {
-            throw new Error(
-              result.ok ? "Unable to load diff files." : result.error,
-            );
-          }
-
-          return result.files;
-        });
+    const request = diffView.files().then((files) => [...files]);
 
     request
       .then((files) => {
@@ -104,7 +85,7 @@ export function ReviewDiffFilesProvider({
       });
 
     return () => controller.abort();
-  }, [container, diffView, documentKey, reviewFetch]);
+  }, [container, diffView, documentKey]);
 
   const value = useMemo(() => state, [state]);
 

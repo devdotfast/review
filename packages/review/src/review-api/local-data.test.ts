@@ -1938,11 +1938,13 @@ it("retargets a live review without losing authored content or component IDs", a
       },
     }),
   );
+
   await insert(created.reviewId, {
     type: "code_peek",
     source: { file: "example.ts", fromLine: 1, toLine: 1 },
   });
   const before = local.store.read(created.reviewId);
+
   const result = await local.store.execute(
     command({
       type: "set_target",
@@ -1954,6 +1956,7 @@ it("retargets a live review without losing authored content or component IDs", a
       },
     }),
   );
+
   expect(local.store.read(created.reviewId).document).toEqual(before.document);
   expect(result.warnings?.length).toBeGreaterThan(0);
   expect(

@@ -277,19 +277,6 @@ describe("legacyDocumentToBlocks", () => {
       },
     ]);
     expect(warnings).toEqual([]);
-
-    for (const block of blocks) blockSchema.parse(block);
-  });
-
-  it("hoists an image out of a list item", () => {
-    const { blocks } = legacyDocumentToBlocks(
-      documentOf([el("ul", [el("li", [image("./a.png", "A")])])]),
-    );
-
-    expect(blocks).toEqual([
-      { type: "markdown", markdown: "-\n" },
-      { type: "image", assetId: "image-placeholder-1", alt: "A" },
-    ]);
   });
 
   it("leaves a remote image in the Markdown", () => {

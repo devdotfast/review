@@ -670,10 +670,8 @@ class TraceResolver {
   }
 }
 
-/** Stores each published image once per review. Resources are keyed by the
- * bytes of the file, so a screenshot republished unchanged across revisions is
- * one resource, while one edited between revisions becomes a second and each
- * version keeps what it showed. */
+/** Stores each published image once per review, keyed by file bytes: a
+ * screenshot edited between revisions becomes a second resource. */
 class ImageResolver {
   private readonly stored = new Map<string, string>();
 
@@ -711,11 +709,9 @@ class ImageResolver {
 
   private async resource(src: string, dir: string): Promise<string> {
     const root = path.resolve(dir);
-    // A legacy review addressed its published files from its own root, so a
-    // leading slash is the review directory, not the filesystem.
+    // A leading slash is the review's own root, not the filesystem.
     const file = path.resolve(root, src.replace(/^\/+/, ""));
 
-    // The sealed revision is the whole of what the review published.
     if (file !== root && !file.startsWith(root + path.sep))
       throw new Error("outside the review");
 

@@ -362,10 +362,8 @@ function cellAlignment(
 }
 
 function MarkdownImage({ url, alt }: { url: string; alt: string }): ReactNode {
-  // Only a remote image can be shown as authored; anything else was stored as
-  // an image block at import. It is phrasing content inside its paragraph, so
-  // it stays an <img>: a <figure> there would be invalid HTML. CSS gives it
-  // the block layout of an image block.
+  // Phrasing content, so an <img> (a <figure> inside <p> is invalid HTML)
+  // that CSS lays out like an image block.
   if (useContext(RemoteImages) && urlProtocol(url) === "https:")
     return (
       <img className="review-image-inline" src={url} alt={alt} loading="lazy" />
@@ -419,8 +417,7 @@ function safeMarkdownHref(value: string | undefined): string | null {
     : null;
 }
 
-/** The scheme a href or image source resolves to, relative ones counting as
- * the page's own. */
+/** The scheme a href resolves to; a relative one counts as the page's own. */
 function urlProtocol(value: string): string | null {
   try {
     return new URL(value, "http://localhost").protocol;

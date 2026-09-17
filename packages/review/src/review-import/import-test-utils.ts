@@ -31,9 +31,8 @@ export const el = (
 
 export const text = (value: string): ReviewNode => ({ type: "text", value });
 
-/** The footnote section a Markdown pipeline emits for a definition that quotes
- * an agent trace, the shape a legacy review takes when an aside cites a
- * session. `[^<label>]` references it. */
+/** The footnote section a legacy review sealed for a definition, `[^<label>]`,
+ * that quotes an agent trace. */
 export const footnoteTraceQuoteSection = (label: string): ReviewNode =>
   el(
     "section",
@@ -172,9 +171,9 @@ export async function syntheticLegacyReview(
   return { home, dir, record, stored, oids };
 }
 
-/** A scratch repository, a synthetic legacy review sealed from `fixture` and an
- * open store, closed when the test ends. `importReview` runs the importer over
- * them, so a test can edit a sealed document first. */
+/** A synthetic legacy review sealed from `fixture` in a scratch repository, and
+ * an open store closed when the test ends; `importReview` imports the former
+ * into the latter. */
 export async function runImport(
   fixture: string,
   options: Parameters<typeof syntheticLegacyReview>[2] & {

@@ -106,8 +106,7 @@ export function legacyDocumentToBlocks(
     return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
   };
 
-  /** The block a node nested in prose becomes, Markdown carrying neither a
-   * diagram nor a stored image. */
+  /** The block a node nested in prose becomes, if Markdown cannot carry it. */
   const hoistable = (node: ReviewNode): Block | undefined => {
     if (node.type === "element")
       return isStoredImage(node) ? imageRequest(node) : undefined;
@@ -131,28 +130,6 @@ export function legacyDocumentToBlocks(
     return { ...node, children };
   };
 
-  /** `nodes` with each hoistable node lifted out of the prose that held it and
-   * emitted right after it. Footnote sections are dropped, their definitions
-   * already collected, so what a definition holds stays inside it. */
-  const hoistBlocks = (nodes: ReviewNode[]): Array<ReviewNode | Block> => {
-    const out: Array<ReviewNode | Block> = [];
-
-    for (const node of nodes) {
-      if (!isProseNode(node)) {
-        out.push(node);
-        continue;
-      }
-
-      if (isFootnoteSection(node)) continue;
-
-      const hoisted: Block[] = [];
-
-      out.push(withoutHoisted(node, hoisted), ...hoisted);
-    }
-
-    return out;
-  };
-
   const footnotes = collectFootnoteDefinitions(document.body, warnings, render);
 
   const convert = (nodes: ReviewNode[]): Block[] => {
@@ -173,19 +150,20 @@ export function legacyDocumentToBlocks(
       prose = [];
     };
 
-    for (const node of hoistBlocks(nodes)) {
-      if (
-        node.type !== "text" &&
-        node.type !== "element" &&
-        node.type !== "component"
-      ) {
-        flush();
-        out.push(node);
-        continue;
-      }
-
+    for (const node of nodes) {
       if (isProseNode(node)) {
-        prose.push(node);
+        // Definitions are already collected, and a block inside one stays there.
+        if (isFootnoteSection(node)) continue;
+
+        const hoisted: Block[] = [];
+
+        prose.push(withoutHoisted(node, hoisted));
+
+        if (hoisted.length) {
+          flush();
+          out.push(...hoisted);
+        }
+
         continue;
       }
 
@@ -307,9 +285,8 @@ function diagramBlock(node: ReviewComponentNode): Block | undefined {
   }
 }
 
-/** An image the review published alongside its document, so the import has a
- * file to store. One with a scheme (`https:`, `data:`) stays a Markdown image,
- * which the reader can still fetch. */
+/** A file published beside the document, for the import to store; a source
+ * with a scheme (`https:`, `data:`) stays a Markdown image. */
 function isStoredImage(node: ReviewElementNode): boolean {
   return (
     node.tag === "img" &&

@@ -275,7 +275,7 @@ describe("diagram rules", () => {
     );
   });
 
-  it("rejects duplicate frame keys", async () => {
+  it("rejects duplicate frame keys within a column", async () => {
     const baseSource = { ...head("src/store.ts", 1), side: "base" as const };
 
     await expectRejected(
@@ -290,6 +290,27 @@ describe("diagram rules", () => {
           head: [],
         }),
       "Frame keys must be unique within base.",
+    );
+  });
+
+  it("keeps each frame's source pin when both columns use the same snapshot", async () => {
+    const baseSource = head("order.ts", 1);
+    const headSource = head("src/store.ts", 2);
+
+    const result = await insert({
+      type: "call_stack_diff",
+      title: "Two paths in the head snapshot",
+      base: [{ source: baseSource }],
+      head: [{ source: headSource }],
+    });
+
+    expect(result.status).toBe(200);
+    expect(local.store.read(reviewId).document).toContainEqual(
+      expect.objectContaining({
+        type: "call_stack_diff",
+        base: [expect.objectContaining({ source: baseSource })],
+        head: [expect.objectContaining({ source: headSource })],
+      }),
     );
   });
 });

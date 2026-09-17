@@ -3,13 +3,14 @@ import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import type { Block } from "../../src/review-api/document";
-import type { Snapshot } from "../../src/review-api/store";
-import { ApiDocument, type ApiDocumentData } from "./api-document";
-import { apiHeadingIds } from "./api-document-headings";
+import { ApiDocument } from "./api-document";
 import { ReviewSessionProvider } from "./host/review-session";
 import type { ReviewRoots } from "./review-root-context";
 import { ReviewRootsProvider } from "./review-root-context";
-import { testReviewSession } from "./review-session-test-utils";
+import {
+  testApiDocumentData,
+  testReviewSession,
+} from "./review-session-test-utils";
 
 const blocks: Block[] = [
   {
@@ -29,24 +30,7 @@ const blocks: Block[] = [
   },
 ];
 
-const snapshot: Snapshot = {
-  reviewId: "11111111-1111-4111-8111-111111111111",
-  version: 1,
-  title: "Imported",
-  pins: { repositoryId: "repo", base: "base", head: "head" },
-  document: blocks,
-  createdAt: new Date().toISOString(),
-};
-
-const data: ApiDocumentData = {
-  snapshot,
-  commits: [],
-  anchors: new Map(),
-  images: new Map(),
-  traces: new Map(),
-  maps: new Map(),
-  headings: apiHeadingIds(blocks),
-};
+const data = testApiDocumentData(blocks);
 
 let container: HTMLElement, article: HTMLElement, root: Root;
 

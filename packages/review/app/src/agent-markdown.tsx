@@ -54,12 +54,15 @@ export function MarkdownContent({
 }: {
   source: string;
   h1?: ComponentType<{ children?: ReactNode }>;
-  /** Undefined leaves the heading unaddressable: only h2/h3 carry link targets. */
+  /** The id of the document's nth h2/h3, undefined where it has none. */
   headingId?: (index: number) => string | undefined;
   renderLink?: LinkRenderer;
   allowRemoteImages?: boolean;
 }): ReactElement {
   const { body, footnotes } = splitFootnotes(parseMarkdown(source));
+  // Heading ids are addressed by ordinal, so only the levels that carry one
+  // advance the count.
+  let heading = 0;
 
   return (
     <DocumentLink.Provider value={renderLink}>
@@ -72,7 +75,13 @@ export function MarkdownContent({
           ) : node.type === "heading" && headingId ? (
             createElement(
               `h${node.depth}`,
-              { key: index, id: headingId(index) },
+              {
+                key: index,
+                id:
+                  node.depth === 2 || node.depth === 3
+                    ? headingId(heading++)
+                    : undefined,
+              },
               renderMarkdownChildren(node.children ?? [], String(index)),
             )
           ) : (

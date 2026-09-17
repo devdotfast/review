@@ -17,7 +17,7 @@ describe("documentHeadings", () => {
         text: "The store and its home",
         level: "h2",
         block,
-        index: 1,
+        index: 0,
       },
     ]);
   });
@@ -30,15 +30,16 @@ describe("documentHeadings", () => {
     ]);
   });
 
-  it("indexes past a footnote definition, as the renderer's body does", () => {
+  it("numbers a block's headings among themselves, not among its nodes", () => {
     const block: Block = {
       id: "b1",
       type: "markdown",
-      markdown: "Intro[^1]\n\n[^1]: note\n\n## Heading\n",
+      markdown: "Intro[^1]\n\n[^1]: note\n\n## One\n\nText\n\n### Two\n",
     };
 
     expect(documentHeadings([block])).toMatchObject([
-      { id: "heading", index: 1 },
+      { id: "one", index: 0 },
+      { id: "two", index: 1 },
     ]);
   });
 

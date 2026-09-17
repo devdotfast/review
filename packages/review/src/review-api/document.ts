@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { markdownNodes, parseMarkdown } from "../markdown.js";
+import { markdownNodes, markdownText, parseMarkdown } from "../markdown.js";
 import { type Source, sourceSchema } from "../source.js";
 import { type Block, blockSchema } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
@@ -85,11 +85,7 @@ export function resourceReferences(document: Block[]): Block[] {
 
         if (!quote) throw new ReviewInputError("Invalid trace quote link.");
 
-        const text = [...markdownNodes(node)]
-          .map((child) => child.value ?? "")
-          .join("");
-
-        return [{ type: "trace_quote", ...quote, text }];
+        return [{ type: "trace_quote", ...quote, text: markdownText(node) }];
       },
     );
   });

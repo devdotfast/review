@@ -2,21 +2,12 @@ import type { Block } from "../../src/review-api/document";
 import { documentHeadings } from "../../src/review-api/document-headings";
 import type { ReviewTocEntry } from "./review-document-headings";
 
-/** The heading slugs of one document snapshot, for the renderer. */
+/** The headings of one document snapshot, resolved once for the renderer. */
 export interface ApiHeadingIds {
-  /** The slug of a section block, or of the h2/h3 at `index` among a markdown
-   * block's root nodes. */
+  /** The slug of a section block, or of the nth h2/h3 of a markdown block. */
   get(blockId: string, index?: number): string | undefined;
-  /** Whether a `#fragment` link names a heading of this document. */
-  has(id: string): boolean;
-}
-
-export function apiDocumentHeadings(blocks: Block[]): ReviewTocEntry[] {
-  return documentHeadings(blocks).map(({ id, text, level }) => ({
-    id,
-    text,
-    level,
-  }));
+  /** Every heading in document order, for the table of contents. */
+  entries: ReviewTocEntry[];
 }
 
 export function apiHeadingIds(blocks: Block[]): ApiHeadingIds {
@@ -29,11 +20,9 @@ export function apiHeadingIds(blocks: Block[]): ApiHeadingIds {
     ]),
   );
 
-  const ids = new Set(headings.map((heading) => heading.id));
-
   return {
     get: (blockId, index) => slugs.get(headingKey(blockId, index)),
-    has: (id) => ids.has(id),
+    entries: headings,
   };
 }
 

@@ -1,8 +1,6 @@
 import path from "node:path";
 
-import { markdownNodes, parseMarkdown } from "../markdown";
 import { type Block, elements } from "../review-api/document";
-import { documentHeadings } from "../review-api/document-headings";
 import type {
   ReviewComponentNode,
   ReviewDocumentData,
@@ -247,39 +245,7 @@ export function legacyDocumentToBlocks(
     return out;
   };
 
-  const blocks = convert(document.body);
-
-  return {
-    blocks,
-    traces,
-    images,
-    warnings: [...warnings, ...danglingFragments(blocks)],
-  };
-}
-
-/** GFM footnote references and backrefs, whose targets the renderer emits. */
-const FOOTNOTE_FRAGMENT = /^(user-content-)?fn(ref)?-/;
-
-/** Legacy links target the slugs the renderer publishes for headings, so any
- * other fragment is a dead link only the author can repair. */
-function danglingFragments(blocks: Block[]): string[] {
-  const slugs = new Set(documentHeadings(blocks).map((heading) => heading.id));
-
-  const fragments = elements(blocks).flatMap((block) =>
-    block.type === "markdown"
-      ? [...markdownNodes(parseMarkdown(block.markdown))].flatMap((node) =>
-          node.type === "link" && node.url?.startsWith("#")
-            ? [node.url.slice(1)]
-            : [],
-        )
-      : [],
-  );
-
-  return fragments.flatMap((fragment) =>
-    slugs.has(fragment) || FOOTNOTE_FRAGMENT.test(fragment)
-      ? []
-      : [`Link to #${fragment} matches no heading.`],
-  );
+  return { blocks: convert(document.body), traces, images, warnings };
 }
 
 /** The diagram components as blocks, wherever they were authored. */

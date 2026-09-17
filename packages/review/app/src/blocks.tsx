@@ -15,8 +15,6 @@ import { DatabaseLens } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
-import { scrollToReviewHeading } from "./review-heading-scroll";
-import { useReviewRoots } from "./review-root-context";
 import { SoftwareMap } from "./software-map/SoftwareMap";
 import { TraceQuote } from "./trace-quote";
 import { TutorialAuthoringConversation } from "./tutorial-authoring-conversation";
@@ -81,36 +79,12 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
 
         const anchor = data.anchors.get(`${node.id}:${href}`);
 
-        if (anchor) return <AnchorLink anchor={anchor}>{children}</AnchorLink>;
-
-        return href.startsWith("#") && data.headings.has(href.slice(1)) ? (
-          <HeadingLink id={href.slice(1)}>{children}</HeadingLink>
+        return anchor ? (
+          <AnchorLink anchor={anchor}>{children}</AnchorLink>
         ) : undefined;
       }}
       allowRemoteImages
     />
-  );
-}
-
-/** A link to a heading of this document: the document scrolls itself, since a
- * heading can sit inside a collapsed section the browser would never reach. */
-function HeadingLink({ id, children }: { id: string; children: ReactNode }) {
-  const roots = useReviewRoots();
-
-  return (
-    <a
-      href={`#${id}`}
-      onClick={(event) => {
-        event.preventDefault();
-        scrollToReviewHeading(
-          id,
-          roots?.articleRef.current ?? null,
-          roots?.scrollRegionRef.current ?? null,
-        );
-      }}
-    >
-      {children}
-    </a>
   );
 }
 

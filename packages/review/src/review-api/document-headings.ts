@@ -1,4 +1,4 @@
-import { type MarkdownNode, parseMarkdown } from "../markdown.js";
+import { markdownText, parseMarkdown } from "../markdown.js";
 import { slugify, uniqueId } from "../slug.js";
 import { type Block, elements } from "./document.js";
 
@@ -12,12 +12,8 @@ export interface DocumentHeading {
   text: string;
   level: ReviewHeadingLevel;
   block: Block;
-  /** Position among the markdown block's root nodes; absent for a section. */
+  /** Position among the markdown block's own headings; absent for a section. */
   index?: number;
-}
-
-function headingText(node: MarkdownNode): string {
-  return node.value ?? node.children?.map(headingText).join("") ?? "";
 }
 
 /**
@@ -40,21 +36,16 @@ export function documentHeadings(blocks: Block[]): DocumentHeading[] {
       return [assign({ text: block.title, level: "h2", block })];
 
     if (block.type !== "markdown") return [];
+    let index = 0;
 
-    // `index` addresses the heading in the rendered body, where footnote
-    // definitions have been lifted out to the end (see `MarkdownContent`).
-    const body = (parseMarkdown(block.markdown).children ?? []).filter(
-      (node) => node.type !== "footnoteDefinition",
-    );
-
-    return body.flatMap((node, index) =>
+    return (parseMarkdown(block.markdown).children ?? []).flatMap((node) =>
       node.type === "heading" && (node.depth === 2 || node.depth === 3)
         ? [
             assign({
-              text: headingText(node),
+              text: markdownText(node),
               level: node.depth === 2 ? "h2" : "h3",
               block,
-              index,
+              index: index++,
             }),
           ]
         : [],

@@ -26,6 +26,11 @@ export function* markdownNodes(node: MarkdownNode): Generator<MarkdownNode> {
 }
 
 /** Shared syntax for submit-time source checks and safe Markdown rendering. */
+/** The text a node carries, its own and every descendant's. */
+export function markdownText(node: MarkdownNode): string {
+  return [...markdownNodes(node)].map((child) => child.value ?? "").join("");
+}
+
 export function parseMarkdown(source: string): MarkdownNode {
   const tree: MarkdownNode = fromMarkdown(source, {
     extensions: [gfm()],

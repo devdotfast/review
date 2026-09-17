@@ -4,6 +4,9 @@ import type {
 } from "@dev.fast/review-protocol";
 import type { ReactNode } from "react";
 
+import type { Block } from "../../src/review-api/document";
+import type { ApiDocumentData } from "./api-document";
+import { apiHeadingIds } from "./api-document-headings";
 import { reviewFetchUrl } from "./host/review-client";
 import {
   type ReviewSession,
@@ -74,6 +77,27 @@ export function testReviewSession(
       stack: async () => [],
       dismiss: async () => {},
     },
+  };
+}
+
+/** A snapshot of `blocks` with the empty resource maps a test that only renders
+ * the document needs. */
+export function testApiDocumentData(blocks: Block[]): ApiDocumentData {
+  return {
+    snapshot: {
+      reviewId: "11111111-1111-4111-8111-111111111111",
+      version: 1,
+      title: "Imported",
+      pins: { repositoryId: "repo", base: "base", head: "head" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      document: blocks,
+    },
+    headings: apiHeadingIds(blocks),
+    commits: [],
+    anchors: new Map(),
+    images: new Map(),
+    traces: new Map(),
+    maps: new Map(),
   };
 }
 

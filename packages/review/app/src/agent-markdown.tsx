@@ -20,15 +20,10 @@ import { newTabLinkProps } from "./link-props";
 
 type LinkRenderer = (href: string, children: ReactNode) => ReactNode;
 
-type ImageRenderer = (image: {
-  url: string;
-  alt: string;
-  title?: string;
-}) => ReactNode | undefined;
-
 const DocumentLink = createContext<LinkRenderer | undefined>(undefined);
 
-const DocumentImage = createContext<ImageRenderer | undefined>(undefined);
+/** Whether a remote image may be fetched and shown where it was authored. */
+const RemoteImages = createContext(false);
 
 export function AgentMarkdown({
   source,
@@ -55,19 +50,19 @@ export function MarkdownContent({
   h1: Heading,
   headingId,
   renderLink,
-  renderImage,
+  allowRemoteImages = false,
 }: {
   source: string;
   h1?: ComponentType<{ children?: ReactNode }>;
   headingId?: (index: number) => string;
   renderLink?: LinkRenderer;
-  renderImage?: ImageRenderer;
+  allowRemoteImages?: boolean;
 }): ReactElement {
   const { body, footnotes } = splitFootnotes(parseMarkdown(source));
 
   return (
     <DocumentLink.Provider value={renderLink}>
-      <DocumentImage.Provider value={renderImage}>
+      <RemoteImages.Provider value={allowRemoteImages}>
         {body.map((node, index) =>
           node.type === "heading" && node.depth === 1 && Heading ? (
             <Heading key={index}>
@@ -84,7 +79,7 @@ export function MarkdownContent({
           ),
         )}
         {renderFootnotes(footnotes, "document")}
-      </DocumentImage.Provider>
+      </RemoteImages.Provider>
     </DocumentLink.Provider>
   );
 }
@@ -264,12 +259,7 @@ function renderMarkdownNode(
 
     case "image":
       return (
-        <MarkdownImage
-          key={key}
-          url={node.url ?? ""}
-          alt={node.alt ?? ""}
-          title={node.title ?? undefined}
-        />
+        <MarkdownImage key={key} url={node.url ?? ""} alt={node.alt ?? ""} />
       );
     case "table":
       return renderTable(node, key);
@@ -371,19 +361,15 @@ function cellAlignment(
   }
 }
 
-function MarkdownImage({
-  url,
-  alt,
-  title,
-}: {
-  url: string;
-  alt: string;
-  title?: string;
-}): ReactNode {
-  const renderImage = useContext(DocumentImage);
-  const custom = renderImage?.({ url, alt, title });
-
-  if (custom !== undefined) return <>{custom}</>;
+function MarkdownImage({ url, alt }: { url: string; alt: string }): ReactNode {
+  // Only a remote image can be shown as authored; anything else was stored as
+  // an image block at import. It is phrasing content inside its paragraph, so
+  // it stays an <img>: a <figure> there would be invalid HTML. CSS gives it
+  // the block layout of an image block.
+  if (useContext(RemoteImages) && urlProtocol(url) === "https:")
+    return (
+      <img className="review-image-inline" src={url} alt={alt} loading="lazy" />
+    );
 
   // Chat has no store to resolve an image against, so its alt text stands in.
   return alt ? <em>{alt}</em> : null;
@@ -426,11 +412,18 @@ function safeMarkdownHref(value: string | undefined): string | null {
   if (value.startsWith("#")) return value;
 
   if (isLocalFilesystemHref(value)) return null;
+  const protocol = urlProtocol(value);
 
+  return protocol && ["http:", "https:", "mailto:"].includes(protocol)
+    ? value
+    : null;
+}
+
+/** The scheme a href or image source resolves to, relative ones counting as
+ * the page's own. */
+function urlProtocol(value: string): string | null {
   try {
-    const url = new URL(value, "http://localhost");
-
-    return ["http:", "https:", "mailto:"].includes(url.protocol) ? value : null;
+    return new URL(value, "http://localhost").protocol;
   } catch {
     return null;
   }

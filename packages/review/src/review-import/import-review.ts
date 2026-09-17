@@ -274,15 +274,12 @@ export async function importLegacyReview(
     const conversion = legacyDocumentToBlocks(document);
     const versionWarnings = [...conversion.warnings];
 
-    const blocks = await images.resolve(
-      await traces.resolve(
-        conversion.blocks,
-        conversion.traces,
-        versionWarnings,
-      ),
-      conversion.images,
-      dir,
-      versionWarnings,
+    const blocks = replace(
+      conversion.blocks,
+      new Map([
+        ...(await traces.replacements(conversion.traces, versionWarnings)),
+        ...(await images.replacements(conversion.images, dir, versionWarnings)),
+      ]),
     );
 
     if (input.completeHistory && versionWarnings.length)
@@ -590,12 +587,10 @@ class TraceResolver {
     },
   ) {}
 
-  async resolve(
-    blocks: Block[],
+  async replacements(
     requests: TraceRequest[],
     warnings: string[],
-  ): Promise<Block[]> {
-    if (requests.length === 0) return blocks;
+  ): Promise<Map<string, Block>> {
     const replacements = new Map<string, Block>();
 
     for (const request of requests) {
@@ -637,7 +632,7 @@ class TraceResolver {
       });
     }
 
-    return replace(blocks, replacements);
+    return replacements;
   }
 
   private load(request: TraceRequest) {
@@ -675,10 +670,10 @@ class TraceResolver {
   }
 }
 
-/** Stores each published image once per review and rewrites placeholder
- * blocks. Resources are keyed by what the file decoded to, so a screenshot
- * republished unchanged across revisions is one resource, while one edited
- * between revisions becomes a second and each version keeps what it showed. */
+/** Stores each published image once per review. Resources are keyed by the
+ * bytes of the file, so a screenshot republished unchanged across revisions is
+ * one resource, while one edited between revisions becomes a second and each
+ * version keeps what it showed. */
 class ImageResolver {
   private readonly stored = new Map<string, string>();
 
@@ -686,13 +681,11 @@ class ImageResolver {
     private readonly input: { store: ReviewStore; repositoryId: string },
   ) {}
 
-  async resolve(
-    blocks: Block[],
+  async replacements(
     requests: ImageRequest[],
     dir: string,
     warnings: string[],
-  ): Promise<Block[]> {
-    if (requests.length === 0) return blocks;
+  ): Promise<Map<string, Block>> {
     const replacements = new Map<string, Block>();
 
     for (const request of requests) {
@@ -713,7 +706,7 @@ class ImageResolver {
       }
     }
 
-    return replace(blocks, replacements);
+    return replacements;
   }
 
   private async resource(src: string, dir: string): Promise<string> {
@@ -726,12 +719,13 @@ class ImageResolver {
     if (file !== root && !file.startsWith(root + path.sep))
       throw new Error("outside the review");
 
-    const png = await decodeImage(await readFile(file));
-    const digest = createHash("sha256").update(png).digest("hex");
+    const bytes = await readFile(file);
+    const digest = createHash("sha256").update(bytes).digest("hex");
     const kept = this.stored.get(digest);
 
     if (kept) return kept;
 
+    const png = await decodeImage(bytes);
     const id = randomUUID();
     this.input.store.putResource(
       id,
@@ -747,6 +741,8 @@ class ImageResolver {
 }
 
 function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
+  if (replacements.size === 0) return blocks;
+
   return blocks.map((block) => {
     if (block.type === "markdown") {
       return {

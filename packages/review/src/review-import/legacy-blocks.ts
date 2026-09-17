@@ -85,11 +85,13 @@ export function legacyDocumentToBlocks(
   ): Extract<Block, { type: "image" }> => {
     const placeholder = `image-placeholder-${images.length + 1}`;
     const src = String(node.props.src ?? "");
+
     // `alt` is a label, so a decorative image still needs a name to show.
     const alt =
       String(node.props.alt ?? "").trim() ||
       path.posix.basename(src) ||
       "Image";
+
     images.push({ src, alt, placeholder });
 
     return { type: "image", assetId: placeholder, alt };

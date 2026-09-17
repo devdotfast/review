@@ -359,7 +359,6 @@ export function createReviewApi(
   app.get("/:id/stack", async (context) => {
     const query = readQuerySchemas.get.parse(context.req.query());
     const snapshot = store.read(context.req.param("id"), query.version);
-    const repositoryId = snapshot.pins.repositoryId;
 
     const repoKey = (review: Pick<Snapshot, "origin" | "pins">) =>
       review.origin?.pullRequestUrl?.replace(/\/pull\/\d+.*$/, "") ??
@@ -367,9 +366,7 @@ export function createReviewApi(
 
     const layers = await resolveReviewStackLayers(
       {
-        repoKey: repoKey(snapshot),
-        worktreePath: store.repositoryPath(repositoryId),
-        pullRequestNumber: snapshot.origin?.pullRequestNumber,
+        pullRequestUrl: snapshot.origin?.pullRequestUrl,
       },
       store.list().map((review) => ({
         uuid: review.reviewId,

@@ -4,6 +4,7 @@ import { git } from "@dev.fast/local-vcs";
 import { sessionIdSchema } from "@dev.fast/trace-protocol";
 
 import { errorMessage } from "./error-message";
+import { isOpenCodeSessionId } from "./opencode-trace-export";
 import {
   readTrailerSessions,
   syncReviewTrace,
@@ -177,8 +178,17 @@ async function runPrePush(input: {
 
   for (const [sessionId, values] of sessionCommits) {
     // Pushed history can include sessions authored on another machine. Keep
-    // their commit links, but only publish transcripts that exist locally.
-    if (!(await findLocalTrace(sessionId))) continue;
+    // their commit links, but skip absent file-based transcripts. OpenCode
+    // discovery runs an export: leave that to the sync so hosted pushes stay
+    // detached and direct-store exports retain per-session error handling.
+    if (!isOpenCodeSessionId(sessionId)) {
+      try {
+        if (!(await findLocalTrace(sessionId))) continue;
+      } catch (cause) {
+        warn(input.stderr, cause);
+        continue;
+      }
+    }
 
     if (selection.mode === "hosted") {
       // A hosted publish may take minutes; a push never waits for it. The

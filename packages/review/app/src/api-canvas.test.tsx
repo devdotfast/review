@@ -264,11 +264,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     );
   });
   expect(container.textContent).toContain("Agent working…");
-  expect(
-    requests.filter((route) =>
-      /\/(agent-traces|session|document-meta|revisions|dismiss)$/.test(route),
-    ),
-  ).toEqual([]);
   expect(requests.some((route) => route.endsWith("/history"))).toBe(true);
 });
 

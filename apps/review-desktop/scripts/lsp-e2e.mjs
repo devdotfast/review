@@ -353,6 +353,7 @@ async function stop() {
 
   if (app && app.exitCode === null && app.signalCode === null) {
     const exited = new Promise((resolve) => app.once("exit", resolve));
+
     const kill = (signal) => {
       try {
         process.kill(-app.pid, signal);
@@ -364,8 +365,7 @@ async function stop() {
     kill("SIGTERM");
     await Promise.race([exited, sleep(5000)]);
 
-    if (app.exitCode === null && app.signalCode === null)
-      kill("SIGKILL");
+    if (app.exitCode === null && app.signalCode === null) kill("SIGKILL");
   }
 
   app = undefined;

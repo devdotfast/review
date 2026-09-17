@@ -18,7 +18,7 @@ export function authoringTools() {
   const descriptions = {
     create:
       "Create a blank review at resolved source pins. For a PR review, also supply its canonical pullRequestUrl.",
-    edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs. Accepted edits are saved immediately. Omitted placement appends; null removes an optional field in a patch.",
+    edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs. Create an outline of section headings and short descriptions with status:pending first. Patch each section to status:in_progress before filling it, then status:complete after checking its content. Use returned IDs to fill sections in place. Section status persists independently of activity; absent status is unspecified. Accepted edits are saved immediately. Omitted placement appends; null removes an optional field in a patch.",
     rename: "Change the review title.",
     repin:
       "Update source pins or PR identity while preserving the document and component IDs. Returns warnings for retained source ranges to verify and resources that no longer match; fix them with review_edit. Previous pins and content remain in history. Omitted pullRequestUrl preserves PR identity within the same repository; changing repositories clears it. Supply a URL to replace it or null to detach.",
@@ -51,7 +51,7 @@ export function authoringTools() {
   return [
     tool(
       "activity",
-      "Report authoring work: begin with a fresh leaseId UUID, renew at least every 30 seconds, and end when finished. Activity expires after 60 seconds without renewal. It does not lock edits or create document versions.",
+      "Report authoring work: begin with a fresh leaseId UUID, renew at least every 30 seconds, and end when finished. Ending activity does not mark sections complete. Include focus:{description,targetId?} to show the current work and optionally mark an existing section or component. Draft the outline first, then update focus before filling each section. Omitted focus preserves it; null clears it. Activity expires after 60 seconds without renewal. It does not lock edits or create document versions.",
       activitySchema.extend(review),
       "POST",
       "/:reviewId/activity",

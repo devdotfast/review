@@ -25,6 +25,7 @@ import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { markdownHasTitle } from "./agent-markdown";
 import { type ApiHeadingIds, apiHeadingIds } from "./api-document-headings";
+import { AuthoringActivityBadge } from "./authoring-activity";
 import {
   BlockErrorBoundary,
   type StoredBlock,
@@ -300,6 +301,7 @@ export const DocumentNode = memo(function DocumentNode({
       revision={revision}
       copyProse={node.type === "markdown" || node.type === "trace_quote"}
     >
+      {node.type !== "section" && <AuthoringActivityBadge targetId={node.id} />}
       <BlockErrorBoundary
         type={node.type}
         onError={(error) => reportReviewDocumentRenderError(session, error)}

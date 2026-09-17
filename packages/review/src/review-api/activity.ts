@@ -2,14 +2,21 @@ import { z } from "zod";
 
 import { ReviewInputError } from "./document.js";
 
+const focusSchema = z.strictObject({
+  description: z.string().trim().min(1).max(160),
+  targetId: z.string().min(1).optional(),
+});
+
 export const activitySchema = z.strictObject({
   action: z.enum(["begin", "renew", "end"]),
   leaseId: z.uuid(),
+  focus: focusSchema.nullable().optional(),
 });
 
 export interface ActivitySnapshot {
   workingCount: number;
   expiresAt: number | null;
+  focuses?: z.infer<typeof focusSchema>[];
 }
 
 // Reported activity expires after a minute without a renewal. This is not a write lock.
@@ -18,7 +25,14 @@ export const ACTIVITY_TTL_MS = 60_000;
 export class ReviewActivity {
   private readonly reviews = new Map<
     string,
-    Map<string, { expiresAt: number; timer: ReturnType<typeof setTimeout> }>
+    Map<
+      string,
+      {
+        expiresAt: number;
+        timer: ReturnType<typeof setTimeout>;
+        focus?: z.infer<typeof focusSchema>;
+      }
+    >
   >();
   private readonly listeners = new Set<(reviewId: string) => void>();
   subscribe(listener: (reviewId: string) => void) {
@@ -34,16 +48,24 @@ export class ReviewActivity {
   read(reviewId: string): ActivitySnapshot {
     const active = [...(this.reviews.get(reviewId)?.values() ?? [])];
 
-    return {
+    const focuses = active.flatMap((lease) =>
+      lease.focus ? [lease.focus] : [],
+    );
+
+    const snapshot: ActivitySnapshot = {
       workingCount: active.length,
       expiresAt: active.length
         ? Math.max(...active.map((lease) => lease.expiresAt))
         : null,
     };
+
+    if (focuses.length) snapshot.focuses = focuses;
+
+    return snapshot;
   }
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Activity boundary: activitySchema.parse below validates incoming JSON.
   update(reviewId: string, value: unknown) {
-    const { action, leaseId } = activitySchema.parse(value);
+    const { action, leaseId, focus } = activitySchema.parse(value);
     const leases = this.reviews.get(reviewId) ?? new Map();
     const previous = leases.get(leaseId);
 
@@ -66,7 +88,11 @@ export class ReviewActivity {
       );
 
       timer.unref?.();
-      leases.set(leaseId, { expiresAt, timer });
+      leases.set(leaseId, {
+        expiresAt,
+        timer,
+        focus: focus === undefined ? previous?.focus : (focus ?? undefined),
+      });
     }
 
     if (leases.size) this.reviews.set(reviewId, leases);

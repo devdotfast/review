@@ -49,6 +49,9 @@ export function documentText(
       case "callout":
         if (element.type === "callout") detail(`Tone: ${element.tone}`);
 
+        if (element.type === "section" && element.status)
+          detail(`Status: ${element.status}`);
+
         if (element.type === "section" && element.defaultCollapsed)
           detail("Initially collapsed");
         element.children.forEach((child) => render(child, depth + 1));

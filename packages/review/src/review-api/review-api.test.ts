@@ -10,6 +10,7 @@ import { createGlobalReviewServer } from "../server/desktop-server.js";
 import { GlobalReviewDesktopVerbRelay } from "../server/global-verb-relay.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
 import { ReviewApiClient } from "./client.js";
+import { documentText } from "./document-text.js";
 import { ReviewInputError } from "./document.js";
 import { LocalReviewData } from "./local-data";
 import { type ReviewProviders, ReviewStore } from "./store.js";
@@ -967,4 +968,69 @@ it("serves the experiment through the real desktop HTTP server and existing auth
   } finally {
     await server.close();
   }
+});
+
+it("preserves unfinished section status after authoring stops and restores it from history", async () => {
+  const { reviewId } = await create();
+
+  const inserted = await edit(reviewId, {
+    type: "insert",
+    content: {
+      type: "section",
+      title: "Design",
+      status: "pending",
+      children: [],
+    },
+  });
+
+  const leaseId = randomUUID();
+  store.activity.update(reviewId, { action: "begin", leaseId });
+
+  const started = await edit(reviewId, {
+    type: "update",
+    targetId: inserted.targetId,
+    changes: { status: "in_progress" },
+  });
+
+  store.activity.update(reviewId, { action: "end", leaseId });
+  await store.close();
+  store = new ReviewStore(database, providers);
+  expect(store.read(reviewId).document[0]).toMatchObject({
+    id: inserted.targetId,
+    status: "in_progress",
+  });
+  expect(documentText(store.read(reviewId))).toContain("Status: in_progress");
+  expect(store.read(reviewId, inserted.version).document[0]).toMatchObject({
+    status: "pending",
+  });
+  await edit(reviewId, {
+    type: "update",
+    targetId: inserted.targetId,
+    changes: { status: "complete" },
+  });
+  expect(store.read(reviewId).document[0]).toMatchObject({
+    status: "complete",
+  });
+  await expect(
+    edit(reviewId, {
+      type: "update",
+      targetId: inserted.targetId,
+      changes: { status: "done" },
+    }),
+  ).rejects.toThrow(/Invalid/);
+  expect(store.read(reviewId).document[0]).toMatchObject({
+    status: "complete",
+  });
+  await store.execute(
+    request({ type: "restore", reviewId, version: started.version }),
+  );
+  expect(store.read(reviewId).document[0]).toMatchObject({
+    status: "in_progress",
+  });
+  await edit(reviewId, {
+    type: "update",
+    targetId: inserted.targetId,
+    changes: { status: null },
+  });
+  expect(store.read(reviewId).document[0]).not.toHaveProperty("status");
 });

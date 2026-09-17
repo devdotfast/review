@@ -8,6 +8,7 @@ export interface SectionBlock {
   type: "section";
   title: string;
   defaultCollapsed?: boolean;
+  status?: "pending" | "in_progress" | "complete";
   children: Block[];
 }
 
@@ -15,6 +16,7 @@ export interface SectionBlock {
 const schema: z.ZodType<SectionBlock> = defineBlock("section", {
   title: label,
   defaultCollapsed: z.boolean().optional(),
+  status: z.enum(["pending", "in_progress", "complete"]).optional(),
   children: z.array(z.lazy((): z.ZodType<Block> => blockSchema)),
 });
 

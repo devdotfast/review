@@ -145,10 +145,12 @@ export function ReviewSection({
   id,
   children,
   summary,
+  authoringProgress,
 }: ReviewComponentProps<"ReviewSection"> & {
   stateKey?: string;
   id?: string;
   summary?: ReviewSectionSummary;
+  authoringProgress?: ReactNode;
   children?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useReviewUiState(
@@ -196,6 +198,7 @@ export function ReviewSection({
       data-review-section={title}
       data-tutorial-chapter-state={tutorialSection.state ?? undefined}
     >
+      {authoringProgress}
       <div className="review-section-header">
         <button
           type="button"

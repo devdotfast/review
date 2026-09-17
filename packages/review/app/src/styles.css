@@ -5118,6 +5118,7 @@ button.review-stack-row:disabled .review-stack-relation {
 }
 
 .review-section {
+  position: relative;
   width: 100%;
 }
 

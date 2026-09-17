@@ -34,6 +34,16 @@ Do not invent user-impact risks. Ask the user when a risk depends on product usa
 
 Prefer source links over code peeks. Use a code peek when inline code explains the change better, such as an API usage example. Use sequence, call-stack, database or software-map views only when they explain a relationship more clearly than prose.
 
+## Outline first, then fill in
+
+Make the review readable at a glance before adding detailed content. First insert the landing summary and the planned sections, each with a heading and a short description grounded in what you already know. Use `section` nodes with `status:"pending"` and a brief `markdown` child. These descriptions should explain the change, not say “TODO” or pretend evidence has been verified. Keep the outline proportional to the change; a small review may need only a summary.
+
+Before filling a section, patch it with `changes:{status:"in_progress"}`. Then fill each section in place, using the returned IDs and `parentId` to add evidence, examples or diagrams. Preserve existing section IDs instead of replacing the whole review. Revise the outline if source verification changes your understanding, and remove sections that prove unnecessary. Do not build empty diagrams or invalid components as placeholders. After checking a section’s content, patch it with `changes:{status:"complete"}`. If revising a completed section, mark it in progress again before editing. Parent and child section statuses are independent; complete a parent only after its intended children are complete.
+
+Section status is saved with document versions and remains visible when activity stops. An absent status means unspecified, not complete. Ending a lease never completes sections. If interrupted, leave unfinished sections pending or in progress; use `review_get` to find them when resuming.
+
+Report the current work through `review_activity`: begin with `focus:{description:"Drafting the review outline"}`, then renew with a section's returned `targetId` and a short description such as “Adding the save-flow example.” Update this focus before starting work on a different section. Heartbeat renewals may omit focus to keep it; `focus:null` clears it for general work such as final checks. End the lease when finished or after an error. This transient signal identifies unfinished work without putting progress messages in saved review prose.
+
 ## Canonical authoring
 
 Author nested JSON components, not MDX or TypeScript files. The host assigns IDs; omit IDs in new content. Sequence actors, stores and fields use component-local names, not UUIDs.

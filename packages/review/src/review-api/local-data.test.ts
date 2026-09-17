@@ -1972,6 +1972,7 @@ it("retargets a live review without losing authored content or component IDs", a
 
 it("worktree language contexts never prepare or create checkouts, including historical/base requests", async () => {
   git("config", "devfast.prepare", "echo unexpected > prepared");
+
   const created = await local.store.execute(
     command({
       type: "create",
@@ -1983,9 +1984,11 @@ it("worktree language contexts never prepare or create checkouts, including hist
       },
     }),
   );
+
   const app = createReviewApi(local.store, local.data, async () => ({
     softwareMapEnabled: false,
   }));
+
   const before = git("worktree", "list", "--porcelain");
   expect(
     (await app.request(`/${created.reviewId}/open`, { method: "POST" })).status,
@@ -1995,6 +1998,7 @@ it("worktree language contexts never prepare or create checkouts, including hist
     const response = await app.request(
       `/${created.reviewId}/language-context?version=0&side=${side}`,
     );
+
     expect(await response.json()).toMatchObject({
       rootPath: realpathSync(repository),
       state: "ready",

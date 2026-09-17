@@ -1271,6 +1271,7 @@ try {
   );
 
   const repositoryId = live.pins.repositoryId;
+
   const liveTreesBefore = await git(
     liveFixture.repo,
     "worktree",
@@ -1344,12 +1345,14 @@ try {
       "export const value = service.run();",
     ),
   );
+
   const changedLiveLine = await probe({
     uri: uri(live),
     ...greetAt,
     feature: definition,
     open: true,
   });
+
   assert.equal(changedLiveLine.result?.length ?? 0, 0);
   await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
   await writeFile(

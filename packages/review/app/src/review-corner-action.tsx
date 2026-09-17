@@ -1,7 +1,8 @@
-import { type ReactElement, useEffect, useRef, useState } from "react";
+import { type ReactElement, useRef, useState } from "react";
 
 import { useReviewActions, useReviewState } from "./review-context";
 import { useTutorial } from "./tutorial-context";
+import { useDismissOnOutside } from "./use-dismiss-on-outside";
 
 /**
  * The single end-of-review control in the topbar: it dismisses the review, or
@@ -20,32 +21,7 @@ export function ReviewCornerAction(): ReactElement | null {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
-    if (!confirming) return;
-
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        controlRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-
-      setConfirming(false);
-    };
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setConfirming(false);
-    };
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
-    document.addEventListener("keydown", closeOnEscape);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [confirming]);
+  useDismissOnOutside(controlRef, confirming, setConfirming, true);
 
   // A finished review has nothing left to submit or dismiss.
   if (submissionOutcome === "dismissed") return null;

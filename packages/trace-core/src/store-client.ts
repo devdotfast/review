@@ -28,6 +28,8 @@ import {
 } from "@dev.fast/trace-protocol";
 import { z } from "zod";
 
+import { requestStoreAuthorization } from "./store-authorization";
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Largest metadata answer the client reads; object bytes never come this way. */
@@ -82,12 +84,12 @@ type DeviceTokenResult =
   | { pending: "authorization_pending" | "slow_down" };
 
 interface SessionResponse {
-  user: { name: string };
+  user: { id: string; name: string };
 }
 
 export class StoreClient {
   private readonly origin: string;
-  private readonly token: string | undefined;
+  private token: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
@@ -117,10 +119,10 @@ export class StoreClient {
     );
   }
 
-  async deviceCode(): Promise<DeviceCodeResponse> {
+  async deviceCode(traces = true): Promise<DeviceCodeResponse> {
     return this.requestJson(
       DEVICE_CODE_PATH,
-      { client_id: TRACE_STORE_CLIENT_ID },
+      { client_id: TRACE_STORE_CLIENT_ID, scope: traces ? "repo" : "identity" },
       undefined,
     );
   }
@@ -168,7 +170,10 @@ export class StoreClient {
   }
 
   async session(): Promise<SessionResponse> {
-    return this.get<SessionResponse>(SESSION_PATH, undefined);
+    return this.get(
+      SESSION_PATH,
+      z.object({ user: z.object({ id: z.string().min(1), name: z.string() }) }),
+    );
   }
 
   async createStore(body: CreateStoreRequest): Promise<StoreResponse> {
@@ -305,7 +310,19 @@ export class StoreClient {
     });
 
     if (!response.ok) {
-      throw await this.toStoreApiError(response);
+      const error = await this.toStoreApiError(response);
+
+      if (error.code === "repository_authorization_required") {
+        const token = await requestStoreAuthorization(this.origin);
+
+        if (token) {
+          this.token = token;
+
+          return this.send(method, path, body, schema, query);
+        }
+      }
+
+      throw error;
     }
 
     const contentLength = Number(response.headers.get("content-length") ?? "0");

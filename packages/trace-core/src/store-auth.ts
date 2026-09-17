@@ -117,7 +117,7 @@ export function browserOpenCommand(
 }
 
 /** Opens a URL in the browser. Callers inject a stub in tests. */
-async function defaultOpenUrl(url: string): Promise<void> {
+export async function openUrlInBrowser(url: string): Promise<void> {
   const { spawn } = await import("node:child_process");
 
   const child = spawn(browserOpenCommand(), [url], {
@@ -133,6 +133,7 @@ async function defaultOpenUrl(url: string): Promise<void> {
 export async function runStoreLogin(input: {
   origin?: string;
   noBrowser?: boolean;
+  traces?: boolean;
   json?: boolean;
   stdout: Writable;
   stderr: Writable;
@@ -155,14 +156,31 @@ export async function runStoreLogin(input: {
     return failWithJsonError(output, "login", errorMessage(error));
   }
 
-  const openUrl = input.openUrl ?? defaultOpenUrl;
+  const openUrl = input.openUrl ?? openUrlInBrowser;
   const sleep = input.sleep ?? defaultSleep;
   const client = new StoreClient({ origin, fetch: input.fetch });
+  const existing = input.traces ? await readStoreAuth(input.env) : null;
+
+  let expectedUser: string | undefined;
+
+  if (existing?.origin === origin) {
+    try {
+      expectedUser = (
+        await new StoreClient({
+          origin,
+          token: existing.token,
+          fetch: input.fetch,
+        }).session()
+      ).user.id;
+    } catch {
+      // An expired saved session must not prevent a fresh device login.
+    }
+  }
 
   let device: Awaited<ReturnType<StoreClient["deviceCode"]>>;
 
   try {
-    device = await client.deviceCode();
+    device = await client.deviceCode(input.traces ?? true);
   } catch (error) {
     return failWithJsonError(
       output,
@@ -225,7 +243,11 @@ export async function runStoreLogin(input: {
   let login: string;
 
   try {
-    login = (await authedClient.session()).user.name;
+    const session = await authedClient.session();
+
+    if (expectedUser && session.user.id !== expectedUser)
+      throw new Error("Authorize traces with the same GitHub account.");
+    login = session.user.name;
   } catch (error) {
     return failWithJsonError(
       output,

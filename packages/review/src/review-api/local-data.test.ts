@@ -1456,11 +1456,17 @@ it("exposes real source and resource operations through the authenticated deskto
     };
 
     expect((await post("/resources", resource)).status).toBe(200);
-    expect((await fetch(url + "/resources/" + resource.id)).status).toBe(401);
+    expect(
+      (await fetch(url + "/" + review.reviewId + "/resources/" + resource.id))
+        .status,
+    ).toBe(401);
 
-    const response = await fetch(url + "/resources/" + resource.id, {
-      headers,
-    });
+    const response = await fetch(
+      url + "/" + review.reviewId + "/resources/" + resource.id,
+      {
+        headers,
+      },
+    );
 
     expect(response.headers.get("content-type")).toBe("application/json");
     expect(await response.json()).toMatchObject({

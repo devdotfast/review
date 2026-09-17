@@ -51,7 +51,7 @@ All paths below are relative to `/reviews-api`.
 | `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
 | `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type      |
-| `GET /resources/:resourceId`              | Read retained bytes; desktop authentication required                   |
+| `GET /:id/resources/:resourceId`              | Read retained bytes scoped to the review repository; desktop authentication required                   |
 | `GET /:id/maps/:resourceId?version=0` | Read a pinned map with source-change counts for that review version |
 | `POST /:id/source {source,version?}`      | Read an exact pinned code range                                        |
 | `GET /:id/file?side=head&file=src/app.ts` | Read a complete pinned source file; optional version                   |

@@ -35,6 +35,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
 import { DisplayedReviewVersionContext } from "./review-history-control";
+import { SharingContext } from "./share-control";
 import { TutorialProvider } from "./tutorial-context";
 
 type ApiContent = Extract<ReviewCanvasContent, { kind: "api" }>;
@@ -268,6 +269,19 @@ export function ApiCanvas({
     if (data) content.setTutorial?.(data.snapshot.origin?.tutorial === true);
   }, [data?.snapshot.origin?.tutorial, content.setTutorial]);
 
+  const sharing = useMemo(
+    () =>
+      data
+        ? {
+            client,
+            reviewId: content.reviewId,
+            version: data.snapshot.version,
+            sender: data.snapshot.shared?.login,
+          }
+        : null,
+    [client, content.reviewId, data],
+  );
+
   if (!data)
     return (
       <>
@@ -281,36 +295,38 @@ export function ApiCanvas({
     );
 
   return (
-    <ReviewSessionProvider session={session}>
-      <DocumentData.Provider value={data}>
-        <TutorialProvider tutorial={content.tutorial}>
-          {error && <p role="status">{error}</p>}
-          <AuthoringActivityContext.Provider
-            value={version === undefined ? activity : undefined}
-          >
-            <DisplayedReviewVersionContext.Provider
-              value={data.snapshot.version}
+    <SharingContext.Provider value={sharing}>
+      <ReviewSessionProvider session={session}>
+        <DocumentData.Provider value={data}>
+          <TutorialProvider tutorial={content.tutorial}>
+            {error && <p role="status">{error}</p>}
+            <AuthoringActivityContext.Provider
+              value={version === undefined ? activity : undefined}
             >
-              <ProjectPreparation
-                client={client}
-                reviewId={data.snapshot.reviewId}
-              />
-              <RevealAfterFirstPaint>
-                <MapEnabled.Provider
-                  value={content.softwareMapEnabled === true}
-                >
-                  <CanvasDocument
-                    data={data}
-                    findHost={findHost}
-                    softwareMapEnabled={content.softwareMapEnabled === true}
-                  />
-                </MapEnabled.Provider>
-              </RevealAfterFirstPaint>
-            </DisplayedReviewVersionContext.Provider>
-          </AuthoringActivityContext.Provider>
-        </TutorialProvider>
-      </DocumentData.Provider>
-    </ReviewSessionProvider>
+              <DisplayedReviewVersionContext.Provider
+                value={data.snapshot.version}
+              >
+                <ProjectPreparation
+                  client={client}
+                  reviewId={data.snapshot.reviewId}
+                />
+                <RevealAfterFirstPaint>
+                  <MapEnabled.Provider
+                    value={content.softwareMapEnabled === true}
+                  >
+                    <CanvasDocument
+                      data={data}
+                      findHost={findHost}
+                      softwareMapEnabled={content.softwareMapEnabled === true}
+                    />
+                  </MapEnabled.Provider>
+                </RevealAfterFirstPaint>
+              </DisplayedReviewVersionContext.Provider>
+            </AuthoringActivityContext.Provider>
+          </TutorialProvider>
+        </DocumentData.Provider>
+      </ReviewSessionProvider>
+    </SharingContext.Provider>
   );
 }
 

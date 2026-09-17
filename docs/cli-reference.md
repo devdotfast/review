@@ -139,7 +139,7 @@ review trace storage use hosted [--origin <url>]
 review trace config migrate [--dry-run] [--keep-legacy]
 review trace list|show|pull|blame ... [--storage s3|hosted]
 review trace sessions [--limit <n>] [--cursor <session-id>] [--storage s3|hosted] [--json]
-review login [--origin <url>] [--no-browser]
+review login [--traces] [--origin <url>] [--no-browser] [--json]
 review logout
 review whoami
 review trace store create|delete|info [path]
@@ -147,6 +147,54 @@ review trace install [--no-harness-hooks] [--all-harnesses] [--json]
 review trace allow [path] [--no-harness-hooks] [--all-harnesses]
 review trace deny [path]
 ```
+
+`review login` signs in with GitHub identity and verified email access. It does
+not enable trace collection. `review login --traces` also requests GitHub
+repository access. Use `--no-browser` on a remote machine, then open the printed
+URL on your desktop. Repository access does not replace per-repository trace
+capture consent.
+
+A foreground hosted trace command offers to authorize repositories and resumes
+once login succeeds. With `--json`, redirected input, or a hook, it never prompts.
+A missing grant produces `repository_authorization_required` and the remedy
+`review login --traces`. Local and direct S3 operations do not request GitHub
+permissions. `dev-traces login` keeps its trace-oriented repository login.
+
+### Sharing a review
+
+```sh
+review share --review <id> [--version <number>] [--json]
+review share revoke <share-id> [--json]
+```
+
+The local Review host must be running. Sharing uploads one immutable saved
+version; an omitted version is resolved once when the request starts. The result
+contains `shareId`, `version`, and `url`. Running Share again creates a new link.
+Recipients do not need a Review account. They do need Git access to the GitHub
+repository. Open the link in Review Desktop, or use **Open Shared Review** in
+the command palette. The app downloads the review and fetches its exact base
+and head commits into a dedicated managed checkout before opening it.
+
+Push the reviewed commits to GitHub before sharing. Publication verifies both
+commits through a fresh fetch and never pushes them for you. Git uses the
+machine's existing credentials. Sharing does not request hosted-trace scopes;
+use `review login --traces` only when enabling hosted traces.
+
+A share includes the saved review, sender attribution, images, retained maps,
+and whole retained trace conversations. Code, diffs, and commit lists come
+from Git. Anyone with the link can download retained resources, while GitHub
+separately controls repository access. Imported reviews are read-only and
+remain available offline after the initial fetch. If fetching fails, configure
+Git credentials and retry. Missing managed checkouts can be fetched again from
+the same link. Deleting a local share removes only its managed checkout.
+
+Revocation stops new downloads. Already-issued object URLs may work for up to
+five minutes, and saved copies remain readable. Branch movement and later
+edits do not change a published snapshot.
+
+The exporter, importer and hosted client are available from
+`@dev.fast/review/sharing` for a future standalone host. Shipping a headless host
+is separate from this change.
 
 Review stores traces in one selected place per machine: an **s3** store (an
 S3-compatible bucket you own, R2 included) or the **hosted** store at

@@ -438,7 +438,7 @@ it.each([false, true])(
     app.get("/reviews-api/:id/agent-traces", (context) =>
       context.json({ ok: true, sessions: [] }),
     );
-    app.get(`/reviews-api/resources/${traceId}`, (context) =>
+    app.get(`/reviews-api/${review.reviewId}/resources/${traceId}`, (context) =>
       context.json(trace),
     );
 

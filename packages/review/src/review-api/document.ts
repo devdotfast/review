@@ -68,6 +68,21 @@ export function traceQuoteLink(
     : undefined;
 }
 
+export function resourceReference(
+  block: Block,
+): { id: string; kind: "image" | "trace" | "map" } | undefined {
+  switch (block.type) {
+    case "image":
+      return { id: block.assetId, kind: "image" };
+    case "trace_quote":
+      return { id: block.traceId, kind: "trace" };
+    case "software_map":
+      return { id: block.mapVersionId, kind: "map" };
+    default:
+      return undefined;
+  }
+}
+
 export function resourceReferences(document: Block[]): Block[] {
   return elements(document).flatMap((block): Block[] => {
     if (block.type !== "markdown")

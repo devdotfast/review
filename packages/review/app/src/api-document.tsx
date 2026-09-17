@@ -125,7 +125,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
             const url = await once(`image:${node.assetId}`, async () => {
               const blob = await (
                 await client.response(
-                  `/resources/${encodeURIComponent(node.assetId)}`,
+                  `/${encodeURIComponent(snapshot.reviewId)}/resources/${encodeURIComponent(node.assetId)}`,
                 )
               ).blob();
 
@@ -143,7 +143,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
           if (node.type === "trace_quote") {
             const loaded = await once(`trace:${node.traceId}`, () =>
               client.read<Trace>(
-                `/resources/${encodeURIComponent(node.traceId)}`,
+                `/${encodeURIComponent(snapshot.reviewId)}/resources/${encodeURIComponent(node.traceId)}`,
               ),
             ).catch(() => undefined);
 

@@ -36,7 +36,7 @@ All paths below are relative to `/reviews-api`.
 | `GET /`                                   | Current review summaries                                               |
 | `GET /authoring` | Tool names, host input schemas and HTTP mappings for CLI/MCP adapters |
 | `GET /:id/activity` | Currently reported authoring work, not stored in document history |
-| `POST /:id/activity {action,leaseId}` | Begin, renew or end a working signal; return count and expiry |
+| `POST /:id/activity {action,leaseId,focus?}` | Begin, renew or end a working signal; return count and expiry |
 | `GET /watch` | NDJSON review summaries: initial list, then saved changes |
 | `GET /watch?subscriptions=…` | One NDJSON connection for multiple `{reviewId}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results, with `null` where a subscription is unchanged since the previous line. |
 | `GET /:id`                                | Compact outline                                                        |
@@ -169,6 +169,8 @@ the read routes share their query schemas with the catalog (`read-schemas.ts`);
 the MCP SDK handles framing. The checkout skill describes this JSON workflow while
 preserving the writing guidance. No integration is installed automatically.
 
+Sections may carry `status:"pending" | "in_progress" | "complete"`. Status is saved in document versions. Unfinished sections show a slim bar along their left edge: muted gray for pending, pulsing blue for in progress or a live targeted task. No visible placeholder text is added; completed sections show no progress decoration. Reduced-motion mode keeps the bar static. Omitted status is unspecified; old reviews are not marked complete automatically. Authors set pending when outlining, in_progress before filling or revising, and complete after checking the content. Parent and child statuses are independent. Activity expiry, disconnects and ending a lease never complete a section. `review_get` includes status in the text outline.
+
 Activity uses a caller-chosen lease UUID and no command receipt. Begin/renew
 expires after 60 seconds; clients renew at least every 30 seconds and end when
 finished. Different agents have independent leases, so one cannot accidentally
@@ -179,6 +181,7 @@ activity changes; activity-only sends reuse the loaded document, and the canvas
 only loads document data when its version changes.
 This avoids another long-lived browser connection. The badge is hidden while
 idle or viewing history, and reports unknown activity on a lost connection.
+Optional `focus:{description,targetId?}` identifies the current work; description is 1–160 characters and targetId is an existing component ID. Omitted focus retains the lease’s current focus; null clears it. Snapshots include `focuses` when any leases have a focus. The header shows descriptions, and matching components show an inline working indicator. Focus is ephemeral, disappears when its lease ends or expires, and is hidden when activity is unknown or history is displayed.
 There is no applying-update state. CLI/MCP expose this as `review_activity`.
 
 Profile migration remains later work.

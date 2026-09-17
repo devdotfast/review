@@ -72,16 +72,22 @@ it("streams activity separately from document versions and closes the stream on 
     expect((await stream.next()).value).toMatchObject({
       activity: { workingCount: 0 },
     });
-    const input = { action: "begin", leaseId: randomUUID() };
+
+    const input = {
+      action: "begin",
+      leaseId: randomUUID(),
+      focus: { description: "Drafting outline" },
+    };
+
     await client.post(`/${reviewId}/activity`, input);
     expect((await stream.next()).value).toMatchObject({
-      activity: { workingCount: 1 },
+      activity: { workingCount: 1, focuses: [input.focus] },
     });
     expect(changed).not.toHaveBeenCalled();
     expect(store.history(reviewId)).toHaveLength(1);
     const reconnect = client.watch(reviewId, abort.signal);
     expect((await reconnect.next()).value).toMatchObject({
-      activity: { workingCount: 1 },
+      activity: { workingCount: 1, focuses: [input.focus] },
     });
     await reconnect.return(undefined);
     await command({ type: "delete", reviewId });
@@ -98,4 +104,36 @@ it("streams activity separately from document versions and closes the stream on 
     abort.abort();
     await store.close();
   }
+});
+
+it("retains, changes and clears each author's focus until its lease expires", () => {
+  vi.useFakeTimers();
+  const activity = new ReviewActivity();
+  const leaseId = randomUUID();
+  const other = randomUUID();
+  const focus = { description: "Adding evidence", targetId: "section-1" };
+  activity.update("review", { action: "begin", leaseId, focus });
+  expect(
+    activity.update("review", { action: "renew", leaseId }).focuses,
+  ).toEqual([focus]);
+  activity.update("review", {
+    action: "begin",
+    leaseId: other,
+    focus: { description: "Drafting summary" },
+  });
+  const next = { description: "Drawing save flow", targetId: "section-2" };
+  expect(
+    activity.update("review", { action: "renew", leaseId, focus: next })
+      .focuses,
+  ).toEqual([next, { description: "Drafting summary" }]);
+  expect(
+    activity.update("review", { action: "renew", leaseId, focus: null })
+      .focuses,
+  ).toEqual([{ description: "Drafting summary" }]);
+  activity.update("review", { action: "end", leaseId: other });
+  expect(activity.read("review").focuses).toBeUndefined();
+  activity.update("review", { action: "renew", leaseId, focus });
+  vi.advanceTimersByTime(ACTIVITY_TTL_MS);
+  expect(activity.read("review").focuses).toBeUndefined();
+  activity.close();
 });

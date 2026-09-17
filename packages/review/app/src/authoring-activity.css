@@ -1,15 +1,19 @@
 .host-authoring-activity {
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 420px;
   align-items: center;
   gap: 6px;
   margin-inline: 10px;
   color: var(--ink-soft);
   font: 11px var(--font-mono);
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .host-authoring-activity-dot {
+  flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -29,6 +33,39 @@
 
 @media (prefers-reduced-motion: reduce) {
   .host-authoring-activity[data-active] .host-authoring-activity-dot {
+    animation: none;
+  }
+}
+
+.host-authoring-activity-inline {
+  display: flex;
+  max-width: none;
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-inline-start: 2px solid var(--accent);
+  color: var(--ink-soft);
+}
+
+.review-section-progress {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(
+    max(0px, (100% - var(--review-prose-max-width)) / 2) - 36px
+  );
+  width: 3px;
+  border-radius: 2px;
+  background: var(--ink-faint);
+  opacity: 0.4;
+}
+
+.review-section-progress[data-state="in_progress"] {
+  background: var(--accent);
+  opacity: 1;
+  animation: host-authoring-pulse 1.4s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-section-progress[data-state="in_progress"] {
     animation: none;
   }
 }

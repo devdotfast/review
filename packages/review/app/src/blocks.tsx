@@ -7,6 +7,7 @@ import {
 } from "../../src/review-api/document";
 import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
+import { SectionAuthoringProgress } from "./authoring-activity";
 import { blockSectionSummary } from "./block-document-derivations";
 import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
@@ -109,6 +110,9 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
       id={data.headings.get(node.id)}
       defaultCollapsed={node.defaultCollapsed}
       summary={blockSectionSummary(node.children)}
+      authoringProgress={
+        <SectionAuthoringProgress targetId={node.id} status={node.status} />
+      }
     >
       {children(node.children)}
     </ReviewSection>

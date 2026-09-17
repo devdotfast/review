@@ -24,7 +24,7 @@ function ReviewCanvas({
 }) {
   if (content.kind === "api")
     return (
-      <div data-review-api="" style={{ display: "contents" }}>
+      <div data-review-api="" className="review-api-canvas">
         <ApiCanvas
           key={content.reviewId}
           content={content}

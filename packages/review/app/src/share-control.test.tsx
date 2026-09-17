@@ -17,6 +17,7 @@ afterEach(async () => {
 it("shares the version selected before login and keeps a manual copy fallback", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   let signedIn = false;
+  let publishFails = true;
   const posts: Array<{ path: string; body: unknown }> = [];
 
   const client = new ReviewApiClient(
@@ -40,6 +41,12 @@ it("shares the version selected before login and keeps a manual copy fallback", 
 
         return Response.json({ pending: true });
       }
+
+      if (path.endsWith("/publish") && publishFails)
+        return Response.json(
+          { error: "Review exceeds the sharing limit." },
+          { status: 400 },
+        );
 
       return Response.json({
         url: "https://app.dev.fast/s/snapshot#capability",
@@ -93,6 +100,13 @@ it("shares the version selected before login and keeps a manual copy fallback", 
   expect(
     posts.find((post) => post.path.endsWith("/publish"))?.body,
   ).toMatchObject({ reviewId: "authoring-review", version: 4 });
+  expect(container.textContent).toContain("Review exceeds the sharing limit.");
+  publishFails = false;
+  await act(async () =>
+    [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Create share link")!
+      .click(),
+  );
   expect(container.querySelector("input")?.value).toContain("#capability");
   expect(container.textContent).toContain("Copy the link below.");
 });

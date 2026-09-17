@@ -1,7 +1,10 @@
 import "./share-control.css";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
-import type { ReviewApiClient } from "../../src/review-api/client";
+import {
+  type ReviewApiClient,
+  ReviewApiError,
+} from "../../src/review-api/client";
 
 export const SharingContext = createContext<{
   client: ReviewApiClient;
@@ -86,8 +89,12 @@ export function ShareControl() {
 
     try {
       await operation();
-    } catch {
-      setError("Could not complete this action. Please retry.");
+    } catch (error) {
+      setError(
+        error instanceof ReviewApiError && error.status < 500
+          ? error.message
+          : "Could not complete this action. Please retry.",
+      );
     } finally {
       setBusy(false);
     }

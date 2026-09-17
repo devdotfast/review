@@ -99,29 +99,6 @@ export function c4EdgeLabelNodeObstacles(
   }));
 }
 
-export function c4ElkLabelFromLayout(
-  label: Partial<C4ElkLabel> | undefined,
-): C4ElkLabel | null {
-  const { x, y, width, height } = label ?? {};
-
-  if (
-    x === undefined ||
-    y === undefined ||
-    width === undefined ||
-    height === undefined ||
-    ![x, y, width, height].every(Number.isFinite)
-  ) {
-    return null;
-  }
-
-  return {
-    x,
-    y,
-    width,
-    height,
-  };
-}
-
 export function estimateC4EdgeLabelDimensions(
   label: string,
 ): C4LabelDimensions {

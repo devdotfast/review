@@ -659,6 +659,7 @@ describe("installed launcher runtime selection", () => {
         }),
       );
       await writePathShim(shim, fallbackCli, fallbackRuntime);
+
       const { stdout } = await promisify(execFile)(shim, ["trace", "status"], {
         env: {
           ...process.env,
@@ -666,6 +667,7 @@ describe("installed launcher runtime selection", () => {
           DEV_FAST_REVIEW_CLI_NO_DELEGATE: noDelegate ? "1" : "",
         },
       });
+
       expect(stdout.trim().split("\n")).toEqual([
         expected,
         expected === "fallback" ? fallbackCli : discoveredCli,

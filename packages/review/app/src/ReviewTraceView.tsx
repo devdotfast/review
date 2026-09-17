@@ -130,9 +130,14 @@ export function ReviewTraceView({
   }, [reviewFetch, storageOverride, session.review]);
 
   const list: TraceListState = useMemo(() => {
-    const retained = [...new Map(
-      [...(session.review?.traces.values() ?? [])].map((trace) => [trace.session.sessionId, trace.session]),
-    ).values()];
+    const retained = [
+      ...new Map(
+        [...(session.review?.traces.values() ?? [])].map((trace) => [
+          trace.session.sessionId,
+          trace.session,
+        ]),
+      ).values(),
+    ];
 
     if (storedList.status === "loaded") {
       const ids = new Set(retained.map((trace) => trace.sessionId));

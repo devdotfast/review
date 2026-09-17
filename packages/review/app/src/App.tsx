@@ -1,9 +1,9 @@
 import {
   type JsonValue,
-  isJsonObject,
-  jsonArray,
   type ReviewCanvasRange,
   type ReviewCommitSummary,
+  isJsonObject,
+  jsonArray,
 } from "@dev.fast/review-protocol";
 import {
   type CSSProperties,
@@ -416,7 +416,6 @@ function ReviewLayoutContent({
 
   const hasTraceSessions =
     (session.review?.traces.size ?? 0) > 0 || storedHasTraceSessions;
-
 
   const filesTabFileCount = diffScope
     ? diffScope.fileCount

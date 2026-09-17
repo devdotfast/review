@@ -79,6 +79,47 @@ describe("ReviewTraceView", () => {
     vi.restoreAllMocks();
   });
 
+  it("renders retained subagent events without downloading them", async () => {
+    const request = vi.fn<ReviewCanvasBridge["request"]>(async () => {
+      throw new Error("offline");
+    });
+
+    const session = testReviewSession({}, { request });
+
+    const retained = {
+      ...mockTraceDetail,
+      session: { ...mockTraceDetail.session, subagents: ["sub-1"] },
+    };
+
+    session.review!.traces = new Map([
+      ["session-1", retained],
+      [
+        "session-1:sub-1",
+        {
+          ...retained,
+          events: [{ kind: "user", text: "Retained subagent proof" }],
+        },
+      ],
+    ]);
+    await act(async () => {
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <ReviewTraceView
+            initialSelection={{ sessionId: "session-1", trace: "sub-1" }}
+          />
+        </ReviewSessionProvider>,
+      );
+    });
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Retained subagent proof"),
+    );
+    expect(
+      request.mock.calls.some(([url]) =>
+        String(url).includes("/agent-traces/session-1"),
+      ),
+    ).toBe(false);
+  });
+
   it.each([false, true])(
     "loads stored traces with JSON review mode %s",
     async (jsonReview) => {

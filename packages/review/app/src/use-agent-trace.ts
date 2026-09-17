@@ -50,8 +50,9 @@ export function useAgentTrace(
   const session = useReviewSession();
   const key = sessionId ? makeAgentTraceKey(sessionId, trace, storage) : null;
 
-  const retained =
-    sessionId ? session.review?.traces.get(makeAgentTraceKey(sessionId, trace)) : undefined;
+  const retained = sessionId
+    ? session.review?.traces.get(makeAgentTraceKey(sessionId, trace))
+    : undefined;
 
   const [state, setState] = useState<{
     key: string | null;

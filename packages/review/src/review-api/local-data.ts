@@ -10,6 +10,7 @@ import {
   createBlobBatchReader,
   detectLocalVcs,
   diffFileSummariesTrees,
+  diffFileSummariesWorkingTree,
   diffTrees,
   diffWorkingTree,
   gitCommonDir,
@@ -182,7 +183,7 @@ export class LocalReviewData {
   /** Normalize legacy read parameters once, before any source IO. */
   async resolveSource(
     reviewId: string,
-    selection: { version?: number; generation?: string; commit?: string },
+    selection: { version?: number; commit?: string },
   ) {
     const snapshot = this.store.read(reviewId, selection.version);
 
@@ -723,13 +724,16 @@ export class LocalReviewData {
           404,
         );
 
-      return diffWorkingTree({
+      const input = {
         rootPath: vcs.rootPath,
         kind: vcs.kind,
         baseRef: pins.base === EMPTY_SOURCE ? undefined : pins.base,
         headRef: pins.head === EMPTY_SOURCE ? undefined : pins.head,
-        file,
-      });
+      };
+
+      return file === undefined
+        ? diffFileSummariesWorkingTree(input)
+        : diffWorkingTree({ ...input, file });
     }
 
     const input = {
@@ -807,16 +811,13 @@ export class LocalReviewData {
 
     const target = await this.vcsTarget(pins.repositoryId);
 
-    const changes = pins.worktreeRevision
-      ? await this.changes(pins)
-      : undefined;
-
-    const patch = changes
-      ? (
-          await Promise.all(
-            changes.map((change) => this.changes(pins, change.path)),
-          )
-        ).join("\n")
+    const patch = pins.worktreeRevision
+      ? await diffWorkingTree({
+          ...target,
+          kind: target.kind ?? "git",
+          baseRef: pins.base === EMPTY_SOURCE ? undefined : pins.base,
+          headRef: pins.head === EMPTY_SOURCE ? undefined : pins.head,
+        })
       : undefined;
 
     const resolved = await resolveSoftwareMapDiffCounts({

@@ -110,12 +110,13 @@ export function ApiCanvas({
         sourceRef.current = { key, version: snapshot.version };
 
       content.setSourceView?.(
-        resolveReviewSourceView(
-          { ...snapshot, version: sourceRef.current.version },
-          version === undefined
-            ? { kind: "current" }
-            : { kind: "version", version },
-        ),
+        version === undefined
+          ? { reviewId: snapshot.reviewId, kind: "current" }
+          : { reviewId: snapshot.reviewId, kind: "version", version },
+        resolveReviewSourceView({
+          ...snapshot,
+          version: sourceRef.current.version,
+        }),
       );
       setData(next);
       setError(undefined);

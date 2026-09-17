@@ -1,5 +1,3 @@
-import { sourceLocation } from "../../../common/reviewSourceView.js";
-import { URI } from "../../../../base/common/uri.js";
 import type { IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
 import type { IEditorSerializer } from "../../../../workbench/common/editor.js";
 import type { EditorInput } from "../../../../workbench/common/editor/editorInput.js";
@@ -23,18 +21,16 @@ export class ReviewApiEditorSerializer implements IEditorSerializer {
     if (!target || !["api", "api-source", "home"].includes(target.kind)) return;
     if (target.kind !== "home" && (typeof target.reviewId !== "string" || typeof target.title !== "string")) return;
     if (target.kind === "api-source") {
-      if (!target.view) {
-        if (!Number.isInteger(target.version) || target.version < 0) return;
-        const query = new URLSearchParams({ version: String(target.version) });
-        if (target.generation) query.set("generation", target.generation);
-        if (target.live) query.set("live", "true");
+      // Main already persists version-based Source tabs. Translate directly;
+      // intermediate development-only view/generation payloads need no adapter.
+      if (!target.selection && Number.isInteger(target.version) && target.version >= 0)
         target = { kind: target.kind, reviewId: target.reviewId, title: target.title,
-          view: sourceLocation(URI.from({ scheme: "review-api-source", authority: target.reviewId, query: query.toString() })).view };
-      }
-      if (!Number.isInteger(target.view.version) || target.view.version < 0 ||
-          target.view.reviewId !== target.reviewId ||
-          !["current", "version"].includes(target.view.selection) ||
-          !["local", "retained"].includes(target.view.access)) return;
+          selection: { reviewId: target.reviewId, kind: "version", version: target.version } };
+      const selection = target.selection;
+      if (!selection || selection.reviewId !== target.reviewId ||
+          !["current", "version"].includes(selection.kind) ||
+          (selection.kind === "version" && (!Number.isInteger(selection.version) || selection.version < 0))) return;
+
     }
     return instantiation.invokeFunction(accessor => accessor.get(IReviewCanvasEditorTabsService).inputFor(target));
   }

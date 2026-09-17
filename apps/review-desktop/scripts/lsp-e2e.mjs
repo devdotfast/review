@@ -1536,6 +1536,15 @@ try {
     "export const second = 2;\n",
   );
   await page.getByText("second.ts", { exact: true }).first().waitFor();
+  // Opening a refreshed child must not replace the current Source root with
+  // that file's resolved revision or collapse its already-expanded directory.
+  await page.getByText("second.ts", { exact: true }).first().dblclick();
+  await page.getByText("child.ts", { exact: true }).first().waitFor();
+  await writeFile(
+    path.join(liveFixture.repo, "nested/third.ts"),
+    "export const third = 3;\n",
+  );
+  await page.getByText("third.ts", { exact: true }).first().waitFor();
   await page.screenshot({ path: path.join(root, "home-live-source.png") });
   await record(
     "Home Source stays live and preserves expanded folders across authored versions",

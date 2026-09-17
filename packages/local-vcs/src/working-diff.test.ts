@@ -15,7 +15,7 @@ import path from "node:path";
 
 import { expect, it } from "vitest";
 
-import { diffWorkingTree } from "./index";
+import { diffFileSummariesWorkingTree, diffWorkingTree } from "./index";
 
 it.each([false, true])(
   "diffs final working bytes without modifying repository state (split index: %s)",
@@ -83,7 +83,8 @@ it.each([false, true])(
       });
 
       const input = { rootPath: root, kind: "git" as const, baseRef };
-      const changes = await diffWorkingTree(input);
+      const changes = await diffFileSummariesWorkingTree(input);
+      expect(await diffWorkingTree(input)).toContain("+working");
       expect(changes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -133,7 +134,7 @@ it.each([false, true])(
       git("worktree", "add", "--detach", path.join(root, "linked"), baseRef);
       await writeFile(path.join(root, "linked", "extra.ts"), "linked\n");
       expect(
-        await diffWorkingTree({
+        await diffFileSummariesWorkingTree({
           ...input,
           rootPath: path.join(root, "linked"),
         }),

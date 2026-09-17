@@ -43,11 +43,7 @@ export function createReviewApi(
 
   if (data)
     app.use("*", async (context, next) => {
-      if (
-        context.req.method === "GET" &&
-        !context.req.query("version") &&
-        !context.req.query("generation")
-      )
+      if (context.req.method === "GET" && !context.req.query("version"))
         await store.refreshWorktrees();
       await next();
     });
@@ -360,7 +356,6 @@ export function createReviewApi(
       const file = await data.file(pins, input.side, input.file);
 
       const local =
-        input.live &&
         !input.commit &&
         input.side === "head" &&
         snapshot.target.kind === "worktree"

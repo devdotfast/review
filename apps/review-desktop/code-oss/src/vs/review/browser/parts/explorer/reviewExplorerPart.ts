@@ -1,9 +1,9 @@
-import type { ReviewSourceView } from "../../../common/reviewProtocol.js";
-import { sourceLocation, sourceTreeIdentity } from "../../../common/reviewSourceView.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
+
+import { sourceTreeUri, sourceTreeSelection, sourceTreeRoot } from "../../../common/reviewSourceView.js";
 
 import { $ } from "../../../../base/browser/dom.js";
 import type { IListVirtualDelegate } from "../../../../base/browser/ui/list/list.js";
@@ -39,7 +39,6 @@ import { REVIEW_CHROME_HEIGHT } from "../../../common/reviewChrome.js";
 import {
 	IReviewApiSourceService,
 	REVIEW_API_SOURCE_SCHEME,
-	apiSourceUri,
 } from "../../../services/reviewApiSourceService.js";
 import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
@@ -78,24 +77,7 @@ function accompaniesEditor(input: EditorInput | undefined): boolean {
 	return resource?.scheme === REVIEW_API_SOURCE_SCHEME;
 }
 
-/**
- * One tree per pinned version. Editors opened from that tree carry their own
- * side and commit in the query, which must not re-root or hide the tree.
- */
-function apiSourceRoot(target: { view: ReviewSourceView }): URI {
-	return apiSourceUri({ ...target, file: "", side: "head" });
-}
-
-function isSamePinnedTree(resource: URI, root: URI): boolean {
-	return (
-		resource.scheme === REVIEW_API_SOURCE_SCHEME &&
-		root.scheme === REVIEW_API_SOURCE_SCHEME &&
-		resource.authority === root.authority &&
-		new URLSearchParams(resource.query).get("version") === new URLSearchParams(root.query).get("version")
-	);
-}
-
-/** The Source tab browses the pinned repository tree. */
+/** The Source tab owns the current or version-selected repository tree. */
 function isSourceTab(input: EditorInput | undefined): boolean {
 	return input instanceof ReviewCanvasEditorInput && input.target.kind === "api-source";
 }
@@ -153,7 +135,7 @@ class ReviewExplorerDataSource implements IAsyncDataSource<URI | null, IFileStat
 				(child) => !this.excludes.matches(child.resource, (name) => siblingNames.has(name)),
 			);
 			for (const child of children) {
-				this.stats.set(child.resource.toString(), child);
+				this.stats.set(child.resource.path, child);
 			}
 			return children.sort(compareReviewExplorerStats);
 		} catch (error) {
@@ -164,7 +146,7 @@ class ReviewExplorerDataSource implements IAsyncDataSource<URI | null, IFileStat
 	}
 
 	statFor(resource: URI): IFileStat | undefined {
-		return this.stats.get(resource.toString());
+		return this.stats.get(resource.path);
 	}
 
 	reset(): void {
@@ -321,7 +303,7 @@ export class ReviewExplorerPart extends Part {
 				[renderer],
 				dataSource,
 				{
-					identityProvider: { getId: (stat: IFileStat) => stat.resource.scheme === REVIEW_API_SOURCE_SCHEME ? sourceTreeIdentity(stat.resource) : stat.resource.toString() },
+					identityProvider: { getId: (stat: IFileStat) => `${this.root?.toString()}/${stat.resource.path}` },
 					accessibilityProvider: reviewExplorerAccessibilityProvider,
 					keyboardNavigationLabelProvider: {
 						getKeyboardNavigationLabel: (stat: IFileStat) => basename(stat.resource),
@@ -368,7 +350,7 @@ export class ReviewExplorerPart extends Part {
 		this._register(this.editorService.onDidActiveEditorChange(() => this.updateRoot()));
 		let revision: string | undefined;
 		this._register(this.catalog.onDidChange(() => {
-			if (!this.root || sourceLocation(this.root).view.selection !== "current") return;
+			if (!this.root || sourceTreeSelection(this.root).kind !== "current") return;
 			const review = this.catalog.reviews.find(review => review.reviewId === this.root!.authority);
 			const next = JSON.stringify([review?.reviewId, review?.version, review?.pins.worktreeRevision]);
 			if (next === revision) return;
@@ -399,9 +381,9 @@ export class ReviewExplorerPart extends Part {
 		const resource = EditorResourceAccessor.getCanonicalUri(input, { supportSideBySide: SideBySideEditor.PRIMARY });
 		const folder =
 			input instanceof ReviewCanvasEditorInput && input.target.kind === "api-source"
-				? apiSourceRoot(input.target)
+				? sourceTreeUri(input.target.selection)
 				: resource?.scheme === REVIEW_API_SOURCE_SCHEME
-					? apiSourceRoot(sourceLocation(resource))
+					? sourceTreeRoot(resource, this.root)
 					: undefined;
 		if (folder && this.root && isEqual(folder, this.root)) {
 			return;
@@ -431,9 +413,9 @@ export class ReviewExplorerPart extends Part {
 	 */
 	revealResource(resource: URI | undefined): void {
 		const root = this.root;
-		if (resource && root && isSamePinnedTree(resource, root)) {
-			// A base-side or commit-scoped editor still belongs to the pinned tree.
-			resource = resource.with({ query: root.query });
+		if (resource && root && resource.scheme === REVIEW_API_SOURCE_SCHEME && sourceTreeRoot(resource, root).toString() === root.toString()) {
+			// A base-side or commit-scoped editor still belongs to the selected tree.
+			resource = resource.with({ scheme: root.scheme, query: root.query });
 		}
 		if (!resource || !root || !isEqualOrParent(resource, root)) {
 			return;

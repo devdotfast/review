@@ -995,16 +995,50 @@ export async function diff(input: {
   return diffForKind({ ...input, rootPath: vcs.rootPath, kind: vcs.kind });
 }
 
-/** Working files use the same Git patch/parser pipeline as committed trees.
- * A private index includes untracked files without staging anything for the user.
- */
-export async function diffWorkingTree(input: {
+interface WorkingTreeDiffInput {
   rootPath: string;
   kind: LocalVcsKind;
   baseRef?: string;
   headRef?: string;
-  file?: string;
-}): Promise<LocalVcsDiffFileSummary[] | string> {
+}
+
+/** Use the same summary parser for working files and committed trees. */
+export function diffFileSummariesWorkingTree(
+  input: WorkingTreeDiffInput,
+): Promise<LocalVcsDiffFileSummary[]> {
+  return withWorkingTreeIndex(input, readGitDiffFileSummaries);
+}
+
+/** Read one Git patch for the entire checkout, or one changed file. */
+export function diffWorkingTree(
+  input: WorkingTreeDiffInput & { file?: string },
+): Promise<string> {
+  return withWorkingTreeIndex(input, async (options) => {
+    if (input.file === undefined) return readGitDiff(options);
+    // Include both sides of a rename when selecting its destination.
+    const changes = await readGitDiffFileSummaries(options);
+
+    const previous = changes.find(
+      (change) => change.path === input.file,
+    )?.previousPath;
+
+    return readGitDiff({
+      ...options,
+      literalPaths: true,
+      paths: previous ? [previous, input.file] : [input.file],
+    });
+  });
+}
+
+/** Private index/object writes include untracked files without staging user files. */
+async function withWorkingTreeIndex<T>(
+  input: WorkingTreeDiffInput,
+  read: (options: {
+    rootPath: string;
+    baseRef: string;
+    env: NodeJS.ProcessEnv;
+  }) => Promise<T>,
+): Promise<T> {
   const scratch = await fs.promises.mkdtemp(
     path.join(tmpdir(), "review-git-diff-"),
   );
@@ -1019,6 +1053,7 @@ export async function diffWorkingTree(input: {
       ...localGitEnvironment(),
       GIT_INDEX_FILE: path.join(scratch, "index"),
       GIT_OBJECT_DIRECTORY: path.join(scratch, "objects"),
+      // Git accepts C-quoted entries; JSON quoting protects colons and quotes in paths.
       GIT_ALTERNATE_OBJECT_DIRECTORIES: JSON.stringify(
         path.join(common, "objects"),
       ),
@@ -1092,22 +1127,7 @@ export async function diffWorkingTree(input: {
         ])
       ).stdout.trim();
 
-    const options = { rootPath: input.rootPath, baseRef, env };
-
-    if (input.file === undefined)
-      return await readGitDiffFileSummaries(options);
-    // Include both sides of a rename when selecting its destination.
-    const changes = await readGitDiffFileSummaries(options);
-
-    const previous = changes.find(
-      (change) => change.path === input.file,
-    )?.previousPath;
-
-    return await readGitDiff({
-      ...options,
-      literalPaths: true,
-      paths: previous ? [previous, input.file] : [input.file],
-    });
+    return await read({ rootPath: input.rootPath, baseRef, env });
   } finally {
     await fs.promises.rm(scratch, { recursive: true, force: true });
   }

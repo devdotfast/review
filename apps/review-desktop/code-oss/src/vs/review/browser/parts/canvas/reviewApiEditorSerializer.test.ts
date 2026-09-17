@@ -1,4 +1,3 @@
-import { resolveReviewSourceView } from "../../../common/reviewProtocol.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -53,7 +52,7 @@ test("native group restoration preserves both reviews, order and pinned source v
 	});
 	left.openEditor(tabs.inputFor({ kind: "home" }), { pinned: true, sticky: true });
 	left.openEditor(tabs.inputFor({ kind: "api", reviewId: "a", title: "Review A" }), { pinned: true, active: true });
-	left.openEditor(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "Review A", view: resolveReviewSourceView({ reviewId: "a", version: 7, pins: {} }, { kind: "version", version: 7 }) }), {
+	left.openEditor(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "Review A", selection: { reviewId: "a", kind: "version", version: 7 } }), {
 		pinned: true,
 		active: false,
 	});
@@ -89,7 +88,7 @@ test("invalid saved tabs are ignored instead of preventing the window from resto
 });
 
 
-test("legacy live tabs restore as current views and reuse identity after source updates", () => {
+test("current Source tabs retain identity and main version tabs still restore", () => {
   const inputs: ReviewCanvasEditorInput[] = [];
   let tabs: ReviewCanvasEditorTabsService;
   const instantiation = {
@@ -103,11 +102,10 @@ test("legacy live tabs restore as current views and reuse identity after source 
   tabs = new ReviewCanvasEditorTabsService(instantiation as never, { onDidCloseEditor: Event.None } as never, {} as never);
   try {
     const serializer = new ReviewApiEditorSerializer();
-    const restored = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", version: 2, generation: "old", live: true }));
-    const view = resolveReviewSourceView({ reviewId: "a", version: 3, pins: { worktreeRevision: "new" }, target: { kind: "worktree" } }, { kind: "current" });
-    assert.equal(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", view }), restored);
-    assert.notEqual(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", view: resolveReviewSourceView({ reviewId: "a", version: 2, pins: { worktreeRevision: "old" } }, { kind: "version", version: 2 }) }), restored);
-    const historical = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", version: 2, generation: "old" }));
+    const restored = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "current" } }));
+    assert.equal(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "current" } }), restored);
+    assert.notEqual(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", selection: { reviewId: "a", kind: "version", version: 2 } }), restored);
+    const historical = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", version: 2 }));
     assert.equal((historical as ReviewCanvasEditorInput).getName(), "Source — A (v2)");
   } finally { tabs.dispose(); inputs.forEach(input => input.dispose()); }
 });

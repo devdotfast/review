@@ -97,7 +97,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
         headings: apiHeadingIds(snapshot.document),
         commits: await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
           client.read<ReviewCommitSummary[]>(
-            `/${snapshot.reviewId}/commits?version=${snapshot.version}${snapshot.pins.worktreeRevision ? `&generation=${snapshot.pins.worktreeRevision}` : ""}`,
+            `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
           ),
         ),
         anchors: new Map(),
@@ -158,7 +158,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
                 const saved = await client.read<
                   Awaited<ReturnType<LocalReviewData["map"]>>
                 >(
-                  `/${snapshot.reviewId}/maps/${encodeURIComponent(node.mapVersionId)}?version=${snapshot.version}${snapshot.pins.worktreeRevision ? `&generation=${snapshot.pins.worktreeRevision}` : ""}`,
+                  `/${snapshot.reviewId}/maps/${encodeURIComponent(node.mapVersionId)}?version=${snapshot.version}`,
                 );
 
                 return {

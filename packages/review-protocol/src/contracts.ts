@@ -379,38 +379,30 @@ export interface ReviewLanguageEnvironment {
 
 /** Authored version selection is independent of whether source is live or fixed. */
 export type ReviewSourceSelection =
-  | { readonly kind: "current" }
-  | { readonly kind: "version"; readonly version: number };
+  | { readonly reviewId: string; readonly kind: "current" }
+  | {
+      readonly reviewId: string;
+      readonly kind: "version";
+      readonly version: number;
+    };
 
 export interface ReviewSourceView {
   readonly reviewId: string;
   readonly version: number;
   /** Cache invalidation for live files; does not select historical source. */
   readonly generation?: string;
-  readonly selection: "current" | "version";
-  readonly access: "local" | "retained";
   readonly commit?: string;
 }
 
-export function resolveReviewSourceView(
-  snapshot: {
-    reviewId: string;
-    version: number;
-    pins: { worktreeRevision?: string };
-    target?: { kind: string };
-  },
-  selection: ReviewSourceSelection,
-  commit?: string,
-): ReviewSourceView {
+export function resolveReviewSourceView(snapshot: {
+  reviewId: string;
+  version: number;
+  pins: { worktreeRevision?: string };
+}): ReviewSourceView {
   return Object.freeze({
     reviewId: snapshot.reviewId,
-    version:
-      selection.kind === "version" ? selection.version : snapshot.version,
+    version: snapshot.version,
     generation: snapshot.pins.worktreeRevision,
-    selection: commit ? "version" : selection.kind,
-    access:
-      snapshot.target?.kind === "worktree" && !commit ? "local" : "retained",
-    commit,
   });
 }
 
@@ -422,8 +414,6 @@ export function reviewSourceComparison(
     ? Object.freeze({
         ...view,
         commit,
-        selection: "version",
-        access: "retained",
       })
     : view;
 }
@@ -432,7 +422,6 @@ export function reviewSourceComparison(
 export function reviewSourceQuery(view: ReviewSourceView) {
   return {
     version: view.version,
-    generation: view.generation,
     commit: view.commit,
   };
 }
@@ -454,7 +443,10 @@ export type ReviewCanvasContent =
       version?: number;
       bridge: ReviewCanvasBridge;
       setTitle?(title: string): void;
-      setSourceView?(view: ReviewSourceView): void;
+      setSourceView?(
+        selection: ReviewSourceSelection,
+        view: ReviewSourceView,
+      ): void;
       openSource?(
         source: ReviewApiSourceLocation,
         range: ReviewInlineEditorRange,

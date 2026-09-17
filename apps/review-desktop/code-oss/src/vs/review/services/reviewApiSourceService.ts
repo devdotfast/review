@@ -24,7 +24,7 @@ import type {
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
 import { resolveReviewSourceView, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
-import { apiSourceUri, sourceLocation, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
+import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import type { ReviewCodeModelReference, ReviewCodeDiffTarget } from "./reviewCodeResourceService.js";
@@ -109,8 +109,8 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 
 	private readonly localRoots = new Map<string, Promise<void>>();
 	private async sourceResource(target: ApiSourceTarget, empty = false): Promise<URI> {
-		if (!empty && target.view.access === "local" && target.side === "head") {
-			const file = await this.read<{ localPath?: string; localRoot?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), file: target.file, side: target.side, live: "true" });
+		if (!empty && !target.view.commit && target.side === "head") {
+			const file = await this.read<{ localPath?: string; localRoot?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), file: target.file, side: target.side });
 			if (file.localPath && file.localRoot) {
 				const resource = URI.file(file.localPath);
 				if (!this.textFiles.isDirty(resource)) {
@@ -164,16 +164,22 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 	}
 
 	async children(resource: URI): Promise<IFileStat[]> {
-		let target = sourceLocation(resource);
-		if (target.view.selection === "current") {
-			const snapshot = await this.read<Parameters<typeof resolveReviewSourceView>[0]>(target.view.reviewId, "", { full: "true" });
-			target = { ...target, view: resolveReviewSourceView(snapshot, { kind: "current" }, target.view.commit) };
+		const selection = resource.scheme === REVIEW_API_TREE_SCHEME ? sourceTreeSelection(resource) : undefined;
+		let target: ApiSourceTarget;
+		if (selection) {
+			const snapshot = await this.read<Parameters<typeof resolveReviewSourceView>[0]>(selection.reviewId, "", {
+				full: "true", version: selection.kind === "version" ? selection.version : undefined,
+			});
+			target = { view: resolveReviewSourceView(snapshot), side: "head", file: resource.path.slice(1) };
+		} else {
+			target = sourceLocation(resource);
 		}
+
 		const entries = await this.read<ReviewSourceEntry[]>(target.view.reviewId, "/tree", {
 			...reviewSourceQuery(target.view), side: target.side, path: target.file,
 		});
 		return entries.map((entry) => ({
-			resource: apiSourceUri({ ...target, file: entry.path }),
+			resource: selection && entry.kind === "directory" ? sourceTreeUri(selection, entry.path) : apiSourceUri({ ...target, file: entry.path }),
 			name: entry.path.split("/").at(-1)!,
 			isFile: entry.kind === "file",
 			isDirectory: entry.kind === "directory",

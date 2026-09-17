@@ -110,7 +110,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       kind: "api",
       reviewId: review.reviewId,
       bridge,
-      setSourceView: (view) => displayedVersion(view.version),
+      setSourceView: (_selection, view) => displayedVersion(view.version),
     });
   });
   await act(async () => {

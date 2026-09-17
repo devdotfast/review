@@ -1248,6 +1248,39 @@ it("decodes images and checks trace/map evidence before accepting components", a
       "app.api.example.value": { additions: 2, deletions: 1 },
     },
   });
+  writeFileSync(
+    path.join(repository, source.file),
+    "export const value = 3;\nexport const saved = true;\n",
+  );
+
+  const live = await local.data.resolveTarget({
+    kind: "worktree",
+    repositoryId: pins.repositoryId,
+    base: pins.base,
+  });
+
+  recordSpawns();
+  expect(
+    (await local.data.map(live.pins, map.id)).countsByElementPath[
+      "app.api.example.value"
+    ],
+  ).toEqual({ additions: 2, deletions: 1 });
+  const smallDiffCalls = spawns.filter((args) => args.includes("diff")).length;
+
+  for (let index = 0; index < 20; index++)
+    writeFileSync(
+      path.join(repository, `extra-${index}.ts`),
+      "export const extra = true;\n",
+    );
+  recordSpawns();
+  expect(
+    (await local.data.map(live.pins, map.id)).countsByElementPath[
+      "app.api.example.value"
+    ],
+  ).toEqual({ additions: 2, deletions: 1 });
+  expect(
+    spawns.filter((args) => args.includes("diff")).length,
+  ).toBeLessThanOrEqual(smallDiffCalls + 1);
   await expect(
     local.data.map({ ...pins, head: pins.base }, map.id),
   ).rejects.toThrow(/does not match/);
@@ -1736,14 +1769,15 @@ it("keeps authored coordinates fixed as live source changes and warns only on un
     local.store.read(result.reviewId, saved.version).document[0],
   ).toMatchObject({ source: { fromLine: 2, toLine: 2 } });
   writeFileSync(path.join(repository, "range.ts"), "const first = 99;\n");
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  await local.store.refreshWorktrees();
-  expect(local.store.read(result.reviewId).staleSources).toEqual([
-    saved.document[0]!.id,
-  ]);
+  await vi.waitFor(async () => {
+    await local.store.refreshWorktrees();
+    expect(local.store.read(result.reviewId).staleSources).toEqual([
+      saved.document[0]!.id,
+    ]);
+  });
 });
 
-it("reads current checkout even with an older version and obsolete generation token", async () => {
+it("reads current checkout even with an older authored version", async () => {
   const api = createReviewApi(local.store, local.data);
   writeFileSync(path.join(repository, "example.ts"), "const generation = 1;\n");
 
@@ -1759,7 +1793,6 @@ it("reads current checkout even with an older version and obsolete generation to
     }),
   );
 
-  const snapshot = local.store.read(result.reviewId);
   writeFileSync(path.join(repository, "example.ts"), "const generation = 2;\n");
   await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -1771,16 +1804,14 @@ it("reads current checkout even with an older version and obsolete generation to
     ).json();
 
   expect(await read("")).toMatchObject({ text: "const generation = 2;\n" });
-  expect(
-    await read(`&version=0&generation=${snapshot.pins.worktreeRevision}`),
-  ).toMatchObject({ text: "const generation = 2;\n" });
+
   expect(await read("&version=0")).toMatchObject({
     text: "const generation = 2;\n",
   });
-  expect(await read("&live=true")).toMatchObject({
+  expect(await read("")).toMatchObject({
     localPath: realpathSync(path.join(repository, "example.ts")),
   });
-  expect(await read("&version=0")).not.toHaveProperty("localPath");
+  expect(await read("&version=0")).toHaveProperty("localPath");
 });
 
 it("keeps multiple worktrees bound to their selected directory and survives reopening the store", async () => {
@@ -2173,6 +2204,19 @@ it("does not report clean tracked symlinks and submodules as modified", async ()
       )
     ).text,
   ).toBe("example.ts");
+  const snapshot = local.store.read(created.reviewId);
+  await expect(
+    local.data.file(snapshot.pins, "head", "module"),
+  ).rejects.toThrow("not a regular file");
+
+  const response = await createReviewApi(local.store, local.data).request(
+    `/${created.reviewId}/file?side=head&file=module`,
+  );
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    error: "Source is not a regular file.",
+  });
 });
 
 it("continues capturing after watchers fail and stop emitting changes", async () => {

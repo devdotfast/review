@@ -13,8 +13,8 @@ import {
 	type ReviewCanvasEditorTarget,
 } from "../browser/parts/canvas/reviewCanvasEditorInput.js";
 
-import type { ReviewSourceView } from "../common/reviewProtocol.js";
-import { sourceViewIdentity } from "../common/reviewSourceView.js";
+import type { ReviewSourceSelection } from "../common/reviewProtocol.js";
+import { sourceSelectionIdentity } from "../common/reviewSourceView.js";
 
 export const IReviewCanvasEditorTabsService = createDecorator<IReviewCanvasEditorTabsService>(
 	"reviewCanvasEditorTabsService",
@@ -24,7 +24,7 @@ export interface IReviewCanvasEditorTabsService {
 	readonly _serviceBrand: undefined;
 	inputFor(target: Extract<ReviewCanvasEditorTarget, { kind: "api" | "api-source" | "home" }>): ReviewCanvasEditorInput;
 	openApiReview(reviewId: string, title: string, active?: boolean): Promise<ReviewCanvasEditorInput>;
-	openApiSource(view: ReviewSourceView, title: string): Promise<ReviewCanvasEditorInput>;
+	openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput>;
 	openHome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openWelcome(active: boolean): Promise<ReviewCanvasEditorInput>;
 	openSettings(active: boolean): Promise<ReviewCanvasEditorInput>;
@@ -67,7 +67,7 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 				? "home"
 				: target.kind === "api"
 					? `api:${target.reviewId}`
-					: `api:${target.reviewId}:source:${sourceViewIdentity(target.view)}`;
+					: `api:${target.reviewId}:source:${sourceSelectionIdentity(target.selection)}`;
 		let input = this.inputs.get(key);
 		if (!input || input.isDisposed()) {
 			input = this.instantiationService.createInstance(ReviewCanvasEditorInput, target);
@@ -87,8 +87,8 @@ export class ReviewCanvasEditorTabsService extends Disposable implements IReview
 		return this.openSingleton({ kind: "welcome" }, active);
 	}
 
-	async openApiSource(view: ReviewSourceView, title: string): Promise<ReviewCanvasEditorInput> {
-		const input = this.inputFor({ kind: "api-source", reviewId: view.reviewId, view, title });
+	async openApiSource(selection: ReviewSourceSelection, title: string): Promise<ReviewCanvasEditorInput> {
+		const input = this.inputFor({ kind: "api-source", reviewId: selection.reviewId, selection, title });
 		await this.openReviewInput(input, true);
 		return input;
 	}

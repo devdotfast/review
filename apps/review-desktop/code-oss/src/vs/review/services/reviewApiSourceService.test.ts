@@ -1,3 +1,4 @@
+import { sourceTreeUri, sourceTreeRoot } from "../common/reviewSourceView.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -8,7 +9,7 @@ import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
 import { resolveReviewSourceView, reviewSourceComparison } from "../common/reviewProtocol.js";
 import type { ReviewInlineSource } from "./reviewInlineEditorService.js";
 
-const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a", version, pins: {} }, { kind: "version", version });
+const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a", version, pins: {} });
 
 function setup(dirty = false) {
 	let provider: ITextModelContentProvider;
@@ -130,7 +131,7 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 	});
 	let source!: ReviewDiffViewSource;
 	const canvas = service.canvas(
-		() => resolveReviewSourceView({ reviewId: "review-a", version, pins: { worktreeRevision: generation }, target: { kind: "worktree" } }, { kind: "current" }),
+		() => resolveReviewSourceView({ reviewId: "review-a", version, pins: { worktreeRevision: generation } }),
 		{} as never,
 		{
 			create: (_: unknown, input: ReviewDiffViewSource) => {
@@ -229,20 +230,46 @@ test("opening a native diff preserves renames and empty sides at the selected ve
 	assert.equal(opened.length, 3);
 });
 
-for (const scenario of ["live", "saved", "selected-commit", "base", "dirty", "mismatch"] as const) {
+for (const scenario of ["live", "saved", "selected-commit", "base", "dirty", "mismatch", "pinned"] as const) {
   test(`source opening uses the checkout only for eligible matching files: ${scenario}`, async t => {
     const { service, opened } = setup(scenario === "dirty");
     t.after(() => service.dispose());
     let requests = 0;
     t.mock.method(globalThis, "fetch", async () => {
       requests++;
-      return Response.json(scenario === "mismatch" ? { text: "retained" } : { localRoot: "/project", localPath: "/project/file.ts" });
+      return Response.json(["mismatch", "pinned"].includes(scenario) ? { text: "retained" } : { localRoot: "/project", localPath: "/project/file.ts" });
     });
-    const snapshot = { reviewId: "review-a", version: 3, pins: { worktreeRevision: "a".repeat(64) }, target: { kind: "worktree" } };
-    const current = resolveReviewSourceView(snapshot, scenario === "saved" ? { kind: "version", version: 3 } : { kind: "current" }, scenario === "selected-commit" ? "commit" : undefined);
+    const snapshot = { reviewId: "review-a", version: 3, pins: { worktreeRevision: "a".repeat(64) } };
+    const current = reviewSourceComparison(resolveReviewSourceView(snapshot), scenario === "selected-commit" ? "commit" : undefined);
     await service.open({ view: current, side: scenario === "base" ? "base" : "head", file: "file.ts" });
     const resource = (opened[0] as unknown as { resource: URI }).resource;
     assert.equal(resource.scheme, ["live", "saved"].includes(scenario) ? "file" : "review-api-source");
-    assert.equal(requests, ["live", "saved", "dirty", "mismatch"].includes(scenario) ? 1 : 0);
+    assert.equal(requests, ["live", "saved", "dirty", "mismatch", "pinned"].includes(scenario) ? 1 : 0);
   });
 }
+
+
+test("a refreshed current tree keeps its root when a file from the newer version opens", async t => {
+  const { service } = setup();
+  t.after(() => service.dispose());
+  let version = 3;
+  const root = sourceTreeUri({ reviewId: "review-a", kind: "current" });
+  t.mock.method(globalThis, "fetch", async (value: string) => {
+    const url = new URL(value);
+    if (url.pathname.endsWith("/tree")) {
+      assert.equal(url.searchParams.get("version"), String(version));
+      return Response.json([{ path: "src", kind: "directory" }, { path: "file.ts", kind: "file" }]);
+    }
+    assert.equal(url.searchParams.has("version"), false);
+    return Response.json({ reviewId: "review-a", version, pins: { worktreeRevision: String(version).repeat(64) } });
+  });
+  const first = await service.children(root);
+  version = 4;
+  const refreshed = await service.children(root);
+  assert.equal(first[0]!.resource.toString(), refreshed[0]!.resource.toString());
+  assert.notEqual(first[1]!.resource.toString(), refreshed[1]!.resource.toString());
+  assert.equal(new URLSearchParams(refreshed[1]!.resource.query).get("version"), "4");
+  assert.equal(sourceTreeRoot(refreshed[1]!.resource, root).toString(), root.toString());
+  const fixed = sourceTreeUri({ reviewId: "review-a", kind: "version", version: 3 });
+  assert.notEqual(sourceTreeRoot(refreshed[1]!.resource, fixed).toString(), fixed.toString());
+});

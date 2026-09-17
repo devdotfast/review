@@ -157,9 +157,22 @@ it("reports hosted read denial rather than falling back to the direct store", as
     `/${id}/agent-traces/${session}?storage=hosted`,
   );
 
-  expect(detail.status).toBe(404);
+  expect(detail.status).toBe(403);
   expect(await detail.json()).toMatchObject({
     ok: false,
     error: expect.stringContaining("Admin access required"),
   });
+});
+
+it("distinguishes a missing transcript from invalid storage configuration", async () => {
+  const missing = await api.request(
+    `/${id}/agent-traces/00000000-0000-4000-8000-000000000000`,
+  );
+
+  expect(missing.status).toBe(404);
+  mkdirSync(path.join(root, "trace"), { recursive: true });
+  writeFileSync(path.join(root, "trace/config.json"), "invalid json");
+  clearTraceEnvCache();
+  const invalid = await api.request(`/${id}/agent-traces/${session}`);
+  expect(invalid.status).toBe(400);
 });

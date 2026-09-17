@@ -392,6 +392,9 @@ it.each([false, true])(
 
     const app = new Hono().route("/reviews-api", createReviewApi(store));
     app.get("/reviews-api/:id/commits", (context) => context.json([]));
+    app.get("/reviews-api/:id/agent-traces", (context) =>
+      context.json({ ok: true, sessions: [] }),
+    );
     app.get(`/reviews-api/resources/${traceId}`, (context) =>
       context.json(trace),
     );
@@ -431,7 +434,7 @@ it.each([false, true])(
         ),
       );
     });
-    expect(traceTab()).toBeUndefined();
+    await vi.waitFor(() => expect(traceTab()).toBeUndefined());
     await act(async () => {
       await command({
         type: "edit",

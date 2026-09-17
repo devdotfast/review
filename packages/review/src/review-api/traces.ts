@@ -82,6 +82,7 @@ export async function readStoredTrace(
     if (!loaded)
       return {
         ok: false as const,
+        status: 404 as const,
         error: `Trace not found for session ${sessionId}.`,
       };
 
@@ -105,7 +106,14 @@ export async function readStoredTrace(
       error instanceof TraceStorageDeniedError ||
       error instanceof TraceConfigurationError
     )
-      return { ok: false as const, error: error.message };
+      return {
+        ok: false as const,
+        status:
+          error instanceof TraceStorageDeniedError
+            ? (403 as const)
+            : (400 as const),
+        error: error.message,
+      };
     throw error;
   }
 }

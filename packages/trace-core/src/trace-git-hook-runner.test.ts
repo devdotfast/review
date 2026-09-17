@@ -154,7 +154,9 @@ describe("runTraceGitHook", () => {
     );
 
     expect(mapping.sessions).toContain(remoteSession);
-    expect(stderrText).toBe("");
+    expect(stderrText).toBe(
+      `trace-sync: skipping ${remoteSession}: no local transcript.\n`,
+    );
   });
 
   it("detaches the hosted publish instead of uploading inside the push", async () => {

@@ -216,7 +216,10 @@ export function createReviewApi(
         query.storage,
       );
 
-      return context.json(result, result.ok ? 200 : 404);
+      if (!result.ok)
+        return context.json({ ok: false, error: result.error }, result.status);
+
+      return context.json(result);
     });
     app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());

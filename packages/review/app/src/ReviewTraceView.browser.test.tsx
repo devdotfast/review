@@ -3,7 +3,7 @@ import type {
   ReviewAgentTraceResponse,
   ReviewCanvasBridge,
 } from "@dev.fast/review-protocol";
-import { act } from "react";
+import { act, useState } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +16,7 @@ import {
   testReviewSession,
 } from "./review-session-test-utils";
 import { ReviewTraceView } from "./ReviewTraceView";
+import { useTraceList } from "./use-trace-list";
 
 const mockListResponse: Extract<ReviewAgentTraceListResponse, { ok: true }> = {
   ok: true,
@@ -77,6 +78,54 @@ describe("ReviewTraceView", () => {
 
     document.body.replaceChildren();
     vi.restoreAllMocks();
+  });
+
+  it("shares an in-flight listing with the Trace view and reuses it after reopening", async () => {
+    const pending = Promise.withResolvers<Response>();
+
+    const request = vi.fn<ReviewCanvasBridge["request"]>((url) =>
+      url.includes("/agent-traces/session-1")
+        ? Promise.resolve(Response.json(mockTraceDetail))
+        : pending.promise,
+    );
+
+    const session = testReviewSession({}, { request });
+
+    function Host() {
+      const list = useTraceList();
+      const [open, setOpen] = useState(false);
+
+      return (
+        <>
+          <button onClick={() => setOpen(!open)}>Toggle trace</button>
+          {open && <ReviewTraceView storedList={list} />}
+        </>
+      );
+    }
+
+    await act(async () =>
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <Host />
+        </ReviewSessionProvider>,
+      ),
+    );
+    await act(async () => container.querySelector("button")!.click());
+    expect(container.textContent).toContain("Resolving agent sessions");
+    await act(async () => pending.resolve(Response.json(mockListResponse)));
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("User turn text"),
+    );
+    await act(async () => container.querySelector("button")!.click());
+    await act(async () => container.querySelector("button")!.click());
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("User turn text"),
+    );
+    expect(
+      request.mock.calls.filter(
+        ([url]) => !String(url).includes("/agent-traces/session-1"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("renders retained subagent events without downloading them", async () => {

@@ -1,9 +1,6 @@
 import {
-  type JsonValue,
   type ReviewCanvasRange,
   type ReviewCommitSummary,
-  isJsonObject,
-  jsonArray,
 } from "@dev.fast/review-protocol";
 import {
   type CSSProperties,
@@ -84,6 +81,7 @@ import { useTutorial } from "./tutorial-context";
 import { TutorialExperienceProvider } from "./tutorial-experience";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
+import { useTraceList } from "./use-trace-list";
 
 const DEFAULT_SIDE_PEEK_WIDTH = 560;
 
@@ -389,33 +387,13 @@ function ReviewLayoutContent({
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
 
-  const [storedHasTraceSessions, setStoredHasTraceSessions] = useState<
-    boolean | null
-  >(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    session
-      .fetch("/agent-traces", { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) return;
-        const data: JsonValue = await res.json();
-
-        const sessions =
-          isJsonObject(data) && data.ok === true
-            ? jsonArray(data.sessions)
-            : undefined;
-
-        setStoredHasTraceSessions((sessions?.length ?? 0) > 0);
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [session]);
+  const storedList = useTraceList();
   const diffFiles = useReviewDiffFiles();
 
   const hasTraceSessions =
-    (session.review?.traces.size ?? 0) > 0 || storedHasTraceSessions;
+    (session.review?.traces.size ?? 0) > 0 ||
+    storedList.status !== "loaded" ||
+    storedList.sessions.length > 0;
 
   const filesTabFileCount = diffScope
     ? diffScope.fileCount
@@ -742,7 +720,10 @@ function ReviewLayoutContent({
               </div>
             )}
             {activeView === "trace" && (
-              <ReviewTraceView initialSelection={traceSelection} />
+              <ReviewTraceView
+                initialSelection={traceSelection}
+                storedList={storedList}
+              />
             )}
           </section>
         </TutorialExperienceProvider>

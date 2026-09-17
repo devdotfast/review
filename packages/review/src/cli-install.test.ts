@@ -637,7 +637,7 @@ describe("installed launcher runtime selection", () => {
       await writeFile(fallbackCli, "// CLI fixture\n");
       await writeFile(
         fallbackRuntime,
-        '#!/bin/sh\nprintf "%s\\n" "fallback" "$@"\n',
+        '#!/bin/sh\nprintf "%s\\n" "fallback" "guard=$DEV_FAST_REVIEW_CLI_NO_DELEGATE" "delegated=$DEV_FAST_REVIEW_CLI_DELEGATED" "$@"\n',
         { mode: 0o755 },
       );
 
@@ -646,7 +646,7 @@ describe("installed launcher runtime selection", () => {
       if (runtimeExists)
         await writeFile(
           discoveredRuntime,
-          '#!/bin/sh\nprintf "%s\\n" "discovered" "$@"\n',
+          '#!/bin/sh\nprintf "%s\\n" "discovered" "guard=$DEV_FAST_REVIEW_CLI_NO_DELEGATE" "delegated=$DEV_FAST_REVIEW_CLI_DELEGATED" "$@"\n',
           { mode: 0o755 },
         );
       const discoveryDir = path.join(home, "review-desktop");
@@ -670,6 +670,8 @@ describe("installed launcher runtime selection", () => {
 
       expect(stdout.trim().split("\n")).toEqual([
         expected,
+        "guard=1",
+        `delegated=${expected === "discovered" ? "1" : ""}`,
         expected === "fallback" ? fallbackCli : discoveredCli,
         "trace",
         "status",

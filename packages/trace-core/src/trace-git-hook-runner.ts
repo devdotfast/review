@@ -180,7 +180,12 @@ async function runPrePush(input: {
     // Skip nonlocal files; leave OpenCode export to the sync.
     if (!isOpenCodeSessionId(sessionId)) {
       try {
-        if (!(await findLocalTrace(sessionId))) continue;
+        if (!(await findLocalTrace(sessionId))) {
+          input.stderr.write(
+            `trace-sync: skipping ${sessionId}: no local transcript.\n`,
+          );
+          continue;
+        }
       } catch (cause) {
         warn(input.stderr, cause);
         continue;

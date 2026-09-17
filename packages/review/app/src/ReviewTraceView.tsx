@@ -1,7 +1,4 @@
-import {
-  type ReviewAgentTraceSession,
-  parseReviewAgentTraceListResponse,
-} from "@dev.fast/review-protocol";
+import { type ReviewAgentTraceSession } from "@dev.fast/review-protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useReviewSession } from "./host/review-session";
@@ -13,18 +10,7 @@ import {
   makeAgentTraceKey,
   useAgentTrace,
 } from "./use-agent-trace";
-
-type TraceListState =
-  | { status: "loading" }
-  | { status: "error"; error: string }
-  | {
-      status: "loaded";
-      configured: boolean;
-      storage: AgentTraceStorage | null;
-      sources: AgentTraceStorage[];
-      storageError: string | null;
-      sessions: ReviewAgentTraceSession[];
-    };
+import { type TraceListState, useTraceList } from "./use-trace-list";
 
 export interface TraceSelection {
   sessionId: string;
@@ -34,15 +20,12 @@ export interface TraceSelection {
 
 export function ReviewTraceView({
   initialSelection,
+  storedList: providedList,
 }: {
   initialSelection?: TraceSelection;
+  storedList?: TraceListState;
 }) {
   const session = useReviewSession();
-  const reviewFetch = session.fetch;
-
-  const [storedList, setStoredList] = useState<TraceListState>({
-    status: "loading",
-  });
 
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
@@ -85,46 +68,7 @@ export function ReviewTraceView({
     }
   }, [initialSelection]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const url: `/${string}` = storageOverride
-      ? `/agent-traces?storage=${storageOverride}`
-      : "/agent-traces";
-
-    reviewFetch(url, { signal: controller.signal })
-      .then(async (response) => {
-        const result = parseReviewAgentTraceListResponse(await response.json());
-
-        if (!response.ok || !result.ok) {
-          throw new Error(
-            result.ok ? "Unable to load agent traces." : result.error,
-          );
-        }
-
-        if (controller.signal.aborted) return;
-        setStoredList({
-          status: "loaded",
-          configured: result.configured !== false,
-          storage:
-            result.storage === "s3" || result.storage === "hosted"
-              ? result.storage
-              : null,
-          sources: result.sources ?? [],
-          storageError: result.storageError ?? null,
-          sessions: result.sessions,
-        });
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        setStoredList({
-          status: "error",
-          error: cause instanceof Error ? cause.message : String(cause),
-        });
-      });
-
-    return () => controller.abort();
-  }, [reviewFetch, storageOverride, session.review]);
+  const storedList = useTraceList(storageOverride, providedList);
 
   const list: TraceListState = useMemo(() => {
     const retained = [

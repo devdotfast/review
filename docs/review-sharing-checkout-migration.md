@@ -1,8 +1,7 @@
 # Sharing with required GitHub checkouts
 
-Implemented on [PR #338](https://github.com/devdotfast/review/pull/338), stacked
-on [PR #332](https://github.com/devdotfast/review/pull/332) at
-`03587d2c10076ca92e14d5cc5a4bb619ba570c1a`. The combined execution record is
+Implemented on [PR #338](https://github.com/devdotfast/review/pull/338), rebased
+on main at `1cbb014e9` after [PR #332](https://github.com/devdotfast/review/pull/332) merged. The combined execution record is
 [sharing-simplification-todo.md](sharing-simplification-todo.md).
 
 Sharing publishes one immutable document with attribution, repository identity,

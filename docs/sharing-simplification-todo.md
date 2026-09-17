@@ -8,11 +8,11 @@ https://github.com/Fix-Fast/dev/pull/1068.
 ## Setup and delivery
 
 - [x] Inspect both worktrees and preserve existing work.
-- [x] Restack Review on current #332 (03587d2c10076ca92e14d5cc5a4bb619ba570c1a).
+- [x] Restack Review on merged #332: main at `1cbb014e9`. The final base differs from the initially tested #332 only in its LSP test harness.
 - [x] Refresh both previous plans to point to this combined execution record.
 - [x] Keep protocol dependency and fixtures synchronized across repositories.
 - [ ] Commit changes in reviewable groups and update PR descriptions with evidence.
-- [ ] Review the final diffs and document any remaining release work.
+- [x] Review the final diffs and document any remaining release work.
 
 ## Dev authorization
 
@@ -76,7 +76,7 @@ https://github.com/Fix-Fast/dev/pull/1068.
 ## Acceptance and gates
 
 - [x] Dev focused unit/Worker tests, typecheck, lint, and format checks.
-- [ ] Review affected tests, typecheck, lint, formatting, and native checks.
+- [x] Review affected tests, typecheck, lint, formatting, and native checks.
 - [x] Local Git tests: unavailable commits, offline reads, retries, and pinned history.
 - [x] Import lifecycle tests: concurrent/interrupted imports, repair, deletion, and reimport.
 - [x] Live GitHub clean-profile Desktop import with visible rendered proof.
@@ -95,3 +95,13 @@ https://github.com/Fix-Fast/dev/pull/1068.
 - Real GitHub clean-profile proof: `/tmp/review-share-e2e-QK2djc` (`octocat/Hello-World`, existing published commits; no push). Identical base/head pins retain an accessible Trace tab.
 - Real TypeScript hover proof: `/tmp/review-share-e2e-WU80gp/shared-hover.png`, using the ordinary pinned source route and built-in language provider.
 - Credential failures/retry, unavailable commits, branch movement, author edits, offline restart, missing checkout repair, read-only guards, integrity and revocation races are automated checks. Live GitHub used public repository access; private OAuth/S3 and packaged cold-start links remain release gates.
+
+- Final Review checks: 192 affected tests, 99 native tests, 5 trace-auth tests, and 5 protocol tests pass. Review, trace-core, and native typechecks, repository lint, formatting, and whitespace checks pass. The development Desktop build succeeded.
+- Dev's protocol tarball has byte-identical `dist/index.js` to Review's `0.1.1` build.
+- Dev's repository-wide pre-push typecheck fails in unchanged `packages/review-agent-session-host` (missing Node and agent-session types/dependencies). Its files match `origin/main`; the focused review-web checks pass. Delivery bypasses that unrelated hook without changing the package.
+
+## Coordinated release gates (not performed by this implementation)
+
+- [ ] Publish protocol `0.1.1` and replace Dev's development tarball dependency.
+- [ ] Apply the unapplied migration and deploy the Worker with the configured bucket, secret, and native rate-limiter bindings.
+- [ ] Verify private GitHub authorization, production OAuth/S3, and packaged cold-start deep links in the release environment.

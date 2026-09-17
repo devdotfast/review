@@ -42,6 +42,47 @@ export const sharePathSchema = z
     "Use a repository-relative file path.",
   );
 
+/** The published identity is independent of the author's credential transport. */
+export function normalizeGitHubRemote(remote: string): string {
+  const url = new URL(
+    remote.trim().replace(/^git@github\.com:/, "https://github.com/"),
+  );
+
+  if (
+    !["https:", "ssh:"].includes(url.protocol) ||
+    url.hostname !== "github.com" ||
+    url.port ||
+    url.search ||
+    url.hash ||
+    (url.protocol === "ssh:" && url.username !== "git")
+  )
+    throw new Error("Sharing requires a GitHub repository remote.");
+
+  const parts = url.pathname
+    .replace(/\.git$/, "")
+    .split("/")
+    .slice(1);
+
+  if (
+    parts.length !== 2 ||
+    parts.some(
+      (part) =>
+        !/^[A-Za-z0-9_.-]+$/.test(part) || part === "." || part === "..",
+    )
+  )
+    throw new Error("Sharing requires a GitHub repository remote.");
+
+  return `https://github.com/${parts.join("/")}.git`;
+}
+
+export const gitHubRepositoryUrlSchema = z.string().refine((value) => {
+  try {
+    return normalizeGitHubRemote(value) === value;
+  } catch {
+    return false;
+  }
+}, "Use a canonical GitHub HTTPS repository URL without credentials.");
+
 export const shareManifestSchema = z
   .strictObject({
     format: z.literal(SHARE_FORMAT),
@@ -61,30 +102,7 @@ export const shareManifestSchema = z
         }),
       )
       .max(MAX_SHARE_OBJECTS),
-    files: z
-      .array(
-        z.strictObject({
-          side: z.enum(["base", "head"]),
-          file: sharePathSchema,
-          object: objectIdSchema.nullable(),
-        }),
-      )
-      .max(MAX_SHARE_OBJECTS),
-    repository: z
-      .strictObject({
-        cloneUrl: z.url().refine((value) => {
-          const url = new URL(value);
-
-          return (
-            url.protocol === "https:" &&
-            !url.username &&
-            !url.password &&
-            !url.search &&
-            !url.hash
-          );
-        }, "Use an HTTPS clone URL without credentials."),
-      })
-      .optional(),
+    repository: z.strictObject({ cloneUrl: gitHubRepositoryUrlSchema }),
   })
   .superRefine((manifest, context) => {
     const ids = new Set(manifest.objects.map((object) => object.id));
@@ -104,7 +122,6 @@ export const shareManifestSchema = z
       manifest.snapshot,
       manifest.presentation,
       ...manifest.resources.map((resource) => resource.object),
-      ...manifest.files.flatMap((file) => (file.object ? [file.object] : [])),
     ])
       if (!ids.has(id)) fail("Reference to an undeclared object.");
 
@@ -113,13 +130,6 @@ export const shareManifestSchema = z
       manifest.resources.length
     )
       fail("Duplicate resource ID.");
-
-    if (
-      new Set(
-        manifest.files.map((file) => JSON.stringify([file.side, file.file])),
-      ).size !== manifest.files.length
-    )
-      fail("Duplicate source file.");
 
     for (const resource of manifest.resources)
       if ((resource.kind === "image") !== (resource.mimeType === "image/png"))

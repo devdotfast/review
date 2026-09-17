@@ -12,3 +12,5 @@ export {
   sharedReviewId,
   validateShareBundle,
 } from "./import.js";
+
+export { verifyShareRepository } from "./repository.js";

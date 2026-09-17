@@ -1,6 +1,8 @@
 import { expect, it } from "vitest";
 
 import {
+  gitHubRepositoryUrlSchema,
+  normalizeGitHubRemote,
   parseShareLink,
   shareLink,
   shareManifestSchema,
@@ -59,20 +61,85 @@ it("rejects references not declared by the immutable envelope", () => {
       { id: b, sha256: b, size: 1 },
     ],
     resources: [],
-    files: [],
+    repository: { cloneUrl: "https://github.com/fixture/review.git" },
   };
 
   expect(shareManifestSchema.safeParse(manifest).success).toBe(true);
   expect(
     shareManifestSchema.safeParse({
       ...manifest,
-      files: [{ side: "head", file: "a.ts", object: "c".repeat(64) }],
+      resources: [
+        {
+          id: "trace",
+          kind: "trace",
+          mimeType: "application/json",
+          object: "c".repeat(64),
+        },
+      ],
     }).success,
   ).toBe(false);
   expect(
     shareManifestSchema.safeParse({
       ...manifest,
       objects: [manifest.objects[0], manifest.objects[0]],
+    }).success,
+  ).toBe(false);
+});
+
+it("normalizes GitHub transports without publishing credentials", () => {
+  for (const remote of [
+    "git@github.com:owner/repo.git",
+    "ssh://git@github.com/owner/repo",
+    "https://user:secret@github.com/owner/repo.git",
+    "https://github.com/owner/repo\n",
+  ])
+    expect(normalizeGitHubRemote(remote)).toBe(
+      "https://github.com/owner/repo.git",
+    );
+
+  for (const remote of [
+    "https://gitlab.com/owner/repo",
+    "/tmp/repo",
+    "https://github.com/owner/repo?token=secret",
+    "https://github.com/owner/repo#main",
+    "https://github.com:1234/owner/repo",
+    "https://github.com/owner",
+    "https://github.com/owner/repo/extra",
+  ])
+    expect(() => normalizeGitHubRemote(remote)).toThrow(/GitHub|Invalid URL/);
+
+  for (const remote of [
+    "git@github.com:owner/repo.git",
+    "https://user:secret@github.com/owner/repo.git",
+    "https://github.com/owner/repo",
+  ])
+    expect(gitHubRepositoryUrlSchema.safeParse(remote).success).toBe(false);
+});
+
+it("requires repository identity and rejects the previous source envelope", () => {
+  const a = "a".repeat(64),
+    b = "b".repeat(64);
+
+  const manifest = {
+    format: "review-share/1",
+    reviewId: "review",
+    version: 1,
+    title: "Review",
+    snapshot: a,
+    presentation: b,
+    objects: [
+      { id: a, sha256: a, size: 1 },
+      { id: b, sha256: b, size: 1 },
+    ],
+    resources: [],
+  };
+
+  expect(shareManifestSchema.safeParse(manifest).success).toBe(false);
+  expect(
+    shareManifestSchema.safeParse({
+      ...manifest,
+      repository: { cloneUrl: "https://github.com/owner/repo.git" },
+      files: [],
     }).success,
   ).toBe(false);
 });

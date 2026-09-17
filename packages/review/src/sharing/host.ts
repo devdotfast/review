@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
-import { promisify } from "node:util";
 
 import { parseShareLink, shareIdSchema } from "@dev.fast/review-share-protocol";
 import {
@@ -21,14 +19,13 @@ import { ShareClient } from "./client.js";
 import { cloneSharedRepository } from "./clone.js";
 import { exportShare } from "./export.js";
 import { SharedReviewStore, sharedReviewId } from "./import.js";
+import { verifyShareRepository } from "./repository.js";
 
 interface LoginState {
   pending: boolean;
   url?: string;
   error?: string;
 }
-
-const exec = promisify(execFile);
 
 const publishSchema = z.strictObject({
   reviewId: z.string().min(1),
@@ -42,6 +39,7 @@ export function mountSharingHost(
   store: ReviewStore,
   data: LocalReviewData,
   shared: SharedReviewStore,
+  verifyRepository: typeof verifyShareRepository = verifyShareRepository,
 ) {
   let login: LoginState = {
     pending: false,
@@ -119,43 +117,11 @@ export function mountSharingHost(
         "Run review login or sign in before sharing.",
         409,
       );
-    let repository: { cloneUrl: string } | undefined;
 
-    try {
-      const remote = (
-        await exec(
-          "git",
-          [
-            "-C",
-            store.repositoryPath(snapshot.pins.repositoryId),
-            "remote",
-            "get-url",
-            "origin",
-          ],
-          {
-            cwd: store.repositoryPath(snapshot.pins.repositoryId),
-          },
-        )
-      ).stdout.trim();
-
-      const normalized = remote.replace(
-        /^git@github\.com:/,
-        "https://github.com/",
-      );
-
-      const url = new URL(normalized);
-
-      if (
-        url.protocol === "https:" &&
-        !url.username &&
-        !url.password &&
-        !url.search &&
-        !url.hash
-      )
-        repository = { cloneUrl: url.href };
-    } catch {
-      /* Repositories without a usable remote can still be shared. */
-    }
+    const repository = await verifyRepository(
+      store.repositoryPath(snapshot.pins.repositoryId),
+      snapshot.pins,
+    );
 
     const bundle = await exportShare({
       store,

@@ -11,7 +11,6 @@ import {
 import path from "node:path";
 
 import { parseJsonText } from "@dev.fast/json";
-import { ReviewCommitSummarySchema } from "@dev.fast/review-protocol";
 import {
   MAX_SHARE_MANIFEST_BYTES,
   type ShareManifest,
@@ -27,13 +26,11 @@ import {
   documentSchema,
   pinsSchema,
   resourceReferences,
-  sourceReferences,
 } from "../review-api/document.js";
 import {
   normalizedSoftwareElementSchema,
   normalizedSoftwareRelationshipSchema,
 } from "../software-map-model.js";
-import { sliceSourceRange } from "../source.js";
 import { removeSharedRepository } from "./clone.js";
 import { type ShareBundle, digestBytes } from "./export.js";
 
@@ -94,23 +91,6 @@ const mapSchema = z.strictObject({
 });
 
 export const sharePresentationSchema = z.strictObject({
-  commits: z.array(ReviewCommitSummarySchema),
-  diffs: z.array(
-    counts.extend({
-      path: z.string(),
-      previousPath: z.string().optional(),
-      status: z.enum([
-        "added",
-        "deleted",
-        "modified",
-        "renamed",
-        "copied",
-        "unmerged",
-        "unknown",
-      ]),
-      patch: z.string(),
-    }),
-  ),
   maps: z.record(z.string(), mapSchema),
 });
 
@@ -163,20 +143,6 @@ export function validateShareBundle(bundle: ShareBundle) {
     json(manifest.presentation),
   );
 
-  const source = (side: "base" | "head", file: string) => {
-    const entry = manifest.files.find(
-      (item) => item.side === side && item.file === file,
-    );
-
-    if (!entry?.object)
-      throw new Error(`Missing shared source ${side}/${file}.`);
-
-    return Buffer.from(bundle.objects.get(entry.object)!).toString();
-  };
-
-  for (const { source: range } of sourceReferences(snapshot.document))
-    sliceSourceRange(source(range.side, range.file), range);
-
   for (const block of resourceReferences(snapshot.document)) {
     const id =
       block.type === "image"
@@ -218,10 +184,6 @@ export function validateShareBundle(bundle: ShareBundle) {
 
       if (!map || map.commit !== snapshot.pins[map.side])
         throw new Error("Shared map pins do not match.");
-
-      for (const element of map.elements)
-        for (const range of element.sourceRanges ?? [])
-          sliceSourceRange(source(map.side, range.file), range);
     }
   }
 

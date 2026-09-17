@@ -47,7 +47,7 @@ export async function createShareFixture(root: string) {
 
   const created = await local.store.execute({
     commandId: randomUUID(),
-    operation: { type: "create", title: "Sharing without a repository", pins },
+    operation: { type: "create", title: "Sharing pinned commits", pins },
   });
 
   const traceId = randomUUID(),
@@ -117,7 +117,7 @@ export async function createShareFixture(root: string) {
     {
       type: "markdown",
       markdown:
-        "# A portable review\n\nThis review keeps its exact code, image, map and trace after the sender repository disappears.",
+        "# A portable review\n\nThis review reads pinned GitHub commits and retains its image, map and complete trace.",
     },
     {
       type: "code_peek",
@@ -151,5 +151,10 @@ export async function createShareFixture(root: string) {
       },
     });
 
-  return { ...local, repo, reviewId: created.reviewId };
+  return {
+    ...local,
+    repo,
+    reviewId: created.reviewId,
+    repository: { cloneUrl: "https://github.com/fixture/review.git" },
+  };
 }

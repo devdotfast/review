@@ -21,7 +21,6 @@ import {
 } from "../review-api/document.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
-import { checkSourcePath } from "../source.js";
 
 export interface ShareBundle {
   manifest: ShareManifest;
@@ -33,7 +32,7 @@ export type ShareExportStore = Pick<ReviewStore, "read" | "resource">;
 
 export type ShareExportData = Pick<
   LocalReviewData,
-  "file" | "changes" | "commits" | "map" | "validateResource" | "validateSource"
+  "map" | "validateResource" | "validateSource"
 >;
 
 export function digestBytes(bytes: Uint8Array): string {
@@ -46,7 +45,7 @@ export async function exportShare(input: {
   data: ShareExportData;
   reviewId: string;
   version?: number;
-  repository?: ShareManifest["repository"];
+  repository: ShareManifest["repository"];
 }): Promise<ShareBundle> {
   const snapshot = structuredClone(
     input.store.read(input.reviewId, input.version),
@@ -75,7 +74,6 @@ export async function exportShare(input: {
 
   const json = <Value>(value: Value) => add(Buffer.from(JSON.stringify(value)));
   const resources: ShareManifest["resources"] = [];
-  const files: ShareManifest["files"] = [];
   const maps: Record<string, Awaited<ReturnType<LocalReviewData["map"]>>> = {};
   const sources = sourceReferences(snapshot.document);
   const pins = snapshot.pins;
@@ -131,67 +129,8 @@ export async function exportShare(input: {
       peek: reference.peek ?? false,
     });
 
-  const changes = await input.data.changes(pins);
-  const paths = new Set(sources.map(({ source }) => source.file));
-
-  const selectedChanges = changes.filter(
-    (change) =>
-      paths.has(change.path) ||
-      (change.previousPath !== undefined && paths.has(change.previousPath)),
-  );
-
-  for (const change of selectedChanges) {
-    paths.add(change.path);
-
-    if (change.previousPath) paths.add(change.previousPath);
-  }
-
-  const required = new Set(
-    sources.map(({ source }) => JSON.stringify([source.side, source.file])),
-  );
-
-  for (const file of paths) {
-    checkSourcePath(file);
-
-    for (const side of ["base", "head"] as const) {
-      const absent = selectedChanges.some(
-        (change) =>
-          (side === "base" &&
-            change.path === file &&
-            change.status === "added") ||
-          (side === "head" &&
-            change.path === file &&
-            change.status === "deleted") ||
-          (change.status === "renamed" &&
-            change.previousPath !== change.path &&
-            ((side === "base" && change.path === file) ||
-              (side === "head" && change.previousPath === file))),
-      );
-
-      if (absent && !required.has(JSON.stringify([side, file]))) {
-        files.push({ side, file, object: null });
-      } else {
-        const source = await input.data.file(pins, side, file);
-        files.push({ side, file, object: add(Buffer.from(source.text)) });
-      }
-    }
-  }
-
-  const diffs = [];
-
-  for (const change of selectedChanges)
-    diffs.push({
-      ...change,
-      patch: await input.data.changes(pins, change.path),
-    });
-
   const snapshotId = json(snapshot);
-
-  const presentationId = json({
-    commits: await input.data.commits(pins),
-    diffs,
-    maps,
-  });
+  const presentationId = json({ maps });
 
   const manifest = shareManifestSchema.parse({
     format: SHARE_FORMAT,
@@ -206,7 +145,6 @@ export async function exportShare(input: {
       size: bytes.byteLength,
     })),
     resources,
-    files,
     repository: input.repository,
   });
 

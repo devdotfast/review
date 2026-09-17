@@ -48,6 +48,11 @@ preparation or later edits change that file, queries are unavailable until the
 contents match again. Navigation stays in the saved review when the destination
 file matches, and otherwise opens the file in the language environment.
 
+Live worktree targets use the user's existing checkout and dependencies, without
+creating or preparing another worktree. Native live files use its language services
+directly. Base-side and historical files require matching contents; even when a
+file matches, language information reflects the current project's dependencies.
+
 ## Every edit saves immediately
 
 Authoring goes through the JSON API: `review api`, the Review MCP tools, or

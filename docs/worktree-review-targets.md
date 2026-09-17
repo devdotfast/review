@@ -47,9 +47,11 @@ reviews until explicitly retargeted. No migration rewrites historical versions.
 
 Worktree means saved filesystem bytes, including staged and unstaged changes.
 Unsaved editor buffers are not captured. Native models provide normal project
-language services for the live head; retained source uses conservative unchanged
-line mapping when borrowing local language services. Edited/deleted ranges are
-marked stale instead of clamped to unrelated code. Source context appears once.
+language services for the live head. Base-side and retained source can use that
+workspace only when the entire displayed file matches the local file. Queries
+are unavailable for differing files, including unchanged lines within them.
+Matching navigation destinations stay in the saved review; other destinations
+open in the local workspace. Source context appears once.
 
 Filesystem watchers cover the chosen checkout and Git metadata. Reopening or
 restarting refreshes that checkout. It never switches directories to find a SHA.
@@ -90,7 +92,7 @@ When integrating that branch:
 Commit targets automatically acquire matching prepared checkouts on open or language access.
 Worktree targets, including their base side and retained versions, never do.
 Historical worktree queries can therefore reflect current project semantics;
-line mapping protects positions rather than reproducing historical dependencies.
+matching file contents protects positions but does not reproduce historical dependencies.
 Preparation status, logs, and retry are local state, excluded from shared documents.
 
 ## Validation
@@ -98,6 +100,6 @@ Preparation status, logs, and retry are local state, excluded from shared docume
 The native Desktop LSP E2E uses bundled TypeScript and Python language servers,
 JSON-created reviews, an isolated profile and source repositories. It covers live
 and committed reviews, both diff sides, inline navigation, installed dependencies,
-source changes, stale mapping, multiple repositories, missing checkout recovery,
+source changes, exact-content checks, multiple repositories, missing checkout recovery,
 and restart. API behavior tests cover omitted base, immutable generations,
 idempotency, source-range repair, unborn repositories, and symlink boundaries.

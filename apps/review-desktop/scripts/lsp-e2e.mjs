@@ -1354,6 +1354,25 @@ try {
   });
 
   assert.equal(changedLiveLine.result?.length ?? 0, 0);
+  await writeFile(
+    path.join(liveFixture.repo, "main.ts"),
+    "// unrelated local edit\n" + mainText("head"),
+  );
+  for (const feature of [definition, "vscode.executeHoverProvider"]) {
+    const result = await probe({
+      uri: uri(live),
+      ...greetAt,
+      feature,
+      open: true,
+    });
+
+    assert.equal(
+      result.result?.length ?? 0,
+      0,
+      "retained source requires a matching whole file",
+    );
+  }
+
   await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
   await writeFile(
     path.join(liveFixture.repo, "library.ts"),
@@ -1366,7 +1385,7 @@ try {
   assert.deepEqual(await api(`/${live.reviewId}/workspaces`), []);
   await assert.rejects(readFile(path.join(liveFixture.repo, ".prepare-count")));
   await record(
-    "retained worktree source borrows current semantics conservatively without running preparation",
+    "retained worktree source requires matching contents without running preparation",
   );
 
   await probe({ command: "workbench.action.closeModalEditor" });

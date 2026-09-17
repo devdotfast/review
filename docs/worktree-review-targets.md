@@ -53,6 +53,13 @@ are unavailable for differing files, including unchanged lines within them.
 Matching navigation destinations stay in the saved review; other destinations
 open in the local workspace. Source context appears once.
 
+Authored references move only across unchanged source ranges. When a range changes,
+Review retains its original source context locally, so restoring that source can
+recover the reference even after another authoring command. Existing broken ranges
+produce warnings on unrelated edits; newly authored invalid references still fail
+validation. Explicit retargeting and repinning clear the previous target's stale
+flags and validate against the new target with repair warnings.
+
 Filesystem watchers cover the chosen checkout and Git metadata. Reopening or
 restarting refreshes that checkout. It never switches directories to find a SHA.
 Missing checkout context reports unavailability and retries when it returns.

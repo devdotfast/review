@@ -446,7 +446,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						openSourceTree: (uuid) => {
 							const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
 							if (api) {
-								void this.tabsService.openApiSource(uuid, api.version, api.title).then(() => this.explorerParts.show());
+								void this.tabsService.openApiSource(uuid, api.version, api.title, { generation: api.pins.sourceGeneration, live: api.target?.kind === "worktree" }).then(() => this.explorerParts.show());
 								return;
 							}
 						},

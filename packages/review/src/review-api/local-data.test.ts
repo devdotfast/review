@@ -1,12 +1,14 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  type FSWatcher,
   existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
   rmSync,
   symlinkSync,
+  watch,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2009,4 +2011,209 @@ it("worktree language contexts never prepare or create checkouts, including hist
   expect(local.data.workspaces.list(created.reviewId)).toEqual([]);
   expect(git("worktree", "list", "--porcelain")).toBe(before);
   expect(existsSync(path.join(repository, "prepared"))).toBe(false);
+});
+
+it.each(["repin", "set_target"] as const)(
+  "recovers persisted stale source and clears flags on %s",
+  async (operation) => {
+    const original = "const first = 1;\nconst second = 2;\n";
+    writeFileSync(path.join(repository, "recover.ts"), original);
+
+    const created = await local.store.execute(
+      command({
+        type: "create",
+        title: "Recovery",
+        target: {
+          kind: "worktree",
+          repositoryId: pins.repositoryId,
+          base: pins.head,
+        },
+      }),
+    );
+
+    await insert(created.reviewId, {
+      type: "code_peek",
+      source: { file: "recover.ts", fromLine: 2, toLine: 2 },
+    });
+    writeFileSync(path.join(repository, "recover.ts"), "const first = 99;\n");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const renamed = await local.store.execute(
+      command({
+        type: "rename",
+        reviewId: created.reviewId,
+        title: "Still editable",
+      }),
+    );
+
+    expect(renamed.warnings?.length).toBeGreaterThan(0);
+    expect(local.store.read(created.reviewId).staleSources).toHaveLength(1);
+    await expect(
+      insert(created.reviewId, {
+        type: "code_peek",
+        source: { file: "recover.ts", fromLine: 99, toLine: 99 },
+      }),
+    ).rejects.toThrow("exceeds the pinned file");
+    writeFileSync(path.join(repository, "recover.ts"), original);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await local.store.refreshWorktrees();
+    expect(local.store.read(created.reviewId).staleSources).toEqual([]);
+    expect(local.store.read(created.reviewId).document[0]).toMatchObject({
+      source: { fromLine: 2, toLine: 2 },
+    });
+    expect(
+      local.store.read(created.reviewId, renamed.version).staleSources,
+    ).toHaveLength(1);
+    await local.store.execute(
+      command({
+        type: "restore",
+        reviewId: created.reviewId,
+        version: renamed.version,
+      }),
+    );
+    expect(local.store.read(created.reviewId).staleSources).toHaveLength(1);
+    await local.store.execute(
+      command(
+        operation === "repin"
+          ? { type: "repin", reviewId: created.reviewId, pins }
+          : {
+              type: "set_target",
+              reviewId: created.reviewId,
+              target: { kind: "commits", ...pins },
+            },
+      ),
+    );
+    expect(local.store.read(created.reviewId).staleSources).toEqual([]);
+  },
+);
+
+it("keeps sibling Markdown destinations separate when source lines move", async () => {
+  const original =
+    Array.from({ length: 25 }, (_, index) => `line ${index + 1}`).join("\n") +
+    "\n";
+
+  writeFileSync(path.join(repository, "links.ts"), original);
+
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Links",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.head,
+      },
+    }),
+  );
+
+  await insert(created.reviewId, {
+    type: "markdown",
+    markdown:
+      "[one](review-source:head/links.ts#L1) [ten](review-source:head/links.ts#L10-L20)",
+  });
+  writeFileSync(path.join(repository, "links.ts"), "inserted\n" + original);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  expect(local.store.read(created.reviewId).document[0]).toMatchObject({
+    markdown:
+      "[one](review-source:head/links.ts#L2-L2) [ten](review-source:head/links.ts#L11-L21)",
+  });
+});
+
+it("does not report clean tracked symlinks and submodules as modified", async () => {
+  symlinkSync("example.ts", path.join(repository, "tracked-link.ts"));
+  const modulePath = path.join(directory, "module");
+  mkdirSync(modulePath);
+  execFileSync("git", ["init", "-q", modulePath]);
+  writeFileSync(path.join(modulePath, "file.txt"), "module\n");
+  execFileSync("git", ["-C", modulePath, "add", "."]);
+  execFileSync("git", [
+    "-C",
+    modulePath,
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "-qm",
+    "Initial",
+  ]);
+  git(
+    "-c",
+    "protocol.file.allow=always",
+    "submodule",
+    "add",
+    modulePath,
+    "module",
+  );
+  git("add", ".");
+  git("commit", "-qm", "Link and module");
+  const head = git("rev-parse", "HEAD");
+
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Clean modes",
+      target: { kind: "worktree", repositoryId: pins.repositoryId, base: head },
+    }),
+  );
+
+  expect(
+    await local.data.changes(local.store.read(created.reviewId).pins),
+  ).toEqual([]);
+  expect(
+    (
+      await local.data.file(
+        local.store.read(created.reviewId).pins,
+        "head",
+        "tracked-link.ts",
+      )
+    ).text,
+  ).toBe("example.ts");
+});
+
+it("continues capturing after watchers fail and stop emitting changes", async () => {
+  await local.data.close();
+  await local.store.close();
+  const watchers: FSWatcher[] = [];
+  local = openLocalReviewStore(database, {
+    watch: ((...args: Parameters<typeof watch>) => {
+      const watcher = watch(...args);
+      watchers.push(watcher);
+
+      return watcher;
+    }) as typeof watch,
+  });
+
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Watcher recovery",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.head,
+      },
+    }),
+  );
+
+  for (const watcher of watchers)
+    watcher.emit(
+      "error",
+      Object.assign(new Error("Watch limit"), { code: "ENOSPC" }),
+    );
+
+  for (const value of ["first change\n", "second change\n"]) {
+    writeFileSync(path.join(repository, "example.ts"), value);
+    await local.store.refreshWorktrees();
+    expect(
+      (
+        await local.data.file(
+          local.store.read(created.reviewId).pins,
+          "head",
+          "example.ts",
+        )
+      ).text,
+    ).toBe(value);
+  }
 });

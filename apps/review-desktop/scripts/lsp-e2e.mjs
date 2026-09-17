@@ -1497,6 +1497,49 @@ try {
   await record(
     "live worktree review and retained history recover after Desktop restart without pinning",
   );
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await mkdir(path.join(liveFixture.repo, "nested"));
+  await writeFile(
+    path.join(liveFixture.repo, "nested/child.ts"),
+    "export const child = 1;\n",
+  );
+
+  const homeReview = await createReview(
+    liveFixture,
+    "Home live source",
+    "worktree",
+  );
+
+  await page.getByRole("tab", { name: /^Home/ }).first().click();
+  await page
+    .locator(".review-home-workspace-header")
+    .filter({ hasText: liveFixture.repo })
+    .getByRole("button", { name: "View source →", exact: true })
+    .click();
+  await page
+    .getByRole("tab", { name: new RegExp(`^Source — ${homeReview.title}$`) })
+    .waitFor();
+  await writeFile(
+    path.join(liveFixture.repo, "from-home.ts"),
+    "export const fromHome = 1;\n",
+  );
+  await page.getByText("from-home.ts", { exact: true }).first().waitFor();
+  await page.getByText("nested", { exact: true }).first().dblclick();
+  await page.getByText("child.ts", { exact: true }).first().waitFor();
+  await command({
+    type: "rename",
+    reviewId: homeReview.reviewId,
+    title: "Renamed live source",
+  });
+  await writeFile(
+    path.join(liveFixture.repo, "nested/second.ts"),
+    "export const second = 2;\n",
+  );
+  await page.getByText("second.ts", { exact: true }).first().waitFor();
+  await page.screenshot({ path: path.join(root, "home-live-source.png") });
+  await record(
+    "Home Source stays live and preserves expanded folders across authored versions",
+  );
   assert.deepEqual(errors, []);
   success = true;
 } finally {

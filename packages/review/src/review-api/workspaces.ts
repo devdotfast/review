@@ -11,6 +11,7 @@ import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
 import {
   markerMatches,
   prepareReviewPinnedCheckout,
+  removeReviewPrepareArtifacts,
   reviewPrepareCommandsHash,
   reviewPrepareLogPath,
   reviewPrepareMarkerPath,
@@ -372,14 +373,8 @@ export class ReviewWorkspaces {
             ]);
           }
 
-          if (environment.rootPath) {
-            await rm(reviewPrepareMarkerPath(environment.rootPath), {
-              force: true,
-            });
-            await rm(reviewPrepareLogPath(environment.rootPath), {
-              force: true,
-            });
-          }
+          if (environment.rootPath)
+            await removeReviewPrepareArtifacts(environment.rootPath);
 
           this.db
             .prepare("DELETE FROM pinned_environments WHERE id=?")

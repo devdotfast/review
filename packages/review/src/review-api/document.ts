@@ -404,3 +404,50 @@ export function applyEdit(
 
   return edit.targetId;
 }
+
+/** Rewrite only parsed destinations, simultaneously, preserving surrounding Markdown. */
+export function rewriteSourceLinks(
+  markdown: string,
+  replacements: Map<string, string>,
+): string {
+  const edits: { start: number; end: number; value: string }[] = [];
+
+  for (const node of markdownNodes(parseMarkdown(markdown))) {
+    if (node.type !== "definition" && (node.type !== "link" || node.identifier))
+      continue;
+    const value = node.url && replacements.get(node.url);
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+
+    if (!value || start === undefined || end === undefined) continue;
+    const raw = markdown.slice(start, end);
+
+    const labelEnd =
+      (node.children?.at(-1)?.position?.end.offset ?? start) - start;
+
+    let destination =
+      node.type === "definition"
+        ? raw.indexOf("]:") + 2
+        : raw.startsWith("<")
+          ? 1
+          : raw.indexOf("](", labelEnd) + 2;
+
+    while (/\s/.test(raw[destination] ?? "") && destination < raw.length)
+      destination++;
+
+    if (raw[destination] === "<") destination++;
+
+    if (!raw.startsWith(node.url!, destination)) continue;
+    edits.push({
+      start: start + destination,
+      end: start + destination + node.url!.length,
+      value,
+    });
+  }
+
+  for (const edit of edits.sort((a, b) => b.start - a.start))
+    markdown =
+      markdown.slice(0, edit.start) + edit.value + markdown.slice(edit.end);
+
+  return markdown;
+}

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, readFile, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { lstat, readFile, readlink, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
 import { type LocalVcs, gitCommonDir } from "@dev.fast/local-vcs";
@@ -93,6 +93,7 @@ export async function captureWorktree(
     vcs.kind === "jj" ? [...(await vcs.listTrackedFiles()), ...listed] : listed;
 
   const objects = new Map<string, string>();
+  const modes = new Map<string, string>();
   let objectFormat = "sha1";
 
   if (commit !== EMPTY_SOURCE) {
@@ -124,9 +125,15 @@ export async function captureWorktree(
     objectFormat = format.stdout.trim();
 
     for (const entry of tree.stdout.split("\0")) {
-      const match = /^100\d+ blob ([a-f0-9]+)\t([\s\S]+)$/.exec(entry);
+      const match =
+        /^(100\d+|120000|160000) (?:blob|commit) ([a-f0-9]+)\t([\s\S]+)$/.exec(
+          entry,
+        );
 
-      if (match) objects.set(match[2]!, match[1]!);
+      if (match) {
+        objects.set(match[3]!, match[2]!);
+        modes.set(match[3]!, match[1]!);
+      }
     }
   }
 
@@ -137,7 +144,53 @@ export async function captureWorktree(
 
   for (const file of [...new Set(paths)].sort()) {
     try {
-      const path = await localSourcePath(vcs.rootPath, file);
+      if (modes.get(file) === "160000") {
+        const status = await exec("git", [
+          "--no-optional-locks",
+          "-C",
+          vcs.rootPath,
+          ...gitArgs,
+          "status",
+          "--porcelain",
+          "--ignore-submodules=none",
+          "--",
+          file,
+        ]);
+
+        source.files[file] = {
+          error: "Submodule contents are not available as code references.",
+        };
+
+        if (!status.stdout.trim()) source.files[file]!.committed = true;
+        continue;
+      }
+
+      const candidate = resolve(vcs.rootPath, file);
+
+      const isLink =
+        modes.get(file) === "120000" &&
+        (await lstat(candidate)).isSymbolicLink();
+
+      // A tracked symlink is Git's link text, never the contents of its target.
+      const parent = isLink
+        ? relative(
+            await realpath(vcs.rootPath),
+            await realpath(dirname(candidate)),
+          )
+        : "";
+
+      if (
+        isLink &&
+        (isAbsolute(parent) || parent === ".." || parent.startsWith(`..${sep}`))
+      )
+        throw new ReviewInputError(
+          "Source symlink leaves the selected worktree.",
+        );
+
+      const path = isLink
+        ? candidate
+        : await localSourcePath(vcs.rootPath, file);
+
       const stat = await lstat(path, { bigint: true });
       const stamp = `${path}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
       stamps.set(file, stamp);
@@ -157,7 +210,9 @@ export async function captureWorktree(
         continue;
       }
 
-      const bytes = await readFile(path);
+      const bytes = isLink
+        ? Buffer.from(await readlink(path))
+        : await readFile(path);
 
       const error = bytes.includes(0)
         ? "Binary files cannot be used as code references."

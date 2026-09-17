@@ -14,16 +14,19 @@ export async function mapSourceRange(
   let old = 1,
     next = 1;
 
+  let inHunk = false;
+
   for (const line of diff?.patch.split("\n") ?? []) {
     const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
 
     if (hunk) {
+      inHunk = true;
       const start = Number(hunk[1]);
 
       while (old < start) mapping.set(old++, next++);
       old = start;
       next = Number(hunk[2]);
-    } else if (line.startsWith("---") || line.startsWith("+++")) continue;
+    } else if (!inHunk) continue;
     else if (line.startsWith("-")) old++;
     else if (line.startsWith("+")) next++;
     else if (line.startsWith(" ")) mapping.set(old++, next++);

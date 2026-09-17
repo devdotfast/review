@@ -12,6 +12,12 @@ const snapshot: Snapshot = {
   title: "Save flow",
   createdAt: "today",
   pins: { repositoryId: "repo", base: "before", head: "after" },
+  target: {
+    kind: "commits",
+    repositoryId: "repo",
+    base: "before",
+    head: "after",
+  },
   document: documentSchema.parse([
     {
       id: "section-1",

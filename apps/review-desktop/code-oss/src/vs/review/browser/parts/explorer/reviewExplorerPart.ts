@@ -317,7 +317,14 @@ export class ReviewExplorerPart extends Part {
 				[renderer],
 				dataSource,
 				{
-					identityProvider: { getId: (stat: IFileStat) => stat.resource.toString() },
+					identityProvider: { getId: (stat: IFileStat) => {
+						const query = new URLSearchParams(stat.resource.query);
+						if (query.has("live")) {
+							query.delete("version");
+							query.delete("generation");
+						}
+						return stat.resource.with({ query: query.toString() }).toString();
+					} },
 					accessibilityProvider: reviewExplorerAccessibilityProvider,
 					keyboardNavigationLabelProvider: {
 						getKeyboardNavigationLabel: (stat: IFileStat) => basename(stat.resource),

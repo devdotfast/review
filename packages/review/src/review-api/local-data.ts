@@ -40,6 +40,7 @@ import {
   type Source,
   elements,
   pinsSchema,
+  rewriteSourceLinks,
   sourceReferences,
   sourceSchema,
 } from "./document.js";
@@ -139,7 +140,7 @@ export class LocalReviewData {
     const resolved = await realpath(rootPath).catch(() => null);
 
     if (!resolved) return { rootPath: null };
-    const vcs = await detectLocalVcs(resolved);
+    const vcs = await this.vcs(repositoryId);
 
     return { rootPath: vcs ? resolved : null };
   }
@@ -161,6 +162,7 @@ export class LocalReviewData {
     private readonly options: {
       blobReaderIdleTimeoutMs?: number;
       workspaceDatabase?: string;
+      watch?: typeof watch;
     } = {},
   ) {
     this.workspaces = new ReviewWorkspaces(
@@ -176,6 +178,7 @@ export class LocalReviewData {
       epoch: number;
       capturedEpoch: number;
       watchers: FSWatcher[];
+      healthy: boolean;
       capture?: Awaited<ReturnType<typeof captureWorktree>>;
     }
   >();
@@ -191,7 +194,7 @@ export class LocalReviewData {
     let entry = this.worktrees.get(repositoryId);
 
     if (!entry) {
-      entry = { epoch: 0, capturedEpoch: -1, watchers: [] };
+      entry = { epoch: 0, capturedEpoch: -1, watchers: [], healthy: true };
       this.worktrees.set(repositoryId, entry);
       const state = entry;
       const roots = new Set([vcs.rootPath]);
@@ -201,18 +204,24 @@ export class LocalReviewData {
 
       for (const root of roots) {
         try {
-          const watcher = watch(root, { recursive: true }, () => {
-            state.epoch++;
-          });
+          const watcher = (this.options.watch ?? watch)(
+            root,
+            { recursive: true },
+            () => {
+              state.epoch++;
+            },
+          );
 
           watcher.on("error", () => {
             state.epoch++;
             state.capturedEpoch = -1;
+            state.healthy = false;
+            watcher.close();
           });
           watcher.unref();
           state.watchers.push(watcher);
         } catch {
-          /* An unavailable watcher disables the cache below. */
+          state.healthy = false;
         }
       }
     }
@@ -220,6 +229,7 @@ export class LocalReviewData {
     if (
       entry.capture &&
       entry.capturedEpoch === entry.epoch &&
+      entry.healthy &&
       entry.watchers.length
     )
       return entry.capture;
@@ -362,53 +372,76 @@ export class LocalReviewData {
   }
   async projectSource(snapshot: Snapshot, pins: Pins): Promise<Snapshot> {
     const projected = structuredClone(snapshot);
-    projected.staleSources = [...(snapshot.staleSources ?? [])];
+    projected.staleSources = [];
+    projected.sourceOrigins = { ...snapshot.sourceOrigins };
+    const links = new Map<string, Map<string, string>>();
 
     for (const reference of sourceReferences(projected.document, {
       tolerant: true,
     })) {
+      if (reference.source.side !== "head") continue;
+
+      // Older saved stale references have no recoverable anchor. Only an explicit
+      // repair or retarget can safely clear those flags.
       if (
-        reference.source.side !== "head" ||
-        projected.staleSources.includes(reference.id)
-      )
+        snapshot.staleSources?.includes(reference.id) &&
+        !snapshot.sourceOrigins?.[reference.id]
+      ) {
+        projected.staleSources.push(reference.id);
         continue;
+      }
+
+      const origin = snapshot.sourceOrigins?.[reference.id] ?? {
+        pins: snapshot.pins,
+        source: reference.source,
+      };
+
+      const markStale = () => {
+        projected.staleSources!.push(reference.id);
+        projected.sourceOrigins![reference.id] = structuredClone(origin);
+      };
 
       try {
         const [before, after] = await Promise.all([
-          this.file(snapshot.pins, "head", reference.source.file),
+          this.file(origin.pins, "head", origin.source.file),
           this.file(pins, "head", reference.source.file),
         ]);
 
         const mapped = await mapSourceRange(
-          reference.source,
+          origin.source,
           before.text,
           after.text,
         );
 
         if (!mapped) {
-          projected.staleSources.push(reference.id);
+          markStale();
           continue;
         }
 
-        if (reference.id.includes(":review-source:")) {
-          const index = reference.id.indexOf(":review-source:");
+        const index = reference.id.toLowerCase().indexOf(":review-source:");
 
-          const element = elements(projected.document).find(
-            (item) => item.id === reference.id.slice(0, index),
+        if (index >= 0) {
+          const owner = reference.id.slice(0, index);
+          const destinations = links.get(owner) ?? new Map<string, string>();
+          destinations.set(
+            reference.id.slice(index + 1),
+            `review-source:head/${encodeURI(mapped.file)}#L${mapped.fromLine}-L${mapped.toLine}`,
           );
-
-          if (element?.type === "markdown")
-            element.markdown = element.markdown.replaceAll(
-              reference.id.slice(index + 1),
-              `review-source:head/${encodeURI(mapped.file)}#L${mapped.fromLine}-L${mapped.toLine}`,
-            );
+          links.set(owner, destinations);
         } else Object.assign(reference.source, mapped);
+        delete projected.sourceOrigins[reference.id];
       } catch (error) {
         if (!(error instanceof ReviewInputError)) throw error;
-        projected.staleSources.push(reference.id);
+        markStale();
       }
     }
 
+    for (const element of elements(projected.document))
+      if (element.type === "markdown" && links.has(element.id!))
+        element.markdown = rewriteSourceLinks(
+          element.markdown,
+          links.get(element.id!)!,
+        );
     projected.pins = pins;
 
     return projected;
@@ -416,7 +449,7 @@ export class LocalReviewData {
   sourcePins(snapshot: Snapshot, generation?: string): Pins {
     if (!generation) return snapshot.pins;
 
-    if (snapshot.target?.kind !== "worktree")
+    if (snapshot.target.kind !== "worktree")
       throw new ReviewInputError(
         "Committed targets have no working source generation.",
       );
@@ -878,7 +911,11 @@ export class LocalReviewData {
     const patch = changes
       ? (
           await Promise.all(
-            changes.map((change) => this.changes(pins, change.path)),
+            changes.map((change) =>
+              "patch" in change
+                ? change.patch
+                : this.changes(pins, change.path),
+            ),
           )
         ).join("\n")
       : undefined;
@@ -1061,7 +1098,7 @@ function inputError<T>(run: () => T): T {
 
 export function openLocalReviewStore(
   databasePath: string,
-  options: { blobReaderIdleTimeoutMs?: number } = {},
+  options: { blobReaderIdleTimeoutMs?: number; watch?: typeof watch } = {},
 ) {
   const store: ReviewStore = new ReviewStore(databasePath, {
     projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),

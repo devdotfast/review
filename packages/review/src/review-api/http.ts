@@ -134,14 +134,10 @@ export function createReviewApi(
             }
           }),
         (notify) => {
-          const refresh = setInterval(() => {
-            void store.refreshWorktrees();
-          }, 1000);
-
-          refresh.unref();
+          const stopRefresh = store.watchWorktrees();
 
           const stops = [
-            () => clearInterval(refresh),
+            stopRefresh,
             store.subscribe((result) => {
               if (mark(result.reviewId)) notify();
             }),
@@ -167,7 +163,7 @@ export function createReviewApi(
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
-    if (review.target?.kind !== "worktree")
+    if (review.target.kind !== "worktree")
       void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
 
     const settings = await open({
@@ -189,11 +185,7 @@ export function createReviewApi(
         activity: store.activity.read(id),
       }),
       (notify) => {
-        const refresh = setInterval(() => {
-          void store.refreshWorktrees();
-        }, 1000);
-
-        refresh.unref();
+        const stopRefresh = store.watchWorktrees();
 
         const stopDocument = store.subscribe((result) => {
           if (result.reviewId === id) {
@@ -207,7 +199,7 @@ export function createReviewApi(
         });
 
         return () => {
-          clearInterval(refresh);
+          stopRefresh();
           stopDocument();
           stopActivity();
         };
@@ -344,7 +336,7 @@ export function createReviewApi(
 
       const snapshot = store.read(context.req.param("id"), input.version);
 
-      if (snapshot.target?.kind === "worktree") {
+      if (snapshot.target.kind === "worktree") {
         const local = await data.languageContext(snapshot.pins.repositoryId);
 
         return context.json({
@@ -396,7 +388,7 @@ export function createReviewApi(
         input.live &&
         !input.commit &&
         input.side === "head" &&
-        snapshot.target?.kind === "worktree"
+        snapshot.target.kind === "worktree"
           ? await data.liveFile(
               snapshot.pins.repositoryId,
               input.file,

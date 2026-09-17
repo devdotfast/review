@@ -95,7 +95,8 @@ registerAction2(
 		async run(accessor: ServicesAccessor) {
 			const session = accessor.get(IReviewDesktopConnectionService),
 				tabs = accessor.get(IReviewCanvasEditorTabsService),
-				notifications = accessor.get(INotificationService);
+				notifications = accessor.get(INotificationService),
+				progress = accessor.get(IProgressService);
 			const url = await accessor
 				.get(IQuickInputService)
 				.input({
@@ -103,7 +104,7 @@ registerAction2(
 					placeHolder: "https://app.dev.fast/s/…",
 					ignoreFocusLost: true,
 				});
-			if (url) await openShare(url, session, tabs, notifications, accessor.get(IProgressService));
+			if (url) await openShare(url, session, tabs, notifications, progress);
 		}
 	},
 );

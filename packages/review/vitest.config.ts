@@ -36,8 +36,6 @@ const alias = {
   "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
 };
 
-const isolatedTests = ["src/document/check.test.ts"];
-
 export default defineConfig({
   test: {
     env: {
@@ -63,20 +61,10 @@ export default defineConfig({
           isolate: false,
           exclude: [
             ...configDefaults.exclude,
-            ...isolatedTests,
             "app/src/**/*.browser.test.{ts,tsx}",
           ],
           // Integration cases can exceed Vitest's
           // 5 second default while sharing a two-core hosted runner.
-          testTimeout: 15_000,
-        },
-      },
-      {
-        resolve: { alias },
-        test: {
-          name: "isolated",
-          environment: "node",
-          include: isolatedTests,
           testTimeout: 15_000,
         },
       },

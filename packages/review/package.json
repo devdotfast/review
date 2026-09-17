@@ -56,7 +56,7 @@
     "test": "vitest run --config vitest.config.ts",
     "test:browser": "vitest run --config vitest.config.ts --project browser",
     "test:browser:watch": "vitest --config vitest.config.ts --project browser --browser.headless=false",
-    "test:node": "vitest run --config vitest.config.ts --project shared-module-graph --project isolated",
+    "test:node": "vitest run --config vitest.config.ts --project shared-module-graph",
     "test:legacy-corpus": ": \"${REVIEW_LEGACY_CORPUS:?set REVIEW_LEGACY_CORPUS to a directory of legacy Review UUID folders}\" && vitest run --config vitest.config.ts src/legacy-review-corpus.test.ts",
     "test:telemetry-privacy": "vitest run --config vitest.config.ts src/ui-telemetry-events.test.ts src/error-telemetry.test.ts",
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/review"

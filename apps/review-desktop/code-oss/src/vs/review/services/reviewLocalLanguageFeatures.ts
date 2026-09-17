@@ -6,7 +6,6 @@ import { Position } from "../../editor/common/core/position.js";
 import { Range } from "../../editor/common/core/range.js";
 import type { Hover, LocationLink } from "../../editor/common/languages.js";
 import type { ITextModel } from "../../editor/common/model.js";
-import { IEditorWorkerService } from "../../editor/common/services/editorWorker.js";
 import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
 import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService, type IResolvedTextEditorModel } from "../../editor/common/services/resolverService.js";
@@ -23,7 +22,6 @@ import { REVIEW_API_SOURCE_SCHEME } from "./reviewApiSourceService.js";
 import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService } from "./reviewDesktopConnectionService.js";
 import { withCurrentLocalContext } from "./reviewLocalRequest.js";
-import { ReviewLocalLineMapping } from "./reviewLocalLineMapping.js";
 
 interface LocalSource {
 	generation: string;
@@ -39,13 +37,11 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 	private readonly roots = new Map<string, number>();
 	private readonly folders = this._register(new Queue<void>());
 	private generation = 0;
-	private readonly mappings = new WeakMap<ITextModel, { local: ITextModel; originalVersion: number; localVersion: number; value: ReviewLocalLineMapping }>();
 
 	constructor(
 		@IReviewDesktopConnectionService private readonly connection: IReviewDesktopConnectionService,
 		@ITextModelService private readonly models: ITextModelService,
 		@IModelService modelService: IModelService,
-		@IEditorWorkerService private readonly worker: IEditorWorkerService,
 		@ILanguageFeaturesService private readonly languages: ILanguageFeaturesService,
 		@IExtensionService private readonly extensions: IExtensionService,
 		@IWorkspaceEditingService private readonly workspace: IWorkspaceEditingService,
@@ -73,7 +69,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			this._register(languages.typeDefinitionProvider.register(target, { provideTypeDefinition: (model, position, token) => this.locations(model, position, token, "type") }));
 			this._register(languages.implementationProvider.register(target, { provideImplementation: (model, position, token) => this.locations(model, position, token, "implementation") }));
 			this._register(languages.referenceProvider.register(target, {
-				provideReferences: (model, position, context, token) => this.withSource(model, position, token, async (local, at, _mapping, pinned) => {
+				provideReferences: (model, position, context, token) => this.withSource(model, position, token, async (local, at, pinned) => {
 					const results = await Promise.all(languages.referenceProvider.ordered(local).map(provider => provider.provideReferences(local, at, context, token)));
 					return this.reviewLocations(pinned, results.flatMap(result => result ?? []), token);
 				}),
@@ -138,7 +134,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		} catch (error) { owned.dispose(); throw error; }
 	}
 
-	private async withSource<T>(model: ITextModel, position: Position, token: CancellationToken, run: (local: ITextModel, at: Position, mapping: ReviewLocalLineMapping, review: ITextModel) => Promise<T>): Promise<T | undefined> {
+	private async withSource<T>(model: ITextModel, position: Position, token: CancellationToken, run: (local: ITextModel, at: Position, review: ITextModel) => Promise<T>): Promise<T | undefined> {
 		if (token.isCancellationRequested || model.isDisposed()) return undefined;
 		if (model.uri.scheme === REVIEW_UNIFIED_SCHEME) {
 			const unified = this.resources.unifiedResource(model.uri);
@@ -154,41 +150,32 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		if (!await this.files.exists(local.uri)) return undefined;
 		// Resolve current disk contents, preserving any unsaved local editor buffer.
 		await this.textFiles.files.resolve(local.uri, { reload: { async: false } });
-		return withCurrentLocalContext([model, local], token, () => this.generation, async valid => {
-			const originalVersion = model.getVersionId(), localVersion = local.getVersionId();
-			let cached = this.mappings.get(model);
-			if (!cached || cached.local !== local || cached.originalVersion !== originalVersion || cached.localVersion !== localVersion) {
-				const diff = await this.worker.computeDiff(model.uri, local.uri, { ignoreTrimWhitespace: false, maxComputationTimeMs: 1000, computeMoves: false }, "advanced");
-				if (!diff || diff.quitEarly || !valid()) return undefined;
-				cached = { local, originalVersion, localVersion, value: new ReviewLocalLineMapping(model, local, diff) };
-				this.mappings.set(model, cached);
-			}
-			if (!valid()) return undefined;
-			const at = cached.value.toLocal(position);
-			if (!at || model.getLineContent(position.lineNumber) !== local.getLineContent(at.lineNumber)) return undefined;
-			const result = await run(local, at, cached.value, model);
+		return withCurrentLocalContext([model, local], token, () => this.generation, async () => {
+			// The language server must see exactly the source displayed in the review.
+			if (!model.equalsTextBuffer(local.getTextBuffer())) return undefined;
+			const result = await run(local, position, model);
 			const current = await this.localSource(model);
 			return current?.generation === source.generation ? result : undefined;
 		});
 	}
 
 	private hover(model: ITextModel, position: Position, token: CancellationToken): Promise<Hover | undefined> {
-		return this.withSource(model, position, token, async (local, at, mapping) => {
+		return this.withSource(model, position, token, async (local, at) => {
 			const hovers = await getHoversPromise(this.languages.hoverProvider, local, at, token);
 			if (!hovers.length) return undefined;
-			const range = hovers[0].range && mapping.toReview(Range.lift(hovers[0].range));
+			const range = hovers[0].range;
 			if (!range) return undefined;
 			return { range, contents: hovers.flatMap(hover => hover.contents) };
 		});
 	}
 
 	private async locations(model: ITextModel, position: Position, token: CancellationToken, kind: "definition" | "type" | "implementation"): Promise<LocationLink[] | undefined> {
-		return this.withSource(model, position, token, async (local, at, mapping, pinned) => {
+		return this.withSource(model, position, token, async (local, at, pinned) => {
 			const results = kind === "definition" ? await getDefinitionsAtPosition(this.languages.definitionProvider, local, at, false, token)
 				: kind === "type" ? await getTypeDefinitionsAtPosition(this.languages.typeDefinitionProvider, local, at, false, token)
 				: await getImplementationsAtPosition(this.languages.implementationProvider, local, at, false, token);
 			return this.reviewLocations(pinned, results.map(result => {
-				let origin = result.originSelectionRange ? mapping.toReview(Range.lift(result.originSelectionRange)) : undefined;
+				let origin = result.originSelectionRange;
 				if (origin && model.uri.scheme === REVIEW_UNIFIED_SCHEME) {
 					const unified = this.resources.unifiedResource(model.uri);
 					const side = new URLSearchParams(pinned.uri.query).get("side");
@@ -201,13 +188,13 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		});
 	}
 
-	/** Keep navigation in the same saved version/side only where destination bytes align. */
+	/** Keep navigation in the same saved version/side only when destination contents match. */
 	private async reviewLocations<T extends LocationLink>(pinned: ITextModel, locations: T[], token: CancellationToken): Promise<T[]> {
 		if (pinned.uri.scheme !== REVIEW_API_SOURCE_SCHEME) return locations;
 		const source = await this.localSource(pinned);
 		if (!source) return locations;
 		const prefix = source.root.path.replace(/\/$/, "") + "/";
-		// References often share a file. Resolve and diff each destination once per request.
+		// References often share a file. Resolve and compare each destination once per request.
 		const groups = new Map<string, T[]>();
 		for (const location of locations) {
 			const key = location.uri.toString();
@@ -226,15 +213,8 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 				const local = owned.add(await this.models.createModelReference(target)).object.textEditorModel;
 				await this.textFiles.files.resolve(target, { reload: { async: false } });
 				const results = await withCurrentLocalContext([original, local], token, () => this.generation, async () => {
-					const diff = await this.worker.computeDiff(candidate, target, { ignoreTrimWhitespace: false, maxComputationTimeMs: 1000, computeMoves: false }, "advanced");
-					if (!diff || diff.quitEarly) return [];
-					const mapping = new ReviewLocalLineMapping(original, local, diff);
-					return group.flatMap(location => {
-						const range = mapping.toReview(Range.lift(location.range));
-						const selection = location.targetSelectionRange && mapping.toReview(Range.lift(location.targetSelectionRange));
-						if (!range || (location.targetSelectionRange && !selection)) return [];
-						return [[location, { ...location, uri: candidate, range, ...(selection ? { targetSelectionRange: selection } : {}) }] as const];
-					});
+					if (!original.equalsTextBuffer(local.getTextBuffer())) return [];
+					return group.map(location => [location, { ...location, uri: candidate }] as const);
 				});
 				for (const [before, after] of results ?? []) mapped.set(before, after);
 			} catch {

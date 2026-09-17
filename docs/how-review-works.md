@@ -33,20 +33,20 @@ evidence rather than the only way to understand the change.
 A Review binds to one unit of change: a Git branch, Jujutsu bookmark, Jujutsu
 change ID, or GitHub pull request. Creating the review through the Review API
 resolves and pins exact base and head commits. Review reads source directly
-from those commits without creating additional worktrees.
+from those commits.
 
 The agent reads that pinned source through the Review API while it writes. Moving your current
 checkout does not silently change the code being reviewed. Use `review_repin`
 (or the equivalent `review api` command) to start a fresh version at updated
 pins when the bound branch, change, or pull request moves.
 
-Hover, definitions, and references use your existing local checkout and its
-installed dependencies. Review maps unchanged source lines to their current
-locations, including when the checkout has newer commits or uncommitted edits.
-Language information reflects the local project, and navigation opens local
-files; the displayed review remains pinned. Language queries are unavailable
-for changed lines or files missing from the local checkout. Review does not
-create worktrees, install dependencies, or run `devfast.prepare` commands.
+Hover, definitions, and references use prepared worktrees pinned to the requested
+base or head commit. Review runs the repository's `devfast.prepare` commands in
+those worktrees so each language server has the matching project and dependencies.
+Language queries require the displayed file to match the environment file. If
+preparation or later edits change that file, queries are unavailable until the
+contents match again. Navigation stays in the saved review when the destination
+file matches, and otherwise opens the file in the language environment.
 
 ## Every edit saves immediately
 

@@ -734,41 +734,26 @@ try {
     "// local header\n" + originalLibrary,
   );
 
-  for (const side of ["base", "head"]) {
-    await expectDefinition(
-      uri(review, side),
-      greetAt,
-      uri(review, side, "library.ts"),
-      2,
-    );
-  }
+  await expectDefinition(
+    uri(review, "base"),
+    greetAt,
+    uri(review, "base", "library.ts"),
+    2,
+  );
+  await expectDefinition(
+    uri(review),
+    greetAt,
+    path.join(headEnvironment.rootPath, "library.ts"),
+    3,
+  );
 
   await writeFile(
     path.join(headEnvironment.rootPath, "library.ts"),
     originalLibrary,
   );
-  await record("cross-file destination line shifts map back to the saved side");
-
-  await writeFile(
-    path.join(headEnvironment.rootPath, "new-library.ts"),
-    originalLibrary,
+  await record(
+    "changed destinations open the environment file; matching base destinations stay in the review",
   );
-  await writeFile(
-    path.join(headEnvironment.rootPath, "main.ts"),
-    mainText("head").replace('"./library"', '"./new-library"'),
-  );
-  await expectDefinition(
-    uri(review),
-    greetAt,
-    path.join(headEnvironment.rootPath, "new-library.ts"),
-    2,
-  );
-  await writeFile(
-    path.join(headEnvironment.rootPath, "main.ts"),
-    mainText("head"),
-  );
-  await rm(path.join(headEnvironment.rootPath, "new-library.ts"));
-  await record("destinations absent from the saved commit remain local");
 
   await writeFile(
     path.join(first.repo, "main.ts"),
@@ -871,17 +856,27 @@ try {
     path.join(headEnvironment.rootPath, "main.ts"),
     "// another shift\n" + managedMain,
   );
-  await expectDefinition(
-    uri(review),
-    {
-      line: 7,
-      character: mainText("head").split(/\r?\n/)[7].lastIndexOf("shared") + 1,
-    },
-    uri(review, "head", "main.ts"),
-    7,
-  );
+  for (const feature of [
+    definition,
+    "vscode.executeHoverProvider",
+    "vscode.executeReferenceProvider",
+    "vscode.executeTypeDefinitionProvider",
+    "vscode.executeImplementationProvider",
+  ]) {
+    const result = await probe({
+      uri: uri(review),
+      ...greetAt,
+      feature,
+      open: true,
+    });
+    assert.equal(
+      result.result?.length ?? 0,
+      0,
+      `${feature} must reject a file with shifted contents`,
+    );
+  }
   await record(
-    "changed symbols are unavailable and further edits invalidate mappings",
+    "changed or shifted source files suppress language queries, including unchanged lines",
   );
 
   await writeFile(path.join(headEnvironment.rootPath, "main.ts"), managedMain);
@@ -902,7 +897,7 @@ try {
     2,
   );
   await record(
-    "branch changes do not repin review content or retain stale mappings",
+    "branch changes do not repin review content or change pinned LSP",
   );
 
   const renamed = await probe({

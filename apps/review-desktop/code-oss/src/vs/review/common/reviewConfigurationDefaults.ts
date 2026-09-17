@@ -70,20 +70,10 @@ export const reviewConfigurationDefaults = {
 	'diffEditor.renderIndicators': false,
 	'breadcrumbs.enabled': false,
 	'git.enabled': false,
-	// Review opens whole files from the pinned head worktree so language
-	// servers see the tree they indexed. Those checkouts are shared,
-	// disposable render sources — an edit there never reaches the user's
-	// working copy, so surface every one of them as read-only.
-	// The pattern must stay absolute (leading slash): the workspace folder IS
-	// the pinned worktree, so ResourceGlobMatcher first tests the
-	// folder-relative path ("src/lib.rs"), where no worktree segment exists.
-	// Only an absolute pattern makes it retry against the full path.
+	// Retain read-only protection when opening a legacy Review-owned checkout.
+	// New review sources use immutable virtual documents; LSP targets are local files.
 	'files.readonlyInclude': { '/**/.git/dev-fast/worktrees/**': true },
-	// The line above makes every full file read-only, so the read-only lock
-	// badge marks every file tab and separates nothing. The badge also keeps
-	// upstream's margins, which reserve a 28px close-button column. The Review
-	// pill gives that column 16px, so the lock paints under the close button.
-	// Colors stay on, so a tab label with errors still gets its tint.
+	// Keep read-only badges from crowding Review's compact file tabs.
 	'workbench.editor.decorations.badges': false,
 	'chat.disableAIFeatures': true,
 	'extensions.ignoreRecommendations': true,

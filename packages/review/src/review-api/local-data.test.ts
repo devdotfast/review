@@ -151,6 +151,47 @@ it("lists the full repository path and hydrates diff counts from pinned commits"
   expect(local.store.list()[0]?.diffStats).toEqual(ready[0].diffStats);
 });
 
+it("uses a managed pinned worktree for language services without changing local edits", async () => {
+  const created = await local.store.execute(
+    command({ type: "create", title: "Local LSP", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data);
+  const before = git("status", "--porcelain");
+
+  const response = await app.request(
+    `/${created.reviewId}/language-context?version=0`,
+  );
+
+  expect(response.status).toBe(200);
+  const environment = await response.json();
+  expect(environment.state).toBe("unconfigured");
+  expect(environment.rootPath).not.toBe(realpathSync(repository));
+  expect(
+    execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: environment.rootPath,
+      encoding: "utf8",
+    }).trim(),
+  ).toBe(pins.head);
+  expect((await local.data.file(pins, "head", source.file)).text).toContain(
+    "export const value = 2",
+  );
+  expect(git("status", "--porcelain")).toBe(before);
+  expect(git("worktree", "list", "--porcelain")).toContain(
+    environment.rootPath,
+  );
+  expect(
+    (await app.request(`/${created.reviewId}/language-context?version=999`))
+      .status,
+  ).toBe(404);
+  rmSync(repository, { recursive: true });
+  expect(
+    await (
+      await app.request(`/${created.reviewId}/language-context?version=0`)
+    ).json(),
+  ).toMatchObject({ rootPath: null, state: "failed" });
+});
+
 it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {
   const app = createReviewApi(local.store, local.data);
   const edge = { kind: "semantic", from: "api", to: "missing" };

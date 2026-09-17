@@ -149,6 +149,8 @@ export function createReviewApi(
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
+    void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
+
     const settings = await open({
       reviewId: review.reviewId,
       title: review.title,
@@ -292,6 +294,42 @@ export function createReviewApi(
           input.source,
         ),
       );
+    });
+    app.get("/:id/language-context", async (context) => {
+      const input = readQuerySchemas.maps
+        .extend({
+          side: z.enum(["base", "head"]).default("head"),
+          commit: z.string().optional(),
+        })
+        .parse(context.req.query());
+
+      const snapshot = store.read(context.req.param("id"), input.version);
+      const pins = await data.comparison(snapshot.pins, input.commit);
+
+      return context.json(
+        await data.workspaces.source(snapshot.reviewId, pins, input.side),
+      );
+    });
+    app.get("/workspace-cleanup", (context) =>
+      context.json(data.workspaces.failures()),
+    );
+    app.post("/workspace-cleanup/:workspaceId/retry", (context) => {
+      data.workspaces.retryCleanup(context.req.param("workspaceId"));
+
+      return context.json({ ok: true });
+    });
+    app.get("/:id/workspaces", (context) => {
+      store.assertExists(context.req.param("id"));
+
+      return context.json(data.workspaces.list(context.req.param("id")));
+    });
+    app.post("/:id/workspaces/:workspaceId/retry", async (context) => {
+      await data.workspaces.retry(
+        context.req.param("id"),
+        context.req.param("workspaceId"),
+      );
+
+      return context.json({ ok: true });
     });
     app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());

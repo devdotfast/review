@@ -15,6 +15,7 @@
     "protocol:sync": "node scripts/protocol-sync.mjs",
     "smoke:error-telemetry": "node scripts/smoke-error-telemetry.mjs",
     "smoke:telemetry-delivery": "node scripts/smoke-telemetry-delivery.mjs",
+    "test:e2e:lsp": "node scripts/lsp-e2e.mjs",
     "pretest": "pnpm run protocol:sync",
     "test": "node --test \"scripts/**/*.test.mjs\" && TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test \"code-oss/src/vs/review/**/*.test.ts\"",
     "pretypecheck": "pnpm run protocol:sync",

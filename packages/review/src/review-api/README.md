@@ -191,3 +191,42 @@ history/restart, retries, asynchronous validation, isolation, and the actual
 desktop HTTP route. The local-data tests use a real Git repository with dirty
 working-copy files, decoded images and saved trace/map evidence, including real
 HTTP requests and restart. Existing desktop-server tests remain unchanged.
+
+### Language information and committed source
+
+Committed reviews use Review-owned worktrees at their base/head commits for
+language services. The displayed source remains the immutable Git source.
+Existing matching managed checkouts are reused; an equal base/head shares one
+checkout. Opening a review prepares its current sides in the background; older
+versions and selected commits acquire environments on demand.
+
+Configure preparation through the repository's existing Git configuration:
+
+```sh
+git config devfast.prepare 'pnpm install --frozen-lockfile'
+git config --add devfast.prepare 'pnpm generate'
+```
+
+Commands run in order inside each managed checkout, never in the invoking user
+checkout. Successful preparation is cached by checkout and command-list hash;
+changed commands or recreated checkouts invalidate it. The local status control
+shows preparation output and supports retry. Reading and authoring stay available
+while preparation runs. Language requests wait for preparation; no command or a
+failed command leaves best-effort language services in that same pinned checkout,
+without silently borrowing another checkout. Timeout and shutdown stop command
+process groups, leave no successful marker, and allow retry.
+
+Language queries require the displayed file to exactly match the file in the
+language environment. A changed file suppresses queries even on unchanged lines;
+matching contents use the same positions directly. Stale-request checks discard
+answers if the source or environment changes during a request.
+
+Definitions, type definitions, implementations, and references stay in the same
+review version, side, and selected commit when the destination file matches its
+saved source. Preparation may generate or modify files: changed or absent saved
+destinations retain their native managed-checkout URIs.
+
+Preparation does not guarantee reproducibility unless the configured commands
+also reproduce dependencies, generated files, and the toolchain. Historical
+checkouts remain until their owning review is deleted. Environment state and
+commands are local and are never authored into review documents.

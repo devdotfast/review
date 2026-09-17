@@ -2,7 +2,6 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
-import { devfastPrepareCommands } from "@dev.fast/local-vcs";
 import type { ReviewView } from "@dev.fast/review-protocol";
 import {
   type CliInputStream,
@@ -49,13 +48,7 @@ import {
 } from "./review-app-launcher";
 import { reviewDesktopDiscoveryPath } from "./review-home-paths";
 import { runReviewInfo } from "./review-info";
-import { runReviewInternalTest } from "./review-internal-test";
 import { emitReviewEvent, serializeReviewError } from "./review-logger";
-import { prepareReviewPinnedCheckout } from "./review-prepare";
-import { runReviewPublish } from "./review-publish";
-import { runReviewRebind } from "./review-rebind";
-import { runReviewRepair } from "./review-repair";
-import { runReviewScaffold } from "./review-scaffold";
 import {
   type ReviewCliCommand,
   type ReviewCliCommandPath,
@@ -84,11 +77,6 @@ interface ReviewCliRuntime {
   runReviewAppLaunch: typeof runReviewAppLaunch;
   runReviewAppPick: typeof runReviewAppPick;
   runReviewInfo: typeof runReviewInfo;
-  runReviewScaffold: typeof runReviewScaffold;
-  runReviewInternalTest: typeof runReviewInternalTest;
-  runReviewPublish: typeof runReviewPublish;
-  runReviewRepair: typeof runReviewRepair;
-  runReviewRebind: typeof runReviewRebind;
   runInstall: typeof runInstall;
   installReviewCommand: typeof installReviewCommand;
   runReviewMigration: typeof runReviewMigration;
@@ -116,7 +104,6 @@ interface ReviewCliRuntime {
   runStoreLogin: typeof runStoreLogin;
   runStoreLogout: typeof runStoreLogout;
   runStoreWhoami: typeof runStoreWhoami;
-  prepareReviewPinnedCheckout: typeof prepareReviewPinnedCheckout;
 }
 
 export interface ReviewCliInput {
@@ -135,15 +122,6 @@ export interface ReviewCliInput {
 interface ReviewInfoOptions {
   all?: boolean;
   review?: string;
-}
-
-interface ReviewScaffoldOptions {
-  base?: string;
-  head?: string;
-  pr?: string;
-  update?: boolean;
-  review?: string;
-  new?: boolean;
 }
 
 type OutputSurface = ReviewCliCommand | "plain";
@@ -192,7 +170,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         commandRunId: string;
         startedAt: number;
         finished: boolean;
-        reviewUuid?: string;
       }
     | undefined;
 
@@ -291,16 +268,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     state.exitCode = 0;
   });
 
-  configureJsonOutput(
-    program
-      .command("internal-test [review-dir]", { hidden: true })
-      .description("Validate a Review directory"),
-    "plain",
-  ).action(async (reviewDir: string | undefined) => {
-    await runtime.runReviewInternalTest(reviewDir ?? cwd);
-    state.exitCode = 0;
-  });
-
   const writeAppEvent = (
     event: ReviewAppLaunchEvent | ReviewAppEvent,
     json: boolean | undefined,
@@ -351,21 +318,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     state.exitCode = 0;
   };
 
-  const bindActiveReview = async (reviewUuid: string): Promise<void> => {
-    const active = activeTelemetry;
-
-    if (!active || active.finished || active.reviewUuid) return;
-    active.reviewUuid = reviewUuid;
-    setTraceAttribute("reviewUuid", reviewUuid);
-    await attemptTelemetry(() =>
-      telemetry.captureCommandBound({
-        command: active.command,
-        commandRunId: active.commandRunId,
-        reviewUuid,
-      }),
-    );
-  };
-
   const app = configureJsonOutput(
     program
       .command("app")
@@ -397,93 +349,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   ).action(pickReview);
 
   configureJsonOutput(
-    program
-      .command("rebind")
-      .description("Move a Review to a different unit of change")
-      .argument("<change>", "bookmark, branch, or change id")
-      .option("--review <uuid>", "review UUID"),
-    "plain",
-  ).action(async (change: string, options: { review?: string }) => {
-    state.exitCode = await runtime.runReviewRebind({
-      cwd,
-      change,
-      reviewUuid: options.review,
-      toolingRoot: env.DEV_FAST_REVIEW_TOOLING_ROOT || undefined,
-      progress: (message) => input.stderr.write(`${message}\n`),
-      env,
-      stdout: input.stdout,
-    });
-  });
-
-  configureJsonOutput(
-    program
-      .command("repair")
-      .description(
-        "Repair current Review artifacts without changing review status",
-      )
-      .requiredOption("--review <uuid>", "review UUID"),
-    "plain",
-  ).action(async (options: { review: string; json?: boolean }) => {
-    state.exitCode = await runtime.runReviewRepair({
-      cwd,
-      reviewUuid: options.review,
-      json: options.json,
-      stdout: input.stdout,
-      stderr: input.stderr,
-      env,
-    });
-  });
-
-  configureJsonOutput(
-    program
-      .command("publish")
-      .alias("present")
-      .description(
-        "Present the Review document in the local Review Desktop app",
-      )
-      .option("--review <uuid>", "review UUID")
-      .addOption(viewOption()),
-    "plain",
-  ).action(
-    async (options: { review?: string; view?: ReviewView; json?: boolean }) => {
-      state.exitCode = await runtime.runReviewPublish({
-        cwd,
-        reviewUuid: options.review,
-        view: options.view,
-        json: options.json,
-        toolingRoot: env.DEV_FAST_REVIEW_TOOLING_ROOT || undefined,
-        stdout: input.stdout,
-        stderr: input.stderr,
-        env,
-        onReviewBound: bindActiveReview,
-      });
-    },
-  );
-
-  configureJsonOutput(
-    program
-      .command("prepare-worktree <checkout-path>", { hidden: true })
-      .description("Internal background worktree prepare runner")
-      .requiredOption("--commit <commit>")
-      .action(async (checkoutPath: string, options: { commit: string }) => {
-        const resolvedPath = path.resolve(checkoutPath);
-
-        const commands = await devfastPrepareCommands(resolvedPath).catch(
-          (): string[] => [],
-        );
-
-        const result = await runtime.prepareReviewPinnedCheckout({
-          checkoutPath: resolvedPath,
-          commit: options.commit,
-          commands,
-        });
-
-        state.exitCode = result.prepared ? 0 : 1;
-      }),
-    "plain",
-  );
-
-  configureJsonOutput(
     program.command("info").description("Print Review information"),
     "plain",
   )
@@ -496,51 +361,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
         cwd,
         all: options.all,
         reviewUuid: options.review,
-      });
-
-      input.stdout.write(`${JSON.stringify(event)}\n`);
-      state.exitCode = 0;
-    });
-
-  configureJsonOutput(
-    program.command("scaffold").description("Create a new UUID Review"),
-    "plain",
-  )
-    .option("--base <ref>", "base revision")
-    .option("--head <ref>", "head revision")
-    .addOption(
-      new Option("--pr <number-or-url>", "pull request").conflicts("head"),
-    )
-    .addOption(
-      new Option(
-        "--update",
-        "re-pin the existing review from its bound change (creates one when none exists)",
-      ).conflicts(["head", "pr"]),
-    )
-    .addOption(
-      new Option("--review <uuid>", "review to update").implies({
-        update: true,
-      }),
-    )
-    .addOption(
-      new Option(
-        "--new",
-        "create another Review for the same source",
-      ).conflicts(["update", "review"]),
-    )
-    .action(async (options: ReviewScaffoldOptions) => {
-      const event = await runtime.runReviewScaffold({
-        cwd,
-        baseRef: options.base,
-        headRef: options.head,
-        pullRequest: options.pr,
-        env,
-        toolingRoot: env.DEV_FAST_REVIEW_TOOLING_ROOT || undefined,
-        progress: (message) => input.stderr.write(`${message}\n`),
-        update: options.update,
-        reviewUuid: options.review,
-        newReview: options.new,
-        onReviewBound: bindActiveReview,
       });
 
       input.stdout.write(`${JSON.stringify(event)}\n`);
@@ -1033,11 +853,6 @@ function reviewCliRuntime(
     runReviewAppLaunch,
     runReviewAppPick,
     runReviewInfo,
-    runReviewScaffold,
-    runReviewInternalTest,
-    runReviewPublish,
-    runReviewRepair,
-    runReviewRebind,
     runInstall,
     installReviewCommand,
     runReviewMigration,
@@ -1065,7 +880,6 @@ function reviewCliRuntime(
     runStoreLogin,
     runStoreLogout,
     runStoreWhoami,
-    prepareReviewPinnedCheckout,
     ...overrides,
   };
 }
@@ -1106,11 +920,10 @@ async function resolveInstallCliSource(
 function reviewTopLevelHelp(): string {
   return [
     "",
-    "Use `review info` to discover Review documents for this checkout, or `review scaffold` to create one.",
-    "Edit the returned review.mdx and data.ts files, then use `review present` (alias of `review publish`). It validates in the CLI before contacting Review Desktop.",
-    "The CLI validates before publishing; Review Desktop promotes the revision before mounting it.",
-    "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` after publication.",
-    "Use `--view <review|commits|diff|map|trace>` with `review publish` or `review app pick` to choose the opened tab.",
+    "Use `review info` to discover Review documents for this checkout.",
+    "Reviews are authored through the JSON API: `review api tools` lists the tools, and `review mcp` serves the same catalog to an agent.",
+    "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` to open one.",
+    "Use `--view <review|commits|diff|map|trace>` with `review app pick` to choose the opened tab.",
     "",
     "Every command accepts --json. Stdout then carries only JSON events, one per line,",
     "human progress moves to stderr, and a failure prints a JSON error event too.",
@@ -1186,7 +999,7 @@ function reviewMapHelp(): string {
     "",
     "Notes under refs/notes/dev-fast/* are the only durable map state: one map per commit, never checked into any branch.",
     "The editable file is a scratch buffer — a commit-addressed working copy of one commit's note, hydrated from a note and disposable at any time.",
-    "Use review map open <rev> to hydrate <rev>'s scratch, review map check [<rev>] [--review <uuid>] to validate and save it to <rev>'s note, review map publish to present the pinned maps, review map prune to drop stale notes and swept scratches, and review map push / fetch to share map notes through the selected notes remote.",
+    "Use review map open <rev> to hydrate <rev>'s scratch, review map check [<rev>] [--review <uuid>] to validate and save it to <rev>'s note, review map prune to drop stale notes and swept scratches, and review map push / fetch to share map notes through the selected notes remote.",
     "Run review map help for the full subcommand reference.",
   ].join("\n");
 }
@@ -1236,7 +1049,6 @@ function normalizeMapTelemetrySubcommand(
 ):
   | "open"
   | "check"
-  | "publish"
   | "prune"
   | "push"
   | "fetch"
@@ -1248,8 +1060,7 @@ function normalizeMapTelemetrySubcommand(
   | "help"
   | "unknown" {
   const args = inputArgs[0] === "--" ? inputArgs.slice(1) : inputArgs;
-  const rawCommand = args[0] ?? "check";
-  const command = rawCommand === "present" ? "publish" : rawCommand;
+  const command = args[0] ?? "check";
 
   if (isMapHelpCommand(command)) {
     return "help";
@@ -1258,7 +1069,6 @@ function normalizeMapTelemetrySubcommand(
   if (
     command === "open" ||
     command === "check" ||
-    command === "publish" ||
     command === "prune" ||
     command === "push" ||
     command === "fetch" ||
@@ -1283,7 +1093,6 @@ async function finishActiveTelemetry(
         commandRunId: string;
         startedAt: number;
         finished: boolean;
-        reviewUuid?: string;
       }
     | undefined,
   exitCode: number,
@@ -1301,7 +1110,6 @@ async function finishActiveTelemetry(
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
-          reviewUuid: active.reviewUuid,
         })
       : telemetry.captureCommandFailed({
           command: active.command,
@@ -1309,7 +1117,6 @@ async function finishActiveTelemetry(
           exitCode,
           durationMs: Date.now() - active.startedAt,
           properties,
-          reviewUuid: active.reviewUuid,
           ...classification,
         }),
   );
@@ -1359,7 +1166,6 @@ function telemetryCommandPath(
 
     return subcommand === "open" ||
       subcommand === "check" ||
-      subcommand === "publish" ||
       subcommand === "prune" ||
       subcommand === "push" ||
       subcommand === "fetch"
@@ -1393,14 +1199,7 @@ function telemetryCommandPath(
     return `app.${name}`;
   }
 
-  if (
-    name === "version" ||
-    name === "rebind" ||
-    name === "publish" ||
-    name === "info" ||
-    name === "scaffold" ||
-    name === "install"
-  ) {
+  if (name === "version" || name === "info" || name === "install") {
     return name;
   }
 
@@ -1441,11 +1240,7 @@ function errorClassification(
     };
   }
 
-  if (command === "scaffold") {
-    return { errorName: "index_error", errorCategory: "dependency" };
-  }
-
-  if (command === "publish" || command === "rebind" || command === "info") {
+  if (command === "info") {
     return { errorName: "review_state_error", errorCategory: "local_state" };
   }
 

@@ -40,15 +40,11 @@ export type ReviewCliCommandPath =
   | "version"
   | "app.launch"
   | "app.pick"
-  | "rebind"
-  | "publish"
   | "info"
-  | "scaffold"
   | "install"
   | "migrate.apply"
   | "map.open"
   | "map.check"
-  | "map.publish"
   | "map.prune"
   | "map.push"
   | "map.fetch"
@@ -125,7 +121,6 @@ export interface ReviewCommandTelemetryInput {
   exitCode: number;
   durationMs?: number;
   properties?: PostHogCaptureProperties;
-  reviewUuid?: string;
   errorName?: ReviewTelemetryErrorName;
   errorCategory?: ReviewTelemetryErrorCategory;
 }
@@ -133,10 +128,6 @@ export interface ReviewCommandTelemetryInput {
 export interface ReviewCommandStartedInput {
   command: ReviewCliCommandPath;
   commandRunId: string;
-}
-
-export interface ReviewCommandBoundInput extends ReviewCommandStartedInput {
-  reviewUuid: string;
 }
 
 export interface ReviewTelemetryContext {
@@ -218,7 +209,6 @@ export type ReviewCommandTelemetry = Pick<
   | "createCommandRunId"
   | "captureInstallationCreated"
   | "captureCommandStarted"
-  | "captureCommandBound"
   | "captureCommandSucceeded"
   | "captureCommandFailed"
   | "shutdown"
@@ -323,18 +313,6 @@ export class ReviewTelemetry {
     });
   }
 
-  async captureCommandBound(input: ReviewCommandBoundInput): Promise<void> {
-    await this.captureEvent(
-      "review_command_bound",
-      {
-        command_path: input.command,
-        command_run_id: input.commandRunId,
-        agent_kind: this.sessionAgent(),
-      },
-      { reviewUuid: input.reviewUuid },
-    );
-  }
-
   async captureSessionStarted(input: ReviewSessionStartedInput): Promise<void> {
     await this.captureEvent(
       "review_session_started",
@@ -387,14 +365,6 @@ export class ReviewTelemetry {
   async captureReviewReaped(input: { retentionDays: number }): Promise<void> {
     await this.captureEvent("review_review_reaped", {
       retention_days: input.retentionDays,
-    });
-  }
-
-  async capturePublishGateRejected(input: {
-    gate: "publish_ready" | "map_publish_ready";
-  }): Promise<void> {
-    await this.captureEvent("review_publish_gate_rejected", {
-      gate: input.gate,
     });
   }
 
@@ -475,9 +445,7 @@ export class ReviewTelemetry {
     if (input.errorName) properties.error_name = input.errorName;
 
     if (input.errorCategory) properties.error_category = input.errorCategory;
-    await this.captureEvent(event, properties, {
-      reviewUuid: input.reviewUuid,
-    });
+    await this.captureEvent(event, properties);
   }
 
   private async withTelemetry(

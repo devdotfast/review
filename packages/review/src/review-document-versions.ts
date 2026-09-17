@@ -3,7 +3,7 @@ import type { ReviewDocumentVersionWire } from "@dev.fast/review-protocol";
 import type { StoredReview } from "./review-home";
 import { reviewVcs } from "./review-vcs";
 
-export const REVIEW_PUBLISH_CANDIDATE_MESSAGE = "Review publish candidate";
+const REVIEW_PUBLISH_CANDIDATE_MESSAGE = "Review publish candidate";
 
 /** Published document versions, newest first. */
 export async function listReviewDocumentVersions(

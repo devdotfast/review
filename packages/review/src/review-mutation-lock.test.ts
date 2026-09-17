@@ -9,7 +9,6 @@ import { afterEach, expect, it } from "vitest";
 import { parseStoredReviewRecord } from "./review-home";
 import {
   GUARDED_REVIEW_FIELDS,
-  assertReviewUnchanged,
   reviewMutationFingerprint,
   withReviewMutationLock,
 } from "./review-mutation-lock";
@@ -22,11 +21,8 @@ afterEach(async () => {
   );
 });
 
-async function guardedFixture() {
-  const root = await mkdtemp(path.join(tmpdir(), "review-guarded-fields-"));
-  roots.push(root);
-
-  const record = parseStoredReviewRecord({
+function guardedRecord() {
+  return parseStoredReviewRecord({
     schemaVersion: 5,
     uuid: "11111111-1111-4111-8111-111111111111",
     repoKey: "repo",
@@ -43,46 +39,34 @@ async function guardedFixture() {
     createdAt: "created",
     lastPublishedAt: "published",
   });
-
-  await writeFile(path.join(root, "review.json"), JSON.stringify(record));
-
-  return { root, record };
 }
 
-it("accepts an unchanged record and rejects any guarded field change", async () => {
-  const { root, record } = await guardedFixture();
-  await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
+it("changes the fingerprint for every guarded field", () => {
+  const record = guardedRecord();
+  const unchanged = reviewMutationFingerprint(record);
 
   for (const field of GUARDED_REVIEW_FIELDS) {
-    await writeFile(
-      path.join(root, "review.json"),
-      JSON.stringify({ ...record, [field]: "changed-by-someone-else" }),
-    );
-    await expect(assertReviewUnchanged(root, record)).rejects.toThrow(
-      "Review changed while preparing publication",
-    );
+    // A foreign writer may store any value, so the guarded change is typed as
+    // the record it replaces.
+    const changed = {
+      ...record,
+      [field]: "changed-by-someone-else",
+    } as typeof record;
+
+    expect(reviewMutationFingerprint(changed)).not.toBe(unchanged);
   }
 });
 
-it("ignores unguarded metadata and source identity key order", async () => {
-  const { root, record } = await guardedFixture();
-  await writeFile(
-    path.join(root, "review.json"),
-    JSON.stringify({
+it("ignores unguarded metadata and source identity key order", () => {
+  const record = guardedRecord();
+  expect(
+    reviewMutationFingerprint({
       ...record,
       title: "Renamed",
       viewedAt: "2026-09-05T12:00:00.000Z",
       sourceIdentity: { name: "main", kind: "git-branch" },
     }),
-  );
-  await expect(assertReviewUnchanged(root, record)).resolves.toBeUndefined();
-  expect(reviewMutationFingerprint(record)).toBe(
-    reviewMutationFingerprint({
-      ...record,
-      title: "Renamed",
-      sourceIdentity: { name: "main", kind: "git-branch" },
-    }),
-  );
+  ).toBe(reviewMutationFingerprint(record));
 });
 
 it("allows nested operations in the same transaction without deadlocking", async () => {

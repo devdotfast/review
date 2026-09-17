@@ -4,11 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  REVIEW_PUBLISH_CANDIDATE_MESSAGE,
-  listReviewDocumentVersions,
-} from "./review-document-versions";
+import { listReviewDocumentVersions } from "./review-document-versions";
 import { reviewVcs } from "./review-vcs";
+
+// The seal message legacy publishes wrote; the reader still selects on it.
+const REVIEW_PUBLISH_CANDIDATE_MESSAGE = "Review publish candidate";
 
 const tempRoots: string[] = [];
 

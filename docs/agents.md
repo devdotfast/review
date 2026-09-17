@@ -6,8 +6,8 @@ Outline: Built-in setup -> Installed skills -> Change review -> Architecture rev
 -->
 
 Review works with Claude Code, Codex, and other coding agents. The desktop app
-installs a small set of skills that teaches the agent how to author, validate,
-publish, and update a Review.
+installs a small set of skills that teaches the agent how to create, author,
+validate, and update a Review through the Review API and MCP tools.
 
 ## Built-in setup
 

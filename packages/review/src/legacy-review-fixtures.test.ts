@@ -230,7 +230,7 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
       reviewUuid: uuid,
     });
     expect(listed.errors[0]?.message).toContain(
-      `review repair --review ${uuid}`,
+      "Delete it from Home and recreate it with the Review skill.",
     );
     expect(await snapshotReviewTree(dir)).toEqual(snapshot);
   });

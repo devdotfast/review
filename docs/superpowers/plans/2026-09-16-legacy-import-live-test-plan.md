@@ -1,8 +1,8 @@
 # Legacy review import: live test plan
 
-For a tester driving the real app (computer use). PR #296, branch `feat/legacy-review-import`, worktree `/Users/aiansiti/workable/review-legacy-import`.
+For a tester driving the real app (computer use). Run it from the branch under test, in its worktree.
 
-The automated gates already prove the mechanics (`native-authoring-e2e.mjs`, 10 checks; `legacy-import-smoke.mjs` on a copy of the real reviews). This plan covers what a script cannot judge: how imported reviews look and behave in the app, the Home cards, the terminal experience of the guard, persistence across restarts, and the tutorial.
+The automated gates already prove the mechanics (`native-authoring-e2e.mjs` on the schema-4 fixtures; `legacy-import-smoke.mjs` on a copy of the real reviews). This plan covers what a script cannot judge: how imported reviews look and behave in the app, the Home cards, the CLI experience now that the MDX verbs are gone, persistence across restarts, and the tutorial.
 
 Report every step as pass, fail, or blocked, with a screenshot for anything visual and the exact terminal output for anything in a shell. Do not fix anything; capture and move on.
 
@@ -13,7 +13,7 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
 1. Build the home and launch the Desktop on it:
 
    ```sh
-   cd /Users/aiansiti/workable/review-legacy-import
+   cd <worktree for the branch under test>
    pnpm install
    HOME_DIR=$(bash apps/review-desktop/scripts/legacy-import-live-home.sh | head -1)
    cat "$HOME_DIR/TESTER-README.md"     # inventory, expected outcomes, CLI env
@@ -26,7 +26,7 @@ The real `~/.dev/reviews` rarely contains every state at once (reviews never upg
 
    ```sh
    export DEV_REVIEW_HOME="$HOME_DIR" DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 DEV_FAST_REVIEW_TELEMETRY_DISABLED=1
-   cd /Users/aiansiti/workable/review-legacy-import
+   cd <worktree for the branch under test>
    alias review='pnpm --filter @dev.fast/review review'
    ```
 
@@ -66,21 +66,18 @@ Pick the imported review with the richest content (peeks, a diagram, a database 
 
 | # | Step | Expected |
 |---|---|---|
-| C1 | Copy one more published review directory into `<home>/reviews/` **while the app is running** (from `~/.dev/reviews`, one whose worktree exists), then run `review app pick --review <uuid>` from its repository. | The CLI exits 0 and prints the pick event. The JSON canvas opens for it. The terminal shows `imported as version N`. Home shows it once. |
+| C1 | Seed one more published review into `<home>/reviews/<uuid>/` **while the app is running** — copy it from `~/.dev/reviews` (one whose worktree exists), or extract a `packages/review/src/fixtures/legacy-reviews/*.tgz` into a directory named after its `sourceUuid` — then run `review app pick --review <uuid>` from its repository. | The CLI exits 0 and prints the pick event. The JSON canvas opens for it. The terminal shows `imported as version N`. Home shows it once. |
 | C2 | Run `review app pick --review <uuid>` again. | Exit 0, the JSON tab is focused, no second import line. |
 
-## D. Publish is the handoff; the guard
+## D. The JSON API is the only authoring route
 
-Use a repository with a change you can review. Scaffold a fresh review and publish it from MDX exactly as before this change.
+There is no MDX authoring path left: `review scaffold`, `review publish`, `review repair`, `review rebind` and `review map publish` are gone. A review reaches the store by import (sections A and C) and changes only through `review api` or the MCP tools.
 
 | # | Step | Expected |
 |---|---|---|
-| D1 | `review scaffold --base <base> --head <head> --new`, author a small `review.mdx` (a heading, a paragraph with a source link, one `<CodePeek>`), then `review publish --review <uuid>`. | Publish succeeds as before. Within a few seconds the app shows the **JSON** canvas for it (a legacy tab may flash first and get replaced). Terminal: `imported as version 0`. |
-| D2 | Edit `review.mdx` and run `review publish --review <uuid>` again. | Exit 1. The message says the review was migrated to the JSON review store and names `review api` and the MCP tools. No new version appears in the app. |
-| D3 | Author a map for the same review **before** relying on this step, as the e2e does: for each of `<base>` and `<head>`, run `review map open <commit>`, write a minimal map into the scratch path it prints (`import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model"; export default defineSoftwareMap({systems: {orders: {label: "Order service", containers: {api: {label: "Order API", components: {handler: {label: "Order handler", coverage: {files: ["<a file in the diff>"]}}}}}}}});`), then `review map check <commit> --review <uuid>`. Then `review map publish --review <uuid>`. | The publish is refused with the same `migrated` message. Without an authored map the CLI stops before reaching the server, which does not exercise the guard. |
-| D4 | `review repair --review <uuid>`. | Either "no repair needed" (exit 0, healthy artifacts never reach the server) or, if artifacts are stale, the same `migrated` refusal. Record which. |
-| D5 | `review info --review <uuid>`. | Still works and prints the legacy record; nothing about it should look broken. |
-| D6 | Edit the imported review through the JSON API: `review api tools`, then `review api review_edit "{\"commandId\":\"$(uuidgen | tr A-Z a-z)\",\"reviewId\":\"<uuid>\",\"edit\":{\"type\":\"insert\",\"content\":{\"type\":\"markdown\",\"markdown\":\"Edited after import.\\n\"}}}"` (every command tool needs a fresh `commandId`). | The edit lands; the canvas shows the new paragraph; the version number increments. |
+| D1 | `review scaffold --help`, `review publish --help`, `review repair --help`. | Each exits non-zero with an unknown-command error. Nothing offers to author MDX. |
+| D2 | `review info --review <uuid>` for an imported review. | Still works and prints the legacy record; nothing about it should look broken. |
+| D3 | Edit the imported review through the JSON API: `review api tools`, then `review api review_edit "{\"commandId\":\"$(uuidgen | tr A-Z a-z)\",\"reviewId\":\"<uuid>\",\"edit\":{\"type\":\"insert\",\"content\":{\"type\":\"markdown\",\"markdown\":\"Edited after import.\\n\"}}}"` (every command tool needs a fresh `commandId`). | The edit lands; the canvas shows the new paragraph; the version number increments. |
 
 ## E. Restart and persistence
 
@@ -102,4 +99,4 @@ For any fail: the screenshot, the `[Review import]` lines and any `[Review Deskt
 
 ## Out of scope
 
-Editing MDX for an already imported review (refused by design), Ask/comments (removed earlier), and reviews whose repository is gone (stay legacy by design).
+MDX authoring of any kind (the verbs are gone), Ask/comments (removed earlier), and reviews whose repository is gone (stay legacy by design).

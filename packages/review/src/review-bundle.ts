@@ -11,9 +11,10 @@ import {
   upgradeReviewDocumentJson,
 } from "./review-document-data";
 
-// `review publish` writes the built document bundle into the review dir and
-// seals it with the revision. The desktop server serves these exact bytes from
-// the materialized build dir; it never rebuilds a published document.
+// The tutorial service and the stored-review migration write a built document
+// bundle into the review dir and seal it with the revision. The desktop server
+// serves these exact bytes from the materialized build dir; it never rebuilds a
+// published document.
 export const REVIEW_BUNDLE_DIR = ".bundle";
 
 export const REVIEW_DOCUMENT_BUNDLE_DIR = path.join(

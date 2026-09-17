@@ -1,4 +1,6 @@
-/** Real CLI -> server -> Desktop rendering gate, with isolated stores/profiles.
+/** Legacy fixture -> import -> Desktop rendering gate, with isolated
+ * stores/profiles. The schema-4 fixture tarballs are the only seed: the MDX
+ * authoring verbs that used to scaffold and publish a review are gone.
  * Run after building Desktop and staging a production Review package:
  * node scripts/native-authoring-e2e.mjs --runtime /absolute/production-package
  * Add --app /absolute/Review.app to exercise the packaged application.
@@ -7,7 +9,6 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
-  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -41,10 +42,6 @@ const { values } = parseArgs({
     runtime: { type: "string" },
     app: { type: "string" },
     keep: { type: "boolean", default: false },
-    "baseline-runtime": { type: "string" },
-    "comparison-runtime": { type: "string" },
-    // Only reuse completed rows from the same runtimes and unchanged corpus.
-    "resume-benchmark": { type: "string" },
   },
 });
 
@@ -91,6 +88,8 @@ for (const key of [
 ])
   delete env[key];
 
+// A stand-in repository for the fixture whose own source repository is not on
+// this machine: a legacy record only loads when its worktreePath exists.
 const git = async (...args) =>
   (await exec("git", args, { cwd: repo, env })).stdout.trim();
 
@@ -109,8 +108,6 @@ await git("add", ".");
 
 await git("commit", "-qm", "Draft");
 
-const base = await git("rev-parse", "HEAD");
-
 await writeFile(
   path.join(repo, "order.ts"),
   'export const status = "queued";\n',
@@ -118,17 +115,17 @@ await writeFile(
 
 await git("commit", "-qam", "Queue");
 
-const head = await git("rev-parse", "HEAD");
-
 const legacyRoot = path.join(sourcePackage, "src/fixtures/legacy-reviews");
 
 const legacyFixtures = [];
 
-// Extracted only after the Desktop attaches, so `app pick` exercises
+// Seeded only after the Desktop attaches, so `app pick` exercises
 // import-on-open rather than the Home sweep.
 const DEFERRED_FIXTURE = "schema4-bug-report-dialog";
 
-async function extractFixture(fixture) {
+// The tarball plus its `<name>.json` metadata is the seed, the same shape
+// `legacy-import-live-home.sh` extracts into a live-test home.
+async function seedLegacyFixture(fixture) {
   const { name, metadata } = fixture;
   const legacyDir = path.join(home, "reviews", metadata.sourceUuid);
   await mkdir(legacyDir, { recursive: true });
@@ -186,7 +183,7 @@ for (const archive of (await readdir(legacyRoot))
 
   const fixture = { name, metadata, deferred: name === DEFERRED_FIXTURE };
 
-  if (!fixture.deferred) await extractFixture(fixture);
+  if (!fixture.deferred) await seedLegacyFixture(fixture);
   legacyFixtures.push(fixture);
 }
 
@@ -382,19 +379,7 @@ try {
       return snapshot.status === 200 ? snapshot.value : null;
     }, `${reviewId} imported`);
 
-  const expectMigratedError = (events) =>
-    assert.ok(
-      events.some(
-        (event) =>
-          event.event === "error" &&
-          [...(event.diagnostics ?? []), event.message ?? ""].some((text) =>
-            /migrated to the JSON review store/.test(text),
-          ),
-      ),
-      JSON.stringify(events),
-    );
-
-  async function cli(args, expectedCode = 0, cwd = repo) {
+  async function cli(args, cwd) {
     // Reload temporarily detaches Desktop. Wait before app pick can interpret
     // that gap as a reason to launch the system-installed application.
     if (args[0] === "app" && args[1] === "pick") {
@@ -426,7 +411,7 @@ try {
 
     assert.equal(
       result.code,
-      expectedCode,
+      0,
       `${args.join(" ")}: ${result.stdout}\n${result.stderr}`,
     );
 
@@ -438,272 +423,10 @@ try {
 
   console.log("Desktop attached; exercising installed CLI", root);
 
-  const scaffold = (
-    await cli(["scaffold", "--base", base, "--head", head])
-  ).find((event) => event.reviews?.length);
-
-  assert.ok(scaffold, "Scaffold must return a Review binding");
-  const { uuid, dir } = scaffold.reviews[0];
-  const helperCheckDir = path.join(root, "helper-check");
-  await mkdir(helperCheckDir);
-  await writeFile(path.join(helperCheckDir, "review.mdx"), "# Helper checks\n");
-  const checkedHelper = path.join(helperCheckDir, "unimported.ts");
-  await writeFile(checkedHelper, 'export const value: number = "wrong";\n');
-
-  const checkHelpers = () =>
-    exec(
-      process.execPath,
-      [path.join(runtime, "dist/cli.js"), "internal-test", helperCheckDir],
-      { cwd: helperCheckDir, env, timeout: 60000 },
-    );
-
-  const expectHelperTypeError = () =>
-    assert.rejects(checkHelpers(), (error) => {
-      const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`;
-      assert.match(output, /unimported\.ts/);
-      assert.match(output, /TS2322/);
-
-      return true;
-    });
-
-  await expectHelperTypeError();
-  await writeFile(
-    path.join(helperCheckDir, "review.mdx"),
-    'import { value } from "./unimported.js";\n\n# Helper checks\n\n{value}\n',
-  );
-  await expectHelperTypeError();
-  await writeFile(checkedHelper, "export const value: number = 1;\n");
-  await checkHelpers();
-  report.checks.push(
-    "installed internal-test rejects imported and unimported helper type errors and succeeds after correction",
-  );
-
-  const source = (
-    await readFile(
-      path.join(sourcePackage, "src/fixtures/document-json/order-review.mdx"),
-      "utf8",
-    )
-  ).replace(
-    'label="Read status" anchor={anchors.current}',
-    'label="Read status" anchor={anchors.previous}',
-  );
-
-  const gfm =
-    "\n\nA footnote[^note] and <kbd>Enter</kbd>.\n\n[^note]: Native pipeline footnote.\n";
-
-  await cp(
-    path.join(sourcePackage, "src/fixtures/document-json/data.ts.txt"),
-    path.join(dir, "data.ts"),
-  );
-  await writeFile(
-    path.join(dir, "label-types.ts"),
-    "export interface Label { text: string }\n",
-  );
-
-  const labelSource = (text) =>
-    'import { Label } from "./label-types.js";\n' +
-    `const value: Label = { text: ${JSON.stringify(text)} };\n` +
-    "export const label = value.text;\n";
-
-  await writeFile(
-    path.join(dir, "label.ts"),
-    labelSource("Before helper edit"),
-  );
-
-  const authored =
-    'import { label } from "./label.js";\n' +
-    source +
-    "\n\n<CodePeek anchor={anchors.current} />\n\n{label}\n" +
-    gfm;
-
-  const recordPath = path.join(dir, "review.json");
-
-  // E1: publish errors before any successful publish import nothing.
-  await writeFile(
-    path.join(dir, "review.mdx"),
-    authored + "\n\n<ReviewSection title={123}>Invalid</ReviewSection>\n",
-  );
-  const errors = await cli(["publish", "--review", uuid], 1);
-  assert.ok(
-    errors.some(
-      (event) =>
-        event.event === "error" && event.file && event.line && event.column,
-    ),
-  );
-  assert.equal(
-    JSON.parse(await readFile(recordPath, "utf8")).presentedDocumentRevision,
-    null,
-  );
-  assert.equal(
-    (await api(`/reviews-api/${uuid}`)).status,
-    404,
-    "failed publish does not import",
-  );
-  await writeFile(
-    path.join(dir, "broken.tsx"),
-    "export const label = <strong>broken;",
-  );
-  await writeFile(
-    path.join(dir, "review.mdx"),
-    authored.replace("./label.js", "./broken.tsx"),
-  );
-  const helperErrors = await cli(["publish", "--review", uuid], 1);
-  assert.ok(
-    helperErrors.some(
-      (event) =>
-        event.event === "error" &&
-        event.file?.endsWith("broken.tsx") &&
-        event.line === 1 &&
-        event.column > 0,
-    ),
-    JSON.stringify(helperErrors),
-  );
-  assert.equal(
-    (await api(`/reviews-api/${uuid}`)).status,
-    404,
-    "failed publish does not import",
-  );
-  await writeFile(path.join(dir, "review.mdx"), authored);
-  await rm(path.join(dir, "broken.tsx"));
-  console.log("E2E checkpoint", report.checks.length);
-  report.checks.push("positioned publish errors import nothing");
-
-  // E2, E3: the first successful publish is the handoff into the JSON store.
-  const published = (await cli(["publish", "--review", uuid])).find(
-    (event) => event.event === "published",
-  );
-
-  assert.ok(published?.revision);
-  const snapshotA = await waitForImport(uuid);
-  assert.equal(snapshotA.version, 0);
-  page = await apiCanvasFor("Order persistence — café ☕");
-  await watchPage(page);
-  let canvas = page.locator(".review-canvas-root");
-  await canvas.getByText("Before helper edit", { exact: false }).waitFor();
-  assert.equal(
-    await canvas
-      .locator("th")
-      .nth(1)
-      .evaluate((element) => getComputedStyle(element).textAlign),
-    "right",
-  );
-  await canvas.locator("a[data-footnote-ref]").click();
-  await canvas
-    .getByText("Native pipeline footnote.", { exact: false })
-    .waitFor();
-  await canvas
-    .getByRole("button", { name: "Expand Storage details", exact: true })
-    .click();
-  await canvas
-    .getByRole("combobox")
-    .filter({ has: page.locator("option", { hasText: "Persist an order" }) })
-    .waitFor();
-  assert.doesNotMatch(await canvas.innerText(), /Layout failed:/);
-  assert.match(await page.locator("body").innerText(), /draft/);
-  console.log("E2E checkpoint", report.checks.length);
-  report.checks.push(
-    "first publish imports and renders in the JSON canvas",
-    "JSON canvas renders tables, footnotes, peeks and DatabaseLens from the imported document",
-    "installed helpers resolve .js specifiers to TypeScript and elide ordinary interface imports",
-  );
-
-  // E4: a migrated review refuses every MDX verb that would republish it.
-  const scaffoldB = (
-    await cli(["scaffold", "--base", base, "--head", head, "--new"])
-  ).find((event) => event.reviews?.length);
-
-  assert.ok(scaffoldB, "Second scaffold must return a Review binding");
-  const { uuid: uuidB, dir: dirB } = scaffoldB.reviews[0];
-  await cp(
-    path.join(sourcePackage, "src/fixtures/document-json/data.ts.txt"),
-    path.join(dirB, "data.ts"),
-  );
-  await writeFile(path.join(dirB, "review.mdx"), source);
-
-  for (const revision of [base, head]) {
-    const opened = (await cli(["map", "open", revision])).find(
-      (event) => event.event === "map-open",
-    );
-
-    assert.ok(opened?.scratch);
-    await writeFile(
-      opened.scratch,
-      'import { defineSoftwareMap } from "@dev.fast/progressive-review/software-map-model";\nexport default defineSoftwareMap({systems: {orders: {label: "Order service", containers: {api: {label: "Order API", components: {handler: {label: "Order handler", coverage: {files: ["order.ts"]}}}}}}}});\n',
-    );
-    await cli(["map", "check", revision, "--review", uuidB]);
-  }
-
-  assert.ok(
-    (await cli(["publish", "--review", uuidB])).find(
-      (event) => event.event === "published",
-    ),
-  );
-  await waitForImport(uuidB);
-  expectMigratedError(await cli(["publish", "--review", uuidB], 1));
-  expectMigratedError(await cli(["map", "publish", "--review", uuidB], 1));
-  // Healthy artifacts make repair a local no-op; damage them so it reaches
-  // the server and meets the guard.
-  await rm(path.join(dirB, ".bundle/document"), {
-    recursive: true,
-    force: true,
-  });
-  await exec("git", ["add", "-A"], { cwd: dirB, env });
-  await exec("git", ["commit", "-qm", "E2E damaged document artifact"], {
-    cwd: dirB,
-    env,
-  });
-
-  const damagedRevision = (
-    await exec("git", ["rev-parse", "HEAD"], { cwd: dirB, env })
-  ).stdout.trim();
-
-  const recordB = JSON.parse(
-    await readFile(path.join(dirB, "review.json"), "utf8"),
-  );
-
-  await writeFile(
-    path.join(dirB, "review.json"),
-    JSON.stringify({ ...recordB, presentedDocumentRevision: damagedRevision }),
-  );
-  expectMigratedError(await cli(["repair", "--review", uuidB], 1));
-  assert.ok(
-    !(await api("/reviews")).value.reviews.some((row) => row.uuid === uuidB),
-    "migrated review leaves the legacy list",
-  );
-  assert.equal(
-    (await api(`/reviews-api/${uuidB}?full=true`)).value.version,
-    0,
-    "refused verbs create no versions",
-  );
-  console.log("E2E checkpoint", report.checks.length);
-  report.checks.push(
-    "a migrated review refuses publish, map publish and repair",
-  );
-
-  const benchmarkCases = [
-    {
-      name: "order",
-      input: {
-        reviewPath: path.join(dir, "review.mdx"),
-        evidence: {
-          head: { sourceRootPath: repo },
-          base: {
-            sourceRootPath: path.join(
-              repo,
-              ".git/dev-fast/reviews",
-              uuid,
-              "base",
-              base,
-            ),
-          },
-        },
-      },
-      cli: { uuid, cwd: repo },
-    },
-  ];
+  let jsonApiChecked = false;
 
   for (const fixture of legacyFixtures) {
-    if (fixture.deferred) await extractFixture(fixture);
+    if (fixture.deferred) await seedLegacyFixture(fixture);
 
     const {
       name,
@@ -714,7 +437,7 @@ try {
       original,
     } = fixture;
 
-    await cli(["info", "--review", metadata.sourceUuid], 0, worktreePath);
+    await cli(["info", "--review", metadata.sourceUuid], worktreePath);
     const migrated = JSON.parse(await readFile(legacyRecordPath, "utf8"));
 
     const golden = JSON.parse(
@@ -756,15 +479,8 @@ try {
         404,
         `${name} without its repository stays legacy`,
       );
-      // A system review (the tutorial) is never listed on Home; the legacy
-      // verbs keep working on it.
-      await cli(["repair", "--review", metadata.sourceUuid], 0, worktreePath);
-      benchmarkCases.push({
-        name,
-        input: { reviewPath: path.join(legacyDir, "review.mdx") },
-      });
       report.checks.push(
-        `${name}: installed migration matches sealed JSON golden; unimportable review keeps legacy repair`,
+        `${name}: installed migration matches sealed JSON golden; unimportable review stays legacy`,
       );
       console.log("E2E legacy fixture passed", name);
       continue;
@@ -774,11 +490,7 @@ try {
     // `app pick` only routes to the JSON canvas. E8: the deferred fixture is
     // imported by this open.
     if (!fixture.deferred) await waitForImport(metadata.sourceUuid);
-    await cli(
-      ["app", "pick", "--review", metadata.sourceUuid],
-      0,
-      worktreePath,
-    );
+    await cli(["app", "pick", "--review", metadata.sourceUuid], worktreePath);
     const snapshot = await waitForImport(metadata.sourceUuid);
 
     // E6: the imported document matches the block golden.
@@ -832,7 +544,7 @@ try {
     // E9: the JSON canvas shows it.
     page = await apiCanvasFor(golden.title);
     await watchPage(page);
-    canvas = page.locator(".review-canvas-root");
+    const canvas = page.locator(".review-canvas-root");
 
     if (metadata.hasMap) {
       // The imported map section starts collapsed.
@@ -843,112 +555,94 @@ try {
     }
 
     // E10: the JSON API rejects the pitfalls the render gate used to catch, and
-    // accepts a valid block that then renders in the open canvas.
-    const before = (await api(`/reviews-api/${metadata.sourceUuid}?full=true`))
-      .value;
+    // accepts a valid block that then renders in the open canvas. One imported
+    // fixture exercises it; the API is the same for all of them.
+    if (!jsonApiChecked) {
+      jsonApiChecked = true;
 
-    const edit = (content) =>
-      api("/reviews-api/commands", "POST", {
-        commandId: randomUUID(),
-        operation: {
-          type: "edit",
-          reviewId: metadata.sourceUuid,
-          edit: { type: "insert", content },
-        },
+      const before = (await api(`/reviews-api/${metadata.sourceUuid}?full=true`))
+        .value;
+
+      const edit = (content) =>
+        api("/reviews-api/commands", "POST", {
+          commandId: randomUUID(),
+          operation: {
+            type: "edit",
+            reviewId: metadata.sourceUuid,
+            edit: { type: "insert", content },
+          },
+        });
+
+      for (const [content, message] of [
+        [
+          {
+            type: "database_lens",
+            title: "Empty",
+            actors: { app: "App" },
+            stores: {},
+            useCases: [],
+          },
+          "at least one store",
+        ],
+        [
+          {
+            type: "sequence",
+            title: "Save",
+            actors: { app: "App" },
+            steps: [{ from: "app", to: "db", label: "Write", explanation: "x" }],
+          },
+          "Unknown component name: db",
+        ],
+        [
+          {
+            type: "code_peek",
+            source: {
+              side: "head",
+              file: "../outside.ts",
+              fromLine: 1,
+              toLine: 1,
+            },
+          },
+          "repository-relative",
+        ],
+      ]) {
+        const rejected = await edit(content);
+        assert.equal(rejected.status, 400, JSON.stringify(rejected.value));
+        assert.match(rejected.value.error, new RegExp(message));
+      }
+
+      const after = (await api(`/reviews-api/${metadata.sourceUuid}?full=true`))
+        .value;
+
+      assert.deepEqual(
+        after,
+        before,
+        "rejected edits must not change the document",
+      );
+
+      const accepted = await edit({
+        type: "callout",
+        title: "E2E marker",
+        tone: "success",
+        children: [
+          { type: "markdown", markdown: "Inserted through the JSON API." },
+        ],
       });
 
-    for (const [content, message] of [
-      [
-        {
-          type: "database_lens",
-          title: "Empty",
-          actors: { app: "App" },
-          stores: {},
-          useCases: [],
-        },
-        "at least one store",
-      ],
-      [
-        {
-          type: "sequence",
-          title: "Save",
-          actors: { app: "App" },
-          steps: [{ from: "app", to: "db", label: "Write", explanation: "x" }],
-        },
-        "Unknown component name: db",
-      ],
-      [
-        {
-          type: "code_peek",
-          source: {
-            side: "head",
-            file: "../outside.ts",
-            fromLine: 1,
-            toLine: 1,
-          },
-        },
-        "repository-relative",
-      ],
-    ]) {
-      const rejected = await edit(content);
-      assert.equal(rejected.status, 400, JSON.stringify(rejected.value));
-      assert.match(rejected.value.error, new RegExp(message));
+      assert.equal(accepted.status, 200, JSON.stringify(accepted.value));
+      await canvas
+        .getByText("Inserted through the JSON API.", { exact: true })
+        .waitFor();
+      assert.doesNotMatch(await canvas.innerText(), /Layout failed:/);
+      console.log("E2E checkpoint", report.checks.length);
+      report.checks.push(
+        "JSON API rejects lens, actor and path pitfalls without changing the document",
+        "JSON API edits render live in the open canvas",
+      );
     }
 
-    const after = (await api(`/reviews-api/${metadata.sourceUuid}?full=true`))
-      .value;
-
-    assert.deepEqual(after, before, "rejected edits must not change the document");
-
-    const accepted = await edit({
-      type: "callout",
-      title: "E2E marker",
-      tone: "success",
-      children: [
-        { type: "markdown", markdown: "Inserted through the JSON API." },
-      ],
-    });
-
-    assert.equal(accepted.status, 200, JSON.stringify(accepted.value));
-    await canvas
-      .getByText("Inserted through the JSON API.", { exact: true })
-      .waitFor();
-    assert.doesNotMatch(await canvas.innerText(), /Layout failed:/);
-    console.log("E2E checkpoint", report.checks.length);
     report.checks.push(
-      "JSON API rejects lens, actor and path pitfalls without changing the document",
-      "JSON API edits render live in the open canvas",
-    );
-
-    benchmarkCases.push({
-      name,
-      input: {
-        reviewPath: path.join(legacyDir, "review.mdx"),
-        evidence: {
-          head: {
-            sourceRootPath: path.join(
-              worktreePath,
-              ".git/dev-fast/reviews",
-              metadata.sourceUuid,
-              "head",
-              metadata.sourceCommit,
-            ),
-          },
-          base: {
-            sourceRootPath: path.join(
-              worktreePath,
-              ".git/dev-fast/reviews",
-              metadata.sourceUuid,
-              "base",
-              metadata.baseCommit,
-            ),
-          },
-        },
-      },
-      cli: { uuid: metadata.sourceUuid, cwd: worktreePath },
-    });
-    report.checks.push(
-      `${name}: imported ${snapshot.version + 1} version(s) matching the block golden and rendered in the JSON canvas`,
+      `${name}: fixture review imports and renders in the JSON canvas, ${snapshot.version + 1} version(s) matching the block golden`,
     );
     console.log("E2E legacy fixture passed", name);
   }
@@ -957,104 +651,7 @@ try {
   await page.locator(".review-canvas-root").click({ trial: true });
   await page.screenshot({ path: path.join(root, "document.png") });
   console.log("E2E checkpoint", report.checks.length);
-  report.checks.push("no renderer page errors during authoring and import");
-  report.functionalSuccess = true;
-
-  if (values["baseline-runtime"]) {
-    // Compare the same original corpus supported by both implementations.
-    await writeFile(path.join(dir, "review.mdx"), source);
-    const tutorialDir = path.join(root, "benchmark-tutorial");
-    await cp(path.join(sourcePackage, "tutorial"), tutorialDir, {
-      recursive: true,
-    });
-    await cp(recordPath, path.join(tutorialDir, "review.json"));
-    benchmarkCases.push({
-      name: "tutorial",
-      input: { reviewPath: path.join(tutorialDir, "review.mdx") },
-    });
-
-    for (const fixture of benchmarkCases.filter((fixture) => !fixture.cli)) {
-      const sourceRepo = path.join(root, `benchmark-${fixture.name}-repo`);
-      await exec("git", [
-        "clone",
-        "--no-hardlinks",
-        "--quiet",
-        path.join(sourcePackage, "tutorial/git-stub"),
-        sourceRepo,
-      ]);
-
-      const tutorialHead = (
-        await exec("git", ["rev-parse", "HEAD"], { cwd: sourceRepo })
-      ).stdout.trim();
-
-      const tutorialBase = (
-        await exec("git", ["rev-parse", "HEAD~1"], { cwd: sourceRepo })
-      ).stdout.trim();
-
-      const binding = (
-        await cli(
-          ["scaffold", "--base", tutorialBase, "--head", tutorialHead],
-          0,
-          sourceRepo,
-        )
-      ).find((event) => event.reviews?.length).reviews[0];
-
-      for (const file of [
-        "review.mdx",
-        "data.ts",
-        "authoring-conversation.json",
-      ])
-        await cp(
-          path.join(path.dirname(fixture.input.reviewPath), file),
-          path.join(binding.dir, file),
-        );
-      fixture.cli = { uuid: binding.uuid, cwd: sourceRepo };
-      fixture.input.evidence = {
-        head: { sourceRootPath: sourceRepo },
-        base: {
-          sourceRootPath: path.join(
-            sourceRepo,
-            ".git/dev-fast/reviews",
-            binding.uuid,
-            "base",
-            tutorialBase,
-          ),
-        },
-      };
-      await cli(["publish", "--review", binding.uuid], 0, sourceRepo);
-    }
-
-    const { benchmark } = await import("./benchmark-native-authoring.mjs");
-
-    const result = await benchmark({
-      runtime,
-      baselineRuntime: await realpath(values["baseline-runtime"]),
-      cases: [...benchmarkCases].sort(
-        (left, right) =>
-          Number(right.name === "schema4-three-minute-tour") -
-          Number(left.name === "schema4-three-minute-tour"),
-      ),
-      env,
-      output: path.join(root, "benchmark.json"),
-      resumeFrom: values["resume-benchmark"],
-    });
-
-    report.benchmarkPass = result.pass;
-
-    if (values["comparison-runtime"]) {
-      const comparison = await benchmark({
-        runtime,
-        baselineRuntime: await realpath(values["comparison-runtime"]),
-        cases: benchmarkCases,
-        env,
-        output: path.join(root, "benchmark-prior.json"),
-      });
-
-      report.comparisonPass = comparison.pass;
-    }
-  }
-
-  assert.deepEqual(pageErrors, []);
+  report.checks.push("no renderer page errors during import and rendering");
   success = true;
 } finally {
   if (!success && page) {

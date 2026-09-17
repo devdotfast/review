@@ -3,18 +3,12 @@ import type { ReviewRecord } from "@dev.fast/review-protocol";
 /**
  * How a presentation session relates to the stored review.
  *
- * `live` presents the review's own writable state. The other two present a record the
- * session must not write: a sealed historical revision, and a repair candidate that stays
- * read-only until the server promotes it.
+ * `live` presents the review's own writable state. `historical` presents a sealed
+ * revision the session must not write.
  */
 export type ReviewSessionMode =
   | { kind: "live" }
-  | { kind: "historical"; revision: string; record: ReviewRecord }
-  | {
-      kind: "repairValidation";
-      record: ReviewRecord;
-      isPromoted: () => boolean;
-    };
+  | { kind: "historical"; revision: string; record: ReviewRecord };
 
 /** Absent when the artifact is available; otherwise the reason to show the reader. */
 export interface ReviewSessionArtifacts {
@@ -34,9 +28,5 @@ export function reviewSessionModeRecord(
 
 /** True while the session must reject writes. */
 export function reviewSessionModeIsReadOnly(mode: ReviewSessionMode): boolean {
-  if (mode.kind === "live") return false;
-
-  if (mode.kind === "historical") return true;
-
-  return !mode.isPromoted();
+  return mode.kind !== "live";
 }

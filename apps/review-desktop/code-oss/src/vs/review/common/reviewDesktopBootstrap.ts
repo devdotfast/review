@@ -10,8 +10,8 @@
  * that announcement here before handing a connection to any renderer.
  */
 // Hand-maintained twin of REVIEW_DESKTOP_DISCOVERY_VERSION in
-// @dev.fast/review-protocol. Version 3: CLI-owned publish; the server
-// replaced /publish with /publish-ready.
+// @dev.fast/review-protocol. Version 3: the desktop serves prebuilt
+// revisions instead of building them.
 export const REVIEW_DESKTOP_CONNECTION_VERSION = 3;
 
 /** Main-process IPC channel the renderer asks for that endpoint on. */

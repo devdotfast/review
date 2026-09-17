@@ -47,7 +47,6 @@ import { resolveReviewDiffFiles } from "./review-diff-files";
 import { devReviewHome } from "./review-home-paths";
 import {
   ReviewBusyError,
-  assertReviewUnchanged,
   withReviewMutationLock,
 } from "./review-mutation-lock";
 import { reviewVcs } from "./review-vcs";
@@ -219,7 +218,6 @@ export async function createReviewDir(
         `${JSON.stringify(reviewPackageJson(uuid), null, 2)}\n`,
         "utf8",
       ),
-      writeFile(path.join(dir, "review-test.mjs"), reviewTestShim, "utf8"),
       writeFile(path.join(dir, ".gitignore"), reviewGitignore, "utf8"),
     ]);
     await writePrivateJsonAtomic(path.join(dir, "review.json"), review);
@@ -299,78 +297,6 @@ export async function sealReviewCandidate(
   message: string,
 ): Promise<string> {
   return withReviewMutationLock(dir, () => reviewVcs.seal(dir, message));
-}
-
-export async function updateReviewPins(
-  review: StoredReview,
-  pins: Parameters<typeof updateReviewPinsLocked>[1],
-): Promise<StoredReview> {
-  return withReviewMutationLock(review.dir, async () => {
-    await assertReviewUnchanged(review.dir, review.review);
-
-    return updateReviewPinsLocked(
-      {
-        ...review,
-        review: parseStoredReviewRecord(
-          parseJsonText(
-            await readFile(path.join(review.dir, "review.json"), "utf8"),
-          ),
-        ),
-      },
-      pins,
-    );
-  });
-}
-
-async function updateReviewPinsLocked(
-  review: StoredReview,
-  pins: {
-    baseRef: string;
-    baseCommit: string;
-    sourceCommit: string;
-    sourceIdentity: ReviewSourceIdentity;
-    sourceSession: string;
-  },
-): Promise<StoredReview> {
-  if (
-    review.review.baseRef === pins.baseRef &&
-    review.review.baseCommit === pins.baseCommit &&
-    review.review.sourceCommit === pins.sourceCommit &&
-    review.review.sourceSession === pins.sourceSession &&
-    review.review.sourceIdentity?.kind === pins.sourceIdentity.kind &&
-    review.review.sourceIdentity.name === pins.sourceIdentity.name
-  ) {
-    return review;
-  }
-
-  const now = new Date().toISOString();
-
-  const sourceAttribution = parseAuthoringSessionKey(pins.sourceSession)
-    ? {
-        agentSessions: {
-          ...review.review.agentSessions,
-          [pins.sourceSession]: {
-            roles: ["updater" as const],
-            firstSeenAt:
-              review.review.agentSessions?.[pins.sourceSession]?.firstSeenAt ??
-              now,
-            lastSeenAt: now,
-          },
-        },
-      }
-    : {};
-
-  const refreshed: StoredReview = {
-    ...review,
-    review: { ...review.review, ...pins, ...sourceAttribution },
-  };
-
-  await writePrivateJsonAtomic(
-    path.join(refreshed.dir, "review.json"),
-    refreshed.review,
-  );
-
-  return refreshed;
 }
 
 export function createReviewUuid(): string {
@@ -766,7 +692,7 @@ export async function readStoredReview(
         return {
           error: reviewHomeError(dir, jsonObject(value), {
             code: "REPAIR_REQUIRED",
-            message: `${errorMessage(error)} Run \`review repair --review ${path.basename(dir)}\` to regenerate this Review's artifacts.`,
+            message: `${errorMessage(error)} This review was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Review skill.`,
           }),
         };
       }
@@ -981,7 +907,6 @@ function reviewPackageJson(uuid: string) {
     name: `review-${uuid}`,
     private: true,
     type: "module",
-    scripts: { test: "node review-test.mjs" },
   };
 }
 
@@ -993,25 +918,5 @@ const reviewGitignore = [
   "review.db",
   "review.db-wal",
   "review.db-shm",
-  "",
-].join("\n");
-
-const reviewTestShim = [
-  'import { spawn } from "node:child_process";',
-  "",
-  "const rawCommand = process.env.DEV_FAST_REVIEW_INTERNAL_COMMAND;",
-  "if (!rawCommand) {",
-  '  console.error("DEV_FAST_REVIEW_INTERNAL_COMMAND is required.");',
-  "  process.exitCode = 1;",
-  "} else {",
-  "  const command = JSON.parse(rawCommand);",
-  '  const child = spawn(command[0], [...command.slice(1), "internal-test", ...process.argv.slice(2)], {',
-  '    stdio: "inherit",',
-  "  });",
-  '  child.once("error", (error) => { console.error(error); process.exitCode = 1; });',
-  '  child.once("exit", (code, signal) => {',
-  "    process.exitCode = code ?? (signal ? 1 : 0);",
-  "  });",
-  "}",
   "",
 ].join("\n");

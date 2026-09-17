@@ -99,50 +99,17 @@ export function callStackConnectorPrefix(
   return `${prefix}${continuesAt(depth - 1) ? "├─ " : "└─ "}`;
 }
 
-// The line numbers a unified patch deletes (base numbering) and adds (head
-// numbering). Header lines before the first hunk are ignored.
+// The line numbers a diff deletes (base numbering) and adds (head numbering).
 export interface CallStackChangedLines {
   deleted: ReadonlySet<number>;
   added: ReadonlySet<number>;
-}
-
-export function patchChangedLines(patch: string): CallStackChangedLines {
-  const deleted = new Set<number>();
-  const added = new Set<number>();
-  let oldLine = 0;
-  let newLine = 0;
-
-  for (const line of patch.split("\n")) {
-    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-
-    if (hunk) {
-      oldLine = Number(hunk[1]);
-      newLine = Number(hunk[2]);
-      continue;
-    }
-
-    if (oldLine === 0 && newLine === 0) continue;
-
-    if (line.startsWith("-")) {
-      deleted.add(oldLine);
-      oldLine += 1;
-    } else if (line.startsWith("+")) {
-      added.add(newLine);
-      newLine += 1;
-    } else if (line.startsWith(" ")) {
-      oldLine += 1;
-      newLine += 1;
-    }
-  }
-
-  return { deleted, added };
 }
 
 // Evidence rule: a "-" row is a claim of removal and must anchor a range
 // that the change actually deletes lines from; a "+" row must anchor a
 // range with added lines. This is the check that makes the markers honest —
 // a frame listed on one side for contrast, over unchanged code, fails
-// publish. Context rows carry no claim and stay free.
+// validation. Context rows carry no claim and stay free.
 export function callStackEvidenceErrors(
   rows: readonly CallStackDiffRow[],
   changedLines: (

@@ -1,11 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import {
-  currentHead,
-  devfastPrepareCommands,
-  resolveRevision,
-} from "@dev.fast/local-vcs";
+import { currentHead, resolveRevision } from "@dev.fast/local-vcs";
 import { parseJsonText } from "@dev.fast/review-protocol";
 
 import { type ReviewCheckoutRole } from "./review-checkout-paths";
@@ -14,13 +10,6 @@ import {
   type StoredReviewRecord,
   safeParseStoredReviewRecord,
 } from "./review-home";
-import {
-  markerMatches,
-  prepareReviewPinnedCheckout,
-  reviewPrepareCommandsHash,
-  reviewPrepareMarkerPath,
-  spawnReviewPrepareBackground,
-} from "./review-prepare";
 
 export interface PreparedReviewSourceTarget {
   ref: string;
@@ -38,7 +27,6 @@ export interface ReviewSourceTarget {
 
 export async function resolveReviewSourceTarget(input: {
   reviewRootPath: string;
-  warning?: (message: string) => void;
 }): Promise<ReviewSourceTarget> {
   const review = readReviewStoreRecord(input.reviewRootPath);
   const repoRoot = resolveReviewRepoRootFromStore(input.reviewRootPath, review);
@@ -63,18 +51,11 @@ export async function resolveReviewSourceTarget(input: {
     commit: headRef,
     reviewUuid: review.uuid,
     role: "head",
-    warning: input.warning,
   });
 
   const preparedBase =
     baseRef && baseRef !== headRef
-      ? await prepareReviewSourceTargetForRef({
-          reviewRootPath: input.reviewRootPath,
-          repoRoot,
-          ref: baseRef,
-          role: "base",
-          warning: input.warning,
-        })
+      ? await preparedBaseTarget(repoRoot, review.uuid, baseRef)
       : baseRef === headRef
         ? { ref: headRef, sourceRootPath }
         : undefined;
@@ -89,39 +70,30 @@ export async function resolveReviewSourceTarget(input: {
   };
 }
 
-export async function prepareReviewSourceTargetForRef(input: {
-  reviewRootPath: string;
-  repoRoot: string;
-  ref: string;
-  role?: ReviewCheckoutRole;
-  warning?: (message: string) => void;
-}): Promise<PreparedReviewSourceTarget> {
-  const ref = await resolveRevisionCommit(input.repoRoot, input.ref);
+async function preparedBaseTarget(
+  repoRoot: string,
+  reviewUuid: string,
+  baseRef: string,
+): Promise<PreparedReviewSourceTarget> {
+  const ref = await resolveRevisionCommit(repoRoot, baseRef);
 
-  const sourceRootPath = await ensurePinnedReviewWorktreeAtCommit({
-    repoRoot: input.repoRoot,
-    commit: ref,
-    reviewUuid: readReviewStoreRecord(input.reviewRootPath).uuid,
-    role: input.role ?? "base",
-    warning: input.warning,
-  });
-
-  return { ref, sourceRootPath };
+  return {
+    ref,
+    sourceRootPath: await ensurePinnedReviewWorktreeAtCommit({
+      repoRoot,
+      commit: ref,
+      reviewUuid,
+      role: "base",
+    }),
+  };
 }
 
-export interface EnsurePinnedReviewWorktreeInput {
+async function ensurePinnedReviewWorktreeAtCommit(input: {
   repoRoot: string;
   commit: string;
   reviewUuid: string;
   role: ReviewCheckoutRole;
-  warning?: (message: string) => void;
-  background?: boolean;
-  cliEntryPath?: string;
-}
-
-export async function ensurePinnedReviewWorktreeAtCommit(
-  input: EnsurePinnedReviewWorktreeInput,
-): Promise<string> {
+}): Promise<string> {
   const sourceRootPath = await ensureReviewPinnedCheckout({
     rootPath: input.repoRoot,
     ref: input.commit,
@@ -135,46 +107,10 @@ export async function ensurePinnedReviewWorktreeAtCommit(
     );
   }
 
-  const commands = await devfastPrepareCommands(input.repoRoot).catch(
-    (): string[] => [],
-  );
-
-  if (commands.length === 0) {
-    return sourceRootPath;
-  }
-
-  const markerPath = reviewPrepareMarkerPath(sourceRootPath);
-  const expectedHash = reviewPrepareCommandsHash(commands);
-
-  const alreadyPrepared = await markerMatches(markerPath, expectedHash).catch(
-    () => false,
-  );
-
-  if (alreadyPrepared) {
-    return sourceRootPath;
-  }
-
-  if (input.background !== false) {
-    spawnReviewPrepareBackground({
-      checkoutPath: sourceRootPath,
-      commit: input.commit,
-      cliEntryPath: input.cliEntryPath,
-    });
-
-    return sourceRootPath;
-  }
-
-  await prepareReviewPinnedCheckout({
-    checkoutPath: sourceRootPath,
-    commit: input.commit,
-    commands,
-    warning: input.warning,
-  });
-
   return sourceRootPath;
 }
 
-export async function resolveDefaultReviewHeadRef(
+async function resolveDefaultReviewHeadRef(
   repoRoot: string,
 ): Promise<string | undefined> {
   return currentHead(repoRoot).then((head) => head?.commit);
@@ -198,7 +134,7 @@ export function resolveReviewRepoRootFromStore(
 
   if (!fs.existsSync(resolvedWorktreePath)) {
     throw new Error(
-      `Review worktree ${resolvedWorktreePath} no longer exists; run review rebind from the repo checkout or scaffold a new review.`,
+      `Review worktree ${resolvedWorktreePath} no longer exists.`,
     );
   }
 
@@ -221,9 +157,7 @@ export function readReviewStoreRecord(
 
     return parsed.data;
   } catch {
-    throw new Error(
-      `Review store ${storePath} has no readable review.json; re-scaffold the review.`,
-    );
+    throw new Error(`Review store ${storePath} has no readable review.json.`);
   }
 }
 

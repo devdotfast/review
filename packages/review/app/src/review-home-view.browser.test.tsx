@@ -383,7 +383,8 @@ describe("ReviewHome", () => {
       worktreePath: "/repo/old",
       lastPublishedAt: null,
       code: "REPAIR_REQUIRED",
-      message: `Sealed document conversion failed. Run \`review repair --review ${uuid(2)}\` to regenerate this Review's artifacts.`,
+      message:
+        "This review was published with the removed MDX toolchain and its stored files are damaged, so it cannot be imported. Delete it from Home and recreate it with the Review skill.",
     };
 
     await act(async () =>
@@ -405,7 +406,9 @@ describe("ReviewHome", () => {
         )
         ?.click(),
     );
-    expect(container.textContent).toContain("This review needs manual repair.");
+    expect(container.textContent).toContain(
+      "Delete it from Home and recreate it with the Review skill.",
+    );
     const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -416,9 +419,13 @@ describe("ReviewHome", () => {
         .querySelector<HTMLButtonElement>('[aria-label="Copy prompt"]')
         ?.click(),
     );
-    expect(writeText.mock.calls[0]?.[0]).toContain(
-      `review repair --review ${uuid(2)}`,
+    const copiedPrompt = writeText.mock.calls[0]?.[0];
+
+    expect(copiedPrompt).toContain(
+      "Delete this review from Home and recreate it with the Review skill; it cannot be repaired.",
     );
+    expect(copiedPrompt).not.toContain("Do not use --force or delete data");
+    expect(copiedPrompt).not.toContain("opens afterward");
     expect(
       container.querySelector('[aria-label="Prompt copied"]'),
     ).not.toBeNull();

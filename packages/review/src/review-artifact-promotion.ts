@@ -50,7 +50,7 @@ export async function promoteReviewArtifactFiles(input: {
   });
 }
 
-export async function commitReviewArtifactPromotion(input: {
+async function commitReviewArtifactPromotion(input: {
   reviewDir: string;
   stagingDir: string;
 }): Promise<void> {
@@ -89,7 +89,7 @@ export async function commitReviewArtifactPromotion(input: {
   await rm(input.stagingDir, { recursive: true, force: true });
 }
 
-export async function rollbackReviewArtifactPromotion(input: {
+async function rollbackReviewArtifactPromotion(input: {
   reviewDir: string;
   stagingDir: string;
   replacements: Array<{ name: string; hadOriginal: boolean }>;

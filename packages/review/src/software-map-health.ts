@@ -185,7 +185,7 @@ export async function loadPublishSoftwareMaps(input: {
     }
 
     const check = await span(
-      `map publish: check ${role} map`,
+      `map check: ${role} map`,
       () =>
         checkSoftwareMapSource({
           repoRootPath: input.repoRootPath,

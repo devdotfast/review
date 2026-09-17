@@ -1,99 +1,9 @@
-import { mergeBase, resolveRevision } from "@dev.fast/local-vcs";
-
-import {
-  actionableReviewsForCheckout,
-  isPositionalChangeIdentity,
-} from "./review-change-scope";
+import { actionableReviewsForCheckout } from "./review-change-scope";
 import {
   type StoredReview,
   findScopedReview,
   listReviews,
 } from "./review-home";
-
-export interface PreparedReviewPublish {
-  review: StoredReview;
-  uuid: string;
-  sourceCommit: string;
-  sourceBranch: string;
-  warnings?: string[];
-}
-
-export async function prepareReviewPublish(input: {
-  cwd: string;
-  reviewUuid?: string;
-  onReviewBound?: (uuid: string) => void | Promise<void>;
-}): Promise<PreparedReviewPublish> {
-  const review = await resolvePublishReview(input.cwd, input.reviewUuid);
-  await input.onReviewBound?.(review.review.uuid);
-  const sourceBranch = requireSourceBranch(review);
-  // Publish presents the stored pins; it never moves them, and the checkout's
-  // position is irrelevant: sessions read the pinned-head worktree, not the
-  // working tree. `review scaffold --update` is the only re-pin action.
-  const sourceCommit = review.review.sourceCommit;
-
-  if (!sourceCommit) {
-    throw new Error(
-      `Review ${review.review.uuid} is not bound to a source commit. Run \`review scaffold --update\`.`,
-    );
-  }
-
-  const baseExists = await resolveRevision(
-    review.review.worktreePath,
-    review.review.baseCommit,
-  );
-
-  if (!baseExists) {
-    throw new Error(
-      `Review base commit no longer exists: ${review.review.baseCommit}. Run \`review scaffold --update\` and publish again.`,
-    );
-  }
-
-  const warnings: string[] = [];
-
-  if (await pinsAreBehind(review, sourceCommit, sourceBranch)) {
-    warnings.push(
-      `Pinned commits are behind ${sourceBranch}. Run \`review scaffold --update\` and publish again to present the latest commits.`,
-    );
-  }
-
-  const prepared: PreparedReviewPublish = {
-    review,
-    uuid: review.review.uuid,
-    sourceCommit,
-    sourceBranch,
-  };
-
-  if (warnings.length > 0) prepared.warnings = warnings;
-
-  return prepared;
-}
-
-async function pinsAreBehind(
-  review: StoredReview,
-  sourceCommit: string,
-  sourceBranch: string,
-): Promise<boolean> {
-  // A positional identity ("HEAD"/"@") names the checkout, not a branch;
-  // comparing pins against it would warn whenever the user stands elsewhere.
-  if (isPositionalChangeIdentity(sourceBranch)) return false;
-  const rootPath = review.review.worktreePath;
-
-  const branchHead = await resolveRevision(rootPath, sourceBranch).catch(
-    () => null,
-  );
-
-  if (!branchHead || branchHead.commit === sourceCommit) return false;
-
-  // A pinned commit ahead of the branch tip is not stale; the pins are stale
-  // only when the tip is not contained in the pinned commit.
-  const ancestor = await mergeBase({
-    rootPath,
-    baseRef: branchHead.commit,
-    headRef: sourceCommit,
-  }).catch(() => null);
-
-  return ancestor?.commit !== branchHead.commit;
-}
 
 export async function resolvePublishReview(
   cwd: string,
@@ -132,7 +42,7 @@ export async function resolvePublishReview(
 
   if (scoped.length === 0) {
     throw new Error(
-      "No publishable review found for the checked-out change. Scaffold one, or pass --review <uuid>.",
+      "No active review found for the checked-out change. Pass --review <uuid>.",
     );
   }
 
@@ -141,14 +51,4 @@ export async function resolvePublishReview(
   }
 
   return scoped[0]!;
-}
-
-function requireSourceBranch(review: StoredReview): string {
-  if (!review.review.sourceIdentity) {
-    throw new Error(
-      `Review ${review.review.uuid} has no pinned source branch.`,
-    );
-  }
-
-  return review.review.sourceIdentity.name;
 }

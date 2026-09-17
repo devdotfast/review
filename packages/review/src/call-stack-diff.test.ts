@@ -11,8 +11,8 @@ import {
   callStackConnectorPrefix,
   callStackEvidenceErrors,
   diffCallStacks,
-  patchChangedLines,
 } from "./call-stack-diff";
+import { patchChangedLines } from "./call-stack-diff-test-utils";
 import { callStackFrames } from "./call-stack-frames";
 
 interface AnchorPeekProps {

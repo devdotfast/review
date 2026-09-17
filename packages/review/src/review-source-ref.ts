@@ -31,15 +31,6 @@ export async function pinReviewSourceHeadRef(
   await updateRef(vcs.rootPath, targetRef, commit);
 }
 
-export async function deleteReviewSourceHeadRef(
-  cwd: string,
-  targetRef: string,
-  runGit: typeof git = git,
-): Promise<void> {
-  assertReviewSourceHeadRef(targetRef);
-  await runGit(cwd, ["update-ref", "-d", targetRef]);
-}
-
 async function updateRef(
   rootPath: string,
   targetRef: string,

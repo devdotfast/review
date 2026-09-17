@@ -1,15 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  type JsonObject,
   type JsonValue,
   type ReviewErrorResponse,
   isJsonObject,
-  jsonObject,
-  parseJsonText,
 } from "@dev.fast/review-protocol";
 import { withFileLock } from "@dev.fast/trace-core";
 
@@ -17,8 +13,8 @@ import type { StoredReviewRecord } from "./review-home";
 
 const heldLocks = new AsyncLocalStorage<ReadonlySet<string>>();
 
-/** Pins, lifecycle and presentation pointers. A publication or repair prepared
- * against these values may only be written while they still hold. */
+/** Pins, lifecycle and presentation pointers. A mount prepared against these
+ * values may only be written while they still hold. */
 export const GUARDED_REVIEW_FIELDS = [
   "sourceCommit",
   "baseCommit",
@@ -61,17 +57,11 @@ export function reviewBusyResponse(
 export function reviewMutationFingerprint<
   Review extends Pick<StoredReviewRecord, GuardedReviewField>,
 >(record: Review): string {
-  return fingerprintGuardedValues(record);
-}
-
-function fingerprintGuardedValues(
-  values: JsonObject | Partial<Pick<StoredReviewRecord, GuardedReviewField>>,
-): string {
   const digest = createHash("sha256");
 
   for (const field of GUARDED_REVIEW_FIELDS) {
     digest.update(`${field}\0`);
-    digest.update(field in values ? stableJson(values[field]) : "\0absent");
+    digest.update(stableJson(record[field]));
     digest.update("\0");
   }
 
@@ -91,24 +81,6 @@ function stableJson(value: JsonValue | undefined): string {
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
     .join(",")}}`;
-}
-
-/** Call under the mutation lock before writing a candidate prepared earlier. */
-export async function assertReviewUnchanged(
-  reviewDir: string,
-  expected: Pick<StoredReviewRecord, GuardedReviewField>,
-): Promise<void> {
-  const actual = jsonObject(
-    parseJsonText(await readFile(path.join(reviewDir, "review.json"), "utf8")),
-  );
-
-  if (
-    fingerprintGuardedValues(actual ?? {}) !==
-    reviewMutationFingerprint(expected)
-  )
-    throw new Error(
-      "Review changed while preparing publication; rerun the publish command.",
-    );
 }
 
 /** Shared by the desktop and migration CLI; stored outside the sealed tree. */

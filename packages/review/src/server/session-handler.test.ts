@@ -90,7 +90,7 @@ describe("createReviewSessionHandler", () => {
     }
   });
 
-  it("keeps repair validation and historical artifact states independent and read-only", async () => {
+  it("keeps a historical session read-only and serves its map", async () => {
     const rootPath = await tempDir("review-recovery-handler-");
     const reviewPath = path.join(rootPath, "review.mdx");
     await writeFile(reviewPath, "# Review");
@@ -103,98 +103,77 @@ describe("createReviewSessionHandler", () => {
         baseCommit: "b".repeat(40),
       }),
     );
-    let promoted = false;
 
-    for (const mode of [
-      {
-        kind: "repairValidation",
-        record: readOnlyRecord,
-        isPromoted: () => promoted,
-      },
-      { kind: "historical", revision: "c".repeat(40), record: readOnlyRecord },
-    ] satisfies ReviewSessionMode[]) {
-      const handler = await createReviewSessionHandler({
+    const mode: ReviewSessionMode = {
+      kind: "historical",
+      revision: "c".repeat(40),
+      record: readOnlyRecord,
+    };
+
+    const handler = await createReviewSessionHandler({
+      rootPath,
+      toolingRoot: rootPath,
+      reviewPath,
+      softwareMapRootPath: rootPath,
+      routePath: "/",
+      token: "secret",
+      mode,
+      reviewUuid: "11111111-1111-4111-8111-111111111111",
+      session: {
         rootPath,
-        toolingRoot: rootPath,
+        baseRef: "HEAD",
+        appUrl: "http://127.0.0.1:5570",
         reviewPath,
-        softwareMapRootPath: rootPath,
-        routePath: "/",
-        token: "secret",
-        mode,
-        reviewUuid: "11111111-1111-4111-8111-111111111111",
-        session: {
-          rootPath,
-          baseRef: "HEAD",
-          appUrl: "http://127.0.0.1:5570",
-          reviewPath,
-          startedAt: Date.now(),
+        startedAt: Date.now(),
+      },
+    });
+
+    const request = (route: string, method = "GET") =>
+      handler.handle(
+        new Request(`http://127.0.0.1:5570/__progressive-review/${route}`, {
+          method,
+          headers: { "x-review-token": "secret" },
+        }),
+      );
+
+    try {
+      const doc = await request("document");
+      expect(doc.status).toBe(409);
+      const docPayload = await doc.json();
+      expect(docPayload).toMatchObject({
+        error: "This older revision is unavailable in this version of Review",
+        detail: {
+          code: "historical_revision_unavailable",
+          reviewUuid: "11111111-1111-4111-8111-111111111111",
         },
       });
+      expect(ReviewDocumentResponseSchema.safeParse(docPayload).success).toBe(
+        true,
+      );
+      expect((await request("software-map")).status).toBe(200);
 
-      const request = (route: string, method = "GET") =>
-        handler.handle(
-          new Request(`http://127.0.0.1:5570/__progressive-review/${route}`, {
-            method,
-            headers: { "x-review-token": "secret" },
-          }),
-        );
-
-      try {
-        const doc = await request("document");
-        expect(doc.status).toBe(409);
-        const docPayload = await doc.json();
-        expect(docPayload).toMatchObject(
-          mode.kind === "historical"
-            ? {
-                error:
-                  "This older revision is unavailable in this version of Review",
-                detail: {
-                  code: "historical_revision_unavailable",
-                  reviewUuid: "11111111-1111-4111-8111-111111111111",
-                },
-              }
-            : { detail: { code: "needs_republish", mapStale: false } },
-        );
-        expect(
-          mode.kind !== "historical" ||
-            ReviewDocumentResponseSchema.safeParse(docPayload).success,
-        ).toBe(true);
-        expect((await request("software-map")).status).toBe(200);
-
-        for (const route of [
-          "software-map/resolved-data",
-          "diff-files",
-          "telemetry/tab",
-          "telemetry/event",
-          "telemetry/bug-report",
-        ]) {
-          expect((await request(route, "POST")).status).not.toBe(409);
-        }
-
-        expect((await request("telemetry/unknown", "POST")).status).toBe(404);
-
-        for (const [route, method] of [
-          ["software-map/artifacts/refresh", "POST"],
-        ]) {
-          expect((await request(route!, method)).status).toBe(409);
-        }
-
-        const dismissed = await request("dismiss", "POST");
-        expect(dismissed.status).toBe(409);
-        expect(await dismissed.json()).toMatchObject({
-          code:
-            mode.kind === "historical"
-              ? "historical_revision"
-              : "review_read_only",
-        });
-        promoted = mode.kind === "repairValidation";
-        expect(
-          (await request("software-map/artifacts/refresh", "POST")).status ===
-            409,
-        ).toBe(mode.kind === "historical");
-      } finally {
-        await handler.close();
+      for (const route of [
+        "software-map/resolved-data",
+        "diff-files",
+        "telemetry/tab",
+        "telemetry/event",
+        "telemetry/bug-report",
+      ]) {
+        expect((await request(route, "POST")).status).not.toBe(409);
       }
+
+      expect((await request("telemetry/unknown", "POST")).status).toBe(404);
+      expect(
+        (await request("software-map/artifacts/refresh", "POST")).status,
+      ).toBe(409);
+
+      const dismissed = await request("dismiss", "POST");
+      expect(dismissed.status).toBe(409);
+      expect(await dismissed.json()).toMatchObject({
+        code: "historical_revision",
+      });
+    } finally {
+      await handler.close();
     }
   });
 

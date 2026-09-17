@@ -34,7 +34,7 @@ export const PROMPT_VARIANTS: Record<
     opencode:
       "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
     generic:
-      "Use the `review` CLI to review my current branch against up to date main: run `review scaffold`, write the review, then `review publish`.",
+      "Use the dev-review skill to review my current branch against up to date main: register the repository, resolve pins, create the review, then edit it through the Review MCP tools or `review api`.",
   },
   architecture: {
     claude:
@@ -44,7 +44,7 @@ export const PROMPT_VARIANTS: Record<
     opencode:
       "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
     generic:
-      "Use the `review` CLI to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it: run `review scaffold` with the same commit as base and head, write the review, then `review publish`.",
+      "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it: register the repository, resolve pins, create the review, then edit it through the Review MCP tools or `review api`. Open it in Review when you're done.",
   },
 };
 

@@ -41,8 +41,6 @@ import {
   ReviewListResponseSchema,
   type ReviewOpenResponse,
   ReviewOpenResponseSchema,
-  type ReviewPublishReadyRequest,
-  ReviewPublishReadyRequestSchema,
   type ReviewSessionResponse,
   ReviewSessionResponseSchema,
   type ReviewStackResponse,
@@ -134,12 +132,6 @@ export function parseReviewCliInstallApplyResponse(
   value: JsonValue,
 ): ReviewCliInstallApplyResponse {
   return parseZod(ReviewCliInstallApplyResponseSchema, value);
-}
-
-export function parseReviewPublishReadyRequest(
-  value: JsonValue,
-): ReviewPublishReadyRequest {
-  return parseZod(ReviewPublishReadyRequestSchema, value);
 }
 
 export function parseReviewOpenResponse(value: JsonValue): ReviewOpenResponse {

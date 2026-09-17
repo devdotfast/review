@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, expect, it, vi } from "vitest";
@@ -12,7 +11,6 @@ import {
   ReviewBusyError,
   withReviewMutationLock,
 } from "./review-mutation-lock";
-import { runReviewPublish } from "./review-publish";
 import { createGlobalReviewServer } from "./server/desktop-server";
 import { createReviewSessionHandler } from "./server/session-handler";
 
@@ -25,7 +23,7 @@ afterEach(async () => {
   );
 });
 
-it("reports loader, open, and CLI contention as busy and allows migration after release", async () => {
+it("reports loader and open contention as busy and allows migration after release", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "review-busy-read-"));
   roots.push(home);
   vi.stubEnv("DEV_REVIEW_HOME", home);
@@ -82,16 +80,11 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
   });
 
   await entered.promise;
-  const stdout = new PassThrough();
-  let output = "";
-  stdout.on("data", (chunk) => {
-    output += String(chunk);
-  });
 
   try {
     await server.listen();
 
-    const [loaded, response, exitCode] = await Promise.all([
+    const [loaded, response] = await Promise.all([
       readStoredReview(review.dir),
       fetch(`${server.url}/reviews/${review.review.uuid}/open`, {
         method: "POST",
@@ -100,12 +93,6 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
           "content-type": "application/json",
         },
         body: "{}",
-      }),
-      runReviewPublish({
-        cwd: root,
-        reviewUuid: review.review.uuid,
-        json: true,
-        stdout,
       }),
     ]);
 
@@ -124,9 +111,6 @@ it("reports loader, open, and CLI contention as busy and allows migration after 
       retryable: true,
     });
 
-    expect(exitCode).toBe(1);
-    expect(output).toContain("Retry after its current operation completes");
-    expect(output).not.toContain("review repair");
     expect(await readFile(recordPath, "utf8")).toBe(recordBytes);
   } finally {
     release.resolve();

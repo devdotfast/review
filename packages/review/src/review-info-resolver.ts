@@ -52,7 +52,7 @@ export async function resolveReviewInfo(
   return reviewInfoEvent(reviews);
 }
 
-export async function reviewInfoEvent(
+async function reviewInfoEvent(
   reviews: readonly StoredReview[],
 ): Promise<ReviewInfoEvent> {
   return {

@@ -28,7 +28,6 @@ import {
 } from "./agent-session-ref";
 import { resolvePublishReview } from "./publish-preparation";
 import { touchReviewAgentSession } from "./review-home";
-import { runReviewMapPublish } from "./review-map-publish";
 import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
 import { resolveReviewRoot } from "./runtime";
 import {
@@ -125,17 +124,6 @@ export async function runSoftwareMapCli(
     });
   }
 
-  if (command === "publish") {
-    return runReviewMapPublish({
-      cwd: input.cwd,
-      reviewUuid: parsed.review,
-      json: parsed.json,
-      stdout: input.stdout,
-      stderr: input.stderr,
-      env: input.env,
-    });
-  }
-
   if (command === "prune") {
     return pruneSoftwareMapNotes({ ...output, rootPath: input.cwd });
   }
@@ -197,7 +185,6 @@ function softwareMapCliHelp() {
   return [
     "Usage: review map open <rev> [--force]",
     "       review map check [<rev>] [--review <uuid>]",
-    "       review map publish [--review <uuid>]",
     "       review map prune",
     "       review map push [--remote <name>]",
     "       review map fetch [--remote <name>]",
@@ -208,7 +195,6 @@ function softwareMapCliHelp() {
     "The editable file is a scratch buffer — a commit-addressed working copy of one commit's note at $GIT_COMMON_DIR/dev-fast/scratch/<commit>/software-map.ts, hydrated from a note and disposable at any time.",
     "Use review map open <rev> to hydrate <rev>'s scratch: from <rev>'s own note when it has one, else seeded from the nearest annotated first-parent ancestor's note (its provenance line says which diff to apply), else a schema stub. --force discards unflushed scratch edits.",
     "Use review map check [<rev>] [--review <uuid>] to validate the scratch strictly; on success it SAVES the scratch to <rev>'s note. Without <rev> it targets the selected review's head commit.",
-    "Use review map publish to publish the saved base and head maps to Review Desktop.",
     "Use review map prune to drop notes on commits that are gone or unreachable (jj working copies are kept), then sweep fully-flushed scratch buffers (dirty or note-less scratches are kept).",
     "Use review map push / fetch to share map notes with teammates. The remote defaults to devFast.notesRemote, then origin.",
     "",
@@ -238,9 +224,7 @@ export function parseSoftwareMapCliArgs(
   inputArgs: readonly string[],
 ): ParsedSoftwareMapCliArgs {
   const args = inputArgs[0] === "--" ? inputArgs.slice(1) : [...inputArgs];
-  const rawCommand = args[0] ?? "check";
-  // `present` is an alias of `publish`.
-  const command = rawCommand === "present" ? "publish" : rawCommand;
+  const command = args[0] ?? "check";
 
   if (command === "--help" || command === "-h" || command === "help") {
     return {
@@ -337,8 +321,8 @@ function softwareMapCommandModel(commandName: string): Command {
     .addOption(new Option("--base <ref>").hideHelp())
     .addOption(new Option("--head <ref>").hideHelp())
     .addOption(new Option("--pr <number-or-url>").hideHelp())
-    // Every verb accepts --json, not just publish. Unknown flags stay a hard
-    // error below, so `--jsn` still fails.
+    // Every verb accepts --json. Unknown flags stay a hard error below, so
+    // `--jsn` still fails.
     .addOption(new Option("--json").hideHelp());
 
   if (commandName === "open") {
@@ -349,10 +333,6 @@ function softwareMapCommandModel(commandName: string): Command {
     return command
       .addArgument(new Argument("[rev]"))
       .addOption(new Option("--review <uuid>"));
-  }
-
-  if (commandName === "publish") {
-    return command.addOption(new Option("--review <uuid>"));
   }
 
   if (
@@ -564,7 +544,7 @@ async function checkSoftwareMapScratch(
 
   // The shared check core validates the canonicalized form — the exact bytes
   // the flush publishes — so check-validated bytes and flushed bytes stay the
-  // same bytes. `review publish` runs this same function as its map gate.
+  // same bytes.
   const check = await checkSoftwareMapSource({
     repoRootPath,
     commit,

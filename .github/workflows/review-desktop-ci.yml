@@ -93,7 +93,7 @@ jobs:
           echo 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev
+            libx11-dev libxkbfile-dev libkrb5-dev libsecret-1-dev xvfb python3
 
       - name: Install Playwright Chromium system dependencies
         run: pnpm --filter @dev.fast/review exec playwright install-deps chromium
@@ -165,6 +165,22 @@ jobs:
 
       - name: Check repository quality
         run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test
+
+      - name: Desktop language services E2E
+        run: xvfb-run -a pnpm --filter @dev.fast/review-desktop test:e2e:lsp --keep
+
+      - name: Upload Desktop language services diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-lsp-diagnostics
+          path: |
+            /tmp/review-lsp-*/report.json
+            /tmp/review-lsp-*/*.png
+            /tmp/review-lsp-*/failure-dom.txt
+            /tmp/review-lsp-*/app.log
+            /tmp/review-lsp-*/profile/logs
+          if-no-files-found: ignore
 
       - name: Upload browser test diagnostics
         if: failure()

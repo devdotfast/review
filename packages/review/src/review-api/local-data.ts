@@ -99,8 +99,21 @@ interface RepositoryVcs {
   vcs?: LocalVcs;
 }
 
-/** Local implementation of the host's source/resource boundary. No client gets a filesystem path. */
+/** Local source/resource boundary, including Desktop-only local language context. */
 export class LocalReviewData {
+  /** Desktop language services borrow the registered checkout, never create one. */
+  async languageContext(
+    repositoryId: string,
+  ): Promise<{ rootPath: string | null }> {
+    const rootPath = this.store.repositoryPath(repositoryId);
+    const resolved = await realpath(rootPath).catch(() => null);
+
+    if (!resolved) return { rootPath: null };
+    const vcs = await detectLocalVcs(resolved);
+
+    return { rootPath: vcs ? resolved : null };
+  }
+
   // A commit's tree never changes, so one listing serves every folder expansion.
   private readonly trackedFiles = new Map<string, Promise<string[]>>();
 

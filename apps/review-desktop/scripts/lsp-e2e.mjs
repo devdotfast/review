@@ -1,0 +1,1051 @@
+/** Real Desktop -> extension host -> language server regression gate.
+ * Run after app:build: node scripts/lsp-e2e.mjs [--app /path/Review.app] [--keep]
+ * Linux CI: xvfb-run -a node scripts/lsp-e2e.mjs
+ */
+import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { createServer } from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { parseArgs, promisify } from "node:util";
+
+import { chromium } from "playwright";
+
+const exec = promisify(execFile);
+
+const appRoot = path.resolve(import.meta.dirname, "..");
+
+const workspace = path.resolve(appRoot, "../..");
+
+const codeRoot = path.join(appRoot, "code-oss");
+
+const { values } = parseArgs({
+  options: { app: { type: "string" }, keep: { type: "boolean" } },
+});
+
+const root = await realpath(
+  await mkdtemp(
+    path.join(
+      process.platform === "darwin" ? "/tmp" : os.tmpdir(),
+      "review-lsp-",
+    ),
+  ),
+);
+
+const home = path.join(root, "home");
+
+const profile = path.join(root, "profile");
+
+const extension = path.join(root, "probe");
+
+const env = {
+  ...process.env,
+  DEV_REVIEW_HOME: home,
+  DEV_REVIEW_IMPORT_FROM: "none",
+  DEV_FAST_REVIEW_TELEMETRY_DISABLED: "1",
+  REVIEW_LSP_E2E_ROOT: root,
+};
+
+for (const key of [
+  "NODE_OPTIONS",
+  "DEV_FAST_AGENT_SESSION",
+  "CODEX_THREAD_ID",
+  "DEV_FAST_REVIEW_TOOLING_ROOT",
+  "DEV_FAST_REVIEW_SERVER_ENTRY",
+])
+  delete env[key];
+
+await mkdir(path.join(profile, "User"), { recursive: true });
+
+await mkdir(extension);
+
+await writeFile(
+  path.join(profile, "User/settings.json"),
+  JSON.stringify({
+    "security.workspace.trust.enabled": false,
+    "telemetry.telemetryLevel": "off",
+    "workbench.startupEditor": "none",
+    "editor.hover.delay": 100,
+    "editor.gotoLocation.multipleDefinitions": "goto",
+    "editor.gotoLocation.multipleImplementations": "goto",
+    "python.defaultInterpreterPath": (
+      await exec("which", ["python3"])
+    ).stdout.trim(),
+  }),
+);
+
+await cp(
+  path.join(import.meta.dirname, "lsp-e2e-extension.cjs"),
+  path.join(extension, "extension.cjs"),
+);
+
+await writeFile(
+  path.join(extension, "package.json"),
+  JSON.stringify({
+    name: "review-lsp-e2e",
+    publisher: "review-test",
+    version: "1.0.0",
+    engines: { vscode: "^1.100.0" },
+    main: "./extension.cjs",
+    activationEvents: ["*"],
+    contributes: {
+      commands: [
+        { command: "review.lspE2E", title: "Review E2E: Language probe" },
+      ],
+    },
+  }),
+);
+
+const git = async (repo, ...args) =>
+  (
+    await exec("git", ["-c", "commit.gpgsign=false", ...args], { cwd: repo })
+  ).stdout.trim();
+
+const mainText = (revision) =>
+  [
+    'import { greet, service, Worker, Service } from "./library";',
+    'import { dependencyValue } from "fixture-dependency";',
+    `export const revision = "${revision}";`,
+    "export const value = greet();",
+    "export const worker = new Worker();",
+    "export const typed: Service = service;",
+    "export const dependency = dependencyValue();",
+    "export function left() { const shared = greet; return shared(); }",
+    "export function right() { const shared = greet; return shared(); }",
+    '\texport const café = "😀"; export const greeting = greet();',
+    "",
+  ].join("\r\n");
+
+const libraryText = (type, value) =>
+  [
+    `export interface Service { run(): ${type}; }`,
+    `export class Worker implements Service { run(): ${type} { return ${value}; } }`,
+    `export function greet(): ${type} { return ${value}; }`,
+    "export const service: Service = new Worker();",
+    "",
+  ].join("\n");
+
+async function fixture(name) {
+  const repo = path.join(root, name);
+  await mkdir(repo);
+  await git(repo, "init", "-q", "-b", "main");
+  await git(repo, "config", "user.name", "Review LSP E2E");
+  await git(repo, "config", "user.email", "review-lsp@example.invalid");
+  await writeFile(
+    path.join(repo, ".gitignore"),
+    "node_modules/\n__pycache__/\n",
+  );
+  await writeFile(
+    path.join(repo, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: { strict: true, target: "ES2022", module: "commonjs" },
+      include: ["*.ts"],
+    }),
+  );
+  await writeFile(
+    path.join(repo, "pyproject.toml"),
+    '[project]\nname = "review-lsp-fixture"\nversion = "0.0.0"\nrequires-python = ">=3.10"\n',
+  );
+  await writeFile(
+    path.join(repo, "library.ts"),
+    libraryText("string", JSON.stringify(name)),
+  );
+  await writeFile(path.join(repo, "main.ts"), mainText("base"));
+  await writeFile(
+    path.join(repo, "main.py"),
+    'from library_py import greet\nrevision = "base"\nvalue = greet()\n',
+  );
+  await writeFile(
+    path.join(repo, "library_py.py"),
+    'def greet() -> str:\n    return "hello"\n',
+  );
+  await writeFile(
+    path.join(repo, "old.ts"),
+    'export const renamed = greet();\nimport { greet } from "./library";\n',
+  );
+  await writeFile(path.join(repo, "deleted.ts"), "export const removed = 1;\n");
+  await git(repo, "add", ".");
+  await git(repo, "commit", "-qm", "Base P");
+  const base = await git(repo, "rev-parse", "HEAD");
+  await writeFile(path.join(repo, "main.ts"), mainText("head"));
+  await writeFile(
+    path.join(repo, "main.py"),
+    'from library_py import greet\nrevision = "head"\nvalue = greet()\n',
+  );
+  await git(repo, "mv", "old.ts", "renamed.ts");
+  await git(repo, "rm", "deleted.ts");
+  await writeFile(path.join(repo, "added.ts"), "export const added = 1;\n");
+  await git(repo, "add", ".");
+  await git(repo, "commit", "-qm", "Review head A");
+  const head = await git(repo, "rev-parse", "HEAD");
+  await mkdir(path.join(repo, "node_modules/fixture-dependency"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(repo, "node_modules/fixture-dependency/package.json"),
+    '{"name":"fixture-dependency","version":"1.0.0","types":"index.d.ts"}',
+  );
+  await writeFile(
+    path.join(repo, "node_modules/fixture-dependency/index.d.ts"),
+    'export declare function dependencyValue(): "installed";\n',
+  );
+
+  return { repo, base, head };
+}
+
+const first = await fixture("first"),
+  second = await fixture("second");
+
+const checks = [];
+
+let app,
+  browser,
+  page,
+  discovery,
+  appLog = "",
+  success = false;
+
+const errors = [];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function until(run, label, timeout = 90000) {
+  const end = Date.now() + timeout;
+  let cause;
+
+  while (Date.now() < end) {
+    try {
+      const value = await run();
+
+      if (value) return value;
+    } catch (error) {
+      cause = error;
+    }
+
+    if (app?.exitCode !== null && app?.exitCode !== undefined)
+      throw new Error(`Desktop exited: ${appLog.slice(-3000)}`);
+    await sleep(200);
+  }
+
+  throw new Error(`${label} timed out: ${cause?.stack ?? "not ready"}`);
+}
+
+async function launch() {
+  const portServer = createServer();
+  await new Promise((resolve) => portServer.listen(0, "127.0.0.1", resolve));
+  const port = portServer.address().port;
+  await new Promise((resolve) => portServer.close(resolve));
+
+  const product = JSON.parse(
+    await readFile(path.join(codeRoot, "product.json"), "utf8"),
+  );
+
+  const binary = values.app
+    ? path.join(values.app, "Contents/MacOS", product.nameShort)
+    : process.platform === "darwin"
+      ? path.join(
+          codeRoot,
+          ".build/electron",
+          `${product.nameShort}.app/Contents/MacOS`,
+          product.nameShort,
+        )
+      : path.join(codeRoot, ".build/electron", product.applicationName);
+
+  const launchEnv = values.app
+    ? { ...env }
+    : {
+        ...env,
+        NODE_ENV: "development",
+        VSCODE_DEV: "1",
+        VSCODE_CLI: "1",
+        DEV_FAST_REVIEW_SERVER_ENTRY: path.join(
+          workspace,
+          "packages/review/dist/server/desktop-host.js",
+        ),
+        DEV_FAST_REVIEW_TOOLING_ROOT: workspace,
+      };
+
+  app = spawn(
+    binary,
+    [
+      ...(values.app ? [] : ["."]),
+      "--disable-telemetry",
+      "--skip-welcome",
+      "--disable-gpu",
+      `--user-data-dir=${profile}`,
+      `--extensions-dir=${root}/extensions`,
+      `--shared-data-dir=${root}/shared`,
+      `--extensionDevelopmentPath=${extension}`,
+      `--remote-debugging-port=${port}`,
+      "--disable-extension=vscode.vscode-api-tests",
+    ],
+    {
+      cwd: codeRoot,
+      env: launchEnv,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  app.stdout.on("data", (chunk) => {
+    appLog = (
+      appLog + String(chunk).replace(/"token":"[^"]+"/g, '"token":"[redacted]"')
+    ).slice(-500000);
+  });
+  app.stderr.on("data", (chunk) => {
+    appLog = (
+      appLog + String(chunk).replace(/"token":"[^"]+"/g, '"token":"[redacted]"')
+    ).slice(-500000);
+  });
+  discovery = await until(async () => {
+    const result = JSON.parse(
+      await readFile(path.join(home, "review-desktop/server.json"), "utf8"),
+    );
+
+    const health = await (await fetch(`${result.url}/health`)).json();
+
+    return health.ok && health.desktopAttached && result;
+  }, "Desktop server");
+  browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  page = await until(
+    () =>
+      browser
+        .contexts()
+        .flatMap((context) => context.pages())
+        .find((candidate) => candidate.url().includes("workbench")),
+    "workbench",
+  );
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.addLocatorHandler(
+    page.getByText("Join the Review community", { exact: true }),
+    async () => {
+      await page.getByRole("checkbox", { name: "Don't show again" }).check();
+      await page.getByRole("button", { name: "Not now", exact: true }).click();
+    },
+  );
+}
+
+async function stop() {
+  await browser?.close();
+  browser = undefined;
+
+  if (app && app.exitCode === null) {
+    const exited = new Promise((resolve) => app.once("exit", resolve));
+    process.kill(-app.pid, "SIGTERM");
+    await Promise.race([exited, sleep(5000)]);
+
+    if (app.exitCode === null && app.signalCode === null)
+      process.kill(-app.pid, "SIGKILL");
+  }
+
+  app = undefined;
+}
+
+async function api(route, method = "GET", body) {
+  const response = await fetch(`${discovery.url}/reviews-api${route}`, {
+    method,
+    headers: {
+      "x-review-token": discovery.token,
+      "content-type": "application/json",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  const result = await response.json();
+  assert.ok(response.ok, `${route}: ${JSON.stringify(result)}`);
+
+  return result;
+}
+
+const command = (operation) =>
+  api("/commands", "POST", { commandId: randomUUID(), operation });
+
+async function createReview(fix, title) {
+  const repository = await api("/repositories", "POST", { path: fix.repo });
+
+  const pins = await api("/pins", "POST", {
+    repositoryId: repository.id,
+    base: fix.base,
+    head: fix.head,
+  });
+
+  const review = await command({ type: "create", title, pins });
+  const reviewId = review.reviewId;
+  await command({
+    type: "edit",
+    reviewId,
+    edit: {
+      type: "insert",
+      content: {
+        type: "section",
+        title: "Language services",
+        children: [
+          {
+            type: "markdown",
+            markdown: `# ${title}\nPinned review; language services use the local checkout.`,
+          },
+          ...["base", "head"].map((side) => ({
+            type: "code_peek",
+            source: { side, file: "main.ts", fromLine: 3, toLine: 10 },
+          })),
+          {
+            type: "code_peek",
+            source: { side: "head", file: "main.py", fromLine: 1, toLine: 3 },
+          },
+        ],
+      },
+    },
+  });
+
+  return api(`/${reviewId}?full=true`);
+}
+
+async function probe(request) {
+  const id = randomUUID();
+  await writeFile(
+    path.join(root, "request.json"),
+    JSON.stringify({ ...request, id }),
+  );
+  await until(async () => {
+    const input = page.locator(".quick-input-widget input");
+
+    if (await input.isVisible()) await page.keyboard.press("Escape");
+    await page.keyboard.press("F1");
+    await input.fill(">Review E2E: Language probe");
+    await page
+      .getByRole("option", { name: /Review E2E: Language probe/ })
+      .first()
+      .click({ timeout: 1500 });
+
+    return true;
+  }, "probe command activation");
+
+  const result = await until(
+    async () =>
+      JSON.parse(await readFile(path.join(root, `${id}.json`), "utf8")),
+    "language probe",
+  );
+
+  assert.equal(result.error, undefined, result.error);
+
+  return result;
+}
+
+function uri(review, side = "head", file = "main.ts", commit) {
+  const query = new URLSearchParams({ version: String(review.version), side });
+
+  if (commit) query.set("commit", commit);
+
+  return `review-api-source://${review.reviewId}/${file}?${query}`;
+}
+
+const hover = "vscode.executeHoverProvider",
+  definition = "vscode.executeDefinitionProvider";
+
+function at(text, line, word) {
+  return { line, character: text.split(/\r?\n/)[line].indexOf(word) + 1 };
+}
+
+function locations(result) {
+  return (result ?? []).map((item) => ({
+    uri: item.targetUri ?? item.uri,
+    range: item.targetSelectionRange ?? item.range,
+  }));
+}
+
+function locationUri(value) {
+  return value;
+}
+
+async function expectDefinition(sourceUri, position, target, targetLine) {
+  return until(async () => {
+    const response = await probe({
+      uri: sourceUri,
+      ...position,
+      feature: definition,
+      open: true,
+    });
+
+    const found = locations(response.result).find(
+      (item) => locationUri(item.uri) === pathToFileURL(target).href,
+    );
+
+    if (!found) return false;
+    assert.equal(found.range[0]?.line ?? found.range.start?.line, targetLine);
+
+    return response;
+  }, `definition ${target}`);
+}
+
+async function expectHover(sourceUri, position, expected) {
+  return until(async () => {
+    const result = await probe({
+      uri: sourceUri,
+      ...position,
+      feature: hover,
+      open: true,
+    });
+
+    return JSON.stringify(result.result).includes(expected) && result;
+  }, `hover ${expected}`);
+}
+
+async function clickGreet(line) {
+  const point = await line.evaluate((element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const index = node.textContent.indexOf("greet");
+
+      if (index < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + 5);
+      const rect = range.getBoundingClientRect();
+
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }
+
+    throw new Error("Inline greet token is not rendered");
+  });
+
+  const box = await line.boundingBox();
+  await line.click({ position: { x: point.x - box.x, y: point.y - box.y } });
+}
+
+async function record(label) {
+  checks.push(label);
+  console.log(`PASS ${label}`);
+}
+
+try {
+  await launch();
+  const review = await createReview(first, "Local LSP regression");
+  const other = await createReview(second, "Other repository");
+  await until(async () => {
+    await api(`/${review.reviewId}/open`, "POST");
+    await page
+      .locator(".review-canvas-root")
+      .filter({ hasText: "Local LSP regression" })
+      .first()
+      .waitFor({ timeout: 3000 });
+
+    return true;
+  }, "rendered review");
+  const greetAt = at(mainText("head"), 3, "greet");
+
+  for (const side of ["base", "head"]) {
+    await expectDefinition(
+      uri(review, side),
+      greetAt,
+      path.join(first.repo, "library.ts"),
+      2,
+    );
+    await expectHover(uri(review, side), greetAt, "string");
+  }
+
+  await probe({
+    uri: uri(review),
+    ...greetAt,
+    open: true,
+    command: "editor.action.showHover",
+  });
+  await page
+    .locator(".monaco-hover:visible")
+    .filter({ hasText: "local checkout" })
+    .first()
+    .waitFor();
+  await page.screenshot({ path: path.join(root, "typescript-hover.png") });
+  await record(
+    "base/head cross-file definitions and rendered TypeScript hover",
+  );
+
+  await expectDefinition(
+    uri(review, "head", "main.py"),
+    { line: 2, character: 9 },
+    path.join(first.repo, "library_py.py"),
+    0,
+  );
+  await expectHover(
+    uri(review, "head", "main.py"),
+    { line: 2, character: 9 },
+    "str",
+  );
+  await record("real bundled Python language server");
+
+  for (const [feature, position, targetLine] of [
+    [
+      "vscode.executeTypeDefinitionProvider",
+      at(mainText("head"), 4, "worker"),
+      1,
+    ],
+    [
+      "vscode.executeImplementationProvider",
+      at(mainText("head"), 5, "Service"),
+      1,
+    ],
+  ]) {
+    await until(async () => {
+      const result = await probe({
+        uri: uri(review),
+        ...position,
+        feature,
+        open: true,
+      });
+
+      return locations(result.result).some(
+        (item) =>
+          locationUri(item.uri) ===
+            pathToFileURL(path.join(first.repo, "library.ts")).href &&
+          (item.range[0]?.line ?? item.range.start?.line) === targetLine,
+      );
+    }, feature);
+  }
+
+  const refs = await probe({
+    uri: uri(review),
+    ...greetAt,
+    feature: "vscode.executeReferenceProvider",
+    open: true,
+  });
+
+  assert.ok(
+    locations(refs.result).some(
+      (item) =>
+        locationUri(item.uri) ===
+        pathToFileURL(path.join(first.repo, "main.ts")).href,
+    ),
+  );
+  await expectDefinition(
+    uri(review),
+    at(mainText("head"), 6, "dependencyValue"),
+    path.join(first.repo, "node_modules/fixture-dependency/index.d.ts"),
+    0,
+  );
+  await expectDefinition(
+    uri(review),
+    at(mainText("head"), 9, "greet()"),
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+
+  for (const line of [7, 8])
+    await expectDefinition(
+      uri(review),
+      {
+        line,
+        character:
+          mainText("head").split(/\r?\n/)[line].lastIndexOf("shared") + 1,
+      },
+      path.join(first.repo, "main.ts"),
+      line,
+    );
+  await record(
+    "references, types, implementations, installed dependencies, duplicate scopes and UTF-16 columns",
+  );
+
+  await expectDefinition(
+    uri(other),
+    greetAt,
+    path.join(second.repo, "library.ts"),
+    2,
+  );
+  await expectDefinition(
+    uri(review),
+    greetAt,
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+
+  const concurrent = await createReview(
+    { ...first, base: first.head },
+    "Same worktree different pins",
+  );
+
+  await expectDefinition(
+    uri(concurrent),
+    greetAt,
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+  await record(
+    "simultaneous reviews never cross repository or version contexts",
+  );
+
+  await writeFile(
+    path.join(first.repo, "main.ts"),
+    "// newer commit B\n" + mainText("head"),
+  );
+  await git(first.repo, "add", "main.ts");
+  await git(first.repo, "commit", "-qm", "Newer than review");
+  await writeFile(
+    path.join(first.repo, "main.ts"),
+    "// staged\n// newer commit B\n" + mainText("head"),
+  );
+  await git(first.repo, "add", "main.ts");
+  await writeFile(
+    path.join(first.repo, "main.ts"),
+    "// unstaged\n// staged\n// newer commit B\n" + mainText("head"),
+  );
+  await writeFile(
+    path.join(first.repo, "library.ts"),
+    libraryText("number", "42"),
+  );
+
+  const status = await git(first.repo, "status", "--porcelain"),
+    trees = await git(first.repo, "worktree", "list", "--porcelain");
+
+  const workingMain = await readFile(path.join(first.repo, "main.ts"), "utf8");
+
+  for (const side of ["base", "head"]) {
+    await expectDefinition(
+      uri(review, side),
+      greetAt,
+      path.join(first.repo, "library.ts"),
+      2,
+    );
+    const result = await expectHover(uri(review, side), greetAt, "number");
+    assert.equal(result.active.text, mainText(side));
+    await expectDefinition(
+      uri(review, side),
+      {
+        line: 7,
+        character: mainText("head").split(/\r?\n/)[7].lastIndexOf("shared") + 1,
+      },
+      path.join(first.repo, "main.ts"),
+      10,
+    );
+  }
+
+  assert.equal(
+    (
+      await api(
+        `/${review.reviewId}/file?version=${review.version}&side=head&file=main.ts`,
+      )
+    ).text,
+    mainText("head"),
+  );
+  assert.equal(await git(first.repo, "status", "--porcelain"), status);
+  assert.equal(await git(first.repo, "worktree", "list", "--porcelain"), trees);
+  assert.equal(
+    await readFile(path.join(first.repo, "main.ts"), "utf8"),
+    workingMain,
+  );
+  await record(
+    "pinned A remains unchanged over B plus staged/unstaged edits; LSP uses current project semantics",
+  );
+
+  await writeFile(
+    path.join(first.repo, "main.ts"),
+    workingMain.replace(
+      "export const value = greet();",
+      "export const value = service.run();",
+    ),
+  );
+
+  const unavailable = await probe({
+    uri: uri(review),
+    ...greetAt,
+    feature: definition,
+    open: true,
+  });
+
+  assert.equal(unavailable.result?.length ?? 0, 0);
+  await writeFile(
+    path.join(first.repo, "main.ts"),
+    workingMain.replace("export const value = greet();\r\n", ""),
+  );
+
+  const deletedLine = await probe({
+    uri: uri(review),
+    ...greetAt,
+    feature: definition,
+    open: true,
+  });
+
+  assert.equal(deletedLine.result?.length ?? 0, 0);
+  await writeFile(
+    path.join(first.repo, "main.ts"),
+    "// another shift\n" + workingMain,
+  );
+  await expectDefinition(
+    uri(review),
+    {
+      line: 7,
+      character: mainText("head").split(/\r?\n/)[7].lastIndexOf("shared") + 1,
+    },
+    path.join(first.repo, "main.ts"),
+    11,
+  );
+  await record(
+    "changed symbols are unavailable and further edits invalidate mappings",
+  );
+
+  // Only mutate the disposable fixture: test changing branches with Review still open.
+  await git(first.repo, "reset", "--hard", first.head);
+  await git(first.repo, "checkout", "--detach", first.base);
+  await expectDefinition(
+    uri(review),
+    greetAt,
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+  await git(first.repo, "checkout", "main");
+  await expectDefinition(
+    uri(review),
+    greetAt,
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+  await record(
+    "branch changes do not repin review content or retain stale mappings",
+  );
+
+  const renamed = await probe({
+    uri: uri(review, "base", "old.ts"),
+    line: 0,
+    character: 25,
+    feature: definition,
+    open: true,
+  });
+
+  assert.equal(renamed.result?.length ?? 0, 0);
+  await expectDefinition(
+    uri(review, "head", "renamed.ts"),
+    { line: 0, character: 25 },
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+
+  for (const source of [
+    uri(review, "base", "deleted.ts"),
+    `${uri(review, "base", "added.ts")}&empty=true`,
+    `${uri(review, "head", "deleted.ts")}&empty=true`,
+  ]) {
+    const result = await probe({
+      uri: source,
+      line: 0,
+      character: 1,
+      feature: definition,
+      open: true,
+    });
+
+    assert.equal(result.result?.length ?? 0, 0);
+  }
+
+  await record(
+    "renamed/missing paths and empty added/deleted sides never select a substitute",
+  );
+  await expectDefinition(
+    uri(review, "head", "main.ts", first.head),
+    greetAt,
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+  await record("selected-commit source retains its own pinned coordinates");
+
+  const newerPins = await api("/pins", "POST", {
+    repositoryId: review.pins.repositoryId,
+    base: first.base,
+    head: first.base,
+  });
+
+  await command({ type: "repin", reviewId: review.reviewId, pins: newerPins });
+  const newerReview = await api(`/${review.reviewId}?full=true`);
+  const historical = await expectHover(uri(review), greetAt, "string");
+  assert.equal(historical.active.text, mainText("head"));
+  const repinned = await expectHover(uri(newerReview), greetAt, "string");
+  assert.equal(repinned.active.text, mainText("base"));
+  await command({
+    type: "restore",
+    reviewId: review.reviewId,
+    version: review.version,
+  });
+  await record(
+    "historical saved versions keep their source after repin and restore",
+  );
+
+  await probe({
+    uri: uri(review),
+    ...greetAt,
+    open: true,
+    command: "editor.action.revealDefinition",
+  });
+
+  const navigated = await until(async () => {
+    const state = await probe({});
+
+    return (
+      state.active?.uri ===
+        pathToFileURL(path.join(first.repo, "library.ts")).href && state
+    );
+  }, "rendered definition target");
+
+  assert.equal(
+    navigated.active.uri,
+    pathToFileURL(path.join(first.repo, "library.ts")).href,
+  );
+  assert.equal(navigated.active.line, 2);
+  await page.screenshot({ path: path.join(root, "definition-target.png") });
+  await record("real Go to Definition opens the correct local file and line");
+
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await api(`/${review.reviewId}/open`, "POST");
+
+  for (const side of ["base", "head"]) {
+    const inline = page
+      .locator(
+        `[data-review-inline-editor-path="main.ts"][data-review-inline-editor-side="${side}"]`,
+      )
+      .first();
+
+    const line = inline
+      .locator(".view-line")
+      .filter({ hasText: "export const value = greet();" })
+      .first();
+
+    await until(async () => {
+      await line.scrollIntoViewIfNeeded({ timeout: 2000 });
+      await clickGreet(line);
+
+      return true;
+    }, "inline source mounted");
+    await probe({ command: "editor.action.showHover" });
+    await page
+      .locator(".monaco-hover:visible")
+      .filter({ hasText: "local checkout" })
+      .first()
+      .waitFor();
+    await page.screenshot({
+      path: path.join(root, `inline-${side}-hover.png`),
+    });
+    await page.keyboard.press("Escape");
+  }
+
+  await page.keyboard.press("F12");
+  await until(
+    async () =>
+      (await probe({})).active?.uri ===
+      pathToFileURL(path.join(first.repo, "library.ts")).href,
+    "inline definition navigation",
+  );
+  await record(
+    "rendered base/head inline peeks show local hover and navigate to definitions",
+  );
+
+  await probe({ diff: { base: uri(review, "base"), head: uri(review) } });
+
+  for (const side of ["original", "modified"]) {
+    const line = page
+      .locator(
+        `.monaco-modal-editor-block .monaco-diff-editor:visible .editor.${side} .view-line`,
+      )
+      .filter({ hasText: "export const value = greet();" })
+      .first();
+
+    await line.scrollIntoViewIfNeeded();
+    await clickGreet(line);
+    await probe({ command: "editor.action.showHover" });
+    await page
+      .locator(".monaco-hover:visible")
+      .filter({ hasText: "local checkout" })
+      .first()
+      .waitFor();
+    await page.screenshot({ path: path.join(root, `diff-${side}-hover.png`) });
+    await probe({ command: "editor.action.hideHover" });
+    await until(
+      async () => (await page.locator(".monaco-hover:visible").count()) === 0,
+      "previous pane hover dismissed",
+    );
+  }
+
+  await record("rendered full-file diff supports language hover on both sides");
+
+  await stop();
+  await launch();
+  await expectDefinition(
+    uri(review),
+    greetAt,
+    path.join(first.repo, "library.ts"),
+    2,
+  );
+  await expectDefinition(
+    uri(review, "head", "main.py"),
+    { line: 2, character: 9 },
+    path.join(first.repo, "library_py.py"),
+    0,
+  );
+  await record("Desktop restart restores language-service context");
+  await expectDefinition(
+    uri(other),
+    greetAt,
+    path.join(second.repo, "library.ts"),
+    2,
+  );
+  await rename(second.repo, `${second.repo}-missing`);
+
+  const missing = await probe({
+    uri: uri(other),
+    ...greetAt,
+    feature: definition,
+    open: true,
+  });
+
+  assert.equal(missing.result?.length ?? 0, 0);
+  await rename(`${second.repo}-missing`, second.repo);
+  await expectDefinition(
+    uri(other),
+    greetAt,
+    path.join(second.repo, "library.ts"),
+    2,
+  );
+  await record(
+    "missing worktree disables language queries and recovers when restored",
+  );
+
+  for (const fix of [first, second]) {
+    const paths = (await git(fix.repo, "worktree", "list", "--porcelain"))
+      .split("\n")
+      .filter((line) => line.startsWith("worktree "));
+
+    assert.deepEqual(paths, [`worktree ${fix.repo}`]);
+  }
+
+  await record("language services never create additional worktrees");
+  assert.deepEqual(errors, []);
+  success = true;
+} finally {
+  if (page && !success) {
+    await page
+      .screenshot({ path: path.join(root, "failure.png") })
+      .catch(() => {});
+    await writeFile(
+      path.join(root, "failure-dom.txt"),
+      await page
+        .locator("body")
+        .innerText()
+        .catch(() => ""),
+    );
+  }
+
+  await writeFile(path.join(root, "app.log"), appLog);
+  await writeFile(
+    path.join(root, "report.json"),
+    JSON.stringify({ root, success, checks, errors }, null, 2),
+  );
+  await stop();
+  console.log(JSON.stringify({ root, success, checks }));
+
+  if (success && !values.keep) await rm(root, { recursive: true, force: true });
+}

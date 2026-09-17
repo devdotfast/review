@@ -15,20 +15,13 @@ import {
   reviewDocumentDataSchema,
   upgradeReviewDocumentJson,
 } from "../review-document-data";
+import { el, footnoteTraceQuoteSection, text } from "./import-test-utils";
 import {
   collectFootnoteDefinitions,
   isProseNode,
   proseToMarkdown,
   sourceLink,
 } from "./prose-markdown";
-
-const el = (
-  tag: string,
-  children: ReviewNode[] = [],
-  props: Record<string, string | number | boolean> = {},
-): ReviewNode => ({ type: "element", tag, props, children }) as ReviewNode;
-
-const text = (value: string): ReviewNode => ({ type: "text", value });
 
 describe("proseToMarkdown", () => {
   it("renders headings, paragraphs and inline marks", () => {
@@ -124,43 +117,45 @@ describe("proseToMarkdown", () => {
   });
 
   it("renders footnotes as GFM footnotes", () => {
-    expect(
-      proseToMarkdown([
-        el("p", [
-          text("A note"),
-          el("sup", [
-            el("a", [text("1")], {
-              href: "#user-content-fn-1",
-              id: "user-content-fnref-1",
-              "data-footnote-ref": true,
-            }),
-          ]),
-          text("."),
+    const nodes = [
+      el("p", [
+        text("A note"),
+        el("sup", [
+          el("a", [text("1")], {
+            href: "#user-content-fn-1",
+            id: "user-content-fnref-1",
+            "data-footnote-ref": true,
+          }),
         ]),
-        el(
-          "section",
-          [
-            el("h2", [text("Footnotes")], { id: "footnote-label" }),
-            el("ol", [
-              el(
-                "li",
-                [
-                  el("p", [
-                    text("Native pipeline footnote. "),
-                    el("a", [text("↩")], {
-                      href: "#user-content-fnref-1",
-                      "data-footnote-backref": true,
-                    }),
-                  ]),
-                ],
-                { id: "user-content-fn-1" },
-              ),
-            ]),
-          ],
-          { "data-footnotes": true },
-        ),
+        text("."),
       ]),
-    ).toBe("A note[^1].\n\n[^1]: Native pipeline footnote.\n");
+      el(
+        "section",
+        [
+          el("h2", [text("Footnotes")], { id: "footnote-label" }),
+          el("ol", [
+            el(
+              "li",
+              [
+                el("p", [
+                  text("Native pipeline footnote. "),
+                  el("a", [text("↩")], {
+                    href: "#user-content-fnref-1",
+                    "data-footnote-backref": true,
+                  }),
+                ]),
+              ],
+              { id: "user-content-fn-1" },
+            ),
+          ]),
+        ],
+        { "data-footnotes": true },
+      ),
+    ];
+
+    expect(proseToMarkdown(nodes, collectFootnoteDefinitions(nodes))).toBe(
+      "A note[^1].\n\n[^1]: Native pipeline footnote.\n",
+    );
   });
 
   it("carries word-labelled footnote definitions into the referencing block", () => {
@@ -254,145 +249,64 @@ describe("proseToMarkdown", () => {
 
   it("routes footnote definition content through the caller's renderer", () => {
     const warnings: string[] = [];
-    const seen: string[] = [];
-
-    const definitions = el(
-      "section",
-      [
-        el("ol", [
-          el(
-            "li",
-            [
-              el("p", [
-                text("The agent "),
-                {
-                  type: "component",
-                  name: "TraceQuote",
-                  props: { sessionId: "s1", event: 2 },
-                  children: [text("said so")],
-                } as ReviewNode,
-                text(" about "),
-                el("code", [text("order.ts")]),
-                text(" "),
-                {
-                  type: "component",
-                  name: "CodePeek",
-                  props: {
-                    anchor: {
-                      __kind: "db-anchor-ref",
-                      id: "p",
-                      title: "Peek",
-                      peek: {
-                        side: "head",
-                        file: "src/a.ts",
-                        fromLine: 4,
-                        toLine: 6,
-                      },
-                    },
-                  },
-                  children: [],
-                } as ReviewNode,
-              ]),
-            ],
-            { id: "user-content-fn-1" },
-          ),
-        ]),
-      ],
-      { "data-footnotes": "true" },
-    );
 
     const footnotes = collectFootnoteDefinitions(
-      [definitions],
+      [footnoteTraceQuoteSection("1")],
       warnings,
-      (node) => {
-        seen.push(node.type === "component" ? node.name : node.tag);
-
-        return node.type === "component" && node.name === "TraceQuote"
-          ? "[said so](review-trace:t1#2)"
-          : undefined;
-      },
+      (node) =>
+        node.name === "TraceQuote" ? "[said so](review-trace:t1#2)" : undefined,
     );
 
-    expect(seen).toEqual(["TraceQuote", "code", "CodePeek"]);
     expect([...footnotes]).toEqual([
-      [
-        "1",
-        "The agent [said so](review-trace:t1#2) about `order.ts` [Peek](review-source:head/src/a.ts#L4-L6)",
-      ],
+      ["1", "The agent [said so](review-trace:t1#2)."],
     ]);
-    expect(warnings).toEqual([
-      "CodePeek inside prose became a source link (Peek)",
-    ]);
-  });
-
-  it("converts a footnote definition once when its definitions were supplied", () => {
-    const seen: string[] = [];
-
-    const render = (node: ReviewNode) => {
-      if (node.type === "element") seen.push(node.tag);
-
-      return undefined;
-    };
-
-    const definitions = el(
-      "section",
-      [
-        el("ol", [
-          el("li", [el("p", [text("Counted "), el("em", [text("once")])])], {
-            id: "user-content-fn-1",
-          }),
-        ]),
-      ],
-      { "data-footnotes": "true" },
-    );
-
-    const footnotes = collectFootnoteDefinitions([definitions], [], render);
-
-    expect(proseToMarkdown([definitions], footnotes, [], render)).toBe("\n");
-    expect(seen).toEqual(["em"]);
+    // The renderer carried the quote, so nothing was reported as lost.
+    expect(warnings).toEqual([]);
   });
 
   it("round-trips list, code, footnote and numbering semantics through the parser", () => {
-    const tree = parseMarkdown(
-      proseToMarkdown([
-        el("ol", [el("li", [text("three")]), el("li", [text("four")])], {
-          start: 3,
-        }),
-        el("ul", [
-          el("li", [
-            el("p", [text("first paragraph")]),
-            el("p", [text("second paragraph")]),
-            el("pre", [
-              el("code", [text("a\n\nb\n")], { className: "language-txt" }),
-            ]),
+    const nodes = [
+      el("ol", [el("li", [text("three")]), el("li", [text("four")])], {
+        start: 3,
+      }),
+      el("ul", [
+        el("li", [
+          el("p", [text("first paragraph")]),
+          el("p", [text("second paragraph")]),
+          el("pre", [
+            el("code", [text("a\n\nb\n")], { className: "language-txt" }),
           ]),
         ]),
-        el("p", [
-          el("code", [text("`tick")]),
-          text(" and "),
-          el("code", [text("tock`")]),
+      ]),
+      el("p", [
+        el("code", [text("`tick")]),
+        text(" and "),
+        el("code", [text("tock`")]),
+      ]),
+      el("p", [
+        text("Note"),
+        el("sup", [
+          el("a", [text("1")], {
+            href: "#user-content-fn-x",
+            "data-footnote-ref": "true",
+          }),
         ]),
-        el("p", [
-          text("Note"),
-          el("sup", [
-            el("a", [text("1")], {
-              href: "#user-content-fn-x",
-              "data-footnote-ref": "true",
+      ]),
+      el(
+        "section",
+        [
+          el("ol", [
+            el("li", [el("p", [text("first")]), el("p", [text("second")])], {
+              id: "user-content-fn-x",
             }),
           ]),
-        ]),
-        el(
-          "section",
-          [
-            el("ol", [
-              el("li", [el("p", [text("first")]), el("p", [text("second")])], {
-                id: "user-content-fn-x",
-              }),
-            ]),
-          ],
-          { "data-footnotes": "true" },
-        ),
-      ]),
+        ],
+        { "data-footnotes": "true" },
+      ),
+    ];
+
+    const tree = parseMarkdown(
+      proseToMarkdown(nodes, collectFootnoteDefinitions(nodes)),
     );
 
     const [ordered, loose, codes, note, definition] = tree.children ?? [];

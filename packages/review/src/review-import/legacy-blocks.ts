@@ -7,6 +7,7 @@ import type {
 import {
   type RenderProseNode,
   collectFootnoteDefinitions,
+  isFootnoteSection,
   isProseNode,
   proseToMarkdown,
 } from "./prose-markdown";
@@ -78,33 +79,13 @@ export function legacyDocumentToBlocks(
     };
   };
 
-  // Markdown cannot carry a diagram, so one nested in prose converts into this
-  // sink and is emitted after the prose it came from. `nestedTags` holds the
-  // diagrams of the prose node being converted; it stays empty while the
-  // document's footnote definitions are collected, where nothing can follow a
-  // definition.
-  let hoisted: Block[] = [];
-  let nestedTags = new Map<ReviewNode, string>();
-
   const render: RenderProseNode = (node) => {
-    if (node.type !== "component") return undefined;
+    if (node.name !== "TraceQuote") return undefined;
 
-    if (node.name === "TraceQuote") {
-      const quote = traceQuote(node);
-      const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
+    const quote = traceQuote(node);
+    const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
 
-      return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
-    }
-
-    const tag = nestedTags.get(node);
-    const diagram = tag === undefined ? undefined : diagramBlock(node);
-
-    if (!diagram) return undefined;
-
-    hoisted.push(diagram);
-    warnings.push(`${node.name} inside ${tag} was moved after it`);
-
-    return "";
+    return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
   };
 
   const footnotes = collectFootnoteDefinitions(document.body, warnings, render);
@@ -124,26 +105,22 @@ export function legacyDocumentToBlocks(
       ).trim();
 
       if (markdown) out.push({ type: "markdown", markdown: `${markdown}\n` });
-      out.push(...hoisted);
       prose = [];
-      hoisted = [];
-      nestedTags = new Map();
     };
 
-    for (const node of nodes) {
+    for (const node of hoistDiagrams(nodes, warnings)) {
+      if (
+        node.type !== "text" &&
+        node.type !== "element" &&
+        node.type !== "component"
+      ) {
+        flush();
+        out.push(node);
+        continue;
+      }
+
       if (isProseNode(node)) {
-        const diagrams = nestedDiagrams(node, "prose", new Map());
-
-        if (diagrams.size === 0) {
-          prose.push(node);
-          continue;
-        }
-
-        // This node converts on its own so its diagrams can follow it.
-        flush();
-        nestedTags = diagrams;
         prose.push(node);
-        flush();
         continue;
       }
 
@@ -262,23 +239,61 @@ function diagramBlock(node: ReviewComponentNode): Block | undefined {
   }
 }
 
-/** Every diagram nested in `node`, with the tag of the element holding it, so
- * the warning can say where it came from. `diagramBlock` is the one list of
- * what can be hoisted. */
-function nestedDiagrams(
+const DIAGRAM_NAMES = new Set([
+  "CallStackDiff",
+  "SequenceDiagram",
+  "DatabaseLens",
+]);
+
+/** `nodes` with the diagrams nested in prose lifted out, each emitted right
+ * after the prose node that held it: Markdown cannot carry a diagram. Footnote
+ * sections are dropped, their definitions having been collected already, so a
+ * diagram inside a definition stays where it is. */
+function hoistDiagrams(
+  nodes: ReviewNode[],
+  warnings: string[],
+): Array<ReviewNode | Block> {
+  const out: Array<ReviewNode | Block> = [];
+
+  for (const node of nodes) {
+    if (!isProseNode(node)) {
+      out.push(node);
+      continue;
+    }
+
+    if (isFootnoteSection(node)) continue;
+
+    const hoisted: Block[] = [];
+
+    out.push(withoutDiagrams(node, hoisted, warnings), ...hoisted);
+  }
+
+  return out;
+}
+
+function withoutDiagrams(
   node: ReviewNode,
-  tag: string,
-  found: Map<ReviewNode, string>,
-): Map<ReviewNode, string> {
-  if (node.type === "text") return found;
+  hoisted: Block[],
+  warnings: string[],
+): ReviewNode {
+  if (node.type === "text") return node;
 
-  if (node.type === "component" && diagramBlock(node)) found.set(node, tag);
+  const children = node.children.flatMap((child): ReviewNode[] => {
+    if (child.type === "component" && DIAGRAM_NAMES.has(child.name)) {
+      const diagram = diagramBlock(child);
 
-  const inner = node.type === "element" ? node.tag : tag;
+      if (diagram) {
+        hoisted.push(diagram);
+        warnings.push(`${child.name} was moved after the enclosing prose`);
 
-  for (const child of node.children) nestedDiagrams(child, inner, found);
+        return [];
+      }
+    }
 
-  return found;
+    return [withoutDiagrams(child, hoisted, warnings)];
+  });
+
+  return { ...node, children };
 }
 
 function stripIds<T extends WithId>(items: T[]): Omit<T, "id">[] {

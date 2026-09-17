@@ -235,8 +235,7 @@ describe("ReviewTraceView", () => {
     await act(async () => {
       if (!select) throw new Error("missing select");
 
-      // React tracks the value; only the prototype setter leaves it unaware
-      // of the new value, so the change event is delivered.
+      // Bypass React tracking so the change event fires.
       const setter = Object.getOwnPropertyDescriptor(
         HTMLSelectElement.prototype,
         "value",

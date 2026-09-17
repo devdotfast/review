@@ -20,11 +20,8 @@ type TraceListState =
   | {
       status: "loaded";
       configured: boolean;
-      /** The store the list came from, when the CLI reports one. */
       storage: AgentTraceStorage | null;
-      /** Every store this machine can read; a control appears for two. */
       sources: AgentTraceStorage[];
-      /** Why the store answered nothing, when the CLI reports a reason. */
       storageError: string | null;
       sessions: ReviewAgentTraceSession[];
     };
@@ -56,7 +53,7 @@ export function ReviewTraceView({
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
 
-  // A read-only source override. It never changes capture or consent.
+  // Read override only; capture and consent are unchanged.
   const [storageOverride, setStorageOverride] =
     useState<AgentTraceStorage | null>(null);
 
@@ -226,8 +223,7 @@ export function ReviewTraceView({
     storageOverride,
   );
 
-  // The last known sources stay while a refetch is in flight, so the
-  // control never disappears between two answers.
+  // Keep source controls visible during refetch.
   const [sourceChoices, setSourceChoices] = useState<AgentTraceStorage[]>([]);
   useEffect(() => {
     if (list.status === "loaded" && list.sources.length > 0) {

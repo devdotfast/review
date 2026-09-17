@@ -175,8 +175,7 @@ describe("runTraceGitHook", () => {
       "Imported change\n\nAgent-Session: 01a015e4-0477-7055-a0fd-21a0f72a4ec8",
     ]);
 
-    // Exporting OpenCode here would block the push and a failed export
-    // would prevent the older local Codex session from being scheduled.
+    // A failed OpenCode export must not block the later Codex session.
     const bin = path.join(repo, "bin");
     const exportMarker = path.join(repo, "opencode-exported");
     vi.stubEnv("OPENCODE_EXPORT_MARKER", exportMarker);

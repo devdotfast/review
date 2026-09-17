@@ -177,10 +177,7 @@ async function runPrePush(input: {
   const selection = selectTraceStorage(input.scope);
 
   for (const [sessionId, values] of sessionCommits) {
-    // Pushed history can include sessions authored on another machine. Keep
-    // their commit links, but skip absent file-based transcripts. OpenCode
-    // discovery runs an export: leave that to the sync so hosted pushes stay
-    // detached and direct-store exports retain per-session error handling.
+    // Skip nonlocal files; leave OpenCode export to the sync.
     if (!isOpenCodeSessionId(sessionId)) {
       try {
         if (!(await findLocalTrace(sessionId))) continue;

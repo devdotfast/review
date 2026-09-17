@@ -1072,12 +1072,8 @@ export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),
     configured: z.boolean().default(true),
-    // The store these sessions came from, and every store the machine can
-    // read; absent from older CLIs.
     storage: z.enum(["s3", "hosted", "none"]).optional(),
     sources: z.array(z.enum(["s3", "hosted"])).optional(),
-    // Why the selected store answered nothing: a refusal, a missing login
-    // for a requested source, or a malformed config. Absent from older CLIs.
     storageError: requiredString.optional(),
     sessions: z.array(ReviewAgentTraceSessionSchema),
   }),

@@ -812,8 +812,7 @@ if [ ! -f "$cli" ]; then
   exit 1
 fi
 
-# Selection is complete. The CLI bootstrap must not reselect the discovery
-# entry after this launcher rejected it and chose the installed fallback.
+# Prevent bootstrap from overriding this selection.
 export DEV_FAST_REVIEW_CLI_DELEGATED=1
 
 # The app's Electron binary runs as plain Node.js and matches the server's

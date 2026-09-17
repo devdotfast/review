@@ -1,4 +1,8 @@
-import type { ReviewElementProps, ReviewNode } from "../review-document-data";
+import type {
+  ReviewComponentNode,
+  ReviewElementProps,
+  ReviewNode,
+} from "../review-document-data";
 
 interface Source {
   side: "base" | "head";
@@ -63,31 +67,33 @@ function alignRow(align: ReviewElementProps[string] | undefined): string {
  * block must carry the definitions of the footnotes it references. */
 export type FootnoteDefinitions = Map<string, string>;
 
+/** Renders a component the caller carries itself, such as one it turns into a
+ * block of its own; `undefined` falls back to the Markdown rendering. */
+export type RenderProseNode = (node: ReviewComponentNode) => string | undefined;
+
 interface FootnoteState {
   definitions: FootnoteDefinitions;
   referenced: Set<string>;
   /** Components found inside prose that Markdown cannot carry. */
   warnings?: string[];
-  renderComponent?: (
-    node: Extract<ReviewNode, { type: "component" }>,
-  ) => string | undefined;
+  render?: RenderProseNode;
 }
 
 /** Every footnote definition in a document, from any `section[data-footnotes]`. */
 export function collectFootnoteDefinitions(
   nodes: ReviewNode[],
+  warnings?: string[],
+  render?: RenderProseNode,
 ): FootnoteDefinitions {
   const state: FootnoteState = {
     definitions: new Map(),
     referenced: new Set(),
+    warnings,
+    render,
   };
 
   const visit = (node: ReviewNode) => {
-    if (
-      node.type === "element" &&
-      node.tag === "section" &&
-      isFootnoteSection(node)
-    )
+    if (node.type === "element" && isFootnoteSection(node))
       collectFootnotes(node, state);
     else if (node.type !== "text") node.children.forEach(visit);
   };
@@ -105,13 +111,14 @@ export function proseToMarkdown(
   nodes: ReviewNode[],
   footnotes?: FootnoteDefinitions,
   warnings?: string[],
-  renderComponent?: FootnoteState["renderComponent"],
+  render?: RenderProseNode,
 ): string {
   const state: FootnoteState = {
-    definitions: footnotes ?? new Map(),
+    definitions:
+      footnotes ?? collectFootnoteDefinitions(nodes, warnings, render),
     referenced: new Set(),
     warnings,
-    renderComponent,
+    render,
   };
 
   const body = blocks(nodes, state).trimEnd();
@@ -125,8 +132,9 @@ export function proseToMarkdown(
   return `${[body, ...definitions].filter(Boolean).join("\n\n")}\n`;
 }
 
-function isFootnoteSection(node: ElementNode): boolean {
-  return "data-footnotes" in node.props;
+/** The `section[data-footnotes]` the Markdown pipeline appends to a document. */
+export function isFootnoteSection(node: ReviewNode): boolean {
+  return node.type === "element" && "data-footnotes" in node.props;
 }
 
 /** Footnote labels come from `#user-content-fn-<label>` (refs) and
@@ -219,13 +227,8 @@ function block(
     case "table":
       return table(node, state, indent);
     case "section":
-      if (isFootnoteSection(node)) {
-        collectFootnotes(node, state);
-
-        return "";
-      }
-
-      return blocks(children, state, indent);
+      // Definitions are collected up front, not while rendering.
+      return isFootnoteSection(node) ? "" : blocks(children, state, indent);
     default:
       return blocks(children, state, indent);
   }
@@ -337,6 +340,8 @@ function collectFootnotes(section: ElementNode, state: FootnoteState): void {
           const inner: FootnoteState = {
             definitions: state.definitions,
             referenced: new Set(),
+            warnings: state.warnings,
+            render: state.render,
           };
 
           // Continuation lines of a definition are indented under its label.
@@ -369,7 +374,7 @@ function inlines(nodes: ReviewNode[], state?: FootnoteState): string {
 }
 
 function inline(node: ReviewNode, state?: FootnoteState): string {
-  if (node.type === "text") return escapeText(node.value);
+  if (node.type === "text") return escapeMarkdownText(node.value);
 
   if (node.type === "component") return inlineComponent(node, state);
 
@@ -427,10 +432,10 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
  * `CodePeek` survives as a source link, everything else keeps its text and is
  * reported so the import callout names it. */
 function inlineComponent(
-  node: Extract<ReviewNode, { type: "component" }>,
+  node: ReviewComponentNode,
   state?: FootnoteState,
 ): string {
-  const rendered = state?.renderComponent?.(node);
+  const rendered = state?.render?.(node);
 
   if (rendered !== undefined) return rendered;
 
@@ -481,7 +486,8 @@ function longestRun(text: string, ch: string): number {
   );
 }
 
-function escapeText(value: string): string {
+/** Escape a run of text so markdown renders it verbatim. */
+export function escapeMarkdownText(value: string): string {
   return value
     .replace(/([\\`*_[\]<>])/g, "\\$1")
     .replace(/^(\s*)(\d+)\./gm, "$1$2\\.")

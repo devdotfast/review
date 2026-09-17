@@ -15,10 +15,49 @@ import {
   resourceReferences,
 } from "../review-api/document";
 import {
+  type ReviewNode,
   reviewDocumentDataSchema,
   upgradeReviewDocumentJson,
 } from "../review-document-data";
+import { el, footnoteTraceQuoteSection, text } from "./import-test-utils";
 import { legacyDocumentToBlocks } from "./legacy-blocks";
+
+/** A sealed document whose body is `body`, for the nesting cases no fixture has. */
+const documentOf = (body: ReviewNode[]) =>
+  reviewDocumentDataSchema.parse({
+    format: "review-document/1",
+    title: "T",
+    routePath: "/",
+    sourcePath: "review.mdx",
+    anchors: {},
+    anchorContents: {},
+    softwareModels: [],
+    body,
+  });
+
+const sequence = (title: string): ReviewNode => ({
+  type: "component",
+  name: "SequenceDiagram",
+  props: {
+    id: title,
+    title,
+    actors: { caller: "Caller", callee: "Callee" },
+    steps: [
+      {
+        type: "step",
+        style: "call",
+        from: "caller",
+        to: "callee",
+        label: "call",
+        explanation: "why",
+      },
+    ],
+  },
+  children: [],
+});
+
+const image = (src: string, alt?: string): ReviewNode =>
+  el("img", [], alt === undefined ? { src } : { src, alt });
 
 const load = async (name: string) =>
   reviewDocumentDataSchema.parse(
@@ -163,5 +202,128 @@ describe("legacyDocumentToBlocks", () => {
         (quote) => quote.type === "trace_quote" && quote.text,
       ),
     ).toEqual(["quoted [words]\nnext line", "quoted [words]\nnext line"]);
+  });
+
+  it.each([
+    {
+      container: "a paragraph, in order",
+      nodes: [
+        el("p", [
+          text("Two flows:"),
+          sequence("First flow"),
+          text(" and"),
+          sequence("Second flow"),
+        ]),
+        el("p", [text("After.")]),
+      ],
+      blocks: [
+        { type: "markdown", markdown: "Two flows: and\n" },
+        expect.objectContaining({ type: "sequence", title: "First flow" }),
+        expect.objectContaining({ type: "sequence", title: "Second flow" }),
+        { type: "markdown", markdown: "After.\n" },
+      ],
+    },
+    {
+      container: "a list item",
+      nodes: [el("ul", [el("li", [sequence("Flow")])])],
+      blocks: [
+        { type: "markdown", markdown: "-\n" },
+        expect.objectContaining({ type: "sequence", title: "Flow" }),
+      ],
+    },
+    {
+      container: "a blockquote",
+      nodes: [el("blockquote", [el("p", [text("Quoted.")]), sequence("Flow")])],
+      blocks: [
+        { type: "markdown", markdown: "> Quoted.\n" },
+        expect.objectContaining({ type: "sequence", title: "Flow" }),
+      ],
+    },
+  ])("hoists diagrams out of $container", ({ nodes, blocks }) => {
+    expect(legacyDocumentToBlocks(documentOf(nodes))).toMatchObject({
+      blocks,
+      warnings: [],
+    });
+  });
+
+  it("hoists relative images out of prose as image blocks", () => {
+    const { blocks, images, warnings } = legacyDocumentToBlocks(
+      documentOf([
+        el("p", [
+          text("Shots: "),
+          image("./shots/flow.png", "The flow"),
+          image("shots/empty.png"),
+        ]),
+        el("p", [text("After.")]),
+      ]),
+    );
+
+    expect(blocks).toEqual([
+      { type: "markdown", markdown: "Shots:\n" },
+      { type: "image", assetId: "image-placeholder-1", alt: "The flow" },
+      { type: "image", assetId: "image-placeholder-2", alt: "empty.png" },
+      { type: "markdown", markdown: "After.\n" },
+    ]);
+    expect(images).toEqual([
+      {
+        src: "./shots/flow.png",
+        alt: "The flow",
+        placeholder: "image-placeholder-1",
+      },
+      {
+        src: "shots/empty.png",
+        alt: "empty.png",
+        placeholder: "image-placeholder-2",
+      },
+    ]);
+    expect(warnings).toEqual([]);
+  });
+
+  it("leaves a remote image in the Markdown", () => {
+    const { blocks, images } = legacyDocumentToBlocks(
+      documentOf([el("p", [image("https://img.example/a.png", "Remote")])]),
+    );
+
+    expect(blocks).toEqual([
+      { type: "markdown", markdown: "![Remote](https://img.example/a.png)\n" },
+    ]);
+    expect(images).toEqual([]);
+  });
+
+  it("registers a footnote's trace quote once, whatever cites the footnote", () => {
+    const reference = () =>
+      el("sup", [
+        el("a", [text("1")], {
+          href: "#user-content-fn-1",
+          id: "user-content-fnref-1",
+          "data-footnote-ref": "true",
+        }),
+      ]);
+
+    const { blocks, traces, warnings } = legacyDocumentToBlocks(
+      documentOf([
+        el("p", [text("First"), reference()]),
+        {
+          type: "component",
+          name: "ReviewSection",
+          props: { title: "Detail" },
+          children: [el("p", [text("Second"), reference()])],
+        } as ReviewNode,
+        footnoteTraceQuoteSection("1"),
+      ]),
+    );
+
+    const definition =
+      "[^1]: The agent [agent said so](review-trace:trace-placeholder-1#2).";
+
+    expect(traces).toHaveLength(1);
+    expect(warnings).toEqual([]);
+    expect(blocks.map((block) => block.type)).toEqual(["markdown", "section"]);
+    expect(blocks[0]).toMatchObject({
+      markdown: expect.stringContaining(definition),
+    });
+    expect(blocks[1]).toMatchObject({
+      children: [{ markdown: expect.stringContaining(definition) }],
+    });
   });
 });

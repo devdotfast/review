@@ -9,12 +9,55 @@ import {
   jsonObject,
   parseJsonText,
 } from "@dev.fast/review-protocol";
+import { onTestFinished } from "vitest";
 
 import { LEGACY_REVIEW_FIXTURES_ROOT } from "../fixtures/legacy-reviews/legacy-review-fixture";
+import { openLocalReviewStore } from "../review-api/local-data";
+import type { ProseTag, ReviewNode } from "../review-document-data";
 import { type StoredReview, parseStoredReviewRecord } from "../review-home";
 import type { ReviewVcsLogEntry } from "../review-vcs";
+import {
+  type ImportLegacyReviewInput,
+  importLegacyReview,
+} from "./import-review";
 
 const exec = promisify(execFile);
+
+export const el = (
+  tag: ProseTag,
+  children: ReviewNode[] = [],
+  props: Record<string, string | number | boolean> = {},
+): ReviewNode => ({ type: "element", tag, props, children });
+
+export const text = (value: string): ReviewNode => ({ type: "text", value });
+
+/** The footnote section a legacy review sealed for a definition, `[^<label>]`,
+ * that quotes an agent trace. */
+export const footnoteTraceQuoteSection = (label: string): ReviewNode =>
+  el(
+    "section",
+    [
+      el("ol", [
+        el(
+          "li",
+          [
+            el("p", [
+              text("The agent "),
+              {
+                type: "component",
+                name: "TraceQuote",
+                props: { sessionId: "s1", event: 2 },
+                children: [text("agent said so")],
+              },
+              text("."),
+            ]),
+          ],
+          { id: `user-content-fn-${label}` },
+        ),
+      ]),
+    ],
+    { "data-footnotes": "true" },
+  );
 
 export async function scratchGitRepo() {
   const root = await mkdtemp(path.join(os.tmpdir(), "import-repo-"));
@@ -48,6 +91,8 @@ export async function syntheticLegacyReview(
     revisions?: number;
     /** Seal the same document in every revision, like a map-only publish. */
     identical?: boolean;
+    /** Files published beside the document, by path within the revision. */
+    assets?: Record<string, Buffer>;
     overrides?: Record<string, JsonValue>;
   } = {},
 ) {
@@ -111,6 +156,12 @@ export async function syntheticLegacyReview(
         ? document
         : document.replace(/"title": "([^"]*)"/, `"title": "$1 v${index}"`),
     );
+
+    for (const [asset, bytes] of Object.entries(options.assets ?? {})) {
+      const file = path.join(dir, ".revisions", oid, asset);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, bytes);
+    }
   }
 
   await mkdir(dir, { recursive: true });
@@ -118,6 +169,48 @@ export async function syntheticLegacyReview(
   const stored: StoredReview = { dir, review: record };
 
   return { home, dir, record, stored, oids };
+}
+
+/** A synthetic legacy review sealed from `fixture` in a scratch repository, and
+ * an open store closed when the test ends; `importReview` imports the former
+ * into the latter. */
+export async function runImport(
+  fixture: string,
+  options: Parameters<typeof syntheticLegacyReview>[2] & {
+    loadTrace?: ImportLegacyReviewInput["loadTrace"];
+  } = {},
+) {
+  const repo = await scratchGitRepo();
+  const review = await syntheticLegacyReview(fixture, repo, options);
+
+  const { store, data } = openLocalReviewStore(
+    path.join(review.home, "review-api.db"),
+  );
+
+  onTestFinished(() => store.close());
+
+  return {
+    ...review,
+    repo,
+    store,
+    data,
+    documentPath: (oid: string) =>
+      path.join(
+        review.dir,
+        ".revisions",
+        oid,
+        ".bundle/document/review-document.json",
+      ),
+    importReview: () =>
+      importLegacyReview({
+        review: review.stored,
+        store,
+        data,
+        materialize: materializeFromRevisionDirs,
+        log: logFromRevisionDirs(review.oids),
+        loadTrace: options.loadTrace ?? (async () => null),
+      }),
+  };
 }
 
 /** Serves every revision from the review's own `.revisions` directory. */

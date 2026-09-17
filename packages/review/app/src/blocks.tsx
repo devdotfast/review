@@ -84,6 +84,7 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
           <AnchorLink anchor={anchor}>{children}</AnchorLink>
         ) : undefined;
       }}
+      allowRemoteImages
     />
   );
 }

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -13,6 +13,7 @@ import {
   ReviewInputError,
   sourceReferences,
 } from "../review-api/document";
+import { decodeImage } from "../review-api/image-decode";
 import type { LocalReviewData } from "../review-api/local-data";
 import type {
   ImportedVersionInput,
@@ -30,6 +31,7 @@ import { type ReviewVcsLogEntry, reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { legacySoftwareMapBundle } from "../stored-review-migration";
 import {
+  type ImageRequest,
   type TraceRequest,
   legacyDocumentToBlocks,
   repairImportedSectionHeadings,
@@ -39,6 +41,7 @@ import {
   mapResourcesFromBundle,
   traceResourceFromLoaded,
 } from "./legacy-resources";
+import { escapeMarkdownText } from "./prose-markdown";
 
 export type ImportOutcome =
   | {
@@ -187,6 +190,8 @@ export async function importLegacyReview(
     loadTrace: input.loadTrace ?? loadReviewAgentTrace,
   });
 
+  const images = new ImageResolver({ store, repositoryId });
+
   for (const [index, entry] of entries.entries()) {
     const dir = await input.materialize(review, entry.oid);
     const raw = await readSealedDocument(dir);
@@ -269,10 +274,12 @@ export async function importLegacyReview(
     const conversion = legacyDocumentToBlocks(document);
     const versionWarnings = [...conversion.warnings];
 
-    const blocks = await traces.resolve(
+    const blocks = replace(
       conversion.blocks,
-      conversion.traces,
-      versionWarnings,
+      new Map([
+        ...(await traces.replacements(conversion.traces, versionWarnings)),
+        ...(await images.replacements(conversion.images, dir, versionWarnings)),
+      ]),
     );
 
     if (input.completeHistory && versionWarnings.length)
@@ -580,12 +587,10 @@ class TraceResolver {
     },
   ) {}
 
-  async resolve(
-    blocks: Block[],
+  async replacements(
     requests: TraceRequest[],
     warnings: string[],
-  ): Promise<Block[]> {
-    if (requests.length === 0) return blocks;
+  ): Promise<Map<string, Block>> {
     const replacements = new Map<string, Block>();
 
     for (const request of requests) {
@@ -627,7 +632,7 @@ class TraceResolver {
       });
     }
 
-    return replace(blocks, replacements);
+    return replacements;
   }
 
   private load(request: TraceRequest) {
@@ -665,7 +670,75 @@ class TraceResolver {
   }
 }
 
+/** Stores each published image once per review, keyed by file bytes: a
+ * screenshot edited between revisions becomes a second resource. */
+class ImageResolver {
+  private readonly stored = new Map<string, string>();
+
+  constructor(
+    private readonly input: { store: ReviewStore; repositoryId: string },
+  ) {}
+
+  async replacements(
+    requests: ImageRequest[],
+    dir: string,
+    warnings: string[],
+  ): Promise<Map<string, Block>> {
+    const replacements = new Map<string, Block>();
+
+    for (const request of requests) {
+      try {
+        replacements.set(request.placeholder, {
+          type: "image",
+          assetId: await this.resource(request.src, dir),
+          alt: request.alt,
+        });
+      } catch (error) {
+        warnings.push(
+          `image "${request.src}" could not be imported: ${errorMessage(error)}`,
+        );
+        replacements.set(request.placeholder, {
+          type: "markdown",
+          markdown: `*${escapeMarkdownText(request.alt)}*\n`,
+        });
+      }
+    }
+
+    return replacements;
+  }
+
+  private async resource(src: string, dir: string): Promise<string> {
+    const root = path.resolve(dir);
+    // A leading slash is the review's own root, not the filesystem.
+    const file = path.resolve(root, src.replace(/^\/+/, ""));
+
+    if (file !== root && !file.startsWith(root + path.sep))
+      throw new Error("outside the review");
+
+    const bytes = await readFile(file);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const kept = this.stored.get(digest);
+
+    if (kept) return kept;
+
+    const png = await decodeImage(bytes);
+    const id = randomUUID();
+    this.input.store.putResource(
+      id,
+      this.input.repositoryId,
+      "image",
+      "image/png",
+      png,
+    );
+    this.stored.set(digest, id);
+
+    return id;
+  }
+}
+
 function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
+  if (replacements.size === 0) return blocks;
+
   return blocks.map((block) => {
     if (block.type === "markdown") {
       return {
@@ -685,6 +758,10 @@ function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
 
     if (block.type === "trace_quote") {
       return replacements.get(block.traceId) ?? block;
+    }
+
+    if (block.type === "image") {
+      return replacements.get(block.assetId) ?? block;
     }
 
     if (block.type === "section" || block.type === "callout")

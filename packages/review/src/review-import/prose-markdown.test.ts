@@ -15,20 +15,13 @@ import {
   reviewDocumentDataSchema,
   upgradeReviewDocumentJson,
 } from "../review-document-data";
+import { el, footnoteTraceQuoteSection, text } from "./import-test-utils";
 import {
   collectFootnoteDefinitions,
   isProseNode,
   proseToMarkdown,
   sourceLink,
 } from "./prose-markdown";
-
-const el = (
-  tag: string,
-  children: ReviewNode[] = [],
-  props: Record<string, string | number | boolean> = {},
-): ReviewNode => ({ type: "element", tag, props, children }) as ReviewNode;
-
-const text = (value: string): ReviewNode => ({ type: "text", value });
 
 describe("proseToMarkdown", () => {
   it("renders headings, paragraphs and inline marks", () => {
@@ -250,6 +243,22 @@ describe("proseToMarkdown", () => {
       "CodePeek inside prose became a source link (Peek)",
       "TraceQuote inside prose kept only its text",
     ]);
+  });
+
+  it("routes footnote definition content through the caller's renderer", () => {
+    const warnings: string[] = [];
+
+    const footnotes = collectFootnoteDefinitions(
+      [footnoteTraceQuoteSection("1")],
+      warnings,
+      (node) =>
+        node.name === "TraceQuote" ? "[said so](review-trace:t1#2)" : undefined,
+    );
+
+    expect([...footnotes]).toEqual([
+      ["1", "The agent [said so](review-trace:t1#2)."],
+    ]);
+    expect(warnings).toEqual([]);
   });
 
   it("round-trips list, code, footnote and numbering semantics through the parser", () => {

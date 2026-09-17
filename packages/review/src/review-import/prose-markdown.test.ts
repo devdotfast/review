@@ -8,6 +8,7 @@ import {
   LEGACY_REVIEW_FIXTURES_ROOT,
   listLegacyReviewFixtures,
 } from "../fixtures/legacy-reviews/legacy-review-fixture";
+import { selectSource } from "../lens-selection";
 import { markdownNodes, parseMarkdown } from "../markdown";
 import { sourceReferences } from "../review-api/document";
 import {
@@ -45,7 +46,12 @@ describe("proseToMarkdown", () => {
       __kind: "db-anchor-ref",
       id: "a",
       title: "Queue",
-      peek: { side: "head", file: "src/order.ts", fromLine: 3, toLine: 9 },
+      peek: selectSource({
+        side: "head",
+        file: "src/order.ts",
+        fromLine: 3,
+        toLine: 9,
+      }),
     };
 
     expect(
@@ -201,7 +207,12 @@ describe("proseToMarkdown", () => {
 
   it("keeps a nested CodePeek as a source link and reports other nested components", () => {
     const warnings: string[] = [];
-    const peek = { side: "head", file: "src/a.ts", fromLine: 4, toLine: 6 };
+    const peek = selectSource({
+      side: "head",
+      file: "src/a.ts",
+      fromLine: 4,
+      toLine: 6,
+    });
 
     const markdown = proseToMarkdown(
       [

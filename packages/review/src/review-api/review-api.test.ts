@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { selectSource } from "../lens-selection.js";
 import { createGlobalReviewServer } from "../server/desktop-server.js";
 import { GlobalReviewDesktopVerbRelay } from "../server/global-verb-relay.js";
 import { type AuthoringTool, callAuthoringTool } from "./agent-client.js";
@@ -17,13 +18,20 @@ import { type ReviewProviders, ReviewStore } from "./store.js";
 
 const pins = { repositoryId: "repo", base: "base-commit", head: "head-commit" };
 
-const source = { side: "head", file: "src/store.ts", fromLine: 1, toLine: 5 };
+const source = {
+  side: "head" as const,
+  file: "src/store.ts",
+  fromLine: 1,
+  toLine: 5,
+};
 
 const diagram = {
   type: "sequence",
   title: "Save",
   actors: { app: "App", db: "Database" },
-  steps: [{ from: "app", to: "db", label: "Write", source }],
+  steps: [
+    { from: "app", to: "db", label: "Write", source: selectSource(source) },
+  ],
 };
 
 let directory: string, database: string, store: ReviewStore;
@@ -189,15 +197,23 @@ describe("snapshot authoring", () => {
       content: {
         type: "call_stack_diff",
         title: "Mouse versus keyboard",
-        base: [{ key: "mouse", label: "selectionchange", source }],
-        head: [{ key: "keyboard", label: "keydown", source }],
+        base: [
+          {
+            key: "mouse",
+            label: "selectionchange",
+            source: selectSource(source),
+          },
+        ],
+        head: [
+          { key: "keyboard", label: "keydown", source: selectSource(source) },
+        ],
       },
     });
     const saved = store.read(reviewId).document[0]!;
     expect(saved).toMatchObject({
       type: "call_stack_diff",
-      base: [{ source }],
-      head: [{ source }],
+      base: [{ source: selectSource(source) }],
+      head: [{ source: selectSource(source) }],
     });
     expect(providers.validateSource).toHaveBeenCalledWith(pins, source, {
       peek: true,
@@ -283,13 +299,13 @@ describe("snapshot authoring", () => {
       children: [{ type: "markdown", markdown: "Nested" }],
     },
     { type: "callout", tone: "warning", children: [] },
-    { type: "code_peek", source },
+    { type: "code_peek", source: selectSource(source) },
     diagram,
     {
       type: "call_stack_diff",
       title: "Change",
-      base: [{ source: { ...source, side: "base" } }],
-      head: [{ source }],
+      base: [{ source: selectSource({ ...source, side: "base" }) }],
+      head: [{ source: selectSource(source) }],
     },
     {
       type: "database_lens",
@@ -317,7 +333,7 @@ describe("snapshot authoring", () => {
               collection: "reviews",
               actor: "app",
               label: "Insert",
-              source,
+              source: selectSource(source),
             },
           ],
         },
@@ -402,7 +418,7 @@ describe("snapshot authoring", () => {
     const { reviewId } = await create();
     await edit(reviewId, {
       type: "insert",
-      content: { type: "code_peek", source },
+      content: { type: "code_peek", source: selectSource(source) },
     });
     await edit(reviewId, {
       type: "insert",
@@ -439,7 +455,7 @@ describe("snapshot authoring", () => {
     await edit(reviewId, {
       type: "update",
       targetId: original.document[0]!.id!,
-      changes: { source: { ...source, file: "renamed.ts" } },
+      changes: { source: selectSource({ ...source, file: "renamed.ts" }) },
     });
     expect(store.read(reviewId).document[0]).toMatchObject({
       id: original.document[0]!.id,
@@ -451,7 +467,7 @@ describe("snapshot authoring", () => {
     const { reviewId } = await create();
     await edit(reviewId, {
       type: "insert",
-      content: { type: "code_peek", source },
+      content: { type: "code_peek", source: selectSource(source) },
     });
 
     const result = await store.execute(
@@ -473,7 +489,7 @@ describe("snapshot authoring", () => {
     const { reviewId } = await create();
     await edit(reviewId, {
       type: "insert",
-      content: { type: "code_peek", source },
+      content: { type: "code_peek", source: selectSource(source) },
     });
     const original = store.read(reviewId);
     vi.mocked(providers.validatePins).mockRejectedValueOnce(
@@ -542,7 +558,7 @@ describe("snapshot authoring", () => {
     expect(value().steps[0]).toMatchObject({
       id: step,
       label: "Commit",
-      source,
+      source: selectSource(source),
     });
     expect(providers.validateSource).toHaveBeenCalledTimes(1);
     await edit(reviewId, {
@@ -600,7 +616,10 @@ describe("snapshot authoring", () => {
       },
       {
         type: "insert",
-        content: { type: "code_peek", source: { ...source, fromLine: 10 } },
+        content: {
+          type: "code_peek",
+          source: selectSource({ ...source, fromLine: 10 }),
+        },
       },
     ];
 
@@ -613,7 +632,7 @@ describe("snapshot authoring", () => {
     await expect(
       edit(reviewId, {
         type: "insert",
-        content: { type: "code_peek", source },
+        content: { type: "code_peek", source: selectSource(source) },
       }),
     ).rejects.toThrow(/Range/);
     expect(store.read(reviewId)).toEqual(before);
@@ -643,13 +662,15 @@ describe("snapshot authoring", () => {
         type: "sequence",
         title: "Save",
         actors: { a: "App", s: "Server" },
-        steps: [{ from: "a", to: "s", label: "save", source }],
+        steps: [
+          { from: "a", to: "s", label: "save", source: selectSource(source) },
+        ],
       },
       {
         type: "call_stack_diff",
         title: "Save path",
         base: [],
-        head: [{ key: "save", label: "save", source }],
+        head: [{ key: "save", label: "save", source: selectSource(source) }],
       },
       {
         type: "database_lens",
@@ -677,7 +698,7 @@ describe("snapshot authoring", () => {
                 collection: "saves",
                 actor: "s",
                 label: "insert",
-                source,
+                source: selectSource(source),
               },
             ],
           },
@@ -728,7 +749,7 @@ describe("snapshot authoring", () => {
 
     const pending = edit(reviewId, {
       type: "insert",
-      content: { type: "code_peek", source },
+      content: { type: "code_peek", source: selectSource(source) },
     });
 
     await entered;
@@ -882,7 +903,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
       ),
     ).toEqual({
       issues: [
-        { side: "head", message: "Repository is not registered." },
+        { side: "head" as const, message: "Repository is not registered." },
         { side: "base", message: "Repository is not registered." },
       ],
     });
@@ -904,11 +925,16 @@ it("serves the experiment through the real desktop HTTP server and existing auth
           type: "insert",
           content: {
             type: "code_peek",
-            source: { side: "head", file: "x", fromLine: 0, toLine: 1 },
+            source: selectSource({
+              side: "head" as const,
+              file: "x",
+              fromLine: 0,
+              toLine: 1,
+            }),
           },
         },
       }),
-    ).rejects.toThrow(/fromLine/);
+    ).rejects.toThrow(/start.line/);
     const abort = new AbortController();
     const catalog = client.watch(null, abort.signal);
     expect((await catalog.next()).value).toMatchObject([
@@ -1049,4 +1075,765 @@ it("preserves unfinished section status after authoring stops and restores it fr
     changes: { status: null },
   });
   expect(store.read(reviewId).document[0]).not.toHaveProperty("status");
+});
+
+it("persists partial coverage outside document versions and resets it for a changed file", async () => {
+  const { reviewId } = await create();
+  const version = store.read(reviewId).version;
+  store.updateViewedCoverage(
+    reviewId,
+    [
+      {
+        path: "a.ts",
+        fingerprint: "old",
+        scope: { base: [], head: [[0, 10]] },
+      },
+    ],
+    true,
+  );
+  store.updateViewedCoverage(
+    reviewId,
+    [
+      {
+        path: "a.ts",
+        fingerprint: "old",
+        scope: { base: [], head: [[5, 15]] },
+      },
+    ],
+    true,
+  );
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [0, 15],
+  ]);
+  expect(store.read(reviewId).version).toBe(version);
+  await store.close();
+  store = new ReviewStore(database, providers);
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [0, 15],
+  ]);
+  store.updateViewedCoverage(
+    reviewId,
+    [{ path: "a.ts", fingerprint: "old", scope: { base: [], head: [[4, 8]] } }],
+    false,
+  );
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [0, 4],
+    [8, 15],
+  ]);
+  store.updateViewedCoverage(
+    reviewId,
+    [
+      {
+        path: "a.ts",
+        fingerprint: "new",
+        scope: { base: [], head: [[20, 22]] },
+      },
+    ],
+    true,
+  );
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [20, 22],
+  ]);
+});
+
+it("preserves unchanged partial file coverage across pins and rejects stale writes after either file side changes", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { reviewProgress } = await import("./review-progress.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  let head = "first\nsecond\ncontext";
+  let base = "first\nold\ncontext";
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [
+        {
+          file: {
+            lhs: { path: "a.ts", oid: "base", mode: "100644" },
+            rhs: { path: "a.ts", oid: "head", mode: "100644" },
+          },
+          status: "modified",
+        },
+      ],
+    };
+    yield {
+      type: "file",
+      file: {
+        lhs: { path: "a.ts", oid: "base", mode: "100644" },
+        rhs: { path: "a.ts", oid: "head", mode: "100644" },
+      },
+      diff: {
+        type: "text",
+        lhs: { text: base },
+        rhs: { text: head },
+        structural_changes: { base: [[1, 2]], head: [[1, 2]] },
+        stats: {
+          textual: { added: 99, removed: 99 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    yield { type: "complete", succeeded: 1, failed: 0 };
+  });
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: side === "head" ? head : base,
+  }));
+  const api = createReviewApi(store, data);
+  const initial = await reviewProgress(store, data, store.read(reviewId));
+
+  await data.coverage(reviewId, pins, "structural");
+  expect(store.list()[0].diffStats).toEqual({
+    fileCount: 1,
+    additions: 1,
+    deletions: 1,
+  });
+  expect(data.structuralChanges).toHaveBeenCalledTimes(1);
+  expect(store.list("textual")[0].diffStats).toBeNull();
+
+  const mark = (fingerprint: string, version: number) =>
+    api.request(`/${reviewId}/progress`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version,
+        viewed: true,
+        files: [
+          {
+            path: "a.ts",
+            fingerprint,
+            sources: [
+              { side: "head" as const, file: "a.ts", fromLine: 2, toLine: 2 },
+            ],
+          },
+        ],
+      }),
+    });
+
+  expect((await mark(initial.files[0].fingerprint, 0)).status).toBe(200);
+  await store.execute(
+    request({ type: "repin", reviewId, pins: { ...pins, head: "new-pin" } }),
+  );
+  expect(
+    (await reviewProgress(store, data, store.read(reviewId))).files[0].viewed
+      .head,
+  ).toEqual([[1, 2]]);
+  head += "\nchanged outside the hunk";
+  await store.execute(
+    request({
+      type: "repin",
+      reviewId,
+      pins: { ...pins, head: "changed-head" },
+    }),
+  );
+  expect(
+    (await reviewProgress(store, data, store.read(reviewId))).files[0].viewed
+      .head,
+  ).toEqual([]);
+  expect((await mark(initial.files[0].fingerprint, 0)).status).toBe(409);
+  const next = await reviewProgress(store, data, store.read(reviewId));
+  expect(
+    (await mark(next.files[0].fingerprint, store.read(reviewId).version))
+      .status,
+  ).toBe(200);
+  base += "\nnew base context";
+  await store.execute(
+    request({
+      type: "repin",
+      reviewId,
+      pins: { ...pins, base: "changed-base", head: "changed-head" },
+    }),
+  );
+  expect(
+    (await reviewProgress(store, data, store.read(reviewId))).files[0].viewed
+      .head,
+  ).toEqual([]);
+});
+
+it("textual coverage uses Git ranges without launching diffr", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { coverageProgress } = await import("../viewed-coverage.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "changes").mockImplementation((async (
+    _pins: typeof pins,
+    file?: string,
+  ) =>
+    file
+      ? "@@ -1 +1 @@\n-const x=1;\n+const x = 1;\n"
+      : [
+          { path: "a.ts", status: "modified", additions: 1, deletions: 1 },
+        ]) as typeof data.changes);
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: side === "head" ? "const x = 1;" : "const x=1;",
+  }));
+  const structural = vi.spyOn(data, "structuralChanges");
+  const response = await createReviewApi(store, data).request(
+    `/${reviewId}/progress?mode=textual`,
+  );
+  expect(response.status).toBe(200);
+  const progress = await response.json();
+  expect(coverageProgress(progress.files).total).toEqual({
+    additions: 1,
+    deletions: 1,
+  });
+  await data.coverage(reviewId, pins, "textual");
+  const api = createReviewApi(store, data);
+  const textualCatalog = await (await api.request("/?mode=textual")).json();
+  expect(textualCatalog[0].diffStats).toEqual({
+    fileCount: 1,
+    additions: 1,
+    deletions: 1,
+  });
+  expect(structural).not.toHaveBeenCalled();
+  structural.mockImplementation(async function* () {
+    const file = {
+      lhs: { path: "a.ts", oid: "base", mode: "100644" },
+      rhs: { path: "a.ts", oid: "head", mode: "100644" },
+    };
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [{ file, status: "modified" }],
+    };
+    yield {
+      type: "file",
+      file,
+      diff: {
+        type: "text",
+        lhs: { text: "const x=1;" },
+        rhs: { text: "const x = 1;" },
+        structural_changes: { base: [], head: [] },
+        stats: {
+          textual: { added: 1, removed: 1 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    throw new Error("Counts must not wait for summary events");
+  });
+  await data.coverage(reviewId, pins, "structural");
+  const structuralCatalog = await (
+    await api.request("/?mode=structural")
+  ).json();
+  expect(structuralCatalog[0].diffStats).toEqual({
+    fileCount: 1,
+    additions: 0,
+    deletions: 0,
+  });
+  const structuralProgress = await (
+    await api.request(`/${reviewId}/progress?mode=structural`)
+  ).json();
+  expect(coverageProgress(structuralProgress.files).total).toEqual({
+    additions: 0,
+    deletions: 0,
+  });
+  expect(structural).toHaveBeenCalledTimes(1);
+  expect(store.list("textual")[0].diffStats).toEqual(
+    textualCatalog[0].diffStats,
+  );
+});
+
+it("resolves file lenses to whole changed files, preserves empty groups, and shares viewed coverage", async () => {
+  const { reviewProgress } = await import("./review-progress.js");
+  const { coverageProgress } = await import("../viewed-coverage.js");
+  const { reviewId } = await create();
+
+  for (const content of [
+    { type: "file_lens", title: "Docs", patterns: ["docs/**", "docs/old.md"] },
+    { type: "file_lens", title: "Guide", patterns: ["guide/**"] },
+    { type: "file_lens", title: "Tests", patterns: ["**/*.test.ts"] },
+  ])
+    await store.execute(
+      request({ type: "edit", reviewId, edit: { type: "insert", content } }),
+    );
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [
+        {
+          file: {
+            lhs: { path: "docs/old.md", oid: "base", mode: "100644" },
+            rhs: { path: "guide/intro.md", oid: "head", mode: "100644" },
+          },
+          status: "modified",
+        },
+      ],
+    };
+    yield {
+      type: "file",
+      file: {
+        lhs: { path: "docs/old.md", oid: "base", mode: "100644" },
+        rhs: { path: "guide/intro.md", oid: "head", mode: "100644" },
+      },
+      diff: {
+        type: "text",
+        lhs: { text: "base\ncontext\nmore context" },
+        rhs: { text: "head\ncontext\nmore context" },
+        structural_changes: { base: [[0, 1]], head: [[0, 1]] },
+        stats: {
+          textual: { added: 99, removed: 99 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    yield { type: "complete", succeeded: 1, failed: 0 };
+  });
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: `${side}\ncontext\nmore context`,
+  }));
+  const initial = await reviewProgress(store, data, store.read(reviewId));
+  const [docs, guide, tests] = initial.diagrams;
+  expect(docs.fileCount).toBe(1);
+  expect(docs.sources).toEqual([
+    { side: "base", file: "docs/old.md", fromLine: 1, toLine: 3 },
+    { side: "head" as const, file: "guide/intro.md", fromLine: 1, toLine: 3 },
+  ]);
+  expect(guide.sources).toEqual(docs.sources);
+  expect(tests.fileCount).toBe(0);
+  expect(tests.sources).toEqual([]);
+  expect(tests.unavailable).toBeTruthy();
+  store.updateViewedCoverage(
+    reviewId,
+    initial.files.map((file) => ({
+      path: file.path,
+      fingerprint: file.fingerprint,
+      scope: file.changed,
+    })),
+    true,
+  );
+  const viewed = await reviewProgress(store, data, store.read(reviewId));
+  expect(coverageProgress(viewed.files, docs.sources).state).toBe("viewed");
+  expect(coverageProgress(viewed.files, guide.sources).state).toBe("viewed");
+  expect(coverageProgress(viewed.files).total).toEqual({
+    additions: 1,
+    deletions: 1,
+  });
+});
+
+it("validates range lens evidence and scopes progress and Uncategorized to distinct changed lines", async () => {
+  const { reviewProgress } = await import("./review-progress.js");
+  const { coverageProgress, scopedCoverage } =
+    await import("../viewed-coverage.js");
+  const { reviewId } = await create();
+  const selected = {
+    side: "head" as const,
+    file: "src/a.ts",
+    fromLine: 2,
+    toLine: 2,
+  };
+  await edit(reviewId, {
+    type: "insert",
+    content: {
+      type: "file_lens",
+      title: "One line",
+      targets: [
+        {
+          kind: "ranges",
+          sources: [selectSource(selected), selectSource(selected)],
+        },
+      ],
+    },
+  });
+  expect(providers.validateSource).toHaveBeenCalledWith(
+    pins,
+    selected,
+    expect.anything(),
+  );
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [
+        {
+          file: {
+            lhs: { path: "src/a.ts", oid: "base", mode: "100644" },
+            rhs: { path: "src/a.ts", oid: "head", mode: "100644" },
+          },
+          status: "modified",
+        },
+      ],
+    };
+    yield {
+      type: "file",
+      file: {
+        lhs: { path: "src/a.ts", oid: "base", mode: "100644" },
+        rhs: { path: "src/a.ts", oid: "head", mode: "100644" },
+      },
+      diff: {
+        type: "text",
+        lhs: { text: "base1\nbase2\nbase3" },
+        rhs: { text: "head1\nhead2\nhead3" },
+        structural_changes: { base: [[0, 3]], head: [[0, 3]] },
+        stats: {
+          textual: { added: 99, removed: 99 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    yield { type: "complete", succeeded: 1, failed: 0 };
+  });
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: `${side}1\n${side}2\n${side}3`,
+  }));
+  const result = await reviewProgress(store, data, store.read(reviewId));
+  const lens = result.diagrams[0],
+    rest = result.diagrams.find(
+      (lens) => lens.id === "automatic-uncategorized",
+    )!;
+  expect(lens.sources).toEqual([{ ...selected, side: "base" }, selected]);
+  expect(lens.wholeFiles).toBe(false);
+  expect(coverageProgress(result.files, lens.sources).total).toEqual({
+    additions: 1,
+    deletions: 1,
+  });
+  expect(coverageProgress(result.files, rest.sources).total).toEqual({
+    additions: 2,
+    deletions: 2,
+  });
+  expect(rest.wholeFiles).toBe(false);
+  store.updateViewedCoverage(
+    reviewId,
+    result.files.map((file) => ({
+      path: file.path,
+      fingerprint: file.fingerprint,
+      scope: scopedCoverage(file, lens.sources),
+    })),
+    true,
+  );
+  const viewed = await reviewProgress(store, data, store.read(reviewId));
+  expect(coverageProgress(viewed.files, lens.sources).state).toBe("viewed");
+  expect(coverageProgress(viewed.files, rest.sources).remaining).toEqual({
+    additions: 2,
+    deletions: 2,
+  });
+  await edit(reviewId, {
+    type: "replace",
+    targetId: store.read(reviewId).document[0]!.id!,
+    content: {
+      type: "file_lens",
+      title: "Stale selection",
+      targets: [
+        {
+          kind: "ranges",
+          sources: [
+            {
+              file: selected.file,
+              start: { side: "head", line: 99 },
+              end: { side: "head", line: 100 },
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const stale = await reviewProgress(store, data, store.read(reviewId));
+  expect(stale.diagrams[0].unavailable).toBeTruthy();
+  expect(
+    coverageProgress(stale.files, stale.diagrams.at(-1)!.sources).total,
+  ).toEqual({ additions: 3, deletions: 3 });
+});
+
+it("rejects ambiguous lens scopes and validates range sources during authoring", async () => {
+  const { reviewId } = await create();
+  for (const scope of [
+    {},
+    { patterns: ["**"], targets: [{ kind: "files", patterns: ["**"] }] },
+  ])
+    await expect(
+      edit(reviewId, {
+        type: "insert",
+        content: { type: "file_lens", title: "Invalid", ...scope },
+      }),
+    ).rejects.toThrow(/either targets or legacy patterns/);
+  vi.mocked(providers.validateSource).mockRejectedValue(
+    new Error("File is unavailable"),
+  );
+  await expect(
+    edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "file_lens",
+        title: "Missing",
+        targets: [{ kind: "ranges", sources: [selectSource(source)] }],
+      },
+    }),
+  ).rejects.toThrow("File is unavailable");
+});
+
+it("returns coverage and lenses after initial files without requesting summary events", async () => {
+  const { reviewProgress } = await import("./review-progress.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  const file = { rhs: { path: "a.ts", oid: "head", mode: "100644" } };
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "empty_tree" },
+      rhs: { type: "revision", rev: "head" },
+      files: [{ file, status: "added" }],
+    };
+    yield {
+      type: "file",
+      file,
+      diff: {
+        type: "text",
+        rhs: { text: "added" },
+        structural_changes: { base: [], head: [[0, 1]] },
+        stats: {
+          textual: { added: 1, removed: 0 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    throw new Error("Coverage must not await enrichment");
+  });
+  const progress = await reviewProgress(store, data, store.read(reviewId));
+  expect(progress.files[0].changed).toEqual({ base: [], head: [[0, 1]] });
+  expect(
+    progress.diagrams.find((lens) => lens.id === "automatic-uncategorized")
+      ?.sources,
+  ).toEqual([{ side: "head", file: "a.ts", fromLine: 1, toLine: 1 }]);
+  data.close();
+});
+
+it("returns pending progress without waiting for coverage and signals completion to late watchers", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "changes").mockImplementation((async (
+    _pins: typeof pins,
+    file?: string,
+  ) => {
+    await gate;
+    return file ? "" : [];
+  }) as typeof data.changes);
+  const api = createReviewApi(store, data);
+  const route = `/${reviewId}/progress?version=0&mode=textual&wait=false`;
+  try {
+    const pending = await api.request(route);
+    expect(pending.status).toBe(202);
+    expect(await pending.json()).toMatchObject({ complete: false, files: [] });
+    expect(data.coverageRevision).toBe(0);
+    release();
+    await data.coverage(reviewId, pins, "textual");
+    await vi.waitFor(() => expect(data.coverageRevision).toBeGreaterThan(0));
+    const watch = await api.request(
+      `/watch?subscriptions=${encodeURIComponent(JSON.stringify([{ reviewId, mode: "textual" }]))}`,
+    );
+    const reader = watch.body!.getReader();
+    const initial = JSON.parse(
+      new TextDecoder().decode((await reader.read()).value),
+    );
+    expect(initial[0].value.coverageRevision).toBeGreaterThan(0);
+    await reader.cancel();
+    const ready = await api.request(route);
+    expect(ready.status).toBe(200);
+    expect((await ready.json()).files).toEqual([]);
+    expect(data.changes).toHaveBeenCalledTimes(1);
+  } finally {
+    release();
+    await data.close();
+  }
+});
+
+it("reports failed background coverage instead of leaving progress pending", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "changes").mockRejectedValue(new Error("comparison failed"));
+  const api = createReviewApi(store, data);
+  const route = `/${reviewId}/progress?version=0&mode=textual&wait=false`;
+  try {
+    expect((await api.request(route)).status).toBe(202);
+    await vi.waitFor(() => expect(data.coverageRevision).toBeGreaterThan(0));
+    expect((await api.request(route)).status).toBe(500);
+  } finally {
+    await data.close();
+  }
+});
+
+it("makes a lens step usable before an unrelated file finishes counting", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { selectionKey } = await import("../lens-selection.js");
+  const { reviewId } = await create();
+  const refs = ["a.ts", "b.ts"].map((file) =>
+    selectSource({ side: "head", file, fromLine: 1, toLine: 1 }),
+  );
+  await edit(reviewId, {
+    type: "insert",
+    content: {
+      ...diagram,
+      steps: refs.map((source, i) => ({
+        from: "app",
+        to: "db",
+        label: `step ${i}`,
+        source,
+      })),
+    },
+  });
+  const data = new LocalReviewData(store);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "changes").mockImplementation((async (
+    _pins: typeof pins,
+    file?: string,
+  ) => {
+    if (!file)
+      return ["a.ts", "b.ts"].map((path) => ({
+        path,
+        status: "modified",
+        additions: 1,
+        deletions: 1,
+      }));
+    if (file === "b.ts") await gate;
+    return "@@ -1 +1 @@\n-old\n+new\n";
+  }) as typeof data.changes);
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: side === "head" ? "new" : "old",
+  }));
+  const api = createReviewApi(store, data);
+  const route = `/${reviewId}/progress?version=${store.read(reviewId).version}&mode=textual&wait=false`;
+  try {
+    await api.request(route);
+    await vi.waitFor(() =>
+      expect(
+        data.coverageSnapshot(reviewId, pins, "textual").comparison.files,
+      ).toHaveLength(1),
+    );
+    const partial = await (await api.request(route)).json();
+    expect(partial.complete).toBe(false);
+    expect(partial.diagrams[0]).toMatchObject({ title: "Save", pending: true });
+    expect(partial.resolvedSelections[selectionKey(refs[0])]).toBeDefined();
+    expect(partial.resolvedSelections[selectionKey(refs[1])]).toBeUndefined();
+    expect(partial.unavailableSelections).toEqual({});
+    expect(partial.diagrams.at(-1)).toMatchObject({
+      id: "automatic-uncategorized",
+      pending: true,
+      sources: [],
+    });
+    release();
+    await data.coverage(reviewId, pins, "textual");
+    const complete = await (await api.request(route)).json();
+    expect(complete.complete).toBe(true);
+    expect(complete.diagrams[0].pending).toBe(false);
+    expect(complete.resolvedSelections[selectionKey(refs[1])]).toBeDefined();
+  } finally {
+    release();
+    await data.close();
+  }
+});
+
+it("Home reads persisted counts without scheduling comparisons, and changed pins start unknown", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  const comparison = vi.spyOn(data, "coverage");
+  const api = createReviewApi(store, data);
+  expect((await (await api.request("/")).json())[0].diffStats).toBeNull();
+  expect(comparison).not.toHaveBeenCalled();
+  const counts = { fileCount: 2, additions: 9, deletions: 3 };
+  store.setDiffStats(pins, counts, "structural");
+  await store.close();
+  store = new ReviewStore(database, providers);
+  expect(store.list()[0].diffStats).toEqual(counts);
+  expect(store.list("textual")[0].diffStats).toBeNull();
+  await store.execute(
+    request({ type: "repin", reviewId, pins: { ...pins, head: "new-head" } }),
+  );
+  expect(store.list()[0].diffStats).toBeNull();
+  await store.execute(request({ type: "repin", reviewId, pins }));
+  expect(store.list()[0].diffStats).toEqual(counts);
+});
+
+it("shares pending comparison work even when more than 32 reviews are opened", async () => {
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    await gate;
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [],
+    };
+    yield { type: "complete", succeeded: 0, failed: 0 };
+  });
+  const first = data.coverage(reviewId, pins, "structural");
+  const others = Array.from({ length: 33 }, (_, i) =>
+    data.coverage(reviewId, { ...pins, head: `head-${i}` }, "structural"),
+  );
+  expect(data.coverage(reviewId, pins, "structural")).toBe(first);
+  release();
+  await Promise.all([first, ...others]);
 });

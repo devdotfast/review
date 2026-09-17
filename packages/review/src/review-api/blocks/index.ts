@@ -7,6 +7,7 @@ import { code_peek } from "./code_peek.js";
 import { database_lens } from "./database_lens.js";
 import type { BlockDefinition } from "./definition.js";
 import { divider } from "./divider.js";
+import { file_lens } from "./file_lens.js";
 import { image } from "./image.js";
 import { markdown } from "./markdown.js";
 import { type SectionBlock, section } from "./section.js";
@@ -27,6 +28,7 @@ export const leafSchema = z.discriminatedUnion("type", [
   image.schema,
   trace_quote.schema,
   software_map.schema,
+  file_lens.schema,
 ]);
 
 export type LeafBlock = z.infer<typeof leafSchema>;
@@ -51,6 +53,7 @@ export const blocks = {
   image,
   trace_quote,
   software_map,
+  file_lens,
   section,
   callout,
   tutorial,

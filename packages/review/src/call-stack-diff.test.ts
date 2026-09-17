@@ -14,6 +14,7 @@ import {
 } from "./call-stack-diff";
 import { patchChangedLines } from "./call-stack-diff-test-utils";
 import { callStackFrames } from "./call-stack-frames";
+import { selectSource } from "./lens-selection";
 
 interface AnchorPeekProps {
   file: string;
@@ -35,7 +36,7 @@ function anchor(id: string, graph?: "base" | "head"): PeekableAnchorRef {
     __kind: "db-anchor-ref",
     id,
     title: `Anchor ${id}`,
-    peek: codePeekSource(props),
+    peek: selectSource(codePeekSource(props)),
   }) as PeekableAnchorRef;
 }
 

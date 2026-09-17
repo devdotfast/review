@@ -265,10 +265,9 @@ export default createActiveReviewDocument({ title: "Legacy", routePath: "/", fil
       ],
     });
     expect(result.document?.anchors.request?.peek).toEqual({
-      side: "head",
       file: "src/example.ts",
-      fromLine: 1,
-      toLine: 1,
+      start: { side: "head", line: 1 },
+      end: { side: "head", line: 1 },
     });
     expect(result.document?.anchors.unused?.title).toBe(
       "Unused imported anchor",

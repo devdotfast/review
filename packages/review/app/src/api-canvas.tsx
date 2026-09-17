@@ -35,6 +35,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
 import { DisplayedReviewVersionContext } from "./review-history-control";
+import { ReviewLensesProvider } from "./review-lenses";
 import { SharingContext } from "./share-control";
 import { TutorialProvider } from "./tutorial-context";
 
@@ -80,6 +81,7 @@ export function ApiCanvas({
   );
 
   const [version, setVersion] = useState(content.version);
+  const [coverageRevision, setCoverageRevision] = useState(0);
   const [activity, setActivity] = useState<ActivitySnapshot | "unknown">();
   useEffect(() => setVersion(content.version), [content.version]);
   const [data, setData] = useState<ApiDocumentData>();
@@ -135,16 +137,18 @@ export function ApiCanvas({
         } catch (cause) {
           if (!abort.signal.aborted) setError(message(cause));
         }
-
-        return;
       }
 
       let shownVersion: string | undefined;
-      await client.follow<Snapshot & { activity: ActivitySnapshot }>(
+      await client.follow<
+        Snapshot & { activity: ActivitySnapshot; coverageRevision?: number }
+      >(
         content.reviewId,
         abort.signal,
         async (snapshot) => {
           setActivity(snapshot.activity);
+          setCoverageRevision(snapshot.coverageRevision ?? 0);
+          if (version !== undefined) return;
 
           if (
             shownVersion ===
@@ -315,28 +319,35 @@ export function ApiCanvas({
     <SharingContext.Provider value={sharing}>
       <ReviewSessionProvider session={session}>
         <DocumentData.Provider value={data}>
-          <TutorialProvider tutorial={content.tutorial}>
-            {error && <p role="status">{error}</p>}
-            <AuthoringActivityContext.Provider
-              value={version === undefined ? activity : undefined}
-            >
-              <DisplayedReviewVersionContext.Provider
-                value={data.snapshot.version}
+          <ReviewLensesProvider
+            client={client}
+            snapshot={data.snapshot}
+            coverageRevision={coverageRevision}
+            structuralDiffEnabled={content.structuralDiffEnabled}
+          >
+            <TutorialProvider tutorial={content.tutorial}>
+              {error && <p role="status">{error}</p>}
+              <AuthoringActivityContext.Provider
+                value={version === undefined ? activity : undefined}
               >
-                <RevealAfterFirstPaint>
-                  <MapEnabled.Provider
-                    value={content.softwareMapEnabled === true}
-                  >
-                    <CanvasDocument
-                      data={data}
-                      findHost={findHost}
-                      softwareMapEnabled={content.softwareMapEnabled === true}
-                    />
-                  </MapEnabled.Provider>
-                </RevealAfterFirstPaint>
-              </DisplayedReviewVersionContext.Provider>
-            </AuthoringActivityContext.Provider>
-          </TutorialProvider>
+                <DisplayedReviewVersionContext.Provider
+                  value={data.snapshot.version}
+                >
+                  <RevealAfterFirstPaint>
+                    <MapEnabled.Provider
+                      value={content.softwareMapEnabled === true}
+                    >
+                      <CanvasDocument
+                        data={data}
+                        findHost={findHost}
+                        softwareMapEnabled={content.softwareMapEnabled === true}
+                      />
+                    </MapEnabled.Provider>
+                  </RevealAfterFirstPaint>
+                </DisplayedReviewVersionContext.Provider>
+              </AuthoringActivityContext.Provider>
+            </TutorialProvider>
+          </ReviewLensesProvider>
         </DocumentData.Provider>
       </ReviewSessionProvider>
     </SharingContext.Provider>

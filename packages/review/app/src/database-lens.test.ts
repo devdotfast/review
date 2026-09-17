@@ -10,6 +10,7 @@ import {
   storeRefData,
 } from "../../src/authoring";
 import { databaseLensBlockFromLegacy } from "../../src/database-lens-block";
+import { selectSource } from "../../src/lens-selection";
 import type { DatabaseOperation } from "../../src/review-api/document";
 import {
   type LensStores,
@@ -61,7 +62,7 @@ function operation(
     actor: { id: input.actor, label: input.actor },
     target: lensTarget(stores, input),
     label: input.label ?? input.id,
-    source,
+    source: selectSource(source),
   };
 }
 

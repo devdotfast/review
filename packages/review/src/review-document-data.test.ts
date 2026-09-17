@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { selectSource } from "./lens-selection";
 import {
   PROSE_TAGS,
   REVIEW_DOCUMENT_FORMAT,
@@ -12,7 +13,7 @@ const anchor = {
   __kind: "db-anchor-ref",
   id: "a",
   title: "A",
-  peek: { side: "head", file: "x.ts", fromLine: 1, toLine: 2 },
+  peek: selectSource({ side: "head", file: "x.ts", fromLine: 1, toLine: 2 }),
 };
 
 const base = {
@@ -242,7 +243,12 @@ describe("review document data", () => {
           __kind: "db-anchor-ref",
           id: "a",
           title: "A",
-          peek: { side: "base", file: "src/a.ts", fromLine: 2, toLine: 4 },
+          peek: selectSource({
+            side: "base",
+            file: "src/a.ts",
+            fromLine: 2,
+            toLine: 4,
+          }),
         },
       },
       body: [
@@ -255,10 +261,9 @@ describe("review document data", () => {
                 id: "a",
                 key: "a",
                 source: {
-                  side: "head",
                   file: "src/a.ts",
-                  fromLine: 2,
-                  toLine: 4,
+                  start: { side: "head", line: 2 },
+                  end: { side: "head", line: 4 },
                 },
                 label: "A",
               },
@@ -273,7 +278,14 @@ describe("review document data", () => {
   it("leaves already-upgraded documents byte-identical", () => {
     const current = {
       anchors: {
-        a: { peek: { side: "head", file: "f", fromLine: 1, toLine: 1 } },
+        a: {
+          peek: selectSource({
+            side: "head",
+            file: "f",
+            fromLine: 1,
+            toLine: 1,
+          }),
+        },
       },
     };
 

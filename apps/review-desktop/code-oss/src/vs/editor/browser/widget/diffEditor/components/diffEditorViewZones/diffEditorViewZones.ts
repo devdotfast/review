@@ -692,13 +692,14 @@ function getAdditionalLineHeights(editor: CodeEditorWidget, viewZonesToIgnore: R
 	const viewZoneHeights: { lineNumber: number; heightInPx: number }[] = [];
 	const wrappingZoneHeights: { lineNumber: number; heightInPx: number }[] = [];
 
-	const hasWrapping = editor.getOption(EditorOption.wrappingInfo).wrappingColumn !== -1;
 	const coordinatesConverter = editor._getViewModel()!.coordinatesConverter;
 	const editorLineHeight = editor.getOption(EditorOption.lineHeight);
-	if (hasWrapping) {
+	{
+		// Folded lines contribute no height, even when wrapping is disabled.
+		// Inline alignment must subtract them before sizing the opposite gutter.
 		for (let i = 1; i <= editor.getModel()!.getLineCount(); i++) {
 			const lineCount = coordinatesConverter.getModelLineViewLineCount(i);
-			if (lineCount > 1) {
+			if (lineCount !== 1) {
 				wrappingZoneHeights.push({ lineNumber: i, heightInPx: editorLineHeight * (lineCount - 1) });
 			}
 		}

@@ -18,6 +18,7 @@ import {
   listTrackedFilesAtCommit,
   readFileAtCommit,
 } from "@dev.fast/local-vcs";
+import { structuralChangeCounts } from "@dev.fast/review-protocol";
 import type {
   ReviewLanguageEnvironment,
   ReviewSourceEntry,
@@ -40,17 +41,22 @@ import {
   requireVisibleSource,
   sliceSourceRange,
 } from "../source.js";
+import {
+  comparisonCoverage,
+  type CoverageMode,
+  type ComparisonCoverage,
+} from "./comparison-coverage.js";
 import { resourceReference } from "./document.js";
 import {
   type Block,
   type Pins,
   ReviewInputError,
   type ReviewTarget,
-  type Source,
+  type FileLineRange,
   elements,
   pinsSchema,
   sourceReferences,
-  sourceSchema,
+  fileLineRangeSchema,
 } from "./document.js";
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
@@ -101,7 +107,10 @@ function checkRelativePath(file: string) {
     );
 }
 
-function sliceRange(file: { commit: string; text: string }, source: Source) {
+function sliceRange(
+  file: { commit: string; text: string },
+  source: FileLineRange,
+) {
   return {
     ...source,
     commit: file.commit,
@@ -370,6 +379,10 @@ export class LocalReviewData {
   }
 
   async close(): Promise<void> {
+    this.coverageAbort.abort();
+    clearTimeout(this.coverageNotification);
+    this.coverageListeners.clear();
+    this.coverageCache.clear();
     this.structuralComparisons.close();
     this.closed = true;
     await this.workspaces.close();
@@ -730,14 +743,18 @@ export class LocalReviewData {
 
     return files;
   }
-  async quote(pins: Pins, source: Source) {
-    source = sourceSchema.parse(source);
+  async quote(pins: Pins, source: FileLineRange) {
+    source = fileLineRangeSchema.parse(source);
 
     return sliceRange(await this.file(pins, source.side, source.file), source);
   }
   /** Every source reference must exist at the pins; only code peeks must also
    * show something. */
-  async validateSource(pins: Pins, source: Source, options: { peek: boolean }) {
+  async validateSource(
+    pins: Pins,
+    source: FileLineRange,
+    options: { peek: boolean },
+  ) {
     const quote = await this.quote(pins, source);
 
     if (options.peek)
@@ -747,7 +764,7 @@ export class LocalReviewData {
    * the problem becomes a warning instead of a rejection. */
   async validateSourceTolerant(
     pins: Pins,
-    source: Source,
+    source: FileLineRange,
     options: { peek: boolean },
   ): Promise<string | null> {
     try {
@@ -760,36 +777,118 @@ export class LocalReviewData {
       throw error;
     }
   }
-  private readonly catalogStats = new Map<string, Promise<void>>();
+  private readonly coverageCache = new Map<
+    string,
+    {
+      promise: ReturnType<typeof comparisonCoverage>;
+      state: "pending" | "ready" | "error";
+      error?: unknown;
+      partial?: ComparisonCoverage;
+    }
+  >();
+  private readonly coverageAbort = new AbortController();
+  private readonly coverageListeners = new Set<() => void>();
+  coverageRevision = 0;
 
-  /** Hydrate immutable source statistics once per pin pair, without delaying Home. */
-  populateCatalogStats(): Promise<void> {
-    if (this.closed) return Promise.resolve();
+  subscribeCoverage(listener: () => void) {
+    this.coverageListeners.add(listener);
+    return () => {
+      this.coverageListeners.delete(listener);
+    };
+  }
 
-    return Promise.all(
-      this.store.list().map((review) => {
-        const key = JSON.stringify(review.pins);
-        let pending = this.catalogStats.get(key);
+  /** Start shared coverage work without occupying an HTTP request until it completes. */
+  coveragePending(reviewId: string, pins: Pins, mode: CoverageMode): boolean {
+    const key = JSON.stringify([pins, mode]);
+    const existing = this.coverageCache.get(key);
+    if (existing?.state === "error") {
+      this.coverageCache.delete(key);
+      throw existing.error;
+    }
+    void this.coverage(reviewId, pins, mode).catch(() => {});
+    return this.coverageCache.get(key)!.state === "pending";
+  }
 
-        if (!pending) {
-          pending = this.changes(review.pins)
-            .then((files) => {
-              if (this.closed) return;
-              this.store.setDiffStats(review.pins, {
-                fileCount: files.length,
-                additions: files.reduce((sum, file) => sum + file.additions, 0),
-                deletions: files.reduce((sum, file) => sum + file.deletions, 0),
-              });
-            })
-            .catch(() => {
-              /* An unavailable checkout leaves counts unknown, never zero. */
-            });
-          this.catalogStats.set(key, pending);
+  coverageSnapshot(reviewId: string, pins: Pins, mode: CoverageMode) {
+    const pending = this.coveragePending(reviewId, pins, mode);
+    const entry = this.coverageCache.get(JSON.stringify([pins, mode]))!;
+    return {
+      pending,
+      comparison: entry.partial ?? {
+        files: [],
+        fileSources: new Map(),
+        alignments: new Map(),
+      },
+    };
+  }
+
+  private coverageNotification: ReturnType<typeof setTimeout> | undefined;
+  private notifyCoverage() {
+    if (this.closed || this.coverageNotification) return;
+    this.coverageNotification = setTimeout(() => {
+      this.coverageNotification = undefined;
+      this.coverageRevision++;
+      for (const listener of this.coverageListeners) listener();
+    }, 50);
+  }
+
+  coverage(reviewId: string, pins: Pins, mode: CoverageMode) {
+    const key = JSON.stringify([pins, mode]);
+    let entry = this.coverageCache.get(key);
+    if (!entry || entry.state === "error") {
+      const promise = comparisonCoverage(
+        this,
+        reviewId,
+        pins,
+        mode,
+        this.coverageAbort.signal,
+        (partial) => {
+          const current = this.coverageCache.get(key);
+          if (current) current.partial = partial;
+          this.notifyCoverage();
+        },
+      );
+      entry = { promise, state: "pending" };
+      this.coverageCache.set(key, entry);
+      const current = entry;
+      const settled = (state: "ready" | "error", error?: unknown) => {
+        current.state = state;
+        current.error = error;
+        this.notifyCoverage();
+        // Never evict shared in-flight work. Trim only settled comparisons.
+        for (const [cachedKey, cached] of this.coverageCache) {
+          if (this.coverageCache.size <= 32) break;
+          if (cached.state !== "pending" && cachedKey !== key)
+            this.coverageCache.delete(cachedKey);
         }
-
-        return pending;
-      }),
-    ).then(() => {});
+      };
+      void promise.then(
+        (value) => {
+          current.partial = value;
+          if (!this.closed)
+            this.store.setDiffStats(
+              pins,
+              {
+                fileCount: value.files.length,
+                additions: value.files.reduce(
+                  (sum, file) =>
+                    sum + structuralChangeCounts(file.changed).added,
+                  0,
+                ),
+                deletions: value.files.reduce(
+                  (sum, file) =>
+                    sum + structuralChangeCounts(file.changed).removed,
+                  0,
+                ),
+              },
+              mode,
+            );
+          settled("ready");
+        },
+        (error) => settled("error", error),
+      );
+    }
+    return entry.promise;
   }
 
   changes(pins: Pins): Promise<LocalVcsDiffFileSummary[]>;
@@ -967,7 +1066,10 @@ export class LocalReviewData {
         await Promise.all(
           model.elements.flatMap((element) =>
             (element.sourceRanges ?? []).map(async (source) => {
-              const range = sourceSchema.parse({ ...source, side: input.side });
+              const range = fileLineRangeSchema.parse({
+                ...source,
+                side: input.side,
+              });
               let read = files.get(range.file);
 
               if (!read)
@@ -1084,3 +1186,4 @@ export function openLocalReviewStore(
 
   return { store, data };
 }
+

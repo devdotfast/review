@@ -2,10 +2,9 @@ import { z } from "zod";
 
 const label = z.string().trim().min(1);
 
-/** A pinned source range as the canonical review document expresses it. The
- * side resolves against the enclosing review version's pins; a range alone is
- * never a global identity or cache key. */
-export const sourceSchema = z
+/** Internal coordinates for reading one revision or storing resolved coverage.
+ * Authored document attachments use DiffSelection instead. */
+export const fileLineRangeSchema = z
   .strictObject({
     side: z.enum(["base", "head"]).default("head"),
     file: label,
@@ -14,9 +13,9 @@ export const sourceSchema = z
   })
   .refine((s) => s.toLine >= s.fromLine, "Source range ends before it starts.");
 
-export type Source = z.infer<typeof sourceSchema>;
+export type FileLineRange = z.infer<typeof fileLineRangeSchema>;
 
-export type SourceRange = Pick<Source, "file" | "fromLine" | "toLine">;
+export type SourceRange = Pick<FileLineRange, "file" | "fromLine" | "toLine">;
 
 /** Thrown by the pure checks; each boundary translates it for its clients. */
 export class SourceRangeError extends Error {}
@@ -66,7 +65,7 @@ export function codePeekSource(props: {
   fromLine: number;
   toLine: number;
   graph?: "head" | "base";
-}): Source {
+}): FileLineRange {
   return {
     side: props.graph ?? "head",
     file: props.file,

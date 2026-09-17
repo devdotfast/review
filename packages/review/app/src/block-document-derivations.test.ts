@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { selectSource } from "../../src/lens-selection";
 import { blockSectionSummary } from "./block-document-derivations";
 
 describe("blockSectionSummary", () => {
@@ -26,12 +27,12 @@ describe("blockSectionSummary", () => {
                 { type: "software_map", mapVersionId: "map-1" },
                 {
                   type: "code_peek",
-                  source: {
+                  source: selectSource({
                     side: "head",
                     file: "x.ts",
                     fromLine: 1,
                     toLine: 2,
-                  },
+                  }),
                 },
                 { type: "markdown", markdown: "One.\n\nTwo." },
               ],

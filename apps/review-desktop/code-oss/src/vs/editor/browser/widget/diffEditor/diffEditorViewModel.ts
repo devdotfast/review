@@ -155,7 +155,8 @@ export class DiffEditorViewModel extends Disposable implements IDiffEditorViewMo
 				const previous = this._unchangedRegions.get();
 				const regions = result.contextGaps.map(gap => {
 					const region = new SuppliedContextGap(gap);
-					const old = previous?.regions.find(r => r.originalLineNumber === gap.originalStart && r.modifiedLineNumber === gap.modifiedStart && r.lineCount === region.lineCount && r.label === gap.label);
+					// Deferred annotations change labels without changing the fold or its partial reveal.
+					const old = previous?.regions.find(r => r.originalLineNumber === gap.originalStart && r.modifiedLineNumber === gap.modifiedStart && r.lineCount === region.lineCount);
 					// The supplier's open/closed state wins; a matching old region keeps a partial reveal
 					// only while it agrees with that state.
 					const open = gap.collapsed === false;
@@ -547,7 +548,9 @@ export class UnchangedRegion {
 	public readonly isDragged = observableValue<undefined | 'bottom' | 'top'>(this, undefined);
 
 	/** A provider-supplied name for the region; undefined means "N hidden lines". */
-	public get label(): string | undefined { return undefined; }
+	public get label(): string | undefined { return this.readLabel(undefined); }
+	public readLabel(_reader: IReader | undefined): string | undefined { return undefined; }
+	public get foldStateId(): number | undefined { return undefined; }
 	public get breadcrumbs(): boolean { return true; }
 	/** What the hidden lines are; supplied gaps say, computed regions are unchanged context. */
 	public get owner(): 'base' | 'head' | 'both' { return 'both'; }
@@ -686,7 +689,8 @@ class SuppliedContextGap extends UnchangedRegion {
 	constructor(private readonly gap: NonNullable<IDocumentDiff['contextGaps']>[number]) {
 		super(gap.originalStart, gap.modifiedStart, Math.max(gap.originalCount, gap.modifiedCount), 0, 0);
 	}
-	override get label(): string | undefined { return this.gap.label; }
+	override readLabel(reader: IReader | undefined): string | undefined { return this.gap.labelObservable?.read(reader) ?? this.gap.label; }
+	override get foldStateId(): number | undefined { return this.gap.foldStateId; }
 	override get owner(): 'base' | 'head' | 'both' { return this.gap.owner ?? 'both'; }
 	override get change(): 'unchanged' | 'inserted' | 'removed' | 'modified' { return this.gap.change ?? 'unchanged'; }
 	override get breadcrumbs(): boolean { return this.gap.breadcrumbs ?? true; }

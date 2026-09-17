@@ -46,10 +46,15 @@
         {
           "type": "code_peek",
           "source": {
-            "side": "head",
             "file": "src/orders/order-service.ts",
-            "fromLine": 13,
-            "toLine": 29
+            "start": {
+              "side": "head",
+              "line": 13
+            },
+            "end": {
+              "side": "head",
+              "line": 29
+            }
           },
           "caption": "Order service creates the order"
         },
@@ -102,10 +107,15 @@
               "label": "Place order",
               "style": "call",
               "source": {
-                "side": "head",
                 "file": "src/api/checkout-api.ts",
-                "fromLine": 12,
-                "toLine": 15
+                "start": {
+                  "side": "head",
+                  "line": 12
+                },
+                "end": {
+                  "side": "head",
+                  "line": 15
+                }
               }
             },
             {
@@ -115,10 +125,15 @@
               "label": "Save order",
               "style": "call",
               "source": {
-                "side": "head",
                 "file": "src/orders/order-service.ts",
-                "fromLine": 13,
-                "toLine": 29
+                "start": {
+                  "side": "head",
+                  "line": 13
+                },
+                "end": {
+                  "side": "head",
+                  "line": 29
+                }
               }
             },
             {
@@ -128,10 +143,15 @@
               "label": "Enqueue fulfillment",
               "style": "call",
               "source": {
-                "side": "head",
                 "file": "src/orders/orders-repository.ts",
-                "fromLine": 9,
-                "toLine": 12
+                "start": {
+                  "side": "head",
+                  "line": 9
+                },
+                "end": {
+                  "side": "head",
+                  "line": 12
+                }
               }
             },
             {
@@ -141,10 +161,15 @@
               "label": "Deliver job",
               "style": "call",
               "source": {
-                "side": "head",
                 "file": "src/fulfillment/fulfillment-worker.ts",
-                "fromLine": 13,
-                "toLine": 14
+                "start": {
+                  "side": "head",
+                  "line": 13
+                },
+                "end": {
+                  "side": "head",
+                  "line": 14
+                }
               }
             },
             {
@@ -154,10 +179,15 @@
               "label": "Create shipment",
               "style": "call",
               "source": {
-                "side": "head",
                 "file": "src/fulfillment/fulfillment-worker.ts",
-                "fromLine": 17,
-                "toLine": 19
+                "start": {
+                  "side": "head",
+                  "line": 17
+                },
+                "end": {
+                  "side": "head",
+                  "line": 19
+                }
               }
             }
           ]
@@ -225,10 +255,15 @@
                   "actor": "orderService",
                   "label": "write pending order",
                   "source": {
-                    "side": "head",
                     "file": "src/orders/orders-repository.ts",
-                    "fromLine": 9,
-                    "toLine": 12
+                    "start": {
+                      "side": "head",
+                      "line": 9
+                    },
+                    "end": {
+                      "side": "head",
+                      "line": 12
+                    }
                   }
                 }
               ]
@@ -244,10 +279,15 @@
                   "actor": "worker",
                   "label": "write fulfilled status",
                   "source": {
-                    "side": "head",
                     "file": "src/fulfillment/fulfillment-worker.ts",
-                    "fromLine": 17,
-                    "toLine": 19
+                    "start": {
+                      "side": "head",
+                      "line": 17
+                    },
+                    "end": {
+                      "side": "head",
+                      "line": 19
+                    }
                   }
                 }
               ]

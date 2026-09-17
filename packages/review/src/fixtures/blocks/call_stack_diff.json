@@ -8,10 +8,15 @@
         "id": "frame-1",
         "key": "status",
         "source": {
-          "side": "base",
           "file": "order.ts",
-          "fromLine": 1,
-          "toLine": 1
+          "start": {
+            "side": "base",
+            "line": 1
+          },
+          "end": {
+            "side": "base",
+            "line": 1
+          }
         },
         "label": "status = draft"
       }
@@ -21,13 +26,21 @@
         "id": "frame-2",
         "key": "status",
         "source": {
-          "side": "head",
           "file": "order.ts",
-          "fromLine": 1,
-          "toLine": 1
+          "start": {
+            "side": "head",
+            "line": 1
+          },
+          "end": {
+            "side": "head",
+            "line": 1
+          }
         },
         "label": "status = queued",
-        "via": { "kind": "call", "reason": "direct" }
+        "via": {
+          "kind": "call",
+          "reason": "direct"
+        }
       }
     ]
   }

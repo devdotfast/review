@@ -1,4 +1,3 @@
-import { structuralChangeCounts } from "./reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -9,7 +8,7 @@ export { structuralRows } from "./reviewProtocol.js";
 
 import type {
 	StructuralPairing, StructuralFileRef, StructuralRegion, StructuralSource,
-	StructuralLineCounts, StructuralProblem, StructuralDiff,
+	StructuralDiff,
 } from "./reviewProtocol.js";
 export type {
 	StructuralPairing, StructuralProblem, StructuralPos, StructuralSpan,
@@ -125,6 +124,8 @@ export interface StructuralGap {
 	collapsed: boolean;
 	/** The fold-state id of the region(s) this band hides; toggling the band toggles it. */
 	foldStateId: number;
+	/** Label precedence: head first, then base. */
+	regionIds: readonly number[];
 	/** False for a bundled docstring: its band shows the bare count, no symbol names. */
 	breadcrumbs: boolean;
 }
@@ -239,7 +240,7 @@ export function structuralContextGaps(
 				label: partner.region.visibility?.label || left.visibility?.label || "",
 				owner: "both", change: "unchanged",
 				collapsed: collapsed && partner.collapsed,
-				foldStateId: left.fold_state_id,
+				foldStateId: left.fold_state_id, regionIds: [partner.region.id, left.id],
 				breadcrumbs: !isDocstring(left) && !isDocstring(partner.region),
 			});
 			continue;
@@ -248,7 +249,7 @@ export function structuralContextGaps(
 		gaps.push({
 			originalStart: hidden.start + 1, originalCount: hidden.end - hidden.start,
 			modifiedStart: opposite.start, modifiedCount: opposite.count,
-			label: left.visibility?.label || "", owner: "base", change: "unchanged", collapsed, foldStateId: left.fold_state_id,
+			label: left.visibility?.label || "", owner: "base", change: "unchanged", collapsed, foldStateId: left.fold_state_id, regionIds: [left.id],
 			breadcrumbs: !isDocstring(left),
 		});
 	}
@@ -259,7 +260,7 @@ export function structuralContextGaps(
 		gaps.push({
 			originalStart: opposite.start, originalCount: opposite.count,
 			modifiedStart: hidden.start + 1, modifiedCount: hidden.end - hidden.start,
-			label: right.visibility?.label || "", owner: "head", change: "unchanged", collapsed, foldStateId: right.fold_state_id,
+			label: right.visibility?.label || "", owner: "head", change: "unchanged", collapsed, foldStateId: right.fold_state_id, regionIds: [right.id],
 			breadcrumbs: !isDocstring(right),
 		});
 	}
@@ -281,22 +282,4 @@ export function structuralContextGaps(
 		gap.label = `${count} hidden line${count === 1 ? "" : "s"}`;
 	}
 	return gaps;
-}
-
-export interface StructuralFileCounts {
-	visible: StructuralLineCounts;
-	textual: StructuralLineCounts;
-	fallback?: StructuralProblem;
-}
-
-/** The file's counts, straight from the wire. Folding never changes them. */
-export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFileCounts {
-	return { visible: structuralChangeCounts(diff.structural_changes), textual: diff.stats.textual, fallback: diff.stats.fallback };
-}
-
-export function structuralCountsTooltip(counts: StructuralFileCounts): string {
-	const row = (label: string, value: StructuralLineCounts) => `${label} +${value.added} −${value.removed}`;
-	const rows = [row("structural", counts.visible), row("textual", counts.textual)];
-	if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
-	return rows.join("\n");
 }

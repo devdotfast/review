@@ -1,3 +1,4 @@
+import { sourceAnchor } from "../../src/lens-selection";
 import {
   callStackConnectorPrefix,
   diffCallStacks,
@@ -59,7 +60,7 @@ export function CallStackDiff({ title, base, head }: CallStackDiffProps) {
               role="listitem"
               className={`call-stack-row call-stack-${row.change}`}
               data-review-anchor-id={frame.id ?? frameIdentity(frame)}
-              title={`${rowTooltip(frame, parent)} — ${frame.source.file}:${frame.source.fromLine}`}
+              title={`${rowTooltip(frame, parent)} — ${frame.source.file}:${sourceAnchor(frame.source).fromLine}`}
               onClick={() => {
                 captureUiEvent(session, "peek_opened", {
                   via: "call_stack_frame",
@@ -83,7 +84,7 @@ export function CallStackDiff({ title, base, head }: CallStackDiffProps) {
               ) : null}
               <span className="call-stack-spacer" />
               <span className="call-stack-loc">
-                {locationLabel(frame.source.file, frame.source.fromLine)}
+                {locationLabel(frame.source.file, sourceAnchor(frame.source).fromLine)}
               </span>
             </button>
           );

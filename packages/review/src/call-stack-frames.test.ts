@@ -2,12 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import { type PeekableAnchorRef, calls } from "./authoring";
 import { callStackFrames, frameIdentity, frameName } from "./call-stack-frames";
+import { selectSource } from "./lens-selection";
 
 const anchor = (id: string): PeekableAnchorRef => ({
   __kind: "db-anchor-ref",
   id,
   title: `Anchor ${id}`,
-  peek: { side: "head", file: `src/${id}.ts`, fromLine: 1, toLine: 5 },
+  peek: selectSource({
+    side: "head",
+    file: `src/${id}.ts`,
+    fromLine: 1,
+    toLine: 5,
+  }),
 });
 
 describe("callStackFrames", () => {
@@ -17,10 +23,9 @@ describe("callStackFrames", () => {
         id: "reconcile",
         key: "reconcile",
         source: {
-          side: "head",
           file: "src/reconcile.ts",
-          fromLine: 1,
-          toLine: 5,
+          start: { side: "head", line: 1 },
+          end: { side: "head", line: 5 },
         },
         label: "Anchor reconcile",
       },
@@ -47,14 +52,16 @@ describe("callStackFrames", () => {
 describe("frame identity and name", () => {
   it("prefers the explicit key and falls back to the source range", () => {
     const source = {
-      side: "head",
       file: "src/a.ts",
-      fromLine: 3,
-      toLine: 4,
+      start: { side: "head", line: 3 },
+      end: { side: "head", line: 4 },
     } as const;
 
     expect(frameIdentity({ id: "x", key: "moved", source })).toBe("moved");
-    expect(frameIdentity({ id: "x", source })).toBe("src/a.ts:3-4");
+    expect(frameIdentity({ id: "x", source })).toBe(frameIdentity({ source }));
+    expect(frameIdentity({ source })).not.toBe(
+      frameIdentity({ source: { ...source, end: { side: "head", line: 5 } } }),
+    );
     expect(frameName({ id: "x", source })).toBe("x");
     expect(frameName({ source })).toBe("a.ts");
   });

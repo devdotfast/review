@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 
-import {
-  type StoreRefData,
-  collectionSchema,
-  createReviewDefinitionSession,
-  resolveTargetRef,
-} from "./authoring";
+import { createReviewDefinitionSession } from "./authoring";
 import { defineSoftwareMap } from "./software-map-model";
 
 function reviewMap() {
@@ -104,10 +99,9 @@ describe("Review definition session", () => {
 
     await expect(session.ready()).resolves.toBeUndefined();
     expect(anchors.startup.peek).toEqual({
-      side: "head",
       file: "src/example.ts",
-      fromLine: 1,
-      toLine: 3,
+      start: { side: "head", line: 1 },
+      end: { side: "head", line: 3 },
     });
   });
 
@@ -136,10 +130,9 @@ describe("Review definition session", () => {
       { anchorId: "startup" },
     );
     expect(anchors.startup.peek).toEqual({
-      side: "head",
       file: "src/example.ts",
-      fromLine: 1,
-      toLine: 3,
+      start: { side: "head", line: 1 },
+      end: { side: "head", line: 3 },
     });
   });
 

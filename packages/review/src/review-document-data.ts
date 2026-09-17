@@ -1,3 +1,4 @@
+import type { JsonObject } from "@dev.fast/review-protocol";
 import {
   type JsonValue,
   isJsonObject,
@@ -26,6 +27,7 @@ import {
   legacyDbUseCaseSchema,
   legacyDbWriteSchema,
 } from "./database-lens-block";
+import { migrateDiffSelections } from "./diff-selection-migration";
 import { sequenceBlockFromProps } from "./sequence-steps";
 import {
   type SoftwareModelData,
@@ -299,22 +301,30 @@ export const reviewDocumentDataSchema: z.ZodType<ReviewDocumentData> =
 
 /** Published documents once stored a code-peek ref
  * (`{ __kind: "code-peek-ref", props, resolution }`) where they now store a
- * plain source range. Sealed bundles are upgraded when read, never rewritten. */
+ * diff selection. Sealed bundles are upgraded when read, never rewritten. */
 export function upgradeReviewDocumentJson(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(upgradeReviewDocumentJson);
+  return upgradeDocumentNode(migrateDiffSelections(value));
+}
+
+function upgradeDocumentNode(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(upgradeDocumentNode);
 
   if (!isJsonObject(value)) return value;
 
   if (value.__kind === "code-peek-ref" && isJsonObject(value.props)) {
     const { file, fromLine, toLine, graph } = value.props;
 
-    return { side: graph ?? "head", file, fromLine, toLine };
+    return {
+      file,
+      start: { side: graph ?? "head", line: fromLine },
+      end: { side: graph ?? "head", line: toLine },
+    };
   }
 
-  const upgraded = Object.fromEntries(
+  const upgraded: JsonObject = Object.fromEntries(
     Object.entries(value).map(([key, child]) => [
       key,
-      upgradeReviewDocumentJson(child),
+      upgradeDocumentNode(child),
     ]),
   );
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createReviewDefinitionSession } from "./authoring";
+import { selectSource } from "./lens-selection";
 import {
   type ReviewDocumentModuleExports,
   collectDocumentSoftwareModels,
@@ -37,7 +38,7 @@ const anchor = {
   __kind: "db-anchor-ref",
   id: "a",
   title: "A",
-  peek: { side: "head", file: "x.ts", fromLine: 1, toLine: 2 },
+  peek: selectSource({ side: "head", file: "x.ts", fromLine: 1, toLine: 2 }),
 } as const;
 
 describe("materializeReviewDocument", () => {

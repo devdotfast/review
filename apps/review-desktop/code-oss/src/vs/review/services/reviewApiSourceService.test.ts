@@ -141,10 +141,10 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 	);
 	canvas.diffView.create({} as never);
 	const result = await source.load({ commit: "selected-commit" });
-	assert.equal(result.entries[0]!.original!.path, "/old.ts");
-	assert.equal(result.entries[0]!.modified!.path, "/new.ts");
-	assert.equal(result.entries[1]!.original, undefined);
-	assert.equal(result.entries[2]!.modified, undefined);
+	assert.equal(result.entries.find(entry => entry.file.path === "new.ts")!.original!.path, "/old.ts");
+	assert.equal(result.entries.find(entry => entry.file.path === "new.ts")!.modified!.path, "/new.ts");
+	assert.equal(result.entries.find(entry => entry.file.path === "added.ts")!.original, undefined);
+	assert.equal(result.entries.find(entry => entry.file.path === "removed.ts")!.modified, undefined);
 	for (const entry of result.entries) {
 		assert.equal(new URLSearchParams(entry.goToFileResource.query).get("version"), "7");
 		assert.equal(new URLSearchParams(entry.goToFileResource.query).get("commit"), "selected-commit");

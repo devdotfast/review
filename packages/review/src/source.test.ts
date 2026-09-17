@@ -5,13 +5,13 @@ import {
   checkSourcePath,
   requireVisibleSource,
   sliceSourceRange,
-  sourceSchema,
+  fileLineRangeSchema,
 } from "./source";
 
-describe("sourceSchema", () => {
+describe("fileLineRangeSchema", () => {
   it("accepts a pinned range and rejects one that ends before it starts", () => {
     expect(
-      sourceSchema.parse({
+      fileLineRangeSchema.parse({
         side: "head",
         file: "src/a.ts",
         fromLine: 3,
@@ -19,7 +19,7 @@ describe("sourceSchema", () => {
       }),
     ).toEqual({ side: "head", file: "src/a.ts", fromLine: 3, toLine: 3 });
     expect(() =>
-      sourceSchema.parse({
+      fileLineRangeSchema.parse({
         side: "base",
         file: "src/a.ts",
         fromLine: 4,

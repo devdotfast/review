@@ -14,6 +14,7 @@ import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
 import { DatabaseLens } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
+import { FlowDiagram } from "./flow-diagram";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import { SoftwareMap } from "./software-map/SoftwareMap";
@@ -241,6 +242,9 @@ export const blockComponents = {
   image: ImageBlock,
   trace_quote: TraceQuoteBlock,
   file_lens: () => null,
+  flow_diagram: ({ node, data }) => (
+    <FlowDiagram node={node} snapshot={data.snapshot} />
+  ),
   software_map: SoftwareMapBlock,
   section: SectionBlock,
   callout: CalloutBlock,

@@ -22,6 +22,7 @@ import { useRightPanelResize } from "./side-panel-resizer";
  * and selection behave identically everywhere.
  */
 export function DiagramTourOverlay({
+  className,
   tour,
   activeAnchor,
   revealRequest,
@@ -32,6 +33,7 @@ export function DiagramTourOverlay({
   onClose,
   children,
 }: {
+  className?: string;
   tour: GuidedTour;
   activeAnchor: string;
   revealRequest: number;
@@ -57,7 +59,7 @@ export function DiagramTourOverlay({
   return (
     <div
       ref={overlayRef}
-      className={`diagram-tour-overlay review-app--theme-${theme}`}
+      className={`diagram-tour-overlay review-app--theme-${theme} ${className ?? ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={`${tour.title ?? "Guided"} tour`}

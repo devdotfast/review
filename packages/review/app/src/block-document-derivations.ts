@@ -14,6 +14,7 @@ export function blockSectionSummary(children: Block[]): ReviewSectionSummary {
       case "sequence":
       case "database_lens":
       case "call_stack_diff":
+      case "flow_diagram":
       case "software_map":
         summary.diagrams += 1;
         break;

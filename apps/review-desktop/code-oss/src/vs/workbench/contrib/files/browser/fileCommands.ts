@@ -29,6 +29,7 @@ import { Schemas } from '../../../../base/common/network.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { EditorContextKeys } from '../../../../editor/common/editorContextKeys.js';
 import { IEditorService, SIDE_GROUP, ISaveEditorsOptions } from '../../../services/editor/common/editorService.js';
+import { isReviewReadonlySource } from '../../../../review/common/reviewReadonlySource.js';
 import { IEditorGroupsService, GroupsOrder, IEditorGroup } from '../../../services/editor/common/editorGroupsService.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { basename, joinPath, isEqual } from '../../../../base/common/resources.js';
@@ -367,6 +368,11 @@ async function saveSelectedEditors(accessor: ServicesAccessor, options?: ISaveEd
 	const editorGroupService = accessor.get(IEditorGroupsService);
 	const codeEditorService = accessor.get(ICodeEditorService);
 	const textFileService = accessor.get(ITextFileService);
+	const presented = (codeEditorService.getFocusedCodeEditor() ?? codeEditorService.getActiveCodeEditor())?.getModel()?.uri ??
+		EditorResourceAccessor.getCanonicalUri(accessor.get(IEditorService).activeEditor, { supportSideBySide: SideBySideEditor.PRIMARY });
+	// Review may be in a modal group above a dirty workspace editor. Never let
+	// the ordinary group-selection fallback save that editor on its behalf.
+	if (isReviewReadonlySource(presented)) return;
 
 	// Retrieve selected or active editor
 	let editors = getOpenEditorsViewMultiSelection(accessor);

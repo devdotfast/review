@@ -36,8 +36,9 @@ Language services use that checkout’s project and dependencies. A commit revie
 and uses Review-owned worktrees pinned to its commits, running `devfast.prepare`
 to set up dependencies. Choose live for ongoing work and pinned for a fixed comparison.
 
-Base-side and pinned files get language services only when their contents match
-the environment file; live reviews still use the current project's dependencies.
+Review source is read-only.
+Language services require matching environment buffers and use the current
+project's dependencies for live reviews.
 See [review targets](cli-reference.md#review-targets) for the API options.
 
 ## Every edit saves immediately

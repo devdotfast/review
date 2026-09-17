@@ -3,15 +3,14 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable } from "../../base/common/lifecycle.js";
+import { Disposable, DisposableStore } from "../../base/common/lifecycle.js";
 import { URI } from "../../base/common/uri.js";
 import { ILanguageService } from "../../editor/common/languages/language.js";
+import type { ITextModel } from "../../editor/common/model.js";
 import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
-import type { IFileStat } from "../../platform/files/common/files.js";
+import { IFileService, type IFileStat } from "../../platform/files/common/files.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
-import { IWorkspaceEditingService } from "../../workbench/services/workspaces/common/workspaceEditing.js";
-import { ITextFileService } from "../../workbench/services/textfile/common/textfiles.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import { reviewPeekWindows, reviewPeekDiffWindows, reviewPeekLineMappings } from "../common/reviewPeek.js";
 import type {
@@ -25,7 +24,7 @@ import type {
 } from "../common/reviewProtocol.js";
 import { resolveReviewSourceView, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
 import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
-import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
+import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import type { ReviewCodeModelReference, ReviewCodeDiffTarget } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService, reviewResponseError } from "./reviewDesktopConnectionService.js";
@@ -63,19 +62,20 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		@ILanguageService languages: ILanguageService,
 		@IEditorService private readonly editors: IEditorService,
 		@IReviewCanvasEditorTabsService private readonly tabs: IReviewCanvasEditorTabsService,
-		@IWorkspaceEditingService private readonly workspace: IWorkspaceEditingService,
-		@ITextFileService private readonly textFiles: ITextFileService,
+		@IFileService private readonly files: IFileService,
 	) {
 		super();
 		this._register(
 			models.registerTextModelContentProvider(REVIEW_API_SOURCE_SCHEME, {
 				provideTextContent: async (resource) => {
+					const existing = modelService.getModel(resource);
+					if (existing) return existing;
 					const query = new URLSearchParams(resource.query);
 					const target = sourceLocation(resource);
 					const body = query.has("empty")
 						? { text: "" }
-						: await this.read<{ text: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file });
-					return (
+						: await this.read<{ text: string; localPath?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file });
+					const model = (
 						modelService.getModel(resource) ??
 						modelService.createModel(
 							body.text,
@@ -83,9 +83,38 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 							resource,
 						)
 					);
+					if (body.localPath) {
+						this.followDisk(model, URI.file(body.localPath), async () => (await this.read<{ text: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file })).text);
+					}
+					return model;
 				},
 			}),
 		);
+		this._register(models.registerTextModelContentProvider(REVIEW_LANGUAGE_SOURCE_SCHEME, {
+			provideTextContent: async resource => {
+				const existing = modelService.getModel(resource);
+				if (existing) return existing;
+				const local = URI.file(resource.path);
+				const read = async () => (await this.files.readFile(local)).value.toString();
+				const model = modelService.createModel(await read(), languages.createByFilepathOrFirstLine(resource), resource);
+				this.followDisk(model, local, read);
+				return model;
+			},
+		}));
+	}
+
+	private followDisk(model: ITextModel, local: URI, read: () => Promise<string>): void {
+		const owned = this._register(new DisposableStore());
+		let revision = 0;
+		owned.add(this.files.watch(local));
+		owned.add(this.files.onDidFilesChange(event => {
+			if (!event.affects(local)) return;
+			const request = ++revision;
+			void read().then(text => {
+				if (!model.isDisposed() && request === revision && model.getValue() !== text) model.setValue(text);
+			}).catch(() => { /* A missing file cannot supply fresh source. */ });
+		}));
+		owned.add(model.onWillDispose(() => { this._store.delete(owned); owned.dispose(); }));
 	}
 
 	private async read<T>(
@@ -107,24 +136,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		return response.json();
 	}
 
-	private readonly localRoots = new Map<string, Promise<void>>();
 	private async sourceResource(target: ApiSourceTarget, empty = false): Promise<URI> {
-		if (!empty && !target.view.commit && target.side === "head") {
-			const file = await this.read<{ localPath?: string; localRoot?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), file: target.file, side: target.side });
-			if (file.localPath && file.localRoot) {
-				const resource = URI.file(file.localPath);
-				if (!this.textFiles.isDirty(resource)) {
-					let acquired = this.localRoots.get(file.localRoot);
-					if (!acquired) {
-						acquired = acquireReviewLanguageRoot(this.workspace, URI.file(file.localRoot)).then(root => { this._register(root); });
-						this.localRoots.set(file.localRoot, acquired);
-						acquired.catch(() => this.localRoots.delete(file.localRoot!));
-					}
-					await acquired;
-					return resource;
-				}
-			}
-		}
 		return apiSourceUri(target, empty);
 	}
 

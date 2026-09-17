@@ -11,7 +11,7 @@ import type { ReviewInlineSource } from "./reviewInlineEditorService.js";
 
 const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a", version, pins: {} });
 
-function setup(dirty = false) {
+function setup() {
 	let provider: ITextModelContentProvider;
 	let disposed = 0;
 	const models = new Map<string, { uri: URI; text: string; getLineCount(): number }>();
@@ -23,8 +23,8 @@ function setup(dirty = false) {
 			getConnection: async () => ({ serverUrl: "http://localhost:5570", token: "secret" }),
 		} as never,
 		{
-			registerTextModelContentProvider: (_: string, value: ITextModelContentProvider) => {
-				provider = value;
+			registerTextModelContentProvider: (scheme: string, value: ITextModelContentProvider) => {
+				if (scheme === "review-api-source") provider = value;
 				return { dispose() { } };
 			},
 			createModelReference: async (uri: URI) => ({
@@ -52,8 +52,7 @@ function setup(dirty = false) {
 				registered.push(reviewId);
 			},
 		} as never,
-		{ addFolders: async () => { }, removeFolders: async () => { } } as never,
-		{ isDirty: () => dirty } as never,
+		{} as never,
 	);
 	return {
 		service,
@@ -229,24 +228,6 @@ test("opening a native diff preserves renames and empty sides at the selected ve
 	await assert.rejects(service.openDiff(view(3), "unchanged.ts"), /not changed/);
 	assert.equal(opened.length, 3);
 });
-
-for (const scenario of ["live", "saved", "selected-commit", "base", "dirty", "mismatch", "pinned"] as const) {
-  test(`source opening uses the checkout only for eligible matching files: ${scenario}`, async t => {
-    const { service, opened } = setup(scenario === "dirty");
-    t.after(() => service.dispose());
-    let requests = 0;
-    t.mock.method(globalThis, "fetch", async () => {
-      requests++;
-      return Response.json(["mismatch", "pinned"].includes(scenario) ? { text: "retained" } : { localRoot: "/project", localPath: "/project/file.ts" });
-    });
-    const snapshot = { reviewId: "review-a", version: 3, pins: { worktreeRevision: "a".repeat(64) } };
-    const current = reviewSourceComparison(resolveReviewSourceView(snapshot), scenario === "selected-commit" ? "commit" : undefined);
-    await service.open({ view: current, side: scenario === "base" ? "base" : "head", file: "file.ts" });
-    const resource = (opened[0] as unknown as { resource: URI }).resource;
-    assert.equal(resource.scheme, ["live", "saved"].includes(scenario) ? "file" : "review-api-source");
-    assert.equal(requests, ["live", "saved", "dirty", "mismatch", "pinned"].includes(scenario) ? 1 : 0);
-  });
-}
 
 
 test("a refreshed current tree keeps its root when a file from the newer version opens", async t => {

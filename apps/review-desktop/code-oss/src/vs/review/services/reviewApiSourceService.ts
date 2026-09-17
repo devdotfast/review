@@ -1,3 +1,4 @@
+import { lensFiles } from "../common/reviewLensFiles.js";
 import { StructuralDiffClient } from "./reviewStructuralDiffClient.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
@@ -295,10 +296,12 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		);
 		const diffSource: ReviewDiffViewSource = {
 			files: scope => files(reviewSourceComparison(view(), scope?.commit)),
-			load: async (scope) => {
+			load: async (scope, lens) => {
+				if (lens && (scope || lens.reviewId !== view().reviewId)) throw new Error("A lens must use its review comparison.");
 				// Capture the comparison once; live checkout bytes may change during the load.
 				const current = reviewSourceComparison(view(), scope?.commit);
-				const entries = await files(current);
+				const entries = lensFiles(await files(current), lens);
+
 				return {
 					session: openComparison(current),
 					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.reviewId, path: `/${current.version}/${current.generation ?? ""}`, query: current.commit ? `commit=${encodeURIComponent(current.commit)}` : undefined }),
@@ -311,7 +314,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			},
 		};
 		return {
-			openStructuralComparison: () => openComparison(reviewSourceComparison(view())),
+			openStructuralComparison: () => diff.structuralRenderingEnabled ? openComparison(reviewSourceComparison(view())) : undefined,
 			inlineEditors: {
 				create: (spec) => inline.create(spec, source(spec.path, spec.side, spec.ranges)),
 				find: (spec, query) => inline.find(spec, query, source(spec.path, spec.side, spec.ranges)),

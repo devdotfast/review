@@ -1,4 +1,3 @@
-import { structuralChangeCounts } from "./reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -6,7 +5,7 @@ import { structuralChangeCounts } from "./reviewProtocol.js";
 
 import type {
   StructuralPairing, StructuralFileRef, StructuralRegion, StructuralSource,
-  StructuralLineCounts, StructuralProblem, StructuralDiff,
+  StructuralDiff,
 } from "./reviewProtocol.js";
 export type {
   StructuralPairing, StructuralProblem, StructuralPos, StructuralSpan,
@@ -308,22 +307,4 @@ export function structuralContextGaps(
     gap.label = `${count} hidden line${count === 1 ? "" : "s"}`;
   }
   return gaps;
-}
-
-export interface StructuralFileCounts {
-  visible: StructuralLineCounts;
-  textual: StructuralLineCounts;
-  fallback?: StructuralProblem;
-}
-
-/** The file's counts, straight from the wire. Folding never changes them. */
-export function structuralInitialCounts(diff: StructuralTextDiff): StructuralFileCounts {
-  return { visible: structuralChangeCounts(diff.structural_changes), textual: diff.stats.textual, fallback: diff.stats.fallback };
-}
-
-export function structuralCountsTooltip(counts: StructuralFileCounts): string {
-  const row = (label: string, value: StructuralLineCounts) => `${label} +${value.added} −${value.removed}`;
-  const rows = [row("structural", counts.visible), row("textual", counts.textual)];
-  if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
-  return rows.join("\n");
 }

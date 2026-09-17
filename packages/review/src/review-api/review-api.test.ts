@@ -1050,3 +1050,374 @@ it("preserves unfinished section status after authoring stops and restores it fr
   });
   expect(store.read(reviewId).document[0]).not.toHaveProperty("status");
 });
+
+it("persists partial coverage outside document versions and resets it for a changed file", async () => {
+  const { reviewId } = await create();
+  const version = store.read(reviewId).version;
+  store.updateViewedCoverage(
+    reviewId,
+    [
+      {
+        path: "a.ts",
+        fingerprint: "old",
+        scope: { base: [], head: [[0, 10]] },
+      },
+    ],
+    true,
+  );
+  store.updateViewedCoverage(
+    reviewId,
+    [
+      {
+        path: "a.ts",
+        fingerprint: "old",
+        scope: { base: [], head: [[5, 15]] },
+      },
+    ],
+    true,
+  );
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [0, 15],
+  ]);
+  expect(store.read(reviewId).version).toBe(version);
+  await store.close();
+  store = new ReviewStore(database, providers);
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [0, 15],
+  ]);
+  store.updateViewedCoverage(
+    reviewId,
+    [{ path: "a.ts", fingerprint: "old", scope: { base: [], head: [[4, 8]] } }],
+    false,
+  );
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [0, 4],
+    [8, 15],
+  ]);
+  store.updateViewedCoverage(
+    reviewId,
+    [
+      {
+        path: "a.ts",
+        fingerprint: "new",
+        scope: { base: [], head: [[20, 22]] },
+      },
+    ],
+    true,
+  );
+  expect(store.viewedCoverage(reviewId).get("a.ts")?.coverage.head).toEqual([
+    [20, 22],
+  ]);
+});
+
+it("preserves unchanged partial file coverage across pins and rejects stale writes after either file side changes", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { reviewProgress } = await import("./review-progress.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  let head = "first\nsecond\ncontext";
+  let base = "first\nold\ncontext";
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "file",
+      file: {
+        lhs: { path: "a.ts", oid: "base", mode: "100644" },
+        rhs: { path: "a.ts", oid: "head", mode: "100644" },
+      },
+      diff: {
+        type: "text",
+        lhs: { text: base },
+        rhs: { text: head },
+        structural_changes: { base: [[1, 2]], head: [[1, 2]] },
+        stats: {
+          textual: { added: 99, removed: 99 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    yield { type: "complete", succeeded: 1, failed: 0 };
+  });
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: side === "head" ? head : base,
+  }));
+  const api = createReviewApi(store, data);
+  const initial = await reviewProgress(store, data, store.read(reviewId));
+
+  const mark = (fingerprint: string, version: number) =>
+    api.request(`/${reviewId}/progress`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version,
+        viewed: true,
+        files: [
+          {
+            path: "a.ts",
+            fingerprint,
+            sources: [{ side: "head", file: "a.ts", fromLine: 2, toLine: 2 }],
+          },
+        ],
+      }),
+    });
+
+  expect((await mark(initial.files[0].fingerprint, 0)).status).toBe(200);
+  await store.execute(
+    request({ type: "repin", reviewId, pins: { ...pins, head: "new-pin" } }),
+  );
+  expect(
+    (await reviewProgress(store, data, store.read(reviewId))).files[0].viewed
+      .head,
+  ).toEqual([[1, 2]]);
+  head += "\nchanged outside the hunk";
+  expect(
+    (await reviewProgress(store, data, store.read(reviewId))).files[0].viewed
+      .head,
+  ).toEqual([]);
+  expect((await mark(initial.files[0].fingerprint, 0)).status).toBe(409);
+  const next = await reviewProgress(store, data, store.read(reviewId));
+  expect(
+    (await mark(next.files[0].fingerprint, store.read(reviewId).version))
+      .status,
+  ).toBe(200);
+  base += "\nnew base context";
+  expect(
+    (await reviewProgress(store, data, store.read(reviewId))).files[0].viewed
+      .head,
+  ).toEqual([]);
+});
+
+it("textual coverage uses Git ranges without launching diffr", async () => {
+  const { createReviewApi } = await import("./http.js");
+  const { coverageProgress } = await import("../viewed-coverage.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "changes").mockImplementation((async (
+    _pins: typeof pins,
+    file?: string,
+  ) =>
+    file
+      ? "@@ -1 +1 @@\n-const x=1;\n+const x = 1;\n"
+      : [
+          { path: "a.ts", status: "modified", additions: 1, deletions: 1 },
+        ]) as typeof data.changes);
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: side === "head" ? "const x = 1;" : "const x=1;",
+  }));
+  const structural = vi.spyOn(data, "structuralChanges");
+  const response = await createReviewApi(store, data).request(`/${reviewId}/progress?mode=textual`);
+  expect(response.status).toBe(200);
+  const progress = await response.json();
+  expect(coverageProgress(progress.files).total).toEqual({
+    additions: 1,
+    deletions: 1,
+  });
+  expect(structural).not.toHaveBeenCalled();
+});
+
+it("resolves file lenses to whole changed files, preserves empty groups, and shares viewed coverage", async () => {
+  const { reviewProgress } = await import("./review-progress.js");
+  const { coverageProgress } = await import("../viewed-coverage.js");
+  const { reviewId } = await create();
+
+  for (const content of [
+    { type: "file_lens", title: "Docs", patterns: ["docs/**", "docs/old.md"] },
+    { type: "file_lens", title: "Guide", patterns: ["guide/**"] },
+    { type: "file_lens", title: "Tests", patterns: ["**/*.test.ts"] },
+  ])
+    await store.execute(
+      request({ type: "edit", reviewId, edit: { type: "insert", content } }),
+    );
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "file",
+      file: {
+        lhs: { path: "docs/old.md", oid: "base", mode: "100644" },
+        rhs: { path: "guide/intro.md", oid: "head", mode: "100644" },
+      },
+      diff: {
+        type: "text",
+        lhs: { text: "base\ncontext\nmore context" },
+        rhs: { text: "head\ncontext\nmore context" },
+        structural_changes: { base: [[0, 1]], head: [[0, 1]] },
+        stats: {
+          textual: { added: 99, removed: 99 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    yield { type: "complete", succeeded: 1, failed: 0 };
+  });
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: `${side}\ncontext\nmore context`,
+  }));
+  const initial = await reviewProgress(store, data, store.read(reviewId));
+  const [docs, guide, tests] = initial.diagrams;
+  expect(docs.fileCount).toBe(1);
+  expect(docs.sources).toEqual([
+    { side: "base", file: "docs/old.md", fromLine: 1, toLine: 3 },
+    { side: "head", file: "guide/intro.md", fromLine: 1, toLine: 3 },
+  ]);
+  expect(guide.sources).toEqual(docs.sources);
+  expect(tests.fileCount).toBe(0);
+  expect(tests.sources).toEqual([]);
+  expect(tests.unavailable).toBeTruthy();
+  store.updateViewedCoverage(
+    reviewId,
+    initial.files.map((file) => ({
+      path: file.path,
+      fingerprint: file.fingerprint,
+      scope: file.changed,
+    })),
+    true,
+  );
+  const viewed = await reviewProgress(store, data, store.read(reviewId));
+  expect(coverageProgress(viewed.files, docs.sources).state).toBe("viewed");
+  expect(coverageProgress(viewed.files, guide.sources).state).toBe("viewed");
+  expect(coverageProgress(viewed.files).total).toEqual({
+    additions: 1,
+    deletions: 1,
+  });
+});
+
+it("validates range lens evidence and scopes progress and Uncategorized to distinct changed lines", async () => {
+  const { reviewProgress } = await import("./review-progress.js");
+  const { coverageProgress, scopedCoverage } =
+    await import("../viewed-coverage.js");
+  const { reviewId } = await create();
+  const selected = {
+    side: "head" as const,
+    file: "src/a.ts",
+    fromLine: 2,
+    toLine: 2,
+  };
+  await edit(reviewId, {
+    type: "insert",
+    content: {
+      type: "file_lens",
+      title: "One line",
+      targets: [{ kind: "ranges", sources: [selected, selected] }],
+    },
+  });
+  expect(providers.validateSource).toHaveBeenCalledWith(
+    pins,
+    selected,
+    expect.anything(),
+  );
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "file",
+      file: {
+        lhs: { path: "src/a.ts", oid: "base", mode: "100644" },
+        rhs: { path: "src/a.ts", oid: "head", mode: "100644" },
+      },
+      diff: {
+        type: "text",
+        lhs: { text: "base1\nbase2\nbase3" },
+        rhs: { text: "head1\nhead2\nhead3" },
+        structural_changes: { base: [[0, 3]], head: [[0, 3]] },
+        stats: {
+          textual: { added: 99, removed: 99 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    yield { type: "complete", succeeded: 1, failed: 0 };
+  });
+  vi.spyOn(data, "file").mockImplementation(async (_pins, side, file) => ({
+    file,
+    side,
+    commit: _pins[side],
+    text: `${side}1\n${side}2\n${side}3`,
+  }));
+  const result = await reviewProgress(store, data, store.read(reviewId));
+  const lens = result.diagrams[0],
+    rest = result.diagrams.find(
+      (lens) => lens.id === "automatic-uncategorized",
+    )!;
+  expect(lens.sources).toEqual([selected]);
+  expect(lens.wholeFiles).toBe(false);
+  expect(coverageProgress(result.files, lens.sources).total).toEqual({
+    additions: 1,
+    deletions: 0,
+  });
+  expect(coverageProgress(result.files, rest.sources).total).toEqual({
+    additions: 2,
+    deletions: 3,
+  });
+  expect(rest.wholeFiles).toBe(false);
+  store.updateViewedCoverage(
+    reviewId,
+    result.files.map((file) => ({
+      path: file.path,
+      fingerprint: file.fingerprint,
+      scope: scopedCoverage(file, lens.sources),
+    })),
+    true,
+  );
+  const viewed = await reviewProgress(store, data, store.read(reviewId));
+  expect(coverageProgress(viewed.files, lens.sources).state).toBe("viewed");
+  expect(coverageProgress(viewed.files, rest.sources).remaining).toEqual({
+    additions: 2,
+    deletions: 3,
+  });
+  vi.spyOn(data, "quote").mockRejectedValue(new Error("Stale range"));
+  const stale = await reviewProgress(store, data, store.read(reviewId));
+  expect(stale.diagrams[0].unavailable).toBeTruthy();
+  expect(
+    coverageProgress(stale.files, stale.diagrams.at(-1)!.sources).total,
+  ).toEqual({ additions: 3, deletions: 3 });
+});
+
+it("rejects ambiguous lens scopes and validates range sources during authoring", async () => {
+  const { reviewId } = await create();
+  for (const scope of [
+    {},
+    { patterns: ["**"], targets: [{ kind: "files", patterns: ["**"] }] },
+  ])
+    await expect(
+      edit(reviewId, {
+        type: "insert",
+        content: { type: "file_lens", title: "Invalid", ...scope },
+      }),
+    ).rejects.toThrow(/either targets or legacy patterns/);
+  vi.mocked(providers.validateSource).mockRejectedValue(
+    new Error("File is unavailable"),
+  );
+  await expect(
+    edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "file_lens",
+        title: "Missing",
+        targets: [{ kind: "ranges", sources: [source] }],
+      },
+    }),
+  ).rejects.toThrow("File is unavailable");
+});

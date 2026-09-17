@@ -133,3 +133,48 @@ Call `review_upload({id,repositoryId,kind:"map",pins,side:"head",model})`, using
 - A map element's code ranges go in `codeElements` with `sourceRanges:[{file,fromLine,toLine}]`. Files are repository-relative; line numbers are positive, inclusive, ordered and checked at `pins[side]`.
 
 Insert a `software_map` node referencing the returned resource ID. Rejected uploads save nothing: fix the reported input and retry with the same ID. After a successful upload, that ID is immutable; changed content needs a new upload ID so old review versions keep their original map.
+
+### Diff lenses
+
+Saved source-bearing diagrams appear in the Diff sidebar. Expanding a diagram
+activates its lens; clicking a diagram element scrolls to that element's diff
+section. Collapsing the lens restores the full comparison. These are pinned
+ranges, not symbol matching across revisions. Viewed state is shared code
+coverage across overlapping files, sections and diagrams; marking code viewed
+does not create authored document versions.
+
+### File lenses
+
+Use `file_lens` for named groups containing whole changed files, pinned ranges, or both:
+
+```json
+{
+  "type": "file_lens",
+  "title": "Parser and tests",
+  "targets": [
+    { "kind": "files", "patterns": ["**/*.test.ts"] },
+    { "kind": "ranges", "sources": [
+      { "side": "head", "file": "src/parser.ts", "fromLine": 40, "toLine": 85 },
+      { "side": "base", "file": "src/parser.ts", "fromLine": 38, "toLine": 70 }
+    ] }
+  ]
+}
+```
+
+File patterns match only changed files, including either path of a rename. Range
+sources use inclusive, one-based lines at the review's base or head pins and can
+reference unchanged files. Include both sides to select both additions and
+removals. All targets are unioned; overlaps never double-count changed lines.
+Whole-file targets subsume narrower targets for the same file.
+
+Counts and viewed actions apply only to selected changed lines. Range lenses
+show surrounding context and fold code outside the selection; that context does
+not add coverage. File lenses appear only in the Diff sidebar and activate
+without expanding a diagram. Empty lenses remain visible, disabled, with zero
+files. Existing `patterns` lenses remain supported as whole-file selections;
+new lenses should use `targets`, never both fields.
+
+The automatic **Uncategorized changes** lens selects exactly the changed ranges
+not covered by valid authored lenses. Its count, filter and viewed actions all
+use those residual ranges. Viewed state does not affect membership. Do not
+author a duplicate catch-all lens.

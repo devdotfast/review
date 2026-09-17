@@ -127,6 +127,7 @@ const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
   trace_quote: (c) =>
     has(c, ".review-trace-quote") && text(c).includes("queue the order"),
   // The map has drawn its system and is neither refreshing nor failed.
+  file_lens: (c) => !text(c).includes("Test file bucket"),
   software_map: (c) =>
     has(c, ".software-map-canvas") &&
     text(c).includes("Order service") &&
@@ -340,9 +341,11 @@ describe("block components", () => {
       expect(text(container)).not.toContain("Layout failed");
       expect(container.querySelector("[data-block-error]")).toBeNull();
 
-      // Every block in the fixture, nested ones included, mounts a node with content.
+      // Every visible block, nested ones included, mounts a node with content.
       const empty = elements(snapshot.document)
-        .filter((element) => element.type !== "step")
+        .filter(
+          (element) => element.type !== "step" && element.type !== "file_lens",
+        )
         .map((element) => element.id)
         .filter((id) => {
           const node = container.querySelector(`[data-review-node-id="${id}"]`);

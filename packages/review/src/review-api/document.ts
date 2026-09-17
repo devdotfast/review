@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { markdownNodes, markdownText, parseMarkdown } from "../markdown.js";
 import { type Source, sourceSchema } from "../source.js";
+import { fileLensTargets } from "./blocks/file_lens.js";
 import { type Block, blockSchema } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
 import { ReviewInputError } from "./input-error.js";
@@ -178,12 +179,34 @@ export function sourceReferences(
         },
       );
 
+    if (element.type === "file_lens")
+      return fileLensTargets(element).flatMap((target, index) =>
+        target.kind === "ranges"
+          ? target.sources.map((source, range) => ({
+              id: `${element.id}:target:${index}:${range}`,
+              source,
+            }))
+          : [],
+      );
+
     if (element.type === "call_stack_diff")
-      return [...element.base, ...element.head].map((frame) => ({
-        ...frame,
-        id: frame.id!,
-        peek: true,
-      }));
+      return [...element.base, ...element.head].flatMap((frame) => [
+        { ...frame, id: frame.id!, peek: true },
+        ...(frame.contextSources ?? []).map((source, index) => ({
+          id: `${frame.id}:context:${index}`,
+          source,
+        })),
+        ...(frame.callSite
+          ? [
+              {
+                id: `${frame.id}:call-site`,
+                source: frame.callSite,
+                label: frame.label,
+                peek: true,
+              },
+            ]
+          : []),
+      ]);
 
     if (element.type === "database_lens")
       return element.useCases.flatMap((useCase) =>

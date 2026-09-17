@@ -35,6 +35,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
 import { DisplayedReviewVersionContext } from "./review-history-control";
+import { ReviewLensesProvider } from "./review-lenses";
 import { SharingContext } from "./share-control";
 import { TutorialProvider } from "./tutorial-context";
 
@@ -315,28 +316,34 @@ export function ApiCanvas({
     <SharingContext.Provider value={sharing}>
       <ReviewSessionProvider session={session}>
         <DocumentData.Provider value={data}>
-          <TutorialProvider tutorial={content.tutorial}>
-            {error && <p role="status">{error}</p>}
-            <AuthoringActivityContext.Provider
-              value={version === undefined ? activity : undefined}
-            >
-              <DisplayedReviewVersionContext.Provider
-                value={data.snapshot.version}
+          <ReviewLensesProvider
+            client={client}
+            snapshot={data.snapshot}
+            structuralDiffEnabled={content.structuralDiffEnabled}
+          >
+            <TutorialProvider tutorial={content.tutorial}>
+              {error && <p role="status">{error}</p>}
+              <AuthoringActivityContext.Provider
+                value={version === undefined ? activity : undefined}
               >
-                <RevealAfterFirstPaint>
-                  <MapEnabled.Provider
-                    value={content.softwareMapEnabled === true}
-                  >
-                    <CanvasDocument
-                      data={data}
-                      findHost={findHost}
-                      softwareMapEnabled={content.softwareMapEnabled === true}
-                    />
-                  </MapEnabled.Provider>
-                </RevealAfterFirstPaint>
-              </DisplayedReviewVersionContext.Provider>
-            </AuthoringActivityContext.Provider>
-          </TutorialProvider>
+                <DisplayedReviewVersionContext.Provider
+                  value={data.snapshot.version}
+                >
+                  <RevealAfterFirstPaint>
+                    <MapEnabled.Provider
+                      value={content.softwareMapEnabled === true}
+                    >
+                      <CanvasDocument
+                        data={data}
+                        findHost={findHost}
+                        softwareMapEnabled={content.softwareMapEnabled === true}
+                      />
+                    </MapEnabled.Provider>
+                  </RevealAfterFirstPaint>
+                </DisplayedReviewVersionContext.Provider>
+              </AuthoringActivityContext.Provider>
+            </TutorialProvider>
+          </ReviewLensesProvider>
         </DocumentData.Provider>
       </ReviewSessionProvider>
     </SharingContext.Provider>

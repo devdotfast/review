@@ -300,6 +300,8 @@ export const DocumentNode = memo(function DocumentNode({
       />
     ));
 
+  if (node.type === "file_lens") return null;
+
   if (
     node.type === "software_map" &&
     (!softwareMapEnabled || data.snapshot.origin?.tutorial)

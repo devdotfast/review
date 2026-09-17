@@ -20,6 +20,7 @@
     "skills",
     "plugins",
     "tutorial",
+    "!tutorial/.bundle",
     "src",
     "!src/**/*.test.ts",
     "!src/**/*test-utils*",

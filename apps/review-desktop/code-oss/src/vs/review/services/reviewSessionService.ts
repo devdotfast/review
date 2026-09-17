@@ -254,18 +254,7 @@ export class ReviewSessionService
 		options?: { background?: boolean; revision?: string },
 	): Promise<ReviewSessionDescriptor> {
 		await this.initialize();
-		if (uuid === this._tutorialReview?.uuid) {
-			// The store has no record for the tutorial, so the normal open
-			// endpoint would 404. The tutorial endpoint re-mounts it instead.
-			const opened = await this.openTutorial();
-			const descriptor = this._sessionRecords.find(
-				(candidate) => candidate.sessionId === opened.sessionId,
-			);
-			if (!descriptor) {
-				throw new Error(`Review session is unavailable: ${opened.sessionId}`);
-			}
-			return descriptor;
-		}
+
 		const response = await fetch(
 			`${this.serverUrl}/reviews/${encodeURIComponent(uuid)}/open`,
 			{
@@ -293,7 +282,7 @@ export class ReviewSessionService
 			);
 		}
 		const payload = parseReviewOpenResponse(await response.json());
-		this.upsertSession(payload.session);
+		if (!("kind" in payload)) this.upsertSession(payload.session);
 		this.upsertReview(payload.review);
 		return payload.session;
 	}
@@ -495,9 +484,6 @@ export class ReviewSessionService
 			StorageScope.APPLICATION,
 		);
 		this._tutorialReview = payload.review;
-		// The reviews list never lists the tutorial, but its confirmed session is
-		// immediately available to the tab that requested it.
-		this.upsertSession(payload.session);
 		return payload;
 	}
 

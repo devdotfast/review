@@ -1,484 +1,246 @@
-import crypto from "node:crypto";
-import {
-  cp,
-  mkdir,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { cp, mkdir, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { gitAt, resolveRevision } from "@dev.fast/local-vcs";
-import {
-  type JsonValue,
-  isJsonObject,
-  jsonProperty,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
+import { resolveRevision } from "@dev.fast/local-vcs";
+import type { ReviewDescriptor } from "@dev.fast/review-protocol";
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
+import { z } from "zod";
 
-import { readReviewDocumentBundle } from "../review-bundle";
-import {
-  type StoredReview,
-  createReviewDir,
-  createReviewUuid,
-  findReview,
-  listReviews,
-  reviewTitleFromDocument,
-  sealReviewCandidate,
-} from "../review-home";
+import { documentSchema, resourceReferences } from "../review-api/document";
+import type { LocalReviewData } from "../review-api/local-data";
+import type { ReviewStore, Snapshot } from "../review-api/store";
 import { devReviewHome } from "../review-home-paths";
-import {
-  pinReviewSourceHeadRef,
-  reviewSourceHeadRef,
-} from "../review-source-ref";
 
-const TUTORIAL_STATUS_VERSION = 1;
+const authoredSchema = z.strictObject({
+  title: z.string().min(1),
+  document: documentSchema,
+});
 
-/* Version 9 adds the interactive trace quote chapter. Older records are
-   re-materialized on first open to pick up the updated document. */
-const TUTORIAL_STAMP_VERSION = 9;
+const pinsSchema = z.strictObject({
+  base: z.string().regex(/^[a-f0-9]{40}$/),
+  head: z.string().regex(/^[a-f0-9]{40}$/),
+});
 
-export interface TutorialStamp {
-  version: 9;
-  reviewUuid: string;
+const stampSchema = z.object({
+  version: z.literal(10),
+  reviewUuid: z.string(),
+  contentHash: z.string(),
+});
+
+export async function readTutorialAssets(assetsRoot: string) {
+  const names = [
+    "document.json",
+    "trace.json",
+    "software-map.json",
+    "pins.json",
+  ];
+
+  const bytes = await Promise.all(
+    names.map((name) => readFile(path.join(assetsRoot, name), "utf8")),
+  );
+
+  return {
+    authored: authoredSchema.parse(JSON.parse(bytes[0]!)),
+    trace: JSON.parse(bytes[1]!),
+    model: JSON.parse(bytes[2]!),
+    pins: pinsSchema.parse(JSON.parse(bytes[3]!)),
+    contentHash: createHash("sha256")
+      .update(JSON.stringify(bytes))
+      .digest("hex"),
+  };
 }
 
-export interface TutorialStatus {
-  version: 1;
-  reviewUuid: string | null;
-}
+/** Create the shipped document through the same strict validation as authored reviews. */
+export async function createNativeTutorial(input: {
+  assetsRoot: string;
+  sampleRoot: string;
+  store: ReviewStore;
+  data: LocalReviewData;
+}) {
+  const assets = await readTutorialAssets(input.assetsRoot);
+  const repository = await input.data.register(input.sampleRoot);
 
-export interface TutorialService {
-  status(): Promise<TutorialStatus>;
-  /** True when the UUID belongs to the tutorial stamp or managed repository. */
-  referencesReview(reviewUuid: string): Promise<boolean>;
-  /** The hidden system Review record. Null when absent or invalid. */
-  find(): Promise<StoredReview | null>;
-  /** Returns the ready-to-mount tutorial Review. Materializes the shipped
-      repo and a sealed revision when absent or invalid. Compilation remains
-      unnecessary because the document and map bundles ship precompiled. */
-  prepare(options?: { beforeReset(): Promise<void> }): Promise<StoredReview>;
-  cleanup(): Promise<void>;
+  const pins = await input.data.resolvePins(
+    repository.id,
+    assets.pins.base,
+    assets.pins.head,
+  );
+
+  const aliases = new Map<string, string>();
+  const traceId = randomUUID();
+  await input.data.upload({
+    id: traceId,
+    repositoryId: repository.id,
+    kind: "trace",
+    trace: assets.trace,
+  });
+  aliases.set("tutorial-trace", traceId);
+
+  for (const side of ["base", "head"] as const) {
+    const id = randomUUID();
+    await input.data.upload({
+      id,
+      repositoryId: repository.id,
+      kind: "map",
+      pins,
+      side,
+      model: assets.model,
+    });
+    aliases.set(`tutorial-map-${side}`, id);
+  }
+
+  for (const block of resourceReferences(assets.authored.document)) {
+    if (block.type === "trace_quote")
+      block.traceId = aliases.get(block.traceId) ?? block.traceId;
+
+    if (block.type === "software_map")
+      block.mapVersionId =
+        aliases.get(block.mapVersionId) ?? block.mapVersionId;
+  }
+
+  const result = await input.store.execute(
+    {
+      commandId: randomUUID(),
+      operation: { type: "create", title: assets.authored.title, pins },
+    },
+    { document: assets.authored.document, origin: { tutorial: true } },
+  );
+
+  return {
+    snapshot: input.store.read(result.reviewId),
+    contentHash: assets.contentHash,
+  };
 }
 
 export function createTutorialService(input: {
   packageRoot: string;
-  deleteReview(review: StoredReview): Promise<void>;
-}): TutorialService {
+  store?: ReviewStore;
+  data?: LocalReviewData;
+}) {
   const tutorialRoot = path.join(devReviewHome(), "tutorial");
   const sampleRoot = path.join(tutorialRoot, "sample-service");
   const stampPath = path.join(tutorialRoot, "stamp.json");
   const assetsRoot = path.join(input.packageRoot, "tutorial");
 
-  const findTutorialReview = async (
-    uuid: string,
-  ): Promise<StoredReview | null> => {
-    const loaded = await findReview(uuid);
+  const readStamp = async () =>
+    stampSchema.safeParse(
+      await readFile(stampPath, "utf8")
+        .then((value) => JSON.parse(value))
+        .catch(() => null),
+    ).data;
 
-    return loaded?.review.visibility === "system" ? loaded : null;
-  };
+  async function find(): Promise<Snapshot | null> {
+    try {
+      const stamp = await readStamp();
 
-  const readValidState = async (): Promise<{
-    stamp: TutorialStamp;
-    review: StoredReview;
-  } | null> => {
-    const stamp = await readTutorialStamp(stampPath);
+      if (!stamp || !input.store?.has(stamp.reviewUuid)) return null;
+      const snapshot = input.store.read(stamp.reviewUuid);
+      const assets = await readTutorialAssets(assetsRoot);
 
-    if (!stamp) return null;
-    const review = await findTutorialReview(stamp.reviewUuid).catch(() => null);
-
-    if (!review || !(await isValidTutorialReview(review, sampleRoot))) {
-      return null;
-    }
-
-    // An app update ships new bundles pinned to a new commit. A record
-    // bound to the old commit is stale: re-materialize instead of serving
-    // new bundles against the old repository.
-    const manifest = await readShippedMapManifest(assetsRoot).catch(() => null);
-
-    if (
-      !manifest ||
-      manifest.headCommit !== review.review.sourceCommit ||
-      manifest.baseCommit !== review.review.baseCommit
-    ) {
-      return null;
-    }
-
-    // Copy-only edits leave the sample repository's commits unchanged.
-    // Refresh the saved tutorial when its compiled document has changed too.
-    const documentMatches = await Promise.all([
-      readReviewDocumentBundle(assetsRoot, "/"),
-      readReviewDocumentBundle(review.dir, "/"),
-    ])
-      .then(
-        ([shipped, saved]) =>
-          shipped !== null &&
-          saved !== null &&
-          shipped.contentHash === saved.contentHash,
-      )
-      .catch(() => false);
-
-    if (!documentMatches) return null;
-
-    return { stamp, review };
-  };
-
-  const cleanup = async (): Promise<void> => {
-    const listed = await listReviews({ includeSystem: true });
-
-    for (const review of listed.reviews) {
-      if (await isManagedTutorialPath(review.review.worktreePath, sampleRoot)) {
-        await input.deleteReview(review);
-      }
-    }
-
-    await rm(tutorialRoot, { recursive: true, force: true });
-  };
-
-  return {
-    async status() {
-      const state = await readValidState();
-
-      return {
-        version: TUTORIAL_STATUS_VERSION,
-        reviewUuid: state?.stamp.reviewUuid ?? null,
-      };
-    },
-
-    async referencesReview(reviewUuid) {
-      const stamp = await readTutorialStamp(stampPath);
-
-      if (stamp?.reviewUuid === reviewUuid) return true;
-      const review = await findTutorialReview(reviewUuid).catch(() => null);
-
-      return review
-        ? isManagedTutorialPath(review.review.worktreePath, sampleRoot)
-        : false;
-    },
-
-    async find() {
-      const state = await readValidState();
-
-      return state?.review ?? null;
-    },
-
-    async prepare(options) {
-      const current = await readValidState();
-
-      if (current) return current.review;
-
-      await options?.beforeReset();
-      await cleanup();
-      await requireTutorialAssets(assetsRoot);
-      await materializeSampleRepository({
-        assetsRoot,
-        tutorialRoot,
-        sampleRoot,
-      });
-
-      const head = await resolveRevision(sampleRoot, "main");
-
-      if (!head) {
-        throw new Error("Tutorial repository has no main commit.");
-      }
-
-      const manifest = await readShippedMapManifest(assetsRoot);
-
-      if (manifest.headCommit !== head.commit) {
-        throw new Error(
-          `Tutorial assets are inconsistent: repository HEAD ${head.commit} does not match the shipped bundle commit ${manifest.headCommit}.`,
-        );
-      }
-
-      const uuid = createReviewUuid();
-      await pinReviewSourceHeadRef(
-        sampleRoot,
-        reviewSourceHeadRef(uuid),
-        head.commit,
-      );
-
-      const created = await createReviewDir({
-        uuid,
-        visibility: "system",
-        worktreePath: sampleRoot,
-        baseRef: "main~1",
-        baseCommit: manifest.baseCommit,
-        sourceCommit: head.commit,
-        sourceIdentity: { kind: "git-branch", name: "main" },
-        title: await reviewTitleFromDocument(
-          path.join(assetsRoot, "review.mdx"),
-        ),
-      });
-
-      // Store the shipped source and precompiled bundles as a genuine Review
-      // revision. Opening can then use the same materialization and session
-      // path as any published Review.
-      const publishedAt = new Date().toISOString();
-
-      const candidate: StoredReview = {
-        ...created,
-        review: {
-          ...created.review,
-          status: "awaiting-review",
-          lastPublishedAt: publishedAt,
-        },
-      };
-
-      await writePrivateJsonAtomic(
-        path.join(candidate.dir, "review.json"),
-        candidate.review,
-      );
-      const runtimeManifest = await readTutorialRuntimeManifest(assetsRoot);
-      await Promise.all([
-        ...runtimeManifest.reviewFiles.map((entry) =>
-          cp(path.join(assetsRoot, entry), path.join(candidate.dir, entry)),
-        ),
-        cp(
-          path.join(assetsRoot, ".bundle"),
-          path.join(candidate.dir, ".bundle"),
-          {
-            recursive: true,
-          },
-        ),
+      const [head, base] = await Promise.all([
+        resolveRevision(sampleRoot, "HEAD"),
+        resolveRevision(sampleRoot, "HEAD^"),
       ]);
 
-      const revision = await sealReviewCandidate(
-        candidate.dir,
-        "Materialize bundled tutorial Review",
-      );
-
-      const review: StoredReview = {
-        ...candidate,
-        review: {
-          ...candidate.review,
-          presentedDocumentRevision: revision,
-          presentedSoftwareMapRevision: revision,
-        },
-      };
-
-      await writePrivateJsonAtomic(
-        path.join(review.dir, "review.json"),
-        review.review,
-      );
-      await writePrivateJsonAtomic(stampPath, {
-        version: TUTORIAL_STAMP_VERSION,
-        reviewUuid: review.review.uuid,
-      } satisfies TutorialStamp);
-
-      return review;
-    },
-
-    cleanup,
-  };
-}
-
-/* Copies the shipped sample tree and places the shipped git directory as its
-   `.git` — npm packing strips `.git` names, so it ships as `git-stub`. No
-   git commands run: the repository arrives ready-made. */
-async function materializeSampleRepository(input: {
-  assetsRoot: string;
-  tutorialRoot: string;
-  sampleRoot: string;
-}): Promise<void> {
-  await mkdir(input.tutorialRoot, { recursive: true, mode: 0o700 });
-
-  const temporaryRoot = path.join(
-    input.tutorialRoot,
-    `.sample-service-${crypto.randomUUID()}`,
-  );
-
-  try {
-    await cp(path.join(input.assetsRoot, "sample-service"), temporaryRoot, {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-    });
-    await cp(
-      path.join(input.assetsRoot, "git-stub"),
-      path.join(temporaryRoot, ".git"),
-      { recursive: true },
-    );
-    await rename(temporaryRoot, input.sampleRoot);
-  } catch (error) {
-    await rm(temporaryRoot, { recursive: true, force: true });
-    throw new Error(
-      `Tutorial repository materialization failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-async function readShippedMapManifest(
-  assetsRoot: string,
-): Promise<{ headCommit: string; baseCommit: string }> {
-  const manifestPath = path.join(
-    assetsRoot,
-    ".bundle",
-    "software-map",
-    "manifest.json",
-  );
-
-  const value = parseJsonText(await readFile(manifestPath, "utf8"));
-  const manifest = isJsonObject(value) ? value : undefined;
-
-  const headCommit =
-    manifest && jsonString(jsonProperty(manifest, "headCommit"));
-
-  const baseCommit =
-    manifest && jsonString(jsonProperty(manifest, "baseCommit"));
-
-  if (headCommit === undefined || baseCommit === undefined) {
-    throw new Error("Tutorial software-map manifest is invalid.");
-  }
-
-  return { headCommit, baseCommit };
-}
-
-async function isValidTutorialReview(
-  review: StoredReview,
-  sampleRoot: string,
-): Promise<boolean> {
-  if (!(await isManagedTutorialPath(review.review.worktreePath, sampleRoot))) {
-    return false;
-  }
-
-  if (
-    review.review.visibility !== "system" ||
-    !review.review.presentedDocumentRevision ||
-    !review.review.presentedSoftwareMapRevision
-  ) {
-    return false;
-  }
-
-  const sourceCommit = review.review.sourceCommit;
-
-  if (!sourceCommit || review.review.baseCommit === sourceCommit) return false;
-
-  const [head, base, count] = await Promise.all([
-    resolveRevision(sampleRoot, "HEAD").catch(() => null),
-    resolveRevision(sampleRoot, "HEAD^").catch(() => null),
-    runGit(sampleRoot, ["rev-list", "--count", "HEAD"]).catch(() => ""),
-  ]);
-
-  return (
-    head?.commit === sourceCommit &&
-    base?.commit === review.review.baseCommit &&
-    count.trim() === "2"
-  );
-}
-
-async function readTutorialStamp(
-  stampPath: string,
-): Promise<TutorialStamp | null> {
-  try {
-    const value = parseJsonText(await readFile(stampPath, "utf8"));
-
-    if (!isJsonObject(value)) return null;
-    const reviewUuid = jsonString(jsonProperty(value, "reviewUuid"));
-
-    return jsonProperty(value, "version") === TUTORIAL_STAMP_VERSION &&
-      reviewUuid !== undefined
-      ? { version: TUTORIAL_STAMP_VERSION, reviewUuid }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-async function requireTutorialAssets(assetsRoot: string): Promise<void> {
-  const { requiredPaths: required } =
-    await readTutorialRuntimeManifest(assetsRoot);
-
-  const missing: string[] = [];
-
-  for (const entry of required) {
-    try {
-      await stat(path.join(assetsRoot, entry));
+      return snapshot.origin?.tutorial &&
+        stamp.contentHash === assets.contentHash &&
+        snapshot.pins.head === head?.commit &&
+        snapshot.pins.base === base?.commit &&
+        head.commit === assets.pins.head &&
+        base.commit === assets.pins.base
+        ? snapshot
+        : null;
     } catch {
-      missing.push(entry);
+      return null;
     }
   }
 
-  if (missing.length > 0) {
-    throw new Error(
-      `Tutorial runtime assets are missing: ${missing.join(", ")}.`,
-    );
-  }
-}
-
-interface TutorialRuntimeManifest {
-  version: 1;
-  reviewFiles: string[];
-  requiredPaths: string[];
-}
-
-async function readTutorialRuntimeManifest(
-  assetsRoot: string,
-): Promise<TutorialRuntimeManifest> {
-  const value = parseJsonText(
-    await readFile(path.join(assetsRoot, "runtime-manifest.json"), "utf8"),
-  );
-
-  const manifest = isJsonObject(value) ? value : undefined;
-  const reviewFiles = manifest && jsonProperty(manifest, "reviewFiles");
-  const requiredPaths = manifest && jsonProperty(manifest, "requiredPaths");
-
-  if (
-    !manifest ||
-    jsonProperty(manifest, "version") !== 1 ||
-    !isRelativePathList(reviewFiles) ||
-    !isRelativePathList(requiredPaths) ||
-    reviewFiles.some((entry) => !requiredPaths.includes(entry))
-  ) {
-    throw new Error("Tutorial runtime manifest is invalid.");
+  async function cleanup() {
+    for (const reviewId of input.store?.tutorialIds() ?? [])
+      await input.store!.execute({
+        commandId: randomUUID(),
+        operation: { type: "delete", reviewId },
+      });
+    await rm(tutorialRoot, { recursive: true, force: true });
   }
 
   return {
-    version: 1,
-    reviewFiles: [...new Set(reviewFiles)],
-    requiredPaths: [...new Set(requiredPaths)],
-  };
-}
-
-function isRelativePathList(
-  entries: JsonValue | undefined,
-): entries is string[] {
-  return (
-    Array.isArray(entries) &&
-    entries.length > 0 &&
-    entries.every((entry) => {
-      const relativePath = jsonString(entry);
-
+    find,
+    async status() {
+      return {
+        version: 1 as const,
+        reviewUuid: (await find())?.reviewId ?? null,
+      };
+    },
+    async referencesReview(id: string) {
       return (
-        relativePath !== undefined &&
-        relativePath.length > 0 &&
-        !path.isAbsolute(relativePath) &&
-        !relativePath.split(/[\\/]/u).includes("..")
+        input.store?.has(id) === true &&
+        input.store.read(id).origin?.tutorial === true
       );
-    })
-  );
-}
+    },
+    async prepare(options?: { beforeReset(): Promise<void> }) {
+      const current = await find();
 
-async function isManagedTutorialPath(
-  candidate: string,
-  root: string,
-): Promise<boolean> {
-  const [canonicalCandidate, canonicalRoot] = await Promise.all([
-    realpath(candidate).catch(() => path.resolve(candidate)),
-    realpath(root).catch(() => path.resolve(root)),
-  ]);
+      if (current) return current;
 
-  const relative = path.relative(canonicalRoot, canonicalCandidate);
+      if (!input.store || !input.data)
+        throw new Error("Tutorial requires the native review store.");
+      await readTutorialAssets(assetsRoot);
+      await options?.beforeReset();
+      await cleanup();
+      await mkdir(tutorialRoot, { recursive: true, mode: 0o700 });
 
-  return (
-    relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative))
-  );
-}
+      const temporaryRoot = path.join(
+        tutorialRoot,
+        `.sample-service-${randomUUID()}`,
+      );
 
-async function runGit(cwd: string, args: string[]): Promise<string> {
-  return (await gitAt(cwd, args)).stdout;
+      try {
+        await cp(path.join(assetsRoot, "sample-service"), temporaryRoot, {
+          recursive: true,
+        });
+        await cp(
+          path.join(assetsRoot, "git-stub"),
+          path.join(temporaryRoot, ".git"),
+          { recursive: true },
+        );
+        await rename(temporaryRoot, sampleRoot);
+
+        const { snapshot, contentHash } = await createNativeTutorial({
+          assetsRoot,
+          sampleRoot,
+          store: input.store,
+          data: input.data,
+        });
+
+        await writePrivateJsonAtomic(stampPath, {
+          version: 10,
+          reviewUuid: snapshot.reviewId,
+          contentHash,
+        });
+
+        return snapshot;
+      } finally {
+        await rm(temporaryRoot, { recursive: true, force: true });
+      }
+    },
+    descriptor(snapshot: Snapshot): ReviewDescriptor {
+      return {
+        uuid: snapshot.reviewId,
+        title: snapshot.title,
+        status: "awaiting-review",
+        worktreePath: sampleRoot,
+        repoKey: snapshot.pins.repositoryId,
+        sourceBranch: "main",
+        baseRef: snapshot.pins.base,
+        headRef: snapshot.pins.head,
+        presentedDocumentRevision: null,
+        presentedSoftwareMapRevision: null,
+        lastPublishedAt: snapshot.createdAt,
+        available: true,
+      };
+    },
+    cleanup,
+  };
 }

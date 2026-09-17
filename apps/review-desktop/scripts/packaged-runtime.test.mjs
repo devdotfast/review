@@ -5,7 +5,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { canvasLoaderSource, canvasTargets } from "./copy-canvas.mjs";
-import { readTutorialRuntimeManifest } from "./stage-review-runtime.mjs";
 
 const appRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -55,27 +54,6 @@ test("the canvas loader exposes transient view-state reset", () => {
     /export \{ clearReviewViewState, mountReviewCanvas \} from "\.\/assets\/canvas\.js";/,
   );
   assert.doesNotMatch(source, /reviewDocRuntimeUrl|doc-runtime/);
-});
-
-test("the tutorial manifest includes the packaged Review runtime assets", async () => {
-  const tutorialManifest = await readTutorialRuntimeManifest(
-    path.resolve(appRoot, "../../packages/review/tutorial"),
-  );
-
-  for (const file of ["review.mdx", "authoring-conversation.json"]) {
-    assert.ok(tutorialManifest.reviewFiles.includes(file), file);
-  }
-
-  for (const file of [
-    "software-map.ts",
-    "git-stub/HEAD",
-    ".bundle/document/review-document.json",
-    ".bundle/software-map/head-map.json",
-    ".bundle/software-map/base-map.json",
-    ".bundle/software-map/manifest.json",
-  ]) {
-    assert.ok(tutorialManifest.requiredPaths.includes(file), file);
-  }
 });
 
 test("macOS entitlement artifacts retain required app and helper permissions", async () => {

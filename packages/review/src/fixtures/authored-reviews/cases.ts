@@ -58,20 +58,6 @@ export const authoredReviewCases: readonly AuthoredReviewCase[] = [
     components: tutorialComponents,
   },
   {
-    name: "current shipped tutorial",
-    source: {
-      directory: "tutorial",
-      helpers: {
-        "data.ts": "data.ts",
-        "authoring-conversation.json": "authoring-conversation.json",
-      },
-      baseDirectory: "tutorial/sample-service",
-      headDirectory: "tutorial/sample-service",
-    },
-    components: [...tutorialComponents, "TraceQuote"],
-    text: ["shared server / source of truth"],
-  },
-  {
     name: "rich order reference",
     source: { ...orderSource, document: "order-review.mdx" },
     components: [

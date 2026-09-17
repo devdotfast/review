@@ -71,7 +71,6 @@ rendering, invalid source ranges, and rejection of unsupported/unsafe MDX.
 | Bug-report PR | Unchanged archived public Review | Prose, lists, JSON code block, sections; exact golden parity |
 | OpenCode PR | Unchanged archived public Review | Imported actors/anchors, anchor Markdown links, sequence; exact golden parity |
 | Legacy tutorial | Unchanged archived public Review | Code peeks, database writes, tutorial controls; exact golden parity |
-| Current tutorial | Shipped `tutorial/review.mdx` and helpers | Same interactive component families plus TraceQuote |
 | Rich order reference | Purpose-written checked-in MDX fixture | Base/head CallStackDiff, DbRead, field writes, tables, Unicode, unused anchors |
 | Markdown reference | Purpose-written checked-in MDX fixture | Every supported prose tag, including images, footnotes, strikethrough, all heading levels and table alignments |
 

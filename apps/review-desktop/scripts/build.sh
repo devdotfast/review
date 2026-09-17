@@ -38,8 +38,14 @@ if [[ -n "${REVIEW_DESKTOP_CURATED_EXTENSION_TARGET:-}" ]]; then
   node "$APP_DIR/scripts/curated-extensions.mjs" \
     "--target=$REVIEW_DESKTOP_CURATED_EXTENSION_TARGET"
 elif [[ "$DEV_FAST_ACTIVE" == "1" ]]; then
+  DEV_FAST_EXTENSIONS_SELECTION="${DEV_REVIEW_EXTENSIONS:-all}"
   node "$APP_DIR/scripts/curated-extensions.mjs" \
-    "--only=${DEV_REVIEW_EXTENSIONS:-all}"
+    "--only=$DEV_FAST_EXTENSIONS_SELECTION"
+  # run.sh follows this script in `pnpm dev`; leave the selection it
+  # materialized so run.sh's own freshness check can skip the repeat call.
+  mkdir -p "$CHECKOUT/.build/dev-fast"
+  echo "$DEV_FAST_EXTENSIONS_SELECTION" \
+    >"$CHECKOUT/.build/dev-fast/curated-extensions.stamp"
 else
   node "$APP_DIR/scripts/curated-extensions.mjs"
 fi
@@ -118,9 +124,7 @@ if [[ "$DEV_FAST_ACTIVE" != "1" ]]; then
   if [[ -n "${REVIEW_POSTHOG_KEY:-}" ]]; then
     node "$MONOREPO_ROOT/packages/review/scripts/embed-posthog-key.mjs"
   fi
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review app:desktop:build
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build:tutorial-assets
+  rebuild_review_desktop_outputs "$MONOREPO_ROOT" "$MONOREPO_ROOT/packages/review"
   node "$APP_DIR/scripts/copy-canvas.mjs"
 fi
 if [[ -n "$TYPECHECK_PID" ]]; then

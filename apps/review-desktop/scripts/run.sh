@@ -6,7 +6,6 @@ APP_DIR="$MONOREPO_ROOT/apps/review-desktop"
 CHECKOUT="$APP_DIR/code-oss"
 REVIEW_PACKAGE="$MONOREPO_ROOT/packages/review"
 REVIEW_SERVER="$REVIEW_PACKAGE/dist/server/desktop-host.js"
-CANVAS_MANIFEST="$REVIEW_PACKAGE/app/dist/desktop/.vite/manifest.json"
 
 if (( $# > 0 )); then
   echo "usage: $0" >&2
@@ -60,35 +59,19 @@ mkdir -p "$STATE_ROOT/user-data" "$STATE_ROOT/extensions" "$STATE_ROOT/logs"
 # available for development launches. Set DEV_REVIEW_EXTENSIONS to all
 # (default), none, or a comma-separated subset of
 # rust,swift,csharp,python,go,vim,emacs. Enablement is a persisted in-app choice.
-node "$APP_DIR/scripts/curated-extensions.mjs" --only="${DEV_REVIEW_EXTENSIONS:-all}"
+# `pnpm dev` runs build.sh (which also materializes this selection) right
+# before this script; skip the repeat call when the manifest is unchanged and
+# the selection matches the one already materialized.
+EXTENSIONS_SELECTION="${DEV_REVIEW_EXTENSIONS:-all}"
+EXTENSIONS_SELECTION_STAMP="$CHECKOUT/.build/dev-fast/curated-extensions.stamp"
+mkdir -p "$(dirname "$EXTENSIONS_SELECTION_STAMP")"
+if [[ "$(cat "$EXTENSIONS_SELECTION_STAMP" 2>/dev/null)" != "$EXTENSIONS_SELECTION" ]] ||
+  needs_rebuild "$EXTENSIONS_SELECTION_STAMP" "$APP_DIR/scripts/curated-extensions.manifest.mjs"; then
+  node "$APP_DIR/scripts/curated-extensions.mjs" --only="$EXTENSIONS_SELECTION"
+  echo "$EXTENSIONS_SELECTION" >"$EXTENSIONS_SELECTION_STAMP"
+fi
 
-if needs_rebuild \
-  "$REVIEW_SERVER" \
-  "$REVIEW_PACKAGE/src" \
-  "$REVIEW_PACKAGE/tsdown.config.ts" \
-  "$REVIEW_PACKAGE/package.json" \
-  "$MONOREPO_ROOT/packages/review-protocol/src"; then
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build
-fi
-if needs_rebuild \
-  "$CANVAS_MANIFEST" \
-  "$REVIEW_PACKAGE/app/src" \
-  "$REVIEW_PACKAGE/app/desktop.vite.config.ts" \
-  "$REVIEW_PACKAGE/package.json" \
-  "$MONOREPO_ROOT/packages/review-protocol/src"; then
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review app:desktop:build
-fi
-TUTORIAL_OUTPUT="$REVIEW_PACKAGE/tutorial/.bundle/document/review-document.json"
-if needs_rebuild \
-  "$TUTORIAL_OUTPUT" \
-  "$REVIEW_PACKAGE/scripts/build-tutorial-assets.ts" ||
-  [[ -n "$(
-    find "$REVIEW_PACKAGE/tutorial" \
-      \( -path "$REVIEW_PACKAGE/tutorial/.bundle" -o -path "$REVIEW_PACKAGE/tutorial/git-stub" \) -prune \
-      -o -type f -newer "$TUTORIAL_OUTPUT" -print -quit
-  )" ]]; then
-  pnpm --dir "$MONOREPO_ROOT" --filter @dev.fast/review build:tutorial-assets
-fi
+rebuild_review_desktop_outputs "$MONOREPO_ROOT" "$REVIEW_PACKAGE"
 if [[ -z "$PACKAGED_ROOT" ]]; then
   node "$APP_DIR/scripts/copy-canvas.mjs"
   export DEV_FAST_REVIEW_SERVER_ENTRY="$REVIEW_SERVER"

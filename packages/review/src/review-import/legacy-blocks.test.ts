@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { type JsonValue, parseJsonText } from "@dev.fast/review-protocol";
+import { parseJsonText } from "@dev.fast/review-protocol";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -15,13 +15,15 @@ import {
   resourceReferences,
 } from "../review-api/document";
 import {
+  type ReviewNode,
   reviewDocumentDataSchema,
   upgradeReviewDocumentJson,
 } from "../review-document-data";
+import { el, footnoteTraceQuoteSection, text } from "./import-test-utils";
 import { legacyDocumentToBlocks } from "./legacy-blocks";
 
 /** A sealed document whose body is `body`, for the nesting cases no fixture has. */
-const documentOf = (body: JsonValue[]) =>
+const documentOf = (body: ReviewNode[]) =>
   reviewDocumentDataSchema.parse({
     format: "review-document/1",
     title: "T",
@@ -33,7 +35,7 @@ const documentOf = (body: JsonValue[]) =>
     body,
   });
 
-const sequence = (title: string): JsonValue => ({
+const sequence = (title: string): ReviewNode => ({
   type: "component",
   name: "SequenceDiagram",
   props: {
@@ -41,7 +43,14 @@ const sequence = (title: string): JsonValue => ({
     title,
     actors: { caller: "Caller", callee: "Callee" },
     steps: [
-      { from: "caller", to: "callee", label: "call", explanation: "why" },
+      {
+        type: "step",
+        style: "call",
+        from: "caller",
+        to: "callee",
+        label: "call",
+        explanation: "why",
+      },
     ],
   },
   children: [],
@@ -195,23 +204,13 @@ describe("legacyDocumentToBlocks", () => {
   it("hoists diagrams nested in prose to just after that prose", () => {
     const { blocks, warnings } = legacyDocumentToBlocks(
       documentOf([
-        {
-          type: "element",
-          tag: "p",
-          props: {},
-          children: [
-            { type: "text", value: "Two flows: " },
-            sequence("First flow"),
-            { type: "text", value: " and " },
-            sequence("Second flow"),
-          ],
-        },
-        {
-          type: "element",
-          tag: "p",
-          props: {},
-          children: [{ type: "text", value: "After." }],
-        },
+        el("p", [
+          text("Two flows: "),
+          sequence("First flow"),
+          text(" and "),
+          sequence("Second flow"),
+        ]),
+        el("p", [text("After.")]),
       ]),
     );
 
@@ -228,149 +227,66 @@ describe("legacyDocumentToBlocks", () => {
     expect(blocks[2]).toMatchObject({ title: "Second flow" });
     expect(blocks[3]).toMatchObject({ markdown: "After.\n" });
     expect(warnings).toEqual([
-      "SequenceDiagram inside p was moved after it",
-      "SequenceDiagram inside p was moved after it",
+      "SequenceDiagram was moved after the enclosing prose",
+      "SequenceDiagram was moved after the enclosing prose",
     ]);
 
     for (const block of blocks) blockSchema.parse(block);
   });
 
-  it("hoists a diagram out of a list item, leaving the item empty", () => {
-    const { blocks, warnings } = legacyDocumentToBlocks(
-      documentOf([
-        {
-          type: "element",
-          tag: "ul",
-          props: {},
-          children: [
-            {
-              type: "element",
-              tag: "li",
-              props: {},
-              children: [sequence("Sole child")],
-            },
-          ],
-        },
-      ]),
-    );
+  it.each([
+    {
+      container: "a paragraph",
+      node: el("p", [text("Shown here: "), sequence("Flow")]),
+      markdown: "Shown here:\n",
+    },
+    {
+      container: "a list item",
+      node: el("ul", [el("li", [sequence("Flow")])]),
+      markdown: "-\n",
+    },
+    {
+      container: "a blockquote",
+      node: el("blockquote", [el("p", [text("Quoted.")]), sequence("Flow")]),
+      markdown: "> Quoted.\n",
+    },
+  ])("hoists a diagram out of $container", ({ node, markdown }) => {
+    const { blocks, warnings } = legacyDocumentToBlocks(documentOf([node]));
 
     expect(blocks).toEqual([
-      { type: "markdown", markdown: "-\n" },
-      expect.objectContaining({ type: "sequence", title: "Sole child" }),
-    ]);
-    expect(warnings).toEqual(["SequenceDiagram inside li was moved after it"]);
-  });
-
-  it("hoists a diagram out of a blockquote", () => {
-    const { blocks, warnings } = legacyDocumentToBlocks(
-      documentOf([
-        {
-          type: "element",
-          tag: "blockquote",
-          props: {},
-          children: [
-            {
-              type: "element",
-              tag: "p",
-              props: {},
-              children: [{ type: "text", value: "Quoted." }],
-            },
-            sequence("Quoted flow"),
-          ],
-        },
-      ]),
-    );
-
-    expect(blocks).toEqual([
-      { type: "markdown", markdown: "> Quoted.\n" },
-      expect.objectContaining({ type: "sequence", title: "Quoted flow" }),
+      { type: "markdown", markdown },
+      expect.objectContaining({ type: "sequence", title: "Flow" }),
     ]);
     expect(warnings).toEqual([
-      "SequenceDiagram inside blockquote was moved after it",
+      "SequenceDiagram was moved after the enclosing prose",
     ]);
   });
 
   it("registers a footnote's trace quote once, whatever cites the footnote", () => {
-    const reference = () => ({
-      type: "element",
-      tag: "sup",
-      props: {},
-      children: [
-        {
-          type: "element",
-          tag: "a",
-          props: {
-            href: "#user-content-fn-1",
-            id: "user-content-fnref-1",
-            "data-footnote-ref": "true",
-          },
-          children: [{ type: "text", value: "1" }],
-        },
-      ],
-    });
+    const reference = () =>
+      el("sup", [
+        el("a", [text("1")], {
+          href: "#user-content-fn-1",
+          id: "user-content-fnref-1",
+          "data-footnote-ref": "true",
+        }),
+      ]);
 
     const { blocks, traces, warnings } = legacyDocumentToBlocks(
       documentOf([
-        {
-          type: "element",
-          tag: "p",
-          props: {},
-          children: [{ type: "text", value: "First" }, reference()],
-        },
+        el("p", [text("First"), reference()]),
         {
           type: "component",
           name: "ReviewSection",
           props: { title: "Detail" },
-          children: [
-            {
-              type: "element",
-              tag: "p",
-              props: {},
-              children: [{ type: "text", value: "Second" }, reference()],
-            },
-          ],
-        },
-        {
-          type: "element",
-          tag: "section",
-          props: { "data-footnotes": "true" },
-          children: [
-            {
-              type: "element",
-              tag: "ol",
-              props: {},
-              children: [
-                {
-                  type: "element",
-                  tag: "li",
-                  props: { id: "user-content-fn-1" },
-                  children: [
-                    {
-                      type: "element",
-                      tag: "p",
-                      props: {},
-                      children: [
-                        { type: "text", value: "The agent " },
-                        {
-                          type: "component",
-                          name: "TraceQuote",
-                          props: { sessionId: "s1", event: 4 },
-                          children: [{ type: "text", value: "said so" }],
-                        },
-                        { type: "text", value: "." },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
+          children: [el("p", [text("Second"), reference()])],
+        } as ReviewNode,
+        footnoteTraceQuoteSection("1"),
       ]),
     );
 
     const definition =
-      "[^1]: The agent [said so](review-trace:trace-placeholder-1#4).";
+      "[^1]: The agent [agent said so](review-trace:trace-placeholder-1#2).";
 
     expect(traces).toHaveLength(1);
     expect(warnings).toEqual([]);

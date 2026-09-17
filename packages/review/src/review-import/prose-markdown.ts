@@ -67,18 +67,13 @@ function alignRow(align: ReviewElementProps[string] | undefined): string {
  * block must carry the definitions of the footnotes it references. */
 export type FootnoteDefinitions = Map<string, string>;
 
-/** Renders a node the caller carries itself, such as a component it turns into
- * a block of its own; `undefined` falls back to the Markdown rendering. */
-export type RenderProseNode = (
-  node: ReviewComponentNode | ElementNode,
-) => string | undefined;
+/** Renders a component the caller carries itself, such as one it turns into a
+ * block of its own; `undefined` falls back to the Markdown rendering. */
+export type RenderProseNode = (node: ReviewComponentNode) => string | undefined;
 
 interface FootnoteState {
   definitions: FootnoteDefinitions;
   referenced: Set<string>;
-  /** The definitions came from the whole document, so a footnote section met
-   * again is already converted. */
-  supplied: boolean;
   /** Components found inside prose that Markdown cannot carry. */
   warnings?: string[];
   render?: RenderProseNode;
@@ -93,17 +88,12 @@ export function collectFootnoteDefinitions(
   const state: FootnoteState = {
     definitions: new Map(),
     referenced: new Set(),
-    supplied: false,
     warnings,
     render,
   };
 
   const visit = (node: ReviewNode) => {
-    if (
-      node.type === "element" &&
-      node.tag === "section" &&
-      isFootnoteSection(node)
-    )
+    if (node.type === "element" && isFootnoteSection(node))
       collectFootnotes(node, state);
     else if (node.type !== "text") node.children.forEach(visit);
   };
@@ -114,9 +104,8 @@ export function collectFootnoteDefinitions(
 }
 
 /** Sealed review prose (a `review-document/1` element tree) as GFM Markdown
- * that `parseMarkdown` reads back. Definitions of the footnotes referenced in
- * `nodes` are appended, taken from `footnotes` when given, else from the
- * footnote section inside `nodes`. */
+ * that `parseMarkdown` reads back. Definitions of the footnotes `nodes`
+ * reference are appended, taken from `footnotes`. */
 export function proseToMarkdown(
   nodes: ReviewNode[],
   footnotes?: FootnoteDefinitions,
@@ -126,7 +115,6 @@ export function proseToMarkdown(
   const state: FootnoteState = {
     definitions: footnotes ?? new Map(),
     referenced: new Set(),
-    supplied: footnotes !== undefined,
     warnings,
     render,
   };
@@ -142,8 +130,9 @@ export function proseToMarkdown(
   return `${[body, ...definitions].filter(Boolean).join("\n\n")}\n`;
 }
 
-function isFootnoteSection(node: ElementNode): boolean {
-  return "data-footnotes" in node.props;
+/** The `section[data-footnotes]` the Markdown pipeline appends to a document. */
+export function isFootnoteSection(node: ReviewNode): boolean {
+  return node.type === "element" && "data-footnotes" in node.props;
 }
 
 /** Footnote labels come from `#user-content-fn-<label>` (refs) and
@@ -236,15 +225,8 @@ function block(
     case "table":
       return table(node, state, indent);
     case "section":
-      if (isFootnoteSection(node)) {
-        // Converting a definition again would repeat its side effects: a trace
-        // quote inside it would be registered a second time.
-        if (!state.supplied) collectFootnotes(node, state);
-
-        return "";
-      }
-
-      return blocks(children, state, indent);
+      // Definitions are collected once, by collectFootnoteDefinitions.
+      return isFootnoteSection(node) ? "" : blocks(children, state, indent);
     default:
       return blocks(children, state, indent);
   }
@@ -356,7 +338,6 @@ function collectFootnotes(section: ElementNode, state: FootnoteState): void {
           const inner: FootnoteState = {
             definitions: state.definitions,
             referenced: new Set(),
-            supplied: state.supplied,
             warnings: state.warnings,
             render: state.render,
           };
@@ -394,10 +375,6 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
   if (node.type === "text") return escapeText(node.value);
 
   if (node.type === "component") return inlineComponent(node, state);
-
-  const rendered = state?.render?.(node);
-
-  if (rendered !== undefined) return rendered;
 
   const { tag, children, props } = node;
 
@@ -442,11 +419,7 @@ function inline(node: ReviewNode, state?: FootnoteState): string {
       return BLOCK_TAGS.has(tag)
         ? blocks(
             [node],
-            state ?? {
-              definitions: new Map(),
-              referenced: new Set(),
-              supplied: false,
-            },
+            state ?? { definitions: new Map(), referenced: new Set() },
           )
         : inlines(children, state);
   }

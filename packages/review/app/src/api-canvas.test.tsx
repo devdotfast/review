@@ -110,7 +110,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       kind: "api",
       reviewId: review.reviewId,
       bridge,
-      setVersion: displayedVersion,
+      setSourceView: (_selection, view) => displayedVersion(view.version),
     });
   });
   await act(async () => {
@@ -588,7 +588,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
       kind: "api",
       reviewId: review.reviewId,
       bridge,
-      setVersion: () => {},
+      setSourceView: () => {},
     });
   });
   await act(async () => {

@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { type FSWatcher, existsSync, watch } from "node:fs";
+import { readFile, realpath, stat } from "node:fs/promises";
 
 import {
   type BlobBatchReader,
@@ -10,12 +10,18 @@ import {
   createBlobBatchReader,
   detectLocalVcs,
   diffFileSummariesTrees,
+  diffFileSummariesWorkingTree,
   diffTrees,
+  diffWorkingTree,
+  gitCommonDir,
   listCommitRange,
   listTrackedFilesAtCommit,
   readFileAtCommit,
 } from "@dev.fast/local-vcs";
-import type { ReviewSourceEntry } from "@dev.fast/review-protocol";
+import type {
+  ReviewLanguageEnvironment,
+  ReviewSourceEntry,
+} from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
@@ -36,15 +42,25 @@ import {
   type Block,
   type Pins,
   ReviewInputError,
+  type ReviewTarget,
   type Source,
+  elements,
   pinsSchema,
+  sourceReferences,
   sourceSchema,
 } from "./document.js";
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
-import { ReviewStore } from "./store.js";
+import { ReviewStore, type Snapshot } from "./store.js";
 import { traceSchema } from "./trace-schema.js";
 import { ReviewWorkspaces } from "./workspaces.js";
+import {
+  EMPTY_SOURCE,
+  inspectWorktree,
+  localSourcePath,
+  readWorkingFile,
+  workingFiles,
+} from "./worktree-source.js";
 
 export const uploadSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -97,16 +113,69 @@ export class LocalReviewData {
   readonly workspaces: ReviewWorkspaces;
 
   /** Local checkout context for live worktree targets only. */
-  async languageContext(
-    repositoryId: string,
-  ): Promise<{ rootPath: string | null }> {
-    const rootPath = this.store.repositoryPath(repositoryId);
-    const resolved = await realpath(rootPath).catch(() => null);
+  /** Desktop language services borrow the registered checkout, never create one. */
+  async liveFile(repositoryId: string, file: string, text: string) {
+    try {
+      const rootPath = await realpath(this.store.repositoryPath(repositoryId));
+      const localPath = await localSourcePath(rootPath, file);
 
-    if (!resolved) return { rootPath: null };
-    const vcs = await detectLocalVcs(resolved);
+      if ((await readFile(localPath, "utf8")) === text)
+        return { localPath, localRoot: rootPath };
+    } catch {
+      /* A moved or changed file can still be displayed without native LSP. */
+    }
 
-    return { rootPath: vcs ? resolved : null };
+    return undefined;
+  }
+  /** Source bytes and the language workspace have independent lifetimes. */
+  async languageEnvironment(
+    snapshot: Snapshot,
+    side: "base" | "head",
+    commit?: string,
+  ): Promise<ReviewLanguageEnvironment> {
+    if (snapshot.target.kind === "commits") {
+      const pins = await this.comparison(snapshot.pins, commit);
+
+      const environment = await this.workspaces.source(
+        snapshot.reviewId,
+        pins,
+        side,
+      );
+
+      return {
+        rootPath:
+          environment.state === "preparing" || environment.state === "pending"
+            ? null
+            : environment.rootPath,
+        identity: environment.generation,
+      };
+    }
+
+    // Validate selected commits for both target kinds, but never prepare a live checkout.
+    if (commit) await this.comparison(await this.sourcePins(snapshot), commit);
+    const repositoryId = snapshot.pins.repositoryId;
+
+    const rootPath = await realpath(
+      this.store.repositoryPath(repositoryId),
+    ).catch(() => null);
+
+    if (!rootPath || !(await this.vcs(repositoryId)))
+      return { rootPath: null, identity: `${repositoryId}:unavailable` };
+    const info = await stat(rootPath, { bigint: true }).catch(() => null);
+
+    return info
+      ? {
+          rootPath,
+          identity: `${repositoryId}:${rootPath}:${info.dev}:${info.ino}:${info.birthtimeNs}`,
+        }
+      : { rootPath: null, identity: `${repositoryId}:unavailable` };
+  }
+
+  /** Resolve source coordinates after selecting a local or imported snapshot. */
+  async resolveSource(snapshot: Snapshot, commit?: string) {
+    const pins = await this.comparison(await this.sourcePins(snapshot), commit);
+
+    return { snapshot, pins };
   }
 
   // A commit's tree never changes, so one listing serves every folder expansion.
@@ -126,6 +195,7 @@ export class LocalReviewData {
     private readonly options: {
       blobReaderIdleTimeoutMs?: number;
       workspaceDatabase?: string;
+      watch?: typeof watch;
     } = {},
   ) {
     this.workspaces = new ReviewWorkspaces(
@@ -135,10 +205,83 @@ export class LocalReviewData {
   }
 
   private closed = false;
+  private readonly worktrees = new Map<
+    string,
+    {
+      epoch: number;
+      inspectedEpoch: number;
+      watchers: FSWatcher[];
+      healthy: boolean;
+      inspection?: Awaited<ReturnType<typeof inspectWorktree>>;
+    }
+  >();
+
+  private forgetWorktree(repositoryId: string) {
+    const entry = this.worktrees.get(repositoryId);
+
+    if (entry) for (const watcher of entry.watchers) watcher.close();
+    this.worktrees.delete(repositoryId);
+  }
+
+  private async worktreeState(repositoryId: string, vcs: LocalVcs) {
+    let entry = this.worktrees.get(repositoryId);
+
+    if (!entry) {
+      entry = { epoch: 0, inspectedEpoch: -1, watchers: [], healthy: true };
+      this.worktrees.set(repositoryId, entry);
+      const state = entry;
+      const roots = new Set([vcs.rootPath]);
+      const common = await gitCommonDir(vcs.rootPath);
+
+      if (common) roots.add(common);
+
+      for (const root of roots) {
+        try {
+          const watcher = (this.options.watch ?? watch)(
+            root,
+            { recursive: true },
+            () => {
+              state.epoch++;
+            },
+          );
+
+          watcher.on("error", () => {
+            state.epoch++;
+            state.inspectedEpoch = -1;
+            state.healthy = false;
+            watcher.close();
+          });
+          watcher.unref();
+          state.watchers.push(watcher);
+        } catch {
+          state.healthy = false;
+        }
+      }
+    }
+
+    if (
+      entry.inspection &&
+      entry.inspectedEpoch === entry.epoch &&
+      entry.healthy &&
+      entry.watchers.length
+    )
+      return entry.inspection;
+
+    const epoch = entry.epoch;
+    const inspected = await inspectWorktree(repositoryId, vcs);
+    entry.inspection = inspected;
+    entry.inspectedEpoch = epoch;
+
+    return inspected;
+  }
 
   async close(): Promise<void> {
     this.closed = true;
     await this.workspaces.close();
+
+    for (const entry of this.worktrees.values())
+      for (const watcher of entry.watchers) watcher.close();
+    this.worktrees.clear();
     const readers = [...this.readers.values()];
 
     this.readers.clear();
@@ -154,6 +297,7 @@ export class LocalReviewData {
       return cached.detection;
 
     this.closeReader(repositoryId);
+    this.forgetWorktree(repositoryId);
     const rootPath = this.store.repositoryPath(repositoryId);
 
     const forget = () => {
@@ -255,6 +399,94 @@ export class LocalReviewData {
 
     return repository;
   }
+  async projectSource(snapshot: Snapshot, pins: Pins): Promise<Snapshot> {
+    const projected: Snapshot = { ...snapshot, pins, staleSources: [] };
+    delete projected.sourceUnavailable;
+
+    // Live references retain their authored coordinates. Only diagnose ranges
+    // that no longer exist; the author decides how to update changed source.
+    for (const reference of sourceReferences(snapshot.document, {
+      tolerant: true,
+    })) {
+      try {
+        await this.quote(pins, reference.source);
+      } catch (error) {
+        if (!(error instanceof ReviewInputError)) throw error;
+        projected.staleSources!.push(reference.id);
+      }
+    }
+
+    return projected;
+  }
+  async sourcePins(snapshot: Snapshot): Promise<Pins> {
+    return snapshot.target.kind === "worktree"
+      ? (await this.resolveTarget(snapshot.target)).pins
+      : snapshot.pins;
+  }
+  async resolveTarget(
+    target: ReviewTarget,
+  ): Promise<{ target: ReviewTarget; pins: Pins }> {
+    const vcs = await this.vcs(target.repositoryId);
+
+    if (!vcs)
+      throw new ReviewInputError(
+        "The selected local checkout is unavailable.",
+        404,
+      );
+
+    if (target.kind === "commits") {
+      const head = await vcs.resolveRevision(target.head);
+
+      if (!head) throw new ReviewInputError("Head revision does not exist.");
+
+      const base =
+        target.base === undefined
+          ? head
+          : await vcs.resolveRevision(target.base);
+
+      if (!base) throw new ReviewInputError("Base revision does not exist.");
+
+      const resolved = { ...target, head: head.commit };
+
+      if (target.base !== undefined) resolved.base = base.commit;
+
+      return {
+        target: resolved,
+        pins: {
+          repositoryId: target.repositoryId,
+          base: base.commit,
+          head: head.commit,
+        },
+      };
+    }
+
+    const base =
+      target.base === undefined
+        ? undefined
+        : await vcs.resolveRevision(target.base);
+
+    if (target.base !== undefined && !base)
+      throw new ReviewInputError("Base revision does not exist.");
+
+    const { revision, commit } = await this.worktreeState(
+      target.repositoryId,
+      vcs,
+    );
+
+    const resolved = { ...target };
+
+    if (base) resolved.base = base.commit;
+
+    return {
+      target: resolved,
+      pins: {
+        repositoryId: target.repositoryId,
+        base: base?.commit ?? commit,
+        head: commit,
+        worktreeRevision: revision,
+      },
+    };
+  }
   async resolvePins(
     repositoryId: string,
     base: string,
@@ -275,6 +507,16 @@ export class LocalReviewData {
     return { repositoryId, base: left.commit, head: right.commit };
   }
   async validatePins(pins: Pins) {
+    if (pins.worktreeRevision) {
+      if (!(await this.vcs(pins.repositoryId)))
+        throw new ReviewInputError(
+          "The selected local checkout is unavailable.",
+          404,
+        );
+
+      return;
+    }
+
     const resolved = await this.resolvePins(
       pins.repositoryId,
       pins.base,
@@ -286,20 +528,32 @@ export class LocalReviewData {
         "Use resolved commit IDs, not moving branch names.",
       );
   }
-  async file(pins: Pins, side: "base" | "head", file: string) {
+  async file(
+    pins: Pins,
+    side: "base" | "head",
+    file: string,
+    allowBinary = false,
+  ) {
     checkRelativePath(file);
     const commit = pins[side];
     const vcs = await this.vcs(pins.repositoryId);
 
-    const text = vcs
-      ? await readFileAtCommit({
-          rootPath: vcs.rootPath,
-          kind: vcs.kind,
-          commit,
-          relativePath: file,
-          reader: this.reader(pins.repositoryId, vcs),
-        })
-      : null;
+    const text =
+      pins.worktreeRevision && side === "head"
+        ? vcs
+          ? await readWorkingFile(vcs.rootPath, file)
+          : null
+        : commit === EMPTY_SOURCE
+          ? null
+          : vcs
+            ? await readFileAtCommit({
+                rootPath: vcs.rootPath,
+                kind: vcs.kind,
+                commit,
+                relativePath: file,
+                reader: this.reader(pins.repositoryId, vcs),
+              })
+            : null;
 
     if (text === null)
       throw new ReviewInputError(
@@ -307,7 +561,7 @@ export class LocalReviewData {
         404,
       );
 
-    if (text.includes("\0"))
+    if (!allowBinary && text.includes("\0"))
       throw new ReviewInputError(
         "Binary files cannot be used as code references.",
       );
@@ -324,10 +578,24 @@ export class LocalReviewData {
     const prefix = directory ? directory.replace(/\/$/, "") + "/" : "";
     const entries = new Map<string, ReviewSourceEntry>();
 
-    for (const file of await this.trackedFilesAt(
-      pins.repositoryId,
-      pins[side],
-    )) {
+    const vcs = pins.worktreeRevision
+      ? await this.vcs(pins.repositoryId)
+      : undefined;
+
+    if (pins.worktreeRevision && !vcs)
+      throw new ReviewInputError(
+        "The selected local checkout is unavailable.",
+        404,
+      );
+
+    const files =
+      vcs && side === "head"
+        ? await workingFiles(vcs)
+        : pins[side] === EMPTY_SOURCE
+          ? []
+          : await this.trackedFilesAt(pins.repositoryId, pins[side]);
+
+    for (const file of files) {
       if (!file.startsWith(prefix)) continue;
       const relative = file.slice(prefix.length);
       const name = relative.split("/", 1)[0]!;
@@ -441,6 +709,27 @@ export class LocalReviewData {
   async changes(pins: Pins, file?: string) {
     if (file !== undefined) checkRelativePath(file);
 
+    if (pins.worktreeRevision) {
+      const vcs = await this.vcs(pins.repositoryId);
+
+      if (!vcs)
+        throw new ReviewInputError(
+          "The selected local checkout is unavailable.",
+          404,
+        );
+
+      const input = {
+        rootPath: vcs.rootPath,
+        kind: vcs.kind,
+        baseRef: pins.base === EMPTY_SOURCE ? undefined : pins.base,
+        headRef: pins.head === EMPTY_SOURCE ? undefined : pins.head,
+      };
+
+      return file === undefined
+        ? diffFileSummariesWorkingTree(input)
+        : diffWorkingTree({ ...input, file });
+    }
+
     const input = {
       ...(await this.vcsTarget(pins.repositoryId)),
       baseRef: pins.base,
@@ -452,6 +741,12 @@ export class LocalReviewData {
       : diffTrees({ ...input, paths: [file], literalPaths: true });
   }
   commits(pins: Pins) {
+    if (
+      pins.base === pins.head ||
+      pins.base === EMPTY_SOURCE ||
+      pins.head === EMPTY_SOURCE
+    )
+      return Promise.resolve([]);
     const key = `${pins.repositoryId}:${pins.base}:${pins.head}`;
     const cached = this.commitRanges.get(key);
 
@@ -488,7 +783,11 @@ export class LocalReviewData {
         404,
       );
 
-    return { ...pins, base: selected.parentCommit, head: selected.commit };
+    return {
+      repositoryId: pins.repositoryId,
+      base: selected.parentCommit,
+      head: selected.commit,
+    };
   }
   async map(pins: Pins, resourceId: string) {
     await this.validateResource(pins, {
@@ -506,7 +805,17 @@ export class LocalReviewData {
 
     const target = await this.vcsTarget(pins.repositoryId);
 
+    const patch = pins.worktreeRevision
+      ? await diffWorkingTree({
+          ...target,
+          kind: target.kind ?? "git",
+          baseRef: pins.base === EMPTY_SOURCE ? undefined : pins.base,
+          headRef: pins.head === EMPTY_SOURCE ? undefined : pins.head,
+        })
+      : undefined;
+
     const resolved = await resolveSoftwareMapDiffCounts({
+      patch,
       sourceRootPath: target.rootPath,
       sourceVcsKind: target.kind,
       baseRef: pins.base,
@@ -666,9 +975,11 @@ function inputError<T>(run: () => T): T {
 
 export function openLocalReviewStore(
   databasePath: string,
-  options: { blobReaderIdleTimeoutMs?: number } = {},
+  options: { blobReaderIdleTimeoutMs?: number; watch?: typeof watch } = {},
 ) {
   const store: ReviewStore = new ReviewStore(databasePath, {
+    projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
+    resolveTarget: (target) => data.resolveTarget(target),
     validatePins: (pins) => data.validatePins(pins),
     validateSource: (pins, source, options) =>
       data.validateSource(pins, source, options),

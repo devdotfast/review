@@ -4,6 +4,7 @@ import { gfm } from "micromark-extension-gfm";
 
 export interface MarkdownNode {
   type: string;
+  position?: { start: { offset?: number }; end: { offset?: number } };
   children?: MarkdownNode[];
   value?: string;
   depth?: number;

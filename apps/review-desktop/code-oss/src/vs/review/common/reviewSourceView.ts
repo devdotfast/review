@@ -1,0 +1,57 @@
+import { URI } from "../../base/common/uri.js";
+import { reviewSourceQuery, type ReviewApiSourceLocation, type ReviewSourceSelection } from "./reviewProtocol.js";
+
+export const REVIEW_API_SOURCE_SCHEME = "review-api-source";
+
+export function apiSourceUri(target: ReviewApiSourceLocation, empty = false): URI {
+	const query = new URLSearchParams({ side: target.side });
+	for (const [key, value] of Object.entries(reviewSourceQuery(target.view))) {
+		if (value !== undefined) query.set(key, String(value));
+	}
+	if (target.view.generation) query.set("generation", target.view.generation);
+	if (empty) query.set("empty", "true");
+	return URI.from({ scheme: REVIEW_API_SOURCE_SCHEME, authority: target.view.reviewId, path: `/${target.file}`, query: query.toString() });
+}
+
+/** Decode resolved read coordinates; generation only separates client models. */
+export function sourceLocation(resource: URI): ReviewApiSourceLocation {
+	const query = new URLSearchParams(resource.query);
+	const commit = query.get("commit") ?? undefined;
+	return {
+		view: Object.freeze({
+			reviewId: resource.authority,
+			version: Number(query.get("version")),
+			generation: query.get("generation") ?? undefined,
+			commit,
+		}),
+		side: query.get("side") === "base" ? "base" : "head",
+		file: resource.path.slice(1),
+	};
+}
+
+/** Tabs and directory nodes keep intent, never a resolved refresh token. */
+export const REVIEW_API_TREE_SCHEME = "review-api-tree";
+
+export function sourceSelectionIdentity(selection: ReviewSourceSelection): string {
+	return `${selection.reviewId}/${selection.kind === "current" ? "current" : selection.version}`;
+}
+
+export function sourceTreeUri(selection: ReviewSourceSelection, file = ""): URI {
+	return URI.from({ scheme: REVIEW_API_TREE_SCHEME, authority: selection.reviewId,
+		path: `/${file}`, query: selection.kind === "version" ? `version=${selection.version}` : "" });
+}
+
+export function sourceTreeSelection(resource: URI): ReviewSourceSelection {
+	const version = new URLSearchParams(resource.query).get("version");
+	return version === null ? { reviewId: resource.authority, kind: "current" }
+		: { reviewId: resource.authority, kind: "version", version: Number(version) };
+}
+
+/** An open Source tab owns the tree while its files change revisions. */
+export function sourceTreeRoot(resource: URI, current?: URI): URI {
+	if (current && resource.authority === current.authority) {
+		const selection = sourceTreeSelection(current);
+		if (selection.kind === "current" || selection.version === sourceLocation(resource).view.version) return current;
+	}
+	return sourceTreeUri({ reviewId: resource.authority, kind: "version", version: sourceLocation(resource).view.version });
+}

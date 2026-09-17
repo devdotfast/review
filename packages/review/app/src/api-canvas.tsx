@@ -1,6 +1,7 @@
 import {
   type ReviewCanvasContent,
   parseReviewStackResponse,
+  resolveReviewSourceView,
 } from "@dev.fast/review-protocol";
 import {
   createContext,
@@ -54,7 +55,7 @@ function DocumentBody() {
   return (
     <ReviewDocumentBoundary
       session={session}
-      revision={`${data.snapshot.reviewId}:${data.snapshot.version}`}
+      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins.worktreeRevision ?? ""}`}
       onError={(_revision, error) =>
         reportReviewDocumentRenderError(session, error)
       }
@@ -86,7 +87,7 @@ export function ApiCanvas({
   const dataRef = useRef(data);
   dataRef.current = data;
   const sourceRef = useRef<{ key: string; version: number }>(undefined);
-  const sourceVersion = sourceRef.current?.version;
+  const sourceVersion = sourceRef.current?.key;
   const [error, setError] = useState<string>();
   useEffect(() => {
     const abort = new AbortController();
@@ -98,12 +99,26 @@ export function ApiCanvas({
       const next = await loader.load(snapshot);
 
       if (abort.signal.aborted) return;
+
       // Native source widgets must use these pins on their first mount.
-      const key = JSON.stringify([snapshot.reviewId, snapshot.pins]);
+      const key = JSON.stringify([
+        snapshot.reviewId,
+        snapshot.pins,
+        version === undefined ? "current" : version,
+      ]);
 
       if (sourceRef.current?.key !== key)
         sourceRef.current = { key, version: snapshot.version };
-      content.setVersion?.(sourceRef.current.version);
+
+      content.setSourceView?.(
+        version === undefined
+          ? { reviewId: snapshot.reviewId, kind: "current" }
+          : { reviewId: snapshot.reviewId, kind: "version", version },
+        resolveReviewSourceView({
+          ...snapshot,
+          version: sourceRef.current.version,
+        }),
+      );
       setData(next);
       setError(undefined);
       content.setTitle?.(snapshot.title);
@@ -125,14 +140,17 @@ export function ApiCanvas({
         return;
       }
 
-      let shownVersion: number | undefined;
+      let shownVersion: string | undefined;
       await client.follow<Snapshot & { activity: ActivitySnapshot }>(
         content.reviewId,
         abort.signal,
         async (snapshot) => {
           setActivity(snapshot.activity);
 
-          if (shownVersion === snapshot.version) {
+          if (
+            shownVersion ===
+            `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`
+          ) {
             setError(undefined);
 
             return;
@@ -140,7 +158,7 @@ export function ApiCanvas({
 
           try {
             await show(snapshot);
-            shownVersion = snapshot.version;
+            shownVersion = `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`;
           } catch (cause) {
             // A failed resource or source fetch is a document problem. The
             // stream and the activity signal are still healthy, so do not
@@ -306,10 +324,12 @@ export function ApiCanvas({
               <DisplayedReviewVersionContext.Provider
                 value={data.snapshot.version}
               >
-                <ProjectPreparation
-                  client={client}
-                  reviewId={data.snapshot.reviewId}
-                />
+                {data.snapshot.target.kind !== "worktree" && (
+                  <ProjectPreparation
+                    client={client}
+                    reviewId={data.snapshot.reviewId}
+                  />
+                )}
                 <RevealAfterFirstPaint>
                   <MapEnabled.Provider
                     value={content.softwareMapEnabled === true}

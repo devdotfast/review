@@ -50,6 +50,13 @@ export function createReviewApi(
     return context.json({ error: "Review operation failed." }, 500);
   });
 
+  if (data)
+    app.use("*", async (context, next) => {
+      if (context.req.method === "GET" && !context.req.query("version"))
+        await store.refreshWorktrees();
+      await next();
+    });
+
   const sharedData = shared ? new SharedReviewData(shared) : undefined;
   const isShared = (id: string) => id.startsWith("shared-");
 
@@ -86,7 +93,7 @@ export function createReviewApi(
     mountSharingHost(app, store, data, shared);
   }
 
-  const readReview = (id: string, version?: number) => {
+  const readReview = (id: string, version?: number): Snapshot => {
     if (!id.startsWith("shared-")) return store.read(id, version);
     const snapshot = shared?.get(id).snapshot;
 
@@ -182,7 +189,10 @@ export function createReviewApi(
             }
           }),
         (notify) => {
+          const stopRefresh = store.watchWorktrees();
+
           const stops = [
+            stopRefresh,
             store.subscribe((result) => {
               if (mark(result.reviewId)) notify();
             }),
@@ -222,7 +232,8 @@ export function createReviewApi(
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
-    void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
+    if (review.target.kind !== "worktree")
+      void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
 
     const settings = await open({
       reviewId: review.reviewId,
@@ -245,6 +256,8 @@ export function createReviewApi(
           : store.activity.read(id),
       }),
       (notify) => {
+        const stopRefresh = store.watchWorktrees();
+
         const stopDocument = store.subscribe((result) => {
           if (result.reviewId === id) {
             document = undefined;
@@ -257,6 +270,7 @@ export function createReviewApi(
         });
 
         return () => {
+          stopRefresh();
           stopDocument();
           stopActivity();
         };
@@ -301,10 +315,8 @@ export function createReviewApi(
     app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 
-      const id = context.req.param("id");
-
-      const pins = await data!.comparison(
-        readReview(context.req.param("id"), input.version).pins,
+      const { pins } = await data.resolveSource(
+        readReview(context.req.param("id"), input.version),
         input.commit,
       );
 
@@ -320,8 +332,12 @@ export function createReviewApi(
         );
 
       return context.json(
-        await data!.map(
-          readReview(context.req.param("id"), query.version).pins,
+        await data.map(
+          (
+            await data.resolveSource(
+              readReview(context.req.param("id"), query.version),
+            )
+          ).pins,
           context.req.param("resourceId"),
         ),
       );
@@ -386,8 +402,12 @@ export function createReviewApi(
         .parse(await readBoundedRequestJson(context.req.raw));
 
       return context.json(
-        await data!.quote(
-          readReview(context.req.param("id"), input.version).pins,
+        await data.quote(
+          (
+            await data.resolveSource(
+              readReview(context.req.param("id"), input.version),
+            )
+          ).pins,
           input.source,
         ),
       );
@@ -401,10 +421,9 @@ export function createReviewApi(
         .parse(context.req.query());
 
       const snapshot = readReview(context.req.param("id"), input.version);
-      const pins = await data.comparison(snapshot.pins, input.commit);
 
       return context.json(
-        await data.workspaces.source(snapshot.reviewId, pins, input.side),
+        await data.languageEnvironment(snapshot, input.side, input.commit),
       );
     });
     app.get("/workspace-cleanup", (context) =>
@@ -432,38 +451,51 @@ export function createReviewApi(
       const input = readQuerySchemas.file.parse(context.req.query());
       const id = context.req.param("id");
 
-      return context.json(
-        await data!.file(
-          await data!.comparison(
-            readReview(context.req.param("id"), input.version).pins,
-            input.commit,
-          ),
-          input.side,
-          input.file,
-        ),
+      const { snapshot, pins } = await data.resolveSource(
+        readReview(id, input.version),
+        input.commit,
       );
+
+      const file = await data.file(pins, input.side, input.file);
+
+      const local =
+        !input.commit &&
+        input.side === "head" &&
+        snapshot.target.kind === "worktree"
+          ? await data.liveFile(
+              snapshot.pins.repositoryId,
+              input.file,
+              file.text,
+            )
+          : undefined;
+
+      return context.json({ ...file, ...local });
     });
     app.get("/:id/diff", async (context) => {
       const input = readQuerySchemas.diff.parse(context.req.query());
-      const id = context.req.param("id");
 
       return context.json(
-        await data!.changes(
-          await data!.comparison(
-            readReview(context.req.param("id"), input.version).pins,
-            input.commit,
-          ),
+        await data.changes(
+          (
+            await data.resolveSource(
+              readReview(context.req.param("id"), input.version),
+              input.commit,
+            )
+          ).pins,
           input.file,
         ),
       );
     });
     app.get("/:id/commits", async (context) => {
       const input = readQuerySchemas.commits.parse(context.req.query());
-      const id = context.req.param("id");
 
       return context.json(
-        await data!.commits(
-          readReview(context.req.param("id"), input.version).pins,
+        await data.commits(
+          (
+            await data.resolveSource(
+              readReview(context.req.param("id"), input.version),
+            )
+          ).pins,
         ),
       );
     });
@@ -585,10 +617,20 @@ export function createReviewApi(
             : inspectSnapshot(snapshot),
     );
   });
-  app.get("/:id", (context) => {
+  app.get("/:id", async (context) => {
     const query = readQuerySchemas.get.parse(context.req.query());
 
-    const snapshot = readReview(context.req.param("id"), query.version);
+    const snapshot = { ...readReview(context.req.param("id"), query.version) };
+
+    if (data && query.full) {
+      try {
+        snapshot.pins = await data.sourcePins(snapshot);
+      } catch (error) {
+        if (!(error instanceof ReviewInputError) || error.status !== 404)
+          throw error;
+        snapshot.sourceUnavailable = true;
+      }
+    }
 
     return context.json(
       query.full ? snapshot : inspectSnapshot(snapshot, query.targetId),

@@ -159,6 +159,12 @@ async function mountFixture(
     version: 0,
     title: "Fixture review",
     pins: { repositoryId: "repo", base: "base", head: "head" },
+    target: {
+      kind: "commits",
+      repositoryId: "repo",
+      base: "base",
+      head: "head",
+    },
     document: shippedTutorial
       ? documentSchema.parse(tutorialDocument.document)
       : fixtures.get(kind)!,

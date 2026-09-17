@@ -35,7 +35,16 @@ export const readQuerySchemas = {
     side: side.default("head"),
     path: z.string().default(""),
   }),
-  file: z.strictObject({ version, commit, side, file: z.string().min(1) }),
-  diff: z.strictObject({ version, commit, file: z.string().min(1).optional() }),
+  file: z.strictObject({
+    version,
+    commit,
+    side,
+    file: z.string().min(1),
+  }),
+  diff: z.strictObject({
+    version,
+    commit,
+    file: z.string().min(1).optional(),
+  }),
   commits: z.strictObject({ version }),
 };

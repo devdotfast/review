@@ -48,9 +48,15 @@ export async function exportShare(input: {
   version?: number;
   repository: ShareManifest["repository"];
 }): Promise<ShareBundle> {
-  const snapshot = structuredClone(
-    input.store.read(input.reviewId, input.version),
-  );
+  const {
+    target,
+    staleSources: _staleSources,
+    sourceUnavailable: _sourceUnavailable,
+    ...snapshot
+  } = structuredClone(input.store.read(input.reviewId, input.version));
+
+  if (target.kind === "worktree")
+    throw new ReviewInputError("Pin this review to commits before sharing it.");
 
   documentSchema.parse(snapshot.document);
   checkReferences(snapshot.document);

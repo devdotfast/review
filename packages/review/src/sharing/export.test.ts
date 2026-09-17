@@ -401,3 +401,32 @@ it("keeps the published snapshot and code after author edits and branch movement
       .text,
   ).toBe("export const answer = 2;\n");
 });
+
+it("requires a pinned review before sharing saved worktree changes", async () => {
+  const { local, reviewId, repo } = await fixture();
+  const snapshot = local.store.read(reviewId);
+  await local.store.execute({
+    commandId: randomUUID(),
+    operation: {
+      type: "set_target",
+      reviewId,
+      target: {
+        kind: "worktree",
+        repositoryId: snapshot.pins.repositoryId,
+        base: snapshot.pins.base,
+      },
+    },
+  });
+  await writeFile(path.join(repo, "main.ts"), "export const answer = 99;\n");
+  await expect(exportShare({ ...local, reviewId, repository })).rejects.toThrow(
+    "Pin this review to commits before sharing it.",
+  );
+  await local.store.execute({
+    commandId: randomUUID(),
+    operation: { type: "repin", reviewId, pins: snapshot.pins },
+  });
+  const bundle = await exportShare({ ...local, reviewId, repository });
+  expect(validateShareBundle(bundle).snapshot.pins.head).toBe(
+    snapshot.pins.head,
+  );
+});

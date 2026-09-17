@@ -17,6 +17,7 @@ import {
   reviewManagedCheckoutRoot,
   reviewManagedCheckoutsDir,
 } from "./review-checkout-paths";
+import { removeReviewPrepareArtifacts } from "./review-prepare.js";
 
 // A review renders the pinned code on the canvas, but file reads against the
 // user's working tree see whatever is checked out there — including edits
@@ -384,15 +385,4 @@ function isInsideDirectory(filePath: string, directory: string): boolean {
     !relative.startsWith("..") &&
     !path.isAbsolute(relative)
   );
-}
-
-// Older releases prepared a pinned checkout's dependencies and recorded it in
-// a marker beside the worktree. Nothing writes those files now, so this only
-// clears what an earlier install left behind when a checkout is removed or
-// recreated.
-async function removeReviewPrepareArtifacts(
-  checkoutPath: string,
-): Promise<void> {
-  await rm(`${checkoutPath}.prepared`, { force: true });
-  await rm(`${checkoutPath}.prepare-log`, { force: true });
 }

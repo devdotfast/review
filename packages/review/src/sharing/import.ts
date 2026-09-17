@@ -503,6 +503,11 @@ export class SharedReviewStore {
         ...validated.snapshot,
         reviewId: id,
         pins: { ...validated.snapshot.pins, repositoryId },
+        target: {
+          kind: "commits" as const,
+          ...validated.snapshot.pins,
+          repositoryId,
+        },
         shared: {
           ...bundle.attribution,
           cloneUrl: bundle.manifest.repository?.cloneUrl,

@@ -50,6 +50,12 @@ it.each(Object.keys(phrases) as (keyof typeof phrases)[])(
       version: 0,
       title: name,
       pins: { repositoryId: "repo", base: "base", head: "head" },
+      target: {
+        kind: "commits",
+        repositoryId: "repo",
+        base: "base",
+        head: "head",
+      },
       document: blocks,
       createdAt: "2026-09-16T00:00:00.000Z",
     };

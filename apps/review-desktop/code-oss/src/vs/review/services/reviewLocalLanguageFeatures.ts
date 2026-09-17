@@ -1,4 +1,3 @@
-import { Queue } from "../../base/common/async.js";
 import type { CancellationToken } from "../../base/common/cancellation.js";
 import { Disposable, DisposableStore, type IReference } from "../../base/common/lifecycle.js";
 import { URI } from "../../base/common/uri.js";
@@ -17,14 +16,17 @@ import { registerWorkbenchContribution2, WorkbenchPhase } from "../../workbench/
 import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
 import { ITextFileService } from "../../workbench/services/textfile/common/textfiles.js";
 import { IWorkspaceEditingService } from "../../workbench/services/workspaces/common/workspaceEditing.js";
+import { reviewSourceQuery, type ReviewLanguageEnvironment } from "../common/reviewProtocol.js";
+import { sourceLocation } from "../common/reviewSourceView.js";
 import { REVIEW_UNIFIED_SCHEME } from "../common/reviewCodeResources.js";
 import { REVIEW_API_SOURCE_SCHEME } from "./reviewApiSourceService.js";
 import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService } from "./reviewDesktopConnectionService.js";
 import { withCurrentLocalContext } from "./reviewLocalRequest.js";
+import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
 
 interface LocalSource {
-	generation: string;
+	identity: string;
 	root: URI;
 	reference: IReference<IResolvedTextEditorModel>;
 	dispose(): void;
@@ -35,7 +37,6 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 	static readonly ID = "review.localLanguageFeatures";
 	private readonly sources = new Map<ITextModel, Promise<LocalSource | undefined>>();
 	private readonly roots = new Map<string, number>();
-	private readonly folders = this._register(new Queue<void>());
 	private generation = 0;
 
 	constructor(
@@ -81,19 +82,21 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		if (new URLSearchParams(model.uri.query).has("empty")) return undefined;
 		try {
 			const { serverUrl, token } = await this.connection.getConnection();
-			const query = new URLSearchParams(model.uri.query);
-			const params = new URLSearchParams({ version: query.get("version") ?? "", side: query.get("side") ?? "head" });
-			if (query.has("commit")) params.set("commit", query.get("commit")!);
+			const target = sourceLocation(model.uri);
+			const params = new URLSearchParams({ side: target.side });
+			for (const [key, value] of Object.entries(reviewSourceQuery(target.view))) {
+				if (value !== undefined) params.set(key, String(value));
+			}
 			const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(model.uri.authority)}/language-context?${params}`, {
 				headers: { "x-review-token": token }, signal: AbortSignal.timeout(10_000),
 			});
 			if (!response.ok) return undefined;
-			const context: { rootPath: string | null; generation: string; state?: string } = await response.json();
+			const context: ReviewLanguageEnvironment = await response.json();
 			const cached = await this.sources.get(model);
-			if (cached && cached.generation === context.generation && context.state !== "preparing" && context.rootPath) return cached;
+			if (cached && cached.identity === context.identity && context.rootPath) return cached;
 			if (cached) { cached.dispose(); this.sources.delete(model); this.generation++; }
-			if (!context.rootPath || context.state === "preparing" || context.state === "pending" || model.isDisposed()) return undefined;
-			const pending = this.acquire(model, { rootPath: context.rootPath, generation: context.generation });
+			if (!context.rootPath || model.isDisposed()) return undefined;
+			const pending = this.acquire(model, { rootPath: context.rootPath, identity: context.identity });
 			this.sources.set(model, pending);
 			const result = await pending;
 			if (!result) this.sources.delete(model);
@@ -105,7 +108,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		}
 	}
 
-	private async acquire(model: ITextModel, context: { rootPath: string; generation: string }): Promise<LocalSource | undefined> {
+	private async acquire(model: ITextModel, context: { rootPath: string; identity: string }): Promise<LocalSource | undefined> {
 		const root = URI.file(context.rootPath);
 		const relative = model.uri.path.slice(1);
 		if (!relative || relative.split(/[\\/]/).some(part => part === "..")) return undefined;
@@ -113,24 +116,21 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		if (!await this.files.exists(resource) || model.isDisposed()) return undefined;
 		const owned = new DisposableStore();
 		try {
-			await this.folders.queue(async () => {
-				const key = root.toString();
-				if (!this.roots.has(key)) await this.workspace.addFolders([{ uri: root, name: `${root.path.split("/").at(-1)} (review environment)` }]);
-				this.roots.set(key, (this.roots.get(key) ?? 0) + 1);
-			});
-			owned.add({ dispose: () => {
-				void this.folders.queue(async () => {
+			owned.add(await acquireReviewLanguageRoot(this.workspace, root));
+			this.roots.set(root.toString(), (this.roots.get(root.toString()) ?? 0) + 1);
+			owned.add({
+				dispose: () => {
 					const count = (this.roots.get(root.toString()) ?? 1) - 1;
 					if (count > 0) this.roots.set(root.toString(), count);
-					else { this.roots.delete(root.toString()); await this.workspace.removeFolders([root]); }
-				}).catch(error => this.log.warn("[Review] Could not release local workspace", error));
-			} });
+					else this.roots.delete(root.toString());
+				}
+			});
 			const reference = owned.add(await this.models.createModelReference(resource));
 			owned.add(reference.object.textEditorModel.onDidChangeContent(() => this.generation++));
 			owned.add(model.onWillDispose(() => { this.sources.delete(model); owned.dispose(); }));
 			if (model.isDisposed()) { owned.dispose(); return undefined; }
 			await this.extensions.activateByEvent(`onLanguage:${reference.object.textEditorModel.getLanguageId()}`);
-			return { root, reference, generation: context.generation, dispose: () => owned.dispose() };
+			return { root, reference, identity: context.identity, dispose: () => owned.dispose() };
 		} catch (error) { owned.dispose(); throw error; }
 	}
 
@@ -144,6 +144,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			try { return await this.withSource(ref.object.textEditorModel, new Position(mapped.startLine, position.column), token, run); }
 			finally { ref.dispose(); }
 		}
+		if (model.uri.scheme === "file") return withCurrentLocalContext([model], token, () => this.generation, async () => run(model, position, model));
 		const source = await this.localSource(model);
 		if (!source || token.isCancellationRequested || model.isDisposed()) return undefined;
 		const local = source.reference.object.textEditorModel;
@@ -155,7 +156,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			if (!model.equalsTextBuffer(local.getTextBuffer())) return undefined;
 			const result = await run(local, position, model);
 			const current = await this.localSource(model);
-			return current?.generation === source.generation ? result : undefined;
+			return current?.identity === source.identity ? result : undefined;
 		});
 	}
 
@@ -178,7 +179,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 				let origin = result.originSelectionRange;
 				if (origin && model.uri.scheme === REVIEW_UNIFIED_SCHEME) {
 					const unified = this.resources.unifiedResource(model.uri);
-					const side = new URLSearchParams(pinned.uri.query).get("side");
+					const side = sourceLocation(pinned.uri).side;
 					const row = unified?.rows.find(row => (side === "base" ? row.baseLine : row.headLine) === origin!.startLineNumber);
 					origin = row && origin.startLineNumber === origin.endLineNumber
 						? new Range(row.lineNumber, origin.startColumn, row.lineNumber, origin.endColumn) : undefined;

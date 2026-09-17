@@ -112,6 +112,11 @@ export function mountSharingHost(
         409,
       );
     const snapshot = store.read(input.reviewId, input.version);
+
+    if (snapshot.target.kind === "worktree")
+      throw new ReviewInputError(
+        "Pin this review to commits before sharing it.",
+      );
     const account = await readStoreAuth();
 
     if (!account)

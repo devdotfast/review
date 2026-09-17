@@ -96,6 +96,7 @@ beforeEach(() => {
 
 afterEach(() => {
   if (root) unmountPanel();
+  vi.unstubAllGlobals();
   window.localStorage.clear();
 });
 

@@ -402,7 +402,7 @@ async function api(route, method = "GET", body) {
 const command = (operation) =>
   api("/commands", "POST", { commandId: randomUUID(), operation });
 
-async function createReview(fix, title) {
+async function createReview(fix, title, kind = "commits") {
   const repository = await api("/repositories", "POST", { path: fix.repo });
 
   const pins = await api("/pins", "POST", {
@@ -411,7 +411,14 @@ async function createReview(fix, title) {
     head: fix.head,
   });
 
-  const review = await command({ type: "create", title, pins });
+  const review = await command({
+    type: "create",
+    title,
+    ...(kind === "worktree"
+      ? { target: { kind, repositoryId: repository.id, base: fix.base } }
+      : { pins }),
+  });
+
   const reviewId = review.reviewId;
   await command({
     type: "edit",
@@ -476,9 +483,12 @@ async function probe(request) {
 function uri(review, side = "head", file = "main.ts", commit) {
   const query = new URLSearchParams({ version: String(review.version), side });
 
+  if (review.pins.worktreeRevision)
+    query.set("generation", review.pins.worktreeRevision);
+
   if (commit) query.set("commit", commit);
 
-  return `review-api-source://${review.reviewId}/${file}?${query}`;
+  return locationUri(`review-api-source://${review.reviewId}/${file}?${query}`);
 }
 
 const hover = "vscode.executeHoverProvider",
@@ -496,7 +506,16 @@ function locations(result) {
 }
 
 function locationUri(value) {
-  return value?.replace(/\?.*$/, (query) => decodeURIComponent(query));
+  return value?.replace(/\?(.*)$/, (_query, encoded) => {
+    const query = new URLSearchParams(decodeURIComponent(encoded));
+
+    // Tab-follow policy is not a source coordinate. Check version, side,
+    // generation and selected commit regardless of query serialization order.
+    query.delete("current");
+    query.sort();
+
+    return `?${query}`;
+  });
 }
 
 async function readyEnvironment(review, side = "head") {
@@ -505,9 +524,15 @@ async function readyEnvironment(review, side = "head") {
       `/${review.reviewId}/language-context?version=${review.version}&side=${side}`,
     );
 
-    assert.notEqual(result.state, "failed", result.log);
+    const environments = await api(`/${review.reviewId}/workspaces`);
 
-    return result.state === "ready" && result;
+    const prepared = environments.find(
+      (item) => item.generation === result.identity,
+    );
+
+    assert.notEqual(prepared?.state, "failed", prepared?.log);
+
+    return prepared?.state === "ready" && prepared;
   }, "prepared pinned environment");
 }
 
@@ -1223,7 +1248,12 @@ try {
       `/${exact.reviewId}/language-context?side=head&version=${exact.version}`,
     );
 
-    return environment.state === "failed" && environment;
+    const environments = await api(`/${exact.reviewId}/workspaces`);
+
+    return environments.find(
+      (item) =>
+        item.generation === environment.identity && item.state === "failed",
+    );
   }, "preparation failure");
 
   await probe({ command: "workbench.action.closeModalEditor" });
@@ -1251,6 +1281,273 @@ try {
   await readyEnvironment(exact);
   await record(
     "rendered preparation failure exposes logs and retries successfully",
+  );
+  const liveFixture = await fixture("live");
+
+  const live = await createReview(
+    liveFixture,
+    "Working tree language services",
+    "worktree",
+  );
+
+  const repositoryId = live.pins.repositoryId;
+
+  const liveTreesBefore = await git(
+    liveFixture.repo,
+    "worktree",
+    "list",
+    "--porcelain",
+  );
+
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await api(`/${live.reviewId}/open`, "POST");
+
+  const liveInline = page
+    .locator(
+      '[data-review-inline-editor-path="main.ts"][data-review-inline-editor-side="head"]',
+    )
+    .first();
+
+  const liveLine = liveInline
+    .locator(".view-line")
+    .filter({ hasText: "export const value = greet();" })
+    .first();
+
+  await until(async () => {
+    await liveLine.scrollIntoViewIfNeeded({ timeout: 2000 });
+    await clickGreet(liveLine);
+
+    return true;
+  }, "live inline source");
+  await probe({ command: "editor.action.showHover" });
+  await page
+    .locator(".monaco-hover:visible")
+    .filter({ hasText: "greet" })
+    .first()
+    .waitFor();
+  assert.ok(
+    !(await page.locator(".monaco-hover:visible").first().innerText()).includes(
+      "Language information from local checkout",
+    ),
+  );
+  await probe({ command: "editor.action.hideHover" });
+  await clickGreet(liveLine);
+  await page.keyboard.press("F12");
+  await until(
+    async () =>
+      (await probe({})).active?.uri ===
+      pathToFileURL(path.join(liveFixture.repo, "library.ts")).href,
+    "live inline definition",
+  );
+  await expectHover(
+    pathToFileURL(path.join(liveFixture.repo, "main.py")).href,
+    { line: 2, character: 9 },
+    "str",
+  );
+  await record(
+    "worktree JSON review uses real native TypeScript and Python language services",
+  );
+  await writeFile(
+    path.join(liveFixture.repo, "library.ts"),
+    "// shifted locally\n" + libraryText("number", "42"),
+  );
+  await expectHover(uri(live), greetAt, "number");
+  await expectDefinition(
+    uri(live),
+    greetAt,
+    uri(live, "head", "library.ts"),
+    3,
+  );
+  await writeFile(
+    path.join(liveFixture.repo, "main.ts"),
+    "// unrelated local edit\n" + mainText("head"),
+  );
+  // A historical authored version opens the same live checkout and gets LSP
+  // at its current coordinates; authored references themselves do not move.
+  await expectDefinition(
+    pathToFileURL(path.join(liveFixture.repo, "main.ts")).href,
+    at("// unrelated local edit\n" + mainText("head"), 4, "greet"),
+    path.join(liveFixture.repo, "library.ts"),
+    3,
+  );
+  await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
+  await writeFile(
+    path.join(liveFixture.repo, "library.ts"),
+    libraryText("string", JSON.stringify("live")),
+  );
+  assert.equal(
+    await git(liveFixture.repo, "worktree", "list", "--porcelain"),
+    liveTreesBefore,
+  );
+  assert.deepEqual(await api(`/${live.reviewId}/workspaces`), []);
+  await assert.rejects(readFile(path.join(liveFixture.repo, ".prepare-count")));
+  await record(
+    "live worktree source and language services follow saved edits without preparation",
+  );
+
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await api(`/${live.reviewId}/open`, "POST");
+  await writeFile(
+    path.join(liveFixture.repo, "main.ts"),
+    "// saved staged line\n" + mainText("head"),
+  );
+  await git(liveFixture.repo, "add", "main.ts");
+  await writeFile(
+    path.join(liveFixture.repo, "main.ts"),
+    "// saved unstaged line\n// saved staged line\n" + mainText("head"),
+  );
+  await writeFile(
+    path.join(liveFixture.repo, "fresh.ts"),
+    "export const fresh = 1;\n",
+  );
+  await until(
+    async () =>
+      (
+        await api(`/${live.reviewId}/file?side=head&file=main.ts`)
+      ).text.startsWith("// saved unstaged line"),
+    "saved worktree API bytes",
+  );
+  const updated = await api(`/${live.reviewId}?full=true`);
+  assert.equal(updated.version, live.version);
+  assert.equal(updated.document[0].children[2].source.fromLine, 3);
+
+  const historicalWorktree = await api(
+    `/${live.reviewId}/file?side=head&file=main.ts&version=${live.version}`,
+  );
+
+  assert.equal(
+    historicalWorktree.text,
+    "// saved unstaged line\n// saved staged line\n" + mainText("head"),
+  );
+  assert.ok(
+    (await api(`/${live.reviewId}/tree`)).some(
+      (file) => file.path === "fresh.ts",
+    ),
+  );
+  await expectDefinition(
+    pathToFileURL(path.join(liveFixture.repo, "main.ts")).href,
+    at(
+      "// saved unstaged line\n// saved staged line\n" + mainText("head"),
+      5,
+      "greet",
+    ),
+    path.join(liveFixture.repo, "library.ts"),
+    2,
+  );
+  await record(
+    "staged, unstaged, and untracked saved files refresh while authored history stays fixed",
+  );
+
+  await git(liveFixture.repo, "add", ".");
+  await git(liveFixture.repo, "commit", "-qm", "Current working files");
+
+  const single = await command({
+    type: "create",
+    title: "Single commit",
+    target: { kind: "commits", repositoryId, head: "HEAD" },
+  });
+
+  assert.deepEqual(await api(`/${single.reviewId}/diff`), []);
+  await git(liveFixture.repo, "checkout", "--detach", liveFixture.head);
+  await until(
+    async () =>
+      (await api(`/${live.reviewId}/file?side=head&file=main.ts`)).text ===
+      mainText("head"),
+    "worktree follows branch switch",
+  );
+  assert.ok(
+    (
+      await api(`/${single.reviewId}/file?side=head&file=main.ts`)
+    ).text.startsWith("// saved unstaged line"),
+  );
+  await record(
+    "live worktree and explicit commit target stay distinct across checkout changes",
+  );
+  await stop();
+  await launch();
+  await until(async () => {
+    await api(`/${live.reviewId}/open`, "POST");
+
+    return true;
+  }, "reopen live review");
+  const reopened = await api(`/${live.reviewId}?full=true`);
+
+  await expectDefinition(
+    uri(reopened),
+    greetAt,
+    uri(reopened, "head", "library.ts"),
+    2,
+  );
+  assert.equal(
+    (
+      await api(
+        `/${live.reviewId}/file?side=head&file=main.ts&version=${live.version}`,
+      )
+    ).text,
+    mainText("head"),
+  );
+  assert.equal(
+    (await git(liveFixture.repo, "worktree", "list", "--porcelain"))
+      .split("\n")
+      .filter((line) => line.startsWith("worktree ")).length,
+    1,
+  );
+  await page.screenshot({ path: path.join(root, "live-worktree-restart.png") });
+  await record(
+    "live worktree review and authored history recover after Desktop restart without pinning",
+  );
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await mkdir(path.join(liveFixture.repo, "nested"));
+  await writeFile(
+    path.join(liveFixture.repo, "nested/child.ts"),
+    "export const child = 1;\n",
+  );
+
+  const homeReview = await createReview(
+    liveFixture,
+    "Home live source",
+    "worktree",
+  );
+
+  await page.getByRole("tab", { name: /^Home/ }).first().click();
+  await page
+    .locator(".review-home-workspace-header")
+    .filter({ hasText: liveFixture.repo })
+    .getByRole("button", { name: "View source →", exact: true })
+    .click();
+  await page
+    .getByRole("tab", { name: new RegExp(`^Source — ${homeReview.title}$`) })
+    .waitFor();
+  await writeFile(
+    path.join(liveFixture.repo, "from-home.ts"),
+    "export const fromHome = 1;\n",
+  );
+  await page.getByText("from-home.ts", { exact: true }).first().waitFor();
+  await page.getByText("nested", { exact: true }).first().click();
+  await page.keyboard.press("ArrowRight");
+  await page.getByText("child.ts", { exact: true }).first().waitFor();
+  await command({
+    type: "rename",
+    reviewId: homeReview.reviewId,
+    title: "Renamed live source",
+  });
+  await writeFile(
+    path.join(liveFixture.repo, "nested/second.ts"),
+    "export const second = 2;\n",
+  );
+  await page.getByText("second.ts", { exact: true }).first().waitFor();
+  // Opening a refreshed child must not replace the current Source root with
+  // that file's resolved revision or collapse its already-expanded directory.
+  await page.getByText("second.ts", { exact: true }).first().dblclick();
+  await page.getByText("child.ts", { exact: true }).first().waitFor();
+  await writeFile(
+    path.join(liveFixture.repo, "nested/third.ts"),
+    "export const third = 3;\n",
+  );
+  await page.getByText("third.ts", { exact: true }).first().waitFor();
+  await page.screenshot({ path: path.join(root, "home-live-source.png") });
+  await record(
+    "Home Source stays live and preserves expanded folders across authored versions",
   );
   assert.deepEqual(errors, []);
   success = true;

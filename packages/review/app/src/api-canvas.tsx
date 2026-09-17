@@ -1,4 +1,7 @@
-import type { ReviewCanvasContent } from "@dev.fast/review-protocol";
+import {
+  type ReviewCanvasContent,
+  parseReviewStackResponse,
+} from "@dev.fast/review-protocol";
 import {
   createContext,
   memo,
@@ -9,10 +12,6 @@ import {
   useState,
 } from "react";
 
-import {
-  AgentSelectionSchema,
-  selectionMarkdown,
-} from "../../src/agent-selection";
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import { ReviewApiClient, ReviewApiError } from "../../src/review-api/client";
 import type { Snapshot } from "../../src/review-api/store";
@@ -27,7 +26,6 @@ import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
 import { AuthoringActivityContext } from "./authoring-activity";
-import { jsonReviewApiUrl } from "./host/review-client";
 import {
   ReviewSessionProvider,
   createReviewSession,
@@ -174,8 +172,6 @@ export function ApiCanvas({
     };
   }, [client, content.reviewId, version]);
 
-  const traceKey = JSON.stringify([...(data?.traces.keys() ?? [])]);
-
   const nativeSources = useMemo(
     () => ({
       inlineEditors: { ...content.bridge.inlineEditors },
@@ -184,7 +180,7 @@ export function ApiCanvas({
     [content.bridge, sourceVersion],
   );
 
-  const session = useMemo(() => {
+  const baseSession = useMemo(() => {
     const bridge = {
       ...content.bridge,
       ...nativeSources,
@@ -203,176 +199,68 @@ export function ApiCanvas({
       },
     };
 
-    const session = createReviewSession(bridge);
+    const session = createReviewSession(bridge, {
+      jsonReview: {
+        id: content.reviewId,
+        version: () => dataRef.current?.snapshot.version,
+      },
+    });
+
     session.keepsDismissedReviews = true;
 
     session.softwareMapData = (model) =>
       [...(dataRef.current?.maps.values() ?? [])].find((map) => map === model)
         ?.pinnedData;
 
-    const apiFetch = session.fetch;
-    session.beaconUrl = (route) =>
-      jsonReviewApiUrl(session.config, content.reviewId, route, {
-        tokenInQuery: true,
-      });
-    // The old views consume these small view models. Their data came from the API.
-    session.fetch = async (route, init, options) => {
-      const snapshot = dataRef.current?.snapshot;
+    return session;
+  }, [content.bridge, content.reviewId, nativeSources]);
 
-      if (route.startsWith("/telemetry/")) {
-        const url = jsonReviewApiUrl(session.config, content.reviewId, route, {
-          version: snapshot?.version,
-        });
+  const session = useMemo(() => {
+    if (!data) return baseSession;
+    const snapshot = data.snapshot;
 
-        return session.fetchUrl(url, init);
-      }
+    return {
+      ...baseSession,
+      review: {
+        pins: { base: snapshot.pins.base, head: snapshot.pins.head },
+        historicalRevision: version === undefined ? null : String(version),
+        updatedAtMs: Date.parse(snapshot.createdAt),
+        pullRequestNumber: snapshot.origin?.pullRequestNumber,
+        pullRequestUrl: snapshot.origin?.pullRequestUrl,
+        traces: new Map(
+          [...data.traces].map(([id, trace]) => [id, retainedTrace(id, trace)]),
+        ),
+        listVersions: async () => {
+          const history = await client.read<
+            { version: number; createdAt: string }[]
+          >(`/${content.reviewId}/history`);
 
-      if (route === "/copy-context" && snapshot) {
-        const selection = AgentSelectionSchema.parse(
-          JSON.parse(String(init?.body)),
-        );
-
-        const target = selection.target;
-        let excerpt = "";
-
-        if (target.kind === "code" && !selection.selectedDiff) {
-          const source = await client.post<{ commit: string; text: string }>(
-            `/${snapshot.reviewId}/source`,
-            {
-              version: snapshot.version,
-              source: {
-                side: target.side,
-                file: target.path,
-                fromLine: target.startLine,
-                toLine: target.endLine,
-              },
-            },
-          );
-
-          excerpt =
-            `## ${target.side}: ${target.path}:${target.startLine}-${target.endLine} (${source.commit})\n` +
-            source.text
-              .split("\n")
-              .map((line) => `    ${line}`)
-              .join("\n");
-        }
-
-        const diff = selection.selectedDiff;
-
-        const text = selectionMarkdown(
-          selection,
-          excerpt,
-          diff
-            ? {
-                base: `a/${diff.oldPath}`,
-                head: `b/${diff.newPath}`,
-              }
-            : undefined,
-        );
-
-        return Response.json({
-          text: [
-            `Selected ${target.kind === "text" ? "text" : target.kind === "code" ? "code" : "diagram element"} from Review: ${snapshot.title}`,
-            `Review ID: ${snapshot.reviewId}`,
-            `Version: ${snapshot.version}`,
-            `Repository ID: ${snapshot.pins.repositoryId}`,
-            `Review base: ${snapshot.pins.base}`,
-            `Review head: ${snapshot.pins.head}`,
-            `Read this version with review_get({"reviewId":"${snapshot.reviewId}","version":${snapshot.version},"full":true}).`,
-            "",
-            text,
-            "",
-            "",
-          ].join("\n"),
-        });
-      }
-
-      if (route === "/dismiss") {
-        await client.post("/commands", {
-          commandId: crypto.randomUUID(),
-          operation: {
-            type: "attention",
-            reviewId: content.reviewId,
-            action: "dismiss",
-          },
-        });
-
-        return Response.json({ ok: true });
-      }
-
-      if (route === "/agent-traces")
-        return Response.json({
-          ok: true,
-          sessions: [...(dataRef.current?.traces ?? [])].map(
-            ([id, trace]) => retainedTrace(id, trace).session,
-          ),
-        });
-
-      if (route.startsWith("/agent-traces/")) {
-        const id = decodeURIComponent(route.slice("/agent-traces/".length));
-        const trace = dataRef.current?.traces.get(id);
-
-        return trace
-          ? Response.json(retainedTrace(id, trace))
-          : Response.json(
-              { ok: false, error: "Trace is not part of this review version." },
-              { status: 404 },
-            );
-      }
-
-      if (route === "/session" && snapshot)
-        return Response.json({
-          ok: true,
-          session: {
-            resolvedBaseRef: snapshot.pins.base,
-            headRef: snapshot.pins.head,
-            historicalRevision: version === undefined ? null : String(version),
-          },
-        });
-
-      if (route === "/document-meta" && snapshot)
-        return Response.json({
-          ok: true,
-          updatedAtMs: Date.parse(snapshot.createdAt),
-          pullRequestNumber: snapshot.origin?.pullRequestNumber,
-          pullRequestUrl: snapshot.origin?.pullRequestUrl,
-        });
-
-      if (route === "/stack" && snapshot)
-        return Response.json(
-          await client.read(
-            `/${snapshot.reviewId}/stack?version=${snapshot.version}`,
-          ),
-        );
-
-      if (route === "/revisions") {
-        const history = await client.read<
-          { version: number; createdAt: string }[]
-        >(`/${content.reviewId}/history`, init?.signal ?? undefined);
-
-        return Response.json({
-          ok: true,
-          versions: history.map((item) => ({
+          return history.map((item) => ({
             revision: String(item.version),
             sealedAt: Date.parse(item.createdAt),
-            isCurrent: item.version === snapshot?.version,
-          })),
-        });
-      }
-
-      return apiFetch(route, init, options);
+            isCurrent: item.version === snapshot.version,
+          }));
+        },
+        stack: async (signal: AbortSignal) =>
+          parseReviewStackResponse(
+            await client.read(
+              `/${snapshot.reviewId}/stack?version=${snapshot.version}`,
+              signal,
+            ),
+          ).layers,
+        dismiss: async () => {
+          await client.post("/commands", {
+            commandId: crypto.randomUUID(),
+            operation: {
+              type: "attention",
+              reviewId: content.reviewId,
+              action: "dismiss",
+            },
+          });
+        },
+      },
     };
-
-    return session;
-  }, [
-    client,
-    content.bridge,
-    content.reviewId,
-    content.openSource,
-    version,
-    traceKey,
-    nativeSources,
-  ]);
+  }, [baseSession, client, content.reviewId, data, version]);
 
   useEffect(() => {
     if (data) content.bridge.ready();

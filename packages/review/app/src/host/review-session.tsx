@@ -11,14 +11,16 @@ import type { PinnedSoftwareMapData } from "../software-map/SoftwareMap";
 import { createReviewAppSessionId } from "../tab-dwell-telemetry";
 import {
   type ReviewRequestOptions,
+  jsonReviewApiUrl,
   reviewApiUrl,
-  reviewBeaconUrl,
   reviewStorageKey,
   reviewWasmUrl,
 } from "./review-client";
 import { type ReviewSurface, createReviewSurface } from "./review-host";
+import type { ReviewSessionData } from "./review-session-data";
 
 export interface ReviewSession {
+  review?: ReviewSessionData;
   appSessionId: string;
   bridge: ReviewCanvasBridge;
   config: ReviewRuntimeConfig;
@@ -52,7 +54,10 @@ export interface ReviewSession {
   reportDiagnostic(diagnostic: ReviewCanvasDiagnostic): void;
 }
 
-export function createReviewSession(bridge: ReviewCanvasBridge): ReviewSession {
+export function createReviewSession(
+  bridge: ReviewCanvasBridge,
+  options?: { jsonReview: { id: string; version(): number | undefined } },
+): ReviewSession {
   const config = bridge.config;
   const appSessionId = bridge.appSessionId ?? createReviewAppSessionId();
 
@@ -64,17 +69,28 @@ export function createReviewSession(bridge: ReviewCanvasBridge): ReviewSession {
     return bridge.request(String(url), { ...init, headers });
   };
 
+  const apiUrl = (
+    endpoint: `/${string}`,
+    requestOptions?: ReviewRequestOptions,
+  ) =>
+    options?.jsonReview
+      ? jsonReviewApiUrl(config, options.jsonReview.id, endpoint, {
+          version: options.jsonReview.version(),
+          tokenInQuery: requestOptions?.tokenInQuery,
+        })
+      : reviewApiUrl(config, endpoint, requestOptions);
+
   return {
     appSessionId,
     bridge,
     config,
     surface: createReviewSurface(bridge),
     documents: new Map(),
-    apiUrl: (endpoint, options) => reviewApiUrl(config, endpoint, options),
+    apiUrl,
     fetch: (endpoint, init, options) =>
-      request(reviewApiUrl(config, endpoint, options), init),
+      request(apiUrl(endpoint, options), init),
     fetchUrl: request,
-    beaconUrl: (endpoint) => reviewBeaconUrl(config, endpoint),
+    beaconUrl: (endpoint) => apiUrl(endpoint, { tokenInQuery: true }),
     wasmUrl: () => reviewWasmUrl(config),
     storageKey: (namespace, ...parts) =>
       reviewStorageKey(config, namespace, ...parts),

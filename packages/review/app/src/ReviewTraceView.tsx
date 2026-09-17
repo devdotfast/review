@@ -14,11 +14,6 @@ import {
   useAgentTrace,
 } from "./use-agent-trace";
 
-/**
- * The Trace tab shows the raw agent traces behind a review, resolved from
- * `Agent-Session:` commit trailers and fetched from the shared R2 trace store.
- */
-
 type TraceListState =
   | { status: "loading" }
   | { status: "error"; error: string }
@@ -47,7 +42,10 @@ export function ReviewTraceView({
 }) {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
-  const [list, setList] = useState<TraceListState>({ status: "loading" });
+
+  const [legacyList, setLegacyList] = useState<TraceListState>({
+    status: "loading",
+  });
 
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
@@ -91,6 +89,7 @@ export function ReviewTraceView({
   }, [initialSelection]);
 
   useEffect(() => {
+    if (session.review) return;
     const controller = new AbortController();
 
     const url: `/${string}` = storageOverride
@@ -108,7 +107,7 @@ export function ReviewTraceView({
         }
 
         if (controller.signal.aborted) return;
-        setList({
+        setLegacyList({
           status: "loaded",
           configured: result.configured !== false,
           storage:
@@ -122,14 +121,31 @@ export function ReviewTraceView({
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
-        setList({
+        setLegacyList({
           status: "error",
           error: cause instanceof Error ? cause.message : String(cause),
         });
       });
 
     return () => controller.abort();
-  }, [reviewFetch, storageOverride]);
+  }, [reviewFetch, storageOverride, session.review]);
+
+  const list: TraceListState = useMemo(
+    () =>
+      session.review
+        ? {
+            status: "loaded",
+            configured: true,
+            storage: null,
+            sources: [],
+            storageError: null,
+            sessions: [...session.review.traces.values()].map(
+              (trace) => trace.session,
+            ),
+          }
+        : legacyList,
+    [session.review, legacyList],
+  );
 
   const sessions = list.status === "loaded" ? list.sessions : [];
 

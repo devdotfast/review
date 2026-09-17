@@ -5,7 +5,7 @@ import type {
   ReactNode,
   Ref,
 } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import type { ReviewComponentProps } from "../../src/review-document-data";
 import { AuthoredCodeSurface } from "./authored-code-surface";
@@ -729,6 +729,10 @@ export function GuidedTourPanel({
     });
   }, [activeIndex, session, tour.stops.length]);
 
+  const captureAbandoned = useEffectEvent((step: number, steps: number) => {
+    captureUiEvent(session, "tour_abandoned", { step, steps });
+  });
+
   useEffect(() => {
     let armed = false;
 
@@ -749,12 +753,9 @@ export function GuidedTourPanel({
         return;
       }
 
-      captureUiEvent(session, "tour_abandoned", {
-        step: Math.max(0, index) + 1,
-        steps: tour.stops.length,
-      });
+      captureAbandoned(Math.max(0, index) + 1, tour.stops.length);
     };
-  }, [session, tour.id, tour.stops.length]);
+  }, [session.appSessionId, tour.id, tour.stops.length]);
 
   // Scroll-syncing activates a stop when its top crosses the active line, so
   // the last stop must be able to reach it: the tail spacer grants exactly

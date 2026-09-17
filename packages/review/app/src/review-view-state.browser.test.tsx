@@ -75,6 +75,29 @@ afterEach(() => {
 });
 
 describe("review view state", () => {
+  it("does not restart scroll restoration when live session data changes", () => {
+    const session = testReviewSession();
+    storeState(session, { scrollTop: 100 });
+    const harness = renderViewState({ session });
+
+    act(() => {
+      harness.element.scrollTop = 300;
+      harness.element.dispatchEvent(new Event("scroll"));
+    });
+    flushNextFrame();
+    expect(readPersistedReviewViewState(session.config).scrollTop).toBe(300);
+
+    // The next scroll frame has not persisted yet when a live edit arrives.
+    act(() => {
+      harness.element.scrollTop = 350;
+      harness.element.dispatchEvent(new Event("scroll"));
+    });
+    harness.renderSession({ ...session });
+    expect(harness.element.scrollTop).toBe(350);
+    flushNextFrame();
+    expect(readPersistedReviewViewState(session.config).scrollTop).toBe(350);
+  });
+
   it("clears transient state when a review input is recreated", () => {
     const session = testReviewSession();
     storeState(session, {
@@ -379,21 +402,25 @@ function renderViewState({
   document.body.append(container);
   let element: HTMLDivElement | null = null;
   root = createRoot(container);
-  act(() => {
-    root?.render(
-      <ReviewSessionProvider session={session}>
-        <ViewStateHarness
-          store={store}
-          metrics={metrics}
-          captureElement={(value: HTMLDivElement) => {
-            element = value;
-          }}
-        />
-      </ReviewSessionProvider>,
-    );
-  });
 
-  return { element: element!, store };
+  const renderSession = (next: TestReviewSession) =>
+    act(() => {
+      root?.render(
+        <ReviewSessionProvider session={next}>
+          <ViewStateHarness
+            store={store}
+            metrics={metrics}
+            captureElement={(value: HTMLDivElement) => {
+              element = value;
+            }}
+          />
+        </ReviewSessionProvider>,
+      );
+    });
+
+  renderSession(session);
+
+  return { element: element!, store, renderSession };
 }
 
 function TourOwner({ tour }: { tour: GuidedTour }) {

@@ -20,7 +20,6 @@ import {
   c4EdgeLabelNodeObstacles,
   c4EdgeLabelPoint,
   c4EdgePointsFromSections,
-  c4ElkLabelFromLayout,
   c4PolylineMidpoint,
   estimateC4EdgeLabelDimensions,
   positionC4EdgeLabels,
@@ -696,19 +695,6 @@ function c4PreviousProxyCenter(
   return null;
 }
 
-function reverseC4ElkSections(
-  sections: readonly C4ElkEdgeSection[],
-): C4ElkEdgeSection[] {
-  return [...sections].reverse().map((section) => ({
-    ...section,
-    startPoint: section.endPoint,
-    bendPoints: section.bendPoints
-      ? [...section.bendPoints].reverse()
-      : undefined,
-    endPoint: section.startPoint,
-  }));
-}
-
 interface C4LocalInflateContext {
   nodes: SoftwareMapNodeSnapshot[];
   nodesById: ReadonlyMap<string, SoftwareMapNodeSnapshot>;
@@ -956,7 +942,7 @@ async function c4LocalIsolatedLayout(
     },
   );
 
-  const isolatedBbox = c4LayoutEntriesBbox(isolated.nodes);
+  const isolatedBbox = c4LayoutEntriesBbox(isolated);
 
   const isolatedCenter = {
     x: isolatedBbox.x + isolatedBbox.width / 2,
@@ -972,7 +958,7 @@ async function c4LocalIsolatedLayout(
     y: parentCenter.y - isolatedCenter.y,
   };
 
-  const entries = isolated.nodes
+  const entries = isolated
     .filter((entry) => childIdSet.has(entry.node.id))
     .map((entry) => ({
       ...entry,
@@ -1978,7 +1964,7 @@ async function runC4ElkLayout(
     previousLayout?: InlineC4LayoutResult;
     axis?: C4LayoutAxis;
   } = {},
-): Promise<C4LayoutResult> {
+): Promise<C4LayoutEntry[]> {
   const previousCenters = c4PreviousLayoutCenters(options.previousLayout);
   const previousBoxes = c4PreviousLayoutBoxes(options.previousLayout);
   const layoutAxis = options.axis ?? c4ChildLayoutAxis();
@@ -1988,7 +1974,7 @@ async function runC4ElkLayout(
   );
 
   if (sorted.length === 0) {
-    return { nodes: [], edgeSections: new Map(), edgeLabels: new Map() };
+    return [];
   }
 
   const nodeIds = new Set(sorted.map((node) => node.id));
@@ -2047,8 +2033,6 @@ async function runC4ElkLayout(
   // ELK ignores its cycle-breaking strategy for cross-hierarchy cycles under
   // INCLUDE_CHILDREN. Orient each edge along this layer's configured axis so
   // ELK cannot flip the previous arrangement during expansion.
-  const reversedEdgeIds = new Set<string>();
-
   const elkEdges = visibleRelationships.map((relationship, index) => {
     const edgeId = c4RelationshipEdgeId(relationship, index);
 
@@ -2074,8 +2058,6 @@ async function runC4ElkLayout(
       c4PointAxisCoordinate(from, layoutAxis) >
         c4PointAxisCoordinate(to, layoutAxis),
     );
-
-    if (reversed) reversedEdgeIds.add(edgeId);
 
     const refs = c4SchemaEndpointRefs(relationship, edgeId, [
       ...layoutHintsByNodeId.values(),
@@ -2104,6 +2086,7 @@ async function runC4ElkLayout(
     };
   });
 
+  // Keep ELK edge inputs: they affect node placement even though libavoid routes edges.
   const layoutOptions: LayoutOptions = {
     "elk.algorithm": "layered",
     "elk.direction": c4ElkDirectionForAxis(layoutAxis),
@@ -2148,55 +2131,11 @@ async function runC4ElkLayout(
     edges: elkEdges,
   });
 
-  const nodeOffsets = new Map<string, C4ElkPoint>([
-    [result.id, { x: 0, y: 0 }],
-  ]);
-
-  const layoutNodes = collectC4ElkLayoutEntries({
+  return collectC4ElkLayoutEntries({
     children: result.children ?? [],
     nodesById,
-    nodeOffsets,
     offset: { x: 0, y: 0 },
   });
-
-  const edgeSections = new Map<string, C4ElkEdgeSection[]>();
-  const edgeLabels = new Map<string, C4ElkLabel>();
-
-  for (const edge of collectC4ElkEdges(result)) {
-    const offset = nodeOffsets.get(edge.container ?? result.id) ?? {
-      x: 0,
-      y: 0,
-    };
-
-    if (edge.sections) {
-      const sections = edge.sections.map((section) =>
-        offsetC4ElkSection(section, offset),
-      );
-
-      edgeSections.set(
-        edge.id,
-        reversedEdgeIds.has(edge.id)
-          ? reverseC4ElkSections(sections)
-          : sections,
-      );
-    }
-
-    const label = c4ElkLabelFromLayout(edge.labels?.[0]);
-
-    if (label) {
-      edgeLabels.set(edge.id, offsetC4ElkLabel(label, offset));
-    }
-  }
-
-  return {
-    nodes: layoutNodes,
-    edgeSections,
-    edgeLabels: positionC4EdgeLabels(
-      edgeSections,
-      edgeLabels,
-      c4EdgeLabelNodeObstacles(layoutNodes),
-    ),
-  };
 }
 
 interface C4ElkLayoutGraph {
@@ -2206,7 +2145,6 @@ interface C4ElkLayoutGraph {
   width?: number;
   height?: number;
   children?: C4ElkLayoutNode[];
-  edges?: C4ElkLayoutEdge[];
   layoutOptions?: Record<string, string>;
 }
 
@@ -2242,19 +2180,6 @@ interface C4ElkPort {
   width?: number;
   height?: number;
   properties?: LayoutOptions;
-}
-
-interface C4ElkLayoutEdge {
-  id: string;
-  container?: string;
-  sections?: C4ElkEdgeSection[];
-  labels?: Array<Partial<C4ElkLabel>>;
-  sources?: string[];
-  targets?: string[];
-  source?: string;
-  target?: string;
-  sourcePort?: string;
-  targetPort?: string;
 }
 
 function c4ElkNodeForSnapshot(
@@ -2305,12 +2230,10 @@ function c4ElkNodeForSnapshot(
 function collectC4ElkLayoutEntries({
   children,
   nodesById,
-  nodeOffsets,
   offset,
 }: {
   children: readonly C4ElkLayoutNode[];
   nodesById: ReadonlyMap<string, SoftwareMapNodeSnapshot>;
-  nodeOffsets: Map<string, C4ElkPoint>;
   offset: C4ElkPoint;
 }): C4LayoutEntry[] {
   return children.flatMap((child) => {
@@ -2320,7 +2243,6 @@ function collectC4ElkLayoutEntries({
     const x = offset.x + (child.x ?? 0);
     const y = offset.y + (child.y ?? 0);
     const childOffset = { x, y };
-    nodeOffsets.set(child.id, childOffset);
 
     return [
       {
@@ -2334,47 +2256,10 @@ function collectC4ElkLayoutEntries({
       ...collectC4ElkLayoutEntries({
         children: child.children ?? [],
         nodesById,
-        nodeOffsets,
         offset: childOffset,
       }),
     ];
   });
-}
-
-function collectC4ElkEdges(graph: C4ElkLayoutGraph): C4ElkLayoutEdge[] {
-  return [
-    ...(graph.edges ?? []),
-    ...(graph.children ?? []).flatMap((child) => collectC4ElkEdges(child)),
-  ];
-}
-
-function offsetC4ElkSection(
-  section: C4ElkEdgeSection,
-  offset: C4ElkPoint,
-): C4ElkEdgeSection {
-  return {
-    ...section,
-    startPoint: offsetC4ElkPoint(section.startPoint, offset),
-    bendPoints: section.bendPoints?.map((point) =>
-      offsetC4ElkPoint(point, offset),
-    ),
-    endPoint: offsetC4ElkPoint(section.endPoint, offset),
-  };
-}
-
-function offsetC4ElkLabel(label: C4ElkLabel, offset: C4ElkPoint): C4ElkLabel {
-  return {
-    ...label,
-    x: label.x + offset.x,
-    y: label.y + offset.y,
-  };
-}
-
-function offsetC4ElkPoint(point: C4ElkPoint, offset: C4ElkPoint): C4ElkPoint {
-  return {
-    x: point.x + offset.x,
-    y: point.y + offset.y,
-  };
 }
 
 export function c4RelationshipEdgeId(

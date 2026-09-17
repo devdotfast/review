@@ -1467,3 +1467,148 @@ it("rejects a code peek on blank lines but accepts a prose link to them", async 
     local.data.validateSource(blankPins, blank, { peek: false }),
   ).resolves.toBeUndefined();
 });
+
+it("copies prose with the displayed version's title and immutable review identity", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Original title", pins }),
+  );
+
+  await local.store.execute(
+    command({ type: "rename", reviewId, title: "Latest title" }),
+  );
+  const app = createReviewApi(local.store, local.data);
+
+  const response = await app.request(`/${reviewId}/copy-context?version=0`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target: { kind: "text", quote: "First line\nSecond line" },
+      title: "Selection",
+    }),
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    text: `Selected text from Review: Original title\nReview ID: ${reviewId}\nVersion: 0\nRepository ID: ${pins.repositoryId}\nReview base: ${pins.base}\nReview head: ${pins.head}\nRead this version with review_get({"reviewId":"${reviewId}","version":0,"full":true}).\n\n> First line\n> Second line\n\n`,
+  });
+});
+
+it("copies code from historical pins after a repin, never from working-tree contents", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Code", pins }),
+  );
+
+  await local.store.execute(
+    command({ type: "repin", reviewId, pins: { ...pins, head: pins.base } }),
+  );
+  const app = createReviewApi(local.store, local.data);
+
+  const body = JSON.stringify({
+    target: {
+      kind: "code",
+      path: source.file,
+      side: "head",
+      startLine: 1,
+      endLine: 1,
+    },
+    title: "Value",
+    detail: "Selected source",
+  });
+
+  const historical = await app.request(`/${reviewId}/copy-context?version=0`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  expect(historical.status).toBe(200);
+  expect(await historical.json()).toEqual({
+    text: `Selected code from Review: Code\nReview ID: ${reviewId}\nVersion: 0\nRepository ID: ${pins.repositoryId}\nReview base: ${pins.base}\nReview head: ${pins.head}\nRead this version with review_get({"reviewId":"${reviewId}","version":0,"full":true}).\n\n## Value\n\nSelected source\n\n## head: example.ts:1-1 (${pins.head})\n    export const value = 2;\n\n`,
+  });
+
+  const latest = await app.request(`/${reviewId}/copy-context`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+  expect(latest.status).toBe(200);
+  expect((await latest.json()).text).toContain("    export const value = 1;");
+});
+
+it("copies selected diff rows with rename paths without resolving an unavailable source", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Rename", pins }),
+  );
+
+  // Use selected diff rows; the new path may not exist on the base commit.
+  const app = createReviewApi(local.store);
+
+  const response = await app.request(`/${reviewId}/copy-context?version=0`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target: {
+        kind: "code",
+        path: "new.md",
+        side: "base",
+        startLine: 4,
+        endLine: 5,
+      },
+      title: "Renamed source",
+      selectedDiff: {
+        oldPath: "old.md",
+        newPath: "new.md",
+        oldStart: 4,
+        newStart: 7,
+        rows: [
+          { kind: "deleted", text: "before" },
+          { kind: "added", text: "```typescript" },
+          { kind: "unchanged", text: "context" },
+        ],
+      },
+    }),
+  });
+
+  expect(response.status).toBe(200);
+  expect((await response.json()).text).toContain(
+    "Base: a/old.md\nHead: b/new.md\nRange: -4,2 +7,2\n\n````diff\n-before\n+```typescript\n context\n````\n\n",
+  );
+});
+
+it("reports invalid copy requests, unavailable versions, and missing source files as JSON errors", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Errors", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data);
+
+  const selection = {
+    target: {
+      kind: "code",
+      path: "missing.ts",
+      side: "head",
+      startLine: 1,
+      endLine: 1,
+    },
+    title: "Missing source",
+  };
+
+  for (const [route, body, status] of [
+    [`/${reviewId}/copy-context`, "{", 400],
+    [`/${reviewId}/copy-context`, JSON.stringify({ title: "Invalid" }), 400],
+    [`/${reviewId}/copy-context?version=nope`, JSON.stringify(selection), 400],
+    [`/${reviewId}/copy-context?version=99`, JSON.stringify(selection), 404],
+    ["/missing/copy-context", JSON.stringify(selection), 404],
+    [`/${reviewId}/copy-context`, JSON.stringify(selection), 404],
+  ] as const) {
+    const response = await app.request(route, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+
+    expect(response.status).toBe(status);
+    expect(await response.json()).toMatchObject({ error: expect.any(String) });
+  }
+});

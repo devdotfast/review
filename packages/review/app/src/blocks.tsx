@@ -8,6 +8,7 @@ import {
 import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
 import { apiHeadingId } from "./api-document-headings";
+import { blockSectionSummary } from "./block-document-derivations";
 import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
@@ -101,6 +102,7 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
       title={node.title}
       id={node.id}
       defaultCollapsed={node.defaultCollapsed}
+      summary={blockSectionSummary(node.children)}
     >
       {children(node.children)}
     </ReviewSection>

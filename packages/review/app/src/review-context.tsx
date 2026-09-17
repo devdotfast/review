@@ -73,6 +73,7 @@ export function ReviewProvider({
 }) {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
+  const review = session.review;
 
   const [softwareMapFocusRequest, setSoftwareMapFocusRequest] =
     useState<SoftwareMapFocusRequest | null>(null);
@@ -103,20 +104,26 @@ export function ReviewProvider({
   );
 
   const dismissReview = useCallback(async () => {
-    const response = await reviewFetch(
-      "/dismiss",
-      { method: "POST", headers: reviewAppTelemetryHeaders(session) },
-      { routePath: documentRoute },
-    );
+    if (review) {
+      await review.dismiss();
+    } else {
+      const response = await reviewFetch(
+        "/dismiss",
+        { method: "POST", headers: reviewAppTelemetryHeaders(session) },
+        { routePath: documentRoute },
+      );
 
-    if (!response.ok) {
-      throw new Error(`Review dismiss failed (${response.status}).`);
+      if (!response.ok) {
+        throw new Error(`Review dismiss failed (${response.status}).`);
+      }
     }
 
     setSubmissionOutcome("dismissed");
-  }, [documentRoute, reviewFetch, session]);
+  }, [documentRoute, reviewFetch, session, review]);
 
   const listVersions = useCallback(async () => {
+    if (review) return review.listVersions();
+
     const response = await reviewFetch(
       "/revisions",
       {},
@@ -133,14 +140,10 @@ export function ReviewProvider({
       body.versions ?? [],
       "versions",
     );
-  }, [documentRoute, reviewFetch]);
+  }, [documentRoute, reviewFetch, review]);
 
-  // Session facts travel the data plane, not the build plane: a fetch always
-  // reflects the running server. A review opened after a terminal decision
-  // must show its outcome banner from the first render, not only in the
-  // session where the decision happened, and the Map's topology banner names
-  // the resolved base and head refs.
   useEffect(() => {
+    if (review) return;
     let disposed = false;
     void reviewFetch("/session", {}, { routePath: documentRoute })
       .then(async (response) => {
@@ -179,7 +182,7 @@ export function ReviewProvider({
     return () => {
       disposed = true;
     };
-  }, [documentRoute, reviewFetch]);
+  }, [documentRoute, reviewFetch, review]);
 
   const actions = useMemo<ReviewActionsValue>(
     () => ({
@@ -200,15 +203,18 @@ export function ReviewProvider({
 
   const state = useMemo<ReviewStateValue>(
     () => ({
-      historicalRevision,
-      resolvedBaseRef: resolvedRefs.base,
-      resolvedHeadRef: resolvedRefs.head,
+      historicalRevision: review
+        ? review.historicalRevision
+        : historicalRevision,
+      resolvedBaseRef: review ? review.pins.base : resolvedRefs.base,
+      resolvedHeadRef: review ? review.pins.head : resolvedRefs.head,
       softwareMapFocusRequest,
       submissionOutcome,
     }),
     [
       historicalRevision,
       resolvedRefs,
+      review,
       softwareMapFocusRequest,
       submissionOutcome,
     ],

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 
 import { useReviewSession } from "./host/review-session";
 import type { ReviewView } from "./review-view-route";
@@ -23,20 +23,27 @@ export function useReviewTabTelemetry(activeView: ReviewView): void {
   const appSessionId = session.appSessionId;
   const trackerRef = useRef<ReviewTabDwellTracker | null>(null);
   const telemetryTab = reviewTelemetryTab(activeView);
+  const captureOpened = useEffectEvent(() => captureAppOpened(session));
+
+  const send = useEffectEvent<
+    Parameters<typeof createReviewTabDwellTracker>[0]["send"]
+  >((payload, options) => {
+    createReviewTabTelemetryTransport({
+      endpoint: session.beaconUrl("/telemetry/tab"),
+      navigator: window.navigator,
+      fetch: window.fetch.bind(window),
+    })(payload, options);
+  });
 
   useEffect(() => {
-    captureAppOpened(session);
+    captureOpened();
 
     const tracker = createReviewTabDwellTracker({
       initialTab: telemetryTab,
       appSessionId,
       now: () => performance.now(),
       isVisible: () => document.visibilityState === "visible",
-      send: createReviewTabTelemetryTransport({
-        endpoint: session.beaconUrl("/telemetry/tab"),
-        navigator: window.navigator,
-        fetch: window.fetch.bind(window),
-      }),
+      send,
     });
 
     trackerRef.current = tracker;
@@ -58,7 +65,7 @@ export function useReviewTabTelemetry(activeView: ReviewView): void {
       tracker.unmount();
       trackerRef.current = null;
     };
-  }, [appSessionId, session]);
+  }, [appSessionId]);
 
   useEffect(() => {
     trackerRef.current?.setActiveTab(telemetryTab);

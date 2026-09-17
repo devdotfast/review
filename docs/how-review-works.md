@@ -36,10 +36,9 @@ Language services use that checkout’s project and dependencies. A commit revie
 and uses Review-owned worktrees pinned to its commits, running `devfast.prepare`
 to set up dependencies. Choose live for ongoing work and pinned for a fixed comparison.
 
-Review source, diffs, peeks, and navigation are read-only. Use **Open in Workspace**
-to edit a live file. Review shows saved disk content even when its workspace editor
-has unsaved changes. Language services require an exact match with the environment
-buffer; live reviews use the current project's dependencies.
+Review source is read-only; use **Open in Workspace** to edit.
+Language services require matching environment buffers and use the current
+project's dependencies for live reviews.
 See [review targets](cli-reference.md#review-targets) for the API options.
 
 ## Every edit saves immediately

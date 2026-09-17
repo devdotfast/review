@@ -47,7 +47,6 @@ interface Trace {
 
 export interface ApiDocumentData {
   snapshot: Snapshot;
-  /** The document's heading slugs, resolved once per snapshot. */
   headings: ApiHeadingIds;
   commits: ReviewCommitSummary[];
   anchors: Map<string, DocumentPeekableAnchor>;
@@ -232,16 +231,15 @@ export function ApiDocument({
   );
 }
 
-/** Follows a `#fragment` link to a heading of this document: the document
- * scrolls itself, since the heading can sit inside a collapsed section the
- * browser would never reach. An unknown fragment is left to the browser. */
+/** Follows a `#fragment` link to one of the document's headings, which can sit
+ * in a collapsed section the browser cannot reach; other fragments are left to it. */
 function useHeadingFragments(): void {
   const roots = useReviewRoots();
 
   useEffect(() => {
     const article = roots?.articleRef.current;
 
-    if (!article) return;
+    if (!roots || !article) return;
 
     const onClick = (event: MouseEvent) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey)
@@ -258,11 +256,7 @@ function useHeadingFragments(): void {
 
       if (!id || !article.querySelector(`#${cssIdentifier(id)}`)) return;
       event.preventDefault();
-      scrollToReviewHeading(
-        id,
-        article,
-        roots?.scrollRegionRef.current ?? null,
-      );
+      scrollToReviewHeading(id, article, roots.scrollRegionRef.current);
     };
 
     article.addEventListener("click", onClick);

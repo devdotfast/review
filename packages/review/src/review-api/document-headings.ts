@@ -4,9 +4,8 @@ import { type Block, elements } from "./document.js";
 
 export type ReviewHeadingLevel = "h2" | "h3";
 
-/** A heading a reader can link to: a section title, or a root-level h2/h3 of a
- * markdown block. Keyed by the block itself rather than its id, because import
- * needs the slugs before the store has assigned any id. */
+/** A section title or a root-level h2/h3 of a markdown block. `block` rather
+ * than its id: import needs slugs before the store has assigned ids. */
 export interface DocumentHeading {
   id: string;
   text: string;
@@ -16,11 +15,8 @@ export interface DocumentHeading {
   index?: number;
 }
 
-/**
- * Heading ids over the same heading set, and by the same rule, that the MDX
- * renderer published: `slugify(text)` made unique in document order. Legacy
- * reviews link to those slugs, so the import needs no link rewriting.
- */
+/** Heading ids by the rule the MDX renderer published, `slugify(text)` made
+ * unique in document order, so imported `#fragment` links still land. */
 export function documentHeadings(blocks: Block[]): DocumentHeading[] {
   const used = new Set<string>();
 

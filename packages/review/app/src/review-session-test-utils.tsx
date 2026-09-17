@@ -80,8 +80,7 @@ export function testReviewSession(
   };
 }
 
-/** A snapshot of `blocks` with the empty resource maps a test that only renders
- * the document needs. */
+/** Document data for `blocks` alone, with empty resource maps. */
 export function testApiDocumentData(blocks: Block[]): ApiDocumentData {
   return {
     snapshot: {

@@ -2,11 +2,10 @@ import type { Block } from "../../src/review-api/document";
 import { documentHeadings } from "../../src/review-api/document-headings";
 import type { ReviewTocEntry } from "./review-document-headings";
 
-/** The headings of one document snapshot, resolved once for the renderer. */
+/** A snapshot's heading slugs, resolved once for the renderer. */
 export interface ApiHeadingIds {
   /** The slug of a section block, or of the nth h2/h3 of a markdown block. */
   get(blockId: string, index?: number): string | undefined;
-  /** Every heading in document order, for the table of contents. */
   entries: ReviewTocEntry[];
 }
 

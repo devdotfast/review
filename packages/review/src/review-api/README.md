@@ -31,33 +31,33 @@ child IDs. Restoring an old snapshot does not roll back the ID counter.
 
 All paths below are relative to `/reviews-api`.
 
-| Request                                   | Result                                                                                                                                                                                                                                      |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /`                                   | Current review summaries                                                                                                                                                                                                                    |
-| `GET /authoring`                          | Tool names, host input schemas and HTTP mappings for CLI/MCP adapters                                                                                                                                                                       |
-| `GET /:id/activity`                       | Currently reported authoring work, not stored in document history                                                                                                                                                                           |
-| `POST /:id/activity {action,leaseId}`     | Begin, renew or end a working signal; return count and expiry                                                                                                                                                                               |
-| `GET /watch`                              | NDJSON review summaries: initial list, then saved changes                                                                                                                                                                                   |
-| `GET /watch?subscriptions=…`              | One NDJSON connection for multiple `{reviewId}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results, with `null` where a subscription is unchanged since the previous line. |
-| `GET /:id`                                | Compact outline                                                                                                                                                                                                                             |
-| `GET /:id?targetId=step-3`                | Full block or sequence step                                                                                                                                                                                                                 |
-| `GET /:id?full=true`                      | Full snapshot                                                                                                                                                                                                                               |
-| `GET /:id?version=2&full=true`            | Historical snapshot                                                                                                                                                                                                                         |
-| `GET /:id/history`                        | Saved versions with titles and timestamps                                                                                                                                                                                                   |
-| `GET /:id/inspect`                        | Agent reading view: nested text outline with IDs; `targetId` reads one component completely, `full=true` includes all content, `version` selects history. `format=json` returns raw data instead.                                           |
-| `POST /:id/open`                          | Open the review in the attached Desktop; report an error when none is attached                                                                                                                                                              |
-| `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates                                                                                                                                                                         |
-| `POST /commands`                          | Apply one command; return review ID, version, and edited target ID                                                                                                                                                                          |
-| `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                                                                                                                                                                                          |
-| `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                                                                                                                                                                                                   |
-| `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type                                                                                                                                                                           |
-| `GET /resources/:resourceId`              | Read retained bytes; desktop authentication required                                                                                                                                                                                        |
-| `GET /:id/maps/:resourceId?version=0`     | Read a pinned map with source-change counts for that review version                                                                                                                                                                         |
-| `POST /:id/source {source,version?}`      | Read an exact pinned code range                                                                                                                                                                                                             |
-| `GET /:id/file?side=head&file=src/app.ts` | Read a complete pinned source file; optional version                                                                                                                                                                                        |
-| `GET /:id/tree?path=src&side=head`        | Immediate committed directory entries; path defaults to root, side to head; optional version/commit                                                                                                                                         |
-| `GET /:id/commits?version=0`              | List commits and their first-parent statistics for that review version                                                                                                                                                                      |
-| `GET /:id/diff`                           | Changed-file summaries; optional file for patch text and version                                                                                                                                                                            |
+| Request                                   | Result                                                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| `GET /`                                   | Current review summaries                                               |
+| `GET /authoring` | Tool names, host input schemas and HTTP mappings for CLI/MCP adapters |
+| `GET /:id/activity` | Currently reported authoring work, not stored in document history |
+| `POST /:id/activity {action,leaseId}` | Begin, renew or end a working signal; return count and expiry |
+| `GET /watch` | NDJSON review summaries: initial list, then saved changes |
+| `GET /watch?subscriptions=…` | One NDJSON connection for multiple `{reviewId}` subscriptions; `reviewId:null` selects the catalog. Each line is an ordered array of `{value}` or `{error}` results, with `null` where a subscription is unchanged since the previous line. |
+| `GET /:id`                                | Compact outline                                                        |
+| `GET /:id?targetId=step-3`                | Full block or sequence step                                            |
+| `GET /:id?full=true`                      | Full snapshot                                                          |
+| `GET /:id?version=2&full=true`            | Historical snapshot                                                    |
+| `GET /:id/history`                        | Saved versions with titles and timestamps                              |
+| `GET /:id/inspect` | Agent reading view: nested text outline with IDs; `targetId` reads one component completely, `full=true` includes all content, `version` selects history. `format=json` returns raw data instead. |
+| `POST /:id/open` | Open the review in the attached Desktop; report an error when none is attached |
+| `GET /:id/watch`                          | NDJSON snapshots: current state immediately, then committed updates    |
+| `POST /commands`                          | Apply one command; return review ID, version, and edited target ID     |
+| `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
+| `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
+| `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type      |
+| `GET /resources/:resourceId`              | Read retained bytes; desktop authentication required                   |
+| `GET /:id/maps/:resourceId?version=0` | Read a pinned map with source-change counts for that review version |
+| `POST /:id/source {source,version?}`      | Read an exact pinned code range                                        |
+| `GET /:id/file?side=head&file=src/app.ts` | Read a complete pinned source file; optional version                   |
+| `GET /:id/tree?path=src&side=head` | Immediate committed directory entries; path defaults to root, side to head; optional version/commit |
+| `GET /:id/commits?version=0`              | List commits and their first-parent statistics for that review version |
+| `GET /:id/diff`                           | Changed-file summaries; optional file for patch text and version       |
 
 Example request:
 
@@ -119,9 +119,9 @@ The same Markdown parser feeds the host's source checks and the renderer, so cod
 examples and unused definitions do not become source requests. Invalid paths or
 ranges reject the edit before saving. No extra node type or endpoint is needed.
 
-Heading ids are `slugify(text)` made unique in document order, over section
-titles and the root-level h2/h3 of a Markdown block, and a `[text](#slug)` link
-scrolls to them. Markdown images with `https:` sources render inline.
+Heading ids are `slugify(text)` made unique in document order over section
+titles and the root-level h2/h3 of Markdown blocks, and `[text](#slug)` links
+scroll to them. Markdown images with `https:` sources render inline.
 
 The component schema checks inputs; field patches are checked after merging
 with the target. A small relationship pass checks diagram actors, store fields,

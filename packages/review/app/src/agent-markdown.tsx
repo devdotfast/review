@@ -60,8 +60,7 @@ export function MarkdownContent({
   allowRemoteImages?: boolean;
 }): ReactElement {
   const { body, footnotes } = splitFootnotes(parseMarkdown(source));
-  // Heading ids are addressed by ordinal, so only the levels that carry one
-  // advance the count.
+  // Ids are addressed by ordinal among the h2/h3 alone.
   let heading = 0;
 
   return (

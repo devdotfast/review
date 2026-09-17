@@ -1,8 +1,3 @@
-/**
- * Moving the reader to a document heading, shared by the table of contents and
- * by `#fragment` links inside the prose.
- */
-
 /** Scroll `id` into view inside `article`, expanding the section holding it. */
 export function scrollToReviewHeading(
   id: string,

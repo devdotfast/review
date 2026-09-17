@@ -12,6 +12,7 @@ import {
 import { useReviewSession } from "./host/review-session";
 import { SlidersIcon, SplitLayoutIcon, UnifiedLayoutIcon } from "./icons";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
+import { useDismissOnOutside } from "./use-dismiss-on-outside";
 
 const LAYOUT_OPTIONS: ReadonlyArray<{
   layout: ReviewDiffLayout;
@@ -56,29 +57,7 @@ export function DiffLayoutControl(): ReactElement {
     if (pending !== null && layout === pending) setPending(null);
   }, [layout, pending]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target;
-
-      if (target instanceof Node && controlRef.current?.contains(target))
-        return;
-      setOpen(false);
-    };
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
-    document.addEventListener("keydown", closeOnEscape, true);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
-      document.removeEventListener("keydown", closeOnEscape, true);
-    };
-  }, [open]);
+  useDismissOnOutside(controlRef, open, setOpen, true, true);
 
   const chooseLayout = (next: ReviewDiffLayout) => {
     if (next === shownLayout) return;

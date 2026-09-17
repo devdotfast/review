@@ -31,6 +31,10 @@
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js"
+    },
+    "./sharing": {
+      "types": "./dist/sharing/index.d.ts",
+      "import": "./dist/sharing/index.js"
     }
   },
   "publishConfig": {
@@ -42,7 +46,7 @@
     "build:tutorial-assets": "tsx scripts/build-tutorial-assets.ts",
     "ensure:tutorial-assets": "tsx scripts/ensure-tutorial-assets.ts",
     "check:tutorial": "tsx scripts/check-tutorial.ts",
-    "build:workspace-deps": "pnpm --filter @dev.fast/json --filter @dev.fast/local-vcs --filter @dev.fast/review-protocol --filter @dev.fast/trace-protocol --filter @dev.fast/trace-core build",
+    "build:workspace-deps": "pnpm --filter @dev.fast/json --filter @dev.fast/local-vcs --filter @dev.fast/review-protocol --filter @dev.fast/review-share-protocol --filter @dev.fast/trace-protocol --filter @dev.fast/trace-core build",
     "pretypecheck": "pnpm run ensure:tutorial-assets",
     "pretest": "pnpm run ensure:tutorial-assets",
     "pretest:browser": "pnpm run ensure:tutorial-assets",
@@ -63,6 +67,7 @@
   },
   "dependencies": {
     "@dev.fast/local-vcs": "^0.1.0",
+    "@dev.fast/review-share-protocol": "workspace:*",
     "@hono/node-server": "2.0.12",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@mr_mint/elkjs-libavoid": "0.5.0",

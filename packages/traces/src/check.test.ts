@@ -90,7 +90,7 @@ describe("dev-traces check", () => {
   function healthyClient(): StoreClient {
     return client((url) => {
       if (url.includes("/api/auth/get-session")) {
-        return Response.json({ user: { name: "dev" } });
+        return Response.json({ user: { id: "fixture-user", name: "dev" } });
       }
 
       if (url.includes("/sessions")) {
@@ -363,7 +363,7 @@ describe("dev-traces check", () => {
     const result = check(
       client((url) =>
         url.includes("/api/auth/get-session")
-          ? Response.json({ user: { name: "dev" } })
+          ? Response.json({ user: { id: "fixture-user", name: "dev" } })
           : Response.json(
               { error: { code: "not_found", message: "no store" } },
               { status: 404 },

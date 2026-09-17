@@ -380,13 +380,23 @@ export async function git(
 export async function gitAt(
   cwd: string,
   args: string[],
-  options: { allowFailure?: boolean; signal?: AbortSignal } = {},
+  options: {
+    allowFailure?: boolean;
+    signal?: AbortSignal;
+    env?: NodeJS.ProcessEnv;
+    timeout?: number;
+  } = {},
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
     const { stdout, stderr } = await execFileAsync(
       "git",
       ["-C", cwd, ...args],
-      { maxBuffer: 64 * 1024 * 1024, signal: options.signal },
+      {
+        maxBuffer: 64 * 1024 * 1024,
+        signal: options.signal,
+        env: options.env,
+        timeout: options.timeout,
+      },
     );
 
     return { ok: true, stdout, stderr };

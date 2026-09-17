@@ -284,3 +284,5 @@ registerSingleton(IReviewApiCatalogService, ReviewApiCatalogService, Instantiati
 registerSingleton(IReviewVerbsService, ReviewVerbsService, InstantiationType.Delayed);
 registerSingleton(IReviewCanvasPartsService, ReviewCanvasParts, InstantiationType.Eager);
 registerSingleton(IReviewExplorerPartsService, ReviewExplorerParts, InstantiationType.Eager);
+
+import "./contrib/sharing/reviewSharing.contribution.js";

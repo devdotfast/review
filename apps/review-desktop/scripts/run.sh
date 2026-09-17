@@ -84,6 +84,9 @@ CODE_ARGS=(
   "--user-data-dir=$STATE_ROOT/user-data"
   "--extensions-dir=$STATE_ROOT/extensions"
 )
+if [[ -n "${DEV_FAST_REVIEW_SHARED_DATA_DIR:-}" ]]; then
+  CODE_ARGS+=("--shared-data-dir=$DEV_FAST_REVIEW_SHARED_DATA_DIR")
+fi
 if [[ -n "${DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT:-}" ]]; then
   CODE_ARGS+=(
     "--remote-debugging-port=$DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT"

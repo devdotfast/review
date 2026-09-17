@@ -69,6 +69,7 @@ import {
 } from "./review-view-state";
 import { ReviewCommitsView } from "./ReviewCommitsView";
 import { ReviewTraceView, type TraceSelection } from "./ReviewTraceView";
+import { ShareControl } from "./share-control";
 import { useRightPanelResize } from "./side-panel-resizer";
 import { selectActiveSoftwareMapModel } from "./software-map-selection";
 import type {
@@ -583,6 +584,7 @@ function ReviewLayoutContent({
               <AuthoringActivityBadge />
             </div>
             <div className="review-topbar-actions">
+              <ShareControl />
               <ReviewHistoryControl />
               <button
                 type="button"

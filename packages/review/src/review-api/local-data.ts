@@ -37,6 +37,7 @@ import {
   requireVisibleSource,
   sliceSourceRange,
 } from "../source.js";
+import { resourceReference } from "./document.js";
 import {
   type Block,
   type Pins,
@@ -51,6 +52,7 @@ import {
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
 import { ReviewStore, type Snapshot } from "./store.js";
+import { traceSchema } from "./trace-schema.js";
 import { ReviewWorkspaces } from "./workspaces.js";
 import {
   EMPTY_SOURCE,
@@ -59,17 +61,6 @@ import {
   readWorkingFile,
   workingFiles,
 } from "./worktree-source.js";
-
-const traceSchema = z.strictObject({
-  label: z.string(),
-  events: z.array(
-    z.strictObject({
-      id: z.string().min(1),
-      role: z.enum(["user", "assistant", "tool"]),
-      text: z.string(),
-    }),
-  ),
-});
 
 export const uploadSchema = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -180,17 +171,9 @@ export class LocalReviewData {
       : { rootPath: null, identity: `${repositoryId}:unavailable` };
   }
 
-  /** Normalize legacy read parameters once, before any source IO. */
-  async resolveSource(
-    reviewId: string,
-    selection: { version?: number; commit?: string },
-  ) {
-    const snapshot = this.store.read(reviewId, selection.version);
-
-    const pins = await this.comparison(
-      await this.sourcePins(snapshot),
-      selection.commit,
-    );
+  /** Resolve source coordinates after selecting a local or imported snapshot. */
+  async resolveSource(snapshot: Snapshot, commit?: string) {
+    const pins = await this.comparison(await this.sourcePins(snapshot), commit);
 
     return { snapshot, pins };
   }
@@ -371,6 +354,17 @@ export class LocalReviewData {
     this.readers.delete(repositoryId);
 
     return reader.close();
+  }
+
+  async forgetRepository(repositoryId: string) {
+    await this.closeReader(repositoryId);
+    this.repositories.delete(repositoryId);
+
+    for (const key of this.trackedFiles.keys())
+      if (key.startsWith(repositoryId + "\0")) this.trackedFiles.delete(key);
+
+    for (const key of this.commitRanges.keys())
+      if (key.startsWith(repositoryId + ":")) this.commitRanges.delete(key);
   }
 
   private async vcsTarget(
@@ -918,28 +912,11 @@ export class LocalReviewData {
     );
   }
   async validateResource(pins: Pins, block: Block) {
-    if (
-      block.type !== "image" &&
-      block.type !== "trace_quote" &&
-      block.type !== "software_map"
-    )
-      return;
+    const reference = resourceReference(block);
 
-    const id =
-      block.type === "image"
-        ? block.assetId
-        : block.type === "trace_quote"
-          ? block.traceId
-          : block.mapVersionId;
-
+    if (!reference) return;
+    const { id, kind } = reference;
     const resource = this.store.resource(id);
-
-    const kind =
-      block.type === "image"
-        ? "image"
-        : block.type === "trace_quote"
-          ? "trace"
-          : "map";
 
     if (resource.repositoryId !== pins.repositoryId || resource.kind !== kind)
       throw new ReviewInputError(
@@ -947,9 +924,9 @@ export class LocalReviewData {
       );
 
     if (block.type === "trace_quote") {
-      const trace = traceSchema
-        .passthrough()
-        .parse(JSON.parse(Buffer.from(resource.data).toString()));
+      const trace = traceSchema.parse(
+        JSON.parse(Buffer.from(resource.data).toString()),
+      );
 
       const event = trace.events.find((event) => event.id === block.eventId);
 

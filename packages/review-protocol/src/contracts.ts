@@ -1012,6 +1012,11 @@ const revealArgsSchema = z
 
 export const REVIEW_DISCORD_URL = "https://discord.gg/wYvd2cpMQg";
 
+const apiReviewIdSchema = z.union([
+  z.uuid(),
+  z.string().regex(/^shared-[a-f0-9]{64}$/),
+]);
+
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({ name: z.literal("joinDiscord"), args: z.strictObject({}) }),
   z.strictObject({
@@ -1049,13 +1054,16 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openReview"),
     args: z.strictObject({
-      reviewUuid: z.uuid({ error: "must be a UUID" }),
+      reviewUuid: apiReviewIdSchema,
       active: z.boolean(),
     }),
   }),
   z.strictObject({
     name: z.literal("openApiReview"),
-    args: z.strictObject({ reviewId: z.uuid(), title: requiredString }),
+    args: z.strictObject({
+      reviewId: apiReviewIdSchema,
+      title: requiredString,
+    }),
   }),
 ]);
 

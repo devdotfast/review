@@ -10,7 +10,10 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough, Readable } from "node:stream";
 
-import { runTraceSessions as runTraceSessionsActual } from "@dev.fast/trace-core";
+import {
+  StoreClient,
+  runTraceSessions as runTraceSessionsActual,
+} from "@dev.fast/trace-core";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -676,3 +679,56 @@ describe("Review CLI", () => {
 function outputStream(): PassThrough {
   return new PassThrough();
 }
+
+it("emits one JSON error when a trace command needs repository authorization", async () => {
+  const stdout = outputStream();
+  let output = "";
+  stdout.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+
+  const client = new StoreClient({
+    origin: "https://app.dev.fast",
+    token: "identity",
+    fetch: async () =>
+      Response.json(
+        {
+          error: {
+            code: "repository_authorization_required",
+            message: "Run review login --traces.",
+          },
+        },
+        { status: 403 },
+      ),
+  });
+
+  const code = await runReviewCli({
+    argv: ["--json", "trace", "status"],
+    stdout,
+    stderr: outputStream(),
+    runtime: {
+      runTraceStatus: async () => {
+        await client.findStore({ owner: "fixture", name: "repo" });
+
+        return 0;
+      },
+    },
+  });
+
+  expect(code).toBe(1);
+
+  const events = output
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    event: "error",
+    error: {
+      message: "Run review login --traces.",
+      code: "repository_authorization_required",
+      remedy: "review login --traces",
+    },
+  });
+});

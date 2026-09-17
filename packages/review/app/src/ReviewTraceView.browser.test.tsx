@@ -3,13 +3,20 @@ import type {
   ReviewAgentTraceResponse,
   ReviewCanvasBridge,
 } from "@dev.fast/review-protocol";
-import { act } from "react";
+import { act, useState } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReviewSessionProvider } from "./host/review-session";
-import { testReviewSession } from "./review-session-test-utils";
+import {
+  ReviewSessionProvider,
+  createReviewSession,
+} from "./host/review-session";
+import {
+  testReviewBridge,
+  testReviewSession,
+} from "./review-session-test-utils";
 import { ReviewTraceView } from "./ReviewTraceView";
+import { useTraceList } from "./use-trace-list";
 
 const mockListResponse: Extract<ReviewAgentTraceListResponse, { ok: true }> = {
   ok: true,
@@ -73,42 +80,149 @@ describe("ReviewTraceView", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads session list and active trace detail without getting stuck in loading state", async () => {
-    const requestMock = vi
-      .fn<ReviewCanvasBridge["request"]>()
-      .mockImplementation((url) => {
-        if (url.includes("/agent-traces/session-1")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockTraceDetail), { status: 200 }),
-          );
-        }
+  it("shares an in-flight listing with the Trace view and reuses it after reopening", async () => {
+    const pending = Promise.withResolvers<Response>();
 
-        if (url.includes("/agent-traces")) {
-          return Promise.resolve(
-            new Response(JSON.stringify(mockListResponse), { status: 200 }),
-          );
-        }
+    const request = vi.fn<ReviewCanvasBridge["request"]>((url) =>
+      url.includes("/agent-traces/session-1")
+        ? Promise.resolve(Response.json(mockTraceDetail))
+        : pending.promise,
+    );
 
-        return Promise.reject(new Error(`Unexpected URL: ${url}`));
-      });
+    const session = testReviewSession({}, { request });
 
-    const session = testReviewSession({}, { request: requestMock });
+    function Host() {
+      const list = useTraceList();
+      const [open, setOpen] = useState(false);
 
+      return (
+        <>
+          <button onClick={() => setOpen(!open)}>Toggle trace</button>
+          {open && <ReviewTraceView storedList={list} />}
+        </>
+      );
+    }
+
+    await act(async () =>
+      root?.render(
+        <ReviewSessionProvider session={session}>
+          <Host />
+        </ReviewSessionProvider>,
+      ),
+    );
+    await act(async () => container.querySelector("button")!.click());
+    expect(container.textContent).toContain("Resolving agent sessions");
+    await act(async () => pending.resolve(Response.json(mockListResponse)));
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("User turn text"),
+    );
+    await act(async () => container.querySelector("button")!.click());
+    await act(async () => container.querySelector("button")!.click());
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("User turn text"),
+    );
+    expect(
+      request.mock.calls.filter(
+        ([url]) => !String(url).includes("/agent-traces/session-1"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("renders retained subagent events without downloading them", async () => {
+    const request = vi.fn<ReviewCanvasBridge["request"]>(async () => {
+      throw new Error("offline");
+    });
+
+    const session = testReviewSession({}, { request });
+
+    const retained = {
+      ...mockTraceDetail,
+      session: { ...mockTraceDetail.session, subagents: ["sub-1"] },
+    };
+
+    session.review!.traces = new Map([
+      ["session-1", retained],
+      [
+        "session-1:sub-1",
+        {
+          ...retained,
+          events: [{ kind: "user", text: "Retained subagent proof" }],
+        },
+      ],
+    ]);
     await act(async () => {
       root?.render(
         <ReviewSessionProvider session={session}>
-          <ReviewTraceView />
+          <ReviewTraceView
+            initialSelection={{ sessionId: "session-1", trace: "sub-1" }}
+          />
         </ReviewSessionProvider>,
       );
     });
-
-    await vi.waitFor(() => {
-      expect(container.textContent).toContain("Upgraded Trace Title");
-    });
-
-    expect(container.textContent).toContain("User turn text");
-    expect(container.textContent).not.toContain("Loading trace…");
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Retained subagent proof"),
+    );
+    expect(
+      request.mock.calls.some(([url]) =>
+        String(url).includes("/agent-traces/session-1"),
+      ),
+    ).toBe(false);
   });
+
+  it.each([false, true])(
+    "loads stored traces with JSON review mode %s",
+    async (jsonReview) => {
+      const requestMock = vi
+        .fn<ReviewCanvasBridge["request"]>()
+        .mockImplementation((url) => {
+          if (url.includes("/agent-traces/session-1")) {
+            return Promise.resolve(
+              new Response(JSON.stringify(mockTraceDetail), { status: 200 }),
+            );
+          }
+
+          if (url.includes("/agent-traces")) {
+            return Promise.resolve(
+              new Response(JSON.stringify(mockListResponse), { status: 200 }),
+            );
+          }
+
+          return Promise.reject(new Error(`Unexpected URL: ${url}`));
+        });
+
+      const session = jsonReview
+        ? createReviewSession(testReviewBridge({}, { request: requestMock }), {
+            jsonReview: { id: "json-review", version: () => 0 },
+          })
+        : testReviewSession({}, { request: requestMock });
+
+      if (jsonReview)
+        session.review = {
+          pins: { base: "base", head: "head" },
+          historicalRevision: null,
+          updatedAtMs: 0,
+          traces: new Map(),
+          listVersions: async () => [],
+          stack: async () => [],
+          dismiss: async () => {},
+        };
+
+      await act(async () => {
+        root?.render(
+          <ReviewSessionProvider session={session}>
+            <ReviewTraceView />
+          </ReviewSessionProvider>,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain("Upgraded Trace Title");
+      });
+
+      expect(container.textContent).toContain("User turn text");
+      expect(container.textContent).not.toContain("Loading trace…");
+    },
+  );
 
   it("offers a source control when two stores are readable and labels offline copies", async () => {
     const requested: string[] = [];
@@ -170,8 +284,7 @@ describe("ReviewTraceView", () => {
     await act(async () => {
       if (!select) throw new Error("missing select");
 
-      // React tracks the value; only the prototype setter leaves it unaware
-      // of the new value, so the change event is delivered.
+      // Bypass React tracking so the change event fires.
       const setter = Object.getOwnPropertyDescriptor(
         HTMLSelectElement.prototype,
         "value",

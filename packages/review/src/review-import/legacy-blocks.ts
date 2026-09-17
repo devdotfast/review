@@ -1,7 +1,17 @@
+import path from "node:path";
+
 import { type Block, elements } from "../review-api/document";
-import type { ReviewDocumentData, ReviewNode } from "../review-document-data";
+import type {
+  ReviewComponentNode,
+  ReviewDocumentData,
+  ReviewElementNode,
+  ReviewNode,
+} from "../review-document-data";
 import {
+  type RenderProseNode,
   collectFootnoteDefinitions,
+  escapeMarkdownText,
+  isFootnoteSection,
   isProseNode,
   proseToMarkdown,
 } from "./prose-markdown";
@@ -16,23 +26,19 @@ export interface TraceRequest {
   placeholder: string;
 }
 
+/** An image file the caller must read beside the sealed document: the block in
+ * `blocks` carries `placeholder` as its `assetId` until then. */
+export interface ImageRequest {
+  src: string;
+  alt: string;
+  placeholder: string;
+}
+
 export interface LegacyConversion {
   blocks: Block[];
   traces: TraceRequest[];
+  images: ImageRequest[];
   warnings: string[];
-}
-
-function viewLabel(view: "review" | "commits" | "diff" | "map"): string {
-  switch (view) {
-    case "review":
-      return "Review";
-    case "commits":
-      return "Commits";
-    case "diff":
-      return "Files";
-    case "map":
-      return "Map";
-  }
 }
 
 interface WithId {
@@ -49,8 +55,8 @@ export function legacyDocumentToBlocks(
   document: ReviewDocumentData,
 ): LegacyConversion {
   const traces: TraceRequest[] = [];
+  const images: ImageRequest[] = [];
   const warnings: string[] = [];
-  const footnotes = collectFootnoteDefinitions(document.body);
 
   const traceQuote = (
     node: Extract<ReviewNode, { type: "component"; name: "TraceQuote" }>,
@@ -74,6 +80,58 @@ export function legacyDocumentToBlocks(
     };
   };
 
+  const imageRequest = (
+    node: ReviewElementNode,
+  ): Extract<Block, { type: "image" }> => {
+    const placeholder = `image-placeholder-${images.length + 1}`;
+    const src = String(node.props.src ?? "");
+
+    // `alt` is a label, so a decorative image still needs a name to show.
+    const alt =
+      String(node.props.alt ?? "").trim() ||
+      path.posix.basename(src) ||
+      "Image";
+
+    images.push({ src, alt, placeholder });
+
+    return { type: "image", assetId: placeholder, alt };
+  };
+
+  const render: RenderProseNode = (node) => {
+    if (node.name !== "TraceQuote") return undefined;
+
+    const quote = traceQuote(node);
+    const label = escapeMarkdownText(quote.text);
+
+    return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
+  };
+
+  /** The block a node nested in prose becomes, if Markdown cannot carry it. */
+  const hoistable = (node: ReviewNode): Block | undefined => {
+    if (node.type === "element")
+      return isStoredImage(node) ? imageRequest(node) : undefined;
+
+    return node.type === "component" ? diagramBlock(node) : undefined;
+  };
+
+  const withoutHoisted = (node: ReviewNode, hoisted: Block[]): ReviewNode => {
+    if (node.type === "text") return node;
+
+    const children = node.children.flatMap((child): ReviewNode[] => {
+      const block = hoistable(child);
+
+      if (!block) return [withoutHoisted(child, hoisted)];
+
+      hoisted.push(block);
+
+      return [];
+    });
+
+    return { ...node, children };
+  };
+
+  const footnotes = collectFootnoteDefinitions(document.body, warnings, render);
+
   const convert = (nodes: ReviewNode[]): Block[] => {
     const out: Block[] = [];
     let prose: ReviewNode[] = [];
@@ -81,13 +139,12 @@ export function legacyDocumentToBlocks(
     const flush = () => {
       if (prose.length === 0) return;
 
-      const markdown = proseToMarkdown(prose, footnotes, warnings, (node) => {
-        if (node.name !== "TraceQuote") return undefined;
-        const quote = traceQuote(node);
-        const label = quote.text.replace(/([\\`*_[\]<>])/g, "\\$1");
-
-        return `[${label}](review-trace:${quote.traceId}#${quote.eventId})`;
-      }).trim();
+      const markdown = proseToMarkdown(
+        prose,
+        footnotes,
+        warnings,
+        render,
+      ).trim();
 
       if (markdown) out.push({ type: "markdown", markdown: `${markdown}\n` });
       prose = [];
@@ -95,13 +152,31 @@ export function legacyDocumentToBlocks(
 
     for (const node of nodes) {
       if (isProseNode(node)) {
-        prose.push(node);
+        // Definitions are already collected, and a block inside one stays there.
+        if (isFootnoteSection(node)) continue;
+
+        const hoisted: Block[] = [];
+
+        prose.push(withoutHoisted(node, hoisted));
+
+        if (hoisted.length) {
+          flush();
+          out.push(...hoisted);
+        }
+
         continue;
       }
 
       flush();
 
       if (node.type !== "component") continue;
+
+      const diagram = diagramBlock(node);
+
+      if (diagram) {
+        out.push(diagram);
+        continue;
+      }
 
       switch (node.name) {
         case "ReviewSection": {
@@ -129,38 +204,6 @@ export function legacyDocumentToBlocks(
           break;
         }
 
-        case "CallStackDiff":
-          out.push({
-            type: "call_stack_diff",
-            title: node.props.title || "Call stack",
-            base: stripIds(node.props.base),
-            head: stripIds(node.props.head),
-          });
-          break;
-        case "SequenceDiagram":
-          out.push({
-            type: "sequence",
-            title: node.props.title,
-            actors: node.props.actors,
-            steps: stripIds(node.props.steps),
-          });
-          break;
-        case "DatabaseLens": {
-          const { title, actors, stores, useCases } = node.props;
-
-          out.push({
-            type: "database_lens",
-            title: title ?? "Database",
-            actors,
-            stores,
-            useCases: useCases.map(({ id: _id, operations, ...useCase }) => ({
-              ...useCase,
-              operations: stripIds(operations),
-            })),
-          });
-          break;
-        }
-
         case "TraceQuote": {
           out.push(traceQuote(node));
           break;
@@ -168,26 +211,28 @@ export function legacyDocumentToBlocks(
 
         case "TutorialViewButton":
           out.push({
-            type: "markdown",
-            markdown: `Open the **${viewLabel(node.props.view)}** tab.\n`,
+            type: "tutorial",
+            kind: "view",
+            view: node.props.view,
+            label: proseToMarkdown(node.children, footnotes, warnings).trim(),
           });
           break;
         case "TutorialFeature":
-        case "TutorialKeymapPicker":
-        case "TutorialAuthoringConversation":
-          warnings.push(
-            `${node.name} has no JSON block; rendered as a callout.`,
-          );
           out.push({
-            type: "callout",
-            tone: "info",
-            title: "Tutorial",
-            children: [
-              {
-                type: "markdown",
-                markdown: `This step used the interactive ${node.name} component.\n`,
-              },
-            ],
+            type: "tutorial",
+            kind: "feature",
+            feature: node.props.feature,
+            children: convert(node.children),
+          });
+          break;
+        case "TutorialKeymapPicker":
+          out.push({ type: "tutorial", kind: "keymap" });
+          break;
+        case "TutorialAuthoringConversation":
+          out.push({
+            type: "tutorial",
+            kind: "conversation",
+            conversation: node.props.conversation,
           });
           break;
         default:
@@ -200,7 +245,53 @@ export function legacyDocumentToBlocks(
     return out;
   };
 
-  return { blocks: convert(document.body), traces, warnings };
+  return { blocks: convert(document.body), traces, images, warnings };
+}
+
+/** The diagram components as blocks, wherever they were authored. */
+function diagramBlock(node: ReviewComponentNode): Block | undefined {
+  switch (node.name) {
+    case "CallStackDiff":
+      return {
+        type: "call_stack_diff",
+        title: node.props.title || "Call stack",
+        base: stripIds(node.props.base),
+        head: stripIds(node.props.head),
+      };
+    case "SequenceDiagram":
+      return {
+        type: "sequence",
+        title: node.props.title,
+        actors: node.props.actors,
+        steps: stripIds(node.props.steps),
+      };
+    case "DatabaseLens": {
+      const { title, actors, stores, useCases } = node.props;
+
+      return {
+        type: "database_lens",
+        title: title ?? "Database",
+        actors,
+        stores,
+        useCases: useCases.map(({ id: _id, operations, ...useCase }) => ({
+          ...useCase,
+          operations: stripIds(operations),
+        })),
+      };
+    }
+
+    default:
+      return undefined;
+  }
+}
+
+/** A file published beside the document, for the import to store; a source
+ * with a scheme (`https:`, `data:`) stays a Markdown image. */
+function isStoredImage(node: ReviewElementNode): boolean {
+  return (
+    node.tag === "img" &&
+    !/^[a-z][\d+.a-z-]*:/i.test(String(node.props.src ?? ""))
+  );
 }
 
 function stripIds<T extends WithId>(items: T[]): Omit<T, "id">[] {

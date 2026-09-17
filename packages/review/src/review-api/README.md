@@ -2,10 +2,10 @@
 
 Desktop startup owns one `review-api.db` under `DEV_REVIEW_HOME`. Its routes use
 the existing desktop token authentication and bounded JSON request reader.
-The canvas accepts an API-backed content mode using the existing components;
-`POST /:id/open` opens it in Desktop without a legacy review session. Home lists
-API reviews alongside legacy reviews; API tabs reopen after restart. Existing saved reviews remain
-untouched. Tests can inject a store and data provider into the desktop server.
+The canvas and Home read only the native JSON store. `POST /:id/open` opens a review
+in Desktop, and pinned tabs reopen after restart. The startup importer migrates
+saved MDX reviews before the server starts; there is no legacy runtime or second
+catalog. Tests inject the native store and source-data provider.
 
 ## Storage and ownership
 
@@ -83,10 +83,11 @@ The canvas continues to use the JSON snapshot routes above.
 }
 ```
 
-Commands: `create {title,pins}`, `edit {reviewId,edit}`, `rename {reviewId,title}`,
-`repin {reviewId,pins}`, `restore {reviewId,version}`. Pins contain
+Commands: `create {title,pins,pullRequestUrl?}`, `edit {reviewId,edit}`, `rename {reviewId,title}`,
+`repin {reviewId,pins,pullRequestUrl?}`, `restore {reviewId,version}`. Pins contain
 `{repositoryId,base,head}` and must identify immutable commits.
-Repinning creates a blank snapshot. Restore restores title, pins, and content.
+Repinning creates a blank snapshot. Restore restores title, pins, PR identity, and content.
+PR URLs must be canonical `https://github.com/owner/repository/pull/123` URLs. The PR number is derived from the URL; identity is metadata alongside immutable pins, not a moving source reference, and does not fetch or refresh PR commits. Resolve the intended comparison separately. `repin` preserves the document and component IDs, including when source commits change. Its response reports retained source ranges to verify and resources that no longer match the pins; agents repair these with `edit`. Existing versions keep their original pins and content. Repin preserves omitted PR identity within one repository, clears it when switching repositories, and accepts an explicit URL or null.
 
 `attention {reviewId,action:"view"|"dismiss"|"restore"}` records viewing or
 reversible dismissal without creating a document version. Home summaries include
@@ -117,6 +118,10 @@ where needed. Inline and reference-style links open the existing native side pee
 The same Markdown parser feeds the host's source checks and the renderer, so code
 examples and unused definitions do not become source requests. Invalid paths or
 ranges reject the edit before saving. No extra node type or endpoint is needed.
+
+Heading ids are `slugify(text)` made unique in document order over section
+titles and the root-level h2/h3 of Markdown blocks, and `[text](#slug)` links
+scroll to them. Markdown images with `https:` sources render inline.
 
 The component schema checks inputs; field patches are checked after merging
 with the target. A small relationship pass checks diagram actors, store fields,

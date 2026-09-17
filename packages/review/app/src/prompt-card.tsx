@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { CopyIcon, copyText } from "./copy-text";
 
 /** Which agent's invocation syntax the prompt uses. Derived, never asked. */
-export type PromptAgent = "claude" | "codex" | "generic" | "opencode";
+export type PromptAgent =
+  | "claude"
+  | "codex"
+  | "cursor"
+  | "generic"
+  | "opencode";
 
 /** What the review covers. This is the only choice the reader makes. */
 export type PromptKind = "change" | "architecture";
@@ -19,8 +24,7 @@ const PROMPT_KINDS: ReadonlyArray<{ kind: PromptKind; label: string }> = [
 
 /**
  * The architecture prompt names the mode and stops there: the dev-review skill
- * documents how to scaffold one (same commit as base and head, system-shaped
- * sections), so the prompt does not have to carry the mechanics.
+ * documents how to author one, so the prompt does not have to carry the mechanics.
  */
 export const PROMPT_VARIANTS: Record<
   PromptKind,
@@ -31,6 +35,8 @@ export const PROMPT_VARIANTS: Record<
       "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
     codex:
       "Use $dev-review to review my current branch against up to date main, then open it in Review.",
+    cursor:
+      "/dev-review Review my current branch against up to date main, then open it in Review.",
     opencode:
       "Use the dev-review skill to review my current branch against up to date main, then open it in Review.",
     generic:
@@ -41,6 +47,8 @@ export const PROMPT_VARIANTS: Record<
       "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
     codex:
       "Use $dev-review to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
+    cursor:
+      "/dev-review Sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you’re done.",
     opencode:
       "Use the dev-review skill to sketch out the main data flows, access patterns, and code paths in this repo, so I can do a full architecture review of it. Open it in Review when you're done.",
     generic:
@@ -137,8 +145,8 @@ export function PromptCard({ agent }: { agent: PromptAgent }) {
  * removed Home agent tabs still wins while that agent is around: the tabs
  * are gone, but the preference they stored is not, and the derived order
  * cannot know which of two installed agents the reader actually uses.
- * Otherwise an installed agent wins over a merely detected one; Cursor has
- * no skill invocation of its own, so it falls through to the CLI wording.
+ * Otherwise an installed agent wins over a merely detected one. Cursor uses
+ * its slash-menu skill invocation; unsupported agents use the CLI wording.
  */
 export function promptAgent(
   status: ReviewCliInstallStatus | undefined,
@@ -146,46 +154,21 @@ export function promptAgent(
   if (!status) return "generic";
 
   const has = (
-    target: "claude" | "codex" | "opencode",
+    target: Exclude<PromptAgent, "generic">,
     key: "installed" | "present",
   ) => status.agents.some((agent) => agent.target === target && agent[key]);
-
-  const stored = readStoredPromptAgent();
-
-  if (stored === "generic") return "generic";
-
-  if (stored && (has(stored, "installed") || has(stored, "present"))) {
-    return stored;
-  }
 
   for (const key of ["installed", "present"] as const) {
     if (has("claude", key)) return "claude";
 
     if (has("codex", key)) return "codex";
 
+    if (has("cursor", key)) return "cursor";
+
     if (has("opencode", key)) return "opencode";
   }
 
   return "generic";
-}
-
-/** Written by the Home agent tabs that #891 removed; never written today. */
-const LEGACY_PROMPT_AGENT_STORAGE_KEY = "dev.fast.review.homePromptAgent";
-
-function readStoredPromptAgent(): PromptAgent | undefined {
-  try {
-    const stored = globalThis.localStorage?.getItem(
-      LEGACY_PROMPT_AGENT_STORAGE_KEY,
-    );
-
-    if (stored === "claude" || stored === "codex" || stored === "generic") {
-      return stored;
-    }
-  } catch {
-    // Fall through to the derived choice when DOM storage is unavailable.
-  }
-
-  return undefined;
 }
 
 function readStoredPromptKind(): PromptKind {

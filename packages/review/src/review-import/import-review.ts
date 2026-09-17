@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -13,6 +13,7 @@ import {
   ReviewInputError,
   sourceReferences,
 } from "../review-api/document";
+import { decodeImage } from "../review-api/image-decode";
 import type { LocalReviewData } from "../review-api/local-data";
 import type {
   ImportedVersionInput,
@@ -30,6 +31,7 @@ import { type ReviewVcsLogEntry, reviewVcs } from "../review-vcs";
 import { readReviewSoftwareMapBundle } from "../software-map-bundle";
 import { legacySoftwareMapBundle } from "../stored-review-migration";
 import {
+  type ImageRequest,
   type TraceRequest,
   legacyDocumentToBlocks,
   repairImportedSectionHeadings,
@@ -39,6 +41,7 @@ import {
   mapResourcesFromBundle,
   traceResourceFromLoaded,
 } from "./legacy-resources";
+import { escapeMarkdownText } from "./prose-markdown";
 
 export type ImportOutcome =
   | {
@@ -48,7 +51,7 @@ export type ImportOutcome =
       version: number;
       warnings: string[];
     }
-  | { kind: "current"; reviewId: string }
+  | { kind: "current"; reviewId: string; warnings?: string[] }
   | { kind: "skipped"; reviewId: string; reason: string };
 
 export interface ImportLegacyReviewInput {
@@ -73,6 +76,8 @@ export interface ImportLegacyReviewInput {
 }
 
 const SEALED_DOCUMENT_FILE = "review-document.json";
+
+const MAP_SECTION_TITLE = "Software map";
 
 type StoredRecord = StoredReview["review"];
 
@@ -105,11 +110,22 @@ export async function importLegacyReview(
   // The import record outlives the review: a deleted review stays deleted.
   if (progress && !store.has(reviewId)) return { kind: "current", reviewId };
 
-  if (
-    !input.completeHistory &&
-    importedRevision === record.presentedDocumentRevision
-  )
-    return { kind: "current", reviewId };
+  const presentedMapRevision = record.presentedSoftwareMapRevision;
+
+  // Recovering history walks every revision, whatever the cursor says.
+  const documentPending =
+    input.completeHistory ||
+    importedRevision !== record.presentedDocumentRevision;
+
+  // The map is published on its own, so it can lag a current document.
+  const mapPending =
+    presentedMapRevision !== null &&
+    progress?.mapRevision !== presentedMapRevision;
+
+  if (!documentPending)
+    return mapPending
+      ? importPresentedMap(input, presentedMapRevision)
+      : { kind: "current", reviewId };
 
   const imported = store.has(reviewId);
 
@@ -173,10 +189,12 @@ export async function importLegacyReview(
     input.completeHistory && imported ? store.read(reviewId) : undefined;
 
   let repaired = false;
+  let importedMap: string | null = null;
   const warnings: string[] = [];
   const versions: ImportedVersionInput[] = [];
   let lastWarnings: string[] = [];
   let previousRaw: string | null = null;
+
   const origin = originFrom(record);
 
   const traces = new TraceResolver({
@@ -185,6 +203,8 @@ export async function importLegacyReview(
     worktreePath,
     loadTrace: input.loadTrace ?? loadReviewAgentTrace,
   });
+
+  const images = new ImageResolver({ store, repositoryId });
 
   for (const [index, entry] of entries.entries()) {
     const dir = await input.materialize(review, entry.oid);
@@ -268,10 +288,12 @@ export async function importLegacyReview(
     const conversion = legacyDocumentToBlocks(document);
     const versionWarnings = [...conversion.warnings];
 
-    const blocks = await traces.resolve(
+    const blocks = replace(
       conversion.blocks,
-      conversion.traces,
-      versionWarnings,
+      new Map([
+        ...(await traces.replacements(conversion.traces, versionWarnings)),
+        ...(await images.replacements(conversion.images, dir, versionWarnings)),
+      ]),
     );
 
     if (input.completeHistory && versionWarnings.length)
@@ -282,6 +304,7 @@ export async function importLegacyReview(
     const pins = await revisionPins(dir, entry.oid, data, repositoryId);
 
     if (mapRevision && entry.oid === record.presentedDocumentRevision) {
+      // A map that fails stays pending for the next sweep; the document lands.
       const map = await importMapSection(
         review,
         mapRevision,
@@ -289,12 +312,16 @@ export async function importLegacyReview(
         store,
         repositoryId,
         versionWarnings,
+        pins,
       );
 
       if (!map && input.completeHistory)
         throw new Error(versionWarnings.join("; "));
 
-      if (map) blocks.push(map);
+      if (map) {
+        blocks.push(map);
+        importedMap = mapRevision;
+      }
     }
 
     const isLast = index === entries.length - 1;
@@ -305,6 +332,8 @@ export async function importLegacyReview(
         ? (record.lastPublishedAt ?? now().toISOString())
         : record.createdAt;
 
+    const versionOrigin = isLast ? origin : originFrom(sealedRecord);
+
     versions.push({
       reviewId,
       title: (isLast ? record.title : sealedRecord.title) || document.title,
@@ -312,7 +341,7 @@ export async function importLegacyReview(
       document: blocks,
       createdAt,
       origin: {
-        ...(isLast ? origin : originFrom(sealedRecord)),
+        ...versionOrigin,
         revision: entry.oid,
       },
     });
@@ -364,6 +393,12 @@ export async function importLegacyReview(
     revision: record.presentedDocumentRevision,
   });
 
+  // The map cursor moves only once its section has landed.
+  store.recordLegacyImport(reviewId, {
+    revision: record.presentedDocumentRevision,
+    mapRevision: importedMap,
+  });
+
   return {
     kind: "imported",
     reviewId,
@@ -375,6 +410,73 @@ export async function importLegacyReview(
   };
 }
 
+/** Imports a map published after its document, replacing the section in place
+ * so ids and the reader's edits survive. */
+async function importPresentedMap(
+  input: ImportLegacyReviewInput,
+  revision: string,
+): Promise<ImportOutcome> {
+  const { review, store } = input;
+  const record = review.review;
+  const reviewId = record.uuid;
+  const head = store.read(reviewId);
+  const warnings: string[] = [];
+
+  const section = await importMapSection(
+    review,
+    revision,
+    input.materialize,
+    store,
+    head.pins.repositoryId,
+    warnings,
+    head.pins,
+  );
+
+  // Never `skipped`: an imported review must still open in the JSON canvas.
+  if (!section) return { kind: "current", reviewId, warnings };
+
+  const replaced = head.document.find(isMapSection);
+
+  const result = await store.execute({
+    commandId: randomUUID(),
+    operation: {
+      type: "edit",
+      reviewId,
+      edit: replaced
+        ? { type: "replace", targetId: replaced.id!, content: section }
+        : { type: "insert", content: section },
+    },
+  });
+
+  store.recordLegacyImport(reviewId, {
+    revision: record.presentedDocumentRevision!,
+    mapRevision: revision,
+  });
+
+  return {
+    kind: "imported",
+    reviewId,
+    title: head.title,
+    version: result.version,
+    warnings,
+  };
+}
+
+/** The section a map import wrote; one a reader added blocks to is left alone. */
+export function isMapSection(
+  block: Block,
+): block is Extract<Block, { type: "section" }> {
+  return (
+    block.type === "section" &&
+    block.title === MAP_SECTION_TITLE &&
+    block.children.length > 0 &&
+    block.children.every((child) => child.type === "software_map")
+  );
+}
+
+/** The map section for `revision`. `pins` are the version's it joins: a map
+ * sealed against other commits is refused here, where it fails alone rather
+ * than the whole import; an archived map joins no version. */
 async function importMapSection(
   review: StoredReview,
   revision: string,
@@ -382,6 +484,7 @@ async function importMapSection(
   store: ReviewStore,
   repositoryId: string,
   warnings: string[],
+  pins?: Pins,
 ): Promise<Block | null> {
   try {
     const dir = await materialize(review, revision);
@@ -392,6 +495,17 @@ async function importMapSection(
 
     if (!bundle) {
       warnings.push(`map revision ${revision} has no bundle`);
+
+      return null;
+    }
+
+    if (
+      pins &&
+      (bundle.headCommit !== pins.head || bundle.baseCommit !== pins.base)
+    ) {
+      warnings.push(
+        `map revision ${revision} was published against other commits`,
+      );
 
       return null;
     }
@@ -412,7 +526,7 @@ async function importMapSection(
 
     return {
       type: "section",
-      title: "Software map",
+      title: MAP_SECTION_TITLE,
       defaultCollapsed: true,
       children,
     };
@@ -577,12 +691,10 @@ class TraceResolver {
     },
   ) {}
 
-  async resolve(
-    blocks: Block[],
+  async replacements(
     requests: TraceRequest[],
     warnings: string[],
-  ): Promise<Block[]> {
-    if (requests.length === 0) return blocks;
+  ): Promise<Map<string, Block>> {
     const replacements = new Map<string, Block>();
 
     for (const request of requests) {
@@ -624,7 +736,7 @@ class TraceResolver {
       });
     }
 
-    return replace(blocks, replacements);
+    return replacements;
   }
 
   private load(request: TraceRequest) {
@@ -662,7 +774,75 @@ class TraceResolver {
   }
 }
 
+/** Stores each published image once per review, keyed by file bytes: a
+ * screenshot edited between revisions becomes a second resource. */
+class ImageResolver {
+  private readonly stored = new Map<string, string>();
+
+  constructor(
+    private readonly input: { store: ReviewStore; repositoryId: string },
+  ) {}
+
+  async replacements(
+    requests: ImageRequest[],
+    dir: string,
+    warnings: string[],
+  ): Promise<Map<string, Block>> {
+    const replacements = new Map<string, Block>();
+
+    for (const request of requests) {
+      try {
+        replacements.set(request.placeholder, {
+          type: "image",
+          assetId: await this.resource(request.src, dir),
+          alt: request.alt,
+        });
+      } catch (error) {
+        warnings.push(
+          `image "${request.src}" could not be imported: ${errorMessage(error)}`,
+        );
+        replacements.set(request.placeholder, {
+          type: "markdown",
+          markdown: `*${escapeMarkdownText(request.alt)}*\n`,
+        });
+      }
+    }
+
+    return replacements;
+  }
+
+  private async resource(src: string, dir: string): Promise<string> {
+    const root = path.resolve(dir);
+    // A leading slash is the review's own root, not the filesystem.
+    const file = path.resolve(root, src.replace(/^\/+/, ""));
+
+    if (file !== root && !file.startsWith(root + path.sep))
+      throw new Error("outside the review");
+
+    const bytes = await readFile(file);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const kept = this.stored.get(digest);
+
+    if (kept) return kept;
+
+    const png = await decodeImage(bytes);
+    const id = randomUUID();
+    this.input.store.putResource(
+      id,
+      this.input.repositoryId,
+      "image",
+      "image/png",
+      png,
+    );
+    this.stored.set(digest, id);
+
+    return id;
+  }
+}
+
 function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
+  if (replacements.size === 0) return blocks;
+
   return blocks.map((block) => {
     if (block.type === "markdown") {
       return {
@@ -682,6 +862,10 @@ function replace(blocks: Block[], replacements: Map<string, Block>): Block[] {
 
     if (block.type === "trace_quote") {
       return replacements.get(block.traceId) ?? block;
+    }
+
+    if (block.type === "image") {
+      return replacements.get(block.assetId) ?? block;
     }
 
     if (block.type === "section" || block.type === "callout")

@@ -2,38 +2,28 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 
-import { ApiDocument, type ApiDocumentData } from "./api-document";
+import type { Block } from "../../src/review-api/document";
+import { ApiDocument } from "./api-document";
 import {
   reviewSessionElement,
+  testApiDocumentData,
   testReviewSession,
 } from "./review-session-test-utils";
 
+const document: Block[] = [
+  {
+    id: "section",
+    type: "section",
+    title: "Architecture",
+    children: [
+      { id: "prose", type: "markdown", markdown: "Explanation" },
+      { id: "map", type: "software_map", mapVersionId: "map-resource" },
+    ],
+  },
+];
+
 it("hides nested stored maps when disabled without dropping surrounding prose", () => {
-  const data: ApiDocumentData = {
-    snapshot: {
-      reviewId: "review",
-      version: 0,
-      title: "Map",
-      pins: { repositoryId: "repo", base: "base", head: "head" },
-      createdAt: "today",
-      document: [
-        {
-          id: "section",
-          type: "section",
-          title: "Architecture",
-          children: [
-            { id: "prose", type: "markdown", markdown: "Explanation" },
-            { id: "map", type: "software_map", mapVersionId: "map-resource" },
-          ],
-        },
-      ],
-    },
-    commits: [],
-    anchors: new Map(),
-    images: new Map(),
-    traces: new Map(),
-    maps: new Map(),
-  };
+  const data = testApiDocumentData(document);
 
   const render = (enabled: boolean) =>
     renderToStaticMarkup(

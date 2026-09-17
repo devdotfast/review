@@ -1,11 +1,5 @@
 import ts from "typescript";
 
-import {
-  type ReviewMdxDocument,
-  estreeNodeRange,
-  findCallExpressions,
-} from "./review-mdx-ast";
-
 export interface StaticSoftwareMapElement {
   path: string;
   type:
@@ -51,15 +45,8 @@ export interface StaticSoftwareMapConnectivityModel {
   coverageClaims: StaticSoftwareMapCoverageClaim[];
 }
 
-export function collectSoftwareMapConnectivityWarnings(
-  source: string,
-  options: {
-    // Pass for MDX sources so the model call is located in the document's
-    // esm estree; omit for plain TypeScript artifacts.
-    document?: ReviewMdxDocument;
-  } = {},
-) {
-  const model = collectSoftwareMapConnectivityModel(source, options.document);
+export function collectSoftwareMapConnectivityWarnings(source: string) {
+  const model = collectSoftwareMapConnectivityModel(source);
 
   if (!model) return [];
 
@@ -71,9 +58,8 @@ export function collectSoftwareMapConnectivityWarnings(
 
 export function collectSoftwareMapConnectivityModel(
   source: string,
-  document?: ReviewMdxDocument,
 ): StaticSoftwareMapConnectivityModel | null {
-  const modelObject = parseSoftwareMapModelObject(source, document);
+  const modelObject = parseSoftwareMapModelObject(source);
 
   if (!modelObject) return null;
 
@@ -193,49 +179,12 @@ function collectSoftwareMapConnectivityWarningsForModel({
   return warnings;
 }
 
-// Locate the single defineSoftwareModel/defineSoftwareMap call by AST, never
-// by scanning raw text — a fenced example or comment quoting the call name
-// must not affect extraction. Two source kinds arrive here:
-// - MDX review documents (pass the parsed `document`): the call lives in an
-//   `export` block, so it is found in the esm estree and its exact source
-//   span is re-parsed with TypeScript for the walkers below.
-// - Plain TypeScript artifacts (software-map.ts): the whole file parses as
-//   TypeScript directly, and the call is found in that tree.
 function parseSoftwareMapModelObject(
   source: string,
-  document?: ReviewMdxDocument,
-): ts.ObjectLiteralExpression | null {
-  if (document) {
-    if (document.parseError) return null;
-
-    const calls = document.esmPrograms.flatMap((program) => [
-      ...findCallExpressions(program, "defineSoftwareModel"),
-      ...findCallExpressions(program, "defineSoftwareMap"),
-    ]);
-
-    if (calls.length !== 1) return null;
-    const range = estreeNodeRange(calls[0]);
-
-    if (!range) return null;
-
-    return softwareMapModelObjectFromTsSource(
-      `(${source.slice(range.start, range.end)})`,
-      { requireSingleCall: false },
-    );
-  }
-
-  return softwareMapModelObjectFromTsSource(source, {
-    requireSingleCall: true,
-  });
-}
-
-function softwareMapModelObjectFromTsSource(
-  tsSource: string,
-  { requireSingleCall }: { requireSingleCall: boolean },
 ): ts.ObjectLiteralExpression | null {
   const sourceFile = ts.createSourceFile(
     "review-software-map-model.tsx",
-    tsSource,
+    source,
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TSX,
@@ -266,7 +215,7 @@ function softwareMapModelObjectFromTsSource(
 
   visit(sourceFile);
 
-  if (requireSingleCall && calls.length !== 1) return null;
+  if (calls.length !== 1) return null;
   const callExpression = calls[0];
 
   if (

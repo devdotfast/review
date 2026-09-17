@@ -1,6 +1,6 @@
 import type { AgentSelection } from "../../src/agent-selection";
 
-/** Observe rendered prose, leaving Monaco and diagram interaction to their owners. */
+/** Only authored document prose participates; native code editors report their own selections. */
 export function observeAgentTextSelection(
   article: HTMLElement,
   select: (
@@ -25,8 +25,9 @@ export function observeAgentTextSelection(
       return (
         element &&
         article.contains(element) &&
+        element.closest("[data-review-copy-prose]") &&
         !element.closest(
-          ".monaco-editor, .react-flow, button, input, textarea, [data-review-copy-ignore]",
+          ".monaco-editor, pre, button, select, input, textarea, [data-review-copy-ignore]",
         )
       );
     };
@@ -48,6 +49,31 @@ export function observeAgentTextSelection(
     }
 
     const range = selection.getRangeAt(0);
+
+    // Endpoints alone are insufficient: a drag can cross a diagram between paragraphs.
+    const walker = document.createTreeWalker(
+      range.commonAncestorContainer,
+      NodeFilter.SHOW_TEXT,
+    );
+
+    let node: Node | null = range.commonAncestorContainer;
+
+    while (node) {
+      if (
+        node.nodeType === Node.TEXT_NODE &&
+        node.textContent?.trim() &&
+        range.intersectsNode(node) &&
+        !eligible(node)
+      ) {
+        if (hadSelection) select(null);
+        hadSelection = false;
+
+        return;
+      }
+
+      node = walker.nextNode();
+    }
+
     const rect = range.getBoundingClientRect();
 
     const anchorElement =

@@ -1,0 +1,51 @@
+[
+  {
+    "type": "tutorial",
+    "kind": "keymap",
+    "id": "block-1"
+  },
+  {
+    "type": "tutorial",
+    "kind": "conversation",
+    "conversation": {
+      "version": 1,
+      "title": "How an agent authors a review",
+      "messages": [
+        {
+          "role": "user",
+          "body": "Explain this change."
+        },
+        {
+          "role": "assistant",
+          "body": "Here is a review."
+        }
+      ]
+    },
+    "id": "block-2"
+  },
+  {
+    "type": "tutorial",
+    "kind": "view",
+    "view": "commits",
+    "label": "Explore commits",
+    "id": "block-3"
+  },
+  {
+    "type": "tutorial",
+    "kind": "feature",
+    "feature": "softwareMap",
+    "children": [
+      {
+        "type": "markdown",
+        "markdown": "Explore the map.",
+        "id": "block-5"
+      },
+      {
+        "id": "block-6",
+        "type": "software_map",
+        "mapVersionId": "33333333-3333-4333-8333-333333333333"
+      }
+    ],
+    "id": "block-4"
+  }
+]

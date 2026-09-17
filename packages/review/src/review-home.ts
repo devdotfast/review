@@ -18,9 +18,6 @@ import {
   type JsonValue,
   REVIEW_SCHEMA_VERSION,
   type ReviewAgentSessionRole,
-  type ReviewDescriptor,
-  type ReviewRecord,
-  ReviewRecordSchema,
   type ReviewSourceIdentity,
   isJsonObject,
   jsonObject,
@@ -45,6 +42,10 @@ import { resolveReviewRepositoryIdentity } from "./repository-identity";
 import { type DismissedRetentionDays, reviewReapsAt } from "./review-attention";
 import { resolveReviewDiffFiles } from "./review-diff-files";
 import { devReviewHome } from "./review-home-paths";
+import {
+  type ReviewRecord,
+  ReviewRecordSchema,
+} from "./review-import/legacy-record";
 import {
   ReviewBusyError,
   withReviewMutationLock,
@@ -451,7 +452,7 @@ export async function reviewDescriptor(
   options: {
     retentionDays?: DismissedRetentionDays;
   } = {},
-): Promise<ReviewDescriptor> {
+) {
   // `null` is a real retention setting (never reap), so only an absent key defaults.
   const retentionDays =
     options.retentionDays === undefined

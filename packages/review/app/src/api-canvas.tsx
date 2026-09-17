@@ -21,7 +21,6 @@ import {
   RevealAfterFirstPaint,
   createDocumentLoader,
 } from "./api-document";
-import { apiDocumentHeadings } from "./api-document-headings";
 import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
@@ -218,8 +217,6 @@ export function ApiCanvas({
       },
     });
 
-    session.keepsDismissedReviews = true;
-
     session.softwareMapData = (model) =>
       [...(dataRef.current?.maps.values() ?? [])].find((map) => map === model)
         ?.pinnedData;
@@ -278,6 +275,10 @@ export function ApiCanvas({
     if (data) content.bridge.ready();
   }, [Boolean(data), content.bridge]);
 
+  useEffect(() => {
+    if (data) content.setTutorial?.(data.snapshot.origin?.tutorial === true);
+  }, [data?.snapshot.origin?.tutorial, content.setTutorial]);
+
   if (!data)
     return (
       <>
@@ -294,7 +295,7 @@ export function ApiCanvas({
     <ReviewSessionProvider session={session}>
       <ProjectClient.Provider value={client}>
         <DocumentData.Provider value={data}>
-          <TutorialProvider>
+          <TutorialProvider tutorial={content.tutorial}>
             {error && <p role="status">{error}</p>}
             <AuthoringActivityContext.Provider
               value={version === undefined ? activity : undefined}
@@ -341,7 +342,7 @@ const CanvasDocument = memo(function CanvasDocument({
     documentSoftwareModels: [...data.maps.values()],
     anchors: data.anchors,
     render: DocumentBody,
-    tocEntries: apiDocumentHeadings(snapshot.document),
+    tocEntries: data.headings.entries,
   };
 
   return (

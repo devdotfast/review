@@ -16,7 +16,7 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const diffViewFactory = session.bridge.diffView;
-  const diffViewSessionId = session.config.sessionId;
+  const diffViewSessionId = session.config.reviewId;
 
   useLayoutEffect(() => {
     if (!container) return;

@@ -133,8 +133,8 @@ function ReviewPanelFrame({
 
 /**
  * Collapsible document section. The section owns its heading: it renders
- * `title` as the H2, with the id the projection pass assigned (or the block id
- * on the JSON path), and treats every child as body. Collapse state persists
+ * `title` as the H2, with the id the projection pass assigned (or the heading
+ * slug on the JSON path), and treats every child as body. Collapse state persists
  * per document+section in localStorage; sections marked `[collapsed]` in the
  * MDX start collapsed for first-time readers.
  */
@@ -209,7 +209,9 @@ export function ReviewSection({
           </svg>
         </button>
         <div className="review-section-heading">
-          <h2 id={id}>{title}</h2>
+          <h2 id={id} data-review-copy-prose>
+            {title}
+          </h2>
         </div>
         {collapsed && summary && (
           <span className="review-section-meta">

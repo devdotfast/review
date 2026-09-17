@@ -6,25 +6,23 @@ import { resourceReferences } from "../review-api/document";
 import { readQuerySchemas } from "../review-api/read-schemas";
 import { ReviewStore, type Snapshot } from "../review-api/store";
 import { resolveReviewDiffFiles } from "../review-diff-files";
-import { listReviews } from "../review-home";
 import type { ReviewTelemetry } from "../telemetry";
 import {
   type BugReportSource,
   BugReportUpstreamError,
   submitReviewBugReport,
 } from "./bug-report";
-import { readAuthoringTraceAttachment } from "./bug-report-trace";
 import { readBoundedRequestJson } from "./hono-http";
-import {
-  captureSanitizedUiTelemetry,
-  clientErrorsForSession,
-  recordClientError,
-} from "./review-api";
 import {
   parseReviewBugReportInput,
   parseReviewTabTelemetryInput,
   requestJsonErrorStatus,
 } from "./review-api-parsers";
+import {
+  captureSanitizedUiTelemetry,
+  clientErrorsForSession,
+  recordClientError,
+} from "./ui-telemetry";
 
 export function jsonReviewBugReportSource(
   store: ReviewStore,
@@ -63,19 +61,12 @@ export function jsonReviewBugReportSource(
       });
     },
     async trace() {
-      // Retained quote resources are excerpts, not the complete authoring session.
-      const legacy = (await listReviews()).reviews.find(
-        (entry) => entry.review.uuid === snapshot.reviewId,
-      );
-
-      return legacy
-        ? readAuthoringTraceAttachment({ reviewRootPath: legacy.dir })
-        : null;
+      return null;
     },
   };
 }
 
-/** API-review telemetry shares the legacy sanitization and report upload policy. */
+/** Telemetry and report uploads for a pinned native review. */
 export function createJsonReviewReporting(
   store: ReviewStore,
   telemetry: Pick<ReviewTelemetry, "captureUiEvent" | "captureTabViewed">,

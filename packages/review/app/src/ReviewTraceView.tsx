@@ -1,7 +1,4 @@
-import {
-  type ReviewAgentTraceSession,
-  parseReviewAgentTraceListResponse,
-} from "@dev.fast/review-protocol";
+import { type ReviewAgentTraceSession } from "@dev.fast/review-protocol";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useReviewSession } from "./host/review-session";
@@ -13,21 +10,7 @@ import {
   makeAgentTraceKey,
   useAgentTrace,
 } from "./use-agent-trace";
-
-type TraceListState =
-  | { status: "loading" }
-  | { status: "error"; error: string }
-  | {
-      status: "loaded";
-      configured: boolean;
-      /** The store the list came from, when the CLI reports one. */
-      storage: AgentTraceStorage | null;
-      /** Every store this machine can read; a control appears for two. */
-      sources: AgentTraceStorage[];
-      /** Why the store answered nothing, when the CLI reports a reason. */
-      storageError: string | null;
-      sessions: ReviewAgentTraceSession[];
-    };
+import { type TraceListState, useTraceList } from "./use-trace-list";
 
 export interface TraceSelection {
   sessionId: string;
@@ -37,15 +20,12 @@ export interface TraceSelection {
 
 export function ReviewTraceView({
   initialSelection,
+  storedList: providedList,
 }: {
   initialSelection?: TraceSelection;
+  storedList?: TraceListState;
 }) {
   const session = useReviewSession();
-  const reviewFetch = session.fetch;
-
-  const [legacyList, setLegacyList] = useState<TraceListState>({
-    status: "loading",
-  });
 
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
@@ -56,7 +36,7 @@ export function ReviewTraceView({
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
 
-  // A read-only source override. It never changes capture or consent.
+  // Read override only; capture and consent are unchanged.
   const [storageOverride, setStorageOverride] =
     useState<AgentTraceStorage | null>(null);
 
@@ -88,64 +68,41 @@ export function ReviewTraceView({
     }
   }, [initialSelection]);
 
-  useEffect(() => {
-    if (session.review) return;
-    const controller = new AbortController();
+  const storedList = useTraceList(storageOverride, providedList);
 
-    const url: `/${string}` = storageOverride
-      ? `/agent-traces?storage=${storageOverride}`
-      : "/agent-traces";
+  const list: TraceListState = useMemo(() => {
+    const retained = [
+      ...new Map(
+        [...(session.review?.traces.values() ?? [])].map((trace) => [
+          trace.session.sessionId,
+          trace.session,
+        ]),
+      ).values(),
+    ];
 
-    reviewFetch(url, { signal: controller.signal })
-      .then(async (response) => {
-        const result = parseReviewAgentTraceListResponse(await response.json());
+    if (storedList.status === "loaded") {
+      const ids = new Set(retained.map((trace) => trace.sessionId));
 
-        if (!response.ok || !result.ok) {
-          throw new Error(
-            result.ok ? "Unable to load agent traces." : result.error,
-          );
-        }
+      return {
+        ...storedList,
+        sessions: [
+          ...retained,
+          ...storedList.sessions.filter((trace) => !ids.has(trace.sessionId)),
+        ],
+      };
+    }
 
-        if (controller.signal.aborted) return;
-        setLegacyList({
+    return retained.length > 0
+      ? {
           status: "loaded",
-          configured: result.configured !== false,
-          storage:
-            result.storage === "s3" || result.storage === "hosted"
-              ? result.storage
-              : null,
-          sources: result.sources ?? [],
-          storageError: result.storageError ?? null,
-          sessions: result.sessions,
-        });
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        setLegacyList({
-          status: "error",
-          error: cause instanceof Error ? cause.message : String(cause),
-        });
-      });
-
-    return () => controller.abort();
-  }, [reviewFetch, storageOverride, session.review]);
-
-  const list: TraceListState = useMemo(
-    () =>
-      session.review
-        ? {
-            status: "loaded",
-            configured: true,
-            storage: null,
-            sources: [],
-            storageError: null,
-            sessions: [...session.review.traces.values()].map(
-              (trace) => trace.session,
-            ),
-          }
-        : legacyList,
-    [session.review, legacyList],
-  );
+          configured: true,
+          storage: null,
+          sources: [],
+          storageError: storedList.status === "error" ? storedList.error : null,
+          sessions: retained,
+        }
+      : storedList;
+  }, [session.review, storedList]);
 
   const sessions = list.status === "loaded" ? list.sessions : [];
 
@@ -210,8 +167,7 @@ export function ReviewTraceView({
     storageOverride,
   );
 
-  // The last known sources stay while a refetch is in flight, so the
-  // control never disappears between two answers.
+  // Keep source controls visible during refetch.
   const [sourceChoices, setSourceChoices] = useState<AgentTraceStorage[]>([]);
   useEffect(() => {
     if (list.status === "loaded" && list.sources.length > 0) {

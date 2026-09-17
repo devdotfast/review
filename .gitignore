@@ -89,3 +89,5 @@ backend.hcl
 .dev/evidence/
 artifacts/devbox/
 scripts/acceptance/evidence/
+
+packages/review/tutorial/pins.json

@@ -7,6 +7,7 @@ import type { StoredReview } from "../review-home";
 import {
   logFromRevisionDirs,
   materializeFromRevisionDirs,
+  runImport,
   scratchGitRepo,
   syntheticLegacyReview,
 } from "./import-test-utils";
@@ -122,17 +123,87 @@ describe("createLegacyImporter", () => {
     }
   });
 
-  it("imports a revision published while an older one was importing", async () => {
-    const repo = await scratchGitRepo();
-
-    const { home, record, stored, oids } = await syntheticLegacyReview(
+  it("leaves an already-imported review current when a re-import throws", async () => {
+    const { record, stored, oids, store, data } = await runImport(
       "schema4-bug-report-dialog",
-      repo,
       { revisions: 2 },
     );
 
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
+    const log = vi.fn<(message: string) => void>();
+    let fail = false;
+
+    const importer = createLegacyImporter({
+      store,
+      data,
+      materialize: async (review: StoredReview, revision: string) => {
+        if (fail) throw new Error("disk on fire");
+
+        return materializeFromRevisionDirs(review, revision);
+      },
+      onImported: async () => {},
+      log,
+      revisionLog: logFromRevisionDirs(oids),
+    });
+
+    // The sweep saw the record when only the first revision was presented.
+    const older: StoredReview = {
+      dir: stored.dir,
+      review: { ...record, presentedDocumentRevision: oids[0]! },
+    };
+
+    expect(await importer.ensure(older)).toMatchObject({ kind: "imported" });
+    fail = true;
+
+    // The newer revision cannot be read, but the review is in the store, so
+    // it stays the one Home lists and opens.
+    expect(await importer.ensure(stored)).toEqual({
+      kind: "current",
+      reviewId: record.uuid,
+      warnings: ["disk on fire"],
+    });
+    expect(store.has(record.uuid)).toBe(true);
+    expect(await importer.ensure(stored)).toMatchObject({ kind: "current" });
+    expect(
+      log.mock.calls.filter(([message]) => message.endsWith("disk on fire")),
+    ).toHaveLength(1);
+  });
+
+  it("reports a map it cannot import once", async () => {
+    const { record, stored, store, data } = await runImport(
+      "schema4-opencode-agentserver",
+      {
+        map: {
+          oid: "a".repeat(40),
+          headCommit: "c".repeat(40),
+          baseCommit: "d".repeat(40),
+        },
+      },
+    );
+
+    const log = vi.fn<(message: string) => void>();
+
+    const importer = createLegacyImporter({
+      store,
+      data,
+      materialize: materializeFromRevisionDirs,
+      onImported: async () => {},
+      log,
+    });
+
+    expect(await importer.ensure(stored)).toMatchObject({ kind: "imported" });
+    expect(await importer.ensure(stored)).toMatchObject({ kind: "current" });
+    expect(await importer.ensure(stored)).toMatchObject({ kind: "current" });
+    expect(
+      log.mock.calls.filter(([message]) =>
+        message.startsWith(`[Review import] ${record.uuid}: map revision`),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("imports a revision published while an older one was importing", async () => {
+    const { record, stored, oids, store, data } = await runImport(
+      "schema4-bug-report-dialog",
+      { revisions: 2 },
     );
 
     const importer = createLegacyImporter({
@@ -144,23 +215,19 @@ describe("createLegacyImporter", () => {
       revisionLog: logFromRevisionDirs(oids),
     });
 
-    try {
-      // The sweep saw the record when only the first revision was presented.
-      const older: StoredReview = {
-        dir: stored.dir,
-        review: { ...record, presentedDocumentRevision: oids[0]! },
-      };
+    // The sweep saw the record when only the first revision was presented.
+    const older: StoredReview = {
+      dir: stored.dir,
+      review: { ...record, presentedDocumentRevision: oids[0]! },
+    };
 
-      const [first, second] = await Promise.all([
-        importer.ensure(older),
-        importer.ensure(stored),
-      ]);
+    const [first, second] = await Promise.all([
+      importer.ensure(older),
+      importer.ensure(stored),
+    ]);
 
-      expect(first).toMatchObject({ kind: "imported", version: 0 });
-      expect(second).toMatchObject({ kind: "imported", version: 1 });
-      expect(store.read(record.uuid).origin?.revision).toBe(oids[1]);
-    } finally {
-      await store.close();
-    }
+    expect(first).toMatchObject({ kind: "imported", version: 0 });
+    expect(second).toMatchObject({ kind: "imported", version: 1 });
+    expect(store.read(record.uuid).origin?.revision).toBe(oids[1]);
   });
 });

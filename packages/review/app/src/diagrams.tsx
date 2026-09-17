@@ -24,7 +24,6 @@ import {
 import { createPortal } from "react-dom";
 
 import type { Step } from "../../src/review-api/document";
-import { useAgentSelection } from "./agent-selection";
 import { useReviewDebugSettings } from "./debug-settings";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
@@ -37,7 +36,6 @@ import { captureUiEvent } from "./ui-telemetry";
 import "@xyflow/react/dist/style.css";
 
 type SequenceParticipantNodeData = {
-  diagram: string;
   participant: SequenceParticipant;
   height: number;
   messages: SequenceMessage[];
@@ -368,7 +366,7 @@ function SequenceDiagramFigure({
   sequence,
   theme,
   stopCount,
-  openTour: openOriginalTour,
+  openTour,
   activeTourAnchor,
   onCloseTour,
 }: {
@@ -381,35 +379,6 @@ function SequenceDiagramFigure({
    * its Tour button for a close control and message dots show stop numbers. */
   onCloseTour?: () => void;
 }) {
-  const selectForAgent = useAgentSelection();
-
-  const openTour = useCallback(
-    (anchor?: string) => {
-      const message = sequence.messages.find(
-        (message) => message.id === anchor,
-      );
-
-      if (message)
-        selectForAgent({
-          target: {
-            kind: "graph",
-            diagram: sequence.title,
-            label: message.label,
-            elementType: "edge",
-          },
-          title: message.label,
-          diagramContext: {
-            kind: "sequence message",
-            from: message.from.label,
-            to: message.to.label,
-            code: message.code?.text,
-          },
-        });
-      openOriginalTour(anchor);
-    },
-    [sequence, selectForAgent, openOriginalTour],
-  );
-
   const sequenceScrollRef = useRef<HTMLDivElement | null>(null);
   const panelMotion = useReviewPanel((state) => state.motion);
   const [availableWidth, setAvailableWidth] = useState(0);
@@ -447,7 +416,6 @@ function SequenceDiagramFigure({
         height,
         data: {
           participant,
-          diagram: sequence.title,
           height,
           messages: sequence.messages,
           messageGap,
@@ -681,27 +649,6 @@ function SequenceParticipantNode({
   data,
 }: ReactFlowNodeProps<SequenceParticipantFlowNode>) {
   const { participant, height, messages, messageGap, messageTop } = data;
-  const selectForAgent = useAgentSelection();
-
-  const selectParticipant = () =>
-    selectForAgent({
-      target: {
-        kind: "graph",
-        diagram: data.diagram,
-        label: participant.label,
-        elementType: "node",
-      },
-      title: participant.label,
-      diagramContext: {
-        kind: "node",
-        incoming: messages
-          .filter((m) => m.to.id === participant.id)
-          .map((m) => `${m.from.label} → ${m.to.label}: ${m.label}`),
-        outgoing: messages
-          .filter((m) => m.from.id === participant.id)
-          .map((m) => `${m.from.label} → ${m.to.label}: ${m.label}`),
-      },
-    });
 
   const activeMessages = messages.filter(
     (message) =>
@@ -711,22 +658,7 @@ function SequenceParticipantNode({
   return (
     <div className="sequence-participant-node" style={{ height }}>
       <div className="sequence-participant-label-anchor">
-        <span
-          className="sequence-participant-label"
-          title={participant.label}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              selectParticipant();
-            }
-          }}
-          onClick={(event) => {
-            event.stopPropagation();
-            selectParticipant();
-          }}
-        >
+        <span className="sequence-participant-label" title={participant.label}>
           {participant.label}
         </span>
       </div>

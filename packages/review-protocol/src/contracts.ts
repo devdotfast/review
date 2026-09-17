@@ -5,6 +5,8 @@ import {
 } from "@dev.fast/trace-protocol";
 import { z } from "zod";
 
+import type { ReviewApiSummary } from "./review-api-client.js";
+
 // Version 3: the desktop serves prebuilt revisions instead of building them.
 // (Version 2 added the bundled-CLI discovery fields.)
 export const REVIEW_DESKTOP_DISCOVERY_VERSION = 3;
@@ -78,39 +80,15 @@ function urlSchema(
 
 const absoluteUrlSchema = urlSchema("href");
 
-const loopbackUrlSchema = urlSchema("href", (url) =>
-  url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port
-    ? null
-    : "must use http://127.0.0.1:<port>",
-).transform((value) => value.replace(/\/$/, ""));
-
 const loopbackOriginSchema = urlSchema("origin", (url) =>
   url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port
     ? null
     : "must use http://127.0.0.1:<port>",
 );
 
-export function normalizeReviewRoutePath(pathname: string): string {
-  const pathnameOnly = String(pathname || "/").split(/[?#]/)[0] || "/";
-  let end = pathnameOnly.length;
-
-  while (end > 1 && pathnameOnly.charCodeAt(end - 1) === 47) end--;
-  const trimmed = pathnameOnly.slice(0, end) || "/";
-
-  return trimmed === "/"
-    ? "/"
-    : trimmed.startsWith("/")
-      ? trimmed
-      : `/${trimmed}`;
-}
-
-const routePathSchema = requiredString.transform(normalizeReviewRoutePath);
-
 export const ReviewRuntimeConfigSchema = z.strictObject({
   serverUrl: loopbackOriginSchema,
-  sessionUrl: loopbackUrlSchema,
-  routePath: routePathSchema,
-  sessionId: requiredString,
+  reviewId: requiredString,
   token: stringAllowEmpty,
   wasmUrl: absoluteUrlSchema,
   appVersion: requiredString.max(100),
@@ -215,7 +193,7 @@ export interface ReviewDiffViewHandle extends ReviewDisposable {
 export interface ReviewDiffViewFactory {
   create(spec: ReviewDiffViewSpec): ReviewDiffViewHandle;
   /** Returns the parsed full diff that backs the native diff view. */
-  files?(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
+  files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
 }
 
 export interface ReviewCommitScope {
@@ -354,8 +332,7 @@ export interface ReviewCanvasTutorialBridge {
   dismiss(): void;
   reopen(): void;
   selectKeymap(keymap: ReviewKeymapChoice): Promise<void>;
-  // Closes the tutorial tab. The tutorial is not in the review store, so
-  // there is nothing to dismiss — finishing it just means closing it.
+  // Closes the managed tutorial tab without dismissing it from a user catalog.
   close(): void;
 }
 
@@ -390,8 +367,6 @@ export interface ReviewCanvasSettingsContent {
   // The one value here that is not a workbench setting. The reaper runs inside
   // the review server, which never reads workbench configuration, so this lives
   // in the server preferences file. `null` turns reaping off.
-  dismissedRetentionDays: number | null;
-  setDismissedRetentionDays(days: number | null): Promise<number | null>;
   softwareMapEnabled: boolean;
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
   manageExtensions(): void;
@@ -400,20 +375,6 @@ export interface ReviewCanvasSettingsContent {
   // install status endpoint is unavailable.
   install?: ReviewCanvasInstallContent;
 }
-
-export type ReviewDocumentLoad =
-  | { state: "ready"; contentHash: string; data: JsonValue }
-  | {
-      state: "needs-republish";
-      reviewUuid: string;
-      mapStale: boolean;
-    }
-  | { state: "unavailable"; message: string; currentReviewUuid?: string };
-
-export type ReviewSoftwareMapLoad =
-  | { state: "ready"; contentHash: string; head: JsonValue; base: JsonValue }
-  | { state: "needs-republish"; reviewUuid: string }
-  | { state: "unavailable"; message: string; currentReviewUuid?: string };
 
 export interface ReviewApiSourceLocation {
   version: number;
@@ -426,6 +387,8 @@ export type ReviewCanvasContent =
   | { kind: "loading" }
   | {
       kind: "api";
+      tutorial?: ReviewCanvasTutorialBridge;
+      setTutorial?(enabled: boolean): void;
       softwareMapEnabled?: boolean;
       reviewId: string;
       version?: number;
@@ -440,7 +403,6 @@ export type ReviewCanvasContent =
   | {
       kind: "error";
       message: string;
-      reviewErrors?: readonly ReviewListError[];
     }
   // The Source tab: an empty state beside the read-only file tree. Static —
   // the tree and the file tabs it opens are native surfaces. `error` is set
@@ -449,8 +411,7 @@ export type ReviewCanvasContent =
   | { kind: "source"; error?: string }
   | {
       kind: "home";
-      reviews: readonly ReviewHomeItem[];
-      reviewErrors: readonly ReviewListError[];
+      reviews: readonly ReviewApiSummary[];
       openReview(uuid: string): void;
       // Deletes the review and closes its canvas. Absent when the host does
       // not support deletion.
@@ -489,22 +450,6 @@ export type ReviewCanvasContent =
   | {
       kind: "settings";
       settings: ReviewCanvasSettingsContent;
-    }
-  | {
-      kind: "completed";
-      reviewPath?: string;
-      showHome(): void;
-    }
-  | {
-      kind: "session";
-      bridge: ReviewCanvasBridge;
-      document: Promise<ReviewDocumentLoad>;
-      softwareMap: Promise<ReviewSoftwareMapLoad | null>;
-      softwareMapEnabled: boolean;
-      reviewErrors: readonly ReviewListError[];
-      range: ReviewCanvasRange;
-      commits: readonly ReviewCommitSummary[];
-      tutorial?: ReviewCanvasTutorialBridge;
     };
 
 export interface ReviewCanvasRange {
@@ -607,40 +552,6 @@ export type ReviewAgentSessionAttribution = z.infer<
   typeof ReviewAgentSessionAttributionSchema
 >;
 
-export const ReviewRecordSchema = z.strictObject({
-  schemaVersion: z.literal(REVIEW_SCHEMA_VERSION),
-  uuid: z.uuid({ error: "must be a UUID" }),
-  /* System Reviews use the complete stored-Review/session pipeline without
-     appearing in user-facing Review lists. Absence preserves the historical
-     user-visible default. */
-  visibility: z.literal("system").optional(),
-  repoKey: requiredString,
-  worktreePath: requiredString,
-  baseRef: requiredString,
-  baseCommit: requiredString,
-  sourceCommit: requiredString.nullable(),
-  sourceIdentity: ReviewSourceIdentitySchema.nullable(),
-  pullRequestNumber: positiveInteger.nullable().optional(),
-  pullRequestUrl: absoluteUrlSchema.nullable().optional(),
-  title: stringAllowEmpty,
-  sourceSession: requiredString,
-  agentSessions: z
-    .record(requiredString, ReviewAgentSessionAttributionSchema)
-    .optional(),
-  status: ReviewStatusSchema,
-  presentedDocumentRevision: requiredString.nullable(),
-  presentedSoftwareMapRevision: requiredString.nullable(),
-  createdAt: requiredString,
-  lastPublishedAt: requiredString.nullable(),
-  /* The attention axis, separate from status: status tracks the agent handoff,
-     these track the reader. Both stay optional so a review.json written before
-     this field existed still parses and needs no migration. */
-  viewedAt: requiredString.nullable().optional(),
-  dismissedAt: requiredString.nullable().optional(),
-});
-
-export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
-
 export const ReviewCommitSummarySchema = z.strictObject({
   commit: z
     .string({ error: "must be a 40-hex revision" })
@@ -658,75 +569,8 @@ export const ReviewCommitSummarySchema = z.strictObject({
 
 export type ReviewCommitSummary = z.infer<typeof ReviewCommitSummarySchema>;
 
-export const ReviewDescriptorSchema = z.strictObject({
-  sourceUnavailable: requiredString.optional(),
-  uuid: z.uuid({ error: "must be a UUID" }),
-  title: stringAllowEmpty,
-  status: z.enum([
-    "draft",
-    "awaiting-review",
-    "awaiting-agent-updates",
-    "accepted",
-    "rejected",
-  ]),
-  worktreePath: requiredString,
-  repoKey: requiredString,
-  sourceBranch: requiredString.nullable(),
-  baseRef: requiredString.optional(),
-  headRef: requiredString.optional(),
-  commits: z.array(ReviewCommitSummarySchema).optional(),
-  pullRequestNumber: positiveInteger.nullable().optional(),
-  pullRequestUrl: absoluteUrlSchema.nullable().optional(),
-  diffStats: z
-    .strictObject({
-      fileCount: nonNegativeInteger,
-      additions: nonNegativeInteger,
-      deletions: nonNegativeInteger,
-    })
-    .nullable()
-    .optional(),
-  documentUpdatedAt: requiredString.nullable().optional(),
-  presentedDocumentRevision: requiredString.nullable(),
-  presentedSoftwareMapRevision: requiredString.nullable(),
-  lastPublishedAt: requiredString.nullable(),
-  available: z.boolean(),
-  viewedAt: requiredString.nullable().optional(),
-  dismissedAt: requiredString.nullable().optional(),
-  /* Absolute deadline, so Home can count down without knowing the retention
-     setting. Null when retention is off or the review is not dismissed. */
-  reapsAt: requiredString.nullable().optional(),
-});
-
-export type ReviewDescriptor = z.infer<typeof ReviewDescriptorSchema>;
-
-/** Home needs display metadata, not a client-accessible checkout path. */
-export type ReviewHomeItem = Omit<
-  ReviewDescriptor,
-  "worktreePath" | "presentedSoftwareMapRevision"
-> & {
-  worktreePath?: string;
-  repositoryLabel?: string;
-};
-
-export const ReviewSessionDescriptorSchema = z.strictObject({
-  sessionId: requiredString,
-  sessionUrl: loopbackUrlSchema,
-  reviewUuid: z.uuid({ error: "must be a UUID" }),
-  routePath: routePathSchema,
-  startedAt: positiveInteger,
-  sourceUnavailable: requiredString.optional(),
-  historicalRevision: z
-    .string()
-    .regex(/^[0-9a-f]{40}$/)
-    .optional(),
-});
-
-export type ReviewSessionDescriptor = z.infer<
-  typeof ReviewSessionDescriptorSchema
->;
-
 export const ReviewDocumentVersionSchema = z.strictObject({
-  // Presentation identity: legacy Git revisions or API snapshot versions.
+  // The native snapshot version displayed by the canvas.
   revision: z.string().min(1),
   /** Unix milliseconds when the version was sealed. */
   sealedAt: positiveInteger,
@@ -747,80 +591,25 @@ export type AuthoringAgentSessionWire = z.infer<
   typeof AuthoringAgentSessionSchema
 >;
 
-// The two errors that carry more than a message. `mapStale` only means
-// something for needs_republish, so it lives in that variant and nowhere else.
-export const ReviewErrorDetailSchema = z.discriminatedUnion("code", [
-  z.strictObject({
-    code: z.literal("needs_republish"),
-    reviewUuid: z.uuid({ error: "must be a UUID" }),
-    mapStale: z.boolean(),
-  }),
-  z.strictObject({
-    code: z.literal("historical_revision_unavailable"),
-    reviewUuid: z.uuid({ error: "must be a UUID" }),
-  }),
-]);
-
-export type ReviewErrorDetail = z.infer<typeof ReviewErrorDetailSchema>;
-
-export const ReviewErrorResponseSchema = z
-  .strictObject({
-    ok: z.literal(false),
-    error: requiredString,
-    /** Machine-readable code for errors that carry no structured detail. */
-    code: requiredString.optional(),
-    retryable: z.boolean().optional(),
-    detail: ReviewErrorDetailSchema.optional(),
-  })
-  .refine((value) => value.code === undefined || value.detail === undefined, {
-    path: ["detail"],
-    message: "An error reports either a bare code or a structured detail",
-  });
+export const ReviewErrorResponseSchema = z.strictObject({
+  ok: z.literal(false),
+  error: requiredString,
+  code: requiredString.optional(),
+  retryable: z.boolean().optional(),
+});
 
 export type ReviewErrorResponse = z.infer<typeof ReviewErrorResponseSchema>;
 
-export const ReviewOpenResponseSchema = z.strictObject({
-  sessionId: requiredString,
-  url: loopbackUrlSchema,
-  session: ReviewSessionDescriptorSchema,
-  review: ReviewDescriptorSchema,
-});
-
-export type ReviewOpenResponse = z.infer<typeof ReviewOpenResponseSchema>;
-
-/* The tutorial Review is not in the review store, so `GET /reviews` never
-   lists it. The open response carries its descriptor and live session so the
-   app can open the tab without the Home list. */
+/** Managed tutorials use the native JSON canvas and stay out of Home. */
 export const ReviewTutorialOpenResponseSchema = z.strictObject({
+  kind: z.literal("api"),
   reviewUuid: z.uuid({ error: "must be a UUID" }),
-  sessionId: requiredString,
-  url: loopbackUrlSchema,
-  review: ReviewDescriptorSchema,
-  session: ReviewSessionDescriptorSchema,
+  title: stringAllowEmpty,
 });
 
 export type ReviewTutorialOpenResponse = z.infer<
   typeof ReviewTutorialOpenResponseSchema
 >;
-
-export const ReviewListResponseSchema = z.strictObject({
-  reviews: z.array(ReviewDescriptorSchema),
-  errors: z.array(
-    z.strictObject({
-      reviewDir: requiredString,
-      reviewUuid: z.uuid({ error: "must be a UUID" }).nullable(),
-      title: stringAllowEmpty,
-      worktreePath: requiredString,
-      lastPublishedAt: requiredString.nullable(),
-      message: requiredString,
-      code: requiredString.optional(),
-    }),
-  ),
-});
-
-export type ReviewListResponse = z.infer<typeof ReviewListResponseSchema>;
-
-export type ReviewListError = ReviewListResponse["errors"][number];
 
 export const ReviewStackLayerSchema = z.strictObject({
   branch: requiredString,
@@ -1018,109 +807,6 @@ export type ReviewCliInstallApplyResponse = z.infer<
   typeof ReviewCliInstallApplyResponseSchema
 >;
 
-export const ReviewSessionLifecycleEventSchema = z.discriminatedUnion("event", [
-  z.strictObject({ event: z.literal("ready"), sessionId: requiredString }),
-  z.strictObject({
-    event: z.literal("dismissed"),
-    sessionId: requiredString,
-    reason: z.enum(["closed", "replaced", "app-exit"]),
-  }),
-  z.strictObject({
-    event: z.literal("error"),
-    sessionId: requiredString,
-    error: requiredString,
-  }),
-]);
-
-export type ReviewSessionLifecycleEvent = z.infer<
-  typeof ReviewSessionLifecycleEventSchema
->;
-
-export const ReviewDesktopGlobalEventSchema = z.discriminatedUnion("event", [
-  z.strictObject({
-    event: z.literal("session-registered"),
-    session: ReviewSessionDescriptorSchema,
-    /* Publish carries the newly authoritative Home row. Ordinary session
-       opens omit it because Home already has the published descriptor. */
-    review: ReviewDescriptorSchema.optional(),
-    // True when the session was opened for a non-document surface (the
-    // Source tab rooting its file tree): the app must not surface the
-    // review document tab for it. Absent means foreground.
-    background: z.boolean().optional(),
-  }),
-  z.strictObject({
-    event: z.literal("session-updated"),
-    session: ReviewSessionDescriptorSchema,
-  }),
-  z.strictObject({
-    event: z.literal("review-data-changed"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-    sessionId: requiredString,
-  }),
-  z.strictObject({
-    event: z.literal("session-closed"),
-    sessionId: requiredString,
-    reason: requiredString,
-  }),
-  z.strictObject({
-    event: z.literal("review-status-changed"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-    status: ReviewStatusSchema,
-  }),
-  z.strictObject({
-    event: z.literal("review-deleted"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-  }),
-  /* Dismissal is the reader's terminal action. */
-  z.strictObject({
-    event: z.literal("review-attention-changed"),
-    uuid: z.uuid({ error: "must be a UUID" }),
-    attention: z.enum(["new", "viewed", "dismissed"]),
-    viewedAt: requiredString.nullable(),
-    dismissedAt: requiredString.nullable(),
-    reapsAt: requiredString.nullable(),
-  }),
-  z.strictObject({
-    event: z.literal("preferences-changed"),
-    preferences: z.strictObject({
-      dismissedRetentionDays: positiveInteger.nullable(),
-    }),
-  }),
-]);
-
-export type ReviewDesktopGlobalEvent = z.infer<
-  typeof ReviewDesktopGlobalEventSchema
->;
-
-export const ReviewSessionSchema = z.strictObject({
-  sessionId: requiredString.optional(),
-  rootPath: requiredString,
-  baseRootPath: requiredString.optional(),
-  headRootPath: requiredString.optional(),
-  baseRef: requiredString,
-  headRef: requiredString.optional(),
-  pullRequestNumber: positiveInteger.optional(),
-  pullRequestUrl: absoluteUrlSchema.optional(),
-  routePath: routePathSchema.optional(),
-  appUrl: absoluteUrlSchema,
-  appPort: positiveInteger.optional(),
-  serverUrl: urlSchema("origin").optional(),
-  sessionUrl: loopbackUrlSchema.optional(),
-  storageDir: requiredString.optional(),
-  reviewPath: requiredString,
-  codeGraphUrl: absoluteUrlSchema.optional(),
-  agent: AuthoringAgentSessionSchema.optional(),
-  resolvedBaseRef: requiredString.nullable().optional(),
-  reviewStatus: ReviewStatusSchema.optional(),
-  historicalRevision: z
-    .string()
-    .regex(/^[0-9a-f]{40}$/)
-    .optional(),
-  startedAt: positiveInteger,
-});
-
-export type ReviewSessionWire = z.infer<typeof ReviewSessionSchema>;
-
 export const ReviewDiffFileSchema = z.strictObject({
   path: requiredString,
   previousPath: requiredString.optional(),
@@ -1208,53 +894,6 @@ export const ReviewFileContentResponseSchema = z.union([
 export type ReviewFileContentResponse = z.infer<
   typeof ReviewFileContentResponseSchema
 >;
-
-export const ReviewSessionResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    session: ReviewSessionSchema,
-    token: requiredString,
-  }),
-  ReviewErrorResponseSchema,
-]);
-
-export type ReviewSessionResponse = z.infer<typeof ReviewSessionResponseSchema>;
-
-export const ReviewDocumentResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    contentHash: requiredString,
-    documentUrl: absoluteUrlSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-
-export type ReviewDocumentResponse = z.infer<
-  typeof ReviewDocumentResponseSchema
->;
-
-export const ReviewSoftwareMapResponseSchema = z.discriminatedUnion("ok", [
-  z.strictObject({
-    ok: z.literal(true),
-    contentHash: requiredString,
-    headMapUrl: absoluteUrlSchema,
-    baseMapUrl: absoluteUrlSchema,
-  }),
-  ReviewErrorResponseSchema,
-]);
-
-export type ReviewSoftwareMapResponse = z.infer<
-  typeof ReviewSoftwareMapResponseSchema
->;
-
-export const ReviewServerEventSchema = z.discriminatedUnion("event", [
-  z.strictObject({
-    event: z.literal("session-updated"),
-    session: ReviewSessionSchema,
-  }),
-]);
-
-export type ReviewServerEvent = z.infer<typeof ReviewServerEventSchema>;
 
 export const ReviewRangeSchema = z
   .strictObject({
@@ -1380,7 +1019,6 @@ export type ReviewVerbResponse = z.infer<typeof ReviewVerbResponseSchema>;
 export const ReviewDesktopVerbFrameSchema = z.strictObject({
   event: z.literal("desktop-verb"),
   id: requiredString,
-  sessionId: requiredString,
   request: ReviewVerbRequestSchema,
 });
 
@@ -1390,7 +1028,6 @@ export type ReviewDesktopVerbFrame = z.infer<
 
 export const ReviewDesktopVerbResultSchema = z.strictObject({
   id: requiredString,
-  sessionId: requiredString,
   response: ReviewVerbResponseSchema,
 });
 
@@ -1414,6 +1051,7 @@ export const ReviewSelectedDiffSchema = z.strictObject({
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("editorSelectionChanged"),
+    reviewId: requiredString,
     anchor: z.object({ x: z.number(), y: z.number() }).optional(),
     path: requiredString,
     range: ReviewRangeSchema,
@@ -1435,22 +1073,12 @@ export type ReviewSurfaceEvent = z.infer<typeof ReviewSurfaceEventSchema>;
 
 // --- Agent trace view & trace quotes ----------------------------------------
 
-export const ReviewTraceStorageKindSchema = z.enum(["s3", "hosted"]);
-
-export type ReviewTraceStorageKind = z.infer<
-  typeof ReviewTraceStorageKindSchema
->;
-
 export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),
     configured: z.boolean().default(true),
-    // The store these sessions came from, and every store the machine can
-    // read; absent from older CLIs.
     storage: z.enum(["s3", "hosted", "none"]).optional(),
-    sources: z.array(ReviewTraceStorageKindSchema).optional(),
-    // Why the selected store answered nothing: a refusal, a missing login
-    // for a requested source, or a malformed config. Absent from older CLIs.
+    sources: z.array(z.enum(["s3", "hosted"])).optional(),
     storageError: requiredString.optional(),
     sessions: z.array(ReviewAgentTraceSessionSchema),
   }),

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 
-import { selectedDiffMarkdown, selectionMarkdown } from "./agent-selection";
+import { AgentSelectionSchema, selectedDiffMarkdown } from "./agent-selection";
 
 it("preserves mixed diff rows and independent line counts", () => {
   const text = selectedDiffMarkdown({
@@ -74,41 +74,23 @@ it("uses pinned worktree roots even when the file is absent on one side", () => 
   );
 });
 
-it("formats authored diagram context without internal target metadata", () => {
-  const text = selectionMarkdown({
-    title: "Projection",
-    target: {
-      kind: "graph",
-      diagram: "Pipeline",
-      elementType: "node",
-      label: "Projection",
-    },
-    diagramContext: {
-      kind: "node",
-      description: "Builds visible rows.",
-      incoming: ["Stream → Projection: updates"],
-      outgoing: ["Projection → TUI: rows"],
-    },
-  });
-
-  expect(text).toBe(
-    "Diagram: Pipeline\n\nNode: Projection\n\nDescription:\nBuilds visible rows.\n\nIncoming:\n- Stream → Projection: updates\n\nOutgoing:\n- Projection → TUI: rows",
-  );
-});
-
-it("formats a sequence message with endpoints and only available fields", () => {
-  const text = selectionMarkdown({
-    title: "Request",
-    target: {
-      kind: "graph",
-      diagram: "Requests",
-      elementType: "edge",
-      label: "Fetch rows",
-    },
-    diagramContext: { kind: "sequence message", from: "Client", to: "Server" },
-  });
-
-  expect(text).toBe(
-    "Diagram: Requests\n\nClient → Server\n\nMessage: Fetch rows",
-  );
+it("rejects graph selections and diagram context at the copy boundary", () => {
+  expect(
+    AgentSelectionSchema.safeParse({
+      title: "Diagram",
+      target: {
+        kind: "graph",
+        diagram: "DB",
+        label: "Orders",
+        elementType: "node",
+      },
+    }).success,
+  ).toBe(false);
+  expect(
+    AgentSelectionSchema.safeParse({
+      title: "Prose",
+      target: { kind: "text", quote: "hello" },
+      diagramContext: { kind: "node" },
+    }).success,
+  ).toBe(false);
 });

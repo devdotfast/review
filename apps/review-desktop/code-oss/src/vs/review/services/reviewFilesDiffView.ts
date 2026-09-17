@@ -4,160 +4,101 @@
  *--------------------------------------------------------------------------------------------*/
 
 import "../browser/media/review.css";
-
 import { $, append, Dimension } from "../../base/browser/dom.js";
-import {
-  Orientation,
-  SplitView,
-} from "../../base/browser/ui/splitview/splitview.js";
+import { Orientation, SplitView } from "../../base/browser/ui/splitview/splitview.js";
 import { Emitter, Event } from "../../base/common/event.js";
 import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
 import { isEqual } from "../../base/common/resources.js";
 import { URI } from "../../base/common/uri.js";
 import { ElementSizeObserver } from "../../editor/browser/config/elementSizeObserver.js";
-import type {
-  ICodeEditor,
-  IDiffEditor,
-} from "../../editor/browser/editorBrowser.js";
-import { MultiDiffEditorWidget } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidget.js";
+import type { ICodeEditor, IDiffEditor } from "../../editor/browser/editorBrowser.js";
 import { MultiDiffEditorViewModel } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorViewModel.js";
-import { IDiffEditorOptions } from "../../editor/common/config/editorOptions.js";
+import { MultiDiffEditorWidget } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidget.js";
 import type { IMultiDiffEditorViewState } from "../../editor/browser/widget/multiDiffEditor/multiDiffEditorWidgetImpl.js";
-import { ITextResourceConfigurationService } from "../../editor/common/services/textResourceConfiguration.js";
+import { IDiffEditorOptions } from "../../editor/common/config/editorOptions.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
+import { ITextResourceConfigurationService } from "../../editor/common/services/textResourceConfiguration.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { MultiDiffEditorInput } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffEditorInput.js";
 import {
-  IMultiDiffSourceResolverService,
-  MultiDiffEditorItem,
+	IMultiDiffSourceResolverService,
+	MultiDiffEditorItem,
 } from "../../workbench/contrib/multiDiffEditor/browser/multiDiffSourceResolverService.js";
 import { IEditorGroupsService } from "../../workbench/services/editor/common/editorGroupsService.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import { ITextFileService } from "../../workbench/services/textfile/common/textfiles.js";
-import {
-  type ReviewCommitScope,
-  type ReviewDiffFileWire,
-} from "../common/reviewProtocol.js";
-import {
-  orderReviewDiffFiles,
-  ReviewChangedFilesTree,
-} from "../browser/reviewChangedFilesTree.js";
-import type { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
+import { ReviewChangedFilesTree } from "../browser/reviewChangedFilesTree.js";
+import { type ReviewCommitScope, type ReviewDiffFileWire } from "../common/reviewProtocol.js";
 import type { ReviewDiffLayoutSetting } from "./reviewDiffLayout.js";
-import type { ReviewDesktopSession } from "./reviewSessionModelService.js";
-import {
-  ReviewMultiDiffUIElementFactory,
-  reviewMultiDiffLabelUris,
-} from "./reviewMultiDiff.js";
-
-import { ReviewUnifiedFilesEditor } from "./reviewUnifiedFilesEditor.js";
+import { reviewMultiDiffLabelUris, ReviewMultiDiffUIElementFactory } from "./reviewMultiDiff.js";
 
 const FILE_TREE_MINIMUM_WIDTH = 180;
 const DIFF_MINIMUM_WIDTH = 320;
-const FILE_TREE_COLLAPSE_WIDTH =
-  FILE_TREE_MINIMUM_WIDTH + DIFF_MINIMUM_WIDTH;
+const FILE_TREE_COLLAPSE_WIDTH = FILE_TREE_MINIMUM_WIDTH + DIFF_MINIMUM_WIDTH;
 const REVIEW_FILES_DIFF_EDITOR_OPTIONS = {
-  hideUnchangedRegions: { enabled: true },
-  originalEditable: false,
-  readOnly: true,
-  glyphMargin: false,
-  lineNumbersMinChars: 3,
+	hideUnchangedRegions: { enabled: true },
+	originalEditable: false,
+	readOnly: true,
+	glyphMargin: false,
+	lineNumbersMinChars: 3,
 } satisfies IDiffEditorOptions;
 
 export interface ReviewFilesEditorEntry {
-  readonly file: ReviewDiffFileWire;
-  readonly original: URI | undefined;
-  readonly modified: URI | undefined;
-  readonly goToFileResource: URI;
-}
-
-/** The multi-diff source URI that identifies one session's changed files. */
-export function reviewFilesSourceUri(
-  session: ReviewDesktopSession,
-  scope?: ReviewCommitScope,
-): URI {
-  return URI.from({
-    scheme: "devfast-review-files",
-    authority: session.session.sessionId,
-    path: session.session.routePath ?? "/",
-    query: scope?.commit ? `commit=${scope.commit}` : undefined,
-  });
-}
-
-/** Resolves one diff entry per changed file, base and head side by side. */
-export async function buildReviewFilesEntries(
-  codeResources: IReviewCodeResourceService,
-  scope?: ReviewCommitScope,
-): Promise<readonly ReviewFilesEditorEntry[]> {
-  const files = orderReviewDiffFiles(await codeResources.files(scope));
-  return Promise.all(
-    files.map(async (file): Promise<ReviewFilesEditorEntry> => {
-      const modified = await codeResources.target(file.path, "head", scope);
-      const original = await codeResources.target(
-        file.previousPath ?? file.path,
-        "base",
-        scope,
-      );
-      return {
-        file,
-        original: original.resource,
-        modified: modified.resource,
-        goToFileResource:
-          file.status === "deleted" ? original.resource : modified.resource,
-      };
-    }),
-  );
+	readonly file: ReviewDiffFileWire;
+	readonly original: URI | undefined;
+	readonly modified: URI | undefined;
+	readonly goToFileResource: URI;
 }
 
 export class ReviewFilesEditorInput extends MultiDiffEditorInput {
-  readonly scope: ReviewCommitScope | undefined;
-  static override readonly ID = "workbench.input.devfast.reviewFiles";
-  static readonly EDITOR_ID = "workbench.editor.devfast.reviewFiles";
+	readonly scope: ReviewCommitScope | undefined;
+	static override readonly ID = "workbench.input.devfast.reviewFiles";
+	static readonly EDITOR_ID = "workbench.editor.devfast.reviewFiles";
 
-  constructor(
-    source: URI,
-    readonly entries: readonly ReviewFilesEditorEntry[],
-    @ITextModelService textModelService: ITextModelService,
-    @ITextResourceConfigurationService
-    textResourceConfigurationService: ITextResourceConfigurationService,
-    @IInstantiationService instantiationService: IInstantiationService,
-    @IMultiDiffSourceResolverService
-    multiDiffSourceResolverService: IMultiDiffSourceResolverService,
-    @ITextFileService textFileService: ITextFileService,
-  ) {
-    super(
-      source,
-      "Files",
-      entries.map(
-        (entry) =>
-          new MultiDiffEditorItem(
-            entry.original,
-            entry.modified,
-            entry.goToFileResource,
-            undefined,
-            undefined,
-            reviewMultiDiffLabelUris(entry.file),
-            REVIEW_FILES_DIFF_EDITOR_OPTIONS,
-          ),
-      ),
-      true,
-      textModelService,
-      textResourceConfigurationService,
-      instantiationService,
-      multiDiffSourceResolverService,
-      textFileService,
-    );
-    const commit = new URLSearchParams(source.query).get("commit");
-    this.scope = commit ? { commit } : undefined;
-  }
+	constructor(
+		source: URI,
+		readonly entries: readonly ReviewFilesEditorEntry[],
+		@ITextModelService textModelService: ITextModelService,
+		@ITextResourceConfigurationService
+		textResourceConfigurationService: ITextResourceConfigurationService,
+		@IInstantiationService instantiationService: IInstantiationService,
+		@IMultiDiffSourceResolverService
+		multiDiffSourceResolverService: IMultiDiffSourceResolverService,
+		@ITextFileService textFileService: ITextFileService,
+	) {
+		super(
+			source,
+			"Files",
+			entries.map(
+				(entry) =>
+					new MultiDiffEditorItem(
+						entry.original,
+						entry.modified,
+						entry.goToFileResource,
+						undefined,
+						undefined,
+						reviewMultiDiffLabelUris(entry.file),
+						REVIEW_FILES_DIFF_EDITOR_OPTIONS,
+					),
+			),
+			true,
+			textModelService,
+			textResourceConfigurationService,
+			instantiationService,
+			multiDiffSourceResolverService,
+			textFileService,
+		);
+		const commit = new URLSearchParams(source.query).get("commit");
+		this.scope = commit ? { commit } : undefined;
+	}
 
-  override get typeId(): string {
-    return ReviewFilesEditorInput.ID;
-  }
+	override get typeId(): string {
+		return ReviewFilesEditorInput.ID;
+	}
 
-  override get editorId(): string {
-    return ReviewFilesEditorInput.EDITOR_ID;
-  }
+	override get editorId(): string {
+		return ReviewFilesEditorInput.EDITOR_ID;
+	}
 }
 
 /**
@@ -168,231 +109,179 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
  * layout call.
  */
 export class ReviewFilesDiffView extends Disposable {
-  private readonly _onDidChangeActiveControl = this._register(
-    new Emitter<void>(),
-  );
-  readonly onDidChangeActiveControl = this._onDidChangeActiveControl.event;
+	private readonly _onDidChangeActiveControl = this._register(new Emitter<void>());
+	readonly onDidChangeActiveControl = this._onDidChangeActiveControl.event;
 
-  private readonly root: HTMLElement;
-  private readonly splitView: SplitView<number>;
-  private readonly changedFilesTree: ReviewChangedFilesTree;
-  private readonly widget: MultiDiffEditorWidget;
-  private viewModel: MultiDiffEditorViewModel | undefined;
-  private input: ReviewFilesEditorInput | undefined;
+	private readonly root: HTMLElement;
+	private readonly splitView: SplitView<number>;
+	private readonly changedFilesTree: ReviewChangedFilesTree;
+	private readonly widget: MultiDiffEditorWidget;
+	private viewModel: MultiDiffEditorViewModel | undefined;
+	private input: ReviewFilesEditorInput | undefined;
 
-  constructor(
-    private readonly container: HTMLElement,
-    overflowWidgetsDomNode: HTMLElement | undefined,
-    layout: ReviewDiffLayoutSetting,
-    @IInstantiationService
-    private readonly reviewInstantiationService: IInstantiationService,
-    @IEditorService private readonly editorService: IEditorService,
-    @IEditorGroupsService
-    private readonly editorGroupService: IEditorGroupsService,
-  ) {
-    super();
-    this.root = append(container, $(".review-files-editor"));
-    const fileTree = append(this.root, $(".review-files-editor-tree"));
-    const diffContainer = append(this.root, $(".review-files-editor-diffs"));
+	constructor(
+		private readonly container: HTMLElement,
+		overflowWidgetsDomNode: HTMLElement | undefined,
+		layout: ReviewDiffLayoutSetting,
+		@IInstantiationService
+		private readonly reviewInstantiationService: IInstantiationService,
+		@IEditorService private readonly editorService: IEditorService,
+		@IEditorGroupsService
+		private readonly editorGroupService: IEditorGroupsService,
+	) {
+		super();
+		this.root = append(container, $(".review-files-editor"));
+		const fileTree = append(this.root, $(".review-files-editor-tree"));
+		const diffContainer = append(this.root, $(".review-files-editor-diffs"));
 
-    const factory = this.reviewInstantiationService.createInstance(
-      ReviewMultiDiffUIElementFactory,
-      () =>
-        this.input
-          ? this.input.entries.map((entry) => ({
-              original: entry.original,
-              modified: entry.modified,
-              additions: entry.file.additions,
-              deletions: entry.file.deletions,
-              onDidOpen: () => {
-                void this.editorService.openEditor(
-                  {
-                    resource: entry.goToFileResource,
-                    options: { pinned: true, revealIfVisible: true },
-                  },
-                  this.editorGroupService.mainPart.activeGroup,
-                );
-              },
-            }))
-          : [],
-      "auto",
-      // Hover and definition widgets must escape the canvas root, whose
-      // container-query containment clips position: fixed descendants.
-      overflowWidgetsDomNode,
-      false,
-      undefined,
-    );
-    factory.createUnifiedEditor = (element, original, modified, instantiationService) => {
-      const entry = this.input?.entries.find(
-        (entry) =>
-          sameResource(entry.original, original) &&
-          sameResource(entry.modified, modified),
-      );
-      if (!entry?.file.patch) return undefined;
-      return instantiationService.createInstance(
-        ReviewUnifiedFilesEditor,
-        element,
-        overflowWidgetsDomNode,
-        entry.file.path,
-        this.input?.scope,
-      );
-    };
-    this.widget = this._register(
-      this.reviewInstantiationService.createInstance(
-        MultiDiffEditorWidget,
-        diffContainer,
-        factory,
-        undefined,
-      ),
-    );
-    // The widget's own switch, not the per-item option refresh: it pins the
-    // width heuristic off, so the chosen layout is what renders at any width.
-    const applyLayout = () =>
-      this.widget.setRenderSideBySide(layout.get() === "split");
-    this._register(layout.onDidChange(applyLayout));
-    applyLayout();
-    this._register(
-      this.widget.onDidChangeActiveControl(() =>
-        this._onDidChangeActiveControl.fire(),
-      ),
-    );
-    this._register(
-      this.widget.onDidChangeActiveUnifiedControl(() =>
-        this._onDidChangeActiveControl.fire(),
-      ),
-    );
-    this._register(
-      this.widget.onDidChangeActiveItem(() =>
-        this.syncFileSelectionFromWidget(),
-      ),
-    );
-    this.changedFilesTree = this._register(
-      this.reviewInstantiationService.createInstance(
-        ReviewChangedFilesTree,
-        fileTree,
-      ),
-    );
-    this._register(
-      this.changedFilesTree.onDidOpenFile((file) => {
-        const element = this.input?.entries.find(
-          (entry) => entry.file.path === file.path,
-        );
-        if (!element) return;
-        this.reveal({
-          original: element.original,
-          modified: element.modified,
-        });
-      }),
-    );
-    this.splitView = this._register(
-      new SplitView<number>(this.root, {
-        orientation: Orientation.HORIZONTAL,
-        proportionalLayout: true,
-      }),
-    );
-    this.splitView.addView(
-      {
-        element: fileTree,
-        layout: (width, _offset, height) => {
-          fileTree.style.width = `${width}px`;
-          this.changedFilesTree.layout(height ?? 0, width);
-        },
-        maximumSize: 380,
-        minimumSize: FILE_TREE_MINIMUM_WIDTH,
-        onDidChange: Event.None,
-      },
-      260,
-    );
-    this.splitView.addView(
-      {
-        element: diffContainer,
-        layout: (width, _offset, height) => {
-          diffContainer.style.width = `${width}px`;
-          this.widget.layout(new Dimension(width, height ?? 0));
-        },
-        maximumSize: Number.POSITIVE_INFINITY,
-        minimumSize: DIFF_MINIMUM_WIDTH,
-        onDidChange: Event.None,
-      },
-      740,
-    );
+		const factory = this.reviewInstantiationService.createInstance(
+			ReviewMultiDiffUIElementFactory,
+			() =>
+				this.input
+					? this.input.entries.map((entry) => ({
+							original: entry.original,
+							modified: entry.modified,
+							additions: entry.file.additions,
+							deletions: entry.file.deletions,
+							onDidOpen: () => {
+								void this.editorService.openEditor(
+									{
+										resource: entry.goToFileResource,
+										options: { pinned: true, revealIfVisible: true },
+									},
+									this.editorGroupService.mainPart.activeGroup,
+								);
+							},
+						}))
+					: [],
+			"auto",
+			// Hover and definition widgets must escape the canvas root, whose
+			// container-query containment clips position: fixed descendants.
+			overflowWidgetsDomNode,
+			false,
+			undefined,
+		);
+		this.widget = this._register(
+			this.reviewInstantiationService.createInstance(MultiDiffEditorWidget, diffContainer, factory, undefined),
+		);
+		// The widget's own switch, not the per-item option refresh: it pins the
+		// width heuristic off, so the chosen layout is what renders at any width.
+		const applyLayout = () => this.widget.setRenderSideBySide(layout.get() === "split");
+		this._register(layout.onDidChange(applyLayout));
+		applyLayout();
+		this._register(this.widget.onDidChangeActiveControl(() => this._onDidChangeActiveControl.fire()));
+		this._register(this.widget.onDidChangeActiveUnifiedControl(() => this._onDidChangeActiveControl.fire()));
+		this._register(this.widget.onDidChangeActiveItem(() => this.syncFileSelectionFromWidget()));
+		this.changedFilesTree = this._register(
+			this.reviewInstantiationService.createInstance(ReviewChangedFilesTree, fileTree),
+		);
+		this._register(
+			this.changedFilesTree.onDidOpenFile((file) => {
+				const element = this.input?.entries.find((entry) => entry.file.path === file.path);
+				if (!element) return;
+				this.reveal({
+					original: element.original,
+					modified: element.modified,
+				});
+			}),
+		);
+		this.splitView = this._register(
+			new SplitView<number>(this.root, {
+				orientation: Orientation.HORIZONTAL,
+				proportionalLayout: true,
+			}),
+		);
+		this.splitView.addView(
+			{
+				element: fileTree,
+				layout: (width, _offset, height) => {
+					fileTree.style.width = `${width}px`;
+					this.changedFilesTree.layout(height ?? 0, width);
+				},
+				maximumSize: 380,
+				minimumSize: FILE_TREE_MINIMUM_WIDTH,
+				onDidChange: Event.None,
+			},
+			260,
+		);
+		this.splitView.addView(
+			{
+				element: diffContainer,
+				layout: (width, _offset, height) => {
+					diffContainer.style.width = `${width}px`;
+					this.widget.layout(new Dimension(width, height ?? 0));
+				},
+				maximumSize: Number.POSITIVE_INFINITY,
+				minimumSize: DIFF_MINIMUM_WIDTH,
+				onDidChange: Event.None,
+			},
+			740,
+		);
 
-    const sizeObserver = this._register(
-      new ElementSizeObserver(this.container, undefined),
-    );
-    this._register(sizeObserver.onDidChange(() => this.layout()));
-    sizeObserver.startObserving();
-    this.layout();
-    // Registered last so it runs last: the widgets above tear their own DOM
-    // down, and they must do that while the tree is still attached.
-    this._register(toDisposable(() => this.root.remove()));
-  }
+		const sizeObserver = this._register(new ElementSizeObserver(this.container, undefined));
+		this._register(sizeObserver.onDidChange(() => this.layout()));
+		sizeObserver.startObserving();
+		this.layout();
+		// Registered last so it runs last: the widgets above tear their own DOM
+		// down, and they must do that while the tree is still attached.
+		this._register(toDisposable(() => this.root.remove()));
+	}
 
-  async setInput(
-    input: ReviewFilesEditorInput,
-    viewState: IMultiDiffEditorViewState | undefined,
-  ): Promise<void> {
-    this.input = input;
-    const viewModel = await input.getViewModel();
-    if (this._store.isDisposed) return;
-    this.viewModel = viewModel;
-    // The canvas mounts this view without a user gesture, so the widget's
-    // first-change navigation must never take keyboard focus.
-    this.widget.setViewModel(viewModel, { preserveFocus: true, viewState });
-    this.changedFilesTree.setFiles(input.entries.map((entry) => entry.file));
-    this.syncFileSelectionFromWidget();
-  }
+	async setInput(input: ReviewFilesEditorInput, viewState: IMultiDiffEditorViewState | undefined): Promise<void> {
+		this.input = input;
+		const viewModel = await input.getViewModel();
+		if (this._store.isDisposed) return;
+		this.viewModel = viewModel;
+		// The canvas mounts this view without a user gesture, so the widget's
+		// first-change navigation must never take keyboard focus.
+		this.widget.setViewModel(viewModel, { preserveFocus: true, viewState });
+		this.changedFilesTree.setFiles(input.entries.map((entry) => entry.file));
+		this.syncFileSelectionFromWidget();
+	}
 
-  getViewState(): IMultiDiffEditorViewState | undefined {
-    return this.viewModel ? this.widget.getViewState() : undefined;
-  }
+	getViewState(): IMultiDiffEditorViewState | undefined {
+		return this.viewModel ? this.widget.getViewState() : undefined;
+	}
 
-  getActiveUnifiedControl(): ICodeEditor | undefined {
-    return this.widget.getActiveUnifiedControl();
-  }
+	getActiveUnifiedControl(): ICodeEditor | undefined {
+		return this.widget.getActiveUnifiedControl();
+	}
 
-  getActiveControl(): IDiffEditor | undefined {
-    return this.widget.getActiveControl();
-  }
+	getActiveControl(): IDiffEditor | undefined {
+		return this.widget.getActiveControl();
+	}
 
-  focus(): void {
-    (
-      this.widget.getActiveUnifiedControl() ?? this.widget.getActiveControl()
-    )?.focus();
-  }
+	focus(): void {
+		(this.widget.getActiveUnifiedControl() ?? this.widget.getActiveControl())?.focus();
+	}
 
-  layout(): void {
-    const width = this.container.clientWidth;
-    const height = this.container.clientHeight;
-    if (width <= 0 || height <= 0) return;
+	layout(): void {
+		const width = this.container.clientWidth;
+		const height = this.container.clientHeight;
+		if (width <= 0 || height <= 0) return;
 
-    const fileTreeVisible = width >= FILE_TREE_COLLAPSE_WIDTH;
-    if (this.splitView.isViewVisible(0) !== fileTreeVisible) {
-      this.splitView.setViewVisible(0, fileTreeVisible);
-    }
+		const fileTreeVisible = width >= FILE_TREE_COLLAPSE_WIDTH;
+		if (this.splitView.isViewVisible(0) !== fileTreeVisible) {
+			this.splitView.setViewVisible(0, fileTreeVisible);
+		}
 
-    this.splitView.layout(width, height);
-  }
-  private reveal(resource: {
-    original: URI | undefined;
-    modified: URI | undefined;
-  }): void {
-    this.widget.reveal(resource, { highlight: true });
-  }
+		this.splitView.layout(width, height);
+	}
+	private reveal(resource: { original: URI | undefined; modified: URI | undefined }): void {
+		this.widget.reveal(resource, { highlight: true });
+	}
 
-  private syncFileSelectionFromWidget(): void {
-    const resource = this.widget.getActiveItem();
-    const input = this.input;
-    if (!resource || !input) return;
-    const index = input.entries.findIndex(
-      (entry) =>
-        sameResource(entry.original, resource.original) &&
-        sameResource(entry.modified, resource.modified),
-    );
-    if (index === -1) return;
-    this.changedFilesTree.setActiveFile(input.entries[index].file.path);
-  }
+	private syncFileSelectionFromWidget(): void {
+		const resource = this.widget.getActiveItem();
+		const input = this.input;
+		if (!resource || !input) return;
+		const index = input.entries.findIndex(
+			(entry) => sameResource(entry.original, resource.original) && sameResource(entry.modified, resource.modified),
+		);
+		if (index === -1) return;
+		this.changedFilesTree.setActiveFile(input.entries[index].file.path);
+	}
 }
 function sameResource(left: URI | undefined, right: URI | undefined): boolean {
-  return left === undefined ? right === undefined : !!right && isEqual(left, right);
+	return left === undefined ? right === undefined : !!right && isEqual(left, right);
 }

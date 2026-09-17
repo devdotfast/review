@@ -27,10 +27,10 @@ describe("ReviewSessionProvider", () => {
 
     const session = testReviewSession({}, { request });
 
-    await session.fetch("/revisions");
+    await session.fetch("/versions");
 
     expect(request).toHaveBeenCalledWith(
-      "http://127.0.0.1:5570/sessions/test-session/__progressive-review/revisions?document=%2Freview.mdx",
+      "http://127.0.0.1:5570/reviews-api/test-review/versions",
       expect.objectContaining({
         headers: expect.any(Headers),
       }),
@@ -44,12 +44,7 @@ describe("ReviewSessionProvider", () => {
     const postedB: ReviewVerbRequest[] = [];
 
     const sessionA = testReviewSession(
-      {
-        sessionUrl: "http://127.0.0.1:5570/sessions/a",
-        sessionId: "a",
-        routePath: "/a.mdx",
-        token: "token-a",
-      },
+      { reviewId: "a", token: "token-a" },
       {
         post: async (request) => {
           postedA.push(request);
@@ -60,12 +55,7 @@ describe("ReviewSessionProvider", () => {
     );
 
     const sessionB = testReviewSession(
-      {
-        sessionUrl: "http://127.0.0.1:5570/sessions/b",
-        sessionId: "b",
-        routePath: "/b.mdx",
-        token: "token-b",
-      },
+      { reviewId: "b", token: "token-b" },
       {
         post: async (request) => {
           postedB.push(request);
@@ -102,16 +92,16 @@ describe("ReviewSessionProvider", () => {
     });
 
     expect(containerA.querySelector("output")?.textContent).toContain(
-      "/sessions/a/__progressive-review/session",
+      "/reviews-api/a/file",
     );
     expect(containerA.querySelector("output")?.textContent).toContain(
-      "progressive-review:probe:a:/a.mdx",
+      "progressive-review:probe:a",
     );
     expect(containerB.querySelector("output")?.textContent).toContain(
-      "/sessions/b/__progressive-review/session",
+      "/reviews-api/b/file",
     );
     expect(containerB.querySelector("output")?.textContent).toContain(
-      "progressive-review:probe:b:/b.mdx",
+      "progressive-review:probe:b",
     );
 
     await act(async () => rootA.unmount());
@@ -119,14 +109,14 @@ describe("ReviewSessionProvider", () => {
     await act(async () => {
       containerB.querySelector("button")?.click();
     });
-    await sessionB.fetch("/session");
+    await sessionB.fetch("/file");
 
     expect(postedA).toEqual([]);
     expect(postedB).toEqual([
       { name: "showReviewView", args: { view: "diff" } },
     ]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:5570/sessions/b/__progressive-review/session?document=%2Fb.mdx",
+      "http://127.0.0.1:5570/reviews-api/b/file",
       expect.objectContaining({
         headers: expect.objectContaining({}),
       }),
@@ -143,7 +133,7 @@ function SessionProbe() {
   return (
     <>
       <output>
-        {session.apiUrl("/session")} {session.storageKey("probe")} {clicks}
+        {session.apiUrl("/file")} {session.storageKey("probe")} {clicks}
       </output>
       <button
         type="button"

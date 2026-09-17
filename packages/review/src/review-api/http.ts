@@ -14,6 +14,7 @@ import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import type { ReviewStore, Snapshot } from "./store.js";
+import { listPinnedTraces, readStoredTrace } from "./traces.js";
 import { workspaceSettingsSchema } from "./workspaces.js";
 
 /** Mounted behind the desktop server's existing token authentication. */
@@ -248,6 +249,39 @@ export function createReviewApi(
       });
     }
 
+    const traceQuery = readQuerySchemas.maps.extend({
+      storage: z.enum(["s3", "hosted"]).optional(),
+      trace: z.string().min(1).optional(),
+    });
+
+    app.get("/:id/agent-traces", async (context) => {
+      const query = traceQuery.parse(context.req.query());
+      const { pins } = store.read(context.req.param("id"), query.version);
+
+      return context.json(
+        await listPinnedTraces(
+          store.repositoryPath(pins.repositoryId),
+          pins,
+          query.storage,
+        ),
+      );
+    });
+    app.get("/:id/agent-traces/:sessionId", async (context) => {
+      const query = traceQuery.parse(context.req.query());
+      const { pins } = store.read(context.req.param("id"), query.version);
+
+      const result = await readStoredTrace(
+        store.repositoryPath(pins.repositoryId),
+        context.req.param("sessionId"),
+        query.trace,
+        query.storage,
+      );
+
+      if (!result.ok)
+        return context.json({ ok: false, error: result.error }, result.status);
+
+      return context.json(result);
+    });
     app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 
@@ -402,7 +436,7 @@ export function createReviewApi(
 
     return context.json({
       text: [
-        `Selected ${target.kind === "text" ? "text" : target.kind === "code" ? "code" : "diagram element"} from Review: ${snapshot.title}`,
+        `Selected ${target.kind === "text" ? "text" : "code"} from Review: ${snapshot.title}`,
         `Review ID: ${snapshot.reviewId}`,
         `Version: ${snapshot.version}`,
         `Repository ID: ${snapshot.pins.repositoryId}`,
@@ -420,7 +454,6 @@ export function createReviewApi(
   app.get("/:id/stack", async (context) => {
     const query = readQuerySchemas.get.parse(context.req.query());
     const snapshot = store.read(context.req.param("id"), query.version);
-    const repositoryId = snapshot.pins.repositoryId;
 
     const repoKey = (review: Pick<Snapshot, "origin" | "pins">) =>
       review.origin?.pullRequestUrl?.replace(/\/pull\/\d+.*$/, "") ??
@@ -428,9 +461,7 @@ export function createReviewApi(
 
     const layers = await resolveReviewStackLayers(
       {
-        repoKey: repoKey(snapshot),
-        worktreePath: store.repositoryPath(repositoryId),
-        pullRequestNumber: snapshot.origin?.pullRequestNumber,
+        pullRequestUrl: snapshot.origin?.pullRequestUrl,
       },
       store.list().map((review) => ({
         uuid: review.reviewId,

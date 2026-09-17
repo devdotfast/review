@@ -3,42 +3,42 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { localize, localize2 } from '../../../nls.js';
-import { isCancellationError } from '../../../base/common/errors.js';
-import { isLinux, isMacintosh } from '../../../base/common/platform.js';
-import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
-import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
-import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
-import { INativeHostService } from '../../../platform/native/common/native.js';
-import { INotificationService } from '../../../platform/notification/common/notification.js';
-import { Registry } from '../../../platform/registry/common/platform.js';
-import { IStorageService, StorageScope } from '../../../platform/storage/common/storage.js';
-import { INativeWorkbenchEnvironmentService } from '../../../workbench/services/environment/electron-browser/environmentService.js';
-import { LifecyclePhase } from '../../../workbench/services/lifecycle/common/lifecycle.js';
+import { isCancellationError } from "../../../base/common/errors.js";
+import { isLinux, isMacintosh } from "../../../base/common/platform.js";
+import { localize, localize2 } from "../../../nls.js";
+import { Action2, registerAction2 } from "../../../platform/actions/common/actions.js";
+import { IDialogService } from "../../../platform/dialogs/common/dialogs.js";
+import type { ServicesAccessor } from "../../../platform/instantiation/common/instantiation.js";
+import { INativeHostService } from "../../../platform/native/common/native.js";
+import { INotificationService } from "../../../platform/notification/common/notification.js";
+import { Registry } from "../../../platform/registry/common/platform.js";
+import { IStorageService, StorageScope } from "../../../platform/storage/common/storage.js";
 import {
 	Extensions as WorkbenchExtensions,
 	type IWorkbenchContribution,
-	type IWorkbenchContributionsRegistry
-} from '../../../workbench/common/contributions.js';
+	type IWorkbenchContributionsRegistry,
+} from "../../../workbench/common/contributions.js";
+import { INativeWorkbenchEnvironmentService } from "../../../workbench/services/environment/electron-browser/environmentService.js";
+import { LifecyclePhase } from "../../../workbench/services/lifecycle/common/lifecycle.js";
+import { reviewCliInstallResyncRequest } from "../../common/reviewCliInstall.js";
 import {
 	type ReviewCliInstallStatus,
 	type ReviewCliInstallTarget,
 	REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
-} from '../../common/reviewProtocol.js';
-import { reviewCliInstallResyncRequest } from '../../common/reviewCliInstall.js';
-import { IReviewCanvasEditorTabsService } from '../../services/reviewCanvasEditorTabsService.js';
-import { IReviewSessionService } from '../../services/reviewSessionService.js';
+} from "../../common/reviewProtocol.js";
+import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
+import { IReviewDesktopConnectionService } from "../../services/reviewDesktopConnectionService.js";
 
 const TARGET_LABELS: Readonly<Record<ReviewCliInstallTarget, string>> = {
-	claude: 'Claude Code',
-	codex: 'Codex',
-	cursor: 'Cursor',
-	opencode: 'OpenCode',
-	pi: 'Pi',
+	claude: "Claude Code",
+	codex: "Codex",
+	cursor: "Cursor",
+	opencode: "OpenCode",
+	pi: "Pi",
 };
 
 function formatTargets(targets: readonly ReviewCliInstallTarget[]): string {
-	return targets.map(target => TARGET_LABELS[target]).join(', ');
+	return targets.map((target) => TARGET_LABELS[target]).join(", ");
 }
 
 /**
@@ -46,15 +46,15 @@ function formatTargets(targets: readonly ReviewCliInstallTarget[]): string {
  * path inside it. Development runs live outside a bundle and return undefined.
  */
 function macAppBundlePath(appRoot: string): string | undefined {
-	const marker = appRoot.indexOf('.app/');
-	return marker === -1 ? undefined : appRoot.slice(0, marker + '.app'.length);
+	const marker = appRoot.indexOf(".app/");
+	return marker === -1 ? undefined : appRoot.slice(0, marker + ".app".length);
 }
 
 class OpenWelcomeAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.openWelcome',
-			title: localize2('review.welcome', "Review: Welcome..."),
+			id: "review.openWelcome",
+			title: localize2("review.welcome", "Review: Welcome..."),
 			f1: true,
 		});
 	}
@@ -69,22 +69,22 @@ registerAction2(OpenWelcomeAction);
 class OpenTutorialAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.openTutorial',
-			title: localize2('review.openTutorial', "Review: Open Tutorial..."),
+			id: "review.openTutorial",
+			title: localize2("review.openTutorial", "Review: Open Tutorial..."),
 			f1: true,
 		});
 	}
 
 	override async run(accessor: ServicesAccessor): Promise<void> {
 		const notificationService = accessor.get(INotificationService);
-		const sessionService = accessor.get(IReviewSessionService);
+		const desktopConnection = accessor.get(IReviewDesktopConnectionService);
 		const tabsService = accessor.get(IReviewCanvasEditorTabsService);
 		try {
-			const opened = await sessionService.openTutorial();
-			await tabsService.openReview(opened.reviewUuid, true);
+			const opened = await desktopConnection.openTutorial();
+			await tabsService.openApiReview(opened.reviewUuid, opened.title);
 		} catch (error) {
 			notificationService.error(
-				localize('review.tutorial.failed', "Review could not open the tutorial: {0}", String(error)),
+				localize("review.tutorial.failed", "Review could not open the tutorial: {0}", String(error)),
 			);
 		}
 	}
@@ -95,8 +95,8 @@ registerAction2(OpenTutorialAction);
 class InstallReviewCliInPathAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.installCliInPath',
-			title: localize2('review.installCliInPath', "Review: Install CLI in PATH"),
+			id: "review.installCliInPath",
+			title: localize2("review.installCliInPath", "Review: Install CLI in PATH"),
 			f1: true,
 		});
 	}
@@ -104,17 +104,17 @@ class InstallReviewCliInPathAction extends Action2 {
 	override async run(accessor: ServicesAccessor): Promise<void> {
 		const nativeHostService = accessor.get(INativeHostService);
 		const notificationService = accessor.get(INotificationService);
-		const sessionService = accessor.get(IReviewSessionService);
+		const desktopConnection = accessor.get(IReviewDesktopConnectionService);
 		try {
 			if (isMacintosh) {
-				await nativeHostService.uninstallShellCommand({ commandName: 'review', symlinkOnly: true });
+				await nativeHostService.uninstallShellCommand({ commandName: "review", symlinkOnly: true });
 			}
-			const installed = await sessionService.applyCliInstall({ targets: [], shim: true });
+			const installed = await desktopConnection.applyCliInstall({ targets: [], shim: true });
 			notificationService.info(
 				localize(
-					'review.cliInstall.installed',
+					"review.cliInstall.installed",
 					"Review installed the CLI at {0}. New terminals can use the review command.",
-					installed.shimPath ?? '~/.local/bin/review',
+					installed.shimPath ?? "~/.local/bin/review",
 				),
 			);
 		} catch (error) {
@@ -122,7 +122,7 @@ class InstallReviewCliInPathAction extends Action2 {
 				return;
 			}
 			notificationService.error(
-				localize('review.cliInstall.failed', "Review could not install the CLI in PATH: {0}", String(error)),
+				localize("review.cliInstall.failed", "Review could not install the CLI in PATH: {0}", String(error)),
 			);
 		}
 	}
@@ -140,8 +140,8 @@ registerAction2(InstallReviewCliInPathAction);
 class UninstallReviewDesktopAction extends Action2 {
 	constructor() {
 		super({
-			id: 'review.uninstallApp',
-			title: localize2('review.uninstallApp', "Review: Uninstall Review Desktop..."),
+			id: "review.uninstallApp",
+			title: localize2("review.uninstallApp", "Review: Uninstall Review Desktop..."),
 			f1: true,
 		});
 	}
@@ -150,35 +150,43 @@ class UninstallReviewDesktopAction extends Action2 {
 		const dialogService = accessor.get(IDialogService);
 		const environmentService = accessor.get(INativeWorkbenchEnvironmentService);
 		const nativeHostService = accessor.get(INativeHostService);
-		const sessionService = accessor.get(IReviewSessionService);
+		const desktopConnection = accessor.get(IReviewDesktopConnectionService);
 		const storageService = accessor.get(IStorageService);
 
-		const status = await sessionService.getCliInstallStatus();
-		const targets = status.agents
-			.filter(agent => agent.installed)
-			.map(agent => agent.target);
-		const fffTargets = status.stamp?.fffRegistrations?.map(registration => registration.target) ?? [];
+		const status = await desktopConnection.getCliInstallStatus();
+		const targets = status.agents.filter((agent) => agent.installed).map((agent) => agent.target);
+		const fffTargets = status.stamp?.fffRegistrations?.map((registration) => registration.target) ?? [];
 		const removalTargets = [...new Set([...targets, ...fffTargets])];
 		const detail = [
 			targets.length > 0
-				? localize('review.uninstall.skills', "Removes the Review skills and unchanged app-managed MCP connections for {0}.", formatTargets(targets))
-				: localize('review.uninstall.noSkills', "No agent skills are installed."),
+				? localize(
+						"review.uninstall.skills",
+						"Removes the Review skills and unchanged app-managed MCP connections for {0}.",
+						formatTargets(targets),
+					)
+				: localize("review.uninstall.noSkills", "No agent skills are installed."),
 			status.stamp?.shimPath
-				? localize('review.uninstall.shim', "Removes the review terminal command at {0}.", status.stamp.shimPath)
-				: localize('review.uninstall.noShim', "The review terminal command is not installed."),
+				? localize("review.uninstall.shim", "Removes the review terminal command at {0}.", status.stamp.shimPath)
+				: localize("review.uninstall.noShim", "The review terminal command is not installed."),
 			fffTargets.length > 0
-				? localize('review.uninstall.fff', "Removes unchanged fff registrations that Review created. The shared FFF binary stays installed.")
-				: localize('review.uninstall.noFff', "No fff registrations are managed by Review."),
+				? localize(
+						"review.uninstall.fff",
+						"Removes unchanged fff registrations that Review created. The shared FFF binary stays installed.",
+					)
+				: localize("review.uninstall.noFff", "No fff registrations are managed by Review."),
 			status.stamp?.traceManaged
-				? localize('review.uninstall.trace', "Disables trace capture and restores hook paths for known repositories. R2 credentials stay on disk.")
-				: localize('review.uninstall.noTrace', "Trace capture is not managed by Review."),
-			localize('review.uninstall.tutorial', "Removes the bundled tutorial repository and Review."),
-			localize('review.uninstall.keepsData', "Your reviews and their history stay on disk."),
-		].join('\n');
+				? localize(
+						"review.uninstall.trace",
+						"Disables trace capture and restores hook paths for known repositories. R2 credentials stay on disk.",
+					)
+				: localize("review.uninstall.noTrace", "Trace capture is not managed by Review."),
+			localize("review.uninstall.tutorial", "Removes the bundled tutorial repository and Review."),
+			localize("review.uninstall.keepsData", "Your reviews and their history stay on disk."),
+		].join("\n");
 		const { confirmed } = await dialogService.confirm({
-			message: localize('review.uninstall.confirm', "Remove everything Review Desktop installed on this machine?"),
+			message: localize("review.uninstall.confirm", "Remove everything Review Desktop installed on this machine?"),
 			detail,
-			primaryButton: localize('review.uninstall.remove', "&&Remove"),
+			primaryButton: localize("review.uninstall.remove", "&&Remove"),
 		});
 		if (!confirmed) {
 			return;
@@ -188,28 +196,28 @@ class UninstallReviewDesktopAction extends Action2 {
 		// the shim and skills removal the user just confirmed.
 		let tutorialError: unknown;
 		try {
-			await sessionService.deleteTutorial();
+			await desktopConnection.deleteTutorial();
 			storageService.remove(REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY, StorageScope.APPLICATION);
 		} catch (error) {
 			tutorialError = error;
 		}
 		try {
-			await sessionService.removeCliInstall({
+			await desktopConnection.removeCliInstall({
 				targets: removalTargets,
 				shim: true,
 				fff: true,
 				...(status.stamp?.traceManaged ? { trace: true } : {}),
 			});
-			await sessionService.resetCliInstallPrompts();
+			await desktopConnection.resetCliInstallPrompts();
 			if (tutorialError) {
 				await dialogService.error(
-					localize('review.uninstall.tutorialFailed', "Review could not remove the tutorial data at ~/.dev/tutorial."),
+					localize("review.uninstall.tutorialFailed", "Review could not remove the tutorial data at ~/.dev/tutorial."),
 					String(tutorialError),
 				);
 			}
 		} catch (error) {
 			await dialogService.error(
-				localize('review.uninstall.failed', "Review could not remove the installed skills and command."),
+				localize("review.uninstall.failed", "Review could not remove the installed skills and command."),
 				String(error),
 			);
 			return;
@@ -217,8 +225,11 @@ class UninstallReviewDesktopAction extends Action2 {
 
 		if (isLinux) {
 			await dialogService.info(
-				localize('review.uninstall.linuxDone', "Review’s user-installed integrations were removed."),
-				localize('review.uninstall.linuxFinish', "To remove the app, quit Review and run sudo apt remove dev-fast-review on Ubuntu, or sudo pacman -R dev-fast-review on Omarchy / Arch. Your reviews and settings stay on disk."),
+				localize("review.uninstall.linuxDone", "Review’s user-installed integrations were removed."),
+				localize(
+					"review.uninstall.linuxFinish",
+					"To remove the app, quit Review and run sudo apt remove dev-fast-review on Ubuntu, or sudo pacman -R dev-fast-review on Omarchy / Arch. Your reviews and settings stay on disk.",
+				),
 			);
 			return;
 		}
@@ -226,18 +237,22 @@ class UninstallReviewDesktopAction extends Action2 {
 		const bundlePath = macAppBundlePath(environmentService.appRoot);
 		if (bundlePath) {
 			const { confirmed: reveal } = await dialogService.confirm({
-				message: localize('review.uninstall.done', "The installed skills and command were removed."),
-				detail: localize('review.uninstall.finish', "To finish, quit Review Desktop and move {0} to the Trash.", bundlePath),
-				primaryButton: localize('review.uninstall.reveal', "&&Show in Finder"),
-				cancelButton: localize('review.uninstall.close', "Close"),
+				message: localize("review.uninstall.done", "The installed skills and command were removed."),
+				detail: localize(
+					"review.uninstall.finish",
+					"To finish, quit Review Desktop and move {0} to the Trash.",
+					bundlePath,
+				),
+				primaryButton: localize("review.uninstall.reveal", "&&Show in Finder"),
+				cancelButton: localize("review.uninstall.close", "Close"),
 			});
 			if (reveal) {
 				await nativeHostService.showItemInFolder(bundlePath);
 			}
 		} else {
 			await dialogService.info(
-				localize('review.uninstall.done', "The installed skills and command were removed."),
-				localize('review.uninstall.finishDev', "This is a development build, so there is no app bundle to remove."),
+				localize("review.uninstall.done", "The installed skills and command were removed."),
+				localize("review.uninstall.finishDev", "This is a development build, so there is no app bundle to remove."),
 			);
 		}
 	}
@@ -261,25 +276,31 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 	constructor(
 		@INativeWorkbenchEnvironmentService environmentService: INativeWorkbenchEnvironmentService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@IReviewSessionService private readonly reviewSessionService: IReviewSessionService,
+		@IReviewDesktopConnectionService private readonly reviewDesktopConnectionService: IReviewDesktopConnectionService,
 	) {
 		if (!environmentService.isBuilt) {
 			return;
 		}
-		void this.check().catch(error => {
-			this.notificationService.warn(localize('review.cliInstall.updateFailed', "Review could not update its agent skills or CLI: {0}. Retry from Getting Started, or restart Review.", String(error)));
+		void this.check().catch((error) => {
+			this.notificationService.warn(
+				localize(
+					"review.cliInstall.updateFailed",
+					"Review could not update its agent skills or CLI: {0}. Retry from Getting Started, or restart Review.",
+					String(error),
+				),
+			);
 		});
 	}
 
 	private async check(): Promise<void> {
-		const status = await this.reviewSessionService.getCliInstallStatus();
-		if (status.stamp?.consent === 'declined') {
+		const status = await this.reviewDesktopConnectionService.getCliInstallStatus();
+		if (status.stamp?.consent === "declined") {
 			return;
 		}
-		if (status.stamp?.consent === 'skipped') {
+		if (status.stamp?.consent === "skipped") {
 			return;
 		}
-		if (status.stamp?.consent === 'granted') {
+		if (status.stamp?.consent === "granted") {
 			if (status.stale) {
 				await this.resync(status);
 			}
@@ -294,20 +315,24 @@ class ReviewCliInstallStartup implements IWorkbenchContribution {
 		if (!request) {
 			return;
 		}
-		await this.reviewSessionService.applyCliInstall(request);
-		const message = request.targets.length === 0
-			? localize('review.cliInstall.resyncedCli', "Review updated the installed CLI.")
-			: request.shim
-				? localize('review.cliInstall.resynced', "Review updated the CLI, agent skills, and MCP connections. Restart your agent or reconnect MCP to load the changes.")
-				: localize('review.cliInstall.resyncedSkills', "Review updated the agent skills and MCP connections. Restart your agent or reconnect MCP to load the changes.");
-		this.notificationService.status(
-			message,
-			{ hideAfter: 10_000 },
-		);
+		await this.reviewDesktopConnectionService.applyCliInstall(request);
+		const message =
+			request.targets.length === 0
+				? localize("review.cliInstall.resyncedCli", "Review updated the installed CLI.")
+				: request.shim
+					? localize(
+							"review.cliInstall.resynced",
+							"Review updated the CLI, agent skills, and MCP connections. Restart your agent or reconnect MCP to load the changes.",
+						)
+					: localize(
+							"review.cliInstall.resyncedSkills",
+							"Review updated the agent skills and MCP connections. Restart your agent or reconnect MCP to load the changes.",
+						);
+		this.notificationService.status(message, { hideAfter: 10_000 });
 	}
 }
 
 Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench).registerWorkbenchContribution(
 	ReviewCliInstallStartup,
-	LifecyclePhase.Restored
+	LifecyclePhase.Restored,
 );

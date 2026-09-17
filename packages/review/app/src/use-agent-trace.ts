@@ -50,6 +50,10 @@ export function useAgentTrace(
   const session = useReviewSession();
   const key = sessionId ? makeAgentTraceKey(sessionId, trace, storage) : null;
 
+  const retained = sessionId
+    ? session.review?.traces.get(makeAgentTraceKey(sessionId, trace))
+    : undefined;
+
   const [state, setState] = useState<{
     key: string | null;
     traceState: AgentTraceState;
@@ -67,7 +71,7 @@ export function useAgentTrace(
         : { status: "idle" };
 
   useEffect(() => {
-    if (session.review) return;
+    if (retained) return;
 
     if (!key || !sessionId) {
       setState({ key: null, traceState: { status: "idle" } });
@@ -106,16 +110,9 @@ export function useAgentTrace(
     return () => {
       controller.abort();
     };
-  }, [key, session, sessionId, trace, storage]);
+  }, [key, session, sessionId, trace, storage, retained]);
 
-  if (session.review) {
-    if (!sessionId) return { status: "idle" };
-    const retained = session.review.traces.get(sessionId);
-
-    return retained
-      ? { status: "loaded", trace: retained }
-      : { status: "error", error: "Trace is not part of this review version." };
-  }
+  if (retained) return { status: "loaded", trace: retained };
 
   return activeState;
 }

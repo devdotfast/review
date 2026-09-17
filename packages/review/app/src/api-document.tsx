@@ -24,6 +24,7 @@ import type { Snapshot } from "../../src/review-api/store";
 import type { DocumentPeekableAnchor } from "../../src/review-document-data";
 import type { NormalizedSoftwareModel } from "../../src/software-map-model";
 import { markdownHasTitle } from "./agent-markdown";
+import { type ApiHeadingIds, apiHeadingIds } from "./api-document-headings";
 import {
   BlockErrorBoundary,
   type StoredBlock,
@@ -33,6 +34,8 @@ import {
 import { useReviewSession } from "./host/review-session";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import { ReviewDocumentTitle } from "./review-document-surface";
+import { cssIdentifier, scrollToReviewHeading } from "./review-heading-scroll";
+import { useReviewRoots } from "./review-root-context";
 import type { SoftwareMapResolvedDataPayload } from "./software-map/software-map-snapshot";
 
 import "./api-document.css";
@@ -44,6 +47,7 @@ interface Trace {
 
 export interface ApiDocumentData {
   snapshot: Snapshot;
+  headings: ApiHeadingIds;
   commits: ReviewCommitSummary[];
   anchors: Map<string, DocumentPeekableAnchor>;
   images: Map<string, string>;
@@ -89,6 +93,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
     async load(snapshot: Snapshot): Promise<ApiDocumentData> {
       const data: ApiDocumentData = {
         snapshot,
+        headings: apiHeadingIds(snapshot.document),
         commits: await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
           client.read<ReviewCommitSummary[]>(
             `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
@@ -199,6 +204,8 @@ export function ApiDocument({
   data: ApiDocumentData;
   softwareMapEnabled?: boolean;
 }) {
+  useHeadingFragments();
+
   const hasTitle = useMemo(
     () =>
       elements(data.snapshot.document).some(
@@ -224,6 +231,40 @@ export function ApiDocument({
   );
 }
 
+/** Follows a `#fragment` link to one of the document's headings, which can sit
+ * in a collapsed section the browser cannot reach; other fragments are left to it. */
+function useHeadingFragments(): void {
+  const roots = useReviewRoots();
+
+  useEffect(() => {
+    const article = roots?.articleRef.current;
+
+    if (!roots || !article) return;
+
+    const onClick = (event: MouseEvent) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey)
+        return;
+
+      const target = event.target;
+
+      const link =
+        target instanceof Element
+          ? target.closest<HTMLAnchorElement>('a[href^="#"]')
+          : null;
+
+      const id = link?.getAttribute("href")?.slice(1);
+
+      if (!id || !article.querySelector(`#${cssIdentifier(id)}`)) return;
+      event.preventDefault();
+      scrollToReviewHeading(id, article, roots.scrollRegionRef.current);
+    };
+
+    article.addEventListener("click", onClick);
+
+    return () => article.removeEventListener("click", onClick);
+  }, [roots]);
+}
+
 // Memoized: unrelated App renders must not rebuild every block's view models.
 export const DocumentNode = memo(function DocumentNode({
   node,
@@ -247,10 +288,18 @@ export const DocumentNode = memo(function DocumentNode({
       />
     ));
 
-  if (node.type === "software_map" && !softwareMapEnabled) return null;
+  if (
+    node.type === "software_map" &&
+    (!softwareMapEnabled || data.snapshot.origin?.tutorial)
+  )
+    return null;
 
   return (
-    <NodeReveal id={node.id} revision={revision}>
+    <NodeReveal
+      id={node.id}
+      revision={revision}
+      copyProse={node.type === "markdown" || node.type === "trace_quote"}
+    >
       <BlockErrorBoundary
         type={node.type}
         onError={(error) => reportReviewDocumentRenderError(session, error)}
@@ -279,10 +328,12 @@ export function RevealAfterFirstPaint({ children }: { children: ReactNode }) {
 }
 
 function NodeReveal({
+  copyProse,
   id,
   revision,
   children,
 }: {
+  copyProse: boolean;
   id: string;
   revision: string;
   children: ReactNode;
@@ -309,7 +360,12 @@ function NodeReveal({
   }, [revision]);
 
   return (
-    <div className="api-document-node" data-review-node-id={id} ref={root}>
+    <div
+      className="api-document-node"
+      data-review-node-id={id}
+      data-review-copy-prose={copyProse || undefined}
+      ref={root}
+    >
       {children}
     </div>
   );

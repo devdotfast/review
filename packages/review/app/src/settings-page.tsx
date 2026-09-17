@@ -24,34 +24,6 @@ const KEYMAP_LABELS: Record<ReviewKeymapChoice, string> = {
 };
 
 /**
- * The retention window, keyed by its wire value. `<select>` carries strings
- * only, so "never" stands for the `null` that turns reaping off.
- */
-const RETENTION_LABELS = {
-  "7": "After 7 days",
-  "30": "After 30 days",
-  "90": "After 90 days",
-  never: "Never",
-} as const;
-
-type RetentionChoice = keyof typeof RETENTION_LABELS;
-
-function isRetentionChoice(choice: string): choice is RetentionChoice {
-  return choice in RETENTION_LABELS;
-}
-
-function retentionChoice(days: number | null): RetentionChoice {
-  if (days === null) return "never";
-  const choice = String(days);
-
-  return isRetentionChoice(choice) ? choice : "30";
-}
-
-function retentionDays(choice: RetentionChoice): number | null {
-  return choice === "never" ? null : Number(choice);
-}
-
-/**
  * The Settings page. It opens from the application menu (Preferences →
  * Settings...), the command palette, or ⌘,. Reuses the Home page shell so the
  * surfaces read as one app.
@@ -81,10 +53,6 @@ export function SettingsPage({
 
   const [theme, setTheme] = useState(settings.theme);
   const [keymap, setKeymap] = useState(settings.keymap);
-
-  const [retention, setRetention] = useState(
-    retentionChoice(settings.dismissedRetentionDays),
-  );
 
   const [softwareMapEnabled, setSoftwareMapEnabled] = useState(
     settings.softwareMapEnabled,
@@ -195,32 +163,6 @@ export function SettingsPage({
                     "keymap",
                     () => settings.setKeymap(choice),
                     setKeymap,
-                  );
-                }}
-              />
-            </Row>
-          </Section>
-
-          <Section label="Reviews">
-            <Row
-              label="Delete dismissed reviews"
-              description="A dismissed review waits this long, then it is deleted. Deletion is permanent. Undo a dismissal from Home before the wait ends."
-            >
-              <Choice
-                label="Delete dismissed reviews"
-                value={retention}
-                labels={RETENTION_LABELS}
-                disabled={busy !== null}
-                onChange={(choice) => {
-                  void run(
-                    "retention",
-                    async () =>
-                      retentionChoice(
-                        await settings.setDismissedRetentionDays(
-                          retentionDays(choice),
-                        ),
-                      ),
-                    setRetention,
                   );
                 }}
               />

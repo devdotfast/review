@@ -1,251 +1,109 @@
-import {
-  REVIEW_DESKTOP_DISCOVERY_VERSION,
-  REVIEW_SCHEMA_VERSION,
-  type ReviewDesktopDiscovery,
-} from "@dev.fast/review-protocol";
 import { describe, expect, it, vi } from "vitest";
 
-import { runReviewAppPick as runReviewApp } from "./review-app";
+import { runReviewAppPick } from "./review-app";
 
-function fakeTty(): NodeJS.ReadStream {
-  return { isTTY: true } as NodeJS.ReadStream;
-}
-
-import type { StoredReview } from "./review-home";
-
-const discovery: ReviewDesktopDiscovery = {
-  version: REVIEW_DESKTOP_DISCOVERY_VERSION,
-  instanceId: "desktop-1",
-  url: "http://127.0.0.1:5570",
-  appPid: 1,
-  serverPid: 2,
-  token: "desktop-secret",
-  startedAt: 3,
+const input = {
+  cwd: "/repo",
+  stdin: { isTTY: true } as NodeJS.ReadStream,
+  stdout: process.stdout,
 };
 
-describe("review app", () => {
-  it("opens the requested Review through Desktop without exposing private handles", async () => {
-    const selected = storedReview("latest", "2026-07-29T10:00:00.000Z");
+const runtime = {
+  launch: async () => ({
+    event: "app" as const,
+    action: "launch" as const,
+    state: "running" as const,
+    instanceId: "desktop",
+  }),
+  readReviewDesktopDiscovery: async () => ({
+    version: 3 as const,
+    instanceId: "desktop",
+    url: "http://127.0.0.1:5570",
+    token: "secret",
+    appPid: 1,
+    serverPid: 2,
+    startedAt: 3,
+  }),
+  resolveReviewRoot: async () => "/repo",
+};
 
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json({
-        sessionId: "session-1",
-        url: `${discovery.url}/sessions/session-1`,
-      }),
-    );
-
-    await expect(
-      runReviewApp(
-        {
-          cwd: "/repo",
-          stdin: fakeTty(),
-          stdout: process.stdout,
-          reviewUuid: selected.review.uuid,
-        },
-        {
-          launch: async () => ({
-            event: "app",
-            action: "launch",
-            state: "running",
-            instanceId: discovery.instanceId,
-          }),
-          resolveReviewRoot: async () => "/repo",
-          findScopedReview: async () => selected,
-          listReviews: async () => {
-            throw new Error(
-              "Explicit selection must not scan unrelated reviews",
-            );
-          },
-          readReviewDesktopDiscovery: async () => discovery,
-          fetch,
-        },
-      ),
-    ).resolves.toEqual({
-      event: "app",
-      action: "pick",
-      reviewUuid: selected.review.uuid,
-      title: selected.review.title,
-    });
-    expect(fetch).toHaveBeenCalledWith(
-      `${discovery.url}/reviews/${selected.review.uuid}/open`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-review-token": discovery.token,
-        },
-        body: "{}",
-      },
-    );
-  });
-
-  it("selects an explicit Review UUID", async () => {
-    const selected = storedReview("selected", null);
-
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json({ sessionId: "session-2" }),
-    );
-
-    await expect(
-      runReviewApp(
-        {
-          cwd: "/repo",
-          stdin: fakeTty(),
-          stdout: process.stdout,
-          reviewUuid: selected.review.uuid,
-          view: "diff",
-        },
-        {
-          launch: async () => ({
-            event: "app",
-            action: "launch",
-            state: "running",
-            instanceId: discovery.instanceId,
-          }),
-          resolveReviewRoot: async () => "/repo",
-          findScopedReview: async () => selected,
-          readReviewDesktopDiscovery: async () => discovery,
-          fetch,
-        },
-      ),
-    ).resolves.toEqual({
-      event: "app",
-      action: "pick",
-      reviewUuid: selected.review.uuid,
-      title: selected.review.title,
-    });
-    expect(fetch).toHaveBeenCalledWith(
-      `${discovery.url}/reviews/${selected.review.uuid}/open`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-review-token": discovery.token,
-        },
-        body: JSON.stringify({ view: "diff" }),
-      },
-    );
-  });
-
-  it("requires a TTY only for the interactive picker", async () => {
-    await expect(
-      runReviewApp(
-        {
-          cwd: "/repo",
-          stdin: { isTTY: false } as NodeJS.ReadStream,
-          stdout: process.stdout,
-        },
-        {
-          launch: async () => ({
-            event: "app",
-            action: "launch",
-            state: "running",
-            instanceId: discovery.instanceId,
-          }),
-          resolveReviewRoot: async () => "/repo",
-          listReviews: async () => ({
-            reviews: [storedReview("published", null)],
-            errors: [],
-          }),
-        },
-      ),
-    ).rejects.toThrow(
-      "review app pick needs a terminal without --review. Pass --review <uuid> or run it in a terminal.",
-    );
-  });
-
-  it("rejects an explicit UUID bound to another worktree", async () => {
-    const selected = storedReview("selected", null);
-    await expect(
-      runReviewApp(
-        {
-          cwd: "/other",
-          stdin: fakeTty(),
-          stdout: process.stdout,
-          reviewUuid: selected.review.uuid,
-        },
-        {
-          launch: async () => ({
-            event: "app",
-            action: "launch",
-            state: "running",
-            instanceId: discovery.instanceId,
-          }),
-          resolveReviewRoot: async () => "/other",
-          findScopedReview: async () => null,
-        },
-      ),
-    ).rejects.toThrow(`Review not found: ${selected.review.uuid}`);
-  });
-
-  it("treats an imported open response as a successful pick", async () => {
-    const selected = storedReview("selected", null);
-
-    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+describe("native Review picker", () => {
+  it("opens an explicit review through the authenticated JSON API", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) =>
       Response.json(
-        {
-          ok: false,
-          code: "imported",
-          error: "Review opened in the JSON canvas.",
-        },
-        { status: 409 },
+        init?.method === "POST"
+          ? { ok: true }
+          : { reviewId: "review", title: "Native" },
       ),
     );
 
-    await expect(
-      runReviewApp(
-        {
-          cwd: "/repo",
-          stdin: fakeTty(),
-          stdout: process.stdout,
-          reviewUuid: selected.review.uuid,
-        },
-        {
-          launch: async () => ({
-            event: "app",
-            action: "launch",
-            state: "running",
-            instanceId: discovery.instanceId,
-          }),
-          resolveReviewRoot: async () => "/repo",
-          findScopedReview: async () => selected,
-          readReviewDesktopDiscovery: async () => discovery,
-          fetch,
-        },
+    expect(
+      await runReviewAppPick(
+        { ...input, reviewUuid: "review" },
+        { ...runtime, fetch },
       ),
-    ).resolves.toEqual({
+    ).toEqual({
       event: "app",
       action: "pick",
-      reviewUuid: selected.review.uuid,
-      title: selected.review.title,
+      reviewUuid: "review",
+      title: "Native",
     });
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      "http://127.0.0.1:5570/reviews-api/review",
+      "http://127.0.0.1:5570/reviews-api/review/open",
+    ]);
+    expect(
+      new Headers(fetch.mock.calls[1]?.[1]?.headers).get("x-review-token"),
+    ).toBe("secret");
+  });
+  it("offers only undismissed reviews from the current repository and handles cancellation", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json([
+        {
+          reviewId: "native",
+          title: "Native",
+          repositoryPath: "/repo",
+          createdAt: "2026-09-16",
+          viewedAt: null,
+          dismissedAt: null,
+        },
+        {
+          reviewId: "dismissed",
+          repositoryPath: "/repo",
+          dismissedAt: "2026-09-16",
+        },
+        { reviewId: "other", repositoryPath: "/elsewhere" },
+      ]),
+    );
+
+    const pickReview = vi.fn<typeof import("./review-app-picker").pickReview>(
+      async () => null,
+    );
+
+    expect(
+      await runReviewAppPick(input, { ...runtime, fetch, pickReview }),
+    ).toBeNull();
+    expect(pickReview.mock.calls[0]?.[0]).toEqual([
+      {
+        uuid: "native",
+        title: "Native",
+        status: "new",
+        lastPublishedAt: "2026-09-16",
+      },
+    ]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("surfaces a missing native review without trying a different store", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({ error: "Not found" }, { status: 404 }),
+    );
+
+    await expect(
+      runReviewAppPick(
+        { ...input, reviewUuid: "missing" },
+        { ...runtime, fetch },
+      ),
+    ).rejects.toThrow("Not found");
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });
-
-function storedReview(
-  suffix: string,
-  lastPublishedAt: string | null,
-): StoredReview {
-  const uuid = `${suffix.padEnd(8, "0").slice(0, 8)}-0000-4000-8000-000000000000`;
-
-  return {
-    dir: `/reviews/${uuid}`,
-    review: {
-      schemaVersion: REVIEW_SCHEMA_VERSION,
-      uuid,
-      repoKey: "repo",
-      worktreePath: "/repo",
-      baseRef: "main",
-      baseCommit: "base",
-      sourceCommit: "head",
-      sourceIdentity: { kind: "git-branch", name: "feature" },
-      title: suffix,
-      sourceSession: "disabled:review",
-      status: "awaiting-review",
-      presentedDocumentRevision: "published-revision",
-      presentedSoftwareMapRevision: null,
-      createdAt: "2026-07-29T08:00:00.000Z",
-      lastPublishedAt,
-    },
-  };
-}

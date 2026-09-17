@@ -163,9 +163,7 @@ describe("ReviewHistoryControl", () => {
   ) {
     await act(async () => {
       root.render(
-        <ReviewSessionProvider
-          session={testReviewSession({}, { request, post })}
-        >
+        <ReviewSessionProvider session={historySession(post)}>
           <ReviewProvider>
             <TutorialProvider tutorial={tutorial}>
               <DisplayedReviewVersionContext.Provider value={displayedVersion}>
@@ -176,6 +174,16 @@ describe("ReviewHistoryControl", () => {
         </ReviewSessionProvider>,
       );
     });
+  }
+
+  function historySession(
+    post?: ReturnType<typeof testReviewSession>["bridge"]["post"],
+  ) {
+    const session = testReviewSession({}, { post });
+    session.review!.listVersions = async () =>
+      (await (await request("/revisions")).json()).versions;
+
+    return session;
   }
 
   function historyButton() {

@@ -22,6 +22,9 @@ type LinkRenderer = (href: string, children: ReactNode) => ReactNode;
 
 const DocumentLink = createContext<LinkRenderer | undefined>(undefined);
 
+/** Whether a remote image may be fetched and shown where it was authored. */
+const RemoteImages = createContext(false);
+
 export function AgentMarkdown({
   source,
   className,
@@ -47,32 +50,45 @@ export function MarkdownContent({
   h1: Heading,
   headingId,
   renderLink,
+  allowRemoteImages = false,
 }: {
   source: string;
   h1?: ComponentType<{ children?: ReactNode }>;
-  headingId?: (index: number) => string;
+  /** The id of the document's nth h2/h3, undefined where it has none. */
+  headingId?: (index: number) => string | undefined;
   renderLink?: LinkRenderer;
+  allowRemoteImages?: boolean;
 }): ReactElement {
   const { body, footnotes } = splitFootnotes(parseMarkdown(source));
+  // Ids are addressed by ordinal among the h2/h3 alone.
+  let heading = 0;
 
   return (
     <DocumentLink.Provider value={renderLink}>
-      {body.map((node, index) =>
-        node.type === "heading" && node.depth === 1 && Heading ? (
-          <Heading key={index}>
-            {renderMarkdownChildren(node.children ?? [], String(index))}
-          </Heading>
-        ) : node.type === "heading" && headingId ? (
-          createElement(
-            `h${node.depth}`,
-            { key: index, id: headingId(index) },
-            renderMarkdownChildren(node.children ?? [], String(index)),
-          )
-        ) : (
-          renderMarkdownNode(node, String(index))
-        ),
-      )}
-      {renderFootnotes(footnotes, "document")}
+      <RemoteImages.Provider value={allowRemoteImages}>
+        {body.map((node, index) =>
+          node.type === "heading" && node.depth === 1 && Heading ? (
+            <Heading key={index}>
+              {renderMarkdownChildren(node.children ?? [], String(index))}
+            </Heading>
+          ) : node.type === "heading" && headingId ? (
+            createElement(
+              `h${node.depth}`,
+              {
+                key: index,
+                id:
+                  node.depth === 2 || node.depth === 3
+                    ? headingId(heading++)
+                    : undefined,
+              },
+              renderMarkdownChildren(node.children ?? [], String(index)),
+            )
+          ) : (
+            renderMarkdownNode(node, String(index))
+          ),
+        )}
+        {renderFootnotes(footnotes, "document")}
+      </RemoteImages.Provider>
     </DocumentLink.Provider>
   );
 }
@@ -251,7 +267,9 @@ function renderMarkdownNode(
     }
 
     case "image":
-      return node.alt ? <em key={key}>{node.alt}</em> : null;
+      return (
+        <MarkdownImage key={key} url={node.url ?? ""} alt={node.alt ?? ""} />
+      );
     case "table":
       return renderTable(node, key);
     case "tableRow":
@@ -352,6 +370,18 @@ function cellAlignment(
   }
 }
 
+function MarkdownImage({ url, alt }: { url: string; alt: string }): ReactNode {
+  // Phrasing content, so an <img> (a <figure> inside <p> is invalid HTML)
+  // that CSS lays out like an image block.
+  if (useContext(RemoteImages) && urlProtocol(url) === "https:")
+    return (
+      <img className="review-image-inline" src={url} alt={alt} loading="lazy" />
+    );
+
+  // Chat has no store to resolve an image against, so its alt text stands in.
+  return alt ? <em>{alt}</em> : null;
+}
+
 function MarkdownLink({
   href,
   children,
@@ -389,11 +419,17 @@ function safeMarkdownHref(value: string | undefined): string | null {
   if (value.startsWith("#")) return value;
 
   if (isLocalFilesystemHref(value)) return null;
+  const protocol = urlProtocol(value);
 
+  return protocol && ["http:", "https:", "mailto:"].includes(protocol)
+    ? value
+    : null;
+}
+
+/** The scheme a href resolves to; a relative one counts as the page's own. */
+function urlProtocol(value: string): string | null {
   try {
-    const url = new URL(value, "http://localhost");
-
-    return ["http:", "https:", "mailto:"].includes(url.protocol) ? value : null;
+    return new URL(value, "http://localhost").protocol;
   } catch {
     return null;
   }

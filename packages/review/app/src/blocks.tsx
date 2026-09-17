@@ -7,7 +7,6 @@ import {
 } from "../../src/review-api/document";
 import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
-import { apiHeadingId } from "./api-document-headings";
 import { blockSectionSummary } from "./block-document-derivations";
 import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
@@ -18,6 +17,12 @@ import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import { SoftwareMap } from "./software-map/SoftwareMap";
 import { TraceQuote } from "./trace-quote";
+import { TutorialAuthoringConversation } from "./tutorial-authoring-conversation";
+import {
+  TutorialFeature,
+  TutorialViewButton,
+} from "./tutorial-dynamic-content";
+import { TutorialKeymapPicker } from "./tutorial-keymap-picker";
 
 /** A block the store has written: ids are assigned before any write. */
 export type StoredBlock = Block & { id: string };
@@ -50,7 +55,7 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
   return (
     <MarkdownContent
       source={node.markdown}
-      headingId={(index) => apiHeadingId(node.id, index)}
+      headingId={(index) => data.headings.get(node.id, index)}
       h1={ReviewDocumentTitle}
       renderLink={(href, children) => {
         const quote = traceQuoteLink(href);
@@ -78,6 +83,7 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
           <AnchorLink anchor={anchor}>{children}</AnchorLink>
         ) : undefined;
       }}
+      allowRemoteImages
     />
   );
 }
@@ -100,7 +106,7 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
     <ReviewSection
       stateKey={`${data.snapshot.reviewId}:${node.id}`}
       title={node.title}
-      id={node.id}
+      id={data.headings.get(node.id)}
       defaultCollapsed={node.defaultCollapsed}
       summary={blockSectionSummary(node.children)}
     >
@@ -112,7 +118,7 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
 function CalloutBlock({ node, children }: BlockProps<"callout">) {
   return (
     <blockquote data-tone={node.tone}>
-      {node.title && <strong>{node.title}</strong>}
+      {node.title && <strong data-review-copy-prose>{node.title}</strong>}
       {children(node.children)}
     </blockquote>
   );
@@ -190,7 +196,37 @@ function SoftwareMapBlock({ node, data }: BlockProps<"software_map">) {
 type Components = { [K in BlockType]: BlockComponent<K> };
 
 /** Every block kind's component, keyed by type. A kind without a component is a compile error. */
+function TutorialBlock({ node, children }: BlockProps<"tutorial">) {
+  switch (node.kind) {
+    case "keymap":
+      return (
+        <div className="api-tutorial-control">
+          <TutorialKeymapPicker />
+        </div>
+      );
+    case "conversation":
+      return (
+        <div className="api-tutorial-control">
+          <TutorialAuthoringConversation conversation={node.conversation} />
+        </div>
+      );
+    case "view":
+      return (
+        <div className="api-tutorial-control">
+          <TutorialViewButton view={node.view}>{node.label}</TutorialViewButton>
+        </div>
+      );
+    case "feature":
+      return (
+        <TutorialFeature feature={node.feature}>
+          {children(node.children)}
+        </TutorialFeature>
+      );
+  }
+}
+
 export const blockComponents = {
+  tutorial: TutorialBlock,
   markdown: MarkdownBlock,
   code: CodeBlock,
   divider: DividerBlock,

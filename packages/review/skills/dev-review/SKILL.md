@@ -28,7 +28,7 @@ In development, use this checkout's built CLI: from its root, `DEV_FAST_REVIEW_C
 ## Authoring
 
 1. Use `review_register_repository({path})` to get the repository ID, then `review_resolve_pins({repositoryId,base,head})` to resolve immutable commits. For an architecture review, use the same revision for both sides.
-2. Check `review_list` for a review matching the user's requested comparison. Reuse only when appropriate. Use `review_create({commandId,title,pins})` when a new review is needed or requested.
+2. Check `review_list` for a review matching the user's requested comparison. Reuse only when appropriate. Use `review_create({commandId,title,pins,pullRequestUrl?})` when a new review is needed or requested. For a PR review, include its canonical GitHub PR URL (without query or fragment) so the header and stack retain its identity. To bind an existing review without resetting its content, use `review_repin({commandId,reviewId,pins,pullRequestUrl})` with its existing pins; null detaches it.
 3. Show it with `review_open({reviewId})`. Send small coherent `review_edit` calls so accepted content appears as you work. Components contain their own data; there is no separate definitions table.
 4. Reuse implementation context already in the conversation. Verify only the source needed for your claims with `review_source`, `review_file`, `review_tree`, `review_diff` or `review_commits`. Supply `version` when reading a historical snapshot.
 5. Use `review_upload` for images, supplied trace excerpts or software maps. The upload tool's schema is authoritative. Insert a `software_map` node with the returned resource ID for each desired side. Dispatch a map worker only if `review_open` returned `softwareMapEnabled: true`. Maps are optional when they do not help explain the change; do not delay useful prose for them. The old Git-notes map commands do not update JSON reviews.
@@ -38,7 +38,7 @@ While authoring, call `review_activity({reviewId,action:"begin",leaseId})` with 
 
 ## Versions
 
-`review_repin({commandId,reviewId,pins})` starts a blank version at new source pins. Examine the diff before carrying content over. `review_restore({commandId,reviewId,version})` restores title, pins and content.
+`review_repin({commandId,reviewId,pins,pullRequestUrl?})` preserves the document and component IDs at the new pins. Read the returned warnings, examine the diff, and update stale source ranges and maps with `review_edit`. Range validity does not prove that a citation still supports its claim. Omitted `pullRequestUrl` preserves PR identity within the same repository; changing repositories clears it. Supply a new URL to replace it or null to detach. `review_restore({commandId,reviewId,version})` restores title, pins, PR identity and content.
 
 Legacy `review scaffold/publish/repair` commands no longer exist. Reviews published from MDX before this release were imported into the JSON store and are edited through `review api` or these MCP tools.
 

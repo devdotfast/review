@@ -1,120 +1,54 @@
-import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { promisify } from "node:util";
+import { afterEach, expect, it, vi } from "vitest";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { runReviewInfo } from "./review-info";
 
-import { resolveReviewRepositoryIdentity } from "./repository-identity";
-import {
-  scratchGitRepo,
-  syntheticLegacyReview,
-} from "./review-import/import-test-utils";
-import { resolveReviewInfo } from "./review-info-resolver";
-import {
-  cleanupTempDirs,
-  gitRepository,
-  reviewHome,
-} from "./review-test-utils";
-import { resolveReviewRoot } from "./runtime";
+const runtime = {
+  requireHealthyReviewDesktop: async () => ({
+    version: 3 as const,
+    instanceId: "desktop",
+    url: "http://127.0.0.1:5570",
+    token: "secret",
+    appPid: 1,
+    serverPid: 2,
+    startedAt: 3,
+  }),
+  resolveReviewRoot: async () => "/repo",
+};
 
-const execFilePromise = promisify(execFile);
+afterEach(() => vi.unstubAllGlobals());
 
-const FIXTURE = "schema4-bug-report-dialog";
+it("reports the native catalog with pins and versions, filtering the current repository", async () => {
+  const current = {
+    reviewId: "current",
+    repositoryPath: "/repo",
+    version: 3,
+    pins: { base: "a", head: "b" },
+    dismissedAt: null,
+  };
 
-afterEach(async () => {
-  await cleanupTempDirs();
+  const dismissed = { ...current, reviewId: "dismissed", dismissedAt: "today" };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json([
+        current,
+        dismissed,
+        { ...current, reviewId: "other", repositoryPath: "/other" },
+      ]),
+    ),
+  );
+  expect(await runReviewInfo({ cwd: "/repo" }, runtime)).toEqual({
+    event: "info",
+    reviews: [current],
+  });
+  expect(
+    (await runReviewInfo({ cwd: "/repo", all: true }, runtime)).reviews,
+  ).toEqual([current, dismissed]);
+  expect(
+    (await runReviewInfo({ cwd: "/repo", reviewUuid: "dismissed" }, runtime))
+      .reviews,
+  ).toEqual([dismissed]);
+  await expect(
+    runReviewInfo({ cwd: "/repo", reviewUuid: "missing" }, runtime),
+  ).rejects.toThrow("Review not found");
 });
-
-describe("review info", () => {
-  it("returns an empty list without creating a review", async () => {
-    const root = await gitRepository();
-    const home = await reviewHome();
-
-    await expect(
-      resolveReviewInfo({
-        cwd: root,
-      }),
-    ).resolves.toEqual({
-      event: "info",
-      reviews: [],
-    });
-    await expect(
-      readFile(path.join(home, "reviews"), "utf8"),
-    ).rejects.toMatchObject({
-      code: "ENOENT",
-    });
-  });
-
-  it("lists a worktree review when the checkout does not match its change", async () => {
-    const repo = await scratchGitRepo();
-    await git(repo.root, ["checkout", "-q", "-b", "feature"]);
-    await git(repo.root, ["commit", "-q", "--allow-empty", "-m", "feature"]);
-    const featureCommit = await git(repo.root, ["rev-parse", "HEAD"]);
-    await git(repo.root, ["checkout", "-q", "main"]);
-    const worktreePath = await resolveReviewRoot(repo.root);
-
-    const { home, record } = await syntheticLegacyReview(
-      FIXTURE,
-      { ...repo, head: featureCommit },
-      {
-        overrides: {
-          worktreePath,
-          sourceIdentity: { kind: "git-branch", name: "feature" },
-        },
-      },
-    );
-
-    vi.stubEnv("DEV_REVIEW_HOME", home);
-
-    await expect(resolveReviewInfo({ cwd: repo.root })).resolves.toMatchObject({
-      reviews: [{ uuid: record.uuid, inSync: false, matchesCheckout: false }],
-    });
-
-    await git(repo.root, ["checkout", "-q", "feature"]);
-    await expect(resolveReviewInfo({ cwd: repo.root })).resolves.toMatchObject({
-      reviews: [{ uuid: record.uuid, inSync: true, matchesCheckout: true }],
-    });
-  });
-
-  it("hides terminal reviews from default info but lists them with --all", async () => {
-    const repo = await scratchGitRepo();
-    const worktreePath = await resolveReviewRoot(repo.root);
-    const repository = await resolveReviewRepositoryIdentity(worktreePath);
-
-    const { home, record } = await syntheticLegacyReview(FIXTURE, repo, {
-      overrides: {
-        worktreePath,
-        repoKey: repository.repositoryId,
-        status: "rejected",
-      },
-    });
-
-    vi.stubEnv("DEV_REVIEW_HOME", home);
-
-    await expect(resolveReviewInfo({ cwd: repo.root })).resolves.toMatchObject({
-      reviews: [],
-    });
-    await expect(
-      resolveReviewInfo({ cwd: repo.root, all: true }),
-    ).resolves.toMatchObject({
-      reviews: [{ uuid: record.uuid, status: "rejected" }],
-    });
-    await expect(
-      resolveReviewInfo({
-        cwd: path.join(home, "outside-repository"),
-        reviewUuid: record.uuid,
-      }),
-    ).resolves.toMatchObject({
-      reviews: [{ uuid: record.uuid, status: "rejected" }],
-    });
-  });
-});
-
-async function git(root: string, args: string[]): Promise<string> {
-  const { stdout } = await execFilePromise("git", ["-C", root, ...args], {
-    encoding: "utf8",
-  });
-
-  return stdout.trim();
-}

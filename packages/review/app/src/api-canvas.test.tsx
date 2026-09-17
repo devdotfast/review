@@ -264,11 +264,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     );
   });
   expect(container.textContent).toContain("Agent working…");
-  expect(
-    requests.filter((route) =>
-      /\/(agent-traces|session|document-meta|revisions|dismiss)$/.test(route),
-    ),
-  ).toEqual([]);
   expect(requests.some((route) => route.endsWith("/history"))).toBe(true);
 });
 
@@ -397,6 +392,9 @@ it.each([false, true])(
 
     const app = new Hono().route("/reviews-api", createReviewApi(store));
     app.get("/reviews-api/:id/commits", (context) => context.json([]));
+    app.get("/reviews-api/:id/agent-traces", (context) =>
+      context.json({ ok: true, sessions: [] }),
+    );
     app.get(`/reviews-api/resources/${traceId}`, (context) =>
       context.json(trace),
     );
@@ -436,7 +434,7 @@ it.each([false, true])(
         ),
       );
     });
-    expect(traceTab()).toBeUndefined();
+    await vi.waitFor(() => expect(traceTab()).toBeUndefined());
     await act(async () => {
       await command({
         type: "edit",
@@ -665,6 +663,7 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
     const selected: ReviewSurfaceEvent = {
       event: "editorSelectionChanged",
+      reviewId: bridge.config.reviewId,
       path: "example.ts",
       range: { fromLine: 2, toLine: 2 },
       sideContext: "head",
@@ -679,6 +678,15 @@ it("copies prose and code from the displayed historical JSON review", async () =
     expect(code).toContain("example.ts:2-2 (head)");
     expect(code).not.toContain("latest source");
     expect(code).not.toContain("new-head");
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          ...selected,
+          reviewId: "another-review",
+          path: "unrelated.ts",
+        });
+    });
+    expect(container.querySelector('[aria-label="Copy for Agent"]')).toBeNull();
     await act(async () => {
       for (const listener of listeners)
         listener({

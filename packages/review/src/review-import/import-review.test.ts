@@ -2,77 +2,61 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
+import type { Block } from "../review-api/document";
 import { openLocalReviewStore } from "../review-api/local-data";
-import { importLegacyReview } from "./import-review";
+import { importLegacyReview, isMapSection } from "./import-review";
 import {
+  el,
+  footnoteTraceQuoteSection,
   logFromRevisionDirs,
   materializeFromRevisionDirs,
+  runImport,
   scratchGitRepo,
+  sealLegacyMapRevision,
   syntheticLegacyReview,
+  text,
 } from "./import-test-utils";
 
 describe("importLegacyReview", () => {
   it("imports every sealed revision as a version, oldest first", async () => {
-    const repo = await scratchGitRepo();
-
-    const { home, record, stored, oids } = await syntheticLegacyReview(
+    const { repo, record, oids, store, importReview } = await runImport(
       "schema4-bug-report-dialog",
-      repo,
       { revisions: 3 },
     );
 
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
+    const outcome = await importReview();
+
+    expect(outcome).toMatchObject({
+      kind: "imported",
+      reviewId: record.uuid,
+      version: 2,
+    });
+    expect(store.read(record.uuid, 0).title).toBe(record.title);
+    expect(store.read(record.uuid, 0).createdAt).toBe(
+      new Date(1_700_000_000 * 1000).toISOString(),
     );
-
-    try {
-      const outcome = await importLegacyReview({
-        review: stored,
-        store,
-        data,
-        materialize: materializeFromRevisionDirs,
-        log: logFromRevisionDirs(oids),
-        loadTrace: async () => null,
-      });
-
-      expect(outcome).toMatchObject({
-        kind: "imported",
-        reviewId: record.uuid,
-        version: 2,
-      });
-      expect(store.read(record.uuid, 0).title).toBe(record.title);
-      expect(store.read(record.uuid, 0).createdAt).toBe(
-        new Date(1_700_000_000 * 1000).toISOString(),
-      );
-      expect(store.read(record.uuid).version).toBe(2);
-      expect(store.read(record.uuid).pins).toEqual({
-        repositoryId: expect.any(String),
-        base: repo.base,
-        head: repo.head,
-      });
-      expect(store.read(record.uuid).origin).toMatchObject({
-        branch: record.sourceIdentity?.name,
-        baseRef: record.baseRef,
-        revision: oids[2],
-      });
-      // Older revisions keep the pins they were sealed with.
-      expect(store.read(record.uuid, 0).pins.head).toBe(repo.base);
-      expect(store.read(record.uuid, 2).pins.head).toBe(repo.head);
-      expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
-      expect(
-        await importLegacyReview({
-          review: stored,
-          store,
-          data,
-          materialize: materializeFromRevisionDirs,
-          log: logFromRevisionDirs(oids),
-        }),
-      ).toEqual({ kind: "current", reviewId: record.uuid });
-    } finally {
-      await store.close();
-    }
+    expect(store.read(record.uuid).version).toBe(2);
+    expect(store.read(record.uuid).pins).toEqual({
+      repositoryId: expect.any(String),
+      base: repo.base,
+      head: repo.head,
+    });
+    expect(store.read(record.uuid).origin).toMatchObject({
+      branch: record.sourceIdentity?.name,
+      baseRef: record.baseRef,
+      revision: oids[2],
+    });
+    // Older revisions keep the pins they were sealed with.
+    expect(store.read(record.uuid, 0).pins.head).toBe(repo.base);
+    expect(store.read(record.uuid, 2).pins.head).toBe(repo.head);
+    expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
+    expect(await importReview()).toEqual({
+      kind: "current",
+      reviewId: record.uuid,
+    });
   });
 
   it("skips system, never-published and repository-less reviews", async () => {
@@ -138,131 +122,217 @@ describe("importLegacyReview", () => {
   });
 
   it("preserves unavailable quotes and reports import warnings outside the document", async () => {
-    const repo = await scratchGitRepo();
-
-    const { home, record, stored, oids } = await syntheticLegacyReview(
+    const { record, oids, store, documentPath, importReview } = await runImport(
       "schema4-bug-report-dialog",
-      repo,
     );
 
-    const docPath = path.join(
-      stored.dir,
-      ".revisions",
-      oids[0]!,
-      ".bundle/document/review-document.json",
+    await appendNodes(documentPath(oids[0]!), [
+      {
+        type: "component",
+        name: "TraceQuote",
+        props: { sessionId: "s1", event: 2 },
+        children: [text("agent said so")],
+      },
+    ]);
+
+    const outcome = await importReview();
+
+    expect(outcome.kind).toBe("imported");
+    expect(outcome.kind === "imported" && outcome.warnings).toContain(
+      "trace s1 unavailable; quoted as text",
     );
 
-    const doc = JSON.parse(await readFile(docPath, "utf8"));
-    doc.body.push({
-      type: "component",
-      name: "TraceQuote",
-      props: { sessionId: "s1", event: 2 },
-      children: [{ type: "text", value: "agent said so" }],
+    const document = store.read(record.uuid).document;
+
+    expect(JSON.stringify(document)).not.toContain(
+      "Imported from the MDX review",
+    );
+    expect(document.at(-1)).toMatchObject({
+      type: "markdown",
+      markdown: "> agent said so\n",
     });
-    await writeFile(docPath, JSON.stringify(doc));
+  });
 
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
+  it("links a footnote's trace quote to the imported trace", async () => {
+    const { record, oids, store, documentPath, importReview } = await runImport(
+      "schema4-bug-report-dialog",
+      {
+        loadTrace: async () => ({
+          parserVersion: "1",
+          descriptor: {
+            sessionId: "s1",
+            harness: "claude-code",
+            available: true,
+            source: null,
+            commits: [],
+          },
+          trace: {
+            harness: "claude-code",
+            title: "Session",
+            events: [
+              { kind: "user", text: "why?" },
+              { kind: "user", text: "and then?" },
+              { kind: "assistant", markdown: "agent said so, plainly" },
+            ],
+            startedAt: null,
+            endedAt: null,
+            activeMs: null,
+            userTurns: 2,
+            toolCalls: 0,
+          },
+          subagents: [],
+          traceName: null,
+          cacheStatus: "current",
+        }),
+      },
     );
 
-    try {
-      const outcome = await importLegacyReview({
-        review: stored,
-        store,
-        data,
-        materialize: materializeFromRevisionDirs,
-        log: logFromRevisionDirs(oids),
-        loadTrace: async () => null,
+    await appendNodes(documentPath(oids[0]!), [
+      el("p", [
+        text("Why"),
+        el("sup", [
+          el("a", [text("1")], {
+            href: "#user-content-fn-1",
+            id: "user-content-fnref-1",
+            "data-footnote-ref": "true",
+          }),
+        ]),
+        text("?"),
+      ]),
+      footnoteTraceQuoteSection("1"),
+    ]);
+
+    const outcome = await importReview();
+
+    expect(outcome.kind).toBe("imported");
+    expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
+    expect(store.read(record.uuid).document.at(-1)).toMatchObject({
+      type: "markdown",
+      markdown: expect.stringMatching(
+        /\[\^1\]: The agent \[agent said so\]\(review-trace:[\da-f-]{36}#2\)\.\n$/,
+      ),
+    });
+  });
+
+  it("stores a published image once per file, keeping what each version showed", async () => {
+    const { dir, record, oids, store, documentPath, importReview } =
+      await runImport("schema4-bug-report-dialog", {
+        revisions: 2,
+        assets: {
+          "shots/flow.png": await square("red"),
+          "shots/edit.png": await square("green"),
+        },
       });
 
-      expect(outcome.kind).toBe("imported");
-      expect(outcome.kind === "imported" && outcome.warnings).toContain(
-        "trace s1 unavailable; quoted as text",
-      );
-      const document = store.read(record.uuid).document;
-      expect(JSON.stringify(document)).not.toContain(
-        "Imported from the MDX review",
-      );
-      expect(document.at(-1)).toMatchObject({
-        type: "markdown",
-        markdown: "> agent said so\n",
-      });
-    } finally {
-      await store.close();
-    }
+    for (const oid of oids)
+      await appendNodes(documentPath(oid), [
+        el("p", [el("img", [], { src: "./shots/flow.png", alt: "The flow" })]),
+        el("p", [
+          el("img", [], { src: "/shots/flow.png", alt: "The flow again" }),
+        ]),
+        el("p", [el("img", [], { src: "./shots/edit.png", alt: "The edit" })]),
+      ]);
+
+    // The second revision republished one of the screenshots with new content.
+    await writeFile(
+      path.join(dir, ".revisions", oids[1]!, "shots/edit.png"),
+      await square("blue"),
+    );
+
+    const outcome = await importReview();
+
+    expect(outcome.kind === "imported" && outcome.warnings).toEqual([]);
+
+    const first = store.read(record.uuid, 0).document.slice(-3);
+    const second = store.read(record.uuid).document.slice(-3);
+
+    expect(second).toMatchObject([
+      { type: "image", alt: "The flow" },
+      { type: "image", alt: "The flow again" },
+      { type: "image", alt: "The edit" },
+    ]);
+    // A root-relative source addresses the review directory, and one file is
+    // one resource however it was addressed or however often republished.
+    expect(assetId(second, 0)).toBe(assetId(second, 1));
+    expect(assetId(first, 0)).toBe(assetId(second, 0));
+    // The edited screenshot is a second resource, so each version keeps the
+    // image it was published with.
+    expect(assetId(first, 2)).not.toBe(assetId(second, 2));
+
+    const resource = store.resource(assetId(second, 2));
+
+    expect(resource.mimeType).toBe("image/png");
+    expect((await sharp(Buffer.from(resource.data)).metadata()).width).toBe(2);
+  });
+
+  it("keeps the alt text of an image it cannot read", async () => {
+    const { record, oids, store, documentPath, importReview } = await runImport(
+      "schema4-bug-report-dialog",
+    );
+
+    await appendNodes(documentPath(oids[0]!), [
+      el("p", [el("img", [], { src: "gone.png", alt: "Missing shot" })]),
+      el("p", [
+        el("img", [], { src: "../../order.ts", alt: "Escaping *shot* [1]" }),
+      ]),
+    ]);
+
+    const outcome = await importReview();
+    const warnings = outcome.kind === "imported" ? outcome.warnings : [];
+
+    expect(warnings).toEqual([
+      expect.stringContaining('image "gone.png" could not be imported'),
+      expect.stringContaining(
+        'image "../../order.ts" could not be imported: outside the review',
+      ),
+    ]);
+    expect(store.read(record.uuid).document.slice(-2)).toMatchObject([
+      { type: "markdown", markdown: "*Missing shot*\n" },
+      { type: "markdown", markdown: "*Escaping \\*shot\\* \\[1\\]*\n" },
+    ]);
   });
 
   it("resumes after a partial import and imports only the missing revisions", async () => {
-    const repo = await scratchGitRepo();
-
-    const { home, record, stored, oids } = await syntheticLegacyReview(
+    const { repo, record, oids, store, data, importReview } = await runImport(
       "schema4-bug-report-dialog",
-      repo,
       { revisions: 3 },
     );
 
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
-    );
+    const registered = await data.register(repo.root);
 
-    try {
-      const registered = await data.register(repo.root);
-      await store.importVersions([
-        {
-          reviewId: record.uuid,
-          title: "partial",
-          pins: {
-            repositoryId: registered.id,
-            base: repo.base,
-            head: repo.base,
-          },
-          document: [],
-          createdAt: "2026-01-01T00:00:00.000Z",
-          origin: { revision: oids[0] },
+    await store.importVersions([
+      {
+        reviewId: record.uuid,
+        title: "partial",
+        pins: {
+          repositoryId: registered.id,
+          base: repo.base,
+          head: repo.base,
         },
-      ]);
+        document: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        origin: { revision: oids[0] },
+      },
+    ]);
 
-      const outcome = await importLegacyReview({
-        review: stored,
-        store,
-        data,
-        materialize: materializeFromRevisionDirs,
-        log: logFromRevisionDirs(oids),
-        loadTrace: async () => null,
-      });
-
-      expect(outcome).toMatchObject({ kind: "imported", version: 2 });
-      expect(store.history(record.uuid).map((entry) => entry.version)).toEqual([
-        0, 1, 2,
-      ]);
-      expect(store.read(record.uuid, 1).origin?.revision).toBe(oids[1]);
-      expect(store.read(record.uuid, 2).origin?.revision).toBe(oids[2]);
-    } finally {
-      await store.close();
-    }
+    expect(await importReview()).toMatchObject({
+      kind: "imported",
+      version: 2,
+    });
+    expect(store.history(record.uuid).map((entry) => entry.version)).toEqual([
+      0, 1, 2,
+    ]);
+    expect(store.read(record.uuid, 1).origin?.revision).toBe(oids[1]);
+    expect(store.read(record.uuid, 2).origin?.revision).toBe(oids[2]);
   });
 
   it("reports an unresolved source range without adding document content", async () => {
-    const repo = await scratchGitRepo();
-
-    const { home, record, stored, oids } = await syntheticLegacyReview(
+    const { record, oids, store, documentPath, importReview } = await runImport(
       "schema4-bug-report-dialog",
-      repo,
     );
 
-    const docPath = path.join(
-      stored.dir,
-      ".revisions",
-      oids[0]!,
-      ".bundle/document/review-document.json",
-    );
-
-    const doc = JSON.parse(await readFile(docPath, "utf8"));
-    doc.body.push({
-      type: "element",
-      tag: "p",
-      props: {},
-      children: [
+    await appendNodes(documentPath(oids[0]!), [
+      el("p", [
         {
           type: "component",
           name: "AnchorLink",
@@ -279,82 +349,54 @@ describe("importLegacyReview", () => {
               },
             },
           },
-          children: [{ type: "text", value: "a vanished file" }],
+          children: [text("a vanished file")],
         },
-      ],
-    });
-    await writeFile(docPath, JSON.stringify(doc));
+      ]),
+    ]);
 
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
+    const outcome = await importReview();
+
+    expect(outcome.kind).toBe("imported");
+    expect(
+      outcome.kind === "imported" && outcome.warnings.join("\n"),
+    ).toContain("head/missing.ts#L1-L2");
+    expect(JSON.stringify(store.read(record.uuid).document)).not.toContain(
+      "Imported from the MDX review",
     );
-
-    try {
-      const outcome = await importLegacyReview({
-        review: stored,
-        store,
-        data,
-        materialize: materializeFromRevisionDirs,
-        log: logFromRevisionDirs(oids),
-        loadTrace: async () => null,
-      });
-
-      expect(outcome.kind).toBe("imported");
-      expect(
-        outcome.kind === "imported" && outcome.warnings.join("\n"),
-      ).toContain("head/missing.ts#L1-L2");
-      expect(JSON.stringify(store.read(record.uuid).document)).not.toContain(
-        "Imported from the MDX review",
-      );
-    } finally {
-      await store.close();
-    }
   });
 
   it("does not re-import after a restore or a delete", async () => {
-    const repo = await scratchGitRepo();
-
-    const { home, record, stored, oids } = await syntheticLegacyReview(
+    const { record, oids, store, importReview } = await runImport(
       "schema4-bug-report-dialog",
-      repo,
       { revisions: 2 },
     );
 
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
-    );
+    expect(await importReview()).toMatchObject({
+      kind: "imported",
+      version: 1,
+    });
+    await store.execute({
+      commandId: randomUUID(),
+      operation: { type: "restore", reviewId: record.uuid, version: 0 },
+    });
+    expect(store.read(record.uuid).origin?.revision).toBe(oids[0]);
+    expect(await importReview()).toEqual({
+      kind: "current",
+      reviewId: record.uuid,
+    });
+    expect(store.read(record.uuid).version).toBe(2);
 
-    const run = () =>
-      importLegacyReview({
-        review: stored,
-        store,
-        data,
-        materialize: materializeFromRevisionDirs,
-        log: logFromRevisionDirs(oids),
-        loadTrace: async () => null,
-      });
-
-    try {
-      expect(await run()).toMatchObject({ kind: "imported", version: 1 });
-      await store.execute({
-        commandId: randomUUID(),
-        operation: { type: "restore", reviewId: record.uuid, version: 0 },
-      });
-      expect(store.read(record.uuid).origin?.revision).toBe(oids[0]);
-      expect(await run()).toEqual({ kind: "current", reviewId: record.uuid });
-      expect(store.read(record.uuid).version).toBe(2);
-
-      await store.execute({
-        commandId: randomUUID(),
-        operation: { type: "delete", reviewId: record.uuid },
-      });
-      expect(store.has(record.uuid)).toBe(false);
-      expect(await run()).toEqual({ kind: "current", reviewId: record.uuid });
-      expect(store.has(record.uuid)).toBe(false);
-      expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
-    } finally {
-      await store.close();
-    }
+    await store.execute({
+      commandId: randomUUID(),
+      operation: { type: "delete", reviewId: record.uuid },
+    });
+    expect(store.has(record.uuid)).toBe(false);
+    expect(await importReview()).toEqual({
+      kind: "current",
+      reviewId: record.uuid,
+    });
+    expect(store.has(record.uuid)).toBe(false);
+    expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
   });
 
   it("recovers a deleted checkout only from a candidate containing the pinned commits", async () => {
@@ -597,48 +639,182 @@ describe("importLegacyReview", () => {
   });
 
   it("advances the cursor past revisions whose document did not change", async () => {
-    const repo = await scratchGitRepo();
-
-    const { home, record, stored, oids } = await syntheticLegacyReview(
+    const { record, oids, stored, store, importReview } = await runImport(
       "schema4-bug-report-dialog",
-      repo,
       { revisions: 2, identical: true },
     );
 
     // Both the prose and its source pins are identical in this publication.
-    const firstRecord = path.join(
-      stored.dir,
-      ".revisions",
-      oids[0]!,
-      "review.json",
-    );
-
     await writeFile(
-      firstRecord,
+      path.join(stored.dir, ".revisions", oids[0]!, "review.json"),
       JSON.stringify({ ...record, presentedDocumentRevision: oids[0] }),
     );
 
-    const { store, data } = openLocalReviewStore(
-      path.join(home, "review-api.db"),
+    expect(await importReview()).toMatchObject({
+      kind: "imported",
+      version: 0,
+    });
+    expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
+    expect(await importReview()).toEqual({
+      kind: "current",
+      reviewId: record.uuid,
+    });
+    expect(store.read(record.uuid).version).toBe(0);
+  });
+
+  it("imports a later map publish into the section it already wrote", async () => {
+    const { repo, dir, record, store, importReview } = await runImport(
+      "schema4-opencode-agentserver",
+      { map: { oid: mapOids[0] } },
     );
 
-    const run = () =>
-      importLegacyReview({
-        review: stored,
-        store,
-        data,
-        materialize: materializeFromRevisionDirs,
-        log: logFromRevisionDirs(oids),
-        loadTrace: async () => null,
-      });
+    expect(await importReview()).toMatchObject({
+      kind: "imported",
+      version: 0,
+    });
 
-    try {
-      expect(await run()).toMatchObject({ kind: "imported", version: 0 });
-      expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
-      expect(await run()).toEqual({ kind: "current", reviewId: record.uuid });
-      expect(store.read(record.uuid).version).toBe(0);
-    } finally {
-      await store.close();
-    }
+    const [published] = mapSections(store.read(record.uuid).document);
+
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[0]);
+
+    // A reader annotates the review between the two map publishes.
+    const note = await store.execute({
+      commandId: randomUUID(),
+      operation: {
+        type: "edit",
+        reviewId: record.uuid,
+        edit: {
+          type: "insert",
+          content: { type: "markdown", markdown: "Mine.\n" },
+        },
+      },
+    });
+
+    await sealLegacyMapRevision(dir, mapOids[1]!, {
+      headCommit: repo.head,
+      baseCommit: repo.base,
+    });
+
+    const republished = {
+      dir,
+      review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
+    };
+
+    expect(await importReview(republished)).toMatchObject({
+      kind: "imported",
+      version: 2,
+    });
+
+    const document = store.read(record.uuid).document;
+    const sections = mapSections(document);
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.id).toBe(published!.id);
+    expect(sections[0]!.mapVersionIds).not.toEqual(published!.mapVersionIds);
+    expect(document.some((block) => block.id === note.targetId)).toBe(true);
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[1]);
+    expect(await importReview(republished)).toEqual({
+      kind: "current",
+      reviewId: record.uuid,
+    });
+  });
+
+  it("retries a map bundle sealed against other commits", async () => {
+    const { repo, dir, record, store, importReview } = await runImport(
+      "schema4-opencode-agentserver",
+      {
+        map: {
+          oid: mapOids[0]!,
+          headCommit: "c".repeat(40),
+          baseCommit: "d".repeat(40),
+        },
+      },
+    );
+
+    const first = await importReview();
+
+    // The document must not sink with the map it could not show.
+    expect(first).toMatchObject({ kind: "imported", version: 0 });
+    expect(first.kind === "imported" && first.warnings.join("\n")).toContain(
+      mapOids[0]!,
+    );
+    expect(mapSections(store.read(record.uuid).document)).toEqual([]);
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBeNull();
+
+    // Still failing: the open path must not read this as a skipped review.
+    expect(await importReview()).toMatchObject({
+      kind: "current",
+      warnings: [expect.stringContaining(mapOids[0]!)],
+    });
+    expect(store.read(record.uuid).version).toBe(0);
+
+    await sealLegacyMapRevision(dir, mapOids[0]!, {
+      headCommit: repo.head,
+      baseCommit: repo.base,
+    });
+    expect(await importReview()).toMatchObject({
+      kind: "imported",
+      version: 1,
+    });
+    expect(mapSections(store.read(record.uuid).document)).toHaveLength(1);
+    expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[0]);
+  });
+
+  it("leaves a deleted review deleted when only its map moved on", async () => {
+    const { dir, record, store, importReview } = await runImport(
+      "schema4-opencode-agentserver",
+      { map: { oid: mapOids[0] } },
+    );
+
+    expect(await importReview()).toMatchObject({ kind: "imported" });
+    await store.execute({
+      commandId: randomUUID(),
+      operation: { type: "delete", reviewId: record.uuid },
+    });
+
+    expect(
+      await importReview({
+        dir,
+        review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
+      }),
+    ).toEqual({ kind: "current", reviewId: record.uuid });
+    expect(store.has(record.uuid)).toBe(false);
   });
 });
+
+const mapOids = ["a".repeat(40), "b".repeat(40)];
+
+/** The map sections of a document, as the maps they show. */
+const mapSections = (document: Block[]) =>
+  document.flatMap((block) =>
+    isMapSection(block)
+      ? [
+          {
+            id: block.id,
+            mapVersionIds: block.children.map((child) =>
+              child.type === "software_map" ? child.mapVersionId : "",
+            ),
+          },
+        ]
+      : [],
+  );
+
+const square = (background: string) =>
+  sharp({ create: { width: 2, height: 2, channels: 3, background } })
+    .png()
+    .toBuffer();
+
+const assetId = (blocks: Block[], index: number) => {
+  const block = blocks[index];
+
+  return block?.type === "image" ? block.assetId : "";
+};
+
+/** Appends nodes to a sealed document, the way a legacy review carried shapes
+ * the fixtures do not. */
+async function appendNodes(docPath: string, nodes: unknown[]): Promise<void> {
+  const doc = JSON.parse(await readFile(docPath, "utf8"));
+
+  doc.body.push(...nodes);
+  await writeFile(docPath, JSON.stringify(doc));
+}

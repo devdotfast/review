@@ -36,7 +36,7 @@ export async function runDesktopHost(
   // a later in-app enable also reaches telemetry instances created elsewhere.
   delete env.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
 
-  const serverInput: Parameters<typeof createGlobalReviewServer>[0] = {
+  const serverInput = {
     appPid,
     packageRoot,
     toolingRoot,
@@ -71,14 +71,12 @@ export async function runDesktopHost(
     workspaces: true,
   });
 
-  serverInput.reviewStore = local.store;
-  serverInput.reviewData = local.data;
-
-  if (env.DEV_FAST_REVIEW_CLI_RUNTIME) {
-    serverInput.cliRuntimePath = env.DEV_FAST_REVIEW_CLI_RUNTIME;
-  }
-
-  const server = createGlobalReviewServer(serverInput);
+  const server = createGlobalReviewServer({
+    ...serverInput,
+    reviewStore: local.store,
+    reviewData: local.data,
+    cliRuntimePath: env.DEV_FAST_REVIEW_CLI_RUNTIME,
+  });
 
   try {
     await server.listen();

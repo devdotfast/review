@@ -1,16 +1,12 @@
 import {
-  type JsonValue,
   type ReviewDiffStats,
   type ReviewStackLayer,
-  isJsonObject,
-  jsonNumber,
-  jsonString,
-  parseReviewStackResponse,
   summarizeReviewDiffFiles,
 } from "@dev.fast/review-protocol";
 import {
   type MouseEvent,
   type ReactElement,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -18,6 +14,7 @@ import {
 
 import { useReviewSession } from "./host/review-session";
 import { useReviewDiffFiles } from "./review-diff-files-context";
+import { DisplayedReviewVersionContext } from "./review-history-control";
 
 interface ReviewDocumentMetaState {
   pullRequestNumber: number | null;
@@ -33,14 +30,11 @@ interface ReviewDocumentMetaState {
 export function ReviewDocumentMetaLine(): ReactElement | null {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
+  const displayedVersion = useContext(DisplayedReviewVersionContext);
   const diffFiles = useReviewDiffFiles();
 
-  const [legacyMeta, setLegacyMeta] = useState<ReviewDocumentMetaState | null>(
-    null,
-  );
-
-  const review = session.review;
-  const meta = review ? documentMetaState(review) : legacyMeta;
+  const review = session.review!;
+  const meta = documentMetaState(review);
 
   const [relativeTimeNowMs, setRelativeTimeNowMs] = useState<number | null>(
     null,
@@ -50,29 +44,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
 
   useEffect(() => {
     setRelativeTimeNowMs(Date.now());
-  }, []);
-
-  useEffect(() => {
-    if (review) return;
-    const controller = new AbortController();
-
-    reviewFetch("/document-meta", { signal: controller.signal })
-      .then(async (response) => {
-        const json: JsonValue = await response.json();
-
-        if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
-        setLegacyMeta(
-          documentMetaState({
-            updatedAtMs: jsonNumber(json.updatedAtMs),
-            pullRequestNumber: jsonNumber(json.pullRequestNumber),
-            pullRequestUrl: jsonString(json.pullRequestUrl),
-          }),
-        );
-      })
-      .catch(() => {});
-
-    return () => controller.abort();
-  }, [reviewFetch, review]);
+  }, [displayedVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -83,14 +55,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       return () => controller.abort();
     }
 
-    const layers = review
-      ? review.stack(controller.signal)
-      : reviewFetch("/stack", { signal: controller.signal }).then(
-          async (response) =>
-            response.ok
-              ? parseReviewStackResponse(await response.json()).layers
-              : [],
-        );
+    const layers = review.stack(controller.signal);
 
     layers
       .then((next) => {
@@ -99,7 +64,13 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       .catch(() => {});
 
     return () => controller.abort();
-  }, [meta?.pullRequestNumber, reviewFetch, review]);
+  }, [
+    meta?.pullRequestNumber,
+    meta?.pullRequestUrl,
+    reviewFetch,
+    review,
+    displayedVersion,
+  ]);
 
   const diff =
     diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : null;
@@ -112,7 +83,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   if (!meta?.pullRequestNumber && !diff && !updatedLabel) return null;
 
   return (
-    <div className="review-doc-meta">
+    <div className="review-doc-meta" data-review-copy-ignore>
       {meta?.pullRequestNumber != null &&
         (meta.pullRequestUrl ? (
           <a

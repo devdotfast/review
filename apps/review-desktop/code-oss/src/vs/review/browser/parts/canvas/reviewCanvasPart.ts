@@ -3,126 +3,84 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import "../../media/review.css";
-import { $, getWindow, type Dimension } from "../../../../base/browser/dom.js";
+import { $,getWindow,type Dimension } from "../../../../base/browser/dom.js";
 import { createTrustedTypesPolicy } from "../../../../base/browser/trustedTypes.js";
 import type { CancellationToken } from "../../../../base/common/cancellation.js";
 import { Emitter } from "../../../../base/common/event.js";
-import {
-	Disposable,
-	DisposableStore,
-	MutableDisposable,
-	toDisposable,
-} from "../../../../base/common/lifecycle.js";
-import type { ICursorPositionChangedEvent } from "../../../../editor/common/cursorEvents.js";
+import { Disposable,DisposableStore,MutableDisposable,toDisposable } from "../../../../base/common/lifecycle.js";
 import { FileAccess } from "../../../../base/common/network.js";
+import type { ICursorPositionChangedEvent } from "../../../../editor/common/cursorEvents.js";
 import { ICommandService } from "../../../../platform/commands/common/commands.js";
-import {
-	ConfigurationTarget,
-	IConfigurationService,
-} from "../../../../platform/configuration/common/configuration.js";
-import { createDecorator, IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
-import { FocusMode } from "../../../../platform/native/common/native.js";
-import {
-	TextEditorSelectionSource,
-	type IEditorOptions,
-} from "../../../../platform/editor/common/editor.js";
+import { ConfigurationTarget,IConfigurationService } from "../../../../platform/configuration/common/configuration.js";
+import { TextEditorSelectionSource,type IEditorOptions } from "../../../../platform/editor/common/editor.js";
+import { createDecorator,IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
+import { FocusMode } from "../../../../platform/native/common/native.js";
 import { IProductService } from "../../../../platform/product/common/productService.js";
-import { IEditorProgressService, LongRunningOperation } from "../../../../platform/progress/common/progress.js";
-import {
-	IStorageService,
-	StorageScope,
-	StorageTarget,
-} from "../../../../platform/storage/common/storage.js";
+import { IEditorProgressService,LongRunningOperation } from "../../../../platform/progress/common/progress.js";
+import { IStorageService,StorageScope,StorageTarget } from "../../../../platform/storage/common/storage.js";
+import { ITelemetryService } from "../../../../platform/telemetry/common/telemetry.js";
 import { ColorScheme } from "../../../../platform/theme/common/theme.js";
 import { IThemeService } from "../../../../platform/theme/common/themeService.js";
 import { Part } from "../../../../workbench/browser/part.js";
 import { EditorPane } from "../../../../workbench/browser/parts/editor/editorPane.js";
 import type {
-	IEditorControl,
-	IEditorOpenContext,
-	IEditorPaneSelection,
-	IEditorPaneSelectionChangeEvent,
+IEditorControl,
+IEditorOpenContext,
+IEditorPaneSelection,
+IEditorPaneSelectionChangeEvent,
 } from "../../../../workbench/common/editor.js";
 import { EditorPaneSelectionChangeReason } from "../../../../workbench/common/editor.js";
 import type { IEditorGroup } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 import { IHostService } from "../../../../workbench/services/host/browser/host.js";
+import { IWorkbenchLayoutService,Parts } from "../../../../workbench/services/layout/browser/layoutService.js";
 import {
-	IWorkbenchLayoutService,
-	Parts,
-} from "../../../../workbench/services/layout/browser/layoutService.js";
-import { ITelemetryService } from "../../../../platform/telemetry/common/telemetry.js";
-import {
-	parseReviewVerbRequest,
-	DEFAULT_DISMISSED_RETENTION_DAYS,
-	REVIEW_CANVAS_RESUME_EVENT,
-	REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
-	REVIEW_TUTORIAL_STEP_IDS,
-} from "../../../common/reviewProtocol.js";
-import {
-	canRestoreReviewCanvasScrollSnapshot,
-	canReuseReviewCanvas,
-	preserveReviewCanvasScrollSnapshot,
-	type ReviewCanvasScrollSnapshot,
-} from "../../../common/reviewCanvasReuse.js";
-import type {
-	ReviewCanvasBridge,
-	ReviewCanvasDiagnostic,
-	ReviewCanvasContent,
-	ReviewCanvasHandle,
-	ReviewCanvasOnboarding,
-	ReviewCanvasHomeSetup,
-	ReviewCanvasInstallContent,
-	ReviewCanvasModule,
-	ReviewCanvasSettingsContent,
-	ReviewCanvasTutorialBridge,
-	ReviewCliInstallStatus,
-	ReviewKeymapChoice,
-	ReviewRuntimeConfig,
-	ReviewSurfaceEvent,
-	ReviewTheme,
-	TutorialProgressV1,
-	TutorialStepId,
-} from "../../../common/reviewProtocol.js";
-import {
-	REVIEW_KEYMAP_SETTING,
-	REVIEW_SOFTWARE_MAP_SETTING,
-	REVIEW_TELEMETRY_SETTING,
+REVIEW_KEYMAP_SETTING,
+REVIEW_SOFTWARE_MAP_SETTING,
+REVIEW_TELEMETRY_SETTING,
 } from "../../../common/reviewConfigurationDefaults.js";
+import type {
+ReviewCanvasBridge,
+ReviewCanvasContent,
+ReviewCanvasDiagnostic,
+ReviewCanvasHandle,
+ReviewCanvasHomeSetup,
+ReviewCanvasInstallContent,
+ReviewCanvasModule,
+ReviewCanvasOnboarding,
+ReviewCanvasSettingsContent,
+ReviewCanvasTutorialBridge,
+ReviewCliInstallStatus,
+ReviewKeymapChoice,
+ReviewRuntimeConfig,
+ReviewSurfaceEvent,
+ReviewTheme,
+TutorialProgressV1,
+TutorialStepId,
+} from "../../../common/reviewProtocol.js";
 import {
-	applyReviewThemeChoice,
-	currentReviewThemeChoice,
-} from "../../reviewThemeChoice.js";
+parseReviewVerbRequest,
+REVIEW_CANVAS_RESUME_EVENT,
+REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
+REVIEW_TUTORIAL_STEP_IDS
+} from "../../../common/reviewProtocol.js";
 import { IReviewVerbsService } from "../../../contrib/verbs/reviewVerbs.js";
-import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
-import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
-import { IReviewDiffService } from "../../../services/reviewDiffService.js";
-import { IReviewApiSourceService } from "../../../services/reviewApiSourceService.js";
 import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
-import {
-	ReviewEmbeddedEditorSelection,
-	reviewEmbeddedSelectionFromOptions,
-} from "../../../services/reviewEmbeddedNavigation.js";
-import {
-	REVIEW_BASE_SCHEME,
-	reviewResourceIdentity,
-} from "../../../common/reviewCodeResources.js";
-import { reviewTelemetryEventRequest } from "../../../common/reviewTelemetryRequest.js";
-import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
-import { IReviewSessionService } from "../../../services/reviewSessionService.js";
-import {
-	IReviewSessionModelService,
-	type ReviewDesktopSession,
-	type ReviewSessionModel,
-} from "../../../services/reviewSessionModelService.js";
+import { IReviewApiSourceService } from "../../../services/reviewApiSourceService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
+import { IReviewDesktopConnectionService } from "../../../services/reviewDesktopConnectionService.js";
+import { ReviewDiffViewService } from "../../../services/reviewDiffViewService.js";
+import {
+ReviewEmbeddedEditorSelection,
+reviewEmbeddedSelectionFromOptions,
+} from "../../../services/reviewEmbeddedNavigation.js";
+import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
+import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
+
+import "../../media/review.css";
+import { applyReviewThemeChoice,currentReviewThemeChoice } from "../../reviewThemeChoice.js";
 import { IReviewExplorerPartsService } from "../explorer/reviewExplorerPart.js";
 import { ReviewCanvasEditorInput } from "./reviewCanvasEditorInput.js";
-import {
-	loadReviewDocumentData,
-	loadReviewSoftwareMaps,
-} from "./reviewDocumentData.js";
 
 interface ReviewCanvasAssetsModule extends ReviewCanvasModule {
 	readonly clearReviewViewState: (config: ReviewRuntimeConfig) => void;
@@ -141,42 +99,18 @@ interface ReviewCanvasLoadLifecycle {
 	reportDiagnostic(diagnostic: ReviewCanvasDiagnostic): void;
 }
 
-type ReviewCanvasState =
-	| "home"
-	| "connecting"
-	| "active"
-	| "completed"
-	| "error";
+type ReviewCanvasState = "home" | "connecting" | "active" | "completed" | "error";
 
 const reviewCanvasPolicy = createTrustedTypesPolicy("reviewCanvas", {
 	createScriptURL: (value: string) => value,
 });
 
-const detachedScrollRestoreDeadlineMs = 30_000;
-// Canvas content loading is keyed by promise identity. Metadata-only refreshes
-// must not remount the document and its native diff when maps are disabled.
-const disabledSoftwareMap = Promise.resolve(null);
 const requestReviewApi: typeof fetch = (url, init) => fetch(url, init);
 
-// The tutorial step list as it first shipped. Stored progress payloads
-// without a `steps` field date from this era.
-const LAUNCH_TUTORIAL_STEP_IDS: readonly TutorialStepId[] = [
-	"openPeek",
-	"gotoDefinition",
-	"showHover",
-	"openSequence",
-	"chooseKeymap",
-];
-
 function isTutorialStepId(step: unknown): step is TutorialStepId {
-	return (
-		typeof step === "string" &&
-		REVIEW_TUTORIAL_STEP_IDS.includes(step as TutorialStepId)
-	);
+	return typeof step === "string" && REVIEW_TUTORIAL_STEP_IDS.includes(step as TutorialStepId);
 }
-function embeddedSelectionChangeReason(
-	event: ICursorPositionChangedEvent,
-): EditorPaneSelectionChangeReason {
+function embeddedSelectionChangeReason(event: ICursorPositionChangedEvent): EditorPaneSelectionChangeReason {
 	switch (event.source) {
 		case TextEditorSelectionSource.PROGRAMMATIC:
 			return EditorPaneSelectionChangeReason.PROGRAMMATIC;
@@ -189,35 +123,14 @@ function embeddedSelectionChangeReason(
 	}
 }
 
-/** The connection fields a legacy session contributes to the canvas runtime config. */
-function sessionConnection(
-	session: ReviewDesktopSession,
-): Pick<ReviewRuntimeConfig, "serverUrl" | "sessionUrl" | "routePath" | "sessionId" | "token"> {
-	return {
-		serverUrl: session.serverUrl,
-		sessionUrl: session.sessionUrl,
-		routePath: session.descriptor.routePath,
-		sessionId: session.session.sessionId,
-		token: session.token,
-	};
-}
-
 export class ReviewCanvasEditorPane extends EditorPane {
 	static readonly ID = ReviewCanvasEditorInput.EDITOR_ID;
 
-	private readonly canvas = this._register(
-		new MutableDisposable<ReviewCanvasHandle>(),
-	);
-	private readonly surfaceEvents = this._register(
-		new Emitter<ReviewSurfaceEvent>(),
-	);
-	private readonly _onDidChangeSelection = this._register(
-		new Emitter<IEditorPaneSelectionChangeEvent>(),
-	);
+	private readonly canvas = this._register(new MutableDisposable<ReviewCanvasHandle>());
+	private readonly surfaceEvents = this._register(new Emitter<ReviewSurfaceEvent>());
+	private readonly _onDidChangeSelection = this._register(new Emitter<IEditorPaneSelectionChangeEvent>());
 	readonly onDidChangeSelection = this._onDidChangeSelection.event;
-	private readonly embeddedSelectionListeners = this._register(
-		new MutableDisposable<DisposableStore>(),
-	);
+	private readonly embeddedSelectionListeners = this._register(new MutableDisposable<DisposableStore>());
 	private readonly themeEvents = this._register(new Emitter<ReviewTheme>());
 	private container: HTMLElement | null = null;
 	private canvasMount: HTMLElement | null = null;
@@ -227,15 +140,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private openingGeneration: number | undefined;
 	private readonly refreshProgress: LongRunningOperation;
 	private renderedInput: ReviewCanvasEditorInput | undefined;
-	private renderedModel: ReviewSessionModel | null = null;
 	private readyInput: ReviewCanvasEditorInput | undefined;
-	private detachedScrollSnapshot: ReviewCanvasScrollSnapshot | undefined;
-	private detachedScrollRestoreFrame: number | null = null;
-	private detachedScrollRestoreDeadline: number | null = null;
 	private assetsPromise: Promise<ReviewCanvasAssetsModule> | null = null;
-	private readonly modelSubscription = this._register(
-		new MutableDisposable(),
-	);
+	private readonly modelSubscription = this._register(new MutableDisposable());
 	private readonly inlineEditors: ReviewInlineEditorService;
 	private readonly diffViews: ReviewDiffViewService;
 
@@ -245,11 +152,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IThemeService private readonly reviewThemeService: IThemeService,
 		@IStorageService private readonly storageService: IStorageService,
 		@IProductService private readonly productService: IProductService,
-		@IReviewSessionService
-		private readonly sessionService: IReviewSessionService,
-		@IReviewSessionModelService
-		private readonly sessionModelService: IReviewSessionModelService,
-		@IReviewDiffService private readonly diffService: IReviewDiffService,
+		@IReviewDesktopConnectionService
+		private readonly desktopConnection: IReviewDesktopConnectionService,
 		@IReviewApiSourceService private readonly apiSource: IReviewApiSourceService,
 		@IReviewApiCatalogService private readonly apiCatalog: IReviewApiCatalogService,
 		@IReviewVerbsService private readonly verbs: IReviewVerbsService,
@@ -270,22 +174,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@ILogService private readonly logService: ILogService,
 		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
-		super(
-			ReviewCanvasEditorPane.ID,
-			group,
-			telemetryService,
-			reviewThemeService,
-			storageService,
-		);
-		this.inlineEditors = this._register(
-			reviewInstantiationService.createInstance(ReviewInlineEditorService),
-		);
+		super(ReviewCanvasEditorPane.ID, group, telemetryService, reviewThemeService, storageService);
+		this.inlineEditors = this._register(reviewInstantiationService.createInstance(ReviewInlineEditorService));
 		this.refreshProgress = this._register(new LongRunningOperation(editorProgressService));
 		this.diffViews = this._register(
-			reviewInstantiationService.createInstance(
-				ReviewDiffViewService,
-				this.inlineEditors,
-			),
+			reviewInstantiationService.createInstance(ReviewDiffViewService, this.inlineEditors),
 		);
 		this._register(
 			verbs.onDidEmitSurfaceEvent((event) => {
@@ -295,9 +188,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this._register(
 			verbs.onDidRequestCanvasFocus(() => {
 				this.canvas.value?.focus();
-				void this.hostService.focus(
-					this.targetDocument?.defaultView ?? window,
-				);
+				void this.hostService.focus(this.targetDocument?.defaultView ?? window);
 			}),
 		);
 		this._register(
@@ -313,9 +204,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				this.surfaceEvents.fire({ event: "themeChanged", theme });
 			}),
 		);
-		this._register(
-			sessionService.onDidFail((error) => void this.renderFailure(error)),
-		);
+		this._register(desktopConnection.onDidFail((error) => void this.renderFailure(error)));
 		this._register(
 			configurationService.onDidChangeConfiguration((event) => {
 				if (!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING)) return;
@@ -324,10 +213,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 					this.canvas.value?.update(this.apiContent);
 					return;
 				}
-				const input = this.renderedInput;
-				const model = this.renderedModel;
-				if (!input || !model || model.state !== "active") return;
-				void this.refreshModel(input, model);
 			}),
 		);
 	}
@@ -351,45 +236,23 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		// the --vscode-* theme variables that style hover widgets are scoped.
 		// One shared host serves every peek in this pane.
 		const overflowWidgets = $(".review-overflow-widgets.monaco-editor");
-		this.layoutService
-			.getContainer(getWindow(parent))
-			.appendChild(overflowWidgets);
+		this.layoutService.getContainer(getWindow(parent)).appendChild(overflowWidgets);
 		this._register(toDisposable(() => overflowWidgets.remove()));
 		this.inlineEditors.setOverflowWidgetsDomNode(overflowWidgets);
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
-		this.sessionService.attachControl(async (sessionId, value) => {
+		this.desktopConnection.attachControl(async (value) => {
 			const request = parseReviewVerbRequest(value);
 			if (request.name === "openApiReview") {
-				const response = await this.verbs.dispatch(sessionId, request);
-				return response.ok
-					? { ok: true, result: { softwareMapEnabled: this.currentSoftwareMapEnabled() } }
-					: response;
+				const response = await this.verbs.dispatch(request);
+				return response.ok ? { ok: true, result: { softwareMapEnabled: this.currentSoftwareMapEnabled() } } : response;
 			}
 			if (request.name === "focusWindow") {
-				await this.hostService.focus(
-					this.targetDocument?.defaultView ?? window,
-					{ mode: FocusMode.Force },
-				);
+				await this.hostService.focus(this.targetDocument?.defaultView ?? window, { mode: FocusMode.Force });
 				return { ok: true };
 			}
-			const input = await this.tabsService.openSession(sessionId, true);
-			const model = await input.resolve();
-			if (
-				!model ||
-				model.state !== "active" ||
-				model.session.session.sessionId !== sessionId
-			) {
-				return {
-					ok: false,
-					error: `Review session ${sessionId} could not be activated.`,
-				};
-			}
-			this.sessionModelService.setActiveModel(model);
-			return this.verbs.dispatch(sessionId, request);
+			return this.verbs.dispatch(request);
 		});
-		void this.sessionService
-			.initialize()
-			.catch((error) => this.renderError(error));
+		void this.desktopConnection.initialize().catch((error) => this.renderError(error));
 	}
 
 	override async setInput(
@@ -420,151 +283,118 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		await super.setInput(input, options, context, token);
 		this.restoreEmbeddedSelection(options);
 		try {
-			await this.sessionService.initialize();
+			await this.desktopConnection.initialize();
 		} catch (error) {
-			if (
-				generation === this.loadGeneration &&
-				!token.isCancellationRequested
-			) {
+			if (generation === this.loadGeneration && !token.isCancellationRequested) {
 				await this.renderError(error, generation);
 			}
 			return;
 		}
-		if (
-			generation !== this.loadGeneration ||
-			token.isCancellationRequested
-		) {
+		if (generation !== this.loadGeneration || token.isCancellationRequested) {
 			return;
 		}
-		const warmModel = input.resolvedModel;
 		if (input.target.kind === "api" && this.readyInput === input && this.renderedInput === input) {
 			this.canvasMount?.dispatchEvent(new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT));
-			return;
-		}
-		if (
-			input.target.kind === "review" &&
-			warmModel &&
-			canReuseReviewCanvas({
-				input,
-				readyInput: this.readyInput,
-				model: warmModel,
-				renderedModel: this.renderedModel,
-				modelState: warmModel.state,
-			})
-		) {
-			this.sessionModelService.setActiveModel(warmModel);
-			this.canvasMount?.dispatchEvent(
-				new globalThis.Event(REVIEW_CANVAS_RESUME_EVENT),
-			);
-			this.restoreDetachedScrollSnapshot(input, warmModel, generation);
 			return;
 		}
 		if (input.target.kind === "api-source") {
 			// The Source placeholder replaces the mount, so the reuse shortcuts
 			// above must not treat the previous review as still rendered.
 			this.renderedInput = input;
-			this.renderedModel = null;
 			this.readyInput = undefined;
-			this.sessionModelService.setActiveModel(null);
-			this.setSessionState("home");
+			this.setCanvasState("home");
 			await this.render({ kind: "source" }, generation);
 			return;
 		}
-		if (input.target.kind === "source") {
-			this.renderedInput = input;
-			this.renderedModel = null;
-			this.readyInput = undefined;
-			this.inlineEditors.reset();
-			this.diffViews.reset();
-			this.modelSubscription.clear();
-			// Not the full session reset the other branches run: the Source tab
-			// exists to browse the active review's worktree beside the tabs the
-			// tree opened. `verbs.resetSession()` would close those tabs, and
-			// clearing the active model would drop the workspace folder — the
-			// tree's root — out from under the browse.
-			//
-			// With no active session (Home clears it), activate the tab's
-			// preferred review instead — without opening its document tab. The
-			// held reference keeps the pinned worktree leased while browsing.
-			if (!this.sessionModelService.activeModel && input.preferredReview) {
-				try {
-					// The input owns the acquisition: the session and its
-					// pinned-worktree lease live exactly as long as the tab.
-					const model = await input.resolveSourceModel();
-					if (generation !== this.loadGeneration) {
-						return;
-					}
-					if (model) {
-						this.sessionModelService.setActiveModel(model);
-					}
-				} catch (error) {
-					this.logService.warn(
-						`[review] source tab cannot activate review ${input.preferredReview}: ${error}`,
-					);
-					this.setSessionState("home");
-					await this.render(
-						{
-							kind: "source",
-							error:
-								error instanceof Error ? error.message : String(error),
-						},
-						generation,
-					);
-					return;
-				}
-			}
-			this.setSessionState("home");
-			await this.render({ kind: "source" }, generation);
-			return;
-		}
-		this.detachedScrollSnapshot = undefined;
-		this.detachedScrollRestoreDeadline = null;
-		if (!(await this.resetSessionForGeneration(generation))) {
+		if (!(await this.resetCanvasForGeneration(generation))) {
 			return;
 		}
 		this.modelSubscription.clear();
 		if (input.target.kind === "api") {
 			try {
 				const { reviewId } = input.target;
-				const [connection, assets] = await Promise.all([this.sessionService.getConnection(), this.loadAssets()]);
+				const [connection, assets] = await Promise.all([this.desktopConnection.getConnection(), this.loadAssets()]);
 				if (generation !== this.loadGeneration || token.isCancellationRequested) return;
 				this.renderedInput = input;
-				this.renderedModel = null;
-				this.sessionModelService.setActiveModel(null);
-				this.setSessionState("active", reviewId);
-				void this.apiCatalog.attention(reviewId, "view").catch(error => this.logService.warn("[Review] Could not mark review viewed:", error));
+				this.setCanvasState("active", reviewId);
+				void this.apiCatalog
+					.attention(reviewId, "view")
+					.catch((error) => this.logService.warn("[Review] Could not mark review viewed:", error));
 				let version = 0;
 				const source = this.apiSource.canvas(reviewId, () => version, this.inlineEditors, this.diffViews);
-				await this.render({
-					kind: "api", reviewId, softwareMapEnabled: this.currentSoftwareMapEnabled(),
-					setTitle: title => input.setApiTitle(title),
-					setVersion: next => { version = next; },
-					openSource: (source, range) => this.apiSource.open({ reviewId, ...source }, range),
-					bridge: {
-						...source,
-						...this.sharedBridge(generation, () => { this.readyInput = input; }),
-						config: this.reviewRuntimeConfig({
-							...connection, sessionUrl: `${connection.serverUrl}/reviews-api/${reviewId}`,
-							sessionId: reviewId, routePath: "/",
-						}, assets),
-						request: requestReviewApi,
-						post: async request => {
-							if (request.name === "openSourceTree") {
-								await this.tabsService.openApiSource(reviewId, version, input.getName());
-								this.explorerParts.show();
-								return { ok: true };
-							}
-							if (request.name === "reveal") {
-								const range = { startLine: request.args.startLine, endLine: request.args.endLine };
-								await this.apiSource.open({ reviewId, version, file: request.args.path, side: request.args.side ?? "head" }, range);
-								return { ok: true };
-							}
-							// API reviews keep no active session model, so a session-bound
-							// legacy verb reports an error instead of acting on another review.
-							return this.verbs.dispatch(reviewId, request);
+				const closeTutorial = () => void this.group.closeEditor(input);
+				const updateTutorial = (progress: TutorialProgressV1) => {
+					this.writeTutorialProgress(progress);
+					if (!this.apiContent) return;
+					this.apiContent = {
+						...this.apiContent,
+						tutorial: this.createTutorialBridge(reviewId, progress, updateTutorial, closeTutorial),
+					};
+					this.canvas.value?.update(this.apiContent);
+				};
+				await this.render(
+					{
+						setTutorial: (enabled) => {
+							if (
+								!this.apiContent ||
+								generation !== this.loadGeneration ||
+								enabled === Boolean(this.apiContent.tutorial)
+							)
+								return;
+							this.apiContent = {
+								...this.apiContent,
+								tutorial: enabled
+									? this.createTutorialBridge(reviewId, this.readTutorialProgress(), updateTutorial, closeTutorial)
+									: undefined,
+							};
+							this.canvas.value?.update(this.apiContent);
+						},
+						kind: "api",
+						reviewId,
+						softwareMapEnabled: this.currentSoftwareMapEnabled(),
+						setTitle: (title) => input.setApiTitle(title),
+						setVersion: (next) => {
+							version = next;
+						},
+						openSource: (source, range) => this.apiSource.open({ reviewId, ...source }, range),
+						bridge: {
+							...source,
+							...this.sharedBridge(generation, () => {
+								this.readyInput = input;
+							}),
+							config: this.reviewRuntimeConfig(
+								{
+									...connection,
+									reviewId: reviewId,
+								},
+								assets,
+							),
+							request: requestReviewApi,
+							post: async (request) => {
+								if (request.name === "openSourceTree") {
+									await this.tabsService.openApiSource(reviewId, version, input.getName());
+									this.explorerParts.show();
+									return { ok: true };
+								}
+								if (request.name === "reveal") {
+									const range = { startLine: request.args.startLine, endLine: request.args.endLine };
+									await this.apiSource.open(
+										{ reviewId, version, file: request.args.path, side: request.args.side ?? "head" },
+										range,
+									);
+									return { ok: true };
+								}
+								if (request.name === "openDiff") {
+									await this.apiSource.openDiff(reviewId, version, request.args.path);
+									return { ok: true };
+								}
+								return this.verbs.dispatch(request);
+							},
 						},
 					},
-				}, generation, assets);
+					generation,
+					assets,
+				);
 			} catch (error) {
 				if (generation === this.loadGeneration) await this.renderError(error, generation);
 			}
@@ -572,108 +402,75 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		}
 		if (input.target.kind === "home") {
 			this.renderedInput = input;
-			this.renderedModel = null;
-			this.sessionModelService.setActiveModel(null);
-			this.setSessionState("home");
+			this.setCanvasState("home");
 			const setup = await this.resolveHomeSetup();
-			try {
-				await this.apiCatalog.initialize();
-			} catch (error) {
-				// Home still lists legacy reviews when the API list is unavailable.
-				this.logService.warn("[Review] Could not load API reviews:", error);
-			}
+			await this.apiCatalog.initialize();
 			let emptyStateVisible = false;
 			/* The empty-list render suspends on the install fetch below, while
 			   the list render has no await at all. The sequence number keeps a
 			   suspended empty render from resuming after a later list render
 			   and overwriting it with a stale snapshot. */
 			let renderSeq = 0;
-			const renderHome = async () =>
-				{
-					const seq = ++renderSeq;
-					const reviews = this.apiCatalog.reviews;
-					const isEmpty = reviews.length === 0;
-					// Only the Welcome rail needs install status; the list must
-					// render without waiting on it. One fetch serves both the
-					// install card and the onboarding rail.
-					const install = isEmpty
-						? await this.resolveInstallContent()
-						: undefined;
-					if (seq !== renderSeq) return;
-					if (isEmpty && !emptyStateVisible) {
-						this.reviewTelemetryService.capture("home_empty_state_viewed");
-					}
-					emptyStateVisible = isEmpty;
-					const openReview = (uuid: string) => {
-						this.reviewTelemetryService.capture("review_opened", {
-							via: "home",
-						});
-						const api = this.apiCatalog.reviews.find(review => review.uuid === uuid);
-						return api ? this.tabsService.openApiReview(uuid, api.title) : Promise.resolve();
-					};
-					return this.render(
+			const renderHome = async () => {
+				const seq = ++renderSeq;
+				const reviews = this.apiCatalog.reviews;
+				const isEmpty = reviews.length === 0;
+				// Only the Welcome rail needs install status; the list must
+				// render without waiting on it. One fetch serves both the
+				// install card and the onboarding rail.
+				const install = isEmpty ? await this.resolveInstallContent() : undefined;
+				if (seq !== renderSeq) return;
+				if (isEmpty && !emptyStateVisible) {
+					this.reviewTelemetryService.capture("home_empty_state_viewed");
+				}
+				emptyStateVisible = isEmpty;
+				const openReview = (uuid: string) => {
+					this.reviewTelemetryService.capture("review_opened", {
+						via: "home",
+					});
+					const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
+					return api ? this.tabsService.openApiReview(uuid, api.title) : Promise.resolve();
+				};
+				return this.render(
 					{
 						kind: "home",
 						reviews,
-						reviewErrors: this.sessionService.reviewErrors,
 						openReview: (uuid) => void openReview(uuid),
-						deleteReview: (uuid) => this.apiCatalog.reviews.some(review => review.uuid === uuid)
-							? this.apiCatalog.deleteReview(uuid) : this.sessionService.deleteReview(uuid),
-						dismissReview: async (uuid) => {
-							if (!this.apiCatalog.reviews.some(review => review.uuid === uuid)) return this.sessionService.dismissReview(uuid);
-							await this.apiCatalog.attention(uuid, "dismiss");
-						},
-						restoreReview: (uuid) => this.apiCatalog.reviews.some(review => review.uuid === uuid)
-							? this.apiCatalog.attention(uuid, "restore") : this.sessionService.restoreReview(uuid),
+						deleteReview: (uuid) => this.apiCatalog.deleteReview(uuid),
+						dismissReview: (uuid) => this.apiCatalog.attention(uuid, "dismiss"),
+						restoreReview: (uuid) => this.apiCatalog.attention(uuid, "restore"),
 						openSourceTree: (uuid) => {
-							const api = this.apiCatalog.reviews.find(review => review.uuid === uuid);
+							const api = this.apiCatalog.reviews.find((review) => review.reviewId === uuid);
 							if (api) {
-								void this.tabsService.openApiSource(uuid, Number(api.presentedDocumentRevision), api.title).then(() => this.explorerParts.show());
+								void this.tabsService.openApiSource(uuid, api.version, api.title).then(() => this.explorerParts.show());
 								return;
 							}
-							this.reviewTelemetryService.capture("source_tree_opened", {
-								via: "home",
-							});
-							// Only the Source tab opens. Its activation acquires the
-							// review's session itself, which roots the workspace
-							// folder — and therefore the tree — at the pinned
-							// worktree, without opening the review document.
-							void this.tabsService
-								.openSource(true, uuid)
-								.then(() => this.explorerParts.show());
 						},
 						setup,
 						// Home shows the Welcome rail while the list is empty.
 						install,
-						onboarding: install
-							? this.resolveOnboarding(install.status)
-							: undefined,
+						onboarding: install ? this.resolveOnboarding(install.status) : undefined,
 						openTutorial: () => this.openTutorial(),
 					},
 					generation,
-					);
-				};
+				);
+			};
 			// Home stays live while it is the rendered input: a deletion or a
 			// newly published review re-renders the list. render() drops stale
 			// generations once another input starts loading.
 			const subscriptions = new DisposableStore();
-			subscriptions.add(this.sessionService.onDidChangeLists(() => void renderHome()));
+			subscriptions.add(this.desktopConnection.onDidChangeLists(() => void renderHome()));
 			subscriptions.add(this.apiCatalog.onDidChange(() => void renderHome()));
 			this.modelSubscription.value = subscriptions;
 			await renderHome();
 			return;
 		}
 		if (input.target.kind === "welcome") {
-			void this.sessionService.prepareTutorial().catch((error) =>
-				this.logService.warn(
-					"[Review] Tutorial preparation did not complete:",
-					error,
-				),
-			);
+			void this.desktopConnection
+				.prepareTutorial()
+				.catch((error) => this.logService.warn("[Review] Tutorial preparation did not complete:", error));
 			this.renderedInput = input;
-			this.renderedModel = null;
-			this.sessionModelService.setActiveModel(null);
-			this.setSessionState("home");
+			this.setCanvasState("home");
 			/* Same stale-resume guard as Home: the install fetch suspends, and
 			   a later list event must win over an earlier suspended render. */
 			let renderSeq = 0;
@@ -686,9 +483,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						kind: "welcome",
 						install,
 						close: () => void this.group.closeEditor(input),
-						onboarding: install
-							? this.resolveOnboarding(install.status)
-							: undefined,
+						onboarding: install ? this.resolveOnboarding(install.status) : undefined,
 						openTutorial: () => this.openTutorial(),
 					},
 					generation,
@@ -696,77 +491,22 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			};
 			// The last step completes when a review publishes, which can happen
 			// while this tab sits open.
-			this.modelSubscription.value = this.sessionService.onDidChangeLists(
-				() => void renderWelcome(),
-			);
+			this.modelSubscription.value = this.desktopConnection.onDidChangeLists(() => void renderWelcome());
 			await renderWelcome();
 			return;
 		}
 		if (input.target.kind === "settings") {
 			this.renderedInput = input;
-			this.renderedModel = null;
-			this.sessionModelService.setActiveModel(null);
-			this.setSessionState("home");
-			const [settings, install] = await Promise.all([
-				this.resolveSettingsContent(),
-				this.resolveInstallContent(),
-			]);
-			await this.render(
-				{ kind: "settings", settings: { ...settings, install } },
-				generation,
-			);
+			this.setCanvasState("home");
+			const [settings, install] = await Promise.all([this.resolveSettingsContent(), this.resolveInstallContent()]);
+			await this.render({ kind: "settings", settings: { ...settings, install } }, generation);
 			return;
 		}
-		this.setSessionState("connecting");
-		let model: ReviewSessionModel | null;
-		try {
-			model = await input.resolve();
-		} catch (error) {
-			if (
-				generation === this.loadGeneration &&
-				!token.isCancellationRequested
-			) {
-				this.sessionModelService.setActiveModel(null);
-				await this.renderError(error, generation);
-			}
-			return;
-		}
-		if (!model) {
-			throw new Error("The review editor input has no session model.");
-		}
-		if (generation !== this.loadGeneration || token.isCancellationRequested) {
-			return;
-		}
-		this.modelSubscription.value = model.onDidChange(() => {
-			if (
-				this.sessionModelService.activeModel === model ||
-				this.renderedModel === model
-			) {
-				void this.refreshModel(input, model);
-			}
-		});
-		await this.renderModel(input, model, generation);
 	}
 
 	override async clearInput(): Promise<void> {
 		this.apiContent = undefined;
 		this.refreshProgress.stop();
-		if (this.detachedScrollRestoreFrame !== null) {
-			cancelAnimationFrame(this.detachedScrollRestoreFrame);
-			this.detachedScrollRestoreFrame = null;
-		}
-		this.detachedScrollRestoreDeadline = null;
-		this.detachedScrollSnapshot =
-			this.renderedInput &&
-			this.renderedModel &&
-			this.targetDocument
-				? preserveReviewCanvasScrollSnapshot(
-						this.detachedScrollSnapshot,
-						this.renderedInput,
-						this.renderedModel,
-						this.targetDocument,
-					)
-				: undefined;
 		await super.clearInput();
 	}
 
@@ -792,75 +532,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		return this.canvas.value?.showFind(seed) ?? false;
 	}
 
-	private restoreDetachedScrollSnapshot(
-		input: ReviewCanvasEditorInput,
-		model: ReviewSessionModel,
-		generation: number,
-	): void {
-		const snapshot = this.detachedScrollSnapshot;
-		if (
-			!canRestoreReviewCanvasScrollSnapshot(snapshot, {
-				input,
-				model,
-				modelState: model.state,
-			})
-		) {
-			this.detachedScrollSnapshot = undefined;
-			this.detachedScrollRestoreDeadline = null;
-			return;
-		}
-		this.detachedScrollRestoreDeadline =
-			performance.now() + detachedScrollRestoreDeadlineMs;
-		const finish = () => {
-			if (this.detachedScrollSnapshot === snapshot) {
-				this.detachedScrollSnapshot = undefined;
-			}
-			this.detachedScrollRestoreDeadline = null;
-		};
-		const schedule = () => {
-			this.detachedScrollRestoreFrame = requestAnimationFrame(apply);
-		};
-		const apply = () => {
-			this.detachedScrollRestoreFrame = null;
-			if (
-				generation !== this.loadGeneration ||
-				this.renderedInput !== input ||
-				this.renderedModel !== model ||
-				this.sessionModelService.activeModel !== model
-			) {
-				finish();
-				return;
-			}
-			const region = this.targetDocument?.querySelector<HTMLElement>(
-				".review-view-region",
-			);
-			if (
-				this.readyInput === input &&
-				this.canvasMount?.isConnected &&
-				region?.isConnected &&
-				region.clientHeight > 0
-			) {
-				const expected = Math.min(
-					snapshot.scrollTop,
-					Math.max(0, region.scrollHeight - region.clientHeight),
-				);
-				region.scrollTop = snapshot.scrollTop;
-				if (Math.abs(region.scrollTop - expected) <= 1) {
-					finish();
-					return;
-				}
-			}
-			if (
-				performance.now() < (this.detachedScrollRestoreDeadline ?? 0)
-			) {
-				schedule();
-			} else {
-				finish();
-			}
-		};
-		schedule();
-	}
-
 	override getControl(): IEditorControl | undefined {
 		return this.inlineEditors;
 	}
@@ -874,23 +545,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		const editor = this.inlineEditors.selectionCodeEditor;
 		const position = editor?.getPosition();
 		const model = editor?.getModel();
-		const session = this.renderedModel?.state === "active"
-			? this.renderedModel.session
-			: undefined;
-		if (!editor || !position || !model || !session) {
-			return undefined;
-		}
-		const identity = reviewResourceIdentity(session, model.uri);
-		if (!identity) return undefined;
+		if (!editor || !position || !model) return undefined;
 		const domNode = editor.getDomNode();
 		const view = domNode?.closest(".review-files-editor") ? "diff" : "review";
-		const section = domNode
-			?.closest<HTMLElement>("[data-review-section]")
-			?.dataset["reviewSection"];
+		const section = domNode?.closest<HTMLElement>("[data-review-section]")?.dataset["reviewSection"];
 		return new ReviewEmbeddedEditorSelection(editor, {
 			view,
-			path: identity.path,
-			side: identity.scheme === REVIEW_BASE_SCHEME ? "base" : "head",
+			path: model.uri.path.slice(1),
+			side: new URLSearchParams(model.uri.query).get("side") === "base" ? "base" : "head",
 			lineNumber: position.lineNumber,
 			column: position.column,
 			section,
@@ -945,32 +607,30 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 * the status endpoint fails (an older server, a race during startup), so a
 	 * failure yields no install content rather than an error state.
 	 */
-	private async resolveInstallContent(): Promise<
-		ReviewCanvasInstallContent | undefined
-	> {
+	private async resolveInstallContent(): Promise<ReviewCanvasInstallContent | undefined> {
 		try {
-			const status = await this.sessionService.getCliInstallStatus();
+			const status = await this.desktopConnection.getCliInstallStatus();
 			return {
 				status,
 				apply: async (request) => {
-					await this.sessionService.applyCliInstall(request);
-					return this.sessionService.getCliInstallStatus();
+					await this.desktopConnection.applyCliInstall(request);
+					return this.desktopConnection.getCliInstallStatus();
 				},
 				remove: async (request) => {
-					await this.sessionService.removeCliInstall(request);
-					return this.sessionService.getCliInstallStatus();
+					await this.desktopConnection.removeCliInstall(request);
+					return this.desktopConnection.getCliInstallStatus();
 				},
 				decline: async () => {
-					await this.sessionService.declineCliInstall();
-					return this.sessionService.getCliInstallStatus();
+					await this.desktopConnection.declineCliInstall();
+					return this.desktopConnection.getCliInstallStatus();
 				},
 				skip: async () => {
-					await this.sessionService.skipCliInstallPrompts();
-					return this.sessionService.getCliInstallStatus();
+					await this.desktopConnection.skipCliInstallPrompts();
+					return this.desktopConnection.getCliInstallStatus();
 				},
 				enablePrompts: async () => {
-					await this.sessionService.resetCliInstallPrompts();
-					return this.sessionService.getCliInstallStatus();
+					await this.desktopConnection.resetCliInstallPrompts();
+					return this.desktopConnection.getCliInstallStatus();
 				},
 			};
 		} catch {
@@ -992,7 +652,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 */
 	private async resolveSettingsContent(): Promise<ReviewCanvasSettingsContent> {
 		return {
-			projectSetup: { ...await this.sessionService.getConnection(), request: requestReviewApi },
+			projectSetup: { ...await this.desktopConnection.getConnection(), request: requestReviewApi },
 			telemetryEnabled: this.currentTelemetryEnabled(),
 			setTelemetryEnabled: async (enabled) => {
 				this.reviewTelemetryService.capture("setting_changed", {
@@ -1002,23 +662,13 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				if (!enabled) {
 					await this.reviewTelemetryService.flush();
 				}
-				await this.configurationService.updateValue(
-					REVIEW_TELEMETRY_SETTING,
-					enabled,
-					ConfigurationTarget.USER,
-				);
+				await this.configurationService.updateValue(REVIEW_TELEMETRY_SETTING, enabled, ConfigurationTarget.USER);
 				return this.currentTelemetryEnabled();
 			},
-			theme: currentReviewThemeChoice(
-				this.configurationService,
-				this.reviewThemeService,
-			),
+			theme: currentReviewThemeChoice(this.configurationService, this.reviewThemeService),
 			setTheme: async (choice) => {
 				await applyReviewThemeChoice(this.configurationService, choice);
-				return currentReviewThemeChoice(
-					this.configurationService,
-					this.reviewThemeService,
-				);
+				return currentReviewThemeChoice(this.configurationService, this.reviewThemeService);
 			},
 			keymap: this.currentKeymap(),
 			setKeymap: async (choice) => {
@@ -1029,82 +679,40 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				await this.commandService.executeCommand("review.setKeymap", choice);
 				return this.currentKeymap();
 			},
-			dismissedRetentionDays: await this.currentRetentionDays(),
-			setDismissedRetentionDays: async (days) => {
-				this.reviewTelemetryService.capture("setting_changed", {
-					setting: "dismissed_retention_days",
-					enabled: days !== null,
-				});
-				return this.sessionService.setDismissedRetentionDays(days);
-			},
 			softwareMapEnabled: this.currentSoftwareMapEnabled(),
 			setSoftwareMapEnabled: async (enabled) => {
 				this.reviewTelemetryService.capture("setting_changed", {
 					setting: "software_map_enabled",
 					enabled,
 				});
-				await this.configurationService.updateValue(
-					REVIEW_SOFTWARE_MAP_SETTING,
-					enabled,
-					ConfigurationTarget.USER,
-				);
+				await this.configurationService.updateValue(REVIEW_SOFTWARE_MAP_SETTING, enabled, ConfigurationTarget.USER);
 				return this.currentSoftwareMapEnabled();
 			},
-			manageExtensions: () =>
-				void this.commandService.executeCommand("review.manageExtensions"),
+			manageExtensions: () => void this.commandService.executeCommand("review.manageExtensions"),
 		};
 	}
 
-	/**
-	 * The retention window lives in the review server, so a read can fail. The
-	 * shipped default is the honest answer then: it is what the reaper uses when
-	 * it finds no stored preference.
-	 */
-	private async currentRetentionDays(): Promise<number | null> {
-		try {
-			return await this.sessionService.readDismissedRetentionDays();
-		} catch (error) {
-			this.logService.warn(
-				`Could not read the review retention preference: ${error}`,
-			);
-			return DEFAULT_DISMISSED_RETENTION_DAYS;
-		}
-	}
-
 	private currentKeymap(): ReviewKeymapChoice {
-		return (
-			this.configurationService.getValue<ReviewKeymapChoice>(
-				REVIEW_KEYMAP_SETTING,
-			) ?? "none"
-		);
+		return this.configurationService.getValue<ReviewKeymapChoice>(REVIEW_KEYMAP_SETTING) ?? "none";
 	}
 
 	private currentSoftwareMapEnabled(): boolean {
-		return (
-			this.configurationService.getValue<boolean>(
-				REVIEW_SOFTWARE_MAP_SETTING,
-			) === true
-		);
+		return this.configurationService.getValue<boolean>(REVIEW_SOFTWARE_MAP_SETTING) === true;
 	}
 
 	// The setting ships as true, so only an explicit false means opted out.
 	private currentTelemetryEnabled(): boolean {
-		return (
-			this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !==
-			false
-		);
+		return this.configurationService.getValue<boolean>(REVIEW_TELEMETRY_SETTING) !== false;
 	}
 
 	/**
 	 * Install status for the Home setup banner. Home must render even when the
 	 * status endpoint fails, so a failure yields no banner.
 	 */
-	private async resolveHomeSetup(): Promise<
-		ReviewCanvasHomeSetup | undefined
-	> {
+	private async resolveHomeSetup(): Promise<ReviewCanvasHomeSetup | undefined> {
 		try {
 			return {
-				status: await this.sessionService.getCliInstallStatus(),
+				status: await this.desktopConnection.getCliInstallStatus(),
 				open: () => void this.tabsService.openWelcome(true),
 			};
 		} catch {
@@ -1117,43 +725,17 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 * caller already fetched, so one render costs one status round-trip. The
 	 * rest is local: stored tutorial progress and the review list.
 	 */
-	private resolveOnboarding(
-		status: ReviewCliInstallStatus,
-	): ReviewCanvasOnboarding {
+	private resolveOnboarding(status: ReviewCliInstallStatus): ReviewCanvasOnboarding {
 		const checked = new Set(this.readTutorialProgress().checked);
-		const steps = REVIEW_TUTORIAL_STEP_IDS.filter(
-			(step) => step !== "openMap" || this.currentSoftwareMapEnabled(),
-		);
+		const steps = REVIEW_TUTORIAL_STEP_IDS.filter((step) => step !== "openMap" || this.currentSoftwareMapEnabled());
 		return {
 			installed: status.agents.some((agent) => agent.installed),
-			tutorialChecked: steps.filter((step) =>
-				checked.has(step),
-			).length,
+			tutorialChecked: steps.filter((step) => checked.has(step)).length,
 			tutorialTotal: steps.length,
 			// Drafts are filtered out of this list and the tutorial never
 			// joins it, so this counts only a real published review.
-			published: this.sessionService.reviews.length > 0,
+			published: this.apiCatalog.reviews.length > 0,
 		};
-	}
-
-	private resolveTutorialBridge(
-		reviewUuid: string,
-		onChange: (progress: TutorialProgressV1) => void,
-		close: () => void,
-	): ReviewCanvasTutorialBridge | undefined {
-		// The tutorial descriptor is cached by the open call, and a tutorial
-		// tab can only exist after that call. Identifying the tutorial from
-		// the cache keeps ordinary review renders free of any status fetch,
-		// and cannot transiently fail and drop the checklist.
-		if (this.sessionService.tutorialReview?.uuid !== reviewUuid) {
-			return undefined;
-		}
-		return this.createTutorialBridge(
-			reviewUuid,
-			this.readTutorialProgress(),
-			onChange,
-			close,
-		);
 	}
 
 	private createTutorialBridge(
@@ -1177,10 +759,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		return {
 			content: { reviewUuid, progress, keymap: this.currentKeymap() },
 			setStep,
-			dismiss: () =>
-				onChange({ ...this.readTutorialProgress(), dismissed: true }),
-			reopen: () =>
-				onChange({ ...this.readTutorialProgress(), dismissed: false }),
+			dismiss: () => onChange({ ...this.readTutorialProgress(), dismissed: true }),
+			reopen: () => onChange({ ...this.readTutorialProgress(), dismissed: false }),
 			selectKeymap: async (keymap) => {
 				if (keymap !== "none" && keymap !== "vim" && keymap !== "emacs") {
 					throw new Error("Unsupported tutorial keymap choice.");
@@ -1206,10 +786,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			checked: [],
 			dismissed: false,
 		};
-		const raw = this.storageService.get(
-			REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY,
-			StorageScope.APPLICATION,
-		);
+		const raw = this.storageService.get(REVIEW_TUTORIAL_PROGRESS_STORAGE_KEY, StorageScope.APPLICATION);
 		if (!raw) return empty;
 		try {
 			const value = JSON.parse(raw) as {
@@ -1220,6 +797,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			};
 			if (
 				value.version !== 1 ||
+				!Array.isArray(value.steps) ||
 				!Array.isArray(value.checked) ||
 				!value.checked.every(isTutorialStepId) ||
 				typeof value.dismissed !== "boolean"
@@ -1227,14 +805,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				throw new Error("Invalid tutorial progress.");
 			}
 			const checked = new Set(value.checked);
-			/* `steps` records the step list the writer knew (older payloads
-			   predate the field and default to the launch list). A release
-			   that adds a step must not un-finish an already finished tour:
-			   when every step the writer knew is checked, the steps added
-			   since count as checked too. */
-			const known = Array.isArray(value.steps)
-				? value.steps.filter(isTutorialStepId)
-				: LAUNCH_TUTORIAL_STEP_IDS;
+			const known = value.steps.filter(isTutorialStepId);
 			if (known.length > 0 && known.every((step) => checked.has(step))) {
 				for (const step of REVIEW_TUTORIAL_STEP_IDS) {
 					checked.add(step);
@@ -1262,204 +833,21 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		);
 	}
 
-	private async renderModel(
-		input: ReviewCanvasEditorInput,
-		model: ReviewSessionModel,
-		generation: number,
-	): Promise<void> {
-		this.renderedInput = input;
-		this.renderedModel = model;
-		this.readyInput = undefined;
-		if (model.state === "completed") {
-			this.sessionModelService.setActiveModel(null);
-			this.setSessionState("completed");
-			await this.render(
-				{
-					kind: "completed",
-					reviewPath: model.session.session.reviewPath,
-					showHome: () => void this.tabsService.openHome(true),
-				},
-				generation,
-			);
-			return;
-		}
-		if (model.state === "unavailable") {
-			this.sessionModelService.setActiveModel(null);
-			await this.renderError(
-				model.unavailableMessage ?? "Review session is unavailable.",
-				generation,
-			);
-			return;
-		}
-		this.sessionModelService.setActiveModel(model);
-		await this.load(input, model, generation);
-	}
-
-	private async load(
-		input: ReviewCanvasEditorInput,
-		model: ReviewSessionModel,
-		generation: number,
-	): Promise<Error | null> {
-		if (!this.container) {
-			return new Error("Review canvas container is unavailable.");
-		}
-		const session = model.session;
-		this.readyInput = undefined;
-		this.setSessionState("active", session.session.sessionId);
-		let loadTimeout: ReturnType<typeof setTimeout> | undefined;
-		let finishLoad!: (error: Error | null) => void;
-		const loadResult = new Promise<Error | null>((resolve) => {
-			let finished = false;
-			finishLoad = (error) => {
-				if (finished) return;
-				finished = true;
-				resolve(error);
-			};
-		});
-		try {
-			void this.diffService.prefetch().catch((error) => {
-				this.logService.debug(`[review] diff prefetch failed: ${error}`);
-			});
-			const assets = await this.loadAssets();
-			if (generation !== this.loadGeneration) {
-				return new Error("Review canvas load was superseded.");
-			}
-			const document = model.resolveDocument(loadReviewDocumentData);
-			const softwareMapEnabled = this.currentSoftwareMapEnabled();
-			const softwareMap = softwareMapEnabled
-				? model.resolveSoftwareMap(loadReviewSoftwareMaps)
-				: disabledSoftwareMap;
-			const bridge = this.createBridge(model, assets, generation, {
-				ready: () => {
-					if (this.renderedInput === input && this.renderedModel === model) {
-						this.readyInput = input;
-					}
-					finishLoad(null);
-				},
-				reportDiagnostic: (diagnostic) => {
-					if (diagnostic.level === "error") {
-						finishLoad(new Error(diagnostic.message));
-					}
-				},
-			});
-			if (input.takeViewStateResetRequest()) {
-				assets.clearReviewViewState(bridge.config);
-			}
-			let tutorial: ReviewCanvasTutorialBridge | undefined;
-			const renderSession = () =>
-				this.render(
-					{
-					kind: "session",
-					bridge,
-					document,
-					softwareMap,
-					softwareMapEnabled,
-					reviewErrors: this.sessionService.reviewErrors,
-					commits: model.session.review.commits ?? [],
-					range: {
-						sourceUnavailable: model.session.descriptor.sourceUnavailable,
-						baseRef: model.session.review.baseRef ?? session.session.baseRef,
-						headRef: model.session.review.headRef ?? session.session.headRef ?? session.session.baseRef,
-						baseCommit: session.session.baseRef,
-						headCommit: session.session.headRef ?? session.session.baseRef,
-					},
-					...(tutorial ? { tutorial } : {}),
-					},
-					generation,
-					assets,
-				);
-			if (input.target.kind === "review") {
-				const reviewUuid = input.target.reviewUuid;
-				const closeTutorial = () => void this.group.closeEditor(input);
-				const updateTutorial = (next: TutorialProgressV1) => {
-					this.writeTutorialProgress(next);
-					tutorial = this.createTutorialBridge(
-						reviewUuid,
-						next,
-						updateTutorial,
-						closeTutorial,
-					);
-					void renderSession();
-				};
-				tutorial = this.resolveTutorialBridge(
-					reviewUuid,
-					updateTutorial,
-					closeTutorial,
-				);
-			}
-			await renderSession();
-			loadTimeout = setTimeout(
-				() =>
-					finishLoad(
-						new Error(
-							"Review canvas did not complete its first React commit within 30 seconds.",
-						),
-					),
-				30_000,
-			);
-			const result = await loadResult;
-			if (generation !== this.loadGeneration) {
-				return new Error("Review canvas load was superseded.");
-			}
-			// A watchdog timeout or a document diagnostic resolves loadResult
-			// with an error instead of throwing. Render it, or the canvas keeps
-			// its skeleton forever with no message.
-			if (result) {
-				await this.renderError(result, generation);
-			}
-			return result;
-		} catch (error) {
-			if (generation === this.loadGeneration) {
-				await this.renderError(error, generation);
-			}
-			return reviewLoadError(error);
-		} finally {
-			if (loadTimeout) clearTimeout(loadTimeout);
-		}
-	}
-
-	private async refreshModel(
-		input: ReviewCanvasEditorInput,
-		model: ReviewSessionModel,
-	): Promise<void> {
-		const generation = ++this.loadGeneration;
-		// Opening already owns native editor progress through setInput().
-		// Only refreshes of the visible input need a separate operation.
-		const operation = this.isVisible() && this.input === input && this.openingGeneration === undefined
-			? this.refreshProgress.start(800)
-			: undefined;
-		try {
-			if (
-				model.state !== "active" &&
-				!(await this.resetSessionForGeneration(generation))
-			) {
-				return;
-			}
-			await this.renderModel(input, model, generation);
-		} finally {
-			operation?.stop();
-		}
-	}
-
 	private async renderFailure(error: Error): Promise<void> {
 		this.refreshProgress.stop();
 		const generation = ++this.loadGeneration;
-		if (await this.resetSessionForGeneration(generation)) {
+		if (await this.resetCanvasForGeneration(generation)) {
 			await this.renderError(error, generation);
 		}
 	}
 
-	private async renderError(
-		error: unknown,
-		generation?: number,
-	): Promise<void> {
+	private async renderError(error: unknown, generation?: number): Promise<void> {
 		const activeGeneration = generation ?? ++this.loadGeneration;
-		this.setSessionState("error");
+		this.setCanvasState("error");
 		await this.render(
 			{
 				kind: "error",
 				message: error instanceof Error ? error.message : String(error),
-				reviewErrors: this.sessionService.reviewErrors,
 			},
 			activeGeneration,
 		);
@@ -1498,49 +886,16 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		canvasGlobal.__zod_globalConfig ??= {};
 		canvasGlobal.__zod_globalConfig.jitless = true;
 
-		const url = FileAccess.asBrowserUri(
-			"vs/review/canvas/canvas-loader.js",
-		).toString(true);
-		const trustedUrl =
-			reviewCanvasPolicy?.createScriptURL(url) ?? (url as string);
+		const url = FileAccess.asBrowserUri("vs/review/canvas/canvas-loader.js").toString(true);
+		const trustedUrl = reviewCanvasPolicy?.createScriptURL(url) ?? (url as string);
 		const assets = (await import(
 			/* webpackIgnore: true */ trustedUrl as unknown as string
 		)) as ReviewCanvasAssetsModule;
 		if (typeof assets.mountReviewCanvas !== "function") {
 			throw new Error("Review canvas bundle has no mount function.");
 		}
-		await Promise.all(
-			assets.reviewStylesheetUrls.map((stylesheet) =>
-				loadStylesheet(document, stylesheet),
-			),
-		);
+		await Promise.all(assets.reviewStylesheetUrls.map((stylesheet) => loadStylesheet(document, stylesheet)));
 		return assets;
-	}
-
-	private createBridge(
-		model: ReviewSessionModel,
-		assets: ReviewCanvasAssetsModule,
-		generation: number,
-		lifecycle?: ReviewCanvasLoadLifecycle,
-	): ReviewCanvasBridge {
-		const session = model.session;
-		const config = this.reviewRuntimeConfig(sessionConnection(session), assets);
-		return {
-			...this.sharedBridge(
-				generation,
-				() => {
-					lifecycle?.ready();
-					void this.captureReviewPresented(model);
-				},
-				lifecycle,
-			),
-			config,
-			inlineEditors: this.inlineEditors,
-			diffView: this.diffViews,
-			request: (url, init) => model.request(url, init),
-			post: (request) =>
-				this.verbs.dispatch(session.session.sessionId, request),
-		};
 	}
 
 	/** The bridge members every canvas shares; `onReady` runs once the mount reports ready. */
@@ -1567,8 +922,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			onDidChangeTheme: (listener) => this.themeEvents.event(listener),
 			currentDiffLayout: () => this.diffViews.diffLayout.get(),
 			setDiffLayout: (layout) => this.diffViews.diffLayout.set(layout),
-			onDidChangeDiffLayout: (listener) =>
-				this.diffViews.diffLayout.onDidChange(listener),
+			onDidChangeDiffLayout: (listener) => this.diffViews.diffLayout.onDidChange(listener),
 			ready: () => {
 				if (generation !== this.loadGeneration || !this.targetDocument) return;
 				this.targetDocument.body.dataset["reviewCanvasReady"] = "true";
@@ -1578,83 +932,51 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				if (generation === this.loadGeneration && diagnostic.level === "error") {
 					delete this.targetDocument?.body.dataset["reviewCanvasReady"];
 				}
-				const method =
-					diagnostic.level === "error" ? console.error : console.warn;
-				method(
-					`[Review canvas ${diagnostic.source}] ${diagnostic.message}`,
-					diagnostic.stack ?? "",
-				);
+				const method = diagnostic.level === "error" ? console.error : console.warn;
+				method(`[Review canvas ${diagnostic.source}] ${diagnostic.message}`, diagnostic.stack ?? "");
 				lifecycle?.reportDiagnostic(diagnostic);
 			},
 		};
 	}
 
 	private reviewRuntimeConfig(
-		connection: Pick<
-			ReviewRuntimeConfig,
-			"serverUrl" | "sessionUrl" | "routePath" | "sessionId" | "token"
-		>,
+		connection: Pick<ReviewRuntimeConfig, "serverUrl" | "reviewId" | "token">,
 		assets: ReviewCanvasAssetsModule,
 	): ReviewRuntimeConfig {
 		return {
 			...connection,
 			wasmUrl: assets.reviewWasmUrl,
-			appVersion:
-				this.productService.reviewVersion ?? this.productService.version,
+			appVersion: this.productService.reviewVersion ?? this.productService.version,
 			theme: this.colorScheme(),
 			host: "desktop",
 		};
 	}
 
-	private async captureReviewPresented(model: ReviewSessionModel): Promise<void> {
-		const session = model.session;
-		await model.request(
-			`${session.sessionUrl}/__progressive-review/telemetry/event`,
-			reviewTelemetryEventRequest(
-				{
-					token: session.token,
-					appSessionId: this.reviewTelemetryService.appSessionId,
-				},
-				{ name: "review_presented" },
-				{ keepalive: true },
-			),
-		).catch(() => undefined);
-	}
-
-	private async resetSessionForGeneration(
-		generation: number,
-	): Promise<boolean> {
+	private async resetCanvasForGeneration(generation: number): Promise<boolean> {
 		if (generation !== this.loadGeneration) {
 			return false;
 		}
 		this.readyInput = undefined;
 		this.inlineEditors.reset();
 		this.diffViews.reset();
-		await this.verbs.resetSession();
 		return generation === this.loadGeneration;
 	}
 
-	private setSessionState(
-		state: ReviewCanvasState,
-		sessionId?: string,
-	): void {
+	private setCanvasState(state: ReviewCanvasState, reviewId?: string): void {
 		if (!this.targetDocument) return;
-		this.targetDocument.body.dataset["reviewSessionState"] = state;
-		if (state === "active" && sessionId) {
-			this.targetDocument.body.dataset["reviewSessionId"] = sessionId;
+		this.targetDocument.body.dataset["reviewCanvasState"] = state;
+		if (state === "active" && reviewId) {
+			this.targetDocument.body.dataset["reviewId"] = reviewId;
 			delete this.targetDocument.body.dataset["reviewCanvasReady"];
 		} else {
-			delete this.targetDocument.body.dataset["reviewSessionId"];
+			delete this.targetDocument.body.dataset["reviewId"];
 			delete this.targetDocument.body.dataset["reviewCanvasReady"];
 		}
 	}
 
 	private colorScheme(): ReviewTheme {
 		const type = this.reviewThemeService.getColorTheme().type;
-		return type === ColorScheme.LIGHT ||
-			type === ColorScheme.HIGH_CONTRAST_LIGHT
-			? "light"
-			: "dark";
+		return type === ColorScheme.LIGHT || type === ColorScheme.HIGH_CONTRAST_LIGHT ? "light" : "dark";
 	}
 }
 
@@ -1692,7 +1014,7 @@ class ReviewCanvasPlaceholderPart extends Part {
 	}
 }
 
-export const IReviewCanvasPartsService = createDecorator<IReviewCanvasPartsService>('reviewCanvasPartsService');
+export const IReviewCanvasPartsService = createDecorator<IReviewCanvasPartsService>("reviewCanvasPartsService");
 
 export interface IReviewCanvasPartsService {
 	readonly _serviceBrand: undefined;
@@ -1701,22 +1023,16 @@ export interface IReviewCanvasPartsService {
 export class ReviewCanvasParts extends Disposable implements IReviewCanvasPartsService {
 	declare readonly _serviceBrand: undefined;
 
-	constructor(
-		@IInstantiationService instantiationService: IInstantiationService,
-	) {
+	constructor(@IInstantiationService instantiationService: IInstantiationService) {
 		super();
-		this._register(
-			instantiationService.createInstance(ReviewCanvasPlaceholderPart),
-		);
+		this._register(instantiationService.createInstance(ReviewCanvasPlaceholderPart));
 	}
 }
 
 function loadStylesheet(document: Document, url: string): Promise<void> {
-	const existing = [
-		...document.querySelectorAll<HTMLLinkElement>(
-			'link[data-review-canvas-stylesheet="true"]',
-		),
-	].find((link) => link.href === url);
+	const existing = [...document.querySelectorAll<HTMLLinkElement>('link[data-review-canvas-stylesheet="true"]')].find(
+		(link) => link.href === url,
+	);
 	if (existing) return Promise.resolve();
 	return new Promise((resolve, reject) => {
 		const link = document.createElement("link");
@@ -1724,15 +1040,7 @@ function loadStylesheet(document: Document, url: string): Promise<void> {
 		link.href = url;
 		link.dataset["reviewCanvasStylesheet"] = "true";
 		link.addEventListener("load", () => resolve(), { once: true });
-		link.addEventListener(
-			"error",
-			() => reject(new Error(`Review canvas stylesheet failed: ${url}`)),
-			{ once: true },
-		);
+		link.addEventListener("error", () => reject(new Error(`Review canvas stylesheet failed: ${url}`)), { once: true });
 		document.head.appendChild(link);
 	});
-}
-
-function reviewLoadError(error: unknown): Error {
-	return error instanceof Error ? error : new Error(String(error));
 }

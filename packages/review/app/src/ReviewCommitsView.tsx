@@ -1,7 +1,6 @@
 import {
   type ReviewCommitSummary,
   type ReviewDiffFileWire,
-  parseReviewDiffFilesResponse,
 } from "@dev.fast/review-protocol";
 import { useMemo, useState } from "react";
 
@@ -108,31 +107,10 @@ function CommitRow({
     setFilesState({ status: "loading" });
     const diffView = session.bridge.diffView;
 
-    const request = diffView.files
-      ? diffView.files({ commit: commit.commit }).then((files) => [...files])
-      : session
-          .fetch("/diff-files", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              includePatch: true,
-              commit: commit.commit,
-            }),
-          })
-          .then(async (response) => {
-            const result = parseReviewDiffFilesResponse(await response.json());
-
-            if (!response.ok || !result.ok) {
-              throw new Error(
-                result.ok ? "Unable to load commit files." : result.error,
-              );
-            }
-
-            return result.files;
-          });
+    const request = diffView.files({ commit: commit.commit });
 
     request
-      .then((files) => setFilesState({ status: "loaded", files }))
+      .then((files) => setFilesState({ status: "loaded", files: [...files] }))
       .catch((cause: unknown) => {
         setFilesState({
           status: "error",

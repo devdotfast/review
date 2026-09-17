@@ -24,6 +24,17 @@ import {
 
 const reviewId = z.string().min(1);
 
+const pullRequestUrl = z
+  .string()
+  .regex(
+    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*$/,
+    "Use a canonical GitHub PR URL: https://github.com/owner/repository/pull/123.",
+  )
+  .refine(
+    (url) => Number.isSafeInteger(Number(url.split("/").at(-1))),
+    "PR number is too large.",
+  );
+
 export const commandSchema = z.strictObject({
   commandId: z.uuid(),
   operation: z.discriminatedUnion("type", [
@@ -37,6 +48,7 @@ export const commandSchema = z.strictObject({
       type: z.literal("create"),
       title: z.string().trim().min(1),
       pins: pinsSchema,
+      pullRequestUrl: pullRequestUrl.optional(),
     }),
     z.strictObject({ type: z.literal("edit"), reviewId, edit: editSchema }),
     z.strictObject({
@@ -44,7 +56,12 @@ export const commandSchema = z.strictObject({
       reviewId,
       title: z.string().trim().min(1),
     }),
-    z.strictObject({ type: z.literal("repin"), reviewId, pins: pinsSchema }),
+    z.strictObject({
+      type: z.literal("repin"),
+      reviewId,
+      pins: pinsSchema,
+      pullRequestUrl: pullRequestUrl.nullable().optional(),
+    }),
     z.strictObject({
       type: z.literal("restore"),
       reviewId,
@@ -53,9 +70,17 @@ export const commandSchema = z.strictObject({
   ]),
 });
 
-/** Where a review came from, for Home cards. Set by legacy import; the
- * authoring API leaves it absent. */
+/** How far legacy import has got with a review; the map has its own cursor. */
+export interface LegacyImportProgress {
+  revision: string;
+  mapRevision: string | null;
+  importedAt: string;
+}
+
+/** Source identity displayed in the review header and Home, alongside immutable pins. */
 export interface SnapshotOrigin {
+  /** Managed tutorial; readable by ID but excluded from the user catalog. */
+  tutorial?: boolean;
   branch?: string;
   baseRef?: string;
   pullRequestNumber?: number;
@@ -92,6 +117,7 @@ export interface Result {
   targetId?: string;
   attention?: true;
   deleted?: true;
+  warnings?: string[];
 }
 
 export interface ReviewProviders {
@@ -158,22 +184,49 @@ export class ReviewStore {
     // older version or deleting the review must not look like an unfinished
     // import to the next sweep.
     this.db.exec(
-      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, imported_at TEXT NOT NULL);`,
+      `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
     );
+
+    // Homes written before map resumption lack the column.
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(legacy_imports)")
+        .all()
+        .some((column) => String(column.name) === "map_revision")
+    )
+      this.db.exec("ALTER TABLE legacy_imports ADD COLUMN map_revision TEXT");
   }
-  /** The last legacy revision imported for a review, kept after deletion. */
-  legacyImport(
-    reviewId: string,
-  ): { revision: string; importedAt: string } | null {
+  /** The last legacy revisions imported for a review, kept after deletion. */
+  legacyImport(reviewId: string): LegacyImportProgress | null {
     const row = this.db
       .prepare(
-        "SELECT revision,imported_at FROM legacy_imports WHERE review_id=?",
+        "SELECT revision,map_revision,imported_at FROM legacy_imports WHERE review_id=?",
       )
       .get(reviewId);
 
     return row
-      ? { revision: String(row.revision), importedAt: String(row.imported_at) }
+      ? {
+          revision: String(row.revision),
+          mapRevision:
+            row.map_revision === null ? null : String(row.map_revision),
+          importedAt: String(row.imported_at),
+        }
       : null;
+  }
+  recordLegacyImport(
+    reviewId: string,
+    progress: Omit<LegacyImportProgress, "importedAt">,
+  ) {
+    this.db
+      .prepare(
+        "INSERT INTO legacy_imports(review_id,revision,map_revision,imported_at) VALUES(?,?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,map_revision=excluded.map_revision,imported_at=excluded.imported_at",
+      )
+      .run(
+        reviewId,
+        progress.revision,
+        progress.mapRevision,
+        new Date().toISOString(),
+      );
   }
   registerRepository(root: string) {
     this.db
@@ -298,6 +351,16 @@ export class ReviewStore {
     }
   }
 
+  /** Managed records are discoverable even if their preparation stamp was lost. */
+  tutorialIds(): string[] {
+    return this.db
+      .prepare(
+        `SELECT reviews.id FROM reviews JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version WHERE json_extract(versions.snapshot,'$.origin.tutorial') = 1`,
+      )
+      .all()
+      .map((row) => String(row.id));
+  }
+
   list(): ReviewApiSummary[] {
     // One query, and the document never leaves SQLite: every catalog watcher
     // re-lists on every command.
@@ -309,6 +372,7 @@ export class ReviewStore {
         JOIN versions ON versions.review_id=reviews.id AND versions.version=reviews.version
         LEFT JOIN review_attention ON review_attention.review_id=reviews.id
         LEFT JOIN repositories ON repositories.id=json_extract(versions.snapshot,'$.pins.repositoryId')
+        WHERE COALESCE(json_extract(versions.snapshot,'$.origin.tutorial'), 0) = 0
         ORDER BY reviews.rowid`,
       )
       .all()
@@ -372,12 +436,19 @@ export class ReviewStore {
               : undefined,
     }));
   }
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command boundary: commandSchema.parse below rejects malformed input before mutation.
-  execute(input: unknown): Promise<Result> {
+  /** The host can seed a managed document; transport callers only supply a command. */
+  execute(
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command boundary: commandSchema.parse below rejects malformed input before mutation.
+    input: unknown,
+    initial?: { document: Block[]; origin: SnapshotOrigin },
+  ): Promise<Result> {
     if (this.closing)
       return Promise.reject(new Error("Review store is closing."));
     const command = commandSchema.parse(input);
-    const request = JSON.stringify(command);
+
+    if (initial && command.operation.type !== "create")
+      throw new ReviewInputError("Initial content requires a create command.");
+    const request = JSON.stringify(initial ? { command, initial } : command);
 
     const run = this.pending.then(async () => {
       const receipt = this.db
@@ -388,7 +459,12 @@ export class ReviewStore {
         if (receipt.request === "null")
           throw new ReviewInputError("This command's review was deleted.", 404);
 
-        if (!isDeepStrictEqual(JSON.parse(String(receipt.request)), command))
+        if (
+          !isDeepStrictEqual(
+            JSON.parse(String(receipt.request)),
+            JSON.parse(request),
+          )
+        )
           throw new ReviewInputError(
             "Command ID was already used for different input.",
             409,
@@ -485,13 +561,30 @@ export class ReviewStore {
 
       switch (op.type) {
         case "create":
+          if (initial) {
+            snapshot.document = documentSchema.parse(initial.document);
+            snapshot.origin = structuredClone(initial.origin);
+
+            for (const block of snapshot.document)
+              assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
+          }
+
+          setPullRequest(snapshot, op.pullRequestUrl);
           break;
         case "rename":
           snapshot.title = op.title;
           break;
         case "repin":
+          setPullRequest(
+            snapshot,
+            op.pullRequestUrl ??
+              (op.pullRequestUrl === null ||
+              snapshot.pins.repositoryId !== op.pins.repositoryId
+                ? null
+                : undefined),
+          );
+
           snapshot.pins = op.pins;
-          snapshot.document = [];
           break;
         case "restore":
           snapshot = this.read(id, op.version);
@@ -514,7 +607,13 @@ export class ReviewStore {
         JSON.stringify(previous.pins) !== JSON.stringify(snapshot.pins)
       )
         await this.providers.validatePins(snapshot.pins);
-      await this.validateExternal(snapshot, previous);
+
+      const warnings = await this.validateExternal(
+        snapshot,
+        previous,
+        op.type === "repin",
+      );
+
       snapshot.version = previous ? previous.version + 1 : 0;
       snapshot.createdAt = new Date().toISOString();
 
@@ -523,6 +622,8 @@ export class ReviewStore {
         version: snapshot.version,
         targetId,
       };
+
+      if (warnings.length) result.warnings = warnings;
 
       this.commitCommand(command.commandId, request, result, () => {
         this.db
@@ -712,12 +813,12 @@ export class ReviewStore {
 
         const cursor = options.revision ?? inputs.at(-1)?.origin?.revision;
 
+        // The importer records the map once it knows whether it landed.
         if (cursor)
-          this.db
-            .prepare(
-              "INSERT INTO legacy_imports(review_id,revision,imported_at) VALUES(?,?,?) ON CONFLICT(review_id) DO UPDATE SET revision=excluded.revision,imported_at=excluded.imported_at",
-            )
-            .run(reviewId, cursor, new Date().toISOString());
+          this.recordLegacyImport(reviewId, {
+            revision: cursor,
+            mapRevision: null,
+          });
         this.db.exec("COMMIT");
       } catch (error) {
         this.db.exec("ROLLBACK");
@@ -733,7 +834,13 @@ export class ReviewStore {
 
     return run;
   }
-  private async validateExternal(snapshot: Snapshot, previous?: Snapshot) {
+  private async validateExternal(
+    snapshot: Snapshot,
+    previous?: Snapshot,
+    repin = false,
+  ) {
+    const warnings: string[] = [];
+
     const references = (document: Block[], tolerant = false) => {
       const sources = new Map<string, { source: Source; peek: boolean }>();
       const resources = new Map<string, Block>();
@@ -753,7 +860,7 @@ export class ReviewStore {
       return { sources, resources };
     };
 
-    const current = references(snapshot.document);
+    const current = references(snapshot.document, repin);
 
     // Stored content is not re-validated: an edit may fix a link that the
     // current rules reject.
@@ -775,14 +882,56 @@ export class ReviewStore {
       // the first time a code peek points at it.
       if (!kept || (peek && !kept.peek))
         checks.push(
-          this.providers.validateSource(snapshot.pins, source, { peek }),
+          this.providers.validateSource(snapshot.pins, source, { peek }).then(
+            () => {
+              if (repin)
+                warnings.push(
+                  `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: source pins changed; verify that this range still supports the document.`,
+                );
+            },
+            (error) => {
+              if (!repin || !(error instanceof ReviewInputError)) throw error;
+              warnings.push(
+                `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`,
+              );
+            },
+          ),
         );
     }
 
     for (const [key, block] of current.resources)
       if (!retained.resources.has(key))
-        checks.push(this.providers.validateResource(snapshot.pins, block));
+        checks.push(
+          this.providers
+            .validateResource(snapshot.pins, block)
+            .catch((error) => {
+              if (!repin || !(error instanceof ReviewInputError)) throw error;
+              warnings.push(`${block.id} (${block.type}): ${error.message}`);
+            }),
+        );
 
     await Promise.all(checks);
+
+    return warnings.sort();
   }
+}
+
+/** Omission preserves identity; null detaches it without changing import metadata. */
+function setPullRequest(snapshot: Snapshot, url: string | null | undefined) {
+  if (url === undefined) return;
+
+  if (url === null) {
+    if (snapshot.origin) {
+      delete snapshot.origin.pullRequestUrl;
+      delete snapshot.origin.pullRequestNumber;
+    }
+
+    return;
+  }
+
+  snapshot.origin = {
+    ...snapshot.origin,
+    pullRequestUrl: url,
+    pullRequestNumber: Number(url.split("/").at(-1)),
+  };
 }

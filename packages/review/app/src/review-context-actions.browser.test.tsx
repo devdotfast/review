@@ -31,31 +31,17 @@ describe("ReviewProvider session facts", () => {
     vi.restoreAllMocks();
   });
 
-  it("loads a terminal outcome and resolved refs through the canvas bridge", async () => {
+  it("uses the pins from the displayed native review", async () => {
     vi.stubGlobal("fetch", undefined);
 
-    const statusSession = testReviewSession(
-      {},
-      {
-        request: async () =>
-          new Response(
-            JSON.stringify({
-              session: {
-                reviewStatus: "accepted",
-                resolvedBaseRef: "base-sha",
-                headRef: "head-sha",
-              },
-            }),
-            { headers: { "content-type": "application/json" } },
-          ),
-      },
-    );
+    const statusSession = testReviewSession();
+    statusSession.review!.pins = { base: "base-sha", head: "head-sha" };
 
     await renderProvider(statusSession);
 
     await vi.waitFor(() => {
       expect(requireReview()).toMatchObject({
-        submissionOutcome: "approved",
+        submissionOutcome: null,
         resolvedBaseRef: "base-sha",
         resolvedHeadRef: "head-sha",
       });

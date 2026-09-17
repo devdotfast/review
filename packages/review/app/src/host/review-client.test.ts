@@ -3,17 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   jsonReviewApiUrl,
-  reviewApiUrl,
-  reviewFetch,
+  reviewFetchUrl,
   reviewStorageKey,
   reviewWasmUrl,
 } from "./review-client";
 
 const injectedConfig = {
   serverUrl: "http://127.0.0.1:5570",
-  sessionUrl: "http://127.0.0.1:5570/sessions/desktop-session",
-  routePath: "/pr/42",
-  sessionId: "desktop-session",
+  reviewId: "desktop-session",
   token: "secret-token",
   wasmUrl: "vscode-file://review/libavoid.wasm",
   appVersion: "0.0.13",
@@ -28,15 +25,11 @@ afterEach(() => {
 describe("review host client", () => {
   it("uses injected desktop routing and asset configuration", () => {
     expect(injectedConfig.host).toBe("desktop");
-    expect(injectedConfig.routePath).toBe("/pr/42");
-    expect(reviewApiUrl(injectedConfig, "/diff-files")).toBe(
-      "http://127.0.0.1:5570/sessions/desktop-session/__progressive-review/diff-files?document=%2Fpr%2F42",
-    );
     expect(reviewWasmUrl(injectedConfig)).toBe(
       "vscode-file://review/libavoid.wasm",
     );
     expect(reviewStorageKey(injectedConfig, "files", "main", "head")).toBe(
-      "progressive-review:files:desktop-session:/pr/42:main:head",
+      "progressive-review:files:desktop-session:main:head",
     );
   });
 
@@ -51,7 +44,10 @@ describe("review host client", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    await reviewFetch(injectedConfig, "/session");
+    await reviewFetchUrl(
+      injectedConfig,
+      jsonReviewApiUrl(injectedConfig, "review", "/telemetry/event"),
+    );
 
     expect(new Headers(requestInit?.headers).get("x-review-token")).toBe(
       "secret-token",

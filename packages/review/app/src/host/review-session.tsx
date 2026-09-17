@@ -5,14 +5,12 @@ import type {
 } from "@dev.fast/review-protocol";
 import { type ReactNode, createContext, useContext } from "react";
 
-import type { HydratedReviewDocument } from "../review-document-hydrate";
 import type { NormalizedSoftwareModel } from "../software-map/model";
 import type { PinnedSoftwareMapData } from "../software-map/SoftwareMap";
 import { createReviewAppSessionId } from "../tab-dwell-telemetry";
 import {
   type ReviewRequestOptions,
   jsonReviewApiUrl,
-  reviewApiUrl,
   reviewStorageKey,
   reviewWasmUrl,
 } from "./review-client";
@@ -25,17 +23,9 @@ export interface ReviewSession {
   bridge: ReviewCanvasBridge;
   config: ReviewRuntimeConfig;
   surface: ReviewSurface;
-  /**
-   * Hydrated review documents for this session, keyed by content hash. The
-   * session owns the cache, so it dies with the session instead of living in
-   * a module-global map with its own eviction policy.
-   */
-  documents: Map<string, HydratedReviewDocument>;
   softwareMapData?(
     model: NormalizedSoftwareModel,
   ): PinnedSoftwareMapData | undefined;
-  keepsDismissedReviews?: boolean;
-  openOriginalCode?(threadId: string): Promise<void>;
   apiUrl(endpoint: `/${string}`, options?: ReviewRequestOptions): string;
   fetch: (
     endpoint: `/${string}`,
@@ -56,7 +46,7 @@ export interface ReviewSession {
 
 export function createReviewSession(
   bridge: ReviewCanvasBridge,
-  options?: { jsonReview: { id: string; version(): number | undefined } },
+  options: { jsonReview: { id: string; version(): number | undefined } },
 ): ReviewSession {
   const config = bridge.config;
   const appSessionId = bridge.appSessionId ?? createReviewAppSessionId();
@@ -73,19 +63,16 @@ export function createReviewSession(
     endpoint: `/${string}`,
     requestOptions?: ReviewRequestOptions,
   ) =>
-    options?.jsonReview
-      ? jsonReviewApiUrl(config, options.jsonReview.id, endpoint, {
-          version: options.jsonReview.version(),
-          tokenInQuery: requestOptions?.tokenInQuery,
-        })
-      : reviewApiUrl(config, endpoint, requestOptions);
+    jsonReviewApiUrl(config, options.jsonReview.id, endpoint, {
+      version: options.jsonReview.version(),
+      tokenInQuery: requestOptions?.tokenInQuery,
+    });
 
   return {
     appSessionId,
     bridge,
     config,
     surface: createReviewSurface(bridge),
-    documents: new Map(),
     apiUrl,
     fetch: (endpoint, init, options) =>
       request(apiUrl(endpoint, options), init),

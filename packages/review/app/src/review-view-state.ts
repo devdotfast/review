@@ -483,10 +483,6 @@ function parsePersistedReviewViewState(
   return state;
 }
 
-/**
- * The persisted panel, also accepting the legacy layered `{ thread, tour }`
- * form. A persisted Threads panel from an older build no longer restores.
- */
 function parsePersistedPanel(
   panel: JsonObject | undefined,
 ): PersistedReviewPanel | undefined {
@@ -496,11 +492,7 @@ function parsePersistedPanel(
 
   if (kind === "tour" && tour) return { kind: "tour", ...tour };
 
-  const legacyTour = parsePersistedTourState(
-    jsonObject(jsonProperty(panel, "tour")),
-  );
-
-  return legacyTour ? { kind: "tour", ...legacyTour } : undefined;
+  return undefined;
 }
 
 function parsePersistedTourState(

@@ -4,12 +4,10 @@ import { type Root, createRoot, hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  ReviewSessionProvider,
-  createReviewSession,
-} from "./host/review-session";
+import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
-import { testReviewBridge } from "./review-session-test-utils";
+import { DisplayedReviewVersionContext } from "./review-history-control";
+import { testReviewSession } from "./review-session-test-utils";
 
 let root: Root | null = null;
 
@@ -30,18 +28,8 @@ describe("ReviewDocumentMetaLine", () => {
     const now = vi.spyOn(Date, "now");
     now.mockReturnValue(Date.UTC(2026, 6, 22, 12, 1));
 
-    const session = createReviewSession(
-      testReviewBridge(
-        {},
-        {
-          request: async () =>
-            Response.json({
-              ok: true,
-              updatedAtMs: Date.UTC(2026, 6, 22, 12, 0),
-            }),
-        },
-      ),
-    );
+    const session = testReviewSession();
+    session.review!.updatedAtMs = Date.UTC(2026, 6, 22, 12, 0);
 
     const tree = (
       <ReviewSessionProvider session={session}>
@@ -75,53 +63,102 @@ describe("ReviewDocumentMetaLine", () => {
     );
   });
 
+  it("refreshes PR identity and update time as the displayed version changes without remounting", async () => {
+    const now = Date.UTC(2026, 6, 22, 12, 10);
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
+    let meta = {
+      ok: true,
+      updatedAtMs: now - 300_000,
+      pullRequestNumber: null as number | null,
+      pullRequestUrl: null as string | null,
+    };
+
+    const session = testReviewSession();
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    const render = async (version: number) => {
+      session.review = {
+        ...session.review!,
+        updatedAtMs: meta.updatedAtMs,
+        pullRequestNumber: meta.pullRequestNumber ?? undefined,
+        pullRequestUrl: meta.pullRequestUrl ?? undefined,
+      };
+
+      await act(async () => {
+        root?.render(
+          <ReviewSessionProvider session={session}>
+            <DisplayedReviewVersionContext.Provider value={version}>
+              <ReviewDocumentMetaLine />
+            </DisplayedReviewVersionContext.Provider>
+          </ReviewSessionProvider>,
+        );
+      });
+    };
+
+    await render(0);
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("updated 5 min ago"),
+    );
+    expect(container.querySelector("a")).toBeNull();
+    meta = {
+      ok: true,
+      updatedAtMs: now,
+      pullRequestNumber: 310,
+      pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
+    };
+    await render(1);
+    await vi.waitFor(() =>
+      expect(container.querySelector("a")?.getAttribute("href")).toBe(
+        meta.pullRequestUrl,
+      ),
+    );
+    expect(container.textContent).toContain("PR #310");
+    expect(container.textContent).toContain("updated just now");
+    meta = {
+      ok: true,
+      updatedAtMs: now,
+      pullRequestNumber: null,
+      pullRequestUrl: null,
+    };
+    await render(2);
+    await vi.waitFor(() => expect(container.querySelector("a")).toBeNull());
+  });
+
   it("opens an available later Review in a background tab", async () => {
     const post = vi.fn<ReviewCanvasBridge["post"]>(async () => ({ ok: true }));
 
-    const stackSession = createReviewSession(
-      testReviewBridge(
-        {},
-        {
-          request: async (url) => {
-            if (url.includes("/document-meta")) {
-              return Response.json({ ok: true, pullRequestNumber: 20 });
-            }
-
-            expect(url).toContain("/stack");
-
-            return Response.json({
-              layers: [
-                {
-                  branch: "feature-b",
-                  relation: "current",
-                  pullRequestNumber: 20,
-                  pullRequestUrl: "https://github.com/o/r/pull/20",
-                  reviewUuid: "22222222-2222-4222-8222-222222222222",
-                  reviewTitle: "Review B",
-                },
-                {
-                  branch: "feature-c",
-                  relation: "later",
-                  pullRequestNumber: 30,
-                  pullRequestUrl: "https://github.com/o/r/pull/30",
-                  reviewUuid: "11111111-1111-4111-8111-111111111111",
-                  reviewTitle: "Review C",
-                },
-                {
-                  branch: "feature-d",
-                  relation: "later",
-                  pullRequestNumber: 40,
-                  pullRequestUrl: "https://github.com/o/r/pull/40",
-                  reviewUuid: null,
-                  reviewTitle: null,
-                },
-              ],
-            });
-          },
-          post,
-        },
-      ),
-    );
+    const stackSession = testReviewSession({}, { post });
+    stackSession.review!.pullRequestNumber = 20;
+    stackSession.review!.stack = async () => [
+      {
+        branch: "feature-b",
+        relation: "current",
+        pullRequestNumber: 20,
+        pullRequestUrl: "https://github.com/o/r/pull/20",
+        reviewUuid: "22222222-2222-4222-8222-222222222222",
+        reviewTitle: "Review B",
+      },
+      {
+        branch: "feature-c",
+        relation: "later",
+        pullRequestNumber: 30,
+        pullRequestUrl: "https://github.com/o/r/pull/30",
+        reviewUuid: "11111111-1111-4111-8111-111111111111",
+        reviewTitle: "Review C",
+      },
+      {
+        branch: "feature-d",
+        relation: "later",
+        pullRequestNumber: 40,
+        pullRequestUrl: "https://github.com/o/r/pull/40",
+        reviewUuid: null,
+        reviewTitle: null,
+      },
+    ];
 
     const container = document.createElement("div");
     document.body.append(container);

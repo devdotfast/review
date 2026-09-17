@@ -1,4 +1,3 @@
-import { isJsonObject } from "@dev.fast/review-protocol";
 import {
   Background,
   BaseEdge,
@@ -30,11 +29,10 @@ import {
 import { createPortal } from "react-dom";
 
 import { codePeekSource } from "../../../src/source";
-import { useAgentSelection } from "../agent-selection";
 import { CodePeekGroup } from "../CodePeek";
 import { useReviewDebugSettings } from "../debug-settings";
 import { hasTextSelectionWithin } from "../diagram-text-selection";
-import { type ReviewSession, useReviewSession } from "../host/review-session";
+import { useReviewSession } from "../host/review-session";
 import { CloseIcon, RefreshIcon } from "../icons";
 import { useReviewContainer } from "../review-root-context";
 import { useRightPanelResize } from "../side-panel-resizer";
@@ -43,7 +41,6 @@ import {
   c4EdgeLabelPoint,
   c4EdgePointsFromSections,
 } from "./c4-edge-label-geometry";
-import { c4RelationshipEdgeId } from "./c4-layout-geometry";
 import {
   C4_FIT_VIEW_PADDING,
   C4_FLOW_MAX_ZOOM,
@@ -93,7 +90,6 @@ import {
   findSpatialC4Node,
   focusSoftwareMapKeyboardTarget,
   isSoftwareMapEditableTarget,
-  observeSoftwareMapVisibility,
   parentSoftwareMapNodeId,
   selectedSoftwareMapNodeIdForNodes,
   shouldAutoFocusC4MapKeyboardTarget,
@@ -117,14 +113,10 @@ import {
   softwareMapAncestorPaths,
   softwareMapNavigationKey,
 } from "./software-map-navigation-state";
-import { refreshSoftwareMapArtifacts } from "./software-map-patch-client";
 import {
-  type SoftwareMapResolvedDataInput,
   shouldApplySoftwareMapModifiedOnly,
   softwareMapModelKey,
   softwareMapResolvedDataInputForModel,
-  softwareMapResolvedDataInputHasWork,
-  softwareMapResolvedDataInputKey,
 } from "./software-map-resolved-data";
 import {
   type SoftwareMapDataStoreSchemaSectionSnapshot,
@@ -133,12 +125,10 @@ import {
   type SoftwareMapNodeSnapshot,
   type SoftwareMapRelationshipSnapshot,
   type SoftwareMapResolvedDataPayload,
-  type SoftwareMapResolvedDataState,
   type SoftwareMapResolvedSnapshot,
   type SoftwareMapViewType,
   buildSoftwareMapChangeSummaries,
   c4DisplayedSnapshotForCurrentState,
-  parseSoftwareMapResolvedDataResponse,
   softwareMapNodeDiffPeeks,
   softwareMapSnapshotFromInlineC4Projection,
   visibleSoftwareMapChangeCount,
@@ -151,8 +141,8 @@ export type {
   SoftwareMapResolvedSnapshot,
 } from "./software-map-snapshot";
 
-import "./styles.css";
 import "@xyflow/react/dist/style.css";
+import "./styles.css";
 
 const DEFAULT_CODE_INSPECTOR_WIDTH = 420;
 
@@ -342,11 +332,6 @@ function SoftwareMapWithModel({
     placeholderLabel,
   });
 
-  const resolvedDataRequestPath = useMemo(
-    () => session.apiUrl("/software-map/resolved-data"),
-    [session],
-  );
-
   const initialNavigation = restoreSoftwareMapNavigationState(
     session,
     navigationKey,
@@ -388,53 +373,18 @@ function SoftwareMapWithModel({
     [expandedNodeIds, model],
   );
 
-  const resolvedDataKey = useMemo(
-    () =>
-      softwareMapResolvedDataInput
-        ? softwareMapResolvedDataInputKey(softwareMapResolvedDataInput)
-        : "",
-    [softwareMapResolvedDataInput],
-  );
-
   const [viewportFocusRequest, setViewportFocusRequest] =
     useState<SoftwareMapViewportFocusRequest | null>(null);
 
-  // Resolved diff data is applied only once the map is visible after
-  // hydration.
-  const [resolvedDataState, setResolvedDataState] =
-    useState<SoftwareMapResolvedDataState>({
-      key: "",
-      counts: new Map(),
-      unmappedByElementPath: new Map(),
-    });
+  const resolvedDataState = pinnedData ?? {
+    counts: new Map(),
+    unmappedByElementPath: new Map(),
+  };
 
-  const [pendingResolvedDataKey, setPendingResolvedDataKey] = useState<
-    string | null
-  >(null);
-
-  const [resolvedDataError, setResolvedDataError] = useState<string | null>(
-    null,
-  );
-
-  const [artifactRefreshPending, setArtifactRefreshPending] = useState(false);
-  const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const appliedResolvedDataKeyRef = useRef(resolvedDataState.key);
   const mapRootRef = useRef<HTMLElement | null>(null);
-  const [resolveDataWhenVisible, setResolveDataWhenVisible] = useState(false);
   const previousBaseView = useRef(view);
   const defaultExpansionActiveRef = useRef(!hasInitialNavigation);
   const rememberedChildNodeIdsRef = useRef(new Map<string, string>());
-
-  useEffect(() => {
-    if (resolveDataWhenVisible) return;
-    const mapRoot = mapRootRef.current;
-
-    if (!mapRoot) return;
-
-    return observeSoftwareMapVisibility(mapRoot, () =>
-      setResolveDataWhenVisible(true),
-    );
-  }, [resolveDataWhenVisible]);
 
   useEffect(() => {
     if (previousBaseView.current === view) {
@@ -481,92 +431,7 @@ function SoftwareMapWithModel({
     session,
   ]);
 
-  const resolvedDataReady =
-    Boolean(resolvedDataKey) && resolvedDataState.key === resolvedDataKey;
-
-  useEffect(() => {
-    const applyResolvedDataState = (state: SoftwareMapResolvedDataState) => {
-      appliedResolvedDataKeyRef.current = state.key;
-      setResolvedDataState(state);
-      setResolvedDataError(null);
-      setPendingResolvedDataKey(null);
-    };
-
-    if (!softwareMapResolvedDataInput || !resolvedDataKey) {
-      applyResolvedDataState({
-        key: "",
-        counts: new Map(),
-        unmappedByElementPath: new Map(),
-      });
-
-      return;
-    }
-
-    if (pinnedData) {
-      applyResolvedDataState({ key: resolvedDataKey, ...pinnedData });
-
-      return;
-    }
-
-    if (!softwareMapResolvedDataInputHasWork(softwareMapResolvedDataInput)) {
-      applyResolvedDataState({
-        key: resolvedDataKey,
-        counts: new Map(),
-        unmappedByElementPath: new Map(),
-      });
-
-      return;
-    }
-
-    if (!resolveDataWhenVisible) return;
-
-    if (
-      appliedResolvedDataKeyRef.current === resolvedDataKey &&
-      refreshEpoch === 0
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    setResolvedDataError(null);
-    setPendingResolvedDataKey(resolvedDataKey);
-    void fetchSoftwareMapResolvedData(
-      session,
-      softwareMapResolvedDataInput,
-      resolvedDataRequestPath,
-    )
-      .then((resolvedData) => {
-        if (
-          !cancelled &&
-          appliedResolvedDataKeyRef.current !== resolvedDataKey
-        ) {
-          applyResolvedDataState({
-            key: resolvedDataKey,
-            ...resolvedData,
-          });
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setPendingResolvedDataKey(null);
-          setResolvedDataError(
-            cause instanceof Error ? cause.message : String(cause),
-          );
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    pinnedData,
-    refreshEpoch,
-    resolveDataWhenVisible,
-    resolvedDataRequestPath,
-    resolvedDataKey,
-    session,
-    softwareMapResolvedDataInput,
-  ]);
+  const resolvedDataReady = Boolean(pinnedData);
 
   const projectionModel = useMemo(
     () => (model && resolvedDataReady ? model : null),
@@ -663,11 +528,6 @@ function SoftwareMapWithModel({
     projectionModel,
   ]);
 
-  const resolvingModelData = Boolean(
-    model && pendingResolvedDataKey === resolvedDataKey && !resolvedDataReady,
-  );
-
-  const refreshingModelData = artifactRefreshPending;
   const activeModelSnapshot = modelSnapshotState.snapshot;
 
   const providedSnapshot =
@@ -728,34 +588,9 @@ function SoftwareMapWithModel({
   const frameTitle = title ?? mapSnapshot.title ?? placeholderLabel;
 
   const statusMessage =
-    status ??
-    mapSnapshot.status ??
-    modelSnapshotState.error ??
-    resolvedDataError ??
-    (refreshingModelData
-      ? "Refreshing software map..."
-      : resolvingModelData
-        ? "Resolving software map..."
-        : null);
+    status ?? mapSnapshot.status ?? modelSnapshotState.error ?? null;
 
   const errorMessage = error;
-
-  const handleRefreshSoftwareMap = useCallback(() => {
-    setArtifactRefreshPending(true);
-    setResolvedDataError(null);
-    void refreshSoftwareMapArtifacts(session)
-      .then(() => {
-        setRefreshEpoch((current) => current + 1);
-      })
-      .catch((cause: unknown) => {
-        setResolvedDataError(
-          cause instanceof Error ? cause.message : String(cause),
-        );
-      })
-      .finally(() => {
-        setArtifactRefreshPending(false);
-      });
-  }, [session]);
 
   const overlayClassName = softwareMapOverlayClassName({
     theme: debugSettings.theme,
@@ -899,12 +734,10 @@ function SoftwareMapWithModel({
       height={height}
       status={statusMessage}
       error={errorMessage}
-      refreshing={refreshingModelData}
       expanded={false}
       showChrome={showChrome}
       showFloatingActions={showFloatingActions}
       interactionMode={showChrome ? "inline" : "standalone"}
-      onRefresh={pinnedData ? undefined : handleRefreshSoftwareMap}
       onExpand={() => setExpanded(true)}
       onCloseCodeInspector={handleCloseCodeInspector}
       inspectedNode={inspectedNode}
@@ -950,12 +783,10 @@ function SoftwareMapWithModel({
                 title={frameTitle}
                 status={statusMessage}
                 error={errorMessage}
-                refreshing={refreshingModelData}
                 expanded
                 showChrome
                 showFloatingActions={showFloatingActions}
                 interactionMode="standalone"
-                onRefresh={pinnedData ? undefined : handleRefreshSoftwareMap}
                 onClose={() => setExpanded(false)}
                 onCloseCodeInspector={handleCloseCodeInspector}
                 inspectedNode={inspectedNode}
@@ -982,34 +813,6 @@ function SoftwareMapWithModel({
         : null}
     </section>
   );
-}
-
-async function fetchSoftwareMapResolvedData(
-  session: ReviewSession,
-  input: SoftwareMapResolvedDataInput,
-  requestPath: string,
-): Promise<SoftwareMapResolvedDataPayload> {
-  return fetchSoftwareMapResolvedDataUncached(session, input, requestPath);
-}
-
-async function fetchSoftwareMapResolvedDataUncached(
-  session: ReviewSession,
-  input: SoftwareMapResolvedDataInput,
-  requestPath: string,
-): Promise<SoftwareMapResolvedDataPayload> {
-  const response = await session.fetchUrl(requestPath, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
-  });
-
-  const json: unknown = await response.json();
-
-  if (!response.ok || !isJsonObject(json)) {
-    return parseSoftwareMapResolvedDataResponse(null);
-  }
-
-  return parseSoftwareMapResolvedDataResponse(json);
 }
 
 export function SoftwareMapFrame({
@@ -1043,7 +846,6 @@ export function SoftwareMapFrame({
   viewportFocusRequiresExpanded,
   onViewportFocusComplete,
 }: SoftwareMapFrameProps) {
-  const selectForAgent = useAgentSelection();
   const session = useReviewSession();
   const frameRef = useRef<HTMLElement | null>(null);
 
@@ -1095,35 +897,7 @@ export function SoftwareMapFrame({
     });
   };
 
-  const endpoint = (id: string) =>
-    snapshot.nodes?.find((node) => node.id === id)?.label ?? id;
-
-  const relationshipText = (r: { from: string; to: string; label?: string }) =>
-    `${endpoint(r.from)} → ${endpoint(r.to)}${r.label ? `: ${r.label}` : ""}`;
-
   const selectNodeWithTelemetry = (node: SoftwareMapNodeSnapshot) => {
-    selectForAgent({
-      target: {
-        kind: "graph",
-        diagram: title,
-        label: node.label,
-        elementType: "node",
-      },
-      title: node.label,
-      diagramContext: {
-        kind: "node",
-        description: node.description,
-        incoming: (snapshot.relationships ?? [])
-          .filter((r) => r.to === node.id)
-          .map(relationshipText),
-        outgoing: (snapshot.relationships ?? [])
-          .filter((r) => r.from === node.id)
-          .map(relationshipText),
-        references: node.file
-          ? [`${node.file}${node.line ? `:${node.line}` : ""}`]
-          : undefined,
-      },
-    });
     captureUiEvent(session, "peek_opened", { via: "map" });
     onSelectNode?.(node);
   };
@@ -1251,28 +1025,7 @@ export function SoftwareMapFrame({
             onToggleNodeExpansion={toggleNodeExpansionWithTelemetry}
             onFocusNode={onFocusNode}
             relationshipStateById={relationshipStateById}
-            onOpenRelationship={(id) => {
-              const relationship = snapshot.relationships?.find(
-                (r, index) => (r.id ?? c4RelationshipEdgeId(r, index)) === id,
-              );
-
-              if (relationship)
-                selectForAgent({
-                  target: {
-                    kind: "graph",
-                    diagram: title,
-                    label: relationship.label ?? relationshipText(relationship),
-                    elementType: "edge",
-                  },
-                  title: relationship.label ?? id,
-                  diagramContext: {
-                    kind: "relationship",
-                    from: endpoint(relationship.from),
-                    to: endpoint(relationship.to),
-                  },
-                });
-              onOpenRelationship?.(id);
-            }}
+            onOpenRelationship={onOpenRelationship}
             selectChildNodeIdForDrill={selectChildNodeIdForDrill}
             viewportFocusNodeId={viewportFocusNodeId}
             viewportFocusRequiresExpanded={viewportFocusRequiresExpanded}

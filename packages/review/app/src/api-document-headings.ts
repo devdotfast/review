@@ -1,33 +1,30 @@
-import { type MarkdownNode, parseMarkdown } from "../../src/markdown";
-import { type Block, elements } from "../../src/review-api/document";
+import type { Block } from "../../src/review-api/document";
+import { documentHeadings } from "../../src/review-api/document-headings";
 import type { ReviewTocEntry } from "./review-document-headings";
 
-export function apiHeadingId(blockId: string, index: number): string {
-  return `${blockId}-heading-${index}`;
+/** A snapshot's heading slugs, resolved once for the renderer. */
+export interface ApiHeadingIds {
+  /** The slug of a section block, or of the nth h2/h3 of a markdown block. */
+  get(blockId: string, index?: number): string | undefined;
+  entries: ReviewTocEntry[];
 }
 
-function text(node: MarkdownNode): string {
-  return node.value ?? node.children?.map(text).join("") ?? "";
+export function apiHeadingIds(blocks: Block[]): ApiHeadingIds {
+  const headings = documentHeadings(blocks);
+
+  const slugs = new Map(
+    headings.map((heading) => [
+      headingKey(heading.block.id!, heading.index),
+      heading.id,
+    ]),
+  );
+
+  return {
+    get: (blockId, index) => slugs.get(headingKey(blockId, index)),
+    entries: headings,
+  };
 }
 
-export function apiDocumentHeadings(blocks: Block[]): ReviewTocEntry[] {
-  return elements(blocks).flatMap((block): ReviewTocEntry[] => {
-    if (block.type === "section")
-      return [{ id: block.id!, text: block.title, level: "h2" }];
-
-    if (block.type !== "markdown") return [];
-
-    return (parseMarkdown(block.markdown).children ?? []).flatMap(
-      (node, index) =>
-        node.type === "heading" && (node.depth === 2 || node.depth === 3)
-          ? [
-              {
-                id: apiHeadingId(block.id!, index),
-                text: text(node),
-                level: node.depth === 2 ? ("h2" as const) : ("h3" as const),
-              },
-            ]
-          : [],
-    );
-  });
+function headingKey(blockId: string, index?: number): string {
+  return index === undefined ? blockId : `${blockId}:${index}`;
 }

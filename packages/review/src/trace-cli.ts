@@ -1,5 +1,6 @@
 import type { Writable } from "node:stream";
 
+import type { ReviewApiSummary } from "@dev.fast/review-protocol";
 import {
   type TraceListScope,
   type TracePullScope,
@@ -11,9 +12,7 @@ import {
 } from "@dev.fast/trace-core";
 import type { TraceStorageKind } from "@dev.fast/trace-core";
 
-import { reviewUuidForManagedCheckout } from "./review-head-checkout";
-import { type StoredReview, findReview, listReviews } from "./review-home";
-import { resolveReviewRepoRootFromStore } from "./review-worktree-target";
+import { runReviewInfo } from "./review-info";
 
 /**
  * The Review app's trace commands. It resolves `--review <uuid>` (or the
@@ -43,13 +42,15 @@ export async function resolveTraceReviewScope(
   reviewUuid: string | undefined,
 ): Promise<TraceReviewScope> {
   const review = await resolveTraceReview(cwd, reviewUuid);
-  const record = review.review;
+
+  if (!review.repositoryPath)
+    throw new Error("Review repository is unavailable.");
 
   return {
-    uuid: record.uuid,
-    repoRoot: resolveReviewRepoRootFromStore(review.dir),
-    baseCommit: record.baseCommit,
-    headCommit: record.sourceCommit ?? record.baseCommit,
+    uuid: review.reviewId,
+    repoRoot: review.repositoryPath,
+    baseCommit: review.pins.base,
+    headCommit: review.pins.head,
   };
 }
 
@@ -140,21 +141,8 @@ async function resolveTracePullScope(input: {
 async function resolveTraceReview(
   cwd: string,
   reviewUuid: string | undefined,
-): Promise<StoredReview> {
-  const managedReviewUuid = await reviewUuidForManagedCheckout(cwd);
-  const wantedUuid = reviewUuid ?? managedReviewUuid ?? undefined;
-
-  if (wantedUuid) {
-    const review = await findReview(wantedUuid);
-
-    if (!review) throw new Error(`Review not found: ${wantedUuid}`);
-
-    return review;
-  }
-
-  const candidates = (await listReviews({ worktreePath: cwd })).reviews.filter(
-    (review) => review.review.status !== "rejected",
-  );
+): Promise<ReviewApiSummary> {
+  const candidates = (await runReviewInfo({ cwd, reviewUuid })).reviews;
 
   if (candidates.length === 0) {
     throw new Error("No review found for this worktree.");

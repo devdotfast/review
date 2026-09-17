@@ -5,8 +5,7 @@
 
 /**
  * Review hosts Home, review canvases, files, and diffs in one native editor
- * group. The legacy sessions part remains registered only as a hidden layout
- * placeholder.
+ * group. The upstream agent sessions part stays hidden in this layout.
  *
  * `explorer` is never persisted. `ReviewExplorerParts` derives it from the
  * active editor pane on every change, so the layout always starts it hidden and

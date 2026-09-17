@@ -1,3 +1,10 @@
+import { tutorialAuthoringConversationSchema } from "./tutorial-conversation";
+
+export {
+  tutorialAuthoringConversationSchema,
+  type TutorialAuthoringConversation,
+} from "./tutorial-conversation";
+
 import { isObjectValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import type { ComponentType, ReactNode } from "react";
 import { z } from "zod";
@@ -410,23 +417,6 @@ export const tutorialKeymapPickerPropsSchema = z.strictObject({
 
 export type TutorialKeymapPickerProps = z.infer<
   typeof tutorialKeymapPickerPropsSchema
->;
-
-export const tutorialAuthoringConversationSchema = z.strictObject({
-  version: z.literal(1),
-  title: nonEmptyStringSchema,
-  messages: z
-    .array(
-      z.strictObject({
-        role: z.enum(["user", "assistant"]),
-        body: nonEmptyStringSchema,
-      }),
-    )
-    .min(2),
-});
-
-export type TutorialAuthoringConversation = z.infer<
-  typeof tutorialAuthoringConversationSchema
 >;
 
 export const tutorialAuthoringConversationPropsSchema = z.strictObject({

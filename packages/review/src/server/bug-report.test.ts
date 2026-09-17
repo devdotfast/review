@@ -6,7 +6,6 @@ import { gunzipSync } from "node:zlib";
 
 import {
   type JsonObject,
-  REVIEW_SCHEMA_VERSION,
   type ReviewBugReportRequest,
 } from "@dev.fast/review-protocol";
 import { clearTraceEnvCache } from "@dev.fast/trace-core";
@@ -17,17 +16,22 @@ import {
   buildBugReportRequest,
   submitReviewBugReport,
 } from "./bug-report";
-import type { AuthoringTraceAttachment } from "./bug-report-trace";
+import {
+  type AuthoringTraceAttachment,
+  readAuthoringTraceAttachment,
+} from "./bug-report-trace";
 
 describe("submitReviewBugReport", () => {
   let tempDir: string;
   let reviewRootPath: string;
+  let sourceSession: string | null;
   let claudeRoot: string;
   let codexRoot: string;
   let piRoot: string;
 
   beforeEach(() => {
     tempDir = mkdtempSync(path.join(tmpdir(), "bug-report-submit-"));
+    sourceSession = null;
     reviewRootPath = path.join(tempDir, "review");
     codexRoot = path.join(tempDir, "codex");
     claudeRoot = path.join(tempDir, "claude");
@@ -71,8 +75,7 @@ describe("submitReviewBugReport", () => {
 
     await submitReviewBugReport({
       report: report({ include_trace: true }),
-      reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-      reviewRootPath,
+      source: reportSource(),
       clientErrorNames: ["TypeError"],
       fetchImpl: capture.fetchImpl,
     });
@@ -145,8 +148,7 @@ describe("submitReviewBugReport", () => {
 
       await submitReviewBugReport({
         report: report({ include_trace: true }),
-        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-        reviewRootPath,
+        source: reportSource(),
         clientErrorNames: [],
         fetchImpl: capture.fetchImpl,
       });
@@ -190,8 +192,7 @@ describe("submitReviewBugReport", () => {
     await expect(
       submitReviewBugReport({
         report: report({ include_trace: true }),
-        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-        reviewRootPath,
+        source: reportSource(),
         clientErrorNames: [],
         fetchImpl,
       }),
@@ -205,8 +206,7 @@ describe("submitReviewBugReport", () => {
 
     await submitReviewBugReport({
       report: report(),
-      reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-      reviewRootPath,
+      source: reportSource(),
       clientErrorNames: [],
       fetchImpl: capture.fetchImpl,
     });
@@ -248,8 +248,7 @@ describe("submitReviewBugReport", () => {
 
     await submitReviewBugReport({
       report: report({ description }),
-      reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-      reviewRootPath,
+      source: reportSource(),
       clientErrorNames: [],
       fetchImpl: capture.fetchImpl,
     });
@@ -266,8 +265,7 @@ describe("submitReviewBugReport", () => {
 
     await submitReviewBugReport({
       report: report({ description: " \n\t " }),
-      reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-      reviewRootPath,
+      source: reportSource(),
       clientErrorNames: [],
       fetchImpl: capture.fetchImpl,
     });
@@ -289,8 +287,7 @@ describe("submitReviewBugReport", () => {
       await expect(
         submitReviewBugReport({
           report: report(),
-          reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-          reviewRootPath,
+          source: reportSource(),
           clientErrorNames: [],
           fetchImpl,
         }),
@@ -447,39 +444,25 @@ describe("submitReviewBugReport", () => {
     await expect(
       submitReviewBugReport({
         report: report({ include_trace: true }),
-        reviewDocumentPath: path.join(reviewRootPath, "review.mdx"),
-        reviewRootPath,
+        source: { ...reportSource(), trace: async () => trace },
         clientErrorNames: [],
         fetchImpl: capture.fetchImpl,
-        readTraceAttachment: async () => trace,
       }),
     ).resolves.toMatchObject({ ok: true });
     expect(cleanup).toHaveBeenCalledOnce();
   });
 
-  function writeReview(sourceSession: string): void {
-    writeFileSync(
-      path.join(reviewRootPath, "review.json"),
-      JSON.stringify({
-        schemaVersion: REVIEW_SCHEMA_VERSION,
-        uuid: "00000000-0000-4000-8000-000000000000",
-        repoKey: "example/review",
-        worktreePath: tempDir,
-        baseRef: "main",
-        baseCommit: "a".repeat(40),
-        sourceCommit: null,
-        sourceIdentity: null,
-        pullRequestNumber: null,
-        pullRequestUrl: null,
-        title: "Bug report test",
-        sourceSession,
-        status: "draft",
-        presentedDocumentRevision: null,
-        presentedSoftwareMapRevision: null,
-        createdAt: "2026-08-31T12:00:00.000Z",
-        lastPublishedAt: null,
-      }),
-    );
+  function writeReview(value: string): void {
+    sourceSession = value;
+  }
+
+  function reportSource() {
+    return {
+      review: async () => ({ files: { "review.json": "{}" }, omitted: [] }),
+      map: async () => null,
+      diff: async () => ({ baseRef: "main", files: [] }),
+      trace: () => readAuthoringTraceAttachment({ sourceSession }),
+    };
   }
 
   function writeCodexTrace(id: string, contents: string): void {

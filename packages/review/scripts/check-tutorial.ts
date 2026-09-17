@@ -1,220 +1,48 @@
-/* CI gate for the tutorial: runs the same asset builder the app build runs,
-   into a throwaway directory, and checks the outputs plus the static
-   authoring contracts. Authoring drift fails here, not on a user machine. */
-import { execFile } from "node:child_process";
-import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 
-import {
-  jsonObject,
-  jsonString,
-  parseJsonText,
-} from "@dev.fast/review-protocol";
 import ts from "typescript";
 
-import {
-  reviewAuthoringPropsSchemas,
-  tutorialAuthoringConversationSchema,
-} from "../src/authoring";
+import { openLocalReviewStore } from "../src/review-api/local-data";
+import { createNativeTutorial } from "../src/server/tutorial-service";
 import {
   buildTutorialAssets,
   readTutorialRuntimeManifest,
 } from "./build-tutorial-assets";
 
-const execFilePromise = promisify(execFile);
+const tutorialRoot = path.resolve(import.meta.dirname, "../tutorial");
 
-const packageRoot = path.resolve(import.meta.dirname, "..");
+const temporaryRoot = await mkdtemp(
+  path.join(os.tmpdir(), "native-tutorial-check-"),
+);
 
-const tutorialRoot = path.join(packageRoot, "tutorial");
+const local = openLocalReviewStore(path.join(temporaryRoot, "review.db"));
 
-async function main(): Promise<void> {
-  const temporaryRoot = await mkdtemp(
-    path.join(os.tmpdir(), "review-tutorial-check-"),
+try {
+  checkSampleTypeScript(path.join(tutorialRoot, "sample-service"));
+  const assetsRoot = path.join(temporaryRoot, "assets");
+  await cp(tutorialRoot, assetsRoot, {
+    recursive: true,
+    filter: (source) => !source.includes("/.bundle"),
+  });
+  await buildTutorialAssets({ outDir: assetsRoot });
+  const manifest = await readTutorialRuntimeManifest(assetsRoot);
+
+  for (const entry of manifest.requiredPaths)
+    await stat(path.join(assetsRoot, entry));
+  const sampleRoot = path.join(assetsRoot, "sample-service");
+  await cp(path.join(assetsRoot, "git-stub"), path.join(sampleRoot, ".git"), {
+    recursive: true,
+  });
+  await createNativeTutorial({ assetsRoot, sampleRoot, ...local });
+  console.log(
+    "Native tutorial document, source references, trace and both maps validated.",
   );
-
-  try {
-    process.env.DEV_REVIEW_HOME = path.join(temporaryRoot, "review-home");
-    checkSampleTypeScript(path.join(tutorialRoot, "sample-service"));
-    checkSequenceEvidence(
-      await readFile(path.join(tutorialRoot, "data.ts"), "utf8"),
-    );
-    tutorialAuthoringConversationSchema.parse(
-      JSON.parse(
-        await readFile(
-          path.join(tutorialRoot, "authoring-conversation.json"),
-          "utf8",
-        ),
-      ),
-    );
-
-    if (!("TutorialAuthoringConversation" in reviewAuthoringPropsSchemas)) {
-      throw new Error(
-        "TutorialAuthoringConversation is absent from the authoring registry.",
-      );
-    }
-
-    if (!("TutorialKeymapPicker" in reviewAuthoringPropsSchemas)) {
-      throw new Error(
-        "TutorialKeymapPicker is absent from the authoring registry.",
-      );
-    }
-
-    for (const component of ["TutorialFeature", "TutorialViewButton"]) {
-      if (!(component in reviewAuthoringPropsSchemas)) {
-        throw new Error(`${component} is absent from the authoring registry.`);
-      }
-    }
-
-    const builtAssetsPresent = await stat(path.join(tutorialRoot, ".bundle"))
-      .then((entry) => entry.isDirectory())
-      .catch(() => false);
-
-    const outDir = builtAssetsPresent
-      ? tutorialRoot
-      : path.join(temporaryRoot, "assets");
-
-    const built = builtAssetsPresent
-      ? await readBuiltTutorialIdentity(outDir)
-      : await buildTutorialAssets({ outDir });
-
-    await checkRuntimeManifest(outDir);
-
-    const documentManifest = jsonObject(
-      parseJsonText(
-        await readFile(
-          path.join(outDir, ".bundle", "document", "manifest.json"),
-          "utf8",
-        ),
-      ),
-    );
-
-    if (documentManifest?.version !== 2 || documentManifest.routePath !== "/") {
-      throw new Error("Tutorial document manifest is invalid.");
-    }
-
-    const document = jsonObject(
-      parseJsonText(
-        await readFile(
-          path.join(outDir, ".bundle", "document", "review-document.json"),
-          "utf8",
-        ),
-      ),
-    );
-
-    if (document?.format !== "review-document/1") {
-      throw new Error("Tutorial document format is invalid.");
-    }
-
-    const mapManifest = jsonObject(
-      parseJsonText(
-        await readFile(
-          path.join(outDir, ".bundle", "software-map", "manifest.json"),
-          "utf8",
-        ),
-      ),
-    );
-
-    if (
-      mapManifest?.version !== 2 ||
-      mapManifest?.headCommit !== built.commit ||
-      mapManifest.baseCommit !== built.baseCommit ||
-      !/^[0-9a-f]{40}$/i.test(built.baseCommit) ||
-      !/^[0-9a-f]{40}$/i.test(built.commit)
-    ) {
-      throw new Error("Tutorial software-map manifest commits are invalid.");
-    }
-
-    const headMap = jsonObject(
-      parseJsonText(
-        await readFile(
-          path.join(outDir, ".bundle", "software-map", "head-map.json"),
-          "utf8",
-        ),
-      ),
-    );
-
-    if (headMap?.format !== "software-map/1") {
-      throw new Error("Tutorial head software map format is invalid.");
-    }
-
-    // Assemble the repo exactly like the runtime does and check the stub.
-    const repo = path.join(temporaryRoot, "sample-service");
-    await cp(path.join(tutorialRoot, "sample-service"), repo, {
-      recursive: true,
-    });
-    await cp(path.join(outDir, "git-stub"), path.join(repo, ".git"), {
-      recursive: true,
-    });
-    const head = (await git(repo, ["rev-parse", "HEAD"])).trim();
-
-    if (head !== built.commit) {
-      throw new Error(
-        `Assembled tutorial repository HEAD ${head} does not match the built commit ${built.commit}.`,
-      );
-    }
-
-    const count = (await git(repo, ["rev-list", "--count", "HEAD"])).trim();
-    const base = (await git(repo, ["rev-parse", "HEAD^"])).trim();
-
-    if (count !== "2" || base !== built.baseCommit) {
-      throw new Error(
-        `The tutorial repository must have the expected two-commit history: ${count}`,
-      );
-    }
-
-    process.stdout.write(
-      `Tutorial check passed: commit ${built.commit}, ${built.peekCount} code ranges, document and map bundles valid.\n`,
-    );
-  } finally {
-    await rm(temporaryRoot, { recursive: true, force: true });
-  }
-}
-
-async function readBuiltTutorialIdentity(outDir: string): Promise<{
-  baseCommit: string;
-  commit: string;
-  peekCount: number;
-}> {
-  const manifest = jsonObject(
-    parseJsonText(
-      await readFile(
-        path.join(outDir, ".bundle", "software-map", "manifest.json"),
-        "utf8",
-      ),
-    ),
-  );
-
-  const baseCommit = jsonString(manifest?.baseCommit);
-  const headCommit = jsonString(manifest?.headCommit);
-
-  if (baseCommit === undefined || headCommit === undefined) {
-    throw new Error("Tutorial software-map manifest commits are invalid.");
-  }
-
-  return { baseCommit, commit: headCommit, peekCount: 0 };
-}
-
-async function checkRuntimeManifest(outDir: string): Promise<void> {
-  const manifest = await readTutorialRuntimeManifest(tutorialRoot);
-
-  for (const entry of manifest.requiredPaths) {
-    const generated = path.join(outDir, entry);
-    const source = path.join(tutorialRoot, entry);
-
-    const exists = await stat(generated)
-      .then(() => true)
-      .catch(() =>
-        stat(source)
-          .then(() => true)
-          .catch(() => false),
-      );
-
-    if (!exists) {
-      throw new Error(`Tutorial runtime manifest references missing ${entry}.`);
-    }
-  }
+} finally {
+  await local.data.close();
+  await local.store.close();
+  await rm(temporaryRoot, { recursive: true, force: true });
 }
 
 function checkSampleTypeScript(repositoryRoot: string): void {
@@ -249,60 +77,3 @@ function checkSampleTypeScript(repositoryRoot: string): void {
     );
   }
 }
-
-function checkSequenceEvidence(source: string): void {
-  const file = ts.createSourceFile(
-    "data.ts",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-  );
-
-  let sequence: ts.ArrayLiteralExpression | undefined;
-
-  for (const statement of file.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-
-    for (const declaration of statement.declarationList.declarations) {
-      if (
-        ts.isIdentifier(declaration.name) &&
-        declaration.name.text === "checkoutSequence" &&
-        declaration.initializer &&
-        ts.isArrayLiteralExpression(declaration.initializer)
-      ) {
-        sequence = declaration.initializer;
-      }
-    }
-  }
-
-  if (!sequence || sequence.elements.length === 0) {
-    throw new Error("The tutorial checkout sequence is missing.");
-  }
-
-  for (const message of sequence.elements) {
-    if (
-      !ts.isObjectLiteralExpression(message) ||
-      !message.properties.some(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          ts.isIdentifier(property.name) &&
-          property.name.text === "anchor",
-      )
-    ) {
-      throw new Error(
-        "Every tutorial sequence message must contain code evidence.",
-      );
-    }
-  }
-}
-
-async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFilePromise("git", args, {
-    cwd,
-    encoding: "utf8",
-  });
-
-  return stdout;
-}
-
-await main();

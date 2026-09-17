@@ -39,6 +39,7 @@ import {
   pinsSchema,
   sourceSchema,
 } from "./document.js";
+import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
 import { ReviewStore } from "./store.js";
 import { ReviewWorkspaces } from "./workspaces.js";
@@ -189,12 +190,13 @@ export class LocalReviewData {
     return reader;
   }
 
-  private closeReader(repositoryId: string): void {
+  private closeReader(repositoryId: string): Promise<void> | undefined {
     const reader = this.readers.get(repositoryId);
 
     if (!reader) return;
     this.readers.delete(repositoryId);
-    void reader.close();
+
+    return reader.close();
   }
 
   private async vcsTarget(
@@ -218,7 +220,16 @@ export class LocalReviewData {
 
     if (!vcs) throw new ReviewInputError("Choose a Git or jj repository.");
 
-    return this.store.registerRepository(await realpath(vcs.rootPath));
+    const repository = this.store.registerRepository(
+      await realpath(vcs.rootPath),
+    );
+
+    // Registration may follow replacement of a managed repository at the same
+    // path (for example resetting the tutorial). Reopen its Git reader too.
+    await this.closeReader(repository.id);
+    this.repositories.delete(repository.id);
+
+    return repository;
   }
   async resolvePins(
     repositoryId: string,
@@ -500,34 +511,10 @@ export class LocalReviewData {
       data: Uint8Array;
 
     switch (input.kind) {
-      case "image": {
-        // Load the native decoder only here, so a missing platform binary fails one upload, not host startup.
-        const { default: sharp } = await import("sharp");
-
-        try {
-          const decoder = sharp(Buffer.from(input.base64, "base64"), {
-            limitInputPixels: 20_000_000,
-            failOn: "warning",
-          });
-
-          const metadata = await decoder.metadata();
-
-          if (
-            !["png", "jpeg", "webp"].includes(metadata.format ?? "") ||
-            (metadata.pages ?? 1) !== 1
-          )
-            throw new Error("Unsupported image");
-          // One bounded full decode; retain a safe raster format, not the original file.
-          data = await decoder.png().toBuffer();
-          mimeType = "image/png";
-        } catch {
-          throw new ReviewInputError(
-            "Provide a valid single PNG, JPEG, or WebP image (at most 20 megapixels).",
-          );
-        }
-
+      case "image":
+        data = await decodeImage(Buffer.from(input.base64, "base64"));
+        mimeType = "image/png";
         break;
-      }
 
       case "trace":
         if (

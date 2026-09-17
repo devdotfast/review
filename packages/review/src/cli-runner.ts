@@ -2,7 +2,6 @@ import path from "node:path";
 import type { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
-import type { ReviewView } from "@dev.fast/review-protocol";
 import {
   type CliInputStream,
   DEFAULT_STORE_ORIGIN,
@@ -37,7 +36,6 @@ import {
   isInstallTarget,
   runInstall,
 } from "./install";
-import { parseSoftwareMapCliArgs, runSoftwareMapCli } from "./map-cli";
 import { runReviewMigration } from "./migrate";
 import { readReviewPackageVersion } from "./package-paths";
 import { reviewAgentCliHelp } from "./review-api/agent-cli";
@@ -80,7 +78,6 @@ interface ReviewCliRuntime {
   runInstall: typeof runInstall;
   installReviewCommand: typeof installReviewCommand;
   runReviewMigration: typeof runReviewMigration;
-  runSoftwareMapCli: typeof runSoftwareMapCli;
   runTraceStatus: typeof runTraceStatus;
   runTraceEnable: typeof runTraceEnable;
   runTraceDisable: typeof runTraceDisable;
@@ -202,27 +199,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       new Option("--json", "print machine-readable JSON events on stdout"),
     );
 
-  const viewOption = () =>
-    new Option("--view <view>", "view to show after opening").choices([
-      "review",
-      "commits",
-      "diff",
-      "map",
-      "trace",
-    ]);
-
-  const executeMap = async (mapArgs: string[]) => {
-    const parsed = parseSoftwareMapCliArgs(mapArgs);
-    telemetryProperties = mapCommandProperties(mapArgs, parsed);
-    state.exitCode = await runtime.runSoftwareMapCli({
-      args: mapArgs,
-      cwd,
-      stdout: input.stdout,
-      stderr: input.stderr,
-      env,
-    });
-  };
-
   const program = configureOutput(new Command(), "review")
     .name("review")
     .enablePositionalOptions()
@@ -285,17 +261,12 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     }
   };
 
-  const pickReview = async (options: {
-    review?: string;
-    view?: ReviewView;
-    json?: boolean;
-  }) => {
+  const pickReview = async (options: { review?: string; json?: boolean }) => {
     // SAFETY: the picker reads keypresses only after checking isTTY, and only
     // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
       reviewUuid: options.review,
-      view: options.view,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
       // not be stdout: the picker's ANSI frames would corrupt the event line.
@@ -319,19 +290,9 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   };
 
   const app = configureJsonOutput(
-    program
-      .command("app")
-      .description("Start or activate Review Desktop")
-      .option("--review <uuid>", "compatibility alias for app pick --review")
-      .addOption(viewOption()),
+    program.command("app").description("Start or activate Review Desktop"),
     "plain",
-  ).action(
-    async (options: { review?: string; view?: ReviewView; json?: boolean }) => {
-      if (options.review) return pickReview(options);
-
-      return launchApp(options);
-    },
-  );
+  ).action(launchApp);
 
   configureJsonOutput(
     app.command("launch").description("Start or activate Review Desktop"),
@@ -340,11 +301,8 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   configureJsonOutput(
     app
       .command("pick")
-      .description(
-        "Select a published Review (interactive picker without --review)",
-      )
-      .option("--review <uuid>", "review UUID")
-      .addOption(viewOption()),
+      .description("Select a Review (interactive picker without --review)")
+      .option("--review <uuid>", "review UUID"),
     "plain",
   ).action(pickReview);
 
@@ -672,26 +630,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     },
   });
 
-  // The map surface is owned by map-cli.ts: git-notes storage with
-  // commit-addressed scratch buffers (`open <rev>`, `check [<rev>]`, `prune`,
-  // `push`, `fetch`, plus removal pointers for the retired home-backed
-  // commands). Commander passes the raw arguments through so map-cli's own
-  // parser and help remain the single source of truth for that shape.
-  const map = configureOutput(
-    program
-      .command("map")
-      .description("Manage the git-notes-backed software map")
-      .argument("[args...]", "map subcommand and arguments")
-      .allowUnknownOption()
-      .allowExcessArguments()
-      .helpOption(false)
-      .passThroughOptions()
-      .addHelpText("after", reviewMapHelp()),
-    "map",
-  );
-
-  map.action((mapArgs: string[]) => executeMap(mapArgs));
-
   // The JSON authoring surface is owned by review-api/agent-cli.ts. Commander
   // passes the tool name and JSON payload through untouched, so these commands
   // share the top-level help, the leading `--json` form, and the telemetry
@@ -856,7 +794,6 @@ function reviewCliRuntime(
     runInstall,
     installReviewCommand,
     runReviewMigration,
-    runSoftwareMapCli,
     runTraceStatus,
     runTraceEnable,
     runTraceDisable,
@@ -994,97 +931,6 @@ function reviewInstallHelp(): string {
   ].join("\n");
 }
 
-function reviewMapHelp(): string {
-  return [
-    "",
-    "Notes under refs/notes/dev-fast/* are the only durable map state: one map per commit, never checked into any branch.",
-    "The editable file is a scratch buffer — a commit-addressed working copy of one commit's note, hydrated from a note and disposable at any time.",
-    "Use review map open <rev> to hydrate <rev>'s scratch, review map check [<rev>] [--review <uuid>] to validate and save it to <rev>'s note, review map prune to drop stale notes and swept scratches, and review map push / fetch to share map notes through the selected notes remote.",
-    "Run review map help for the full subcommand reference.",
-  ].join("\n");
-}
-
-function mapCommandProperties(
-  mapArgs: readonly string[],
-  parsed: ReturnType<typeof parseSoftwareMapCliArgs>,
-) {
-  const metadata = parsed.ok
-    ? mapTelemetryMetadata(parsed.command, parsed.force, parsed.diffRefs)
-    : mapTelemetryMetadata("check", false, {});
-
-  return {
-    command: "map",
-    subcommand: normalizeMapTelemetrySubcommand(mapArgs),
-    mode: metadata.mode,
-    has_base_ref: metadata.has_base_ref,
-    has_head_ref: metadata.has_head_ref,
-    force: metadata.force,
-  };
-}
-
-function mapTelemetryMetadata(
-  command: string,
-  force: boolean,
-  diffRefs: { baseRef?: string; headRef?: string },
-) {
-  const mode =
-    command === "init" || command === "update" || command === "check"
-      ? command
-      : "check";
-
-  return {
-    mode,
-    has_base_ref: Boolean(diffRefs.baseRef),
-    has_head_ref: Boolean(diffRefs.headRef),
-    force: command === "init" ? force : false,
-  };
-}
-
-function isMapHelpCommand(command: string): boolean {
-  return command === "--help" || command === "-h" || command === "help";
-}
-
-function normalizeMapTelemetrySubcommand(
-  inputArgs: readonly string[],
-):
-  | "open"
-  | "check"
-  | "prune"
-  | "push"
-  | "fetch"
-  | "scaffold"
-  | "snapshot"
-  | "refresh"
-  | "init"
-  | "update"
-  | "help"
-  | "unknown" {
-  const args = inputArgs[0] === "--" ? inputArgs.slice(1) : inputArgs;
-  const command = args[0] ?? "check";
-
-  if (isMapHelpCommand(command)) {
-    return "help";
-  }
-
-  if (
-    command === "open" ||
-    command === "check" ||
-    command === "prune" ||
-    command === "push" ||
-    command === "fetch" ||
-    // Removed verbs stay labeled so their exit-1 pointers remain observable.
-    command === "scaffold" ||
-    command === "snapshot" ||
-    command === "refresh" ||
-    command === "init" ||
-    command === "update"
-  ) {
-    return command;
-  }
-
-  return "unknown";
-}
-
 async function finishActiveTelemetry(
   telemetry: ReviewCommandTelemetry,
   active:
@@ -1158,20 +1004,6 @@ function telemetryCommandPath(
 ): ReviewCliCommandPath | undefined {
   const name = command.name();
   const parent = command.parent?.name();
-
-  if (parent === "map" || name === "map") {
-    const subcommand = normalizeMapTelemetrySubcommand(
-      name === "map" ? argv.slice(argv.indexOf("map") + 1) : [name],
-    );
-
-    return subcommand === "open" ||
-      subcommand === "check" ||
-      subcommand === "prune" ||
-      subcommand === "push" ||
-      subcommand === "fetch"
-      ? `map.${subcommand}`
-      : "invalid";
-  }
 
   if (parent === "migrate" && name === "apply") return "migrate.apply";
 

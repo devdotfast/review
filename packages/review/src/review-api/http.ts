@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -5,12 +7,14 @@ import { AgentSelectionSchema, selectionMarkdown } from "../agent-selection.js";
 import { resolveReviewStackLayers } from "../review-stack.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
+import { checkSourcePath } from "../source.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
 import type { LocalReviewData } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import type { ReviewStore, Snapshot } from "./store.js";
+import { workspaceSettingsSchema } from "./workspaces.js";
 
 /** Mounted behind the desktop server's existing token authentication. */
 export function createReviewApi(
@@ -187,6 +191,63 @@ export function createReviewApi(
   });
 
   if (data) {
+    if (data.workspaces) {
+      const workspaces = data.workspaces;
+      app.get("/workspace-settings/:repositoryId", async (context) =>
+        context.json(
+          await workspaces.settings(context.req.param("repositoryId")),
+        ),
+      );
+      app.post("/workspace-settings/:repositoryId", async (context) =>
+        context.json(
+          await workspaces.configure(
+            context.req.param("repositoryId"),
+            workspaceSettingsSchema.parse(
+              await readBoundedRequestJson(context.req.raw),
+            ),
+          ),
+        ),
+      );
+      app.post("/workspace-settings/:repositoryId/rebuild", async (context) => {
+        await workspaces.rebuild(context.req.param("repositoryId"));
+
+        return context.json({ ok: true });
+      });
+      app.get("/workspace-cleanup", (context) =>
+        context.json(workspaces.failures()),
+      );
+      app.post("/workspaces/:workspaceId/retry", (context) => {
+        workspaces.retry(context.req.param("workspaceId"));
+
+        return context.json({ ok: true });
+      });
+      app.get("/:id/workspaces", (context) => {
+        const { version } = readQuerySchemas.maps.parse(context.req.query());
+        const snapshot = store.read(context.req.param("id"), version);
+
+        return context.json(
+          workspaces.status(snapshot.reviewId, snapshot.pins),
+        );
+      });
+      app.get("/:id/workspace-source", async (context) => {
+        const input = readQuerySchemas.file.parse(context.req.query());
+        const id = context.req.param("id");
+
+        const pins = await data.comparison(
+          store.read(id, input.version).pins,
+          input.commit,
+        );
+
+        checkSourcePath(input.file);
+        const environment = await workspaces.source(id, pins, input.side);
+
+        return context.json({
+          ...environment,
+          file: path.join(environment.directory, input.file),
+        });
+      });
+    }
+
     app.get("/:id/tree", async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 

@@ -41,6 +41,7 @@ import {
 } from "./document.js";
 import { mapInputSchema } from "./map-input.js";
 import { ReviewStore } from "./store.js";
+import { ReviewWorkspaces } from "./workspaces.js";
 
 const traceSchema = z.strictObject({
   label: z.string(),
@@ -101,6 +102,7 @@ interface RepositoryVcs {
 
 /** Local implementation of the host's source/resource boundary. No client gets a filesystem path. */
 export class LocalReviewData {
+  workspaces?: ReviewWorkspaces;
   // A commit's tree never changes, so one listing serves every folder expansion.
   private readonly trackedFiles = new Map<string, Promise<string[]>>();
 
@@ -121,6 +123,7 @@ export class LocalReviewData {
   private closed = false;
 
   async close(): Promise<void> {
+    await this.workspaces?.close();
     this.closed = true;
     const readers = [...this.readers.values()];
 
@@ -669,7 +672,7 @@ function inputError<T>(run: () => T): T {
 
 export function openLocalReviewStore(
   databasePath: string,
-  options: { blobReaderIdleTimeoutMs?: number } = {},
+  options: { blobReaderIdleTimeoutMs?: number; workspaces?: boolean } = {},
 ) {
   const store: ReviewStore = new ReviewStore(databasePath, {
     validatePins: (pins) => data.validatePins(pins),
@@ -681,6 +684,9 @@ export function openLocalReviewStore(
   });
 
   const data = new LocalReviewData(store, options);
+
+  if (options.workspaces)
+    data.workspaces = new ReviewWorkspaces(databasePath, store);
 
   return { store, data };
 }

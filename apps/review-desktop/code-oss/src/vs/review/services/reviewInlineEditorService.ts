@@ -26,7 +26,7 @@ import type {
   ICompositeCodeEditor,
   IEditorDecorationsCollection,
 } from "../../editor/common/editorCommon.js";
-import { getDefinitionsAtPosition } from "../../editor/contrib/gotoSymbol/browser/goToSymbol.js";
+import { getDefinitionsAtPosition, getReferencesAtPosition } from "../../editor/contrib/gotoSymbol/browser/goToSymbol.js";
 import { getHoversPromise } from "../../editor/contrib/hover/browser/getHover.js";
 import type { ITextModel } from "../../editor/common/model.js";
 import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
@@ -65,6 +65,7 @@ import { markReviewEmbeddedEditor } from "./reviewEmbeddedNavigation.js";
 import {
   provideReviewUnifiedDefinition,
   provideReviewUnifiedHover,
+  withReviewUnifiedSourcePosition,
 } from "./reviewUnifiedDefinition.js";
 import { ContentHoverController } from "../../editor/contrib/hover/browser/contentHoverController.js";
 import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
@@ -184,6 +185,15 @@ export class ReviewInlineEditorService
         },
       ),
     );
+    this._register(this.languageFeaturesService.referenceProvider.register(
+      { scheme: REVIEW_UNIFIED_SCHEME, exclusive: true },
+      { provideReferences: (model, position, context, token) => withReviewUnifiedSourcePosition(
+        this.resources, this.textModelService, this.extensionService, model, position, [],
+        async ({ sourceModel, sourcePosition }) => (await getReferencesAtPosition(
+          this.languageFeaturesService.referenceProvider, sourceModel, sourcePosition, !context.includeDeclaration, false, token,
+        )).map(location => ({ uri: location.uri, range: location.range })),
+      ) },
+    ));
   }
 
   private async openUnifiedNavigation(
@@ -209,7 +219,8 @@ export class ReviewInlineEditorService
       unified.targetForRange(startLine, startLine);
     if (!mapped) return null;
 
-    const target = await this.resources.target(mapped.path, mapped.side);
+    const pinnedResource = mapped.side === "base" ? unified.original : unified.modified;
+    const target = pinnedResource ? { resource: pinnedResource } : await this.resources.target(mapped.path, mapped.side);
     const opened = await this.codeEditorService.openCodeEditor(
       {
         ...input,

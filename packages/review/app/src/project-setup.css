@@ -1,0 +1,171 @@
+.review-environment,
+.review-project-setup {
+  color: var(--ink);
+  font: 12px/1.5 var(--vscode-font-family, system-ui, sans-serif);
+  text-align: left;
+}
+.review-environment {
+  width: min(100%, var(--review-prose-max-width, 760px));
+  max-width: calc(100cqi - 2 * var(--review-document-padding-inline, 24px));
+  margin: 0 auto 28px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.review-environment-summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.review-environment-summary::-webkit-details-marker {
+  display: none;
+}
+.review-environment-summary:hover {
+  background: var(--bg-2);
+}
+.review-environment-indicator {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--ink-soft);
+}
+.review-environment-action {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.review-environment-chevron {
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-soft);
+}
+.review-environment[open] > summary .review-environment-chevron {
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  transform: rotate(180deg);
+}
+.review-environment-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--rule-soft);
+}
+.review-environment-description {
+  color: var(--ink-soft);
+  margin: 12px 0;
+  font: inherit;
+}
+.review-environment-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+}
+.review-environment-state {
+  flex: 1;
+  color: var(--ink-soft);
+}
+.review-environment-state code {
+  display: inline-block;
+  margin-right: 10px;
+  color: var(--ink);
+  font: 11px var(--font-mono);
+}
+.review-environment-logs {
+  width: 100%;
+  color: var(--ink-soft);
+}
+.review-environment-logs summary {
+  cursor: pointer;
+  font-size: 11px;
+}
+.review-environment-logs pre {
+  padding: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  font: 11px/1.6 var(--font-mono);
+}
+.review-environment button,
+.review-project-setup button {
+  appearance: none;
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  padding: 6px 10px;
+  background: var(--bg-2);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.review-environment button:hover,
+.review-project-setup button:hover {
+  border-color: var(--ink-soft);
+}
+.review-environment :is(button, summary, textarea):focus-visible,
+.review-project-setup :is(button, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.review-project-setup {
+  min-width: 0;
+  margin: 16px 0 0;
+  padding: 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+}
+.review-project-setup legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.review-project-setup p {
+  color: var(--ink-soft);
+  font: inherit;
+  margin: 0 0 12px;
+}
+.review-project-setup label {
+  display: block;
+  margin: 12px 0;
+  font-weight: 500;
+}
+.review-project-setup textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  background: var(--control-bg);
+  color: var(--ink);
+  font: 12px/1.5 var(--font-mono);
+  resize: vertical;
+}
+.review-project-setup button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+/* Document prose rules must not style application controls inside the notice. */
+.review-document .review-environment p,
+.review-document .review-project-setup p {
+  width: auto;
+  margin: 12px 0;
+  color: var(--ink-soft);
+  font: 12px/1.6 var(--vscode-font-family, system-ui, sans-serif);
+}
+.review-document .review-environment code {
+  padding: 0;
+  background: none;
+}
+.review-document .review-environment button {
+  background-image: none;
+  box-shadow: none;
+}

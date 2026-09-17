@@ -67,7 +67,10 @@ export async function runDesktopHost(
 
   // JSON is the sole user-review store. A failure is surfaced, never replaced
   // by a second catalog or an old document renderer.
-  const local = openLocalReviewStore(path.join(home, "review-api.db"));
+  const local = openLocalReviewStore(path.join(home, "review-api.db"), {
+    workspaces: true,
+  });
+
   serverInput.reviewStore = local.store;
   serverInput.reviewData = local.data;
 
@@ -80,8 +83,8 @@ export async function runDesktopHost(
   try {
     await server.listen();
   } catch (error) {
-    await local?.store.close();
     await local?.data.close();
+    await local?.store.close();
     throw error;
   }
 
@@ -105,8 +108,8 @@ export async function runDesktopHost(
     if (!stopping) {
       stopping = server
         .close("app-exit")
-        .finally(() => local?.store.close())
-        .finally(() => local?.data.close());
+        .finally(() => local?.data.close())
+        .finally(() => local?.store.close());
     }
 
     return stopping;

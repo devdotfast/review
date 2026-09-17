@@ -26,6 +26,8 @@ function setup() {
       }),
     } as never,
     {
+      onModelAdded: () => ({ dispose() {} }),
+      onModelRemoved: () => ({ dispose() {} }),
       getModel: (uri: URI) => models.get(uri.toString()),
       createModel: (text: string, _: unknown, uri: URI) => {
         const model = { uri, text, getLineCount: () => text.split("\n").length };
@@ -36,6 +38,8 @@ function setup() {
     { createByFilepathOrFirstLine: () => ({ languageId: "typescript" }) } as never,
     {} as never,
     { registerReviewEditor() {} } as never,
+    { definitionProvider: { register: () => ({ dispose() {} }) }, hoverProvider: { register: () => ({ dispose() {} }) }, referenceProvider: { register: () => ({ dispose() {} }) } } as never,
+    {} as never, {} as never, {} as never,
   );
   return {
     service, models, disposed: () => disposed,

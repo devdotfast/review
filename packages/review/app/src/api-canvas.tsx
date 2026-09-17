@@ -31,6 +31,7 @@ import {
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
+import { ReviewProjectSetup } from "./project-setup";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
@@ -43,8 +44,11 @@ const DocumentData = createContext<ApiDocumentData | null>(null);
 
 const MapEnabled = createContext(false);
 
+const ProjectClient = createContext<ReviewApiClient | null>(null);
+
 // A stable component type keeps sections, diagram tours and selections mounted.
 function DocumentBody() {
+  const client = useContext(ProjectClient);
   const data = useContext(DocumentData)!;
   const session = useReviewSession();
   const softwareMapEnabled = useContext(MapEnabled);
@@ -58,6 +62,14 @@ function DocumentBody() {
         reportReviewDocumentRenderError(session, error)
       }
     >
+      {client && (
+        <ReviewProjectSetup
+          client={client}
+          reviewId={data.snapshot.reviewId}
+          version={data.snapshot.version}
+          repositoryId={data.snapshot.pins.repositoryId}
+        />
+      )}
       <ApiDocument data={data} softwareMapEnabled={softwareMapEnabled} />
     </ReviewDocumentBoundary>
   );
@@ -280,30 +292,32 @@ export function ApiCanvas({
 
   return (
     <ReviewSessionProvider session={session}>
-      <DocumentData.Provider value={data}>
-        <TutorialProvider>
-          {error && <p role="status">{error}</p>}
-          <AuthoringActivityContext.Provider
-            value={version === undefined ? activity : undefined}
-          >
-            <DisplayedReviewVersionContext.Provider
-              value={data.snapshot.version}
+      <ProjectClient.Provider value={client}>
+        <DocumentData.Provider value={data}>
+          <TutorialProvider>
+            {error && <p role="status">{error}</p>}
+            <AuthoringActivityContext.Provider
+              value={version === undefined ? activity : undefined}
             >
-              <RevealAfterFirstPaint>
-                <MapEnabled.Provider
-                  value={content.softwareMapEnabled === true}
-                >
-                  <CanvasDocument
-                    data={data}
-                    findHost={findHost}
-                    softwareMapEnabled={content.softwareMapEnabled === true}
-                  />
-                </MapEnabled.Provider>
-              </RevealAfterFirstPaint>
-            </DisplayedReviewVersionContext.Provider>
-          </AuthoringActivityContext.Provider>
-        </TutorialProvider>
-      </DocumentData.Provider>
+              <DisplayedReviewVersionContext.Provider
+                value={data.snapshot.version}
+              >
+                <RevealAfterFirstPaint>
+                  <MapEnabled.Provider
+                    value={content.softwareMapEnabled === true}
+                  >
+                    <CanvasDocument
+                      data={data}
+                      findHost={findHost}
+                      softwareMapEnabled={content.softwareMapEnabled === true}
+                    />
+                  </MapEnabled.Provider>
+                </RevealAfterFirstPaint>
+              </DisplayedReviewVersionContext.Provider>
+            </AuthoringActivityContext.Provider>
+          </TutorialProvider>
+        </DocumentData.Provider>
+      </ProjectClient.Provider>
     </ReviewSessionProvider>
   );
 }

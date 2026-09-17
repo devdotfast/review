@@ -992,6 +992,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	 */
 	private async resolveSettingsContent(): Promise<ReviewCanvasSettingsContent> {
 		return {
+			projectSetup: { ...await this.sessionService.getConnection(), request: requestReviewApi },
 			telemetryEnabled: this.currentTelemetryEnabled(),
 			setTelemetryEnabled: async (enabled) => {
 				this.reviewTelemetryService.capture("setting_changed", {

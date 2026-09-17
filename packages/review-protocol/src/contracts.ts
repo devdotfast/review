@@ -372,6 +372,11 @@ export const DEFAULT_DISMISSED_RETENTION_DAYS = 30;
  * the authoritative result instead of an optimistic one.
  */
 export interface ReviewCanvasSettingsContent {
+  projectSetup?: {
+    serverUrl: string;
+    token: string;
+    request(url: string, init?: RequestInit): Promise<Response>;
+  };
   // Backed by the `review.telemetry.enabled` workbench setting, which the
   // review server and the CLI both read.
   telemetryEnabled: boolean;

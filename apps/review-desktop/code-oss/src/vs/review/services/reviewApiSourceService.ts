@@ -33,6 +33,11 @@ import type { ReviewInlineEditorService, ReviewInlineSource } from "./reviewInli
 import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffViewService.js";
 import { IReviewSessionService, reviewResponseError } from "./reviewSessionService.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
+import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
+import { IExtensionService } from "../../workbench/services/extensions/common/extensions.js";
+import { IWorkspaceContextService } from "../../platform/workspace/common/workspace.js";
+import { IWorkspaceEditingService } from "../../workbench/services/workspaces/common/workspaceEditing.js";
+import { ReviewApiLanguageFeatures } from "./reviewApiLanguageFeatures.js";
 
 export interface ApiSourceTarget extends ReviewApiSourceLocation {
   reviewId: string;
@@ -79,8 +84,25 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
     @ILanguageService languages: ILanguageService,
     @IEditorService private readonly editors: IEditorService,
     @IReviewCanvasEditorTabsService private readonly tabs: IReviewCanvasEditorTabsService,
+    @ILanguageFeaturesService features: ILanguageFeaturesService,
+    @IExtensionService extensions: IExtensionService,
+    @IWorkspaceContextService workspace: IWorkspaceContextService,
+    @IWorkspaceEditingService editing: IWorkspaceEditingService,
   ) {
     super();
+    this._register(new ReviewApiLanguageFeatures(this.models, modelService, features, extensions, workspace, editing, uri => {
+      const query = new URLSearchParams(uri.query);
+      return this.read(uri.authority, "/workspace-source", {
+        version: query.get("version") ?? "0", side: query.get("side") ?? "head",
+        file: uri.path.slice(1), commit: query.get("commit") ?? undefined,
+      });
+    }, async uri => {
+      const query = new URLSearchParams(uri.query);
+      try {
+        await this.read(uri.authority, "/file", { version: query.get("version") ?? "0", side: query.get("side") ?? "head", file: uri.path.slice(1), commit: query.get("commit") ?? undefined });
+        return true;
+      } catch { return false; }
+    }));
     this._register(
       models.registerTextModelContentProvider(REVIEW_API_SOURCE_SCHEME, {
         provideTextContent: async (resource) => {

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Queue } from '../../../base/common/async.js';
+import type { URI } from '../../../base/common/uri.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
@@ -40,6 +41,7 @@ class ReviewWorkspaceFolderContribution extends Disposable implements IWorkbench
 	static readonly ID = 'review.contrib.workspaceFolder';
 
 	private readonly queue = this._register(new Queue<void>());
+	private ownedFolder: URI | undefined;
 
 	constructor(
 		@IReviewSessionModelService private readonly sessionModelService: IReviewSessionModelService,
@@ -61,11 +63,12 @@ class ReviewWorkspaceFolderContribution extends Disposable implements IWorkbench
 
 	private async apply(session: ReviewDesktopSession | null): Promise<void> {
 		const target = reviewWorkspaceFolder(session, session?.review.title);
-		const current = this.workspaceContextService.getWorkspace().folders[0]?.uri;
+		const current = this.ownedFolder;
 
 		if (!target) {
 			if (current) {
 				await this.workspaceEditingService.removeFolders([current], true);
+				this.ownedFolder = undefined;
 			}
 			return;
 		}
@@ -76,11 +79,13 @@ class ReviewWorkspaceFolderContribution extends Disposable implements IWorkbench
 
 		// A single `updateFolders` keeps this to one folder-change event, so a
 		// language server sees one transition rather than a remove then an add.
-		if (current) {
-			await this.workspaceEditingService.updateFolders(0, 1, [target], true);
+		const currentIndex = current ? this.workspaceContextService.getWorkspace().folders.findIndex(folder => this.uriIdentityService.extUri.isEqual(folder.uri, current)) : -1;
+		if (currentIndex >= 0) {
+			await this.workspaceEditingService.updateFolders(currentIndex, 1, [target], true);
 		} else {
 			await this.workspaceEditingService.addFolders([target], true);
 		}
+		this.ownedFolder = target.uri;
 
 		this.logService.trace(`[review] workspace folder is now ${target.uri.fsPath}`);
 	}

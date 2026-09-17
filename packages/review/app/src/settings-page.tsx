@@ -4,9 +4,11 @@ import type {
   ReviewKeymapChoice,
   ReviewThemeChoice,
 } from "@dev.fast/review-protocol";
-import { type ReactNode, useEffect, useState } from "react";
+import { ReviewApiClient } from "@dev.fast/review-protocol";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { AgentSetupCard } from "./agent-setup-card";
+import { ProjectSetupSettings } from "./project-setup";
 import { TraceCaptureSection } from "./trace-capture-section";
 
 const THEME_LABELS: Record<ReviewThemeChoice, string> = {
@@ -62,6 +64,17 @@ export function SettingsPage({
 }: {
   settings: ReviewCanvasSettingsContent;
 }) {
+  const projectClient = useMemo(
+    () =>
+      settings.projectSetup
+        ? new ReviewApiClient(
+            settings.projectSetup,
+            settings.projectSetup.request,
+          )
+        : undefined,
+    [settings.projectSetup],
+  );
+
   const [telemetryEnabled, setTelemetryEnabled] = useState(
     settings.telemetryEnabled,
   );
@@ -121,6 +134,7 @@ export function SettingsPage({
           <p className="review-settings-lede">
             Settings apply to Review Desktop on this machine.
           </p>
+          {projectClient && <ProjectSetupSettings client={projectClient} />}
 
           {install ? (
             <Section label="Agents">

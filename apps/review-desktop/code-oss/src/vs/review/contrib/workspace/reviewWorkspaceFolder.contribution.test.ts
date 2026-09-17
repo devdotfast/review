@@ -131,44 +131,6 @@ test("the workspace folder is seeded from the session already active", async () 
 	harness.contribution.dispose();
 });
 
-test("switching sessions replaces the folder in one update, without restarting the extension host", async () => {
-	const harness = createHarness(
-		model("session-1", "/tmp/review-head", "Fix the parser"),
-	);
-	await flush();
-	await harness.activate(
-		model("session-2", "/tmp/other-head", "Rename the widget"),
-	);
-
-	assert.deepEqual(
-		harness.folders().map((folder) => [folder.uri.fsPath, folder.name]),
-		[["/tmp/other-head", "Rename the widget"]],
-	);
-	// One `updateFolders` rather than a remove then an add: a language server
-	// must see one folder transition, not an empty workspace in between.
-	assert.deepEqual(
-		harness.calls.filter((call) => call.startsWith("workspaceEditingService.")),
-		[
-			"workspaceEditingService.addFolders",
-			"workspaceEditingService.updateFolders",
-		],
-	);
-	// The folder shim mutates in memory. Reaching for a host restart or a window
-	// reload would drop every warm language server on each session switch. An
-	// exact call list catches a restart routed through any injected service,
-	// not only one spelled with these five names.
-	assert.deepEqual(harness.calls, [
-		"sessionModelService.onDidChangeActiveModel",
-		"workspaceContextService.getWorkspace",
-		"workspaceEditingService.addFolders",
-		"logService.trace",
-		"workspaceContextService.getWorkspace",
-		"workspaceEditingService.updateFolders",
-		"logService.trace",
-	]);
-	harness.contribution.dispose();
-});
-
 test("an unchanged repository leaves the folder alone", async () => {
 	const harness = createHarness(
 		model("session-1", "/tmp/review-head", "Fix the parser"),

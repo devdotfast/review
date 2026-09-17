@@ -155,7 +155,7 @@ export async function provideReviewUnifiedHover(
   );
 }
 
-async function withReviewUnifiedSourcePosition<T>(
+export async function withReviewUnifiedSourcePosition<T>(
   resources: UnifiedLanguageFeatureResources,
   textModelService: UnifiedLanguageFeatureModelService,
   extensionService: UnifiedLanguageFeatureExtensionService,
@@ -171,7 +171,8 @@ async function withReviewUnifiedSourcePosition<T>(
   );
   if (!mapped) return fallback;
 
-  const target = await resources.target(mapped.path, mapped.side);
+  const pinnedResource = mapped.side === "base" ? unified?.original : unified?.modified;
+  const target = pinnedResource ? { resource: pinnedResource } : await resources.target(mapped.path, mapped.side);
   const sourceReference = await textModelService.createModelReference(
     target.resource,
   );

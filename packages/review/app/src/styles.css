@@ -2618,6 +2618,17 @@ button {
   white-space: nowrap;
 }
 
+.review-history-chevron {
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+
+.review-history-button[aria-expanded="true"] .review-history-chevron {
+  transform: rotate(180deg);
+}
+
 .review-history-selected time {
   color: var(--ink-faint);
 }

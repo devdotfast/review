@@ -183,3 +183,38 @@ history/restart, retries, asynchronous validation, isolation, and the actual
 desktop HTTP route. The local-data tests use a real Git repository with dirty
 working-copy files, decoded images and saved trace/map evidence, including real
 HTTP requests and restart. Existing desktop-server tests remain unchanged.
+
+## Prepared project environments
+
+The desktop host prepares detached Git worktrees in the background for JSON
+reviews. Local **Settings → Project environments** stores setup and optional
+teardown shell commands per repository (shared across its registered worktrees).
+Commands run in the managed checkout. Existing environments keep the commands
+with which they were created; **Save and rebuild environments** explicitly
+replaces them. Saving settings alone does not rerun setup.
+
+Environments are shared by Git common directory, commit, and hook configuration.
+Both sides of a comparison are prepared, with one environment when their commits
+match. Every historical review version retains ownership. Deleting a review
+releases all its environments; teardown and removal happen only after the last
+owner is deleted. Failed cleanup remains visible and retryable in Settings even
+though review deletion has completed. Teardown uses the saved original command.
+
+Missing setup configuration and setup failures do not block reading or authoring.
+The review's Project environment control exposes status, bounded logs, retry,
+and repository configuration. Commands may modify tracked files: displayed text
+still comes from pinned Git objects, while native hover, definition, and reference
+providers use the prepared files and dependencies. Setup commands should be safe
+to retry after interruption. Hooks are stopped on desktop shutdown, and have a
+15-minute timeout. Interrupted setup remains retryable after restart.
+
+Authenticated local endpoints (not agent authoring tools):
+
+- `GET/POST /workspace-settings/:repositoryId`: read/save local hooks.
+- `POST /workspace-settings/:repositoryId/rebuild`: rebuild explicitly.
+- `GET /:id/workspaces?version=N`: preparation status for a review's pins.
+- `GET /:id/workspace-source?version=N&side=head&file=path`: resolve the
+  physical language-server source; optional `commit` uses the selected commit
+  comparison, exactly as the pinned source endpoints do.
+- `POST /workspaces/:workspaceId/retry`: retry setup or failed cleanup.
+- `GET /workspace-cleanup`: retained cleanup failures, including deleted reviews.

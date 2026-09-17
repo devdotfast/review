@@ -195,6 +195,18 @@ export class ReviewStore {
 
     return String(row.path);
   }
+  /** Distinct pins across all versions retain historical source environments. */
+  workspacePins(): Array<{ reviewId: string; pins: Pins }> {
+    return this.db
+      .prepare(
+        "SELECT DISTINCT review_id,json_extract(snapshot,'$.pins') AS pins FROM versions",
+      )
+      .all()
+      .map((row) => ({
+        reviewId: String(row.review_id),
+        pins: pinsSchema.parse(JSON.parse(String(row.pins))),
+      }));
+  }
   putResource(
     id: string,
     repositoryId: string,

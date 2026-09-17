@@ -94,6 +94,8 @@ export interface ReviewCodeDiffTarget {
 }
 
 export interface ReviewUnifiedResourceInfo {
+  readonly original?: URI;
+  readonly modified?: URI;
   readonly path: string;
   readonly diffFile: ReviewDiffFileWire;
   readonly rows: readonly ReviewUnifiedDiffRow[];
@@ -542,6 +544,8 @@ export class ReviewCodeResourceService
       modifiedLineCount: modifiedModel.getLineCount(),
       references: 0,
       info: {
+        original: target.original,
+        modified: target.modified,
         path,
         diffFile: target.diffFile,
         rows: unified.rows,

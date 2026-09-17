@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -207,4 +208,19 @@ it("persists failed cleanup and retries it without deleting an unrelated checkou
   expect(local.data.workspaces.failures()).toHaveLength(0);
   expect(existsSync(environment.rootPath!)).toBe(false);
   expect(existsSync(path.join(repository, "value.ts"))).toBe(true);
+});
+
+it("reports a missing repository before first acquisition and recovers after it returns", async () => {
+  renameSync(repository, `${repository}-missing`);
+  const missing = await local.data.workspaces.source(reviewId, pins, "head");
+  expect(missing.state).toBe("failed");
+  expect(missing.rootPath).toBeNull();
+  expect(missing.log).toContain("Restore the registered checkout");
+  renameSync(`${repository}-missing`, repository);
+  const restored = await local.data.workspaces.source(reviewId, pins, "head");
+  expect(restored.state).toBe("unconfigured");
+  expect(restored.rootPath).not.toBe(repository);
+  expect(
+    readFileSync(path.join(restored.rootPath!, "value.ts"), "utf8"),
+  ).toContain("42");
 });

@@ -167,18 +167,15 @@ export class ReviewWorkspaces {
 
     if (this.jobs.has(id)) return this.status(environment!);
     const root = this.store.repositoryPath(pins.repositoryId);
-    const repository = environment?.repository ?? (await gitCommonDir(root));
 
-    if (!repository)
-      throw new ReviewInputError(
-        "Repository Git directory is unavailable.",
-        409,
-      );
+    const repository =
+      environment?.repository || (await gitCommonDir(root).catch(() => null));
+
     environment ??= {
       id,
       reviewId,
       repositoryId: pins.repositoryId,
-      repository,
+      repository: repository ?? "",
       commit: pins[side],
       rootPath: null,
       generation: randomUUID(),
@@ -190,6 +187,12 @@ export class ReviewWorkspaces {
     this.save(environment);
 
     try {
+      if (!repository)
+        throw new Error(
+          "Repository Git directory is unavailable. Restore the registered checkout and retry preparation.",
+        );
+      environment.repository = repository;
+
       const result = await git(
         repository,
         ["config", "--null", "--get-all", "devfast.prepare"],

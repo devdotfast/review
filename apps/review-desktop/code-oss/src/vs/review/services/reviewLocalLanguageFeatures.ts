@@ -32,7 +32,7 @@ interface LocalSource {
 	dispose(): void;
 }
 
-/** Review bytes remain pinned; only language queries use the live checkout. */
+/** Review bytes remain pinned; language queries use the resolved project environment. */
 export class ReviewLocalLanguageFeatures extends Disposable {
 	static readonly ID = "review.localLanguageFeatures";
 	private readonly sources = new Map<ITextModel, Promise<LocalSource | undefined>>();

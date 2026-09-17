@@ -404,7 +404,7 @@ async function createReview(fix, title) {
         children: [
           {
             type: "markdown",
-            markdown: `# ${title}\nPinned review; language services use the local checkout.`,
+            markdown: `# ${title}\nLanguage services use the environment selected by the review target.`,
           },
           ...["base", "head"].map((side) => ({
             type: "code_peek",

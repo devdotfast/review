@@ -39,6 +39,7 @@ import {
 	REVIEW_API_SOURCE_SCHEME,
 	apiSourceUri,
 } from "../../../services/reviewApiSourceService.js";
+import { IReviewApiCatalogService } from "../../../services/reviewApiCatalogService.js";
 import { IReviewCanvasEditorTabsService } from "../../../services/reviewCanvasEditorTabsService.js";
 
 import "../../media/review.css";
@@ -251,6 +252,7 @@ export class ReviewExplorerPart extends Part {
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ILogService private readonly logService: ILogService,
 		@IReviewApiSourceService private readonly apiSource: IReviewApiSourceService,
+		@IReviewApiCatalogService private readonly catalog: IReviewApiCatalogService,
 		@IReviewCanvasEditorTabsService private readonly tabsService: IReviewCanvasEditorTabsService,
 	) {
 		super(
@@ -369,6 +371,15 @@ export class ReviewExplorerPart extends Part {
 		);
 
 		this._register(this.editorService.onDidActiveEditorChange(() => this.updateRoot()));
+		let revision: string | undefined;
+		this._register(this.catalog.onDidChange(() => {
+			if (!this.root || !new URLSearchParams(this.root.query).has("live")) return;
+			const review = this.catalog.reviews.find(review => review.reviewId === this.root!.authority);
+			const next = JSON.stringify([review?.reviewId, review?.version, review?.pins.sourceGeneration]);
+			if (next === revision) return;
+			revision = next;
+			this.refreshTree();
+		}));
 
 		this.root = undefined;
 		this.updateRoot();

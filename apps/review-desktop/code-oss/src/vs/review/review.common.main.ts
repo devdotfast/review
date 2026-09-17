@@ -271,6 +271,7 @@ import {
 } from "./services/reviewDesktopConnectionService.js";
 import { IReviewTelemetryService, ReviewTelemetryService } from "./services/reviewTelemetryService.js";
 import "./services/reviewWorkbenchServices.js";
+import "./services/reviewLocalLanguageFeatures.js";
 
 registerSingleton(IReviewDesktopConnectionService, ReviewDesktopConnectionService, InstantiationType.Eager);
 registerSingleton(IReviewTelemetryService, ReviewTelemetryService, InstantiationType.Delayed);

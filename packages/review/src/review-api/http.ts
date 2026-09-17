@@ -293,6 +293,15 @@ export function createReviewApi(
         ),
       );
     });
+    // Desktop-only context; it does not change the pinned source API or run preparation.
+    app.get("/:id/language-context", async (context) => {
+      const input = readQuerySchemas.maps.parse(context.req.query());
+      const snapshot = store.read(context.req.param("id"), input.version);
+
+      return context.json(
+        await data.languageContext(snapshot.pins.repositoryId),
+      );
+    });
     app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());
 

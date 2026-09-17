@@ -11,6 +11,7 @@ import {
 import {
   type MouseEvent,
   type ReactElement,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -18,6 +19,7 @@ import {
 
 import { useReviewSession } from "./host/review-session";
 import { useReviewDiffFiles } from "./review-diff-files-context";
+import { DisplayedReviewVersionContext } from "./review-history-control";
 
 interface ReviewDocumentMetaState {
   pullRequestNumber: number | null;
@@ -33,6 +35,7 @@ interface ReviewDocumentMetaState {
 export function ReviewDocumentMetaLine(): ReactElement | null {
   const session = useReviewSession();
   const reviewFetch = session.fetch;
+  const displayedVersion = useContext(DisplayedReviewVersionContext);
   const diffFiles = useReviewDiffFiles();
 
   const [legacyMeta, setLegacyMeta] = useState<ReviewDocumentMetaState | null>(
@@ -50,7 +53,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
 
   useEffect(() => {
     setRelativeTimeNowMs(Date.now());
-  }, []);
+  }, [displayedVersion]);
 
   useEffect(() => {
     if (review) return;
@@ -60,7 +63,13 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       .then(async (response) => {
         const json: JsonValue = await response.json();
 
-        if (!response.ok || !isJsonObject(json) || json.ok !== true) return;
+        if (
+          controller.signal.aborted ||
+          !response.ok ||
+          !isJsonObject(json) ||
+          json.ok !== true
+        )
+          return;
         setLegacyMeta(
           documentMetaState({
             updatedAtMs: jsonNumber(json.updatedAtMs),
@@ -72,7 +81,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       .catch(() => {});
 
     return () => controller.abort();
-  }, [reviewFetch, review]);
+  }, [reviewFetch, review, displayedVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -99,7 +108,13 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       .catch(() => {});
 
     return () => controller.abort();
-  }, [meta?.pullRequestNumber, reviewFetch, review]);
+  }, [
+    meta?.pullRequestNumber,
+    meta?.pullRequestUrl,
+    reviewFetch,
+    review,
+    displayedVersion,
+  ]);
 
   const diff =
     diffFiles.status === "loaded" ? reviewDiffStats(diffFiles) : null;

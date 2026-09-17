@@ -24,6 +24,17 @@ import {
 
 const reviewId = z.string().min(1);
 
+const pullRequestUrl = z
+  .string()
+  .regex(
+    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*$/,
+    "Use a canonical GitHub PR URL: https://github.com/owner/repository/pull/123.",
+  )
+  .refine(
+    (url) => Number.isSafeInteger(Number(url.split("/").at(-1))),
+    "PR number is too large.",
+  );
+
 export const commandSchema = z.strictObject({
   commandId: z.uuid(),
   operation: z.discriminatedUnion("type", [
@@ -37,6 +48,7 @@ export const commandSchema = z.strictObject({
       type: z.literal("create"),
       title: z.string().trim().min(1),
       pins: pinsSchema,
+      pullRequestUrl: pullRequestUrl.optional(),
     }),
     z.strictObject({ type: z.literal("edit"), reviewId, edit: editSchema }),
     z.strictObject({
@@ -44,7 +56,12 @@ export const commandSchema = z.strictObject({
       reviewId,
       title: z.string().trim().min(1),
     }),
-    z.strictObject({ type: z.literal("repin"), reviewId, pins: pinsSchema }),
+    z.strictObject({
+      type: z.literal("repin"),
+      reviewId,
+      pins: pinsSchema,
+      pullRequestUrl: pullRequestUrl.nullable().optional(),
+    }),
     z.strictObject({
       type: z.literal("restore"),
       reviewId,
@@ -53,8 +70,7 @@ export const commandSchema = z.strictObject({
   ]),
 });
 
-/** Where a review came from, for Home cards. Set by legacy import; the
- * authoring API leaves it absent. */
+/** Source identity displayed in the review header and Home, alongside immutable pins. */
 export interface SnapshotOrigin {
   /** Managed tutorial; readable by ID but excluded from the user catalog. */
   tutorial?: boolean;
@@ -506,13 +522,28 @@ export class ReviewStore {
               assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
           }
 
+          setPullRequest(snapshot, op.pullRequestUrl);
           break;
         case "rename":
           snapshot.title = op.title;
           break;
         case "repin":
+          setPullRequest(
+            snapshot,
+            op.pullRequestUrl ??
+              (op.pullRequestUrl === null ||
+              snapshot.pins.repositoryId !== op.pins.repositoryId
+                ? null
+                : undefined),
+          );
+
+          if (
+            snapshot.pins.repositoryId !== op.pins.repositoryId ||
+            snapshot.pins.base !== op.pins.base ||
+            snapshot.pins.head !== op.pins.head
+          )
+            snapshot.document = [];
           snapshot.pins = op.pins;
-          snapshot.document = [];
           break;
         case "restore":
           snapshot = this.read(id, op.version);
@@ -806,4 +837,24 @@ export class ReviewStore {
 
     await Promise.all(checks);
   }
+}
+
+/** Omission preserves identity; null detaches it without changing import metadata. */
+function setPullRequest(snapshot: Snapshot, url: string | null | undefined) {
+  if (url === undefined) return;
+
+  if (url === null) {
+    if (snapshot.origin) {
+      delete snapshot.origin.pullRequestUrl;
+      delete snapshot.origin.pullRequestNumber;
+    }
+
+    return;
+  }
+
+  snapshot.origin = {
+    ...snapshot.origin,
+    pullRequestUrl: url,
+    pullRequestNumber: Number(url.split("/").at(-1)),
+  };
 }

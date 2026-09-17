@@ -313,3 +313,46 @@ it("prints readable CLI output by default and raw objects with --json", async ()
     connection.mockRestore();
   }
 });
+
+it("binds existing content through the host-advertised PR tool", async () => {
+  const tools = await client.read<AuthoringTool[]>("/authoring");
+
+  const created = await store.execute({
+    commandId: randomUUID(),
+    operation: {
+      type: "create",
+      title: "PR",
+      pins: { repositoryId: "repo", base: "base", head: "head" },
+    },
+  });
+
+  await store.execute({
+    commandId: randomUUID(),
+    operation: {
+      type: "edit",
+      reviewId: created.reviewId,
+      edit: {
+        type: "insert",
+        content: { type: "markdown", markdown: "Keep the authored review" },
+      },
+    },
+  });
+
+  const authored = store.read(created.reviewId).document;
+
+  await callAuthoringTool(
+    client,
+    tools.find((tool) => tool.name === "review_repin")!,
+    {
+      commandId: randomUUID(),
+      reviewId: created.reviewId,
+      pins: { repositoryId: "repo", base: "base", head: "head" },
+      pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
+    },
+  );
+  expect(store.read(created.reviewId).document).toEqual(authored);
+  expect(store.list()[0]?.origin).toEqual({
+    pullRequestNumber: 310,
+    pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
+  });
+});

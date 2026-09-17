@@ -60,6 +60,126 @@ afterEach(async () => {
 });
 
 describe("snapshot authoring", () => {
+  it("binds PR identity without erasing content, versions changes, and clears stale identity across repositories", async () => {
+    const url = "https://github.com/devdotfast/review/pull/310";
+
+    const { reviewId } = await store.execute(
+      request({
+        type: "create",
+        title: "PR review",
+        pins,
+        pullRequestUrl: url,
+      }),
+    );
+
+    expect(store.list()[0]?.origin).toEqual({
+      pullRequestNumber: 310,
+      pullRequestUrl: url,
+    });
+    await edit(reviewId, {
+      type: "insert",
+      content: { type: "markdown", markdown: "Keep this analysis" },
+    });
+    const authored = store.read(reviewId);
+
+    const rebinding = request({
+      type: "repin",
+      pins,
+      reviewId,
+      pullRequestUrl: "https://github.com/devdotfast/review/pull/311",
+    });
+
+    const bound = await store.execute(rebinding);
+    expect(await store.execute(rebinding)).toEqual(bound);
+    expect(store.read(reviewId).document).toEqual(authored.document);
+    expect(store.read(reviewId).pins).toEqual(pins);
+    expect(store.read(reviewId).origin?.pullRequestNumber).toBe(311);
+    expect(
+      store.read(reviewId, authored.version).origin?.pullRequestNumber,
+    ).toBe(310);
+    await store.execute(
+      request({ type: "repin", reviewId, pins: { ...pins, head: "new-head" } }),
+    );
+    expect(store.read(reviewId).origin?.pullRequestNumber).toBe(311);
+    await store.execute(
+      request({
+        type: "repin",
+        reviewId,
+        pins: { ...pins, repositoryId: "other-repository" },
+      }),
+    );
+    expect(store.read(reviewId).origin?.pullRequestUrl).toBeUndefined();
+    await store.execute(
+      request({ type: "restore", reviewId, version: authored.version }),
+    );
+    expect(store.read(reviewId).origin?.pullRequestNumber).toBe(310);
+    expect(store.read(reviewId).document).toEqual(authored.document);
+    await store.execute(
+      request({ type: "repin", reviewId, pins, pullRequestUrl: null }),
+    );
+    expect(store.read(reviewId).origin?.pullRequestNumber).toBeUndefined();
+    expect(store.read(reviewId).document).toEqual(authored.document);
+  });
+
+  it("preserves imported provenance when attaching a PR and supports explicit repin identity", async () => {
+    const { reviewId } = await create();
+    await store.importVersion({
+      reviewId,
+      title: "Imported",
+      pins,
+      document: [],
+      createdAt: new Date().toISOString(),
+      origin: {
+        branch: "feature",
+        baseRef: "main",
+        revision: "legacy-revision",
+      },
+    });
+    await store.execute(
+      request({
+        type: "repin",
+        reviewId,
+        pins,
+        pullRequestUrl: "https://github.com/devdotfast/review/pull/319",
+      }),
+    );
+    expect(store.read(reviewId).origin).toEqual({
+      branch: "feature",
+      baseRef: "main",
+      revision: "legacy-revision",
+      pullRequestNumber: 319,
+      pullRequestUrl: "https://github.com/devdotfast/review/pull/319",
+    });
+    await store.execute(
+      request({ type: "repin", reviewId, pins, pullRequestUrl: null }),
+    );
+    expect(store.read(reviewId).origin).toEqual({
+      branch: "feature",
+      baseRef: "main",
+      revision: "legacy-revision",
+    });
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "https://github.com/owner/repo/issues/1",
+    "https://github.com/owner/repo/pull/0",
+    "https://github.com/owner/repo/pull/999999999999999999999",
+    "https://github.com/owner/repo/pull/1#discussion",
+  ])("rejects invalid PR identity %s before writing", async (url) => {
+    expect(() =>
+      store.execute(
+        request({
+          type: "create",
+          title: "Bad identity",
+          pins,
+          pullRequestUrl: url,
+        }),
+      ),
+    ).toThrow(/canonical GitHub PR URL|PR number is too large/);
+    expect(store.list()).toEqual([]);
+  });
+
   it("compares execution paths in the same snapshot without changing their source pins", async () => {
     const { reviewId } = await create();
     await edit(reviewId, {

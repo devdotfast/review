@@ -24,10 +24,6 @@ import {
 import { devReviewHome } from "./trace-home";
 import { type TraceRepo, inferRepoFromGit, traceRepoName } from "./trace-repo";
 
-export type { TraceRepo } from "./trace-repo";
-
-export { inferRepoFromGit, parseRepo, traceRepoName } from "./trace-repo";
-
 export interface TraceRepositoryTarget {
   /** The normalized store origin. */
   origin: string;

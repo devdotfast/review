@@ -10,43 +10,10 @@ import { TraceRuler } from "./trace-ruler";
 import {
   type AgentTraceStorage,
   type LoadedAgentTrace,
-  makeTraceKey,
+  makeAgentTraceKey,
   useAgentTrace,
 } from "./use-agent-trace";
 
-export {
-  TraceDocument,
-  TraceTurn,
-  TraceToolGroup,
-  TraceToolRow,
-  TraceEvent,
-  ElidedMessage,
-  TraceGapChip,
-  ChevronIcon,
-  toolIcon,
-  toolGroupLabel,
-  timeLabel,
-  formatDuration,
-  applyLensPicks,
-  buildLensDisplay,
-  elideByKeep,
-  extractEventText,
-  buildIndexedTraceTurns,
-  buildTraceTurns,
-  groupIndexedWorkEvents,
-  type TraceTurnEvent,
-  type TraceTurnGroup,
-  type IndexedTraceTurnEvent,
-  type IndexedTraceTurnGroup,
-  type IndexedTraceToolItem,
-  type LensPick,
-  type LensPickEvent,
-  type LensPickRange,
-  type LensDisplayItem,
-  type ElidedSegment,
-  type TraceDocumentProps,
-  type TraceDocumentOptions,
-} from "./trace-document";
 /**
  * The Trace tab shows the raw agent traces behind a review, resolved from
  * `Agent-Session:` commit trailers and fetched from the shared R2 trace store.
@@ -84,7 +51,7 @@ export function ReviewTraceView({
 
   const [selectedKey, setSelectedKey] = useState<string | null>(() =>
     initialSelection
-      ? makeTraceKey(initialSelection.sessionId, initialSelection.trace)
+      ? makeAgentTraceKey(initialSelection.sessionId, initialSelection.trace)
       : null,
   );
 
@@ -118,7 +85,7 @@ export function ReviewTraceView({
   useEffect(() => {
     if (initialSelection) {
       setSelectedKey(
-        makeTraceKey(initialSelection.sessionId, initialSelection.trace),
+        makeAgentTraceKey(initialSelection.sessionId, initialSelection.trace),
       );
     }
   }, [initialSelection]);
@@ -405,7 +372,7 @@ export function ReviewTraceView({
             }
             targetEventIndex={
               initialSelection &&
-              makeTraceKey(
+              makeAgentTraceKey(
                 initialSelection.sessionId,
                 initialSelection.trace,
               ) === activeKey

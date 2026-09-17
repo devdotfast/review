@@ -18,13 +18,13 @@ import { isJsonObject, parseJsonText } from "@dev.fast/review-protocol";
 
 import { devReviewHome } from "./review-home-paths";
 
-export interface EnsureBundledToolInput {
+interface EnsureBundledToolInput {
   tool: string;
   sourcePath?: string;
   env?: NodeJS.ProcessEnv;
 }
 
-export type EnsureBundledToolResult = "staged" | "fresh" | "no-source";
+type EnsureBundledToolResult = "staged" | "fresh" | "no-source";
 
 interface ReviewToolIdentity {
   tool: string;
@@ -36,7 +36,7 @@ export function reviewToolsRoot(env: NodeJS.ProcessEnv = process.env): string {
   return path.join(devReviewHome(env), "review-tools");
 }
 
-export async function ensureBundledTool(
+async function ensureBundledTool(
   input: EnsureBundledToolInput,
 ): Promise<EnsureBundledToolResult> {
   if (!/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/.test(input.tool)) {

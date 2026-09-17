@@ -11,23 +11,23 @@ export interface SoftwareMapDiffLineCount {
   deletions: number;
 }
 
-export interface SoftwareMapCoverageFileInput {
+interface SoftwareMapCoverageFileInput {
   path: string;
   ranges?: SoftwareMapLineRangeInput[];
 }
 
-export interface SoftwareMapCoverageClaimInput {
+interface SoftwareMapCoverageClaimInput {
   path: string;
   files?: SoftwareMapCoverageFileInput[];
   globs?: string[];
 }
 
-export interface SoftwareMapLineRangeInput {
+interface SoftwareMapLineRangeInput {
   fromLine: number;
   toLine: number;
 }
 
-export interface SoftwareMapCodeElementInput {
+interface SoftwareMapCodeElementInput {
   path: string;
   label?: string;
   description?: string;
@@ -56,24 +56,24 @@ export interface SoftwareMapUnmappedDiffSummary extends SoftwareMapDiffLineCount
   files: SoftwareMapUnmappedDiffFile[];
 }
 
-export type SoftwareMapDiffCountsByElementPath = Record<
+type SoftwareMapDiffCountsByElementPath = Record<
   string,
   SoftwareMapDiffLineCount
 >;
 
-export type SoftwareMapUnmappedDiffByElementPath = Record<
+type SoftwareMapUnmappedDiffByElementPath = Record<
   string,
   SoftwareMapUnmappedDiffSummary
 >;
 
-export interface SoftwareMapDiffCountsResult {
+interface SoftwareMapDiffCountsResult {
   baseRef?: string;
   headRef?: string;
   countsByElementPath: SoftwareMapDiffCountsByElementPath;
   unmappedByElementPath: SoftwareMapUnmappedDiffByElementPath;
 }
 
-export interface ResolveSoftwareMapDiffCountsInput {
+interface ResolveSoftwareMapDiffCountsInput {
   sourceRootPath: string;
   /** The source repository's kind, when the caller already detected it. */
   sourceVcsKind?: LocalVcsKind;
@@ -212,7 +212,7 @@ export function parseGitUnifiedDiffLineCounts(
   return countsByFile;
 }
 
-export interface SoftwareMapElementDiffCounts {
+interface SoftwareMapElementDiffCounts {
   countsByElementPath: SoftwareMapDiffCountsByElementPath;
 }
 
@@ -361,7 +361,7 @@ function coverageSpecificity(claim: SoftwareMapCoverageClaimInput) {
   return pathDepth + exactFiles + globs;
 }
 
-export function softwareMapCoverageClaimMatchesLine(
+function softwareMapCoverageClaimMatchesLine(
   claim: SoftwareMapCoverageClaimInput,
   file: string,
   line: number,
@@ -375,7 +375,7 @@ export function softwareMapCoverageClaimMatchesLine(
   return (claim.globs ?? []).some((glob) => softwareMapGlobMatches(glob, file));
 }
 
-export function softwareMapLineInRanges(
+function softwareMapLineInRanges(
   line: number,
   ranges: SoftwareMapLineRangeInput[] = [],
 ) {

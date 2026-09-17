@@ -24,7 +24,7 @@ import {
   PostHogCaptureClient,
   type PostHogCaptureProperties,
 } from "./posthog-capture-client";
-import { runReviewApp as runReviewAppActual } from "./review-app";
+import { runReviewAppPick as runReviewAppActual } from "./review-app";
 import { runReviewAppLaunch as runReviewAppLaunchActual } from "./review-app-launcher";
 import { runReviewInfo as runReviewInfoActual } from "./review-info";
 import {

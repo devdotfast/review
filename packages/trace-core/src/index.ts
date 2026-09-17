@@ -31,7 +31,6 @@ export {
   runTraceRepair,
   runTraceStatus,
   runTraceSync,
-  runTraceDoctor,
 } from "./trace-capture-cli";
 
 export {
@@ -43,7 +42,6 @@ export {
   runTracePull,
   runTraceShow,
   resolveTraceReadStorage,
-  runTraceLookupBlame,
   runTraceLookupCommit,
   runTraceLookupSession,
 } from "./trace-read-cli";

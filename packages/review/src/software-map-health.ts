@@ -25,7 +25,7 @@ import {
 import { devFastGitDir } from "./software-map-paths";
 import { span, startSpan, traceCommandSync } from "./startup-trace";
 
-export interface SoftwareMapSourceCheck {
+interface SoftwareMapSourceCheck {
   canonicalSource: string;
   model: NormalizedSoftwareModel | null;
   errors: string[];
@@ -118,7 +118,7 @@ export async function checkSoftwareMapSource(input: {
   return { canonicalSource, model, errors };
 }
 
-export interface PublishSoftwareMaps {
+interface PublishSoftwareMaps {
   head: NormalizedSoftwareModel | null;
   base: NormalizedSoftwareModel | null;
   errors: string[];
@@ -281,7 +281,7 @@ async function importWithLocalizedModelImport(input: {
 
 // Tree readers go through the shared git dir (gitArgs/git), never `-C
 // <worktree>`, so they work from non-colocated jj workspaces too.
-export async function listCommitTreeFiles(
+async function listCommitTreeFiles(
   rootPath: string,
   commit: string,
 ): Promise<string[]> {

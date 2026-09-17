@@ -18,16 +18,16 @@ import { devReviewHome } from "./review-home-paths";
  * do not work here: the reaper runs in the review server, which never reads
  * the workbench configuration.
  */
-export interface ReviewPreferences {
+interface ReviewPreferences {
   /** `null` means never reap. */
   dismissedRetentionDays: DismissedRetentionDays;
 }
 
-export const DEFAULT_REVIEW_PREFERENCES: ReviewPreferences = {
+const DEFAULT_REVIEW_PREFERENCES: ReviewPreferences = {
   dismissedRetentionDays: DEFAULT_DISMISSED_RETENTION_DAYS,
 };
 
-export function reviewPreferencesPath(devHome = devReviewHome()): string {
+function reviewPreferencesPath(devHome = devReviewHome()): string {
   return path.join(devHome, "preferences.json");
 }
 

@@ -264,7 +264,17 @@ describe("packaged skill updates", () => {
             f.env.DEV_REVIEW_HOME,
             target,
           ],
-          { cwd: workspace },
+          {
+            cwd: workspace,
+            // The child process has no tsconfig at `cwd`, so tsx's own
+            // path-mapping loader needs pointing at the workspace's
+            // `@dev.fast/*` -> `src` mapping to resolve workspace packages
+            // from source (no `dist` build required).
+            env: {
+              ...process.env,
+              TSX_TSCONFIG_PATH: path.join(workspace, "tsconfig.base.json"),
+            },
+          },
         ),
       ),
     );

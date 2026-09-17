@@ -64,8 +64,6 @@ export const createStoreRequestSchema = z.object({
 
 export type CreateStoreRequest = z.infer<typeof createStoreRequestSchema>;
 
-export const findStoreQuerySchema = createStoreRequestSchema;
-
 export const storeResponseSchema = z.object({
   repositoryId: z.number().int().positive(),
   /** The current store instance. Deleting a store retires its id. */

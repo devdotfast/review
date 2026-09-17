@@ -151,7 +151,7 @@ export function pickReview(
   });
 }
 
-export function relativeTime(iso: string | null): string | null {
+function relativeTime(iso: string | null): string | null {
   if (!iso) return null;
   const then = Date.parse(iso);
 

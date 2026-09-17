@@ -19,9 +19,7 @@
     "build:workspace-deps": "pnpm --filter @dev.fast/json --filter @dev.fast/local-vcs --filter @dev.fast/trace-protocol build",
     "prebuild": "pnpm run build:workspace-deps",
     "build": "tsdown",
-    "pretest": "pnpm run build:workspace-deps",
     "test": "vitest run --config vitest.config.ts",
-    "pretypecheck": "pnpm run build:workspace-deps",
     "typecheck": "pnpm -w exec tsc --noEmit -p packages/trace-core"
   },
   "dependencies": {

@@ -15,12 +15,12 @@ export interface ReviewTelemetryInstallConfig {
   internal: boolean;
 }
 
-export const TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
+const TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
   "telemetry",
   "progressive-review.json",
 );
 
-export const LEGACY_APP_TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
+const LEGACY_APP_TELEMETRY_CONFIG_RELATIVE_PATH = path.join(
   "telemetry",
   "install.json",
 );

@@ -27,6 +27,9 @@ const alias = {
   "@dev.fast/review-protocol": fileURLToPath(
     new URL("../review-protocol/src/index.ts", import.meta.url),
   ),
+  // review-protocol's source imports trace-protocol directly; without this
+  // alias, Vite falls through to node_modules and needs trace-protocol's
+  // `dist` built (see Task 3's from-source lanes).
   "@dev.fast/trace-protocol": fileURLToPath(
     new URL("../trace-protocol/src/index.ts", import.meta.url),
   ),
@@ -53,6 +56,7 @@ export default defineConfig({
     maxWorkers: 1,
     projects: [
       {
+        resolve: { alias },
         test: {
           name: "shared-module-graph",
           environment: "node",
@@ -68,6 +72,7 @@ export default defineConfig({
         },
       },
       {
+        resolve: { alias },
         test: {
           name: "isolated",
           environment: "node",

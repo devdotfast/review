@@ -446,8 +446,6 @@ export async function runTraceBlame(input: {
   return hasAnySessions ? 0 : 1;
 }
 
-export const runTraceLookupBlame = runTraceBlame;
-
 export async function runTraceLookupSession(input: {
   cwd: string;
   sessionId: string;

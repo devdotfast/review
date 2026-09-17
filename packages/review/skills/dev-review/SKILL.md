@@ -38,7 +38,7 @@ While authoring, call `review_activity({reviewId,action:"begin",leaseId})` with 
 
 ## Versions
 
-`review_repin({commandId,reviewId,pins,pullRequestUrl?})` preserves the document when the pins are unchanged, and starts a blank version when they change. Examine the diff before carrying content over. Omitted `pullRequestUrl` preserves PR identity within the same repository; changing repositories clears it. Supply a new URL to replace it or null to detach. `review_restore({commandId,reviewId,version})` restores title, pins, PR identity and content.
+`review_repin({commandId,reviewId,pins,pullRequestUrl?})` preserves the document and component IDs at the new pins. Read the returned warnings, examine the diff, and update stale source ranges and maps with `review_edit`. Range validity does not prove that a citation still supports its claim. Omitted `pullRequestUrl` preserves PR identity within the same repository; changing repositories clears it. Supply a new URL to replace it or null to detach. `review_restore({commandId,reviewId,version})` restores title, pins, PR identity and content.
 
 Legacy `review scaffold/publish/repair` commands no longer exist. Reviews published from MDX before this release were imported into the JSON store and are edited through `review api` or these MCP tools.
 

@@ -25,6 +25,7 @@ import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService } from "./reviewDesktopConnectionService.js";
 import { withCurrentLocalContext } from "./reviewLocalRequest.js";
 import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
+import { ReviewLanguageEnvironmentRequests } from "./reviewLanguageEnvironmentRequests.js";
 
 interface LocalSource {
 	identity: string;
@@ -36,8 +37,10 @@ interface LocalSource {
 /** Review bytes remain pinned; language queries use the resolved project environment. */
 export class ReviewLocalLanguageFeatures extends Disposable {
 	static readonly ID = "review.localLanguageFeatures";
-	private readonly sources = new Map<ITextModel, Promise<LocalSource | undefined>>();
+	private readonly sources = new Map<ITextModel, { identity: string; rootPath: string; pending: Promise<LocalSource | undefined> }>();
+	private readonly environments = new ReviewLanguageEnvironmentRequests();
 	private readonly roots = new Map<string, number>();
+	private readonly uncertainRoots = new Set<string>();
 	private generation = 0;
 
 	constructor(
@@ -53,6 +56,15 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		@ILogService private readonly log: ILogService,
 	) {
 		super();
+		this._register(connection.onDidChangeConnection(() => {
+			this.environments.invalidate();
+			this.generation++;
+			for (const entry of this.sources.values()) {
+				this.uncertainRoots.add(URI.file(entry.rootPath).toString());
+				void entry.pending.then(source => source?.dispose());
+			}
+			this.sources.clear();
+		}));
 		this._register(files.onDidFilesChange(event => {
 			if ([...this.roots.keys()].some(root => event.affects(URI.parse(root)))) this.generation++;
 		}));
@@ -81,11 +93,10 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		}
 	}
 
-	private async localSource(model: ITextModel): Promise<LocalSource | undefined> {
-		if (new URLSearchParams(model.uri.query).has("empty")) return undefined;
-		try {
-			const { serverUrl, token } = await this.connection.getConnection();
-			const target = sourceLocation(model.uri);
+	private async environment(model: ITextModel, validate = false): Promise<ReviewLanguageEnvironment | undefined> {
+		const { serverUrl, token } = await this.connection.getConnection();
+		const target = sourceLocation(model.uri);
+		return this.environments.read(JSON.stringify([serverUrl, token]), target.view, target.side, async () => {
 			const params = new URLSearchParams({ side: target.side });
 			for (const [key, value] of Object.entries(reviewSourceQuery(target.view))) {
 				if (value !== undefined) params.set(key, String(value));
@@ -93,19 +104,38 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			const response = await fetch(`${serverUrl}/reviews-api/${encodeURIComponent(model.uri.authority)}/language-context?${params}`, {
 				headers: { "x-review-token": token }, signal: AbortSignal.timeout(10_000),
 			});
-			if (!response.ok) return undefined;
-			const context: ReviewLanguageEnvironment = await response.json();
-			const cached = await this.sources.get(model);
-			if (cached && cached.identity === context.identity && context.rootPath) return cached;
-			if (cached) { cached.dispose(); this.sources.delete(model); this.generation++; }
-			if (!context.rootPath || model.isDisposed()) return undefined;
-			const pending = this.acquire(model, { rootPath: context.rootPath, identity: context.identity });
-			this.sources.set(model, pending);
+			return response.ok ? response.json() : undefined;
+		}, validate);
+	}
+
+	private async localSource(model: ITextModel): Promise<LocalSource | undefined> {
+		if (new URLSearchParams(model.uri.query).has("empty")) return undefined;
+		try {
+			const epoch = this.environments.generation;
+			const context = await this.environment(model);
+			if (epoch !== this.environments.generation || model.isDisposed()) return undefined;
+			const cached = this.sources.get(model);
+			if (cached && cached.identity === context?.identity && cached.rootPath === context.rootPath) return cached.pending;
+			if (cached) {
+				this.uncertainRoots.add(URI.file(cached.rootPath).toString());
+				void cached.pending.then(source => source?.dispose());
+				this.sources.delete(model);
+				this.generation++;
+			}
+			if (!context?.rootPath) return undefined;
+			const pending = this.acquire(model, { rootPath: context.rootPath, identity: context.identity }).catch(error => {
+				this.log.debug("[Review] Language model unavailable", error);
+				return undefined;
+			});
+			const entry = { identity: context.identity, rootPath: context.rootPath, pending };
+			this.sources.set(model, entry);
 			const result = await pending;
+			if (this.sources.get(model) !== entry || epoch !== this.environments.generation) { result?.dispose(); return undefined; }
 			if (!result) this.sources.delete(model);
 			return result;
 		} catch (error) {
-			this.sources.delete(model);
+			const cached = this.sources.get(model);
+			if (cached) this.uncertainRoots.add(URI.file(cached.rootPath).toString());
 			this.log.debug("[Review] Language environment unavailable", error);
 			return undefined;
 		}
@@ -133,6 +163,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			owned.add(model.onWillDispose(() => { this.sources.delete(model); owned.dispose(); }));
 			if (model.isDisposed()) { owned.dispose(); return undefined; }
 			await this.extensions.activateByEvent(`onLanguage:${reference.object.textEditorModel.getLanguageId()}`);
+			if (model.isDisposed()) { owned.dispose(); return undefined; }
 			return { root, reference, identity: context.identity, dispose: () => owned.dispose() };
 		} catch (error) { owned.dispose(); throw error; }
 	}
@@ -148,18 +179,37 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			finally { ref.dispose(); }
 		}
 		if (model.uri.scheme === "file") return withCurrentLocalContext([model], token, () => this.generation, async () => run(model, position, model));
+		const epoch = this.environments.generation;
 		const source = await this.localSource(model);
 		if (!source || token.isCancellationRequested || model.isDisposed()) return undefined;
 		const local = source.reference.object.textEditorModel;
-		if (!await this.files.exists(local.uri)) return undefined;
+		if (!await this.files.exists(local.uri)) { this.uncertainRoots.add(source.root.toString()); return undefined; }
+		if (this.uncertainRoots.has(source.root.toString())) {
+			// An open dependency can outlive a removed checkout and miss subsequent
+			// watcher updates. Until watcher readiness is authoritative, revalidate
+			// clean native buffers before querying; never replace a dirty buffer.
+			const prefix = source.root.path.replace(/\/$/, "") + "/";
+			await Promise.all(this.textFiles.files.models.filter(file => !file.isDirty() && file.resource.scheme === "file" && file.resource.path.startsWith(prefix))
+				.map(file => this.textFiles.files.resolve(file.resource, { reload: { async: false } })));
+		}
 		// Resolve current disk contents, preserving any unsaved local editor buffer.
 		await this.textFiles.files.resolve(local.uri, { reload: { async: false } });
 		return withCurrentLocalContext([model, local], token, () => this.generation, async () => {
 			// The language server must see exactly the source displayed in the review.
 			if (!model.equalsTextBuffer(local.getTextBuffer())) return undefined;
 			const result = await run(local, position, model);
-			const current = await this.localSource(model);
-			return current?.identity === source.identity ? result : undefined;
+			const current = await this.environment(model, true).catch(() => undefined);
+			if (epoch === this.environments.generation && current?.rootPath === source.root.fsPath && current.identity === source.identity) return result;
+			// Failed validation must also release the old workspace/watchers. Keeping
+			// them after deletion can leave the language server blind to later edits.
+			const cached = this.sources.get(model);
+			if (cached?.identity === source.identity && cached.rootPath === source.root.fsPath) {
+				this.uncertainRoots.add(source.root.toString());
+				this.sources.delete(model);
+				void cached.pending.then(value => value?.dispose());
+				this.generation++;
+			}
+			return undefined;
 		});
 	}
 
@@ -195,7 +245,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 	/** Keep navigation in the same saved version/side only when destination contents match. */
 	private async reviewLocations<T extends LocationLink>(pinned: ITextModel, locations: T[], token: CancellationToken): Promise<T[]> {
 		if (![REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(pinned.uri.scheme)) return locations;
-		const source = await this.localSource(pinned);
+		const source = await this.sources.get(pinned)?.pending;
 		if (!source) return [];
 		const prefix = source.root.path.replace(/\/$/, "") + "/";
 		// References often share a file. Resolve and compare each destination once per request.
@@ -243,7 +293,8 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 	}
 
 	override dispose(): void {
-		for (const pending of this.sources.values()) void pending.then(source => source?.dispose());
+		this.environments.invalidate();
+		for (const entry of this.sources.values()) void entry.pending.then(source => source?.dispose());
 		this.sources.clear();
 		super.dispose();
 	}

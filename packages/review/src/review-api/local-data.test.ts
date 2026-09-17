@@ -1700,7 +1700,7 @@ it("resolves omitted commit base once and preserves explicit parent comparisons"
   expect(await local.data.changes(comparison.pins)).not.toEqual([]);
 });
 
-it("moves unchanged authored ranges and marks edited ranges stale without rewriting history", async () => {
+it("keeps authored coordinates fixed as live source changes and warns only on unavailable ranges", async () => {
   writeFileSync(
     path.join(repository, "range.ts"),
     "const first = 1;\nconst second = 2;\nconst third = 3;\n",
@@ -1730,15 +1730,12 @@ it("moves unchanged authored ranges and marks edited ranges stale without rewrit
   await new Promise((resolve) => setTimeout(resolve, 50));
   await local.store.refreshWorktrees();
   expect(local.store.read(result.reviewId).document[0]).toMatchObject({
-    source: { fromLine: 3, toLine: 3 },
+    source: { fromLine: 2, toLine: 2 },
   });
   expect(
     local.store.read(result.reviewId, saved.version).document[0],
   ).toMatchObject({ source: { fromLine: 2, toLine: 2 } });
-  writeFileSync(
-    path.join(repository, "range.ts"),
-    "// inserted\nconst first = 1;\nconst second = 99;\nconst third = 3;\n",
-  );
+  writeFileSync(path.join(repository, "range.ts"), "const first = 99;\n");
   await new Promise((resolve) => setTimeout(resolve, 50));
   await local.store.refreshWorktrees();
   expect(local.store.read(result.reviewId).staleSources).toEqual([
@@ -1746,7 +1743,7 @@ it("moves unchanged authored ranges and marks edited ranges stale without rewrit
   ]);
 });
 
-it("serves a coherent requested generation after a later save and keeps version reads historical", async () => {
+it("reads current checkout even with an older version and obsolete generation token", async () => {
   const api = createReviewApi(local.store, local.data);
   writeFileSync(path.join(repository, "example.ts"), "const generation = 1;\n");
 
@@ -1775,10 +1772,10 @@ it("serves a coherent requested generation after a later save and keeps version 
 
   expect(await read("")).toMatchObject({ text: "const generation = 2;\n" });
   expect(
-    await read(`&version=0&generation=${snapshot.pins.sourceGeneration}`),
-  ).toMatchObject({ text: "const generation = 1;\n" });
+    await read(`&version=0&generation=${snapshot.pins.worktreeRevision}`),
+  ).toMatchObject({ text: "const generation = 2;\n" });
   expect(await read("&version=0")).toMatchObject({
-    text: "const generation = 1;\n",
+    text: "const generation = 2;\n",
   });
   expect(await read("&live=true")).toMatchObject({
     localPath: realpathSync(path.join(repository, "example.ts")),
@@ -1925,6 +1922,9 @@ it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
         )
       ).text,
     ).toContain("unsnapshotted");
+    expect(
+      await local.data.changes(local.store.read(result.reviewId).pins),
+    ).toEqual([expect.objectContaining({ path: "new.ts", status: "added" })]);
     expect(jj("op", "log", "--no-graph", "--limit", "1", "-T", "id")).toBe(
       operation,
     );
@@ -2090,7 +2090,7 @@ it.each(["repin", "set_target"] as const)(
   },
 );
 
-it("keeps sibling Markdown destinations separate when source lines move", async () => {
+it("leaves authored Markdown destinations unchanged when source lines move", async () => {
   const original =
     Array.from({ length: 25 }, (_, index) => `line ${index + 1}`).join("\n") +
     "\n";
@@ -2119,7 +2119,7 @@ it("keeps sibling Markdown destinations separate when source lines move", async 
   await local.store.refreshWorktrees();
   expect(local.store.read(created.reviewId).document[0]).toMatchObject({
     markdown:
-      "[one](review-source:head/links.ts#L2-L2) [ten](review-source:head/links.ts#L11-L21)",
+      "[one](review-source:head/links.ts#L1) [ten](review-source:head/links.ts#L10-L20)",
   });
 });
 
@@ -2252,9 +2252,9 @@ it("keeps live language identity across edits but replaces it with a checkout at
     expect(replacement.rootPath).toBe(before.rootPath);
     expect(replacement.identity).not.toBe(before.identity);
     expect(local.data.workspaces.list(created.reviewId)).toEqual([]);
-    expect(await local.data.file(saved.pins, "head", source.file)).toEqual(
-      retained,
-    );
+    expect(
+      (await local.data.file(saved.pins, "head", source.file)).text,
+    ).not.toEqual(retained.text);
   } finally {
     rmSync(moved, { recursive: true, force: true });
   }

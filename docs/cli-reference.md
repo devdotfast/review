@@ -114,6 +114,8 @@ Register a local checkout with `review_register_repository({path})`, then pass
 its `repositoryId` in `target` to `review_create`. Use `review_set_target` to
 change an existing review's target while preserving its authored content.
 These tools are available through `review api` and MCP.
+Live source follows the checkout even in older authored versions; update references
+as source changes. Choose a commit target when source must stay fixed.
 
 | Target | Source and comparison |
 | --- | --- |

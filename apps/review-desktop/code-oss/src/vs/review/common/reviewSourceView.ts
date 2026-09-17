@@ -9,6 +9,7 @@ export function apiSourceUri(target: ReviewApiSourceLocation, empty = false): UR
 		if (value !== undefined) query.set(key, String(value));
 	}
 	if (target.view.selection === "current") query.set("current", "true");
+	else if (target.view.access === "local") query.set("current", "false");
 	if (target.view.access === "local") query.set("live", "true");
 	if (empty) query.set("empty", "true");
 	return URI.from({ scheme: REVIEW_API_SOURCE_SCHEME, authority: target.view.reviewId, path: `/${target.file}`, query: query.toString() });
@@ -23,7 +24,7 @@ export function sourceLocation(resource: URI): ReviewApiSourceLocation {
 			reviewId: resource.authority,
 			version: Number(query.get("version")),
 			generation: query.get("generation") ?? undefined,
-			selection: query.has("current") || query.has("live") ? "current" : "version",
+			selection: (query.has("current") ? query.get("current") === "true" : query.has("live")) ? "current" : "version",
 			access: query.has("live") && !commit ? "local" : "retained",
 			commit,
 		}),

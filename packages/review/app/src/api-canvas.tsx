@@ -54,7 +54,7 @@ function DocumentBody() {
   return (
     <ReviewDocumentBoundary
       session={session}
-      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins.sourceGeneration ?? ""}`}
+      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins.worktreeRevision ?? ""}`}
       onError={(_revision, error) =>
         reportReviewDocumentRenderError(session, error)
       }
@@ -147,7 +147,7 @@ export function ApiCanvas({
 
           if (
             shownVersion ===
-            `${snapshot.version}:${snapshot.pins.sourceGeneration ?? ""}:${snapshot.sourceUnavailable ?? false}`
+            `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`
           ) {
             setError(undefined);
 
@@ -156,7 +156,7 @@ export function ApiCanvas({
 
           try {
             await show(snapshot);
-            shownVersion = `${snapshot.version}:${snapshot.pins.sourceGeneration ?? ""}:${snapshot.sourceUnavailable ?? false}`;
+            shownVersion = `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`;
           } catch (cause) {
             // A failed resource or source fetch is a document problem. The
             // stream and the activity signal are still healthy, so do not

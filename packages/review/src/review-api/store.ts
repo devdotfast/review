@@ -104,7 +104,6 @@ export interface Snapshot {
   pins: Pins;
   target: ReviewTarget;
   staleSources?: string[];
-  sourceOrigins?: Record<string, { pins: Pins; source: Source }>;
   sourceUnavailable?: boolean;
   document: Block[];
   createdAt: string;
@@ -728,7 +727,6 @@ export class ReviewStore {
           if (snapshot.pins.repositoryId !== resolvedTarget!.pins.repositoryId)
             setPullRequest(snapshot, null);
           snapshot.staleSources = [];
-          snapshot.sourceOrigins = {};
           snapshot.target = resolvedTarget!.target;
           snapshot.pins = resolvedTarget!.pins;
           break;
@@ -743,7 +741,6 @@ export class ReviewStore {
           );
 
           snapshot.staleSources = [];
-          snapshot.sourceOrigins = {};
           snapshot.pins = op.pins;
           snapshot.target = { kind: "commits", ...op.pins };
           break;
@@ -775,11 +772,6 @@ export class ReviewStore {
             snapshot.staleSources = snapshot.staleSources.filter(
               (id) =>
                 oldSources.get(id) === newSources.get(id) && newSources.has(id),
-            );
-            snapshot.sourceOrigins = Object.fromEntries(
-              Object.entries(snapshot.sourceOrigins ?? {}).filter(([id]) =>
-                snapshot.staleSources!.includes(id),
-              ),
             );
           }
 

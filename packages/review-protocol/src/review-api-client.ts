@@ -9,7 +9,7 @@ export interface ReviewApiSummary {
     repositoryId: string;
     base: string;
     head: string;
-    sourceGeneration?: string;
+    worktreeRevision?: string;
   };
   target?:
     | { kind: "worktree"; repositoryId: string; base?: string }

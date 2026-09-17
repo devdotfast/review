@@ -483,8 +483,8 @@ async function probe(request) {
 function uri(review, side = "head", file = "main.ts", commit) {
   const query = new URLSearchParams({ version: String(review.version), side });
 
-  if (review.pins.sourceGeneration)
-    query.set("generation", review.pins.sourceGeneration);
+  if (review.pins.worktreeRevision)
+    query.set("generation", review.pins.worktreeRevision);
 
   if (commit) query.set("commit", commit);
 
@@ -1355,45 +1355,21 @@ try {
   await expectDefinition(
     uri(live),
     greetAt,
-    path.join(liveFixture.repo, "library.ts"),
+    uri(live, "head", "library.ts"),
     3,
   );
   await writeFile(
     path.join(liveFixture.repo, "main.ts"),
-    mainText("head").replace(
-      "export const value = greet();",
-      "export const value = service.run();",
-    ),
-  );
-
-  const changedLiveLine = await probe({
-    uri: uri(live),
-    ...greetAt,
-    feature: definition,
-    open: true,
-  });
-
-  assert.equal(changedLiveLine.result?.length ?? 0, 0);
-  await writeFile(
-    path.join(liveFixture.repo, "main.ts"),
     "// unrelated local edit\n" + mainText("head"),
   );
-
-  for (const feature of [definition, "vscode.executeHoverProvider"]) {
-    const result = await probe({
-      uri: uri(live),
-      ...greetAt,
-      feature,
-      open: true,
-    });
-
-    assert.equal(
-      result.result?.length ?? 0,
-      0,
-      "retained source requires a matching whole file",
-    );
-  }
-
+  // A historical authored version opens the same live checkout and gets LSP
+  // at its current coordinates; authored references themselves do not move.
+  await expectDefinition(
+    pathToFileURL(path.join(liveFixture.repo, "main.ts")).href,
+    at("// unrelated local edit\n" + mainText("head"), 4, "greet"),
+    path.join(liveFixture.repo, "library.ts"),
+    3,
+  );
   await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
   await writeFile(
     path.join(liveFixture.repo, "library.ts"),
@@ -1406,7 +1382,7 @@ try {
   assert.deepEqual(await api(`/${live.reviewId}/workspaces`), []);
   await assert.rejects(readFile(path.join(liveFixture.repo, ".prepare-count")));
   await record(
-    "retained worktree source requires matching contents without running preparation",
+    "live worktree source and language services follow saved edits without preparation",
   );
 
   await probe({ command: "workbench.action.closeModalEditor" });
@@ -1433,13 +1409,16 @@ try {
   );
   const updated = await api(`/${live.reviewId}?full=true`);
   assert.equal(updated.version, live.version);
-  assert.equal(updated.document[0].children[2].source.fromLine, 5);
+  assert.equal(updated.document[0].children[2].source.fromLine, 3);
 
   const historicalWorktree = await api(
     `/${live.reviewId}/file?side=head&file=main.ts&version=${live.version}`,
   );
 
-  assert.equal(historicalWorktree.text, mainText("head"));
+  assert.equal(
+    historicalWorktree.text,
+    "// saved unstaged line\n// saved staged line\n" + mainText("head"),
+  );
   assert.ok(
     (await api(`/${live.reviewId}/tree`)).some(
       (file) => file.path === "fresh.ts",
@@ -1515,7 +1494,7 @@ try {
   );
   await page.screenshot({ path: path.join(root, "live-worktree-restart.png") });
   await record(
-    "live worktree review and retained history recover after Desktop restart without pinning",
+    "live worktree review and authored history recover after Desktop restart without pinning",
   );
   await probe({ command: "workbench.action.closeModalEditor" });
   await mkdir(path.join(liveFixture.repo, "nested"));

@@ -495,12 +495,24 @@ export function createReviewApi(
             : store.inspect(id, undefined, query.version),
     );
   });
-  app.get("/:id", (context) => {
+  app.get("/:id", async (context) => {
     const query = readQuerySchemas.get.parse(context.req.query());
+
+    const snapshot = { ...store.read(context.req.param("id"), query.version) };
+
+    if (data && query.full) {
+      try {
+        snapshot.pins = await data.sourcePins(snapshot);
+      } catch (error) {
+        if (!(error instanceof ReviewInputError) || error.status !== 404)
+          throw error;
+        snapshot.sourceUnavailable = true;
+      }
+    }
 
     return context.json(
       query.full
-        ? store.read(context.req.param("id"), query.version)
+        ? snapshot
         : store.inspect(context.req.param("id"), query.targetId, query.version),
     );
   });

@@ -377,7 +377,7 @@ export interface ReviewLanguageEnvironment {
   readonly identity: string;
 }
 
-/** User intent is distinct from the immutable source identity used by a read. */
+/** Authored version selection is independent of whether source is live or fixed. */
 export type ReviewSourceSelection =
   | { readonly kind: "current" }
   | { readonly kind: "version"; readonly version: number };
@@ -385,6 +385,7 @@ export type ReviewSourceSelection =
 export interface ReviewSourceView {
   readonly reviewId: string;
   readonly version: number;
+  /** Cache invalidation for live files; does not select historical source. */
   readonly generation?: string;
   readonly selection: "current" | "version";
   readonly access: "local" | "retained";
@@ -395,7 +396,7 @@ export function resolveReviewSourceView(
   snapshot: {
     reviewId: string;
     version: number;
-    pins: { sourceGeneration?: string };
+    pins: { worktreeRevision?: string };
     target?: { kind: string };
   },
   selection: ReviewSourceSelection,
@@ -405,14 +406,10 @@ export function resolveReviewSourceView(
     reviewId: snapshot.reviewId,
     version:
       selection.kind === "version" ? selection.version : snapshot.version,
-    generation: snapshot.pins.sourceGeneration,
+    generation: snapshot.pins.worktreeRevision,
     selection: commit ? "version" : selection.kind,
     access:
-      selection.kind === "current" &&
-      snapshot.target?.kind === "worktree" &&
-      !commit
-        ? "local"
-        : "retained",
+      snapshot.target?.kind === "worktree" && !commit ? "local" : "retained",
     commit,
   });
 }

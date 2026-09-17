@@ -30,12 +30,13 @@ evidence rather than the only way to understand the change.
 
 ## Live and pinned worktrees
 
-A live review follows saved files in your existing worktree and uses its current
-project and dependencies for language services. A commit review keeps source fixed
+A live review follows saved files in your existing worktree, including when viewing
+older authored versions. You are responsible for updating references as source changes.
+Language services use that checkout’s project and dependencies. A commit review keeps source fixed
 and uses Review-owned worktrees pinned to its commits, running `devfast.prepare`
 to set up dependencies. Choose live for ongoing work and pinned for a fixed comparison.
 
-Base-side and historical files get language services only when their contents match
+Base-side and pinned files get language services only when their contents match
 the environment file; live reviews still use the current project's dependencies.
 See [review targets](cli-reference.md#review-targets) for the API options.
 

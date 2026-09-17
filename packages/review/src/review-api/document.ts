@@ -51,7 +51,8 @@ export const pinsSchema = z.strictObject({
 });
 
 /** Source identity retained internally for a saved worktree generation. */
-export type Pins = z.infer<typeof pinsSchema> & { sourceGeneration?: string };
+/** worktreeRevision is a refresh token, never an address for stored source. */
+export type Pins = z.infer<typeof pinsSchema> & { worktreeRevision?: string };
 
 export const reviewTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({

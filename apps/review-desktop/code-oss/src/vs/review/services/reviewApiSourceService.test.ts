@@ -130,7 +130,7 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 	});
 	let source!: ReviewDiffViewSource;
 	const canvas = service.canvas(
-		() => resolveReviewSourceView({ reviewId: "review-a", version, pins: { sourceGeneration: generation }, target: { kind: "worktree" } }, { kind: "current" }),
+		() => resolveReviewSourceView({ reviewId: "review-a", version, pins: { worktreeRevision: generation }, target: { kind: "worktree" } }, { kind: "current" }),
 		{} as never,
 		{
 			create: (_: unknown, input: ReviewDiffViewSource) => {
@@ -238,11 +238,11 @@ for (const scenario of ["live", "saved", "selected-commit", "base", "dirty", "mi
       requests++;
       return Response.json(scenario === "mismatch" ? { text: "retained" } : { localRoot: "/project", localPath: "/project/file.ts" });
     });
-    const snapshot = { reviewId: "review-a", version: 3, pins: { sourceGeneration: "a".repeat(64) }, target: { kind: "worktree" } };
+    const snapshot = { reviewId: "review-a", version: 3, pins: { worktreeRevision: "a".repeat(64) }, target: { kind: "worktree" } };
     const current = resolveReviewSourceView(snapshot, scenario === "saved" ? { kind: "version", version: 3 } : { kind: "current" }, scenario === "selected-commit" ? "commit" : undefined);
     await service.open({ view: current, side: scenario === "base" ? "base" : "head", file: "file.ts" });
     const resource = (opened[0] as unknown as { resource: URI }).resource;
-    assert.equal(resource.scheme, scenario === "live" ? "file" : "review-api-source");
-    assert.equal(requests, ["live", "dirty", "mismatch"].includes(scenario) ? 1 : 0);
+    assert.equal(resource.scheme, ["live", "saved"].includes(scenario) ? "file" : "review-api-source");
+    assert.equal(requests, ["live", "saved", "dirty", "mismatch"].includes(scenario) ? 1 : 0);
   });
 }

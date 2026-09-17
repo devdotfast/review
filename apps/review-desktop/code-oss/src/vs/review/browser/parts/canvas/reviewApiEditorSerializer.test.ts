@@ -104,9 +104,9 @@ test("legacy live tabs restore as current views and reuse identity after source 
   try {
     const serializer = new ReviewApiEditorSerializer();
     const restored = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", version: 2, generation: "old", live: true }));
-    const view = resolveReviewSourceView({ reviewId: "a", version: 3, pins: { sourceGeneration: "new" }, target: { kind: "worktree" } }, { kind: "current" });
+    const view = resolveReviewSourceView({ reviewId: "a", version: 3, pins: { worktreeRevision: "new" }, target: { kind: "worktree" } }, { kind: "current" });
     assert.equal(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", view }), restored);
-    assert.notEqual(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", view: resolveReviewSourceView({ reviewId: "a", version: 2, pins: { sourceGeneration: "old" } }, { kind: "version", version: 2 }) }), restored);
+    assert.notEqual(tabs.inputFor({ kind: "api-source", reviewId: "a", title: "A", view: resolveReviewSourceView({ reviewId: "a", version: 2, pins: { worktreeRevision: "old" } }, { kind: "version", version: 2 }) }), restored);
     const historical = serializer.deserialize(instantiation as never, JSON.stringify({ kind: "api-source", reviewId: "a", title: "A", version: 2, generation: "old" }));
     assert.equal((historical as ReviewCanvasEditorInput).getName(), "Source — A (v2)");
   } finally { tabs.dispose(); inputs.forEach(input => input.dispose()); }

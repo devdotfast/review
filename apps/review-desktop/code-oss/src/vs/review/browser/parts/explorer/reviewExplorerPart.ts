@@ -370,7 +370,7 @@ export class ReviewExplorerPart extends Part {
 		this._register(this.catalog.onDidChange(() => {
 			if (!this.root || sourceLocation(this.root).view.selection !== "current") return;
 			const review = this.catalog.reviews.find(review => review.reviewId === this.root!.authority);
-			const next = JSON.stringify([review?.reviewId, review?.version, review?.pins.sourceGeneration]);
+			const next = JSON.stringify([review?.reviewId, review?.version, review?.pins.worktreeRevision]);
 			if (next === revision) return;
 			revision = next;
 			this.refreshTree();

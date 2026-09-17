@@ -251,7 +251,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		const diffSource: ReviewDiffViewSource = {
 			files: scope => files(reviewSourceComparison(view(), scope?.commit)),
 			load: async scope => {
-				// Capture once: all files in this load belong to the same source generation.
+				// Capture the comparison once; live checkout bytes may change during the load.
 				const current = reviewSourceComparison(view(), scope?.commit);
 				const entries = await files(current);
 				return {

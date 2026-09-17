@@ -1,7 +1,8 @@
-/** Visible Desktop proof of an imported JSON review with no sender repository. */
+/** Visible Desktop proof of an imported JSON review with an independently fetched pinned checkout. */
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import path from "node:path";
@@ -19,6 +20,8 @@ const { chromium } = require("playwright-core");
 const { values } = parseArgs({
   options: {
     "local-only": { type: "boolean" },
+    github: { type: "boolean" },
+    lsp: { type: "boolean" },
     root: { type: "string" },
     keep: { type: "boolean" },
   },
@@ -35,7 +38,14 @@ try {
 } catch {
   await exec(
     "pnpm",
-    ["exec", "tsx", "packages/review/scripts/seed-share-fixture.ts", root],
+    [
+      "exec",
+      "tsx",
+      "packages/review/scripts/seed-share-fixture.ts",
+      root,
+      ...(values.github ? ["--github"] : []),
+      ...(values.lsp ? ["--lsp"] : []),
+    ],
     { cwd: workspace },
   );
   fixture = JSON.parse(await readFile(path.join(root, "fixture.json"), "utf8"));
@@ -55,6 +65,35 @@ await writeFile(
   }),
 );
 
+if (values.lsp) {
+  const extension = path.join(
+    fixture.home,
+    "review-desktop/state/extensions/review-test.review-lsp-e2e-1.0.0",
+  );
+
+  await mkdir(extension, { recursive: true });
+  await cp(
+    path.join(import.meta.dirname, "lsp-e2e-extension.cjs"),
+    path.join(extension, "extension.cjs"),
+  );
+  await writeFile(
+    path.join(extension, "package.json"),
+    JSON.stringify({
+      name: "review-lsp-e2e",
+      publisher: "review-test",
+      version: "1.0.0",
+      engines: { vscode: "^1.100.0" },
+      main: "./extension.cjs",
+      activationEvents: ["*"],
+      contributes: {
+        commands: [
+          { command: "review.lspE2E", title: "Review E2E: Language probe" },
+        ],
+      },
+    }),
+  );
+}
+
 const server = createServer();
 
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -66,6 +105,7 @@ await new Promise((resolve) => server.close(resolve));
 const env = {
   ...process.env,
   DEV_REVIEW_HOME: fixture.home,
+  REVIEW_LSP_E2E_ROOT: root,
   DEV_REVIEW_EXTENSIONS: "none",
   DEV_FAST_REVIEW_SHARED_DATA_DIR: path.join(root, "shared-data"),
   DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: String(port),
@@ -159,6 +199,9 @@ try {
       if (await button.count()) await button.click();
     },
   );
+  await page
+    .getByText("Sharing pinned commits", { exact: true })
+    .waitFor({ timeout: 60000 });
   await api(`/${fixture.reviewId}/open`, {});
   await page
     .getByText("A portable review", { exact: true })
@@ -176,7 +219,7 @@ try {
   // Native inline widgets expose their rendered code through Monaco's view lines.
   const code = page
     .locator(".view-lines")
-    .filter({ hasText: "return 42;" })
+    .filter({ hasText: fixture.sourceText })
     .first();
 
   await code.scrollIntoViewIfNeeded();
@@ -197,16 +240,71 @@ try {
     .click();
   await page
     .locator(".view-lines")
-    .filter({ hasText: "return 42;" })
+    .filter({ hasText: fixture.sourceText })
     .first()
     .waitFor();
   await page.screenshot({ path: path.join(root, "shared-source.png") });
 
+  if (values.lsp) {
+    const probe = async (request) => {
+      const id = randomUUID();
+      await writeFile(
+        path.join(root, "request.json"),
+        JSON.stringify({ ...request, id }),
+      );
+      await page.keyboard.press("F1");
+      await page
+        .locator(".quick-input-widget input")
+        .fill(">Review E2E: Language probe");
+      await page
+        .getByRole("option", { name: /Review E2E: Language probe/ })
+        .first()
+        .click();
+
+      const result = await until(
+        async () =>
+          JSON.parse(await readFile(path.join(root, `${id}.json`), "utf8")),
+        "language probe",
+      );
+
+      assert.equal(result.error, undefined);
+
+      return result;
+    };
+
+    const location = {
+      uri: `review-api-source://${fixture.reviewId}/answer.ts?version=${fixture.version}&side=head`,
+      line: 0,
+      character: 18,
+    };
+
+    await until(async () => {
+      const response = await probe({
+        ...location,
+        open: true,
+        feature: "vscode.executeHoverProvider",
+      });
+
+      return JSON.stringify(response.result).includes("answer(): number");
+    }, "shared TypeScript hover");
+    await probe({
+      ...location,
+      open: true,
+      command: "editor.action.showHover",
+    });
+    await page
+      .locator(".monaco-hover:visible")
+      .filter({ hasText: "answer" })
+      .first()
+      .waitFor();
+    await page.screenshot({ path: path.join(root, "shared-hover.png") });
+  }
+
   const source = await api(
-    `/${fixture.reviewId}/file?side=head&file=answer.ts`,
+    `/${fixture.reviewId}/file?side=head&file=${encodeURIComponent(fixture.sourceFile)}`,
   );
 
-  assert.match(source.text, /return 42/);
+  assert.ok(source.text.includes(fixture.sourceText));
   const summary = await api(`/${fixture.reviewId}?full=true`);
   assert.equal(summary.version, fixture.version);
   await writeFile(
@@ -222,7 +320,13 @@ try {
           "full trace conversation",
           "native Open file",
           "sender attribution",
-          "repository unavailable",
+          "sender repository unavailable; recipient checkout retained",
+          ...(fixture.github
+            ? ["published GitHub commits fetched into clean recipient checkout"]
+            : []),
+          ...(values.lsp
+            ? ["real TypeScript hover on the pinned shared source"]
+            : []),
         ],
         screenshot: path.join(root, "shared-desktop.png"),
       },

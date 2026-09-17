@@ -37,11 +37,13 @@ it("rejects unavailable GitHub commits before any share upload", async () => {
       fixture.store,
       fixture.data,
       new SharedReviewStore(path.join(root, "shared")),
-      async () => {
-        throw new ReviewInputError(
-          "Push the reviewed commits to GitHub before sharing.",
-          409,
-        );
+      {
+        verifyRepository: async () => {
+          throw new ReviewInputError(
+            "Push the reviewed commits to GitHub before sharing.",
+            409,
+          );
+        },
       },
     );
 

@@ -16,6 +16,7 @@ import {
   checkReferences,
   documentSchema,
   elements,
+  resourceReference,
   resourceReferences,
   sourceReferences,
 } from "../review-api/document.js";
@@ -91,16 +92,14 @@ export async function exportShare(input: {
   for (const block of resourceReferences(snapshot.document)) {
     await input.data.validateResource(pins, block);
 
-    const id =
-      block.type === "image"
-        ? block.assetId
-        : block.type === "trace_quote"
-          ? block.traceId
-          : block.type === "software_map"
-            ? block.mapVersionId
-            : undefined;
+    const reference = resourceReference(block);
 
-    if (!id || resources.some((resource) => resource.id === id)) continue;
+    if (
+      !reference ||
+      resources.some((resource) => resource.id === reference.id)
+    )
+      continue;
+    const { id } = reference;
     const resource = input.store.resource(id);
     resources.push({
       id,

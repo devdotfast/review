@@ -5,6 +5,7 @@ export {
   readStoreAuth,
   clearStoreAuth,
   runStoreLogin,
+  openUrlInBrowser,
   runStoreLogout,
   runStoreWhoami,
   writeStoreAuth,

@@ -1,25 +1,17 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import {
-  mkdir,
-  mkdtemp,
-  realpath,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { writeStoreAuth } from "@dev.fast/trace-core";
 import { afterEach, expect, it, vi } from "vitest";
 
+import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import { openLocalReviewStore } from "../review-api/local-data.js";
-import { attachedSource } from "./clone.js";
 import { exportShare } from "./export.js";
 import { SharedReviewStore, validateShareBundle } from "./import.js";
+import { fetchPinnedRepository } from "./repository.js";
 
 const cleanup: Array<() => Promise<void>> = [];
 
@@ -46,12 +38,19 @@ async function fixture() {
   git("config", "user.name", "Fixture");
   git("config", "user.email", "fixture@example.invalid");
   await writeFile(path.join(repo, "main.ts"), "export const answer = 1;\n");
+  await writeFile(path.join(repo, "old.ts"), "export const moved = true;\n");
+  await writeFile(
+    path.join(repo, "deleted.ts"),
+    "export const obsolete = true;\n",
+  );
   git("add", ".");
   git("commit", "-m", "base");
   const base = git("rev-parse", "HEAD");
   await writeFile(path.join(repo, "main.ts"), "export const answer = 2;\n");
   await writeFile(path.join(repo, "new.ts"), "export const added = true;\n");
   git("add", ".");
+  git("mv", "old.ts", "renamed.ts");
+  git("rm", "deleted.ts");
   git("commit", "-m", "head");
   const head = git("rev-parse", "HEAD");
   const local = openLocalReviewStore(path.join(root, "review.db"));
@@ -107,82 +106,104 @@ async function fixture() {
   return { root, repo, local, reviewId: created.reviewId };
 }
 
-it("retains exact source versions and the referenced conversation after the repository disappears", async () => {
-  const { local, reviewId, root, repo } = await fixture();
-  const bundle = await exportShare({ ...local, reviewId });
-  const imported = new SharedReviewStore(path.join(root, "shared"));
+const repository = { cloneUrl: "https://github.com/fixture/review.git" };
 
-  const id = await imported.import(
-    "https://app.dev.fast",
-    randomUUID(),
-    bundle,
+async function importFixture() {
+  const fixtureData = await fixture();
+  const { root, repo, local, reviewId } = fixtureData;
+  const bundle = await exportShare({ ...local, reviewId, repository });
+  const recipient = openLocalReviewStore(path.join(root, "recipient.db"));
+  cleanup.push(() => recipient.store.close());
+  cleanup.push(() => recipient.data.close());
+
+  const fetchRepository = vi.fn<typeof fetchPinnedRepository>(
+    (
+      target: string,
+      _url: string,
+      pins: Parameters<typeof fetchPinnedRepository>[2],
+    ) => fetchPinnedRepository(target, repo, pins),
   );
 
-  await local.data.close();
-  await rename(repo, path.join(root, "unavailable"));
-  const saved = await imported.read(id);
-  expect(validateShareBundle(saved).snapshot.title).toBe("A shared review");
+  const imported = new SharedReviewStore(
+    path.join(root, "shared"),
+    fetchRepository,
+  );
 
-  const base = saved.manifest.files.find(
-    (file) => file.file === "main.ts" && file.side === "base",
+  imported.connect(recipient.store, recipient.data);
+  await imported.load();
+  const shareId = randomUUID();
+  const id = await imported.import("https://app.dev.fast", shareId, bundle);
+
+  const app = createReviewApi(
+    recipient.store,
+    recipient.data,
+    undefined,
+    imported,
+  );
+
+  return {
+    ...fixtureData,
+    bundle,
+    imported,
+    recipient,
+    shareId,
+    id,
+    app,
+    fetchRepository,
+  };
+}
+
+it("fetches pinned source into an independent repository and retains complete traces offline", async () => {
+  const { bundle, imported, id, repo, app, recipient } = await importFixture();
+  await rename(repo, repo + "-hidden");
+  expect(
+    (await (await app.request(`/${id}/file?side=head&file=main.ts`)).json())
+      .text,
+  ).toBe("export const answer = 2;\n");
+  expect(
+    (await (await app.request(`/${id}/file?side=base&file=main.ts`)).json())
+      .text,
+  ).toBe("export const answer = 1;\n");
+  expect((await app.request(`/${id}/file?side=base&file=new.ts`)).status).toBe(
+    404,
+  );
+  const diffs = await (await app.request(`/${id}/diff`)).json();
+  expect(diffs).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "new.ts", status: "added" }),
+      expect.objectContaining({ path: "deleted.ts", status: "deleted" }),
+      expect.objectContaining({ path: "renamed.ts", status: "renamed" }),
+    ]),
+  );
+
+  const resource = bundle.manifest.resources.find(
+    (item) => item.kind === "trace",
   )!;
 
-  expect(Buffer.from(saved.objects.get(base.object!)!).toString()).toBe(
-    "export const answer = 1;\n",
+  const trace = await (
+    await app.request(`/${id}/resources/${resource.id}`)
+  ).json();
+
+  expect(trace.events).toHaveLength(2);
+  const persisted = validateShareBundle(await imported.read(id));
+  expect(persisted.snapshot.pins.repositoryId).not.toBe(
+    imported.get(id).snapshot.pins.repositoryId,
   );
-  expect(
-    saved.manifest.files.find(
-      (file) => file.file === "new.ts" && file.side === "base",
-    )?.object,
-  ).toBeNull();
 
-  const trace = saved.manifest.resources.find(
-    (resource) => resource.kind === "trace",
-  )!;
+  const restarted = new SharedReviewStore(imported.root, async () => {
+    throw new Error("offline");
+  });
 
-  expect(
-    JSON.parse(Buffer.from(saved.objects.get(trace.object)!).toString()).events,
-  ).toHaveLength(2);
+  restarted.connect(recipient.store, recipient.data);
+  await restarted.load();
+  expect(restarted.list().map((entry) => entry.reviewId)).toEqual([id]);
+  await restarted.prepare(id);
+  expect(restarted.get(id).snapshot.title).toBe("A shared review");
 });
 
-it("rejects tampered bytes and keeps identical local resource IDs isolated by share", async () => {
-  const { local, reviewId, root } = await fixture();
-  const bundle = await exportShare({ ...local, reviewId });
-  const imported = new SharedReviewStore(path.join(root, "shared"));
-  const a = await imported.import("https://app.dev.fast", randomUUID(), bundle);
-  const b = await imported.import("https://app.dev.fast", randomUUID(), bundle);
-  expect(a).not.toBe(b);
-  const corrupt = { ...bundle, objects: new Map(bundle.objects) };
-  corrupt.objects.set(bundle.manifest.snapshot, Buffer.from("{}"));
-  await expect(
-    imported.import("https://app.dev.fast", randomUUID(), corrupt),
-  ).rejects.toThrow("corrupt");
-  expect(validateShareBundle(await imported.read(a)).snapshot.reviewId).toBe(
-    reviewId,
-  );
-});
-
-it("serves pinned files and scoped resources through the API while rejecting shared mutations", async () => {
-  const { local, reviewId, root } = await fixture();
-  const bundle = await exportShare({ ...local, reviewId });
-  const imported = new SharedReviewStore(path.join(root, "shared"));
-
-  const id = await imported.import(
-    "https://app.dev.fast",
-    randomUUID(),
-    bundle,
-  );
-
-  const app = createReviewApi(local.store, local.data, undefined, imported);
-  const file = await app.request(`/${id}/file?side=head&file=main.ts`);
-  expect(file.status).toBe(200);
-  expect((await file.json()).text).toBe("export const answer = 2;\n");
-
-  const attachment = await app.request(
-    `/${id}/source-attachment?side=head&file=main.ts`,
-  );
-
-  expect(await attachment.json()).toEqual({});
+it("uses normal source and workspace routes but rejects authoring mutations", async () => {
+  const { app, id, imported, recipient, bundle } = await importFixture();
+  expect((await app.request(`/${id}/tree?side=head&path=`)).status).toBe(200);
   expect((await app.request(`/${id}/tree?side=invalid`)).status).toBe(400);
   expect(
     (await app.request(`/${id}/file?side=head&file=main.ts&version=999`))
@@ -191,10 +212,32 @@ it("serves pinned files and scoped resources through the API while rejecting sha
   expect(
     (await app.request(`/${id}/activity`, { method: "POST" })).status,
   ).toBe(409);
-  const traceId = bundle.manifest.resources[0]!.id;
-  expect((await app.request(`/resources/${traceId}`)).status).toBe(404);
-  expect((await app.request(`/${id}/resources/${traceId}`)).status).toBe(200);
+  expect(
+    (await app.request(`/${id}/source-attachment?side=head&file=main.ts`))
+      .status,
+  ).toBe(404);
+
+  const source = await app.request(`/${id}/source`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      source: { side: "head", file: "main.ts", fromLine: 1, toLine: 1 },
+    }),
+  });
+
+  expect(source.status).toBe(200);
+
+  const language = await (
+    await app.request(`/${id}/language-context?side=head`)
+  ).json();
+
+  expect(language.rootPath).toBeTruthy();
+  expect(await stat(path.join(language.rootPath, "main.ts"))).toBeTruthy();
   expect((await app.request(`/${id}/resources/not-included`)).status).toBe(404);
+  expect(
+    (await app.request(`/resources/${bundle.manifest.resources[0]!.id}`))
+      .status,
+  ).toBe(404);
 
   const mutation = await app.request("/commands", {
     method: "POST",
@@ -206,95 +249,140 @@ it("serves pinned files and scoped resources through the API while rejecting sha
   });
 
   expect(mutation.status).toBe(409);
-  expect(local.store.list()).toHaveLength(1);
+  expect(recipient.store.list()).toEqual([]);
   expect(imported.get(id).snapshot.title).toBe("A shared review");
-  const restart = new SharedReviewStore(imported.root);
-  await restart.load();
-  expect(restart.list()[0]?.reviewId).toBe(id);
 });
 
-it("isolates a corrupt cached share without preventing other reviews from opening", async () => {
-  const { local, reviewId, root } = await fixture();
-  const bundle = await exportShare({ ...local, reviewId });
-  const imported = new SharedReviewStore(path.join(root, "shared"));
+it("rejects tampered bytes and keeps resource IDs isolated across shares", async () => {
+  const { bundle, imported, id, app } = await importFixture();
 
-  const a = await imported.import("https://app.dev.fast", randomUUID(), bundle),
-    b = await imported.import("https://app.dev.fast", randomUUID(), bundle);
-
-  await writeFile(
-    path.join(imported.root, a, bundle.manifest.snapshot),
-    "corrupt",
-  );
-  const restart = new SharedReviewStore(imported.root);
-  await restart.load();
-  expect(restart.list().map((review) => review.reviewId)).toEqual([b]);
-  expect(restart.get(b).snapshot.title).toBe("A shared review");
-});
-
-it("uses an attached file only while it matches the immutable snapshot", async () => {
-  const { local, reviewId, root } = await fixture();
-  const bundle = await exportShare({ ...local, reviewId });
-  const imported = new SharedReviewStore(path.join(root, "shared"));
-
-  const id = await imported.import(
+  const other = await imported.import(
     "https://app.dev.fast",
     randomUUID(),
     bundle,
   );
 
-  const nativeRoot = path.join(imported.root, ".repositories", `${id}-head`);
-  await mkdir(nativeRoot, { recursive: true });
-  const file = path.join(nativeRoot, "main.ts");
-  await writeFile(file, "export const answer = 2;\n");
+  expect(other).not.toBe(id);
+  const corrupt = { ...bundle, objects: new Map(bundle.objects) };
+  corrupt.objects.set(bundle.manifest.snapshot, Buffer.from("{}"));
+  await expect(
+    imported.import("https://app.dev.fast", randomUUID(), corrupt),
+  ).rejects.toThrow("corrupt");
   expect(
-    (await attachedSource(imported, id, "head", "main.ts"))?.localPath,
-  ).toBe(await realpath(file));
-  await writeFile(file, "export const answer = 99;\n");
-  expect(await attachedSource(imported, id, "head", "main.ts")).toBeUndefined();
-
-  const entry = bundle.manifest.files.find(
-    (value) => value.side === "head" && value.file === "main.ts",
-  )!;
-
-  expect((await imported.readObject(id, entry.object!)).toString()).toBe(
-    "export const answer = 2;\n",
-  );
+    (
+      await app.request(
+        `/${other}/resources/${bundle.manifest.resources[0]!.id}`,
+      )
+    ).status,
+  ).toBe(200);
 });
 
-it("removes the clone and both checkouts before reimporting a deleted share", async () => {
-  const { local, reviewId, root } = await fixture();
-  const bundle = await exportShare({ ...local, reviewId });
-  const imported = new SharedReviewStore(path.join(root, "shared"));
-  const shareId = randomUUID();
-  const id = await imported.import("https://app.dev.fast", shareId, bundle);
+it("isolates corrupt cached shares at restart", async () => {
+  const { bundle, imported, id, recipient } = await importFixture();
 
-  const paths = [id, `${id}-base`, `${id}-head`].map((name) =>
-    path.join(imported.root, ".repositories", name),
+  const other = await imported.import(
+    "https://app.dev.fast",
+    randomUUID(),
+    bundle,
   );
 
-  for (const dir of paths) {
-    await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, "stale"), "old checkout");
-  }
+  await writeFile(
+    path.join(imported.root, id, bundle.manifest.snapshot),
+    "corrupt",
+  );
+  const restarted = new SharedReviewStore(imported.root);
+  restarted.connect(recipient.store, recipient.data);
+  await restarted.load();
+  expect(restarted.list().map((entry) => entry.reviewId)).toEqual([other]);
+});
 
+it("repairs a missing checkout and removes owned workspaces before reimport", async () => {
+  const { imported, id, recipient, bundle, shareId, repo, fetchRepository } =
+    await importFixture();
+
+  const checkout = imported.repositoryRoot(id);
+
+  const paths = recipient.data.workspaces
+    .list(id)
+    .map((workspace) => workspace.rootPath!);
+
+  await rm(checkout, { recursive: true, force: true });
+  expect(() => imported.get(id)).toThrow("Fetch the shared repository");
+  await imported.prepare(id);
+  expect(fetchRepository).toHaveBeenCalledTimes(2);
+  const repositoryId = imported.get(id).snapshot.pins.repositoryId;
   await imported.removeLocal(id);
 
-  for (const dir of paths)
-    await expect(stat(dir)).rejects.toMatchObject({ code: "ENOENT" });
+  for (const target of [checkout, ...paths])
+    await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(() => recipient.store.repositoryPath(repositoryId)).toThrow(
+    "not registered",
+  );
+  expect(await stat(path.join(repo, ".git"))).toBeTruthy();
   expect(await imported.import("https://app.dev.fast", shareId, bundle)).toBe(
     id,
   );
+});
+
+it("retains failed imports for retry and deduplicates preparation", async () => {
+  const { local, root, repo, reviewId } = await fixture();
+  const bundle = await exportShare({ ...local, reviewId, repository });
+  let available = false;
+
+  const fetcher = vi.fn<typeof fetchPinnedRepository>(
+    async (
+      target: string,
+      _url: string,
+      pins: Parameters<typeof fetchPinnedRepository>[2],
+    ) => {
+      if (!available)
+        throw new ReviewInputError(
+          "Configure Git credentials, then retry.",
+          409,
+        );
+      await fetchPinnedRepository(target, repo, pins);
+    },
+  );
+
+  const imported = new SharedReviewStore(path.join(root, "retry"), fetcher);
+  imported.connect(local.store, local.data);
+  await imported.load();
+  const shareId = randomUUID();
+  await expect(
+    imported.import("https://app.dev.fast", shareId, bundle),
+  ).rejects.toThrow("Configure Git credentials");
+  const { sharedReviewId } = await import("./import.js");
+  const id = sharedReviewId("https://app.dev.fast", shareId);
+  expect(imported.status(id).stage).toBe("error");
+  expect(imported.list()).toEqual([]);
+  available = true;
+  await Promise.all([imported.prepare(id), imported.prepare(id)]);
+  expect(fetcher).toHaveBeenCalledTimes(2);
   expect(imported.get(id).snapshot.title).toBe("A shared review");
 });
 
-it("returns actionable export errors through the publishing endpoint", async () => {
-  const { local, reviewId, root } = await fixture();
-  vi.stubEnv("DEV_REVIEW_HOME", root);
-  await writeStoreAuth({
-    origin: "https://app.dev.fast",
-    token: "fixture",
-    login: "fixture",
-    savedAt: new Date().toISOString(),
+it("does not expose an interrupted import before validation finishes", async () => {
+  const { imported, id, recipient } = await importFixture();
+  const repositoryId = imported.get(id).snapshot.pins.repositoryId;
+  await writeFile(
+    path.join(imported.root, id, "repository.json"),
+    JSON.stringify({ repositoryId, ready: false }),
+  );
+  const restarted = new SharedReviewStore(imported.root);
+  restarted.connect(recipient.store, recipient.data);
+  await restarted.load();
+  expect(restarted.list()).toEqual([]);
+  await restarted.prepare(id);
+  expect(restarted.get(id).snapshot.pins.repositoryId).toBe(repositoryId);
+});
+
+it("keeps the published snapshot and code after author edits and branch movement", async () => {
+  const { local, repo, reviewId, imported, id, app } = await importFixture();
+  const before = imported.get(id).snapshot;
+  await writeFile(path.join(repo, "main.ts"), "export const answer = 999;\n");
+  execFileSync("git", ["commit", "-am", "Later branch change"], {
+    cwd: repo,
+    stdio: "pipe",
   });
   await local.store.execute({
     commandId: randomUUID(),
@@ -303,29 +391,13 @@ it("returns actionable export errors through the publishing endpoint", async () 
       reviewId,
       edit: {
         type: "insert",
-        content: {
-          type: "markdown",
-          markdown: "![unmanaged](https://example.invalid/image.png)",
-        },
+        content: { type: "markdown", markdown: "Later author edit" },
       },
     },
   });
-
-  const app = createReviewApi(
-    local.store,
-    local.data,
-    undefined,
-    new SharedReviewStore(path.join(root, "shared")),
-  );
-
-  const response = await app.request("/sharing/publish", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ reviewId }),
-  });
-
-  expect(response.status).toBe(400);
-  expect(await response.json()).toEqual({
-    error: "Convert Markdown images to managed image blocks before sharing.",
-  });
+  expect(imported.get(id).snapshot).toEqual(before);
+  expect(
+    (await (await app.request(`/${id}/file?side=head&file=main.ts`)).json())
+      .text,
+  ).toBe("export const answer = 2;\n");
 });

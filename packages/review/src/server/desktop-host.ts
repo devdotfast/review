@@ -71,7 +71,9 @@ export async function runDesktopHost(
   const local = openLocalReviewStore(path.join(home, "review-api.db"));
 
   const shared = new SharedReviewStore(path.join(home, "shared-reviews"));
+  shared.connect(local.store, local.data);
   await shared.load();
+
   const server = createGlobalReviewServer({
     ...serverInput,
     sharedReviews: shared,
@@ -108,6 +110,7 @@ export async function runDesktopHost(
     if (!stopping) {
       stopping = server
         .close("app-exit")
+        .finally(() => shared.close())
         .finally(() => local?.data.close())
         .finally(() => local?.store.close());
     }

@@ -64,6 +64,8 @@ export async function fetchPinnedRepository(
     );
   await mkdir(root, { recursive: true, mode: 0o700 });
   await sharedGit(root, ["init", "--quiet"]);
+  await sharedGit(root, ["config", "core.hooksPath", "/dev/null"]);
+  await sharedGit(root, ["config", "core.fsmonitor", "false"]);
   await sharedGit(root, ["remote", "add", "origin", url]);
 
   try {

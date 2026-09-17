@@ -1,10 +1,13 @@
-import "./share-control.css";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
 import {
   type ReviewApiClient,
   ReviewApiError,
 } from "../../src/review-api/client";
+
+import "./share-control.css";
+import { copyText } from "./copy-text";
+import { useDismissOnOutside } from "./use-dismiss-on-outside";
 
 export const SharingContext = createContext<{
   client: ReviewApiClient;
@@ -30,7 +33,6 @@ export function ShareControl() {
   const [link, setLink] = useState<string>();
   const frozen = useRef<{ version: number; requestId: string }>(undefined);
   const popover = useRef<HTMLDivElement>(null);
-  const [cloned, setCloned] = useState(false);
   const shared = context?.reviewId.startsWith("shared-");
   useEffect(() => {
     if (!open || !context || shared) return;
@@ -57,29 +59,7 @@ export function ShareControl() {
       clearInterval(interval);
     };
   }, [open, context?.client, shared]);
-  useEffect(() => {
-    if (!open) return;
-
-    const outside = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node &&
-        !popover.current?.contains(event.target)
-      )
-        setOpen(false);
-    };
-
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", outside);
-    document.addEventListener("keydown", escape);
-
-    return () => {
-      document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  useDismissOnOutside(popover, open, setOpen);
 
   if (!context) return null;
 
@@ -101,11 +81,7 @@ export function ShareControl() {
   };
 
   const copy = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      setError("Copy the link below.");
-    }
+    if (!(await copyText(url))) setError("Copy the link below.");
   };
 
   return (
@@ -155,35 +131,14 @@ export function ShareControl() {
                 This is a read-only snapshot. Source files and traces are
                 available offline.
               </p>
-              {context.cloneUrl && (
-                <>
-                  <p>Clone the repository for advanced features.</p>
-                  <button
-                    disabled={busy || cloned}
-                    onClick={() =>
-                      void run(async () => {
-                        await context.client.post("/sharing/clone", {
-                          reviewId: context.reviewId,
-                        });
-                        setCloned(true);
-                      })
-                    }
-                  >
-                    {busy
-                      ? "Cloning…"
-                      : cloned
-                        ? "Attached — reopen code for advanced features"
-                        : "Clone repository"}
-                  </button>
-                </>
-              )}
             </>
           ) : (
             <>
               <p>
                 Share version {frozen.current?.version}. Anyone with the link
-                can download it, including full referenced source files and
-                retained trace conversations.
+                can download its retained resources and trace conversations.
+                Recipients need GitHub repository access to fetch the pinned
+                commits.
               </p>
               {account?.account ? (
                 <>

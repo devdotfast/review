@@ -68,14 +68,12 @@ export function createReviewApi(
 
     readReview(id, query.version);
 
-    if (context.req.method !== "GET" && !context.req.path.endsWith("/open"))
+    if (
+      context.req.method !== "GET" &&
+      !/\/(open|source|copy-context)$/.test(context.req.path) &&
+      !/\/workspaces\/[^/]+\/retry$/.test(context.req.path)
+    )
       throw new ReviewInputError("Shared reviews are read-only.", 409);
-
-    if (context.req.query("commit"))
-      throw new ReviewInputError(
-        "Clone the repository to inspect other commits.",
-        409,
-      );
 
     return next();
   };
@@ -83,7 +81,10 @@ export function createReviewApi(
   app.use("/:id", sharedGuard);
   app.use("/:id/*", sharedGuard);
 
-  if (shared && data) mountSharingHost(app, store, data, shared);
+  if (shared && data) {
+    shared.connect(store, data);
+    mountSharingHost(app, store, data, shared);
+  }
 
   const readReview = (id: string, version?: number) => {
     if (!id.startsWith("shared-")) return store.read(id, version);
@@ -214,7 +215,10 @@ export function createReviewApi(
     });
   });
   app.post("/:id/open", async (context) => {
-    const review = readReview(context.req.param("id"));
+    const id = context.req.param("id");
+
+    if (isShared(id)) await shared?.assertReady(id);
+    const review = readReview(id);
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
@@ -268,7 +272,7 @@ export function createReviewApi(
 
     app.get("/:id/agent-traces", async (context) => {
       const query = traceQuery.parse(context.req.query());
-      const { pins } = store.read(context.req.param("id"), query.version);
+      const { pins } = readReview(context.req.param("id"), query.version);
 
       return context.json(
         await listPinnedTraces(
@@ -280,7 +284,7 @@ export function createReviewApi(
     });
     app.get("/:id/agent-traces/:sessionId", async (context) => {
       const query = traceQuery.parse(context.req.query());
-      const { pins } = store.read(context.req.param("id"), query.version);
+      const { pins } = readReview(context.req.param("id"), query.version);
 
       const result = await readStoredTrace(
         store.repositoryPath(pins.repositoryId),
@@ -299,11 +303,8 @@ export function createReviewApi(
 
       const id = context.req.param("id");
 
-      if (isShared(id))
-        return context.json(sharedData!.tree(id, input.side, input.path));
-
       const pins = await data!.comparison(
-        store.read(context.req.param("id"), input.version).pins,
+        readReview(context.req.param("id"), input.version).pins,
         input.commit,
       );
 
@@ -320,7 +321,7 @@ export function createReviewApi(
 
       return context.json(
         await data!.map(
-          store.read(context.req.param("id"), query.version).pins,
+          readReview(context.req.param("id"), query.version).pins,
           context.req.param("resourceId"),
         ),
       );
@@ -386,7 +387,7 @@ export function createReviewApi(
 
       return context.json(
         await data!.quote(
-          store.read(context.req.param("id"), input.version).pins,
+          readReview(context.req.param("id"), input.version).pins,
           input.source,
         ),
       );
@@ -399,7 +400,7 @@ export function createReviewApi(
         })
         .parse(context.req.query());
 
-      const snapshot = store.read(context.req.param("id"), input.version);
+      const snapshot = readReview(context.req.param("id"), input.version);
       const pins = await data.comparison(snapshot.pins, input.commit);
 
       return context.json(
@@ -415,7 +416,7 @@ export function createReviewApi(
       return context.json({ ok: true });
     });
     app.get("/:id/workspaces", (context) => {
-      store.assertExists(context.req.param("id"));
+      readReview(context.req.param("id"));
 
       return context.json(data.workspaces.list(context.req.param("id")));
     });
@@ -427,28 +428,14 @@ export function createReviewApi(
 
       return context.json({ ok: true });
     });
-    app.get("/:id/source-attachment", async (context) => {
-      const input = readQuerySchemas.file.parse(context.req.query());
-      const id = context.req.param("id");
-      readReview(id, input.version);
-
-      return context.json(
-        isShared(id)
-          ? await sharedData!.attachment(id, input.side, input.file)
-          : {},
-      );
-    });
     app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());
       const id = context.req.param("id");
 
-      if (isShared(id))
-        return context.json(await sharedData!.file(id, input.side, input.file));
-
       return context.json(
         await data!.file(
           await data!.comparison(
-            store.read(context.req.param("id"), input.version).pins,
+            readReview(context.req.param("id"), input.version).pins,
             input.commit,
           ),
           input.side,
@@ -460,12 +447,10 @@ export function createReviewApi(
       const input = readQuerySchemas.diff.parse(context.req.query());
       const id = context.req.param("id");
 
-      if (isShared(id)) return context.json(sharedData!.diff(id, input.file));
-
       return context.json(
         await data!.changes(
           await data!.comparison(
-            store.read(context.req.param("id"), input.version).pins,
+            readReview(context.req.param("id"), input.version).pins,
             input.commit,
           ),
           input.file,
@@ -476,12 +461,9 @@ export function createReviewApi(
       const input = readQuerySchemas.commits.parse(context.req.query());
       const id = context.req.param("id");
 
-      if (isShared(id))
-        return context.json(shared!.get(id).presentation.commits);
-
       return context.json(
         await data!.commits(
-          store.read(context.req.param("id"), input.version).pins,
+          readReview(context.req.param("id"), input.version).pins,
         ),
       );
     });
@@ -492,7 +474,7 @@ export function createReviewApi(
       .pick({ version: true })
       .parse(context.req.query());
 
-    const snapshot = store.read(context.req.param("id"), query.version);
+    const snapshot = readReview(context.req.param("id"), query.version);
 
     const selection = AgentSelectionSchema.parse(
       await readBoundedRequestJson(context.req.raw),

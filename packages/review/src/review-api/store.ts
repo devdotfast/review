@@ -240,6 +240,13 @@ export class ReviewStore {
 
     return { id: String(row.id), name: String(row.name) };
   }
+  unregisterRepository(id: string) {
+    this.db
+      .prepare(`DELETE FROM repositories WHERE id=?
+      AND NOT EXISTS (SELECT 1 FROM versions WHERE json_extract(snapshot,'$.pins.repositoryId')=?)
+      AND NOT EXISTS (SELECT 1 FROM resources WHERE repository_id=?)`)
+      .run(id, id, id);
+  }
   repositoryPath(id: string) {
     const row = this.db
       .prepare("SELECT path FROM repositories WHERE id=?")

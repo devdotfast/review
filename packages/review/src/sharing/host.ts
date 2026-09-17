@@ -5,6 +5,7 @@ import { parseShareLink, shareIdSchema } from "@dev.fast/review-share-protocol";
 import {
   DEFAULT_STORE_ORIGIN,
   clearStoreAuth,
+  openUrlInBrowser,
   readStoreAuth,
   runStoreLogin,
 } from "@dev.fast/trace-core";
@@ -16,7 +17,6 @@ import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { ShareClient } from "./client.js";
-import { cloneSharedRepository } from "./clone.js";
 import { exportShare } from "./export.js";
 import { SharedReviewStore, sharedReviewId } from "./import.js";
 import { verifyShareRepository } from "./repository.js";
@@ -33,14 +33,24 @@ const publishSchema = z.strictObject({
   requestId: z.uuid().optional(),
 });
 
+interface SharingHostOptions {
+  verifyRepository?: typeof verifyShareRepository;
+  login?: typeof runStoreLogin;
+  openUrl?: typeof openUrlInBrowser;
+}
+
 /** Mounted behind local host authentication. Account credentials never enter the renderer. */
 export function mountSharingHost(
   app: Hono,
   store: ReviewStore,
   data: LocalReviewData,
   shared: SharedReviewStore,
-  verifyRepository: typeof verifyShareRepository = verifyShareRepository,
+  options: SharingHostOptions = {},
 ) {
+  const verifyRepository = options.verifyRepository ?? verifyShareRepository;
+  const startLogin = options.login ?? runStoreLogin;
+  const openUrl = options.openUrl ?? openUrlInBrowser;
+
   let login: LoginState = {
     pending: false,
   };
@@ -64,29 +74,21 @@ export function mountSharingHost(
     if (!login.pending) {
       login = { pending: true };
 
-      const stdout = new Writable({
-        write(chunk, _encoding, done) {
-          try {
-            const event = z
-              .object({ status: z.string(), url: z.string().optional() })
-              .parse(JSON.parse(String(chunk)));
-
-            if (event.status === "pending") login.url = event.url;
-          } catch {
-            /* Human output is discarded. */
-          }
-
-          done();
-        },
-      });
-
-      const stderr = new Writable({
+      const discard = new Writable({
         write(_chunk, _encoding, done) {
           done();
         },
       });
 
-      void runStoreLogin({ traces: false, stdout, stderr, json: true })
+      void startLogin({
+        traces: false,
+        stdout: discard,
+        stderr: discard,
+        openUrl: async (url) => {
+          login.url = url;
+          await openUrl(url);
+        },
+      })
         .then((code) => {
           login = { pending: false };
 
@@ -157,21 +159,17 @@ export function mountSharingHost(
 
     return context.json({ shareId, revoked: true });
   });
-  app.post("/sharing/clone", async (context) => {
-    const { reviewId } = z
-      .strictObject({ reviewId: z.string().regex(/^shared-[a-f0-9]{64}$/) })
-      .parse(await readBoundedRequestJson(context.req.raw));
+  const imports = new Map<string, Promise<void>>();
+  app.get("/sharing/import/:id", (context) => {
+    const id = context.req.param("id");
+    const status = shared.status(id);
 
-    try {
-      await cloneSharedRepository(shared, reviewId);
+    const result = { reviewId: id, ...status };
 
-      return context.json({ attached: true });
-    } catch {
-      throw new ReviewInputError(
-        "Could not clone the repository at the shared commits. Check your GitHub repository access.",
-        409,
-      );
-    }
+    if (status.stage === "ready")
+      return context.json({ ...result, title: shared.get(id).snapshot.title });
+
+    return context.json(result);
   });
   app.post("/sharing/import", async (context) => {
     const { url } = z
@@ -191,28 +189,39 @@ export function mountSharingHost(
       );
     const id = sharedReviewId(parsed.origin, parsed.shareId);
 
-    try {
-      const existing = shared.get(id);
+    if (!imports.has(id)) {
+      shared.setStatus(id, "downloading");
 
-      return context.json({ reviewId: id, title: existing.snapshot.title });
-    } catch {
-      /* Download only when not cached. */
+      const job = (async () => {
+        if (shared.has(id)) {
+          // Retained bytes survive a failed fetch and let retries work offline.
+          await shared.prepare(id);
+
+          return;
+        }
+
+        const bundle = await new ShareClient(parsed.origin).download(
+          parsed.shareId,
+          parsed.capability,
+        );
+
+        await shared.import(parsed.origin, parsed.shareId, bundle);
+      })()
+        .catch((error) => {
+          shared.setStatus(
+            id,
+            "error",
+            error instanceof ReviewInputError
+              ? error.message
+              : "This share is unavailable, revoked, or needs a newer Review version.",
+          );
+        })
+        .finally(() => imports.delete(id));
+
+      imports.set(id, job);
+      shared.trackImport(job);
     }
 
-    try {
-      const bundle = await new ShareClient(parsed.origin).download(
-        parsed.shareId,
-        parsed.capability,
-      );
-
-      await shared.import(parsed.origin, parsed.shareId, bundle);
-
-      return context.json({ reviewId: id, title: bundle.manifest.title });
-    } catch {
-      throw new ReviewInputError(
-        "This share is unavailable, revoked, or needs a newer Review version.",
-        404,
-      );
-    }
+    return context.json({ reviewId: id, ...shared.status(id) }, 202);
   });
 }

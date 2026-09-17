@@ -8,6 +8,10 @@ import {
 } from "@dev.fast/review-share-protocol";
 import { z } from "zod";
 
+import {
+  StreamLimitError,
+  readBoundedStream,
+} from "../server/bounded-stream.js";
 import { type ShareBundle, digestBytes } from "./export.js";
 import { validateShareBundle } from "./import.js";
 
@@ -30,6 +34,12 @@ const receivedSchema = z.strictObject({
   sharedAt: z.number(),
 });
 
+const signedUrlSchema = z.url().refine((value) => {
+  const url = new URL(value);
+
+  return url.protocol === "https:" && !url.username && !url.password;
+});
+
 const downloadSchema = z.strictObject({ url: z.url(), expiresAt: z.string() });
 
 /** Size is checked while reading, even if Content-Length is absent or false. */
@@ -42,30 +52,17 @@ export async function readBoundedBytes(
   const declared = response.headers.get("content-length");
 
   if (declared && Number(declared) > limit) {
-    await response.body.cancel();
+    await response.body.cancel().catch(() => {});
     throw new Error("Download exceeds its declared limit.");
   }
 
-  const reader = response.body.getReader();
-  const parts: Uint8Array[] = [];
-  let size = 0;
-
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-      size += value.byteLength;
-
-      if (size > limit) throw new Error("Download exceeds its declared limit.");
-      parts.push(value);
-    }
-  } finally {
-    await reader.cancel();
-    reader.releaseLock();
+    return await readBoundedStream(response.body, limit);
+  } catch (error) {
+    if (error instanceof StreamLimitError)
+      throw new Error("Download exceeds its declared limit.");
+    throw error;
   }
-
-  return Buffer.concat(parts, size);
 }
 
 /** Account tokens go only to the configured API origin, never to object storage. */
@@ -125,7 +122,7 @@ export class ShareClient {
     upload: z.infer<typeof uploadSchema>,
     bytes: Uint8Array,
   ) {
-    if (new URL(upload.url).protocol !== "https:")
+    if (!signedUrlSchema.safeParse(upload.url).success)
       throw new Error("Invalid object upload URL.");
 
     const response = await this.send(upload.url, {
@@ -229,7 +226,7 @@ export class ShareClient {
         ),
       );
 
-      if (new URL(signed.url).protocol !== "https:")
+      if (!signedUrlSchema.safeParse(signed.url).success)
         throw new Error("Invalid object download URL.");
 
       const bytes = await readBoundedBytes(

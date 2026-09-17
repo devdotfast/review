@@ -35,10 +35,10 @@ import { readReviewPackageVersion } from "../package-paths";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
-import type { SharedReviewStore } from "../sharing/import.js";
 import type { ReviewStore } from "../review-api/store.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
+import type { SharedReviewStore } from "../sharing/import.js";
 import {
   GlobalReviewDesktopVerbRelay,
   type ReviewDesktopVerbRelay,
@@ -158,21 +158,30 @@ export function createGlobalReviewServer(
 
   app.route(
     "/reviews-api",
-    createJsonReviewReporting(input.reviewStore, telemetry, { shared: input.sharedReviews }),
+    createJsonReviewReporting(input.reviewStore, telemetry, {
+      shared: input.sharedReviews,
+    }),
   );
 
   app.route(
     "/reviews-api",
-    createReviewApi(input.reviewStore, input.reviewData, async (review) => {
-      const result = await relay.dispatch({
-        name: "openApiReview",
-        args: review,
-      });
+    createReviewApi(
+      input.reviewStore,
+      input.reviewData,
+      async (review) => {
+        const result = await relay.dispatch({
+          name: "openApiReview",
+          args: review,
+        });
 
-      if (!result.ok) throw new ReviewInputError(result.error, 409);
+        if (!result.ok) throw new ReviewInputError(result.error, 409);
 
-      return z.object({ softwareMapEnabled: z.boolean() }).parse(result.result);
-    }, input.sharedReviews),
+        return z
+          .object({ softwareMapEnabled: z.boolean() })
+          .parse(result.result);
+      },
+      input.sharedReviews,
+    ),
   );
   app.post("/app/focus", async () => {
     const result = await relay.dispatch({

@@ -1,8 +1,10 @@
+import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rename,
   rm,
   stat,
@@ -25,14 +27,23 @@ import {
   checkReferences,
   documentSchema,
   pinsSchema,
+  resourceReference,
   resourceReferences,
+  sourceReferences,
 } from "../review-api/document.js";
+import type { LocalReviewData } from "../review-api/local-data.js";
+import type { ReviewStore } from "../review-api/store.js";
+import { traceSchema } from "../review-api/trace-schema.js";
 import {
   normalizedSoftwareElementSchema,
   normalizedSoftwareRelationshipSchema,
 } from "../software-map-model.js";
-import { removeSharedRepository } from "./clone.js";
 import { type ShareBundle, digestBytes } from "./export.js";
+import {
+  fetchPinnedRepository,
+  repositoryReady,
+  sharedGit,
+} from "./repository.js";
 
 export const sharedSnapshotSchema = z.strictObject({
   reviewId: z.string().min(1),
@@ -94,18 +105,6 @@ export const sharePresentationSchema = z.strictObject({
   maps: z.record(z.string(), mapSchema),
 });
 
-const traceSchema = z.object({
-  label: z.string(),
-  events: z.array(
-    z.strictObject({
-      id: z.string(),
-      role: z.enum(["user", "assistant", "tool"]),
-      text: z.string(),
-    }),
-  ),
-  provenance: z.literal("client_supplied").optional(),
-});
-
 export function validateShareBundle(bundle: ShareBundle) {
   const manifest = shareManifestSchema.parse(bundle.manifest);
 
@@ -144,25 +143,13 @@ export function validateShareBundle(bundle: ShareBundle) {
   );
 
   for (const block of resourceReferences(snapshot.document)) {
-    const id =
-      block.type === "image"
-        ? block.assetId
-        : block.type === "trace_quote"
-          ? block.traceId
-          : block.type === "software_map"
-            ? block.mapVersionId
-            : undefined;
+    const reference = resourceReference(block);
 
-    const resource = manifest.resources.find((item) => item.id === id);
+    const resource = manifest.resources.find(
+      (item) => item.id === reference?.id,
+    );
 
-    const kind =
-      block.type === "image"
-        ? "image"
-        : block.type === "trace_quote"
-          ? "trace"
-          : "map";
-
-    if (!resource || resource.kind !== kind)
+    if (!reference || !resource || resource.kind !== reference.kind)
       throw new Error("Missing or mismatched shared resource.");
 
     if (block.type === "trace_quote") {
@@ -209,7 +196,179 @@ export class SharedReviewStore {
     { viewedAt: string | null; dismissedAt: string | null }
   >();
   private readonly listeners = new Set<() => void>();
-  constructor(readonly root: string) {}
+  private catalogLoaded = false;
+  private readonly downloads = new Set<Promise<void>>();
+
+  trackImport(job: Promise<void>) {
+    this.downloads.add(job);
+    void job.finally(() => this.downloads.delete(job));
+  }
+
+  async close() {
+    await Promise.allSettled([...this.downloads, ...this.jobs.values()]);
+  }
+
+  private local?: { store: ReviewStore; data: LocalReviewData };
+  private readonly repositories = new Map<string, string>();
+  private readonly jobs = new Map<string, Promise<void>>();
+  private readonly states = new Map<
+    string,
+    {
+      stage: "downloading" | "fetching" | "validating" | "ready" | "error";
+      error?: string;
+    }
+  >();
+
+  constructor(
+    readonly root: string,
+    private readonly fetchRepository = fetchPinnedRepository,
+  ) {}
+
+  connect(store: ReviewStore, data: LocalReviewData) {
+    this.local = { store, data };
+    data.workspaces.attachExternalReviews({
+      has: (id) =>
+        this.has(id) || (!this.catalogLoaded && id.startsWith("shared-")),
+      subscribe: (listener) => this.subscribe(listener),
+    });
+  }
+
+  has(id: string) {
+    return this.loaded.has(id);
+  }
+
+  status(id: string) {
+    return (
+      this.states.get(id) ?? {
+        stage: "error" as const,
+        error: "Shared review is not available.",
+      }
+    );
+  }
+
+  setStatus(
+    id: string,
+    stage: "downloading" | "fetching" | "validating" | "ready" | "error",
+    error?: string,
+  ) {
+    this.states.set(id, { stage, error });
+
+    for (const listener of this.listeners) listener();
+  }
+
+  repositoryRoot(id: string) {
+    if (!/^shared-[a-f0-9]{64}$/.test(id))
+      throw new ReviewInputError("Invalid shared review ID.");
+
+    return path.join(this.root, ".repositories", id);
+  }
+
+  async prepare(id: string): Promise<void> {
+    const active = this.jobs.get(id);
+
+    if (active) return active;
+    const job = this.prepareRepository(id).finally(() => this.jobs.delete(id));
+    this.jobs.set(id, job);
+
+    return job;
+  }
+
+  private async prepareRepository(id: string) {
+    const local = this.local;
+
+    if (!local)
+      throw new ReviewInputError("Repository service is unavailable.", 409);
+    const saved = this.validated.get(id);
+
+    if (!saved)
+      throw new ReviewInputError("Shared review is not available.", 404);
+    const root = this.repositoryRoot(id);
+
+    try {
+      this.setStatus(id, "fetching");
+
+      if (!(await repositoryReady(root, saved.snapshot.pins))) {
+        const prior = this.repositories.get(id);
+        await local.data.workspaces.remove(id);
+
+        if (prior) await local.data.forgetRepository(prior);
+        await rm(root, { recursive: true, force: true });
+        await this.fetchRepository(
+          root,
+          saved.manifest.repository.cloneUrl,
+          saved.snapshot.pins,
+        );
+        await sharedGit(root, [
+          "checkout",
+          "--detach",
+          saved.snapshot.pins.head,
+        ]);
+      }
+
+      const repository = await local.data.register(root);
+      this.repositories.set(id, repository.id);
+      await writeFile(
+        path.join(this.root, id, "repository.json"),
+        JSON.stringify({ repositoryId: repository.id, ready: false }),
+        { mode: 0o600 },
+      );
+      const pins = { ...saved.snapshot.pins, repositoryId: repository.id };
+      this.setStatus(id, "validating");
+      await local.data.validatePins(pins);
+
+      const references = sourceReferences(saved.snapshot.document).map(
+        (item) => item.source,
+      );
+
+      for (const map of Object.values(saved.presentation.maps))
+        for (const element of map.elements)
+          for (const range of element.sourceRanges ?? [])
+            references.push({ ...range, side: map.side });
+
+      for (const source of references) await local.data.quote(pins, source);
+      await local.data.workspaces.open(id, pins);
+
+      if (
+        local.data.workspaces.list(id).some((workspace) => !workspace.rootPath)
+      )
+        throw new ReviewInputError(
+          "Could not prepare the pinned checkout. Retry opening the share.",
+          409,
+        );
+      await writeFile(
+        path.join(this.root, id, "repository.json"),
+        JSON.stringify({ repositoryId: repository.id, ready: true }),
+        { mode: 0o600 },
+      );
+      this.setStatus(id, "ready");
+    } catch (error) {
+      const message =
+        error instanceof ReviewInputError
+          ? error.message
+          : "Could not prepare the shared repository. Check Git credentials and retry.";
+
+      this.setStatus(id, "error", message);
+      throw new ReviewInputError(message, 409);
+    }
+  }
+
+  async assertReady(id: string) {
+    const saved = this.validated.get(id);
+
+    if (
+      !saved ||
+      !(await repositoryReady(this.repositoryRoot(id), saved.snapshot.pins))
+    ) {
+      this.setStatus(
+        id,
+        "error",
+        "The managed checkout is missing. Reopen the share link to fetch it again.",
+      );
+      throw new ReviewInputError(this.status(id).error!, 409);
+    }
+
+    this.get(id);
+  }
 
   subscribe(listener: () => void) {
     this.listeners.add(listener);
@@ -246,6 +405,52 @@ export class SharedReviewStore {
       });
       this.validated.set(id, validated);
 
+      let prepared = false;
+
+      try {
+        const metadata = z
+          .strictObject({ repositoryId: z.string(), ready: z.boolean() })
+          .parse(
+            JSON.parse(
+              await readFile(
+                path.join(this.root, id, "repository.json"),
+                "utf8",
+              ),
+            ),
+          );
+
+        if (
+          this.local?.store.repositoryPath(metadata.repositoryId) ===
+          path.join(await realpath(this.root), ".repositories", id)
+        ) {
+          this.repositories.set(id, metadata.repositoryId);
+          prepared = metadata.ready;
+        }
+      } catch {
+        /* A first or interrupted import has no local registration yet. */
+      }
+
+      if (
+        prepared &&
+        this.local &&
+        (await repositoryReady(
+          this.repositoryRoot(id),
+          validated.snapshot.pins,
+        ))
+      ) {
+        const repository = await this.local.data.register(
+          this.repositoryRoot(id),
+        );
+
+        this.repositories.set(id, repository.id);
+        this.setStatus(id, "ready");
+      } else
+        this.setStatus(
+          id,
+          "error",
+          "Reopen the share link to fetch its repository.",
+        );
+
       try {
         this.attention.set(
           id,
@@ -267,6 +472,10 @@ export class SharedReviewStore {
         /* Attention is optional local metadata. */
       }
     }
+
+    this.catalogLoaded = true;
+
+    for (const listener of this.listeners) listener();
   }
 
   get(id: string) {
@@ -275,12 +484,25 @@ export class SharedReviewStore {
     if (!bundle)
       throw new ReviewInputError("Shared review is not available.", 404);
     const validated = this.validated.get(id)!;
+    const repositoryId = this.repositories.get(id);
+
+    if (
+      !repositoryId ||
+      this.status(id).stage !== "ready" ||
+      !existsSync(path.join(this.repositoryRoot(id), ".git"))
+    )
+      throw new ReviewInputError(
+        this.status(id).error ??
+          "Fetch the shared repository before opening this review.",
+        409,
+      );
 
     return {
       ...validated,
       snapshot: {
         ...validated.snapshot,
         reviewId: id,
+        pins: { ...validated.snapshot.pins, repositoryId },
         shared: {
           ...bundle.attribution,
           cloneUrl: bundle.manifest.repository?.cloneUrl,
@@ -290,16 +512,24 @@ export class SharedReviewStore {
   }
 
   list() {
-    return [...this.loaded.keys()].map((id) => {
-      const { document: _document, ...snapshot } = this.get(id).snapshot;
+    return this.loaded
+      .keys()
+      .filter(
+        (id) =>
+          this.status(id).stage === "ready" &&
+          existsSync(path.join(this.repositoryRoot(id), ".git")),
+      )
+      .map((id) => {
+        const { document: _document, ...snapshot } = this.get(id).snapshot;
 
-      return {
-        ...snapshot,
-        repositoryName: "Shared review",
-        viewedAt: this.attention.get(id)?.viewedAt ?? null,
-        dismissedAt: this.attention.get(id)?.dismissedAt ?? null,
-      };
-    });
+        return {
+          ...snapshot,
+          repositoryName: "Shared review",
+          viewedAt: this.attention.get(id)?.viewedAt ?? null,
+          dismissedAt: this.attention.get(id)?.dismissedAt ?? null,
+        };
+      })
+      .toArray();
   }
 
   async readObject(id: string, objectId: string) {
@@ -322,8 +552,21 @@ export class SharedReviewStore {
   }
 
   async removeLocal(id: string) {
-    this.get(id);
-    await removeSharedRepository(this, id);
+    await this.jobs.get(id)?.catch(() => {});
+
+    if (!this.loaded.has(id))
+      throw new ReviewInputError("Shared review is not available.", 404);
+    await this.local?.data.workspaces.remove(id);
+    const repositoryId = this.repositories.get(id);
+
+    if (repositoryId) {
+      await this.local?.data.forgetRepository(repositoryId);
+      this.local?.store.unregisterRepository(repositoryId);
+    }
+
+    await rm(this.repositoryRoot(id), { recursive: true, force: true });
+    this.repositories.delete(id);
+    this.states.delete(id);
     await rm(path.join(this.root, id), { recursive: true, force: true });
     this.loaded.delete(id);
     this.validated.delete(id);
@@ -406,6 +649,8 @@ export class SharedReviewStore {
     this.validated.set(id, validated);
 
     for (const listener of this.listeners) listener();
+
+    await this.prepare(id);
 
     return id;
   }

@@ -117,7 +117,7 @@ export function browserOpenCommand(
 }
 
 /** Opens a URL in the browser. Callers inject a stub in tests. */
-async function defaultOpenUrl(url: string): Promise<void> {
+export async function openUrlInBrowser(url: string): Promise<void> {
   const { spawn } = await import("node:child_process");
 
   const child = spawn(browserOpenCommand(), [url], {
@@ -156,7 +156,7 @@ export async function runStoreLogin(input: {
     return failWithJsonError(output, "login", errorMessage(error));
   }
 
-  const openUrl = input.openUrl ?? defaultOpenUrl;
+  const openUrl = input.openUrl ?? openUrlInBrowser;
   const sleep = input.sleep ?? defaultSleep;
   const client = new StoreClient({ origin, fetch: input.fetch });
   const existing = input.traces ? await readStoreAuth(input.env) : null;

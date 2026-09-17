@@ -42,7 +42,7 @@ export async function runShareCli(input: {
           : z.number().int().nonnegative().parse(Number(input.version));
 
       input.stderr.write(
-        "Sharing includes full referenced source files and retained trace conversations. Anyone with the link can download them.\n",
+        "Sharing includes retained images, maps, and full trace conversations. Anyone with the link can download them. Recipients need GitHub repository access to fetch the pinned commits.\n",
       );
 
       const result = resultSchema.parse(

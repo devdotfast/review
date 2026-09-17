@@ -12,6 +12,7 @@ afterEach(async () => {
   await act(async () => dispose?.());
   document.body.replaceChildren();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 it("shares the version selected before login and keeps a manual copy fallback", async () => {
@@ -109,4 +110,20 @@ it("shares the version selected before login and keeps a manual copy fallback", 
   );
   expect(container.querySelector("input")?.value).toContain("#capability");
   expect(container.textContent).toContain("Copy the link below.");
+  let copied = "";
+  Object.defineProperty(document, "execCommand", {
+    configurable: true,
+    value: () => {
+      copied = document.querySelector("textarea")!.value;
+
+      return true;
+    },
+  });
+  await act(async () =>
+    [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Copy link")!
+      .click(),
+  );
+  expect(copied).toBe(container.querySelector("input")?.value);
+  delete (document as Partial<Document>).execCommand;
 });

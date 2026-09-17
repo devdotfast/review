@@ -12,10 +12,7 @@ export function normalizeReviewView(
 
   if (view === "trace" && !hasTraceSessions) return "review";
 
-  if (
-    !hasChangeRange &&
-    (view === "commits" || view === "diff" || view === "trace")
-  ) {
+  if (!hasChangeRange && (view === "commits" || view === "diff")) {
     return "review";
   }
 

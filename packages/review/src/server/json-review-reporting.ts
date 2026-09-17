@@ -148,19 +148,7 @@ export function createJsonReviewReporting(
                 omitted: [],
               }),
               map: async () => JSON.stringify(imported.presentation.maps),
-              diff: async () => ({
-                files: imported.presentation.diffs.map((file) => ({
-                  ...file,
-                  status:
-                    file.status === "copied" ||
-                    file.status === "unmerged" ||
-                    file.status === "unknown"
-                      ? "modified"
-                      : file.status,
-                })),
-                baseRef: snapshot.pins.base,
-                headRef: snapshot.pins.head,
-              }),
+              diff: () => jsonReviewBugReportSource(store, snapshot).diff(),
               trace: async () => null,
             }
           : jsonReviewBugReportSource(store, snapshot),

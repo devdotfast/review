@@ -1739,6 +1739,117 @@ it("resolves omitted commit base once and preserves explicit parent comparisons"
   expect(await local.data.changes(comparison.pins)).not.toEqual([]);
 });
 
+it("reads current working source across authored versions, commits and retargeting", async () => {
+  const beforeIndex = git("diff", "--cached");
+  const repositoryId = pins.repositoryId;
+  writeFileSync(
+    path.join(repository, "example.ts"),
+    "export const live = 1;\n",
+  );
+  writeFileSync(
+    path.join(repository, "untracked.ts"),
+    "export const fresh = true;\n",
+  );
+
+  const request = command({
+    type: "create",
+    title: "Working files",
+    target: { kind: "worktree", repositoryId },
+  });
+
+  const result = await local.store.execute(request);
+  const original = local.store.read(result.reviewId, 0);
+  expect(
+    (await local.data.file(original.pins, "head", "example.ts")).text,
+  ).toContain("live = 1");
+  expect(await local.data.tree(original.pins, "head", "")).toContainEqual({
+    path: "untracked.ts",
+    kind: "file",
+  });
+  expect(await local.data.changes(original.pins)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "untracked.ts", status: "added" }),
+    ]),
+  );
+  writeFileSync(
+    path.join(repository, "example.ts"),
+    "export const live = 2;\n",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  const current = local.store.read(result.reviewId);
+  expect(
+    (await local.data.file(current.pins, "head", "example.ts")).text,
+  ).toContain("live = 2");
+  expect(
+    (
+      await local.data.file(
+        local.store.read(result.reviewId, 0).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("live = 2");
+  expect(local.store.history(result.reviewId)).toHaveLength(1);
+  expect(await local.store.execute(request)).toEqual(result);
+  expect(git("diff", "--cached")).toBe(beforeIndex);
+  git("add", ".");
+  git("commit", "-qm", "Save changes");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  expect(
+    await local.data.changes(local.store.read(result.reviewId).pins),
+  ).toEqual([]);
+  await local.store.execute(
+    command({
+      type: "set_target",
+      reviewId: result.reviewId,
+      target: { kind: "commits", repositoryId, head: pins.head },
+    }),
+  );
+  expect(local.store.read(result.reviewId).target?.kind).toBe("commits");
+  expect(
+    (await local.data.file(original.pins, "head", "example.ts")).text,
+  ).toContain("live = 2");
+});
+
+it("reads symlink text and an unborn repository without following external links or pinning", async () => {
+  const root = path.join(directory, "unborn");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-q", root]);
+  const repo = await local.data.register(root);
+  const outside = path.join(directory, "private.ts");
+  writeFileSync(outside, "secret\n");
+  symlinkSync(outside, path.join(root, "external.ts"));
+  writeFileSync(path.join(root, "first.ts"), "export const first = 1;\n");
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Unborn",
+      target: { kind: "worktree", repositoryId: repo.id },
+    }),
+  );
+
+  const snapshot = local.store.read(result.reviewId);
+  expect(
+    (await local.data.file(snapshot.pins, "head", "first.ts")).text,
+  ).toContain("first = 1");
+  expect(
+    (await local.data.file(snapshot.pins, "head", "external.ts")).text,
+  ).toBe(outside);
+  expect(await local.data.changes(snapshot.pins)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "first.ts", status: "added" }),
+    ]),
+  );
+  expect(
+    execFileSync("git", ["-C", root, "worktree", "list", "--porcelain"], {
+      encoding: "utf8",
+    }).match(/^worktree /gm),
+  ).toHaveLength(1);
+});
+
 it("keeps authored coordinates fixed as live source changes and warns only on unavailable ranges", async () => {
   writeFileSync(
     path.join(repository, "range.ts"),
@@ -1791,11 +1902,7 @@ it("reads current checkout even with an older authored version", async () => {
     command({
       type: "create",
       title: "Coherence",
-      target: {
-        kind: "worktree",
-        repositoryId: pins.repositoryId,
-        base: pins.base,
-      },
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
     }),
   );
 
@@ -1833,11 +1940,7 @@ it("keeps multiple worktrees bound to their selected directory and survives reop
     command({
       type: "create",
       title: "First",
-      target: {
-        kind: "worktree",
-        repositoryId: pins.repositoryId,
-        base: pins.base,
-      },
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
     }),
   );
 
@@ -1845,7 +1948,7 @@ it("keeps multiple worktrees bound to their selected directory and survives reop
     command({
       type: "create",
       title: "Second",
-      target: { kind: "worktree", repositoryId: other.id, base: pins.base },
+      target: { kind: "worktree", repositoryId: other.id },
     }),
   );
 
@@ -1897,11 +2000,7 @@ it("includes saved additions and deletions while keeping ignored and binary sour
     command({
       type: "create",
       title: "Files",
-      target: {
-        kind: "worktree",
-        repositoryId: pins.repositoryId,
-        base: pins.base,
-      },
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
     }),
   );
 

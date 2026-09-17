@@ -58,7 +58,7 @@ export const reviewTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("worktree"),
     repositoryId: label,
-    base: label,
+    base: label.optional(),
   }),
   z.strictObject({
     kind: z.literal("commits"),

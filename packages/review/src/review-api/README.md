@@ -233,13 +233,14 @@ commands are local and are never authored into review documents.
 
 ## Review targets
 
-`target` is either `{kind:"worktree",repositoryId,base}` or
+`target` is either `{kind:"worktree",repositoryId,base?}` or
 `{kind:"commits",repositoryId,head,base?}`. Commit revisions resolve on acceptance.
 Omitted commit base means source at head with no diff, exactly as base=head;
 supply its parent to review the changes introduced by a single commit.
 
 A worktree target follows saved files in that registered checkout, including
-staged, unstaged and nonignored untracked files. Whole-worktree targets without base follow in phase 2. No checkout is created.
+staged, unstaged and nonignored untracked files. Without base, Working changes
+compares with current HEAD (empty for unborn repositories). No checkout is created.
 Source ranges default to the head side. File saves refresh source without changing
 authored history. All versions of a live target read the current checkout; authors
 maintain their source references. Use a commit target for fixed source.

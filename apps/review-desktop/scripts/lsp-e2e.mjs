@@ -1438,8 +1438,18 @@ try {
     "staged, unstaged, and untracked saved files refresh while authored history stays fixed",
   );
 
+  const whole = await command({
+    type: "create",
+    title: "Whole checkout",
+    target: { kind: "worktree", repositoryId },
+  });
+
   await git(liveFixture.repo, "add", ".");
   await git(liveFixture.repo, "commit", "-qm", "Current working files");
+  await until(
+    async () => (await api(`/${whole.reviewId}/diff`)).length === 0,
+    "working changes baseline follows commit",
+  );
 
   const single = await command({
     type: "create",
@@ -1461,7 +1471,7 @@ try {
     ).text.startsWith("// saved unstaged line"),
   );
   await record(
-    "live worktree and explicit commit target stay distinct across checkout changes",
+    "whole-worktree commit baseline and explicit commit target stay distinct across checkout changes",
   );
   await stop();
   await launch();

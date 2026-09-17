@@ -16,13 +16,14 @@ export function authoringTools() {
     z.strictObject({ ...review, ...readQuerySchemas[name].shape });
 
   const descriptions = {
-    create: "Create a blank review at resolved source pins.",
+    create:
+      "Create a blank review at resolved source pins. For a PR review, also supply its canonical pullRequestUrl.",
     edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs. Accepted edits are saved immediately. Omitted placement appends; null removes an optional field in a patch.",
     rename: "Change the review title.",
     repin:
-      "Select new source pins and start a blank version. Previous content remains in history.",
+      "Update source pins or PR identity. Identical pins preserve the document; changed pins start a blank version. Previous content remains in history. Omitted pullRequestUrl preserves PR identity within the same repository; changing repositories clears it. Supply a URL to replace it or null to detach.",
     restore:
-      "Restore title, source pins and content from a saved version. Comments are not rolled back.",
+      "Restore title, source pins, PR identity and content from a saved version. Comments are not rolled back.",
     attention:
       "Mark a review viewed, dismissed or restored without changing its content.",
     delete: "Permanently delete this review and its history.",

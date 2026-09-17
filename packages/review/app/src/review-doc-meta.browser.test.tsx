@@ -9,6 +9,7 @@ import {
   createReviewSession,
 } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
+import { DisplayedReviewVersionContext } from "./review-history-control";
 import { testReviewBridge } from "./review-session-test-utils";
 
 let root: Root | null = null;
@@ -73,6 +74,74 @@ describe("ReviewDocumentMetaLine", () => {
     await vi.waitFor(() =>
       expect(container.textContent).toContain("updated 5 min ago"),
     );
+  });
+
+  it("refreshes PR identity and update time as the displayed version changes without remounting", async () => {
+    const now = Date.UTC(2026, 6, 22, 12, 10);
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
+    let meta = {
+      ok: true,
+      updatedAtMs: now - 300_000,
+      pullRequestNumber: null as number | null,
+      pullRequestUrl: null as string | null,
+    };
+
+    const session = createReviewSession(
+      testReviewBridge(
+        {},
+        {
+          request: async (url) =>
+            url.includes("/document-meta")
+              ? Response.json(meta)
+              : Response.json({ layers: [] }),
+        },
+      ),
+    );
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+
+    const render = async (version: number) => {
+      await act(async () => {
+        root?.render(
+          <ReviewSessionProvider session={session}>
+            <DisplayedReviewVersionContext.Provider value={version}>
+              <ReviewDocumentMetaLine />
+            </DisplayedReviewVersionContext.Provider>
+          </ReviewSessionProvider>,
+        );
+      });
+    };
+
+    await render(0);
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("updated 5 min ago"),
+    );
+    expect(container.querySelector("a")).toBeNull();
+    meta = {
+      ok: true,
+      updatedAtMs: now,
+      pullRequestNumber: 310,
+      pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
+    };
+    await render(1);
+    await vi.waitFor(() =>
+      expect(container.querySelector("a")?.getAttribute("href")).toBe(
+        meta.pullRequestUrl,
+      ),
+    );
+    expect(container.textContent).toContain("PR #310");
+    expect(container.textContent).toContain("updated just now");
+    meta = {
+      ok: true,
+      updatedAtMs: now,
+      pullRequestNumber: null,
+      pullRequestUrl: null,
+    };
+    await render(2);
+    await vi.waitFor(() => expect(container.querySelector("a")).toBeNull());
   });
 
   it("opens an available later Review in a background tab", async () => {

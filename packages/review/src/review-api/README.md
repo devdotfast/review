@@ -216,11 +216,15 @@ failed command leaves best-effort language services in that same pinned checkout
 without silently borrowing another checkout. Timeout and shutdown stop command
 process groups, leave no successful marker, and allow retry.
 
+Language queries require the displayed file to exactly match the file in the
+language environment. A changed file suppresses queries even on unchanged lines;
+matching contents use the same positions directly. Stale-request checks discard
+answers if the source or environment changes during a request.
+
 Definitions, type definitions, implementations, and references stay in the same
-review version, side, and selected commit when their destination ranges map to
-unchanged saved source. Preparation may generate or modify files: changed or
-absent saved destinations retain their native managed-checkout URIs. Conservative
-mapping and stale-request checks remain necessary even with a pinned environment.
+review version, side, and selected commit when the destination file matches its
+saved source. Preparation may generate or modify files: changed or absent saved
+destinations retain their native managed-checkout URIs.
 
 Preparation does not guarantee reproducibility unless the configured commands
 also reproduce dependencies, generated files, and the toolchain. Historical

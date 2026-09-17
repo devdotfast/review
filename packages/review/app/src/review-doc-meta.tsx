@@ -83,7 +83,7 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
   if (!meta?.pullRequestNumber && !diff && !updatedLabel) return null;
 
   return (
-    <div className="review-doc-meta">
+    <div className="review-doc-meta" data-review-copy-ignore>
       {meta?.pullRequestNumber != null &&
         (meta.pullRequestUrl ? (
           <a

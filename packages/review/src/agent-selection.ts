@@ -6,12 +6,6 @@ export const AgentSelectionSchema = z.strictObject({
   target: z.discriminatedUnion("kind", [
     z.strictObject({ kind: z.literal("text"), quote: z.string() }),
     z.strictObject({
-      kind: z.literal("graph"),
-      diagram: z.string(),
-      label: z.string(),
-      elementType: z.enum(["node", "edge"]),
-    }),
-    z.strictObject({
       kind: z.literal("code"),
       path: z.string(),
       side: z.enum(["base", "head"]),
@@ -21,24 +15,6 @@ export const AgentSelectionSchema = z.strictObject({
   ]),
   title: z.string().max(500),
   detail: z.string().max(24000).optional(),
-  diagramContext: z
-    .object({
-      kind: z.enum([
-        "node",
-        "sequence message",
-        "relationship",
-        "database use case",
-      ]),
-      description: z.string().optional(),
-      from: z.string().optional(),
-      to: z.string().optional(),
-      incoming: z.array(z.string()).optional(),
-      outgoing: z.array(z.string()).optional(),
-      operations: z.array(z.string()).optional(),
-      references: z.array(z.string()).optional(),
-      code: z.string().optional(),
-    })
-    .optional(),
   revision: z.string().max(200).optional(),
   selectedDiff: ReviewSelectedDiffSchema.optional(),
 });
@@ -60,43 +36,6 @@ export function selectionMarkdown(
       .split(/\r?\n/)
       .map((line) => `> ${line}`)
       .join("\n");
-
-  if (target.kind === "graph") {
-    const context = selection.diagramContext;
-
-    const label =
-      context?.kind === "sequence message"
-        ? "Message"
-        : context?.kind === "database use case"
-          ? "Use case"
-          : target.elementType === "edge"
-            ? "Relationship"
-            : "Node";
-
-    const list = (heading: string, values?: string[]) =>
-      values?.length
-        ? `${heading}:\n${values.map((value) => `- ${value}`).join("\n")}`
-        : "";
-
-    return [
-      `Diagram: ${target.diagram}`,
-      context?.from && context?.to ? `${context.from} → ${context.to}` : "",
-      `${label}: ${target.label}`,
-      context?.description ? `Description:\n${context.description}` : "",
-      list("Incoming", context?.incoming),
-      list("Outgoing", context?.outgoing),
-      list("Operations", context?.operations),
-      list("Referenced code", context?.references),
-      context?.code
-        ? `Message code:\n${context.code
-            .split("\n")
-            .map((line) => `    ${line}`)
-            .join("\n")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  }
 
   return [`## ${selection.title}`, selection.detail ?? "", sourceExcerpt]
     .filter(Boolean)

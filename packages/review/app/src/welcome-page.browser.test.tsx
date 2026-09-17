@@ -104,12 +104,14 @@ describe("Welcome agent installation", () => {
         await click("Expand Connect your agents");
         expect(state()).toBe("installed");
         await click("Expand Create your first review");
+
         const writeText = vi
           .spyOn(navigator.clipboard, "writeText")
           .mockResolvedValue();
 
         for (const kind of ["Review a change", "Architecture review"]) {
           await click(kind);
+
           const prompt = container.querySelector(
             ".review-home-prompt-body",
           )?.textContent;

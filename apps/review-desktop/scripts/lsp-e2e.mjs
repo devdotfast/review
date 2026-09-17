@@ -1524,7 +1524,8 @@ try {
     "export const fromHome = 1;\n",
   );
   await page.getByText("from-home.ts", { exact: true }).first().waitFor();
-  await page.getByText("nested", { exact: true }).first().dblclick();
+  await page.getByText("nested", { exact: true }).first().click();
+  await page.keyboard.press("ArrowRight");
   await page.getByText("child.ts", { exact: true }).first().waitFor();
   await command({
     type: "rename",

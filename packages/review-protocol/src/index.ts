@@ -12,6 +12,8 @@ export {
 } from "./code-peek-diff.js";
 
 import {
+  type ReviewAgentTraceListResponse,
+  ReviewAgentTraceListResponseSchema,
   type ReviewAgentTraceResponse,
   ReviewAgentTraceResponseSchema,
   type ReviewCliInstallApplyRequest,
@@ -162,6 +164,12 @@ export function parseReviewVerbRequest(value: JsonValue): ReviewVerbRequest {
 
 export function parseReviewVerbResponse(value: JsonValue): ReviewVerbResponse {
   return parseZod(ReviewVerbResponseSchema, value);
+}
+
+export function parseReviewAgentTraceListResponse(
+  value: JsonValue,
+): ReviewAgentTraceListResponse {
+  return parseZod(ReviewAgentTraceListResponseSchema, value);
 }
 
 export function parseReviewAgentTraceResponse(

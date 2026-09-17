@@ -4,6 +4,7 @@ import { git } from "@dev.fast/local-vcs";
 import { sessionIdSchema } from "@dev.fast/trace-protocol";
 
 import { errorMessage } from "./error-message";
+import { isOpenCodeSessionId } from "./opencode-trace-export";
 import {
   readTrailerSessions,
   syncReviewTrace,
@@ -14,9 +15,8 @@ import {
   writeTraceSessions,
 } from "./trace-agent-sessions";
 import type { TraceCommand, TraceScope } from "./trace-command";
-// The namespace import keeps the detached spawn observable to tests, which
-// intercept it through the module namespace.
-import * as hookRunner from "./trace-hook-runner";
+import { spawnDetachedTraceSync } from "./trace-hook-runner";
+import { findLocalTrace } from "./trace-local-sessions";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { selectTraceStorage } from "./trace-storage/resolve";
 
@@ -177,10 +177,25 @@ async function runPrePush(input: {
   const selection = selectTraceStorage(input.scope);
 
   for (const [sessionId, values] of sessionCommits) {
+    // Skip nonlocal files; leave OpenCode export to the sync.
+    if (!isOpenCodeSessionId(sessionId)) {
+      try {
+        if (!(await findLocalTrace(sessionId))) {
+          input.stderr.write(
+            `trace-sync: skipping ${sessionId}: no local transcript.\n`,
+          );
+          continue;
+        }
+      } catch (cause) {
+        warn(input.stderr, cause);
+        continue;
+      }
+    }
+
     if (selection.mode === "hosted") {
       // A hosted publish may take minutes; a push never waits for it. The
       // detached sync discovers this session's commits from the trailers.
-      hookRunner.spawnDetachedTraceSync({
+      spawnDetachedTraceSync({
         sessionId,
         cwd: input.cwd,
         scope: input.scope,

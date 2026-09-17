@@ -81,6 +81,7 @@ import { useTutorial } from "./tutorial-context";
 import { TutorialExperienceProvider } from "./tutorial-experience";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
+import { useTraceList } from "./use-trace-list";
 
 const DEFAULT_SIDE_PEEK_WIDTH = 560;
 
@@ -386,8 +387,13 @@ function ReviewLayoutContent({
     reviewFind?.setReviewActive(activeView === "review");
   }, [activeView, reviewFind]);
 
+  const storedList = useTraceList();
   const diffFiles = useReviewDiffFiles();
-  const hasTraceSessions = session.review!.traces.size > 0;
+
+  const hasTraceSessions =
+    (session.review?.traces.size ?? 0) > 0 ||
+    storedList.status !== "loaded" ||
+    storedList.sessions.length > 0;
 
   const filesTabFileCount = diffScope
     ? diffScope.fileCount
@@ -714,7 +720,10 @@ function ReviewLayoutContent({
               </div>
             )}
             {activeView === "trace" && (
-              <ReviewTraceView initialSelection={traceSelection} />
+              <ReviewTraceView
+                initialSelection={traceSelection}
+                storedList={storedList}
+              />
             )}
           </section>
         </TutorialExperienceProvider>

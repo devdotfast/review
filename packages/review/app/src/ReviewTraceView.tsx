@@ -5,10 +5,12 @@ import { useReviewSession } from "./host/review-session";
 import { ChevronIcon, TraceDocument, formatDuration } from "./trace-document";
 import { TraceRuler } from "./trace-ruler";
 import {
+  type AgentTraceStorage,
   type LoadedAgentTrace,
   makeAgentTraceKey,
   useAgentTrace,
 } from "./use-agent-trace";
+import { type TraceListState, useTraceList } from "./use-trace-list";
 
 export interface TraceSelection {
   sessionId: string;
@@ -18,8 +20,10 @@ export interface TraceSelection {
 
 export function ReviewTraceView({
   initialSelection,
+  storedList: providedList,
 }: {
   initialSelection?: TraceSelection;
+  storedList?: TraceListState;
 }) {
   const session = useReviewSession();
 
@@ -31,6 +35,10 @@ export function ReviewTraceView({
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement | null>(null);
+
+  // Read override only; capture and consent are unchanged.
+  const [storageOverride, setStorageOverride] =
+    useState<AgentTraceStorage | null>(null);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -60,9 +68,43 @@ export function ReviewTraceView({
     }
   }, [initialSelection]);
 
-  const sessions = [...session.review!.traces.values()].map(
-    (trace) => trace.session,
-  );
+  const storedList = useTraceList(storageOverride, providedList);
+
+  const list: TraceListState = useMemo(() => {
+    const retained = [
+      ...new Map(
+        [...(session.review?.traces.values() ?? [])].map((trace) => [
+          trace.session.sessionId,
+          trace.session,
+        ]),
+      ).values(),
+    ];
+
+    if (storedList.status === "loaded") {
+      const ids = new Set(retained.map((trace) => trace.sessionId));
+
+      return {
+        ...storedList,
+        sessions: [
+          ...retained,
+          ...storedList.sessions.filter((trace) => !ids.has(trace.sessionId)),
+        ],
+      };
+    }
+
+    return retained.length > 0
+      ? {
+          status: "loaded",
+          configured: true,
+          storage: null,
+          sources: [],
+          storageError: storedList.status === "error" ? storedList.error : null,
+          sessions: retained,
+        }
+      : storedList;
+  }, [session.review, storedList]);
+
+  const sessions = list.status === "loaded" ? list.sessions : [];
 
   // Build flat trace targets (main trace + each subagent)
   const targets = useMemo(() => {
@@ -119,7 +161,22 @@ export function ReviewTraceView({
 
   const activeKey = activeTarget?.key ?? null;
 
-  const detail = useAgentTrace(activeTarget?.sessionId, activeTarget?.trace);
+  const detail = useAgentTrace(
+    activeTarget?.sessionId,
+    activeTarget?.trace,
+    storageOverride,
+  );
+
+  // Keep source controls visible during refetch.
+  const [sourceChoices, setSourceChoices] = useState<AgentTraceStorage[]>([]);
+  useEffect(() => {
+    if (list.status === "loaded" && list.sources.length > 0) {
+      setSourceChoices(list.sources);
+    }
+  }, [list]);
+
+  const activeSource =
+    storageOverride ?? (list.status === "loaded" ? list.storage : null);
 
   const activeTrace = detail.status === "loaded" ? detail.trace : undefined;
 
@@ -134,17 +191,65 @@ export function ReviewTraceView({
         <TraceRuler events={detail.trace.events} />
       )}
       <div className="review-trace-column">
-        {sessions.length === 0 && (
-          <div className="review-trace-empty">
-            <span className="review-trace-kicker">Agent trace</span>
-            <p>No agent traces are retained in this review version.</p>
-            <p className="review-trace-note">
-              Sessions attach automatically through <code>Agent-Session:</code>{" "}
-              commit trailers when an agent commits with repository hooks
-              installed.
-            </p>
-          </div>
+        {list.status === "loading" && (
+          <p className="review-trace-note">Resolving agent sessions…</p>
         )}
+        {list.status === "error" && (
+          <p className="review-trace-note review-trace-note--error">
+            {list.error}
+          </p>
+        )}
+        {sourceChoices.length > 1 && (
+          <label className="review-trace-source">
+            <span className="review-trace-kicker">Trace source</span>
+            <select
+              aria-label="Trace source"
+              value={activeSource ?? ""}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setStorageOverride(
+                  value === "s3" || value === "hosted" ? value : null,
+                );
+              }}
+            >
+              {sourceChoices.map((source) => (
+                <option key={source} value={source}>
+                  {source === "s3" ? "S3/R2 bucket" : "Hosted store"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {list.status === "loaded" &&
+          (list.storageError !== null || !list.configured) && (
+            <div className="review-trace-unconfigured">
+              <span className="review-trace-kicker">Agent trace</span>
+              {list.storageError !== null ? (
+                <p>{list.storageError}</p>
+              ) : (
+                <>
+                  <p>Agent traces are not configured.</p>
+                  <p className="review-trace-note">
+                    Open Agent Setup in Review Desktop to enable trace capture.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        {list.status === "loaded" &&
+          list.configured &&
+          list.storageError === null &&
+          sessions.length === 0 && (
+            <div className="review-trace-empty">
+              <span className="review-trace-kicker">Agent trace</span>
+              <p>No agent sessions are recorded for this change range.</p>
+              <p className="review-trace-note">
+                Sessions attach automatically through{" "}
+                <code>Agent-Session:</code> commit trailers when an agent
+                commits with repository hooks installed.
+              </p>
+            </div>
+          )}
         {targets.length > 1 && activeTarget && (
           <div className="review-trace-picker" ref={pickerRef}>
             <button

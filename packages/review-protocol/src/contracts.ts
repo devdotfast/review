@@ -1068,6 +1068,22 @@ export type ReviewSurfaceEvent = z.infer<typeof ReviewSurfaceEventSchema>;
 
 // --- Agent trace view & trace quotes ----------------------------------------
 
+export const ReviewAgentTraceListResponseSchema = z.discriminatedUnion("ok", [
+  z.strictObject({
+    ok: z.literal(true),
+    configured: z.boolean().default(true),
+    storage: z.enum(["s3", "hosted", "none"]).optional(),
+    sources: z.array(z.enum(["s3", "hosted"])).optional(),
+    storageError: requiredString.optional(),
+    sessions: z.array(ReviewAgentTraceSessionSchema),
+  }),
+  ReviewErrorResponseSchema,
+]);
+
+export type ReviewAgentTraceListResponse = z.infer<
+  typeof ReviewAgentTraceListResponseSchema
+>;
+
 export const ReviewAgentTraceResponseSchema = z.discriminatedUnion("ok", [
   z.strictObject({
     ok: z.literal(true),

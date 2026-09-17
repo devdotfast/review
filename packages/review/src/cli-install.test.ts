@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import {
   lstat,
   mkdir,
@@ -9,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
@@ -24,6 +26,7 @@ import {
   resolveCliInstallStatus,
   resolveInstalledReviewAgentStatus,
   skipCliInstall,
+  writePathShim,
 } from "./cli-install";
 
 const temporaryDirectories: string[] = [];
@@ -615,3 +618,64 @@ function profileEnvironment(homeDir: string, shell: string): NodeJS.ProcessEnv {
     SHELL: shell,
   };
 }
+
+describe("installed launcher runtime selection", () => {
+  it.each([
+    ["healthy discovery", true, true, false, "discovered"],
+    ["missing discovered CLI", false, true, false, "fallback"],
+    ["missing discovered runtime", true, false, false, "fallback"],
+    ["delegation disabled", true, true, true, "fallback"],
+  ] as const)(
+    "runs a matched CLI and runtime with %s",
+    async (_name, cliExists, runtimeExists, noDelegate, expected) => {
+      const home = await temporaryHome("review-shim-routing-");
+      const shim = path.join(home, "review");
+      const fallbackCli = path.join(home, "fallback-cli.js");
+      const fallbackRuntime = path.join(home, "fallback-runtime");
+      const discoveredCli = path.join(home, "discovered-cli.js");
+      const discoveredRuntime = path.join(home, "discovered-runtime");
+      await writeFile(fallbackCli, "// CLI fixture\n");
+      await writeFile(
+        fallbackRuntime,
+        '#!/bin/sh\nprintf "%s\\n" "fallback" "guard=$DEV_FAST_REVIEW_CLI_NO_DELEGATE" "delegated=$DEV_FAST_REVIEW_CLI_DELEGATED" "$@"\n',
+        { mode: 0o755 },
+      );
+
+      if (cliExists) await writeFile(discoveredCli, "// CLI fixture\n");
+
+      if (runtimeExists)
+        await writeFile(
+          discoveredRuntime,
+          '#!/bin/sh\nprintf "%s\\n" "discovered" "guard=$DEV_FAST_REVIEW_CLI_NO_DELEGATE" "delegated=$DEV_FAST_REVIEW_CLI_DELEGATED" "$@"\n',
+          { mode: 0o755 },
+        );
+      const discoveryDir = path.join(home, "review-desktop");
+      await mkdir(discoveryDir);
+      await writeFile(
+        path.join(discoveryDir, "server.json"),
+        JSON.stringify({
+          cliPath: discoveredCli,
+          cliRuntimePath: discoveredRuntime,
+        }),
+      );
+      await writePathShim(shim, fallbackCli, fallbackRuntime);
+
+      const { stdout } = await promisify(execFile)(shim, ["trace", "status"], {
+        env: {
+          ...process.env,
+          DEV_REVIEW_HOME: home,
+          DEV_FAST_REVIEW_CLI_NO_DELEGATE: noDelegate ? "1" : "",
+        },
+      });
+
+      expect(stdout.trim().split("\n")).toEqual([
+        expected,
+        "guard=1",
+        `delegated=${expected === "discovered" ? "1" : ""}`,
+        expected === "fallback" ? fallbackCli : discoveredCli,
+        "trace",
+        "status",
+      ]);
+    },
+  );
+});

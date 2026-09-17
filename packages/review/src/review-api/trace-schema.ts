@@ -9,5 +9,5 @@ export const traceSchema = z.strictObject({
       text: z.string(),
     }),
   ),
-  provenance: z.literal("client_supplied").optional(),
+  provenance: z.enum(["client_supplied", "legacy_import"]).optional(),
 });

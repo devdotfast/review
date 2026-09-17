@@ -53,14 +53,15 @@ export function fixtureReviewBridge(api: FixtureReviewApi): ReviewCanvasBridge {
     if (map && api.maps && Object.hasOwn(api.maps, map[1]!))
       return Response.json(api.maps[map[1]!]);
 
-    const resource = /^\/resources\/([^/]+)$/.exec(route);
+    const resource = /^\/([^/]+)\/resources\/([^/]+)$/.exec(route);
 
     if (
       resource &&
+      resource[1] === id &&
       api.resources &&
-      Object.hasOwn(api.resources, resource[1]!)
+      Object.hasOwn(api.resources, resource[2]!)
     ) {
-      const value = api.resources[resource[1]!];
+      const value = api.resources[resource[2]!];
 
       return isBytes(value)
         ? new Response(new Blob([value.bytes]), {

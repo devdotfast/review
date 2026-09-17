@@ -145,7 +145,7 @@ async function fixture(name) {
   await git(repo, "config", "user.email", "review-lsp@example.invalid");
   await writeFile(
     path.join(repo, ".gitignore"),
-    "node_modules/\n__pycache__/\n",
+    "node_modules/\n__pycache__/\n.prepare-count\nnew-library.ts\n",
   );
   await writeFile(
     path.join(repo, "tsconfig.json"),
@@ -176,6 +176,17 @@ async function fixture(name) {
     'export const renamed = greet();\nimport { greet } from "./library";\n',
   );
   await writeFile(path.join(repo, "deleted.ts"), "export const removed = 1;\n");
+  await writeFile(
+    path.join(repo, "prepare.cjs"),
+    String.raw`const fs = require("node:fs");
+const number = fs.readFileSync("library.ts", "utf8").includes("greet(): number");
+fs.mkdirSync("node_modules/fixture-dependency", {recursive:true});
+fs.writeFileSync("node_modules/fixture-dependency/package.json", JSON.stringify({name:"fixture-dependency",version:"1.0.0",types:"index.d.ts"}));
+fs.writeFileSync("node_modules/fixture-dependency/index.d.ts", 'export declare function dependencyValue(): ' + (number ? 'number' : '"installed"') + ';\n');
+fs.appendFileSync(".prepare-count", "prepared\n");
+`,
+  );
+  await git(repo, "config", "devfast.prepare", "node prepare.cjs");
   await git(repo, "add", ".");
   await git(repo, "commit", "-qm", "Base P");
   const base = await git(repo, "rev-parse", "HEAD");
@@ -468,6 +479,18 @@ function locationUri(value) {
   return value?.replace(/\?.*$/, (query) => decodeURIComponent(query));
 }
 
+async function readyEnvironment(review, side = "head") {
+  return until(async () => {
+    const result = await api(
+      `/${review.reviewId}/language-context?version=${review.version}&side=${side}`,
+    );
+
+    assert.notEqual(result.state, "failed", result.log);
+
+    return result.state === "ready" && result;
+  }, "prepared pinned environment");
+}
+
 async function expectDefinition(sourceUri, position, target, targetLine) {
   return until(async () => {
     const response = await probe({
@@ -548,6 +571,20 @@ try {
     return true;
   }, "rendered review");
   const greetAt = at(mainText("head"), 3, "greet");
+  const headEnvironment = await readyEnvironment(review);
+  const baseEnvironment = await readyEnvironment(review, "base");
+  await page.getByText("Language environment ready", { exact: true }).waitFor();
+  await page.screenshot({ path: path.join(root, "preparation-ready.png") });
+  assert.notEqual(headEnvironment.rootPath, baseEnvironment.rootPath);
+  assert.equal(
+    (
+      await readFile(
+        path.join(headEnvironment.rootPath, ".prepare-count"),
+        "utf8",
+      )
+    ).trim(),
+    "prepared",
+  );
 
   for (const side of ["base", "head"]) {
     await expectDefinition(
@@ -567,7 +604,7 @@ try {
   });
   await page
     .locator(".monaco-hover:visible")
-    .filter({ hasText: "local checkout" })
+    .filter({ hasText: "greet" })
     .first()
     .waitFor();
   await page.screenshot({ path: path.join(root, "typescript-hover.png") });
@@ -631,7 +668,10 @@ try {
   await expectDefinition(
     uri(review),
     at(mainText("head"), 6, "dependencyValue"),
-    path.join(first.repo, "node_modules/fixture-dependency/index.d.ts"),
+    path.join(
+      headEnvironment.rootPath,
+      "node_modules/fixture-dependency/index.d.ts",
+    ),
     0,
   );
   await expectDefinition(
@@ -685,12 +725,12 @@ try {
   );
 
   const originalLibrary = await readFile(
-    path.join(first.repo, "library.ts"),
+    path.join(headEnvironment.rootPath, "library.ts"),
     "utf8",
   );
 
   await writeFile(
-    path.join(first.repo, "library.ts"),
+    path.join(headEnvironment.rootPath, "library.ts"),
     "// local header\n" + originalLibrary,
   );
 
@@ -703,22 +743,31 @@ try {
     );
   }
 
-  await writeFile(path.join(first.repo, "library.ts"), originalLibrary);
+  await writeFile(
+    path.join(headEnvironment.rootPath, "library.ts"),
+    originalLibrary,
+  );
   await record("cross-file destination line shifts map back to the saved side");
 
-  await writeFile(path.join(first.repo, "new-library.ts"), originalLibrary);
   await writeFile(
-    path.join(first.repo, "main.ts"),
+    path.join(headEnvironment.rootPath, "new-library.ts"),
+    originalLibrary,
+  );
+  await writeFile(
+    path.join(headEnvironment.rootPath, "main.ts"),
     mainText("head").replace('"./library"', '"./new-library"'),
   );
   await expectDefinition(
     uri(review),
     greetAt,
-    path.join(first.repo, "new-library.ts"),
+    path.join(headEnvironment.rootPath, "new-library.ts"),
     2,
   );
-  await writeFile(path.join(first.repo, "main.ts"), mainText("head"));
-  await rm(path.join(first.repo, "new-library.ts"));
+  await writeFile(
+    path.join(headEnvironment.rootPath, "main.ts"),
+    mainText("head"),
+  );
+  await rm(path.join(headEnvironment.rootPath, "new-library.ts"));
   await record("destinations absent from the saved commit remain local");
 
   await writeFile(
@@ -750,10 +799,10 @@ try {
     await expectDefinition(
       uri(review, side),
       greetAt,
-      path.join(first.repo, "library.ts"),
+      uri(review, side, "library.ts"),
       2,
     );
-    const result = await expectHover(uri(review, side), greetAt, "number");
+    const result = await expectHover(uri(review, side), greetAt, "string");
     assert.equal(result.active.text, mainText(side));
     await expectDefinition(
       uri(review, side),
@@ -781,12 +830,17 @@ try {
     workingMain,
   );
   await record(
-    "pinned A remains unchanged over B plus staged/unstaged edits; LSP uses current project semantics",
+    "pinned LSP ignores newer commits and staged/unstaged changes in the invoking checkout",
+  );
+
+  const managedMain = await readFile(
+    path.join(headEnvironment.rootPath, "main.ts"),
+    "utf8",
   );
 
   await writeFile(
-    path.join(first.repo, "main.ts"),
-    workingMain.replace(
+    path.join(headEnvironment.rootPath, "main.ts"),
+    managedMain.replace(
       "export const value = greet();",
       "export const value = service.run();",
     ),
@@ -801,8 +855,8 @@ try {
 
   assert.equal(unavailable.result?.length ?? 0, 0);
   await writeFile(
-    path.join(first.repo, "main.ts"),
-    workingMain.replace("export const value = greet();\r\n", ""),
+    path.join(headEnvironment.rootPath, "main.ts"),
+    managedMain.replace("export const value = greet();\r\n", ""),
   );
 
   const deletedLine = await probe({
@@ -814,8 +868,8 @@ try {
 
   assert.equal(deletedLine.result?.length ?? 0, 0);
   await writeFile(
-    path.join(first.repo, "main.ts"),
-    "// another shift\n" + workingMain,
+    path.join(headEnvironment.rootPath, "main.ts"),
+    "// another shift\n" + managedMain,
   );
   await expectDefinition(
     uri(review),
@@ -830,6 +884,7 @@ try {
     "changed symbols are unavailable and further edits invalidate mappings",
   );
 
+  await writeFile(path.join(headEnvironment.rootPath, "main.ts"), managedMain);
   // Only mutate the disposable fixture: test changing branches with Review still open.
   await git(first.repo, "reset", "--hard", first.head);
   await git(first.repo, "checkout", "--detach", first.base);
@@ -858,7 +913,11 @@ try {
     open: true,
   });
 
-  assert.equal(renamed.result?.length ?? 0, 0);
+  assert.ok(
+    locations(renamed.result).some(
+      (item) => locationUri(item.uri) === uri(review, "base", "library.ts"),
+    ),
+  );
   await expectDefinition(
     uri(review, "head", "renamed.ts"),
     { line: 0, character: 25 },
@@ -965,7 +1024,7 @@ try {
     await probe({ command: "editor.action.showHover" });
     await page
       .locator(".monaco-hover:visible")
-      .filter({ hasText: "local checkout" })
+      .filter({ hasText: "greet" })
       .first()
       .waitFor();
     await page.screenshot({
@@ -1000,7 +1059,7 @@ try {
     await probe({ command: "editor.action.showHover" });
     await page
       .locator(".monaco-hover:visible")
-      .filter({ hasText: "local checkout" })
+      .filter({ hasText: "greet" })
       .first()
       .waitFor();
     await page.screenshot({ path: path.join(root, `diff-${side}-hover.png`) });
@@ -1060,10 +1119,114 @@ try {
       .split("\n")
       .filter((line) => line.startsWith("worktree "));
 
-    assert.deepEqual(paths, [`worktree ${fix.repo}`]);
+    assert.ok(paths.includes(`worktree ${fix.repo}`));
+    assert.ok(paths.length > 1);
+    assert.ok(
+      paths
+        .filter((item) => item !== `worktree ${fix.repo}`)
+        .every((item) => item.includes("/.git/dev-fast/reviews/")),
+    );
   }
 
-  await record("language services never create additional worktrees");
+  await record("commit reviews reuse only their managed pinned worktrees");
+  const precision = await fixture("precision");
+  await writeFile(
+    path.join(precision.repo, "library.ts"),
+    libraryText("number", "42"),
+  );
+  await writeFile(
+    path.join(precision.repo, "library_py.py"),
+    "def greet() -> int:\n    return 42\n",
+  );
+  await git(precision.repo, "add", ".");
+  await git(precision.repo, "commit", "-qm", "Different historical types");
+  precision.head = await git(precision.repo, "rev-parse", "HEAD");
+  const exact = await createReview(precision, "Historical project semantics");
+  await readyEnvironment(exact);
+  await readyEnvironment(exact, "base");
+
+  for (const [side, type, dependency, python] of [
+    ["base", "string", "installed", "str"],
+    ["head", "number", "number", "int"],
+  ]) {
+    await expectHover(uri(exact, side), greetAt, type);
+    await expectHover(
+      uri(exact, side),
+      at(mainText("head"), 6, "dependencyValue"),
+      dependency,
+    );
+    await expectHover(
+      uri(exact, side, "main.py"),
+      { line: 2, character: 9 },
+      python,
+    );
+  }
+
+  await record(
+    "base/head TypeScript, Python and prepared dependencies use matching historical environments",
+  );
+  await git(
+    precision.repo,
+    "config",
+    "--add",
+    "devfast.prepare",
+    `node -e 'const fs=require("node:fs");const p="main.ts";fs.writeFileSync(p,fs.readFileSync(p,"utf8").replace("export const value = greet();","export const value = service.run();"))'`,
+  );
+  await readyEnvironment(exact);
+
+  const modifiedBySetup = await probe({
+    uri: uri(exact),
+    ...greetAt,
+    feature: definition,
+    open: true,
+  });
+
+  assert.equal(modifiedBySetup.result?.length ?? 0, 0);
+  await record(
+    "changed preparation invalidates cached models and suppresses changed source positions",
+  );
+  await git(
+    precision.repo,
+    "config",
+    "--replace-all",
+    "devfast.prepare",
+    "echo fixture-preparation-failed; exit 7",
+  );
+
+  const failedPreparation = await until(async () => {
+    const environment = await api(
+      `/${exact.reviewId}/language-context?side=head&version=${exact.version}`,
+    );
+
+    return environment.state === "failed" && environment;
+  }, "preparation failure");
+
+  await probe({ command: "workbench.action.closeModalEditor" });
+  await api(`/${exact.reviewId}/open`, "POST");
+  await page
+    .getByText("Language environment needs attention", { exact: true })
+    .click();
+
+  const preparationRow = page.locator(
+    `[data-review-workspace-id="${failedPreparation.id}"]`,
+  );
+
+  await preparationRow.getByText(/fixture-preparation-failed/).waitFor();
+  await page.screenshot({ path: path.join(root, "preparation-failure.png") });
+  await git(
+    precision.repo,
+    "config",
+    "--replace-all",
+    "devfast.prepare",
+    "node prepare.cjs",
+  );
+  await preparationRow
+    .getByRole("button", { name: "Retry preparation" })
+    .click();
+  await readyEnvironment(exact);
+  await record(
+    "rendered preparation failure exposes logs and retries successfully",
+  );
   assert.deepEqual(errors, []);
   success = true;
 } finally {

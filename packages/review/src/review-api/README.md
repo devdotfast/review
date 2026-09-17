@@ -194,23 +194,35 @@ HTTP requests and restart. Existing desktop-server tests remain unchanged.
 
 ### Language information and committed source
 
-Committed review source remains fixed to its saved version and side. Desktop
-language queries reuse the registered local checkout and its installed dependencies;
-opening a committed review does not create a worktree or install dependencies.
-Unchanged source lines are mapped to the local file. Changed or missing query
-lines do not produce language results.
+Committed reviews use Review-owned worktrees at their base/head commits for
+language services. The displayed source remains the immutable Git source.
+Existing matching managed checkouts are reused; an equal base/head shares one
+checkout. Opening a review prepares its current sides in the background; older
+versions and selected commits acquire environments on demand.
+
+Configure preparation through the repository's existing Git configuration:
+
+```sh
+git config devfast.prepare 'pnpm install --frozen-lockfile'
+git config --add devfast.prepare 'pnpm generate'
+```
+
+Commands run in order inside each managed checkout, never in the invoking user
+checkout. Successful preparation is cached by checkout and command-list hash;
+changed commands or recreated checkouts invalidate it. The local status control
+shows preparation output and supports retry. Reading and authoring stay available
+while preparation runs. Language requests wait for preparation; no command or a
+failed command leaves best-effort language services in that same pinned checkout,
+without silently borrowing another checkout. Timeout and shutdown stop command
+process groups, leave no successful marker, and allow retry.
 
 Definitions, type definitions, implementations, and references stay in the same
-review version, side, and selected commit when the destination range can be
-mapped back to unchanged saved source. Changed destination ranges, newer files,
-and dependency-only files retain their native local destinations. Navigation may
-therefore leave the committed review when no safe saved destination exists.
+review version, side, and selected commit when their destination ranges map to
+unchanged saved source. Preparation may generate or modify files: changed or
+absent saved destinations retain their native managed-checkout URIs. Conservative
+mapping and stale-request checks remain necessary even with a pinned environment.
 
-Line mapping protects coordinates, not historical semantics: an unchanged call
-site can have a different type or resolve to a different symbol in the current
-project. Installing a pinned checkout would also require matching dependencies,
-generated files, and toolchain configuration to reproduce historical semantics.
-An optional prepared environment could provide that context in the future;
-source target selection and language-environment selection are separate concerns.
-Local language features require an available checkout even when review source can
-be displayed from retained data. No managed-environment mode is implemented here.
+Preparation does not guarantee reproducibility unless the configured commands
+also reproduce dependencies, generated files, and the toolchain. Historical
+checkouts remain until their owning review is deleted. Environment state and
+commands are local and are never authored into review documents.

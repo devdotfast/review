@@ -30,6 +30,7 @@ import {
   createReviewSession,
   useReviewSession,
 } from "./host/review-session";
+import { ProjectPreparation } from "./project-preparation";
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
@@ -290,6 +291,10 @@ export function ApiCanvas({
             <DisplayedReviewVersionContext.Provider
               value={data.snapshot.version}
             >
+              <ProjectPreparation
+                client={client}
+                reviewId={data.snapshot.reviewId}
+              />
               <RevealAfterFirstPaint>
                 <MapEnabled.Provider
                   value={content.softwareMapEnabled === true}

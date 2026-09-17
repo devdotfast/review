@@ -42,6 +42,7 @@ import {
 import { decodeImage } from "./image-decode.js";
 import { mapInputSchema } from "./map-input.js";
 import { ReviewStore } from "./store.js";
+import { ReviewWorkspaces } from "./workspaces.js";
 
 const traceSchema = z.strictObject({
   label: z.string(),
@@ -102,7 +103,9 @@ interface RepositoryVcs {
 
 /** Local source/resource boundary, including Desktop-only local language context. */
 export class LocalReviewData {
-  /** Desktop language services borrow the registered checkout, never create one. */
+  readonly workspaces: ReviewWorkspaces;
+
+  /** Local checkout context for live worktree targets only. */
   async languageContext(
     repositoryId: string,
   ): Promise<{ rootPath: string | null }> {
@@ -129,13 +132,22 @@ export class LocalReviewData {
 
   constructor(
     private readonly store: ReviewStore,
-    private readonly options: { blobReaderIdleTimeoutMs?: number } = {},
-  ) {}
+    private readonly options: {
+      blobReaderIdleTimeoutMs?: number;
+      workspaceDatabase?: string;
+    } = {},
+  ) {
+    this.workspaces = new ReviewWorkspaces(
+      options.workspaceDatabase ?? ":memory:",
+      store,
+    );
+  }
 
   private closed = false;
 
   async close(): Promise<void> {
     this.closed = true;
+    await this.workspaces.close();
     const readers = [...this.readers.values()];
 
     this.readers.clear();
@@ -680,7 +692,10 @@ export function openLocalReviewStore(
       data.validateSourceTolerant(pins, source, options),
   });
 
-  const data = new LocalReviewData(store, options);
+  const data = new LocalReviewData(store, {
+    ...options,
+    workspaceDatabase: `${databasePath}.workspaces`,
+  });
 
   return { store, data };
 }

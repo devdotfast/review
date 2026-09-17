@@ -1401,10 +1401,12 @@ try {
 
     return true;
   }, "reopen live review");
+  const reopened = await api(`/${live.reviewId}?full=true`);
+
   await expectDefinition(
-    uri(await api(`/${live.reviewId}?full=true`)),
+    uri(reopened),
     greetAt,
-    path.join(liveFixture.repo, "library.ts"),
+    uri(reopened, "head", "library.ts"),
     2,
   );
   assert.equal(

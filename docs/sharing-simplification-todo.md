@@ -11,7 +11,7 @@ https://github.com/Fix-Fast/dev/pull/1068.
 - [x] Restack Review on merged #332: main at `1cbb014e9`. The final base differs from the initially tested #332 only in its LSP test harness.
 - [x] Refresh both previous plans to point to this combined execution record.
 - [x] Keep protocol dependency and fixtures synchronized across repositories.
-- [ ] Commit changes in reviewable groups and update PR descriptions with evidence.
+- [x] Commit changes in reviewable groups and update PR descriptions with evidence.
 - [x] Review the final diffs and document any remaining release work.
 
 ## Dev authorization

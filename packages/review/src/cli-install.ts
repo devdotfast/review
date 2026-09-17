@@ -798,17 +798,23 @@ DISCOVERY="\${DEV_REVIEW_HOME:-$HOME/.dev}/review-desktop/server.json"
 
 cli=""
 runtime=""
-if [ -f "$DISCOVERY" ]; then
+if [ -z "\${DEV_FAST_REVIEW_CLI_NO_DELEGATE:-}" ] && [ -f "$DISCOVERY" ]; then
   cli=$(sed -n 's/.*"cliPath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
   runtime=$(sed -n 's/.*"cliRuntimePath"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$DISCOVERY" | head -n 1)
 fi
-if [ -z "$cli" ] || [ ! -f "$cli" ]; then cli="$FALLBACK_CLI"; fi
-if [ -z "$runtime" ] || [ ! -x "$runtime" ]; then runtime="$FALLBACK_RUNTIME"; fi
+if [ -z "$cli" ] || [ ! -f "$cli" ] || { [ -n "$runtime" ] && [ ! -x "$runtime" ]; }; then
+  cli="$FALLBACK_CLI"
+  runtime="$FALLBACK_RUNTIME"
+fi
 
 if [ ! -f "$cli" ]; then
   echo "Review CLI not found at $cli. Start Review Desktop, or run npx @dev.fast/review instead." >&2
   exit 1
 fi
+
+# Selection is complete. The CLI bootstrap must not reselect the discovery
+# entry after this launcher rejected it and chose the installed fallback.
+export DEV_FAST_REVIEW_CLI_DELEGATED=1
 
 # The app's Electron binary runs as plain Node.js and matches the server's
 # runtime exactly; no system Node is required on this path.

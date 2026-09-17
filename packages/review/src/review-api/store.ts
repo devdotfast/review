@@ -70,8 +70,7 @@ export const commandSchema = z.strictObject({
   ]),
 });
 
-/** How far legacy import has got with a review. The map is published apart
- * from the document, so it has a cursor of its own. */
+/** How far legacy import has got with a review; the map has its own cursor. */
 export interface LegacyImportProgress {
   revision: string;
   mapRevision: string | null;
@@ -188,9 +187,7 @@ export class ReviewStore {
       `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
     );
 
-    // The map is published apart from the document, so its progress is a
-    // column a home written before map resumption lacks; new homes get it
-    // from the table definition above.
+    // Homes written before map resumption lack the column.
     if (
       !this.db
         .prepare("PRAGMA table_info(legacy_imports)")
@@ -216,11 +213,9 @@ export class ReviewStore {
         }
       : null;
   }
-  /** Record how far legacy import has got. The map is published on its own,
-   * so a map imported without a version of its own is recorded here too. */
   recordLegacyImport(
     reviewId: string,
-    progress: { revision: string; mapRevision: string | null },
+    progress: Omit<LegacyImportProgress, "importedAt">,
   ) {
     this.db
       .prepare(
@@ -806,8 +801,7 @@ export class ReviewStore {
 
         const cursor = options.revision ?? inputs.at(-1)?.origin?.revision;
 
-        // The map is recorded by the importer once it knows whether it landed,
-        // so a map left out of this import stays pending for the next sweep.
+        // The importer records the map once it knows whether it landed.
         if (cursor)
           this.recordLegacyImport(reviewId, {
             revision: cursor,

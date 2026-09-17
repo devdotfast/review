@@ -223,8 +223,7 @@ export async function runImport(
   };
 }
 
-/** Seals a software map bundle as its own revision, the way `review map
- * publish` did: a revision holding the bundle and nothing else. */
+/** Seals a map bundle as a revision of its own, as `review map publish` did. */
 export async function sealLegacyMapRevision(
   dir: string,
   oid: string,

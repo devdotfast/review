@@ -51,7 +51,7 @@ export type ImportOutcome =
       version: number;
       warnings: string[];
     }
-  | { kind: "current"; reviewId: string; warnings: string[] }
+  | { kind: "current"; reviewId: string; warnings?: string[] }
   | { kind: "skipped"; reviewId: string; reason: string };
 
 export interface ImportLegacyReviewInput {
@@ -108,8 +108,7 @@ export async function importLegacyReview(
   const importedRevision = progress?.revision ?? null;
 
   // The import record outlives the review: a deleted review stays deleted.
-  if (progress && !store.has(reviewId))
-    return { kind: "current", reviewId, warnings: [] };
+  if (progress && !store.has(reviewId)) return { kind: "current", reviewId };
 
   const presentedMapRevision = record.presentedSoftwareMapRevision;
 
@@ -118,17 +117,15 @@ export async function importLegacyReview(
     input.completeHistory ||
     importedRevision !== record.presentedDocumentRevision;
 
-  // The map is published on its own, so it can be behind a current document:
-  // a map publish that overlapped the sweep, or one that failed to import.
+  // The map is published on its own, so it can lag a current document.
   const mapPending =
     presentedMapRevision !== null &&
     progress?.mapRevision !== presentedMapRevision;
 
-  // A current document leaves the map as the only thing left to import.
   if (!documentPending)
     return mapPending
       ? importPresentedMap(input, presentedMapRevision)
-      : { kind: "current", reviewId, warnings: [] };
+      : { kind: "current", reviewId };
 
   const imported = store.has(reviewId);
 
@@ -307,8 +304,7 @@ export async function importLegacyReview(
     const pins = await revisionPins(dir, entry.oid, data, repositoryId);
 
     if (mapRevision && entry.oid === record.presentedDocumentRevision) {
-      // A map that cannot be imported must not sink the document; it stays
-      // pending instead and the next sweep imports it alone.
+      // A map that fails stays pending for the next sweep; the document lands.
       const map = await importMapSection(
         review,
         mapRevision,
@@ -371,7 +367,7 @@ export async function importLegacyReview(
       };
     }
 
-    return { kind: "current", reviewId, warnings: [] };
+    return { kind: "current", reviewId };
   }
 
   if (!last)
@@ -397,8 +393,7 @@ export async function importLegacyReview(
     revision: record.presentedDocumentRevision,
   });
 
-  // The map is published apart from the document, so its cursor only moves
-  // once the section it names has landed.
+  // The map cursor moves only once its section has landed.
   store.recordLegacyImport(reviewId, {
     revision: record.presentedDocumentRevision,
     mapRevision: importedMap,
@@ -415,8 +410,8 @@ export async function importLegacyReview(
   };
 }
 
-/** Imports a map published after the document it belongs to: the section is
- * replaced in place, so ids and any edits the reader made elsewhere survive. */
+/** Imports a map published after its document, replacing the section in place
+ * so ids and the reader's edits survive. */
 async function importPresentedMap(
   input: ImportLegacyReviewInput,
   revision: string,
@@ -467,8 +462,7 @@ async function importPresentedMap(
   };
 }
 
-/** The section a map import writes: a reader who added their own blocks to it
- * keeps them, because this then finds no section to replace. */
+/** The section a map import wrote; one a reader added blocks to is left alone. */
 export function isMapSection(
   block: Block,
 ): block is Extract<Block, { type: "section" }> {
@@ -480,10 +474,9 @@ export function isMapSection(
   );
 }
 
-/** The map section for `revision`. `pins` are the version's when the section
- * will join one: the store rejects a map that does not match them, and
- * rejecting it here keeps that from failing the whole import. An archived map
- * joins no version, so it passes none. */
+/** The map section for `revision`. `pins` are the version's it joins: a map
+ * sealed against other commits is refused here, where it fails alone rather
+ * than the whole import; an archived map joins no version. */
 async function importMapSection(
   review: StoredReview,
   revision: string,

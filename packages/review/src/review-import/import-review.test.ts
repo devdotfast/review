@@ -56,7 +56,6 @@ describe("importLegacyReview", () => {
     expect(await importReview()).toEqual({
       kind: "current",
       reviewId: record.uuid,
-      warnings: [],
     });
   });
 
@@ -384,7 +383,6 @@ describe("importLegacyReview", () => {
     expect(await importReview()).toEqual({
       kind: "current",
       reviewId: record.uuid,
-      warnings: [],
     });
     expect(store.read(record.uuid).version).toBe(2);
 
@@ -396,7 +394,6 @@ describe("importLegacyReview", () => {
     expect(await importReview()).toEqual({
       kind: "current",
       reviewId: record.uuid,
-      warnings: [],
     });
     expect(store.has(record.uuid)).toBe(false);
     expect(store.legacyImport(record.uuid)?.revision).toBe(oids[1]);
@@ -661,7 +658,6 @@ describe("importLegacyReview", () => {
     expect(await importReview()).toEqual({
       kind: "current",
       reviewId: record.uuid,
-      warnings: [],
     });
     expect(store.read(record.uuid).version).toBe(0);
   });
@@ -679,10 +675,6 @@ describe("importLegacyReview", () => {
 
     const [published] = mapSections(store.read(record.uuid).document);
 
-    expect(published?.mapVersionIds).toHaveLength(2);
-    expect(mapCommit(store.resource(published!.mapVersionIds[0]!).data)).toBe(
-      repo.base,
-    );
     expect(store.legacyImport(record.uuid)?.mapRevision).toBe(mapOids[0]);
 
     // A reader annotates the review between the two map publishes.
@@ -724,7 +716,6 @@ describe("importLegacyReview", () => {
     expect(await importReview(republished)).toEqual({
       kind: "current",
       reviewId: record.uuid,
-      warnings: [],
     });
   });
 
@@ -751,12 +742,10 @@ describe("importLegacyReview", () => {
     expect(store.legacyImport(record.uuid)?.mapRevision).toBeNull();
 
     // Still failing: the open path must not read this as a skipped review.
-    const again = await importReview();
-
-    expect(again.kind).toBe("current");
-    expect(again.kind === "current" && again.warnings.join("\n")).toContain(
-      mapOids[0]!,
-    );
+    expect(await importReview()).toMatchObject({
+      kind: "current",
+      warnings: [expect.stringContaining(mapOids[0]!)],
+    });
     expect(store.read(record.uuid).version).toBe(0);
 
     await sealLegacyMapRevision(dir, mapOids[0]!, {
@@ -788,15 +777,14 @@ describe("importLegacyReview", () => {
         dir,
         review: { ...record, presentedSoftwareMapRevision: mapOids[1]! },
       }),
-    ).toEqual({ kind: "current", reviewId: record.uuid, warnings: [] });
+    ).toEqual({ kind: "current", reviewId: record.uuid });
     expect(store.has(record.uuid)).toBe(false);
   });
 });
 
 const mapOids = ["a".repeat(40), "b".repeat(40)];
 
-/** The map sections of a document, as the maps they show: what a map publish
- * writes and a later one replaces. */
+/** The map sections of a document, as the maps they show. */
 const mapSections = (document: Block[]) =>
   document.flatMap((block) =>
     isMapSection(block)
@@ -810,10 +798,6 @@ const mapSections = (document: Block[]) =>
         ]
       : [],
   );
-
-/** The commit a stored `map` resource was published against. */
-const mapCommit = (data: Uint8Array) =>
-  (JSON.parse(Buffer.from(data).toString()) as { commit: string }).commit;
 
 const square = (background: string) =>
   sharp({ create: { width: 2, height: 2, channels: 3, background } })

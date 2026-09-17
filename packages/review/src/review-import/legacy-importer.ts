@@ -32,8 +32,7 @@ export function createLegacyImporter(input: {
 }): LegacyImporter {
   const inFlight = new Map<string, Promise<ImportOutcome>>();
   const lock = input.lock ?? ((_uuid, operation) => operation());
-  // Every Home list sweeps again; a review that cannot import, or cannot
-  // import its map, says so once.
+  // Every Home list sweeps again; each failure is logged once.
   const reported = new Map<string, string>();
 
   const report = (uuid: string, reason: string) => {
@@ -62,9 +61,7 @@ export function createLegacyImporter(input: {
         ),
       )
       .catch((error): ImportOutcome => {
-        // A review the store already holds is the one Home lists and opens:
-        // a failed re-import leaves it current, rather than sending the
-        // reader to the legacy view of a review Home no longer offers.
+        // A review the store holds is what Home lists and opens: it stays current.
         if (input.store.has(uuid))
           return {
             kind: "current",
@@ -78,7 +75,6 @@ export function createLegacyImporter(input: {
         if (outcome.kind === "skipped")
           report(uuid, `skipped (${outcome.reason})`);
 
-        // A current document whose map failed: the review still opens.
         if (outcome.kind === "current" && outcome.warnings?.length)
           report(uuid, outcome.warnings.join("; "));
 

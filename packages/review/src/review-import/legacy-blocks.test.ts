@@ -201,65 +201,46 @@ describe("legacyDocumentToBlocks", () => {
     ).toEqual(["quoted [words]\nnext line", "quoted [words]\nnext line"]);
   });
 
-  it("hoists diagrams nested in prose to just after that prose", () => {
-    const { blocks, warnings } = legacyDocumentToBlocks(
-      documentOf([
+  it.each([
+    {
+      container: "a paragraph, in order",
+      nodes: [
         el("p", [
-          text("Two flows: "),
+          text("Two flows:"),
           sequence("First flow"),
-          text(" and "),
+          text(" and"),
           sequence("Second flow"),
         ]),
         el("p", [text("After.")]),
-      ]),
-    );
-
-    expect(blocks.map((block) => block.type)).toEqual([
-      "markdown",
-      "sequence",
-      "sequence",
-      "markdown",
-    ]);
-    expect(blocks[0]).toMatchObject({
-      markdown: expect.stringContaining("Two flows:"),
-    });
-    expect(blocks[1]).toMatchObject({ title: "First flow" });
-    expect(blocks[2]).toMatchObject({ title: "Second flow" });
-    expect(blocks[3]).toMatchObject({ markdown: "After.\n" });
-    expect(warnings).toEqual([
-      "SequenceDiagram was moved after the enclosing prose",
-      "SequenceDiagram was moved after the enclosing prose",
-    ]);
-
-    for (const block of blocks) blockSchema.parse(block);
-  });
-
-  it.each([
-    {
-      container: "a paragraph",
-      node: el("p", [text("Shown here: "), sequence("Flow")]),
-      markdown: "Shown here:\n",
+      ],
+      blocks: [
+        { type: "markdown", markdown: "Two flows: and\n" },
+        expect.objectContaining({ type: "sequence", title: "First flow" }),
+        expect.objectContaining({ type: "sequence", title: "Second flow" }),
+        { type: "markdown", markdown: "After.\n" },
+      ],
     },
     {
       container: "a list item",
-      node: el("ul", [el("li", [sequence("Flow")])]),
-      markdown: "-\n",
+      nodes: [el("ul", [el("li", [sequence("Flow")])])],
+      blocks: [
+        { type: "markdown", markdown: "-\n" },
+        expect.objectContaining({ type: "sequence", title: "Flow" }),
+      ],
     },
     {
       container: "a blockquote",
-      node: el("blockquote", [el("p", [text("Quoted.")]), sequence("Flow")]),
-      markdown: "> Quoted.\n",
+      nodes: [el("blockquote", [el("p", [text("Quoted.")]), sequence("Flow")])],
+      blocks: [
+        { type: "markdown", markdown: "> Quoted.\n" },
+        expect.objectContaining({ type: "sequence", title: "Flow" }),
+      ],
     },
-  ])("hoists a diagram out of $container", ({ node, markdown }) => {
-    const { blocks, warnings } = legacyDocumentToBlocks(documentOf([node]));
-
-    expect(blocks).toEqual([
-      { type: "markdown", markdown },
-      expect.objectContaining({ type: "sequence", title: "Flow" }),
-    ]);
-    expect(warnings).toEqual([
-      "SequenceDiagram was moved after the enclosing prose",
-    ]);
+  ])("hoists diagrams out of $container", ({ nodes, blocks }) => {
+    expect(legacyDocumentToBlocks(documentOf(nodes))).toMatchObject({
+      blocks,
+      warnings: [],
+    });
   });
 
   it("registers a footnote's trace quote once, whatever cites the footnote", () => {

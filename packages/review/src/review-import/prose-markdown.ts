@@ -104,8 +104,9 @@ export function collectFootnoteDefinitions(
 }
 
 /** Sealed review prose (a `review-document/1` element tree) as GFM Markdown
- * that `parseMarkdown` reads back. Definitions of the footnotes `nodes`
- * reference are appended, taken from `footnotes`. */
+ * that `parseMarkdown` reads back. Definitions of the footnotes referenced in
+ * `nodes` are appended, taken from `footnotes` when given, else from the
+ * footnote section inside `nodes`. */
 export function proseToMarkdown(
   nodes: ReviewNode[],
   footnotes?: FootnoteDefinitions,
@@ -113,7 +114,8 @@ export function proseToMarkdown(
   render?: RenderProseNode,
 ): string {
   const state: FootnoteState = {
-    definitions: footnotes ?? new Map(),
+    definitions:
+      footnotes ?? collectFootnoteDefinitions(nodes, warnings, render),
     referenced: new Set(),
     warnings,
     render,
@@ -225,7 +227,7 @@ function block(
     case "table":
       return table(node, state, indent);
     case "section":
-      // Definitions are collected once, by collectFootnoteDefinitions.
+      // Definitions are collected up front, not while rendering.
       return isFootnoteSection(node) ? "" : blocks(children, state, indent);
     default:
       return blocks(children, state, indent);

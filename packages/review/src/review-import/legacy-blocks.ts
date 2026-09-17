@@ -95,7 +95,7 @@ export function legacyDocumentToBlocks(
       prose = [];
     };
 
-    for (const node of hoistDiagrams(nodes, warnings)) {
+    for (const node of hoistDiagrams(nodes)) {
       if (
         node.type !== "text" &&
         node.type !== "element" &&
@@ -229,20 +229,10 @@ function diagramBlock(node: ReviewComponentNode): Block | undefined {
   }
 }
 
-const DIAGRAM_NAMES = new Set([
-  "CallStackDiff",
-  "SequenceDiagram",
-  "DatabaseLens",
-]);
-
-/** `nodes` with the diagrams nested in prose lifted out, each emitted right
- * after the prose node that held it: Markdown cannot carry a diagram. Footnote
- * sections are dropped, their definitions having been collected already, so a
- * diagram inside a definition stays where it is. */
-function hoistDiagrams(
-  nodes: ReviewNode[],
-  warnings: string[],
-): Array<ReviewNode | Block> {
+/** `nodes` with each diagram nested in prose lifted out and emitted right after
+ * that prose. Footnote sections are skipped: their definitions are already
+ * collected, and Markdown cannot carry what they hold. */
+function hoistDiagrams(nodes: ReviewNode[]): Array<ReviewNode | Block> {
   const out: Array<ReviewNode | Block> = [];
 
   for (const node of nodes) {
@@ -255,32 +245,23 @@ function hoistDiagrams(
 
     const hoisted: Block[] = [];
 
-    out.push(withoutDiagrams(node, hoisted, warnings), ...hoisted);
+    out.push(withoutDiagrams(node, hoisted), ...hoisted);
   }
 
   return out;
 }
 
-function withoutDiagrams(
-  node: ReviewNode,
-  hoisted: Block[],
-  warnings: string[],
-): ReviewNode {
+function withoutDiagrams(node: ReviewNode, hoisted: Block[]): ReviewNode {
   if (node.type === "text") return node;
 
   const children = node.children.flatMap((child): ReviewNode[] => {
-    if (child.type === "component" && DIAGRAM_NAMES.has(child.name)) {
-      const diagram = diagramBlock(child);
+    const diagram =
+      child.type === "component" ? diagramBlock(child) : undefined;
 
-      if (diagram) {
-        hoisted.push(diagram);
-        warnings.push(`${child.name} was moved after the enclosing prose`);
+    if (!diagram) return [withoutDiagrams(child, hoisted)];
+    hoisted.push(diagram);
 
-        return [];
-      }
-    }
-
-    return [withoutDiagrams(child, hoisted, warnings)];
+    return [];
   });
 
   return { ...node, children };

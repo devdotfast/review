@@ -122,7 +122,13 @@ it("exposes JSON section and Markdown headings plus imported PR and stack naviga
     "Implementation",
     "Details",
   ]);
-  expect(new Set(headings.map((heading) => heading.id)).size).toBe(4);
+  // The slugs legacy MDX published, so imported `#fragment` links still land.
+  expect(headings.map((heading) => heading.id)).toEqual([
+    "summary",
+    "details",
+    "implementation",
+    "details-2",
+  ]);
 
   const contents =
     container.querySelector<HTMLButtonElement>(".review-toc-toggle")!;

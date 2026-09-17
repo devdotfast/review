@@ -7,7 +7,6 @@ import {
 } from "../../src/review-api/document";
 import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
-import { apiHeadingId } from "./api-document-headings";
 import { blockSectionSummary } from "./block-document-derivations";
 import { CallStackDiff } from "./call-stack-diff";
 import { RenderedCodeBlock } from "./code-block";
@@ -56,7 +55,7 @@ function MarkdownBlock({ node, data }: BlockProps<"markdown">) {
   return (
     <MarkdownContent
       source={node.markdown}
-      headingId={(index) => apiHeadingId(node.id, index)}
+      headingId={(index) => data.headings.get(node.id, index)}
       h1={ReviewDocumentTitle}
       renderLink={(href, children) => {
         const quote = traceQuoteLink(href);
@@ -107,7 +106,7 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
     <ReviewSection
       stateKey={`${data.snapshot.reviewId}:${node.id}`}
       title={node.title}
-      id={node.id}
+      id={data.headings.get(node.id)}
       defaultCollapsed={node.defaultCollapsed}
       summary={blockSectionSummary(node.children)}
     >

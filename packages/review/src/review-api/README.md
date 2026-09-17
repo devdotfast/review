@@ -119,6 +119,10 @@ The same Markdown parser feeds the host's source checks and the renderer, so cod
 examples and unused definitions do not become source requests. Invalid paths or
 ranges reject the edit before saving. No extra node type or endpoint is needed.
 
+Heading ids are `slugify(text)` made unique in document order over section
+titles and the root-level h2/h3 of Markdown blocks, and `[text](#slug)` links
+scroll to them. Markdown images with `https:` sources render inline.
+
 The component schema checks inputs; field patches are checked after merging
 with the target. A small relationship pass checks diagram actors, store fields,
 and base/head frame sides. Sources and resource references use required host

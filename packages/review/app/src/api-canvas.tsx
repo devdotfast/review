@@ -21,7 +21,6 @@ import {
   RevealAfterFirstPaint,
   createDocumentLoader,
 } from "./api-document";
-import { apiDocumentHeadings } from "./api-document-headings";
 import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
@@ -329,7 +328,7 @@ const CanvasDocument = memo(function CanvasDocument({
     documentSoftwareModels: [...data.maps.values()],
     anchors: data.anchors,
     render: DocumentBody,
-    tocEntries: apiDocumentHeadings(snapshot.document),
+    tocEntries: data.headings.entries,
   };
 
   return (

@@ -25,6 +25,11 @@ export function* markdownNodes(node: MarkdownNode): Generator<MarkdownNode> {
   for (const child of node.children ?? []) yield* markdownNodes(child);
 }
 
+/** The text a node carries, its own and every descendant's. */
+export function markdownText(node: MarkdownNode): string {
+  return [...markdownNodes(node)].map((child) => child.value ?? "").join("");
+}
+
 /** Shared syntax for submit-time source checks and safe Markdown rendering. */
 export function parseMarkdown(source: string): MarkdownNode {
   const tree: MarkdownNode = fromMarkdown(source, {

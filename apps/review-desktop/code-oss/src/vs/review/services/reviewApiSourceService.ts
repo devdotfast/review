@@ -11,7 +11,6 @@ import { IModelService } from "../../editor/common/services/model.js";
 import { ITextModelService } from "../../editor/common/services/resolverService.js";
 import { IFileService, type IFileStat } from "../../platform/files/common/files.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
-import { IWorkspaceEditingService } from "../../workbench/services/workspaces/common/workspaceEditing.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
 import { reviewPeekWindows, reviewPeekDiffWindows, reviewPeekLineMappings } from "../common/reviewPeek.js";
 import type {
@@ -25,7 +24,6 @@ import type {
 } from "../common/reviewProtocol.js";
 import { resolveReviewSourceView, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
 import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
-import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
 import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import type { ReviewCodeModelReference, ReviewCodeDiffTarget } from "./reviewCodeResourceService.js";
@@ -41,7 +39,6 @@ export const IReviewApiSourceService = createDecorator<IReviewApiSourceService>(
 export interface IReviewApiSourceService {
 	readonly _serviceBrand: undefined;
 	open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void>;
-	openInWorkspace(resource: URI): Promise<void>;
 	children(resource: URI): Promise<IFileStat[]>;
 	openDiff(view: ReviewSourceView, path: string): Promise<void>;
 	canvas(
@@ -65,7 +62,6 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		@ILanguageService languages: ILanguageService,
 		@IEditorService private readonly editors: IEditorService,
 		@IReviewCanvasEditorTabsService private readonly tabs: IReviewCanvasEditorTabsService,
-		@IWorkspaceEditingService private readonly workspace: IWorkspaceEditingService,
 		@IFileService private readonly files: IFileService,
 	) {
 		super();
@@ -142,18 +138,6 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 
 	private async sourceResource(target: ApiSourceTarget, empty = false): Promise<URI> {
 		return apiSourceUri(target, empty);
-	}
-
-	async openInWorkspace(resource: URI): Promise<void> {
-		if (resource.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME) {
-			await this.editors.openEditor({ resource: URI.file(resource.path), options: { pinned: true } });
-			return;
-		}
-		const target = sourceLocation(resource);
-		const file = await this.read<{ localPath?: string; localRoot?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file });
-		if (!file.localPath || !file.localRoot) throw new Error("This source has no editable workspace file.");
-		this._register(await acquireReviewLanguageRoot(this.workspace, URI.file(file.localRoot)));
-		await this.editors.openEditor({ resource: URI.file(file.localPath), options: { pinned: true } });
 	}
 
 	async open(target: ApiSourceTarget, range?: ReviewInlineEditorRange): Promise<void> {

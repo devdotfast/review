@@ -5,12 +5,7 @@
 
 import { localize2 } from '../../../nls.js';
 import { KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
-import { Action2, MenuId, registerAction2 } from '../../../platform/actions/common/actions.js';
-import { ContextKeyExpr } from '../../../platform/contextkey/common/contextkey.js';
-import { ICodeEditorService } from '../../../editor/browser/services/codeEditorService.js';
-import { IEditorService } from '../../../workbench/services/editor/common/editorService.js';
-import { IReviewApiSourceService } from '../../services/reviewApiSourceService.js';
-import { isReviewReadonlySource } from '../../common/reviewReadonlySource.js';
+import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
 import type { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { IReviewExplorerPartsService } from '../../browser/parts/explorer/reviewExplorerPart.js';
@@ -53,15 +48,3 @@ class ToggleReviewFileTreeAction extends Action2 {
 }
 
 registerAction2(ToggleReviewFileTreeAction);
-
-registerAction2(class extends Action2 {
-	constructor() {
-		const when = ContextKeyExpr.or(ContextKeyExpr.equals('resourceScheme', 'review-api-source'), ContextKeyExpr.equals('resourceScheme', 'review-language-source'));
-		super({ id: 'review.openInWorkspace', title: localize2('review.openInWorkspace', 'Open in Workspace'), f1: true,
-			precondition: when, menu: [{ id: MenuId.EditorTitle, when, group: 'navigation' }, { id: MenuId.EditorContext, when }] });
-	}
-	override async run(accessor: ServicesAccessor): Promise<void> {
-		const resource = accessor.get(ICodeEditorService).getFocusedCodeEditor()?.getModel()?.uri ?? accessor.get(IEditorService).activeEditor?.resource;
-		if (resource && isReviewReadonlySource(resource)) await accessor.get(IReviewApiSourceService).openInWorkspace(resource);
-	}
-});

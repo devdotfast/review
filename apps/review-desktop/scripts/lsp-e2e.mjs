@@ -1439,23 +1439,16 @@ try {
     );
   }
 
-  await probe({
-    uri: uri(live),
-    open: true,
-    command: "review.openInWorkspace",
-  });
+  await probe({ uri: workspaceMain, open: true });
   assert.equal((await probe({})).active.uri, workspaceMain);
   assert.equal((await probe({})).active.text, unsaved);
   assert.equal((await probe({})).active.dirty, true);
-  await probe({ command: "workbench.action.files.save" });
-  assert.equal(
-    await readFile(path.join(liveFixture.repo, "main.ts"), "utf8"),
-    unsaved,
-  );
+  await probe({ command: "workbench.action.files.revert" });
   await probe({ uri: uri(live), open: true });
+  await writeFile(path.join(liveFixture.repo, "main.ts"), unsaved);
   await until(
     async () => (await probe({})).active.text === unsaved,
-    "review follows ordinary editor save",
+    "review follows external saved edits",
   );
   await page.screenshot({ path: path.join(root, "readonly-source.png") });
   await writeFile(path.join(liveFixture.repo, "main.ts"), mainText("head"));
@@ -1464,7 +1457,7 @@ try {
     "review disk refresh",
   );
   await record(
-    "review source, diff and peek isolate commands and workspace edits while workspace buffers remain editable",
+    "review source, diff and peek block edits, preserve dirty workspace buffers and follow external saves",
   );
   await writeFile(
     path.join(liveFixture.repo, "library.ts"),

@@ -52,7 +52,6 @@ function setup() {
 				registered.push(reviewId);
 			},
 		} as never,
-		{ addFolders: async () => { }, removeFolders: async () => { } } as never,
 		{} as never,
 	);
 	return {

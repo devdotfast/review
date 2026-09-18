@@ -5,7 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { git, gitCommonDir } from "@dev.fast/local-vcs";
-import { errorMessage } from "@dev.fast/trace-core";
+import { errorMessage, processIsAlive } from "@dev.fast/trace-core";
 
 import { reviewManagedCheckoutRoot } from "../review-checkout-paths.js";
 import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
@@ -59,6 +59,7 @@ export class ReviewWorkspaces {
   private readonly stop: () => void;
   private cleanup: Promise<void> = Promise.resolve();
   private closed = false;
+  private readonly ownerId = randomUUID();
 
   constructor(
     databasePath: string,
@@ -68,12 +69,37 @@ export class ReviewWorkspaces {
     this.db.exec(
       "PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS pinned_environments(id TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS workspace_owner(id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,pid INTEGER NOT NULL)",
+    );
+    this.db.exec("BEGIN IMMEDIATE");
 
-    // A new host must invalidate models and recheck preparation markers on access.
-    for (const environment of this.all()) {
-      if (environment.state === "preparing") environment.state = "pending";
-      environment.generation = randomUUID();
-      this.save(environment);
+    try {
+      const owner = this.db
+        .prepare("SELECT pid FROM workspace_owner WHERE id=1")
+        .get();
+
+      if (owner && processIsAlive(Number(owner.pid)))
+        throw new ReviewInputError(
+          "Another Desktop owns this profile's language workspaces. Close that Desktop before opening another instance.",
+          409,
+        );
+      this.db
+        .prepare("INSERT OR REPLACE INTO workspace_owner VALUES(1,?,?)")
+        .run(this.ownerId, process.pid);
+
+      // Only the owning Desktop can invalidate generations or recover interrupted preparation.
+      for (const environment of this.all()) {
+        if (environment.state === "preparing") environment.state = "pending";
+        environment.generation = randomUUID();
+        this.save(environment);
+      }
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      this.db.close();
+      throw error;
     }
 
     this.stop = store.subscribeCatalog(() => this.collect());
@@ -470,6 +496,9 @@ export class ReviewWorkspaces {
 
     for (const job of this.jobs.values()) job.abort.abort();
     await this.idle();
+    this.db
+      .prepare("DELETE FROM workspace_owner WHERE owner=?")
+      .run(this.ownerId);
     this.db.close();
   }
 }

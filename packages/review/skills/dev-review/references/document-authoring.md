@@ -6,7 +6,7 @@ The reader may not have your coding transcript. Do not assume they know the agen
 
 Think about the style of RFCs from Russ Cox, Dave Cheney, and the early React RFCs. Put the outcome first, not a tour of the implementation.
 
-Set a short, specific review title through `review_create` or `review_rename`; a heading node does not change metadata. Open with a concise landing section before the detailed sections:
+Set a short, specific review title through review metadata (`review_create` / `review_rename` interactively, or `review_draft_begin` / `review_draft_write` in batch mode); a heading node does not change metadata. Open with a concise landing section before the detailed sections:
 
 - **Summary:** What behavior changed, or what problem are you trying to solve? Use a couple of bullet points, no more than five. When available, quote the developer's own prompts to capture what needs to change.
 - **Why:** A couple of short sentences about the problem this solves and, when relevant, what it does not try to solve. For a bugfix, explain what was wrong before; for a feature, explain what it adds. Prefer the developer's own words for intent when available.
@@ -34,7 +34,7 @@ Do not invent user-impact risks. Ask the user when a risk depends on product usa
 
 Prefer source links over code peeks. Use a code peek when inline code explains the change better, such as an API usage example. Use sequence, call-stack, database or software-map views only when they explain a relationship more clearly than prose.
 
-## Outline first, then fill in
+## Interactive only: outline first, then fill in
 
 Make the review readable at a glance before adding detailed content. First insert the landing summary and the planned sections, each with a heading and a short description grounded in what you already know. Use `section` nodes with `status:"pending"` and a brief `markdown` child. These descriptions should explain the change, not say “TODO” or pretend evidence has been verified. Keep the outline proportional to the change; a small review may need only a summary.
 

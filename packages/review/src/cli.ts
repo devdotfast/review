@@ -67,7 +67,15 @@ async function maybeDelegateToDesktopCli(
   // api and mcp are thin HTTP clients whose tool catalog comes from the
   // server, so they cannot skew from it and must not be handed to a bundled
   // CLI that predates them.
-  if (argv[0] === "api" || argv[0] === "mcp") return null;
+  if (
+    argv.some(
+      (argument) =>
+        ["api", "mcp", "server"].includes(argument) ||
+        /^--state-dir(?:=|$)/.test(argument),
+    ) ||
+    env.DEV_REVIEW_SERVER_DIR?.trim()
+  )
+    return null;
   const ownPath = fileURLToPath(import.meta.url);
 
   if (!/[\\/]dist[\\/]cli\.js$/.test(ownPath)) return null;

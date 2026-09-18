@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
 import { runPrepareCommand } from "../review-prepare.js";
@@ -67,6 +67,34 @@ afterEach(async () => {
   await local.data.close();
   await local.store.close();
   rmSync(directory, { recursive: true, force: true });
+});
+
+it("keeps Desktop preparation owned while a headless connection edits and deletes the review", async () => {
+  git("config", "devfast.prepare", 'node -e "setTimeout(() => {}, 60000)"');
+  const preparing = await local.data.workspaces.source(reviewId, pins, "head");
+  expect(preparing.state).toBe("preparing");
+  const headless = openLocalReviewStore(database, { manageWorkspaces: false });
+
+  try {
+    expect(local.data.workspaces.list(reviewId)).toContainEqual(preparing);
+    expect(() => headless.data.workspaces).toThrow(/Desktop/);
+    expect(() => openLocalReviewStore(database)).toThrow(
+      /Another Desktop owns/,
+    );
+    expect(local.data.workspaces.list(reviewId)).toContainEqual(preparing);
+    await headless.store.execute({
+      commandId: randomUUID(),
+      operation: { type: "delete", reviewId },
+    });
+    await vi.waitFor(
+      () => expect(local.data.workspaces.list(reviewId)).toEqual([]),
+      { timeout: 5000 },
+    );
+    expect(existsSync(preparing.rootPath!)).toBe(false);
+  } finally {
+    await headless.data.close();
+    await headless.store.close();
+  }
 });
 
 it("prepares each side once in order, reuses on restart, and invalidates changed commands", async () => {

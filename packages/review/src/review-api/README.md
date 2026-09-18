@@ -1,7 +1,9 @@
 # JSON review API
 
-Desktop startup owns one `review-api.db` under `DEV_REVIEW_HOME`. Its routes use
-the existing desktop token authentication and bounded JSON request reader.
+Desktop and `review server start` share `review-api.db` under `DEV_REVIEW_HOME`.
+A headless `--state-dir` or `DEV_REVIEW_SERVER_DIR` selects an isolated profile;
+Desktop can view it by using the same directory as `DEV_REVIEW_HOME`.
+Both hosts mount the same routes behind token authentication and a bounded JSON request reader.
 The canvas and Home read only the native JSON store. `POST /:id/open` opens a review
 in Desktop, and pinned tabs reopen after restart. The startup importer migrates
 saved MDX reviews before the server starts; there is no legacy runtime or second
@@ -11,14 +13,23 @@ catalog. Tests inject the native store and source-data provider.
 
 - `reviews`: current version and one increasing ID counter per review.
 - `versions`: complete JSON snapshots, including title, source pins, and content.
+- `authoring_drafts`: server-owned scratch state and exclusive review ownership, separate from committed versions.
 - `receipts`: command inputs and responses, committed with the saved version.
 - `repositories`: server-only local paths; clients receive an ID and display name.
 - `resources`: immutable image, trace and software-map bytes, scoped to a repository.
 - `review_attention`: viewed/dismissed timestamps, separate from document history.
 
-One desktop-owned store serializes writes, including asynchronous validation.
-Reads see the last committed snapshot. Multiple API callers are supported;
-multiple independent store instances writing the same database are not.
+One host-owned store serializes writes, including asynchronous validation.
+An `authoring_sessions` row gives a review one authoring lease across database
+connections. While held, content mutations require its `leaseId`; reads and
+reader attention remain available. Mutation commits recheck the lease and current
+version after asynchronous validation. Independent connections cannot overwrite a
+newer version or commit work from an expired session.
+Each connection checks SQLite `data_version` every 250 ms and refreshes document,
+catalog and activity subscriptions after another connection commits. Desktop is
+the sole owner of workspace preparation and cleanup; headless connections never
+instantiate that manager. A database-backed process claim prevents a second
+Desktop from resetting live workspace generations or running duplicate jobs.
 The caller closes the store after closing the HTTP server.
 
 The document is a tree of Markdown and self-contained components. The server
@@ -35,6 +46,7 @@ All paths below are relative to `/reviews-api`.
 | ----------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /`                                   | Current review summaries                                               |
 | `GET /authoring` | Tool names, host input schemas and HTTP mappings for CLI/MCP adapters |
+| `GET /capabilities` | Desktop availability and permission for optional software-map generation, independent of opening a review |
 | `GET /:id/activity` | Currently reported authoring work, not stored in document history |
 | `POST /:id/activity {action,leaseId,focus?}` | Begin, renew or end a working signal; return count and expiry |
 | `GET /watch` | NDJSON review summaries: initial list, then saved changes |
@@ -171,11 +183,17 @@ preserving the writing guidance. No integration is installed automatically.
 
 Sections may carry `status:"pending" | "in_progress" | "complete"`. Status is saved in document versions. Unfinished sections show a slim bar along their left edge: muted gray for pending, pulsing blue for in progress or a live targeted task. No visible placeholder text is added; completed sections show no progress decoration. Reduced-motion mode keeps the bar static. Omitted status is unspecified; old reviews are not marked complete automatically. Authors set pending when outlining, in_progress before filling or revising, and complete after checking the content. Parent and child statuses are independent. Activity expiry, disconnects and ending a lease never complete a section. `review_get` includes status in the text outline.
 
-Activity uses a caller-chosen lease UUID and no command receipt. Begin/renew
-expires after 60 seconds; clients renew at least every 30 seconds and end when
-finished. Different agents have independent leases, so one cannot accidentally
-end another's signal. Repeating begin/end is safe. Restart clears this ephemeral
-state; deletion clears its timers. It is not a write lock or proof of completion.
+Activity uses a caller-chosen lease UUID and no command receipt. Begin acquires
+exclusive authoring ownership, renew extends it, and end releases it. Clients
+renew at least every 30 seconds; ownership expires after 60 seconds without a
+renewal. Pass `leaseId` alongside `commandId` on content mutations. Another lease
+or an omitted lease gets HTTP 409 while the review is owned. One-off mutations
+without a lease remain available while no session owns the review; concurrent
+version changes produce a conflict rather than merging.
+Repeating begin/end is safe; ending a different lease cannot release the owner.
+Leases survive server restart until expiry; deletion removes the lease. Ownership
+is not proof of completion. Uploads are immutable repository resources and do not
+require a session.
 The existing document stream includes an `activity` snapshot and also sends on
 activity changes; activity-only sends reuse the loaded document, and the canvas
 only loads document data when its version changes.
@@ -236,6 +254,33 @@ Preparation does not guarantee reproducibility unless the configured commands
 also reproduce dependencies, generated files, and the toolchain. Historical
 checkouts remain until their owning review is deleted. Environment state and
 commands are local and are never authored into review documents.
+
+## Batch authoring
+
+`review server start --authoring-mode batch` selects the batch tool surface explicitly.
+`GET /capabilities` reports `authoringMode`; Desktop always uses `interactive`.
+`POST /draft-commands/{begin,write,edit,validate,commit,abort}` operates on scratch
+state. `GET /drafts/:draftId` returns the document and IDs. Draft source endpoints
+(`/drafts/:draftId/{source,file,tree,diff,commits}`) resolve draft pins without an
+empty committed placeholder. Resource uploads use the existing repository scope.
+
+Begin claims one review in a short SQLite transaction before reading its current
+version. Bulk writes allocate fresh IDs; targeted edits retain existing IDs under
+the normal edit rules. Returned IDs are reserved even if an update is aborted.
+Normal reads, catalog and history expose committed state only. Interactive
+mutations, imports and leases cannot modify a review owned by a batch draft.
+
+Commit validates the entire document, references, pins, sources and resources,
+marks every nested section complete, then rechecks owner and starting version in
+the write transaction. It saves one snapshot and receipt and clears the draft
+atomically. Retry the same commit commandId and draftId after a lost response.
+Validation errors preserve scratch content for correction. Notifications use the
+normal committed-review path.
+
+Ownership belongs to the server instance and PID, with no heartbeat or expiry.
+Commit, abort and graceful shutdown release it; a dead PID permits orphan cleanup.
+A live owner is never evicted by elapsed time. No draft resume or automatic commit
+occurs. CI must terminate its server even if its agent fails.
 
 ## Review targets
 

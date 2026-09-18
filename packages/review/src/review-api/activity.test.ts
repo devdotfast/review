@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, expect, it, vi } from "vitest";
 
@@ -7,11 +8,24 @@ import { ReviewApiClient } from "./client.js";
 import { createReviewApi } from "./http.js";
 import { ReviewStore } from "./store.js";
 
-afterEach(() => vi.useRealTimers());
+const databases: DatabaseSync[] = [];
+
+const newActivity = () => {
+  const db = new DatabaseSync(":memory:");
+  databases.push(db);
+
+  return new ReviewActivity(db);
+};
+
+afterEach(() => {
+  vi.useRealTimers();
+
+  for (const db of databases.splice(0)) db.close();
+});
 
 it("renews reported work, expires abandoned work, and does not end another author's activity", () => {
   vi.useFakeTimers();
-  const activity = new ReviewActivity();
+  const activity = newActivity();
   const notify = vi.fn<Parameters<ReviewActivity["subscribe"]>[0]>();
   activity.subscribe(notify);
 
@@ -25,12 +39,14 @@ it("renews reported work, expires abandoned work, and does not end another autho
   expect(update(a, "begin").workingCount).toBe(1);
   vi.advanceTimersByTime(ACTIVITY_TTL_MS / 2);
   update(a, "renew");
+  expect(() => update(b, "begin")).toThrow(/another session/);
+  expect(update(b, "end").workingCount).toBe(1);
+  vi.advanceTimersByTime(ACTIVITY_TTL_MS / 2);
+  expect(activity.read("review").workingCount).toBe(1);
+  expect(update(a, "end").workingCount).toBe(0);
+  expect(update(a, "end").workingCount).toBe(0);
   update(b, "begin");
-  vi.advanceTimersByTime(ACTIVITY_TTL_MS / 2);
-  expect(activity.read("review").workingCount).toBe(2);
-  expect(update(a, "end").workingCount).toBe(1);
-  expect(update(a, "end").workingCount).toBe(1);
-  vi.advanceTimersByTime(ACTIVITY_TTL_MS / 2);
+  vi.advanceTimersByTime(ACTIVITY_TTL_MS);
   expect(activity.read("review")).toEqual({ workingCount: 0, expiresAt: null });
   expect(notify).toHaveBeenLastCalledWith("review");
   expect(() => update(b, "renew")).toThrow(/expired/);
@@ -90,7 +106,11 @@ it("streams activity separately from document versions and closes the stream on 
       activity: { workingCount: 1, focuses: [input.focus] },
     });
     await reconnect.return(undefined);
-    await command({ type: "delete", reviewId });
+    await store.execute({
+      commandId: randomUUID(),
+      leaseId: input.leaseId,
+      operation: { type: "delete", reviewId },
+    });
     // A reader may already have buffered a pre-deletion snapshot.
     await expect(async () => {
       for await (const _snapshot of stream) {
@@ -106,9 +126,9 @@ it("streams activity separately from document versions and closes the stream on 
   }
 });
 
-it("retains, changes and clears each author's focus until its lease expires", () => {
+it("retains, changes and clears the owner's focus until its lease expires", () => {
   vi.useFakeTimers();
-  const activity = new ReviewActivity();
+  const activity = newActivity();
   const leaseId = randomUUID();
   const other = randomUUID();
   const focus = { description: "Adding evidence", targetId: "section-1" };
@@ -116,20 +136,22 @@ it("retains, changes and clears each author's focus until its lease expires", ()
   expect(
     activity.update("review", { action: "renew", leaseId }).focuses,
   ).toEqual([focus]);
-  activity.update("review", {
-    action: "begin",
-    leaseId: other,
-    focus: { description: "Drafting summary" },
-  });
+  expect(() =>
+    activity.update("review", {
+      action: "begin",
+      leaseId: other,
+      focus: { description: "Drafting summary" },
+    }),
+  ).toThrow(/another session/);
   const next = { description: "Drawing save flow", targetId: "section-2" };
   expect(
     activity.update("review", { action: "renew", leaseId, focus: next })
       .focuses,
-  ).toEqual([next, { description: "Drafting summary" }]);
+  ).toEqual([next]);
   expect(
     activity.update("review", { action: "renew", leaseId, focus: null })
       .focuses,
-  ).toEqual([{ description: "Drafting summary" }]);
+  ).toBeUndefined();
   activity.update("review", { action: "end", leaseId: other });
   expect(activity.read("review").focuses).toBeUndefined();
   activity.update("review", { action: "renew", leaseId, focus });

@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "private": false,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/devdotfast/review.git",
+    "directory": "packages/review"
+  },
   "bin": {
     "review": "./dist/cli.js"
   },

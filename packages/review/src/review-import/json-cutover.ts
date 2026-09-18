@@ -42,8 +42,9 @@ export interface CutoverReport {
   /** Unpublished legacy drafts are intentionally excluded from the JSON catalog. */
   droppedDrafts: { reviewId: string; title: string }[];
   errors: { reviewId: string; reason: string }[];
-  /** Directories no schema accepts. They were never imported and are left
-   * exactly as found, so one dead record cannot keep the app from starting. */
+  /** Directories whose `review.json` could not be read or parsed. They were never
+   * imported and are left exactly as found, so one dead record cannot keep the
+   * app from starting. */
   skipped: { reviewId: string; dir: string; reason: string }[];
   archivedMaps: Parameters<
     NonNullable<ImportLegacyReviewInput["archiveMap"]>

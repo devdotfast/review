@@ -46,36 +46,6 @@ export async function packReviewCli({ version, commit }, outputDirectory) {
     await stageReviewDocs(staged);
     await stampReviewSkills(staged, version);
 
-    const stagedManifest = JSON.parse(
-      await readFile(path.join(staged, "package.json"), "utf8"),
-    );
-
-    // Workspace/Git code is bundled by tsdown; canvas libraries by Vite.
-    // The TypeScript validation helper is not reachable from the built runtime.
-    // Keep these in the workspace manifest for development and Desktop builds.
-    for (const name of [
-      "@dev.fast/local-vcs",
-      "@dev.fast/review-share-protocol",
-      "isomorphic-git",
-      "@mr_mint/elkjs-libavoid",
-      "@speed-highlight/core",
-      "@tanstack/react-table",
-      "@types/react",
-      "@xyflow/react",
-      "decode-named-character-reference",
-      "elkjs",
-      "react",
-      "react-dom",
-      "typescript",
-      "zustand",
-    ])
-      delete stagedManifest.dependencies[name];
-    delete stagedManifest.devDependencies;
-    delete stagedManifest.scripts;
-    await writeFile(
-      path.join(staged, "package.json"),
-      `${JSON.stringify(stagedManifest, null, 2)}\n`,
-    );
     execFileSync(
       "npm",
       ["pack", "--ignore-scripts", "--pack-destination", output],

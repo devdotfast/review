@@ -30,7 +30,7 @@ const monorepoRoot = path.resolve(appDirectory, "../..");
  * The installed application must not reach back into the build checkout, so the
  * Review server ships as a self-contained production dependency closure rather
  * than as a single bundled file: the runtime intentionally depends on native
- * binaries, TypeScript, workspace libraries, and app source assets.
+ * binaries and external Node libraries. The canvas is built and copied separately.
  */
 export const RUNTIME_DIRECTORY_NAME = "review-runtime";
 
@@ -44,13 +44,11 @@ export const REQUIRED_RUNTIME_ENTRIES = [
   "THIRD_PARTY_NOTICES.md",
   RUNTIME_SERVER_ENTRY,
   RUNTIME_CLI_ENTRY,
-  "app/src",
   "skills/dev-review/SKILL.md",
   "skills/dev-review/docs/README.md",
   "skills/trace-archaeology/SKILL.md",
   "tutorial/runtime-manifest.json",
   "node_modules",
-  "node_modules/@dev.fast/local-vcs/dist/index.js",
 ];
 
 export function runtimeRootForPackagedRoot(packagedRoot) {

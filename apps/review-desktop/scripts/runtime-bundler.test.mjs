@@ -122,9 +122,9 @@ test("final package verification requires the CLI and rechecks archives outside 
       if (artifact === cli) continue;
       await mkdir(path.dirname(artifact), { recursive: true });
 
-      if (artifact === path.join(runtime, "app/src")) {
+      if (artifact === path.join(runtime, "node_modules")) {
         await mkdir(artifact);
-      } else if (artifact !== path.join(runtime, "node_modules")) {
+      } else {
         await writeFile(artifact, artifact.endsWith(".json") ? "{}\n" : "");
       }
     }

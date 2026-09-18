@@ -71,9 +71,9 @@ try {
     "dist/cli.js",
     "skills/dev-review/docs/README.md",
     "skills/trace-archaeology/SKILL.md",
-    "app/dist/desktop/.vite/manifest.json",
   ])
     await access(path.join(pkgRoot, file));
+  await assert.rejects(access(path.join(pkgRoot, "app")));
   assert.match(
     await readFile(path.join(pkgRoot, "skills/dev-review/SKILL.md"), "utf8"),
     new RegExp(`review-version: "${expectedVersion.replaceAll(".", "\\.")}"`),

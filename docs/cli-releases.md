@@ -71,12 +71,20 @@ and remove agent hooks and commit a headless review without a display or Desktop
 The tarball includes the bundled product documentation and stamped skills.
 The tested tarball is the one passed to `npm publish`.
 
-The npm manifest excludes workspace code already bundled into the runtime,
-canvas libraries already bundled by Vite, and development tools. The clean-install
-check audits the entire production dependency tree and rejects browser automation,
-Electron, TypeScript, and build/test tooling, including transitive dependencies.
-Runtime dependencies such as the MCP SDK, Markdown parsers, and Sharp (image
-validation, including native binaries) remain installed normally.
+The published `@dev.fast/review` package is the Node runtime shared by the CLI
+and Desktop. Its production dependencies are declared directly in its manifest.
+Workspace libraries and Git code that tsdown bundles are build dependencies.
+
+The private `@dev.fast/review-canvas` workspace at `packages/review/app` owns
+React, layout libraries, Vite, and browser tests. Desktop builds and copies that
+canvas separately; the CLI neither builds nor ships it. Release packaging only
+stamps metadata and stages docs; it never rewrites the dependency graph.
+
+The clean-install check audits the entire production dependency tree and rejects
+browser automation, Electron, TypeScript, and build/test tooling, including
+transitive dependencies. Runtime dependencies such as the MCP SDK, Markdown
+parsers, and Sharp (image validation, including native binaries) remain installed
+normally.
 
 ## Retry a failed release
 

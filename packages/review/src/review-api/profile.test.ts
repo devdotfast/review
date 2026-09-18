@@ -88,6 +88,7 @@ it("merges preview headless history and resources without changing review IDs or
     expect(profile.store.read(created.reviewId)).toEqual({
       ...before,
       pins: { ...before.pins, repositoryId: existingRepo.id },
+      target: { ...before.target, repositoryId: existingRepo.id },
     });
     expect(profile.store.history(created.reviewId)).toHaveLength(2);
     expect(profile.store.resource(resourceId)).toMatchObject({

@@ -3,7 +3,9 @@
 export {
   DEFAULT_STORE_ORIGIN,
   readStoreAuth,
+  clearStoreAuth,
   runStoreLogin,
+  openUrlInBrowser,
   runStoreLogout,
   runStoreWhoami,
   writeStoreAuth,
@@ -220,3 +222,5 @@ export {
   recordTraceSessionProvenance,
   requireTraceSessionProvenance,
 } from "./trace-session-provenance";
+
+export { withStoreAuthorization } from "./store-authorization";

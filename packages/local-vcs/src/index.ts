@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import gitUrlParse from "git-url-parse";
@@ -379,13 +380,23 @@ export async function git(
 export async function gitAt(
   cwd: string,
   args: string[],
-  options: { allowFailure?: boolean; signal?: AbortSignal } = {},
+  options: {
+    allowFailure?: boolean;
+    signal?: AbortSignal;
+    env?: NodeJS.ProcessEnv;
+    timeout?: number;
+  } = {},
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
     const { stdout, stderr } = await execFileAsync(
       "git",
       ["-C", cwd, ...args],
-      { maxBuffer: 64 * 1024 * 1024, signal: options.signal },
+      {
+        maxBuffer: 64 * 1024 * 1024,
+        signal: options.signal,
+        env: options.env,
+        timeout: options.timeout,
+      },
     );
 
     return { ok: true, stdout, stderr };
@@ -992,6 +1003,144 @@ export async function diff(input: {
   }
 
   return diffForKind({ ...input, rootPath: vcs.rootPath, kind: vcs.kind });
+}
+
+interface WorkingTreeDiffInput {
+  rootPath: string;
+  kind: LocalVcsKind;
+  baseRef?: string;
+  headRef?: string;
+}
+
+/** Use the same summary parser for working files and committed trees. */
+export function diffFileSummariesWorkingTree(
+  input: WorkingTreeDiffInput,
+): Promise<LocalVcsDiffFileSummary[]> {
+  return withWorkingTreeIndex(input, readGitDiffFileSummaries);
+}
+
+/** Read one Git patch for the entire checkout, or one changed file. */
+export function diffWorkingTree(
+  input: WorkingTreeDiffInput & { file?: string },
+): Promise<string> {
+  return withWorkingTreeIndex(input, async (options) => {
+    if (input.file === undefined) return readGitDiff(options);
+    // Include both sides of a rename when selecting its destination.
+    const changes = await readGitDiffFileSummaries(options);
+
+    const previous = changes.find(
+      (change) => change.path === input.file,
+    )?.previousPath;
+
+    return readGitDiff({
+      ...options,
+      literalPaths: true,
+      paths: previous ? [previous, input.file] : [input.file],
+    });
+  });
+}
+
+/** Private index/object writes include untracked files without staging user files. */
+async function withWorkingTreeIndex<T>(
+  input: WorkingTreeDiffInput,
+  read: (options: {
+    rootPath: string;
+    baseRef: string;
+    env: NodeJS.ProcessEnv;
+  }) => Promise<T>,
+): Promise<T> {
+  const scratch = await fs.promises.mkdtemp(
+    path.join(tmpdir(), "review-git-diff-"),
+  );
+
+  try {
+    const common = await gitCommonDir(input.rootPath);
+
+    if (!common)
+      throw new Error("Working source requires a Git-backed repository.");
+
+    const env: NodeJS.ProcessEnv = {
+      ...localGitEnvironment(),
+      GIT_INDEX_FILE: path.join(scratch, "index"),
+      GIT_OBJECT_DIRECTORY: path.join(scratch, "objects"),
+      // Git accepts C-quoted entries; JSON quoting protects colons and quotes in paths.
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: JSON.stringify(
+        path.join(common, "objects"),
+      ),
+      GIT_OPTIONAL_LOCKS: "0",
+    };
+
+    if (input.kind === "jj") {
+      env.GIT_DIR = common;
+      env.GIT_WORK_TREE = input.rootPath;
+    }
+
+    await fs.promises.mkdir(path.join(scratch, "objects"));
+
+    // A split index would otherwise create sharedindex files in the real git dir.
+    const git = (args: string[]) =>
+      execFileAsync(
+        "git",
+        ["-c", "core.splitIndex=false", "-C", input.rootPath, ...args],
+        {
+          env,
+          cwd: input.rootPath,
+          maxBuffer: 32 * 1024 * 1024,
+        },
+      );
+
+    if (input.kind === "git") {
+      const index = (
+        await execFileAsync(
+          "git",
+          [
+            "-C",
+            input.rootPath,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "index",
+          ],
+          { env: localGitEnvironment() },
+        )
+      ).stdout.trim();
+
+      try {
+        await fs.promises.copyFile(index, path.join(scratch, "index"));
+      } catch (error) {
+        if (
+          !(
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "ENOENT"
+          )
+        )
+          throw error;
+      }
+    } else if (input.headRef) {
+      await git(["read-tree", input.headRef]);
+    }
+
+    // Intent-to-add exposes untracked files without staging their contents.
+    await git(["add", "--intent-to-add", "--all", "--", ".", ":(exclude).jj"]);
+    await fs.promises.writeFile(path.join(scratch, "empty"), "");
+
+    const baseRef =
+      input.baseRef ??
+      (
+        await git([
+          "hash-object",
+          "-w",
+          "-t",
+          "tree",
+          path.join(scratch, "empty"),
+        ])
+      ).stdout.trim();
+
+    return await read({ rootPath: input.rootPath, baseRef, env });
+  } finally {
+    await fs.promises.rm(scratch, { recursive: true, force: true });
+  }
 }
 
 /** Compare two exact Git trees without merge-base semantics. */
@@ -1813,6 +1962,7 @@ async function readJjFileAtRevision(input: {
 
 async function readGitDiff(input: {
   rootPath: string;
+  env?: NodeJS.ProcessEnv;
   baseRef: string;
   headRef?: string;
   contextLines?: number;
@@ -1838,6 +1988,7 @@ async function readGitDiff(input: {
     input.rootPath,
     "diff",
     "--no-ext-diff",
+    "--no-textconv",
     "--no-color",
     "-M",
     ...(input.contextLines !== undefined
@@ -1850,6 +2001,7 @@ async function readGitDiff(input: {
   ];
 
   const { stdout } = await execFileAsync("git", args, {
+    env: input.env,
     cwd: input.rootPath,
     maxBuffer: 25 * 1024 * 1024,
   });
@@ -1859,6 +2011,7 @@ async function readGitDiff(input: {
 
 async function readGitDiffFileSummaries(input: {
   rootPath: string;
+  env?: NodeJS.ProcessEnv;
   baseRef: string;
   headRef?: string;
   paths?: string[];
@@ -1879,6 +2032,7 @@ async function readGitDiffFileSummaries(input: {
       input.rootPath,
       "diff",
       "--no-ext-diff",
+      "--no-textconv",
       "--no-color",
       "-M",
       "-z",
@@ -1888,7 +2042,7 @@ async function readGitDiffFileSummaries(input: {
       "--",
       ...paths,
     ],
-    { cwd: input.rootPath, maxBuffer: 25 * 1024 * 1024 },
+    { env: input.env, cwd: input.rootPath, maxBuffer: 25 * 1024 * 1024 },
   );
 
   return parseGitRawNumStatSummaries(stdout);

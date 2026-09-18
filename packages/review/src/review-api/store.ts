@@ -10,6 +10,7 @@ import {
   type Block,
   type Pins,
   ReviewInputError,
+  type ReviewTarget,
   type Source,
   applyEdit,
   assignFreshIds,
@@ -19,6 +20,7 @@ import {
   elements,
   pinsSchema,
   resourceReferences,
+  reviewTargetSchema,
   sourceReferences,
 } from "./document.js";
 import { ReviewDrafts, draftCommandSchema } from "./drafts.js";
@@ -39,8 +41,14 @@ export const commandSchema = z.strictObject({
     z.strictObject({
       type: z.literal("create"),
       title: z.string().trim().min(1),
-      pins: pinsSchema,
+      pins: pinsSchema.optional(),
+      target: reviewTargetSchema.optional(),
       pullRequestUrl: pullRequestUrl.optional(),
+    }),
+    z.strictObject({
+      type: z.literal("set_target"),
+      reviewId,
+      target: reviewTargetSchema,
     }),
     z.strictObject({ type: z.literal("edit"), reviewId, edit: editSchema }),
     z.strictObject({
@@ -82,10 +90,14 @@ export interface SnapshotOrigin {
 }
 
 export interface Snapshot {
+  shared?: { login?: string; sharedAt?: number; cloneUrl?: string };
   reviewId: string;
   version: number;
   title: string;
   pins: Pins;
+  target: ReviewTarget;
+  staleSources?: string[];
+  sourceUnavailable?: boolean;
   document: Block[];
   createdAt: string;
   origin?: SnapshotOrigin;
@@ -113,6 +125,10 @@ export interface Result {
 }
 
 export interface ReviewProviders {
+  projectSource?(snapshot: Snapshot, pins: Pins): Promise<Snapshot>;
+  resolveTarget?(
+    target: ReviewTarget,
+  ): Promise<{ target: ReviewTarget; pins: Pins }>;
   validatePins(pins: Pins): Promise<void>;
   validateSource(
     pins: Pins,
@@ -138,6 +154,100 @@ export class ReviewStore {
   private readonly db: DatabaseSync;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
+  private readonly liveSources = new Map<string, Snapshot>();
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private refreshSubscribers = 0;
+
+  watchWorktrees(): () => void {
+    this.refreshSubscribers++;
+    this.refreshTimer ??= setInterval(() => {
+      void this.refreshWorktrees();
+    }, 1000);
+    this.refreshTimer.unref();
+
+    return () => {
+      if (--this.refreshSubscribers === 0) {
+        clearInterval(this.refreshTimer);
+        this.refreshTimer = undefined;
+      }
+    };
+  }
+
+  private async projectWorktree(
+    snapshot: Snapshot,
+    current = snapshot,
+  ): Promise<Snapshot> {
+    if (snapshot.target.kind !== "worktree") return snapshot;
+    const { pins } = await this.providers.resolveTarget!(snapshot.target);
+
+    if (
+      JSON.stringify(current.pins) === JSON.stringify(pins) &&
+      !current.sourceUnavailable
+    )
+      return current;
+
+    return this.providers.projectSource
+      ? this.providers.projectSource(snapshot, pins)
+      : { ...snapshot, pins, sourceUnavailable: undefined };
+  }
+
+  private refreshPending: Promise<void> | undefined;
+
+  /** Refresh source state without writing authored document versions. Serialized with edits. */
+  refreshWorktrees(): Promise<void> {
+    if (this.closing || !this.providers.resolveTarget) return Promise.resolve();
+
+    if (this.refreshPending) return this.refreshPending;
+
+    const run = this.pending.then(async () => {
+      for (const summary of this.list()) {
+        const snapshot = this.read(summary.reviewId, summary.version);
+
+        if (snapshot.target.kind !== "worktree") continue;
+
+        try {
+          const last = this.read(snapshot.reviewId);
+          const previous = last.pins;
+          const projected = await this.projectWorktree(snapshot, last);
+
+          if (projected === last) continue;
+          this.liveSources.set(snapshot.reviewId, projected);
+
+          if (
+            JSON.stringify(previous) !== JSON.stringify(projected.pins) ||
+            last.sourceUnavailable
+          )
+            this.notify({
+              reviewId: snapshot.reviewId,
+              version: snapshot.version,
+            });
+        } catch (error) {
+          if (error instanceof ReviewInputError && error.status === 404) {
+            const last = this.read(snapshot.reviewId);
+
+            if (!last.sourceUnavailable) {
+              this.liveSources.set(snapshot.reviewId, {
+                ...last,
+                sourceUnavailable: true,
+              });
+              this.notify({
+                reviewId: snapshot.reviewId,
+                version: snapshot.version,
+              });
+            }
+          }
+        }
+      }
+    });
+
+    this.pending = run.catch(() => {});
+
+    this.refreshPending = run.finally(() => {
+      this.refreshPending = undefined;
+    });
+
+    return this.refreshPending;
+  }
   private readonly listeners = new Set<(result: Result) => void>();
   private readonly catalogListeners = new Set<() => void>();
   private readonly externalChanges: ReturnType<typeof setInterval>;
@@ -301,6 +411,13 @@ export class ReviewStore {
 
     return { id: String(row.id), name: String(row.name) };
   }
+  unregisterRepository(id: string) {
+    this.db
+      .prepare(`DELETE FROM repositories WHERE id=?
+      AND NOT EXISTS (SELECT 1 FROM versions WHERE json_extract(snapshot,'$.pins.repositoryId')=?)
+      AND NOT EXISTS (SELECT 1 FROM resources WHERE repository_id=?)`)
+      .run(id, id, id);
+  }
   repositoryPath(id: string) {
     const row = this.db
       .prepare("SELECT path FROM repositories WHERE id=?")
@@ -354,6 +471,7 @@ export class ReviewStore {
   async close() {
     this.closing = true;
     clearInterval(this.externalChanges);
+    clearInterval(this.refreshTimer);
     await this.pending;
     this.drafts.close();
     this.listeners.clear();
@@ -383,7 +501,22 @@ export class ReviewStore {
     if (!row) throw new ReviewInputError("Review or version not found.", 404);
 
     // SAFETY: versions contains only snapshots validated by execute before committing.
-    return JSON.parse(String(row.snapshot)) as Snapshot;
+    const snapshot = JSON.parse(String(row.snapshot)) as Snapshot;
+    snapshot.target ??= {
+      kind: "commits",
+      repositoryId: snapshot.pins.repositoryId,
+      base: snapshot.pins.base,
+      head: snapshot.pins.head,
+    };
+    const live = version === undefined ? this.liveSources.get(id) : undefined;
+
+    if (
+      live?.version === snapshot.version &&
+      snapshot.target.kind === "worktree"
+    )
+      return structuredClone(live);
+
+    return snapshot;
   }
   private readonly diffStats = new Map<
     string,
@@ -435,6 +568,21 @@ export class ReviewStore {
           "document"
         >;
 
+        summary.target ??= {
+          kind: "commits",
+          repositoryId: summary.pins.repositoryId,
+          base: summary.pins.base,
+          head: summary.pins.head,
+        };
+
+        const live = this.liveSources.get(summary.reviewId);
+
+        if (
+          live?.version === summary.version &&
+          summary.target.kind === "worktree"
+        )
+          summary.pins = live.pins;
+
         return {
           ...summary,
           repositoryPath: row.repository_path
@@ -464,29 +612,7 @@ export class ReviewStore {
   inspect(id: string, targetId?: string, version?: number) {
     const snapshot = this.read(id, version);
 
-    if (targetId !== undefined) {
-      const target = elements(snapshot.document).find(
-        (element) => element.id === targetId,
-      );
-
-      if (!target)
-        throw new ReviewInputError("Target not found in this version.", 404);
-
-      return target;
-    }
-
-    return elements(snapshot.document).map((element) => ({
-      id: element.id,
-      type: element.type,
-      label:
-        "title" in element
-          ? element.title
-          : "label" in element
-            ? element.label
-            : element.type === "markdown"
-              ? element.markdown.slice(0, 120)
-              : undefined,
-    }));
+    return inspectSnapshot(snapshot, targetId);
   }
   /** Serialize scratch writes and commits with the host's other mutations. */
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Draft command boundary: parse before queueing any mutation.
@@ -544,6 +670,23 @@ export class ReviewStore {
         this.drafts.assertUnlocked(op.reviewId);
         this.activity.assertWrite(op.reviewId, command.leaseId);
       }
+
+      if (op.type === "create" && Boolean(op.pins) === Boolean(op.target))
+        throw new ReviewInputError(
+          "Supply exactly one of target or legacy pins.",
+        );
+
+      const requestedTarget =
+        op.type === "create" || op.type === "set_target"
+          ? op.target
+          : undefined;
+
+      const resolvedTarget = requestedTarget
+        ? await this.providers.resolveTarget?.(requestedTarget)
+        : undefined;
+
+      if (requestedTarget && !resolvedTarget)
+        throw new ReviewInputError("Review targets are unavailable.");
 
       if (op.type === "delete") {
         const result: Result = {
@@ -624,7 +767,11 @@ export class ReviewStore {
               reviewId: id,
               version: 0,
               title: op.title,
-              pins: op.pins,
+              pins: resolvedTarget?.pins ?? op.pins!,
+              target: resolvedTarget?.target ?? {
+                kind: "commits",
+                ...op.pins!,
+              },
               document: [],
               createdAt: "",
             }
@@ -654,6 +801,13 @@ export class ReviewStore {
         case "rename":
           snapshot.title = op.title;
           break;
+        case "set_target":
+          if (snapshot.pins.repositoryId !== resolvedTarget!.pins.repositoryId)
+            setPullRequest(snapshot, null);
+          snapshot.staleSources = [];
+          snapshot.target = resolvedTarget!.target;
+          snapshot.pins = resolvedTarget!.pins;
+          break;
         case "repin":
           setPullRequest(
             snapshot,
@@ -664,7 +818,9 @@ export class ReviewStore {
                 : undefined),
           );
 
+          snapshot.staleSources = [];
           snapshot.pins = op.pins;
+          snapshot.target = { kind: "commits", ...op.pins };
           break;
         case "restore":
           snapshot = this.read(id, op.version);
@@ -675,7 +831,37 @@ export class ReviewStore {
             op.edit,
             (prefix) => `${prefix}-${++nextId}`,
           );
+
+          if (snapshot.staleSources?.length) {
+            const oldSources = new Map(
+              sourceReferences(previous!.document).map((item) => [
+                item.id,
+                JSON.stringify(item.source),
+              ]),
+            );
+
+            const newSources = new Map(
+              sourceReferences(snapshot.document).map((item) => [
+                item.id,
+                JSON.stringify(item.source),
+              ]),
+            );
+
+            snapshot.staleSources = snapshot.staleSources.filter(
+              (id) =>
+                oldSources.get(id) === newSources.get(id) && newSources.has(id),
+            );
+          }
+
           break;
+      }
+
+      if (
+        snapshot.target.kind === "worktree" &&
+        op.type !== "restore" &&
+        !resolvedTarget
+      ) {
+        snapshot = await this.projectWorktree(snapshot);
       }
 
       // Component shapes were checked at entry (or when merging a field patch).
@@ -691,7 +877,7 @@ export class ReviewStore {
       const warnings = await this.validateExternal(
         snapshot,
         previous,
-        op.type === "repin",
+        op.type === "repin" || op.type === "set_target",
       );
 
       snapshot.version = previous ? previous.version + 1 : 0;
@@ -702,6 +888,11 @@ export class ReviewStore {
         version: snapshot.version,
         targetId,
       };
+
+      if (snapshot.staleSources?.length)
+        warnings.push(
+          "Some authored source ranges changed. Update their references before presenting this review.",
+        );
 
       if (warnings.length) result.warnings = warnings;
 
@@ -881,6 +1072,7 @@ export class ReviewStore {
           version,
           title: input.title,
           pins: input.pins,
+          target: { kind: "commits", ...input.pins },
           document,
           createdAt: input.createdAt,
         };
@@ -983,13 +1175,12 @@ export class ReviewStore {
 
     // Stored content is not re-validated: an edit may fix a link that the
     // current rules reject.
-    const retained = references(
+    const pinsChanged =
       previous &&
-        JSON.stringify(previous.pins) === JSON.stringify(snapshot.pins)
-        ? previous.document
-        : [],
-      true,
-    );
+      JSON.stringify(previous.pins) !== JSON.stringify(snapshot.pins);
+
+    const worktreeMoved = pinsChanged && snapshot.target.kind === "worktree";
+    const retained = references(previous?.document ?? [], true);
 
     // Independent reads of immutable commits: run them concurrently.
     const checks: Promise<void>[] = [];
@@ -999,7 +1190,7 @@ export class ReviewStore {
 
       // A range validated earlier as a prose link still needs the peek check
       // the first time a code peek points at it.
-      if (!kept || (peek && !kept.peek))
+      if (pinsChanged || !kept || (peek && !kept.peek))
         checks.push(
           this.providers.validateSource(snapshot.pins, source, { peek }).then(
             () => {
@@ -1009,7 +1200,11 @@ export class ReviewStore {
                 );
             },
             (error) => {
-              if (!repin || !(error instanceof ReviewInputError)) throw error;
+              if (
+                (!repin && !(worktreeMoved && kept)) ||
+                !(error instanceof ReviewInputError)
+              )
+                throw error;
               warnings.push(
                 `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`,
               );
@@ -1019,12 +1214,16 @@ export class ReviewStore {
     }
 
     for (const [key, block] of current.resources)
-      if (!retained.resources.has(key))
+      if (pinsChanged || !retained.resources.has(key))
         checks.push(
           this.providers
             .validateResource(snapshot.pins, block)
             .catch((error) => {
-              if (!repin || !(error instanceof ReviewInputError)) throw error;
+              if (
+                (!repin && !(worktreeMoved && retained.resources.has(key))) ||
+                !(error instanceof ReviewInputError)
+              )
+                throw error;
               warnings.push(`${block.id} (${block.type}): ${error.message}`);
             }),
         );
@@ -1033,4 +1232,30 @@ export class ReviewStore {
 
     return warnings.sort();
   }
+}
+
+export function inspectSnapshot(snapshot: Snapshot, targetId?: string) {
+  if (targetId !== undefined) {
+    const target = elements(snapshot.document).find(
+      (element) => element.id === targetId,
+    );
+
+    if (!target)
+      throw new ReviewInputError("Target not found in this version.", 404);
+
+    return target;
+  }
+
+  return elements(snapshot.document).map((element) => ({
+    id: element.id,
+    type: element.type,
+    label:
+      "title" in element
+        ? element.title
+        : "label" in element
+          ? element.label
+          : element.type === "markdown"
+            ? element.markdown.slice(0, 120)
+            : undefined,
+  }));
 }

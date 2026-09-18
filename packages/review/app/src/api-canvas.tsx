@@ -1,6 +1,7 @@
 import {
   type ReviewCanvasContent,
   parseReviewStackResponse,
+  resolveReviewSourceView,
 } from "@dev.fast/review-protocol";
 import {
   createContext,
@@ -35,6 +36,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
 import { DisplayedReviewVersionContext } from "./review-history-control";
+import { SharingContext } from "./share-control";
 import { TutorialProvider } from "./tutorial-context";
 
 type ApiContent = Extract<ReviewCanvasContent, { kind: "api" }>;
@@ -53,7 +55,7 @@ function DocumentBody() {
   return (
     <ReviewDocumentBoundary
       session={session}
-      revision={`${data.snapshot.reviewId}:${data.snapshot.version}`}
+      revision={`${data.snapshot.reviewId}:${data.snapshot.version}:${data.snapshot.pins.worktreeRevision ?? ""}`}
       onError={(_revision, error) =>
         reportReviewDocumentRenderError(session, error)
       }
@@ -85,7 +87,7 @@ export function ApiCanvas({
   const dataRef = useRef(data);
   dataRef.current = data;
   const sourceRef = useRef<{ key: string; version: number }>(undefined);
-  const sourceVersion = sourceRef.current?.version;
+  const sourceVersion = sourceRef.current?.key;
   const [error, setError] = useState<string>();
   useEffect(() => {
     const abort = new AbortController();
@@ -97,12 +99,26 @@ export function ApiCanvas({
       const next = await loader.load(snapshot);
 
       if (abort.signal.aborted) return;
+
       // Native source widgets must use these pins on their first mount.
-      const key = JSON.stringify([snapshot.reviewId, snapshot.pins]);
+      const key = JSON.stringify([
+        snapshot.reviewId,
+        snapshot.pins,
+        version === undefined ? "current" : version,
+      ]);
 
       if (sourceRef.current?.key !== key)
         sourceRef.current = { key, version: snapshot.version };
-      content.setVersion?.(sourceRef.current.version);
+
+      content.setSourceView?.(
+        version === undefined
+          ? { reviewId: snapshot.reviewId, kind: "current" }
+          : { reviewId: snapshot.reviewId, kind: "version", version },
+        resolveReviewSourceView({
+          ...snapshot,
+          version: sourceRef.current.version,
+        }),
+      );
       setData(next);
       setError(undefined);
       content.setTitle?.(snapshot.title);
@@ -124,14 +140,17 @@ export function ApiCanvas({
         return;
       }
 
-      let shownVersion: number | undefined;
+      let shownVersion: string | undefined;
       await client.follow<Snapshot & { activity: ActivitySnapshot }>(
         content.reviewId,
         abort.signal,
         async (snapshot) => {
           setActivity(snapshot.activity);
 
-          if (shownVersion === snapshot.version) {
+          if (
+            shownVersion ===
+            `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`
+          ) {
             setError(undefined);
 
             return;
@@ -139,7 +158,7 @@ export function ApiCanvas({
 
           try {
             await show(snapshot);
-            shownVersion = snapshot.version;
+            shownVersion = `${snapshot.version}:${snapshot.pins.worktreeRevision ?? ""}:${snapshot.sourceUnavailable ?? false}`;
           } catch (cause) {
             // A failed resource or source fetch is a document problem. The
             // stream and the activity signal are still healthy, so do not
@@ -268,6 +287,19 @@ export function ApiCanvas({
     if (data) content.setTutorial?.(data.snapshot.origin?.tutorial === true);
   }, [data?.snapshot.origin?.tutorial, content.setTutorial]);
 
+  const sharing = useMemo(
+    () =>
+      data
+        ? {
+            client,
+            reviewId: content.reviewId,
+            version: data.snapshot.version,
+            sender: data.snapshot.shared?.login,
+          }
+        : null,
+    [client, content.reviewId, data],
+  );
+
   if (!data)
     return (
       <>
@@ -281,36 +313,40 @@ export function ApiCanvas({
     );
 
   return (
-    <ReviewSessionProvider session={session}>
-      <DocumentData.Provider value={data}>
-        <TutorialProvider tutorial={content.tutorial}>
-          {error && <p role="status">{error}</p>}
-          <AuthoringActivityContext.Provider
-            value={version === undefined ? activity : undefined}
-          >
-            <DisplayedReviewVersionContext.Provider
-              value={data.snapshot.version}
+    <SharingContext.Provider value={sharing}>
+      <ReviewSessionProvider session={session}>
+        <DocumentData.Provider value={data}>
+          <TutorialProvider tutorial={content.tutorial}>
+            {error && <p role="status">{error}</p>}
+            <AuthoringActivityContext.Provider
+              value={version === undefined ? activity : undefined}
             >
-              <ProjectPreparation
-                client={client}
-                reviewId={data.snapshot.reviewId}
-              />
-              <RevealAfterFirstPaint>
-                <MapEnabled.Provider
-                  value={content.softwareMapEnabled === true}
-                >
-                  <CanvasDocument
-                    data={data}
-                    findHost={findHost}
-                    softwareMapEnabled={content.softwareMapEnabled === true}
+              <DisplayedReviewVersionContext.Provider
+                value={data.snapshot.version}
+              >
+                {data.snapshot.target.kind !== "worktree" && (
+                  <ProjectPreparation
+                    client={client}
+                    reviewId={data.snapshot.reviewId}
                   />
-                </MapEnabled.Provider>
-              </RevealAfterFirstPaint>
-            </DisplayedReviewVersionContext.Provider>
-          </AuthoringActivityContext.Provider>
-        </TutorialProvider>
-      </DocumentData.Provider>
-    </ReviewSessionProvider>
+                )}
+                <RevealAfterFirstPaint>
+                  <MapEnabled.Provider
+                    value={content.softwareMapEnabled === true}
+                  >
+                    <CanvasDocument
+                      data={data}
+                      findHost={findHost}
+                      softwareMapEnabled={content.softwareMapEnabled === true}
+                    />
+                  </MapEnabled.Provider>
+                </RevealAfterFirstPaint>
+              </DisplayedReviewVersionContext.Provider>
+            </AuthoringActivityContext.Provider>
+          </TutorialProvider>
+        </DocumentData.Provider>
+      </ReviewSessionProvider>
+    </SharingContext.Provider>
   );
 }
 

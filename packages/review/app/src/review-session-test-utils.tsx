@@ -88,6 +88,12 @@ export function testApiDocumentData(blocks: Block[]): ApiDocumentData {
       version: 1,
       title: "Imported",
       pins: { repositoryId: "repo", base: "base", head: "head" },
+      target: {
+        kind: "commits",
+        repositoryId: "repo",
+        base: "base",
+        head: "head",
+      },
       createdAt: "2026-01-01T00:00:00.000Z",
       document: blocks,
     },

@@ -281,6 +281,7 @@ export type ListUploadsResponse = z.infer<typeof listUploadsResponseSchema>;
 
 export const storeErrorCodeSchema = z.enum([
   "unauthorized",
+  "repository_authorization_required",
   "forbidden",
   "not_found",
   "invalid_request",

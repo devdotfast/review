@@ -83,6 +83,7 @@ async function serve(input: HeadlessServerInput) {
       local.store,
       local.data,
       undefined,
+      undefined,
       () => ({
         desktopAvailable: false,
         softwareMapEnabled: input.softwareMapEnabled ?? false,

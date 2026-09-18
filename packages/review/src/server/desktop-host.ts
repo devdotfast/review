@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import { mkdir } from "node:fs/promises";
+import path from "node:path";
 
 import { findReviewPackageRoot } from "../package-paths";
 import { openReviewProfile } from "../review-api/profile";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
 import { devReviewHome } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
+import { SharedReviewStore } from "../sharing/import.js";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
 
@@ -67,8 +69,13 @@ export async function runDesktopHost(
   // JSON is the sole user-review store. A failure is surfaced, never replaced
   // by a second catalog or an old document renderer.
 
+  const shared = new SharedReviewStore(path.join(home, "shared-reviews"));
+  shared.connect(local.store, local.data);
+  await shared.load();
+
   const server = createGlobalReviewServer({
     ...serverInput,
+    sharedReviews: shared,
     reviewStore: local.store,
     reviewData: local.data,
     cliRuntimePath: env.DEV_FAST_REVIEW_CLI_RUNTIME,
@@ -102,6 +109,7 @@ export async function runDesktopHost(
     if (!stopping) {
       stopping = server
         .close("app-exit")
+        .finally(() => shared.close())
         .finally(() => local?.data.close())
         .finally(() => local?.store.close());
     }

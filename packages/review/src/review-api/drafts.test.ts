@@ -188,6 +188,11 @@ it("holds ownership without heartbeats and blocks every content mutation while o
       },
     },
     { type: "repin", reviewId: d.reviewId, pins },
+    {
+      type: "set_target",
+      reviewId: d.reviewId,
+      target: { kind: "commits", ...pins },
+    },
     { type: "restore", reviewId: d.reviewId, version: 0 },
     { type: "delete", reviewId: d.reviewId },
   ])
@@ -379,3 +384,31 @@ it("prevents another process taking a live draft and discards scratch only after
     child.kill("SIGKILL");
   }
 }, 15_000);
+
+it("requires explicit commits before batch authoring a live worktree review", async () => {
+  providers.resolveTarget = async (target) => ({ target, pins });
+
+  const { reviewId } = await a.execute(
+    command({
+      type: "create",
+      title: "Live review",
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
+    }),
+  );
+
+  await expect(a.executeDraft({ type: "begin", reviewId })).rejects.toThrow(
+    /Supply resolved base\/head pins/,
+  );
+  const d = await draft(a, reviewId);
+  await write(d, "Fixed comparison");
+  expect(b.read(reviewId).target.kind).toBe("worktree");
+  expect(a.drafts.source(d.draftId).target).toEqual({
+    kind: "commits",
+    ...pins,
+  });
+  await a.executeDraft(commit(d));
+  expect(b.read(reviewId)).toMatchObject({
+    version: 1,
+    target: { kind: "commits", ...pins },
+  });
+});

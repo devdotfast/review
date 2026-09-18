@@ -110,7 +110,7 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
       kind: "api",
       reviewId: review.reviewId,
       bridge,
-      setVersion: displayedVersion,
+      setSourceView: (_selection, view) => displayedVersion(view.version),
     });
   });
   await act(async () => {
@@ -441,7 +441,7 @@ it.each([false, true])(
     app.get("/reviews-api/:id/agent-traces", (context) =>
       context.json({ ok: true, sessions: [] }),
     );
-    app.get(`/reviews-api/resources/${traceId}`, (context) =>
+    app.get(`/reviews-api/${review.reviewId}/resources/${traceId}`, (context) =>
       context.json(trace),
     );
 
@@ -591,7 +591,7 @@ it("renders a code peek block on its pinned side without fetching source text", 
       kind: "api",
       reviewId: review.reviewId,
       bridge,
-      setVersion: () => {},
+      setSourceView: () => {},
     });
   });
   await act(async () => {

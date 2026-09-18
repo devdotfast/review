@@ -15,6 +15,9 @@ const decodeNamedCharacterReferenceIndex = path.join(
 );
 
 const alias = {
+  "@dev.fast/review-share-protocol": fileURLToPath(
+    new URL("../review-share-protocol/src/index.ts", import.meta.url),
+  ),
   "@dev.fast/trace-core": fileURLToPath(
     new URL("../trace-core/src/index.ts", import.meta.url),
   ),

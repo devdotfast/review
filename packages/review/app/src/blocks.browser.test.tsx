@@ -153,12 +153,19 @@ async function mountFixture(
   resources: { trace?: null } = {},
   tutorial?: ReviewCanvasTutorialBridge,
   shippedTutorial = false,
+  hostStyle?: string,
 ) {
   const snapshot: Snapshot = {
     reviewId: `fixture-${kind}`,
     version: 0,
     title: "Fixture review",
     pins: { repositoryId: "repo", base: "base", head: "head" },
+    target: {
+      kind: "commits",
+      repositoryId: "repo",
+      base: "base",
+      head: "head",
+    },
     document: shippedTutorial
       ? documentSchema.parse(tutorialDocument.document)
       : fixtures.get(kind)!,
@@ -205,6 +212,8 @@ async function mountFixture(
   });
 
   const container = document.createElement("div");
+
+  if (hostStyle) container.style.cssText = hostStyle;
   document.body.append(container);
   await act(async () => {
     canvas = mount(container, {
@@ -394,5 +403,51 @@ describe("BlockErrorBoundary", () => {
     expect(onError.mock.calls[0]![0].message).toBe("bad props reached render");
     await act(async () => root.unmount());
     vi.restoreAllMocks();
+  });
+});
+
+describe("tutorial guide placement", () => {
+  it("keeps the guide inside the host when status rows sit above the document", async () => {
+    const tutorial: ReviewCanvasTutorialBridge = {
+      content: {
+        reviewUuid: "fixture-tutorial",
+        progress: { version: 1, checked: [], dismissed: false },
+        keymap: "none",
+      },
+      setStep() {},
+      dismiss() {},
+      reopen() {},
+      async selectKeymap() {},
+      close() {},
+    };
+
+    const { container } = await mountFixture(
+      "tutorial",
+      {},
+      tutorial,
+      true,
+      "position: relative; height: 700px; overflow: hidden;",
+    );
+
+    expect(
+      await settled(
+        () =>
+          has(container, ".tutorial-guide") &&
+          container
+            .querySelector("summary")
+            ?.textContent?.includes("Language environment"),
+      ),
+    ).toBe(true);
+
+    const host = container.getBoundingClientRect();
+    const app = container.querySelector(".review-app")!.getBoundingClientRect();
+
+    const guide = container
+      .querySelector(".tutorial-guide")!
+      .getBoundingClientRect();
+
+    expect(app.bottom).toBeLessThanOrEqual(host.bottom);
+    expect(guide.top).toBeGreaterThanOrEqual(host.top);
+    expect(guide.bottom).toBeLessThanOrEqual(host.bottom);
   });
 });

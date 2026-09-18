@@ -26,7 +26,9 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
 
   const descriptions = {
     create:
-      "Create a blank review at resolved source pins. For a PR review, also supply its canonical pullRequestUrl.",
+      "Create a review with target: {kind: worktree, repositoryId, base?} for saved working files, or {kind: commits, repositoryId, head, base?} for immutable commits. Revisions are resolved on acceptance. Omitted commits base means source at head with no diff; supply the parent to review introduced changes. Legacy pins remain accepted. For a PR supply pullRequestUrl.",
+    set_target:
+      "Change the review target, preserving document and component IDs. Returns warnings for source references needing repair. Earlier versions keep their retained source.",
     edit: "Insert, update, move, remove or replace a component. The host assigns short durable IDs. Create an outline of section headings and short descriptions with status:pending first. Patch each section to status:in_progress before filling it, then status:complete after checking its content. Use returned IDs to fill sections in place. Section status persists independently of activity; absent status is unspecified. Accepted edits are saved immediately. Omitted placement appends; null removes an optional field in a patch.",
     rename: "Change the review title.",
     repin:
@@ -67,7 +69,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "activity",
-      "Acquire an exclusive authoring session: begin with a fresh leaseId UUID, pass that leaseId on every edit, rename, repin, restore or delete, renew at least every 30 seconds, and end when finished. Another session gets a conflict while this lease is active. The lease expires after 60 seconds without renewal. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. Ending the session does not mark sections complete or create document versions.",
+      "Acquire an exclusive authoring session: begin with a fresh leaseId UUID, pass that leaseId on every edit, rename, repin, target change, restore or delete, renew at least every 30 seconds, and end when finished. Another session gets a conflict while this lease is active. The lease expires after 60 seconds without renewal. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. Ending the session does not mark sections complete or create document versions.",
       activitySchema.extend(review),
       "POST",
       "/:reviewId/activity",
@@ -134,7 +136,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "source",
-      "Read an exact code range at the review's pinned base or head.",
+      "Read an exact code range from the current target (or batch draft pins). An explicit version reads retained historical source.",
       mode === "batch"
         ? z.strictObject({ draftId: id, source: sourceSchema })
         : z.strictObject({ ...review, version, source: sourceSchema }),
@@ -143,14 +145,14 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "file",
-      "Read a complete pinned source file.",
+      "Read a complete source file from the current target; version selects retained history.",
       read("file"),
       "GET",
       `${sourcePath}/file`,
     ),
     tool(
       "tree",
-      "List immediate committed directory entries, not working-copy files.",
+      "List immediate directory entries in the target, including working files for worktree targets.",
       read("tree"),
       "GET",
       `${sourcePath}/tree`,
@@ -175,7 +177,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
 
   const draftDescriptions = {
     begin:
-      "Begin an exclusive server-owned scratch draft. Supply reviewId to update a saved review, or title and resolved pins for a new review. No committed placeholder is created. No activity or heartbeat is needed. A live server retains ownership until commit, abort or shutdown.",
+      "Begin an exclusive server-owned scratch draft. Supply reviewId to update a saved review, or title and resolved pins for a new review. Updating a live worktree review requires explicit resolved pins and commits it as a fixed commit target. No committed placeholder is created. No activity or heartbeat is needed. A live server retains ownership until commit, abort or shutdown.",
     write:
       "Replace the complete scratch document and optionally its metadata. Omit component IDs; the server allocates fresh IDs and returns the draft. Writes do not create committed versions. Prefer this bulk operation to many edits.",
     edit: "Apply a targeted edit to the scratch document using IDs returned by draft_get or draft_write. No committed version is created.",

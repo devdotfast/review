@@ -31,6 +31,8 @@ import { IWorkingCopyService } from '../../../services/workingCopy/common/workin
 import { OpaqueEdits, ResourceAttachmentEdit } from './opaqueEdits.js';
 import { TextModelEditSource } from '../../../../editor/common/textModelEditSource.js';
 import { isMacintosh } from '../../../../base/common/platform.js';
+import { isReviewReadonlySource } from '../../../../review/common/reviewReadonlySource.js';
+import { ICodeEditorService } from '../../../../editor/browser/services/codeEditorService.js';
 
 function liftEdits(edits: ResourceEdit[]): ResourceEdit[] {
 	return edits.map(edit => {
@@ -181,6 +183,7 @@ export class BulkEditService implements IBulkEditService {
 		@IDialogService private readonly _dialogService: IDialogService,
 		@IWorkingCopyService private readonly _workingCopyService: IWorkingCopyService,
 		@IConfigurationService private readonly _configService: IConfigurationService,
+		@ICodeEditorService private readonly _codeEditors: ICodeEditorService,
 	) { }
 
 	setPreviewHandler(handler: IBulkEditPreviewHandler): IDisposable {
@@ -198,6 +201,13 @@ export class BulkEditService implements IBulkEditService {
 
 	async apply(editsIn: ResourceEdit[] | WorkspaceEdit, options?: IBulkEditOptions): Promise<IBulkEditResult> {
 		let edits = liftEdits(Array.isArray(editsIn) ? editsIn : editsIn.edits);
+		// A command/code action originating in a review cannot edit workspace files.
+		const source = (options?.editor ?? this._codeEditors.getFocusedCodeEditor() ?? this._codeEditors.getActiveCodeEditor())?.getModel()?.uri ?? this._editorService.activeEditor?.resource;
+		if (isReviewReadonlySource(source) || edits.some(edit =>
+			edit instanceof ResourceTextEdit && isReviewReadonlySource(edit.resource) ||
+			edit instanceof ResourceFileEdit && (isReviewReadonlySource(edit.oldResource) || isReviewReadonlySource(edit.newResource)))) {
+			return { ariaSummary: 'Review source is read-only. Open in workspace to edit.', isApplied: false };
+		}
 
 		if (edits.length === 0) {
 			return { ariaSummary: localize('nothing', "Made no edits"), isApplied: false };

@@ -44,6 +44,8 @@ export interface IReviewDesktopConnectionService {
 	readonly _serviceBrand: undefined;
 	readonly onDidFail: Event<Error>;
 	readonly onDidChangeLists: Event<void>;
+	/** Fires at control-stream connection/disconnection boundaries, before reuse. */
+	readonly onDidChangeConnection: Event<void>;
 	initialize(): Promise<void>;
 	getConnection(): Promise<ReviewServerConnection>;
 	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
@@ -77,6 +79,8 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 	readonly onDidChangeLists = this._onDidChangeLists.event;
 	private readonly _onDidFail = this._register(new Emitter<Error>());
 	readonly onDidFail = this._onDidFail.event;
+	private readonly connectionChanged = this._register(new Emitter<void>());
+	readonly onDidChangeConnection = this.connectionChanged.event;
 
 	private initializePromise: Promise<void> | null = null;
 	private tutorialPreparePromise: Promise<void> | undefined;
@@ -428,6 +432,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		if (!response.ok || !response.body) {
 			throw new Error(`Desktop control returned ${response.status}.`);
 		}
+		this.connectionChanged.fire();
 		onConnected();
 		await consumeReviewEventStream(
 			response.body,
@@ -456,7 +461,7 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 				});
 			},
 			this.controller.signal,
-		);
+		).finally(() => this.connectionChanged.fire());
 	}
 
 	private authHeaders(): Record<string, string> {

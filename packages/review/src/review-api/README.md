@@ -1,4 +1,4 @@
-# Small authoring/storage experiment
+# JSON review API
 
 Desktop and `review server start` share `review-api.db` under `DEV_REVIEW_HOME`.
 A headless `--state-dir` or `DEV_REVIEW_SERVER_DIR` selects an isolated profile;
@@ -63,11 +63,11 @@ All paths below are relative to `/reviews-api`.
 | `POST /repositories {path}`               | Register a local Git/jj repository; return ID/name                     |
 | `POST /pins {repositoryId,base,head}`     | Resolve revisions to immutable commit IDs                              |
 | `POST /resources`                         | Upload an image, trace, or map; return resource ID/kind/MIME type      |
-| `GET /resources/:resourceId`              | Read retained bytes; desktop authentication required                   |
+| `GET /:id/resources/:resourceId`              | Read retained bytes scoped to the review repository; desktop authentication required                   |
 | `GET /:id/maps/:resourceId?version=0` | Read a pinned map with source-change counts for that review version |
 | `POST /:id/source {source,version?}`      | Read an exact pinned code range                                        |
-| `GET /:id/file?side=head&file=src/app.ts` | Read a complete pinned source file; optional version                   |
-| `GET /:id/tree?path=src&side=head` | Immediate committed directory entries; path defaults to root, side to head; optional version/commit |
+| `GET /:id/file?side=head&file=src/app.ts` | Read current target source; version selects authored content; live source always follows the checkout                   |
+| `GET /:id/tree?path=src&side=head` | Immediate target directory entries; path defaults to root, side to head; optional version/commit |
 | `GET /:id/commits?version=0`              | List commits and their first-parent statistics for that review version |
 | `GET /:id/diff`                           | Changed-file summaries; optional file for patch text and version       |
 
@@ -95,10 +95,10 @@ The canvas continues to use the JSON snapshot routes above.
 }
 ```
 
-Commands: `create {title,pins,pullRequestUrl?}`, `edit {reviewId,edit}`, `rename {reviewId,title}`,
-`repin {reviewId,pins,pullRequestUrl?}`, `restore {reviewId,version}`. Pins contain
+Commands: `create {title,target,pullRequestUrl?}`, `set_target {reviewId,target}`, `edit {reviewId,edit}`, `rename {reviewId,title}`,
+`repin {reviewId,pins,pullRequestUrl?}`, `restore {reviewId,version}`. Legacy create with pins remains accepted. Pins contain
 `{repositoryId,base,head}` and must identify immutable commits.
-Repinning creates a blank snapshot. Restore restores title, pins, PR identity, and content.
+Retargeting preserves content and component IDs. Restore restores title, target, PR identity, and content. Live targets still read the current checkout.
 PR URLs must be canonical `https://github.com/owner/repository/pull/123` URLs. The PR number is derived from the URL; identity is metadata alongside immutable pins, not a moving source reference, and does not fetch or refresh PR commits. Resolve the intended comparison separately. `repin` preserves the document and component IDs, including when source commits change. Its response reports retained source ranges to verify and resources that no longer match the pins; agents repair these with `edit`. Existing versions keep their original pins and content. Repin preserves omitted PR identity within one repository, clears it when switching repositories, and accepts an explicit URL or null.
 
 `attention {reviewId,action:"view"|"dismiss"|"restore"}` records viewing or
@@ -275,3 +275,19 @@ Ownership belongs to the server instance and PID, with no heartbeat or expiry.
 Commit, abort and graceful shutdown release it; a dead PID permits orphan cleanup.
 A live owner is never evicted by elapsed time. No draft resume or automatic commit
 occurs. CI must terminate its server even if its agent fails.
+
+## Review targets
+
+`target` is either `{kind:"worktree",repositoryId,base?}` or
+`{kind:"commits",repositoryId,head,base?}`. Commit revisions resolve on acceptance.
+Omitted commit base means source at head with no diff, exactly as base=head;
+supply its parent to review the changes introduced by a single commit.
+
+A worktree target follows saved files in that registered checkout, including
+staged, unstaged and nonignored untracked files. Without base, Working changes
+compares with current HEAD (empty for unborn repositories). No checkout is created.
+Source ranges default to the head side. File saves refresh source without changing
+authored history. All versions of a live target read the current checkout; authors
+maintain their source references. Use a commit target for fixed source.
+
+See [review targets](../../../../docs/cli-reference.md#review-targets) for the supported source and comparison options.

@@ -221,7 +221,9 @@ it("shares review identity, resources, sessions and live changes with Desktop in
         events: [{ id: "answer", role: "assistant", text: "Shared bytes" }],
       },
     });
-    expect(await desktop.read(`/resources/${traceId}`)).toMatchObject({
+    expect(
+      await desktop.read(`/${created.reviewId}/resources/${traceId}`),
+    ).toMatchObject({
       label: "Evidence",
     });
     await server.client.post("/commands", {
@@ -445,14 +447,19 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
     pins,
     document: [{ status: "in_progress" }, { assetId: imageId }],
   });
-  const retained = await restarted.client.response(`/resources/${imageId}`);
+
+  const retained = await restarted.client.response(
+    `/${reviewId}/resources/${imageId}`,
+  );
+
   expect(Buffer.from(await retained.arrayBuffer())).toEqual(image);
   expect(
-    (await restarted.client.response(`/resources/${traceId}`)).status,
+    (await restarted.client.response(`/${reviewId}/resources/${traceId}`))
+      .status,
   ).toBe(200);
-  expect((await restarted.client.response(`/resources/${mapId}`)).status).toBe(
-    200,
-  );
+  expect(
+    (await restarted.client.response(`/${reviewId}/resources/${mapId}`)).status,
+  ).toBe(200);
 
   const file = await restarted.client.read<{ text: string }>(
     `/${reviewId}/file?side=head&file=example.ts`,
@@ -765,6 +772,10 @@ it("authors one batch snapshot through MCP and CLI with draft source reads, uplo
         events: [{ id: "answer", role: "assistant", text: "Checked value" }],
       },
     });
+
+    expect(
+      await client.read(`/drafts/${d.draftId}/resources/${traceId}`),
+    ).toMatchObject({ label: "Evidence" });
 
     const document = [
       {

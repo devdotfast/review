@@ -371,11 +371,65 @@ export interface ReviewCanvasSettingsContent {
   install?: ReviewCanvasInstallContent;
 }
 
-export interface ReviewApiSourceLocation {
+/** Workspace attachment identity is independent of the displayed source generation. */
+export interface ReviewLanguageEnvironment {
+  readonly rootPath: string | null;
+  readonly identity: string;
+}
+
+/** Authored version selection is independent of whether source is live or fixed. */
+export type ReviewSourceSelection =
+  | { readonly reviewId: string; readonly kind: "current" }
+  | {
+      readonly reviewId: string;
+      readonly kind: "version";
+      readonly version: number;
+    };
+
+export interface ReviewSourceView {
+  readonly reviewId: string;
+  readonly version: number;
+  /** Cache invalidation for live files; does not select historical source. */
+  readonly generation?: string;
+  readonly commit?: string;
+}
+
+export function resolveReviewSourceView(snapshot: {
+  reviewId: string;
   version: number;
-  file: string;
-  side: ReviewDiffSide;
-  commit?: string;
+  pins: { worktreeRevision?: string };
+}): ReviewSourceView {
+  return Object.freeze({
+    reviewId: snapshot.reviewId,
+    version: snapshot.version,
+    generation: snapshot.pins.worktreeRevision,
+  });
+}
+
+export function reviewSourceComparison(
+  view: ReviewSourceView,
+  commit?: string,
+): ReviewSourceView {
+  return commit
+    ? Object.freeze({
+        ...view,
+        commit,
+      })
+    : view;
+}
+
+/** Existing HTTP parameters are an adapter, not the internal view model. */
+export function reviewSourceQuery(view: ReviewSourceView) {
+  return {
+    version: view.version,
+    commit: view.commit,
+  };
+}
+
+export interface ReviewApiSourceLocation {
+  readonly view: ReviewSourceView;
+  readonly file: string;
+  readonly side: ReviewDiffSide;
 }
 
 export type ReviewCanvasContent =
@@ -389,7 +443,10 @@ export type ReviewCanvasContent =
       version?: number;
       bridge: ReviewCanvasBridge;
       setTitle?(title: string): void;
-      setVersion?(version: number): void;
+      setSourceView?(
+        selection: ReviewSourceSelection,
+        view: ReviewSourceView,
+      ): void;
       openSource?(
         source: ReviewApiSourceLocation,
         range: ReviewInlineEditorRange,
@@ -955,6 +1012,11 @@ const revealArgsSchema = z
 
 export const REVIEW_DISCORD_URL = "https://discord.gg/wYvd2cpMQg";
 
+const apiReviewIdSchema = z.union([
+  z.uuid(),
+  z.string().regex(/^shared-[a-f0-9]{64}$/),
+]);
+
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("authoringCapabilities"),
@@ -996,13 +1058,16 @@ export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
   z.strictObject({
     name: z.literal("openReview"),
     args: z.strictObject({
-      reviewUuid: z.uuid({ error: "must be a UUID" }),
+      reviewUuid: apiReviewIdSchema,
       active: z.boolean(),
     }),
   }),
   z.strictObject({
     name: z.literal("openApiReview"),
-    args: z.strictObject({ reviewId: z.uuid(), title: requiredString }),
+    args: z.strictObject({
+      reviewId: apiReviewIdSchema,
+      title: requiredString,
+    }),
   }),
 ]);
 

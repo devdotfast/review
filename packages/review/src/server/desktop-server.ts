@@ -38,6 +38,7 @@ import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
+import type { SharedReviewStore } from "../sharing/import.js";
 import {
   GlobalReviewDesktopVerbRelay,
   type ReviewDesktopVerbRelay,
@@ -64,6 +65,7 @@ const UUID_PATTERN =
 export interface GlobalReviewServerInput {
   /** The desktop host owns this shared database and closes it after the server. */
   reviewStore: ReviewStore;
+  sharedReviews?: SharedReviewStore;
   reviewData: LocalReviewData;
   appPid: number;
   packageRoot: string;
@@ -156,7 +158,9 @@ export function createGlobalReviewServer(
 
   app.route(
     "/reviews-api",
-    createJsonReviewReporting(input.reviewStore, telemetry),
+    createJsonReviewReporting(input.reviewStore, telemetry, {
+      shared: input.sharedReviews,
+    }),
   );
 
   app.route(
@@ -176,6 +180,7 @@ export function createGlobalReviewServer(
           .object({ softwareMapEnabled: z.boolean() })
           .parse(result.result);
       },
+      input.sharedReviews,
       async () => {
         if (!relay.attached)
           return { desktopAvailable: false, softwareMapEnabled: false };

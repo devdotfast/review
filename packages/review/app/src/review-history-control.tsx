@@ -12,6 +12,7 @@ import {
 import { useReviewSession } from "./host/review-session";
 import { useReview } from "./review-context";
 import { useTutorial } from "./tutorial-context";
+import { useDismissOnOutside } from "./use-dismiss-on-outside";
 
 type VersionList = ReviewDocumentVersionWire[] | null | "unavailable";
 
@@ -42,29 +43,7 @@ export function ReviewHistoryControl(): ReactElement | null {
     void loadVersions();
   }, [displayedVersion, historicalRevision, loadVersions, tutorial]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      const target = event.target;
-
-      if (target instanceof Node && controlRef.current?.contains(target))
-        return;
-      setOpen(false);
-    };
-
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
-    document.addEventListener("keydown", closeOnEscape, true);
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
-      document.removeEventListener("keydown", closeOnEscape, true);
-    };
-  }, [open]);
+  useDismissOnOutside(controlRef, open, setOpen, true, true);
 
   if (!tutorial && !Array.isArray(versions)) {
     return null;

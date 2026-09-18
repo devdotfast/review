@@ -1,12 +1,15 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  type FSWatcher,
   existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
+  watch,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -165,7 +168,9 @@ it("uses a managed pinned worktree for language services without changing local 
 
   expect(response.status).toBe(200);
   const environment = await response.json();
-  expect(environment.state).toBe("unconfigured");
+  expect(local.data.workspaces.list(created.reviewId)[0]?.state).toBe(
+    "unconfigured",
+  );
   expect(environment.rootPath).not.toBe(realpathSync(repository));
   expect(
     execFileSync("git", ["rev-parse", "HEAD"], {
@@ -189,7 +194,7 @@ it("uses a managed pinned worktree for language services without changing local 
     await (
       await app.request(`/${created.reviewId}/language-context?version=0`)
     ).json(),
-  ).toMatchObject({ rootPath: null, state: "failed" });
+  ).toMatchObject({ rootPath: null });
 });
 
 it("returns map endpoint locations through HTTP and allows correcting a rejected upload", async () => {
@@ -1243,6 +1248,39 @@ it("decodes images and checks trace/map evidence before accepting components", a
       "app.api.example.value": { additions: 2, deletions: 1 },
     },
   });
+  writeFileSync(
+    path.join(repository, source.file),
+    "export const value = 3;\nexport const saved = true;\n",
+  );
+
+  const live = await local.data.resolveTarget({
+    kind: "worktree",
+    repositoryId: pins.repositoryId,
+    base: pins.base,
+  });
+
+  recordSpawns();
+  expect(
+    (await local.data.map(live.pins, map.id)).countsByElementPath[
+      "app.api.example.value"
+    ],
+  ).toEqual({ additions: 2, deletions: 1 });
+  const smallDiffCalls = spawns.filter((args) => args.includes("diff")).length;
+
+  for (let index = 0; index < 20; index++)
+    writeFileSync(
+      path.join(repository, `extra-${index}.ts`),
+      "export const extra = true;\n",
+    );
+  recordSpawns();
+  expect(
+    (await local.data.map(live.pins, map.id)).countsByElementPath[
+      "app.api.example.value"
+    ],
+  ).toEqual({ additions: 2, deletions: 1 });
+  expect(
+    spawns.filter((args) => args.includes("diff")).length,
+  ).toBeLessThanOrEqual(smallDiffCalls + 1);
   await expect(
     local.data.map({ ...pins, head: pins.base }, map.id),
   ).rejects.toThrow(/does not match/);
@@ -1456,11 +1494,17 @@ it("exposes real source and resource operations through the authenticated deskto
     };
 
     expect((await post("/resources", resource)).status).toBe(200);
-    expect((await fetch(url + "/resources/" + resource.id)).status).toBe(401);
+    expect(
+      (await fetch(url + "/" + review.reviewId + "/resources/" + resource.id))
+        .status,
+    ).toBe(401);
 
-    const response = await fetch(url + "/resources/" + resource.id, {
-      headers,
-    });
+    const response = await fetch(
+      url + "/" + review.reviewId + "/resources/" + resource.id,
+      {
+        headers,
+      },
+    );
 
     expect(response.headers.get("content-type")).toBe("application/json");
     expect(await response.json()).toMatchObject({
@@ -1651,5 +1695,716 @@ it("reports invalid copy requests, unavailable versions, and missing source file
 
     expect(response.status).toBe(status);
     expect(await response.json()).toMatchObject({ error: expect.any(String) });
+  }
+});
+
+it("resolves omitted commit base once and preserves explicit parent comparisons", async () => {
+  const repositoryId = pins.repositoryId;
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Single commit",
+      target: { kind: "commits", repositoryId, head: "HEAD" },
+    }),
+  );
+
+  const snapshot = local.store.read(result.reviewId);
+  expect(snapshot.pins).toEqual({
+    repositoryId,
+    base: pins.head,
+    head: pins.head,
+  });
+  expect(await local.data.changes(snapshot.pins)).toEqual([]);
+  expect(await local.data.file(snapshot.pins, "head", "example.ts")).toEqual(
+    await local.data.file(pins, "head", "example.ts"),
+  );
+
+  const explicit = await local.data.resolveTarget({
+    kind: "commits",
+    repositoryId,
+    head: "HEAD",
+    base: "HEAD",
+  });
+
+  expect(explicit.pins).toEqual(snapshot.pins);
+
+  const comparison = await local.data.resolveTarget({
+    kind: "commits",
+    repositoryId,
+    head: pins.head,
+    base: pins.base,
+  });
+
+  expect(await local.data.changes(comparison.pins)).not.toEqual([]);
+});
+
+it("reads current working source across authored versions, commits and retargeting", async () => {
+  const beforeIndex = git("diff", "--cached");
+  const repositoryId = pins.repositoryId;
+  writeFileSync(
+    path.join(repository, "example.ts"),
+    "export const live = 1;\n",
+  );
+  writeFileSync(
+    path.join(repository, "untracked.ts"),
+    "export const fresh = true;\n",
+  );
+
+  const request = command({
+    type: "create",
+    title: "Working files",
+    target: { kind: "worktree", repositoryId },
+  });
+
+  const result = await local.store.execute(request);
+  const original = local.store.read(result.reviewId, 0);
+  expect(
+    (await local.data.file(original.pins, "head", "example.ts")).text,
+  ).toContain("live = 1");
+  expect(await local.data.tree(original.pins, "head", "")).toContainEqual({
+    path: "untracked.ts",
+    kind: "file",
+  });
+  expect(await local.data.changes(original.pins)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "untracked.ts", status: "added" }),
+    ]),
+  );
+  writeFileSync(
+    path.join(repository, "example.ts"),
+    "export const live = 2;\n",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  const current = local.store.read(result.reviewId);
+  expect(
+    (await local.data.file(current.pins, "head", "example.ts")).text,
+  ).toContain("live = 2");
+  expect(
+    (
+      await local.data.file(
+        local.store.read(result.reviewId, 0).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("live = 2");
+  expect(local.store.history(result.reviewId)).toHaveLength(1);
+  expect(await local.store.execute(request)).toEqual(result);
+  expect(git("diff", "--cached")).toBe(beforeIndex);
+  git("add", ".");
+  git("commit", "-qm", "Save changes");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  expect(
+    await local.data.changes(local.store.read(result.reviewId).pins),
+  ).toEqual([]);
+  await local.store.execute(
+    command({
+      type: "set_target",
+      reviewId: result.reviewId,
+      target: { kind: "commits", repositoryId, head: pins.head },
+    }),
+  );
+  expect(local.store.read(result.reviewId).target?.kind).toBe("commits");
+  expect(
+    (await local.data.file(original.pins, "head", "example.ts")).text,
+  ).toContain("live = 2");
+});
+
+it("reads symlink text and an unborn repository without following external links or pinning", async () => {
+  const root = path.join(directory, "unborn");
+  mkdirSync(root);
+  execFileSync("git", ["init", "-q", root]);
+  const repo = await local.data.register(root);
+  const outside = path.join(directory, "private.ts");
+  writeFileSync(outside, "secret\n");
+  symlinkSync(outside, path.join(root, "external.ts"));
+  writeFileSync(path.join(root, "first.ts"), "export const first = 1;\n");
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Unborn",
+      target: { kind: "worktree", repositoryId: repo.id },
+    }),
+  );
+
+  const snapshot = local.store.read(result.reviewId);
+  expect(
+    (await local.data.file(snapshot.pins, "head", "first.ts")).text,
+  ).toContain("first = 1");
+  expect(
+    (await local.data.file(snapshot.pins, "head", "external.ts")).text,
+  ).toBe(outside);
+  expect(await local.data.changes(snapshot.pins)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "first.ts", status: "added" }),
+    ]),
+  );
+  expect(
+    execFileSync("git", ["-C", root, "worktree", "list", "--porcelain"], {
+      encoding: "utf8",
+    }).match(/^worktree /gm),
+  ).toHaveLength(1);
+});
+
+it("keeps authored coordinates fixed as live source changes and warns only on unavailable ranges", async () => {
+  writeFileSync(
+    path.join(repository, "range.ts"),
+    "const first = 1;\nconst second = 2;\nconst third = 3;\n",
+  );
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Ranges",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  await insert(result.reviewId, {
+    type: "code_peek",
+    source: { file: "range.ts", fromLine: 2, toLine: 2 },
+  });
+  const saved = local.store.read(result.reviewId);
+  writeFileSync(
+    path.join(repository, "range.ts"),
+    "// inserted\nconst first = 1;\nconst second = 2;\nconst third = 3;\n",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  expect(local.store.read(result.reviewId).document[0]).toMatchObject({
+    source: { fromLine: 2, toLine: 2 },
+  });
+  expect(
+    local.store.read(result.reviewId, saved.version).document[0],
+  ).toMatchObject({ source: { fromLine: 2, toLine: 2 } });
+  writeFileSync(path.join(repository, "range.ts"), "const first = 99;\n");
+  await vi.waitFor(async () => {
+    await local.store.refreshWorktrees();
+    expect(local.store.read(result.reviewId).staleSources).toEqual([
+      saved.document[0]!.id,
+    ]);
+  });
+});
+
+it("reads current checkout even with an older authored version", async () => {
+  const api = createReviewApi(local.store, local.data);
+  writeFileSync(path.join(repository, "example.ts"), "const generation = 1;\n");
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Coherence",
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
+    }),
+  );
+
+  writeFileSync(path.join(repository, "example.ts"), "const generation = 2;\n");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const read = async (query: string) =>
+    (
+      await api.request(
+        `/${result.reviewId}/file?side=head&file=example.ts${query}`,
+      )
+    ).json();
+
+  expect(await read("")).toMatchObject({ text: "const generation = 2;\n" });
+
+  expect(await read("&version=0")).toMatchObject({
+    text: "const generation = 2;\n",
+  });
+  expect(await read("")).toMatchObject({
+    localPath: realpathSync(path.join(repository, "example.ts")),
+  });
+  expect(await read("&version=0")).toHaveProperty("localPath");
+});
+
+it("keeps multiple worktrees bound to their selected directory and survives reopening the store", async () => {
+  const otherPath = path.join(directory, "other-worktree");
+  git("worktree", "add", "--detach", otherPath, pins.head);
+  writeFileSync(
+    path.join(otherPath, "example.ts"),
+    "const otherCheckout = true;\n",
+  );
+  const other = await local.data.register(otherPath);
+
+  const one = await local.store.execute(
+    command({
+      type: "create",
+      title: "First",
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
+    }),
+  );
+
+  const two = await local.store.execute(
+    command({
+      type: "create",
+      title: "Second",
+      target: { kind: "worktree", repositoryId: other.id },
+    }),
+  );
+
+  const retained = local.store.read(two.reviewId);
+  await local.store.close();
+  await local.data.close();
+  local = openLocalReviewStore(database);
+  await local.store.refreshWorktrees();
+  expect(
+    (
+      await local.data.file(
+        local.store.read(one.reviewId).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("uncommitted text");
+  expect(
+    (
+      await local.data.file(
+        local.store.read(two.reviewId).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("otherCheckout");
+  expect(
+    (
+      await local.data.file(
+        local.store.read(two.reviewId, retained.version).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("otherCheckout");
+  expect(
+    git("worktree", "list", "--porcelain").match(/^worktree /gm),
+  ).toHaveLength(2);
+});
+
+it("includes saved additions and deletions while keeping ignored and binary sources explicit", async () => {
+  writeFileSync(path.join(repository, ".gitignore"), "ignored.ts\n");
+  writeFileSync(path.join(repository, "ignored.ts"), "secret\n");
+  writeFileSync(path.join(repository, "binary.dat"), Buffer.from([0, 1, 2]));
+  writeFileSync(path.join(repository, "__proto__"), "legitimate filename\n");
+  rmSync(path.join(repository, "example.ts"));
+
+  const result = await local.store.execute(
+    command({
+      type: "create",
+      title: "Files",
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
+    }),
+  );
+
+  const snapshot = local.store.read(result.reviewId);
+  const files = await local.data.tree(snapshot.pins, "head", "");
+  expect(files).not.toContainEqual({ path: "ignored.ts", kind: "file" });
+  expect(files).not.toContainEqual({ path: "example.ts", kind: "file" });
+  expect((await local.data.file(snapshot.pins, "head", "__proto__")).text).toBe(
+    "legitimate filename\n",
+  );
+  await expect(
+    local.data.file(snapshot.pins, "head", "binary.dat"),
+  ).rejects.toThrow("Binary");
+  expect(await local.data.changes(snapshot.pins)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ path: "example.ts", status: "deleted" }),
+      expect.objectContaining({ path: "binary.dat", status: "added" }),
+    ]),
+  );
+});
+
+it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
+  "reads unsnapshotted jj working files without changing the operation or Git index",
+  async () => {
+    const root = path.join(directory, "jj-working");
+    execFileSync("jj", ["git", "init", root]);
+
+    const jj = (...args: string[]) =>
+      execFileSync("jj", ["-R", root, ...args, "--ignore-working-copy"], {
+        encoding: "utf8",
+      }).trim();
+
+    const repo = await local.data.register(root);
+    const base = jj("log", "--no-graph", "-r", "@", "-T", "commit_id");
+    const operation = jj("op", "log", "--no-graph", "--limit", "1", "-T", "id");
+    writeFileSync(
+      path.join(root, "new.ts"),
+      "export const unsnapshotted = 1;\n",
+    );
+
+    const result = await local.store.execute(
+      command({
+        type: "create",
+        title: "jj working",
+        target: { kind: "worktree", repositoryId: repo.id, base },
+      }),
+    );
+
+    expect(
+      (
+        await local.data.file(
+          local.store.read(result.reviewId).pins,
+          "head",
+          "new.ts",
+        )
+      ).text,
+    ).toContain("unsnapshotted");
+    expect(
+      await local.data.changes(local.store.read(result.reviewId).pins),
+    ).toEqual([expect.objectContaining({ path: "new.ts", status: "added" })]);
+    expect(jj("op", "log", "--no-graph", "--limit", "1", "-T", "id")).toBe(
+      operation,
+    );
+  },
+);
+
+it("retargets a live review without losing authored content or component IDs", async () => {
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Retarget",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  await insert(created.reviewId, {
+    type: "code_peek",
+    source: { file: "example.ts", fromLine: 1, toLine: 1 },
+  });
+  const before = local.store.read(created.reviewId);
+
+  const result = await local.store.execute(
+    command({
+      type: "set_target",
+      reviewId: created.reviewId,
+      target: {
+        kind: "commits",
+        repositoryId: pins.repositoryId,
+        head: pins.head,
+      },
+    }),
+  );
+
+  expect(local.store.read(created.reviewId).document).toEqual(before.document);
+  expect(result.warnings?.length).toBeGreaterThan(0);
+  expect(
+    (
+      await local.data.file(
+        local.store.read(created.reviewId, before.version).pins,
+        "head",
+        "example.ts",
+      )
+    ).text,
+  ).toContain("uncommitted text");
+});
+
+it("worktree language contexts never prepare or create checkouts, including historical/base requests", async () => {
+  git("config", "devfast.prepare", "echo unexpected > prepared");
+
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Live LSP",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  const app = createReviewApi(local.store, local.data, async () => ({
+    softwareMapEnabled: false,
+  }));
+
+  const before = git("worktree", "list", "--porcelain");
+  expect(
+    (await app.request(`/${created.reviewId}/open`, { method: "POST" })).status,
+  ).toBe(200);
+
+  for (const side of ["base", "head"]) {
+    const response = await app.request(
+      `/${created.reviewId}/language-context?version=0&side=${side}`,
+    );
+
+    expect(await response.json()).toMatchObject({
+      rootPath: realpathSync(repository),
+      identity: expect.any(String),
+    });
+  }
+
+  await local.data.workspaces.idle();
+  expect(local.data.workspaces.list(created.reviewId)).toEqual([]);
+  expect(git("worktree", "list", "--porcelain")).toBe(before);
+  expect(existsSync(path.join(repository, "prepared"))).toBe(false);
+});
+
+it.each(["repin", "set_target"] as const)(
+  "recovers persisted stale source and clears flags on %s",
+  async (operation) => {
+    const original = "const first = 1;\nconst second = 2;\n";
+    writeFileSync(path.join(repository, "recover.ts"), original);
+
+    const created = await local.store.execute(
+      command({
+        type: "create",
+        title: "Recovery",
+        target: {
+          kind: "worktree",
+          repositoryId: pins.repositoryId,
+          base: pins.head,
+        },
+      }),
+    );
+
+    await insert(created.reviewId, {
+      type: "code_peek",
+      source: { file: "recover.ts", fromLine: 2, toLine: 2 },
+    });
+    writeFileSync(path.join(repository, "recover.ts"), "const first = 99;\n");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const renamed = await local.store.execute(
+      command({
+        type: "rename",
+        reviewId: created.reviewId,
+        title: "Still editable",
+      }),
+    );
+
+    expect(renamed.warnings?.length).toBeGreaterThan(0);
+    expect(local.store.read(created.reviewId).staleSources).toHaveLength(1);
+    await expect(
+      insert(created.reviewId, {
+        type: "code_peek",
+        source: { file: "recover.ts", fromLine: 99, toLine: 99 },
+      }),
+    ).rejects.toThrow("exceeds the pinned file");
+    writeFileSync(path.join(repository, "recover.ts"), original);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await local.store.refreshWorktrees();
+    expect(local.store.read(created.reviewId).staleSources).toEqual([]);
+    expect(local.store.read(created.reviewId).document[0]).toMatchObject({
+      source: { fromLine: 2, toLine: 2 },
+    });
+    expect(
+      local.store.read(created.reviewId, renamed.version).staleSources,
+    ).toHaveLength(1);
+    await local.store.execute(
+      command({
+        type: "restore",
+        reviewId: created.reviewId,
+        version: renamed.version,
+      }),
+    );
+    expect(local.store.read(created.reviewId).staleSources).toHaveLength(1);
+    await local.store.execute(
+      command(
+        operation === "repin"
+          ? { type: "repin", reviewId: created.reviewId, pins }
+          : {
+              type: "set_target",
+              reviewId: created.reviewId,
+              target: { kind: "commits", ...pins },
+            },
+      ),
+    );
+    expect(local.store.read(created.reviewId).staleSources).toEqual([]);
+  },
+);
+
+it("leaves authored Markdown destinations unchanged when source lines move", async () => {
+  const original =
+    Array.from({ length: 25 }, (_, index) => `line ${index + 1}`).join("\n") +
+    "\n";
+
+  writeFileSync(path.join(repository, "links.ts"), original);
+
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Links",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.head,
+      },
+    }),
+  );
+
+  await insert(created.reviewId, {
+    type: "markdown",
+    markdown:
+      "[one](review-source:head/links.ts#L1) [ten](review-source:head/links.ts#L10-L20)",
+  });
+  writeFileSync(path.join(repository, "links.ts"), "inserted\n" + original);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await local.store.refreshWorktrees();
+  expect(local.store.read(created.reviewId).document[0]).toMatchObject({
+    markdown:
+      "[one](review-source:head/links.ts#L1) [ten](review-source:head/links.ts#L10-L20)",
+  });
+});
+
+it("does not report clean tracked symlinks and submodules as modified", async () => {
+  symlinkSync("example.ts", path.join(repository, "tracked-link.ts"));
+  const modulePath = path.join(directory, "module");
+  mkdirSync(modulePath);
+  execFileSync("git", ["init", "-q", modulePath]);
+  writeFileSync(path.join(modulePath, "file.txt"), "module\n");
+  execFileSync("git", ["-C", modulePath, "add", "."]);
+  execFileSync("git", [
+    "-C",
+    modulePath,
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "-qm",
+    "Initial",
+  ]);
+  git(
+    "-c",
+    "protocol.file.allow=always",
+    "submodule",
+    "add",
+    modulePath,
+    "module",
+  );
+  git("add", ".");
+  git("commit", "-qm", "Link and module");
+  const head = git("rev-parse", "HEAD");
+
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Clean modes",
+      target: { kind: "worktree", repositoryId: pins.repositoryId, base: head },
+    }),
+  );
+
+  expect(
+    await local.data.changes(local.store.read(created.reviewId).pins),
+  ).toEqual([]);
+  expect(
+    (
+      await local.data.file(
+        local.store.read(created.reviewId).pins,
+        "head",
+        "tracked-link.ts",
+      )
+    ).text,
+  ).toBe("example.ts");
+  const snapshot = local.store.read(created.reviewId);
+  await expect(
+    local.data.file(snapshot.pins, "head", "module"),
+  ).rejects.toThrow("not a regular file");
+
+  const response = await createReviewApi(local.store, local.data).request(
+    `/${created.reviewId}/file?side=head&file=module`,
+  );
+
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    error: "Source is not a regular file.",
+  });
+});
+
+it("continues capturing after watchers fail and stop emitting changes", async () => {
+  await local.data.close();
+  await local.store.close();
+  const watchers: FSWatcher[] = [];
+  local = openLocalReviewStore(database, {
+    watch: ((...args: Parameters<typeof watch>) => {
+      const watcher = watch(...args);
+      watchers.push(watcher);
+
+      return watcher;
+    }) as typeof watch,
+  });
+
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Watcher recovery",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.head,
+      },
+    }),
+  );
+
+  for (const watcher of watchers)
+    watcher.emit(
+      "error",
+      Object.assign(new Error("Watch limit"), { code: "ENOSPC" }),
+    );
+
+  for (const value of ["first change\n", "second change\n"]) {
+    writeFileSync(path.join(repository, "example.ts"), value);
+    await local.store.refreshWorktrees();
+    expect(
+      (
+        await local.data.file(
+          local.store.read(created.reviewId).pins,
+          "head",
+          "example.ts",
+        )
+      ).text,
+    ).toBe(value);
+  }
+});
+
+it("keeps live language identity across edits but replaces it with a checkout at the same path", async () => {
+  const created = await local.store.execute(
+    command({
+      type: "create",
+      title: "Environment identity",
+      target: {
+        kind: "worktree",
+        repositoryId: pins.repositoryId,
+        base: pins.base,
+      },
+    }),
+  );
+
+  const saved = local.store.read(created.reviewId, created.version);
+  const before = await local.data.languageEnvironment(saved, "head");
+  const retained = await local.data.file(saved.pins, "head", source.file);
+  writeFileSync(path.join(repository, "identity.ts"), "const changed = true;");
+  expect(await local.data.languageEnvironment(saved, "head")).toEqual(before);
+  const moved = `${repository}-previous`;
+  renameSync(repository, moved);
+
+  try {
+    expect(
+      (await local.data.languageEnvironment(saved, "head")).rootPath,
+    ).toBeNull();
+    mkdirSync(repository);
+    execFileSync("git", ["clone", "--quiet", moved, repository]);
+    const replacement = await local.data.languageEnvironment(saved, "head");
+    expect(replacement.rootPath).toBe(before.rootPath);
+    expect(replacement.identity).not.toBe(before.identity);
+    expect(local.data.workspaces.list(created.reviewId)).toEqual([]);
+    expect(
+      (await local.data.file(saved.pins, "head", source.file)).text,
+    ).not.toEqual(retained.text);
+  } finally {
+    rmSync(moved, { recursive: true, force: true });
   }
 });

@@ -157,12 +157,17 @@ export class ReviewDrafts {
     return draft;
   }
 
+  source(id: string): Snapshot {
+    return this.snapshot(this.owned(id));
+  }
+
   private snapshot(draft: Draft): Snapshot {
     return {
       reviewId: draft.reviewId,
       version: (draft.baseVersion ?? -1) + 1,
       title: draft.title,
       pins: draft.pins,
+      target: { kind: "commits", ...draft.pins },
       document: structuredClone(draft.document),
       origin: draft.origin,
       createdAt: new Date().toISOString(),
@@ -211,6 +216,11 @@ export class ReviewDrafts {
           .prepare("INSERT INTO authoring_drafts VALUES(?,?,?,?,?)")
           .run(reviewId, id, this.ownerId, process.pid, "{}");
         const previous = input.reviewId ? this.host.read(reviewId) : undefined;
+
+        if (previous?.target.kind === "worktree" && !input.pins)
+          throw new ReviewInputError(
+            "Batch authoring requires fixed commits. Supply resolved base/head pins to replace this live worktree target.",
+          );
         const pins = input.pins ?? previous?.pins;
         const title = input.title ?? previous?.title;
 

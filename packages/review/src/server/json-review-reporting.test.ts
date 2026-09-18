@@ -72,9 +72,9 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
     });
   };
 
-  const app = createJsonReviewReporting(store, telemetry, (input) =>
-    submitReviewBugReport({ ...input, fetchImpl }),
-  );
+  const app = createJsonReviewReporting(store, telemetry, {
+    submit: (input) => submitReviewBugReport({ ...input, fetchImpl }),
+  });
 
   const post = (
     route: string,
@@ -149,4 +149,30 @@ it("routes sanitized telemetry and uploads only opted-in JSON context from the d
   expect(payloads[1].trace).toBeUndefined();
   expect((await post("bug-report?version=999", report)).status).not.toBe(200);
   expect(payloads).toHaveLength(2);
+});
+
+it("rejects shared telemetry when the shared store is unavailable", async () => {
+  store = new ReviewStore(":memory:", {
+    validatePins: async () => {},
+    validateSource: async () => {},
+    validateResource: async () => {},
+  });
+  const captureUiEvent = vi.fn<ReviewTelemetry["captureUiEvent"]>();
+
+  const app = createJsonReviewReporting(store, {
+    captureUiEvent,
+    captureTabViewed: vi.fn<ReviewTelemetry["captureTabViewed"]>(),
+  });
+
+  const response = await app.request(
+    `/shared-${"a".repeat(64)}/telemetry/event`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "canvas_opened" }),
+    },
+  );
+
+  expect(response.status).toBe(404);
+  expect(captureUiEvent).not.toHaveBeenCalled();
 });

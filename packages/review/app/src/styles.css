@@ -840,6 +840,14 @@ button {
   display: contents;
 }
 
+/* Status rows stack above the document; the document takes the remaining height. */
+.review-api-canvas {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .review-home {
   display: flex;
   flex-direction: column;

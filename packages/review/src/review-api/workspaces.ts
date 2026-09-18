@@ -12,6 +12,7 @@ import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
 import {
   markerMatches,
   prepareReviewPinnedCheckout,
+  removeReviewPrepareArtifacts,
   reviewPrepareCommandsHash,
   reviewPrepareLogPath,
   reviewPrepareMarkerPath,
@@ -103,6 +104,47 @@ export class ReviewWorkspaces {
     this.collect();
   }
 
+  private external?: {
+    has(id: string): boolean;
+    subscribe(listener: () => void): () => void;
+  };
+  private stopExternal?: () => void;
+
+  attachExternalReviews(source: {
+    has(id: string): boolean;
+    subscribe(listener: () => void): () => void;
+  }) {
+    if (this.external === source) return;
+    this.stopExternal?.();
+    this.external = source;
+    this.stopExternal = source.subscribe(() => this.collect());
+    this.collect();
+  }
+
+  private hasReview(id: string): boolean {
+    // The shared catalog loads after the local store during host startup.
+    if (id.startsWith("shared-") && !this.external) return true;
+
+    return this.store.has(id) || Boolean(this.external?.has(id));
+  }
+
+  private assertReview(id: string) {
+    if (!this.hasReview(id))
+      throw new ReviewInputError("Review not found.", 404);
+  }
+
+  async remove(reviewId: string) {
+    await Promise.all(this.requests.values());
+    this.collect(undefined, reviewId);
+    await this.cleanup;
+
+    if (this.all().some((item) => item.reviewId === reviewId))
+      throw new ReviewInputError(
+        "Could not remove the managed workspace. Retry deletion.",
+        409,
+      );
+  }
+
   private all(): Environment[] {
     return this.db
       .prepare("SELECT value FROM pinned_environments")
@@ -165,7 +207,7 @@ export class ReviewWorkspaces {
   ): Promise<WorkspaceStatus> {
     if (this.closed)
       return Promise.reject(new Error("Language environments are closed."));
-    this.store.assertExists(reviewId);
+    this.assertReview(reviewId);
 
     const id = createHash("sha256")
       .update(JSON.stringify([reviewId, pins.repositoryId, pins[side]]))
@@ -245,7 +287,7 @@ export class ReviewWorkspaces {
 
       if (!checkout) throw new Error("Pinned checkout is unavailable.");
 
-      if (!this.store.has(reviewId)) {
+      if (!this.hasReview(reviewId)) {
         environment.rootPath = checkout;
         this.save(environment);
         this.collect();
@@ -344,7 +386,7 @@ export class ReviewWorkspaces {
       return;
     }
 
-    this.store.assertExists(reviewId);
+    this.assertReview(reviewId);
 
     if (environment.rootPath)
       await rm(reviewPrepareMarkerPath(environment.rootPath), { force: true });
@@ -362,12 +404,15 @@ export class ReviewWorkspaces {
     );
   }
 
-  private collect(retryId?: string) {
+  private collect(retryId?: string, removedReviewId?: string) {
     // Capture ownership before awaiting, so shutdown never reads a closed store.
     const deleted = this.all().filter(
       (environment) =>
-        !this.store.has(environment.reviewId) &&
-        (environment.state !== "cleanup-failed" || environment.id === retryId),
+        (environment.reviewId === removedReviewId ||
+          !this.hasReview(environment.reviewId)) &&
+        (environment.state !== "cleanup-failed" ||
+          environment.id === retryId ||
+          environment.reviewId === removedReviewId),
     );
 
     this.cleanup = this.cleanup.then(async () => {
@@ -399,14 +444,8 @@ export class ReviewWorkspaces {
             ]);
           }
 
-          if (environment.rootPath) {
-            await rm(reviewPrepareMarkerPath(environment.rootPath), {
-              force: true,
-            });
-            await rm(reviewPrepareLogPath(environment.rootPath), {
-              force: true,
-            });
-          }
+          if (environment.rootPath)
+            await removeReviewPrepareArtifacts(environment.rootPath);
 
           this.db
             .prepare("DELETE FROM pinned_environments WHERE id=?")
@@ -435,6 +474,7 @@ export class ReviewWorkspaces {
   private async closeAll() {
     this.closed = true;
     this.stop();
+    this.stopExternal?.();
     await Promise.all(this.requests.values());
 
     for (const job of this.jobs.values()) job.abort.abort();

@@ -7,7 +7,7 @@ const label = z.string().trim().min(1);
  * never a global identity or cache key. */
 export const sourceSchema = z
   .strictObject({
-    side: z.enum(["base", "head"]),
+    side: z.enum(["base", "head"]).default("head"),
     file: label,
     fromLine: z.number().int().positive(),
     toLine: z.number().int().positive(),

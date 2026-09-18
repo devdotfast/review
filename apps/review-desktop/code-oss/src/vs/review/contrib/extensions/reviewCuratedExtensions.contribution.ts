@@ -38,6 +38,7 @@ import {
 } from '../../../workbench/common/contributions.js';
 import { REVIEW_KEYMAP_SETTING, type ReviewKeymap } from '../../common/reviewConfigurationDefaults.js';
 import { REVIEW_DESKTOP_CHANNEL } from '../../common/reviewDesktopBootstrap.js';
+import { setFirstRunReloadPending } from '../../common/reviewFirstRunReload.js';
 import type { ReviewUserConfigImportResult } from '../../node/reviewUserConfigImport.js';
 import { IReviewTelemetryService } from '../../services/reviewTelemetryService.js';
 import { reviewOptionalExtensionCatalog } from '../../node/reviewOptionalExtensionCatalog.js';
@@ -631,6 +632,10 @@ class CuratedExtensionDefaults implements IWorkbenchContribution {
 		const disabled = enablementService.getDisabledExtensions();
 		const keymapStateMatches = (Object.entries(KEYMAP_EXTENSION_IDS) as [Exclude<ReviewKeymap, 'none'>, string][])
 			.every(([candidate, id]) => isDisabled(disabled, id) === (candidate !== keymap));
+		// `applyKeymapDefault` reloads only when it actually flips an extension, which is
+		// exactly when the disabled set does not match the keymap yet. Record that now so
+		// first-run prompts skip themselves instead of being eaten by the reload.
+		setFirstRunReloadPending(!keymapStateMatches);
 		if (alreadySeeded && keymapStateMatches) {
 			return;
 		}

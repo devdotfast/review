@@ -8,11 +8,12 @@ import { IDialogService } from '../../platform/dialogs/common/dialogs.js';
 import { IOpenerService } from '../../platform/opener/common/opener.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../platform/storage/common/storage.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../workbench/common/contributions.js';
+import { isFirstRunReloadPending } from '../common/reviewFirstRunReload.js';
 import { REVIEW_DISCORD_URL } from '../common/reviewProtocol.js';
 
-const DISMISSED_KEY = 'review.community.dontShowAgain';
+export const DISMISSED_KEY = 'review.community.dontShowAgain';
 
-class ReviewCommunityContribution implements IWorkbenchContribution {
+export class ReviewCommunityContribution implements IWorkbenchContribution {
 
 	static readonly ID = 'workbench.contrib.devfast.reviewCommunity';
 
@@ -25,21 +26,27 @@ class ReviewCommunityContribution implements IWorkbenchContribution {
 			return;
 		}
 
-		void dialogService.confirm({
+		this.invite(dialogService, storageService, openerService).catch(onUnexpectedError);
+	}
+
+	private async invite(dialogService: IDialogService, storageService: IStorageService, openerService: IOpenerService): Promise<void> {
+		if (await isFirstRunReloadPending()) {
+			return; // the seeding reload would discard both the question and the answer
+		}
+		const result = await dialogService.confirm({
 			type: 'info',
 			message: 'Join the Review community',
 			detail: 'Meet the team, ask questions, and share feedback in the /dev/fast Discord. You can also join anytime using the Discord link next to Report a bug.',
 			primaryButton: 'Join Discord',
 			cancelButton: 'Not now',
 			checkbox: { label: "Don't show again" },
-		}).then(async result => {
-			if (result.confirmed || result.checkboxChecked) {
-				storageService.store(DISMISSED_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
-			}
-			if (result.confirmed) {
-				await openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
-			}
-		}).catch(onUnexpectedError);
+		});
+		if (result.confirmed || result.checkboxChecked) {
+			storageService.store(DISMISSED_KEY, true, StorageScope.APPLICATION, StorageTarget.MACHINE);
+		}
+		if (result.confirmed) {
+			await openerService.open(REVIEW_DISCORD_URL, { openExternal: true });
+		}
 	}
 }
 

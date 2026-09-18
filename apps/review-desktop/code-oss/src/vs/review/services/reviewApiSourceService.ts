@@ -75,14 +75,10 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 					const body = query.has("empty")
 						? { text: "" }
 						: await this.read<{ text: string; localPath?: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file });
-					const model = (
-						modelService.getModel(resource) ??
-						modelService.createModel(
-							body.text,
-							languages.createByFilepathOrFirstLine(resource, body.text.split("\n", 1)[0]),
-							resource,
-						)
-					);
+					// A model born with a language id fires `onLanguage:` at once. Review must own
+					// the checkout as a workspace folder first (rust-analyzer snapshots its workspace
+					// on activation), so reviewLocalLanguageFeatures.ts assigns the language after.
+					const model = modelService.getModel(resource) ?? modelService.createModel(body.text, null, resource);
 					if (body.localPath) {
 						this.followDisk(model, URI.file(body.localPath), async () => (await this.read<{ text: string }>(target.view.reviewId, "/file", { ...reviewSourceQuery(target.view), side: target.side, file: target.file })).text);
 					}

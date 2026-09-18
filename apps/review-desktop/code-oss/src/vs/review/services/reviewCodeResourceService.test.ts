@@ -26,6 +26,7 @@ interface StubModel {
 	getLinesContent(): readonly string[];
 	getLineCount(): number;
 	getLanguageId(): string;
+	onDidChangeLanguage(): { dispose(): void };
 }
 
 /**
@@ -50,6 +51,7 @@ function createUnifiedHarness(beforeAcquire?: (resource: URI) => Promise<void>) 
 		getLinesContent: () => lines,
 		getLineCount: () => lines.length,
 		getLanguageId: () => "typescript",
+		onDidChangeLanguage: () => ({ dispose() { } }),
 	});
 	models.set(
 		URI.file("/tmp/review-base/src/example.ts").toString(),

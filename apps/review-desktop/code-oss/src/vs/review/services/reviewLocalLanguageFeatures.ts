@@ -4,6 +4,8 @@ import { URI } from "../../base/common/uri.js";
 import { Position } from "../../editor/common/core/position.js";
 import { Range } from "../../editor/common/core/range.js";
 import type { Hover, LocationLink } from "../../editor/common/languages.js";
+import { ILanguageService } from "../../editor/common/languages/language.js";
+import { PLAINTEXT_LANGUAGE_ID } from "../../editor/common/languages/modesRegistry.js";
 import type { ITextModel } from "../../editor/common/model.js";
 import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
 import { IModelService } from "../../editor/common/services/model.js";
@@ -54,6 +56,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		@IFileService private readonly files: IFileService,
 		@IReviewCodeResourceService private readonly resources: IReviewCodeResourceService,
 		@ILogService private readonly log: ILogService,
+		@ILanguageService private readonly languageService: ILanguageService,
 	) {
 		super();
 		this._register(connection.onDidChangeConnection(() => {
@@ -69,8 +72,11 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			if ([...this.roots.keys()].some(root => event.affects(URI.parse(root)))) this.generation++;
 		}));
 		// Warm language servers while source is being displayed, not at the first click.
+		// Pinned models arrive without a language (reviewApiSourceService.ts); assigning it
+		// here holds the `onLanguage:` activation back until the checkout is a workspace folder.
 		const warm = (model: ITextModel) => {
-			if ([REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(model.uri.scheme)) void this.localSource(model);
+			if (![REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(model.uri.scheme)) return;
+			void this.localSource(model).finally(() => this.assignLanguage(model));
 		};
 		this._register(modelService.onModelAdded(warm));
 		modelService.getModels().forEach(warm);
@@ -91,6 +97,12 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 				}),
 			}));
 		}
+	}
+
+	private assignLanguage(model: ITextModel): void {
+		if (model.isDisposed() || model.getLanguageId() !== PLAINTEXT_LANGUAGE_ID) return;
+		const selection = this.languageService.createByFilepathOrFirstLine(model.uri, model.getLineContent(1));
+		if (selection.languageId !== PLAINTEXT_LANGUAGE_ID) model.setLanguage(selection);
 	}
 
 	private async environment(model: ITextModel, validate = false): Promise<ReviewLanguageEnvironment | undefined> {

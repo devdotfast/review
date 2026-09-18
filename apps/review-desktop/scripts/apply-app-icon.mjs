@@ -8,7 +8,7 @@
 // this patches the bundle afterwards rather than modifying the vendored gulp pipeline.
 //
 // Usage: [REVIEW_APP_ICON_CHANNEL=preview] node apply-app-icon.mjs <path-to .app>
-//        [--icon-name NAME]
+//        [--icon-name NAME] [--cache]
 
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -16,6 +16,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  iconCacheKey,
+  readIconCache,
+  writeIconCache,
+} from "./app-icon-cache.mjs";
 import {
   DEPLOYMENT_TARGET,
   getIconVariant,
@@ -61,8 +66,14 @@ function runOrFail(command, args) {
 function parseArgs(argv) {
   const [appPath, ...rest] = argv;
   let iconName = DEFAULT_ICON_NAME;
+  let cache = false;
 
   for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--cache") {
+      cache = true;
+      continue;
+    }
+
     if (rest[i] !== "--icon-name") fail("unexpected argument: " + rest[i]);
 
     if (!rest[i + 1]) fail("--icon-name requires a value");
@@ -71,24 +82,17 @@ function parseArgs(argv) {
   }
 
   if (!appPath)
-    fail("usage: apply-app-icon.mjs <path-to .app> [--icon-name NAME]");
+    fail(
+      "usage: apply-app-icon.mjs <path-to .app> [--icon-name NAME] [--cache]",
+    );
 
-  return { appPath, iconName };
+  return { appPath, iconName, cache };
 }
 
-const { appPath, iconName } = parseArgs(process.argv.slice(2));
+const { appPath, iconName, cache } = parseArgs(process.argv.slice(2));
 
 if (process.platform !== "darwin") {
   console.log("apply-app-icon: not macOS, skipping");
-  process.exit(0);
-}
-
-// actool ships with the Xcode command line tools. Without them, leave the packager's .icns
-// in place rather than producing a bundle that claims a catalog it does not contain.
-if (run("xcrun", ["--find", "actool"]).status !== 0) {
-  console.log(
-    "apply-app-icon: actool unavailable (install Xcode command line tools), keeping .icns fallback",
-  );
   process.exit(0);
 }
 
@@ -103,6 +107,40 @@ const infoPlist = path.join(appPath, "Contents", "Info.plist");
 if (!existsSync(resourcesDir)) fail("no Contents/Resources in " + appPath);
 
 if (!existsSync(infoPlist)) fail("no Contents/Info.plist in " + appPath);
+
+// Dev-only cache lives beside the bundle so it does not alter signed contents.
+const cachePath = `${appPath}.icon-cache.json`;
+
+const cacheKey = () =>
+  iconCacheKey({
+    appPath,
+    iconName,
+    channel: ICON_VARIANT.channel,
+    inputs: [
+      ICON_SOURCE,
+      PREBUILT_CATALOG,
+      FALLBACK_ICNS,
+      fileURLToPath(import.meta.url),
+      path.join(SCRIPTS_DIR, "build-app-icon-catalog.mjs"),
+      path.join(SCRIPTS_DIR, "app-icon-cache.mjs"),
+    ],
+  });
+
+if (cache && readIconCache(cachePath) === cacheKey()) {
+  console.log("apply-app-icon: icon is current.");
+  process.exit(0);
+}
+
+if (cache) rmSync(cachePath, { force: true });
+
+// actool ships with the Xcode command line tools. Without them, leave the packager's .icns
+// in place rather than producing a bundle that claims a catalog it does not contain.
+if (run("xcrun", ["--find", "actool"]).status !== 0) {
+  console.log(
+    "apply-app-icon: actool unavailable (install Xcode command line tools), keeping .icns fallback",
+  );
+  process.exit(0);
+}
 
 // The packager copies resources/darwin/code.icns into the bundle under a product-derived
 // name (Review.icns) and only does so when it rebuilds Electron from scratch. build.sh
@@ -170,7 +208,7 @@ function installIconCatalog(workDir) {
           " (needs Xcode 26) and no committed Assets.car, keeping .icns fallback",
       );
 
-      return;
+      return false;
     }
 
     catalog = PREBUILT_CATALOG;
@@ -199,6 +237,8 @@ function installIconCatalog(workDir) {
       " for " +
       ICON_VARIANT.channel,
   );
+
+  return true;
 }
 
 // Editing bundle contents invalidates any existing signature, so this runs after every
@@ -213,6 +253,8 @@ function resignBundle() {
         (signed.stderr || "").trim(),
     );
   }
+
+  return signed.status === 0;
 }
 
 refreshFallbackIcns();
@@ -220,8 +262,10 @@ refreshFallbackIcns();
 const workDir = mkdtempSync(path.join(tmpdir(), "review-app-icon-"));
 
 try {
-  installIconCatalog(workDir);
-  resignBundle();
+  const installed = installIconCatalog(workDir);
+  const signed = resignBundle();
+
+  if (cache && installed && signed) writeIconCache(cachePath, cacheKey());
 } finally {
   rmSync(workDir, { recursive: true, force: true });
 }

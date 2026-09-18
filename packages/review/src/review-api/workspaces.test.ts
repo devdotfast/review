@@ -128,6 +128,7 @@ it("retains failure without retry loops, retries at the original side, and recre
   const failed = await local.data.workspaces.source(reviewId, pins, "base");
   expect(failed.state).toBe("failed");
   expect(failed.log).toContain("failure");
+  expect(failed.issue).toBeUndefined();
   expect(existsSync(`${failed.rootPath}.prepared`)).toBe(false);
   expect(
     (await local.data.workspaces.source(reviewId, pins, "base")).generation,
@@ -215,10 +216,12 @@ it("reports a missing repository before first acquisition and recovers after it 
   const missing = await local.data.workspaces.source(reviewId, pins, "head");
   expect(missing.state).toBe("failed");
   expect(missing.rootPath).toBeNull();
+  expect(missing.issue).toContain("Language checkout unavailable.");
   expect(missing.log).toContain("Restore the registered checkout");
   renameSync(`${repository}-missing`, repository);
   const restored = await local.data.workspaces.source(reviewId, pins, "head");
   expect(restored.state).toBe("unconfigured");
+  expect(restored.issue).toBeUndefined();
   expect(restored.rootPath).not.toBe(repository);
   expect(
     readFileSync(path.join(restored.rootPath!, "value.ts"), "utf8"),

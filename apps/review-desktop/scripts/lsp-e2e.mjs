@@ -1270,17 +1270,15 @@ try {
   }, "preparation failure");
 
   await probe({ command: "workbench.action.closeModalEditor" });
-  await api(`/${exact.reviewId}/open`, "POST");
-  await page
-    .getByText("Language environment needs attention", { exact: true })
-    .click();
-
-  const preparationRow = page.locator(
-    `[data-review-workspace-id="${failedPreparation.id}"]`,
+  const opened = await api(`/${exact.reviewId}/open`, "POST");
+  assert.equal(opened.environmentIssues, undefined);
+  assert.deepEqual(await api(`/${exact.reviewId}/environment`), { issues: [] });
+  assert.equal(
+    await page
+      .getByText("Language environment needs attention", { exact: true })
+      .count(),
+    0,
   );
-
-  await preparationRow.getByText(/fixture-preparation-failed/).waitFor();
-  await page.screenshot({ path: path.join(root, "preparation-failure.png") });
   await git(
     precision.repo,
     "config",
@@ -1288,12 +1286,13 @@ try {
     "devfast.prepare",
     "node prepare.cjs",
   );
-  await preparationRow
-    .getByRole("button", { name: "Retry preparation" })
-    .click();
+  await api(
+    `/${exact.reviewId}/workspaces/${failedPreparation.id}/retry`,
+    "POST",
+  );
   await readyEnvironment(exact);
   await record(
-    "rendered preparation failure exposes logs and retries successfully",
+    "failed preparation with a usable checkout stays silent and can retry",
   );
   const liveFixture = await fixture("live");
 

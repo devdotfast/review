@@ -32,6 +32,8 @@ export interface WorkspaceStatus {
     | "failed"
     | "cleanup-failed";
   log: string;
+  /** Checkout acquisition failed; optional setup failures are not issues. */
+  issue?: string;
 }
 
 interface Environment extends WorkspaceStatus {
@@ -144,7 +146,19 @@ export class ReviewWorkspaces {
   private status(environment: Environment): WorkspaceStatus {
     const { id, commit, rootPath, generation, state, log } = environment;
 
-    return { id, commit, rootPath, generation, state, log };
+    const status: WorkspaceStatus = {
+      id,
+      commit,
+      rootPath,
+      generation,
+      state,
+      log,
+    };
+
+    if (state === "failed" && !rootPath)
+      status.issue = `Language checkout unavailable. ${log}`;
+
+    return status;
   }
 
   list(reviewId: string): WorkspaceStatus[] {
@@ -208,16 +222,11 @@ export class ReviewWorkspaces {
     let environment = this.get(id);
 
     if (this.jobs.has(id)) return this.status(environment!);
-    const root = this.store.repositoryPath(pins.repositoryId);
-
-    const repository =
-      environment?.repository || (await gitCommonDir(root).catch(() => null));
-
     environment ??= {
       id,
       reviewId,
       repositoryId: pins.repositoryId,
-      repository: repository ?? "",
+      repository: "",
       commit: pins[side],
       rootPath: null,
       generation: randomUUID(),
@@ -229,6 +238,11 @@ export class ReviewWorkspaces {
     this.save(environment);
 
     try {
+      const root = this.store.repositoryPath(pins.repositoryId);
+
+      const repository =
+        environment.repository || (await gitCommonDir(root).catch(() => null));
+
       if (!repository)
         throw new Error(
           "Repository Git directory is unavailable. Restore the registered checkout and retry preparation.",
@@ -299,7 +313,7 @@ export class ReviewWorkspaces {
     } catch (error) {
       environment.state = "failed";
       environment.rootPath = null;
-      environment.log = String(error);
+      environment.log = error instanceof Error ? error.message : String(error);
     }
 
     this.save(environment);

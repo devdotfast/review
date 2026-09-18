@@ -132,6 +132,81 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it("only reports unavailable language checkouts to agents and clears issues after recovery", async () => {
+  const created = await local.store.execute(
+    command({ type: "create", title: "Language availability", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data, async () => ({
+    softwareMapEnabled: false,
+  }));
+
+  const open = async () => {
+    const response = await app.request(`/${created.reviewId}/open`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
+  const check = async () => {
+    const response = await app.request(`/${created.reviewId}/environment`);
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
+  // No optional install command: both pinned checkouts still serve language files.
+  expect(await open()).not.toHaveProperty("environmentIssues");
+  expect(await check()).toEqual({ issues: [] });
+  expect(
+    local.data.workspaces
+      .list(created.reviewId)
+      .every((item) => item.state === "unconfigured"),
+  ).toBe(true);
+
+  git("config", "devfast.prepare", "exit 7");
+  expect(await open()).not.toHaveProperty("environmentIssues");
+  await local.data.workspaces.idle();
+  expect(
+    local.data.workspaces
+      .list(created.reviewId)
+      .every((item) => item.state === "failed" && item.rootPath),
+  ).toBe(true);
+  expect(await check()).toEqual({ issues: [] });
+
+  renameSync(repository, `${repository}-missing`);
+
+  try {
+    const result = await open();
+    expect(result.environmentIssues).toEqual([
+      {
+        side: "head",
+        message: expect.stringContaining("Language checkout unavailable."),
+      },
+      {
+        side: "base",
+        message: expect.stringContaining("Language checkout unavailable."),
+      },
+    ]);
+    expect(await check()).toEqual({ issues: result.environmentIssues });
+
+    const context = await (
+      await app.request(`/${created.reviewId}/language-context?side=head`)
+    ).json();
+
+    expect(context.rootPath).toBeNull();
+    expect(context.issue).toBe(result.environmentIssues[0].message);
+  } finally {
+    renameSync(`${repository}-missing`, repository);
+  }
+
+  expect(await check()).toEqual({ issues: [] });
+  expect(await open()).not.toHaveProperty("environmentIssues");
+});
+
 it("lists the full repository path and hydrates diff counts from pinned commits", async () => {
   await local.store.execute(
     command({ type: "create", title: "Home metadata", pins }),

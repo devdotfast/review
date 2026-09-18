@@ -429,24 +429,37 @@ describe("tutorial guide placement", () => {
       "position: relative; height: 700px; overflow: hidden;",
     );
 
-    expect(
-      await settled(
-        () =>
-          has(container, ".tutorial-guide") &&
-          container
-            .querySelector("summary")
-            ?.textContent?.includes("Language environment"),
-      ),
-    ).toBe(true);
+    expect(await settled(() => has(container, ".tutorial-guide"))).toBe(true);
+
+    const contentsElement = container.querySelector(".review-toc")!;
+    const appElement = container.querySelector(".review-app")!;
+
+    const contentsOffset =
+      contentsElement.getBoundingClientRect().top -
+      appElement.getBoundingClientRect().top;
+
+    const statusRow = document.createElement("p");
+    statusRow.setAttribute("role", "status");
+    statusRow.textContent = "Refresh failed; showing the last saved review.";
+    statusRow.style.minHeight = "200px";
+    container.querySelector("[data-review-api]")!.prepend(statusRow);
 
     const host = container.getBoundingClientRect();
     const app = container.querySelector(".review-app")!.getBoundingClientRect();
+    const status = statusRow.getBoundingClientRect();
+
+    const contents = container
+      .querySelector(".review-toc")!
+      .getBoundingClientRect();
 
     const guide = container
       .querySelector(".tutorial-guide")!
       .getBoundingClientRect();
 
     expect(app.bottom).toBeLessThanOrEqual(host.bottom);
+    expect(app.top).toBeGreaterThanOrEqual(status.bottom);
+    expect(contents.top).toBeGreaterThanOrEqual(app.top);
+    expect(contents.top - app.top).toBeCloseTo(contentsOffset);
     expect(guide.top).toBeGreaterThanOrEqual(host.top);
     expect(guide.bottom).toBeLessThanOrEqual(host.bottom);
   });

@@ -232,15 +232,20 @@ export function createReviewApi(
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
-    if (review.target.kind !== "worktree")
-      void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
-
     const settings = await open({
       reviewId: review.reviewId,
       title: review.title,
     });
 
-    return context.json({ ok: true, ...settings });
+    const environmentIssues = await data?.environmentIssues(review);
+
+    return context.json({
+      ok: true,
+      ...settings,
+      environmentIssues: environmentIssues?.length
+        ? environmentIssues
+        : undefined,
+    });
   });
   app.get("/:id/watch", (context) => {
     const id = context.req.param("id");
@@ -426,6 +431,13 @@ export function createReviewApi(
         await data.languageEnvironment(snapshot, input.side, input.commit),
       );
     });
+    app.get("/:id/environment", async (context) =>
+      context.json({
+        issues: await data.environmentIssues(
+          readReview(context.req.param("id")),
+        ),
+      }),
+    );
     app.get("/workspace-cleanup", (context) =>
       context.json(data.workspaces.failures()),
     );

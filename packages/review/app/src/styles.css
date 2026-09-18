@@ -688,6 +688,8 @@ button {
 
 .review-app {
   position: relative;
+  /* Floating document controls must follow the space below status rows. */
+  contain: layout;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0 0;
   height: 100%;

@@ -88,10 +88,17 @@ export function authoringTools() {
     ),
     tool(
       "open",
-      "Show a review in the running Desktop and return softwareMapEnabled.",
+      "Show a review in the running Desktop and return softwareMapEnabled. environmentIssues is included only when a required language checkout is unavailable. Missing optional setup is not an issue.",
       z.strictObject(review),
       "POST",
       "/:reviewId/open",
+    ),
+    tool(
+      "environment",
+      "Recheck this review's language checkouts, acquiring them if needed. Returns issues only for unavailable checkouts. An empty list is not a full LSP health check: missing optional setup, preparation in progress, and failed setup with a usable checkout are not reported as broken. Restore an unavailable repository and call again to retry.",
+      z.strictObject(review),
+      "GET",
+      "/:reviewId/environment",
     ),
     tool(
       "register_repository",

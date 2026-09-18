@@ -868,7 +868,22 @@ it("serves the experiment through the real desktop HTTP server and existing auth
           tools.find((t) => t.name === "review_open")!,
           { reviewId },
         ),
-      ).toEqual({ ok: true, softwareMapEnabled: enabled });
+      ).toEqual({
+        ok: true,
+        softwareMapEnabled: enabled,
+        environmentIssues: [
+          {
+            side: "head",
+            message:
+              "Language checkout unavailable. Repository is not registered.",
+          },
+          {
+            side: "base",
+            message:
+              "Language checkout unavailable. Repository is not registered.",
+          },
+        ],
+      });
     }
 
     relay.close();

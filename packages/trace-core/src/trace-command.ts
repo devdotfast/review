@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -29,28 +29,14 @@ export interface TraceCommand {
   args?: string[];
 }
 
-let cliName = "review";
-
-let commandPrefix = `${cliName} trace`;
-
-/** The user-facing command name in messages and hook templates. */
+/** The executable name used in trace hooks. */
 export function traceCliName(): string {
-  return cliName;
+  return "review";
 }
 
-/**
- * The words before a trace subcommand in a hint, such as `review trace` for
- * `review trace allow .`. A CLI that registers the subcommands at its root
- * sets the prefix to its own name.
- */
+/** The command prefix used in trace instructions. */
 export function traceCommandPrefix(): string {
-  return commandPrefix;
-}
-
-/** A second CLI entry sets its own name before it prints anything. */
-export function setTraceCliName(name: string, prefix = `${name} trace`): void {
-  cliName = name;
-  commandPrefix = prefix;
+  return "review trace";
 }
 
 /** Returns the configured trace home, then the operating-system home. */
@@ -81,10 +67,18 @@ export function resolveTraceCommand(
     input.homeDir ?? traceHomeDir(env),
     ".local",
     "bin",
-    cliName,
+    "review",
   );
 
-  return { file: existsSync(installed) ? installed : cliName };
+  if (existsSync(installed)) return { file: installed };
+
+  const onPath = (env.PATH ?? "")
+    .split(path.delimiter)
+    .filter((directory) => path.isAbsolute(directory))
+    .map((directory) => path.join(directory, "review"))
+    .find(isLiveTraceExecutable);
+
+  return { file: onPath ?? "review" };
 }
 
 /** Quotes one value for a POSIX shell command. */
@@ -95,4 +89,36 @@ export function shellQuote(value: string): string {
 /** Renders the executable and each leading argument as quoted shell words. */
 export function renderTraceCommand(command: TraceCommand): string {
   return [command.file, ...(command.args ?? [])].map(shellQuote).join(" ");
+}
+
+/** Only stable absolute commands can retain ownership across installations. */
+export function isLiveTraceExecutable(file: string | undefined): boolean {
+  if (!file || !path.isAbsolute(file)) return false;
+
+  try {
+    accessSync(file, constants.X_OK);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Keep an existing working installation; a missing executable can be repaired. */
+export function keepTraceExecutable(
+  existing: string | undefined,
+  wanted: string,
+): boolean {
+  return existing !== wanted && isLiveTraceExecutable(existing);
+}
+
+/** The first shell word from our rendered Git hook command. */
+export function traceCommandExecutable(
+  command: string | undefined,
+): string | undefined {
+  if (!command) return undefined;
+  const quoted = /^'((?:[^']|'"'"')*)'(?:\s|$)/.exec(command);
+  const bare = /^([^\s']+)(?:\s|$)/.exec(command);
+
+  return quoted ? quoted[1]!.replaceAll(`'"'"'`, "'") : bare?.[1];
 }

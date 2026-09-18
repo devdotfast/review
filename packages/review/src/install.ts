@@ -7,9 +7,7 @@ import { fileURLToPath } from "node:url";
 import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
 import {
   type TraceCredentialsInput,
-  type TraceHookOwner,
   configureTraceMachine,
-  describeTraceHookOwners,
   emitJsonEvent,
   failWithJsonError,
   humanStream,
@@ -173,15 +171,7 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const installTraceHooks =
     traceEnabled || (await traceMachineEnabled({ homeDir, env }));
 
-  // Desktop's automatic refresh leaves hooks the standalone CLI owns alone;
-  // explicit setup still takes them.
-  const hookOwners: Partial<Record<InstallTarget, TraceHookOwner | null>> =
-    input.trace === undefined
-      ? await describeTraceHookOwners(homeDir, env)
-      : {};
-
   const installed: InstalledItem[] = [];
-  const keptHooks: { target: InstallTarget; owner: TraceHookOwner }[] = [];
   const visitedRoots = new Set<string>();
 
   for (const target of input.targets) {
@@ -231,14 +221,6 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     }
 
     if (!installTraceHooks) continue;
-
-    if (hookOwners[target] === "dev-traces") {
-      keptHooks.push({ target, owner: "dev-traces" });
-      human.write(
-        `[skip] kept the ${target} trace hook that dev-traces installed\n`,
-      );
-      continue;
-    }
 
     if (target === "claude") {
       await installClaudeTraceHook(homeDir, input.reviewCommand);
@@ -318,7 +300,6 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     targets: input.targets,
     skills: skillDirs.map((skill) => skill.name),
     items: installed,
-    keptHooks,
     gitNotesConfigured,
     traceEnabled,
   });

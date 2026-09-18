@@ -7,9 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   renderTraceCommand,
   resolveTraceCommand,
-  setTraceCliName,
-  traceCliName,
-  traceCommandPrefix,
   traceHomeDir,
   traceScope,
 } from "./trace-command";
@@ -17,7 +14,6 @@ import {
 const roots: string[] = [];
 
 afterEach(async () => {
-  setTraceCliName("review");
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
@@ -45,11 +41,11 @@ describe("resolveTraceCommand", () => {
 
     expect(
       resolveTraceCommand({
-        explicit: { file: "/x/dev-traces", args: ["--a"] },
+        explicit: { file: "/x/review", args: ["--a"] },
         env,
         homeDir,
       }),
-    ).toEqual({ file: "/x/dev-traces", args: ["--a"] });
+    ).toEqual({ file: "/x/review", args: ["--a"] });
     expect(
       resolveTraceCommand({ explicit: "/opt/review", env, homeDir }),
     ).toEqual({ file: "/opt/review" });
@@ -65,39 +61,9 @@ describe("resolveTraceCommand", () => {
     expect(resolveTraceCommand({ env, homeDir })).toEqual({ file: installed });
   });
 
-  it("probes the installed file under the configured CLI name", async () => {
-    const homeDir = await tempHome();
-    setTraceCliName("dev-traces");
-    expect(traceCliName()).toBe("dev-traces");
-    expect(resolveTraceCommand({ env: {}, homeDir })).toEqual({
-      file: "dev-traces",
-    });
-
-    const installed = await installFile(homeDir, "dev-traces");
-    expect(resolveTraceCommand({ env: {}, homeDir })).toEqual({
-      file: installed,
-    });
-  });
-
   it("reads TRACE_HOME_DIR before the OS home", () => {
     expect(traceHomeDir({ TRACE_HOME_DIR: "/tmp/h" })).toBe("/tmp/h");
     expect(traceHomeDir({})).toBe(os.homedir());
-  });
-});
-
-describe("traceCommandPrefix", () => {
-  it("names the trace group of review by default", () => {
-    expect(traceCliName()).toBe("review");
-    expect(traceCommandPrefix()).toBe("review trace");
-  });
-
-  it("follows the CLI name, or the prefix a root-level CLI sets", () => {
-    setTraceCliName("other");
-    expect(traceCommandPrefix()).toBe("other trace");
-
-    setTraceCliName("dev-traces", "dev-traces");
-    expect(traceCliName()).toBe("dev-traces");
-    expect(traceCommandPrefix()).toBe("dev-traces");
   });
 });
 
@@ -126,4 +92,14 @@ describe("traceScope", () => {
     ).toBe(path.resolve("/d"));
     expect(traceScope().homeDir).toBe(os.homedir());
   });
+});
+
+it("pins an npm PATH executable when Desktop has no local launcher", async () => {
+  const homeDir = await tempHome();
+  const command = path.join(homeDir, "npm", "bin", "review");
+  await mkdir(path.dirname(command), { recursive: true });
+  await writeFile(command, "#!/bin/sh\n", { mode: 0o755 });
+  expect(
+    resolveTraceCommand({ homeDir, env: { PATH: path.dirname(command) } }),
+  ).toEqual({ file: command });
 });

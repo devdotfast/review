@@ -14,11 +14,8 @@ import { promisify } from "node:util";
 
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import {
-  collectingWritable,
-  describeTraceHookOwners,
   installClaudeTraceHook,
-  runTraceUninstallHooks,
-  traceScope,
+  traceMachineStatus,
   writePrivateJsonAtomic,
 } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,6 +24,7 @@ import {
   applyCliInstall,
   cliInstallStampPath,
   ensureShellProfilePath,
+  installReviewCommand,
   readCliInstallStamp,
   removeCliInstall,
   removeShellProfilePath,
@@ -122,51 +120,6 @@ describe("trace capture installation", () => {
     expect(await readFile(path.join(configDir, "settings.json"), "utf8")).toBe(
       settings,
     );
-  });
-
-  it("an install without explicit trace setup keeps a dev-traces hook", async () => {
-    const homeDir = await temporaryHome("review-trace-release-");
-
-    const env = {
-      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
-      TRACE_R2_MODE: "mock",
-    };
-
-    const credentials = {
-      endpoint: "mock://endpoint",
-      bucket: "fixture",
-      key: "fixture-key",
-      secret: "fixture-secret",
-    };
-
-    const install = (trace?: typeof credentials) =>
-      applyCliInstall({
-        packageRoot,
-        targets: ["claude"],
-        shim: false,
-        homeDir,
-        env,
-        trace,
-      });
-
-    expect((await install(credentials)).code).toBe(0);
-    expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
-    const output = collectingWritable([]);
-    await runTraceUninstallHooks({
-      scope: traceScope({ homeDir, env }),
-      owner: "review",
-      stdout: output,
-      stderr: output,
-    });
-    const standalone = path.join(homeDir, ".local", "bin", "dev-traces");
-    await mkdir(path.dirname(standalone), { recursive: true });
-    await writeFile(standalone, "#!/bin/sh\n", { mode: 0o755 });
-    await installClaudeTraceHook(homeDir, standalone);
-
-    expect((await install()).code).toBe(0);
-    expect((await describeTraceHookOwners(homeDir)).claude).toBe("dev-traces");
-    expect((await install(credentials)).code).toBe(0);
-    expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
   });
 
   it("writes a version-2 profile for a machine with no legacy files", async () => {
@@ -365,7 +318,7 @@ describe("shell profile PATH management", () => {
 });
 
 describe("skill and review command installation", () => {
-  it("replaces a command symlink without changing its target", async () => {
+  it("preserves a command symlink and its target", async () => {
     const homeDir = await temporaryHome("review-cli-symlink-shim-");
     const env = profileEnvironment(homeDir, "/bin/zsh");
     const cliPath = path.join(homeDir, "current-app", "cli.js");
@@ -389,8 +342,8 @@ describe("skill and review command installation", () => {
     });
 
     expect(applied).toMatchObject({ code: 0, shimPath });
-    expect((await lstat(shimPath)).isSymbolicLink()).toBe(false);
-    expect(await readFile(shimPath, "utf8")).toContain(cliPath);
+    expect((await lstat(shimPath)).isSymbolicLink()).toBe(true);
+    expect(await readFile(shimPath, "utf8")).toBe("external\n");
     expect(await readFile(external, "utf8")).toBe("external\n");
   });
 
@@ -747,4 +700,99 @@ describe("installed launcher runtime selection", () => {
       ]);
     },
   );
+});
+
+describe("Desktop installation alongside npm", () => {
+  it("preserves the npm launcher and its target when npm uses ~/.local/bin", async () => {
+    const homeDir = await temporaryHome("review-npm-coexist-");
+    const cli = path.join(homeDir, "npm/cli.js");
+    const shim = path.join(homeDir, ".local/bin/review");
+    await mkdir(path.dirname(cli), { recursive: true });
+    await mkdir(path.dirname(shim), { recursive: true });
+    await writeFile(cli, "#!/usr/bin/env node\n// npm-owned\n", {
+      mode: 0o755,
+    });
+    await symlink(cli, shim);
+    const before = await readFile(cli, "utf8");
+
+    const result = await installReviewCommand({
+      homeDir,
+      cliPath: path.join(packageRoot, "dist/cli.js"),
+      env: { PATH: "" },
+    });
+
+    expect(result.output).toContain("kept");
+    expect((await lstat(shim)).isSymbolicLink()).toBe(true);
+    expect(await readFile(cli, "utf8")).toBe(before);
+  });
+});
+
+it("Desktop removal preserves hooks and capture owned by an npm installation", async () => {
+  const homeDir = await temporaryHome("review-uninstall-coexist-");
+
+  const env = {
+    DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+    TRACE_R2_MODE: "mock",
+  };
+
+  const npm = path.join(homeDir, "npm/bin/review");
+  await mkdir(path.dirname(npm), { recursive: true });
+  await writeFile(npm, "#!/bin/sh\n", { mode: 0o755 });
+
+  const installed = await applyCliInstall({
+    packageRoot,
+    targets: [],
+    shim: false,
+    homeDir,
+    env,
+    trace: {
+      endpoint: "mock://endpoint",
+      bucket: "fixture",
+      key: "key",
+      secret: "secret",
+    },
+  });
+
+  expect(installed.code).toBe(0);
+  const hook = await installClaudeTraceHook(homeDir, npm);
+  const before = await readFile(hook.path, "utf8");
+  await applyCliInstall({
+    packageRoot,
+    targets: ["claude"],
+    shim: true,
+    cliPath: path.join(packageRoot, "dist/cli.js"),
+    homeDir,
+    env,
+  });
+  expect(await readFile(hook.path, "utf8")).toBe(before);
+  await removeCliInstall({
+    targets: ["claude"],
+    shim: true,
+    trace: true,
+    homeDir,
+    env,
+  });
+  expect(await readFile(hook.path, "utf8")).toBe(before);
+  expect((await traceMachineStatus({ homeDir, env })).enabled).toBe(true);
+});
+
+it("a second CLI install preserves a live shared launcher, but repairs a missing one", async () => {
+  const homeDir = await temporaryHome("review-launcher-coexist-");
+  const firstCli = path.join(homeDir, "desktop-cli.js");
+  const nextCli = path.join(homeDir, "npm-cli.js");
+  await writeFile(firstCli, "// Desktop\n");
+  await writeFile(nextCli, "// npm\n");
+
+  const first = await installReviewCommand({
+    homeDir,
+    cliPath: firstCli,
+    env: { PATH: "" },
+  });
+
+  const before = await readFile(first.shimPath, "utf8");
+  await installReviewCommand({ homeDir, cliPath: nextCli, env: { PATH: "" } });
+  expect(await readFile(first.shimPath, "utf8")).toBe(before);
+  await rm(firstCli);
+  await installReviewCommand({ homeDir, cliPath: nextCli, env: { PATH: "" } });
+  expect(await readFile(first.shimPath, "utf8")).toContain(nextCli);
 });

@@ -9,6 +9,15 @@ published with the removed MDX toolchain have a durable UUID directory under
 `${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/` and are imported into the JSON
 store when Home lists them or when they are opened.
 
+## Workspace packages
+
+- `@dev.fast/review`: Node runtime, CLI, authoring tools, and skills. Its
+  production dependencies are the external libraries used by the compiled Node
+  code; workspace libraries bundled by tsdown are development dependencies.
+- `@dev.fast/review-canvas` ([app](app/README.md)): private browser UI, layout
+  libraries, and browser tests. It builds separately and is not included in npm.
+- `@dev.fast/review-desktop`: installs the Node runtime and copies the built canvas.
+
 ## Review guidance
 
 You can add optional guidance for generated Review documents:

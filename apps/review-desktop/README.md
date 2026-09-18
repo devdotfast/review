@@ -410,7 +410,7 @@ Known limits:
 
 ## Development and validation
 
-Canvas changes need `pnpm --filter @dev.fast/review app:desktop:build` and a
+Canvas changes need `pnpm --filter @dev.fast/review-canvas build` and a
 window reload. For fork workbench changes, run the incremental compiler in a
 separate terminal, edit under `code-oss/src/vs/review/`, then use **Developer:
 Reload Window**:

@@ -61,8 +61,7 @@ describe("native Review picker", () => {
     ).toBe("secret");
   });
   it("asks for the snapshot the id lookup needs, not the block index", async () => {
-    // Without `full`, GET /reviews-api/:id answers inspectSnapshot(): block
-    // descriptors with no reviewId or title.
+    // Unversioned reads answer block descriptors, not the summary.
     const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) => {
       if (String(url).endsWith("/health")) return healthyResponse();
 
@@ -143,6 +142,36 @@ describe("native Review picker", () => {
       ),
     ).rejects.toThrow("Not found");
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("launches Desktop when no pointer exists yet, then opens the review", async () => {
+    const launch = vi.fn<typeof runtime.launch>(runtime.launch);
+    let reads = 0;
+
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).endsWith("/health")
+        ? healthyResponse()
+        : Response.json({ reviewId: "review", title: "Native" }),
+    );
+
+    expect(
+      await runReviewAppPick(
+        { ...input, reviewUuid: "review" },
+        {
+          ...runtime,
+          launch,
+          readReviewDesktopDiscovery: async () =>
+            reads++ === 0 ? null : runtime.readReviewDesktopDiscovery(),
+          fetch,
+        },
+      ),
+    ).toEqual({
+      event: "app",
+      action: "pick",
+      reviewUuid: "review",
+      title: "Native",
+    });
+    expect(launch).toHaveBeenCalledOnce();
   });
 
   it("reports an unusable pointer instead of launching a second Desktop", async () => {

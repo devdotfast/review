@@ -27,7 +27,7 @@ afterEach(async () => {
   );
 });
 
-it("releases only Review hooks across registered repositories, preserving standalone and user state", async () => {
+it("releases Review hooks across registered repositories while preserving login and the CLI", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "trace-release-"));
   roots.push(home);
   const devHome = path.join(home, "profile");
@@ -38,19 +38,17 @@ it("releases only Review hooks across registered repositories, preserving standa
   });
 
   const review = path.join(home, ".local/bin/review");
-  const standalone = path.join(home, ".local/bin/dev-traces");
   await mkdir(path.dirname(review), { recursive: true });
   await writeFile(review, "#!/bin/sh\n# Managed by Review Desktop\n", {
     mode: 0o755,
   });
-  await writeFile(standalone, "#!/bin/sh\n", { mode: 0o755 });
   await mkdir(devHome, { recursive: true });
   await writeFile(path.join(devHome, "auth.json"), "keep-login");
   await installClaudeTraceHook(home, review);
-  await installCodexTraceHook(home, standalone);
+  await installCodexTraceHook(home, review);
   const repositories = [];
 
-  for (const owner of [review, standalone]) {
+  for (const owner of [review, review]) {
     const repo = path.join(home, String(repositories.length));
     await mkdir(repo);
     execFileSync("git", ["init", "-q", repo]);
@@ -62,17 +60,16 @@ it("releases only Review hooks across registered repositories, preserving standa
   expect(
     await runTraceUninstallHooks({
       scope,
-      owner: "review",
       stdout: output,
       stderr: output,
     }),
   ).toBe(0);
   expect(await describeTraceHookOwners(home)).toMatchObject({
     claude: null,
-    codex: "dev-traces",
+    codex: null,
   });
   expect((await traceRepositoryStatus(repositories[0]!)).enabled).toBe(false);
-  expect((await traceRepositoryStatus(repositories[1]!)).enabled).toBe(true);
+  expect((await traceRepositoryStatus(repositories[1]!)).enabled).toBe(false);
   expect(existsSync(review)).toBe(true);
   expect(await readFile(path.join(devHome, "auth.json"), "utf8")).toBe(
     "keep-login",
@@ -80,7 +77,6 @@ it("releases only Review hooks across registered repositories, preserving standa
   expect(
     await runTraceUninstallHooks({
       scope,
-      owner: "review",
       stdout: output,
       stderr: output,
     }),

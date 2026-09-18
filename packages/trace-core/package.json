@@ -2,7 +2,7 @@
   "name": "@dev.fast/trace-core",
   "version": "0.0.0",
   "private": true,
-  "description": "Agent trace capture, publication, and hosted-store client shared by the Review and standalone CLIs.",
+  "description": "Agent trace capture, publication, and hosted-store client for the Review CLI.",
   "license": "MIT",
   "files": [
     "dist"

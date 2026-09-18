@@ -1,4 +1,4 @@
-// Public app-free surface shared by the Review and standalone trace CLIs.
+// Trace capture, storage, and commands used by Review without Desktop dependencies.
 
 export {
   DEFAULT_STORE_ORIGIN,
@@ -63,7 +63,6 @@ export {
   type TraceScope,
   renderTraceCommand,
   resolveTraceCommand,
-  setTraceCliName,
   traceCliName,
   traceCommandPrefix,
   traceHomeDir,
@@ -80,9 +79,6 @@ export {
   agentTraceHookPath,
   describeTraceHookOwners,
   removeAgentTraceHook,
-  keptHarnessesLine,
-  keptTraceHookOwner,
-  traceGitHookCommandOwner,
   traceHookCommandOwner,
   installClaudeTraceHook,
   installCodexTraceHook,

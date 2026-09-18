@@ -14,11 +14,12 @@ import {
 	type IWorkbenchContributionsRegistry,
 } from '../../../workbench/common/contributions.js';
 import { LifecyclePhase } from '../../../workbench/services/lifecycle/common/lifecycle.js';
+import { whenFirstRunReloadDecided } from '../../common/reviewFirstRunReload.js';
 import { IReviewCanvasEditorTabsService } from '../../services/reviewCanvasEditorTabsService.js';
 
-const NOTICE_STORAGE_KEY = 'review.telemetry.noticeShown.v1';
+export const NOTICE_STORAGE_KEY = 'review.telemetry.noticeShown.v1';
 
-class ReviewTelemetryNotice implements IWorkbenchContribution {
+export class ReviewTelemetryNotice implements IWorkbenchContribution {
 	constructor(
 		@IStorageService storageService: IStorageService,
 		@INotificationService notificationService: INotificationService,
@@ -33,7 +34,20 @@ class ReviewTelemetryNotice implements IWorkbenchContribution {
 		) {
 			return;
 		}
-		storageService.store(
+		void this.show(storageService, notificationService, tabsService);
+	}
+
+	private async show(
+		storageService: IStorageService,
+		notificationService: INotificationService,
+		tabsService: IReviewCanvasEditorTabsService,
+	): Promise<void> {
+		if (await whenFirstRunReloadDecided()) {
+			return; // the seeding reload would take the notice with it
+		}
+		// Spend the notice only once the reader answers it: a reload before then removes
+		// the notice, and a flag written up front never brings it back.
+		const markShown = () => storageService.store(
 			NOTICE_STORAGE_KEY,
 			true,
 			StorageScope.APPLICATION,
@@ -53,9 +67,11 @@ class ReviewTelemetryNotice implements IWorkbenchContribution {
 				// Review does not register the stock settings editor, so the
 				// Settings canvas tab is where this setting lives.
 				run: () => {
+					markShown();
 					void tabsService.openSettings(true);
 				},
 			}],
+			{ sticky: true, onCancel: markShown },
 		);
 	}
 }

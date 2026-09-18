@@ -1590,8 +1590,11 @@ function registerModalEditorCommands(): void {
 					// When a list/tree is focused, still close the modal, but yield to the
 					// list/tree's own `Escape` features that should close first (the find
 					// widget and sticky scroll). The selection is intentionally not cleared
-					// first so a single `Escape` closes the modal.
-					weight: KeybindingWeight.WorkbenchContrib + 1,
+					// first so a single `Escape` closes the modal. Outranks
+					// `closeReferenceSearch` (referencesController.ts, WorkbenchContrib + 50),
+					// which would otherwise eat the first press on a peek hosted inside this
+					// modal and only move focus to the modal's editor.
+					weight: KeybindingWeight.WorkbenchContrib + 51,
 					when: ContextKeyExpr.and(RawWorkbenchListFocusContextKey, WorkbenchTreeFindOpen.negate(), WorkbenchTreeStickyScrollFocused.negate())
 				}],
 				menu: {

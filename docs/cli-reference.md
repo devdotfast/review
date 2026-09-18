@@ -93,7 +93,7 @@ state, or use `review --state-dir <path> server start` and
 `$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
-See [headless setup and a GitHub Actions example](../packages/review/skills/dev-review/references/headless-authoring.md).
+See [headless setup and a GitHub Actions example](https://github.com/devdotfast/review/blob/main/packages/review/skills/dev-review/references/headless-authoring.md).
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
 Interactive mode (the default) saves each accepted edit as a version. Start with
 `--authoring-mode batch` to select scratch drafts and one atomic commit instead.
@@ -148,10 +148,10 @@ These tools are available through `review api` and MCP.
 Live source follows the checkout even in older authored versions; update references
 as source changes. Choose a commit target when source must stay fixed.
 
-| Target | Source and comparison |
-| --- | --- |
-| `{kind:"worktree", repositoryId, base?}` | Saved working files, including staged, unstaged and nonignored untracked files. Compare with `base`, or omit it to review the whole checkout with working changes against current HEAD (an empty baseline in an unborn repository). Unsaved editor buffers are excluded. |
-| `{kind:"commits", repositoryId, head, base?}` | Fixed commits. Omit `base` for source at `head` with no diff; supply a base for a comparison. |
+| Target                                        | Source and comparison                                                                                                                                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `{kind:"worktree", repositoryId, base?}`      | Saved working files, including staged, unstaged and nonignored untracked files. Compare with `base`, or omit it to review the whole checkout with working changes against current HEAD (an empty baseline in an unborn repository). Unsaved editor buffers are excluded. |
+| `{kind:"commits", repositoryId, head, base?}` | Fixed commits. Omit `base` for source at `head` with no diff; supply a base for a comparison.                                                                                                                                                                            |
 
 Revisions resolve when the command is accepted. To review the changes introduced
 by one commit, use its parent as `base`; omitting the base is equivalent to
@@ -216,13 +216,13 @@ permissions. `review login` supplies credentials for both sharing and hosted tra
 ### Sharing a review
 
 ```sh
-review share --review <id> [--version <number>] [--json]
+review share --review <id> [--version <number>] [--request-id <uuid>] [--json]
 review share revoke <share-id> [--json]
 ```
 
 The local Review host must be running. Sharing uploads one immutable saved
 version; an omitted version is resolved once when the request starts. The result
-contains `shareId`, `version`, and `url`. Running Share again creates a new link.
+contains `shareId`, `version`, and `url`. Running Share again creates a new link unless the same `--request-id` is reused with the same review/version.
 Recipients do not need a Review account. They do need Git access to the GitHub
 repository. Open the link in Review Desktop, or use **Open Shared Review** in
 the command palette. The app downloads the review and fetches its exact base
@@ -246,9 +246,18 @@ Revocation stops new downloads. Already-issued object URLs may work for up to
 five minutes, and saved copies remain readable. Branch movement and later
 edits do not change a published snapshot.
 
-The exporter, importer and hosted client are available from
-`@dev.fast/review/sharing` for a future standalone host. Shipping a headless host
-is separate from this change.
+`review server start` supports publishing without Desktop. The CLI selects the
+same server/profile as `review api`, including `--state-dir`. CI can supply
+`DEV_REVIEW_SHARE_TOKEN` instead of a saved `review login`; optional
+`DEV_REVIEW_SHARE_ORIGIN` selects its bare HTTPS service origin. Environment
+credentials are not written to the profile. Git credentials are still needed
+for the verification fetch.
+
+Use the [author-and-share action](https://github.com/devdotfast/review/blob/main/actions/author-and-share/README.md) to run
+your own agent, upload the committed version, and update one PR comment with
+the link. It exposes URL, review ID, version and share ID as outputs.
+The exporter, importer and hosted client remain available from
+`@dev.fast/review/sharing` for other hosts.
 
 Review stores traces in one selected place per machine: an **s3** store (an
 S3-compatible bucket you own, R2 included) or the **hosted** store at

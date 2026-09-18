@@ -292,8 +292,7 @@ Review's harness hooks take precedence over the standalone `dev-traces` ones: a
 in registered repositories, and keeps the CLI, the login, the consent and the
 trace data. The installed `~/.local/bin/review` shim exports the
 `DEV_REVIEW_HOME` of the Desktop profile that installed it when the calling
-shell does not set one. See
-[packages/traces/README.md](../packages/traces/README.md) for the switch
+shell does not set one. See `packages/traces/README.md` for the switch
 procedures.
 
 `review trace storage use hosted` requires `review login` for the origin,

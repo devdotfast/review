@@ -211,7 +211,7 @@ A foreground hosted trace command offers to authorize repositories and resumes
 once login succeeds. With `--json`, redirected input, or a hook, it never prompts.
 A missing grant produces `repository_authorization_required` and the remedy
 `review login --traces`. Local and direct S3 operations do not request GitHub
-permissions. `dev-traces login` keeps its trace-oriented repository login.
+permissions. `review login` supplies credentials for both sharing and hosted traces.
 
 ### Sharing a review
 
@@ -271,7 +271,7 @@ S3-compatible bucket you own, R2 included) or the **hosted** store at
   "stores": {
     "s3": {
       "endpoint": "https://<account>.r2.cloudflarestorage.com",
-      "bucket": "dev-traces",
+      "bucket": "review-traces",
       "accessKeyId": "…",
       "secretAccessKey": "…",
       "region": "auto",
@@ -326,9 +326,8 @@ store to delete the hosted copies, which a repository admin may do; the consent
 of this machine stays until `review trace deny` removes it. `review trace
 install` installs the harness hooks of this machine and touches no repository.
 
-Review's harness hooks take precedence over the standalone `dev-traces` ones;
-`review trace uninstall-hooks` releases them. See `packages/traces/README.md`
-to switch between the two.
+`review trace uninstall-hooks` removes tracing hooks while keeping the CLI,
+login, consent, and captured traces.
 
 `review trace storage use hosted` requires `review login` for the origin,
 a store that answers the current contract, and `review trace allow` for the
@@ -370,31 +369,21 @@ download URL. The hosted store is the only store it lists, so it refuses
 A store older than contract 0.3.0 answers "does not support listing every
 session yet"; use `review trace list --commit <sha>` there.
 
-### Standalone `dev-traces` command
+### Tracing without Desktop
 
-`npx @dev.fast/traces allow .` installs `dev-traces`, a capture-only CLI for a
-machine without Review Desktop. The quick start is `npx @dev.fast/traces login`,
-then `npx @dev.fast/traces store create` in the repository, then
-`npx @dev.fast/traces allow .`, then `dev-traces check`. `allow` copies the
-package to `$DEV_REVIEW_HOME/traces/` and installs `~/.local/bin/dev-traces`,
-which the hooks call by absolute path.
+The `review trace` commands run without a desktop installation or session.
+Install the `@dev.fast/review` npm package with Node 24, then run:
 
-`allow` writes a harness hook only for a harness this machine holds a
-directory for: `~/.claude`, `~/.codex`, `~/.pi`, or `~/.config/opencode`. One
-line names the harnesses it skipped. `--all-harnesses` writes all four, and
-`--no-harness-hooks` writes none. Both flags work in `install` and in `review trace allow` too.
+```sh
+review login
+review trace store create
+review trace allow .
+review trace status
+```
 
-`dev-traces` offers `login`, `logout`, `whoami`, `store create|delete|info`,
-`install`, `allow`, `deny`, `enable`, `disable`, `repair`, `status`,
-`sessions`, `sync`, and the
-repository-scoped reads `list --commit`, `show`, `pull`, and `blame`. The
-option names and the `--json` events match the `review trace` forms. Its own
-`check` command reports the runtime, the install, the login, the repository
-store, the consent, the hooks, and the recent activity on one line each, and
-exits 1 when one check fails. `--review <uuid>`, `--storage`, `storage use`,
-and `config migrate` stay in `review`. Both commands read and write the same
-login, consent, and captured sessions under `$DEV_REVIEW_HOME`. See
-`packages/traces/README.md`.
+`allow` writes hooks only for harnesses present on the machine. Use
+`--all-harnesses` to write all four or `--no-harness-hooks` to write none.
+These flags also work with `review trace install`.
 
 ## Environment variables
 

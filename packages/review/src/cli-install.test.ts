@@ -13,14 +13,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
-import {
-  collectingWritable,
-  describeTraceHookOwners,
-  installClaudeTraceHook,
-  runTraceUninstallHooks,
-  traceScope,
-  writePrivateJsonAtomic,
-} from "@dev.fast/trace-core";
+import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -122,51 +115,6 @@ describe("trace capture installation", () => {
     expect(await readFile(path.join(configDir, "settings.json"), "utf8")).toBe(
       settings,
     );
-  });
-
-  it("an install without explicit trace setup keeps a dev-traces hook", async () => {
-    const homeDir = await temporaryHome("review-trace-release-");
-
-    const env = {
-      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
-      TRACE_R2_MODE: "mock",
-    };
-
-    const credentials = {
-      endpoint: "mock://endpoint",
-      bucket: "fixture",
-      key: "fixture-key",
-      secret: "fixture-secret",
-    };
-
-    const install = (trace?: typeof credentials) =>
-      applyCliInstall({
-        packageRoot,
-        targets: ["claude"],
-        shim: false,
-        homeDir,
-        env,
-        trace,
-      });
-
-    expect((await install(credentials)).code).toBe(0);
-    expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
-    const output = collectingWritable([]);
-    await runTraceUninstallHooks({
-      scope: traceScope({ homeDir, env }),
-      owner: "review",
-      stdout: output,
-      stderr: output,
-    });
-    const standalone = path.join(homeDir, ".local", "bin", "dev-traces");
-    await mkdir(path.dirname(standalone), { recursive: true });
-    await writeFile(standalone, "#!/bin/sh\n", { mode: 0o755 });
-    await installClaudeTraceHook(homeDir, standalone);
-
-    expect((await install()).code).toBe(0);
-    expect((await describeTraceHookOwners(homeDir)).claude).toBe("dev-traces");
-    expect((await install(credentials)).code).toBe(0);
-    expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
   });
 
   it("writes a version-2 profile for a machine with no legacy files", async () => {

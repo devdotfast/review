@@ -28,15 +28,13 @@ export interface AgentTraceHookInstallResult {
   agent: AgentTraceHookAgent;
   path: string;
   modified: boolean;
-  /** Set when Review's live hook stayed in place instead of ours. */
-  kept?: "review";
 }
 
 const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
 
 const OPENCODE_TRACE_PLUGIN_MARKER = PI_EXTENSION_MARKER;
 
-export type TraceHookOwner = "review" | "dev-traces";
+export type TraceHookOwner = "review";
 
 function claudeSettingsPath(homeDir: string): string {
   return path.join(homeDir, ".claude", "settings.json");
@@ -79,7 +77,7 @@ function openCodePluginPath(
 function executableOwner(file: string): TraceHookOwner | null {
   const base = path.basename(file);
 
-  return base === "review" || base === "dev-traces" ? base : null;
+  return base === "review" ? base : null;
 }
 
 /** The executable of a single lifecycle command, or undefined for a shell compound. */
@@ -111,32 +109,6 @@ export function traceHookCommandOwner(
   return file === undefined ? null : executableOwner(file);
 }
 
-/**
- * The executable a Git hook state file names. The state stores the rendered
- * command, so the executable is its first shell-quoted word.
- */
-function traceGitHookCommandFile(command: string | undefined) {
-  if (command === undefined) return undefined;
-
-  const quoted = /^'((?:[^']|'"'"')*)'(?:\s|$)/.exec(command);
-  const bare = /^([^\s']+)(?:\s|$)/.exec(command);
-
-  return quoted
-    ? quoted[1]!.replaceAll(`'"'"'`, "'")
-    : bare
-      ? bare[1]!
-      : undefined;
-}
-
-/** The owner of a rendered Git hook command, when it is `review` or `dev-traces`. */
-export function traceGitHookCommandOwner(
-  command: string | undefined,
-): TraceHookOwner | null {
-  const file = traceGitHookCommandFile(command);
-
-  return file === undefined ? null : executableOwner(file);
-}
-
 function extensionCommandFile(source: string): string | undefined {
   if (!source.trimStart().startsWith(`// ${PI_EXTENSION_MARKER}`))
     return undefined;
@@ -151,21 +123,6 @@ function extensionOwner(source: string): TraceHookOwner | null {
   const file = extensionCommandFile(source);
 
   return file === undefined ? null : executableOwner(file);
-}
-
-/** Review takes precedence; standalone preserves existing Review hooks. */
-export function keptTraceHookOwner(
-  existingFile: string | undefined,
-  wanted: string,
-): "review" | null {
-  // A bare command name is not checked on PATH, so it is replaced.
-  return existingFile !== undefined &&
-    executableOwner(existingFile) === "review" &&
-    executableOwner(wanted) === "dev-traces" &&
-    path.isAbsolute(existingFile) &&
-    existsSync(existingFile)
-    ? "review"
-    : null;
 }
 
 function piExtensionSource(reviewCommand: string): string {
@@ -319,14 +276,11 @@ export async function installHarnessHooks(input: {
 }): Promise<{
   installed: AgentTraceHookInstallResult[];
   skipped: AgentTraceHookAgent[];
-  /** Harnesses whose live hook the other CLI owns; that hook stayed. */
-  kept: AgentTraceHookAgent[];
 }> {
   const installed: AgentTraceHookInstallResult[] = [];
   const skipped: AgentTraceHookAgent[] = [];
-  const kept: AgentTraceHookAgent[] = [];
 
-  if (input.harnessHooks === false) return { installed, skipped, kept };
+  if (input.harnessHooks === false) return { installed, skipped };
 
   const env = input.env ?? process.env;
 
@@ -347,18 +301,9 @@ export async function installHarnessHooks(input: {
     );
 
     installed.push(result);
-
-    if (result.kept) kept.push(agent);
   }
 
-  return { installed, skipped, kept };
-}
-
-/** One line that names the harness hooks the other CLI still owns. */
-export function keptHarnessesLine(
-  kept: readonly AgentTraceHookAgent[],
-): string {
-  return `Kept the ${kept.join(", ")} hook${kept.length === 1 ? "" : "s"} the other CLI installed: Review takes precedence. Run \`review trace uninstall-hooks\` before switching to standalone.\n`;
+  return { installed, skipped };
 }
 
 /** The installer of one harness hook, keyed by the harness. */
@@ -407,7 +352,6 @@ export async function installClaudeTraceHook(
 
   const hooks: JsonObject = isJsonObject(parsed.hooks) ? parsed.hooks : {};
   let modified = false;
-  let kept: "review" | null = null;
 
   const hookCommand = (
     eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
@@ -435,12 +379,6 @@ export async function installClaudeTraceHook(
 
         if (file === undefined || executableOwner(file) === null) continue;
         found = true;
-        const keptOwner = keptTraceHookOwner(file, reviewCommand);
-
-        if (keptOwner) {
-          kept = keptOwner;
-          continue;
-        }
 
         if (hook.command !== wanted.command) {
           hook.command = wanted.command;
@@ -473,8 +411,6 @@ export async function installClaudeTraceHook(
     modified,
   };
 
-  if (kept) result.kept = kept;
-
   return result;
 }
 
@@ -501,20 +437,12 @@ export async function installCodexTraceHook(
   ] as const;
 
   const found = new Set<string>();
-  let kept: "review" | null = null;
 
   let next = transformCodexHooks(existing, (block, command, event) => {
     const file = traceHookCommandFile(command);
 
     if (file === undefined || executableOwner(file) === null) return block;
     found.add(event);
-    const keptOwner = keptTraceHookOwner(file, reviewCommand);
-
-    if (keptOwner) {
-      kept = keptOwner;
-
-      return block;
-    }
 
     return block.replace(
       /^command = .*$/m,
@@ -536,8 +464,6 @@ export async function installCodexTraceHook(
     path: configPath,
     modified: next !== existing,
   };
-
-  if (kept) result.kept = kept;
 
   if (!result.modified) return result;
   await mkdir(codexDir, { recursive: true });
@@ -562,12 +488,6 @@ export async function installPiTraceExtension(
     existing = await readFile(extensionPath, "utf8");
   }
 
-  const kept = keptTraceHookOwner(
-    extensionCommandFile(existing),
-    reviewCommand,
-  );
-
-  if (kept) return { agent: "pi", path: extensionPath, modified: false, kept };
   const source = piExtensionSource(reviewCommand);
 
   if (existing.trim() === source.trim()) {
@@ -597,13 +517,6 @@ export async function installOpenCodeTraceExtension(
     existing = await readFile(pluginPath, "utf8");
   }
 
-  const kept = keptTraceHookOwner(
-    extensionCommandFile(existing),
-    reviewCommand,
-  );
-
-  if (kept)
-    return { agent: "opencode", path: pluginPath, modified: false, kept };
   const source = openCodeTracePluginSource(reviewCommand);
 
   if (existing.trim() === source.trim()) {
@@ -616,11 +529,10 @@ export async function installOpenCodeTraceExtension(
   return { agent: "opencode", path: pluginPath, modified: true };
 }
 
-/** Removes only the selected CLI owner’s lifecycle hooks; preserves foreign hooks. */
+/** Removes Review’s lifecycle hooks; preserves foreign hooks. */
 export async function removeAgentTraceHook(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
-  owner: TraceHookOwner = "review",
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<boolean> {
   if (agent === "claude") {
@@ -656,7 +568,7 @@ export async function removeAgentTraceHook(
 
         const keptHooks = group.hooks.filter((hook) => {
           const command = isJsonObject(hook) ? hook.command : undefined;
-          const owned = traceHookCommandOwner(command) === owner;
+          const owned = traceHookCommandOwner(command) === "review";
 
           if (owned) changed = true;
 
@@ -688,7 +600,7 @@ export async function removeAgentTraceHook(
     const existing = await readFile(configPath, "utf8");
 
     const removed = transformCodexHooks(existing, (block, command) =>
-      traceHookCommandOwner(command) === owner ? "" : block,
+      traceHookCommandOwner(command) === "review" ? "" : block,
     ).replace(/# review-trace-hooks:start\n\s*# review-trace-hooks:end\n?/, "");
 
     if (removed === existing) return false;
@@ -710,7 +622,7 @@ export async function removeAgentTraceHook(
   if (!existsSync(extensionPath)) return false;
   const existing = await readFile(extensionPath, "utf8");
 
-  if (extensionOwner(existing) !== owner) {
+  if (extensionOwner(existing) !== "review") {
     return false;
   }
 

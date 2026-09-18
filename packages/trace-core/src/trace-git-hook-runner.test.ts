@@ -199,12 +199,12 @@ describe("runTraceGitHook", () => {
       .spyOn(hookRunner, "spawnDetachedTraceSync")
       .mockImplementation(() => undefined);
 
-    expect(await prePush({ file: "/opt/dev-traces" })).toBe(0);
+    expect(await prePush({ file: "/opt/review" })).toBe(0);
     expect(spawned).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "01a015e4-0477-7055-a0fd-21a0f72a4ec9",
         cwd: repo,
-        command: { file: "/opt/dev-traces" },
+        command: { file: "/opt/review" },
       }),
     );
     expect(spawned).toHaveBeenCalledWith(

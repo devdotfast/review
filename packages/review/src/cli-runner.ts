@@ -693,9 +693,6 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
 
   registerTraceCommands(trace, {
     runtime,
-    cliName: "review",
-    reads: "review",
-    storageOverride: true,
     traceCommand,
     scope,
     cwd,

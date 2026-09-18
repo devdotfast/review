@@ -5,10 +5,6 @@ import { jsonArray, jsonString, parseJsonText } from "@dev.fast/json";
 import { gitAt } from "@dev.fast/local-vcs";
 import { z } from "zod";
 
-import {
-  type TraceHookOwner,
-  traceGitHookCommandOwner,
-} from "./agent-trace-hooks";
 import { writeFileAtomicAsync } from "./atomic-write";
 import {
   type TraceCommand,
@@ -252,31 +248,14 @@ export async function traceRepositoryStatus(
   return status;
 }
 
-/**
- * Disables the Git hooks of every registered repository, returning the roots
- * it disabled. With an owner, a repository whose hooks call the other CLI
- * keeps them and its root is returned under `kept`. A state file without a
- * command came from an older `review`, so only a `review` owner disables it.
- */
+/** Disables the Git hooks of every registered repository. */
 export async function disableAllTraceRepositories(
   scope: TraceScope,
-  options: { owner?: TraceHookOwner } = {},
-): Promise<{ disabled: string[]; kept: string[] }> {
+): Promise<{ disabled: string[] }> {
   const registry = await readRegistry(scope.homeDir);
   const disabled: string[] = [];
-  const kept: string[] = [];
 
   for (const root of registry) {
-    if (options.owner) {
-      const status = await traceRepositoryStatus(root).catch(() => null);
-      const owner = traceGitHookCommandOwner(status?.command) ?? "review";
-
-      if (owner !== options.owner) {
-        kept.push(root);
-        continue;
-      }
-    }
-
     const result = await disableTraceRepository({ cwd: root, scope }).catch(
       () => null,
     );
@@ -284,7 +263,7 @@ export async function disableAllTraceRepositories(
     if (result?.repository) disabled.push(root);
   }
 
-  return { disabled, kept };
+  return { disabled };
 }
 
 async function resolveRepository(

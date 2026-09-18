@@ -917,7 +917,7 @@ describe("hosted trace commands", () => {
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,
-      traceCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
+      traceCommand: { file: "/opt/review/bin/review", args: [] },
       client: client(() => Response.json(STORE)),
       stdout: out.stream,
       stderr: out.stream,
@@ -949,7 +949,7 @@ describe("hosted trace commands", () => {
         path.join(repo, ".git", "dev-fast", "trace-hooks", "hooks", "pre-push"),
         "utf8",
       ),
-    ).toContain("'/opt/dev-traces/bin/dev-traces' trace git-hook pre-push");
+    ).toContain("'/opt/review/bin/review' trace git-hook pre-push");
     expect(out.text()).toBe(
       `Traces from acme/app may be published to ${ORIGIN}. Run \`review trace status\` to verify.\n`,
     );
@@ -963,7 +963,7 @@ describe("hosted trace commands", () => {
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
       harnessHooks: false,
-      verifyCommand: "dev-traces check",
+      verifyCommand: "review check",
       client: client(() => Response.json(STORE)),
       stdout: out.stream,
       stderr: out.stream,
@@ -971,7 +971,7 @@ describe("hosted trace commands", () => {
 
     expect(code).toBe(0);
     expect(out.text()).toBe(
-      `Traces from acme/app may be published to ${ORIGIN}. Run \`dev-traces check\` to verify.\n`,
+      `Traces from acme/app may be published to ${ORIGIN}. Run \`review check\` to verify.\n`,
     );
   });
 
@@ -1095,7 +1095,7 @@ describe("hosted trace commands", () => {
     await enableTraceRepository({
       cwd: repo,
       scope: traceScope({ homeDir: home, env }),
-      reviewCommand: { file: "/opt/dev-traces/bin/dev-traces", args: [] },
+      reviewCommand: { file: "/opt/review/bin/review", args: [] },
     });
     const out = collect();
 
@@ -1110,7 +1110,7 @@ describe("hosted trace commands", () => {
       `Login: none. Run \`review login --origin ${ORIGIN}\`.`,
       "Capture switch: on",
       "Harness hooks: claude -> review, codex -> none, opencode -> none, pi -> none",
-      "Git hooks: '/opt/dev-traces/bin/dev-traces'",
+      "Git hooks: '/opt/review/bin/review'",
     ]);
   });
 });

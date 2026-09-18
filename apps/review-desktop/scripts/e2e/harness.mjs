@@ -33,10 +33,7 @@ const require = createRequire(path.join(appRoot, "code-oss/package.json"));
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Pages `watchPage` has already instrumented. Attaching the same listeners and
- *  the same community-dialog handler twice would double every page error and
- *  race two handlers against one dialog, and a journey cannot tell whether the
- *  page it resolved is the one `attach` already watched. */
+/** Pages `watchPage` has instrumented; attaching twice doubles every page error and races two dialog handlers. */
 const watchedPages = new WeakSet();
 
 const defaultSettings = {
@@ -111,8 +108,7 @@ export async function createHarness({
   let head = "";
 
   if (seedRepo) {
-    // A stand-in repository for a fixture whose own source repository is not on
-    // this machine: a legacy record only loads when its worktreePath exists.
+    // A stand-in repository: a legacy record only loads when its worktreePath exists.
     await git("init", "-q", "-b", "main");
 
     await git("config", "user.name", "Review E2E");
@@ -315,8 +311,7 @@ export async function createHarness({
     await dismissCommunityDialog(page);
   }
 
-  // The locator handler only runs during locator actions, so a journey whose
-  // first interaction is a keyboard press would type into the modal instead.
+  // The locator handler runs only during locator actions, so a keyboard-first journey would type into the modal.
   async function dismissCommunityDialog(candidate) {
     if (disableCommunityHandler) return;
 
@@ -324,8 +319,7 @@ export async function createHarness({
       exact: true,
     });
 
-    // A fresh profile always raises it; a restarted one has already stored the
-    // "don't show again" choice, so absence is normal too.
+    // A restarted profile has already stored the "don't show again" choice, so absence is normal.
     const shown = await dialog
       .waitFor({ state: "visible", timeout: 20000 })
       .then(() => true)
@@ -352,8 +346,7 @@ export async function createHarness({
     }
   }
 
-  /** A close that can neither throw nor hang: the kill below is what actually
-   *  stops the Desktop, and it must not wait on a CDP connection that is gone. */
+  /** A close that can neither throw nor hang; the kill below is what actually stops the Desktop. */
   const closeBrowser = () =>
     Promise.race([browser?.close().catch(() => {}) ?? null, sleep(10000)]);
 
@@ -362,9 +355,7 @@ export async function createHarness({
   try {
     await attach();
   } catch (error) {
-    // Nothing has a context to call `close` on yet, so this is the only chance
-    // to stop the detached Desktop and keep the log that says why it never
-    // attached.
+    // The only chance to stop the detached Desktop and keep the log that says why it never attached.
     await closeBrowser();
     killGroup("SIGTERM");
     await sleep(500);
@@ -387,10 +378,7 @@ export async function createHarness({
     return { status: response.status, value: await response.json() };
   };
 
-  /** The review API read a journey means when it reads: an error body is JSON
-   *  too, so an unasserted status lets a failed read stand in for a document
-   *  and makes comparisons pass for the wrong reason. Only a route whose
-   *  failure is itself the subject uses `api` directly. */
+  /** `api` plus a 200 assertion: an error body is JSON too, so an unasserted read can stand in for a document. */
   const apiOk = async (route, method = "GET", body) => {
     const result = await api(route, method, body);
 
@@ -424,9 +412,7 @@ export async function createHarness({
       return null;
     }, `JSON canvas for ${title}`);
 
-  // `timeout` shortens the wait for a command that is known to hang; `env`
-  // overrides run one command against another home without moving the
-  // journey's. As in the harness's own overrides, an empty value unsets a key.
+  // `timeout` shortens the wait for a command known to hang; an empty `env` override unsets a key.
   async function cliRaw(args, cwd = repo, { timeout = 60000, env: over } = {}) {
     const commandEnv = { ...env, ...over };
 
@@ -460,8 +446,7 @@ export async function createHarness({
   }
 
   async function cli(args, cwd = repo) {
-    // The initial workbench reload may detach the relay between the health
-    // check and CLI startup. Retry only the read-only info readiness failure.
+    // The initial workbench reload can detach the relay, so retry only the read-only info readiness failure.
     const result = await until(async () => {
       const health = await (await fetch(`${discovery.url}/health`)).json();
 
@@ -516,8 +501,7 @@ export async function createHarness({
     if (!report.knownBugs.includes(heading)) report.knownBugs.push(heading);
   }
 
-  // `until` throws as soon as the Desktop exits, which is the opposite of what
-  // waiting for a shutdown needs.
+  // `until` throws as soon as the Desktop exits, which is the opposite of waiting for a shutdown.
   async function waitForExit(label, timeout = 30000) {
     const deadline = Date.now() + timeout;
 
@@ -532,8 +516,7 @@ export async function createHarness({
     try {
       await waitForExit("Desktop shutdown");
     } catch {
-      // A respawn while the old instance still holds the CDP port and
-      // server.json would attach to the dying Desktop.
+      // A respawn while the old instance still holds the CDP port and server.json would attach to the dying Desktop.
       killGroup("SIGKILL");
       await waitForExit("Desktop shutdown after SIGKILL");
     }
@@ -554,8 +537,7 @@ export async function createHarness({
           success = false;
         }
 
-      // Every artifact is best-effort: a Desktop that outlives the runner is a
-      // worse failure than a missing screenshot, so nothing here may throw.
+      // Artifacts are best-effort: a Desktop that outlives the runner is worse than a missing screenshot.
       if (!success && page) {
         await page
           .screenshot({ path: path.join(root, "failure.png") })
@@ -603,10 +585,7 @@ export async function createHarness({
   });
 }
 
-/** Registers ctx.repo (or spec.repoPath), creates a review on the given commits,
- *  inserts blocks, opens it.
- *  spec = { title, repoPath?, base?, head?, blocks: Block[] }
- *  returns { reviewId, repositoryId, title, canvas }. */
+/** Creates a review on spec's commits, inserts its blocks and opens it; returns { reviewId, repositoryId, title, canvas }. */
 export async function createReview(ctx, spec) {
   const repository = await ctx.api("/reviews-api/repositories", "POST", {
     path: spec.repoPath ?? ctx.repo,
@@ -671,13 +650,7 @@ export const orderReviewBlocks = [
   },
 ];
 
-/** Closes the workbench modal editor that Go to Definition opens over the
- *  canvas, and reports whether one was up. `page` defaults to the workbench
- *  renderer; pass the canvas page when the review is mounted in its own window.
- *  One click on the backdrop outside the dialog closes it
- *  (`modalEditorPart.ts:176-183`); Escape takes two presses — see "The modal
- *  editor opened by Go to Definition ignores the first Escape" in the e2e bugs
- *  log. */
+/** Closes the workbench modal editor that Go to Definition opens over the canvas; true when one was up. */
 export async function dismissModalEditor(ctx, page = ctx.page) {
   const modalEditor = page.locator(".monaco-modal-editor-block").first();
 
@@ -688,6 +661,7 @@ export async function dismissModalEditor(ctx, page = ctx.page) {
 
   if (!opened) return false;
 
+  // A click on the backdrop closes it; Escape takes two presses (see modalEditorPart.ts).
   await ctx.until(
     async () => {
       if (!(await modalEditor.count())) return true;
@@ -702,9 +676,7 @@ export async function dismissModalEditor(ctx, page = ctx.page) {
   return true;
 }
 
-/** Opens a review the way a reader does, with `review app pick --review`, and
- *  falls back to the route that command means to call — see "`review app pick
- *  --review <uuid>` never opens the review" in the e2e bugs log. */
+/** Opens a review the way a reader does, with `review app pick --review`, falling back to the route it means to call. */
 export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
     ["app", "pick", "--review", reviewId, "--json"],
@@ -713,8 +685,7 @@ export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
 
   if (picked.code === 0) return;
 
-  // Only the logged bug may fall back; any other failure is a new one. The CLI
-  // writes its error event to stdout, not stderr.
+  // Only the logged bug may fall back; the CLI writes its error event to stdout, not stderr.
   assert.match(
     `${picked.stdout}${picked.stderr}`,
     /"message":"Review or version not found\."/,
@@ -729,11 +700,7 @@ export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   assert.equal(opened.status, 200, JSON.stringify(opened.value));
 }
 
-/** The Settings page, located on the current `ctx.page`: `restartDesktop`
- *  replaces the page, so nothing here may be bound once. `Meta+,` runs
- *  `review.openSettings` (`reviewSettings.contribution.ts:20-25`), and a fresh
- *  profile reloads the workbench about two seconds in, taking the tab with it,
- *  so the press repeats until the page is up. */
+/** Opens the Settings page on the current `ctx.page`; `Meta+,` repeats because a fresh profile reloads the workbench. */
 export async function openSettings(ctx) {
   const settings = ctx.page.locator(
     ".review-home-content.review-settings-page",
@@ -755,15 +722,7 @@ export async function openSettings(ctx) {
   return settings;
 }
 
-/** Installs an optional language group the way a reader does: Settings → Tools
- *  → Extensions → "Manage…" (`settings-page.tsx:158-169`), tick the group in
- *  the "Manage Extensions" picker, confirm. Review ships no marketplace, so
- *  this consent path is the only way an optional extension is downloaded from
- *  Open VSX (`reviewCuratedExtensions.contribution.ts:244-527`).
- *
- *  The unpacked extension directory is the completion signal: the picker's own
- *  progress notification is transient and the window reloads as soon as the
- *  install lands (`:518-521`), which would race any read of the workbench. */
+/** Installs an optional extension group through Settings → Tools → Extensions → "Manage…", the only consent path to Open VSX. */
 export async function installExtensionGroup(
   ctx,
   { label, extensionId, timeout = 600000 },
@@ -785,20 +744,16 @@ export async function installExtensionGroup(
 
   await row.waitFor({ timeout: 60000 });
 
-  // The picker's checkbox is a `div[role=checkbox]` widget, not an `<input>`
-  // (`toggle.ts:156-166`), and `check()` confirms `aria-checked` afterwards.
+  // The picker's checkbox is a `div[role=checkbox]` widget, not an `<input>`.
   await row.getByRole("checkbox").check();
 
-  // The confirm button names the work it is about to do — "Install N
-  // extensions" only while a selected optional group still has members that
-  // are not installed, and "Save" otherwise (`:318-341`) — so clicking it by
-  // that label is the proof that this is a download-and-install rather than a
-  // mere enablement change.
+  // The button reads "Install N extensions" only while the group has uninstalled members, so the label proves a download.
   await picker
     .getByRole("button", { name: /^Install \d+ extensions?$/ })
     .first()
     .click();
 
+  // The unpacked directory is the completion signal: the picker's notification is transient and the window reloads.
   const extensionsDir = path.join(ctx.profile, "extensions");
 
   await ctx.until(
@@ -810,13 +765,11 @@ export async function installExtensionGroup(
     timeout,
   );
 
-  // The install ends in `workbench.action.reloadWindow`; the reloaded window
-  // has to be up again before a journey touches the workbench.
+  // The install ends in a window reload, which has to be up again before a journey touches the workbench.
   await ctx.page.locator(".monaco-workbench").waitFor({ timeout: 120000 });
 }
 
-/** Brings the Home canvas to the front by activating its editor tab; falls back
- *  to a restart. */
+/** Brings the Home canvas to the front by activating its editor tab; falls back to a restart. */
 export async function openHome(ctx) {
   const tab = ctx.page
     .locator(".tabs-container .tab")

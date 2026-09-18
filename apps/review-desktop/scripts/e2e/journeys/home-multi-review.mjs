@@ -1,6 +1,4 @@
-/** Three reviews over two worktrees: Home groups them by worktree, filters and
- *  lists them, opens them as separate tabs, and its dismiss / restore / delete
- *  actions reach the store. */
+/** Three reviews over two worktrees: Home groups, filters and opens them, and dismiss / restore / delete reach the store. */
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -18,9 +16,7 @@ export const phase = 1;
 
 export const options = {};
 
-/** Every locator this journey uses, taken from the current `ctx.page`.
- *  `openHome` falls back to `restartDesktop`, which replaces the page, so
- *  locators are rebuilt after each return to Home rather than bound once. */
+/** Every locator this journey uses, rebuilt from the current `ctx.page` after each return to Home. */
 function homeUi(ctx) {
   const home = ctx.page.locator("main.review-home");
 
@@ -29,14 +25,12 @@ function homeUi(ctx) {
     cards: home.locator(".review-home-card"),
     rows: home.locator(".review-home-list-row"),
     tabs: ctx.page.locator(".tabs-container .tab"),
-    // One canvas part renders whichever review tab is active, so the heading is
-    // what says which review the reader is on.
+    // One canvas part renders whichever review tab is active, so the heading says which review the reader is on.
     canvas: ctx.page.locator(".review-canvas-root [data-review-api]"),
   };
 }
 
-/** The review ids the store lists. `apiOk` is what keeps "the deleted review is
- *  gone" from passing on an error body. */
+/** The review ids the store lists; `apiOk` keeps "the deleted review is gone" from passing on an error body. */
 async function listedReviewIds(ctx) {
   return (await ctx.apiOk("/reviews-api")).map((summary) => summary.reviewId);
 }
@@ -56,8 +50,7 @@ export async function run(ctx) {
     ],
   });
 
-  // A second worktree of the same repository: Home groups by checkout, not by
-  // repository, so this is what makes two groups out of three reviews.
+  // Home groups by checkout, not by repository, so a second worktree makes two groups out of three reviews.
   const other = path.join(root, "repo-b");
 
   await git("worktree", "add", "-q", "-b", "feature-b", other, ctx.head);
@@ -97,9 +90,7 @@ export async function run(ctx) {
   await home.locator('[aria-label="Search reviews"]').fill("Worktree B");
   await until(async () => (await cards.count()) === 1, "search narrows to one card");
 
-  // The list view replaces the cards with table rows, so the same three
-  // reviews are `rows` (`.review-home-list-row`) here, not `cards`; the brief's
-  // card count would have read 0 in every list-view assertion.
+  // The list view replaces the cards with `.review-home-list-row`, so the same reviews are counted as rows here.
   await home.locator('[aria-label="List view"]').click();
   await until(
     async () => (await home.getAttribute("data-view")) === "list",
@@ -134,8 +125,7 @@ export async function run(ctx) {
   await openHome(ctx);
   ({ home, cards } = homeUi(ctx));
 
-  // The dismiss button is a sibling of the card button inside the shell, not a
-  // descendant of `.review-home-card` (`review-home-view.tsx:477-493`).
+  // The dismiss button is a sibling of the card button inside the shell, not a descendant of `.review-home-card`.
   const shellB = home
     .locator(".review-home-card-shell")
     .filter({ hasText: third.title });
@@ -144,8 +134,7 @@ export async function run(ctx) {
     .locator(".review-home-dismissed-row")
     .filter({ hasText: third.title });
 
-  // Dismissed rows are behind a disclosure that starts collapsed and keeps its
-  // state across re-renders, so only open it when it is shut.
+  // Dismissed rows sit behind a disclosure that keeps its state across re-renders, so only open it when it is shut.
   const expandDismissed = async () => {
     const toggle = home.locator(".review-home-dismissed-toggle");
 
@@ -171,9 +160,7 @@ export async function run(ctx) {
   await dismissedRow.locator(".review-home-restore").click();
   await until(async () => (await cards.count()) === 3, "restored");
 
-  // Delete is offered only on a dismissed review, in its Dismissed row
-  // (`review-home-view.tsx:393-396`), so the permanent action always follows
-  // the reversible one; the brief looked for it on the card.
+  // Delete is offered only in a dismissed review's row, so the permanent action always follows the reversible one.
   await dismiss();
   await expandDismissed();
   assert.ok(

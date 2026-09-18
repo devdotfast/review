@@ -1,7 +1,4 @@
-/** One reader path, four languages: a code peek over a call site, a hover that
- *  only a running language server can answer, and Go to Definition crossing
- *  into the file that declares the symbol. The table below is the whole
- *  per-language difference; `journeys/lsp-*.mjs` are thin wrappers over it. */
+/** One reader path, four languages: a code peek, an LSP hover and Go to Definition; the table below is the whole difference. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { accessSync, constants } from "node:fs";
@@ -41,12 +38,7 @@ function resolveTool(tool, search) {
   });
 }
 
-/** Rewrites the journey's PATH so nothing on it provides `hide` any more, while
- *  `keep` stays reachable. Dropping the directories that provide `hide` is not
- *  enough on its own: `brew install go` and `brew install gopls` land in the
- *  same directory, so the scrub can take the toolchain with it and the journey
- *  would skip itself for a reason that is not true. A link of this journey's
- *  own, inside the temp root, puts just the toolchain back. */
+/** Rewrites PATH so nothing provides `hide`, re-linking `keep` in the temp root when one directory provides both. */
 async function hideToolFromPath(ctx, hide, keep) {
   const search = ctx.env.PATH ?? "";
 
@@ -80,8 +72,7 @@ export const LANGUAGES = {
     peekFile: "orders.py",
     symbol: "save_order",
     definitionFile: "storage.py",
-    // ty answers `def save_order(order: OrderRecord) -> OrderRecord`; the
-    // brief's `/save_order/` would also pass on an echo of the token itself.
+    // Specific enough that an echo of the token itself cannot pass for a signature.
     hoverText: /save_order\(order: OrderRecord\)/,
   },
   go: {
@@ -92,14 +83,8 @@ export const LANGUAGES = {
     hoverText: /func SaveOrder\(order OrderRecord\) OrderRecord/,
     needsToolchain: "go",
     installsTool: "gopls",
-    // gopls is built from source on the reader's machine, and the journey's
-    // HOME is a fresh temp root, so the module and build caches start empty.
-    hoverTimeout: 300000,
-    // Every Go path an ambient shell could redirect. Unset, the install and
-    // its caches all sit under $HOME, which is the temp root: GOPATH/GOBIN
-    // decide where the binary lands, GOMODCACHE and GOCACHE where the module
-    // and build caches go, and GOFLAGS/GOENV could reintroduce any of them.
-    // An empty value is a deletion (`harness.mjs:98-101`).
+    hoverTimeout: 300000, // gopls is built from source under a fresh HOME, so the caches start empty.
+    // Unset, every Go install and cache path sits under the temp $HOME; an empty value is a deletion.
     env: {
       GOPATH: "",
       GOBIN: "",
@@ -108,52 +93,32 @@ export const LANGUAGES = {
       GOFLAGS: "",
       GOENV: "",
     },
-    // The Go extension provisions gopls only when it cannot find one
-    // (`golang.go/dist/goMain.js`, `getMissingTools`), and a developer machine
-    // usually has one on PATH already. Taking it off the journey's PATH is
-    // what puts this journey on the path a reader without Go tooling takes.
+    // The Go extension provisions gopls only when PATH has none, which is the reader this journey stands in for.
     beforeLaunch: async (ctx) => {
       ctx.env.PATH = await hideToolFromPath(ctx, "gopls", "go");
     },
   },
   rust: {
-    // Not a DEV_REVIEW_EXTENSIONS group: rust-analyzer is `tier: "optional"`
-    // (`curated-extensions.manifest.mjs:63-96`), downloaded from Open VSX only
-    // after consent through the in-app picker, which is what this journey
-    // walks.
+    // Not a DEV_REVIEW_EXTENSIONS group: rust-analyzer is tier "optional", downloaded only after consent in the picker.
     extensions: "none",
     peekFile: "src/lib.rs",
     symbol: "save_order",
     definitionFile: "src/storage.rs",
     hoverText: /fn save_order\(order: OrderRecord\) -> OrderRecord/,
     needsToolchain: "cargo",
-    // A cold CARGO_HOME means the first `cargo metadata` and proc-macro build
-    // happen while the reader is already hovering.
-    hoverTimeout: 300000,
-    // How the extension's own log tells a server that never started from one
-    // that is merely slow: `Ctx.start` logs the first line either way, and
-    // only `getOrCreateClient` past its `kind !== "Empty"` guard logs the
-    // second (`out/main.js`).
+    hoverTimeout: 300000, // A cold CARGO_HOME builds proc macros while the reader is already hovering.
+    // How the extension's own log separates a server that never started from one that is merely slow.
     serverStartLog: {
       extensionId: "rust-lang.rust-analyzer",
       activated: "Starting language client",
       started: "Using server binary at",
-      // A server that could not be unpacked or run logs this instead, and is a
-      // different bug from the one the retry corroborates (`Ctx.bootstrap`).
-      failed: "Bootstrap error",
+      failed: "Bootstrap error", // A server that could not be unpacked logs this instead: a different bug.
     },
     optionalExtension: {
       label: "Rust (rust-analyzer)",
       extensionId: "rust-lang.rust-analyzer",
     },
-    // rust-analyzer shells out to `cargo`, which on this machine is a rustup
-    // shim: under the journey's temp HOME it finds no toolchain unless
-    // RUSTUP_HOME still points at the real one. This is the one deliberate
-    // exception to keeping everything inside the temp root — the real rustup
-    // home is read, never written, and installing a toolchain of the
-    // journey's own would be a gigabyte of download per run. An unset value
-    // is a deletion (`harness.mjs:98-101`), so a machine without rustup skips
-    // instead.
+    // rust-analyzer needs the real RUSTUP_HOME to find a toolchain; an empty value is a deletion, so a machine without rustup skips.
     env: { RUSTUP_HOME: process.env.RUSTUP_HOME ?? rustupHome() },
     // Everything cargo writes for itself stays inside the temp root.
     beforeLaunch: (ctx) => {
@@ -175,20 +140,14 @@ function rustupHome() {
   }
 }
 
-/** The harness options for a language's journey. Language-specific setup lives
- *  in the table, not in the wrappers. */
+/** The harness options for a language's journey. */
 export function lspOptions(id) {
   const { extensions, env, beforeLaunch } = LANGUAGES[id];
 
   return { extensions, env, beforeLaunch };
 }
 
-/** A toolchain this journey cannot install for itself. `which` says whether the
- *  tool exists at all; `<tool> version` says whether it can still answer under
- *  the journey's isolated HOME, which a rustup shim without RUSTUP_HOME cannot.
- *  Either answer skips the journey — and only those two: a command that could
- *  not be spawned at all, or anything else this function gets wrong, is a fault
- *  in the journey and must not read as a missing toolchain. */
+/** Skips the journey when `tool` is missing or cannot answer under the isolated HOME. */
 async function requireToolchain(ctx, tool) {
   for (const [command, ...args] of [
     ["which", tool],
@@ -197,10 +156,7 @@ async function requireToolchain(ctx, tool) {
     try {
       await exec(command, args, { env: ctx.env, cwd: ctx.repo });
     } catch (error) {
-      // A command that ran and answered carries an exit status; one that could
-      // not be spawned carries a syscall instead, and is a fault in the
-      // journey — except `which` itself being absent, which is still an answer
-      // about this machine.
+      // A command that answered carries an exit status; one that could not be spawned carries a syscall, and is our fault.
       if (error.syscall && error.code !== "ENOENT") throw error;
 
       const reason = (error.stderr || error.message)
@@ -239,8 +195,7 @@ async function extensionLog(ctx, extensionId) {
   return newest ? readFile(newest.file, "utf8") : "";
 }
 
-/** True when the extension activated and then never even tried to start its
- *  server — not when it tried and failed, which is another bug entirely. */
+/** True when the extension activated and then never even tried to start its server. */
 async function serverNeverStarted(
   ctx,
   { extensionId, activated, started, failed },
@@ -263,20 +218,9 @@ async function reopenReview(ctx, review) {
   return page.locator(".review-canvas-root [data-review-api]");
 }
 
-/** The Go extension carries no server of its own: it provisions `gopls` against
- *  the machine's Go toolchain the first time a Go file is opened. In
- *  `golang.go@0.56.0` that happens twice over, without asking —
- *  `maybeInstallImportantTools` installs every missing "important" tool on
- *  activation (`dist/goMain.js`, `installTools` → `go install -v
- *  golang.org/x/tools/gopls@latest`), and only a tool needed later, after that
- *  pass, still reaches the prompt this waits for in parallel
- *  (`promptForMissingTool`: `The "gopls" command is not available. Run "<cmd>"
- *  to install.` with an `Install` action). Either way the binary lands in the
- *  journey's own GOPATH under the temp HOME, and the extension starts the
- *  language server itself once the build finishes. */
+/** Waits for the Go extension to provision `tool` into the journey's GOPATH, answering its install prompt if one comes. */
 async function provisionLanguageServer(ctx, page, tool) {
-  // "Install All" is offered beside it whenever another important Go tool is
-  // missing too, and this journey wants only the language server.
+  // "Install All" sits beside it when other Go tools are missing; this journey wants only the language server.
   const install = page
     .locator(".notifications-toasts .notification-list-item")
     .filter({ hasText: `The "${tool}" command is not available.` })
@@ -285,9 +229,7 @@ async function provisionLanguageServer(ctx, page, tool) {
 
   let asked = false;
 
-  // `go install` writes to GOPATH/bin, and GOPATH defaults to $HOME/go, which
-  // is inside the temp root. Building gopls from source on a cold module and
-  // build cache is the slow part.
+  // `go install` writes to GOPATH/bin, and GOPATH defaults to $HOME/go inside the temp root.
   const binary = path.join(ctx.home, "go/bin", tool);
 
   await ctx.until(
@@ -317,14 +259,11 @@ async function provisionLanguageServer(ctx, page, tool) {
   ctx.check(`go: the Go extension provisions ${tool} into the journey's GOPATH`);
 }
 
-/** Commits the fixture into ctx.repo, creates a review whose code_peek covers
- *  the call site, opens it, hovers the call and presses F12. */
+/** Commits the fixture, creates a review whose code_peek covers the call site, hovers the call and presses F12. */
 export async function runLspJourney(ctx, id) {
   const language = LANGUAGES[id];
 
-  // run.mjs already keeps phase 2 out of the default selection; this also
-  // covers an explicit `--journey lsp-go` on a machine that never opted in,
-  // where the journey would otherwise reach the network.
+  // Covers an explicit `--journey lsp-go` on a machine that never opted into the network.
   if (
     (language.needsToolchain || language.optionalExtension) &&
     process.env.REVIEW_E2E_NETWORK !== "1"
@@ -334,8 +273,7 @@ export async function runLspJourney(ctx, id) {
   if (language.needsToolchain)
     await requireToolchain(ctx, language.needsToolchain);
 
-  // Consent, download and install before the review exists: the picker ends in
-  // a window reload, which would take the open review with it.
+  // Before the review exists: the picker ends in a window reload that would take the open review with it.
   if (language.optionalExtension)
     await installExtensionGroup(ctx, language.optionalExtension);
 
@@ -381,10 +319,7 @@ export async function runLspJourney(ctx, id) {
 
   let canvas = review.canvas;
 
-  // rust-analyzer decides once, while it activates, whether it has a workspace
-  // at all, and a window that lost that race never gets a language server —
-  // see the bugs-log entry this corroborates. It is a race, so another window
-  // is a fair retry; every other language fails on the spot, as before.
+  // rust-analyzer can lose a race with the workspace folder, and only a race earns a retry in another window.
   for (let attempt = 1; ; attempt++) {
     try {
       await hoverAndJump(ctx, id, language, canvas, lines, callLine);
@@ -407,10 +342,7 @@ export async function runLspJourney(ctx, id) {
   }
 }
 
-/** The reader's half of the journey, from the open review to the modal editor
- *  that Go to Definition opens. Separate from the setup so a language whose
- *  server can fail to start at all can be given another window (see
- *  `runLspJourney`). */
+/** The reader's half: from the open review to the modal editor Go to Definition opens. */
 async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   const page = canvas.page();
 
@@ -422,12 +354,10 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
 
   await editor.locator(".view-line").first().waitFor({ timeout: 60000 });
 
-  // The peek is what opens the language's first document, so the extension
-  // only activates — and only asks for its server — once it is on screen.
+  // The peek opens the language's first document, so the extension activates only once it is on screen.
   if (language.installsTool)
     await provisionLanguageServer(ctx, page, language.installsTool);
 
-  // The call line, not the import line above it, which names the symbol too.
   const callRow = editor
     .locator(".view-line")
     .filter({ hasText: lines[callLine - 1].trim() })
@@ -437,11 +367,7 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
 
   await token.waitFor({ timeout: 60000 });
 
-  // Monaco merges adjacent tokens that share a colour, so the call name is not
-  // always a span of its own: Python renders `return save_order(` with
-  // `<span class="mtk1">&nbsp;save_order</span>`. Aim at the symbol's own
-  // characters inside whichever span carries them — the editor font is
-  // monospaced, so the offset is exact.
+  // Monaco merges adjacent same-colour tokens, so aim at the symbol's own characters; the editor font is monospaced.
   const aim = async () => {
     const text = await token.textContent();
 
@@ -460,19 +386,10 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
     };
   };
 
-  // Only the extension host can fill a hover for this token, and a bundled
-  // server takes seconds to come up, so keep hovering until it answers.
-  // Monaco computes a hover once per pointer position, so each retry has to
-  // step off the token first: without that, a server that was still starting
-  // on the first pass is never asked again. The resting place is the call
-  // line's own indentation — inert (no word under the pointer, so no hover)
-  // and inside the peek, unlike the window corner, where a workbench tooltip
-  // could be showing when the read lands.
+  // Monaco computes a hover once per pointer position, so each retry steps off the token onto the inert indentation.
   const hover = page.locator(".monaco-hover-content:visible").first();
 
-  // `.monaco-hover-content` is shared with every other workbench hover
-  // (`hoverWidget.ts:39`) and the widget is not a descendant of the token, so
-  // only the expected contents prove this one belongs to the call.
+  // `.monaco-hover-content` is shared with every workbench hover, so only its contents prove it belongs to the call.
   const hovered = await ctx.until(
     async () => {
       const point = await aim();
@@ -496,17 +413,12 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   await token.click({ position: await aim() });
   await page.keyboard.press("F12");
 
-  // Go to Definition resolves to the file on disk
-  // (`reviewUnifiedDefinition.ts:74-88`), which the workbench opens in the
-  // modal editor over the canvas — not as another inline editor or a workbench
-  // tab. Its header carries the resolved resource's label
-  // (`modalEditorPart.ts:242`, `:366`), so that is the cross-file evidence.
+  // Go to Definition opens the file in the modal editor, whose header carries the resolved label: the cross-file evidence.
   const modalTitle = page
     .locator(".monaco-modal-editor-block .modal-editor-title")
     .first();
 
-  // The label is the resource's file name, not its path in the repository, so
-  // a fixture whose definition sits in a subdirectory is matched by its name.
+  // The label is the file name, not its path in the repository.
   const definitionName = path.basename(language.definitionFile);
 
   await ctx.until(
@@ -516,6 +428,5 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
   );
   ctx.check(`${id}: go to definition crosses files`);
 
-  // Leave the reader back on the review rather than under the modal.
   await dismissModalEditor(ctx, page);
 }

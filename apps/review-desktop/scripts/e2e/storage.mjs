@@ -3,23 +3,18 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-/** The workbench user settings, which is where every Settings page control
- *  lands: each setter calls `configurationService.updateValue(...,
- *  ConfigurationTarget.USER)` (`reviewCanvasPart.ts:654-692`). Throws while the
- *  workbench is rewriting the file, so callers poll it through `ctx.until`. */
+/** The workbench user settings, where every Settings control lands; throws mid-rewrite, so callers poll it through `ctx.until`. */
 export function readUserSettings(userData) {
   return JSON.parse(
     readFileSync(path.join(userData, "User/settings.json"), "utf8"),
   );
 }
 
-/** Reads one key from workbench application storage (StorageScope.APPLICATION).
- *  The workbench flushes on a short delay, so callers wrap reads in `ctx.until`. */
+/** Reads one key from workbench application storage; the workbench flushes on a delay, so callers wrap reads in `ctx.until`. */
 export function readApplicationStorage(userData, key) {
   const file = path.join(userData, "User/globalStorage/state.vscdb");
 
-  // A profile that has not flushed yet has no database, and a read-only open
-  // reports that as SQLITE_CANTOPEN rather than an empty table.
+  // A profile that has not flushed has no database, and a read-only open fails with SQLITE_CANTOPEN.
   if (!existsSync(file)) return undefined;
 
   const db = new DatabaseSync(file, { readOnly: true });

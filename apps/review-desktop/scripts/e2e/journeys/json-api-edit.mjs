@@ -1,6 +1,4 @@
-/** The JSON review API is the only way to author a review: it must reject the
- *  pitfalls the old render gate caught, and an accepted edit must render live
- *  in the open canvas. */
+/** The JSON review API must reject the pitfalls the old render gate caught, and an accepted edit must render live. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -20,8 +18,7 @@ export const options = { beforeLaunch: seedLegacyFixtures };
 export async function run(ctx) {
   const { api, apiOk, apiCanvasFor, legacyFixtures } = ctx;
 
-  // This journey needs an open canvas and an imported fixture is the only
-  // document available before createReview runs.
+  // createReview has not run yet, so an imported fixture is the only open canvas available.
   const fixture = legacyFixtures.find(
     (candidate) => candidate.metadata.sourceRepository === "devdotfast/review",
   );

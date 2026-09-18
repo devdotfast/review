@@ -1,6 +1,4 @@
-/** A fresh profile meets the community invitation, the telemetry notice and the
- *  onboarding rail, and keeps those choices across a restart. Telemetry is live
- *  here, aimed at a closed local port, so the notice is the real one. */
+/** A fresh profile meets the community invitation, the telemetry notice and the onboarding rail, and keeps those choices. */
 import assert from "node:assert/strict";
 
 import { assertNoBlockedReviewRequests } from "../../review-network-policy.mjs";
@@ -34,8 +32,7 @@ const appears = (locator, timeout) =>
     () => false,
   );
 
-/** The stored value for `key`, or undefined when the workbench has not flushed
- *  one within `timeout`. Attributing a known bug needs the settled value. */
+/** The stored value for `key`, or undefined when the workbench flushed none within `timeout`. */
 const storedValue = (ctx, key, timeout = 10000) =>
   ctx
     .until(
@@ -44,8 +41,7 @@ const storedValue = (ctx, key, timeout = 10000) =>
       timeout,
     )
     .catch((error) => {
-      // Only a timeout means "nothing was stored"; `until` also rejects with
-      // the Desktop's exit diagnostic, which must stay fatal.
+      // Only a timeout means "nothing was stored"; the Desktop's exit diagnostic must stay fatal.
       if (!error.message.startsWith("Timed out waiting for")) throw error;
 
       return undefined;
@@ -65,8 +61,7 @@ export async function run(ctx) {
   await dialog.waitFor({ timeout: 30000 });
   await dismissDialog();
 
-  // A fresh profile seeds the keymap defaults and reloads the workbench about
-  // two seconds in; a dismissal that lands in that window goes with it.
+  // A fresh profile reloads the workbench about two seconds in; a dismissal that lands in that window goes with it.
   if (await appears(dialog, 20000)) {
     // Only the logged bug may pass: the dismissal never reached storage.
     const dismissed = await storedValue(ctx, COMMUNITY_DISMISSED_KEY);
@@ -120,8 +115,7 @@ export async function run(ctx) {
   await welcome.getByText("Connect your agents").waitFor();
   await welcome.getByText("Take the tour").waitFor();
   await welcome.getByText("Create your first review").waitFor();
-  // The rail keeps one step open at a time and renders only that step's body,
-  // so the tutorial entry point is behind the second step's disclosure.
+  // The rail renders only the open step's body, so the tutorial entry point is behind the second step's disclosure.
   await welcome.getByRole("button", { name: "Expand Take the tour" }).click();
   await welcome.getByRole("button", { name: "Open the tutorial" }).waitFor();
   ctx.check("empty Home renders the three-step onboarding rail");

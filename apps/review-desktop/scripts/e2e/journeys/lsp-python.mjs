@@ -1,6 +1,4 @@
-/** The curated `python` group (`ms-python.python`, `astral-sh.ty`,
- *  `charliermarsh.ruff`) carries its servers inside the VSIXes, so this journey
- *  is offline once `run.sh` has materialized the group once. */
+/** The curated `python` group carries its servers inside the VSIXes, so this journey is offline once `run.sh` has materialized it. */
 import { lspOptions, runLspJourney } from "../lsp-languages.mjs";
 
 export const name = "lsp-python";

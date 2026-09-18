@@ -1,6 +1,4 @@
-/** Legacy fixture -> import -> Desktop rendering gate. The schema-4 fixture
- *  tarballs are the only seed: the MDX authoring verbs that used to scaffold
- *  and publish a review are gone. */
+/** Legacy fixture -> import -> Desktop rendering gate; the schema-4 fixture tarballs are the only seed left. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
@@ -27,8 +25,7 @@ export async function run(ctx) {
 
   let page = ctx.page;
 
-  // Startup, not `review info`, is what migrates the legacy directories now, so
-  // this only records whether the read-only verb still reaches them.
+  // Startup, not `review info`, migrates the legacy directories now; this only records whether the verb reaches them.
   const first = legacyFixtures[0];
 
   const info = await ctx.cliRaw(
@@ -50,9 +47,7 @@ export async function run(ctx) {
     );
   }
 
-  // Startup imports each fixture into the JSON store but leaves the legacy
-  // record pointing at its original revision; `migrate apply` is what seals the
-  // presentation as `.bundle/document/review-document.json`.
+  // Startup imports into the JSON store; `migrate apply` is what seals the presentation in the legacy record.
   const applied = await ctx.cliRaw(["migrate", "apply", "--json"]);
 
   const event = applied.stdout.split("\n").find((line) => line.startsWith("{"));
@@ -62,8 +57,7 @@ export async function run(ctx) {
   const migration = JSON.parse(event);
 
   assert.equal(migration.documents, legacyFixtures.length);
-  // The fixture whose source repository is absent cannot get a managed
-  // checkout; every other blocker is a real failure.
+  // The fixture whose source repository is absent cannot get a managed checkout; every other blocker is a failure.
   assert.deepEqual(
     migration.blockers.filter(
       (blocker) =>
@@ -119,8 +113,6 @@ export async function run(ctx) {
     );
 
     if (metadata.sourceRepository !== "devdotfast/review") {
-      // Its source repository is not on this machine and it is a system
-      // review: it stays legacy.
       await apiOk("/reviews-api");
       assert.equal(
         (await api(`/reviews-api/${metadata.sourceUuid}`)).status,
@@ -134,7 +126,6 @@ export async function run(ctx) {
       continue;
     }
 
-    // The startup migration imports every fixture before app pick opens it.
     await waitForImport(ctx, metadata.sourceUuid);
     await openLegacyReview(ctx, fixture);
     const snapshot = await waitForImport(ctx, metadata.sourceUuid);
@@ -151,7 +142,6 @@ export async function run(ctx) {
       );
     }
 
-    // E7: origin and history survive.
     assert.ok(
       snapshot.origin?.branch || snapshot.origin?.baseRef,
       `${fixtureName} carries origin`,
@@ -175,7 +165,6 @@ export async function run(ctx) {
       `${fixtureName} is listed by the review API`,
     );
 
-    // E9: the JSON canvas shows it.
     page = await apiCanvasFor(golden.title);
     await ctx.watchPage(page);
     const canvas = page.locator(".review-canvas-root");

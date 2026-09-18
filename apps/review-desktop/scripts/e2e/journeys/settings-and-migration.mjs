@@ -1,7 +1,4 @@
-/** Settings and migration guidance: the telemetry toggle and the theme choice
- *  keep their value across a restart, in the UI and in the stored preference;
- *  then a legacy review directory that cannot be read is followed to every
- *  place the product says anything about it. */
+/** The telemetry toggle and the theme choice survive a restart; then an unreadable legacy record is followed everywhere. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -19,17 +16,12 @@ export const options = {};
 
 const exec = promisify(execFile);
 
-/** A stored record no schema accepts. `schemaVersion` 1 is not one of the
- *  legacy versions the importer migrates in place (2, 3 and 4 —
- *  `review-home.ts:731-738`), so it is the `MIGRATION_REQUIRED` shape from
- *  `review-home.ts:706-710` and not a record any code path can repair. */
+/** A stored record no schema accepts: `schemaVersion` 1 is not one the importer migrates in place, so nothing can repair it. */
 const LEGACY_UUID = "11111111-1111-4111-8111-111111111111";
 
 const LEGACY_RECORD = { schemaVersion: 1, uuid: LEGACY_UUID };
 
-/** `applyReviewThemeChoice` writes a choice as workbench settings
- *  (`reviewThemeChoice.ts:41-56`); "system" is left out on purpose, because it
- *  stores an auto-detect flag instead of a theme name. */
+/** How a theme choice lands in workbench settings; "system" is left out because it stores an auto-detect flag instead. */
 const THEME_SETTINGS = {
   dark: {
     "window.autoDetectColorScheme": false,
@@ -41,11 +33,7 @@ const THEME_SETTINGS = {
   },
 };
 
-/** The row label is a `<span>` and the checkbox's own `<label>` holds only its
- *  "On"/"Off" text (`settings-page.tsx:102-119`, `Row` at `:219-237`), so
- *  `getByLabel("Share anonymous usage data")` matches nothing; the row is the
- *  handle. The theme control is a real `<select aria-label="Theme">`
- *  (`settings-page.tsx:239-266`). */
+/** The telemetry checkbox, reached through its row: the row label is a `<span>`, so `getByLabel` matches nothing. */
 const telemetryToggle = (settings) =>
   settings
     .locator(".review-settings-row")
@@ -67,11 +55,7 @@ async function seedLegacyReview(home) {
 const storedRecord = async (dir) =>
   JSON.parse(await readFile(path.join(dir, "review.json"), "utf8"));
 
-/** Runs the Desktop's own server host against `home`, with no Electron and no
- *  window: `dist/server/desktop-host.js` starts itself unless
- *  `DEV_FAST_REVIEW_DESKTOP_HOST_AUTOSTART` is "0"
- *  (`server/desktop-host.ts:171-178`). Port 0 and a home of its own keep it
- *  clear of the journey's Desktop. */
+/** Runs the Desktop's own server host against `home`, with no Electron and no window, on a port of its own. */
 async function runDesktopHost(ctx, home) {
   const env = {
     ...ctx.env,
@@ -95,8 +79,7 @@ async function runDesktopHost(ctx, home) {
       stdout: error.stdout ?? "",
       stderr: error.stderr ?? "",
       code: error.code,
-      // True when the host was still running at the timeout: it got past the
-      // migration and started listening.
+      // True when the host was still running at the timeout: it got past the migration and started listening.
       killed: Boolean(error.killed),
     };
   }
@@ -111,12 +94,7 @@ export async function run(ctx) {
 
   const before = await telemetry.isChecked();
 
-  // The setting ships enabled (`reviewCanvasPart.ts:702-706`), so the flip
-  // under test is an opt-out. The opposite direction is not safe to run: the
-  // host drops DEV_FAST_REVIEW_TELEMETRY_DISABLED once it has bootstrapped
-  // the stored value, precisely so a later in-app enable reaches the sender
-  // (`server/desktop-host.ts:29-38`), and this journey does not redirect the
-  // capture host the way `first-run` does.
+  // The setting ships enabled, so the flip under test is an opt-out; this journey does not redirect the capture host.
   assert.ok(
     before,
     "the telemetry toggle started disabled, so flipping it would turn telemetry on",
@@ -126,9 +104,7 @@ export async function run(ctx) {
     async () => (await telemetry.isChecked()) === !before,
     `the telemetry toggle to read ${!before}`,
   );
-  // The preference is the whole effect under test: the harness runs with
-  // DEV_FAST_REVIEW_TELEMETRY_DISABLED=1, so nothing may leave the machine
-  // whichever way the toggle sits.
+  // The preference is the whole effect under test; the harness runs with telemetry disabled whichever way it sits.
   await until(
     () => readUserSettings(userData)["review.telemetry.enabled"] === !before,
     `review.telemetry.enabled to be ${!before} in the workbench settings`,
@@ -185,15 +161,7 @@ export async function run(ctx) {
     "the telemetry toggle and the theme choice persist across a restart",
   );
 
-  // Home lists from the JSON store (`review-api/store.ts:485`), and the
-  // one-time cutover that imports `<home>/reviews/<uuid>` into that store has
-  // already run for this home, so it returns on its marker without reading the
-  // directory again (`json-cutover.ts:238-270`). Nothing else reads a legacy
-  // record in the Desktop: `listReviews`, where `MIGRATION_REQUIRED` comes from
-  // (`review-home.ts:706-710`), has one non-test caller,
-  // `publish-preparation.ts:24`, and `ReviewHomeError` appears nowhere in
-  // `packages/review/app/src`. So the brief's Home text is asserted only if
-  // this build grew it.
+  // Nothing in the Desktop reads a legacy record once the cutover marker is set, so Home's text is asserted only if it does.
   const legacyDir = await seedLegacyReview(ctx.home);
 
   await ctx.restartDesktop();
@@ -201,8 +169,7 @@ export async function run(ctx) {
 
   const home = ctx.page.locator("main.review-home");
 
-  // The onboarding rail is what an empty Home renders; waiting for it is what
-  // makes the absences below mean "Home is finished", not "Home is slow".
+  // The onboarding rail is what an empty Home renders, so waiting for it makes the absences below mean "finished", not "slow".
   await home.getByText("Create your first review").waitFor({ timeout: 60000 });
 
   const summaries = await ctx.api("/reviews-api");
@@ -219,11 +186,7 @@ export async function run(ctx) {
     "the Desktop rewrote the legacy record it cannot read",
   );
 
-  // `innerText` is the rendered text, so a hidden node counts for neither
-  // branch, and the uuid is the only identifier this record could be named by:
-  // its title is empty (`review-home.ts:787`). Naming the review is what
-  // makes the guidance this review's guidance rather than a mention of the
-  // command somewhere else on the page.
+  // `innerText` is the rendered text, and the uuid is the only identifier this record could be named by: its title is empty.
   const homeText = await home.innerText();
 
   if (homeText.includes(LEGACY_UUID)) {
@@ -246,17 +209,14 @@ export async function run(ctx) {
     );
   }
 
-  // The reader's real upgrade path is a home whose cutover has not run yet.
-  // This one is past it, so the probe gets a home of its own under the
-  // journey's temp root, holding the same record.
+  // The reader's real upgrade path is a home whose cutover has not run, so the probe gets one of its own.
   const upgradeHome = path.join(ctx.root, "upgrade-home");
 
   await seedLegacyReview(upgradeHome);
 
   const host = await runDesktopHost(ctx, upgradeHome);
 
-  // Only the logged bug may pass: the host refused to start, and said nothing
-  // about the command its own MIGRATION_REQUIRED message names.
+  // Only the logged bug may pass: the host refused to start and never named the command its own message means.
   assert.equal(
     host.code,
     1,
@@ -282,8 +242,7 @@ export async function run(ctx) {
 
   const output = `${migrate.stdout}${migrate.stderr}`;
 
-  // The blocker names the directory, so the uuid anchors it to this record
-  // rather than to a blocker the machine's own state produced.
+  // The blocker names the directory, so the uuid anchors it to this record rather than to the machine's own state.
   assert.match(
     output,
     new RegExp(

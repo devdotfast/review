@@ -1,5 +1,4 @@
-/** TypeScript ships in tree (`extensions/typescript-language-features`), so this
- *  journey needs no curated extension group. */
+/** TypeScript ships in tree, so this journey needs no curated extension group. */
 import { lspOptions, runLspJourney } from "../lsp-languages.mjs";
 
 export const name = "lsp-typescript";

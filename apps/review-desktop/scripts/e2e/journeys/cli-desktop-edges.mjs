@@ -1,7 +1,4 @@
-/** The CLI against a Desktop that is not where `server.json` says it is: an
- *  incompatible protocol version, an unparseable pointer, an unreachable url
- *  and dead pids, then the launch and the open that must still work once the
- *  pointer is put back. */
+/** The CLI against a broken `server.json`: bad protocol, unparseable pointer, unreachable url, dead pids, then the repair. */
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -24,26 +21,16 @@ export const options = {};
 
 const TITLE = "Order review";
 
-/** Every message a broken pointer can produce (`desktop-discovery.ts:24`,
- *  `:34`, `:128`); a probe that must reach the Desktop asserts their absence. */
+/** Every message a broken pointer can produce; a probe that must reach the Desktop asserts their absence. */
 const POINTER_ERRORS =
   /Review Desktop uses protocol|discovery is unreadable|Review Desktop is not ready/;
 
-/** `review info` fails here today for every caller — see "`review info
- *  --review <uuid>` always fails with `Not found.`" in the e2e bugs log. It is
- *  what a probe that got past discovery prints, so the journey uses it as the
- *  marker for "the pointer was accepted". */
+/** What a probe that got past discovery prints today, so it marks "the pointer was accepted" (a logged bug). */
 const LOOKUP_ERROR = /Not found\./;
 
 const exec = promisify(execFile);
 
-/** The stdout of a process-listing command, with its failures kept apart from
- *  its empty answers. `pgrep` and `ps -p` exit 1 with both streams empty when
- *  nothing (or nothing still alive) matches, which is the answer this journey
- *  wants; every other failure — a rejected flag, an overflowing buffer — would
- *  otherwise be swallowed into "no stray Desktops", which passes the assertions
- *  below for the wrong reason and leaves whatever `app pick` started running.
- *  `why` names the benign reading in the error when one turns out not to be it. */
+/** The stdout of a process listing, reading only an exit-1 with both streams empty as "nothing matched". */
 async function listing(command, args, why) {
   const result = await exec(command, args, {
     maxBuffer: 8 * 1024 * 1024,
@@ -60,15 +47,9 @@ async function listing(command, args, why) {
   return result.stdout;
 }
 
-/** Pids of the processes running from an installed Review bundle whose
- *  environment names `home`: everything this journey could have started and
- *  nothing else. The journey's own Desktop is a bundle too, but one built in
- *  this checkout, and another session's Desktop carries another home, so
- *  neither can be mistaken for a process this journey has to clean up. */
+/** Pids of processes from an installed Review bundle whose environment names `home`: what this journey could have started. */
 async function installedDesktopPids(home) {
-  // `open -b dev.fast.review` resolves through LaunchServices, which is free to
-  // pick a bundle anywhere; the two filters below are what make this safe, so
-  // this one only has to find a Review bundle at all.
+  // LaunchServices can pick a bundle anywhere, so this only has to find a Review bundle; the two filters below narrow it.
   const stdout = await listing(
     "/usr/bin/pgrep",
     ["-f", "Review.app/Contents"],
@@ -82,10 +63,7 @@ async function installedDesktopPids(home) {
 
   if (!pids.length) return new Set();
 
-  // `comm` is the executable path alone. Matching on it rather than on the
-  // whole command line is what separates an installed bundle from the one this
-  // checkout builds: every one of these processes carries this worktree's path
-  // somewhere in its arguments or its environment.
+  // `comm` is the executable path alone, which is what separates an installed bundle from the one this checkout builds.
   const paths = await listing(
     "/bin/ps",
     ["-o", "pid=,comm=", "-p", pids.join(",")],
@@ -107,8 +85,7 @@ async function installedDesktopPids(home) {
 
   if (!installed.length) return new Set();
 
-  // `ps -E` appends the environment to the command line, for this user's own
-  // processes, which is all a launch from this journey can produce.
+  // `ps -E` appends the environment, for this user's own processes, which is all this journey can produce.
   const environments = await listing(
     "/bin/ps",
     ["-E", "-ww", "-o", "pid=,command=", "-p", installed.join(",")],
@@ -140,13 +117,7 @@ export async function run(ctx) {
 
   const original = await readFile(pointer, "utf8");
 
-  // `review info` is the CLI's only unconditional discovery read
-  // (`review-info.ts:26` → `requireHealthyReviewDesktop`). `review app pick`,
-  // which the brief for this journey used, cannot stand in for it:
-  // `review-app.ts:49-50` runs the launcher before it reads the pointer and the
-  // launcher swallows every discovery error (`review-app-launcher.ts:281-289`),
-  // so none of the three messages below can reach a `pick` caller. The last
-  // probe in this journey asserts that, and logs it.
+  // `review info` is the CLI's only unconditional discovery read; `app pick` launches before it reads and swallows these errors.
   const probe = async (contents) => {
     await writeFile(pointer, contents);
 
@@ -175,8 +146,7 @@ export async function run(ctx) {
       /Update Review and Review Desktop to compatible versions, then try again\./,
       `a protocol mismatch named no fix: ${output(result)}`,
     );
-    // Stopping before the Desktop is the whole point: the CLI must not talk to
-    // a Desktop whose protocol it cannot read, and must not launch another one.
+    // Stopping before the Desktop is the point: no talking to an unreadable protocol, and no second launch.
     assert.doesNotMatch(
       output(result),
       LOOKUP_ERROR,
@@ -208,10 +178,7 @@ export async function run(ctx) {
     );
     ctx.check("a malformed pointer is reported, not ignored");
 
-    // The brief edited `appPid`/`serverPid` here. Liveness is not judged by the
-    // pids at all: `readHealthyReviewDesktopDiscovery` only fetches
-    // `<url>/health` (`desktop-discovery.ts:97-117`), so an unreachable url is
-    // what produces "not ready". Port 9 is the discard port: nothing answers.
+    // Liveness is judged by fetching `<url>/health`, not by the pids; port 9 is the discard port, so nothing answers.
     result = await probe(
       JSON.stringify({ ...JSON.parse(original), url: "http://127.0.0.1:9" }),
     );
@@ -233,8 +200,7 @@ export async function run(ctx) {
     );
     ctx.check("a stale pointer tells the user to run review app launch");
 
-    // The other half of that reading: pids the pointer claims are dead while
-    // the url still answers must not be mistaken for a stale pointer.
+    // The other half: dead pids with a url that still answers must not read as a stale pointer.
     result = await probe(
       JSON.stringify({ ...JSON.parse(original), appPid: 1, serverPid: 1 }),
     );
@@ -280,8 +246,7 @@ export async function run(ctx) {
       /Review Desktop is already running\./,
       `app launch did not recognise the attached Desktop: ${output(result)}`,
     );
-    // `server.json` is written once on listen and never rewritten, so the same
-    // instanceId proves the attached Desktop answered rather than a new one.
+    // `server.json` is written once on listen, so the same instanceId proves the attached Desktop answered.
     assert.equal(
       JSON.parse(await readFile(pointer, "utf8")).instanceId,
       ctx.discovery.instanceId,
@@ -301,11 +266,7 @@ export async function run(ctx) {
     await writeFile(pointer, original);
   }
 
-  // `review app pick` is probed last and against a home of its own: it launches
-  // before it reads (`review-app.ts:49-50`), and a Desktop started against
-  // ctx.home would take the pointer over from the one this journey is attached
-  // to. `open`(1) passes the caller's environment through, so whatever this
-  // starts lands in the throwaway home and never near the real `~/.dev`.
+  // `app pick` launches before it reads, so it gets a home of its own rather than take this journey's pointer over.
   const probeHome = path.join(ctx.root, "pick-probe-home");
 
   const probePointer = path.join(probeHome, "review-desktop/server.json");
@@ -322,17 +283,12 @@ export async function run(ctx) {
 
   let picking = true;
 
-  // Both background promises capture rather than reject: an unhandled rejection
-  // here would take the runner down before `close` ever stops the Desktop, and
-  // a watcher that died silently would leave "no stray Desktop was started"
-  // resting on a poll loop that stopped polling. Both are asserted below, once
-  // the kill loop has had its chance to stop whatever was started.
+  // Both background promises capture rather than reject: an unhandled rejection would kill the runner before `close` runs.
   let watchError;
 
   let repairError;
 
-  // Polled while the command runs: whatever it starts can exit on its own
-  // before the command returns, and a sighting afterwards would miss it.
+  // Polled while the command runs: whatever it starts can exit before the command returns.
   const watch = (async () => {
     while (picking) {
       for (const pid of await stray()) started.add(pid);
@@ -342,14 +298,7 @@ export async function run(ctx) {
     watchError = error;
   });
 
-  // What the assertions below rest on. Three seconds in, the unusable pointer
-  // is replaced by a working one. Nothing but a CLI still going round the
-  // launcher's poll loop (`review-app-launcher.ts:111-148`) can notice that, so
-  // a command that goes on to reach a Desktop has shown where it spent those
-  // three seconds: waiting for the pointer to fix itself rather than saying a
-  // word about it. A command that had reported the pointer would already be
-  // gone; one that had read the pointer once and moved on could not have seen
-  // the replacement.
+  // Three seconds in the unusable pointer is repaired; only a CLI still in the launcher's poll loop can notice that.
   const repair = (async () => {
     await sleep(3000);
 
@@ -364,8 +313,7 @@ export async function run(ctx) {
       env: {
         HOME: probeHome,
         DEV_REVIEW_HOME: probeHome,
-        // The journey's Desktop already holds this port; a second one on it
-        // would die of the collision rather than of anything the CLI did.
+        // The journey's Desktop already holds this port, so a second one would die of the collision, not of the CLI.
         DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: "",
       },
     })
@@ -413,10 +361,7 @@ export async function run(ctx) {
     `app pick reported the pointer error after all: ${output(picked)}`,
   );
 
-  // Two positive readings, both of them the launcher: it picked the replaced
-  // pointer up and carried on to a Desktop, or it said it could not start one.
-  // `killed` is not among them — a command this journey's own timeout stopped
-  // has shown nothing.
+  // Two positive readings, both the launcher; `killed` is not one, since a command this timeout stopped has shown nothing.
   const wentToTheLauncher =
     /Could not launch Review Desktop/.test(output(picked)) ||
     (!picked.killed &&

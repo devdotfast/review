@@ -1,6 +1,4 @@
-/** One reader's path through a single review: every view the review offers, the
- *  Find widget (plain text, whole word, an invalid regular expression and
- *  wrapping), the table of contents, and the version a rename seals. */
+/** One reader's path through a review: every view, the Find widget, the table of contents, and the version a rename seals. */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
@@ -16,8 +14,7 @@ const TITLE = "Order review";
 
 const RENAMED = "Order review v2";
 
-/** Prose with no standalone "stat": every "stat" in the document sits inside
- *  "status", which is what makes the whole-word search below a real test. */
+/** Prose whose every "stat" sits inside "status", which is what makes the whole-word search a real test. */
 const PARAGRAPH =
   "The queue worker reads each order once, writes the new value and " +
   "acknowledges the message only after the write lands, so a retry can never " +
@@ -33,10 +30,7 @@ const longSection = (title) => ({
   })),
 });
 
-/** Clicks one of the canvas overlays (the Find widget, the contents pill) and
- *  falls back to a synthetic click when the review topbar is what the pointer
- *  would hit — see "The review topbar covers the Find widget and the contents
- *  pill" in the e2e bugs log. Only that exact interception may fall back. */
+/** Clicks a canvas overlay, falling back to a synthetic click only when the review topbar is what intercepts it. */
 async function clickCanvasOverlay(ctx, control, label) {
   const failure = await control.click({ timeout: 5000 }).then(
     () => null,
@@ -60,9 +54,7 @@ async function clickCanvasOverlay(ctx, control, label) {
     };
   });
 
-  // Both halves of the guard are needed: Playwright names the element that
-  // took the pointer this time, and `elementFromPoint` says it is still there.
-  // A control that went disabled or dead would satisfy the second alone.
+  // Both halves are needed: Playwright names the element that took the pointer, `elementFromPoint` says it is still there.
   assert.match(
     failure.message,
     /class="review-topbar[^"]*"[\s\S]*?intercepts pointer events/,
@@ -81,9 +73,7 @@ async function clickCanvasOverlay(ctx, control, label) {
 export async function run(ctx) {
   const { until } = ctx;
 
-  // `review-toc.tsx:199` renders no contents below two headings, and the entry
-  // the reader clicks has to start below the fold, so the standard order review
-  // gains two long sections.
+  // The contents need more than two headings and an entry below the fold, so two long sections are added.
   const review = await createReview(ctx, {
     title: TITLE,
     blocks: [
@@ -93,8 +83,7 @@ export async function run(ctx) {
     ],
   });
 
-  // Resolve the canvas window again rather than reuse the locator: the fresh
-  // profile's workbench reload can replace the page between helpers.
+  // Resolve the canvas window again: the fresh profile's workbench reload can replace the page between helpers.
   const page = await ctx.apiCanvasFor(TITLE);
 
   await ctx.watchPage(page);
@@ -119,10 +108,7 @@ export async function run(ctx) {
     `agent-traces listed no sessions: ${JSON.stringify(traces)}`,
   );
 
-  // `App.tsx:405-411`: a two-commit range offers Commits and Diff, Map needs a
-  // software map in the document (`api-canvas.tsx:391`, and this one has none),
-  // and Trace is offered only while the stored trace list is unsettled or
-  // non-empty (`App.tsx:394-397`) — so the tabs settle on exactly this set.
+  // A two-commit range offers Commits and Diff, Map needs a software map this review has none of, Trace needs traces.
   const offered = [
     "Review",
     "Commits",
@@ -135,8 +121,7 @@ export async function run(ctx) {
     `the review views to settle on ${offered.join(", ")}`,
   );
 
-  // Review goes last so the reader ends on the document the rest of the journey
-  // reads; every other view is visited on the way.
+  // Review goes last so the reader ends on the document the rest of the journey reads.
   for (const label of [...offered.slice(1), "Review"]) {
     const button = views.locator(`button[aria-label="${label}"]`);
 
@@ -189,8 +174,7 @@ export async function run(ctx) {
     "the regex toggle",
   );
   await input.fill("stat(");
-  // An uncompilable pattern reads "Invalid expression" in the count and marks
-  // the input (`review-find.tsx:353`, `:396-398`).
+  // An uncompilable pattern reads "Invalid expression" in the count and marks the input.
   await until(
     async () => (await countText()) === "Invalid expression",
     "the invalid regular expression to be reported",
@@ -237,9 +221,7 @@ export async function run(ctx) {
   const isDrawerOpen = async () =>
     (await toc.getAttribute("class")).includes("review-toc--open");
 
-  // The contents render as an open rail only at the top of a wide shell
-  // (`review-toc.tsx:216-217`); otherwise they sit behind the breadcrumb pill,
-  // and a shut drawer is `pointer-events: none` (`styles.css:4605-4629`).
+  // The contents are an open rail only at the top of a wide shell; otherwise a shut drawer is `pointer-events: none`.
   if (!(await isDrawerOpen()))
     await clickCanvasOverlay(
       ctx,
@@ -248,8 +230,7 @@ export async function run(ctx) {
     );
   await until(isDrawerOpen, "the contents drawer to open");
 
-  // Entries are `<button class="review-toc-link">`, not links with an `href`
-  // (`review-toc.tsx:270-277`), so the target is found by its heading text.
+  // Entries are buttons, not links with an `href`, so the target is found by its heading text.
   const links = toc.locator(".review-toc-link");
 
   assert.deepEqual(
@@ -302,9 +283,7 @@ export async function run(ctx) {
 
   const after = await history();
 
-  // Every command seals a version (`store.ts:791-817`), so the rename alone
-  // gives the history control a previous revision to open; the brief's
-  // markdown-edit fallback is not needed.
+  // Every command seals a version, so the rename alone gives the history control a previous revision to open.
   assert.equal(
     after.length,
     before.length + 1,

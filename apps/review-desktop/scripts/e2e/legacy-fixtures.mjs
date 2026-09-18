@@ -13,8 +13,6 @@ export const legacyRoot = path.join(
   "src/fixtures/legacy-reviews",
 );
 
-// The tarball plus its `<name>.json` metadata is the seed, the same shape
-// `legacy-import-live-home.sh` extracts into a live-test home.
 async function seedLegacyFixture(ctx, fixture) {
   const { name, metadata } = fixture;
   const legacyDir = path.join(ctx.home, "reviews", metadata.sourceUuid);
@@ -62,8 +60,7 @@ async function seedLegacyFixture(ctx, fixture) {
   });
 }
 
-/** Extracts every legacy fixture into `ctx.home`; also stashed on
- *  `ctx.legacyFixtures` so a journey's `run` can read it. */
+/** Extracts every legacy fixture into `ctx.home` and stashes them on `ctx.legacyFixtures`. */
 export async function seedLegacyFixtures(ctx) {
   const legacyFixtures = [];
 

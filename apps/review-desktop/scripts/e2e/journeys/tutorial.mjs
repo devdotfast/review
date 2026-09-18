@@ -1,7 +1,4 @@
-/** The built-in tutorial renders as a native JSON review with its guide and a
- *  working keybinding picker, and a reader can drive every step of the tour
- *  from the product UI. Completion is read back from application storage —
- *  the record the guide and Home themselves trust — not from the DOM. */
+/** The built-in tutorial renders as a native JSON review and a reader drives every step; completion is read from storage. */
 import assert from "node:assert/strict";
 import path from "node:path";
 
@@ -18,8 +15,7 @@ const TITLE = "Review Desktop: three-minute tour";
 
 const PROGRESS_KEY = "review.tutorial.progress.v1";
 
-/** Every step of the tour with the software map enabled, in plan order
- *  (`tutorial-plan.ts:40-145`). */
+/** Every step of the tour with the software map enabled, in plan order. */
 const STEPS = [
   "chooseKeymap",
   "showHover",
@@ -91,8 +87,7 @@ export async function run(ctx) {
 
   await guide.waitFor();
 
-  // The picker's bridge checks the step before it runs the keymap command
-  // (`reviewCanvasPart.ts:768`), so the render check above completed it.
+  // The picker's bridge checks the step before it runs the keymap command, so the render check above completed it.
   await waitChecked(ctx, "chooseKeymap");
 
   const editor = canvas
@@ -101,14 +96,12 @@ export async function run(ctx) {
 
   await editor.locator(".view-line").first().waitFor();
 
-  // `inline-hover` completes on non-empty hover contents
-  // (`reviewInlineEditorService.ts:688-694`), so this is a real tsserver test.
+  // `inline-hover` completes on non-empty hover contents, so this is a real tsserver test.
   const tokens = editor
     .locator(".view-line span")
     .filter({ hasText: /^[A-Za-z_]\w{2,}$/ });
 
-  // A hover widget element outlives the hover it showed, so the step's own
-  // record is the only reliable signal that tsserver answered.
+  // A hover widget outlives the hover it showed, so the step's own record is the only reliable signal.
   await until(
     async () => {
       const count = await tokens.count();
@@ -129,22 +122,17 @@ export async function run(ctx) {
 
   await page.keyboard.press("Escape");
 
-  // `totalCents` is declared and used inside the authored window, so its
-  // definition is one the sample's tsserver can always resolve.
+  // `totalCents` is declared and used inside the authored window, so tsserver can always resolve it.
   await editor
     .locator(".view-line span")
     .filter({ hasText: /^totalCents$/ })
     .first()
     .click();
   await page.keyboard.press("F12");
-  // `inline-navigation` completes on an actual navigation
-  // (`reviewInlineEditorService.ts:174-175`, `:194-196`).
+  // `inline-navigation` completes on an actual navigation.
   await waitChecked(ctx, "gotoDefinition");
 
-  // Go to Definition resolves to the file on disk
-  // (`reviewUnifiedDefinition.ts:74-88`), which the workbench opens in its
-  // modal editor over the canvas. `didNavigate` records the step before that
-  // editor opens, so wait for the modal itself rather than assume it is up.
+  // `didNavigate` records the step before the modal editor opens, so wait for the modal rather than assume it is up.
   await dismissModalEditor(ctx, page);
   await guide.waitFor();
 
@@ -160,8 +148,7 @@ export async function run(ctx) {
   await waitChecked(ctx, "openDiff");
   await viewTab("Review").click();
 
-  // The two `external` steps complete when the tour overlay mounts, not when
-  // the reader steps through it (`tutorial-experience.tsx:113-154`).
+  // The two `external` steps complete when the tour overlay mounts, not when the reader steps through it.
   await canvas
     .locator(
       '[data-review-section="Interactive Diagrams"] .sequence-diagram .diagram-tour-button',
@@ -206,8 +193,7 @@ export async function run(ctx) {
 
   await home.getByText(`${STEPS.length} of ${STEPS.length} checks`).waitFor();
 
-  // The rail opens the first unfinished step, and only an open step renders
-  // its body (`welcome-page.tsx:96-99`, `:163-167`).
+  // The rail opens the first unfinished step, and only an open step renders its body.
   const expand = home.getByRole("button", { name: "Expand Take the tour" });
 
   if (await expand.count()) await expand.click();

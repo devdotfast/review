@@ -1,6 +1,4 @@
-/** One review outliving its worktree: the working copy is dirtied, then the
- *  whole checkout is renamed, then deleted, and the review is re-read after
- *  every step. What the reader must never see is the working copy's bytes. */
+/** One review outliving its worktree: dirtied, renamed, deleted, re-read each time; the working copy's bytes must never show. */
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
@@ -27,16 +25,15 @@ const BUG =
   "A review whose repository directory moves or is deleted renders " +
   "`ReviewApiError: Review operation failed.`";
 
-/** Every locator this journey uses, taken from the current `ctx.page`: each
- *  `restartDesktop` replaces the page, so they are rebuilt rather than bound. */
+/** Every locator this journey uses, rebuilt from the current `ctx.page` because each restart replaces it. */
 function canvasUi(ctx) {
   const canvas = ctx.page.locator(".review-canvas-root [data-review-api]");
 
   return {
     heading: canvas.getByRole("heading", { name: TITLE, exact: true }),
-    // `desktop-entry.tsx:42`, the state a missing checkout is meant to reach.
+    // The state a missing checkout is meant to reach (see desktop-entry.tsx).
     unavailable: ctx.page.getByText("Worktree unavailable"),
-    // `api-canvas.tsx:306`: the whole canvas replaced by one status line.
+    // The whole canvas replaced by one status line (see api-canvas.tsx).
     failure: canvas.locator('p[role="status"]', { hasText: CANVAS_FAILURE }),
     peek: canvas
       .locator('.review-inline-editor[data-review-inline-editor="order.ts"]')
@@ -44,8 +41,7 @@ function canvasUi(ctx) {
   };
 }
 
-/** Corroborates the canvas failure against the read that produces it before
- *  the journey is allowed to call it a known bug. */
+/** Corroborates the canvas failure against the read that produces it before calling it a known bug. */
 async function assertCanvasFailureSignature(ctx, reviewId, where) {
   const { failure } = canvasUi(ctx);
 
@@ -83,10 +79,7 @@ async function assertCanvasFailureSignature(ctx, reviewId, where) {
 export async function run(ctx) {
   const { repo, until } = ctx;
 
-  // The working copy is dirtied before the review exists, so the peek gets
-  // exactly one chance to resolve and resolves against a tree that already
-  // differs from the pinned head. Dirtying afterwards would let the assertion
-  // pass by beating the first render rather than by reading pinned bytes.
+  // Dirtied before the review exists, so the peek resolves once, against a tree that already differs from the pinned head.
   await writeFile(
     path.join(repo, "order.ts"),
     'export const status = "dirty";\n',
@@ -111,10 +104,7 @@ export async function run(ctx) {
   );
   ctx.check("a dirty working copy does not change what the review shows");
 
-  // `<gitCommonDir>/dev-fast/reviews/<uuid>/head/<sha>`
-  // (`review-checkout-paths.ts:30-42`, `software-map-paths.ts:17-19`). It sits
-  // inside the repository directory, so it travels with the rename below and
-  // dies with the delete at the end.
+  // The pinned checkout sits inside the repository directory, so it travels with the rename and dies with the delete.
   const commonDir = path.resolve(
     repo,
     await ctx.git("rev-parse", "--git-common-dir"),
@@ -135,10 +125,7 @@ export async function run(ctx) {
     `the peek resolved without a pinned checkout at ${pinnedIn(repo)}`,
   );
 
-  // The control for everything below: the same restart and the same open, with
-  // the repository still where it was registered. Without it, a canvas that
-  // fails after the rename could be the restart's doing, and the "a moved
-  // worktree breaks the review canvas" check would name the wrong cause.
+  // The control for everything below: the same restart and open, with the repository still where it was registered.
   await ctx.restartDesktop();
   await pickReview(ctx, review.reviewId);
 
@@ -168,10 +155,7 @@ export async function run(ctx) {
 
   const { heading, unavailable, failure } = canvasUi(ctx);
 
-  // Three outcomes, two of them legitimate: the product names the checkout it
-  // can no longer find, or it keeps rendering from the pinned checkout that
-  // moved with the repository. The third is the logged failure. The check name
-  // records which one this build took.
+  // Three outcomes, two legitimate: unavailable, still rendering from the pinned checkout, or the logged failure.
   const outcome = await until(
     async () =>
       ((await unavailable.count()) > 0 && "unavailable") ||

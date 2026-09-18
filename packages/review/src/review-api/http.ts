@@ -1,6 +1,6 @@
 import type { ReviewStructuralDiffEvent } from "@dev.fast/review-protocol";
 import { errorMessage } from "@dev.fast/trace-core";
-import { Hono, type MiddlewareHandler } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
 import { AgentSelectionSchema, selectionMarkdown } from "../agent-selection.js";
@@ -14,6 +14,7 @@ import { scopedCoverage } from "../viewed-coverage.js";
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, fileLineRangeSchema } from "./document.js";
+import type { AuthoringMode } from "./drafts.js";
 import type { LocalReviewData } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import {
@@ -29,7 +30,13 @@ import {
 } from "./store.js";
 import { listPinnedTraces, readStoredTrace } from "./traces.js";
 
-/** Mounted behind the desktop server's existing token authentication. */
+export interface AuthoringCapabilities {
+  authoringMode: AuthoringMode;
+  desktopAvailable: boolean;
+  softwareMapEnabled: boolean;
+}
+
+/** Both hosts mount this behind their token authentication. */
 export function createReviewApi(
   store: ReviewStore,
   data?: LocalReviewData,
@@ -38,6 +45,13 @@ export function createReviewApi(
     title: string;
   }) => Promise<{ softwareMapEnabled: boolean }>,
   shared?: SharedReviewStore,
+  capabilities: () =>
+    | Omit<AuthoringCapabilities, "authoringMode">
+    | Promise<Omit<AuthoringCapabilities, "authoringMode">> = () => ({
+    desktopAvailable: Boolean(open),
+    softwareMapEnabled: false,
+  }),
+  authoringMode: AuthoringMode = "interactive",
 ) {
   const app = new Hono();
   app.onError((error, context) => {
@@ -118,7 +132,9 @@ export function createReviewApi(
   app.get("/", (context) =>
     context.json(catalog(coverageModeSchema.parse(context.req.query("mode")))),
   );
-  app.get("/authoring", (context) => context.json(authoringTools()));
+  app.get("/authoring", (context) =>
+    context.json(authoringTools(authoringMode)),
+  );
   app.get("/:id/progress", async (context) => {
     if (!data) throw new ReviewInputError("Source data is unavailable.", 409);
 
@@ -212,6 +228,48 @@ export function createReviewApi(
       ),
     );
   });
+  app.get("/capabilities", async (context) =>
+    context.json({ ...(await capabilities()), authoringMode }),
+  );
+
+  if (authoringMode === "batch") {
+    app.post("/draft-commands/:operation", async (context) => {
+      const input = z
+        .record(z.string(), z.unknown())
+        .parse(await readBoundedRequestJson(context.req.raw));
+
+      return context.json(
+        await store.executeDraft({
+          ...input,
+          type: context.req.param("operation"),
+        }),
+      );
+    });
+    app.get("/drafts/:draftId", (context) =>
+      context.json(store.drafts.read(context.req.param("draftId"))),
+    );
+  }
+
+  const sourcePaths = (suffix: string) =>
+    authoringMode === "batch"
+      ? [`/:id/${suffix}`, `/drafts/:draftId/${suffix}`]
+      : [`/:id/${suffix}`];
+
+  const sourceSnapshot = (context: Context, version?: number) => {
+    const draftId = context.req.param("draftId");
+
+    if (draftId) {
+      if (version !== undefined)
+        throw new ReviewInputError(
+          "Draft source reads do not take a committed version.",
+        );
+
+      return store.drafts.source(draftId);
+    }
+
+    return readReview(z.string().parse(context.req.param("id")), version);
+  };
+
   app.get("/:id/activity", (context) => {
     const id = context.req.param("id");
     readReview(id);
@@ -223,6 +281,11 @@ export function createReviewApi(
     );
   });
   app.post("/:id/activity", async (context) => {
+    if (authoringMode === "batch")
+      throw new ReviewInputError(
+        "Batch authoring uses server-owned drafts, not activity leases.",
+        409,
+      );
     const input = await readBoundedRequestJson(context.req.raw);
     const id = context.req.param("id");
     store.assertExists(id);
@@ -443,33 +506,33 @@ export function createReviewApi(
 
       return context.json(result);
     });
-    app.get("/:id/tree", async (context) => {
+    app.on("GET", sourcePaths("tree"), async (context) => {
       const input = readQuerySchemas.tree.parse(context.req.query());
 
       const { pins } = await data.resolveSource(
-        readReview(context.req.param("id"), input.version),
+        sourceSnapshot(context, input.version),
         input.commit,
       );
 
       return context.json(await data!.tree(pins, input.side, input.path));
     });
-    app.get("/:id/maps/:resourceId", async (context) => {
+    app.on("GET", sourcePaths("maps/:resourceId"), async (context) => {
       const query = readQuerySchemas.maps.parse(context.req.query());
       const id = context.req.param("id");
 
-      if (isShared(id))
+      if (id && isShared(id))
         return context.json(
-          sharedData!.map(id, context.req.param("resourceId")),
+          sharedData!.map(
+            id,
+            z.string().parse(context.req.param("resourceId")),
+          ),
         );
 
       return context.json(
         await data.map(
-          (
-            await data.resolveSource(
-              readReview(context.req.param("id"), query.version),
-            )
-          ).pins,
-          context.req.param("resourceId"),
+          (await data.resolveSource(sourceSnapshot(context, query.version)))
+            .pins,
+          z.string().parse(context.req.param("resourceId")),
         ),
       );
     });
@@ -500,19 +563,20 @@ export function createReviewApi(
         ),
       ),
     );
-    app.get("/:id/resources/:resourceId", async (context) => {
+    app.on("GET", sourcePaths("resources/:resourceId"), async (context) => {
       const id = context.req.param("id");
-      const snapshot = readReview(id);
+      const snapshot = sourceSnapshot(context);
 
-      const resource = isShared(id)
-        ? {
-            ...(await sharedData!.resource(
-              id,
-              context.req.param("resourceId"),
-            )),
-            repositoryId: snapshot.pins.repositoryId,
-          }
-        : store.resource(context.req.param("resourceId"));
+      const resource =
+        id && isShared(id)
+          ? {
+              ...(await sharedData!.resource(
+                id,
+                z.string().parse(context.req.param("resourceId")),
+              )),
+              repositoryId: snapshot.pins.repositoryId,
+            }
+          : store.resource(z.string().parse(context.req.param("resourceId")));
 
       if (resource.repositoryId !== snapshot.pins.repositoryId)
         throw new ReviewInputError("Resource is outside this repository.", 404);
@@ -524,7 +588,7 @@ export function createReviewApi(
         },
       });
     });
-    app.post("/:id/source", async (context) => {
+    app.on("POST", sourcePaths("source"), async (context) => {
       const input = z
         .strictObject({
           version: z.number().int().nonnegative().optional(),
@@ -536,11 +600,8 @@ export function createReviewApi(
       return context.json(
         await data.quote(
           await data.comparison(
-            (
-              await data.resolveSource(
-                readReview(context.req.param("id"), input.version),
-              )
-            ).pins,
+            (await data.resolveSource(sourceSnapshot(context, input.version)))
+              .pins,
             input.commit,
           ),
 
@@ -597,12 +658,12 @@ export function createReviewApi(
         ),
       );
     });
-    app.get("/:id/file", async (context) => {
+    app.on("GET", sourcePaths("file"), async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());
       const id = context.req.param("id");
 
       const { snapshot, pins } = await data.resolveSource(
-        readReview(id, input.version),
+        sourceSnapshot(context, input.version),
         input.commit,
       );
 
@@ -669,14 +730,14 @@ export function createReviewApi(
         },
       });
     });
-    app.get("/:id/diff", async (context) => {
+    app.on("GET", sourcePaths("diff"), async (context) => {
       const input = readQuerySchemas.diff.parse(context.req.query());
 
       return context.json(
         await data.changes(
           (
             await data.resolveSource(
-              readReview(context.req.param("id"), input.version),
+              sourceSnapshot(context, input.version),
               input.commit,
             )
           ).pins,
@@ -684,16 +745,13 @@ export function createReviewApi(
         ),
       );
     });
-    app.get("/:id/commits", async (context) => {
+    app.on("GET", sourcePaths("commits"), async (context) => {
       const input = readQuerySchemas.commits.parse(context.req.query());
 
       return context.json(
         await data.commits(
-          (
-            await data.resolveSource(
-              readReview(context.req.param("id"), input.version),
-            )
-          ).pins,
+          (await data.resolveSource(sourceSnapshot(context, input.version)))
+            .pins,
         ),
       );
     });
@@ -853,7 +911,15 @@ export function createReviewApi(
     );
   });
   app.post("/commands", async (context) => {
-    const input = await readBoundedRequestJson(context.req.raw);
+    const input = commandSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    if (authoringMode === "batch" && input.operation.type !== "attention")
+      throw new ReviewInputError(
+        "Use batch draft tools to author content, then commit the draft once.",
+        409,
+      );
     const command = sharedCommandSchema.safeParse(input);
 
     if (

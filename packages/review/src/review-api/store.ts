@@ -30,22 +30,14 @@ import {
   reviewTargetSchema,
   sourceReferences,
 } from "./document.js";
+import { ReviewDrafts, draftCommandSchema } from "./drafts.js";
+import { pullRequestUrl, setPullRequest } from "./origin.js";
 
 const reviewId = z.string().min(1);
 
-const pullRequestUrl = z
-  .string()
-  .regex(
-    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9]\d*$/,
-    "Use a canonical GitHub PR URL: https://github.com/owner/repository/pull/123.",
-  )
-  .refine(
-    (url) => Number.isSafeInteger(Number(url.split("/").at(-1))),
-    "PR number is too large.",
-  );
-
 export const commandSchema = z.strictObject({
   commandId: z.uuid(),
+  leaseId: z.uuid().optional(),
   operation: z.discriminatedUnion("type", [
     z.strictObject({ type: z.literal("delete"), reviewId }),
     z.strictObject({
@@ -166,7 +158,8 @@ export interface ReviewProviders {
  * This prototype uses a new, explicitly supplied database, never an existing profile.
  */
 export class ReviewStore {
-  readonly activity = new ReviewActivity();
+  readonly activity: ReviewActivity;
+  readonly drafts: ReviewDrafts;
   private readonly db: DatabaseSync;
   private pending: Promise<unknown> = Promise.resolve();
   private closing = false;
@@ -272,6 +265,9 @@ export class ReviewStore {
   }
   private readonly listeners = new Set<(result: Result) => void>();
   private readonly catalogListeners = new Set<() => void>();
+  private readonly externalChanges: ReturnType<typeof setInterval>;
+  private observedDataVersion: number;
+  private observedVersions = new Map<string, number>();
   subscribeCatalog(listener: () => void) {
     this.catalogListeners.add(listener);
 
@@ -318,6 +314,20 @@ export class ReviewStore {
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS legacy_imports(review_id TEXT PRIMARY KEY, revision TEXT NOT NULL, map_revision TEXT, imported_at TEXT NOT NULL);`,
     );
+    this.activity = new ReviewActivity(
+      this.db,
+      (id) => this.assertExists(id),
+      (id) => this.drafts.assertUnlocked(id),
+    );
+    this.drafts = new ReviewDrafts(this.db, {
+      read: (id) => this.read(id),
+      assertInteractiveUnlocked: (id) => this.activity.assertWrite(id),
+      validate: async (snapshot) => {
+        await this.providers.validatePins(snapshot.pins);
+        await this.validateExternal(snapshot);
+      },
+      notify: (result) => this.notify(result),
+    });
 
     // Homes written before map resumption lack the column.
     if (
@@ -327,6 +337,58 @@ export class ReviewStore {
         .some((column) => String(column.name) === "map_revision")
     )
       this.db.exec("ALTER TABLE legacy_imports ADD COLUMN map_revision TEXT");
+
+    this.observedDataVersion = this.dataVersion();
+    this.observedVersions = this.currentVersions();
+    this.externalChanges = setInterval(
+      () => this.refreshExternalChanges(),
+      250,
+    );
+    this.externalChanges.unref();
+  }
+
+  private dataVersion() {
+    return Number(this.db.prepare("PRAGMA data_version").get()!.data_version);
+  }
+
+  private currentVersions() {
+    return new Map(
+      this.db
+        .prepare("SELECT id,version FROM reviews")
+        .all()
+        .map((row) => [String(row.id), Number(row.version)]),
+    );
+  }
+
+  private refreshExternalChanges() {
+    const version = this.dataVersion();
+
+    if (version === this.observedDataVersion) return;
+    this.observedDataVersion = version;
+    const current = this.currentVersions();
+    const previous = this.observedVersions;
+    this.observedVersions = current;
+
+    for (const [reviewId, savedVersion] of current)
+      if (previous.get(reviewId) !== savedVersion)
+        this.notify({ reviewId, version: savedVersion });
+
+    for (const [reviewId, savedVersion] of previous)
+      if (!current.has(reviewId)) {
+        this.activity.deleted(reviewId);
+        this.notify({ reviewId, version: savedVersion, deleted: true });
+      }
+
+    this.activity.refresh();
+
+    // Attention and repository/resource changes need catalog invalidation too.
+    for (const listener of this.catalogListeners) {
+      try {
+        listener();
+      } catch {
+        /* Disconnected readers do not stop polling. */
+      }
+    }
   }
   /** Reader progress never creates a document version or authoring event. */
   viewedCoverage(
@@ -486,8 +548,10 @@ export class ReviewStore {
   }
   async close() {
     this.closing = true;
+    clearInterval(this.externalChanges);
     clearInterval(this.refreshTimer);
     await this.pending;
+    this.drafts.close();
     this.listeners.clear();
     this.catalogListeners.clear();
     this.activity.close();
@@ -643,6 +707,18 @@ export class ReviewStore {
 
     return inspectSnapshot(snapshot, targetId);
   }
+  /** Serialize scratch writes and commits with the host's other mutations. */
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Draft command boundary: parse before queueing any mutation.
+  executeDraft(input: unknown) {
+    if (this.closing)
+      return Promise.reject(new Error("Review store is closing."));
+    const command = draftCommandSchema.parse(input);
+    const run = this.pending.then(() => this.drafts.execute(command));
+    this.pending = run.catch(() => {});
+
+    return run;
+  }
+
   /** The host can seed a managed document; transport callers only supply a command. */
   execute(
     // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Command boundary: commandSchema.parse below rejects malformed input before mutation.
@@ -683,6 +759,11 @@ export class ReviewStore {
 
       const op = command.operation;
 
+      if (op.type !== "create" && op.type !== "attention") {
+        this.drafts.assertUnlocked(op.reviewId);
+        this.activity.assertWrite(op.reviewId, command.leaseId);
+      }
+
       if (op.type === "create" && Boolean(op.pins) === Boolean(op.target))
         throw new ReviewInputError(
           "Supply exactly one of target or legacy pins.",
@@ -707,24 +788,32 @@ export class ReviewStore {
           deleted: true,
         };
 
-        this.commitCommand(command.commandId, request, result, () => {
-          for (const table of [
-            "review_coverage",
-            "review_attention",
-            "versions",
-          ])
+        this.commitCommand(
+          command.commandId,
+          request,
+          result,
+          () => {
+            for (const table of [
+              "authoring_sessions",
+              "review_coverage",
+              "review_attention",
+              "versions",
+            ])
+              this.db
+                .prepare(`DELETE FROM ${table} WHERE review_id=?`)
+                .run(op.reviewId);
+            this.db.prepare("DELETE FROM reviews WHERE id=?").run(op.reviewId);
+            // Keep command IDs so a delayed retry cannot recreate deleted content.
+            // Erase their saved inputs while retaining the retry record.
             this.db
-              .prepare(`DELETE FROM ${table} WHERE review_id=?`)
-              .run(op.reviewId);
-          this.db.prepare("DELETE FROM reviews WHERE id=?").run(op.reviewId);
-          // Keep command IDs so a delayed retry cannot recreate deleted content.
-          // Erase their saved inputs while retaining the retry record.
-          this.db
-            .prepare(
-              "UPDATE receipts SET request='null',response=? WHERE json_extract(response,'$.reviewId')=?",
-            )
-            .run(JSON.stringify(result), op.reviewId);
-        });
+              .prepare(
+                "UPDATE receipts SET request='null',response=? WHERE json_extract(response,'$.reviewId')=?",
+              )
+              .run(JSON.stringify(result), op.reviewId);
+          },
+          () =>
+            this.assertMutation(op.reviewId, result.version, command.leaseId),
+        );
 
         return result;
       }
@@ -904,18 +993,26 @@ export class ReviewStore {
 
       if (warnings.length) result.warnings = warnings;
 
-      this.commitCommand(command.commandId, request, result, () => {
-        this.db
-          .prepare(
-            "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
-          )
-          .run(id, snapshot.version, nextId);
-        this.db
-          .prepare(
-            "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
-          )
-          .run(id, snapshot.version, JSON.stringify(snapshot));
-      });
+      this.commitCommand(
+        command.commandId,
+        request,
+        result,
+        () => {
+          this.db
+            .prepare(
+              "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
+            )
+            .run(id, snapshot.version, nextId);
+          this.db
+            .prepare(
+              "INSERT INTO versions(review_id,version,snapshot) VALUES(?,?,?)",
+            )
+            .run(id, snapshot.version, JSON.stringify(snapshot));
+        },
+        previous
+          ? () => this.assertMutation(id, previous.version, command.leaseId)
+          : undefined,
+      );
 
       return result;
     });
@@ -929,10 +1026,12 @@ export class ReviewStore {
     request: string,
     result: Result,
     apply: () => void,
+    guard?: () => void,
   ) {
     this.db.exec("BEGIN IMMEDIATE");
 
     try {
+      guard?.();
       apply();
       this.db
         .prepare(
@@ -945,11 +1044,33 @@ export class ReviewStore {
       throw error;
     }
 
-    if (result.deleted) this.activity.remove(result.reviewId);
+    if (result.deleted) this.activity.deleted(result.reviewId);
     this.notify(result);
+  }
+  private assertMutation(
+    reviewId: string,
+    version: number | undefined,
+    leaseId?: string,
+  ) {
+    this.drafts.assertUnlocked(reviewId);
+    this.activity.assertWrite(reviewId, leaseId);
+
+    const current = this.db
+      .prepare("SELECT version FROM reviews WHERE id=?")
+      .get(reviewId);
+
+    if ((current ? Number(current.version) : undefined) !== version)
+      throw new ReviewInputError(
+        "Review changed during validation. Reread it and retry the edit.",
+        409,
+      );
   }
 
   private notify(result: Result) {
+    if (result.deleted) this.observedVersions.delete(result.reviewId);
+    else if (!result.attention)
+      this.observedVersions.set(result.reviewId, result.version);
+
     if (!result.attention)
       for (const listener of this.listeners)
         try {
@@ -999,6 +1120,9 @@ export class ReviewStore {
       return Promise.reject(new Error("Import versions of one review only."));
 
     const run = this.pending.then(async () => {
+      this.drafts.assertUnlocked(reviewId);
+      this.activity.assertWrite(reviewId);
+
       const existing = this.db
         .prepare("SELECT version,next_id FROM reviews WHERE id=?")
         .get(reviewId);
@@ -1069,6 +1193,10 @@ export class ReviewStore {
       this.db.exec("BEGIN IMMEDIATE");
 
       try {
+        this.assertMutation(
+          reviewId,
+          existing ? Number(existing.version) : undefined,
+        );
         this.db
           .prepare(
             "INSERT INTO reviews(id,version,next_id) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,next_id=excluded.next_id",
@@ -1207,26 +1335,6 @@ export class ReviewStore {
 
     return warnings.sort();
   }
-}
-
-/** Omission preserves identity; null detaches it without changing import metadata. */
-function setPullRequest(snapshot: Snapshot, url: string | null | undefined) {
-  if (url === undefined) return;
-
-  if (url === null) {
-    if (snapshot.origin) {
-      delete snapshot.origin.pullRequestUrl;
-      delete snapshot.origin.pullRequestNumber;
-    }
-
-    return;
-  }
-
-  snapshot.origin = {
-    ...snapshot.origin,
-    pullRequestUrl: url,
-    pullRequestNumber: Number(url.split("/").at(-1)),
-  };
 }
 
 export function inspectSnapshot(snapshot: Snapshot, targetId?: string) {

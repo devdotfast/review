@@ -29,8 +29,8 @@ let canvas: ReturnType<typeof mount> | undefined;
 
 const pins = { repositoryId: "repo", base: "base", head: "head" };
 
-const command = <Operation,>(operation: Operation) =>
-  store.execute({ commandId: randomUUID(), operation });
+const command = <Operation,>(operation: Operation, leaseId?: string) =>
+  store.execute({ commandId: randomUUID(), leaseId, operation });
 
 beforeEach(() => {
   localStorage.clear();
@@ -287,17 +287,20 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   });
   expect(container.textContent).not.toContain("Agent working…");
   await act(async () => {
-    await command({
-      type: "edit",
-      reviewId: review.reviewId,
-      edit: {
-        type: "insert",
-        content: {
-          type: "markdown",
-          markdown: "Written while viewing history",
+    await command(
+      {
+        type: "edit",
+        reviewId: review.reviewId,
+        edit: {
+          type: "insert",
+          content: {
+            type: "markdown",
+            markdown: "Written while viewing history",
+          },
         },
       },
-    });
+      leaseId,
+    );
   });
   expect(container.textContent).not.toContain("Written while viewing history");
 

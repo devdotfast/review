@@ -183,6 +183,22 @@ export function createGlobalReviewServer(
           .parse(result.result);
       },
       input.sharedReviews,
+      async () => {
+        if (!relay.attached)
+          return { desktopAvailable: false, softwareMapEnabled: false };
+
+        const result = await relay.dispatch({
+          name: "authoringCapabilities",
+          args: {},
+        });
+
+        if (!result.ok) throw new ReviewInputError(result.error, 409);
+
+        return {
+          desktopAvailable: true,
+          ...z.object({ softwareMapEnabled: z.boolean() }).parse(result.result),
+        };
+      },
     ),
   );
   app.post("/app/focus", async () => {

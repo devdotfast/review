@@ -25,9 +25,9 @@ Use available Review MCP tools. Otherwise use `review api <tool-name> '<json>'`,
 
 In development, use this checkout's built CLI: from its root, `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 node packages/review/dist/cli.js api …` (or `mcp`). Build the checkout first if that entry is absent or stale. Set `DEV_REVIEW_HOME` to the profile used by this checkout's app. Use the checkout-built app, not an unrelated installed Preview build. Desktop must be running; start it explicitly when the requested task calls for opening or authoring a review.
 
-## Authoring
+Read [Prepared worktrees](references/prepared-worktrees.md) only when pinned worktree dependencies or language-server navigation do not work.
 
-Live reviews follow saved files in your existing checkout and use its dependencies. Pinned reviews keep source fixed at commits and use separate Review-owned checkouts for LSP. Read [Prepared worktrees](references/prepared-worktrees.md) when those checkouts need dependencies or generated files; missing preparation is not itself an error.
+## Authoring
 
 1. Use `review_register_repository({path})` to register the intended local checkout. Choose `target:{kind:"worktree",repositoryId,base?}` to review its current saved files, or `target:{kind:"commits",repositoryId,head,base?}` for immutable commits. Revisions resolve on acceptance. Omitting the commit base means source at head with no diff (equivalent to base=head); supply its parent to review changes introduced by one commit. A worktree without base includes the whole checkout and Working changes against current HEAD.
 2. Check `review_list` for a review matching the user's requested comparison. Reuse only when appropriate. Use `review_create({commandId,title,target,pullRequestUrl?})` when a new review is needed or requested. For a PR review, include its canonical GitHub PR URL (without query or fragment) so the header and stack retain its identity. To bind an existing review without resetting its content, use `review_repin({commandId,reviewId,pins,pullRequestUrl})` with its existing pins; null detaches it.

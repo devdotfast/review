@@ -163,12 +163,17 @@ Under `--json` it prints one `trace.check` event.
 - `trace/config.json`: the selected store and the repository consent.
 - The sync status and the captured sessions.
 
-Review Desktop's managed `review` command takes precedence, even when the app
-is closed. While it owns tracing, standalone commands stop with
-"Use `review trace install` instead." Only help, version, `uninstall`, and
-`uninstall-hooks` remain available. Neither `--no-install` nor
-`--no-harness-hooks` bypasses this check. An app that has never installed its
-CLI integration does not reserve tracing.
+One machine can run both commands, and `review` takes precedence over the
+harness hooks. A `review trace install`, or an explicit trace setup in Review
+Desktop, replaces a `dev-traces` harness hook. A `dev-traces install` or `allow`
+keeps a harness hook that `review` owns, and prints one line that names it and
+says to run `review trace uninstall-hooks` before switching. No command is
+blocked: `status`, `check`, `login`, and the rest run under either command.
+Desktop's automatic refresh after an app update leaves a hook `dev-traces` owns
+in place, and writes its own hooks for the rest.
+
+The Git hooks of one repository call the command that ran `allow`, `enable`, or
+`repair` there last. A hook that either command owns passes `check`.
 
 To switch from Desktop to standalone:
 
@@ -187,18 +192,11 @@ review trace install
 review trace enable .
 ```
 
-`uninstall-hooks` removes only that CLI's agent hooks and its Git hooks in
-registered repositories (including the current repository). It keeps the
-executable, login, capture settings, consent and saved traces. The release is
-per OS user, so a Desktop profile or automatic update cannot reclaim tracing.
-An explicit `install`, `allow`, `enable`, or `repair` opts that CLI back in;
-Desktop also opts back in when trace setup is explicitly enabled in its UI.
-Removing hooks does not revoke publication consent; use `deny` for that.
-
-A stale Desktop command still reserves tracing.
-Repair the Desktop CLI installation, or use a working Review CLI to run
-`review trace uninstall-hooks` before switching. After switching, `check` reports the owner
-of each harness hook and of the Git hooks.
+`uninstall-hooks` removes only that CLI's agent hooks and its Git hooks in the
+registered repositories; a registered repository whose Git hooks call the other
+command keeps them. It keeps the executable, the login, the capture settings,
+the consent, and the saved traces. `deny` still withdraws the consent of one
+repository.
 
 These reads work the same in both commands: `sessions`, `list --commit <sha>`,
 `show`, `pull --commit|--session`, and `blame`. These options stay in `review`:

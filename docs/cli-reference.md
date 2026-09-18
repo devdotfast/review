@@ -286,19 +286,11 @@ store to delete the hosted copies, which a repository admin may do; the consent
 of this machine stays until `review trace deny` removes it. `review trace
 install` installs the harness hooks of this machine and touches no repository.
 
-Review Desktop's installed CLI takes precedence over standalone tracing.
-Standalone commands stop with "Use `review trace install` instead" until
-Desktop releases tracing; help, version and both uninstall commands remain available.
-To switch, run `review trace uninstall-hooks`, then `dev-traces install` and
-`dev-traces enable .` in each repository. To switch back, run
-`dev-traces uninstall-hooks`, then `review trace install` and
-`review trace enable .`.
-
-Both `uninstall-hooks` commands remove only their own agent and registered Git
-hooks, keeping the CLI, login, consent and trace data. Desktop automatic updates
-respect the release; explicitly installing or enabling its hooks restores it.
-The installed Review shim remembers its Desktop profile when the calling shell
-does not set `DEV_REVIEW_HOME`.
+Review's harness hooks take precedence over the standalone `dev-traces` ones: a
+`review trace install` replaces them, and a standalone install keeps Review's.
+`review trace uninstall-hooks` releases Review's agent hooks and its Git hooks
+in registered repositories, and keeps the CLI, the login, the consent and the
+trace data. See `packages/traces/README.md` for the switch procedures.
 
 `review trace storage use hosted` requires `review login` for the origin,
 a store that answers the current contract, and `review trace allow` for the

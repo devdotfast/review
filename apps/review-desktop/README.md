@@ -87,12 +87,9 @@ review whose repository is no longer on this machine stays legacy.
 
 ### End-to-end checks
 
-`scripts/native-authoring-e2e.mjs --runtime <installed package>` drives the
-built Desktop through the installed CLI with fixture reviews, including the
-legacy import path. `scripts/legacy-import-smoke.mjs --home <copy>` launches the
-built Desktop on a copy of a real review home and checks that every published
-review imports, opens in the JSON canvas, and renders without page errors. Copy
-`~/.dev/reviews` into a scratch home first; the smoke refuses the live home.
+The manual end-to-end journeys live in `scripts/e2e/`; each one drives the
+built Desktop through the installed CLI and the JSON review API. See
+`scripts/e2e/TESTING.md` for how to stage a runtime and run them.
 
 ## Packaging and releases
 

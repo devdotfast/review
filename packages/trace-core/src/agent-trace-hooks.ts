@@ -12,7 +12,7 @@ import {
   parseJsonText,
 } from "@dev.fast/json";
 
-import { shellQuote, traceCliName } from "./trace-command";
+import { keepTraceExecutable, shellQuote, traceCliName } from "./trace-command";
 
 export type AgentTraceHookAgent = "claude" | "codex" | "opencode" | "pi";
 
@@ -28,6 +28,8 @@ export interface AgentTraceHookInstallResult {
   agent: AgentTraceHookAgent;
   path: string;
   modified: boolean;
+  /** Existing working installation retained by this refresh. */
+  keptCommand?: string;
 }
 
 const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
@@ -352,6 +354,7 @@ export async function installClaudeTraceHook(
 
   const hooks: JsonObject = isJsonObject(parsed.hooks) ? parsed.hooks : {};
   let modified = false;
+  let keptCommand: string | undefined;
 
   const hookCommand = (
     eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
@@ -379,6 +382,11 @@ export async function installClaudeTraceHook(
 
         if (file === undefined || executableOwner(file) === null) continue;
         found = true;
+
+        if (keepTraceExecutable(file, reviewCommand)) {
+          keptCommand = file;
+          continue;
+        }
 
         if (hook.command !== wanted.command) {
           hook.command = wanted.command;
@@ -411,6 +419,8 @@ export async function installClaudeTraceHook(
     modified,
   };
 
+  if (keptCommand) result.keptCommand = keptCommand;
+
   return result;
 }
 
@@ -437,12 +447,19 @@ export async function installCodexTraceHook(
   ] as const;
 
   const found = new Set<string>();
+  let keptCommand: string | undefined;
 
   let next = transformCodexHooks(existing, (block, command, event) => {
     const file = traceHookCommandFile(command);
 
     if (file === undefined || executableOwner(file) === null) return block;
     found.add(event);
+
+    if (keepTraceExecutable(file, reviewCommand)) {
+      keptCommand = file;
+
+      return block;
+    }
 
     return block.replace(
       /^command = .*$/m,
@@ -464,6 +481,8 @@ export async function installCodexTraceHook(
     path: configPath,
     modified: next !== existing,
   };
+
+  if (keptCommand) result.keptCommand = keptCommand;
 
   if (!result.modified) return result;
   await mkdir(codexDir, { recursive: true });
@@ -488,6 +507,15 @@ export async function installPiTraceExtension(
     existing = await readFile(extensionPath, "utf8");
   }
 
+  const existingCommand = extensionCommandFile(existing);
+
+  if (keepTraceExecutable(existingCommand, reviewCommand))
+    return {
+      agent: "pi",
+      path: extensionPath,
+      modified: false,
+      keptCommand: existingCommand,
+    };
   const source = piExtensionSource(reviewCommand);
 
   if (existing.trim() === source.trim()) {
@@ -517,6 +545,15 @@ export async function installOpenCodeTraceExtension(
     existing = await readFile(pluginPath, "utf8");
   }
 
+  const existingCommand = extensionCommandFile(existing);
+
+  if (keepTraceExecutable(existingCommand, reviewCommand))
+    return {
+      agent: "opencode",
+      path: pluginPath,
+      modified: false,
+      keptCommand: existingCommand,
+    };
   const source = openCodeTracePluginSource(reviewCommand);
 
   if (existing.trim() === source.trim()) {
@@ -529,12 +566,17 @@ export async function installOpenCodeTraceExtension(
   return { agent: "opencode", path: pluginPath, modified: true };
 }
 
-/** Removes Review’s lifecycle hooks; preserves foreign hooks. */
+/** Removes Review hooks; a scoped removal preserves another live executable. */
 export async function removeAgentTraceHook(
   agent: AgentTraceHookAgent,
   homeDir = os.homedir(),
   env: NodeJS.ProcessEnv = process.env,
+  expectedCommand?: string,
 ): Promise<boolean> {
+  const removable = (file: string | undefined) =>
+    expectedCommand === undefined ||
+    !keepTraceExecutable(file, expectedCommand);
+
   if (agent === "claude") {
     const settingsPath = claudeSettingsPath(homeDir);
 
@@ -568,7 +610,10 @@ export async function removeAgentTraceHook(
 
         const keptHooks = group.hooks.filter((hook) => {
           const command = isJsonObject(hook) ? hook.command : undefined;
-          const owned = traceHookCommandOwner(command) === "review";
+
+          const owned =
+            traceHookCommandOwner(command) === "review" &&
+            removable(traceHookCommandFile(command));
 
           if (owned) changed = true;
 
@@ -600,7 +645,10 @@ export async function removeAgentTraceHook(
     const existing = await readFile(configPath, "utf8");
 
     const removed = transformCodexHooks(existing, (block, command) =>
-      traceHookCommandOwner(command) === "review" ? "" : block,
+      traceHookCommandOwner(command) === "review" &&
+      removable(traceHookCommandFile(command))
+        ? ""
+        : block,
     ).replace(/# review-trace-hooks:start\n\s*# review-trace-hooks:end\n?/, "");
 
     if (removed === existing) return false;
@@ -622,7 +670,10 @@ export async function removeAgentTraceHook(
   if (!existsSync(extensionPath)) return false;
   const existing = await readFile(extensionPath, "utf8");
 
-  if (extensionOwner(existing) !== "review") {
+  if (
+    extensionOwner(existing) !== "review" ||
+    !removable(extensionCommandFile(existing))
+  ) {
     return false;
   }
 

@@ -23,10 +23,12 @@ import {
 import {
   type TraceCredentialsInput,
   collectingWritable,
+  describeTraceHookOwners,
   devReviewHome,
   disableAllTraceRepositories,
   disableTraceMachine,
   removeAgentTraceHook,
+  traceCommandExecutable,
   traceMachineStatus,
   traceScope,
   withFileLock,
@@ -561,6 +563,11 @@ async function removeCliInstallUnlocked(
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const chunks: string[] = [];
+
+  const expectedTraceCommand = (await isOwnedShim(pathShimPath(homeDir)))
+    ? pathShimPath(homeDir)
+    : "";
+
   const previous = await readCliInstallStamp(cliInstallStampPath(env));
   let keepMcpLauncher = false;
 
@@ -585,7 +592,7 @@ async function removeCliInstallUnlocked(
     await removeInstalledSkills(target, homeDir);
 
     if (target !== "cursor") {
-      await removeAgentTraceHook(target, homeDir);
+      await removeAgentTraceHook(target, homeDir, env, expectedTraceCommand);
     }
 
     chunks.push(`[ok] removed skills for ${target}\n`);
@@ -612,9 +619,10 @@ async function removeCliInstallUnlocked(
   }
 
   if (input.trace) {
-    await disableAllTraceRepositories(traceScope({ homeDir, env }));
-
-    await disableTraceMachine({ homeDir, env });
+    const { kept } = await disableAllTraceRepositories(
+      traceScope({ homeDir, env }),
+      expectedTraceCommand,
+    );
 
     // Disabling capture also retires the per-agent pieces that exist only
     // for it, regardless of which targets this request named.
@@ -622,11 +630,20 @@ async function removeCliInstallUnlocked(
       await removeTraceSkills(target, homeDir);
 
       if (target !== "cursor") {
-        await removeAgentTraceHook(target, homeDir);
+        await removeAgentTraceHook(target, homeDir, env, expectedTraceCommand);
       }
     }
 
-    chunks.push("[ok] disabled Review trace capture\n");
+    const remaining = await describeTraceHookOwners(homeDir, env);
+
+    if (kept.length || Object.values(remaining).some(Boolean)) {
+      chunks.push(
+        "[skip] kept trace capture for another Review installation\n",
+      );
+    } else {
+      await disableTraceMachine({ homeDir, env });
+      chunks.push("[ok] disabled Review trace capture\n");
+    }
   }
 
   const removedFffTargets = new Set<ReviewFffInstallTarget>();
@@ -852,6 +869,35 @@ export async function installReviewCommand(input: {
   const homeDir = input.homeDir ?? os.homedir();
   const env = input.env ?? process.env;
   const shimPath = pathShimPath(homeDir);
+
+  if ((await isFile(shimPath)) && !(await isOwnedShim(shimPath))) {
+    return {
+      shimPath,
+      output: `[skip] kept the existing review command at ${shimPath}\n`,
+    };
+  }
+
+  const shimSource = await readTextIfExists(shimPath);
+
+  const fallback = shimSource
+    .split("\n")
+    .find((line) => line.startsWith("FALLBACK_CLI="));
+
+  const existingCli = traceCommandExecutable(
+    fallback?.slice("FALLBACK_CLI=".length),
+  );
+
+  if (
+    existingCli &&
+    existingCli !== input.cliPath &&
+    (await isFile(existingCli))
+  ) {
+    return {
+      shimPath,
+      output: `[skip] kept the working review command at ${shimPath}\n`,
+    };
+  }
+
   const shadowingCommand = await resolvePathCommand("review", shimPath, env);
 
   await writePathShim(

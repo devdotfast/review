@@ -61,23 +61,21 @@ export async function run(ctx) {
   await dialog.waitFor({ timeout: 30000 });
   await dismissDialog();
 
-  // A fresh profile reloads the workbench about two seconds in; a dismissal that lands in that window goes with it.
-  if (await appears(dialog, 20000)) {
-    // Only the logged bug may pass: the dismissal never reached storage.
-    const dismissed = await storedValue(ctx, COMMUNITY_DISMISSED_KEY);
+  // A fresh profile reloads the workbench about two seconds in; the invitation waits for it, so one dismissal is final.
+  assert.ok(
+    !(await appears(dialog, 20000)),
+    "the community invitation returned after the first-run reload",
+  );
 
-    assert.ok(
-      !isStoredTrue(dismissed),
-      `the invitation returned although ${COMMUNITY_DISMISSED_KEY} is ${dismissed}`,
-    );
-    await ctx.knownBug(
-      "A community invitation dismissed before the first-run reload comes back",
-    );
-    await dismissDialog();
-  } else
-    ctx.check(
-      "community invitation shows once on a fresh profile and can be dismissed",
-    );
+  const dismissed = await storedValue(ctx, COMMUNITY_DISMISSED_KEY);
+
+  assert.ok(
+    isStoredTrue(dismissed),
+    `${COMMUNITY_DISMISSED_KEY} was not stored (${dismissed})`,
+  );
+  ctx.check(
+    "community invitation shows once on a fresh profile and stays dismissed",
+  );
 
   // Exact, because the screen-reader alert repeats the text with an "Info: " prefix.
   const notice = page.getByText(
@@ -85,23 +83,14 @@ export async function run(ctx) {
     { exact: true },
   );
 
-  if (await appears(notice, 30000)) {
-    await page.getByRole("button", { name: "Open Settings" }).click();
-    await page
-      .locator(".review-settings-page")
-      .getByText("Share anonymous usage data")
-      .waitFor();
-    ctx.check("telemetry notice opens Settings at the Privacy row");
-  } else {
-    // Only the logged bug may pass: the notice is spent rather than pending.
-    assert.ok(
-      (await storedValue(ctx, TELEMETRY_NOTICE_KEY)) !== undefined,
-      "the telemetry notice never appeared and was never marked shown",
-    );
-    await ctx.knownBug(
-      "The first-run telemetry notice disappears before it can be used",
-    );
-  }
+  // Sticky, so it outlives both the seeding reload and the 10 s a plain Info toast gets.
+  assert.ok(await appears(notice, 30000), "the telemetry notice never appeared");
+  await page.getByRole("button", { name: "Open Settings" }).click();
+  await page
+    .locator(".review-settings-page")
+    .getByText("Share anonymous usage data")
+    .waitFor();
+  ctx.check("telemetry notice opens Settings at the Privacy row");
 
   const tab = page
     .locator(".tabs-container .tab")

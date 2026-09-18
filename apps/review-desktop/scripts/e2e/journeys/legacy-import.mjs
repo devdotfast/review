@@ -33,19 +33,8 @@ export async function run(ctx) {
     first.worktreePath,
   );
 
-  if (info.code === 0)
-    assert.match(info.stdout, new RegExp(first.metadata.sourceUuid));
-  else {
-    // Only the logged bug may pass; any other failure is a new one.
-    assert.match(
-      `${info.stdout}${info.stderr}`,
-      /"message":"Not found\."/,
-      `review info: ${info.stdout}\n${info.stderr}`,
-    );
-    await ctx.knownBug(
-      "`review info --review <uuid>` always fails with `Not found.`",
-    );
-  }
+  assert.equal(info.code, 0, `review info: ${info.stdout}\n${info.stderr}`);
+  assert.match(info.stdout, new RegExp(first.metadata.sourceUuid));
 
   // Startup imports into the JSON store; `migrate apply` is what seals the presentation in the legacy record.
   const applied = await ctx.cliRaw(["migrate", "apply", "--json"]);

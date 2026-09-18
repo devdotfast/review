@@ -25,7 +25,7 @@ const TITLE = "Order review";
 const POINTER_ERRORS =
   /Review Desktop uses protocol|discovery is unreadable|Review Desktop is not ready/;
 
-/** What a probe that got past discovery prints today, so it marks "the pointer was accepted" (a logged bug). */
+/** A Desktop-side answer: a probe that must stop at the pointer may never produce one. */
 const LOOKUP_ERROR = /Not found\./;
 
 const exec = promisify(execFile);
@@ -211,30 +211,13 @@ export async function run(ctx) {
       `dead pids were treated as a broken pointer: ${output(result)}`,
     );
 
-    if (result.code === 0) {
-      assert.match(
-        result.stdout,
-        new RegExp(review.reviewId),
-        `review info named no review: ${output(result)}`,
-      );
-      ctx.check(
-        "dead pids in the pointer do not stop the CLI reaching Desktop",
-      );
-    } else {
-      // Only the logged bug may pass; any other failure is a new one.
-      assert.match(
-        output(result),
-        LOOKUP_ERROR,
-        `review info failed for an unlogged reason: ${output(result)}`,
-      );
-      await ctx.knownBug(
-        "`review info --review <uuid>` always fails with `Not found.`",
-      );
-      ctx.check(
-        "dead pids in the pointer do not stop the CLI reaching Desktop " +
-          "(which then fails on its own known bug)",
-      );
-    }
+    assert.equal(result.code, 0, `review info: ${output(result)}`);
+    assert.match(
+      result.stdout,
+      new RegExp(review.reviewId),
+      `review info named no review: ${output(result)}`,
+    );
+    ctx.check("dead pids in the pointer do not stop the CLI reaching Desktop");
 
     await writeFile(pointer, original);
 
@@ -266,7 +249,7 @@ export async function run(ctx) {
     await writeFile(pointer, original);
   }
 
-  // `app pick` launches before it reads, so it gets a home of its own rather than take this journey's pointer over.
+  // `app pick` would launch a Desktop if it still ignored the pointer, so it gets a home of its own.
   const probeHome = path.join(ctx.root, "pick-probe-home");
 
   const probePointer = path.join(probeHome, "review-desktop/server.json");
@@ -279,36 +262,10 @@ export async function run(ctx) {
 
   const stray = async () => [...(await installedDesktopPids(probeHome))];
 
-  const started = new Set();
-
-  let picking = true;
-
-  // Both background promises capture rather than reject: an unhandled rejection would kill the runner before `close` runs.
-  let watchError;
-
-  let repairError;
-
-  // Polled while the command runs: whatever it starts can exit before the command returns.
-  const watch = (async () => {
-    while (picking) {
-      for (const pid of await stray()) started.add(pid);
-      await sleep(250);
-    }
-  })().catch((error) => {
-    watchError = error;
-  });
-
-  // Three seconds in the unusable pointer is repaired; only a CLI still in the launcher's poll loop can notice that.
-  const repair = (async () => {
-    await sleep(3000);
-
-    if (picking) await writeFile(probePointer, original);
-  })().catch((error) => {
-    repairError = error;
-  });
-
-  const picked = await ctx
-    .cliRaw(["app", "pick", "--review", review.reviewId], ctx.repo, {
+  const picked = await ctx.cliRaw(
+    ["app", "pick", "--review", review.reviewId],
+    ctx.repo,
+    {
       timeout: 25000,
       env: {
         HOME: probeHome,
@@ -316,13 +273,16 @@ export async function run(ctx) {
         // The journey's Desktop already holds this port, so a second one would die of the collision, not of the CLI.
         DEV_FAST_REVIEW_REMOTE_DEBUGGING_PORT: "",
       },
-    })
-    .finally(() => {
-      picking = false;
-    });
+    },
+  );
 
-  await watch;
-  await repair;
+  const started = new Set();
+
+  // A launch this command no longer makes can still be in flight, so the window stays open past the exit.
+  for (const deadline = Date.now() + 5000; Date.now() < deadline; ) {
+    for (const pid of await stray()) started.add(pid);
+    await sleep(250);
+  }
 
   // Killed before anything is asserted so a failure cannot leave a stray app.
   const killDeadline = Date.now() + 30000;
@@ -345,40 +305,22 @@ export async function run(ctx) {
     await sleep(250);
   }
 
-  assert.equal(
-    watchError,
-    undefined,
-    `the stray-Desktop watcher failed, so nothing below knows what app pick started: ${watchError?.message}`,
+  assert.notEqual(
+    picked.code,
+    0,
+    `app pick on an unusable pointer exited 0: ${output(picked)}`,
   );
-  assert.equal(
-    repairError,
-    undefined,
-    `the probe pointer was never repaired, so app pick was never given a usable one: ${repairError?.message}`,
+  assert.match(
+    picked.stderr,
+    /Review Desktop uses protocol 999, but this Review CLI needs protocol 3\./,
+    `app pick did not name the protocol mismatch: ${output(picked)}`,
   );
-  assert.doesNotMatch(
-    output(picked),
-    POINTER_ERRORS,
-    `app pick reported the pointer error after all: ${output(picked)}`,
-  );
-
-  // Two positive readings, both the launcher; `killed` is not one, since a command this timeout stopped has shown nothing.
-  const wentToTheLauncher =
-    /Could not launch Review Desktop/.test(output(picked)) ||
-    (!picked.killed &&
-      /Review Desktop is showing|Review or version not found\.|Not found\./.test(
-        output(picked),
-      ));
-
-  assert.ok(
-    wentToTheLauncher,
-    "app pick neither reported the pointer error nor went to the launcher, " +
-      `so this journey no longer knows what it did: ${output(picked)}`,
-  );
-  await ctx.knownBug(
-    "`review app pick` goes to the launcher instead of reporting an unusable pointer",
+  assert.deepEqual(
+    [...started],
+    [],
+    "app pick started a Desktop although it had the diagnosis in hand",
   );
   ctx.check(
-    "app pick waits in the launcher instead of naming a protocol mismatch" +
-      `${started.size ? ", and starts a Desktop of its own" : ""} (known bug)`,
+    "app pick names an unusable pointer instead of going to the launcher",
   );
 }

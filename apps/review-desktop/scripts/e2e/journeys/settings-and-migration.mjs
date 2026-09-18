@@ -55,6 +55,9 @@ async function seedLegacyReview(home) {
 const storedRecord = async (dir) =>
   JSON.parse(await readFile(path.join(dir, "review.json"), "utf8"));
 
+/** A host that listens never exits on its own, so the timeout is what ends the run. */
+const HOST_LIFETIME = 20000;
+
 /** Runs the Desktop's own server host against `home`, with no Electron and no window, on a port of its own. */
 async function runDesktopHost(ctx, home) {
   const env = {
@@ -70,7 +73,7 @@ async function runDesktopHost(ctx, home) {
       ...(await exec(
         process.execPath,
         [path.join(ctx.runtime, "dist/server/desktop-host.js")],
-        { env, timeout: 60000, maxBuffer: 8 * 1024 * 1024 },
+        { env, timeout: HOST_LIFETIME, maxBuffer: 8 * 1024 * 1024 },
       )),
       code: 0,
     };
@@ -79,8 +82,6 @@ async function runDesktopHost(ctx, home) {
       stdout: error.stdout ?? "",
       stderr: error.stderr ?? "",
       code: error.code,
-      // True when the host was still running at the timeout: it got past the migration and started listening.
-      killed: Boolean(error.killed),
     };
   }
 }
@@ -216,25 +217,20 @@ export async function run(ctx) {
 
   const host = await runDesktopHost(ctx, upgradeHome);
 
-  // Only the logged bug may pass: the host refused to start and never named the command its own message means.
-  assert.equal(
-    host.code,
-    1,
-    `the host on an unmigrated home exited ${host.code}${host.killed ? " (killed at the timeout)" : ""}: ${host.stdout}`,
+  // The host writes its discovery the moment it listens, so the ready line is what "it got past the cutover" means.
+  assert.match(
+    host.stdout,
+    /"event":"ready"/,
+    `the host on an unmigrated home never listened (exit ${host.code}): ${host.stdout}\n${host.stderr}`,
   );
   assert.match(
-    host.stderr,
-    /Review migration could not finish\./,
-    `the host failed for another reason: ${host.stderr}`,
+    host.stdout,
+    new RegExp(
+      `${LEGACY_UUID}: unreadable review\\.json, left untouched and skipped`,
+    ),
+    `the host did not name the skipped record: ${host.stdout}`,
   );
-  assert.doesNotMatch(
-    host.stderr,
-    /review migrate apply/,
-    "the host named the command to run, which the logged bug says it does not",
-  );
-  await ctx.knownBug(
-    "One unreadable legacy `review.json` stops Review Desktop from starting",
-  );
+  ctx.check("an unreadable legacy review.json is skipped and named at startup");
 
   const migrate = await ctx.cliRaw(["migrate", "apply", "--force"], ctx.repo, {
     timeout: 120000,

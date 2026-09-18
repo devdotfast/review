@@ -10,17 +10,17 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## Status
 
-- `review info --review <uuid>` always fails with `Not found.` — open
-- `review app pick --review <uuid>` never opens the review — open
-- The first-run telemetry notice disappears before it can be used — open
-- A community invitation dismissed before the first-run reload comes back — open
-- The modal editor opened by Go to Definition ignores the first Escape — open
-- The review topbar covers the Find widget and the contents pill — open
-- A review whose repository directory moves or is deleted renders `ReviewApiError: Review operation failed.` — open
-- `review app pick` goes to the launcher instead of reporting an unusable pointer — open
-- One unreadable legacy `review.json` stops Review Desktop from starting — open
+- `review info --review <uuid>` always fails with `Not found.` — fix-pr #348
+- `review app pick --review <uuid>` never opens the review — fix-pr #348
+- The first-run telemetry notice disappears before it can be used — fix-pr #351
+- A community invitation dismissed before the first-run reload comes back — fix-pr #351
+- The modal editor opened by Go to Definition ignores the first Escape — fix-pr #352
+- The review topbar covers the Find widget and the contents pill — fix-pr #350
+- A review whose repository directory moves or is deleted renders `ReviewApiError: Review operation failed.` — fix-pr #355
+- `review app pick` goes to the launcher instead of reporting an unusable pointer — fix-pr #348
+- One unreadable legacy `review.json` stops Review Desktop from starting — fix-pr #349
 - Home says nothing about a legacy review directory left behind by the JSON cutover — not-a-bug
-- Opening a Go file installs Go tools from the network without asking — open
+- Opening a Go file installs Go tools from the network without asking — fix-pr #354
 - A review's Rust language server never starts when the extension wins a race with the workspace folder — open
 
 ## Template (copy, do not edit)
@@ -33,7 +33,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## `review info --review <uuid>` always fails with `Not found.`
 
-- **Journey:** `legacy-import` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `legacy-import` · **Found:** 2026-09-17 · **Status:** fix-pr #348
 - **Repro:** with Review Desktop running and any review in the store, run
   `review info --review <uuid> --json`.
 - **Expected:** the command prints the review's summary and exits 0.
@@ -50,7 +50,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## `review app pick --review <uuid>` never opens the review
 
-- **Journey:** `legacy-import`, `json-api-edit`, `home-multi-review` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `legacy-import`, `json-api-edit`, `home-multi-review` · **Found:** 2026-09-17 · **Status:** fix-pr #348
 - **Repro:** with Review Desktop running and a review whose snapshot
   `GET /reviews-api/<uuid>?full=true` returns 200, run
   `review app pick --review <uuid> --json`.
@@ -68,7 +68,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## The first-run telemetry notice disappears before it can be used
 
-- **Journey:** `first-run` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `first-run` · **Found:** 2026-09-17 · **Status:** fix-pr #351
 - **Repro:** launch Desktop on a fresh profile with telemetry live
   (`DEV_FAST_REVIEW_TELEMETRY_DISABLED` unset). The notification "Review sends
   anonymous usage data. You can change this in Settings." appears behind the
@@ -92,7 +92,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## A community invitation dismissed before the first-run reload comes back
 
-- **Journey:** `first-run` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `first-run` · **Found:** 2026-09-17 · **Status:** fix-pr #351
 - **Repro:** on a fresh profile, tick "Don't show again" and click "Not now" on
   "Join the Review community" within the first two seconds, then wait for the
   automatic first-run reload.
@@ -112,7 +112,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## The modal editor opened by Go to Definition ignores the first Escape
 
-- **Journey:** `tutorial` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `tutorial` · **Found:** 2026-09-17 · **Status:** fix-pr #352
 - **Repro:** open the tutorial, click `totalCents` in the Welcome inline editor
   (`src/orders/order-service.ts:13-29`), press `F12`, then press `Escape` once.
 - **Expected:** one `Escape` closes the modal editor and returns the reader to
@@ -136,7 +136,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## The review topbar covers the Find widget and the contents pill
 
-- **Journey:** `reader-navigation` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `reader-navigation` · **Found:** 2026-09-17 · **Status:** fix-pr #350
 - **Repro:** open any JSON review with two or more headings in a 1200x800
   window. Click the contents pill at the top left; press `Cmd+F` and click
   `Match Whole Word` or `Use Regular Expression` in the Find widget.
@@ -169,7 +169,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## A review whose repository directory moves or is deleted renders `ReviewApiError: Review operation failed.`
 
-- **Journey:** `worktree-drift` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `worktree-drift` · **Found:** 2026-09-17 · **Status:** fix-pr #355
 - **Repro:** create a review with a `commits` target in a git repository, let it
   render, quit Review Desktop, `mv <repo> <repo>-moved` (or `rm -rf` it),
   relaunch Desktop and open the review from Home or with
@@ -211,7 +211,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## `review app pick` goes to the launcher instead of reporting an unusable pointer
 
-- **Journey:** `cli-desktop-edges` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `cli-desktop-edges` · **Found:** 2026-09-17 · **Status:** fix-pr #348
 - **Repro:** put an unusable pointer in `<home>/review-desktop/server.json` —
   `version: 999`, or unparseable text, or a url nothing listens on — and run
   `review app pick --review <uuid>`.
@@ -252,7 +252,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## One unreadable legacy `review.json` stops Review Desktop from starting
 
-- **Journey:** `settings-and-migration` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `settings-and-migration` · **Found:** 2026-09-17 · **Status:** fix-pr #349
 - **Repro:** take a Review home that has not been through the JSON cutover (no
   `<home>/json-cutover.json`) and put one unreadable record in it —
   `<home>/reviews/11111111-1111-4111-8111-111111111111/review.json` holding
@@ -291,6 +291,11 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   and surfacing it once the app is up would keep the safety and the app.
 - **Also found, not a bug:** "Home says nothing about a legacy review
   directory left behind by the JSON cutover", below.
+- **Recovery (2026-09-18):** a skipped record is recorded in
+  `<home>/json-cutover.json` and never retried. Repairing one is manual: fix the
+  `review.json`, delete `<home>/json-cutover.json`, restart. A `review migrate`
+  verb that retries `skipped` records is out of scope; `review migrate apply`
+  reports a schema-1 record as unsupported and preserves it.
 
 ## Home says nothing about a legacy review directory left behind by the JSON cutover
 
@@ -325,7 +330,7 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
 
 ## Opening a Go file installs Go tools from the network without asking
 
-- **Journey:** `lsp-go` · **Found:** 2026-09-17 · **Status:** open
+- **Journey:** `lsp-go` · **Found:** 2026-09-17 · **Status:** fix-pr #354
 - **Repro:** launch Desktop with the curated `go` group materialized
   (`DEV_REVIEW_EXTENSIONS=go`) on a machine whose PATH and GOPATH have no
   `gopls`, then open a review with a `code_peek` over a `.go` file.
@@ -361,6 +366,9 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   an activation guard that keeps the extension from installing anything until
   the reader asks. This is what the `go` group's "no server is bundled" note
   costs in practice.
+- **Scope of the fix (2026-09-18):** consent is at the group level; once the
+  group is enabled the extension still installs `gopls` and `vscgo` without a
+  prompt of its own.
 
 ## A review's Rust language server never starts when the extension wins a race with the workspace folder
 
@@ -395,3 +403,13 @@ Status values: `open`, `fix-pr #<n>`, `fixed`, `not-a-bug` (with the reason).
   `{kind: "Detached Files"}`). The same ordering is what
   `curated-extensions.manifest.mjs:86-95` already works around for
   `workspaceContains:`.
+- **Root cause (2026-09-18):** the activation Review triggers is not the only
+  one. The workbench derives an implicit `onLanguage:rust` from
+  rust-analyzer's own `rust` language contribution, so creating the peek's model
+  activates the extension before `acquire` has registered any folder, and no
+  ordering on Review's own `activateByEvent` call can win that race. Review's
+  manifest patch (`curated-extensions.manifest.mjs`) rewrites only the VSIXes it
+  materializes, and this group is installed from Settings at runtime, so the
+  patch never reaches it. A fix therefore needs an install-time manifest patch
+  that replaces the implicit event with a Review-owned one fired after
+  `addFolders`; see PR #353's description.

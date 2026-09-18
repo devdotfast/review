@@ -53,9 +53,10 @@ rebuild_review_desktop_outputs() {
     "$review_package/app/dist/desktop/.vite/manifest.json" \
     "$review_package/app/src" \
     "$review_package/app/desktop.vite.config.ts" \
+    "$review_package/app/package.json" \
     "$review_package/package.json" \
     "$monorepo_root/packages/review-protocol/src"; then
-    pnpm --dir "$monorepo_root" --filter @dev.fast/review app:desktop:build
+    pnpm --dir "$monorepo_root" --filter @dev.fast/review-canvas build
   fi
   local tutorial_output="$review_package/tutorial/pins.json"
   if needs_rebuild \

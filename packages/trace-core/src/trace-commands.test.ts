@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { traceScope } from "./trace-command";
 import {
-  type RegisterTraceCommandsOptions,
   type TraceCommandRuntime,
   registerTraceCommands,
 } from "./trace-commands";
@@ -35,12 +34,7 @@ const scope = traceScope({ homeDir: "/task17-home", env: {} });
 
 const traceCommand = { file: "/opt/bin/traces", args: ["trace"] };
 
-function build(
-  reads: "review" | "repository" = "review",
-  storageOverride = true,
-  overrides: Partial<TraceCommandRuntime> = {},
-  installMachine?: RegisterTraceCommandsOptions["installMachine"],
-) {
+function build(overrides: Partial<TraceCommandRuntime> = {}) {
   const parent = new Command("trace").exitOverride();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
@@ -54,9 +48,6 @@ function build(
   });
   registerTraceCommands(parent, {
     runtime: { ...runtime, ...overrides },
-    cliName: reads === "review" ? "review" : "dev-traces",
-    reads,
-    storageOverride,
     traceCommand,
     scope,
     cwd: "/repo",
@@ -72,7 +63,6 @@ function build(
     setExitCode: (code) => {
       result.code = code;
     },
-    installMachine,
   });
 
   return {
@@ -87,7 +77,7 @@ function build(
 
 describe("shared trace command parsing", () => {
   it("forwards hosted status filters with explicit scope and preserves runtime output and exit code", async () => {
-    const fixture = build("review", true, {
+    const fixture = build({
       runTraceStatus: async (input) => {
         expect(input).toEqual({
           scope,
@@ -120,40 +110,37 @@ describe("shared trace command parsing", () => {
       err: "Try again\n",
     });
   });
-  it.each<"review" | "repository">(["review", "repository"])(
-    "forwards commit list in %s audience",
-    async (reads) => {
-      const fixture = build(reads, true, {
-        runTraceList: async (input) => {
-          expect(input).toMatchObject({
-            cwd: "/repo",
-            commitSha: "HEAD~2",
-            storage: "hosted",
-            json: true,
-          });
-          input.stdout.write('{"event":"trace.list"}\n');
+  it("forwards commit list", async () => {
+    const fixture = build({
+      runTraceList: async (input) => {
+        expect(input).toMatchObject({
+          cwd: "/repo",
+          commitSha: "HEAD~2",
+          storage: "hosted",
+          json: true,
+        });
+        input.stdout.write('{"event":"trace.list"}\n');
 
-          return 3;
-        },
-      });
+        return 3;
+      },
+    });
 
-      await fixture.parse([
-        "list",
-        "--commit",
-        "HEAD~2",
-        "--storage",
-        "hosted",
-        "--json",
-      ]);
-      expect(fixture.result).toEqual({
-        code: 3,
-        out: '{"event":"trace.list"}\n',
-        err: "",
-      });
-    },
-  );
+    await fixture.parse([
+      "list",
+      "--commit",
+      "HEAD~2",
+      "--storage",
+      "hosted",
+      "--json",
+    ]);
+    expect(fixture.result).toEqual({
+      code: 3,
+      out: '{"event":"trace.list"}\n',
+      err: "",
+    });
+  });
   it("retains Review selection and pull wrapper inputs", async () => {
-    const fixture = build("review", true, {
+    const fixture = build({
       runTracePull: async (input) => {
         expect(input).toMatchObject({
           cwd: "/repo",
@@ -183,22 +170,6 @@ describe("shared trace command parsing", () => {
     expect(fixture.result).toEqual({ code: 0, out: "pulled\n", err: "" });
   });
   it.each([
-    ["list"],
-    ["list", "--commit", "HEAD", "--review", "uuid"],
-    ["pull", "--review", "uuid"],
-    ["show", "s", "--storage", "hosted"],
-    ["blame", "file", "--storage", "s3"],
-    ["sessions", "--storage", "hosted"],
-  ])("rejects unavailable repository arguments %j", async (...argv) => {
-    const fixture = build("repository", false);
-    await expect(fixture.parse(argv)).rejects.toThrow(
-      argv.length === 1
-        ? "required option '--commit <sha>' not specified"
-        : "unknown option",
-    );
-    expect(fixture.result.code).toBe(-1);
-  });
-  it.each([
     ["list", "--review", "uuid", "--commit", "HEAD"],
     ["pull", "--review", "uuid", "--session", "s"],
     ["pull", "--commit", "HEAD", "--session", "s"],
@@ -212,7 +183,7 @@ describe("shared trace command parsing", () => {
     expect(fixture.result.code).toBe(-1);
   });
   it("preserves hosted pagination parsing and errors", async () => {
-    const fixture = build("repository", true, {
+    const fixture = build({
       runTraceSessions: async (input) => {
         expect(input).toMatchObject({
           scope,
@@ -247,7 +218,7 @@ describe("shared trace command parsing", () => {
   it.each([true, false])(
     "preserves allow path and harness default (%s)",
     async (harnessHooks) => {
-      const fixture = build("repository", false, {
+      const fixture = build({
         runTraceAllow: async (input) => {
           expect(input).toMatchObject({
             scope,
@@ -269,7 +240,7 @@ describe("shared trace command parsing", () => {
     },
   );
   it("passes hidden hook arguments and stdin without changing the command", async () => {
-    const fixture = build("repository", false, {
+    const fixture = build({
       runTraceGitHook: async (input) => {
         expect(input).toMatchObject({
           scope,
@@ -287,31 +258,10 @@ describe("shared trace command parsing", () => {
     await fixture.parse(["git-hook", "post-checkout", "old", "new", "1"]);
     expect(fixture.result.code).toBe(0);
   });
-
-  it.each<"review" | "repository">(["review", "repository"])(
-    "registers the store group and install in the %s audience",
-    async (reads) => {
-      const fixture = build(reads, reads === "review");
-      const help = fixture.parent.helpInformation();
-      expect(help).toContain("store");
-      expect(help).toContain("install");
-      expect(help).not.toContain("onboard");
-
-      const store = fixture.parent.commands.find(
-        (command) => command.name() === "store",
-      );
-
-      expect(store?.commands.map((command) => command.name())).toEqual([
-        "create",
-        "delete",
-        "info",
-      ]);
-    },
-  );
   it("runs the store verbs against the given path", async () => {
     const seen: string[] = [];
 
-    const fixture = build("repository", false, {
+    const fixture = build({
       runTraceOnboard: async (input) => {
         seen.push(`create ${input.cwd}`);
 
@@ -339,69 +289,28 @@ describe("shared trace command parsing", () => {
     ]);
     expect(fixture.result.code).toBe(2);
   });
-  it("no longer registers onboard", async () => {
-    const fixture = build("repository", false);
-
-    await expect(fixture.parse(["onboard", "child"])).rejects.toThrow(
-      "unknown command 'onboard'",
-    );
-  });
 
   it("refuses the removed deny option", async () => {
-    const fixture = build("repository", false);
+    const fixture = build();
     await expect(fixture.parse(["deny", "--delete-store"])).rejects.toThrow(
       "unknown option",
     );
     expect(fixture.result.code).toBe(-1);
   });
-  it("hands the machine installer to the install action", async () => {
-    const machineCommand = { file: "/home/dev/.local/bin/dev-traces" };
-    const calls: string[] = [];
-
-    const fixture = build(
-      "repository",
-      false,
-      {
-        runTraceInstallMachine: async (input) => {
-          calls.push(`harnessHooks=${input.harnessHooks === false}`);
-          expect(await input.installMachine?.(input)).toEqual(machineCommand);
-
-          return 0;
-        },
-      },
-      async () => machineCommand,
-    );
-
-    await fixture.parse(["install", "--no-harness-hooks"]);
-    expect(calls).toEqual(["harnessHooks=true"]);
-    expect(fixture.result.code).toBe(0);
-    // The shared description names the hooks only; a CLI that installs its
-    // own command file appends that clause after registration.
-    expect(
-      fixture.parent.commands
-        .find((command) => command.name() === "install")
-        ?.description(),
-    ).toBe("Install the agent hooks on this machine");
-  });
   it("renders repository help and hides hook commands", () => {
-    const fixture = build("repository", false);
+    const fixture = build();
     expect(fixture.parent.helpInformation()).toContain("status");
     expect(fixture.parent.helpInformation()).not.toContain("git-hook");
     expect(fixture.parent.helpInformation()).not.toContain("hook <event>");
   });
-  it.each<"review" | "repository">(["review", "repository"])(
-    "renders explicit hidden hook help for %s",
-    async (reads) => {
-      const fixture = build(reads, false);
-      await expect(fixture.parse(["hook", "--help"])).rejects.toMatchObject({
-        code: "commander.helpDisplayed",
-      });
-      expect(fixture.result.out).toContain(
-        reads === "review"
-          ? "Handle agent session lifecycle hooks"
-          : "Handle dev-traces agent session lifecycle hooks",
-      );
-      expect(fixture.result.code).toBe(-1);
-    },
-  );
+  it("renders explicit hidden hook help", async () => {
+    const fixture = build();
+    await expect(fixture.parse(["hook", "--help"])).rejects.toMatchObject({
+      code: "commander.helpDisplayed",
+    });
+    expect(fixture.result.out).toContain(
+      "Handle agent session lifecycle hooks",
+    );
+    expect(fixture.result.code).toBe(-1);
+  });
 });

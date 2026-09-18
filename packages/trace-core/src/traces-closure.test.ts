@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * The trace surface must stay free of the Review app's state store, VCS
- * engine, and desktop installer so a standalone trace CLI can bundle it.
+ * engine, and desktop installer so the headless Review CLI can bundle it.
  * These roots are the modules such a CLI imports. The walk follows static
  * value imports only: `import type`, `export type`, and `import()` are not
  * part of a bundle's eager graph.

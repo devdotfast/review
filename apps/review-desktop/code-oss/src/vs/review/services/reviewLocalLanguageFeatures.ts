@@ -98,9 +98,9 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 
 	/**
 	 * Pinned models arrive as plaintext (reviewApiSourceService.ts) and assigning a language
-	 * fires `onLanguage:`, so localSource calls this only once the checkout is a workspace
-	 * folder, or once it knows there is no checkout to register. A model whose root exists but
-	 * could not be acquired stays plaintext until a later query retries.
+	 * fires `onLanguage:`, so localSource assigns when there is no root or no file to register,
+	 * and otherwise only once the root is registered, never in between. A model whose file
+	 * exists but could not be acquired stays plaintext until a later query retries.
 	 */
 	private assignLanguage(model: ITextModel): void {
 		if (model.isDisposed() || model.getLanguageId() !== PLAINTEXT_LANGUAGE_ID) return;
@@ -138,7 +138,14 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 				this.generation++;
 			}
 			if (!context?.rootPath) { this.assignLanguage(model); return undefined; }
-			const pending = this.acquire(model, { rootPath: context.rootPath, identity: context.identity }).catch(error => {
+			const root = URI.file(context.rootPath);
+			const relative = model.uri.path.slice(1);
+			const resource = !relative || relative.split(/[\\/]/).some(part => part === "..") ? undefined
+				: model.uri.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME ? URI.file(model.uri.path) : URI.joinPath(root, relative);
+			// Renamed or deleted since the review was pinned: no folder to register, so nothing gates the language.
+			if (!resource || !await this.files.exists(resource)) { this.assignLanguage(model); return undefined; }
+			if (model.isDisposed()) return undefined;
+			const pending = this.acquire(model, root, resource, context.identity).catch(error => {
 				this.log.debug("[Review] Language model unavailable", error);
 				return undefined;
 			});
@@ -157,12 +164,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		}
 	}
 
-	private async acquire(model: ITextModel, context: { rootPath: string; identity: string }): Promise<LocalSource | undefined> {
-		const root = URI.file(context.rootPath);
-		const relative = model.uri.path.slice(1);
-		if (!relative || relative.split(/[\\/]/).some(part => part === "..")) return undefined;
-		const resource = model.uri.scheme === REVIEW_LANGUAGE_SOURCE_SCHEME ? URI.file(model.uri.path) : URI.joinPath(root, relative);
-		if (!await this.files.exists(resource) || model.isDisposed()) return undefined;
+	private async acquire(model: ITextModel, root: URI, resource: URI, identity: string): Promise<LocalSource | undefined> {
 		const owned = new DisposableStore();
 		try {
 			owned.add(await acquireReviewLanguageRoot(this.workspace, root));
@@ -180,7 +182,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			if (model.isDisposed()) { owned.dispose(); return undefined; }
 			await this.extensions.activateByEvent(`onLanguage:${reference.object.textEditorModel.getLanguageId()}`);
 			if (model.isDisposed()) { owned.dispose(); return undefined; }
-			return { root, reference, identity: context.identity, dispose: () => owned.dispose() };
+			return { root, reference, identity, dispose: () => owned.dispose() };
 		} catch (error) { owned.dispose(); throw error; }
 	}
 

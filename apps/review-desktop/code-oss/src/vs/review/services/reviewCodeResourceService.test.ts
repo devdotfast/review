@@ -47,8 +47,8 @@ function createUnifiedHarness(beforeAcquire?: (resource: URI) => Promise<void>) 
 	const referenceDisposals: string[] = [];
 	let openReferences = 0;
 
-	const fileModel = (uri: URI, lines: readonly string[]): StubModel => {
-		let languageId = "typescript";
+	const fileModel = (uri: URI, lines: readonly string[], language = "plaintext"): StubModel => {
+		let languageId = language;
 		const listeners = new Set<(event: { newLanguage: string }) => void>();
 		return {
 			uri,
@@ -67,11 +67,11 @@ function createUnifiedHarness(beforeAcquire?: (resource: URI) => Promise<void>) 
 	};
 	models.set(
 		URI.file("/tmp/review-base/src/example.ts").toString(),
-		fileModel(URI.file("/tmp/review-base/src/example.ts"), baseLines),
+		fileModel(URI.file("/tmp/review-base/src/example.ts"), baseLines, "typescript"),
 	);
 	models.set(
 		URI.file("/tmp/review-head/src/example.ts").toString(),
-		fileModel(URI.file("/tmp/review-head/src/example.ts"), headLines),
+		fileModel(URI.file("/tmp/review-head/src/example.ts"), headLines, "typescript"),
 	);
 
 	const textModelService = {
@@ -106,9 +106,9 @@ function createUnifiedHarness(beforeAcquire?: (resource: URI) => Promise<void>) 
 	};
 	const modelService = {
 		getModel: (resource: URI) => models.get(resource.toString()) ?? null,
-		createModel(content: string, _language: unknown, resource: URI) {
+		createModel(content: string, language: { languageId: string }, resource: URI) {
 			const lines = content.split("\n");
-			const model = fileModel(resource, lines);
+			const model = fileModel(resource, lines, language.languageId);
 			models.set(resource.toString(), model);
 			return model;
 		},

@@ -75,13 +75,13 @@ test("a peek without a local checkout still gets its language", async (t) => {
 	assert.deepEqual(order, ["language"]);
 });
 
-test("a peek whose file is missing from the checkout stays plaintext", async (t) => {
+test("a peek whose file is missing from the checkout still gets its language", async (t) => {
 	const order: string[] = [];
 	const { features, fetch } = setup(order, { rootPath: "/tmp/review-checkout", identity: "checkout-1" }, false);
 	t.after(() => features.dispose());
 	t.mock.method(globalThis, "fetch", fetch);
 
-	await untilLanguage(order, 30);
+	await untilLanguage(order);
 
-	assert.deepEqual(order, []);
+	assert.deepEqual(order, ["language"]);
 });

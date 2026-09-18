@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -70,7 +70,15 @@ export function resolveTraceCommand(
     "review",
   );
 
-  return { file: existsSync(installed) ? installed : "review" };
+  if (existsSync(installed)) return { file: installed };
+
+  const onPath = (env.PATH ?? "")
+    .split(path.delimiter)
+    .filter((directory) => path.isAbsolute(directory))
+    .map((directory) => path.join(directory, "review"))
+    .find(isLiveTraceExecutable);
+
+  return { file: onPath ?? "review" };
 }
 
 /** Quotes one value for a POSIX shell command. */
@@ -81,4 +89,36 @@ export function shellQuote(value: string): string {
 /** Renders the executable and each leading argument as quoted shell words. */
 export function renderTraceCommand(command: TraceCommand): string {
   return [command.file, ...(command.args ?? [])].map(shellQuote).join(" ");
+}
+
+/** Only stable absolute commands can retain ownership across installations. */
+export function isLiveTraceExecutable(file: string | undefined): boolean {
+  if (!file || !path.isAbsolute(file)) return false;
+
+  try {
+    accessSync(file, constants.X_OK);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Keep an existing working installation; a missing executable can be repaired. */
+export function keepTraceExecutable(
+  existing: string | undefined,
+  wanted: string,
+): boolean {
+  return existing !== wanted && isLiveTraceExecutable(existing);
+}
+
+/** The first shell word from our rendered Git hook command. */
+export function traceCommandExecutable(
+  command: string | undefined,
+): string | undefined {
+  if (!command) return undefined;
+  const quoted = /^'((?:[^']|'"'"')*)'(?:\s|$)/.exec(command);
+  const bare = /^([^\s']+)(?:\s|$)/.exec(command);
+
+  return quoted ? quoted[1]!.replaceAll(`'"'"'`, "'") : bare?.[1];
 }

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -133,3 +133,51 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
 
   return stdout.trim();
 }
+
+it("keeps a working repository hook executable when a second Review install refreshes it", async () => {
+  const { homeDir, repo } = await makeRepository();
+  const desktop = path.join(homeDir, "desktop/review");
+  const npm = path.join(homeDir, "npm/review");
+
+  for (const command of [desktop, npm]) {
+    await mkdir(path.dirname(command), { recursive: true });
+    await writeFile(command, "#!/bin/sh\n", { mode: 0o755 });
+  }
+
+  const scope = traceScope({ homeDir });
+
+  for (const [first, second] of [
+    [desktop, npm],
+    [npm, desktop],
+  ]) {
+    await disableTraceRepository({ cwd: repo, scope });
+
+    const initial = await enableTraceRepository({
+      cwd: repo,
+      scope,
+      reviewCommand: first,
+    });
+
+    const hook = path.join(initial.managedHooksPath!, "pre-push");
+    const before = await readFile(hook, "utf8");
+
+    const refreshed = await enableTraceRepository({
+      cwd: repo,
+      scope,
+      reviewCommand: second,
+    });
+
+    expect(refreshed.command).toBe(initial.command);
+    expect(await readFile(hook, "utf8")).toBe(before);
+  }
+
+  await rm(npm);
+
+  const repaired = await enableTraceRepository({
+    cwd: repo,
+    scope,
+    reviewCommand: desktop,
+  });
+
+  expect(repaired.command).toBe(`'${desktop}'`);
+});

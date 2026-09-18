@@ -26,7 +26,8 @@ interface StubModel {
 	getLinesContent(): readonly string[];
 	getLineCount(): number;
 	getLanguageId(): string;
-	onDidChangeLanguage(): { dispose(): void };
+	setLanguage(languageId: string): void;
+	onDidChangeLanguage(listener: (event: { newLanguage: string }) => void): { dispose(): void };
 }
 
 /**
@@ -46,13 +47,24 @@ function createUnifiedHarness(beforeAcquire?: (resource: URI) => Promise<void>) 
 	const referenceDisposals: string[] = [];
 	let openReferences = 0;
 
-	const fileModel = (uri: URI, lines: readonly string[]): StubModel => ({
-		uri,
-		getLinesContent: () => lines,
-		getLineCount: () => lines.length,
-		getLanguageId: () => "typescript",
-		onDidChangeLanguage: () => ({ dispose() { } }),
-	});
+	const fileModel = (uri: URI, lines: readonly string[]): StubModel => {
+		let languageId = "typescript";
+		const listeners = new Set<(event: { newLanguage: string }) => void>();
+		return {
+			uri,
+			getLinesContent: () => lines,
+			getLineCount: () => lines.length,
+			getLanguageId: () => languageId,
+			setLanguage(next: string) {
+				languageId = next;
+				for (const listener of listeners) listener({ newLanguage: next });
+			},
+			onDidChangeLanguage(listener: (event: { newLanguage: string }) => void) {
+				listeners.add(listener);
+				return { dispose: () => listeners.delete(listener) };
+			},
+		};
+	};
 	models.set(
 		URI.file("/tmp/review-base/src/example.ts").toString(),
 		fileModel(URI.file("/tmp/review-base/src/example.ts"), baseLines),
@@ -124,6 +136,7 @@ function createUnifiedHarness(beforeAcquire?: (resource: URI) => Promise<void>) 
 		registrations,
 		referenceDisposals,
 		openReferences: () => openReferences,
+		headModel: models.get(URI.file("/tmp/review-head/src/example.ts").toString())!,
 	};
 }
 
@@ -299,4 +312,15 @@ test("the review scheme content providers are registered and disposed with the s
 		harness.registrations.map((registration) => registration.disposed),
 		[true],
 	);
+});
+
+test("the unified preview adopts its side model's language when the checkout registers", async () => {
+	const harness = createUnifiedHarness();
+	const acquired = await harness.acquire("src/example.ts", "head", []);
+	assert.ok(acquired);
+	assert.equal(acquired.model.getLanguageId(), "typescript");
+
+	harness.headModel.setLanguage("rust");
+
+	assert.equal(acquired.model.getLanguageId(), "rust");
 });

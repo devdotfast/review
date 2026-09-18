@@ -72,11 +72,8 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			if ([...this.roots.keys()].some(root => event.affects(URI.parse(root)))) this.generation++;
 		}));
 		// Warm language servers while source is being displayed, not at the first click.
-		// Pinned models arrive without a language (reviewApiSourceService.ts); assigning it
-		// here holds the `onLanguage:` activation back until the checkout is a workspace folder.
 		const warm = (model: ITextModel) => {
-			if (![REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(model.uri.scheme)) return;
-			void this.localSource(model).finally(() => this.assignLanguage(model));
+			if ([REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME].includes(model.uri.scheme)) void this.localSource(model);
 		};
 		this._register(modelService.onModelAdded(warm));
 		modelService.getModels().forEach(warm);
@@ -99,6 +96,12 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		}
 	}
 
+	/**
+	 * Pinned models arrive as plaintext (reviewApiSourceService.ts) and assigning a language
+	 * fires `onLanguage:`, so localSource calls this only once the checkout is a workspace
+	 * folder, or once it knows there is no checkout to register. A model whose root exists but
+	 * could not be acquired stays plaintext until a later query retries.
+	 */
 	private assignLanguage(model: ITextModel): void {
 		if (model.isDisposed() || model.getLanguageId() !== PLAINTEXT_LANGUAGE_ID) return;
 		const selection = this.languageService.createByFilepathOrFirstLine(model.uri, model.getLineContent(1));
@@ -134,7 +137,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 				this.sources.delete(model);
 				this.generation++;
 			}
-			if (!context?.rootPath) return undefined;
+			if (!context?.rootPath) { this.assignLanguage(model); return undefined; }
 			const pending = this.acquire(model, { rootPath: context.rootPath, identity: context.identity }).catch(error => {
 				this.log.debug("[Review] Language model unavailable", error);
 				return undefined;
@@ -143,7 +146,8 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			this.sources.set(model, entry);
 			const result = await pending;
 			if (this.sources.get(model) !== entry || epoch !== this.environments.generation) { result?.dispose(); return undefined; }
-			if (!result) this.sources.delete(model);
+			if (result) this.assignLanguage(model);
+			else this.sources.delete(model);
 			return result;
 		} catch (error) {
 			const cached = this.sources.get(model);

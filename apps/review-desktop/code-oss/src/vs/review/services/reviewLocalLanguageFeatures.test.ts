@@ -20,11 +20,11 @@ Object.assign(globalThis, {
 const { ReviewLocalLanguageFeatures } = await import("./reviewLocalLanguageFeatures.js");
 
 const disposable = { dispose() { } };
-const untilLanguage = async (order: string[]) => {
-	for (let i = 0; i < 200 && !order.includes("language"); i++) await new Promise(resolve => setTimeout(resolve, 10));
+const untilLanguage = async (order: string[], steps = 200) => {
+	for (let i = 0; i < steps && !order.includes("language"); i++) await new Promise(resolve => setTimeout(resolve, 10));
 };
 
-function setup(order: string[], context: unknown) {
+function setup(order: string[], context: unknown, exists = true) {
 	const pinned = {
 		uri: URI.parse("review-api-source://review-a/src/lib.rs?version=1&side=head"),
 		isDisposed: () => false,
@@ -45,7 +45,7 @@ function setup(order: string[], context: unknown) {
 		{ activateByEvent: async (event: string) => { order.push(`activate:${event}`); } } as never,
 		{ addFolders: async () => { order.push("folder"); }, removeFolders: async () => { } } as never,
 		{ files: { models: [], resolve: async () => { } } } as never,
-		{ exists: async () => true, onDidFilesChange: () => disposable } as never,
+		{ exists: async () => exists, onDidFilesChange: () => disposable } as never,
 		{ unifiedResource: () => undefined } as never,
 		{ debug() { } } as never,
 		{ createByFilepathOrFirstLine: () => ({ languageId: "rust", onDidChange: () => disposable }) } as never,
@@ -73,4 +73,15 @@ test("a peek without a local checkout still gets its language", async (t) => {
 	await untilLanguage(order);
 
 	assert.deepEqual(order, ["language"]);
+});
+
+test("a peek whose file is missing from the checkout stays plaintext", async (t) => {
+	const order: string[] = [];
+	const { features, fetch } = setup(order, { rootPath: "/tmp/review-checkout", identity: "checkout-1" }, false);
+	t.after(() => features.dispose());
+	t.mock.method(globalThis, "fetch", fetch);
+
+	await untilLanguage(order, 30);
+
+	assert.deepEqual(order, []);
 });

@@ -133,7 +133,13 @@ export async function run(ctx) {
   await waitChecked(ctx, "gotoDefinition");
 
   // `didNavigate` records the step before the modal editor opens, so wait for the modal rather than assume it is up.
-  await dismissModalEditor(ctx, page);
+  // The References tree is the state the bug was found in: its own Escape used to eat the press.
+  await dismissModalEditor(
+    ctx,
+    page,
+    ".monaco-modal-editor-block .monaco-list[aria-label='References']",
+  );
+  ctx.check("one Escape closes the Go to Definition modal editor");
   await guide.waitFor();
 
   await canvas

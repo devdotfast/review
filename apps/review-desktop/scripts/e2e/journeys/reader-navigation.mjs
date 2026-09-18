@@ -30,46 +30,6 @@ const longSection = (title) => ({
   })),
 });
 
-/** Clicks a canvas overlay, falling back to a synthetic click only when the review topbar is what intercepts it. */
-async function clickCanvasOverlay(ctx, control, label) {
-  const failure = await control.click({ timeout: 5000 }).then(
-    () => null,
-    (error) => error,
-  );
-
-  if (!failure) return;
-
-  const blocked = await control.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-
-    const hit = element.ownerDocument.elementFromPoint(
-      rect.left + rect.width / 2,
-      rect.top + rect.height / 2,
-    );
-
-    return {
-      control: { top: rect.top, bottom: rect.bottom },
-      hit: hit?.className ?? null,
-      topbar: hit?.closest(".review-topbar")?.getBoundingClientRect().bottom,
-    };
-  });
-
-  // Both halves are needed: Playwright names the element that took the pointer, `elementFromPoint` says it is still there.
-  assert.match(
-    failure.message,
-    /class="review-topbar[^"]*"[\s\S]*?intercepts pointer events/,
-    `${label} refused a click for another reason: ${failure.message}`,
-  );
-  assert.ok(
-    blocked.topbar !== undefined,
-    `${label} is no longer under the topbar: ${JSON.stringify(blocked)}`,
-  );
-  await ctx.knownBug(
-    "The review topbar covers the Find widget and the contents pill",
-  );
-  await control.dispatchEvent("click");
-}
-
 export async function run(ctx) {
   const { until } = ctx;
 
@@ -153,7 +113,7 @@ export async function run(ctx) {
 
   const wholeWord = find.locator(".review-find-toggle--whole-word");
 
-  await clickCanvasOverlay(ctx, wholeWord, "the whole-word toggle");
+  await wholeWord.click();
   await until(
     async () => (await wholeWord.getAttribute("aria-pressed")) === "true",
     "the whole-word toggle to turn on",
@@ -162,17 +122,13 @@ export async function run(ctx) {
     async () => (await countText()) === "No results",
     'whole-word "stat" to match nothing',
   );
-  await clickCanvasOverlay(ctx, wholeWord, "the whole-word toggle");
+  await wholeWord.click();
   await until(
     async () => (await countText()) === plain,
     `the plain count (${plain}) to come back`,
   );
 
-  await clickCanvasOverlay(
-    ctx,
-    find.locator(".review-find-toggle--regex"),
-    "the regex toggle",
-  );
+  await find.locator(".review-find-toggle--regex").click();
   await input.fill("stat(");
   // An uncompilable pattern reads "Invalid expression" in the count and marks the input.
   await until(
@@ -222,12 +178,7 @@ export async function run(ctx) {
     (await toc.getAttribute("class")).includes("review-toc--open");
 
   // The contents are an open rail only at the top of a wide shell; otherwise a shut drawer is `pointer-events: none`.
-  if (!(await isDrawerOpen()))
-    await clickCanvasOverlay(
-      ctx,
-      page.locator(".review-toc-toggle"),
-      "the contents pill",
-    );
+  if (!(await isDrawerOpen())) await page.locator(".review-toc-toggle").click();
   await until(isDrawerOpen, "the contents drawer to open");
 
   // Entries are buttons, not links with an `href`, so the target is found by its heading text.

@@ -650,8 +650,12 @@ export const orderReviewBlocks = [
   },
 ];
 
-/** Closes the workbench modal editor that Go to Definition opens over the canvas; true when one was up. */
-export async function dismissModalEditor(ctx, page = ctx.page) {
+/** Closes with one Escape the modal editor Go to Definition opens; `focus` is what must hold focus when the key lands. */
+export async function dismissModalEditor(
+  ctx,
+  page = ctx.page,
+  focus = ".monaco-modal-editor-block",
+) {
   const modalEditor = page.locator(".monaco-modal-editor-block").first();
 
   const opened = await modalEditor.waitFor({ timeout: 10000 }).then(
@@ -661,43 +665,31 @@ export async function dismissModalEditor(ctx, page = ctx.page) {
 
   if (!opened) return false;
 
-  // A click on the backdrop closes it; Escape takes two presses (see modalEditorPart.ts).
+  // Which element holds focus decides which Escape rule runs, so the press is measured only once it has settled.
   await ctx.until(
-    async () => {
-      if (!(await modalEditor.count())) return true;
-      await modalEditor.click({ position: { x: 4, y: 4 } });
-
-      return !(await modalEditor.count());
-    },
-    "the modal editor to close",
-    30000,
+    () =>
+      page.evaluate(
+        (selector) => document.activeElement?.closest(selector) != null,
+        focus,
+      ),
+    `${focus} to take focus in the modal editor`,
+    10000,
   );
+  await page.keyboard.press("Escape");
+  await modalEditor.waitFor({ state: "detached", timeout: 5000 });
 
   return true;
 }
 
-/** Opens a review the way a reader does, with `review app pick --review`, falling back to the route it means to call. */
+/** Opens a review the way a reader does, with `review app pick --review`. */
 export async function pickReview(ctx, reviewId, cwd = ctx.repo) {
   const picked = await ctx.cliRaw(
     ["app", "pick", "--review", reviewId, "--json"],
     cwd,
   );
 
-  if (picked.code === 0) return;
-
-  // Only the logged bug may fall back; the CLI writes its error event to stdout, not stderr.
-  assert.match(
-    `${picked.stdout}${picked.stderr}`,
-    /"message":"Review or version not found\."/,
-    `app pick: ${picked.stdout}\n${picked.stderr}`,
-  );
-  await ctx.knownBug(
-    "`review app pick --review <uuid>` never opens the review",
-  );
-
-  const opened = await ctx.api(`/reviews-api/${reviewId}/open`, "POST", {});
-
-  assert.equal(opened.status, 200, JSON.stringify(opened.value));
+  // The CLI writes its error event to stdout, not stderr.
+  assert.equal(picked.code, 0, `app pick: ${picked.stdout}\n${picked.stderr}`);
 }
 
 /** Opens the Settings page on the current `ctx.page`; `Meta+,` repeats because a fresh profile reloads the workbench. */

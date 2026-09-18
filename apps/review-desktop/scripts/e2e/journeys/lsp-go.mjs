@@ -1,4 +1,4 @@
-/** The curated `go` group ships no language server: `golang.go` prompts to `go install` gopls, so this is phase 2. */
+/** The optional `go` group ships no language server: `golang.go` runs `go install` for gopls once consented to, so this is phase 2. */
 import { lspOptions, runLspJourney } from "../lsp-languages.mjs";
 
 export const name = "lsp-go";

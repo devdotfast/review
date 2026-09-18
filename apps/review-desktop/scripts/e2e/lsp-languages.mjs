@@ -76,7 +76,8 @@ export const LANGUAGES = {
     hoverText: /save_order\(order: OrderRecord\)/,
   },
   go: {
-    extensions: "go",
+    // Not a DEV_REVIEW_EXTENSIONS group: the Go extension installs gopls on activation, so it is downloaded only after consent.
+    extensions: "none",
     peekFile: "orders.go",
     symbol: "SaveOrder",
     definitionFile: "storage.go",
@@ -92,6 +93,10 @@ export const LANGUAGES = {
       GOCACHE: "",
       GOFLAGS: "",
       GOENV: "",
+    },
+    optionalExtension: {
+      label: "Go",
+      extensionId: "golang.go",
     },
     // The Go extension provisions gopls only when PATH has none, which is the reader this journey stands in for.
     beforeLaunch: async (ctx) => {
@@ -218,45 +223,35 @@ async function reopenReview(ctx, review) {
   return page.locator(".review-canvas-root [data-review-api]");
 }
 
-/** Waits for the Go extension to provision `tool` into the journey's GOPATH, answering its install prompt if one comes. */
-async function provisionLanguageServer(ctx, page, tool) {
-  // "Install All" sits beside it when other Go tools are missing; this journey wants only the language server.
-  const install = page
-    .locator(".notifications-toasts .notification-list-item")
-    .filter({ hasText: `The "${tool}" command is not available.` })
-    .first()
-    .getByRole("button", { name: "Install", exact: true });
+/** `go install` writes to GOPATH/bin, and GOPATH defaults to $HOME/go inside the temp root. */
+const goToolPath = (ctx, tool) => path.join(ctx.home, "go/bin", tool);
 
-  let asked = false;
+/** Nothing the Go extension downloads may exist before the reader consents to its group. */
+async function assertNothingInstalledYet(ctx, tool) {
+  assert.equal(
+    await access(goToolPath(ctx, tool)).then(() => true, () => false),
+    false,
+    `${tool} was installed before the Go group was consented to`,
+  );
+  assert.deepEqual(
+    (
+      await readdir(path.join(ctx.userData, "logs"), {
+        recursive: true,
+      }).catch(() => [])
+    ).filter((entry) => entry.includes(path.join("exthost", "golang.go"))),
+    [],
+    "the Go extension activated before its group was consented to",
+  );
+}
 
-  // `go install` writes to GOPATH/bin, and GOPATH defaults to $HOME/go inside the temp root.
-  const binary = path.join(ctx.home, "go/bin", tool);
-
+/** Waits for the consented-to Go extension to provision `tool` into the journey's GOPATH. */
+async function provisionLanguageServer(ctx, tool) {
   await ctx.until(
-    async () => {
-      if (await access(binary).then(() => true, () => false)) return true;
-
-      if (await install.isVisible().catch(() => false)) {
-        await install.click();
-        asked = true;
-      }
-
-      return false;
-    },
+    () => access(goToolPath(ctx, tool)).then(() => true, () => false),
     `${tool} to be installed into the journey's GOPATH`,
     300000,
   );
-
-  if (asked) {
-    ctx.check(`go: the missing ${tool} prompt offers to install it in app`);
-
-    return;
-  }
-
-  await ctx.knownBug(
-    "Opening a Go file installs Go tools from the network without asking",
-  );
-  ctx.check(`go: the Go extension provisions ${tool} into the journey's GOPATH`);
+  ctx.check(`go: ${tool} is installed only after the Go group is consented to`);
 }
 
 /** Commits the fixture, creates a review whose code_peek covers the call site, hovers the call and presses F12. */
@@ -274,8 +269,11 @@ export async function runLspJourney(ctx, id) {
     await requireToolchain(ctx, language.needsToolchain);
 
   // Before the review exists: the picker ends in a window reload that would take the open review with it.
-  if (language.optionalExtension)
+  if (language.optionalExtension) {
+    if (language.installsTool)
+      await assertNothingInstalledYet(ctx, language.installsTool);
     await installExtensionGroup(ctx, language.optionalExtension);
+  }
 
   await cp(path.join(import.meta.dirname, "fixtures/lsp", id), ctx.repo, {
     recursive: true,
@@ -356,7 +354,7 @@ async function hoverAndJump(ctx, id, language, canvas, lines, callLine) {
 
   // The peek opens the language's first document, so the extension activates only once it is on screen.
   if (language.installsTool)
-    await provisionLanguageServer(ctx, page, language.installsTool);
+    await provisionLanguageServer(ctx, language.installsTool);
 
   const callRow = editor
     .locator(".view-line")

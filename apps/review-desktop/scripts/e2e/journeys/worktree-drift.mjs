@@ -19,11 +19,8 @@ export const options = {};
 
 const TITLE = "Order review";
 
-const CANVAS_FAILURE = "ReviewApiError: Review operation failed.";
-
-const BUG =
-  "A review whose repository directory moves or is deleted renders " +
-  "`ReviewApiError: Review operation failed.`";
+/** The banner a snapshot marked `sourceUnavailable` renders instead of the source (see api-document.tsx). */
+const RETAINED_SOURCE = "Local checkout unavailable. Showing retained source.";
 
 /** Every locator this journey uses, rebuilt from the current `ctx.page` because each restart replaces it. */
 function canvasUi(ctx) {
@@ -33,47 +30,11 @@ function canvasUi(ctx) {
     heading: canvas.getByRole("heading", { name: TITLE, exact: true }),
     // The state a missing checkout is meant to reach (see desktop-entry.tsx).
     unavailable: ctx.page.getByText("Worktree unavailable"),
-    // The whole canvas replaced by one status line (see api-canvas.tsx).
-    failure: canvas.locator('p[role="status"]', { hasText: CANVAS_FAILURE }),
+    retained: canvas.getByText(RETAINED_SOURCE),
     peek: canvas
       .locator('.review-inline-editor[data-review-inline-editor="order.ts"]')
       .first(),
   };
-}
-
-/** Corroborates the canvas failure against the read that produces it before calling it a known bug. */
-async function assertCanvasFailureSignature(ctx, reviewId, where) {
-  const { failure } = canvasUi(ctx);
-
-  assert.equal(
-    await failure.count(),
-    1,
-    `${where}: the canvas does not carry the logged failure line`,
-  );
-
-  // The document itself is still readable; only the source-backed read fails.
-  const stored = await ctx.apiOk(`/reviews-api/${reviewId}?full=true`);
-
-  assert.ok(
-    stored.document.length > 0,
-    `${where}: the stored document is empty, so the canvas error is not the logged bug`,
-  );
-
-  const commits = await ctx.api(
-    `/reviews-api/${reviewId}/commits?version=${stored.version}`,
-  );
-
-  assert.equal(
-    commits.status,
-    500,
-    `${where}: /commits answered ${commits.status} ${JSON.stringify(commits.value)}`,
-  );
-  assert.deepEqual(
-    commits.value,
-    { error: "Review operation failed." },
-    `${where}: /commits failed with an unlogged body`,
-  );
-  await ctx.knownBug(BUG);
 }
 
 export async function run(ctx) {
@@ -153,51 +114,34 @@ export async function run(ctx) {
   await ctx.restartDesktop();
   await pickReview(ctx, review.reviewId, moved);
 
-  const { heading, unavailable, failure } = canvasUi(ctx);
+  const { heading, unavailable } = canvasUi(ctx);
 
-  // Three outcomes, two legitimate: unavailable, still rendering from the pinned checkout, or the logged failure.
+  // The rename leaves the pinned checkout intact, so a full render is as legitimate as the degraded state.
   const outcome = await until(
     async () =>
       ((await unavailable.count()) > 0 && "unavailable") ||
-      ((await heading.count()) > 0 && "rendered") ||
-      ((await failure.count()) > 0 && "failed"),
-    "the moved worktree to report unavailable, render the pinned review, or fail",
+      ((await heading.count()) > 0 && "rendered"),
+    "the moved worktree to report unavailable or render the pinned review",
   );
 
-  if (outcome === "failed") {
-    await assertCanvasFailureSignature(ctx, review.reviewId, "moved worktree");
-    ctx.check("a moved worktree breaks the review canvas (known bug)");
-  } else
-    ctx.check(
-      outcome === "unavailable"
-        ? "a moved worktree is reported as unavailable"
-        : "a moved worktree still renders from the pinned checkout",
-    );
+  ctx.check(
+    outcome === "unavailable"
+      ? "a moved worktree is reported as unavailable"
+      : "a moved worktree still renders from the pinned checkout",
+  );
 
   const info = await ctx.cliRaw(
     ["info", "--review", review.reviewId, "--json"],
     moved,
   );
 
-  if (info.code === 0) {
-    assert.match(
-      info.stdout,
-      new RegExp(review.reviewId),
-      `review info named no review: ${info.stdout}`,
-    );
-    ctx.check("info still resolves a review whose worktree moved");
-  } else {
-    // Only the logged bug may pass; any other failure is a new one.
-    assert.match(
-      `${info.stdout}${info.stderr}`,
-      /"message":"Not found\."/,
-      `review info: ${info.stdout}\n${info.stderr}`,
-    );
-    await ctx.knownBug(
-      "`review info --review <uuid>` always fails with `Not found.`",
-    );
-    ctx.check("info cannot resolve a review whose worktree moved (known bug)");
-  }
+  assert.equal(info.code, 0, `review info: ${info.stdout}\n${info.stderr}`);
+  assert.match(
+    info.stdout,
+    new RegExp(review.reviewId),
+    `review info named no review: ${info.stdout}`,
+  );
+  ctx.check("info resolves a review whose worktree moved");
 
   await rm(moved, { recursive: true, force: true });
   assert.ok(
@@ -213,27 +157,30 @@ export async function run(ctx) {
 
   const deleted = canvasUi(ctx);
 
-  const deletedOutcome = await until(
-    async () =>
-      ((await deleted.unavailable.count()) > 0 && "unavailable") ||
-      ((await deleted.heading.count()) > 0 && "rendered") ||
-      ((await deleted.failure.count()) > 0 && "failed"),
-    "the deleted worktree to report unavailable, render the stored document, or fail",
+  // `Worktree unavailable` belongs to the source-file view this path never opens, so the document is the only outcome.
+  await until(
+    async () => (await deleted.heading.count()) > 0,
+    "the deleted worktree to render the stored document",
   );
 
-  if (deletedOutcome === "failed") {
-    await assertCanvasFailureSignature(
-      ctx,
-      review.reviewId,
-      "deleted worktree",
-    );
-    ctx.check(
-      "a deleted worktree leaves an opaque API error on the canvas (known bug)",
-    );
-  } else
-    ctx.check(
-      deletedOutcome === "unavailable"
-        ? "a deleted worktree is surfaced as unavailable rather than a blank canvas"
-        : "a deleted worktree still renders the stored document without its source",
-    );
+  // Nothing is left to read from, so the retained document has to say so rather than pass for a current one.
+  await deleted.retained.waitFor();
+
+  const views = ctx.page.locator('[aria-label="Review views"]');
+
+  await views.locator('button[aria-label="Commits"]').click();
+
+  const commits = ctx.page.locator(".review-view-region--commits");
+
+  await commits
+    .getByRole("heading", { name: "Commits unavailable", exact: true })
+    .waitFor();
+  assert.equal(
+    await commits.getByText(/\d+ commits/).count(),
+    0,
+    "the Commits tab counted commits although the checkout is gone",
+  );
+  ctx.check(
+    "a deleted worktree renders the retained document with its banner, and Commits says it is unavailable",
+  );
 }

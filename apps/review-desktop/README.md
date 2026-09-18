@@ -41,10 +41,6 @@ skips current Code OSS client and extension outputs. A stale client uses the
 esbuild `transpile-client` path without a typecheck. A stale extension build
 uses the existing Gulp extension tasks.
 
-On macOS, dev builds use Electron's packaged static `.icns` icon and skip
-asset-catalog compilation and signing. Existing bundles keep their installed
-icon until Electron is rebuilt. Full builds still install the adaptive icon.
-
 The freshness stamps are under `code-oss/.build/dev-fast`. The checks include
 source files, source directories, build tools, and the dependency digest.
 `run.sh` continues to build the Review server and canvas when they are stale.

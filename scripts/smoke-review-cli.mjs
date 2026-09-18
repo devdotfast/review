@@ -64,6 +64,7 @@ try {
 
   const env = {
     ...process.env,
+    PATH: `${path.join(prefix, "node_modules/.bin")}${path.delimiter}${process.env.PATH ?? ""}`,
     DEV_FAST_REVIEW_CLI_NO_DELEGATE: "1",
     DEV_REVIEW_HOME: path.join(root, "profile"),
     DEV_REVIEW_SERVER_DIR: path.join(root, "server"),
@@ -91,6 +92,16 @@ try {
   );
 
   assert.equal(installed.hooks.length, 4);
+  const hooks = JSON.parse(
+    await readFile(
+      path.join(env.TRACE_HOME_DIR, ".claude/settings.json"),
+      "utf8",
+    ),
+  );
+  assert.ok(
+    hooks.hooks.SessionStart[0].hooks[0].command.includes(cli),
+    "Hooks must use the installed npm executable, not a host Desktop launcher",
+  );
   const removed = JSON.parse(await run(["trace", "uninstall-hooks", "--json"]));
   assert.equal(removed.removed.length, 4);
   server = spawn(

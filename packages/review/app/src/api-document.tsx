@@ -95,11 +95,13 @@ export function createDocumentLoader(client: ReviewApiClient) {
       const data: ApiDocumentData = {
         snapshot,
         headings: apiHeadingIds(snapshot.document),
-        commits: await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
-          client.read<ReviewCommitSummary[]>(
-            `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
-          ),
-        ),
+        commits: snapshot.sourceUnavailable
+          ? []
+          : await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
+              client.read<ReviewCommitSummary[]>(
+                `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
+              ),
+            ),
         anchors: new Map(),
         images: new Map(),
         traces: new Map(),
@@ -221,7 +223,8 @@ export function ApiDocument({
       {!hasTitle && (
         <ReviewDocumentTitle>{data.snapshot.title}</ReviewDocumentTitle>
       )}
-      {data.snapshot.target?.kind === "worktree" && (
+      {(data.snapshot.target?.kind === "worktree" ||
+        data.snapshot.sourceUnavailable) && (
         <p className="review-source-context">
           {data.snapshot.sourceUnavailable
             ? "Local checkout unavailable. Showing retained source."

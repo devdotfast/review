@@ -14,6 +14,7 @@ import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { createReviewApi } from "../../src/review-api/http";
+import { ReviewInputError } from "../../src/review-api/input-error";
 import { LocalReviewData } from "../../src/review-api/local-data";
 import { ReviewStore } from "../../src/review-api/store";
 import * as clipboard from "./copy-text";
@@ -753,5 +754,66 @@ it("copies prose and code from the displayed historical JSON review", async () =
     await data.close();
     write.mockRestore();
     document.getSelection()!.removeAllRanges();
+  }
+});
+
+it("degrades to the retained document and an unavailable Commits tab when the checkout is gone", async () => {
+  const gone = new ReviewStore(path.join(directory, "gone.db"), {
+    // Present only so the refresh loop runs; a commit-pinned review never calls it.
+    resolveTarget: async () => {
+      throw new Error("This review is commit-pinned.");
+    },
+    sourcePins: async () => {
+      throw new ReviewInputError(
+        "The selected local checkout is unavailable.",
+        404,
+      );
+    },
+    validatePins: async () => {},
+    validateSource: async () => {},
+    validateResource: async () => {},
+  });
+
+  try {
+    const { reviewId } = await gone.execute({
+      commandId: randomUUID(),
+      operation: { type: "create", title: "Moved review", pins },
+    });
+
+    await gone.refreshWorktrees();
+    const app = new Hono().route("/reviews-api", createReviewApi(gone));
+    const commits = vi.fn<() => Response>(() => new Response("[]"));
+    app.get("/reviews-api/:id/commits", commits);
+
+    const bridge = testReviewBridge(
+      {},
+      { request: async (url, init) => app.request(url, init) },
+    );
+
+    const container = document.createElement("div");
+    document.body.append(container);
+    await act(async () => {
+      canvas = mount(container, { kind: "api", reviewId, bridge });
+    });
+    await act(async () =>
+      vi.waitFor(() =>
+        expect(container.querySelector("h1")?.textContent).toBe("Moved review"),
+      ),
+    );
+
+    expect(container.querySelector(".review-source-context")?.textContent).toBe(
+      "Local checkout unavailable. Showing retained source.",
+    );
+
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Commits"]')!
+        .click(),
+    );
+
+    expect(container.textContent).toContain("Commits unavailable");
+    expect(commits).not.toHaveBeenCalled();
+  } finally {
+    await gone.close();
   }
 });

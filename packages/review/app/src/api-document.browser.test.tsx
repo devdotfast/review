@@ -2,8 +2,9 @@ import { act, createRef } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { ReviewApiClient } from "../../src/review-api/client";
 import type { Block } from "../../src/review-api/document";
-import { ApiDocument } from "./api-document";
+import { ApiDocument, createDocumentLoader } from "./api-document";
 import { ReviewSessionProvider } from "./host/review-session";
 import type { ReviewRoots } from "./review-root-context";
 import { ReviewRootsProvider } from "./review-root-context";
@@ -49,7 +50,7 @@ afterEach(async () => {
   article.remove();
 });
 
-const render = async () => {
+const render = async (shown = data) => {
   const roots: ReviewRoots = {
     appRef: createRef<HTMLDivElement>(),
     shellRef: createRef<HTMLElement>(),
@@ -62,7 +63,7 @@ const render = async () => {
     root.render(
       <ReviewSessionProvider session={testReviewSession()}>
         <ReviewRootsProvider roots={roots}>
-          <ApiDocument data={data} />
+          <ApiDocument data={shown} />
         </ReviewRootsProvider>
       </ReviewSessionProvider>,
     ),
@@ -98,4 +99,32 @@ it("leaves a fragment that names no heading to the browser", async () => {
   article.querySelector('a[href="#gone"]')!.dispatchEvent(click);
 
   expect(click.defaultPrevented).toBe(false);
+});
+
+it("renders the retained document without reading commits when the source is gone", async () => {
+  const request = vi.fn<() => Promise<Response>>(async () =>
+    Response.json([{ commit: "c", subject: "Never read" }]),
+  );
+
+  const loader = createDocumentLoader(
+    new ReviewApiClient(
+      { serverUrl: "http://review.invalid", token: "t" },
+      request,
+    ),
+  );
+
+  const degraded = await loader.load({
+    ...data.snapshot,
+    sourceUnavailable: true,
+  });
+
+  expect(request).not.toHaveBeenCalled();
+  expect(degraded.commits).toEqual([]);
+  await render(degraded);
+
+  expect(article.textContent).toContain("Imported");
+  expect(article.querySelector("#details-2")).not.toBeNull();
+  expect(article.querySelector(".review-source-context")?.textContent).toBe(
+    "Local checkout unavailable. Showing retained source.",
+  );
 });

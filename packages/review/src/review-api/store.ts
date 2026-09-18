@@ -137,6 +137,8 @@ export interface ReviewProviders {
   resolveTarget?(
     target: ReviewTarget,
   ): Promise<{ target: ReviewTarget; pins: Pins }>;
+  /** Rejects with a 404 ReviewInputError when the snapshot's checkout is gone. */
+  sourcePins?(snapshot: Snapshot): Promise<Pins>;
   validatePins(pins: Pins): Promise<void>;
   validateSource(
     pins: Pins,
@@ -180,11 +182,18 @@ export class ReviewStore {
     };
   }
 
-  private async projectWorktree(
+  private async projectLiveSource(
     snapshot: Snapshot,
     current = snapshot,
   ): Promise<Snapshot> {
-    if (snapshot.target.kind !== "worktree") return snapshot;
+    if (snapshot.target.kind !== "worktree") {
+      await this.providers.sourcePins?.(snapshot);
+
+      return current.sourceUnavailable
+        ? { ...current, sourceUnavailable: undefined }
+        : current;
+    }
+
     const { pins } = await this.providers.resolveTarget!(snapshot.target);
 
     if (
@@ -210,12 +219,11 @@ export class ReviewStore {
       for (const summary of this.list()) {
         const snapshot = this.read(summary.reviewId, summary.version);
 
-        if (snapshot.target.kind !== "worktree") continue;
-
         try {
-          const last = this.read(snapshot.reviewId);
+          const live = this.liveSources.get(summary.reviewId);
+          const last = live?.version === snapshot.version ? live : snapshot;
           const previous = last.pins;
-          const projected = await this.projectWorktree(snapshot, last);
+          const projected = await this.projectLiveSource(snapshot, last);
 
           if (projected === last) continue;
           this.liveSources.set(snapshot.reviewId, projected);
@@ -446,11 +454,7 @@ export class ReviewStore {
     };
     const live = version === undefined ? this.liveSources.get(id) : undefined;
 
-    if (
-      live?.version === snapshot.version &&
-      snapshot.target.kind === "worktree"
-    )
-      return structuredClone(live);
+    if (live?.version === snapshot.version) return structuredClone(live);
 
     return snapshot;
   }
@@ -685,6 +689,9 @@ export class ReviewStore {
             }
           : structuredClone(previous!);
 
+      // Overlay state: a degraded read must not persist unavailability.
+      delete snapshot.sourceUnavailable;
+
       let nextId = previous
         ? Number(
             this.db.prepare("SELECT next_id FROM reviews WHERE id=?").get(id)!
@@ -769,7 +776,7 @@ export class ReviewStore {
         op.type !== "restore" &&
         !resolvedTarget
       ) {
-        snapshot = await this.projectWorktree(snapshot);
+        snapshot = await this.projectLiveSource(snapshot);
       }
 
       // Component shapes were checked at entry (or when merging a field patch).

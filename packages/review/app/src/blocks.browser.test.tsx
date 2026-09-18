@@ -115,7 +115,10 @@ const has = (container: HTMLElement, selector: string) =>
  * exists for every block, so these look inside it: real content, and for the
  * diagrams a finished layout.
  */
-const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
+const rendered: Record<
+  Exclude<Kind, "call_stack_diff">,
+  (container: HTMLElement) => boolean
+> = {
   markdown: (c) =>
     c.querySelector("h1")?.textContent === "Order status" &&
     has(c, "a[href*='review-source:']"),
@@ -133,11 +136,6 @@ const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
     has(c, "[data-review-anchor-id='step-1']") &&
     has(c, "[data-review-anchor-id='step-2']") &&
     text(c).includes("set status"),
-  // The base and head frames share a key, so the diff shows one row for both.
-  call_stack_diff: (c) =>
-    has(c, ".call-stack-diff[data-review-call-stack='ready']") &&
-    has(c, ".call-stack-row[data-review-anchor-id='frame-2']") &&
-    text(c).includes("status = queued"),
   database_lens: (c) =>
     has(c, ".database-lens select") &&
     text(c).includes("Queue an order") &&
@@ -358,7 +356,7 @@ describe("block components", () => {
     );
   });
 
-  it.each(Object.keys(blockComponents) as Kind[])(
+  it.each(Object.keys(rendered) as (keyof typeof rendered)[])(
     "renders the %s fixtures with their content and a finished layout",
     async (kind) => {
       const { container, snapshot } = await mountFixture(kind);
@@ -382,6 +380,24 @@ describe("block components", () => {
       expect(empty).toEqual([]);
     },
   );
+
+  it("opens the selected call-tree frame's code", async () => {
+    const { container } = await mountFixture("call_stack_diff");
+    const tree = await settled(() =>
+      container.querySelector('nav[aria-label="Call tree"]'),
+    );
+    expect(tree).not.toBeNull();
+    const frames = tree!.querySelectorAll("button");
+    expect([...frames].map((frame) => frame.textContent)).toEqual([
+      "status = queued",
+    ]);
+    await act(async () => frames[0]!.click());
+    expect(
+      await settled(() =>
+        container.querySelector('.fixture-inline-editor[data-path="order.ts"]'),
+      ),
+    ).not.toBeNull();
+  });
 
   it("renders a trace quote whose trace fails to load as a placeholder, not an error", async () => {
     const { container } = await mountFixture("trace_quote", { trace: null });

@@ -1,20 +1,25 @@
-import { sourceAnchor } from "../../src/lens-selection";
 import { useState } from "react";
 
+import type { DiffSelection } from "../../src/lens-selection";
 import type { CallStackDiffBlock } from "../../src/review-api/blocks/call_stack_diff";
-import type { FileLineRange } from "../../src/source";
 import { type CallTreeStop, callTreeStops } from "./call-tree";
+import { DiagramHeader } from "./diagram-header";
+import { useReviewSession } from "./host/review-session";
 import { useReviewLenses } from "./review-lenses";
+import { useReviewPanel } from "./review-panel";
+import { captureUiEvent } from "./ui-telemetry";
 
 // Presentation retained from review-experimental's DiffWorkspace.
-export function LensCallTree({
+export function CallTree({
   block,
   onReveal,
+  requireReady = false,
 }: {
   block: CallStackDiffBlock;
-  onReveal(source: FileLineRange, sectionId?: string): void;
+  requireReady?: boolean;
+  onReveal(source: DiffSelection, sectionId?: string, anchorId?: string): void;
 }) {
-  const lenses = useReviewLenses()!;
+  const lenses = useReviewLenses();
   const stops = callTreeStops(block);
   const [active, setActive] = useState<string>();
 
@@ -33,22 +38,24 @@ export function LensCallTree({
     >
       <div className="review-call-tree">
         {stops.map((stop, index) => {
-          const availability = lenses.availability(stop.sources);
+          const availability = requireReady
+            ? lenses?.availability(stop.sources)
+            : "ready";
           const unavailable = availability !== "ready";
-          const stats = lenses.stats(lenses.resolve(stop.sources));
+          const stats = lenses?.stats(lenses.resolve(stop.sources));
 
           const change =
-            stats.total.additions && stats.total.deletions
+            stats?.total.additions && stats?.total.deletions
               ? "modified"
-              : stats.total.additions
+              : stats?.total.additions
                 ? "added"
-                : stats.total.deletions
+                : stats?.total.deletions
                   ? "removed"
                   : "unchanged";
 
           return (
             <div
-              className={`review-call-entry ${stats.state === "viewed" ? "is-viewed" : ""}`}
+              className={`review-call-entry ${stats?.state === "viewed" ? "is-viewed" : ""}`}
               key={stop.id}
             >
               <TreeConnectors
@@ -58,29 +65,44 @@ export function LensCallTree({
                   stops.findIndex((candidate) => candidate.id === stop.parentId)
                 }
                 onCallSite={() => {
-                  if (stop.callSite && lenses.availability([stop.callSite]) === "ready") onReveal(sourceAnchor(stop.callSite), stop.id);
+                  if (
+                    stop.callSite &&
+                    (!requireReady ||
+                      lenses?.availability([stop.callSite]) === "ready")
+                  )
+                    onReveal(stop.callSite, stop.id, stop.anchorId);
                 }}
               />
               <button
                 type="button"
                 disabled={unavailable}
+                style={{
+                  paddingLeft: 14 + (stop.depth + 1) * 16,
+                  opacity: unavailable ? 0.45 : undefined,
+                }}
                 className={`review-call-row review-call-row--${change}`}
+                data-review-anchor-id={stop.anchorId}
                 aria-current={stop.id === active ? "true" : undefined}
                 aria-label={`${stop.label}, ${change}`}
-                title={unavailable ? availability === "pending" ? "Waiting for diff…" : "Source unavailable at these pins" : [stop.label, stop.via].filter(Boolean).join(" · ")}
+                title={
+                  unavailable
+                    ? availability === "pending"
+                      ? "Waiting for diff…"
+                      : "Source unavailable at these pins"
+                    : [stop.label, stop.via].filter(Boolean).join(" · ")
+                }
                 onClick={() => {
                   setActive(stop.id);
-                  onReveal(
-                    sourceAnchor(stop.sources.find((source) => source.start.side === "head") ??
-                      stop.sources[0]),
-                    stop.id,
-                  );
+                  onReveal(stop.source, stop.id, stop.anchorId);
                 }}
-                style={{ paddingLeft: 14 + (stop.depth + 1) * 16, opacity: unavailable ? 0.45 : undefined }}
               >
                 <span className="review-call-name">{stop.label}</span>
-                {unavailable && <span className="review-lens-stats">{availability === "pending" ? "…" : "Unavailable"}</span>}
-                {!unavailable && change !== "unchanged" && (
+                {unavailable && (
+                  <span className="review-lens-stats">
+                    {availability === "pending" ? "…" : "Unavailable"}
+                  </span>
+                )}
+                {!unavailable && stats && change !== "unchanged" && (
                   <span
                     className="review-lens-stats"
                     title={`Remaining +${stats.remaining.additions} −${stats.remaining.deletions} · Total +${stats.total.additions} −${stats.total.deletions}`}
@@ -176,5 +198,37 @@ function TreeConnectors({
         ) : null}
       </g>
     </svg>
+  );
+}
+
+/** Document host: the same tree, with source peeks instead of diff navigation. */
+export function DocumentCallTree({ block }: { block: CallStackDiffBlock }) {
+  const session = useReviewSession();
+  const openPeek = useReviewPanel((state) => state.openPeek);
+  return (
+    <figure
+      className="review-document-call-tree"
+      data-review-call-stack="ready"
+    >
+      <DiagramHeader kind="Call tree" title={block.title ?? "Call tree"} />
+      <CallTree
+        block={block}
+        onReveal={(source, sectionId, anchorId) => {
+          captureUiEvent(session, "peek_opened", { via: "call_stack_frame" });
+          const stop = callTreeStops(block).find(
+            (stop) => stop.id === sectionId,
+          )!;
+          openPeek({
+            kind: "peek",
+            anchor: {
+              id: anchorId ?? sectionId!,
+              title: stop.label,
+              peek: source,
+            },
+            content: { kind: "source", source },
+          });
+        }}
+      />
+    </figure>
   );
 }

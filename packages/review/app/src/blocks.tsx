@@ -9,7 +9,7 @@ import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
 import { SectionAuthoringProgress } from "./authoring-activity";
 import { blockSectionSummary } from "./block-document-derivations";
-import { CallStackDiff } from "./call-stack-diff";
+import { DocumentCallTree } from "./call-tree-view";
 import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
 import { DatabaseLens } from "./database-lens";
@@ -145,7 +145,7 @@ function SequenceBlock({ node }: BlockProps<"sequence">) {
 }
 
 function CallStackDiffBlock({ node }: BlockProps<"call_stack_diff">) {
-  return <CallStackDiff title={node.title} base={node.base} head={node.head} />;
+  return <DocumentCallTree block={node} />;
 }
 
 function DatabaseLensBlock({ node }: BlockProps<"database_lens">) {

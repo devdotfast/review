@@ -15,6 +15,7 @@ import {
   type ReviewServerDiscovery,
   reviewServerDiscoveryPath,
 } from "../server-discovery.js";
+import { mountSharingPublisher } from "../sharing/host.js";
 import {
   type ReviewHonoEnv,
   createNodeRequestListener,
@@ -77,20 +78,21 @@ async function serve(input: HeadlessServerInput) {
   app.get("/health", (context) =>
     context.json({ ok: true, instanceId: discovery.instanceId }),
   );
-  app.route(
-    "/reviews-api",
-    createReviewApi(
-      local.store,
-      local.data,
-      undefined,
-      undefined,
-      () => ({
-        desktopAvailable: false,
-        softwareMapEnabled: input.softwareMapEnabled ?? false,
-      }),
-      input.authoringMode,
-    ),
+
+  const api = createReviewApi(
+    local.store,
+    local.data,
+    undefined,
+    undefined,
+    () => ({
+      desktopAvailable: false,
+      softwareMapEnabled: input.softwareMapEnabled ?? false,
+    }),
+    input.authoringMode,
   );
+
+  mountSharingPublisher(api, local.store, local.data);
+  app.route("/reviews-api", api);
 
   const server = createServer(createNodeRequestListener(app));
   let published = false;

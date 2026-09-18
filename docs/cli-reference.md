@@ -216,13 +216,13 @@ permissions. `dev-traces login` keeps its trace-oriented repository login.
 ### Sharing a review
 
 ```sh
-review share --review <id> [--version <number>] [--json]
+review share --review <id> [--version <number>] [--request-id <uuid>] [--json]
 review share revoke <share-id> [--json]
 ```
 
 The local Review host must be running. Sharing uploads one immutable saved
 version; an omitted version is resolved once when the request starts. The result
-contains `shareId`, `version`, and `url`. Running Share again creates a new link.
+contains `shareId`, `version`, and `url`. Running Share again creates a new link unless the same `--request-id` is reused with the same review/version.
 Recipients do not need a Review account. They do need Git access to the GitHub
 repository. Open the link in Review Desktop, or use **Open Shared Review** in
 the command palette. The app downloads the review and fetches its exact base
@@ -246,9 +246,18 @@ Revocation stops new downloads. Already-issued object URLs may work for up to
 five minutes, and saved copies remain readable. Branch movement and later
 edits do not change a published snapshot.
 
-The exporter, importer and hosted client are available from
-`@dev.fast/review/sharing` for a future standalone host. Shipping a headless host
-is separate from this change.
+`review server start` supports publishing without Desktop. The CLI selects the
+same server/profile as `review api`, including `--state-dir`. CI can supply
+`DEV_REVIEW_SHARE_TOKEN` instead of a saved `review login`; optional
+`DEV_REVIEW_SHARE_ORIGIN` selects its bare HTTPS service origin. Environment
+credentials are not written to the profile. Git credentials are still needed
+for the verification fetch.
+
+Use the [author-and-share action](../actions/author-and-share/README.md) to run
+your own agent, upload the committed version, and update one PR comment with
+the link. It exposes URL, review ID, version and share ID as outputs.
+The exporter, importer and hosted client remain available from
+`@dev.fast/review/sharing` for other hosts.
 
 Review stores traces in one selected place per machine: an **s3** store (an
 S3-compatible bucket you own, R2 included) or the **hosted** store at

@@ -14,6 +14,7 @@ const resultSchema = z.strictObject({
 export async function runShareCli(input: {
   review?: string;
   version?: string;
+  requestId?: string;
   revoke?: string;
   json?: boolean;
   env?: NodeJS.ProcessEnv;
@@ -49,7 +50,10 @@ export async function runShareCli(input: {
         await client.post("/sharing/publish", {
           reviewId: input.review,
           version,
-          requestId: randomUUID(),
+          requestId:
+            input.requestId === undefined
+              ? randomUUID()
+              : z.uuid().parse(input.requestId),
         }),
       );
 

@@ -55,6 +55,12 @@ import {
   type ReviewTelemetryErrorCategory,
   type ReviewTelemetryErrorName,
 } from "./review-telemetry";
+import {
+  readReviewServerDiscovery,
+  reviewServerIsHealthy,
+  reviewServerStateDir,
+  serverNotReady,
+} from "./server-discovery";
 import { setTraceAttribute, span } from "./startup-trace";
 import {
   runTraceBlame,
@@ -210,7 +216,124 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   // trailing one. Never give this a .default(): optsWithGlobals merges globals
   // over locals, so a default would clobber a subcommand's own true.
   program.addOption(new Option("--json").hideHelp());
+  program.option(
+    "--state-dir <path>",
+    "select headless Review state for server, api, and mcp",
+  );
   program.exitOverride();
+
+  const authoringEnv = (
+    stateDir = program.opts<{ stateDir?: string }>().stateDir,
+  ) =>
+    stateDir
+      ? { ...env, DEV_REVIEW_SERVER_DIR: path.resolve(cwd, stateDir) }
+      : env;
+
+  const serverCommand = configureOutput(
+    program
+      .command("server")
+      .description("Run Review authoring without Desktop"),
+    "plain",
+  );
+
+  configureJsonOutput(
+    serverCommand
+      .command("start")
+      .description(
+        "Start the foreground authoring server; stop with Ctrl-C or SIGTERM",
+      )
+      .option(
+        "--state-dir <path>",
+        "directory for saved reviews and server discovery",
+      )
+      .option(
+        "--port <port>",
+        "loopback port (0 chooses an available port)",
+        "0",
+      )
+      .option(
+        "--authoring-mode <mode>",
+        "authoring workflow: interactive or batch",
+        "interactive",
+      )
+      .option(
+        "--software-maps",
+        "allow the authoring skill to generate optional software maps",
+      ),
+    "plain",
+  ).action(async (_options, command: Command) => {
+    const options = command.optsWithGlobals<{
+      stateDir?: string;
+      port: string;
+      softwareMaps?: boolean;
+      authoringMode: string;
+      json?: boolean;
+    }>();
+
+    if (
+      options.authoringMode !== "interactive" &&
+      options.authoringMode !== "batch"
+    )
+      throw new Error("--authoring-mode must be interactive or batch.");
+    const port = Number(options.port);
+
+    if (!Number.isInteger(port) || port < 0 || port > 65535)
+      throw new Error("--port must be an integer between 0 and 65535.");
+    const stateDir = reviewServerStateDir(authoringEnv(options.stateDir));
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+
+    try {
+      const { runHeadlessServer } = await import("./server/headless-host.js");
+      await runHeadlessServer({
+        stateDir,
+        port,
+        softwareMapEnabled: options.softwareMaps,
+        authoringMode: options.authoringMode,
+        signal: controller.signal,
+        onReady: ({ url, serverPid }) => {
+          input.stdout.write(
+            options.json
+              ? `${JSON.stringify({ event: "server.ready", url, serverPid, stateDir })}\n`
+              : `Review server ready at ${url}\nSaved reviews: ${stateDir}\n`,
+          );
+        },
+      });
+    } finally {
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+    }
+  });
+
+  configureJsonOutput(
+    serverCommand
+      .command("status")
+      .description("Check whether the headless server is ready")
+      .option(
+        "--state-dir <path>",
+        "directory selected when starting the server",
+      ),
+    "plain",
+  ).action(async (_options, command: Command) => {
+    const options = command.optsWithGlobals<{
+      stateDir?: string;
+      json?: boolean;
+    }>();
+
+    const stateDir = reviewServerStateDir(authoringEnv(options.stateDir));
+    const discovery = await readReviewServerDiscovery(stateDir);
+
+    if (!discovery || !(await reviewServerIsHealthy(discovery)))
+      throw serverNotReady(stateDir);
+    const { url, serverPid } = discovery;
+    input.stdout.write(
+      options.json
+        ? `${JSON.stringify({ event: "server.status", ready: true, url, serverPid, stateDir })}\n`
+        : `Review server ready at ${url}\nSaved reviews: ${stateDir}\n`,
+    );
+  });
 
   configureJsonOutput(
     program
@@ -635,7 +758,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   // share the top-level help, the leading `--json` form, and the telemetry
   // hooks without a separate parser.
   for (const [name, description] of [
-    ["api", "Call a JSON Review authoring tool on the running Desktop"],
+    ["api", "Call a JSON Review authoring tool on the running server"],
     ["mcp", "Serve the JSON Review authoring tools over stdio MCP"],
   ] as const) {
     configureOutput(
@@ -653,6 +776,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       const { runReviewAgentCli } = await import("./review-api/agent-cli.js");
       state.exitCode = await runReviewAgentCli({
         ...input,
+        env: authoringEnv(),
         argv: [name, ...args],
       });
     });
@@ -860,6 +984,7 @@ function reviewTopLevelHelp(): string {
     "Use `review info` to discover Review documents for this checkout.",
     "Reviews are authored through the JSON API: `review api tools` lists the tools, and `review mcp` serves the same catalog to an agent.",
     "Use `review app launch` to start Review Desktop. Use `review app pick --review <uuid>` to open one.",
+    "Use `review server start` for headless authoring, and `review server status --json` to check readiness.",
     "Use `--view <review|commits|diff|map|trace>` with `review app pick` to choose the opened tab.",
     "",
     "Every command accepts --json. Stdout then carries only JSON events, one per line,",

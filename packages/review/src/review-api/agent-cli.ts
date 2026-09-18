@@ -15,7 +15,7 @@ interface AgentCliInput {
 }
 
 export const reviewAgentCliHelp =
-  "review api tools\nreview api <tool-name> '<json>'\nreview api <tool-name> -  (read JSON from stdin)\nreview mcp  (stdio MCP adapter; Desktop must be running)\n";
+  "review api tools\nreview api <tool-name> '<json>'\nreview api <tool-name> -  (read JSON from stdin)\nreview mcp  (stdio MCP adapter; Review Desktop or review server start must be running)\nSelect headless state with DEV_REVIEW_SERVER_DIR or review --state-dir <path> api/mcp.\n";
 
 export async function runReviewAgentCli(input: AgentCliInput): Promise<number> {
   try {

@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 
 import { mkdir } from "node:fs/promises";
-import path from "node:path";
 
 import { findReviewPackageRoot } from "../package-paths";
-import { openLocalReviewStore } from "../review-api/local-data";
+import { openReviewProfile } from "../review-api/profile";
 import { ensureBundledRustAnalyzer } from "../review-bundled-tools";
 import { devReviewHome } from "../review-home-paths";
-import { ensureJsonCutover } from "../review-import/json-cutover";
 import { ReviewTelemetry } from "../review-telemetry";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
@@ -59,15 +57,15 @@ export async function runDesktopHost(
     5_000,
   );
 
-  try {
-    await ensureJsonCutover(home, migrationProgress);
-  } finally {
+  const local = await openReviewProfile(home, {
+    manageWorkspaces: true,
+    log: migrationProgress,
+  }).finally(() => {
     clearInterval(heartbeat);
-  }
+  });
 
   // JSON is the sole user-review store. A failure is surfaced, never replaced
   // by a second catalog or an old document renderer.
-  const local = openLocalReviewStore(path.join(home, "review-api.db"));
 
   const server = createGlobalReviewServer({
     ...serverInput,

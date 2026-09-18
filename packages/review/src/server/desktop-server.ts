@@ -161,16 +161,38 @@ export function createGlobalReviewServer(
 
   app.route(
     "/reviews-api",
-    createReviewApi(input.reviewStore, input.reviewData, async (review) => {
-      const result = await relay.dispatch({
-        name: "openApiReview",
-        args: review,
-      });
+    createReviewApi(
+      input.reviewStore,
+      input.reviewData,
+      async (review) => {
+        const result = await relay.dispatch({
+          name: "openApiReview",
+          args: review,
+        });
 
-      if (!result.ok) throw new ReviewInputError(result.error, 409);
+        if (!result.ok) throw new ReviewInputError(result.error, 409);
 
-      return z.object({ softwareMapEnabled: z.boolean() }).parse(result.result);
-    }),
+        return z
+          .object({ softwareMapEnabled: z.boolean() })
+          .parse(result.result);
+      },
+      async () => {
+        if (!relay.attached)
+          return { desktopAvailable: false, softwareMapEnabled: false };
+
+        const result = await relay.dispatch({
+          name: "authoringCapabilities",
+          args: {},
+        });
+
+        if (!result.ok) throw new ReviewInputError(result.error, 409);
+
+        return {
+          desktopAvailable: true,
+          ...z.object({ softwareMapEnabled: z.boolean() }).parse(result.result),
+        };
+      },
+    ),
   );
   app.post("/app/focus", async () => {
     const result = await relay.dispatch({

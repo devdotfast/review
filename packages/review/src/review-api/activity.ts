@@ -1,3 +1,5 @@
+import type { DatabaseSync } from "node:sqlite";
+
 import { z } from "zod";
 
 import { ReviewInputError } from "./document.js";
@@ -19,22 +21,28 @@ export interface ActivitySnapshot {
   focuses?: z.infer<typeof focusSchema>[];
 }
 
-// Reported activity expires after a minute without a renewal. This is not a write lock.
+// The author owns the review until end or a minute without renewal.
 export const ACTIVITY_TTL_MS = 60_000;
 
 export class ReviewActivity {
-  private readonly reviews = new Map<
-    string,
-    Map<
-      string,
-      {
-        expiresAt: number;
-        timer: ReturnType<typeof setTimeout>;
-        focus?: z.infer<typeof focusSchema>;
-      }
-    >
-  >();
+  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly listeners = new Set<(reviewId: string) => void>();
+
+  constructor(
+    private readonly db: DatabaseSync,
+    private readonly assertReview?: (reviewId: string) => void,
+    private readonly assertAvailable?: (reviewId: string) => void,
+  ) {
+    db.exec(`CREATE TABLE IF NOT EXISTS authoring_sessions(
+      review_id TEXT PRIMARY KEY, lease_id TEXT NOT NULL,
+      expires_at INTEGER NOT NULL, focus TEXT
+    )`);
+
+    for (const row of db
+      .prepare("SELECT review_id FROM authoring_sessions WHERE expires_at>?")
+      .all(Date.now()))
+      this.scheduleExpiry(String(row.review_id));
+  }
   subscribe(listener: (reviewId: string) => void) {
     this.listeners.add(listener);
 
@@ -42,76 +50,145 @@ export class ReviewActivity {
       this.listeners.delete(listener);
     };
   }
-  // Liveness follows the expiry timer alone. Timers pause with the system clock
-  // during sleep, so comparing expiresAt against Date.now() here would let
-  // read() and the notified stream disagree until the timer fires.
-  read(reviewId: string): ActivitySnapshot {
-    const active = [...(this.reviews.get(reviewId)?.values() ?? [])];
+  private active(reviewId: string) {
+    return this.db
+      .prepare(
+        "SELECT lease_id,expires_at,focus FROM authoring_sessions WHERE review_id=? AND expires_at>?",
+      )
+      .get(reviewId, Date.now());
+  }
 
-    const focuses = active.flatMap((lease) =>
-      lease.focus ? [lease.focus] : [],
-    );
+  read(reviewId: string): ActivitySnapshot {
+    const active = this.active(reviewId);
 
     const snapshot: ActivitySnapshot = {
-      workingCount: active.length,
-      expiresAt: active.length
-        ? Math.max(...active.map((lease) => lease.expiresAt))
-        : null,
+      workingCount: active ? 1 : 0,
+      expiresAt: active ? Number(active.expires_at) : null,
     };
 
-    if (focuses.length) snapshot.focuses = focuses;
+    if (active?.focus)
+      snapshot.focuses = [focusSchema.parse(JSON.parse(String(active.focus)))];
 
     return snapshot;
+  }
+
+  /** Recheck inside the write transaction as validation may outlive the lease. */
+  assertWrite(reviewId: string, leaseId?: string) {
+    const active = this.active(reviewId);
+
+    if (active && active.lease_id !== leaseId)
+      throw new ReviewInputError(
+        "This review is being authored by another session. Wait for it to finish or expire, then begin your own session.",
+        409,
+      );
+
+    if (leaseId && !active)
+      throw new ReviewInputError(
+        "Authoring session ended or expired. Begin a new session and reread the review before editing.",
+        409,
+      );
   }
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Activity boundary: activitySchema.parse below validates incoming JSON.
   update(reviewId: string, value: unknown) {
     const { action, leaseId, focus } = activitySchema.parse(value);
-    const leases = this.reviews.get(reviewId) ?? new Map();
-    const previous = leases.get(leaseId);
+    this.db.exec("BEGIN IMMEDIATE");
 
-    if (action === "renew" && !previous)
-      throw new ReviewInputError(
-        "Authoring activity expired. Begin a new session.",
-        404,
-      );
+    try {
+      this.assertReview?.(reviewId);
 
-    if (previous) clearTimeout(previous.timer);
+      if (action !== "end") this.assertAvailable?.(reviewId);
+      const previous = this.active(reviewId);
 
-    if (action === "end") {
-      leases.delete(leaseId);
-    } else {
-      const expiresAt = Date.now() + ACTIVITY_TTL_MS;
+      if (action === "end") {
+        // Repeated end and attempts to end somebody else's session are harmless.
+        this.db
+          .prepare(
+            "DELETE FROM authoring_sessions WHERE review_id=? AND lease_id=?",
+          )
+          .run(reviewId, leaseId);
+      } else {
+        if (previous && previous.lease_id !== leaseId)
+          this.assertWrite(reviewId, leaseId);
 
-      const timer = setTimeout(
-        () => this.update(reviewId, { action: "end", leaseId }),
-        ACTIVITY_TTL_MS,
-      );
+        if (action === "renew" && !previous)
+          throw new ReviewInputError(
+            "Authoring session expired. Begin a new session.",
+            409,
+          );
 
-      timer.unref?.();
-      leases.set(leaseId, {
-        expiresAt,
-        timer,
-        focus: focus === undefined ? previous?.focus : (focus ?? undefined),
-      });
+        const savedFocus =
+          focus === undefined
+            ? (previous?.focus ?? null)
+            : focus === null
+              ? null
+              : JSON.stringify(focus);
+
+        this.db
+          .prepare(`INSERT INTO authoring_sessions VALUES(?,?,?,?)
+          ON CONFLICT(review_id) DO UPDATE SET lease_id=excluded.lease_id,expires_at=excluded.expires_at,focus=excluded.focus`)
+          .run(reviewId, leaseId, Date.now() + ACTIVITY_TTL_MS, savedFocus);
+      }
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
     }
 
-    if (leases.size) this.reviews.set(reviewId, leases);
-    else this.reviews.delete(reviewId);
+    this.scheduleExpiry(reviewId);
 
     for (const notify of this.listeners) notify(reviewId);
 
     return this.read(reviewId);
   }
-  remove(reviewId: string) {
-    for (const lease of this.reviews.get(reviewId)?.values() ?? [])
-      clearTimeout(lease.timer);
-    this.reviews.delete(reviewId);
+
+  private scheduleExpiry(reviewId: string) {
+    clearTimeout(this.timers.get(reviewId));
+    this.timers.delete(reviewId);
+    const active = this.active(reviewId);
+
+    if (!active) return;
+
+    const timer = setTimeout(
+      () => {
+        this.scheduleExpiry(reviewId);
+
+        for (const notify of this.listeners) notify(reviewId);
+      },
+      Math.max(1, Number(active.expires_at) - Date.now()),
+    );
+
+    timer.unref?.();
+    this.timers.set(reviewId, timer);
+  }
+
+  /** Called when another database connection commits session changes. */
+  refresh() {
+    const ids = new Set(this.timers.keys());
+
+    for (const row of this.db
+      .prepare("SELECT review_id FROM authoring_sessions WHERE expires_at>?")
+      .all(Date.now()))
+      ids.add(String(row.review_id));
+
+    for (const id of ids) {
+      this.scheduleExpiry(id);
+
+      for (const notify of this.listeners) notify(id);
+    }
+  }
+
+  /** The store deletes the session atomically with its review before notifying. */
+  deleted(reviewId: string) {
+    clearTimeout(this.timers.get(reviewId));
+    this.timers.delete(reviewId);
 
     for (const notify of this.listeners) notify(reviewId);
   }
   close() {
     this.listeners.clear();
 
-    for (const reviewId of this.reviews.keys()) this.remove(reviewId);
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
   }
 }

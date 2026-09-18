@@ -5,6 +5,7 @@ import type { Writable } from "node:stream";
 import {
   type CliInputStream,
   DEFAULT_STORE_ORIGIN,
+  type RegisterTraceCommandsOptions,
   type TraceCommand,
   type TraceCommandRuntime,
   type TraceListCommandInput,
@@ -16,6 +17,7 @@ import {
   humanStream,
   jsonRequestedInArgv,
   registerTraceCommands,
+  registerTraceHookCommands,
   runStoreLogin,
   runStoreLogout,
   runStoreWhoami,
@@ -458,7 +460,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     return command;
   };
 
-  registerTraceCommands(program, {
+  const traceOptions: RegisterTraceCommandsOptions = {
     runtime: traceRuntime,
     cliName: CLI_NAME,
     reads: "repository",
@@ -478,7 +480,9 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     // `install` is the machine setup of this CLI: the command file first, then
     // the harness hooks that call it.
     installMachine: ({ json }) => hookTraceCommand(json),
-  });
+  };
+
+  registerTraceCommands(program, traceOptions);
 
   // A standalone-only option and clause on a shared command: the copy and the
   // command file belong to this CLI, not to the harness hooks.
@@ -498,45 +502,13 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     );
   }
 
-  // The harness hook installers write `<command> trace hook <Event>` and the
-  // Git hooks write `<command> trace git-hook <hook>`, so the standalone keeps
-  // a hidden `trace` group for those two entry points. The shared builder puts
-  // them on the root as well, where they stay hidden.
+  // The harness hooks and the Git hooks call `<command> trace <entry>`, so the
+  // standalone mirrors the root's entry points under a hidden `trace` group.
   const trace = configureOutput(
     program.command("trace", { hidden: true }).description("Hook entry points"),
   );
 
-  configureOutput(
-    trace
-      .command("hook <event>", { hidden: true })
-      .description(`Handle ${CLI_NAME} agent session lifecycle hooks`)
-      .option("--session <id>", "Agent session ID"),
-  ).action(async (event: string, options: { session?: string }) => {
-    state.exitCode = await runtime.runTraceHook({
-      scope,
-      cwd,
-      event,
-      sessionId: options.session,
-      stdin: input.stdin,
-      traceCommand: startupCommand,
-    });
-  });
-
-  configureOutput(
-    trace
-      .command("git-hook <hook> [args...]", { hidden: true })
-      .description("Run a package-owned Git trace hook"),
-  ).action(async (hook: string, args: string[]) => {
-    state.exitCode = await runtime.runTraceGitHook({
-      scope,
-      cwd,
-      hook,
-      args,
-      stdin: input.stdin,
-      stderr: input.stderr,
-      traceCommand: startupCommand,
-    });
-  });
+  registerTraceHookCommands(trace, traceOptions);
 
   program.hook("preAction", (_program, actionCommand) => {
     // The parsed option is authoritative once parsing succeeds. The argv scan

@@ -2,6 +2,7 @@ import type { Writable } from "node:stream";
 
 import type { Command } from "commander";
 
+import type { TraceHookOwner } from "./agent-trace-hooks";
 import type { CliInputStream, CliJsonOutput } from "./cli-output";
 import type {
   runTraceDisable,
@@ -72,7 +73,7 @@ export interface TraceCommandRuntime {
 
 export interface RegisterTraceCommandsOptions {
   runtime: TraceCommandRuntime;
-  cliName: string;
+  cliName: TraceHookOwner;
   /** "review" adds `--review <uuid>`; "repository" makes `--commit` required on list. */
   reads: "review" | "repository";
   /** Adds `--storage <mode>` to the read commands. */

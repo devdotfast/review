@@ -70,7 +70,7 @@ export async function runReviewAppPick(
       );
     const root = await runtime.resolveReviewRoot(input.cwd);
 
-    const reviews = (await client.read<ReviewApiSummary[]>("/"))
+    const reviews = (await client.read<ReviewApiSummary[]>(""))
       .filter((review) => review.repositoryPath === root && !review.dismissedAt)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 

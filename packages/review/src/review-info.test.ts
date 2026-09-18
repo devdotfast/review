@@ -52,3 +52,29 @@ it("reports the native catalog with pins and versions, filtering the current rep
     runReviewInfo({ cwd: "/repo", reviewUuid: "missing" }, runtime),
   ).rejects.toThrow("Review not found");
 });
+
+it("lists the catalog at the mounted route, not a trailing-slash child", async () => {
+  const review = {
+    reviewId: "current",
+    repositoryPath: "/repo",
+    version: 3,
+    pins: { base: "a", head: "b" },
+    dismissedAt: null,
+  };
+
+  // Hono matches the "/reviews-api" mount strictly, so "/reviews-api/" 404s.
+  const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+    String(url) === "http://127.0.0.1:5570/reviews-api"
+      ? Response.json([review])
+      : Response.json({ error: "Not found." }, { status: 404 }),
+  );
+
+  vi.stubGlobal("fetch", fetch);
+
+  expect((await runReviewInfo({ cwd: "/repo" }, runtime)).reviews).toEqual([
+    review,
+  ]);
+  expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+    "http://127.0.0.1:5570/reviews-api",
+  ]);
+});

@@ -256,11 +256,27 @@ export class MainReviewTitlebarPart extends ReviewTitlebarPart {
 		});
 	}
 
+	private readonly _onDidChangeChromeInsets = this._register(new Emitter<void>());
+	readonly onDidChangeChromeInsets = this._onDidChangeChromeInsets.event;
+
+	/** Left and right window-chrome cluster widths, in CSS pixels. */
+	readonly chromeInsets = { left: 0, right: 0 };
+
 	protected override createContentArea(parent: HTMLElement): HTMLElement {
 		const element = super.createContentArea(parent);
+		// Written on this part, never the workbench root; see
+		// `publishReviewChromeInset` for why.
 		const updateChromeWidths = () => {
-			this.layoutService.mainContainer.style.setProperty('--review-chrome-left-width', `${this.leftContainer.getBoundingClientRect().width}px`);
-			this.layoutService.mainContainer.style.setProperty('--review-chrome-right-width', `${this.rightContainer.getBoundingClientRect().width}px`);
+			const left = this.leftContainer.getBoundingClientRect().width;
+			const right = this.rightContainer.getBoundingClientRect().width;
+			if (left === this.chromeInsets.left && right === this.chromeInsets.right) {
+				return;
+			}
+			this.chromeInsets.left = left;
+			this.chromeInsets.right = right;
+			this.element.style.setProperty('--review-chrome-left-width', `${left}px`);
+			this.element.style.setProperty('--review-chrome-right-width', `${right}px`);
+			this._onDidChangeChromeInsets.fire();
 		};
 		const observer = new ResizeObserver(updateChromeWidths);
 		observer.observe(this.leftContainer);

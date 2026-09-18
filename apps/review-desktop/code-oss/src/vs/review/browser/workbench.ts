@@ -61,7 +61,7 @@ import { NotificationsToasts } from '../../workbench/browser/parts/notifications
 import { IMarkdownRendererService } from '../../platform/markdown/browser/markdownRenderer.js';
 import { EditorMarkdownCodeBlockRenderer } from '../../editor/browser/widget/markdownRenderer/browser/editorMarkdownCodeBlockRenderer.js';
 import { SyncDescriptor } from '../../platform/instantiation/common/descriptors.js';
-import { ReviewTitleService } from './parts/reviewTitlebarPart.js';
+import { MainReviewTitlebarPart, ReviewTitleService } from './parts/reviewTitlebarPart.js';
 import { IContextKeyService, RawContextKey } from '../../platform/contextkey/common/contextkey.js';
 import { IsReviewWindowContext } from '../../workbench/common/contextkeys.js';
 import {
@@ -149,6 +149,8 @@ export interface IAgentWorkbenchLayoutService extends IWorkbenchLayoutService {
 
 export const IAgentWorkbenchLayoutService = refineServiceDecorator<IWorkbenchLayoutService, IAgentWorkbenchLayoutService>(IWorkbenchLayoutService);
 
+
+const REVIEW_CHROME_INSET_PROPERTIES = ['--review-chrome-left-width', '--review-chrome-right-width', '--review-explorer-width'] as const;
 export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayoutService {
 
 	declare readonly _serviceBrand: undefined;
@@ -943,6 +945,10 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 
 		const editorMainPart = this.editorGroupService.mainPart;
 		this._register(editorMainPart.onDidLayout(() => this.reviewChromeInsetScheduler.schedule()));
+		const titlebarPart = this.getPart(Parts.TITLEBAR_PART);
+		if (titlebarPart instanceof MainReviewTitlebarPart) {
+			this._register(titlebarPart.onDidChangeChromeInsets(() => this.reviewChromeInsetScheduler.schedule()));
+		}
 		this._register(editorMainPart.onDidAddGroup(() => this.reviewChromeInsetScheduler.schedule()));
 		this._register(editorMainPart.onDidRemoveGroup(() => this.reviewChromeInsetScheduler.schedule()));
 		this._register(editorMainPart.onDidMoveGroup(() => this.reviewChromeInsetScheduler.schedule()));
@@ -1139,11 +1145,29 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 		}
 	}
 
+	/**
+	 * Written on the tab strip that reads them, not the workbench root: a
+	 * changed inherited custom property restyles every element below it, and
+	 * with a canvas full of peek editors that was a ~200ms stall per explorer
+	 * show, hide or sash move.
+	 */
+	private publishReviewChromeInset(tabStrip: HTMLElement): void {
+		const titlebarPart = this.getPart(Parts.TITLEBAR_PART);
+		const insets = titlebarPart instanceof MainReviewTitlebarPart ? titlebarPart.chromeInsets : { left: 0, right: 0 };
+		const explorerWidth = this.isVisible(Parts.REVIEW_EXPLORER_PART) ? this.getSize(Parts.REVIEW_EXPLORER_PART).width : 0;
+		tabStrip.style.setProperty('--review-chrome-left-width', `${insets.left}px`);
+		tabStrip.style.setProperty('--review-chrome-right-width', `${insets.right}px`);
+		tabStrip.style.setProperty('--review-explorer-width', `${explorerWidth}px`);
+	}
+
 	private updateReviewChromeInset(): void {
 		this.reviewChromeDragListeners.clear();
 		this.mainContainer.classList.remove('review-tab-dragging');
 		for (const tabStrip of this.reviewChromeTabStrips) {
 			tabStrip.classList.remove('review-chrome-tab-strip', 'review-chrome-inset');
+			for (const property of REVIEW_CHROME_INSET_PROPERTIES) {
+				tabStrip.style.removeProperty(property);
+			}
 		}
 		this.reviewChromeTabStrips.length = 0;
 
@@ -1197,6 +1221,7 @@ export class ReviewWorkbench extends Disposable implements IAgentWorkbenchLayout
 			tabStrip.classList.add('review-chrome-tab-strip');
 			if (group === topLeftGroup) {
 				tabStrip.classList.add('review-chrome-inset');
+				this.publishReviewChromeInset(tabStrip);
 			}
 			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragstart', () => this.mainContainer.classList.add('review-tab-dragging')));
 			this.reviewChromeDragListeners.add(addDisposableListener(tabStrip, 'dragend', finishTabDrag));

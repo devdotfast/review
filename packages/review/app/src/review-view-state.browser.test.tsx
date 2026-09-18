@@ -1,4 +1,10 @@
-import { type RefObject, act, createElement, useRef } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  act,
+  createElement,
+  useRef,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,12 +35,15 @@ let frames = new Map<number, FrameRequestCallback>();
 
 let resizeObservers = new Set<{ trigger(): void; disconnect(): void }>();
 
+let observedElements = new Set<Element>();
+
 beforeEach(() => {
   vi.useFakeTimers();
   window.localStorage.clear();
   nextFrame = 1;
   frames = new Map();
   resizeObservers = new Set();
+  observedElements = new Set();
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     const frame = nextFrame;
     nextFrame += 1;
@@ -50,7 +59,9 @@ beforeEach(() => {
     constructor(private readonly callback: ResizeObserverCallback) {
       resizeObservers.add(this);
     }
-    observe(): void {}
+    observe(target: Element): void {
+      observedElements.add(target);
+    }
     unobserve(): void {}
     disconnect(): void {
       resizeObservers.delete(this);
@@ -158,6 +169,40 @@ describe("review view state", () => {
 
     expect(harness.element.scrollTop).toBe(320);
     expect(resizeObservers.size).toBe(0);
+  });
+
+  it("watches the region's laid-out children for growth, not every descendant", () => {
+    const session = testReviewSession();
+    storeState(session, { scrollTop: 320 });
+
+    const harness = renderViewState({
+      session,
+      metrics: { scrollHeight: 200, clientHeight: 200 },
+      children: [
+        createElement(
+          "div",
+          { key: "view", style: { display: "contents" } },
+          createElement("nav", null, "toc"),
+          createElement(
+            "article",
+            null,
+            createElement("section", null, createElement("p", null, "peek")),
+          ),
+        ),
+        createElement("aside", { key: "aside" }, "panel"),
+      ],
+    });
+
+    const region = harness.element;
+
+    expect(observedElements).toEqual(
+      new Set([
+        region,
+        region.querySelector("nav")!,
+        region.querySelector("article")!,
+        region.querySelector("aside")!,
+      ]),
+    );
   });
 
   it("does not persist an intermediate programmatic scroll during restoration", () => {
@@ -369,10 +414,12 @@ function renderViewState({
   session,
   store = createReviewPanelStore(),
   metrics = { scrollHeight: 1_000, clientHeight: 200 },
+  children,
 }: {
   session: TestReviewSession;
   store?: ReturnType<typeof createReviewPanelStore>;
   metrics?: { scrollHeight: number; clientHeight: number };
+  children?: ReactNode;
 }) {
   const container = document.createElement("div");
   document.body.append(container);
@@ -389,7 +436,9 @@ function renderViewState({
             captureElement={(value: HTMLDivElement) => {
               element = value;
             }}
-          />
+          >
+            {children}
+          </ViewStateHarness>
         </ReviewSessionProvider>,
       );
     });
@@ -432,10 +481,12 @@ function ViewStateHarness({
   store,
   metrics,
   captureElement,
+  children,
 }: {
   store: ReturnType<typeof createReviewPanelStore>;
   metrics: { scrollHeight: number; clientHeight: number };
   captureElement(element: HTMLDivElement): void;
+  children?: ReactNode;
 }) {
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
   const scrollTop = useRef(0);
@@ -444,32 +495,36 @@ function ViewStateHarness({
     panelStore: store,
   });
 
-  return createElement("div", {
-    ref: (element: HTMLDivElement | null) => {
-      scrollRegionRef.current = element;
+  return createElement(
+    "div",
+    {
+      ref: (element: HTMLDivElement | null) => {
+        scrollRegionRef.current = element;
 
-      if (!element) return;
-      Object.defineProperties(element, {
-        scrollTop: {
-          configurable: true,
-          get: () => scrollTop.current,
-          set: (value: number) => {
-            scrollTop.current = value;
+        if (!element) return;
+        Object.defineProperties(element, {
+          scrollTop: {
+            configurable: true,
+            get: () => scrollTop.current,
+            set: (value: number) => {
+              scrollTop.current = value;
+            },
           },
-        },
-        scrollHeight: {
-          configurable: true,
-          get: () => metrics.scrollHeight,
-        },
-        clientHeight: {
-          configurable: true,
-          get: () => metrics.clientHeight,
-        },
-      });
-      captureElement(element);
+          scrollHeight: {
+            configurable: true,
+            get: () => metrics.scrollHeight,
+          },
+          clientHeight: {
+            configurable: true,
+            get: () => metrics.clientHeight,
+          },
+        });
+        captureElement(element);
+      },
+      tabIndex: -1,
     },
-    tabIndex: -1,
-  });
+    children,
+  );
 }
 
 function storeState(

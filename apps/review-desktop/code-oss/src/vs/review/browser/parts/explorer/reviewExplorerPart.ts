@@ -256,7 +256,7 @@ export class ReviewExplorerPart extends Part {
 	protected override createContentArea(parent: HTMLElement): HTMLElement {
 		// Publish the chrome row height so review.css sizes the spacer from the same
 		// constant this part lays the tree out with, rather than a second literal.
-		this.layoutService.mainContainer.style.setProperty("--review-chrome-height", `${REVIEW_CHROME_HEIGHT}px`);
+		parent.style.setProperty("--review-chrome-height", `${REVIEW_CHROME_HEIGHT}px`);
 
 		// The macOS traffic lights float over the top-left of the window, and the
 		// explorer is the leftmost surface, so reserve the one chrome row for them
@@ -458,12 +458,6 @@ export class ReviewExplorerPart extends Part {
 
 	override layout(width: number, height: number, top: number, left: number): void {
 		super.layout(width, height, top, left);
-
-		// The editor tab strip pads itself past the window controls, and how much of
-		// that chrome the tree already covers depends on this width. Publish it so
-		// the padding in review.css can subtract it instead of assuming the tree is
-		// always wider than the controls.
-		this.layoutService.mainContainer.style.setProperty("--review-explorer-width", `${width}px`);
 
 		const contentHeight = Math.max(0, height - REVIEW_CHROME_HEIGHT);
 		// Both trees, visible or not: a hidden tree that skipped layout would

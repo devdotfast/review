@@ -374,8 +374,8 @@ function useScrollRestoration(
     if (resizeObserver) {
       resizeObserver.observe(scrollRegion);
 
-      for (const element of scrollRegion.querySelectorAll("*")) {
-        resizeObserver.observe(element);
+      for (const child of layoutChildren(scrollRegion)) {
+        resizeObserver.observe(child);
       }
     }
 
@@ -391,6 +391,21 @@ function useScrollRestoration(
   }, [scrollRegionRef, scrollTop]);
 
   return pendingRef;
+}
+
+/**
+ * The region's box-generating children: any descendant growing resizes one of
+ * them, so observing these sees every change without observing the document.
+ * `display: contents` wrappers generate no box, so look through them.
+ */
+function* layoutChildren(element: Element): Generator<Element> {
+  for (const child of element.children) {
+    if (getComputedStyle(child).display === "contents") {
+      yield* layoutChildren(child);
+    } else {
+      yield child;
+    }
+  }
 }
 
 function useScrollCapture(

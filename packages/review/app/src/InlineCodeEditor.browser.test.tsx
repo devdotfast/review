@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { InlineCodeEditor } from "./InlineCodeEditor";
 import { ReviewFindProvider, createReviewFindHost } from "./review-find";
 import { REVIEW_INTERACTION_EVENT } from "./review-interaction-event";
+import { type ReviewRoots, ReviewRootsProvider } from "./review-root-context";
 import {
   reviewSessionElement,
   testReviewSession,
@@ -46,6 +47,22 @@ class FakeIntersectionObserver implements IntersectionObserver {
       this,
     );
   }
+}
+
+/** Find portals its widget into the review shell, so a harness must supply one. */
+function findRoots(
+  article: HTMLElement,
+  scrollRegion: HTMLElement,
+): ReviewRoots {
+  const shell = document.createElement("main");
+  document.body.append(shell);
+
+  return {
+    appRef: { current: null },
+    shellRef: { current: shell },
+    scrollRegionRef: { current: scrollRegion },
+    articleRef: { current: article },
+  };
 }
 
 let root: ReturnType<typeof createRoot> | undefined;
@@ -255,22 +272,24 @@ it("searches an offscreen peek without mounting Monaco", async () => {
     root?.render(
       reviewSessionElement(
         session,
-        <ReviewFindProvider
-          articleRef={{ current: article }}
-          scrollRegionRef={{ current: scrollRegion }}
-          documentKey="test"
-          host={host}
-        >
-          <p>needle in authored text</p>
-          <InlineCodeEditor
-            path="src/offscreen.ts"
-            title="src/offscreen.ts"
-            side="head"
-            ranges={[{ startLine: 1, endLine: 3 }]}
-            heightMode="content"
-            active={false}
-          />
-        </ReviewFindProvider>,
+        <ReviewRootsProvider roots={findRoots(article, scrollRegion)}>
+          <ReviewFindProvider
+            articleRef={{ current: article }}
+            scrollRegionRef={{ current: scrollRegion }}
+            documentKey="test"
+            host={host}
+          >
+            <p>needle in authored text</p>
+            <InlineCodeEditor
+              path="src/offscreen.ts"
+              title="src/offscreen.ts"
+              side="head"
+              ranges={[{ startLine: 1, endLine: 3 }]}
+              heightMode="content"
+              active={false}
+            />
+          </ReviewFindProvider>
+        </ReviewRootsProvider>,
       ),
     );
   });
@@ -324,21 +343,23 @@ it("finishes search when revealing a failed editor", async () => {
     root?.render(
       reviewSessionElement(
         session,
-        <ReviewFindProvider
-          articleRef={{ current: article }}
-          scrollRegionRef={{ current: scrollRegion }}
-          documentKey="failed-editor"
-          host={host}
-        >
-          <InlineCodeEditor
-            path="src/failure.ts"
-            title="src/failure.ts"
-            side="head"
-            ranges={[{ startLine: 1, endLine: 3 }]}
-            heightMode="content"
-            active={false}
-          />
-        </ReviewFindProvider>,
+        <ReviewRootsProvider roots={findRoots(article, scrollRegion)}>
+          <ReviewFindProvider
+            articleRef={{ current: article }}
+            scrollRegionRef={{ current: scrollRegion }}
+            documentKey="failed-editor"
+            host={host}
+          >
+            <InlineCodeEditor
+              path="src/failure.ts"
+              title="src/failure.ts"
+              side="head"
+              ranges={[{ startLine: 1, endLine: 3 }]}
+              heightMode="content"
+              active={false}
+            />
+          </ReviewFindProvider>
+        </ReviewRootsProvider>,
       ),
     );
   });
@@ -347,7 +368,7 @@ it("finishes search when revealing a failed editor", async () => {
   });
 
   await vi.waitFor(() => {
-    expect(article.querySelector(".review-find-count")?.textContent).toBe(
+    expect(document.querySelector(".review-find-count")?.textContent).toBe(
       "1 of 1",
     );
     expect(

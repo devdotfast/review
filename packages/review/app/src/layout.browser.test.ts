@@ -93,4 +93,68 @@ describe("Review layout", () => {
       overlay.querySelector('[aria-label="Close expanded software map"]'),
     ).toBe(closeButton);
   });
+
+  it("keeps the find widget below and above the topbar", () => {
+    const styles = document.createElement("style");
+    styles.textContent = scopeReviewCanvasCss(canvasCss);
+    const canvas = document.createElement("div");
+    canvas.className = "review-canvas-root";
+    canvas.style.cssText =
+      "position: fixed; inset: 40px 0 0; height: auto; min-height: 0";
+    // A recoverable load error renders a status row above .review-app: the
+    // height that used to slide the topbar onto the find widget.
+    canvas.innerHTML = `
+      <div data-review-api class="review-api-canvas">
+        <p role="status" style="margin: 8px 24px; font-size: 12px">Could not refresh this review.</p>
+        <div class="review-app">
+          <main class="review-document-shell">
+            <header class="review-topbar">
+              <div class="review-topbar-left"></div>
+              <div class="review-topbar-actions"></div>
+            </header>
+            <section class="review-view-region review-view-region--review">
+              <div class="review-document-view">
+                <article class="review-document">
+                  <h2 id="rollout">Rollout</h2><p>body</p>
+                  <h2 id="risks">Risks</h2><p>body</p>
+                </article>
+              </div>
+            </section>
+            <div class="review-find-widget" role="search" aria-label="Find in Review">
+              <div class="review-find-input-shell">
+                <input aria-label="Find" />
+                <div class="review-find-options">
+                  <button type="button" class="review-find-toggle--whole-word">ab</button>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>`;
+    document.body.append(styles, canvas);
+
+    const topbar = canvas
+      .querySelector(".review-topbar")!
+      .getBoundingClientRect();
+
+    const widget = canvas.querySelector(".review-find-widget")!;
+    const wholeWord = canvas.querySelector(".review-find-toggle--whole-word")!;
+
+    // The widget starts below the topbar even with a status row above the app.
+    expect(widget.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      topbar.bottom,
+    );
+    // Its toggles keep the pointer rather than handing it to what the topbar
+    // stacks above them.
+    const rect = wholeWord.getBoundingClientRect();
+
+    expect(
+      wholeWord.contains(
+        document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        ),
+      ),
+    ).toBe(true);
+  });
 });

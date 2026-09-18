@@ -360,6 +360,20 @@ download URL. The hosted store is the only store it lists, so it refuses
 A store older than contract 0.3.0 answers "does not support listing every
 session yet"; use `review trace list --commit <sha>` there.
 
+### Desktop and npm installed together
+
+Trace hooks keep the absolute executable of the first working Review
+installation. Installing or refreshing the other installation preserves those
+harness and repository hooks. If the old executable is missing, setup can
+replace it. Without a Desktop launcher, npm tracing resolves `review` from PATH
+and records that absolute path.
+
+Desktop preserves an existing npm launcher at `~/.local/bin/review`. Removing
+Desktop's trace setup leaves another working installation's hooks and shared
+capture settings enabled. `review trace uninstall-hooks` is an explicit reset
+of Review hooks in the selected profile, regardless of which installation
+created them.
+
 ### Tracing without Desktop
 
 The `review trace` commands run without a desktop installation or session.

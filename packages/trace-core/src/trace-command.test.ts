@@ -93,3 +93,13 @@ describe("traceScope", () => {
     expect(traceScope().homeDir).toBe(os.homedir());
   });
 });
+
+it("pins an npm PATH executable when Desktop has no local launcher", async () => {
+  const homeDir = await tempHome();
+  const command = path.join(homeDir, "npm", "bin", "review");
+  await mkdir(path.dirname(command), { recursive: true });
+  await writeFile(command, "#!/bin/sh\n", { mode: 0o755 });
+  expect(
+    resolveTraceCommand({ homeDir, env: { PATH: path.dirname(command) } }),
+  ).toEqual({ file: command });
+});

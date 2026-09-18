@@ -42,6 +42,10 @@ export interface CutoverReport {
   /** Unpublished legacy drafts are intentionally excluded from the JSON catalog. */
   droppedDrafts: { reviewId: string; title: string }[];
   errors: { reviewId: string; reason: string }[];
+  /** Directories whose `review.json` could not be read or parsed. They were never
+   * imported and are left exactly as found, so one dead record cannot keep the
+   * app from starting. */
+  skipped: { reviewId: string; dir: string; reason: string }[];
   archivedMaps: Parameters<
     NonNullable<ImportLegacyReviewInput["archiveMap"]>
   >[0][];
@@ -79,6 +83,7 @@ export async function migrateJsonReviews(input: {
         outcomes: [],
         droppedDrafts: [],
         errors: [],
+        skipped: [],
         archivedMaps: [],
       };
 
@@ -105,7 +110,11 @@ export async function migrateJsonReviews(input: {
             throw new Error("Review directory and UUID disagree.");
           originals.push({ dir, review });
         } catch (error) {
-          report.errors.push({ reviewId: id, reason: errorMessage(error) });
+          const reason = errorMessage(error);
+          report.skipped.push({ reviewId: id, dir, reason });
+          input.log?.(
+            `${dir}: unreadable review.json, left untouched and skipped: ${reason}`,
+          );
         }
       }
 

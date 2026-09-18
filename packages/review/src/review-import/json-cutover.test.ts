@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  cp,
   mkdir,
   mkdtemp,
   readFile,
@@ -13,6 +14,7 @@ import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 import { openLocalReviewStore } from "../review-api/local-data";
+import { reviewVcs } from "../review-vcs";
 import { scratchGitRepo, syntheticLegacyReview } from "./import-test-utils";
 import { ensureJsonCutover, migrateJsonReviews } from "./json-cutover";
 
@@ -23,9 +25,11 @@ afterEach(async () => {
     await rm(home, { recursive: true, force: true });
 });
 
-async function seed() {
-  const home = await mkdtemp(path.join(tmpdir(), "json-cutover-test-"));
-  homes.push(home);
+async function seed(existing?: string) {
+  const home =
+    existing ?? (await mkdtemp(path.join(tmpdir(), "json-cutover-test-")));
+
+  if (!existing) homes.push(home);
   const repo = await scratchGitRepo();
   const local = openLocalReviewStore(path.join(home, "review-api.db"));
   const repositoryId = (await local.data.register(repo.root)).id;
@@ -46,11 +50,32 @@ async function seed() {
   return { home, reviewId, snapshot };
 }
 
+/** The cutover materializes from the review directory's own Git history, so a
+ * synthetic review is only importable once its presented revision is sealed
+ * there. */
+async function sealPresentedRevision(
+  review: Awaited<ReturnType<typeof syntheticLegacyReview>>,
+) {
+  const sealed = path.join(review.dir, ".revisions", review.oids.at(-1)!);
+  await cp(sealed, review.dir, { recursive: true });
+  await reviewVcs.init(review.dir);
+  const revision = await reviewVcs.seal(review.dir, "Publish Review");
+  const record = { ...review.record, presentedDocumentRevision: revision };
+  await writeFile(path.join(review.dir, "review.json"), JSON.stringify(record));
+
+  return record;
+}
+
 it("stages failures without replacing the live database and keeps a readable backup", async () => {
-  const { home, reviewId, snapshot } = await seed();
-  const dir = path.join(home, "reviews", randomUUID());
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "review.json"), "broken record");
+  // The record reads cleanly, but nothing sealed the revision it presents, so
+  // converting it fails where an unreadable record would only be skipped.
+  const failing = await syntheticLegacyReview(
+    "schema4-bug-report-dialog",
+    await scratchGitRepo(),
+  );
+
+  homes.push(failing.home);
+  const { home, reviewId, snapshot } = await seed(failing.home);
   const original = await readFile(path.join(home, "review-api.db"));
   const report = await migrateJsonReviews({ home });
   expect(report.errors).toHaveLength(1);
@@ -110,4 +135,48 @@ it("drops unpublished drafts from the catalog and records the decision without r
   }
 
   await ensureJsonCutover(draft.home, () => {});
+});
+
+it("skips an unreadable directory, installs the readable reviews and records the skip", async () => {
+  const repo = await scratchGitRepo();
+  const good = await syntheticLegacyReview("schema4-bug-report-dialog", repo);
+  homes.push(good.home);
+  const goodRecord = await sealPresentedRevision(good);
+
+  const badId = "11111111-1111-4111-8111-111111111111";
+  const badDir = path.join(good.home, "reviews", badId);
+  const badRecord = JSON.stringify({ schemaVersion: 1, uuid: badId });
+  await mkdir(badDir, { recursive: true });
+  await writeFile(path.join(badDir, "review.json"), badRecord);
+
+  const messages: string[] = [];
+  await ensureJsonCutover(good.home, (message) => messages.push(message));
+
+  const marker = JSON.parse(
+    await readFile(path.join(good.home, "json-cutover.json"), "utf8"),
+  );
+
+  expect(marker.errors).toEqual([]);
+  expect(marker.skipped).toEqual([
+    { reviewId: badId, dir: badDir, reason: expect.any(String) },
+  ]);
+  expect(messages.join("\n")).toContain(badDir);
+
+  const installed = openLocalReviewStore(path.join(good.home, "review-api.db"));
+
+  try {
+    expect(installed.store.has(goodRecord.uuid)).toBe(true);
+    expect(installed.store.has(badId)).toBe(false);
+  } finally {
+    await installed.data.close();
+    await installed.store.close();
+  }
+
+  expect(await readFile(path.join(badDir, "review.json"), "utf8")).toEqual(
+    badRecord,
+  );
+
+  expect(
+    JSON.parse(await readFile(path.join(good.dir, "review.json"), "utf8")),
+  ).toEqual(goodRecord);
 });

@@ -62,7 +62,11 @@ export async function runReviewAppPick(
   let review: Pick<ReviewApiSummary, "reviewId" | "title">;
 
   if (input.reviewUuid) {
-    review = await client.read(`/${encodeURIComponent(input.reviewUuid)}`);
+    // Without `full`, GET /reviews-api/:id answers inspectSnapshot(): block
+    // descriptors with no reviewId or title.
+    review = await client.read(
+      `/${encodeURIComponent(input.reviewUuid)}?full=true`,
+    );
   } else {
     if (!input.stdin.isTTY)
       throw new Error(

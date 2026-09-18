@@ -398,3 +398,45 @@ command = "review trace hook SessionStart"
     }
   }
 });
+
+describe("Desktop and npm Review coexistence", () => {
+  it.each(["desktop", "npm"])(
+    "keeps the first working %s install across harness refreshes",
+    async (first) => {
+      const home = await makeTempHome();
+      const desktop = path.join(home, ".local/bin/review");
+      const npm = path.join(home, "npm/bin/review");
+
+      for (const command of [desktop, npm]) {
+        await mkdir(path.dirname(command), { recursive: true });
+        await writeFile(command, "#!/bin/sh\n", { mode: 0o755 });
+      }
+
+      const initial = first === "desktop" ? desktop : npm;
+      const later = first === "desktop" ? npm : desktop;
+
+      for (const install of [
+        installClaudeTraceHook,
+        installCodexTraceHook,
+        installPiTraceExtension,
+        installOpenCodeTraceExtension,
+      ]) {
+        const hook = await install(home, initial);
+        const before = await readFile(hook.path, "utf8");
+        expect((await install(home, later)).modified).toBe(false);
+        expect(await readFile(hook.path, "utf8")).toBe(before);
+      }
+
+      await rm(initial);
+
+      for (const install of [
+        installClaudeTraceHook,
+        installCodexTraceHook,
+        installPiTraceExtension,
+        installOpenCodeTraceExtension,
+      ]) {
+        expect((await install(home, later)).modified).toBe(true);
+      }
+    },
+  );
+});

@@ -9,9 +9,11 @@ import { writeFileAtomicAsync } from "./atomic-write";
 import {
   type TraceCommand,
   type TraceScope,
+  keepTraceExecutable,
   renderTraceCommand,
   resolveTraceCommand,
   shellQuote,
+  traceCommandExecutable,
   traceHomeDir,
 } from "./trace-command";
 
@@ -91,13 +93,23 @@ export async function enableTraceRepository(input: {
 
   const homeDir = input.scope.homeDir;
 
-  const reviewCommand = renderTraceCommand(
+  let reviewCommand = renderTraceCommand(
     resolveTraceCommand({
       explicit: input.reviewCommand,
       env: input.scope.env,
       homeDir,
     }),
   );
+
+  if (
+    alreadyManaged &&
+    oldState?.command &&
+    keepTraceExecutable(
+      traceCommandExecutable(oldState.command),
+      traceCommandExecutable(reviewCommand) ?? "",
+    )
+  )
+    reviewCommand = oldState.command;
 
   const state: RepositoryHookState = {
     version: 1,
@@ -248,14 +260,30 @@ export async function traceRepositoryStatus(
   return status;
 }
 
-/** Disables the Git hooks of every registered repository. */
+/** Disables registered hooks, preserving other live executables when scoped. */
 export async function disableAllTraceRepositories(
   scope: TraceScope,
-): Promise<{ disabled: string[] }> {
+  expectedCommand?: string,
+): Promise<{ disabled: string[]; kept: string[] }> {
   const registry = await readRegistry(scope.homeDir);
   const disabled: string[] = [];
+  const kept: string[] = [];
 
   for (const root of registry) {
+    if (expectedCommand !== undefined) {
+      const status = await traceRepositoryStatus(root).catch(() => null);
+
+      if (
+        keepTraceExecutable(
+          traceCommandExecutable(status?.command),
+          expectedCommand,
+        )
+      ) {
+        kept.push(root);
+        continue;
+      }
+    }
+
     const result = await disableTraceRepository({ cwd: root, scope }).catch(
       () => null,
     );
@@ -263,7 +291,7 @@ export async function disableAllTraceRepositories(
     if (result?.repository) disabled.push(root);
   }
 
-  return { disabled };
+  return { disabled, kept };
 }
 
 async function resolveRepository(

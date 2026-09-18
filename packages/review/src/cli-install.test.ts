@@ -154,7 +154,6 @@ describe("trace capture installation", () => {
     const output = collectingWritable([]);
     await runTraceUninstallHooks({
       scope: traceScope({ homeDir, env }),
-      cwd: homeDir,
       owner: "review",
       stdout: output,
       stderr: output,

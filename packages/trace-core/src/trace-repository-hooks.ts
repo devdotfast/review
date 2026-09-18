@@ -253,16 +253,17 @@ export async function traceRepositoryStatus(
 }
 
 /**
- * Disables the Git hooks of every registered repository. With an owner, a
- * repository whose hooks call the other CLI keeps them, and its root is
- * returned. A state file without a command came from an older `review`, so
- * it is disabled with the rest.
+ * Disables the Git hooks of every registered repository, returning the roots
+ * it disabled. With an owner, a repository whose hooks call the other CLI
+ * keeps them and its root is returned under `kept`. A state file without a
+ * command came from an older `review`, so it is disabled with the rest.
  */
 export async function disableAllTraceRepositories(
   scope: TraceScope,
   options: { owner?: TraceHookOwner } = {},
-): Promise<{ kept: string[] }> {
+): Promise<{ disabled: string[]; kept: string[] }> {
   const registry = await readRegistry(scope.homeDir);
+  const disabled: string[] = [];
   const kept: string[] = [];
 
   for (const root of registry) {
@@ -276,10 +277,14 @@ export async function disableAllTraceRepositories(
       }
     }
 
-    await disableTraceRepository({ cwd: root, scope }).catch(() => undefined);
+    const result = await disableTraceRepository({ cwd: root, scope }).catch(
+      () => null,
+    );
+
+    if (result?.repository) disabled.push(root);
   }
 
-  return { kept };
+  return { disabled, kept };
 }
 
 async function resolveRepository(

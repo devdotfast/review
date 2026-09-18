@@ -23,7 +23,6 @@ export function registerTraceCaptureCommands(
     configureJsonOutput,
   } = settings;
 
-  const owner = settings.cliName === "dev-traces" ? "dev-traces" : "review";
   configureJsonOutput(
     trace
       .command("uninstall-hooks")
@@ -34,8 +33,7 @@ export function registerTraceCaptureCommands(
     settings.setExitCode(
       await runTraceUninstallHooks({
         scope,
-        cwd,
-        owner,
+        owner: settings.cliName,
         json: options.json,
         stdout: settings.stdout,
         stderr: settings.stderr,

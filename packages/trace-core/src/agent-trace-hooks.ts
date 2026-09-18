@@ -158,14 +158,13 @@ export function keptTraceHookOwner(
   existingFile: string | undefined,
   wanted: string,
 ): TraceHookOwner | null {
-  if (existingFile === undefined) return null;
-  const owner = executableOwner(existingFile);
-
-  if (owner !== "review" || executableOwner(wanted) !== "dev-traces")
-    return null;
-
-  return path.isAbsolute(existingFile) && existsSync(existingFile)
-    ? owner
+  // A bare command name is not checked on PATH, so it is replaced.
+  return existingFile !== undefined &&
+    executableOwner(existingFile) === "review" &&
+    executableOwner(wanted) === "dev-traces" &&
+    path.isAbsolute(existingFile) &&
+    existsSync(existingFile)
+    ? "review"
     : null;
 }
 

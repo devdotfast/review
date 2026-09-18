@@ -62,7 +62,6 @@ it("releases only Review hooks across registered repositories, preserving standa
   expect(
     await runTraceUninstallHooks({
       scope,
-      cwd: home,
       owner: "review",
       stdout: output,
       stderr: output,
@@ -81,7 +80,6 @@ it("releases only Review hooks across registered repositories, preserving standa
   expect(
     await runTraceUninstallHooks({
       scope,
-      cwd: home,
       owner: "review",
       stdout: output,
       stderr: output,

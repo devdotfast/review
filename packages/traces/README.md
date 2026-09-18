@@ -166,9 +166,10 @@ Under `--json` it prints one `trace.check` event.
 One machine can run both commands, and `review` takes precedence over the
 harness hooks. A `review trace install`, or an explicit trace setup in Review
 Desktop, replaces a `dev-traces` harness hook. A `dev-traces install` or `allow`
-keeps a harness hook that `review` owns, and prints one line that names it and
-says to run `review trace uninstall-hooks` before switching. No command is
-blocked: `status`, `check`, `login`, and the rest run under either command.
+keeps a harness hook that `review` owns whose command file still exists, and
+prints one line that names it and says to run `review trace uninstall-hooks`
+before switching. No command is blocked: `status`, `check`, `login`, and the
+rest run under either command.
 Desktop's automatic refresh after an app update leaves a hook `dev-traces` owns
 in place, and writes its own hooks for the rest.
 

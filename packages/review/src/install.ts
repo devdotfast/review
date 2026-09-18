@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 
 import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
 import {
-  type AgentTraceHookInstallResult,
   type TraceCredentialsInput,
   type TraceHookOwner,
   configureTraceMachine,
@@ -241,23 +240,14 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
       continue;
     }
 
-    let hook: AgentTraceHookInstallResult | undefined;
-
     if (target === "claude") {
-      hook = await installClaudeTraceHook(homeDir, input.reviewCommand);
+      await installClaudeTraceHook(homeDir, input.reviewCommand);
     } else if (target === "codex") {
-      hook = await installCodexTraceHook(homeDir, input.reviewCommand);
+      await installCodexTraceHook(homeDir, input.reviewCommand);
     } else if (target === "opencode") {
-      hook = await installOpenCodeTraceExtension(homeDir, input.reviewCommand);
+      await installOpenCodeTraceExtension(homeDir, input.reviewCommand);
     } else if (target === "pi") {
-      hook = await installPiTraceExtension(homeDir, input.reviewCommand);
-    }
-
-    if (hook?.kept) {
-      keptHooks.push({ target, owner: hook.kept });
-      human.write(
-        `[skip] kept the ${target} trace hook that ${hook.kept} installed\n`,
-      );
+      await installPiTraceExtension(homeDir, input.reviewCommand);
     }
   }
 

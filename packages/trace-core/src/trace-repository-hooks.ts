@@ -256,7 +256,7 @@ export async function traceRepositoryStatus(
  * Disables the Git hooks of every registered repository, returning the roots
  * it disabled. With an owner, a repository whose hooks call the other CLI
  * keeps them and its root is returned under `kept`. A state file without a
- * command came from an older `review`, so it is disabled with the rest.
+ * command came from an older `review`, so only a `review` owner disables it.
  */
 export async function disableAllTraceRepositories(
   scope: TraceScope,
@@ -269,9 +269,9 @@ export async function disableAllTraceRepositories(
   for (const root of registry) {
     if (options.owner) {
       const status = await traceRepositoryStatus(root).catch(() => null);
-      const owner = traceGitHookCommandOwner(status?.command);
+      const owner = traceGitHookCommandOwner(status?.command) ?? "review";
 
-      if (owner !== null && owner !== options.owner) {
+      if (owner !== options.owner) {
         kept.push(root);
         continue;
       }

@@ -447,8 +447,6 @@ describe("hook coexistence", () => {
       expect((await install(home, reviewShim)).modified).toBe(true);
     }
 
-    await writeFile(tracesShim, "#!/bin/sh\n");
-
     for (const install of installers) {
       expect(await install(home, tracesShim)).toMatchObject({
         modified: false,

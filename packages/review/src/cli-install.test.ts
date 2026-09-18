@@ -124,7 +124,7 @@ describe("trace capture installation", () => {
     );
   });
 
-  it("does not reclaim released trace hooks during automatic setup", async () => {
+  it("an install without explicit trace setup keeps a dev-traces hook", async () => {
     const homeDir = await temporaryHome("review-trace-release-");
 
     const env = {
@@ -727,7 +727,7 @@ describe("installed launcher runtime selection", () => {
           cliRuntimePath: discoveredRuntime,
         }),
       );
-      await writePathShim(shim, fallbackCli, fallbackRuntime);
+      await writePathShim(shim, fallbackCli, fallbackRuntime, home);
 
       const { stdout } = await promisify(execFile)(shim, ["trace", "status"], {
         env: {

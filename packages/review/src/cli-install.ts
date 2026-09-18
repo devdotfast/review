@@ -462,6 +462,7 @@ async function applyCliInstallUnlocked(
       reviewMcpLauncher(env),
       input.cliPath,
       input.cliRuntimePath,
+      devReviewHome(env, homeDir),
     );
 
     for (const target of REVIEW_MCP_TARGETS.filter((target) =>
@@ -789,14 +790,14 @@ async function detectPresentAgents(
 export async function writePathShim(
   shimPath: string,
   cliPath: string,
-  runtimePath?: string,
-  devHome?: string,
+  runtimePath: string | undefined,
+  devHome: string,
 ): Promise<void> {
   const source = `#!/bin/sh
 # Managed by Review Desktop ("Review: Install CLI in PATH"). Do not edit.
 FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
-DEFAULT_HOME=${devHome ? shSingleQuote(devHome) : '"$HOME/.dev"'}
+DEFAULT_HOME=${shSingleQuote(devHome)}
 export DEV_REVIEW_HOME="\${DEV_REVIEW_HOME:-$DEFAULT_HOME}"
 DISCOVERY="$DEV_REVIEW_HOME/review-desktop/server.json"
 

@@ -28,8 +28,8 @@ export interface AgentTraceHookInstallResult {
   agent: AgentTraceHookAgent;
   path: string;
   modified: boolean;
-  /** The other CLI, when its live hook stayed in place instead of ours. */
-  kept?: TraceHookOwner;
+  /** Set when Review's live hook stayed in place instead of ours. */
+  kept?: "review";
 }
 
 const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
@@ -157,7 +157,7 @@ function extensionOwner(source: string): TraceHookOwner | null {
 export function keptTraceHookOwner(
   existingFile: string | undefined,
   wanted: string,
-): TraceHookOwner | null {
+): "review" | null {
   // A bare command name is not checked on PATH, so it is replaced.
   return existingFile !== undefined &&
     executableOwner(existingFile) === "review" &&
@@ -407,7 +407,7 @@ export async function installClaudeTraceHook(
 
   const hooks: JsonObject = isJsonObject(parsed.hooks) ? parsed.hooks : {};
   let modified = false;
-  let kept: TraceHookOwner | null = null;
+  let kept: "review" | null = null;
 
   const hookCommand = (
     eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
@@ -501,7 +501,7 @@ export async function installCodexTraceHook(
   ] as const;
 
   const found = new Set<string>();
-  let kept: TraceHookOwner | null = null;
+  let kept: "review" | null = null;
 
   let next = transformCodexHooks(existing, (block, command, event) => {
     const file = traceHookCommandFile(command);

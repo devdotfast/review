@@ -314,20 +314,21 @@ describe("dev-traces program", () => {
     }
   });
 
-  it("keeps the trace group identical to the library hook commands", async () => {
-    // The hidden group forwards to the same runtime, so its arguments and
-    // options must not drift from the ones the library registers.
-    const onOneLine = (text: string): string =>
-      text.replaceAll("dev-traces trace ", "dev-traces ");
+  it("uninstall removes the standalone install", async () => {
+    const runtime = {
+      ...stubs([]),
+      uninstallSelf: vi.fn<TracesCliRuntime["uninstallSelf"]>(async () => ({
+        removedShim: true,
+        keptForeignShim: false,
+        profiles: [],
+        hooksRemoved: [],
+        repositoriesDisabled: [],
+        output: "Removed\n",
+      })),
+    };
 
-    for (const name of ["hook", "git-hook"]) {
-      const direct = run([name, "--help"], stubs([]));
-      expect(await direct.code).toBe(0);
-
-      const grouped = run(["trace", name, "--help"], stubs([]));
-      expect(await grouped.code).toBe(0);
-      expect(onOneLine(grouped.out())).toBe(onOneLine(direct.out()));
-    }
+    expect(await run(["uninstall"], runtime).code).toBe(0);
+    expect(runtime.uninstallSelf).toHaveBeenCalledOnce();
   });
 
   it("install writes the command file first, then the harness hooks", async () => {

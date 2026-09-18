@@ -16,6 +16,7 @@ import { ReviewInputError } from "../review-api/document.js";
 import type { LocalReviewData } from "../review-api/local-data.js";
 import type { ReviewStore } from "../review-api/store.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
+import { readSharingAuth } from "./auth.js";
 import { ShareClient } from "./client.js";
 import { exportShare } from "./export.js";
 import { SharedReviewStore, sharedReviewId } from "./import.js";
@@ -47,7 +48,6 @@ export function mountSharingHost(
   shared: SharedReviewStore,
   options: SharingHostOptions = {},
 ) {
-  const verifyRepository = options.verifyRepository ?? verifyShareRepository;
   const startLogin = options.login ?? runStoreLogin;
   const openUrl = options.openUrl ?? openUrlInBrowser;
 
@@ -101,69 +101,7 @@ export function mountSharingHost(
 
     return context.json(login);
   });
-  app.post("/sharing/publish", async (context) => {
-    const input = publishSchema.parse(
-      await readBoundedRequestJson(context.req.raw),
-    );
-
-    if (input.reviewId.startsWith("shared-"))
-      throw new ReviewInputError(
-        "Only the authoring review can be shared.",
-        409,
-      );
-    const snapshot = store.read(input.reviewId, input.version);
-
-    if (snapshot.target.kind === "worktree")
-      throw new ReviewInputError(
-        "Pin this review to commits before sharing it.",
-      );
-    const account = await readStoreAuth();
-
-    if (!account)
-      throw new ReviewInputError(
-        "Run review login or sign in before sharing.",
-        409,
-      );
-
-    const repository = await verifyRepository(
-      store.repositoryPath(snapshot.pins.repositoryId),
-      snapshot.pins,
-    );
-
-    const bundle = await exportShare({
-      store,
-      data,
-      reviewId: input.reviewId,
-      version: snapshot.version,
-      repository,
-    });
-
-    try {
-      const result = await new ShareClient(
-        account.origin,
-        account.token,
-      ).create(bundle, input.requestId ?? randomUUID());
-
-      return context.json({ ...result, version: snapshot.version });
-    } catch {
-      throw new ReviewInputError(
-        "Sharing failed. Check your connection and login, then retry.",
-        409,
-      );
-    }
-  });
-  app.post("/sharing/revoke", async (context) => {
-    const { shareId } = z
-      .strictObject({ shareId: shareIdSchema })
-      .parse(await readBoundedRequestJson(context.req.raw));
-
-    const account = await readStoreAuth();
-
-    if (!account) throw new ReviewInputError("Run review login first.", 409);
-    await new ShareClient(account.origin, account.token).revoke(shareId);
-
-    return context.json({ shareId, revoked: true });
-  });
+  mountSharingPublisher(app, store, data, options);
   const imports = new Map<string, Promise<void>>();
   app.get("/sharing/import/:id", (context) => {
     const id = context.req.param("id");
@@ -228,5 +166,82 @@ export function mountSharingHost(
     }
 
     return context.json({ reviewId: id, ...shared.status(id) }, 202);
+  });
+}
+
+/** Publishing needs only an authored store, never Desktop or recipient workspaces. */
+export function mountSharingPublisher(
+  app: Hono,
+  store: ReviewStore,
+  data: LocalReviewData,
+  options: Pick<SharingHostOptions, "verifyRepository"> = {},
+) {
+  const verifyRepository = options.verifyRepository ?? verifyShareRepository;
+  app.post("/sharing/publish", async (context) => {
+    const input = publishSchema.parse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    if (input.reviewId.startsWith("shared-"))
+      throw new ReviewInputError(
+        "Only the authoring review can be shared.",
+        409,
+      );
+    const snapshot = store.read(input.reviewId, input.version);
+
+    if (snapshot.target.kind === "worktree")
+      throw new ReviewInputError(
+        "Pin this review to commits before sharing it.",
+      );
+    const account = await readSharingAuth();
+
+    if (!account)
+      throw new ReviewInputError(
+        "Set DEV_REVIEW_SHARE_TOKEN for CI, or run review login before sharing.",
+        409,
+      );
+
+    const repository = await verifyRepository(
+      store.repositoryPath(snapshot.pins.repositoryId),
+      snapshot.pins,
+    );
+
+    const bundle = await exportShare({
+      store,
+      data,
+      reviewId: input.reviewId,
+      version: snapshot.version,
+      repository,
+    });
+
+    try {
+      const result = await new ShareClient(
+        account.origin,
+        account.token,
+      ).create(bundle, input.requestId ?? randomUUID());
+
+      return context.json({ ...result, version: snapshot.version });
+    } catch {
+      throw new ReviewInputError(
+        "Sharing failed. Check your connection and login, then retry.",
+        409,
+      );
+    }
+  });
+  app.post("/sharing/revoke", async (context) => {
+    const { shareId } = z
+      .strictObject({ shareId: shareIdSchema })
+      .parse(await readBoundedRequestJson(context.req.raw));
+
+    const account = await readSharingAuth();
+
+    if (!account)
+      throw new ReviewInputError(
+        "Set DEV_REVIEW_SHARE_TOKEN for CI, or run review login first.",
+        409,
+      );
+    await new ShareClient(account.origin, account.token).revoke(shareId);
+
+    return context.json({ shareId, revoked: true });
   });
 }

@@ -2,26 +2,19 @@ import { type ReactElement, useRef, useState } from "react";
 
 import { useReviewActions, useReviewState } from "./review-context";
 import { useTutorial } from "./tutorial-context";
-import { useDismissOnOutside } from "./use-dismiss-on-outside";
+import { useTooltip } from "./use-tooltip";
+import { useTopbarPopover } from "./use-topbar-popover";
 
-/**
- * The single end-of-review control in the topbar: it dismisses the review, or
- * closes the tutorial.
- *
- * Dismissal confirms once. Closing the review tab does nothing to the review,
- * so the confirmation is the only place that names the difference.
- */
 export function ReviewCornerAction(): ReactElement | null {
   const { dismissReview } = useReviewActions();
   const { submissionOutcome } = useReviewState();
   const tutorial = useTutorial();
 
-  const controlRef = useRef<HTMLDivElement | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const closeTooltip = useTooltip("Close tutorial");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-
-  useDismissOnOutside(controlRef, confirming, setConfirming, true);
+  const control = useRef<HTMLDivElement>(null);
+  const errorPopover = useTopbarPopover<HTMLSpanElement>(failed, control);
 
   // A finished review has nothing left to submit or dismiss.
   if (submissionOutcome === "dismissed") return null;
@@ -35,6 +28,7 @@ export function ReviewCornerAction(): ReactElement | null {
         <button
           type="button"
           className="review-corner-dismiss"
+          ref={closeTooltip}
           onClick={tutorial.close}
         >
           <ArchiveIcon />
@@ -44,14 +38,13 @@ export function ReviewCornerAction(): ReactElement | null {
     );
   }
 
-  const run = async (action: () => Promise<void>) => {
+  const dismiss = async () => {
     if (busy) return;
     setBusy(true);
     setFailed(false);
 
     try {
-      await action();
-      setConfirming(false);
+      await dismissReview();
     } catch (error) {
       console.error("Review action failed", error);
       setFailed(true);
@@ -61,53 +54,25 @@ export function ReviewCornerAction(): ReactElement | null {
   };
 
   return (
-    <div ref={controlRef} className="review-corner-action">
+    <div ref={control} className="review-corner-action">
       <button
         type="button"
         className="review-corner-dismiss"
-        aria-haspopup="dialog"
-        aria-expanded={confirming}
         disabled={busy}
-        onClick={() => setConfirming((open) => !open)}
+        onClick={() => void dismiss()}
       >
         <ArchiveIcon />
         <span>Dismiss</span>
       </button>
-      {confirming && (
-        <div
-          className="review-corner-confirm"
-          role="dialog"
-          aria-label="Dismiss this review"
+      {failed && (
+        <span
+          ref={errorPopover}
+          popover="manual"
+          className="review-corner-error"
+          role="alert"
         >
-          <strong>Dismiss this review?</strong>
-          <p>
-            It leaves your active list but stays saved. Closing the tab does not
-            dismiss it. You can undo this from Home.
-          </p>
-          {failed ? (
-            <span className="review-corner-error" role="alert">
-              Could not dismiss the review.
-            </span>
-          ) : null}
-          <div className="review-corner-confirm-actions">
-            <button
-              type="button"
-              className="review-corner-confirm-yes"
-              disabled={busy}
-              onClick={() => void run(() => dismissReview())}
-            >
-              Dismiss
-            </button>
-            <button
-              type="button"
-              className="review-corner-confirm-no"
-              disabled={busy}
-              onClick={() => setConfirming(false)}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+          Could not dismiss the review. Try again.
+        </span>
       )}
     </div>
   );

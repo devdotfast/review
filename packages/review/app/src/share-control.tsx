@@ -7,7 +7,10 @@ import {
 
 import "./share-control.css";
 import { copyText } from "./copy-text";
+import { ShareIcon } from "./icons";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
+import { useTooltip } from "./use-tooltip";
+import { useTopbarPopover } from "./use-topbar-popover";
 
 export const SharingContext = createContext<{
   client: ReviewApiClient;
@@ -33,7 +36,14 @@ export function ShareControl() {
   const [link, setLink] = useState<string>();
   const frozen = useRef<{ version: number; requestId: string }>(undefined);
   const popover = useRef<HTMLDivElement>(null);
+  const popoverRef = useTopbarPopover(open, popover);
   const shared = context?.reviewId.startsWith("shared-");
+
+  const label = shared
+    ? `Shared${context?.sender ? ` by ${context.sender}` : " review"}`
+    : "Share review";
+
+  const tooltip = useTooltip(label);
   useEffect(() => {
     if (!open || !context || shared) return;
     let cancelled = false;
@@ -88,7 +98,10 @@ export function ShareControl() {
     <div ref={popover} style={{ position: "relative" }}>
       <button
         type="button"
-        className="review-share-button"
+        className="review-topbar-icon-button review-share-button"
+        ref={tooltip}
+        aria-label={label}
+        aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => {
           if (!open) {
@@ -103,18 +116,15 @@ export function ShareControl() {
           setOpen(!open);
         }}
       >
-        {shared
-          ? `Shared${context.sender ? ` by ${context.sender}` : " review"}`
-          : "Share"}
+        <ShareIcon />
       </button>
       {open && (
         <div
+          ref={popoverRef}
+          popover="manual"
           role="dialog"
           aria-label={shared ? "Shared review" : "Share review"}
           style={{
-            position: "absolute",
-            right: 0,
-            top: "100%",
             width: 320,
             padding: 16,
             zIndex: 100,
@@ -127,6 +137,7 @@ export function ShareControl() {
         >
           {shared ? (
             <>
+              <p>{label}</p>
               <p>
                 This is a read-only snapshot. Source files and traces are
                 available offline.

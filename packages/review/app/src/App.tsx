@@ -30,7 +30,7 @@ import {
 import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
 import { useReviewSession } from "./host/review-session";
-import { SettingsSlidersIcon } from "./icons";
+import { DiscordIcon, SettingsSlidersIcon } from "./icons";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -82,6 +82,7 @@ import { useTutorial } from "./tutorial-context";
 import { TutorialExperienceProvider } from "./tutorial-experience";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useReviewTabTelemetry } from "./use-review-tab-telemetry";
+import { useTooltip } from "./use-tooltip";
 import { useTraceList } from "./use-trace-list";
 
 const DEFAULT_SIDE_PEEK_WIDTH = 560;
@@ -337,6 +338,8 @@ function ReviewLayoutContent({
 }): ReactElement {
   const session = useReviewSession();
   const review = useReview();
+  const discordTooltip = useTooltip("Join our Discord community");
+  const sourceTreeTooltip = useTooltip("Open full read-only source");
   const panelStore = useReviewPanelStore();
   useSuppressPanelMotionOnCanvasResume(appRef);
   const activePanel = useReviewPanel((state) => state.active);
@@ -568,33 +571,36 @@ function ReviewLayoutContent({
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                className="review-open-source-tree"
-                title="Open the read-only source tree"
-                onClick={() => {
-                  captureUiEvent(session, "source_tree_opened", {
-                    via: "topbar",
-                  });
-                  session.surface.post({ name: "openSourceTree", args: {} });
-                }}
-              >
-                Open source tree ↗
-              </button>
-              <AuthoringActivityBadge />
             </div>
             <div className="review-topbar-actions">
-              <ShareControl />
+              <div className="review-topbar-context">
+                <button
+                  type="button"
+                  className="review-open-source-tree"
+                  ref={sourceTreeTooltip}
+                  onClick={() => {
+                    captureUiEvent(session, "source_tree_opened", {
+                      via: "topbar",
+                    });
+                    session.surface.post({ name: "openSourceTree", args: {} });
+                  }}
+                >
+                  Source tree ↗
+                </button>
+                <AuthoringActivityBadge />
+              </div>
               <ReviewHistoryControl />
+              <ShareControl />
               <button
                 type="button"
-                className="review-open-source-tree"
-                title="Join our Discord community"
+                className="review-topbar-icon-button"
+                ref={discordTooltip}
+                aria-label="Join our Discord community"
                 onClick={() =>
                   session.surface.post({ name: "joinDiscord", args: {} })
                 }
               >
-                Discord ↗
+                <DiscordIcon />
               </button>
               <BugReportControl />
               <ReviewBatonChip outcome={review.submissionOutcome} />
@@ -860,6 +866,14 @@ function ReviewBatonChip({
 }: {
   outcome: ReviewSubmissionOutcome | null;
 }): ReactElement | null {
+  const tooltip = useTooltip<HTMLSpanElement>(
+    outcome === "changes-requested"
+      ? "Changes requested"
+      : outcome === "approved"
+        ? "Approved"
+        : "Dismissed",
+  );
+
   if (!outcome) return null;
 
   const label =
@@ -870,7 +884,10 @@ function ReviewBatonChip({
         : "dismissed";
 
   return (
-    <span className={`review-baton-chip review-baton-chip--${outcome}`}>
+    <span
+      ref={tooltip}
+      className={`review-baton-chip review-baton-chip--${outcome}`}
+    >
       {outcome === "approved" && (
         <svg
           className="review-baton-glyph"

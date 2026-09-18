@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import type { SectionBlock } from "../../src/review-api/blocks/section";
+import { useTooltip } from "./use-tooltip";
 
 import "./authoring-activity.css";
 
@@ -12,9 +13,7 @@ export const AuthoringActivityContext = createContext<
 export function AuthoringActivityBadge({ targetId }: { targetId?: string }) {
   const activity = useContext(AuthoringActivityContext);
 
-  if (!activity || (activity !== "unknown" && !activity.workingCount))
-    return null;
-  const working = activity !== "unknown";
+  const working = activity && activity !== "unknown";
 
   const focuses = working
     ? (activity.focuses ?? []).filter(
@@ -22,11 +21,23 @@ export function AuthoringActivityBadge({ targetId }: { targetId?: string }) {
       )
     : [];
 
-  if (targetId && !focuses.length) return null;
-
   const description = [
     ...new Set(focuses.map((focus) => focus.description)),
   ].join(" · ");
+
+  const tooltip = useTooltip<HTMLSpanElement>(
+    working
+      ? description ||
+          "An agent has reported ongoing authoring work. This signal expires if updates stop."
+      : "Activity updates stopped. This does not mean the agent finished.",
+  );
+
+  if (
+    !activity ||
+    (working && !activity.workingCount) ||
+    (targetId && !focuses.length)
+  )
+    return null;
 
   return (
     <span
@@ -35,12 +46,7 @@ export function AuthoringActivityBadge({ targetId }: { targetId?: string }) {
       data-active={working || undefined}
       role="status"
       aria-live="polite"
-      title={
-        working
-          ? description ||
-            "An agent has reported ongoing authoring work. This signal expires if updates stop."
-          : "Activity updates stopped. This does not mean the agent finished."
-      }
+      ref={tooltip}
     >
       <span className="host-authoring-activity-dot" aria-hidden="true" />
       {working

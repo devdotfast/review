@@ -28,7 +28,7 @@ export interface IHoverDelegate2 {
 	 */
 	showDelayedHover(
 		options: IHoverOptions,
-		lifecycleOptions: Pick<IHoverLifecycleOptions, 'groupId'>,
+		lifecycleOptions: Pick<IHoverLifecycleOptions, 'groupId' | 'reducedDelay'>,
 	): IHoverWidget | undefined;
 
 	/**

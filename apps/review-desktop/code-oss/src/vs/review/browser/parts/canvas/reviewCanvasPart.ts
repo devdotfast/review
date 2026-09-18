@@ -5,7 +5,9 @@
 
 import { resolveReviewSourceView, type ReviewSourceView, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
 
-import { $, getWindow, type Dimension } from "../../../../base/browser/dom.js";
+import { $, addDisposableListener, getWindow, type Dimension } from "../../../../base/browser/dom.js";
+import type { IHoverOptions, IHoverWidget } from "../../../../base/browser/ui/hover/hover.js";
+import { HoverPosition } from "../../../../base/browser/ui/hover/hoverWidget.js";
 import { createTrustedTypesPolicy } from "../../../../base/browser/trustedTypes.js";
 import type { CancellationToken } from "../../../../base/common/cancellation.js";
 import { Emitter } from "../../../../base/common/event.js";
@@ -15,6 +17,7 @@ import type { ICursorPositionChangedEvent } from "../../../../editor/common/curs
 import { ICommandService } from "../../../../platform/commands/common/commands.js";
 import { ConfigurationTarget, IConfigurationService } from "../../../../platform/configuration/common/configuration.js";
 import { TextEditorSelectionSource, type IEditorOptions } from "../../../../platform/editor/common/editor.js";
+import { IHoverService } from "../../../../platform/hover/browser/hover.js";
 import { createDecorator, IInstantiationService } from "../../../../platform/instantiation/common/instantiation.js";
 import { ILogService } from "../../../../platform/log/common/log.js";
 import { FocusMode } from "../../../../platform/native/common/native.js";
@@ -174,6 +177,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IReviewTelemetryService
 		private readonly reviewTelemetryService: IReviewTelemetryService,
 		@ILogService private readonly logService: ILogService,
+		@IHoverService private readonly hoverService: IHoverService,
 		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
 		super(ReviewCanvasEditorPane.ID, group, telemetryService, reviewThemeService, storageService);
@@ -912,6 +916,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		| "currentDiffLayout"
 		| "setDiffLayout"
 		| "onDidChangeDiffLayout"
+		| "setupTooltip"
 		| "ready"
 		| "reportDiagnostic"
 	> {
@@ -923,6 +928,29 @@ export class ReviewCanvasEditorPane extends EditorPane {
 			currentDiffLayout: () => this.diffViews.diffLayout.get(),
 			setDiffLayout: (layout) => this.diffViews.diffLayout.set(layout),
 			onDidChangeDiffLayout: (listener) => this.diffViews.diffLayout.onDidChange(listener),
+			setupTooltip: (target, content) => {
+				const store = new DisposableStore();
+				const hover = store.add(new MutableDisposable<IHoverWidget>());
+				const options: IHoverOptions = {
+					target,
+					content,
+					position: { hoverPosition: HoverPosition.ABOVE },
+					appearance: { compact: true, showPointer: true },
+					persistence: { hideOnKeyDown: true },
+				};
+				store.add(addDisposableListener(target, "mouseenter", () => {
+					if (target.getAttribute("aria-expanded") === "true") return;
+					hover.value = this.hoverService.showDelayedHover(options, { groupId: "review-topbar", reducedDelay: true });
+				}));
+				store.add(addDisposableListener(target, "focus", () => {
+					if (!target.matches(":focus-visible") || target.getAttribute("aria-expanded") === "true") return;
+					hover.value = this.hoverService.showInstantHover(options);
+				}));
+				for (const event of ["blur", "pointerdown", "click", "keydown"]) {
+					store.add(addDisposableListener(target, event, () => hover.clear()));
+				}
+				return store;
+			},
 			ready: () => {
 				if (generation !== this.loadGeneration || !this.targetDocument) return;
 				this.targetDocument.body.dataset["reviewCanvasReady"] = "true";

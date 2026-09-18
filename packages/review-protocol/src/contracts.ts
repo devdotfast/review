@@ -224,6 +224,7 @@ export interface ReviewCanvasBridge {
   onDidChangeDiffLayout(
     listener: (layout: ReviewDiffLayout) => void,
   ): ReviewDisposable;
+  setupTooltip?(target: HTMLElement, text: string): ReviewDisposable;
   ready(): void;
   reportDiagnostic?(diagnostic: ReviewCanvasDiagnostic): void;
 }

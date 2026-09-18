@@ -127,3 +127,51 @@ it("shares the version selected before login and keeps a manual copy fallback", 
   expect(copied).toBe(container.querySelector("input")?.value);
   delete (document as Partial<Document>).execCommand;
 });
+
+it("keeps sender attribution and read-only details available from the shared-review icon", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+
+  const request = vi.fn<typeof fetch>();
+
+  const client = new ReviewApiClient(
+    { serverUrl: "http://localhost", token: "local" },
+    request,
+  );
+
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  dispose = () => root.unmount();
+
+  function SharedReview() {
+    const context = useMemo(
+      () => ({
+        client,
+        reviewId: "shared-snapshot",
+        version: 4,
+        sender: "Alice",
+      }),
+      [client],
+    );
+
+    return (
+      <SharingContext.Provider value={context}>
+        <ShareControl />
+      </SharingContext.Provider>
+    );
+  }
+
+  await act(async () => root.render(<SharedReview />));
+
+  const trigger = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Shared by Alice"]',
+  )!;
+
+  await act(async () => trigger.click());
+
+  const dialog = container.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain("Shared by Alice");
+  expect(dialog.textContent).toContain("This is a read-only snapshot.");
+  expect(dialog.textContent).not.toContain("Create share link");
+  expect(request).not.toHaveBeenCalled();
+});

@@ -13,6 +13,8 @@ import { useReviewSession } from "./host/review-session";
 import { SlidersIcon, SplitLayoutIcon, UnifiedLayoutIcon } from "./icons";
 import { captureClientError, captureUiEvent } from "./ui-telemetry";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
+import { useTooltip } from "./use-tooltip";
+import { useTopbarPopover } from "./use-topbar-popover";
 
 const LAYOUT_OPTIONS: ReadonlyArray<{
   layout: ReviewDiffLayout;
@@ -29,6 +31,7 @@ const LAYOUT_OPTIONS: ReadonlyArray<{
  * that follow it without spending more toolbar width.
  */
 export function DiffLayoutControl(): ReactElement {
+  const tooltip = useTooltip("Diff settings");
   const session = useReviewSession();
   const bridge = session.bridge;
 
@@ -46,6 +49,7 @@ export function DiffLayoutControl(): ReactElement {
 
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const popoverRef = useTopbarPopover(open, controlRef);
   // The desktop confirms a write by round-tripping the setting through its
   // change event. The choice shows at once and holds until that confirmation,
   // or drops back if the write fails.
@@ -77,7 +81,7 @@ export function DiffLayoutControl(): ReactElement {
         type="button"
         className="review-diff-settings-button"
         aria-label="Diff settings"
-        title="Diff settings"
+        ref={tooltip}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -86,6 +90,8 @@ export function DiffLayoutControl(): ReactElement {
       </button>
       {open ? (
         <div
+          ref={popoverRef}
+          popover="manual"
           className="review-diff-settings-popover"
           role="dialog"
           aria-label="Diff settings"

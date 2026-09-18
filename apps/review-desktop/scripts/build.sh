@@ -61,9 +61,9 @@ if [[ "${REVIEW_DESKTOP_COMPILE_ONLY:-0}" != "1" ]]; then
   if [[ ! -x "$EXPECTED_BINARY" ]]; then
     npm run electron
   fi
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    # macOS 26 renders the app icon from a compiled asset catalog; code-oss's packaging
-    # only installs the .icns, so add the catalog to the bundle it just produced.
+  if [[ "$OSTYPE" == "darwin"* && "$DEV_FAST_ACTIVE" != "1" ]]; then
+    # Dev launches use Electron's packaged static .icns. Install the adaptive
+    # asset catalog only for full builds, avoiding actool and signing on restart.
     node "$APP_DIR/scripts/apply-app-icon.mjs" "$CHECKOUT/.build/electron/$PRODUCT_APP.app"
   fi
 fi

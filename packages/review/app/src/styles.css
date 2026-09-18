@@ -2618,16 +2618,12 @@ button {
 
 .review-history-selected {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   width: auto;
   padding: 0 8px;
   font-family: var(--chrome-font);
   font-size: var(--chrome-font-size);
   white-space: nowrap;
-}
-
-.review-history-selected time {
-  color: var(--ink-faint);
 }
 
 .review-history-button:hover:not(:disabled),

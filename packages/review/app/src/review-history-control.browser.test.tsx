@@ -106,7 +106,7 @@ describe("ReviewHistoryControl", () => {
     });
   });
 
-  it("steps through saved versions and returns to the live latest version", async () => {
+  it("selects saved versions from the menu and returns to the live latest version", async () => {
     const saved = [3, 1, 2].map((revision) => ({
       revision: String(revision),
       sealedAt: Date.UTC(2026, 7, revision),
@@ -120,36 +120,32 @@ describe("ReviewHistoryControl", () => {
     );
     const post = vi.fn<() => Promise<{ ok: true }>>(async () => ({ ok: true }));
 
-    const arrow = (label: string) =>
-      container.querySelector<HTMLButtonElement>(
-        `[aria-label="${label} version"]`,
-      )!;
+    async function chooseVersion(index: number) {
+      await expect.poll(() => historyButton().disabled).toBe(false);
+      await act(async () => historyButton().click());
+
+      const items =
+        container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+
+      await act(async () => items[index]!.click());
+    }
 
     await renderControl(undefined, post, 3);
-    await expect.poll(() => historyButton().textContent).toContain("Version 3");
-    expect(arrow("Next").disabled).toBe(true);
-    await act(async () => arrow("Previous").click());
+    await chooseVersion(1);
     expect(post).toHaveBeenLastCalledWith({
       name: "openReviewRevision",
       args: { revision: "2", sealedAt: Date.UTC(2026, 7, 2) },
     });
 
     await renderControl(undefined, post, 2);
-    await expect.poll(() => historyButton().textContent).toContain("Version 2");
-    expect(historyButton().querySelector("time")?.dateTime).toBe(
-      new Date(Date.UTC(2026, 7, 2)).toISOString(),
-    );
-    expect(arrow("Previous").disabled).toBe(false);
-    expect(arrow("Next").disabled).toBe(false);
-    await act(async () => arrow("Next").click());
+    await chooseVersion(2);
     expect(post).toHaveBeenLastCalledWith({
       name: "openReviewRevision",
       args: {},
     });
 
     await renderControl(undefined, post, 1);
-    expect(arrow("Previous").disabled).toBe(true);
-    await act(async () => arrow("Next").click());
+    await chooseVersion(1);
     expect(post).toHaveBeenLastCalledWith({
       name: "openReviewRevision",
       args: { revision: "2", sealedAt: Date.UTC(2026, 7, 2) },

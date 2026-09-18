@@ -16,6 +16,7 @@ import type { z } from "zod";
 
 import { runPrepareCommand } from "../review-prepare.js";
 import type { Pins } from "./document.js";
+import { createReviewApi } from "./http.js";
 import { openLocalReviewStore } from "./local-data.js";
 import type { commandSchema } from "./store.js";
 
@@ -201,12 +202,26 @@ it("persists failed cleanup and retries it without deleting an unrelated checkou
   git("worktree", "lock", environment.rootPath!);
   await command({ type: "delete", reviewId });
   await local.data.workspaces.idle();
-  expect(local.data.workspaces.failures()).toHaveLength(1);
+  const app = createReviewApi(local.store, local.data);
+
+  const cleanup = async (workspaceId?: string) => {
+    const response = await app.request("/workspace-cleanup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId }),
+    });
+
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
+  expect((await cleanup()).failures).toMatchObject([
+    { id: environment.id, state: "cleanup-failed" },
+  ]);
   expect(existsSync(environment.rootPath!)).toBe(true);
   git("worktree", "unlock", environment.rootPath!);
-  local.data.workspaces.retryCleanup(environment.id);
-  await local.data.workspaces.idle();
-  expect(local.data.workspaces.failures()).toHaveLength(0);
+  expect((await cleanup(environment.id)).failures).toEqual([]);
   expect(existsSync(environment.rootPath!)).toBe(false);
   expect(existsSync(path.join(repository, "value.ts"))).toBe(true);
 });
@@ -216,7 +231,7 @@ it("reports a missing repository before first acquisition and recovers after it 
   const missing = await local.data.workspaces.source(reviewId, pins, "head");
   expect(missing.state).toBe("failed");
   expect(missing.rootPath).toBeNull();
-  expect(missing.issue).toContain("Language checkout unavailable.");
+  expect(missing.issue).toBe(missing.log);
   expect(missing.log).toContain("Restore the registered checkout");
   renameSync(`${repository}-missing`, repository);
   const restored = await local.data.workspaces.source(reviewId, pins, "head");

@@ -5,6 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { git, gitCommonDir } from "@dev.fast/local-vcs";
+import { errorMessage } from "@dev.fast/trace-core";
 
 import { reviewManagedCheckoutRoot } from "../review-checkout-paths.js";
 import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
@@ -32,7 +33,7 @@ export interface WorkspaceStatus {
     | "failed"
     | "cleanup-failed";
   log: string;
-  /** Checkout acquisition failed; optional setup failures are not issues. */
+  /** Acquisition failed; this can be transient. Optional setup failures are not issues. */
   issue?: string;
 }
 
@@ -155,8 +156,7 @@ export class ReviewWorkspaces {
       log,
     };
 
-    if (state === "failed" && !rootPath)
-      status.issue = `Language checkout unavailable. ${log}`;
+    if (state === "failed" && !rootPath) status.issue = log;
 
     return status;
   }
@@ -173,12 +173,13 @@ export class ReviewWorkspaces {
       .map((item) => this.status(item));
   }
 
-  retryCleanup(id: string) {
+  async retryCleanup(id: string) {
     const environment = this.get(id);
 
     if (!environment || environment.state !== "cleanup-failed")
       throw new ReviewInputError("Cleanup failure not found.", 404);
     this.collect(id);
+    await this.cleanup;
   }
 
   async open(reviewId: string, pins: Pins): Promise<void> {
@@ -191,6 +192,7 @@ export class ReviewWorkspaces {
     reviewId: string,
     pins: Pins,
     side: "base" | "head",
+    retryFailed = false,
   ): Promise<WorkspaceStatus> {
     if (this.closed)
       return Promise.reject(new Error("Language environments are closed."));
@@ -204,8 +206,8 @@ export class ReviewWorkspaces {
 
     if (current) return current;
 
-    const request = this.acquire(id, reviewId, pins, side).finally(() =>
-      this.requests.delete(id),
+    const request = this.acquire(id, reviewId, pins, side, retryFailed).finally(
+      () => this.requests.delete(id),
     );
 
     this.requests.set(id, request);
@@ -218,6 +220,7 @@ export class ReviewWorkspaces {
     reviewId: string,
     pins: Pins,
     side: "base" | "head",
+    retryFailed: boolean,
   ): Promise<WorkspaceStatus> {
     let environment = this.get(id);
 
@@ -299,7 +302,7 @@ export class ReviewWorkspaces {
       ) {
         environment.state = "ready";
         environment.log = "";
-      } else if (environment.state !== "failed" || changed) {
+      } else if (environment.state !== "failed" || changed || retryFailed) {
         environment.state = "preparing";
         environment.generation = randomUUID();
         environment.log = "Preparing pinned checkout…";
@@ -313,7 +316,7 @@ export class ReviewWorkspaces {
     } catch (error) {
       environment.state = "failed";
       environment.rootPath = null;
-      environment.log = error instanceof Error ? error.message : String(error);
+      environment.log = errorMessage(error);
     }
 
     this.save(environment);
@@ -348,7 +351,7 @@ export class ReviewWorkspaces {
       })
       .catch((error) => {
         environment.state = "failed";
-        environment.log = String(error);
+        environment.log = errorMessage(error);
       })
       .finally(() => {
         environment.generation = randomUUID();
@@ -440,7 +443,7 @@ export class ReviewWorkspaces {
             .run(environment.id);
         } catch (error) {
           environment.state = "cleanup-failed";
-          environment.log = String(error);
+          environment.log = errorMessage(error);
           this.save(environment);
         }
       }

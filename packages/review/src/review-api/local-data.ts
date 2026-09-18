@@ -112,7 +112,24 @@ interface RepositoryVcs {
 export class LocalReviewData {
   readonly workspaces: ReviewWorkspaces;
 
-  async environmentIssues(snapshot: Snapshot) {
+  currentEnvironmentIssues(snapshot: Snapshot) {
+    if (snapshot.target.kind !== "commits") return [];
+
+    return this.workspaces.list(snapshot.reviewId).flatMap((environment) => {
+      const side =
+        environment.commit === snapshot.pins.head
+          ? "head"
+          : environment.commit === snapshot.pins.base
+            ? "base"
+            : undefined;
+
+      return side && environment.issue
+        ? [{ side, message: environment.issue }]
+        : [];
+    });
+  }
+
+  async environmentIssues(snapshot: Snapshot, retryFailed = false) {
     const issues: { side: "base" | "head"; message: string }[] = [];
 
     const sides: ("base" | "head")[] =
@@ -122,7 +139,12 @@ export class LocalReviewData {
         : ["head"];
 
     for (const side of sides) {
-      const context = await this.languageEnvironment(snapshot, side);
+      const context = await this.languageEnvironment(
+        snapshot,
+        side,
+        undefined,
+        retryFailed,
+      );
 
       if (context.issue) issues.push({ side, message: context.issue });
     }
@@ -150,6 +172,7 @@ export class LocalReviewData {
     snapshot: Snapshot,
     side: "base" | "head",
     commit?: string,
+    retryFailed = false,
   ): Promise<ReviewLanguageEnvironment> {
     if (snapshot.target.kind === "commits") {
       const pins = await this.comparison(snapshot.pins, commit);
@@ -158,6 +181,7 @@ export class LocalReviewData {
         snapshot.reviewId,
         pins,
         side,
+        retryFailed,
       );
 
       return {
@@ -178,7 +202,7 @@ export class LocalReviewData {
       rootPath: null,
       identity: `${repositoryId}:unavailable`,
       issue:
-        "Language checkout unavailable. Restore the registered repository and check again.",
+        "Could not access the registered language checkout. Check the repository path and permissions, then retry.",
     };
 
     let rootPath: string;

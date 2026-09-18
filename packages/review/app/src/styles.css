@@ -688,8 +688,6 @@ button {
 
 .review-app {
   position: relative;
-  /* Floating document controls must follow the space below status rows. */
-  contain: layout;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 0 0;
   height: 100%;
@@ -4605,7 +4603,7 @@ button {
 }
 
 .review-toc {
-  position: fixed;
+  position: absolute;
   top: calc(48px + var(--review-page-top) + 40px);
   left: 24px;
   z-index: 31;
@@ -4641,7 +4639,7 @@ button {
 }
 
 .review-toc-toggle {
-  position: fixed;
+  position: absolute;
   /* Sits 16px above the content top so it clears the page title. */
   top: calc(32px + var(--review-page-top));
   left: 24px;

@@ -623,6 +623,9 @@ function ReviewLayoutContent({
               </button>
             </div>
           ) : null}
+          {activeView === "review" && documentState.state === "ready" && (
+            <ReviewToc entries={tocEntries} />
+          )}
           <section
             ref={scrollRegionRef}
             className={`review-view-region review-view-region--${activeView}`}
@@ -633,7 +636,6 @@ function ReviewLayoutContent({
             >
               {documentState.state === "ready" ? (
                 <>
-                  <ReviewToc entries={tocEntries} />
                   <article ref={articleRef} className="review-document">
                     <ReviewDocumentBoundary
                       key={documentRevision}

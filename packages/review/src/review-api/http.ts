@@ -1,3 +1,4 @@
+import { errorMessage } from "@dev.fast/trace-core";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
@@ -77,7 +78,7 @@ export function createReviewApi(
 
     if (
       context.req.method !== "GET" &&
-      !/\/(open|source|copy-context)$/.test(context.req.path) &&
+      !/\/(open|source|copy-context|environment)$/.test(context.req.path) &&
       !/\/workspaces\/[^/]+\/retry$/.test(context.req.path)
     )
       throw new ReviewInputError("Shared reviews are read-only.", 409);
@@ -237,7 +238,21 @@ export function createReviewApi(
       title: review.title,
     });
 
-    const environmentIssues = await data?.environmentIssues(review);
+    let environmentIssues: { side?: string; message: string }[] | undefined;
+
+    try {
+      if (review.target.kind === "commits")
+        void data?.workspaces
+          .open(review.reviewId, review.pins)
+          .catch(() => {});
+      environmentIssues = data?.currentEnvironmentIssues(review);
+    } catch (error) {
+      environmentIssues = [
+        {
+          message: `Could not check language checkouts: ${errorMessage(error)}. Recheck with review_environment.`,
+        },
+      ];
+    }
 
     return context.json({
       ok: true,
@@ -431,20 +446,27 @@ export function createReviewApi(
         await data.languageEnvironment(snapshot, input.side, input.commit),
       );
     });
-    app.get("/:id/environment", async (context) =>
-      context.json({
+    app.post("/:id/environment", async (context) => {
+      const input = z
+        .strictObject({ retry: z.boolean().optional() })
+        .parse(await readBoundedRequestJson(context.req.raw));
+
+      return context.json({
         issues: await data.environmentIssues(
           readReview(context.req.param("id")),
+          input.retry,
         ),
-      }),
-    );
-    app.get("/workspace-cleanup", (context) =>
-      context.json(data.workspaces.failures()),
-    );
-    app.post("/workspace-cleanup/:workspaceId/retry", (context) => {
-      data.workspaces.retryCleanup(context.req.param("workspaceId"));
+      });
+    });
+    app.post("/workspace-cleanup", async (context) => {
+      const input = z
+        .strictObject({ workspaceId: z.string().min(1).optional() })
+        .parse(await readBoundedRequestJson(context.req.raw));
 
-      return context.json({ ok: true });
+      if (input.workspaceId)
+        await data.workspaces.retryCleanup(input.workspaceId);
+
+      return context.json({ failures: data.workspaces.failures() });
     });
     app.get("/:id/workspaces", (context) => {
       readReview(context.req.param("id"));

@@ -628,15 +628,6 @@ try {
   const greetAt = at(mainText("head"), 3, "greet");
   const headEnvironment = await readyEnvironment(review);
   const baseEnvironment = await readyEnvironment(review, "base");
-  await until(async () => {
-    await api(`/${review.reviewId}/open`, "POST");
-    await page
-      .getByText("Language environment ready", { exact: true })
-      .waitFor({ timeout: 2000 });
-
-    return true;
-  }, "prepared review rendered");
-  await page.screenshot({ path: path.join(root, "preparation-ready.png") });
   assert.notEqual(headEnvironment.rootPath, baseEnvironment.rootPath);
   assert.equal(
     (
@@ -1272,7 +1263,9 @@ try {
   await probe({ command: "workbench.action.closeModalEditor" });
   const opened = await api(`/${exact.reviewId}/open`, "POST");
   assert.equal(opened.environmentIssues, undefined);
-  assert.deepEqual(await api(`/${exact.reviewId}/environment`), { issues: [] });
+  assert.deepEqual(await api(`/${exact.reviewId}/environment`, "POST", {}), {
+    issues: [],
+  });
   assert.equal(
     await page
       .getByText("Language environment needs attention", { exact: true })

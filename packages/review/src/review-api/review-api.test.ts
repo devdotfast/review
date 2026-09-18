@@ -868,23 +868,24 @@ it("serves the experiment through the real desktop HTTP server and existing auth
           tools.find((t) => t.name === "review_open")!,
           { reviewId },
         ),
-      ).toEqual({
+      ).toMatchObject({
         ok: true,
         softwareMapEnabled: enabled,
-        environmentIssues: [
-          {
-            side: "head",
-            message:
-              "Language checkout unavailable. Repository is not registered.",
-          },
-          {
-            side: "base",
-            message:
-              "Language checkout unavailable. Repository is not registered.",
-          },
-        ],
       });
     }
+
+    expect(
+      await callAuthoringTool(
+        client,
+        tools.find((t) => t.name === "review_environment")!,
+        { reviewId },
+      ),
+    ).toEqual({
+      issues: [
+        { side: "head", message: "Repository is not registered." },
+        { side: "base", message: "Repository is not registered." },
+      ],
+    });
 
     relay.close();
 

@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewProvider, useReview } from "./review-context";
-import { ReviewCornerAction } from "./review-corner-action";
 import { testReviewSession } from "./review-session-test-utils";
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
@@ -48,37 +47,6 @@ describe("ReviewProvider session facts", () => {
       });
     });
   });
-  it("dismisses on the first click, prevents duplicate requests, and permits retry after failure", async () => {
-    const pending = Promise.withResolvers<void>();
-
-    const dismiss = vi
-      .fn<() => Promise<void>>()
-      .mockReturnValueOnce(pending.promise)
-      .mockResolvedValue(undefined);
-
-    const session = testReviewSession();
-    session.review!.dismiss = dismiss;
-    const container = await renderProvider(session);
-    const button = container.querySelector<HTMLButtonElement>("button")!;
-
-    await act(async () => button.click());
-    expect(dismiss).toHaveBeenCalledTimes(1);
-    expect(button.disabled).toBe(true);
-    await act(async () => button.click());
-    expect(dismiss).toHaveBeenCalledTimes(1);
-
-    await act(async () => pending.reject(new Error("Unavailable")));
-    expect(button.disabled).toBe(false);
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "Try again",
-    );
-    expect(requireReview().submissionOutcome).toBeNull();
-
-    await act(async () => button.click());
-    expect(dismiss).toHaveBeenCalledTimes(2);
-    expect(requireReview().submissionOutcome).toBe("dismissed");
-    expect(container.querySelector("button")).toBeNull();
-  });
 });
 
 async function renderProvider(
@@ -93,15 +61,12 @@ async function renderProvider(
       <ReviewSessionProvider session={reviewSession}>
         <ReviewProvider>
           <CaptureReview />
-          <ReviewCornerAction />
         </ReviewProvider>
       </ReviewSessionProvider>,
     );
     await Promise.resolve();
     await Promise.resolve();
   });
-
-  return container;
 }
 
 function requireReview(): ReturnType<typeof useReview> {

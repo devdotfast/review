@@ -56,6 +56,8 @@ export {
   registerTraceCommands,
 } from "./trace-commands";
 
+export { registerTraceHookCommands } from "./trace-hook-commands";
+
 export {
   type TraceCommand,
   type TraceScope,
@@ -224,3 +226,5 @@ export {
 } from "./trace-session-provenance";
 
 export { withStoreAuthorization } from "./store-authorization";
+
+export { runTraceUninstallHooks } from "./trace-uninstall-hooks";

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -151,6 +151,33 @@ describe("trace repository hooks", () => {
     await disableAllTraceRepositories(scope);
 
     expect((await traceRepositoryStatus(tracesRepo)).enabled).toBe(false);
+  });
+
+  it("keeps a commandless repository when standalone releases its own", async () => {
+    const { homeDir, repo } = await makeRepository();
+    const scope = traceScope({ homeDir });
+    await enableTraceRepository({ cwd: repo, scope, reviewCommand: "review" });
+
+    const statePath = path.join(
+      repo,
+      ".git",
+      "dev-fast",
+      "trace-hooks",
+      "state.json",
+    );
+
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    delete state.command;
+    await writeFile(statePath, JSON.stringify(state));
+
+    expect(
+      await disableAllTraceRepositories(scope, { owner: "dev-traces" }),
+    ).toMatchObject({ kept: [(await traceRepositoryStatus(repo)).root] });
+    expect((await traceRepositoryStatus(repo)).enabled).toBe(true);
+
+    await disableAllTraceRepositories(scope, { owner: "review" });
+
+    expect((await traceRepositoryStatus(repo)).enabled).toBe(false);
   });
 });
 

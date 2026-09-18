@@ -123,6 +123,7 @@ first to withdraw the consent of one repository.
 | `deny [path]` | Withdraw the consent of one repository |
 | `enable [path]`, `disable [path]`, `repair [path]` | Manage the Git trace hooks of one repository |
 | `install [--no-harness-hooks] [--all-harnesses] [--force]` | Install the command file and the harness hooks of this machine |
+| `uninstall-hooks` | Release this CLI's agent and registered Git hooks; keep the install and data |
 | `uninstall` | Remove the `~/.local/bin/dev-traces` install |
 | `check` | Check seven preconditions |
 | `status [--session <id>] [--limit <n>] [--cursor <cursor>]` | Print the install block, the selected store, and your uploads |
@@ -162,13 +163,41 @@ Under `--json` it prints one `trace.check` event.
 - `trace/config.json`: the selected store and the repository consent.
 - The sync status and the captured sessions.
 
-One machine can run both commands. The owner of a harness hook is the command
-that wrote it first. A later install of the other command keeps a hook whose
-command file still exists, and replaces a hook whose command file is gone. The
-Git hooks of one repository call the command that ran `allow`, `enable`, or
-`repair` there last. Each uninstall removes only the hooks it owns. `check`
-reports the owner of each harness hook and of the Git hooks. A hook that either
-command owns passes the check.
+One machine can run both commands, and `review` takes precedence over the
+harness hooks. A `review trace install`, or an explicit trace setup in Review
+Desktop, replaces a `dev-traces` harness hook. A `dev-traces install` or `allow`
+keeps a harness hook that `review` owns whose command file still exists, and
+prints one line that names it and says to run `review trace uninstall-hooks`
+before switching. No command is blocked: `status`, `check`, `login`, and the
+rest run under either command.
+Desktop's automatic refresh after an app update leaves a hook `dev-traces` owns
+in place, and writes its own hooks for the rest.
+
+The Git hooks of one repository call the command that ran `allow`, `enable`, or
+`repair` there last. A hook that either command owns passes `check`.
+
+To switch from Desktop to standalone:
+
+```sh
+review trace uninstall-hooks
+dev-traces install
+# In each repository whose Git hooks you want to enable:
+dev-traces enable .
+```
+
+To switch back:
+
+```sh
+dev-traces uninstall-hooks
+review trace install
+review trace enable .
+```
+
+`uninstall-hooks` removes only that CLI's agent hooks and its Git hooks in the
+registered repositories; a registered repository whose Git hooks call the other
+command keeps them. It keeps the executable, the login, the capture settings,
+the consent, and the saved traces. `deny` still withdraws the consent of one
+repository.
 
 These reads work the same in both commands: `sessions`, `list --commit <sha>`,
 `show`, `pull --commit|--session`, and `blame`. These options stay in `review`:

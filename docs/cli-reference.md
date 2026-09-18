@@ -196,6 +196,7 @@ review logout
 review whoami
 review trace store create|delete|info [path]
 review trace install [--no-harness-hooks] [--all-harnesses] [--json]
+review trace uninstall-hooks [--json]
 review trace allow [path] [--no-harness-hooks] [--all-harnesses]
 review trace deny [path]
 ```
@@ -315,6 +316,10 @@ reports the store id, the status, and the stored bytes. `store delete` asks the
 store to delete the hosted copies, which a repository admin may do; the consent
 of this machine stays until `review trace deny` removes it. `review trace
 install` installs the harness hooks of this machine and touches no repository.
+
+Review's harness hooks take precedence over the standalone `dev-traces` ones;
+`review trace uninstall-hooks` releases them. See `packages/traces/README.md`
+to switch between the two.
 
 `review trace storage use hosted` requires `review login` for the origin,
 a store that answers the current contract, and `review trace allow` for the

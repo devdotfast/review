@@ -7,6 +7,7 @@ import type { Command } from "commander";
 import type { RegisterTraceCommandsOptions } from "./trace-command-options";
 import { addTraceStorageOption } from "./trace-command-storage-option";
 import { DEFAULT_TRACE_SESSIONS_LIMIT } from "./trace-hosted-cli";
+import { runTraceUninstallHooks } from "./trace-uninstall-hooks";
 
 /** Registers storage inspection and repository capture actions; never owns app commands. */
 export function registerTraceCaptureCommands(
@@ -21,6 +22,24 @@ export function registerTraceCaptureCommands(
     configureOutput,
     configureJsonOutput,
   } = settings;
+
+  configureJsonOutput(
+    trace
+      .command("uninstall-hooks")
+      .description(
+        "Remove this CLI's agent and Git trace hooks; keep login, consent and traces",
+      ),
+  ).action(async (options: { json?: boolean }) => {
+    settings.setExitCode(
+      await runTraceUninstallHooks({
+        scope,
+        owner: settings.cliName,
+        json: options.json,
+        stdout: settings.stdout,
+        stderr: settings.stderr,
+      }),
+    );
+  });
 
   const withStorage = <T extends Command>(command: T): T =>
     addTraceStorageOption(command, settings.storageOverride);

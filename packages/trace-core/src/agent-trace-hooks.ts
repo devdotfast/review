@@ -28,8 +28,8 @@ export interface AgentTraceHookInstallResult {
   agent: AgentTraceHookAgent;
   path: string;
   modified: boolean;
-  /** The other CLI, when its live hook stayed in place instead of ours. */
-  kept?: TraceHookOwner;
+  /** Set when Review's live hook stayed in place instead of ours. */
+  kept?: "review";
 }
 
 const PI_EXTENSION_MARKER = "Managed by Review Desktop trace setup";
@@ -153,24 +153,18 @@ function extensionOwner(source: string): TraceHookOwner | null {
   return file === undefined ? null : executableOwner(file);
 }
 
-/**
- * The owner of an installed hook that an install of `wanted` leaves in place:
- * the other CLI, while its command file still exists. Each CLI then keeps
- * the hooks it wrote first, and an uninstall of either removes only its own.
- * A bare command name is not checked on PATH, so it is always replaced; the
- * installs write absolute paths. A hook whose file is gone is replaced too.
- */
+/** Review takes precedence; standalone preserves existing Review hooks. */
 export function keptTraceHookOwner(
   existingFile: string | undefined,
   wanted: string,
-): TraceHookOwner | null {
-  if (existingFile === undefined) return null;
-  const owner = executableOwner(existingFile);
-
-  if (owner === null || owner === executableOwner(wanted)) return null;
-
-  return path.isAbsolute(existingFile) && existsSync(existingFile)
-    ? owner
+): "review" | null {
+  // A bare command name is not checked on PATH, so it is replaced.
+  return existingFile !== undefined &&
+    executableOwner(existingFile) === "review" &&
+    executableOwner(wanted) === "dev-traces" &&
+    path.isAbsolute(existingFile) &&
+    existsSync(existingFile)
+    ? "review"
     : null;
 }
 
@@ -364,7 +358,7 @@ export async function installHarnessHooks(input: {
 export function keptHarnessesLine(
   kept: readonly AgentTraceHookAgent[],
 ): string {
-  return `Kept the ${kept.join(", ")} hook${kept.length === 1 ? "" : "s"} the other CLI installed: its command file still exists, and it captures to the same store.\n`;
+  return `Kept the ${kept.join(", ")} hook${kept.length === 1 ? "" : "s"} the other CLI installed: Review takes precedence. Run \`review trace uninstall-hooks\` before switching to standalone.\n`;
 }
 
 /** The installer of one harness hook, keyed by the harness. */
@@ -413,7 +407,7 @@ export async function installClaudeTraceHook(
 
   const hooks: JsonObject = isJsonObject(parsed.hooks) ? parsed.hooks : {};
   let modified = false;
-  let kept: TraceHookOwner | null = null;
+  let kept: "review" | null = null;
 
   const hookCommand = (
     eventName: "SessionStart" | "UserPromptSubmit" | "SessionEnd",
@@ -507,7 +501,7 @@ export async function installCodexTraceHook(
   ] as const;
 
   const found = new Set<string>();
-  let kept: TraceHookOwner | null = null;
+  let kept: "review" | null = null;
 
   let next = transformCodexHooks(existing, (block, command, event) => {
     const file = traceHookCommandFile(command);

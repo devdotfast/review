@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url";
 
 import { ensureNotesConfig, gitCommonDir } from "@dev.fast/local-vcs";
 import {
-  type AgentTraceHookInstallResult,
   type TraceCredentialsInput,
   type TraceHookOwner,
   configureTraceMachine,
+  describeTraceHookOwners,
   emitJsonEvent,
   failWithJsonError,
   humanStream,
@@ -173,6 +173,13 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   const installTraceHooks =
     traceEnabled || (await traceMachineEnabled({ homeDir, env }));
 
+  // Desktop's automatic refresh leaves hooks the standalone CLI owns alone;
+  // explicit setup still takes them.
+  const hookOwners: Partial<Record<InstallTarget, TraceHookOwner | null>> =
+    input.trace === undefined
+      ? await describeTraceHookOwners(homeDir, env)
+      : {};
+
   const installed: InstalledItem[] = [];
   const keptHooks: { target: InstallTarget; owner: TraceHookOwner }[] = [];
   const visitedRoots = new Set<string>();
@@ -224,23 +231,23 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     }
 
     if (!installTraceHooks) continue;
-    let hook: AgentTraceHookInstallResult | undefined;
 
-    if (target === "claude") {
-      hook = await installClaudeTraceHook(homeDir, input.reviewCommand);
-    } else if (target === "codex") {
-      hook = await installCodexTraceHook(homeDir, input.reviewCommand);
-    } else if (target === "opencode") {
-      hook = await installOpenCodeTraceExtension(homeDir, input.reviewCommand);
-    } else if (target === "pi") {
-      hook = await installPiTraceExtension(homeDir, input.reviewCommand);
+    if (hookOwners[target] === "dev-traces") {
+      keptHooks.push({ target, owner: "dev-traces" });
+      human.write(
+        `[skip] kept the ${target} trace hook that dev-traces installed\n`,
+      );
+      continue;
     }
 
-    if (hook?.kept) {
-      keptHooks.push({ target, owner: hook.kept });
-      human.write(
-        `[skip] kept the ${target} trace hook that ${hook.kept} installed\n`,
-      );
+    if (target === "claude") {
+      await installClaudeTraceHook(homeDir, input.reviewCommand);
+    } else if (target === "codex") {
+      await installCodexTraceHook(homeDir, input.reviewCommand);
+    } else if (target === "opencode") {
+      await installOpenCodeTraceExtension(homeDir, input.reviewCommand);
+    } else if (target === "pi") {
+      await installPiTraceExtension(homeDir, input.reviewCommand);
     }
   }
 

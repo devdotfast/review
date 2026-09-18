@@ -23,6 +23,7 @@ import {
 import {
   type TraceCredentialsInput,
   collectingWritable,
+  devReviewHome,
   disableAllTraceRepositories,
   disableTraceMachine,
   removeAgentTraceHook,
@@ -461,6 +462,7 @@ async function applyCliInstallUnlocked(
       reviewMcpLauncher(env),
       input.cliPath,
       input.cliRuntimePath,
+      devReviewHome(env, homeDir),
     );
 
     for (const target of REVIEW_MCP_TARGETS.filter((target) =>
@@ -788,13 +790,16 @@ async function detectPresentAgents(
 export async function writePathShim(
   shimPath: string,
   cliPath: string,
-  runtimePath?: string,
+  runtimePath: string | undefined,
+  devHome: string,
 ): Promise<void> {
   const source = `#!/bin/sh
 # Managed by Review Desktop ("Review: Install CLI in PATH"). Do not edit.
 FALLBACK_CLI=${shSingleQuote(cliPath)}
 FALLBACK_RUNTIME=${shSingleQuote(runtimePath ?? "")}
-DISCOVERY="\${DEV_REVIEW_HOME:-$HOME/.dev}/review-desktop/server.json"
+DEFAULT_HOME=${shSingleQuote(devHome)}
+export DEV_REVIEW_HOME="\${DEV_REVIEW_HOME:-$DEFAULT_HOME}"
+DISCOVERY="$DEV_REVIEW_HOME/review-desktop/server.json"
 
 cli=""
 runtime=""
@@ -858,7 +863,12 @@ export async function installReviewCommand(input: {
   const shimPath = pathShimPath(homeDir);
   const shadowingCommand = await resolvePathCommand("review", shimPath, env);
 
-  await writePathShim(shimPath, input.cliPath, input.cliRuntimePath);
+  await writePathShim(
+    shimPath,
+    input.cliPath,
+    input.cliRuntimePath,
+    devReviewHome(env, homeDir),
+  );
   const profileOutput = await ensureShellProfilePath({ homeDir, env });
 
   const shadowingOutput = shadowingCommand

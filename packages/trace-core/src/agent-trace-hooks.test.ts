@@ -434,7 +434,7 @@ describe("hook coexistence", () => {
     installOpenCodeTraceExtension,
   ];
 
-  it("keeps the other CLI's hook while its command file exists", async () => {
+  it("Review takes ownership from standalone and standalone preserves Review", async () => {
     const home = await makeTempHome();
     const reviewShim = path.join(home, ".local", "bin", "review");
     const tracesShim = path.join(home, ".local", "bin", "dev-traces");
@@ -442,27 +442,8 @@ describe("hook coexistence", () => {
     await writeFile(reviewShim, "#!/bin/sh\n");
     await writeFile(tracesShim, "#!/bin/sh\n");
 
-    // The app install keeps a live dev-traces hook.
     for (const install of installers) {
       await install(home, tracesShim);
-      expect(await install(home, reviewShim)).toMatchObject({
-        modified: false,
-        kept: "dev-traces",
-      });
-    }
-
-    expect(await describeTraceHookOwners(home)).toEqual({
-      claude: "dev-traces",
-      codex: "dev-traces",
-      pi: "dev-traces",
-      opencode: "dev-traces",
-    });
-
-    // Once dev-traces is gone, review takes the hooks, and then keeps them
-    // against a dev-traces install.
-    await rm(tracesShim);
-
-    for (const install of installers) {
       expect((await install(home, reviewShim)).modified).toBe(true);
     }
 

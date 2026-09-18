@@ -10,6 +10,7 @@ import {
   type TraceListCommandInput,
   type TracePullCommandInput,
   type TracePullScope,
+  desktopTraceCommand,
   emitJsonEvent,
   failWithJsonError,
   findPackageRoot,
@@ -65,6 +66,14 @@ const HOOK_WRITERS = ["allow", "enable", "repair"];
  * never end the agent session: the run reports the fault and exits 0.
  */
 const HOOK_ENTRY_POINTS = ["hook", "git-hook"];
+
+class DesktopOwnsTracingError extends Error {
+  constructor() {
+    super(
+      "Review Desktop manages tracing. Use `review trace install` instead. To switch to standalone, run `review trace uninstall-hooks` first.",
+    );
+  }
+}
 
 const REVIEW_SCOPE_UNSUPPORTED =
   "`--review` needs the Review app. Use `--commit <sha>` or `--session <id>`.";
@@ -512,7 +521,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
       .description(`Handle ${CLI_NAME} agent session lifecycle hooks`)
       .option("--session <id>", "Agent session ID"),
   ).action(async (event: string, options: { session?: string }) => {
-    state.exitCode = await runtime.runTraceHook({
+    state.exitCode = await traceRuntime.runTraceHook({
       scope,
       cwd,
       event,
@@ -527,7 +536,7 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
       .command("git-hook <hook> [args...]", { hidden: true })
       .description("Run a package-owned Git trace hook"),
   ).action(async (hook: string, args: string[]) => {
-    state.exitCode = await runtime.runTraceGitHook({
+    state.exitCode = await traceRuntime.runTraceGitHook({
       scope,
       cwd,
       hook,
@@ -537,6 +546,34 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
       traceCommand: startupCommand,
     });
   });
+
+  configureJsonOutput(
+    trace
+      .command("sync <session-id>", { hidden: true })
+      .option("--repo <repo>", "GitHub owner/repo")
+      .addOption(
+        new Option(
+          "--expect-storage <selection>",
+          "Expected storage selection",
+        ).hideHelp(),
+      ),
+  ).action(
+    async (
+      sessionId: string,
+      options: { repo?: string; expectStorage?: string; json?: boolean },
+    ) => {
+      state.exitCode = await runtime.runTraceSync({
+        scope,
+        cwd,
+        sessionId,
+        repo: options.repo,
+        expectStorage: options.expectStorage,
+        json: options.json,
+        stdout: input.stdout,
+        stderr: input.stderr,
+      });
+    },
+  );
 
   program.hook("preAction", (_program, actionCommand) => {
     // The parsed option is authoritative once parsing succeeds. The argv scan
@@ -552,6 +589,13 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     }
 
     state.hookEntryPoint = HOOK_ENTRY_POINTS.includes(actionCommand.name());
+
+    if (
+      !["uninstall", "uninstall-hooks"].includes(actionCommand.name()) &&
+      desktopTraceCommand(homeDir)
+    ) {
+      throw new DesktopOwnsTracingError();
+    }
   });
 
   try {
@@ -559,6 +603,16 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
 
     return state.exitCode;
   } catch (error) {
+    if (error instanceof DesktopOwnsTracingError) {
+      const code = failWithJsonError(
+        { json: state.json, stdout: input.stdout, stderr: input.stderr },
+        "desktop",
+        error.message,
+      );
+
+      return state.hookEntryPoint ? 0 : code;
+    }
+
     if (error instanceof CommanderError) {
       if (error.exitCode === 0) return 0;
 

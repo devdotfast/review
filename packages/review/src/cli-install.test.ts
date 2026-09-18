@@ -13,7 +13,13 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
-import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
+import {
+  collectingWritable,
+  describeTraceHookOwners,
+  runTraceUninstallHooks,
+  traceScope,
+  writePrivateJsonAtomic,
+} from "@dev.fast/trace-core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -115,6 +121,70 @@ describe("trace capture installation", () => {
     expect(await readFile(path.join(configDir, "settings.json"), "utf8")).toBe(
       settings,
     );
+  });
+
+  it("does not reclaim released trace hooks during automatic setup", async () => {
+    const homeDir = await temporaryHome("review-trace-release-");
+
+    const env = {
+      DEV_REVIEW_HOME: path.join(homeDir, ".dev"),
+      TRACE_R2_MODE: "mock",
+    };
+
+    const credentials = {
+      endpoint: "mock://endpoint",
+      bucket: "fixture",
+      key: "fixture-key",
+      secret: "fixture-secret",
+    };
+
+    expect(
+      (
+        await applyCliInstall({
+          packageRoot,
+          targets: ["claude"],
+          shim: false,
+          homeDir,
+          env,
+          trace: credentials,
+        })
+      ).code,
+    ).toBe(0);
+    expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
+    const output = collectingWritable([]);
+    await runTraceUninstallHooks({
+      scope: traceScope({ homeDir, env }),
+      cwd: homeDir,
+      owner: "review",
+      stdout: output,
+      stderr: output,
+    });
+    // Ordinary setup uses the same no-explicit-trace path as automatic refresh.
+    expect(
+      (
+        await applyCliInstall({
+          packageRoot,
+          targets: ["claude"],
+          shim: false,
+          homeDir,
+          env,
+        })
+      ).code,
+    ).toBe(0);
+    expect((await describeTraceHookOwners(homeDir)).claude).toBeNull();
+    expect(
+      (
+        await applyCliInstall({
+          packageRoot,
+          targets: ["claude"],
+          shim: false,
+          homeDir,
+          env,
+          trace: credentials,
+        })
+      ).code,
+    ).toBe(0);
+    expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
   });
 
   it("writes a version-2 profile for a machine with no legacy files", async () => {
@@ -620,6 +690,23 @@ function profileEnvironment(homeDir: string, shell: string): NodeJS.ProcessEnv {
 }
 
 describe("installed launcher runtime selection", () => {
+  it("retains the installed profile when invoked without the setup environment", async () => {
+    const home = await temporaryHome("review-profile-shim-");
+    const profile = path.join(home, "a profile");
+    const cli = path.join(home, "cli.cjs");
+    const shim = path.join(home, "review");
+    await writeFile(cli, "console.log(process.env.DEV_REVIEW_HOME)");
+    await writePathShim(shim, cli, process.execPath, profile);
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home };
+    delete env.DEV_REVIEW_HOME;
+
+    const result = await promisify(execFile)(shim, ["trace", "status"], {
+      env,
+    });
+
+    expect(result.stdout.trim()).toBe(profile);
+  });
+
   it.each([
     ["healthy discovery", true, true, false, "discovered"],
     ["missing discovered CLI", false, true, false, "fallback"],

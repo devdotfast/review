@@ -15,12 +15,14 @@ import {
   type TraceCommand,
   type TraceScope,
   resolveTraceCommand,
+  traceCliName,
 } from "./trace-command";
 import {
   type TraceRepositoryConsent,
   findTraceRepository,
   readTraceUserConfig,
 } from "./trace-consent";
+import { traceHooksDisabled } from "./trace-hook-ownership";
 import { traceMachineEnabled } from "./trace-machine-setup";
 import { inferRepoFromGit, traceRepoName } from "./trace-repo";
 import { enableTraceRepository } from "./trace-repository-hooks";
@@ -92,6 +94,14 @@ export interface RunTraceHookInput {
 }
 
 export async function runTraceHook(input: RunTraceHookInput): Promise<number> {
+  const owner = traceCliName();
+
+  if (
+    (owner === "review" || owner === "dev-traces") &&
+    traceHooksDisabled(owner, input.scope.homeDir)
+  )
+    return 0;
+
   if (input.scope.env.TRACE_DISABLE === "1") {
     return 0;
   }

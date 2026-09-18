@@ -17,6 +17,8 @@ import {
   installCodexTraceHook,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
+  setTraceHooksDisabled,
+  traceHooksDisabled,
   traceMachineEnabled,
   writeFileAtomicAsync,
 } from "@dev.fast/trace-core";
@@ -170,8 +172,12 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   // Agent hooks only make sense when this machine captures traces. A
   // previous install may already have enabled it without credentials in
   // this request.
+  if (input.trace !== undefined)
+    await setTraceHooksDisabled("review", homeDir, false);
+
   const installTraceHooks =
-    traceEnabled || (await traceMachineEnabled({ homeDir, env }));
+    !traceHooksDisabled("review", homeDir) &&
+    (traceEnabled || (await traceMachineEnabled({ homeDir, env })));
 
   const installed: InstalledItem[] = [];
   const keptHooks: { target: InstallTarget; owner: TraceHookOwner }[] = [];

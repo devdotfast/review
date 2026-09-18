@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -10,7 +10,6 @@ import {
   clearTraceEnvCache,
   collectingWritable,
   runTraceSessions,
-  setTraceHooksDisabled,
   traceCommandPrefix,
   writeStoreAuth,
 } from "@dev.fast/trace-core";
@@ -159,119 +158,6 @@ describe("dev-traces program", () => {
       err: () => err.join(""),
     };
   }
-
-  it.each([false, true])(
-    "requires Desktop to release hooks before standalone setup (no-install=%s)",
-    async (noInstall) => {
-      const desktop = path.join(home, ".local/bin/review");
-      await mkdir(path.dirname(desktop), { recursive: true });
-      await writeFile(
-        desktop,
-        "#!/bin/sh\n# Managed by Review Desktop\nexit 0\n",
-        { mode: 0o755 },
-      );
-      const calls: string[] = [];
-      const runtime = stubs(calls);
-
-      const args = [
-        "allow",
-        ".",
-        "--json",
-        ...(noInstall ? ["--no-install"] : []),
-      ];
-
-      const blocked = run(args, runtime);
-      expect(await blocked.code).toBe(1);
-      expect(blocked.out()).toContain("review trace uninstall-hooks");
-      expect(calls).toEqual([]);
-      await setTraceHooksDisabled("review", home, true);
-      expect(await run(args, runtime).code).toBe(0);
-      expect(runtime.runTraceAllow).toHaveBeenCalledOnce();
-    },
-  );
-
-  it.each([
-    ["status"],
-    ["check"],
-    ["login"],
-    ["logout"],
-    ["whoami"],
-    ["list", "--commit", "abc123"],
-    ["sync", "session-1"],
-    ["trace", "sync", "session-1"],
-    ["install", "--no-harness-hooks"],
-    ["enable", ".", "--no-install"],
-  ])("blocks standalone work before dispatch: %j", async (...argv) => {
-    const desktop = path.join(home, ".local/bin/review");
-    await mkdir(path.dirname(desktop), { recursive: true });
-    // A broken shim must still reserve ownership; probing it cannot bypass the guard.
-    await writeFile(desktop, "# Managed by Review Desktop\nmissing-command\n");
-    const runtime = stubs([]);
-    const blocked = run(["--json", ...argv], runtime);
-    expect(await blocked.code).toBe(1);
-    expect(JSON.parse(blocked.out())).toMatchObject({
-      event: "error",
-      stage: "desktop",
-      message: expect.stringContaining("Use `review trace install` instead"),
-    });
-    expect(blocked.err()).toContain("review trace uninstall-hooks");
-
-    for (const fn of Object.values(runtime)) expect(fn).not.toHaveBeenCalled();
-  });
-
-  it("keeps help and cleanup available while Desktop owns tracing", async () => {
-    const desktop = path.join(home, ".local/bin/review");
-    await mkdir(path.dirname(desktop), { recursive: true });
-    await writeFile(desktop, "# Managed by Review Desktop\n");
-
-    const runtime = {
-      ...stubs([]),
-      uninstallSelf: vi.fn<TracesCliRuntime["uninstallSelf"]>(async () => ({
-        removedShim: true,
-        keptForeignShim: false,
-        profiles: [],
-        hooksRemoved: [],
-        repositoriesDisabled: [],
-        output: "Removed\n",
-      })),
-    };
-
-    for (const argv of [
-      ["--help"],
-      ["--version"],
-      ["install", "--help"],
-      ["uninstall"],
-      ["uninstall-hooks"],
-    ]) {
-      expect(await run(argv, runtime).code).toBe(0);
-    }
-
-    expect(runtime.uninstallSelf).toHaveBeenCalledOnce();
-    expect(await run(["status"], runtime).code).toBe(1);
-  });
-
-  it("stale standalone hooks cannot reclaim Git hooks while Desktop owns capture", async () => {
-    const desktop = path.join(home, ".local/bin/review");
-    await mkdir(path.dirname(desktop), { recursive: true });
-    await writeFile(desktop, "#!/bin/sh\n# Managed by Review Desktop\n", {
-      mode: 0o755,
-    });
-
-    const runtime = {
-      ...stubs([]),
-      runTraceGitHook: vi.fn<TracesCliRuntime["runTraceGitHook"]>(
-        async () => 0,
-      ),
-    };
-
-    expect(await run(["trace", "hook", "SessionStart"], runtime).code).toBe(0);
-    expect(await run(["trace", "git-hook", "pre-push"], runtime).code).toBe(0);
-    expect(runtime.runTraceHook).not.toHaveBeenCalled();
-    expect(runtime.runTraceGitHook).not.toHaveBeenCalled();
-    await setTraceHooksDisabled("review", home, true);
-    expect(await run(["trace", "hook", "SessionStart"], runtime).code).toBe(0);
-    expect(runtime.runTraceHook).toHaveBeenCalledOnce();
-  });
 
   it("accepts the background sync invocation with its storage guard", async () => {
     const sync = vi.fn<TracesCliRuntime["runTraceSync"]>(async () => 0);

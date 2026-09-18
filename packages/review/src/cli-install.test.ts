@@ -16,6 +16,7 @@ import type { ReviewCliInstallStamp } from "@dev.fast/review-protocol";
 import {
   collectingWritable,
   describeTraceHookOwners,
+  installClaudeTraceHook,
   runTraceUninstallHooks,
   traceScope,
   writePrivateJsonAtomic,
@@ -138,18 +139,17 @@ describe("trace capture installation", () => {
       secret: "fixture-secret",
     };
 
-    expect(
-      (
-        await applyCliInstall({
-          packageRoot,
-          targets: ["claude"],
-          shim: false,
-          homeDir,
-          env,
-          trace: credentials,
-        })
-      ).code,
-    ).toBe(0);
+    const install = (trace?: typeof credentials) =>
+      applyCliInstall({
+        packageRoot,
+        targets: ["claude"],
+        shim: false,
+        homeDir,
+        env,
+        trace,
+      });
+
+    expect((await install(credentials)).code).toBe(0);
     expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
     const output = collectingWritable([]);
     await runTraceUninstallHooks({
@@ -159,31 +159,14 @@ describe("trace capture installation", () => {
       stdout: output,
       stderr: output,
     });
-    // Ordinary setup uses the same no-explicit-trace path as automatic refresh.
-    expect(
-      (
-        await applyCliInstall({
-          packageRoot,
-          targets: ["claude"],
-          shim: false,
-          homeDir,
-          env,
-        })
-      ).code,
-    ).toBe(0);
-    expect((await describeTraceHookOwners(homeDir)).claude).toBeNull();
-    expect(
-      (
-        await applyCliInstall({
-          packageRoot,
-          targets: ["claude"],
-          shim: false,
-          homeDir,
-          env,
-          trace: credentials,
-        })
-      ).code,
-    ).toBe(0);
+    const standalone = path.join(homeDir, ".local", "bin", "dev-traces");
+    await mkdir(path.dirname(standalone), { recursive: true });
+    await writeFile(standalone, "#!/bin/sh\n", { mode: 0o755 });
+    await installClaudeTraceHook(homeDir, standalone);
+
+    expect((await install()).code).toBe(0);
+    expect((await describeTraceHookOwners(homeDir)).claude).toBe("dev-traces");
+    expect((await install(credentials)).code).toBe(0);
     expect((await describeTraceHookOwners(homeDir)).claude).toBe("review");
   });
 

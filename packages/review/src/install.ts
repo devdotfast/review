@@ -10,6 +10,7 @@ import {
   type TraceCredentialsInput,
   type TraceHookOwner,
   configureTraceMachine,
+  describeTraceHookOwners,
   emitJsonEvent,
   failWithJsonError,
   humanStream,
@@ -17,8 +18,6 @@ import {
   installCodexTraceHook,
   installOpenCodeTraceExtension,
   installPiTraceExtension,
-  setTraceHooksDisabled,
-  traceHooksDisabled,
   traceMachineEnabled,
   writeFileAtomicAsync,
 } from "@dev.fast/trace-core";
@@ -172,12 +171,15 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
   // Agent hooks only make sense when this machine captures traces. A
   // previous install may already have enabled it without credentials in
   // this request.
-  if (input.trace !== undefined)
-    await setTraceHooksDisabled("review", homeDir, false);
-
   const installTraceHooks =
-    !traceHooksDisabled("review", homeDir) &&
-    (traceEnabled || (await traceMachineEnabled({ homeDir, env })));
+    traceEnabled || (await traceMachineEnabled({ homeDir, env }));
+
+  // Desktop's automatic refresh leaves hooks the standalone CLI owns alone;
+  // explicit setup still takes them.
+  const hookOwners: Partial<Record<InstallTarget, TraceHookOwner | null>> =
+    input.trace === undefined
+      ? await describeTraceHookOwners(homeDir, env)
+      : {};
 
   const installed: InstalledItem[] = [];
   const keptHooks: { target: InstallTarget; owner: TraceHookOwner }[] = [];
@@ -230,6 +232,15 @@ async function runInstallUnlocked(input: RunInstallInput): Promise<number> {
     }
 
     if (!installTraceHooks) continue;
+
+    if (hookOwners[target] === "dev-traces") {
+      keptHooks.push({ target, owner: "dev-traces" });
+      human.write(
+        `[skip] kept the ${target} trace hook that dev-traces installed\n`,
+      );
+      continue;
+    }
+
     let hook: AgentTraceHookInstallResult | undefined;
 
     if (target === "claude") {

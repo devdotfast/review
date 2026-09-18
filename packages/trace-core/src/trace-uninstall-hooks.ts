@@ -1,15 +1,12 @@
 import {
   AGENT_TRACE_HOOK_AGENTS,
+  type TraceHookOwner,
   removeAgentTraceHook,
   traceGitHookCommandOwner,
 } from "./agent-trace-hooks";
 import { type CliJsonOutput, emitJsonEvent, humanStream } from "./cli-output";
 import { errorMessage } from "./error-message";
 import type { TraceScope } from "./trace-command";
-import {
-  type TraceHookOwner,
-  setTraceHooksDisabled,
-} from "./trace-hook-ownership";
 import {
   disableTraceRepository,
   listTraceRepositoryRoots,
@@ -24,7 +21,6 @@ export async function runTraceUninstallHooks(
     owner: TraceHookOwner;
   },
 ): Promise<number> {
-  await setTraceHooksDisabled(input.owner, input.scope.homeDir, true);
   const removed: string[] = [];
   const repositories: string[] = [];
   const errors: string[] = [];

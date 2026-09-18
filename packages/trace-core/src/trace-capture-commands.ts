@@ -6,7 +6,6 @@ import type { Command } from "commander";
 
 import type { RegisterTraceCommandsOptions } from "./trace-command-options";
 import { addTraceStorageOption } from "./trace-command-storage-option";
-import { setTraceHooksDisabled } from "./trace-hook-ownership";
 import { DEFAULT_TRACE_SESSIONS_LIMIT } from "./trace-hosted-cli";
 import { runTraceUninstallHooks } from "./trace-uninstall-hooks";
 
@@ -203,7 +202,6 @@ export function registerTraceCaptureCommands(
       harnessHooks?: boolean;
       allHarnesses?: boolean;
     }) => {
-      await setTraceHooksDisabled(owner, scope.homeDir, false);
       settings.setExitCode(
         await runtime.runTraceInstallMachine({
           scope,
@@ -240,7 +238,6 @@ export function registerTraceCaptureCommands(
         allHarnesses?: boolean;
       },
     ) => {
-      await setTraceHooksDisabled(owner, scope.homeDir, false);
       settings.setExitCode(
         await runtime.runTraceAllow({
           scope,
@@ -282,7 +279,6 @@ export function registerTraceCaptureCommands(
       .command("enable [path]")
       .description("Enable trace hooks for one Git repository"),
   ).action(async (repoPath?: string) => {
-    await setTraceHooksDisabled(owner, scope.homeDir, false);
     settings.setExitCode(
       await runtime.runTraceEnable({
         scope,
@@ -313,7 +309,6 @@ export function registerTraceCaptureCommands(
       .command("repair [path]")
       .description("Repair the trace hooks of one Git repository"),
   ).action(async (repoPath?: string) => {
-    await setTraceHooksDisabled(owner, scope.homeDir, false);
     settings.setExitCode(
       await runtime.runTraceRepair({
         scope,

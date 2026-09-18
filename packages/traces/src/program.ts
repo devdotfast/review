@@ -10,7 +10,6 @@ import {
   type TraceListCommandInput,
   type TracePullCommandInput,
   type TracePullScope,
-  desktopTraceCommand,
   emitJsonEvent,
   failWithJsonError,
   findPackageRoot,
@@ -66,14 +65,6 @@ const HOOK_WRITERS = ["allow", "enable", "repair"];
  * never end the agent session: the run reports the fault and exits 0.
  */
 const HOOK_ENTRY_POINTS = ["hook", "git-hook"];
-
-class DesktopOwnsTracingError extends Error {
-  constructor() {
-    super(
-      "Review Desktop manages tracing. Use `review trace install` instead. To switch to standalone, run `review trace uninstall-hooks` first.",
-    );
-  }
-}
 
 const REVIEW_SCOPE_UNSUPPORTED =
   "`--review` needs the Review app. Use `--commit <sha>` or `--session <id>`.";
@@ -589,13 +580,6 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
     }
 
     state.hookEntryPoint = HOOK_ENTRY_POINTS.includes(actionCommand.name());
-
-    if (
-      !["uninstall", "uninstall-hooks"].includes(actionCommand.name()) &&
-      desktopTraceCommand(homeDir)
-    ) {
-      throw new DesktopOwnsTracingError();
-    }
   });
 
   try {
@@ -603,16 +587,6 @@ export async function runTracesCli(input: TracesCliInput): Promise<number> {
 
     return state.exitCode;
   } catch (error) {
-    if (error instanceof DesktopOwnsTracingError) {
-      const code = failWithJsonError(
-        { json: state.json, stdout: input.stdout, stderr: input.stderr },
-        "desktop",
-        error.message,
-      );
-
-      return state.hookEntryPoint ? 0 : code;
-    }
-
     if (error instanceof CommanderError) {
       if (error.exitCode === 0) return 0;
 

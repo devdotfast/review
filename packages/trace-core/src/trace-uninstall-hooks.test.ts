@@ -14,11 +14,6 @@ import {
 import { collectingWritable } from "./cli-output";
 import { traceScope } from "./trace-command";
 import {
-  desktopTraceCommand,
-  setTraceHooksDisabled,
-  traceHooksDisabled,
-} from "./trace-hook-ownership";
-import {
   enableTraceRepository,
   traceRepositoryStatus,
 } from "./trace-repository-hooks";
@@ -63,7 +58,6 @@ it("releases only Review hooks across registered repositories, preserving standa
     repositories.push(repo);
   }
 
-  expect(desktopTraceCommand(home)).toBe(review);
   const output = collectingWritable([]);
   expect(
     await runTraceUninstallHooks({
@@ -84,8 +78,6 @@ it("releases only Review hooks across registered repositories, preserving standa
   expect(await readFile(path.join(devHome, "auth.json"), "utf8")).toBe(
     "keep-login",
   );
-  expect(traceHooksDisabled("review", home)).toBe(true);
-  expect(desktopTraceCommand(home)).toBeNull();
   expect(
     await runTraceUninstallHooks({
       scope,
@@ -95,6 +87,4 @@ it("releases only Review hooks across registered repositories, preserving standa
       stderr: output,
     }),
   ).toBe(0);
-  await setTraceHooksDisabled("review", home, false);
-  expect(desktopTraceCommand(home)).toBe(review);
 });

@@ -14,12 +14,7 @@ import {
   readActiveTraceSessions,
   writeTraceSessions,
 } from "./trace-agent-sessions";
-import {
-  type TraceCommand,
-  type TraceScope,
-  traceCliName,
-} from "./trace-command";
-import { traceHooksDisabled } from "./trace-hook-ownership";
+import type { TraceCommand, TraceScope } from "./trace-command";
 import { spawnDetachedTraceSync } from "./trace-hook-runner";
 import { findLocalTrace } from "./trace-local-sessions";
 import { traceMachineEnabled } from "./trace-machine-setup";
@@ -38,14 +33,6 @@ export async function runTraceGitHook(input: {
   /** The command used for detached hosted sync. */
   traceCommand?: TraceCommand;
 }): Promise<number> {
-  const owner = traceCliName();
-
-  if (
-    (owner === "review" || owner === "dev-traces") &&
-    traceHooksDisabled(owner, input.scope.homeDir)
-  )
-    return 0;
-
   if (input.scope.env.TRACE_DISABLE === "1") return 0;
   // The machine switch owns every capture path, including the git hooks.
 

@@ -225,9 +225,4 @@ export {
 
 export { withStoreAuthorization } from "./store-authorization";
 
-export {
-  desktopTraceCommand,
-  traceHooksDisabled,
-  setTraceHooksDisabled,
-} from "./trace-hook-ownership";
 export { runTraceUninstallHooks } from "./trace-uninstall-hooks";

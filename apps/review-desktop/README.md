@@ -91,11 +91,6 @@ The manual end-to-end journeys live in `scripts/e2e/`; each one drives the
 built Desktop through the installed CLI and the JSON review API. See
 `scripts/e2e/TESTING.md` for how to stage a runtime and run them.
 
-`scripts/legacy-import-smoke.mjs --home <copy>` launches the built Desktop on a
-copy of a real review home and checks that every published review imports, opens
-in the JSON canvas, and renders without page errors. Copy `~/.dev/reviews` into a
-scratch home first; the smoke refuses the live home.
-
 ## Packaging and releases
 
 macOS arm64 is the only packaged platform with release channels; Linux has a

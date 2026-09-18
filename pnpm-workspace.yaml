@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "packages/review/app"
   - "apps/*"
 
 nodeLinker: hoisted

@@ -28,9 +28,9 @@ const fs = require("node:fs");
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + "\\n");
 if (args[1] === "schema") {
-  console.log(JSON.stringify({ type: "object", properties: { summarize: { type: "object", properties: { provider: { type: "string", enum: ["gemini"], default: "gemini", description: "Model provider." } } } } }));
+  console.log(JSON.stringify({ type: "object", properties: { plugins: { properties: { bundled: { properties: { summarize: { properties: { provider: { type: "string", enum: ["gemini"], default: "gemini", description: "Model provider." } } } } } } } } }));
 } else if (args[1] === "show") {
-  console.log(JSON.stringify({ summarize: { provider: "gemini" } }));
+  console.log(JSON.stringify({ plugins: { bundled: { summarize: { provider: "gemini" } } } }));
 } else if (args[1] === "set") {
   if (args[2] === "bad.key") { console.error("unknown key"); process.exit(2); }
 } else {
@@ -48,20 +48,32 @@ test("reads the schema and resolved values through the CLI", async () => {
   await fakeDiffr();
   const config = await readDiffrConfig();
   expect(config.schema).toMatchObject({ type: "object" });
-  expect(config.values).toEqual({ summarize: { provider: "gemini" } });
+  expect(config.values).toEqual({
+    plugins: { bundled: { summarize: { provider: "gemini" } } },
+  });
 });
 
 test("writes one key as text and returns the fresh configuration", async () => {
   const { log } = await fakeDiffr();
-  const config = await setDiffrConfigValue("folds.min_lines", 12);
-  expect(config.values).toEqual({ summarize: { provider: "gemini" } });
+  const config = await setDiffrConfigValue(
+    "plugins.bundled.summarize.test_min_lines",
+    12,
+  );
+  expect(config.values).toEqual({
+    plugins: { bundled: { summarize: { provider: "gemini" } } },
+  });
 
   const calls = (await readFile(log, "utf8"))
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
 
-  expect(calls[0]).toEqual(["config", "set", "folds.min_lines", "12"]);
+  expect(calls[0]).toEqual([
+    "config",
+    "set",
+    "plugins.bundled.summarize.test_min_lines",
+    "12",
+  ]);
 });
 
 test("surfaces diffr's own error text", async () => {
@@ -87,6 +99,8 @@ test("explains a missing executable", async () => {
 test("accepts current diffr plugin names containing hyphens", async () => {
   await fakeDiffr();
   await expect(
-    setDiffrConfigValue("plugins.deleted-bodies.min_lines", 20),
-  ).resolves.toMatchObject({ values: { summarize: { provider: "gemini" } } });
+    setDiffrConfigValue("plugins.bundled.deleted-bodies.min_lines", 20),
+  ).resolves.toMatchObject({
+    values: { plugins: { bundled: { summarize: { provider: "gemini" } } } },
+  });
 });

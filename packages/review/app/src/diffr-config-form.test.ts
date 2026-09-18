@@ -9,22 +9,30 @@ import {
 const schema = {
   type: "object",
   properties: {
-    summarize: {
-      type: "object",
+    plugins: {
       properties: {
-        provider: {
-          type: "string",
-          enum: ["gemini"],
-          default: "gemini",
-          description: "Model provider used for fold summaries.",
-        },
-        api_key: {
-          type: ["string", "null"],
-          description: "API key for the provider.",
+        bundled: {
+          properties: {
+            summarize: {
+              type: "object",
+              properties: {
+                provider: {
+                  type: "string",
+                  enum: ["gemini"],
+                  default: "gemini",
+                  description: "Model provider used for fold summaries.",
+                },
+                api_key: {
+                  type: ["string", "null"],
+                  description: "API key for the provider.",
+                },
+              },
+            },
+            "deleted-bodies": { $ref: "#/$defs/Folds" },
+          },
         },
       },
     },
-    folds: { $ref: "#/$defs/Folds" },
     languages: {
       type: "object",
       additionalProperties: { type: "string" },
@@ -40,7 +48,7 @@ const schema = {
           default: 12,
           description: "Bodies shorter than this are never summarized.",
         },
-        collapse_deleted: { type: "boolean", default: true },
+        enabled: { type: "boolean", default: true },
       },
     },
   },
@@ -49,16 +57,20 @@ const schema = {
 describe("diffrConfigFields", () => {
   it("flattens nested objects and $refs into dotted keys with current values", () => {
     const fields = diffrConfigFields(schema, {
-      summarize: { provider: "gemini" },
-      folds: { min_lines: 20, collapse_deleted: false },
+      plugins: {
+        bundled: {
+          summarize: { provider: "gemini" },
+          "deleted-bodies": { min_lines: 20, enabled: false },
+        },
+      },
     });
 
     expect(fields.map((field) => [field.key, field.kind, field.value])).toEqual(
       [
-        ["summarize.provider", "enum", "gemini"],
-        ["summarize.api_key", "string", undefined],
-        ["folds.min_lines", "number", 20],
-        ["folds.collapse_deleted", "boolean", false],
+        ["plugins.bundled.summarize.provider", "enum", "gemini"],
+        ["plugins.bundled.summarize.api_key", "string", undefined],
+        ["plugins.bundled.deleted-bodies.min_lines", "number", 20],
+        ["plugins.bundled.deleted-bodies.enabled", "boolean", false],
       ],
     );
     expect(fields[0].choices).toEqual(["gemini"]);
@@ -69,7 +81,9 @@ describe("diffrConfigFields", () => {
 
   it("marks credential keys as secret and hides their defaults", () => {
     const fields = diffrConfigFields(schema, {});
-    const key = fields.find((field) => field.key === "summarize.api_key");
+    const key = fields.find(
+      (field) => field.key === "plugins.bundled.summarize.api_key",
+    );
     expect(key?.secret).toBe(true);
     expect(diffrConfigDefaultText(fields[2])).toBe("12");
     expect(diffrConfigDefaultText(key!)).toBe("");
@@ -91,40 +105,88 @@ describe("diffrConfigInputValue", () => {
 });
 
 describe("current diffr plugin schema", () => {
-  it("uses setting titles and groups and omits fields marked non-editable", () => {
+  it("exposes bundled plugin and test-summary settings while hiding legacy options", () => {
     const fields = diffrConfigFields(
       {
         properties: {
           plugins: {
             properties: {
-              "deleted-bodies": {
+              bundled: {
                 properties: {
-                  min_lines: {
-                    type: "integer",
-                    title: "Shortest body to collapse",
-                    "x-group": "Deleted function bodies",
-                    default: 12,
+                  "deleted-bodies": {
+                    properties: {
+                      min_lines: {
+                        type: "integer",
+                        title: "Shortest body to collapse",
+                        "x-group": "Deleted function bodies",
+                        default: 12,
+                      },
+                    },
                   },
-                },
-              },
-              summarize: {
-                properties: {
-                  system_prompt: { type: "string", "x-settings": false },
+                  summarize: {
+                    properties: {
+                      tests: {
+                        type: "boolean",
+                        title: "Summarize tests",
+                        default: true,
+                      },
+                      test_min_lines: {
+                        type: "integer",
+                        title: "Shortest test body to summarize (lines)",
+                        default: 20,
+                      },
+                      max_concurrency: {
+                        type: "integer",
+                        "x-settings": false,
+                        default: 16,
+                      },
+                      system_prompt: { type: "string", "x-settings": false },
+                    },
+                  },
                 },
               },
             },
           },
         },
       },
-      { plugins: { "deleted-bodies": { min_lines: 20 } } },
+      {
+        plugins: {
+          bundled: {
+            "deleted-bodies": { min_lines: 20 },
+            summarize: { tests: false, test_min_lines: 30, max_concurrency: 8 },
+          },
+        },
+      },
     );
 
-    expect(fields).toHaveLength(1);
-    expect(fields[0]).toMatchObject({
-      key: "plugins.deleted-bodies.min_lines",
+    expect(
+      fields.find(
+        (field) => field.key === "plugins.bundled.deleted-bodies.min_lines",
+      ),
+    ).toMatchObject({
       label: "Shortest body to collapse",
       group: "Deleted function bodies",
       value: 20,
     });
+    const tests = fields.find(
+      (field) => field.key === "plugins.bundled.summarize.tests",
+    )!;
+    expect(tests).toMatchObject({
+      kind: "boolean",
+      value: false,
+      default: true,
+    });
+    const threshold = fields.find(
+      (field) => field.key === "plugins.bundled.summarize.test_min_lines",
+    )!;
+    expect(threshold).toMatchObject({ kind: "number", value: 30, default: 20 });
+    expect(diffrConfigInputValue(threshold, "24")).toBe(24);
+    expect(
+      fields.some(
+        (field) =>
+          field.key.endsWith(".max_concurrency") ||
+          field.key.endsWith(".system_prompt"),
+      ),
+    ).toBe(false);
   });
 });

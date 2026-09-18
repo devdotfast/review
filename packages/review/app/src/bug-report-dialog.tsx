@@ -22,6 +22,7 @@ import { BugIcon } from "./icons";
 import { useToast } from "./toast";
 import { useTutorial } from "./tutorial-context";
 import { captureUiEvent, clientErrorName } from "./ui-telemetry";
+import { useTooltip } from "./use-tooltip";
 
 const MAX_DESCRIPTION_BYTES = 64 * 1024;
 
@@ -46,6 +47,7 @@ export function BugReportControl({
   const [capturing, setCapturing] = useState(false);
   const [sending, setSending] = useState(false);
   const { toast, showToast: setToast } = useToast();
+  const tooltip = useTooltip("Report a bug");
   const tracePrivacyTooltipId = useId();
   const capturePending = useRef(false);
   const descriptionBytes = new TextEncoder().encode(description).byteLength;
@@ -205,7 +207,7 @@ export function BugReportControl({
         type="button"
         className="topbar-report-bug-button"
         aria-label="Report a bug"
-        title="Report a bug"
+        ref={tooltip}
         disabled={tutorial !== null || capturing}
         onClick={() => void openDialog()}
       >

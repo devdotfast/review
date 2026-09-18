@@ -1,17 +1,4 @@
-.review-share-button {
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  white-space: nowrap;
-  padding: 4px 8px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-.review-share-button:hover,
 .review-share-button[aria-expanded="true"] {
-  background: var(--vscode-toolbar-hoverBackground, #ffffff12);
-}
-.review-share-button:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder, #568af2);
+  background: var(--chrome-hover-bg);
+  color: var(--chrome-fg);
 }

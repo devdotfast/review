@@ -13,6 +13,8 @@ import { useReviewSession } from "./host/review-session";
 import { useReview } from "./review-context";
 import { useTutorial } from "./tutorial-context";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
+import { useTooltip } from "./use-tooltip";
+import { useTopbarPopover } from "./use-topbar-popover";
 
 type VersionList = ReviewDocumentVersionWire[] | null | "unavailable";
 
@@ -25,8 +27,10 @@ export function ReviewHistoryControl(): ReactElement | null {
   const displayedVersion = useContext(DisplayedReviewVersionContext);
   const session = useReviewSession();
   const tutorial = useTutorial();
+  const historyTooltip = useTooltip("Version history");
   const controlRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const popoverRef = useTopbarPopover<HTMLUListElement>(open, controlRef);
   const [versions, setVersions] = useState<VersionList>(null);
 
   const loadVersions = useCallback(async () => {
@@ -85,7 +89,7 @@ export function ReviewHistoryControl(): ReactElement | null {
         type="button"
         className="review-history-button review-history-selected"
         aria-label="Version history"
-        title="Version history"
+        ref={historyTooltip}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={tutorial !== null}
@@ -120,7 +124,12 @@ export function ReviewHistoryControl(): ReactElement | null {
         </svg>
       </button>
       {open ? (
-        <ul className="review-history-list" role="menu">
+        <ul
+          ref={popoverRef}
+          popover="manual"
+          className="review-history-list"
+          role="menu"
+        >
           {versionItems.map((version, index) => (
             <li key={version.revision}>
               <button

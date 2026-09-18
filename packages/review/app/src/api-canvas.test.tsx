@@ -364,7 +364,7 @@ it("keeps sequence step identities and supports explanation/code steps without i
   ]);
 });
 
-it("dismisses through the API without changing the document or promising automatic deletion", async () => {
+it("dismisses immediately through the API without changing the saved document", async () => {
   const { reviewId } = await command({
     type: "create",
     title: "Dismiss me",
@@ -396,14 +396,6 @@ it("dismisses through the API without changing the document or promising automat
 
   await act(async () => dismiss.click());
 
-  const dialog = container.querySelector(
-    '[role="dialog"][aria-label="Dismiss this review"]',
-  )!;
-
-  expect(dialog.textContent).toContain("stays saved");
-  await act(async () =>
-    dialog.querySelector<HTMLButtonElement>("button")!.click(),
-  );
   await vi.waitFor(() =>
     expect(store.list()[0]?.dismissedAt).toEqual(expect.any(String)),
   );

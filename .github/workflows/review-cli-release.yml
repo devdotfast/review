@@ -1,0 +1,112 @@
+name: Review CLI Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Next CLI version (calculated from npm releases and review-v tags)
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: Build and test the npm tarball without tagging or publishing
+        type: boolean
+        default: false
+  push:
+    tags:
+      - review-v*
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: review-cli-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name != 'push' || !github.event.deleted
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - name: Install build dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Resolve immutable release
+        id: release
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+        run: node scripts/review-cli-release.mjs plan
+      - name: Check release and headless behavior
+        if: steps.release.outputs.published != 'true'
+        run: |
+          node --test scripts/review-cli-release.test.mjs scripts/review-cli-dependencies.test.mjs
+          pnpm --filter @dev.fast/trace-core test
+          pnpm --filter @dev.fast/review ensure:tutorial-assets
+          pnpm --filter @dev.fast/review exec vitest run --config vitest.config.ts --project shared-module-graph src/server/headless-host.test.ts src/cli-install.test.ts
+      - name: Build release tarball
+        if: steps.release.outputs.published != 'true'
+        run: node scripts/pack-review-cli.mjs release-artifacts
+      - name: Test installed tarball without Desktop
+        if: steps.release.outputs.published != 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: node scripts/smoke-review-cli.mjs "release-artifacts/dev.fast-review-${VERSION}.tgz" "$VERSION"
+      - name: Retain tested package
+        if: steps.release.outputs.published != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: review-cli-${{ steps.release.outputs.version }}
+          path: release-artifacts/*.tgz
+          if-no-files-found: error
+      - name: Authenticate publisher
+        if: steps.release.outputs.published != 'true' && !inputs.dry_run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || { echo 'NPM_TOKEN secret is missing.' >&2; exit 1; }
+          npm whoami --registry=https://registry.npmjs.org
+      - name: Reserve release tag
+        if: steps.release.outputs.published != 'true' && !inputs.dry_run
+        # GITHUB_TOKEN tag pushes don't start another workflow. This run publishes below.
+        run: node scripts/review-cli-release.mjs tag
+      - name: Publish tested package
+        if: steps.release.outputs.published != 'true' && !inputs.dry_run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: npm publish "release-artifacts/dev.fast-review-${VERSION}.tgz" --registry=https://registry.npmjs.org --access public --tag latest --provenance --ignore-scripts
+      - name: Release summary
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          COMMIT: ${{ steps.release.outputs.commit }}
+          PUBLISHED: ${{ steps.release.outputs.published }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "### Review CLI ${VERSION}"
+            echo "Source: ${COMMIT}; tag: ${RELEASE_TAG}"
+            if [ "$DRY_RUN" = true ]; then
+              echo 'Dry run: no tag or npm publication was created. Download the tested tarball from this run.'
+            elif [ "$PUBLISHED" = true ]; then
+              echo 'This exact version and source commit were already published; no changes made.'
+            else
+              echo "Install: npm install --global @dev.fast/review@${VERSION}"
+              echo "For author-and-share, set review-version to ${VERSION}."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

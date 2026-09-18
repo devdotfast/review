@@ -85,6 +85,9 @@ export const uploadSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+const unavailableCheckout = () =>
+  new ReviewInputError("The selected local checkout is unavailable.", 404);
+
 /** File reads cannot name the root or a directory; tree reads can. */
 function checkRelativePath(file: string) {
   inputError(() => checkSourcePath(file));
@@ -372,9 +375,13 @@ export class LocalReviewData {
   ): Promise<{ rootPath: string; kind?: LocalVcsKind }> {
     const vcs = await this.vcs(repositoryId);
 
-    return vcs
-      ? { rootPath: vcs.rootPath, kind: vcs.kind }
-      : { rootPath: this.store.repositoryPath(repositoryId) };
+    if (vcs) return { rootPath: vcs.rootPath, kind: vcs.kind };
+    const rootPath = this.store.repositoryPath(repositoryId);
+
+    // local-vcs would report a missing root as a path-bearing 500.
+    if (!existsSync(rootPath)) throw unavailableCheckout();
+
+    return { rootPath };
   }
 
   async register(root: string) {
@@ -418,21 +425,22 @@ export class LocalReviewData {
 
     return projected;
   }
+  /** Throws 404 when the checkout behind the snapshot is gone. */
   async sourcePins(snapshot: Snapshot): Promise<Pins> {
-    return snapshot.target.kind === "worktree"
-      ? (await this.resolveTarget(snapshot.target)).pins
-      : snapshot.pins;
+    if (snapshot.target.kind === "worktree")
+      return (await this.resolveTarget(snapshot.target)).pins;
+
+    if (!existsSync(this.store.repositoryPath(snapshot.pins.repositoryId)))
+      throw unavailableCheckout();
+
+    return snapshot.pins;
   }
   async resolveTarget(
     target: ReviewTarget,
   ): Promise<{ target: ReviewTarget; pins: Pins }> {
     const vcs = await this.vcs(target.repositoryId);
 
-    if (!vcs)
-      throw new ReviewInputError(
-        "The selected local checkout is unavailable.",
-        404,
-      );
+    if (!vcs) throw unavailableCheckout();
 
     if (target.kind === "commits") {
       const head = await vcs.resolveRevision(target.head);
@@ -508,11 +516,7 @@ export class LocalReviewData {
   }
   async validatePins(pins: Pins) {
     if (pins.worktreeRevision) {
-      if (!(await this.vcs(pins.repositoryId)))
-        throw new ReviewInputError(
-          "The selected local checkout is unavailable.",
-          404,
-        );
+      if (!(await this.vcs(pins.repositoryId))) throw unavailableCheckout();
 
       return;
     }
@@ -582,11 +586,7 @@ export class LocalReviewData {
       ? await this.vcs(pins.repositoryId)
       : undefined;
 
-    if (pins.worktreeRevision && !vcs)
-      throw new ReviewInputError(
-        "The selected local checkout is unavailable.",
-        404,
-      );
+    if (pins.worktreeRevision && !vcs) throw unavailableCheckout();
 
     const files =
       vcs && side === "head"
@@ -712,11 +712,7 @@ export class LocalReviewData {
     if (pins.worktreeRevision) {
       const vcs = await this.vcs(pins.repositoryId);
 
-      if (!vcs)
-        throw new ReviewInputError(
-          "The selected local checkout is unavailable.",
-          404,
-        );
+      if (!vcs) throw unavailableCheckout();
 
       const input = {
         rootPath: vcs.rootPath,
@@ -980,6 +976,7 @@ export function openLocalReviewStore(
   const store: ReviewStore = new ReviewStore(databasePath, {
     projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
     resolveTarget: (target) => data.resolveTarget(target),
+    sourcePins: (snapshot) => data.sourcePins(snapshot),
     validatePins: (pins) => data.validatePins(pins),
     validateSource: (pins, source, options) =>
       data.validateSource(pins, source, options),

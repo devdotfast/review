@@ -390,6 +390,9 @@ const CanvasDocument = memo(function CanvasDocument({
       }}
       softwareMapEnabled={softwareMapEnabled && data.maps.size > 0}
       range={{
+        sourceUnavailable: snapshot.sourceUnavailable
+          ? "Local checkout unavailable."
+          : undefined,
         baseRef: snapshot.pins.base,
         headRef: snapshot.pins.head,
         baseCommit: snapshot.pins.base,

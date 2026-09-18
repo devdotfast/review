@@ -2408,3 +2408,90 @@ it("keeps live language identity across edits but replaces it with a checkout at
     rmSync(moved, { recursive: true, force: true });
   }
 });
+
+it("marks a commit-pinned review unavailable while its repository is gone", async () => {
+  const review = await local.store.execute(
+    command({ type: "create", title: "Moved repository", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data);
+  const moved = `${repository}-moved`;
+  renameSync(repository, moved);
+
+  const degraded = await app.request(`/${review.reviewId}?full=true`);
+
+  expect(degraded.status).toBe(200);
+  expect(await degraded.json()).toMatchObject({
+    title: "Moved repository",
+    sourceUnavailable: true,
+  });
+  // The canvas follows the watch stream, which reads the store, not ?full=true.
+  await local.store.refreshWorktrees();
+  expect(local.store.read(review.reviewId).sourceUnavailable).toBe(true);
+  // A pinned version bypasses both the refresh loop and the live overlay.
+  expect(
+    await (await app.request(`/${review.reviewId}?full=true&version=0`)).json(),
+  ).toMatchObject({ sourceUnavailable: true });
+
+  renameSync(moved, repository);
+  await local.store.refreshWorktrees();
+
+  expect(local.store.read(review.reviewId).sourceUnavailable).toBeUndefined();
+});
+
+it("never stores the unavailable flag on a version authored while degraded", async () => {
+  const review = await local.store.execute(
+    command({ type: "create", title: "Edited while gone", pins }),
+  );
+
+  const moved = `${repository}-moved`;
+  renameSync(repository, moved);
+  await local.store.refreshWorktrees();
+
+  const edited = await insert(review.reviewId, {
+    type: "markdown",
+    markdown: "Authored with no checkout.",
+  });
+
+  renameSync(moved, repository);
+  await local.store.refreshWorktrees();
+
+  expect(
+    local.store.read(review.reviewId, edited.version).sourceUnavailable,
+  ).toBeUndefined();
+});
+
+it("answers a source read with 404 while the checkout is gone", async () => {
+  const review = await local.store.execute(
+    command({ type: "create", title: "Moved repository", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data);
+  renameSync(repository, `${repository}-moved`);
+
+  const response = await app.request(`/${review.reviewId}/commits`);
+
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({
+    error: "The selected local checkout is unavailable.",
+  });
+  // Direct callers skip the snapshot check and reach the checkout itself.
+  await expect(local.data.commits(pins)).rejects.toThrow(
+    "The selected local checkout is unavailable.",
+  );
+});
+
+it("marks a worktree review unavailable while its checkout is gone", async () => {
+  const review = await local.store.execute(
+    command({
+      type: "create",
+      title: "Moved worktree",
+      target: { kind: "worktree", repositoryId: pins.repositoryId },
+    }),
+  );
+
+  renameSync(repository, `${repository}-moved`);
+  await local.store.refreshWorktrees();
+
+  expect(local.store.read(review.reviewId).sourceUnavailable).toBe(true);
+});

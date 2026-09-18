@@ -92,6 +92,11 @@ recorded so deleted reviews are not reimported.
 
 ## GitHub Actions example
 
+For an end-to-end workflow that invokes your agent, publishes the review, and
+updates a PR comment, use the [author-and-share action](https://github.com/devdotfast/review/tree/main/actions/author-and-share).
+The example below is the lower-level authoring-only setup.
+
+
 Set the repository variable `REVIEW_VERSION` to an exact release containing these commands. Install the skills for your harness (for example `review install codex --no-shim`). Provide `ci/author-review.sh` invoking your chosen agent with `dev-review`; the script receives the checkout path, base SHA, and head SHA as arguments and inherits the server selection. Review does not run or configure the model itself.
 
 ```yaml
@@ -132,4 +137,4 @@ jobs:
           # Run any subsequent consumer of the saved review before stopping the server.
 ```
 
-Each job should select its own directory. A second server cannot own the same directory. Restarting against the same directory preserves committed reviews and resources but discards abandoned drafts, provided the registered checkout paths and commits remain available. The state directory is local working state, not a portable sharing artifact. Export, upload, and deep links are separate from authoring.
+Each job should select its own directory. A second server cannot own the same directory. Restarting against the same directory preserves committed reviews and resources but discards abandoned drafts, provided the registered checkout paths and commits remain available. The state directory is local working state, not a portable sharing artifact. After authoring, `review share --review <id> --version <version> --json` uploads through the same headless server and returns a link. Supply `DEV_REVIEW_SHARE_TOKEN` to the server for CI authentication, or use a saved `review login`.

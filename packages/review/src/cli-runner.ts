@@ -605,14 +605,23 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   )
     .option("--review <id>", "Review ID")
     .option("--version <number>", "Saved version to share")
+    .option(
+      "--request-id <uuid>",
+      "Reuse this ID when retrying the same immutable upload",
+    )
     .action(
       async (options: {
         review?: string;
         version?: string;
+        requestId?: string;
         json?: boolean;
       }) => {
         const { runShareCli } = await import("./sharing/cli.js");
-        state.exitCode = await runShareCli({ ...input, ...options });
+        state.exitCode = await runShareCli({
+          ...input,
+          ...options,
+          env: authoringEnv(),
+        });
       },
     );
 
@@ -627,6 +636,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       ...input,
       ...options,
       revoke: shareId,
+      env: authoringEnv(),
     });
   });
 

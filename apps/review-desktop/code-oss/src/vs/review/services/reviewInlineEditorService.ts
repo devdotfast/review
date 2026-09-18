@@ -543,10 +543,8 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 				() => editor.getScrollTop(),
 				(listener) => editor.onDidScrollChange(listener),
 			);
-			this.editorStore.add(
-				editor.onDidContentSizeChange((event) => this.layoutCodeEditorToContent(event.contentHeight)),
-			);
 			this.applyRange();
+			this.trackContentSize(editor);
 			this.markCreated();
 		} catch (error) {
 			if (!this.disposed) this.emitError(error);
@@ -593,9 +591,17 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 			() => editor.getScrollTop(),
 			(listener) => editor.onDidScrollChange(listener),
 		);
-		this.editorStore.add(editor.onDidContentSizeChange((event) => this.layoutCodeEditorToContent(event.contentHeight)));
 		this.applyRange();
+		this.trackContentSize(editor);
 		this.markCreated();
+	}
+
+	/**
+	 * After the initial layout: `setHiddenAreas` fires a content-size change,
+	 * and answering it mid-setup cost an extra synchronous render.
+	 */
+	private trackContentSize(editor: ICodeEditor): void {
+		this.editorStore.add(editor.onDidContentSizeChange((event) => this.layoutCodeEditorToContent(event.contentHeight)));
 	}
 
 	private applyRange(): void {
@@ -629,10 +635,11 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 		);
 		const height = this.spec.heightMode === "content" ? measured : reviewPeekCappedHeight(measured);
 		this.setExpandedHeight(height + INLINE_HEADER_HEIGHT);
-		codeEditor.layout({
-			width: Math.max(1, this.spec.container.clientWidth),
-			height,
-		});
+		const width = Math.max(1, this.spec.container.clientWidth);
+		const current = codeEditor.getLayoutInfo();
+		// layout() renders synchronously; skip it when nothing changed.
+		if (current.width === width && current.height === height) return;
+		codeEditor.layout({ width, height });
 	}
 
 	private setHeader(
@@ -711,7 +718,6 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 				},
 			})),
 		);
-		editor.render(true);
 	}
 
 	private findModelMatches(

@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../nls.js';
+import { onUnexpectedError } from '../../../base/common/errors.js';
 import Severity from '../../../base/common/severity.js';
 import { INotificationService } from '../../../platform/notification/common/notification.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
@@ -34,7 +35,7 @@ export class ReviewTelemetryNotice implements IWorkbenchContribution {
 		) {
 			return;
 		}
-		void this.show(storageService, notificationService, tabsService);
+		this.show(storageService, notificationService, tabsService).catch(onUnexpectedError);
 	}
 
 	private async show(

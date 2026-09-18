@@ -5,7 +5,10 @@ import {
   type ReviewApiSummary,
 } from "@dev.fast/review-protocol";
 
-import { readReviewDesktopDiscovery } from "./desktop-discovery";
+import {
+  readReviewDesktopDiscovery,
+  requireHealthyReviewDesktop,
+} from "./desktop-discovery";
 import { runReviewAppLaunch } from "./review-app-launcher";
 import { pickReview } from "./review-app-picker";
 import { resolveReviewRoot } from "./runtime";
@@ -13,6 +16,7 @@ import { resolveReviewRoot } from "./runtime";
 interface ReviewAppRuntime {
   launch: typeof runReviewAppLaunch;
   readReviewDesktopDiscovery: typeof readReviewDesktopDiscovery;
+  requireHealthyReviewDesktop: typeof requireHealthyReviewDesktop;
   resolveReviewRoot: typeof resolveReviewRoot;
   pickReview: typeof pickReview;
   fetch: typeof globalThis.fetch;
@@ -40,19 +44,25 @@ export async function runReviewAppPick(
   const runtime = {
     launch: runReviewAppLaunch,
     readReviewDesktopDiscovery,
+    requireHealthyReviewDesktop,
     resolveReviewRoot,
     pickReview,
     fetch: globalThis.fetch,
     ...overrides,
   };
 
-  await runtime.launch();
-  const discovery = await runtime.readReviewDesktopDiscovery();
+  // Only `review app launch` may recover a stale or incompatible pointer; the
+  // other verbs report the diagnosis rather than start a second Desktop. A null
+  // read means nothing is running, which launching does fix.
+  if (!(await runtime.readReviewDesktopDiscovery())) await runtime.launch();
 
-  if (!discovery)
-    throw new Error(
-      "Review Desktop is not ready. Run `review app launch` and retry `review app pick`.",
-    );
+  const discovery = await runtime.requireHealthyReviewDesktop(
+    "review app pick",
+    {
+      readDiscovery: runtime.readReviewDesktopDiscovery,
+      fetch: runtime.fetch,
+    },
+  );
 
   const client = new ReviewApiClient(
     { serverUrl: discovery.url, token: discovery.token },
@@ -62,7 +72,11 @@ export async function runReviewAppPick(
   let review: Pick<ReviewApiSummary, "reviewId" | "title">;
 
   if (input.reviewUuid) {
-    review = await client.read(`/${encodeURIComponent(input.reviewUuid)}`);
+    // Without `full`, GET /reviews-api/:id answers inspectSnapshot(): block
+    // descriptors with no reviewId or title.
+    review = await client.read(
+      `/${encodeURIComponent(input.reviewUuid)}?full=true`,
+    );
   } else {
     if (!input.stdin.isTTY)
       throw new Error(
@@ -70,7 +84,7 @@ export async function runReviewAppPick(
       );
     const root = await runtime.resolveReviewRoot(input.cwd);
 
-    const reviews = (await client.read<ReviewApiSummary[]>("/"))
+    const reviews = (await client.read<ReviewApiSummary[]>(""))
       .filter((review) => review.repositoryPath === root && !review.dismissedAt)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 

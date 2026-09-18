@@ -93,7 +93,7 @@ state, or use `review --state-dir <path> server start` and
 `$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
 `--software-maps`; existing map uploads remain supported.
 
-See [headless setup and a GitHub Actions example](../packages/review/skills/dev-review/references/headless-authoring.md).
+See [headless setup and a GitHub Actions example](https://github.com/devdotfast/review/blob/main/packages/review/skills/dev-review/references/headless-authoring.md).
 CI supplies the agent and a prepared checkout with explicit base/head revisions.
 Interactive mode (the default) saves each accepted edit as a version. Start with
 `--authoring-mode batch` to select scratch drafts and one atomic commit instead.
@@ -148,10 +148,10 @@ These tools are available through `review api` and MCP.
 Live source follows the checkout even in older authored versions; update references
 as source changes. Choose a commit target when source must stay fixed.
 
-| Target | Source and comparison |
-| --- | --- |
-| `{kind:"worktree", repositoryId, base?}` | Saved working files, including staged, unstaged and nonignored untracked files. Compare with `base`, or omit it to review the whole checkout with working changes against current HEAD (an empty baseline in an unborn repository). Unsaved editor buffers are excluded. |
-| `{kind:"commits", repositoryId, head, base?}` | Fixed commits. Omit `base` for source at `head` with no diff; supply a base for a comparison. |
+| Target                                        | Source and comparison                                                                                                                                                                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `{kind:"worktree", repositoryId, base?}`      | Saved working files, including staged, unstaged and nonignored untracked files. Compare with `base`, or omit it to review the whole checkout with working changes against current HEAD (an empty baseline in an unborn repository). Unsaved editor buffers are excluded. |
+| `{kind:"commits", repositoryId, head, base?}` | Fixed commits. Omit `base` for source at `head` with no diff; supply a base for a comparison.                                                                                                                                                                            |
 
 Revisions resolve when the command is accepted. To review the changes introduced
 by one commit, use its parent as `base`; omitting the base is equivalent to
@@ -253,7 +253,7 @@ same server/profile as `review api`, including `--state-dir`. CI can supply
 credentials are not written to the profile. Git credentials are still needed
 for the verification fetch.
 
-Use the [author-and-share action](../actions/author-and-share/README.md) to run
+Use the [author-and-share action](https://github.com/devdotfast/review/blob/main/actions/author-and-share/README.md) to run
 your own agent, upload the committed version, and update one PR comment with
 the link. It exposes URL, review ID, version and share ID as outputs.
 The exporter, importer and hosted client remain available from

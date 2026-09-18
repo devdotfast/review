@@ -50,7 +50,7 @@ Optional software-map generation is disabled by default for the headless server 
 
 ## Author and share in CI
 
-The [author-and-share composite action](../actions/author-and-share/README.md)
+The [author-and-share composite action](https://github.com/devdotfast/review/blob/main/actions/author-and-share/README.md)
 composes this runtime with the immutable publisher from PR #338. It accepts a
 caller-owned author command and prompt, commits through batch tools, uploads the
 exact saved version, and updates a PR comment. CI authentication uses an injected

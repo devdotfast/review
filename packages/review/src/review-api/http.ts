@@ -452,12 +452,12 @@ export function createReviewApi(
       return context.json(data.workspaces.list(context.req.param("id")));
     });
     app.post("/:id/workspaces/:workspaceId/retry", async (context) => {
-      await data.workspaces.retry(
-        context.req.param("id"),
-        context.req.param("workspaceId"),
+      return context.json(
+        await data.workspaces.retry(
+          context.req.param("id"),
+          context.req.param("workspaceId"),
+        ),
       );
-
-      return context.json({ ok: true });
     });
     app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());

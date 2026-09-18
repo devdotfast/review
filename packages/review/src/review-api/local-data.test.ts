@@ -177,6 +177,19 @@ it("only reports unavailable language checkouts to agents and clears issues afte
   ).toBe(true);
   expect(await check()).toEqual({ issues: [] });
 
+  const workspaceId = local.data.workspaces.list(created.reviewId)[0]!.id;
+
+  const retry = async () => {
+    const response = await app.request(
+      `/${created.reviewId}/workspaces/${workspaceId}/retry`,
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
   renameSync(repository, `${repository}-missing`);
 
   try {
@@ -199,10 +212,21 @@ it("only reports unavailable language checkouts to agents and clears issues afte
 
     expect(context.rootPath).toBeNull();
     expect(context.issue).toBe(result.environmentIssues[0].message);
+    expect(await retry()).toMatchObject({
+      id: workspaceId,
+      state: "failed",
+      rootPath: null,
+      issue: expect.stringContaining("Language checkout unavailable."),
+    });
   } finally {
     renameSync(`${repository}-missing`, repository);
   }
 
+  git("config", "--unset-all", "devfast.prepare");
+  const recovered = await retry();
+  expect(recovered.state).toBe("unconfigured");
+  expect(recovered.rootPath).toBeTruthy();
+  expect(recovered.issue).toBeUndefined();
   expect(await check()).toEqual({ issues: [] });
   expect(await open()).not.toHaveProperty("environmentIssues");
 });

@@ -359,18 +359,18 @@ export class ReviewWorkspaces {
     this.jobs.set(environment.id, { done, abort });
   }
 
-  async retry(reviewId: string, id: string): Promise<void> {
+  async retry(reviewId: string, id: string): Promise<WorkspaceStatus> {
     const environment = this.get(id);
 
     if (!environment || environment.reviewId !== reviewId)
       throw new ReviewInputError("Language environment not found.", 404);
 
-    if (this.jobs.has(id)) return;
+    if (this.jobs.has(id)) return this.status(environment);
 
     if (environment.state === "cleanup-failed") {
       this.collect();
 
-      return;
+      return this.status(environment);
     }
 
     this.assertReview(reviewId);
@@ -380,7 +380,8 @@ export class ReviewWorkspaces {
     environment.state = "pending";
     environment.generation = randomUUID();
     this.save(environment);
-    await this.source(
+
+    return this.source(
       reviewId,
       {
         repositoryId: environment.repositoryId,

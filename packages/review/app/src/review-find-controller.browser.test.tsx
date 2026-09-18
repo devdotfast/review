@@ -2,7 +2,7 @@ import type {
   ReviewFindQuery,
   ReviewInlineEditorHandle,
 } from "@dev.fast/review-protocol";
-import { act, useLayoutEffect, useRef } from "react";
+import { act, useLayoutEffect, useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ import {
   createReviewFindHost,
   useReviewFindRegistration,
 } from "./review-find";
+import { ReviewRootsProvider } from "./review-root-context";
 
 let root: ReturnType<typeof createRoot> | undefined;
 
@@ -44,6 +45,10 @@ it("orders duplicate editors with MDX and wraps navigation", async () => {
       "1 of 4",
     );
   });
+  // The shell is the widget's containing block.
+  expect(
+    container.querySelector(".review-find-widget")?.parentElement,
+  ).toHaveClass("review-document-shell");
   const next = button(container, "Next Match");
   await act(async () => next.click());
   await vi.waitFor(() => {
@@ -159,23 +164,34 @@ function FindHarness({
 }) {
   const articleRef = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
+  const shellRef = useRef<HTMLElement | null>(null);
+  const appRef = useRef<HTMLDivElement | null>(null);
+
+  const roots = useMemo(
+    () => ({ appRef, shellRef, scrollRegionRef: scrollRef, articleRef }),
+    [],
+  );
 
   return (
-    <ReviewFindProvider
-      articleRef={articleRef}
-      scrollRegionRef={scrollRef}
-      documentKey="test-document"
-      host={host}
-    >
-      <section ref={scrollRef}>
-        <article ref={articleRef} className="review-document">
-          <p>Alpha first</p>
-          <InlineRegistration handle={handles[0]!} />
-          <p>Alpha second</p>
-          {handles[1] ? <InlineRegistration handle={handles[1]} /> : null}
-        </article>
-      </section>
-    </ReviewFindProvider>
+    <ReviewRootsProvider roots={roots}>
+      <ReviewFindProvider
+        articleRef={articleRef}
+        scrollRegionRef={scrollRef}
+        documentKey="test-document"
+        host={host}
+      >
+        <main ref={shellRef} className="review-document-shell">
+          <section ref={scrollRef}>
+            <article ref={articleRef} className="review-document">
+              <p>Alpha first</p>
+              <InlineRegistration handle={handles[0]!} />
+              <p>Alpha second</p>
+              {handles[1] ? <InlineRegistration handle={handles[1]} /> : null}
+            </article>
+          </section>
+        </main>
+      </ReviewFindProvider>
+    </ReviewRootsProvider>
   );
 }
 

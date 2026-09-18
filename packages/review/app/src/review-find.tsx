@@ -13,9 +13,11 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { compileReviewFindQuery } from "./review-find-query";
 import { reviewFindRanges } from "./review-find-text";
+import { useReviewRoots } from "./review-root-context";
 
 const ALL_HIGHLIGHT = "review-find-match";
 
@@ -99,6 +101,8 @@ export function ReviewFindProvider({
   const [invalid, setInvalid] = useState<string | null>(null);
   const [matches, setMatches] = useState<UnifiedMatch[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
+  const shellRef = useReviewRoots()?.shellRef;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const reviewActive = useRef(true);
   const generation = useRef(0);
@@ -109,6 +113,13 @@ export function ReviewFindProvider({
   matchesRef.current = matches;
   activeIndexRef.current = activeIndex;
   openRef.current = open;
+
+  // Passive, not layout: a descendant's layout effect runs before the ancestor
+  // host ref attaches, so the shell is not there yet; no deps because the shell
+  // remounts under this provider on route change.
+  useEffect(() => {
+    setOverlayHost(shellRef?.current ?? null);
+  });
 
   const clearHighlights = useCallback(() => {
     clearCssHighlights(articleRef.current?.ownerDocument);
@@ -340,90 +351,96 @@ export function ReviewFindProvider({
   return (
     <ReviewFindContext.Provider value={context}>
       {children}
-      {open ? (
-        <div
-          className="review-find-widget"
-          role="search"
-          aria-label="Find in Review"
-        >
-          <div className="review-find-input-shell">
-            <input
-              ref={inputRef}
-              aria-label="Find"
-              aria-invalid={invalid ? "true" : undefined}
-              title={invalid ?? undefined}
-              value={queryText}
-              onChange={(event) => setQueryText(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  hideFind();
-                } else if (event.key === "Enter") {
-                  event.preventDefault();
-                  navigate(event.shiftKey ? -1 : 1);
-                }
-              }}
-            />
-            <div className="review-find-options" aria-label="Search options">
-              <FindToggle
-                label="Match Case"
-                description="Match Case: use the same uppercase and lowercase letters."
-                active={matchCase}
-                onClick={() => setMatchCase((value) => !value)}
-              >
-                Aa
-              </FindToggle>
-              <FindToggle
-                label="Match Whole Word"
-                description="Match Whole Word: find complete words only."
-                className="review-find-toggle--whole-word"
-                active={wholeWord}
-                onClick={() => setWholeWord((value) => !value)}
-              >
-                ab
-              </FindToggle>
-              <FindToggle
-                label="Use Regular Expression"
-                description="Use Regular Expression: search with a regular expression."
-                className="review-find-toggle--regex"
-                active={isRegex}
-                onClick={() => setIsRegex((value) => !value)}
-              >
-                .*
-              </FindToggle>
-            </div>
-          </div>
-          <span className="review-find-count" aria-live="polite">
-            {invalid
-              ? "Invalid expression"
-              : searching
-                ? "Searching…"
-                : matches.length === 0
-                  ? "No results"
-                  : `${activeIndex + 1} of ${matches.length}`}
-          </span>
-          <FindActionButton
-            label="Previous Match"
-            description="Previous Match (Shift+Enter)"
-            disabled={searching || matches.length === 0}
-            onClick={() => navigate(-1)}
-            icon="previous"
-          />
-          <FindActionButton
-            label="Next Match"
-            description="Next Match (Enter)"
-            disabled={searching || matches.length === 0}
-            onClick={() => navigate(1)}
-            icon="next"
-          />
-          <FindActionButton
-            label="Close Find"
-            description="Close Find (Escape)"
-            onClick={hideFind}
-            icon="close"
-          />
-        </div>
-      ) : null}
+      {open && overlayHost
+        ? createPortal(
+            <div
+              className="review-find-widget"
+              role="search"
+              aria-label="Find in Review"
+            >
+              <div className="review-find-input-shell">
+                <input
+                  ref={inputRef}
+                  aria-label="Find"
+                  aria-invalid={invalid ? "true" : undefined}
+                  title={invalid ?? undefined}
+                  value={queryText}
+                  onChange={(event) => setQueryText(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      hideFind();
+                    } else if (event.key === "Enter") {
+                      event.preventDefault();
+                      navigate(event.shiftKey ? -1 : 1);
+                    }
+                  }}
+                />
+                <div
+                  className="review-find-options"
+                  aria-label="Search options"
+                >
+                  <FindToggle
+                    label="Match Case"
+                    description="Match Case: use the same uppercase and lowercase letters."
+                    active={matchCase}
+                    onClick={() => setMatchCase((value) => !value)}
+                  >
+                    Aa
+                  </FindToggle>
+                  <FindToggle
+                    label="Match Whole Word"
+                    description="Match Whole Word: find complete words only."
+                    className="review-find-toggle--whole-word"
+                    active={wholeWord}
+                    onClick={() => setWholeWord((value) => !value)}
+                  >
+                    ab
+                  </FindToggle>
+                  <FindToggle
+                    label="Use Regular Expression"
+                    description="Use Regular Expression: search with a regular expression."
+                    className="review-find-toggle--regex"
+                    active={isRegex}
+                    onClick={() => setIsRegex((value) => !value)}
+                  >
+                    .*
+                  </FindToggle>
+                </div>
+              </div>
+              <span className="review-find-count" aria-live="polite">
+                {invalid
+                  ? "Invalid expression"
+                  : searching
+                    ? "Searching…"
+                    : matches.length === 0
+                      ? "No results"
+                      : `${activeIndex + 1} of ${matches.length}`}
+              </span>
+              <FindActionButton
+                label="Previous Match"
+                description="Previous Match (Shift+Enter)"
+                disabled={searching || matches.length === 0}
+                onClick={() => navigate(-1)}
+                icon="previous"
+              />
+              <FindActionButton
+                label="Next Match"
+                description="Next Match (Enter)"
+                disabled={searching || matches.length === 0}
+                onClick={() => navigate(1)}
+                icon="next"
+              />
+              <FindActionButton
+                label="Close Find"
+                description="Close Find (Escape)"
+                onClick={hideFind}
+                icon="close"
+              />
+            </div>,
+            overlayHost,
+          )
+        : null}
     </ReviewFindContext.Provider>
   );
 }

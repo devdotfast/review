@@ -15,7 +15,7 @@ import {
 	type IWorkbenchContributionsRegistry,
 } from '../../../workbench/common/contributions.js';
 import { LifecyclePhase } from '../../../workbench/services/lifecycle/common/lifecycle.js';
-import { whenFirstRunReloadDecided } from '../../common/reviewFirstRunReload.js';
+import { isFirstRunReloadPending } from '../../common/reviewFirstRunReload.js';
 import { IReviewCanvasEditorTabsService } from '../../services/reviewCanvasEditorTabsService.js';
 
 export const NOTICE_STORAGE_KEY = 'review.telemetry.noticeShown.v1';
@@ -43,7 +43,7 @@ export class ReviewTelemetryNotice implements IWorkbenchContribution {
 		notificationService: INotificationService,
 		tabsService: IReviewCanvasEditorTabsService,
 	): Promise<void> {
-		if (await whenFirstRunReloadDecided()) {
+		if (await isFirstRunReloadPending()) {
 			return; // the seeding reload would take the notice with it
 		}
 		// Spend the notice only once the reader answers it: a reload before then removes

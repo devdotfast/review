@@ -8,7 +8,7 @@ import { IDialogService } from '../../platform/dialogs/common/dialogs.js';
 import { IOpenerService } from '../../platform/opener/common/opener.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../platform/storage/common/storage.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../workbench/common/contributions.js';
-import { whenFirstRunReloadDecided } from '../common/reviewFirstRunReload.js';
+import { isFirstRunReloadPending } from '../common/reviewFirstRunReload.js';
 import { REVIEW_DISCORD_URL } from '../common/reviewProtocol.js';
 
 export const DISMISSED_KEY = 'review.community.dontShowAgain';
@@ -30,7 +30,7 @@ export class ReviewCommunityContribution implements IWorkbenchContribution {
 	}
 
 	private async invite(dialogService: IDialogService, storageService: IStorageService, openerService: IOpenerService): Promise<void> {
-		if (await whenFirstRunReloadDecided()) {
+		if (await isFirstRunReloadPending()) {
 			return; // the seeding reload would discard both the question and the answer
 		}
 		const result = await dialogService.confirm({

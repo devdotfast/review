@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { IConfirmation, IConfirmationResult } from '../../platform/dialogs/common/dialogs.js';
-import { signalFirstRunReload } from '../common/reviewFirstRunReload.js';
+import { setFirstRunReloadPending } from '../common/reviewFirstRunReload.js';
 import { DISMISSED_KEY, ReviewCommunityContribution } from './reviewCommunity.contribution.js';
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -24,17 +24,17 @@ function setup(answer: Promise<IConfirmationResult>) {
 	return { asked, stored, opened, invite };
 }
 
-test('does not invite while the first-run seeding reload is pending', async () => {
-	signalFirstRunReload(true);
+test('skips the invitation when the first-run seeding reload is pending', async () => {
+	setFirstRunReloadPending(true);
 	const { asked, stored, invite } = setup(new Promise<IConfirmationResult>(() => { }));
 	invite();
 	await settle();
-	assert.deepEqual(asked, [], 'the invitation waits for the reload');
+	assert.deepEqual(asked, [], 'the reload would discard the invitation');
 	assert.deepEqual(stored, []);
 });
 
 test('records "Don\'t show again" once the seeding reload is settled', async () => {
-	signalFirstRunReload(false);
+	setFirstRunReloadPending(false);
 	const { asked, stored, opened, invite } = setup(Promise.resolve({ confirmed: false, checkboxChecked: true }));
 	invite();
 	await settle();

@@ -113,7 +113,17 @@ interface RepositoryVcs {
 
 /** Local source/resource boundary, including Desktop-only local language context. */
 export class LocalReviewData {
-  readonly workspaces: ReviewWorkspaces;
+  private readonly workspaceManager?: ReviewWorkspaces;
+
+  get workspaces(): ReviewWorkspaces {
+    if (!this.workspaceManager)
+      throw new ReviewInputError(
+        "Open this review in Desktop to prepare language workspaces.",
+        409,
+      );
+
+    return this.workspaceManager;
+  }
 
   currentEnvironmentIssues(snapshot: Snapshot) {
     if (snapshot.target.kind !== "commits") return [];
@@ -254,13 +264,15 @@ export class LocalReviewData {
     private readonly options: {
       blobReaderIdleTimeoutMs?: number;
       workspaceDatabase?: string;
+      manageWorkspaces?: boolean;
       watch?: typeof watch;
     } = {},
   ) {
-    this.workspaces = new ReviewWorkspaces(
-      options.workspaceDatabase ?? ":memory:",
-      store,
-    );
+    if (options.manageWorkspaces !== false)
+      this.workspaceManager = new ReviewWorkspaces(
+        options.workspaceDatabase ?? ":memory:",
+        store,
+      );
   }
 
   private closed = false;
@@ -336,7 +348,7 @@ export class LocalReviewData {
 
   async close(): Promise<void> {
     this.closed = true;
-    await this.workspaces.close();
+    await this.workspaceManager?.close();
 
     for (const entry of this.worktrees.values())
       for (const watcher of entry.watchers) watcher.close();
@@ -566,7 +578,9 @@ export class LocalReviewData {
       : [null, null];
 
     if (!left || !right)
-      throw new ReviewInputError("Base or head revision does not exist.");
+      throw new ReviewInputError(
+        `Base or head revision does not exist in the local checkout (${!left ? `base: ${base}` : `head: ${head}`}). Fetch the requested commits before authoring; in CI, configure checkout depth to include both revisions.`,
+      );
 
     return { repositoryId, base: left.commit, head: right.commit };
   }
@@ -1027,7 +1041,11 @@ function inputError<T>(run: () => T): T {
 
 export function openLocalReviewStore(
   databasePath: string,
-  options: { blobReaderIdleTimeoutMs?: number; watch?: typeof watch } = {},
+  options: {
+    blobReaderIdleTimeoutMs?: number;
+    manageWorkspaces?: boolean;
+    watch?: typeof watch;
+  } = {},
 ) {
   const store: ReviewStore = new ReviewStore(databasePath, {
     projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
@@ -1041,10 +1059,17 @@ export function openLocalReviewStore(
       data.validateSourceTolerant(pins, source, options),
   });
 
-  const data = new LocalReviewData(store, {
-    ...options,
-    workspaceDatabase: `${databasePath}.workspaces`,
-  });
+  let data: LocalReviewData;
+
+  try {
+    data = new LocalReviewData(store, {
+      ...options,
+      workspaceDatabase: `${databasePath}.workspaces`,
+    });
+  } catch (error) {
+    void store.close();
+    throw error;
+  }
 
   return { store, data };
 }

@@ -101,6 +101,7 @@ it("shares one live connection across reviews, reconnects, and isolates a delete
     );
 
     requests.at(-1)!.stream.error(new Error("Network interrupted"));
+    store.activity.update(b, { action: "end", leaseId });
     await vi.waitFor(() =>
       expect(errors.get("b")).toContain("Network interrupted"),
     );

@@ -1,8 +1,14 @@
 import {
+  readHealthyReviewDesktopDiscovery,
   readReviewDesktopDiscovery,
-  requireHealthyReviewDesktop,
 } from "../desktop-discovery.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths.js";
+import {
+  readReviewServerDiscovery,
+  reviewServerIsHealthy,
+  reviewServerStateDir,
+  serverNotReady,
+} from "../server-discovery.js";
 import { ReviewApiClient } from "./client.js";
 
 export interface AuthoringTool {
@@ -15,10 +21,25 @@ export interface AuthoringTool {
 }
 
 export async function connectReviewApi(env = process.env) {
-  const discovery = await requireHealthyReviewDesktop("review api", {
+  const stateDir = reviewServerStateDir(env);
+  const server = await readReviewServerDiscovery(stateDir);
+
+  if (server || env.DEV_REVIEW_SERVER_DIR?.trim()) {
+    if (!server || !(await reviewServerIsHealthy(server)))
+      throw serverNotReady(stateDir);
+
+    return new ReviewApiClient({ serverUrl: server.url, token: server.token });
+  }
+
+  const discovery = await readHealthyReviewDesktopDiscovery({
     readDiscovery: () =>
       readReviewDesktopDiscovery(reviewDesktopDiscoveryPath(env)),
   });
+
+  if (!discovery)
+    throw new Error(
+      "No Review server is ready. Run review server start for headless authoring, or review app launch for Desktop, then retry.",
+    );
 
   return new ReviewApiClient({
     serverUrl: discovery.url,
@@ -34,26 +55,29 @@ export function callAuthoringTool(
   signal?: AbortSignal,
 ) {
   if (tool.commandType) {
-    const { commandId, ...fields } = input;
+    const { commandId, leaseId, ...fields } = input;
 
     return client.post(
       tool.path,
-      { commandId, operation: { ...fields, type: tool.commandType } },
+      { commandId, leaseId, operation: { ...fields, type: tool.commandType } },
       signal,
     );
   }
 
-  let fields = input;
-  let route = tool.path;
+  const fields = { ...input };
 
-  if (route.includes(":reviewId")) {
-    const { reviewId, ...rest } = input;
+  const route = tool.path.replace(
+    /:(reviewId|draftId)\b/g,
+    (_match, name: string) => {
+      const value = fields[name];
 
-    if (!isStringValue(reviewId) || !reviewId)
-      throw new Error("reviewId is required.");
-    route = route.replace(":reviewId", encodeURIComponent(reviewId));
-    fields = rest;
-  }
+      if (!isStringValue(value) || !value)
+        throw new Error(`${name} is required.`);
+      delete fields[name];
+
+      return encodeURIComponent(value);
+    },
+  );
 
   if (tool.method === "POST") return client.post(route, fields, signal);
   const query = new URLSearchParams();

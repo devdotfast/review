@@ -2,18 +2,27 @@ import { z } from "zod";
 
 import { activitySchema } from "./activity.js";
 import { sourceSchema } from "./document.js";
+import { type AuthoringMode, draftCommandSchema } from "./drafts.js";
 import { uploadSchema } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import { commandSchema } from "./store.js";
 
 /** The host publishes its actual input schemas; adapters do not validate documents. */
-export function authoringTools() {
+export function authoringTools(mode: AuthoringMode = "interactive") {
   const id = z.string().min(1);
   const review = { reviewId: id };
+  const sourceReview = mode === "batch" ? { draftId: id } : review;
+  const sourcePath = mode === "batch" ? "/drafts/:draftId" : "/:reviewId";
   const version = z.number().int().nonnegative().optional();
 
-  const read = (name: keyof typeof readQuerySchemas) =>
-    z.strictObject({ ...review, ...readQuerySchemas[name].shape });
+  const read = (name: keyof typeof readQuerySchemas) => {
+    const { version: _version, ...fields } = readQuerySchemas[name].shape;
+
+    return z.strictObject({
+      ...sourceReview,
+      ...(mode === "batch" ? fields : readQuerySchemas[name].shape),
+    });
+  };
 
   const descriptions = {
     create:
@@ -50,10 +59,17 @@ export function authoringTools() {
     commandType,
   });
 
-  return [
+  const tools = [
+    tool(
+      "capabilities",
+      "Discover the explicitly selected authoringMode (interactive or batch), whether Desktop is available and optional software-map generation is enabled. Read before authoring; only call review_open when desktopAvailable is true. Map uploads remain supported regardless of generation permission.",
+      z.strictObject({}),
+      "GET",
+      "/capabilities",
+    ),
     tool(
       "activity",
-      "Report authoring work: begin with a fresh leaseId UUID, renew at least every 30 seconds, and end when finished. Ending activity does not mark sections complete. Include focus:{description,targetId?} to show the current work and optionally mark an existing section or component. Draft the outline first, then update focus before filling each section. Omitted focus preserves it; null clears it. Activity expires after 60 seconds without renewal. It does not lock edits or create document versions.",
+      "Acquire an exclusive authoring session: begin with a fresh leaseId UUID, pass that leaseId on every edit, rename, repin, target change, restore or delete, renew at least every 30 seconds, and end when finished. Another session gets a conflict while this lease is active. The lease expires after 60 seconds without renewal. Include focus:{description,targetId?} to show current work; omitted focus preserves it and null clears it. Ending the session does not mark sections complete or create document versions.",
       activitySchema.extend(review),
       "POST",
       "/:reviewId/activity",
@@ -64,8 +80,12 @@ export function authoringTools() {
 
       return tool(
         type,
-        `${descriptions[type]} Supply a commandId UUID; reuse it with identical input after a lost response.`,
-        z.strictObject({ ...fields, commandId: z.uuid() }),
+        `${descriptions[type]} Supply a commandId UUID; reuse it with identical input after a lost response. For content changes to an owned review, include the leaseId from review_activity.`,
+        z.strictObject({
+          ...fields,
+          commandId: z.uuid(),
+          leaseId: commandSchema.shape.leaseId,
+        }),
         "POST",
         "/commands",
         type,
@@ -109,7 +129,7 @@ export function authoringTools() {
     ),
     tool(
       "register_repository",
-      "Register a local Git or jj repository. The path is on the desktop host.",
+      "Register a local Git or jj repository. The prepared checkout path is on the authoring server.",
       z.strictObject({ path: id }),
       "POST",
       "/repositories",
@@ -130,38 +150,83 @@ export function authoringTools() {
     ),
     tool(
       "source",
-      "Read an exact code range from the current target. An explicit version reads retained historical source.",
-      z.strictObject({ ...review, version, source: sourceSchema }),
+      "Read an exact code range from the current target (or batch draft pins). An explicit version reads retained historical source.",
+      mode === "batch"
+        ? z.strictObject({ draftId: id, source: sourceSchema })
+        : z.strictObject({ ...review, version, source: sourceSchema }),
       "POST",
-      "/:reviewId/source",
+      `${sourcePath}/source`,
     ),
     tool(
       "file",
       "Read a complete source file from the current target; version selects retained history.",
       read("file"),
       "GET",
-      "/:reviewId/file",
+      `${sourcePath}/file`,
     ),
     tool(
       "tree",
       "List immediate directory entries in the target, including working files for worktree targets.",
       read("tree"),
       "GET",
-      "/:reviewId/tree",
+      `${sourcePath}/tree`,
     ),
     tool(
       "diff",
       "Read changed-file summaries, or patch text when file is supplied. commit selects one commit from this review.",
       read("diff"),
       "GET",
-      "/:reviewId/diff",
+      `${sourcePath}/diff`,
     ),
     tool(
       "commits",
       "List commits in this review's pinned comparison.",
       read("commits"),
       "GET",
-      "/:reviewId/commits",
+      `${sourcePath}/commits`,
     ),
+  ];
+
+  if (mode === "interactive") return tools;
+
+  const draftDescriptions = {
+    begin:
+      "Begin an exclusive server-owned scratch draft. Supply reviewId to update a saved review, or title and resolved pins for a new review. Updating a live worktree review requires explicit resolved pins and commits it as a fixed commit target. No committed placeholder is created. No activity or heartbeat is needed. A live server retains ownership until commit, abort or shutdown.",
+    write:
+      "Replace the complete scratch document and optionally its metadata. Omit component IDs; the server allocates fresh IDs and returns the draft. Writes do not create committed versions. Prefer this bulk operation to many edits.",
+    edit: "Apply a targeted edit to the scratch document using IDs returned by draft_get or draft_write. No committed version is created.",
+    validate:
+      "Check draft shape, references, pins, source ranges and resources before commit. Errors leave the draft editable.",
+    commit:
+      "Validate and atomically commit exactly one snapshot, marking every section complete and releasing ownership. Supply a fresh commandId UUID; retry with the same draftId and commandId after a lost response. Readers see the previous committed version until this succeeds.",
+    abort:
+      "Discard scratch content and release ownership, preserving the last committed version. Drafts are also discarded when their server stops; there is no resume or merge.",
+  };
+
+  return [
+    ...tools.filter(
+      (entry) =>
+        entry.name !== "review_activity" &&
+        (!entry.commandType || entry.commandType === "attention"),
+    ),
+    tool(
+      "draft_get",
+      "Read scratch content and its server-assigned editable IDs.",
+      z.strictObject({ draftId: z.uuid() }),
+      "GET",
+      "/drafts/:draftId",
+    ),
+    ...draftCommandSchema.options.map((operation) => {
+      const type = operation.shape.type.value;
+      const { type: _type, ...fields } = operation.shape;
+
+      return tool(
+        `draft_${type}`,
+        draftDescriptions[type],
+        z.strictObject(fields),
+        "POST",
+        `/draft-commands/${type}`,
+      );
+    }),
   ];
 }

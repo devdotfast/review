@@ -32,12 +32,12 @@ describe("trace repository hooks", () => {
       cwd: repo,
       scope: traceScope({ homeDir }),
       reviewCommand: {
-        file: "/opt/dev traces/dev-traces",
+        file: "/opt/dev traces/review",
         args: ["--home", "/x"],
       },
     });
 
-    const rendered = "'/opt/dev traces/dev-traces' '--home' '/x'";
+    const rendered = "'/opt/dev traces/review' '--home' '/x'";
     expect(enabled.command).toBe(rendered);
     expect(
       await readFile(path.join(enabled.managedHooksPath!, "pre-push"), "utf8"),
@@ -116,68 +116,6 @@ describe("trace repository hooks", () => {
     expect(await runGit(repo, ["config", "--get", "core.hooksPath"])).toBe(
       ".custom-hooks",
     );
-  });
-
-  it("leaves the repositories of the other CLI enabled when an owner is named", async () => {
-    const { homeDir, repo: reviewRepo } = await makeRepository();
-
-    const tracesRepo = await mkdtemp(
-      path.join(os.tmpdir(), "trace-hooks-repo-"),
-    );
-
-    roots.push(tracesRepo);
-    await runGit(tracesRepo, ["init", "-b", "main"]);
-    const scope = traceScope({ homeDir });
-
-    await enableTraceRepository({
-      cwd: reviewRepo,
-      scope,
-      reviewCommand: "/opt/review/review",
-    });
-    await enableTraceRepository({
-      cwd: tracesRepo,
-      scope,
-      reviewCommand: "/opt/traces/dev-traces",
-    });
-
-    const { kept } = await disableAllTraceRepositories(scope, {
-      owner: "review",
-    });
-
-    expect(kept).toEqual([(await traceRepositoryStatus(tracesRepo)).root]);
-    expect((await traceRepositoryStatus(reviewRepo)).enabled).toBe(false);
-    expect((await traceRepositoryStatus(tracesRepo)).enabled).toBe(true);
-
-    await disableAllTraceRepositories(scope);
-
-    expect((await traceRepositoryStatus(tracesRepo)).enabled).toBe(false);
-  });
-
-  it("keeps a commandless repository when standalone releases its own", async () => {
-    const { homeDir, repo } = await makeRepository();
-    const scope = traceScope({ homeDir });
-    await enableTraceRepository({ cwd: repo, scope, reviewCommand: "review" });
-
-    const statePath = path.join(
-      repo,
-      ".git",
-      "dev-fast",
-      "trace-hooks",
-      "state.json",
-    );
-
-    const state = JSON.parse(await readFile(statePath, "utf8"));
-    delete state.command;
-    await writeFile(statePath, JSON.stringify(state));
-
-    expect(
-      await disableAllTraceRepositories(scope, { owner: "dev-traces" }),
-    ).toMatchObject({ kept: [(await traceRepositoryStatus(repo)).root] });
-    expect((await traceRepositoryStatus(repo)).enabled).toBe(true);
-
-    await disableAllTraceRepositories(scope, { owner: "review" });
-
-    expect((await traceRepositoryStatus(repo)).enabled).toBe(false);
   });
 });
 

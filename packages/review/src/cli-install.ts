@@ -612,16 +612,7 @@ async function removeCliInstallUnlocked(
   }
 
   if (input.trace) {
-    // Repositories whose Git hooks call dev-traces belong to that install
-    // and keep working after this app is gone.
-    const { kept } = await disableAllTraceRepositories(
-      traceScope({ homeDir, env }),
-      { owner: "review" },
-    );
-
-    for (const root of kept) {
-      chunks.push(`[skip] left the dev-traces Git hooks in ${root}\n`);
-    }
+    await disableAllTraceRepositories(traceScope({ homeDir, env }));
 
     await disableTraceMachine({ homeDir, env });
 

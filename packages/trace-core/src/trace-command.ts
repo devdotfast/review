@@ -29,28 +29,14 @@ export interface TraceCommand {
   args?: string[];
 }
 
-let cliName = "review";
-
-let commandPrefix = `${cliName} trace`;
-
-/** The user-facing command name in messages and hook templates. */
+/** The executable name used in trace hooks. */
 export function traceCliName(): string {
-  return cliName;
+  return "review";
 }
 
-/**
- * The words before a trace subcommand in a hint, such as `review trace` for
- * `review trace allow .`. A CLI that registers the subcommands at its root
- * sets the prefix to its own name.
- */
+/** The command prefix used in trace instructions. */
 export function traceCommandPrefix(): string {
-  return commandPrefix;
-}
-
-/** A second CLI entry sets its own name before it prints anything. */
-export function setTraceCliName(name: string, prefix = `${name} trace`): void {
-  cliName = name;
-  commandPrefix = prefix;
+  return "review trace";
 }
 
 /** Returns the configured trace home, then the operating-system home. */
@@ -81,10 +67,10 @@ export function resolveTraceCommand(
     input.homeDir ?? traceHomeDir(env),
     ".local",
     "bin",
-    cliName,
+    "review",
   );
 
-  return { file: existsSync(installed) ? installed : cliName };
+  return { file: existsSync(installed) ? installed : "review" };
 }
 
 /** Quotes one value for a POSIX shell command. */

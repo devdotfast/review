@@ -153,9 +153,6 @@ retained object versions expire on a bounded schedule rather than instantly.
 prior uploads. `review trace store delete` asks the store to delete the
 repository's hosted copies (admins only) and leaves the consent as it is.
 `review logout` forgets the local login only.
-The standalone `dev-traces` command publishes the same data to the same origin
-under the same consent file; `dev-traces deny` and `review trace deny` withdraw
-the same consent.
 
 Objects are encrypted with server-controlled keys, so /dev/fast can decrypt
 stored traces. The GitHub OAuth app requests the `repo` scope to check access.

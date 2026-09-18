@@ -33,7 +33,6 @@ export function registerTraceCaptureCommands(
     settings.setExitCode(
       await runTraceUninstallHooks({
         scope,
-        owner: settings.cliName,
         json: options.json,
         stdout: settings.stdout,
         stderr: settings.stderr,
@@ -42,7 +41,7 @@ export function registerTraceCaptureCommands(
   });
 
   const withStorage = <T extends Command>(command: T): T =>
-    addTraceStorageOption(command, settings.storageOverride);
+    addTraceStorageOption(command);
 
   configureOutput(
     trace
@@ -207,7 +206,6 @@ export function registerTraceCaptureCommands(
           harnessHooks: options.harnessHooks,
           allHarnesses: options.allHarnesses,
           traceCommand,
-          installMachine: settings.installMachine,
           stdout: settings.stdout,
           stderr: settings.stderr,
         }),

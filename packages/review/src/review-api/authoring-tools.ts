@@ -88,10 +88,24 @@ export function authoringTools() {
     ),
     tool(
       "open",
-      "Show a review in the running Desktop and return softwareMapEnabled.",
+      "Show a review immediately and prepare current pinned checkouts in the background. Returns softwareMapEnabled and any already-recorded environmentIssues. Missing optional setup is not an issue; use review_environment to recheck.",
       z.strictObject(review),
       "POST",
       "/:reviewId/open",
+    ),
+    tool(
+      "environment",
+      "Acquire and recheck this review's current base/head language checkouts (not historical or selected commits). Returns acquisition issues, not full LSP health. Missing optional setup and failed setup with a usable checkout stay silent. Set retry:true to rerun failed preparation after an actual language-feature failure; preparation runs in the background.",
+      z.strictObject({ ...review, retry: z.boolean().optional() }),
+      "POST",
+      "/:reviewId/environment",
+    ),
+    tool(
+      "workspace_cleanup",
+      "Inspect failed cleanup of retired Review-owned checkouts. Supply workspaceId to retry removal of that checkout. This does not remove active review checkouts.",
+      z.strictObject({ workspaceId: id.optional() }),
+      "POST",
+      "/workspace-cleanup",
     ),
     tool(
       "register_repository",

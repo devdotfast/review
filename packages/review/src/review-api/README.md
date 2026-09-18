@@ -209,8 +209,14 @@ git config --add devfast.prepare 'pnpm generate'
 
 Commands run in order inside each managed checkout, never in the invoking user
 checkout. Successful preparation is cached by checkout and command-list hash;
-changed commands or recreated checkouts invalidate it. The local status control
-shows preparation output and supports retry. Reading and authoring stay available
+changed commands or recreated checkouts invalidate it. Preparation has no canvas
+disclosure. `review_open` starts acquisition in the background and returns any
+already-recorded acquisition issues. `review_environment` rechecks current base/head
+checkouts; `retry:true` explicitly reruns failed preparation. Missing setup, pending preparation,
+and failed commands with a usable checkout do not produce issues. These checks
+report acquisition failures (including transient errors), not end-to-end LSP health.
+`review_workspace_cleanup` lists failed cleanup of retired checkouts and accepts
+`workspaceId` to retry their removal. Reading and authoring stay available
 while preparation runs. Language requests wait for preparation; no command or a
 failed command leaves best-effort language services in that same pinned checkout,
 without silently borrowing another checkout. Timeout and shutdown stop command

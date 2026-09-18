@@ -1,3 +1,4 @@
+import { errorMessage } from "@dev.fast/trace-core";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
@@ -77,7 +78,7 @@ export function createReviewApi(
 
     if (
       context.req.method !== "GET" &&
-      !/\/(open|source|copy-context)$/.test(context.req.path) &&
+      !/\/(open|source|copy-context|environment)$/.test(context.req.path) &&
       !/\/workspaces\/[^/]+\/retry$/.test(context.req.path)
     )
       throw new ReviewInputError("Shared reviews are read-only.", 409);
@@ -232,15 +233,34 @@ export function createReviewApi(
 
     if (!open) throw new ReviewInputError("The desktop is not connected.", 409);
 
-    if (review.target.kind !== "worktree")
-      void data?.workspaces.open(review.reviewId, review.pins).catch(() => {});
-
     const settings = await open({
       reviewId: review.reviewId,
       title: review.title,
     });
 
-    return context.json({ ok: true, ...settings });
+    let environmentIssues: { side?: string; message: string }[] | undefined;
+
+    try {
+      if (review.target.kind === "commits")
+        void data?.workspaces
+          .open(review.reviewId, review.pins)
+          .catch(() => {});
+      environmentIssues = data?.currentEnvironmentIssues(review);
+    } catch (error) {
+      environmentIssues = [
+        {
+          message: `Could not check language checkouts: ${errorMessage(error)}. Recheck with review_environment.`,
+        },
+      ];
+    }
+
+    return context.json({
+      ok: true,
+      ...settings,
+      environmentIssues: environmentIssues?.length
+        ? environmentIssues
+        : undefined,
+    });
   });
   app.get("/:id/watch", (context) => {
     const id = context.req.param("id");
@@ -426,13 +446,27 @@ export function createReviewApi(
         await data.languageEnvironment(snapshot, input.side, input.commit),
       );
     });
-    app.get("/workspace-cleanup", (context) =>
-      context.json(data.workspaces.failures()),
-    );
-    app.post("/workspace-cleanup/:workspaceId/retry", (context) => {
-      data.workspaces.retryCleanup(context.req.param("workspaceId"));
+    app.post("/:id/environment", async (context) => {
+      const input = z
+        .strictObject({ retry: z.boolean().optional() })
+        .parse(await readBoundedRequestJson(context.req.raw));
 
-      return context.json({ ok: true });
+      return context.json({
+        issues: await data.environmentIssues(
+          readReview(context.req.param("id")),
+          input.retry,
+        ),
+      });
+    });
+    app.post("/workspace-cleanup", async (context) => {
+      const input = z
+        .strictObject({ workspaceId: z.string().min(1).optional() })
+        .parse(await readBoundedRequestJson(context.req.raw));
+
+      if (input.workspaceId)
+        await data.workspaces.retryCleanup(input.workspaceId);
+
+      return context.json({ failures: data.workspaces.failures() });
     });
     app.get("/:id/workspaces", (context) => {
       readReview(context.req.param("id"));
@@ -440,12 +474,12 @@ export function createReviewApi(
       return context.json(data.workspaces.list(context.req.param("id")));
     });
     app.post("/:id/workspaces/:workspaceId/retry", async (context) => {
-      await data.workspaces.retry(
-        context.req.param("id"),
-        context.req.param("workspaceId"),
+      return context.json(
+        await data.workspaces.retry(
+          context.req.param("id"),
+          context.req.param("workspaceId"),
+        ),
       );
-
-      return context.json({ ok: true });
     });
     app.get("/:id/file", async (context) => {
       const input = readQuerySchemas.file.parse(context.req.query());

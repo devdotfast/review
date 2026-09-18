@@ -375,6 +375,8 @@ export interface ReviewCanvasSettingsContent {
 export interface ReviewLanguageEnvironment {
   readonly rootPath: string | null;
   readonly identity: string;
+  /** Present only when the language checkout is unavailable, not while preparing. */
+  readonly issue?: string;
 }
 
 /** Authored version selection is independent of whether source is live or fixed. */

@@ -112,6 +112,46 @@ interface RepositoryVcs {
 export class LocalReviewData {
   readonly workspaces: ReviewWorkspaces;
 
+  currentEnvironmentIssues(snapshot: Snapshot) {
+    if (snapshot.target.kind !== "commits") return [];
+
+    return this.workspaces.list(snapshot.reviewId).flatMap((environment) => {
+      const side =
+        environment.commit === snapshot.pins.head
+          ? "head"
+          : environment.commit === snapshot.pins.base
+            ? "base"
+            : undefined;
+
+      return side && environment.issue
+        ? [{ side, message: environment.issue }]
+        : [];
+    });
+  }
+
+  async environmentIssues(snapshot: Snapshot, retryFailed = false) {
+    const issues: { side: "base" | "head"; message: string }[] = [];
+
+    const sides: ("base" | "head")[] =
+      snapshot.target.kind === "commits" &&
+      snapshot.pins.base !== snapshot.pins.head
+        ? ["head", "base"]
+        : ["head"];
+
+    for (const side of sides) {
+      const context = await this.languageEnvironment(
+        snapshot,
+        side,
+        undefined,
+        retryFailed,
+      );
+
+      if (context.issue) issues.push({ side, message: context.issue });
+    }
+
+    return issues;
+  }
+
   /** Local checkout context for live worktree targets only. */
   /** Desktop language services borrow the registered checkout, never create one. */
   async liveFile(repositoryId: string, file: string, text: string) {
@@ -132,6 +172,7 @@ export class LocalReviewData {
     snapshot: Snapshot,
     side: "base" | "head",
     commit?: string,
+    retryFailed = false,
   ): Promise<ReviewLanguageEnvironment> {
     if (snapshot.target.kind === "commits") {
       const pins = await this.comparison(snapshot.pins, commit);
@@ -140,6 +181,7 @@ export class LocalReviewData {
         snapshot.reviewId,
         pins,
         side,
+        retryFailed,
       );
 
       return {
@@ -148,6 +190,7 @@ export class LocalReviewData {
             ? null
             : environment.rootPath,
         identity: environment.generation,
+        issue: environment.issue,
       };
     }
 
@@ -155,12 +198,25 @@ export class LocalReviewData {
     if (commit) await this.comparison(await this.sourcePins(snapshot), commit);
     const repositoryId = snapshot.pins.repositoryId;
 
-    const rootPath = await realpath(
-      this.store.repositoryPath(repositoryId),
-    ).catch(() => null);
+    const unavailable: ReviewLanguageEnvironment = {
+      rootPath: null,
+      identity: `${repositoryId}:unavailable`,
+      issue:
+        "Could not access the registered language checkout. Check the repository path and permissions, then retry.",
+    };
 
-    if (!rootPath || !(await this.vcs(repositoryId)))
-      return { rootPath: null, identity: `${repositoryId}:unavailable` };
+    let rootPath: string;
+
+    try {
+      rootPath = await realpath(this.store.repositoryPath(repositoryId));
+    } catch (error) {
+      if (error instanceof ReviewInputError && error.status !== 404)
+        throw error;
+
+      return unavailable;
+    }
+
+    if (!rootPath || !(await this.vcs(repositoryId))) return unavailable;
     const info = await stat(rootPath, { bigint: true }).catch(() => null);
 
     return info
@@ -168,7 +224,7 @@ export class LocalReviewData {
           rootPath,
           identity: `${repositoryId}:${rootPath}:${info.dev}:${info.ino}:${info.birthtimeNs}`,
         }
-      : { rootPath: null, identity: `${repositoryId}:unavailable` };
+      : unavailable;
   }
 
   /** Resolve source coordinates after selecting a local or imported snapshot. */

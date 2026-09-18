@@ -5,6 +5,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { git, gitCommonDir } from "@dev.fast/local-vcs";
+import { errorMessage } from "@dev.fast/trace-core";
 
 import { reviewManagedCheckoutRoot } from "../review-checkout-paths.js";
 import { ensureReviewPinnedCheckout } from "../review-head-checkout.js";
@@ -32,6 +33,8 @@ export interface WorkspaceStatus {
     | "failed"
     | "cleanup-failed";
   log: string;
+  /** Acquisition failed; this can be transient. Optional setup failures are not issues. */
+  issue?: string;
 }
 
 interface Environment extends WorkspaceStatus {
@@ -144,7 +147,18 @@ export class ReviewWorkspaces {
   private status(environment: Environment): WorkspaceStatus {
     const { id, commit, rootPath, generation, state, log } = environment;
 
-    return { id, commit, rootPath, generation, state, log };
+    const status: WorkspaceStatus = {
+      id,
+      commit,
+      rootPath,
+      generation,
+      state,
+      log,
+    };
+
+    if (state === "failed" && !rootPath) status.issue = log;
+
+    return status;
   }
 
   list(reviewId: string): WorkspaceStatus[] {
@@ -159,12 +173,13 @@ export class ReviewWorkspaces {
       .map((item) => this.status(item));
   }
 
-  retryCleanup(id: string) {
+  async retryCleanup(id: string) {
     const environment = this.get(id);
 
     if (!environment || environment.state !== "cleanup-failed")
       throw new ReviewInputError("Cleanup failure not found.", 404);
     this.collect(id);
+    await this.cleanup;
   }
 
   async open(reviewId: string, pins: Pins): Promise<void> {
@@ -177,6 +192,7 @@ export class ReviewWorkspaces {
     reviewId: string,
     pins: Pins,
     side: "base" | "head",
+    retryFailed = false,
   ): Promise<WorkspaceStatus> {
     if (this.closed)
       return Promise.reject(new Error("Language environments are closed."));
@@ -190,8 +206,8 @@ export class ReviewWorkspaces {
 
     if (current) return current;
 
-    const request = this.acquire(id, reviewId, pins, side).finally(() =>
-      this.requests.delete(id),
+    const request = this.acquire(id, reviewId, pins, side, retryFailed).finally(
+      () => this.requests.delete(id),
     );
 
     this.requests.set(id, request);
@@ -204,20 +220,16 @@ export class ReviewWorkspaces {
     reviewId: string,
     pins: Pins,
     side: "base" | "head",
+    retryFailed: boolean,
   ): Promise<WorkspaceStatus> {
     let environment = this.get(id);
 
     if (this.jobs.has(id)) return this.status(environment!);
-    const root = this.store.repositoryPath(pins.repositoryId);
-
-    const repository =
-      environment?.repository || (await gitCommonDir(root).catch(() => null));
-
     environment ??= {
       id,
       reviewId,
       repositoryId: pins.repositoryId,
-      repository: repository ?? "",
+      repository: "",
       commit: pins[side],
       rootPath: null,
       generation: randomUUID(),
@@ -229,6 +241,11 @@ export class ReviewWorkspaces {
     this.save(environment);
 
     try {
+      const root = this.store.repositoryPath(pins.repositoryId);
+
+      const repository =
+        environment.repository || (await gitCommonDir(root).catch(() => null));
+
       if (!repository)
         throw new Error(
           "Repository Git directory is unavailable. Restore the registered checkout and retry preparation.",
@@ -285,7 +302,7 @@ export class ReviewWorkspaces {
       ) {
         environment.state = "ready";
         environment.log = "";
-      } else if (environment.state !== "failed" || changed) {
+      } else if (environment.state !== "failed" || changed || retryFailed) {
         environment.state = "preparing";
         environment.generation = randomUUID();
         environment.log = "Preparing pinned checkout…";
@@ -299,7 +316,7 @@ export class ReviewWorkspaces {
     } catch (error) {
       environment.state = "failed";
       environment.rootPath = null;
-      environment.log = String(error);
+      environment.log = errorMessage(error);
     }
 
     this.save(environment);
@@ -334,7 +351,7 @@ export class ReviewWorkspaces {
       })
       .catch((error) => {
         environment.state = "failed";
-        environment.log = String(error);
+        environment.log = errorMessage(error);
       })
       .finally(() => {
         environment.generation = randomUUID();
@@ -345,18 +362,18 @@ export class ReviewWorkspaces {
     this.jobs.set(environment.id, { done, abort });
   }
 
-  async retry(reviewId: string, id: string): Promise<void> {
+  async retry(reviewId: string, id: string): Promise<WorkspaceStatus> {
     const environment = this.get(id);
 
     if (!environment || environment.reviewId !== reviewId)
       throw new ReviewInputError("Language environment not found.", 404);
 
-    if (this.jobs.has(id)) return;
+    if (this.jobs.has(id)) return this.status(environment);
 
     if (environment.state === "cleanup-failed") {
       this.collect();
 
-      return;
+      return this.status(environment);
     }
 
     this.assertReview(reviewId);
@@ -366,7 +383,8 @@ export class ReviewWorkspaces {
     environment.state = "pending";
     environment.generation = randomUUID();
     this.save(environment);
-    await this.source(
+
+    return this.source(
       reviewId,
       {
         repositoryId: environment.repositoryId,
@@ -425,7 +443,7 @@ export class ReviewWorkspaces {
             .run(environment.id);
         } catch (error) {
           environment.state = "cleanup-failed";
-          environment.log = String(error);
+          environment.log = errorMessage(error);
           this.save(environment);
         }
       }

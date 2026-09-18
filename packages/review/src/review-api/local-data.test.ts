@@ -132,6 +132,179 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it("opens without waiting for acquisition and keeps diagnostic failures nonfatal", async () => {
+  const created = await local.store.execute(
+    command({ type: "create", title: "Immediate open", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data, async () => ({
+    softwareMapEnabled: false,
+  }));
+
+  const pending = Promise.withResolvers<void>();
+
+  const preparation = vi
+    .spyOn(local.data.workspaces, "open")
+    .mockReturnValue(pending.promise);
+
+  let timer: ReturnType<typeof setTimeout>;
+
+  try {
+    const response = await Promise.race([
+      app.request(`/${created.reviewId}/open`, { method: "POST" }),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Open waited for preparation")),
+          1000,
+        );
+      }),
+    ]);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      softwareMapEnabled: false,
+    });
+  } finally {
+    clearTimeout(timer!);
+    pending.reject(new Error("Language environments are closed."));
+    preparation.mockRestore();
+  }
+
+  await local.data.close();
+
+  const response = await app.request(`/${created.reviewId}/open`, {
+    method: "POST",
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    ok: true,
+    environmentIssues: [
+      {
+        message: expect.stringContaining("Could not check language checkouts:"),
+      },
+    ],
+  });
+});
+
+it("only reports acquisition issues to agents and clears them after recovery", async () => {
+  const created = await local.store.execute(
+    command({ type: "create", title: "Language availability", pins }),
+  );
+
+  const app = createReviewApi(local.store, local.data, async () => ({
+    softwareMapEnabled: false,
+  }));
+
+  const open = async () => {
+    const response = await app.request(`/${created.reviewId}/open`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
+  const check = async (retry = false) => {
+    const response = await app.request(`/${created.reviewId}/environment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ retry }),
+    });
+
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
+  // No optional install command: both pinned checkouts still serve language files.
+  expect(await open()).not.toHaveProperty("environmentIssues");
+  expect(await check()).toEqual({ issues: [] });
+  expect(
+    local.data.workspaces
+      .list(created.reviewId)
+      .every((item) => item.state === "unconfigured"),
+  ).toBe(true);
+
+  const available = path.join(directory, "dependency-available");
+  git("config", "devfast.prepare", `test -f '${available}'`);
+  expect(await open()).not.toHaveProperty("environmentIssues");
+  expect(await check()).toEqual({ issues: [] });
+  await local.data.workspaces.idle();
+  expect(
+    local.data.workspaces
+      .list(created.reviewId)
+      .every((item) => item.state === "failed" && item.rootPath),
+  ).toBe(true);
+  expect(await check()).toEqual({ issues: [] });
+
+  writeFileSync(available, "ready");
+  expect(await check(true)).toEqual({ issues: [] });
+  await local.data.workspaces.idle();
+  expect(
+    local.data.workspaces
+      .list(created.reviewId)
+      .every((item) => item.state === "ready"),
+  ).toBe(true);
+
+  const workspaceId = local.data.workspaces.list(created.reviewId)[0]!.id;
+
+  const retry = async () => {
+    const response = await app.request(
+      `/${created.reviewId}/workspaces/${workspaceId}/retry`,
+      { method: "POST" },
+    );
+
+    expect(response.status).toBe(200);
+
+    return response.json();
+  };
+
+  renameSync(repository, `${repository}-missing`);
+
+  try {
+    const checked = await check();
+    const result = await open();
+    expect(result.environmentIssues).toEqual(checked.issues);
+    expect(result.environmentIssues).toEqual([
+      {
+        side: "head",
+        message: expect.stringContaining("Pinned checkout is unavailable."),
+      },
+      {
+        side: "base",
+        message: expect.stringContaining("Pinned checkout is unavailable."),
+      },
+    ]);
+    expect(await check()).toEqual({ issues: result.environmentIssues });
+
+    const context = await (
+      await app.request(`/${created.reviewId}/language-context?side=head`)
+    ).json();
+
+    expect(context.rootPath).toBeNull();
+    expect(context.issue).toBe(result.environmentIssues[0].message);
+    expect(await retry()).toMatchObject({
+      id: workspaceId,
+      state: "failed",
+      rootPath: null,
+      issue: expect.stringContaining("Pinned checkout is unavailable."),
+    });
+  } finally {
+    renameSync(`${repository}-missing`, repository);
+  }
+
+  git("config", "--unset-all", "devfast.prepare");
+  const recovered = await retry();
+  expect(recovered.state).toBe("unconfigured");
+  expect(recovered.rootPath).toBeTruthy();
+  expect(recovered.issue).toBeUndefined();
+  expect(await check()).toEqual({ issues: [] });
+  expect(await open()).not.toHaveProperty("environmentIssues");
+});
+
 it("lists the full repository path and hydrates diff counts from pinned commits", async () => {
   await local.store.execute(
     command({ type: "create", title: "Home metadata", pins }),

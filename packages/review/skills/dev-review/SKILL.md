@@ -25,6 +25,8 @@ Use available Review MCP tools. Otherwise use `review api <tool-name> '<json>'`,
 
 In development, use this checkout's built CLI: from its root, `DEV_FAST_REVIEW_CLI_NO_DELEGATE=1 node packages/review/dist/cli.js api …` (or `mcp`). Build the checkout first if that entry is absent or stale. Set `DEV_REVIEW_HOME` to the profile used by this checkout's app. Use the checkout-built app, not an unrelated installed Preview build. Desktop must be running; start it explicitly when the requested task calls for opening or authoring a review.
 
+Read [Prepared worktrees](references/prepared-worktrees.md) only when pinned worktree dependencies or language-server navigation do not work.
+
 ## Authoring
 
 1. Use `review_register_repository({path})` to register the intended local checkout. Choose `target:{kind:"worktree",repositoryId,base?}` to review its current saved files, or `target:{kind:"commits",repositoryId,head,base?}` for immutable commits. Revisions resolve on acceptance. Omitting the commit base means source at head with no diff (equivalent to base=head); supply its parent to review changes introduced by one commit. A worktree without base includes the whole checkout and Working changes against current HEAD.

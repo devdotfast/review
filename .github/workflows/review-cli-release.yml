@@ -54,7 +54,7 @@ jobs:
       - name: Check release and headless behavior
         if: steps.release.outputs.published != 'true'
         run: |
-          node --test scripts/review-cli-release.test.mjs
+          node --test scripts/review-cli-release.test.mjs scripts/review-cli-dependencies.test.mjs
           pnpm --filter @dev.fast/trace-core test
           pnpm --filter @dev.fast/review ensure:tutorial-assets
           pnpm --filter @dev.fast/review exec vitest run --config vitest.config.ts --project shared-module-graph src/server/headless-host.test.ts src/server/headless-sharing.test.ts src/cli-install.test.ts

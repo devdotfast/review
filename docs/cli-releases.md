@@ -71,6 +71,13 @@ and remove agent hooks and commit a headless review without a display or Desktop
 The tarball includes the bundled product documentation and stamped skills.
 The tested tarball is the one passed to `npm publish`.
 
+The npm manifest excludes workspace code already bundled into the runtime,
+canvas libraries already bundled by Vite, and development tools. The clean-install
+check audits the entire production dependency tree and rejects browser automation,
+Electron, TypeScript, and build/test tooling, including transitive dependencies.
+Runtime dependencies such as the MCP SDK, Markdown parsers, and Sharp (image
+validation, including native binaries) remain installed normally.
+
 ## Retry a failed release
 
 Use **Re-run all jobs** on the original run. If that run already reserved its

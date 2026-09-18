@@ -3,6 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   access,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -12,6 +13,8 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+
+import { checkProductionDependencies } from "./review-cli-dependencies.mjs";
 
 const exec = promisify(execFile);
 
@@ -28,10 +31,25 @@ let exited;
 try {
   // No workspace modules, Desktop, display, or account state are available to the installed CLI.
   const prefix = path.join(root, "install");
-  await exec(
-    "npm",
-    ["install", "--prefix", prefix, "--no-audit", "--no-fund", tarball],
-    { maxBuffer: 16 * 1024 * 1024 },
+  await mkdir(prefix);
+  await copyFile(tarball, path.join(prefix, "review.tgz"));
+  await exec("npm", ["install", "--no-audit", "--no-fund", "./review.tgz"], {
+    cwd: prefix,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+
+  const dependencyTree = JSON.parse(
+    (
+      await exec("npm", ["ls", "--all", "--omit=dev", "--json"], {
+        cwd: prefix,
+        maxBuffer: 16 * 1024 * 1024,
+      })
+    ).stdout,
+  );
+
+  const dependencyCount = checkProductionDependencies(dependencyTree);
+  console.log(
+    `Production dependency audit passed (${dependencyCount} unique packages).`,
   );
   const pkgRoot = path.join(prefix, "node_modules/@dev.fast/review");
 
@@ -92,12 +110,14 @@ try {
   );
 
   assert.equal(installed.hooks.length, 4);
+
   const hooks = JSON.parse(
     await readFile(
       path.join(env.TRACE_HOME_DIR, ".claude/settings.json"),
       "utf8",
     ),
   );
+
   assert.ok(
     hooks.hooks.SessionStart[0].hooks[0].command.includes(cli),
     "Hooks must use the installed npm executable, not a host Desktop launcher",

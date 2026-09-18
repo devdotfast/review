@@ -50,10 +50,24 @@ export async function packReviewCli({ version, commit }, outputDirectory) {
       await readFile(path.join(staged, "package.json"), "utf8"),
     );
 
-    // These dependencies are bundled by tsdown; don't install a second copy from npm.
+    // Workspace/Git code is bundled by tsdown; canvas libraries by Vite.
+    // The TypeScript validation helper is not reachable from the built runtime.
+    // Keep these in the workspace manifest for development and Desktop builds.
     for (const name of [
       "@dev.fast/local-vcs",
       "@dev.fast/review-share-protocol",
+      "isomorphic-git",
+      "@mr_mint/elkjs-libavoid",
+      "@speed-highlight/core",
+      "@tanstack/react-table",
+      "@types/react",
+      "@xyflow/react",
+      "decode-named-character-reference",
+      "elkjs",
+      "react",
+      "react-dom",
+      "typescript",
+      "zustand",
     ])
       delete stagedManifest.dependencies[name];
     delete stagedManifest.devDependencies;

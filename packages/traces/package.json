@@ -1,6 +1,6 @@
 {
   "name": "@dev.fast/traces",
-  "version": "0.1.2",
+  "version": "0.1.1",
   "description": "Capture and publish agent session traces to the hosted dev.fast trace store.",
   "license": "MIT",
   "repository": {

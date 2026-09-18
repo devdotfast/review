@@ -156,6 +156,7 @@ test("separates bundled extensions from optional language groups", () => {
     curatedExtensions.map((extension) => extension.id).sort(),
   );
   assert.deepEqual(optionalExtensions.map((extension) => extension.id).sort(), [
+    "golang.go",
     "llvm-vs-code-extensions.lldb-dap",
     "ms-dotnettools.vscode-dotnet-runtime",
     "muhammad-sammy.csharp",
@@ -174,7 +175,7 @@ test("separates bundled extensions from optional language groups", () => {
     optionalExtensions
       .filter((extension) => extension.role === "primary")
       .map((extension) => extension.group),
-    ["rust", "swift", "csharp"],
+    ["rust", "swift", "csharp", "go"],
   );
 
   for (const support of optionalExtensions.filter(
@@ -258,8 +259,8 @@ test("resolves a target key for every extension on every supported target", () =
 });
 
 test("parses DEV_REVIEW_EXTENSIONS selections", () => {
-  assert.deepEqual([...bundledGroups], ["python", "go", "vim", "emacs"]);
-  assert.deepEqual([...optionalGroups], ["rust", "swift", "csharp"]);
+  assert.deepEqual([...bundledGroups], ["python", "vim", "emacs"]);
+  assert.deepEqual([...optionalGroups], ["rust", "swift", "csharp", "go"]);
   assert.deepEqual(
     [...parseGroupSelection(undefined)].sort(),
     [...bundledGroups].sort(),
@@ -507,8 +508,8 @@ test("keeps the in-app picker list in sync with the manifest", () => {
   }
 });
 
-test("manages optional extensions as three user-facing groups", () => {
-  for (const group of ["rust", "swift", "csharp"]) {
+test("manages optional extensions as four user-facing groups", () => {
+  for (const group of ["rust", "swift", "csharp", "go"]) {
     assert.ok(
       curatedContribution.includes(`group: '${group}'`),
       `${group} must have one optional picker row`,
@@ -533,6 +534,7 @@ test("manages optional extensions as three user-facing groups", () => {
   assert.match(curatedContribution, /donotCheckDependents: true/);
   assert.match(curatedContribution, /Codicon\.trash/);
   assert.match(curatedContribution, /Requires a system \.NET SDK/);
+  assert.match(curatedContribution, /installs gopls and vscgo/);
 });
 
 test("keeps the keymaps mutually exclusive in the picker", () => {

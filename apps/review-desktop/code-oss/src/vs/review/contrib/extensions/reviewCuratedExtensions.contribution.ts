@@ -61,7 +61,6 @@ const BUNDLED_EXTENSIONS: readonly { id: string; label: string }[] = [
 	{ id: 'ms-python.python', label: localize('review.curated.python', "Python") },
 	{ id: 'astral-sh.ty', label: localize('review.curated.ty', "Python type checking (ty)") },
 	{ id: 'charliermarsh.ruff', label: localize('review.curated.ruff', "Python lint and format (ruff)") },
-	{ id: 'golang.go', label: localize('review.curated.go', "Go") },
 	{ id: 'vscodevim.vim', label: localize('review.curated.vim', "Vim keybindings") },
 	{ id: 'tuttieee.emacs-mcx', label: localize('review.curated.emacs', "Emacs keybindings") }
 ];
@@ -73,6 +72,11 @@ const OPTIONAL_GROUPS: readonly { group: string; label: string; detail?: string 
 		group: 'csharp',
 		label: localize('review.curated.csharp', "C#"),
 		detail: localize('review.curated.csharp.requiresDotnet', "Requires a system .NET SDK. Review does not download .NET.")
+	},
+	{
+		group: 'go',
+		label: localize('review.curated.go', "Go"),
+		detail: localize('review.curated.go.installsTools', "Downloads the Go extension, which then installs gopls and vscgo with the Go toolchain on your machine (about 40 MB from proxy.golang.org).")
 	}
 ] as const;
 

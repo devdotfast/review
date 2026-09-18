@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Frame } from "../../src/review-api/document";
-import { CallStackDiff } from "./call-stack-diff";
+import { DocumentCallTree } from "./call-tree-view";
 import { ReviewPanelProvider, useReviewPanel } from "./review-panel";
 import type { ReviewPanelStoreState } from "./review-panel-store";
 import {
@@ -38,8 +38,8 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-describe("CallStackDiff", () => {
-  it("renders frames as a unified stack and opens a frame's source on click", async () => {
+describe("DocumentCallTree", () => {
+  it("opens a removed frame on the base side from the shared tree", async () => {
     (
       globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -63,43 +63,51 @@ describe("CallStackDiff", () => {
           testReviewSession(),
           <ReviewPanelProvider detailRevision={0}>
             <PanelSpy />
-            <CallStackDiff
-              title="Checkout"
-              base={[frame("reconcile"), frame("auth", "base")]}
-              head={[
-                frame("reconcile"),
-                frame("enqueue", "head", {
-                  kind: "queue",
-                  reason: "via the workqueue",
-                }),
-              ]}
+            <DocumentCallTree
+              block={{
+                type: "call_stack_diff",
+                id: "checkout",
+                title: "Checkout",
+                base: [
+                  frame("reconcile"),
+                  {
+                    ...frame("auth", "base"),
+                    contextSources: [
+                      {
+                        side: "head",
+                        file: "context.ts",
+                        fromLine: 1,
+                        toLine: 2,
+                      },
+                    ],
+                    callSite: {
+                      side: "base",
+                      file: "caller.ts",
+                      fromLine: 12,
+                      toLine: 12,
+                    },
+                  },
+                ],
+                head: [
+                  frame("reconcile"),
+                  frame("enqueue", "head", {
+                    kind: "queue",
+                    reason: "via the workqueue",
+                  }),
+                ],
+              }}
             />
           </ReviewPanelProvider>,
         ),
       );
     });
 
-    const rows = [...container.querySelectorAll(".call-stack-row")];
-
-    expect(
-      rows.map((row) => [
-        row.querySelector(".call-stack-gutter")?.textContent,
-        row.querySelector(".call-stack-name")?.textContent,
-      ]),
-    ).toEqual([
-      [" ", "Frame reconcile"],
-      ["-", "Frame auth"],
-      ["+", "Frame enqueue"],
-    ]);
-    expect(container.querySelector(".call-stack-asserted")?.textContent).toBe(
-      "≈ queue: via the workqueue",
-    );
-    expect(container.querySelector(".call-stack-hunk-label")?.textContent).toBe(
-      "@@ Checkout · base → head @@",
-    );
+    const removed = container.querySelector<HTMLButtonElement>(
+      '[data-review-anchor-id="auth"]',
+    )!;
 
     await act(async () => {
-      (rows[1] as HTMLButtonElement).click();
+      removed.click();
     });
 
     expect(opened).toHaveBeenLastCalledWith(
@@ -109,6 +117,23 @@ describe("CallStackDiff", () => {
         content: {
           kind: "source",
           source: { side: "base", file: "src/auth.ts", fromLine: 4, toLine: 9 },
+        },
+      }),
+    );
+
+    const edge = container.querySelector(
+      '[aria-label="Go to call site of Frame auth"]',
+    )!;
+    await act(async () => {
+      edge.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(opened).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        content: {
+          kind: "source",
+          source: { side: "base", file: "caller.ts", fromLine: 12, toLine: 12 },
         },
       }),
     );

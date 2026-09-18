@@ -194,10 +194,11 @@
    tabs carry no separators by design (see the pill-tab section below). A line on
    just the tree half stops dead at the sash and reads as an unfinished stub.
 
-   `--review-explorer-width` and `--review-chrome-height` are published by
-   `ReviewExplorerPart` from REVIEW_CHROME_HEIGHT and its laid-out width, so the
-   TypeScript constant stays the only source for both. The fallbacks cover the
-   frame before the part first lays out. */
+   `ReviewExplorerPart` writes `--review-chrome-height` on this part and the
+   workbench layout writes `--review-explorer-width` on the inset tab strip
+   (never on the workbench root; see `publishReviewChromeInset`), so
+   REVIEW_CHROME_HEIGHT stays the only source. The fallbacks cover the frame
+   before the part first lays out. */
 .monaco-workbench .part.review-explorer > .review-explorer-chrome-spacer {
   box-sizing: border-box;
   height: var(--review-chrome-height, 40px);

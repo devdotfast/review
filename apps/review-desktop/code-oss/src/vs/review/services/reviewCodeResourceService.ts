@@ -255,12 +255,16 @@ export class ReviewCodeResourceService extends Disposable implements IReviewCode
 			modifiedReference.dispose();
 			throw error;
 		}
+		// The side model takes its language only once its checkout is a workspace folder
+		// (reviewLocalLanguageFeatures.ts); the unified preview follows it.
+		const followLanguage = sourceModel.onDidChangeLanguage(event => model.setLanguage(event.newLanguage));
 		let resolverReference: IReference<IResolvedTextEditorModel>;
 		try {
 			// References and Peek Definition resolve this resource independently.
 			// Keep one resolver owner until the inline CodePeek releases the model.
 			resolverReference = await this.textModelService.createModelReference(resource);
 		} catch (error) {
+			followLanguage.dispose();
 			model.dispose();
 			originalReference.dispose();
 			modifiedReference.dispose();
@@ -284,6 +288,7 @@ export class ReviewCodeResourceService extends Disposable implements IReviewCode
 			dispose: () => {
 				if (disposed) return;
 				disposed = true;
+				followLanguage.dispose();
 				resolverReference.dispose();
 				originalReference.dispose();
 				modifiedReference.dispose();

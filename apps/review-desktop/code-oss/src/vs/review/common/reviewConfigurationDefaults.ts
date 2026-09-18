@@ -85,9 +85,9 @@ export const reviewConfigurationDefaults = {
  *
  * Review ships no marketplace, so an extension that prompts to install or update
  * something offers the reader a dead end. Every key here closes one such prompt.
- * Keep this aligned with `scripts/curated-extensions.manifest.mjs`; the contract
- * test in `scripts/curated-extension-defaults.test.mjs` fails when a curated
- * group has neither defaults here nor an explicit "prompts nothing" entry.
+ * Keep this aligned with the curated groups in
+ * `scripts/curated-extensions.manifest.mjs`, whose contract test is
+ * `scripts/curated-extensions.test.mjs`.
  */
 export const curatedExtensionConfigurationDefaults = {
 	// ms-python.python resolves the "Default" language server to Pylance, which is

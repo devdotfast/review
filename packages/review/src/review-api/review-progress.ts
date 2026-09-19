@@ -10,7 +10,7 @@ import {
   unionIntervals,
 } from "../viewed-coverage.js";
 import { type DiagramLens, diagramLenses } from "./diagram-lenses.js";
-import { elements } from "./document.js";
+import { elements, evidenceReferences, type Block } from "./document.js";
 import { resolveFileLens, uncategorizedSources } from "./file-lenses.js";
 import type { LocalReviewData } from "./local-data.js";
 import type { ReviewStore, Snapshot } from "./store.js";
@@ -132,10 +132,18 @@ export async function reviewProgress(
   const diagrams = await Promise.all(
     diagramLenses(snapshot.document).map(async (lens) => {
       const block = elements(snapshot.document).find(
-        (block) => block.id === lens.id,
+        (block): block is Block =>
+          block.type !== "step" && block.id === lens.id,
       )!;
 
       try {
+        await Promise.all(
+          evidenceReferences([block]).map((ref) =>
+            data.validateSource(snapshot.pins, ref.source, {
+              peek: ref.peek === true,
+            }),
+          ),
+        );
         if (block.type === "file_lens") {
           // Explicit ranges use the same pin validation as diagram evidence.
           await Promise.all(
@@ -177,6 +185,8 @@ export async function reviewProgress(
           ]);
         }
 
+        if (block.type === "software_map")
+          lens.targets = [{ kind: "ranges", ranges: lens.sources }];
         await Promise.all(
           lens.sources.map((source) => data.quote(snapshot.pins, source)),
         );
@@ -205,6 +215,7 @@ export async function reviewProgress(
     title: "Uncategorized changes",
     kind: "file_lens",
     sources: uncategorized,
+    targets: [{ kind: "ranges", ranges: uncategorized }],
     wholeFiles: false,
     fileCount: new Set(
       uncategorized.map(

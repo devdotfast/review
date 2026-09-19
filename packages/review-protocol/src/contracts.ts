@@ -214,6 +214,7 @@ export interface ReviewDiffProgressFile {
 }
 
 export interface ReviewDiffSection {
+  targets: readonly ReviewDiffLensTarget[];
   files?: readonly ReviewDiffProgressFile[];
   id: string;
   label: string;

@@ -2518,6 +2518,30 @@ it("saves diffr evidence without its worktrees, reopens it, and marks it stale a
     command({ type: "create", title: "Direct evidence", pins }),
   );
   await insert(reviewId, { type: "code_peek", source: evidence });
+  await insert(reviewId, {
+    type: "file_lens",
+    title: "Mixed glob and result",
+    targets: [
+      { kind: "files", patterns: ["literal*.ts"] },
+      { kind: "results", results: [evidence] },
+    ],
+  });
+  await insert(reviewId, {
+    type: "sequence",
+    title: "Evidence",
+    actors: { a: "A", b: "B" },
+    steps: [{ from: "a", to: "b", label: "Inspect", source: evidence }],
+  });
+  const app = createReviewApi(local.store, local.data);
+  const progress = await (await app.request(`/${reviewId}/progress`)).json();
+  const lens = progress.diagrams.find(
+    (lens: { title: string }) => lens.title === "Mixed glob and result",
+  );
+  expect(
+    lens.targets[0].ranges.map((range: { file: string }) => range.file).sort(),
+  ).toEqual(["literal1.ts", "literal[1].ts"]);
+  expect(lens.targets[1].results).toEqual([evidence]);
+  expect(lens.targets[1].results[0].sources.lhs).toBeUndefined();
   const saved = local.store.read(reviewId);
   await local.store.close();
   await local.data.close();
@@ -2552,7 +2576,7 @@ it("saves diffr evidence without its worktrees, reopens it, and marks it stale a
   await local.store.execute(
     command({ type: "repin", reviewId, pins: { ...pins, head: pins.base } }),
   );
-  expect(local.store.read(reviewId).staleSources).toHaveLength(1);
+  expect(local.store.read(reviewId).staleSources).toHaveLength(3);
   expect(local.store.read(reviewId, saved.version).document).toEqual(
     saved.document,
   );

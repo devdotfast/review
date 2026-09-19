@@ -10,11 +10,7 @@ import {
 } from "react";
 
 import type { ReviewApiClient } from "../../src/review-api/client";
-import {
-  type Block,
-  elements,
-  evidenceReferences,
-} from "../../src/review-api/document";
+import { type Block, elements } from "../../src/review-api/document";
 import type { ReviewProgress } from "../../src/review-api/review-progress";
 import type { Snapshot } from "../../src/review-api/store";
 import type { Source } from "../../src/source";
@@ -102,29 +98,7 @@ export function ReviewLensesProvider({
           title: item.title,
           reviewId: snapshot.reviewId,
           version: snapshot.version,
-          targets: (() => {
-            const block = elements(snapshot.document).find(
-              (block) => block.id === item.id,
-            );
-            const results =
-              block && block.type !== "step"
-                ? evidenceReferences([block]).flatMap((ref) =>
-                    "kind" in ref.source ? [ref.source] : [],
-                  )
-                : [];
-            const ranges =
-              block && block.type !== "step" && results.length
-                ? evidenceReferences([block]).flatMap((ref) =>
-                    "kind" in ref.source ? [] : [ref.source],
-                  )
-                : item.sources;
-            return [
-              ...(ranges.length ? [{ kind: "ranges" as const, ranges }] : []),
-              ...(results.length
-                ? [{ kind: "results" as const, results }]
-                : []),
-            ];
-          })(),
+          targets: item.targets,
           wholeFiles: item.wholeFiles ?? false,
         }
       : undefined;

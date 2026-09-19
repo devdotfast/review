@@ -1,5 +1,7 @@
 import { posix } from "node:path";
 
+import type { ReviewDiffLensTarget } from "@dev.fast/review-protocol";
+
 import { evidenceSources, type Source } from "../source.js";
 import {
   type CoverageFile,
@@ -31,14 +33,22 @@ export function resolveFileLens(
   fileSources: ReadonlyMap<string, Source[]>,
 ) {
   const targets = fileLensTargets(block);
-  const selected = targets.flatMap((target) =>
+  const displayTargets: ReviewDiffLensTarget[] = targets.map((target) => {
+    if (target.kind === "results") return target;
+    return {
+      kind: "ranges",
+      ranges:
+        target.kind === "ranges"
+          ? target.sources
+          : files
+              .filter((file) => matchesFileLens(target.patterns, file))
+              .flatMap((file) => fileSources.get(file.path) ?? []),
+    };
+  });
+  const selected = displayTargets.flatMap((target) =>
     target.kind === "ranges"
-      ? target.sources
-      : target.kind === "results"
-        ? target.results.flatMap(evidenceSources)
-        : files
-            .filter((file) => matchesFileLens(target.patterns, file))
-            .flatMap((file) => fileSources.get(file.path) ?? []),
+      ? [...target.ranges]
+      : target.results.flatMap(evidenceSources),
   );
   const groups = new Map<string, Source[]>();
   for (const source of selected) {
@@ -69,6 +79,7 @@ export function resolveFileLens(
     ),
   ).size;
   return {
+    targets: displayTargets,
     sources,
     fileCount,
     wholeFiles: targets.every((target) => target.kind === "files"),

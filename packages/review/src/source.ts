@@ -1,3 +1,4 @@
+import type { ReviewDiffLensTarget } from "@dev.fast/review-protocol";
 import { searchResultDataSchema } from "diffr/schema";
 import type { SearchResultData, RegionData } from "diffr/types";
 import { z } from "zod";
@@ -146,4 +147,15 @@ export function evidenceLocation(evidence: CodeEvidence): Source {
   const side = evidence.file.rhs ? "head" : "base";
   const file = evidence.file.rhs ?? evidence.file.lhs!;
   return { side, file: file.path, fromLine: 1, toLine: 1 };
+}
+
+/** Preserve display payloads; coordinate projections are a separate concern. */
+export function evidenceTargets(
+  evidence: readonly CodeEvidence[],
+): ReviewDiffLensTarget[] {
+  return evidence.map((source) =>
+    "kind" in source
+      ? { kind: "results", results: [source] }
+      : { kind: "ranges", ranges: [source] },
+  );
 }

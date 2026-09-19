@@ -29,6 +29,14 @@ it.each(["sequence", "file_lens"])(
                 key: "diagram:diagram",
                 fingerprint: "f",
                 viewed: false,
+                targets: [
+                  {
+                    kind: "ranges",
+                    ranges: [
+                      { side: "head", file: "a.ts", fromLine: 1, toLine: 8 },
+                    ],
+                  },
+                ],
                 sources: [
                   { side: "head", file: "a.ts", fromLine: 1, toLine: 8 },
                 ],

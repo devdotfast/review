@@ -1,6 +1,8 @@
 import { sourceTreeUri, sourceTreeRoot } from "../common/reviewSourceView.js";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createRequire } from "node:module";
+import type { ReviewInlineEditorSpec } from "../common/reviewProtocol.js";
 
 import { URI } from "../../base/common/uri.js";
 import type { ITextModelContentProvider } from "../../editor/common/services/resolverService.js";
@@ -254,4 +256,100 @@ test("a refreshed current tree keeps its root when a file from the newer version
   assert.equal(sourceTreeRoot(refreshed[1]!.resource, root).toString(), root.toString());
   const fixed = sourceTreeUri({ reviewId: "review-a", kind: "version", version: 3 });
   assert.notEqual(sourceTreeRoot(refreshed[1]!.resource, fixed).toString(), fixed.toString());
+});
+
+test("diagram sections retain distinct evidence for the same file and scope viewed actions", async (t) => {
+  const { JSDOM } = createRequire(import.meta.url)("jsdom");
+  const dom = new JSDOM("<main></main><aside></aside>");
+  t.after(() => dom.window.close());
+  const { service } = setup();
+  t.after(() => service.dispose());
+  const result = (side: "lhs" | "rhs") => ({
+    kind: side,
+    scope: {
+      repo: "/unused",
+      baseWorktree: { commitId: "base", path: "/base" },
+      headWorktree: { commitId: "head", path: "/head" },
+    },
+    file: { [side]: { path: "same.ts", oid: "a".repeat(40), mode: "100644" } },
+    sources: {
+      [side]: {
+        text: "selected\n",
+        regions: [
+          {
+            kind: "leaf",
+            id: 1,
+            fold_state_id: 1,
+            alignment_id: 1,
+            start: { line: 0, column: 0 },
+            end: { line: 1, column: 0 },
+          },
+        ],
+      },
+    },
+  });
+  const lhs = result("lhs"),
+    rhs = result("rhs");
+  const mounted: ReviewInlineEditorSpec["content"][] = [],
+    toggled: string[] = [];
+  let disposed = 0;
+  const canvas = service.canvas(
+    () => view(3),
+    {
+      create: (spec: ReviewInlineEditorSpec) => {
+        mounted.push(spec.content);
+        return {
+          height: 100,
+          onDidChangeHeight: () => ({ dispose() {} }),
+          onDidError: () => ({ dispose() {} }),
+          dispose: () => disposed++,
+        };
+      },
+    } as never,
+    {} as never,
+  );
+  const document: Document = dom.window.document;
+  const container = document.querySelector("main")!;
+  const sections = [
+    {
+      id: "before",
+      label: "Before",
+      targets: [{ kind: "results", results: [lhs] }],
+    },
+    {
+      id: "after",
+      label: "After",
+      targets: [{ kind: "results", results: [rhs] }],
+    },
+  ];
+  const handle = canvas.diffView.create({
+    container,
+    fileTreeContainer: document.querySelector("aside")!,
+    lens: { id: "lens", targets: [] },
+    progress: { files: [], sections },
+    onToggleSection: (id: string) => toggled.push(id),
+  } as never);
+  t.after(() => handle.dispose());
+  assert.deepEqual(mounted, [
+    { kind: "diffr", result: lhs },
+    { kind: "diffr", result: rhs },
+  ]);
+  container
+    .querySelectorAll<HTMLButtonElement>(".review-evidence-toolbar > button")[2]
+    .click();
+  assert.deepEqual(toggled, ["after"]);
+  const scrolled: string[] = [];
+  for (const section of container.querySelectorAll<HTMLElement>(
+    "[data-review-evidence-section]",
+  ))
+    section.querySelector<HTMLElement>("section")!.scrollIntoView = () =>
+      scrolled.push(section.dataset.reviewEvidenceSection!);
+  handle.revealSource?.(
+    { file: "same.ts", side: "head", fromLine: 1, toLine: 1 },
+    "after",
+  );
+  assert.deepEqual(scrolled, ["after"]);
+  handle.dispose();
+  assert.equal(disposed, 2);
+  assert.equal(container.children.length, 0);
 });

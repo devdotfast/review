@@ -8,6 +8,7 @@ export interface StructuralFileResult {
   diff?: StructuralDiff;
   error?: string;
   hidden?: string;
+  annotationError?: string;
 }
 
 /** One comparison, owned by the review. Views only observe it and change fold state. */
@@ -62,6 +63,7 @@ export class StructuralDiffSession extends Disposable {
       if (event.type !== "start" || event.version !== STRUCTURAL_WIRE_VERSION) throw new Error("Unsupported diffr stream protocol.");
       this.acceptManifest(event);
     } else if (event.type === "file") this.storeFileResult(event);
+    else if (event.type === "annotations") this.applyAnnotations(event);
     else if (event.type === "complete") this.finishLoading(event);
     else throw new Error(`Unexpected diffr event: ${event.type}`);
     this.changed.fire();
@@ -87,6 +89,28 @@ export class StructuralDiffSession extends Disposable {
     }
     this.results.set(path, { diff,
       hidden: event.visibility?.collapsed ? event.visibility.label || "Hidden by default" : undefined });
+  }
+
+  private applyAnnotations(event: Extract<StructuralEvent, { type: "annotations" }>): void {
+    const path = structuralFilePath(event.file);
+    const result = this.results.get(path);
+    if (result?.diff?.type !== "text") throw new Error(`Annotations precede a text result: ${path}`);
+    const regions = new Map<number, StructuralRegion>();
+    const visit = (region: StructuralRegion) => {
+      regions.set(region.id, region);
+      if (region.kind === "fold") region.children.forEach(visit);
+    };
+    for (const side of [result.diff.lhs, result.diff.rhs]) side?.regions?.forEach(visit);
+    // Validate the entire batch before applying it. Labels do not replace the
+    // source, correspondence, region identities, or the reader's fold choices.
+    for (const annotation of event.annotations) {
+      if (!regions.has(annotation.region_id)) throw new Error(`Unknown annotation region: ${annotation.region_id}`);
+    }
+    for (const annotation of event.annotations) {
+      const region = regions.get(annotation.region_id)!;
+      region.visibility = { ...region.visibility, label: annotation.label };
+    }
+    result.annotationError = event.error?.message;
   }
 
   private finishLoading(event: Extract<StructuralEvent, { type: "complete" }>): void {

@@ -1,5 +1,5 @@
-import type { Block } from "../../src/review-api/document";
 import type { LensSource } from "../../src/lens-selection";
+import type { Block } from "../../src/review-api/document";
 import { callTreeStops } from "./call-tree";
 
 /** The same scope drives diagram navigation, diff boundaries and viewed actions. */

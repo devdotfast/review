@@ -1,14 +1,7 @@
 import type { CoverageProgress } from "../../src/viewed-coverage";
+import { compactDiffCount as compact } from "./diff-count";
 
 export function ElementCounts({ progress }: { progress: CoverageProgress }) {
-  const compact = (n: number) =>
-    new Intl.NumberFormat("en", {
-      notation: "compact",
-      maximumFractionDigits: 1,
-    })
-      .format(n)
-      .toLowerCase();
-
   return progress.state === "viewed" ? (
     <tspan>✓</tspan>
   ) : (

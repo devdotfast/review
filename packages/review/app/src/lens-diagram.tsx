@@ -1,18 +1,55 @@
 import { type LensSource, sourceAnchor } from "../../src/lens-selection";
 import type { Block } from "../../src/review-api/document";
 import type { FileLineRange } from "../../src/source";
+import { callTreeStops } from "./call-tree";
 import { CallTree } from "./call-tree-view";
 import { FlowGraph } from "./flow-graph";
 import { ElementCounts } from "./lens-counts";
 import { useReviewLenses } from "./review-lenses";
 
+/** A place in the diff that a diagram can point at, keyed the way `onReveal` keys it. */
+export interface LensStep {
+  id: string;
+  source: LensSource;
+}
+
+/** Every step of a block that has a source, in the block's own order. */
+export function lensSteps(block: Block): LensStep[] {
+  if (block.type === "sequence")
+    return block.steps.flatMap((step, index) =>
+      step.source
+        ? [{ id: step.id ?? `${block.id}:${index}`, source: step.source }]
+        : [],
+    );
+
+  if (block.type === "flow_diagram")
+    return block.nodes.flatMap((node) => {
+      const source = node.attachments.flatMap(
+        (attachment) => attachment.sources,
+      )[0];
+
+      return source ? [{ id: `${block.id}:${node.key}`, source }] : [];
+    });
+
+  if (block.type === "call_stack_diff")
+    return callTreeStops(block).map((stop) => ({
+      id: stop.id,
+      source: stop.source,
+    }));
+
+  return [];
+}
+
 /** Compact diagrams are navigation: clicking evidence scrolls, never changes scope. */
 export function LensDiagram({
   block,
   onReveal,
+  currentStepId = null,
 }: {
   block: Block;
   onReveal(source: FileLineRange, sectionId?: string): void;
+  /** The step the diff is scrolled to, keyed as in `lensSteps`. */
+  currentStepId?: string | null;
 }) {
   const lenses = useReviewLenses()!;
 
@@ -25,6 +62,11 @@ export function LensDiagram({
         requireReady
         block={block}
         direction="down"
+        selectedKey={
+          currentStepId?.startsWith(`${block.id}:`)
+            ? currentStepId.slice(`${block.id}:`.length)
+            : null
+        }
         onSelect={(node) => {
           const source = node.attachments.flatMap(
             (attachment) => attachment.sources,
@@ -75,7 +117,7 @@ export function LensDiagram({
             return (
               <g
                 key={step.id ?? index}
-                className={`lens-sequence-step ${source && viewed([source]) ? "is-viewed" : ""}`}
+                className={`lens-sequence-step ${source && viewed([source]) ? "is-viewed" : ""} ${(step.id ?? `${block.id}:${index}`) === currentStepId ? "is-current" : ""}`}
                 aria-disabled={!ready}
                 style={{ opacity: ready ? undefined : 0.45 }}
                 role={source ? "button" : undefined}
@@ -172,6 +214,7 @@ export function LensDiagram({
       <CallTree
         requireReady
         block={block}
+        currentStopId={currentStepId}
         onReveal={(source, sectionId) =>
           onReveal(sourceAnchor(source), sectionId)
         }

@@ -4,6 +4,7 @@ import type { DiffSelection } from "../../src/lens-selection";
 import type { CallStackDiffBlock } from "../../src/review-api/blocks/call_stack_diff";
 import { type CallTreeStop, callTreeStops } from "./call-tree";
 import { DiagramHeader } from "./diagram-header";
+import { compactDiffCount as compact } from "./diff-count";
 import { useReviewSession } from "./host/review-session";
 import { useReviewLenses } from "./review-lenses";
 import { useReviewPanel } from "./review-panel";
@@ -14,22 +15,18 @@ export function CallTree({
   block,
   onReveal,
   requireReady = false,
+  currentStopId = null,
 }: {
   block: CallStackDiffBlock;
   requireReady?: boolean;
   onReveal(source: DiffSelection, sectionId?: string, anchorId?: string): void;
+  /** Set by a scroll-tracking host; otherwise the last clicked stop is current. */
+  currentStopId?: string | null;
 }) {
   const lenses = useReviewLenses();
   const stops = callTreeStops(block);
-  const [active, setActive] = useState<string>();
-
-  const compact = (n: number) =>
-    new Intl.NumberFormat("en", {
-      notation: "compact",
-      maximumFractionDigits: 1,
-    })
-      .format(n)
-      .toLowerCase();
+  const [clicked, setClicked] = useState<string>();
+  const active = currentStopId ?? clicked;
 
   return (
     <nav
@@ -92,7 +89,7 @@ export function CallTree({
                     : [stop.label, stop.via].filter(Boolean).join(" · ")
                 }
                 onClick={() => {
-                  setActive(stop.id);
+                  setClicked(stop.id);
                   onReveal(stop.source, stop.id, stop.anchorId);
                 }}
               >

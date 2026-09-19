@@ -237,6 +237,21 @@ export interface ReviewDiffViewHandle extends ReviewDisposable {
     sectionId?: string,
   ): void;
   onDidError(listener: (message: string) => void): ReviewDisposable;
+  /** Fires when the diff scrolls or its topmost file changes. */
+  onDidScroll?(
+    listener: (viewport: ReviewDiffViewport) => void,
+  ): ReviewDisposable;
+  /**
+   * Where `source` sits relative to the diff's reading line (its top edge),
+   * in pixels; negative once it has scrolled past. Exact for files that are
+   * rendered, ordered by file for the rest. Undefined when the file is not in
+   * this diff.
+   */
+  sourceOffset?(source: ReviewDiffLens["ranges"][number]): number | undefined;
+}
+
+export interface ReviewDiffViewport {
+  height: number;
 }
 
 /**

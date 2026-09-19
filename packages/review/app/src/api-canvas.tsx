@@ -195,7 +195,7 @@ export function ApiCanvas({
       inlineEditors: { ...content.bridge.inlineEditors },
       diffView: { ...content.bridge.diffView },
     }),
-    [content.bridge, sourceVersion],
+    [content.bridge, sourceVersion, content.structuralDiffEnabled],
   );
 
   const baseSession = useMemo(() => {

@@ -1,4 +1,7 @@
-import { ReviewSelectedDiffSchema } from "@dev.fast/review-protocol";
+import {
+  ReviewApiSelectionSourceSchema,
+  ReviewSelectedDiffSchema,
+} from "@dev.fast/review-protocol";
 import { z } from "zod";
 
 /** A semantic selection, independent of comment/thread creation. */
@@ -17,6 +20,7 @@ export const AgentSelectionSchema = z.strictObject({
   detail: z.string().max(24000).optional(),
   revision: z.string().max(200).optional(),
   selectedDiff: ReviewSelectedDiffSchema.optional(),
+  apiSource: ReviewApiSelectionSourceSchema.optional(),
 });
 
 export type AgentSelection = z.infer<typeof AgentSelectionSchema>;

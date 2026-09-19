@@ -519,6 +519,23 @@ it("lists the version's commits and reads a selected commit's diff against its p
   ]);
   const selected = `version=0&commit=${firstHead}`;
 
+  for (const side of ["base", "head"] as const) {
+    const response = await app.request(`${route}/source`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 0,
+        commit: firstHead,
+        source: { side, file: "example.ts", fromLine: 1, toLine: 1 },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).text).toContain(
+      side === "base" ? "value = 1" : "value = 2",
+    );
+  }
+
   const file = await (
     await app.request(`${route}/file?${selected}&side=head&file=example.ts`)
   ).json();
@@ -1792,6 +1809,61 @@ it("copies code from historical pins after a repin, never from working-tree cont
 
   expect(latest.status).toBe(200);
   expect((await latest.json()).text).toContain("    export const value = 1;");
+});
+
+it("copies a diff selection from its pinned version and selected commit, and rejects another review", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Code", pins }),
+  );
+
+  await local.store.execute(
+    command({ type: "repin", reviewId, pins: { ...pins, head: pins.base } }),
+  );
+  const app = createReviewApi(local.store, local.data);
+
+  const selection = {
+    target: {
+      kind: "code",
+      path: source.file,
+      side: "base",
+      startLine: 1,
+      endLine: 1,
+    },
+    title: "Selected parent",
+    apiSource: { reviewId, version: 0, commit: pins.head },
+  };
+
+  const copy = (payload: typeof selection) =>
+    app.request(`/${reviewId}/copy-context`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+  const response = await copy(selection);
+  expect(response.status).toBe(200);
+  const { text } = await response.json();
+  expect(text).toContain("Version: 0");
+  expect(text).toContain(`Selected commit: ${pins.head}`);
+  expect(text).toContain(`base: example.ts:1-1 (${pins.base})`);
+  expect(text).toContain("export const value = 1;");
+  expect(text).not.toContain("export const value = 2;");
+  expect(
+    (
+      await copy({
+        ...selection,
+        apiSource: { ...selection.apiSource, reviewId: "another-review" },
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await copy({
+        ...selection,
+        apiSource: { ...selection.apiSource, version: 999 },
+      })
+    ).status,
+  ).toBe(404);
 });
 
 it("copies selected diff rows with rename paths without resolving an unavailable source", async () => {

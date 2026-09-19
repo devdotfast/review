@@ -1,3 +1,5 @@
+export * from "./diffr-contract.js";
+export * from "./structural-diff.js";
 import type { JsonValue } from "@dev.fast/json";
 import { z } from "zod";
 

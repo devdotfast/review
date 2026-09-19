@@ -40,7 +40,7 @@ import { DiffEditorSash, SashLayout } from './components/diffEditorSash.js';
 import { DiffEditorViewZones } from './components/diffEditorViewZones/diffEditorViewZones.js';
 import { DelegatingEditor } from './delegatingEditorImpl.js';
 import { DiffEditorOptions } from './diffEditorOptions.js';
-import { DiffEditorViewModel, DiffMapping, DiffState } from './diffEditorViewModel.js';
+import { DiffEditorViewModel, DiffMapping, DiffState, UnchangedRegion } from './diffEditorViewModel.js';
 import { DiffEditorGutter } from './features/gutterFeature.js';
 import { HideUnchangedRegionsFeature } from './features/hideUnchangedRegionsFeature.js';
 import { MovedBlocksLinesFeature } from './features/movedBlocksLinesFeature.js';
@@ -84,8 +84,12 @@ export class DiffEditorWidget extends DelegatingEditor implements IDiffEditor {
 
 	private readonly _gutter: IObservable<DiffEditorGutter | undefined>;
 
-	public get renderSideBySideObservable() { return this._options.renderSideBySide; }
 	public get collapseUnchangedRegions() { return this._options.hideUnchangedRegions.get(); }
+
+	/** The hidden regions of the current model, for observers that supply their own. */
+	public get unchangedRegions(): IObservable<readonly UnchangedRegion[]> {
+		return this._diffModel.map((m, reader) => m?.unchangedRegions.read(reader) ?? []);
+	}
 
 	/**
 	 * `true` when every hidden-unchanged region of the current diff is fully

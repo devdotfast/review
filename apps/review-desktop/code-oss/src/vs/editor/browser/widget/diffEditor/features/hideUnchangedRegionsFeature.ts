@@ -13,6 +13,8 @@ import { ThemeIcon } from '../../../../../base/common/themables.js';
 import { isDefined } from '../../../../../base/common/types.js';
 import { localize } from '../../../../../nls.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
+import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
+import { diffUnchangedRegionForeground } from '../../../../../platform/theme/common/colors/editorColors.js';
 import { EditorOption } from '../../../../common/config/editorOptions.js';
 import { LineRange } from '../../../../common/core/ranges/lineRange.js';
 import { Position } from '../../../../common/core/position.js';
@@ -25,7 +27,7 @@ import { observableCodeEditor } from '../../../observableCodeEditor.js';
 import { DiffEditorEditors } from '../components/diffEditorEditors.js';
 import { DiffEditorOptions } from '../diffEditorOptions.js';
 import { DiffEditorViewModel, RevealPreference, UnchangedRegion } from '../diffEditorViewModel.js';
-import { IObservableViewZone, PlaceholderViewZone, ViewZoneOverlayWidget, applyObservableDecorations, applyStyle } from '../utils.js';
+import { IObservableViewZone, PlaceholderViewZone, ViewZoneOverlayWidget, applyObservableDecorations, applyStyle, bandDetailText, bandZoneHeightPx } from '../utils.js';
 
 /**
  * Make sure to add the view zones to the editor!
@@ -63,6 +65,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 		private readonly _diffModel: IObservable<DiffEditorViewModel | undefined>,
 		private readonly _options: DiffEditorOptions,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
+		@IThemeService private readonly _themeService: IThemeService,
 	) {
 		super();
 
@@ -110,18 +113,19 @@ export class HideUnchangedRegionsFeature extends Disposable {
 			const curUnchangedRegions = unchangedRegions.read(reader);
 			for (let i = 0; i < curUnchangedRegions.length; i++) {
 				const r = curUnchangedRegions[i];
-				if (r.shouldHideControls(reader)) {
+				const height = bandZoneHeightPx(curUnchangedRegions, i, compactMode, this._editors.modified.getOption(EditorOption.lineHeight), reader);
+				if (height === undefined) {
 					continue;
 				}
-
-				if (compactMode && (i === 0 || i === curUnchangedRegions.length - 1)) {
-					continue;
-				}
+				// A region on one side only is a band on that side alone; the diff's alignment leaves room for it on the other.
+				const onOriginal = r.owner !== 'head';
+				const onModified = !sideBySide || r.owner !== 'base';
+                // Inline has one visible column: removed-only folds need their control here too.
 
 				if (compactMode) {
-					{
+					if (onOriginal) {
 						const d = derived(this, reader => /** @description hiddenOriginalRangeStart */ r.getHiddenOriginalRange(reader).startLineNumber - 1);
-						const origVz = new PlaceholderViewZone(d, 12);
+						const origVz = new PlaceholderViewZone(d, height);
 						origViewZones.push(origVz);
 						reader.store.add(new CompactCollapsedCodeOverlayWidget(
 							this._editors.original,
@@ -130,9 +134,9 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							!sideBySide,
 						));
 					}
-					{
+					if (onModified) {
 						const d = derived(this, reader => /** @description hiddenModifiedRangeStart */ r.getHiddenModifiedRange(reader).startLineNumber - 1);
-						const modViewZone = new PlaceholderViewZone(d, 12);
+						const modViewZone = new PlaceholderViewZone(d, height);
 						modViewZones.push(modViewZone);
 						reader.store.add(new CompactCollapsedCodeOverlayWidget(
 							this._editors.modified,
@@ -141,9 +145,9 @@ export class HideUnchangedRegionsFeature extends Disposable {
 						));
 					}
 				} else {
-					{
+					if (onOriginal) {
 						const d = derived(this, reader => /** @description hiddenOriginalRangeStart */ r.getHiddenOriginalRange(reader).startLineNumber - 1);
-						const origVz = new PlaceholderViewZone(d, 24);
+						const origVz = new PlaceholderViewZone(d, height);
 						origViewZones.push(origVz);
 						reader.store.add(new CollapsedCodeOverlayWidget(
 							this._editors.original,
@@ -154,11 +158,12 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
+							this._themeService,
 						));
 					}
-					{
+					if (onModified) {
 						const d = derived(this, reader => /** @description hiddenModifiedRangeStart */ r.getHiddenModifiedRange(reader).startLineNumber - 1);
-						const modViewZone = new PlaceholderViewZone(d, 24);
+						const modViewZone = new PlaceholderViewZone(d, height);
 						modViewZones.push(modViewZone);
 						reader.store.add(new CollapsedCodeOverlayWidget(
 							this._editors.modified,
@@ -169,6 +174,7 @@ export class HideUnchangedRegionsFeature extends Disposable {
 							modifiedOutlineSource,
 							l => this._diffModel.get()!.ensureModifiedLineIsVisible(l, RevealPreference.FromBottom, undefined),
 							this._options,
+							this._themeService,
 						));
 					}
 				}
@@ -193,8 +199,10 @@ export class HideUnchangedRegionsFeature extends Disposable {
 
 		this._register(applyObservableDecorations(this._editors.original, derived(this, reader => {
 			/** @description decorations */
-			const curUnchangedRegions = unchangedRegions.read(reader);
-			const result = curUnchangedRegions.map<IModelDeltaDecoration>(r => ({
+			// An inserted region belongs to the modified side: no decoration and no control here.
+			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.owner !== 'head');
+			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
+			const result = curUnchangedRegions.filter(r => r.change === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.originalUnchangedRange.toInclusiveRange()!,
 				options: unchangedLinesDecoration,
 			}));
@@ -211,8 +219,11 @@ export class HideUnchangedRegionsFeature extends Disposable {
 
 		this._register(applyObservableDecorations(this._editors.modified, derived(this, reader => {
 			/** @description decorations */
-			const curUnchangedRegions = unchangedRegions.read(reader);
-			const result = curUnchangedRegions.map<IModelDeltaDecoration>(r => ({
+			// A removed region belongs to the original side: no decoration and no control here.
+			const sideBySide = this._options.renderSideBySide.read(reader);
+			const curUnchangedRegions = unchangedRegions.read(reader).filter(r => r.owner !== 'base' || (!sideBySide && !r.modifiedUnchangedRange.isEmpty));
+			// The unchanged-code background belongs to unchanged regions; an inserted or removed one keeps its change tint.
+			const result = curUnchangedRegions.filter(r => r.change === 'unchanged').map<IModelDeltaDecoration>(r => ({
 				range: r.modifiedUnchangedRange.toInclusiveRange()!,
 				options: unchangedLinesDecoration,
 			}));
@@ -292,11 +303,20 @@ class CompactCollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			/** @description update labels */
 
 			if (!this._hide) {
-				const lineCount = this._unchangedRegion.getHiddenModifiedRange(reader).length;
+				const lineCount = Math.max(this._unchangedRegion.getHiddenModifiedRange(reader).length, this._unchangedRegion.getHiddenOriginalRange(reader).length);
 				const linesHiddenText = localize('hiddenLines', '{0} hidden lines', lineCount);
 				this._nodes.text.innerText = linesHiddenText;
 			}
 		}));
+	}
+}
+
+/** The reveal tooltip names what the band hides. */
+export function showTitle(kind: 'unchanged' | 'inserted' | 'removed' | 'modified'): string {
+	switch (kind) {
+		case 'inserted': return localize('showAddedLines', 'Show added lines');
+		case 'removed': return localize('showRemovedLines', 'Show removed lines');
+		default: return localize('showUnchangedRegion', 'Show Unchanged Region');
 	}
 }
 
@@ -305,11 +325,12 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 		h('div.top@top', { title: localize('diff.hiddenLines.top', 'Click or drag to show more above') }),
 		h('div.center@content', { style: { display: 'flex' } }, [
 			h('div@first', { style: { display: 'flex', justifyContent: 'center', alignItems: 'center', flexShrink: '0' } },
-				[$('a', { title: localize('showUnchangedRegion', 'Show Unchanged Region'), role: 'button', onclick: () => { this._unchangedRegion.showAll(undefined); } },
+				[$('a', { title: showTitle(this._unchangedRegion.change), role: 'button', onclick: () => { this._unchangedRegion.showAll(undefined); } },
 					...renderLabelWithIcons('$(unfold)'))]
 			),
 			h('div@others', { style: { display: 'flex', justifyContent: 'center', alignItems: 'center' } }),
 		]),
+		h('div.detail@detail', []),
 		h('div.bottom@bottom', { title: localize('diff.bottom', 'Click or drag to show more below'), role: 'button' }),
 	]);
 
@@ -322,15 +343,18 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 		private readonly _modifiedOutlineSource: IDiffEditorBreadcrumbsSource,
 		private readonly _revealModifiedHiddenLine: (lineNumber: number) => void,
 		private readonly _options: DiffEditorOptions,
+		private readonly _themeService: IThemeService,
 	) {
 		const root = h('div.diff-hidden-lines-widget');
 		super(_editor, _viewZone, root.root);
 		root.root.appendChild(this._nodes.root);
+		this._nodes.root.classList.add(`kind-${_unchangedRegion.change}`);
 
 		if (!this._hide) {
 			this._register(applyStyle(this._nodes.first, { width: observableCodeEditor(this._editor).layoutInfoContentLeft }));
 		} else {
 			reset(this._nodes.first);
+			this._nodes.root.classList.add('empty-side');
 		}
 
 		this._register(autorun(reader => {
@@ -446,9 +470,32 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			/** @description update labels */
 
 			const children: HTMLElement[] = [];
+			const label = _unchangedRegion.label;
+			const detailText = bandDetailText(label);
+			const lineCount = Math.max(_unchangedRegion.getHiddenModifiedRange(reader).length, _unchangedRegion.getHiddenOriginalRange(reader).length);
+			if (detailText && !this._hide) {
+				const theme = this._themeService.getColorTheme();
+				const language = this._editor.getModel()?.getLanguageId() ?? 'plaintext';
+				const commentStyle = theme.getTokenStyleMetadata('comment', [], language);
+				const commentColor = commentStyle?.foreground !== undefined ? theme.tokenColorMap[commentStyle.foreground] : undefined;
+				const color = commentColor ?? theme.getColor(diffUnchangedRegionForeground)?.toString() ?? '';
+				const fontSize = Math.max(11, this._editor.getOption(EditorOption.fontSize) - 1);
+				// One indent level under the header line, in the editor's own space width.
+				const indent = observableCodeEditor(this._editor).layoutInfoContentLeft.read(reader) + this._editor.getOption(EditorOption.fontInfo).spaceWidth * 4;
+				const pre = $('pre.diff-hidden-lines-detail', undefined, detailText);
+				pre.style.color = color;
+				pre.style.borderLeftColor = color;
+				pre.style.fontSize = `${fontSize}px`;
+				pre.style.lineHeight = `${this._editor.getOption(EditorOption.lineHeight)}px`;
+				pre.style.marginLeft = `${indent}px`;
+				reset(this._nodes.detail, pre);
+			} else {
+				reset(this._nodes.detail);
+			}
 			if (!this._hide) {
-				const lineCount = _unchangedRegion.getHiddenModifiedRange(reader).length;
-				const linesHiddenText = localize('hiddenLines', '{0} hidden lines', lineCount);
+				const [title] = label ? label.split('\n') : [];
+				// A band with detail keeps Monaco's own count; the detail is a comment attached to it.
+				const linesHiddenText = detailText || !label ? localize('hiddenLines', '{0} hidden lines', lineCount) : title;
 				const span = $('span', { title: localize('diff.hiddenLines.expandAll', 'Double click to unfold') }, linesHiddenText);
 				span.addEventListener('dblclick', e => {
 					if (e.button !== 0) { return; }
@@ -458,7 +505,7 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 				children.push(span);
 
 				const range = this._unchangedRegion.getHiddenModifiedRange(reader);
-				const items = this._modifiedOutlineSource.getBreadcrumbItems(range, reader);
+				const items = this._unchangedRegion.breadcrumbs ? this._modifiedOutlineSource.getBreadcrumbItems(range, reader) : [];
 
 				if (items.length > 0) {
 					children.push($('span', undefined, '\u00a0\u00a0|\u00a0\u00a0'));

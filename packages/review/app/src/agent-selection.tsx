@@ -142,6 +142,7 @@ export function AgentSelectionProvider({
             endLine: event.range.toLine,
           },
           selectedDiff: event.selectedDiff,
+          apiSource: event.apiSource,
           title: `${event.path}:${event.range.fromLine}–${event.range.toLine}`,
           anchor: event.anchor,
         });
@@ -176,7 +177,11 @@ export function AgentSelectionProvider({
 
       if (!(await copyText(text))) throw new Error("Clipboard unavailable");
       setCopiedSelection(
-        JSON.stringify([selection.target, selection.selectedDiff]),
+        JSON.stringify([
+          selection.target,
+          selection.selectedDiff,
+          selection.apiSource,
+        ]),
       );
       setToast({
         kind: "success",
@@ -225,7 +230,11 @@ export function AgentSelectionProvider({
           <>
             {selection &&
               copiedSelection !==
-                JSON.stringify([selection.target, selection.selectedDiff]) &&
+                JSON.stringify([
+                  selection.target,
+                  selection.selectedDiff,
+                  selection.apiSource,
+                ]) &&
               createPortal(
                 <button
                   type="button"

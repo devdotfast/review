@@ -3,8 +3,6 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { resolveReviewSourceView, type ReviewSourceView, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
-
 import { $, addDisposableListener, getWindow, type Dimension } from "../../../../base/browser/dom.js";
 import type { IHoverOptions, IHoverWidget } from "../../../../base/browser/ui/hover/hover.js";
 import { HoverPosition } from "../../../../base/browser/ui/hover/hoverWidget.js";
@@ -42,8 +40,10 @@ import { IWorkbenchLayoutService, Parts } from "../../../../workbench/services/l
 import {
 	REVIEW_KEYMAP_SETTING,
 	REVIEW_SOFTWARE_MAP_SETTING,
+	REVIEW_STRUCTURAL_DIFF_SETTING,
 	REVIEW_TELEMETRY_SETTING,
 } from "../../../common/reviewConfigurationDefaults.js";
+import { resolveReviewSourceView, type ReviewSourceView, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
 import type {
 	ReviewCanvasBridge,
 	ReviewCanvasContent,
@@ -188,6 +188,11 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		);
 		this._register(
 			verbs.onDidEmitSurfaceEvent((event) => {
+				if (
+					event.event === "editorSelectionChanged" &&
+					event.reviewId !== this.apiContent?.reviewId
+				)
+					return;
 				this.surfaceEvents.fire(event);
 			}),
 		);
@@ -213,9 +218,17 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this._register(desktopConnection.onDidFail((error) => void this.renderFailure(error)));
 		this._register(
 			configurationService.onDidChangeConfiguration((event) => {
-				if (!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING)) return;
+				if (
+					!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING) &&
+					!event.affectsConfiguration(REVIEW_STRUCTURAL_DIFF_SETTING)
+				)
+					return;
 				if (this.apiContent) {
-					this.apiContent = { ...this.apiContent, softwareMapEnabled: this.currentSoftwareMapEnabled() };
+					this.apiContent = {
+						...this.apiContent,
+						structuralDiffEnabled: this.currentStructuralDiffEnabled(),
+						softwareMapEnabled: this.currentSoftwareMapEnabled(),
+					};
 					this.canvas.value?.update(this.apiContent);
 					return;
 				}
@@ -358,9 +371,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						},
 						kind: "api",
 						reviewId,
+						structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 						softwareMapEnabled: this.currentSoftwareMapEnabled(),
 						setTitle: (title) => input.setApiTitle(title),
-						setSourceView: (selection, next) => { sourceSelection = selection; sourceView = next; },
+						setSourceView: (selection, next) => {
+							sourceSelection = selection;
+							sourceView = next;
+							source.openStructuralComparison();
+						},
 						openSource: (source, range) => this.apiSource.open(source, range),
 						bridge: {
 							...source,
@@ -692,12 +710,39 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				await this.configurationService.updateValue(REVIEW_SOFTWARE_MAP_SETTING, enabled, ConfigurationTarget.USER);
 				return this.currentSoftwareMapEnabled();
 			},
+			structuralDiffEnabled: this.currentStructuralDiffEnabled(),
+			setStructuralDiffEnabled: async (enabled) => {
+				await this.configurationService.updateValue(
+					REVIEW_STRUCTURAL_DIFF_SETTING,
+					enabled,
+					ConfigurationTarget.USER,
+				);
+				return this.currentStructuralDiffEnabled();
+			},
+			diffrConfig: {
+				read: () => this.desktopConnection.readDiffrConfig(),
+				set: (key, value) => {
+					this.reviewTelemetryService.capture("setting_changed", {
+						setting: "diffr_config",
+						enabled: true,
+					});
+					return this.desktopConnection.setDiffrConfigValue(key, value);
+				},
+			},
 			manageExtensions: () => void this.commandService.executeCommand("review.manageExtensions"),
 		};
 	}
 
 	private currentKeymap(): ReviewKeymapChoice {
 		return this.configurationService.getValue<ReviewKeymapChoice>(REVIEW_KEYMAP_SETTING) ?? "none";
+	}
+
+	private currentStructuralDiffEnabled(): boolean {
+		return (
+			this.configurationService.getValue<boolean>(
+				REVIEW_STRUCTURAL_DIFF_SETTING,
+			) === true
+		);
 	}
 
 	private currentSoftwareMapEnabled(): boolean {

@@ -1,3 +1,4 @@
+import { StructuralDiffClient } from "./reviewStructuralDiffClient.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -23,8 +24,8 @@ import type {
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
 import { resolveReviewSourceView, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
-import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
+import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
 import type { ReviewCodeModelReference, ReviewCodeDiffTarget } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService, reviewResponseError } from "./reviewDesktopConnectionService.js";
@@ -34,6 +35,27 @@ import type { ReviewInlineEditorService, ReviewInlineSource } from "./reviewInli
 export { apiSourceUri, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 
 export type ApiSourceTarget = ReviewApiSourceLocation;
+
+/** Recover the immutable source identity even when no legacy session is active. */
+export function apiSourceTarget(resource: URI): ApiSourceTarget | undefined {
+	if (resource.scheme !== REVIEW_API_SOURCE_SCHEME) return undefined;
+	const query = new URLSearchParams(resource.query);
+	const version = Number(query.get("version"));
+	const side = query.get("side");
+	if (
+		!resource.authority ||
+		!query.has("version") ||
+		!Number.isInteger(version) ||
+		version < 0 ||
+		(side !== "base" && side !== "head")
+	)
+		return undefined;
+	return {
+		view: { reviewId: resource.authority, version, commit: query.get("commit") ?? undefined, generation: query.get("generation") ?? undefined },
+		side,
+		file: resource.path.slice(1),
+	};
+}
 
 export const IReviewApiSourceService = createDecorator<IReviewApiSourceService>("reviewApiSourceService");
 export interface IReviewApiSourceService {
@@ -48,6 +70,7 @@ export interface IReviewApiSourceService {
 	): {
 		inlineEditors: ReviewInlineEditorFactory;
 		diffView: ReviewDiffViewFactory;
+		openStructuralComparison(): void;
 	};
 }
 
@@ -251,6 +274,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 	}
 
 	canvas(view: () => ReviewSourceView, inline: ReviewInlineEditorService, diff: ReviewDiffViewService) {
+		const comparisonGeneration = diff.comparisonGeneration;
 		const lists = new Map<string, Promise<readonly ReviewDiffFileWire[]>>();
 		const files = (current: ReviewSourceView) => {
 			const key = JSON.stringify(reviewSourceQuery(current));
@@ -266,13 +290,17 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			const target = { view: view(), file, side };
 			return { snippet: () => this.snippet(target, ranges), diff: () => this.peekDiff(target, ranges, files(target.view)) };
 		};
+		const openComparison = (current: ReviewSourceView) => diff.openComparison(
+			JSON.stringify(reviewSourceQuery(current)), new StructuralDiffClient(this.session, current), comparisonGeneration,
+		);
 		const diffSource: ReviewDiffViewSource = {
 			files: scope => files(reviewSourceComparison(view(), scope?.commit)),
-			load: async scope => {
+			load: async (scope) => {
 				// Capture the comparison once; live checkout bytes may change during the load.
 				const current = reviewSourceComparison(view(), scope?.commit);
 				const entries = await files(current);
 				return {
+					session: openComparison(current),
 					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.reviewId, path: `/${current.version}/${current.generation ?? ""}`, query: current.commit ? `commit=${encodeURIComponent(current.commit)}` : undefined }),
 					entries: await Promise.all(entries.map(async file => {
 						const original = file.status === "added" ? undefined : await this.sourceResource({ view: current, side: "base", file: file.previousPath ?? file.path });
@@ -283,6 +311,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			},
 		};
 		return {
+			openStructuralComparison: () => openComparison(reviewSourceComparison(view())),
 			inlineEditors: {
 				create: (spec) => inline.create(spec, source(spec.path, spec.side, spec.ranges)),
 				find: (spec, query) => inline.find(spec, query, source(spec.path, spec.side, spec.ranges)),

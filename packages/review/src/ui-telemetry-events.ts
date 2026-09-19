@@ -125,6 +125,7 @@ export const SETTING_NAME = [
   "keymap",
   "dismissed_retention_days",
   "software_map_enabled",
+  "diffr_config",
 ] as const;
 
 export const REVIEW_OPENED_VIA = ["home", "cli", "other"] as const;

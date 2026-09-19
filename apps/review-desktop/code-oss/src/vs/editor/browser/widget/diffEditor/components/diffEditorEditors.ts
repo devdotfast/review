@@ -190,7 +190,7 @@ export class DiffEditorEditors extends Disposable {
 
 		// Clone scrollbar options before changing them
 		clonedOptions.scrollbar = { ...(clonedOptions.scrollbar || {}) };
-		clonedOptions.folding = false;
+		clonedOptions.folding = this._options.editorOptions.get().experimentalDiffFolding === true;
 		clonedOptions.codeLens = this._options.diffCodeLens.get();
 		clonedOptions.fixedOverflowWidgets = true;
 

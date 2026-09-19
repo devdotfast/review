@@ -131,7 +131,13 @@ export function authoringTools() {
     tool(
       "source",
       "Read an exact code range from the current target. An explicit version reads retained historical source.",
-      z.strictObject({ ...review, version, source: sourceSchema }),
+      z.strictObject({
+        ...review,
+        version,
+        commit: z.string().min(1).optional(),
+        source: sourceSchema,
+      }),
+
       "POST",
       "/:reviewId/source",
     ),

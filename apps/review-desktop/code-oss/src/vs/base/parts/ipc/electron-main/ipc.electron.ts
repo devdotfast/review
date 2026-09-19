@@ -52,7 +52,10 @@ export class Server extends IPCServer {
 					Server.Clients.delete(id);
 				}
 
-				onDidClientReconnect.dispose();
+				// Let every disconnect listener run before disposing the emitter.
+				// Disposing during fire clears its delivery queue, leaving the old
+				// channel server subscribed after a renderer reload.
+				queueMicrotask(() => onDidClientReconnect.dispose());
 			});
 			const protocol = new ElectronProtocol(webContents, onMessage);
 

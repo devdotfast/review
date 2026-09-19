@@ -110,6 +110,8 @@ const MODULE_PATHS = [
   path.join(jsonSourceRoot, "runtime-value.ts"),
   path.join(jsonSourceRoot, "json.ts"),
   traceContractsPath,
+  path.join(sourceRoot, "diffr-contract.ts"),
+  path.join(sourceRoot, "structural-diff.ts"),
   path.join(sourceRoot, "contracts.ts"),
   path.join(sourceRoot, "code-peek-diff.ts"),
   path.join(sourceRoot, "review-api-client.ts"),

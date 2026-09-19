@@ -1,10 +1,18 @@
+import type { ReviewDiffLensTarget } from "@dev.fast/review-protocol";
+
 import type { CallStackDiffBlock } from "../../src/review-api/blocks/call_stack_diff";
+import {
+  evidenceLocation,
+  evidenceSources,
+  evidenceTargets,
+} from "../../src/source";
 import type { Source } from "../../src/source";
 
 export interface CallTreeStop {
   id: string;
   label: string;
   sources: Source[];
+  targets: ReviewDiffLensTarget[];
   parentId?: string;
   callSite?: Source;
   via?: string;
@@ -27,19 +35,28 @@ export function callTreeStops(block: CallStackDiffBlock): CallTreeStop[] {
       const id = `${block.id}:${frame.key ?? `${side}:${index}`}`;
       const existing = nodes.get(id);
 
-      if (existing)
+      const evidence = [
+        frame.source,
+        ...(frame.contextSources ?? []),
+        ...(frame.callSite ? [frame.callSite] : []),
+      ];
+      if (existing) {
+        existing.targets.push(...evidenceTargets(evidence));
         existing.sources.push(
-          frame.source,
-          ...(frame.contextSources ?? []),
+          ...evidenceSources(frame.source),
+          ...(frame.contextSources ?? []).flatMap(evidenceSources),
           ...(frame.callSite ? [frame.callSite] : []),
         );
-      else
+      } else
         nodes.set(id, {
           id,
-          label: frame.label ?? frame.source.file.split("/").pop()!,
+          label:
+            frame.label ??
+            evidenceLocation(frame.source).file.split("/").pop()!,
+          targets: evidenceTargets(evidence),
           sources: [
-            frame.source,
-            ...(frame.contextSources ?? []),
+            ...evidenceSources(frame.source),
+            ...(frame.contextSources ?? []).flatMap(evidenceSources),
             ...(frame.callSite ? [frame.callSite] : []),
           ],
           parentId:

@@ -7,6 +7,7 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
+import type { CodeEvidence } from "../../src/source";
 import { useReviewSession } from "./host/review-session";
 import { useReviewFindRegistration } from "./review-find";
 import { emitReviewInteraction } from "./review-interaction-event";
@@ -19,6 +20,7 @@ const INLINE_HEADER_HEIGHT = 40;
 
 export function InlineCodeEditor({
   path,
+  evidence,
   title,
   description,
   side,
@@ -31,6 +33,7 @@ export function InlineCodeEditor({
   collapsed = false,
 }: {
   path: string;
+  evidence?: CodeEvidence;
   title: string;
   description?: string;
   side: ReviewDiffSide;
@@ -43,6 +46,12 @@ export function InlineCodeEditor({
   collapsed?: boolean;
 }) {
   const session = useReviewSession();
+  const content =
+    evidence && "display" in evidence
+      ? { kind: "diffr" as const, result: evidence }
+      : { kind: "source" as const, path, side, ranges };
+  const evidenceKey =
+    evidence && "display" in evidence ? JSON.stringify(evidence) : "";
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
 
   const handleNavigation = useCallback(
@@ -110,9 +119,9 @@ export function InlineCodeEditor({
 
       if (handle) return handle.setFindQuery(query);
 
-      return inlineEditorFactory.find({ path, side, ranges }, query);
+      return inlineEditorFactory.find({ content }, query);
     },
-    [inlineEditorFactory, path, rangesKey, side],
+    [inlineEditorFactory, path, rangesKey, side, evidenceKey],
   );
 
   const revealFindMatch = useCallback(
@@ -188,11 +197,9 @@ export function InlineCodeEditor({
     try {
       handle = inlineEditorFactory.create({
         container,
-        path,
+        content,
         title,
         description,
-        side,
-        ranges,
         heightMode,
         active,
 
@@ -242,6 +249,7 @@ export function InlineCodeEditor({
     inlineEditorSessionId,
     path,
     rangesKey,
+    evidenceKey,
     shouldMount,
     side,
     title,

@@ -15,7 +15,7 @@ import type {
   DatabaseOperation,
   DatabaseStore,
 } from "../../src/review-api/document";
-import type { Source } from "../../src/source";
+import type { CodeEvidence as Source } from "../../src/source";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import type { GuidedTour, PeekAnchor } from "./review-panel-model";

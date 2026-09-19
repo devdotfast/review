@@ -25,7 +25,7 @@ interface Lenses {
   progress: ReviewProgress | null;
   active: ReviewDiffLens | undefined;
   block(id: string): Block | undefined;
-  select(id: string, sources?: ReviewDiffLens["ranges"]): void;
+  select(id: string, sources?: readonly Source[]): void;
   clear(): void;
   stats(sources?: readonly Source[]): CoverageProgress;
   mark(
@@ -98,11 +98,17 @@ export function ReviewLensesProvider({
           title: item.title,
           reviewId: snapshot.reviewId,
           version: snapshot.version,
-          ranges: item.sources,
+          targets: item.targets,
           wholeFiles: item.wholeFiles ?? false,
         }
       : undefined;
-  }, [activeId, progress?.diagrams, snapshot.reviewId, snapshot.version]);
+  }, [
+    activeId,
+    progress?.diagrams,
+    snapshot.document,
+    snapshot.reviewId,
+    snapshot.version,
+  ]);
 
   const mark: Lenses["mark"] = async (
     sources,

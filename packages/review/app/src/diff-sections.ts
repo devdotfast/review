@@ -1,5 +1,11 @@
+import type { ReviewDiffLensTarget } from "@dev.fast/review-protocol";
+
 import type { Block } from "../../src/review-api/document";
-import type { Source } from "../../src/source";
+import {
+  evidenceSources,
+  evidenceTargets,
+  type Source,
+} from "../../src/source";
 import { callTreeStops } from "./call-tree";
 
 /** The same scope drives diagram navigation, diff boundaries and viewed actions. */
@@ -7,6 +13,7 @@ export interface DiffSection {
   id: string;
   label: string;
   sources: Source[];
+  targets: ReviewDiffLensTarget[];
 }
 
 export function diffSections(block: Block | undefined): DiffSection[] {
@@ -19,7 +26,8 @@ export function diffSections(block: Block | undefined): DiffSection[] {
             {
               id: step.id ?? `${block.id}:${index}`,
               label: step.label,
-              sources: [step.source],
+              sources: evidenceSources(step.source),
+              targets: evidenceTargets([step.source]),
             },
           ]
         : [],
@@ -32,7 +40,8 @@ export function diffSections(block: Block | undefined): DiffSection[] {
       useCase.operations.map((operation, index) => ({
         id: operation.id ?? `${useCase.id}:${index}`,
         label: operation.label,
-        sources: [operation.source],
+        sources: evidenceSources(operation.source),
+        targets: evidenceTargets([operation.source]),
       })),
     );
 

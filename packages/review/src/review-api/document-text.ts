@@ -1,3 +1,4 @@
+import { evidenceSources, type CodeEvidence } from "../source.js";
 import { fileLensTargets } from "./blocks/file_lens.js";
 import {
   type Element,
@@ -7,8 +8,13 @@ import {
 } from "./document.js";
 import type { Snapshot } from "./store.js";
 
-const sourceText = (source: Source) =>
-  `${source.side}/${source.file}:${source.fromLine}-${source.toLine}`;
+const sourceText = (evidence: CodeEvidence) =>
+  evidenceSources(evidence)
+    .map(
+      (source) =>
+        `${source.side}/${source.file}:${source.fromLine}-${source.toLine}`,
+    )
+    .join(", ");
 
 /** A reading view of saved content, not another document format to maintain. */
 export function documentText(
@@ -159,7 +165,9 @@ export function documentText(
           if (target.kind === "files")
             detail(`Files: ${target.patterns.join(", ")}`);
           else
-            for (const source of target.sources)
+            for (const source of target.kind === "ranges"
+              ? target.sources
+              : target.results)
               detail(`Range: ${sourceText(source)}`);
         }
         break;

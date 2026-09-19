@@ -1,10 +1,15 @@
-import type { ReviewDiffLens } from "@dev.fast/review-protocol";
+import type {
+  ReviewDiffLens,
+  ReviewDiffLensTarget,
+} from "@dev.fast/review-protocol";
 
+import { evidenceTargets } from "../source.js";
 import {
   type Block,
   type Source,
   elements,
   sourceReferences,
+  evidenceReferences,
 } from "./document.js";
 
 export interface DiagramLens {
@@ -12,6 +17,7 @@ export interface DiagramLens {
   title: string;
   kind: string;
   sources: Source[];
+  targets: ReviewDiffLensTarget[];
   fileCount?: number;
   wholeFiles?: boolean;
 }
@@ -33,6 +39,9 @@ export function diagramLenses(document: Block[]): DiagramLens[] {
         id: block.id!,
         title: block.type === "software_map" ? "Software map" : block.title,
         kind: block.type,
+        targets: evidenceTargets(
+          evidenceReferences([block]).map((ref) => ref.source),
+        ),
         sources: sourceReferences([block]).map((ref) => ref.source),
       },
     ];
@@ -49,7 +58,7 @@ export function nativeLens(
     title: lens.title,
     reviewId,
     version,
-    ranges: lens.sources,
+    targets: lens.targets,
     wholeFiles: lens.wholeFiles ?? false,
   };
 }

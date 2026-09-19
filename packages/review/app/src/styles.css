@@ -8089,12 +8089,10 @@ button.review-stack-row:disabled .review-stack-relation {
 .diff-workspace-sidebar {
   width: 320px;
   min-width: 250px;
-  max-width: 50%;
-  resize: horizontal;
-  overflow: auto;
+  flex-shrink: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--rule);
   background: var(--surface);
 }
 .diff-global-progress {
@@ -8130,9 +8128,8 @@ button.review-stack-row:disabled .review-stack-relation {
   transform-origin: 10px 10px;
 }
 .diff-sidebar-lenses {
-  flex: 0 1 auto;
-  min-height: 70px;
-  max-height: 62%;
+  flex: 0 0 auto;
+  min-height: 0;
   overflow: auto;
 }
 .diff-sidebar-heading {
@@ -8143,7 +8140,6 @@ button.review-stack-row:disabled .review-stack-relation {
   letter-spacing: 0.09em;
 }
 .diff-files-heading {
-  border-top: 1px solid var(--rule);
   padding-bottom: 8px;
   white-space: nowrap;
   overflow: hidden;
@@ -8526,4 +8522,36 @@ button.review-stack-row:disabled .review-stack-relation {
 }
 .diff-lens-toggle.is-active .diff-lens-icon {
   color: inherit;
+}
+
+/* The hit areas overlap adjacent panes; the visible dividers stay one pixel. */
+.diff-sidebar-cabinets,
+.diff-sidebar-files {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.diff-sidebar-files {
+  overflow: hidden;
+}
+.diff-sidebar-files .diff-native-tree {
+  min-height: 0;
+}
+.diff-global-progress {
+  flex-shrink: 0;
+}
+.diff-sidebar-resizer {
+  flex: 0 0 10px;
+  margin: 0 -5px;
+  z-index: 2;
+}
+.diff-cabinets-resizer {
+  display: block;
+  margin: -5px 0;
+  z-index: 2;
+}
+.diff-sidebar-resizer.is-resizing::before,
+.diff-cabinets-resizer.is-resizing::before {
+  background: var(--ink-faint);
 }

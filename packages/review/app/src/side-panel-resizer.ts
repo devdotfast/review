@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useReviewUiState } from "./review-ui-state";
 
 type RightPanelResizeOptions = {
+  side?: "left" | "right";
   /** Names the panel whose width is remembered across remounts. */
   stateKey: string;
   defaultWidth: number;
@@ -179,6 +180,7 @@ export function useBottomSheetResize({
 }
 
 export function useRightPanelResize({
+  side = "right",
   stateKey,
   defaultWidth,
   minWidth,
@@ -212,6 +214,7 @@ export function useRightPanelResize({
         : window.innerWidth;
 
     return {
+      left: rect?.left ?? 0,
       right: rect?.right ?? viewportWidth,
       width: rect?.width ?? viewportWidth,
     };
@@ -273,10 +276,10 @@ export function useRightPanelResize({
 
   const resizeFromClientX = useCallback(
     (clientX: number) => {
-      const { right } = containerMetrics();
-      setWidth(right - clientX);
+      const { left, right } = containerMetrics();
+      setWidth(side === "left" ? clientX - left : right - clientX);
     },
-    [containerMetrics, setWidth],
+    [containerMetrics, setWidth, side],
   );
 
   const startResize = useCallback(
@@ -309,15 +312,15 @@ export function useRightPanelResize({
     (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        setWidth((currentWidth) => currentWidth + 32);
+        setWidth((currentWidth) => currentWidth + (side === "left" ? -32 : 32));
       }
 
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        setWidth((currentWidth) => currentWidth - 32);
+        setWidth((currentWidth) => currentWidth + (side === "left" ? 32 : -32));
       }
     },
-    [setWidth],
+    [setWidth, side],
   );
 
   const separatorProps = useMemo<SeparatorProps>(

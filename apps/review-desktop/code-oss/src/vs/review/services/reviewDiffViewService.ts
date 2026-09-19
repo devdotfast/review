@@ -1,3 +1,6 @@
+import { structuralChangeCounts } from "../common/reviewProtocol.js";
+import type { ReviewDiffProgress } from "../common/reviewProtocol.js";
+import { lensRanges, withLens } from "./reviewLens.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -13,6 +16,7 @@ import { IInstantiationService } from "../../platform/instantiation/common/insta
 import { REVIEW_STRUCTURAL_DIFF_SETTING } from "../common/reviewConfigurationDefaults.js";
 import type {
 	ReviewCommitScope,
+  ReviewDiffLens,
 	ReviewDiffFileWire,
 	ReviewDiffViewHandle,
 	ReviewDiffViewSpec,
@@ -25,10 +29,9 @@ import type { ReviewInlineEditorService } from "./reviewInlineEditorService.js";
 import { createStructuralDiffEditors } from "./reviewStructuralDiff.js";
 import { StructuralDiffSession } from "./reviewStructuralDiffSession.js";
 import type { StructuralDiffStream } from "./reviewStructuralDiffClient.js";
-import { structuralInitialCounts } from "../common/reviewStructuralDiff.js";
 
 export interface ReviewDiffViewSource {
-	load(scope?: ReviewCommitScope): Promise<{ sourceUri: URI; entries: readonly ReviewFilesEditorEntry[] ;
+	load(scope?: ReviewCommitScope, lens?: ReviewDiffLens): Promise<{ sourceUri: URI; entries: readonly ReviewFilesEditorEntry[] ;
 		session?: StructuralDiffSession;
 	}>;
 	files(scope?: ReviewCommitScope): Promise<readonly ReviewDiffFileWire[]>;
@@ -61,10 +64,13 @@ export class ReviewDiffViewService extends Disposable {
 		this.diffLayout = this._register(instantiationService.createInstance(ReviewDiffLayoutSetting));
 	}
 
+  get structuralRenderingEnabled(): boolean {
+    return this.instantiationService.invokeFunction(a => a.get(IConfigurationService).getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === true);
+  }
+
   /** Shared by every view of this comparison; reset/dispose follows the canvas lifetime. */
   openComparison(key: string, client: StructuralDiffStream, generation: number): StructuralDiffSession | undefined {
-    if (generation !== this.comparisonGeneration) return undefined;
-    if (!this.instantiationService.invokeFunction(a => a.get(IConfigurationService).getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === true)) return undefined;
+    if (generation !== this.comparisonGeneration || !this.structuralRenderingEnabled) return undefined;
     let session = this.sessions.get(key);
     if (!session) {
       session = new StructuralDiffSession(client);
@@ -114,6 +120,12 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 	readonly onDidError = this._onDidError.event;
 	private readonly activeControlStore = this._register(new DisposableStore());
 	private view: ReviewFilesDiffView | undefined;
+    private progress: ReviewDiffProgress | undefined;
+    private readonly progressChanged = this._register(new Emitter<void>());
+    private pendingSectionId: string | undefined;
+    private pendingSource: ReviewDiffLens['ranges'][number] | undefined;
+    setProgress(progress: ReviewDiffProgress): void { this.progress = progress; this.view?.setProgress(progress); this.progressChanged.fire(); }
+    revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
 	private viewStateKey: string | undefined;
 	private adoptedEditors: readonly ICodeEditor[] = [];
 	private disposed = false;
@@ -129,6 +141,7 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 		private readonly source: ReviewDiffViewSource,
 	) {
 		super();
+    this.progress = spec.progress;
 		void this.initialize();
 	}
 
@@ -153,38 +166,49 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 
 	private async initialize(): Promise<void> {
 		try {
-			const data = await this.source.load(this.spec.scope);
+			const data = await this.source.load(this.spec.scope, this.spec.lens);
 			const { sourceUri, entries } = data;
       const session = data.session;
-      const structuralEnabled = session !== undefined;
-      this.viewStateKey = `${sourceUri.toString()}:${structuralEnabled}`;
+      const structuralEnabled = session !== undefined && this.instantiationService.invokeFunction(a => a.get(IConfigurationService).getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === true);
+      this.viewStateKey = `${sourceUri.toString()}:${structuralEnabled}:${JSON.stringify(this.spec.lens ?? null)}`;
       if (this.disposed) return;
       const store = this._register(new DisposableStore());
-      const structural = session ? createStructuralDiffEditors(this.instantiationService, entries, store, session)
+      const structural = session && structuralEnabled ? createStructuralDiffEditors(this.instantiationService, entries, store, session)
         : { instantiation: this.instantiationService, entries };
 
 			if (this.disposed) return;
+			const lens = this.spec.lens;
+      const sections = this.progress?.sections;
+      const selected = lens && sections?.length ? sections.flatMap(section => {
+        const matches = structural.entries.filter(entry => lensRanges({ ...lens, ranges: section.sources }, entry).length > 0);
+        return matches.map((entry, index) => ({ ...entry, sectionId: section.id, sectionStart: index === 0, original: entry.original?.with({ fragment: section.id }), modified: entry.modified?.with({ fragment: section.id }) }));
+      }) : lens ? structural.entries.filter(entry => lensRanges(lens, entry).length > 0) : structural.entries;
+      const instantiation = withLens(structural.instantiation, selected, lens, store, () => this.progress, this.progressChanged.event);
 			// The input owns the text-model references its view model resolves, so
 			// this handle disposes it alongside the view.
-			const input = store.add(structural.instantiation.createInstance(ReviewFilesEditorInput, sourceUri, structural.entries,
-					structuralEnabled));
+			const input = store.add(instantiation.createInstance(ReviewFilesEditorInput, sourceUri, selected,
+					structuralEnabled, !!lens || !!this.spec.onToggleViewed));
 			const view = store.add(
-				structural.instantiation.createInstance(
+				instantiation.createInstance(
 					ReviewFilesDiffView,
 					this.spec.container,
 					this.overflowWidgetsDomNode,
 					this.diffLayout,
+          this.spec.fileTreeContainer, this.spec.onToggleViewed, this.spec.onToggleSection,
 				),
 			);
 			this.view = view;
-			if (structuralEnabled) view.startLoading(structural.entries);
+      if (this.progress) view.setProgress(this.progress);
+			if (structuralEnabled) view.startLoading(selected);
 			store.add(view.onDidChangeActiveControl(() => this.bindActiveControl(view)));
 			// A saved whole-list offset cannot be restored into a partial streamed list.
 			await view.setInput(input, structuralEnabled ? undefined : this.viewStates.get(this.viewStateKey),
 			);
 			if (this.disposed) return;
 			this.bindActiveControl(view);
-      if (session) this.observeSession(session, structural.entries, view, store);
+      if (this.pendingSource) view.revealSource(this.pendingSource, this.pendingSectionId);
+      if (!session) for (const entry of selected) view.fileCounts(entry.file.path, { added: entry.file.additions, removed: entry.file.deletions });
+      if (session) this.observeSession(session, selected, view, store, structuralEnabled);
 
 		} catch (error) {
 			if (this.disposed) return;
@@ -192,18 +216,18 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 		}
 	}
 
-  private observeSession(session: StructuralDiffSession, entries: readonly ReviewFilesEditorEntry[], view: ReviewFilesDiffView, store: DisposableStore): void {
+  private observeSession(session: StructuralDiffSession, entries: readonly ReviewFilesEditorEntry[], view: ReviewFilesDiffView, store: DisposableStore, structuralEnabled: boolean): void {
     const rendered = new Set<string>();
     const renderCurrentState = () => {
       if (this.disposed) return;
       for (const entry of entries) {
         const path = entry.file.path;
-        const result = session.getFileResult(path);
+        const result = entry.file.status === "unchanged" ? {} : session.getFileResult(path);
         if (!result || rendered.has(path)) continue;
         rendered.add(path);
-        if (result.hidden !== undefined) view.hideFile(path, result.hidden);
-        if (result.diff?.type === "text") view.fileCounts(path, structuralInitialCounts(result.diff));
-        view.fileLoaded(path, result.error);
+        if (structuralEnabled && result.hidden !== undefined) view.hideFile(path, result.hidden);
+        if (result.diff) view.fileCounts(path, result.diff.type === "text" ? structuralChangeCounts(result.diff.structural_changes) : { added: 0, removed: 0 });
+        if (structuralEnabled) view.fileLoaded(path, result.error);
       }
       if (session.error) view.loadingFailed(session.error);
       else if (session.complete) view.loadingFailed("diffr did not supply a result for this file.");

@@ -1,3 +1,5 @@
+import { observableValue } from "../../base/common/observable.js";
+import type { ReviewDiffSection } from "../common/reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -27,7 +29,13 @@ export interface ReviewMultiDiffHeaderEntry {
   readonly note?: string;
   /** Hover text for the counts: visible, structural and textual rows. */
   readonly countsTitle?: string;
+  readonly section?: ReviewDiffSection;
+  readonly sectionCollapsed?: boolean;
+  readonly onToggleSectionCollapsed?: () => void;
+  readonly onToggleSection?: () => void;
   readonly onDidOpen?: () => void;
+  readonly viewedState?: "unread" | "partial" | "viewed";
+  readonly onToggleViewed?: () => void;
 }
 
 export class ReviewMultiDiffUIElementFactory
@@ -37,6 +45,7 @@ export class ReviewMultiDiffUIElementFactory
   get headerClickToCollapse(): boolean {
     return !this.hideResourceHeader;
   }
+
 
   private readonly headers = new Set<() => void>();
 
@@ -54,6 +63,39 @@ export class ReviewMultiDiffUIElementFactory
     @IInstantiationService
     private readonly instantiationService: IInstantiationService,
   ) {}
+
+  createResourceSectionHeader(element: HTMLElement) {
+    const height = observableValue<number>(this, 0);
+    const bodyHidden = observableValue(this, false);
+    let uris: Parameters<IResourceHeaderMetadata['setUris']>[0];
+    const refresh = () => {
+      const entry = uris && this.entries().find(entry => sameResource(entry.original, uris!.original) && sameResource(entry.modified, uris!.modified));
+      const section = entry?.section;
+      bodyHidden.set(entry?.sectionCollapsed ?? false, undefined);
+      element.replaceChildren(); element.className = 'review-diff-group'; element.hidden = !section;
+      height.set(section ? 48 : 0, undefined);
+      if (!section) return;
+      const toggle = document.createElement('button'); toggle.className = 'review-diff-group-toggle';
+      toggle.setAttribute('aria-expanded', String(!entry?.sectionCollapsed));
+      toggle.setAttribute('aria-label', `${entry?.sectionCollapsed ? 'Expand' : 'Collapse'} section: ${section.label}`);
+      toggle.onclick = () => entry?.onToggleSectionCollapsed?.();
+      const chevron = document.createElement('span'); chevron.className = `codicon codicon-chevron-${entry?.sectionCollapsed ? 'right' : 'down'}`;
+      const title = document.createElement('span'); title.className = 'review-diff-group-title'; title.textContent = section.label;
+      const counts = document.createElement('span'); counts.className = 'review-diff-group-counts';
+      counts.textContent = section.total.additions + section.total.deletions === 0 ? 'Unchanged' : section.state === 'viewed' ? '✓' : `+${compactCount(section.remaining.additions)} −${compactCount(section.remaining.deletions)}`;
+      counts.title = `Remaining +${section.remaining.additions} −${section.remaining.deletions} · Total +${section.total.additions} −${section.total.deletions}`;
+      const button = document.createElement('button'); button.className = 'review-header-viewed'; button.setAttribute('role', 'checkbox');
+      button.setAttribute('aria-checked', section.state === 'partial' ? 'mixed' : String(section.state === 'viewed'));
+      button.setAttribute('aria-label', `${section.state === 'viewed' ? 'Mark unviewed' : 'Mark viewed'}: ${section.label}`);
+      button.textContent = section.state === 'viewed' ? '✓' : section.state === 'partial' ? '−' : '';
+      button.hidden = section.total.additions + section.total.deletions === 0;
+      button.onclick = () => entry?.onToggleSection?.();
+      element.classList.toggle('is-viewed', section.state === 'viewed');
+      toggle.append(chevron, title); element.append(toggle, counts, button);
+    };
+    this.headers.add(refresh);
+    return { height, bodyHidden, setUris: (value: typeof uris) => { uris = value; refresh(); }, dispose: () => { this.headers.delete(refresh); element.remove(); } };
+  }
 
   createResourceLabel(element: HTMLElement): IResourceLabel {
     element.classList.add("review-path-label");
@@ -121,6 +163,12 @@ export class ReviewMultiDiffUIElementFactory
     });
     open.label = `$(${Codicon.goToFile.id}) Open file`;
     open.element.classList.add("review-multidiff-open");
+    const viewed = ownerDocument.createElement("button");
+    viewed.className = "review-header-viewed";
+    viewed.setAttribute("role", "checkbox");
+    element.append(viewed);
+    const toggleViewed = (event: MouseEvent) => { event.stopPropagation(); current?.onToggleViewed?.(); };
+    viewed.addEventListener("click", toggleViewed);
     let current: ReviewMultiDiffHeaderEntry | undefined;
     let lastUris: Parameters<IResourceHeaderMetadata["setUris"]>[0];
     const openListener = open.onDidClick(() => current?.onDidOpen?.());
@@ -142,14 +190,22 @@ export class ReviewMultiDiffUIElementFactory
           current.additions !== undefined && current.deletions !== undefined;
         counts.hidden = !hasCounts;
         if (hasCounts) {
-          additions.textContent = `+${current.additions}`;
-          deletions.textContent = `−${current.deletions}`;
+          additions.textContent = `+${compactCount(current.additions!)}`;
+          deletions.textContent = `−${compactCount(current.deletions!)}`;
           counts.setAttribute(
             "aria-label",
             `${current.additions} lines added, ${current.deletions} lines removed`,
           );
         }
         counts.title = current.countsTitle ?? "";
+        viewed.hidden = !current.onToggleViewed;
+        viewed.textContent = current.viewedState === "viewed" ? "✓" : current.viewedState === "partial" ? "−" : "";
+        viewed.setAttribute("aria-checked", current.viewedState === "partial" ? "mixed" : String(current.viewedState === "viewed"));
+        viewed.title = current.viewedState === "viewed" ? "Mark unviewed and unfold" : "Mark visible scope viewed";
+        viewed.setAttribute("aria-label", viewed.title);
+        counts.classList.toggle("review-counts-viewed", current.viewedState === "viewed");
+        if (current.viewedState === "viewed") { additions.textContent = "✓"; deletions.textContent = ""; }
+
         note.hidden = !current.note;
         note.textContent = current.note ?? "";
         openContainer.hidden = !current.onDidOpen;
@@ -158,6 +214,7 @@ export class ReviewMultiDiffUIElementFactory
       setUris,
       dispose: () => {
         this.headers.delete(refresh);
+        viewed.removeEventListener("click", toggleViewed);
         openListener.dispose();
         open.dispose();
         element.replaceChildren();
@@ -195,3 +252,5 @@ function reviewFileLabelUri(path: string): URI {
 function reviewMultiDiffLabelPath(uri: URI): string {
   return uri.path.startsWith("/") ? uri.path.slice(1) : uri.path;
 }
+
+const compactCount = (count: number) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(count).toLowerCase();

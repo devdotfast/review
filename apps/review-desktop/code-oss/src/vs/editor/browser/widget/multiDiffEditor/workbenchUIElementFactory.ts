@@ -15,6 +15,7 @@ import type { IDiffCodeEditorWidgetOptions } from '../diffEditor/diffEditorWidge
  * This would make monaco-editor consumption much more difficult though.
  */
 export interface IWorkbenchUIElementFactory {
+    createResourceSectionHeader?(element: HTMLElement): IResourceHeaderMetadata & { readonly height: IObservable<number>; readonly bodyHidden: IObservable<boolean> };
 	createResourceLabel?(element: HTMLElement): IResourceLabel;
 	createResourceHeaderMetadata?(element: HTMLElement): IResourceHeaderMetadata;
 

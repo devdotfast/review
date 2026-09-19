@@ -46,13 +46,14 @@ export function createStructuralDiffEditors(
     original: entry.original ?? URI.from({ scheme: "review-structural-empty", path: "/base/" + entry.file.path, query: entry.modified!.toString() }),
     modified: entry.modified ?? URI.from({ scheme: "review-structural-empty", path: "/head/" + entry.file.path, query: entry.original!.toString() }),
   }));
+  const unchanged = new Set(entries.filter(e => e.file.status === "unchanged").map(e => e.file.path));
   const pairs = new Map(resolvedEntries.map(e => [e.original!.toString() + "\n" + e.modified!.toString(), e.file.path]));
   /** Fires when collapse state changes, so every diff editor recomputes its bands. */
   const providerChanged = lifetime.add(new Emitter<void>());
   lifetime.add(session.onDidChange(() => providerChanged.fire()));
   const factory: IDiffProviderFactoryService = {
     _serviceBrand: undefined,
-    createDiffProvider: () => new StructuralDiffProvider(session, pairs, providerChanged.event),
+    createDiffProvider: () => new StructuralDiffProvider(session, pairs, providerChanged.event, unchanged),
   };
   const child = lifetime.add(
     instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
@@ -63,10 +64,14 @@ export function createStructuralDiffEditors(
 
 /** Adapts session snapshots and fold state to Monaco's diff interface. */
 export class StructuralDiffProvider implements IDocumentDiffProvider {
-  constructor(private readonly session: StructuralDiffSession, private readonly pairs: ReadonlyMap<string, string>, readonly onDidChange: Event<void>) {}
+  constructor(private readonly session: StructuralDiffSession, private readonly pairs: ReadonlyMap<string, string>, readonly onDidChange: Event<void>, private readonly unchanged: ReadonlySet<string>) {}
         async computeDiff(...[original, modified, _options, token]: Parameters<IDocumentDiffProvider["computeDiff"]>): Promise<IDocumentDiff> {
           if (token.isCancellationRequested) throw new CancellationError();
-          const path = this.pairs.get(original.uri.toString() + "\n" + modified.uri.toString());
+          const path = this.pairs.get(original.uri.with({ fragment: "" }).toString() + "\n" + modified.uri.with({ fragment: "" }).toString());
+          if (path !== undefined && this.unchanged.has(path)) {
+            if (original.getValue() !== modified.getValue()) throw new Error("Referenced context file changed; reload the review.");
+            return { changes: [], moves: [], identical: true, quitEarly: false };
+          }
           if (path !== undefined && this.session.getFileResult(path)?.diff?.type === "binary") {
             return { changes: [], moves: [], identical: false, quitEarly: false, changeHighlights: { original: [], modified: [] } };
           }
@@ -148,7 +153,7 @@ function attachStructuralEditors(
     store.add(
       autorun((reader) => {
         const model = editor.getModel();
-        const path = model && pairs.get(model.original.uri.toString() + "\n" + model.modified.uri.toString());
+        const path = model && pairs.get(model.original.uri.with({ fragment: "" }).toString() + "\n" + model.modified.uri.with({ fragment: "" }).toString());
         const regions = widget.unchangedRegions!.read(reader);
         if (!path || !session.getTextDiff(path)) return;
         const gaps = structuralContextGaps(session.getTextDiff(path)!, (id) => session.isRegionCollapsed(path, id) === true, (id) => session.isRegionCollapsed(path, id));

@@ -4,6 +4,7 @@ import {
 } from "../../src/call-stack-diff";
 import { frameIdentity, frameName } from "../../src/call-stack-frames";
 import type { Frame } from "../../src/review-api/document";
+import { evidenceLocation } from "../../src/source";
 import { useReviewSession } from "./host/review-session";
 import { useReviewPanel } from "./review-panel";
 import type { PeekAnchor } from "./review-panel-model";
@@ -59,7 +60,7 @@ export function CallStackDiff({ title, base, head }: CallStackDiffProps) {
               role="listitem"
               className={`call-stack-row call-stack-${row.change}`}
               data-review-anchor-id={frame.id ?? frameIdentity(frame)}
-              title={`${rowTooltip(frame, parent)} — ${frame.source.file}:${frame.source.fromLine}`}
+              title={`${rowTooltip(frame, parent)} — ${evidenceLocation(frame.source).file}:${evidenceLocation(frame.source).fromLine}`}
               onClick={() => {
                 captureUiEvent(session, "peek_opened", {
                   via: "call_stack_frame",
@@ -83,7 +84,10 @@ export function CallStackDiff({ title, base, head }: CallStackDiffProps) {
               ) : null}
               <span className="call-stack-spacer" />
               <span className="call-stack-loc">
-                {locationLabel(frame.source.file, frame.source.fromLine)}
+                {locationLabel(
+                  evidenceLocation(frame.source).file,
+                  evidenceLocation(frame.source).fromLine,
+                )}
               </span>
             </button>
           );

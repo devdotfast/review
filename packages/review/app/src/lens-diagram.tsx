@@ -1,5 +1,10 @@
 import type { Block } from "../../src/review-api/document";
-import type { Source } from "../../src/source";
+import {
+  evidenceSources,
+  evidenceLocation,
+  type CodeEvidence,
+  type Source,
+} from "../../src/source";
 import { LensCallTree } from "./lens-call-tree";
 import { ElementCounts } from "./lens-counts";
 import { useReviewLenses } from "./review-lenses";
@@ -7,15 +12,18 @@ import { useReviewLenses } from "./review-lenses";
 /** Compact diagrams are navigation: clicking evidence scrolls, never changes scope. */
 export function LensDiagram({
   block,
-  onReveal,
+  onReveal: reveal,
 }: {
   block: Block;
   onReveal(source: Source, sectionId?: string): void;
 }) {
   const lenses = useReviewLenses()!;
+  const onReveal = (evidence: CodeEvidence, sectionId?: string) =>
+    reveal(evidenceLocation(evidence), sectionId);
+  const stats = (sources: CodeEvidence[]) =>
+    lenses.stats(sources.flatMap(evidenceSources));
 
-  const viewed = (sources: Source[]) =>
-    lenses.stats(sources).state === "viewed";
+  const viewed = (sources: CodeEvidence[]) => stats(sources).state === "viewed";
 
   if (block.type === "sequence") {
     const actors = Object.entries(block.actors);
@@ -72,7 +80,7 @@ export function LensDiagram({
                 <title>
                   {step.label}
                   {source
-                    ? ` · Total +${lenses.stats([source]).total.additions} −${lenses.stats([source]).total.deletions}`
+                    ? ` · Total +${stats([source]).total.additions} −${stats([source]).total.deletions}`
                     : ""}
                 </title>
                 <rect
@@ -93,7 +101,7 @@ export function LensDiagram({
                     y={y + 17}
                     className="lens-element-counts"
                   >
-                    <ElementCounts progress={lenses.stats([source])} />
+                    <ElementCounts progress={stats([source])} />
                   </text>
                 )}
                 <path

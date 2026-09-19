@@ -1,4 +1,5 @@
 import type { CallStackDiffBlock } from "../../src/review-api/blocks/call_stack_diff";
+import { evidenceLocation, evidenceSources } from "../../src/source";
 import type { Source } from "../../src/source";
 
 export interface CallTreeStop {
@@ -29,17 +30,19 @@ export function callTreeStops(block: CallStackDiffBlock): CallTreeStop[] {
 
       if (existing)
         existing.sources.push(
-          frame.source,
-          ...(frame.contextSources ?? []),
+          ...evidenceSources(frame.source),
+          ...(frame.contextSources ?? []).flatMap(evidenceSources),
           ...(frame.callSite ? [frame.callSite] : []),
         );
       else
         nodes.set(id, {
           id,
-          label: frame.label ?? frame.source.file.split("/").pop()!,
+          label:
+            frame.label ??
+            evidenceLocation(frame.source).file.split("/").pop()!,
           sources: [
-            frame.source,
-            ...(frame.contextSources ?? []),
+            ...evidenceSources(frame.source),
+            ...(frame.contextSources ?? []).flatMap(evidenceSources),
             ...(frame.callSite ? [frame.callSite] : []),
           ],
           parentId:

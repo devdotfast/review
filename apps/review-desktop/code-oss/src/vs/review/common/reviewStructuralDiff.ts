@@ -1,3 +1,4 @@
+import type { RegionData } from "./reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -41,24 +42,9 @@ export interface StructuralVisibility {
  * side sharing it. Leaves tile the file in order; a fold's range is the hull
  * of its children. Tags are `<plugin>:<name>`.
  */
-export type StructuralRegion = StructuralLeaf | StructuralFold;
-interface StructuralRegionBase {
-  id: number;
-  fold_state_id: number;
-  start: StructuralPos;
-  end: StructuralPos;
-  tags?: string[];
-  visibility?: StructuralVisibility;
-}
-export interface StructuralLeaf extends StructuralRegionBase {
-  kind: "leaf";
-  alignment_id: number;
-  changed?: StructuralSpan[];
-}
-export interface StructuralFold extends StructuralRegionBase {
-  kind: "fold";
-  children: StructuralRegion[];
-}
+export type StructuralRegion = RegionData;
+export type StructuralLeaf = Extract<RegionData, {kind: "leaf"}>;
+export type StructuralFold = Extract<RegionData, {kind: "fold"}>;
 export interface StructuralSyntaxSpan extends StructuralSpan {
   capture: string;
 }

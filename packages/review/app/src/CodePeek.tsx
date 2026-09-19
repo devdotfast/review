@@ -6,7 +6,12 @@ import type {
 import { useMemo, useRef } from "react";
 
 import type { ReviewComponentProps } from "../../src/review-document-data";
-import { type Source, codePeekSource } from "../../src/source";
+import {
+  type Source,
+  type CodeEvidence,
+  evidenceLocation,
+  codePeekSource,
+} from "../../src/source";
 import { useReviewSession } from "./host/review-session";
 import { InlineCodeEditor } from "./InlineCodeEditor";
 
@@ -104,7 +109,7 @@ export function CodePeekCard({
   heightMode = "capped",
   onNativeFocus,
 }: {
-  source: Source;
+  source: CodeEvidence;
   active?: boolean;
   heightMode?: ReviewInlineEditorHeightMode;
   onNativeFocus?: () => void;
@@ -121,7 +126,8 @@ export function CodePeekCard({
       <InlineCodeEditor
         path={subject.file}
         title={subject.title}
-        side={source.side}
+        side={evidenceLocation(source).side}
+        evidence={source}
         ranges={[{ startLine: subject.line, endLine: subject.endLine }]}
         heightMode={heightMode}
         active={active}
@@ -130,7 +136,7 @@ export function CodePeekCard({
           session.surface.revealAnchor(
             subject.file,
             { fromLine: subject.line, toLine: subject.endLine },
-            source.side,
+            evidenceLocation(source).side,
           )
         }
       />
@@ -138,7 +144,8 @@ export function CodePeekCard({
   );
 }
 
-export function codePeekSubject(source: Source): CodePeekSubject {
+export function codePeekSubject(evidence: CodeEvidence): CodePeekSubject {
+  const source = evidenceLocation(evidence);
   return {
     title: codePeekRangeTitle(source.file, source.fromLine, source.toLine),
     file: source.file,

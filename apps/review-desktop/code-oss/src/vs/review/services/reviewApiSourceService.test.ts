@@ -87,12 +87,13 @@ test("a native peek reads the pinned version through the authenticated API, not 
 		} as never,
 		{} as never,
 	);
-	canvas.inlineEditors.create({
+	canvas.inlineEditors.create({content: {kind: "source",
 		path: "src/[route].ts",
 		side: "base",
 		ranges: [{ startLine: 2, endLine: 2 }],
-	} as never);
+	}} as never);
 	version = 4;
+	assert.equal(await source.diff(), undefined);
 	const snippet = await source.snippet();
 	assert.equal(models.get(snippet.target.resource.toString())?.text, "old first line\nold second line");
 	snippet.dispose();
@@ -171,11 +172,11 @@ test("unavailable pinned files report the API error instead of falling back to d
 		} as never,
 		{} as never,
 	);
-	canvas.inlineEditors.create({
+	canvas.inlineEditors.create({content: {kind: "source",
 		path: "missing.ts",
 		side: "head",
 		ranges: [{ startLine: 1, endLine: 1 }],
-	} as never);
+	}} as never);
 	await assert.rejects(source.snippet(), /unavailable at the pinned commit/);
 	assert.equal(disposed(), 0);
 });

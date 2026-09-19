@@ -6,6 +6,7 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { evidenceSources } from "../../src/source";
 import type { Source } from "../../src/source";
 import {
   type CoverageProgress,
@@ -85,7 +86,14 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
         ? {
             files: lenses.progress.files.map((file) => ({
               path: file.path,
-              ...coverageProgress([file], lens.ranges),
+              ...coverageProgress(
+                [file],
+                lens.targets.flatMap((target) =>
+                  target.kind === "ranges"
+                    ? [...target.ranges]
+                    : target.results.flatMap(evidenceSources),
+                ),
+              ),
               viewedRanges: coverageSources(file),
               changedRanges: coverageSources(file, file.changed),
               unfoldRanges: lenses.unfoldRanges.filter(
@@ -126,7 +134,11 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
     const sources = scoped
       ? (sectionId
           ? sections.find((section) => section.id === sectionId)?.sources
-          : lens?.ranges
+          : lens?.targets.flatMap((target) =>
+              target.kind === "ranges"
+                ? [...target.ranges]
+                : target.results.flatMap(evidenceSources),
+            )
         )?.filter(
           (source) =>
             source.file ===
@@ -244,16 +256,22 @@ export function ReviewDiffView({ scope }: { scope?: ReviewCommitScope }) {
           {lenses.progress
             ? lens
               ? new Set(
-                  lens.ranges.map(
-                    (source) =>
-                      lenses.progress!.files.find(
-                        (file) =>
-                          source.file ===
-                          (source.side === "base"
-                            ? (file.previousPath ?? file.path)
-                            : file.path),
-                      )?.path ?? source.file,
-                  ),
+                  lens.targets
+                    .flatMap((target) =>
+                      target.kind === "ranges"
+                        ? [...target.ranges]
+                        : target.results.flatMap(evidenceSources),
+                    )
+                    .map(
+                      (source) =>
+                        lenses.progress!.files.find(
+                          (file) =>
+                            source.file ===
+                            (source.side === "base"
+                              ? (file.previousPath ?? file.path)
+                              : file.path),
+                        )?.path ?? source.file,
+                    ),
                 ).size
               : lenses.progress.files.length
             : "…"}

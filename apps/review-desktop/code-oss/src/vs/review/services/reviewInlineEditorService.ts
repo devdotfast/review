@@ -1,3 +1,4 @@
+import { evidenceCoordinates, type EvidenceRow } from "../common/reviewSearchEvidence.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -8,7 +9,7 @@ import { Disposable, DisposableStore, type IDisposable } from "../../base/common
 import { autorun, observableValue } from "../../base/common/observable.js";
 import { URI } from "../../base/common/uri.js";
 import type { IEditorConstructionOptions } from "../../editor/browser/config/editorConfiguration.js";
-import type { ICodeEditor } from "../../editor/browser/editorBrowser.js";
+import { MouseTargetType, type ICodeEditor } from "../../editor/browser/editorBrowser.js";
 import { EditorExtensionsRegistry } from "../../editor/browser/editorExtensions.js";
 import { ICodeEditorService } from "../../editor/browser/services/codeEditorService.js";
 import { CodeEditorWidget } from "../../editor/browser/widget/codeEditor/codeEditorWidget.js";
@@ -78,11 +79,13 @@ export interface ReviewInlineSource {
 /** Pinned API sources feed the unified diff builder. */
 async function acquireUnifiedFromSource(
 	resources: IReviewCodeResourceService,
-	spec: Pick<ReviewInlineFindSpec, "path" | "side" | "ranges">,
+	spec: ReviewInlineFindSpec,
 	source: ReviewInlineSource,
 ) {
 	const target = await source.diff();
-	return target && resources.acquireUnifiedDiffForTarget(spec.path, spec.side, spec.ranges, target);
+	if (!target) return undefined;
+    if (spec.content.kind === "diffr") return resources.acquireEvidence(spec.content.result, target);
+    return resources.acquireUnifiedDiffForTarget(spec.content.path, spec.content.side, spec.content.ranges, target);
 }
 
 export class ReviewInlineEditorService extends Disposable implements ICompositeCodeEditor {
@@ -362,6 +365,8 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 		return this._height;
 	}
 
+  private get coordinates() { return evidenceCoordinates(this.spec.content); }
+
 	get hasWidget(): boolean {
 		return this.editor !== undefined;
 	}
@@ -383,15 +388,15 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 		private readonly source: ReviewInlineSource,
 	) {
 		super();
-		if (spec.ranges.length === 0) {
+		if (evidenceCoordinates(spec.content).ranges.length === 0) {
 			throw new Error("Inline editor requires at least one range.");
 		}
 		this.active = spec.active;
-		this.expandedHeight = estimatedHeight(spec.ranges, spec.heightMode);
+		this.expandedHeight = estimatedHeight(evidenceCoordinates(spec.content).ranges, spec.heightMode);
 		this._height = this.expandedHeight;
 		spec.container.classList.add("review-inline-code-editor");
-		spec.container.dataset["reviewInlineEditorPath"] = spec.path;
-		spec.container.dataset["reviewInlineEditorSide"] = spec.side;
+		spec.container.dataset["reviewInlineEditorPath"] = evidenceCoordinates(spec.content).path;
+		spec.container.dataset["reviewInlineEditorSide"] = evidenceCoordinates(spec.content).side;
 		const document = spec.container.ownerDocument;
 		const headerHost = document.createElement("div");
 		headerHost.className = "review-inline-editor-header-host monaco-component multiDiffEditor";
@@ -419,8 +424,8 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 		this.body.className = "review-inline-editor-body";
 		spec.container.append(headerHost, this.body);
 		this.setHeader(
-			URI.from({ scheme: "file", path: `/${this.spec.path}` }),
-			URI.from({ scheme: "file", path: `/${this.spec.path}` }),
+			URI.from({ scheme: "file", path: `/${this.coordinates.path}` }),
+			URI.from({ scheme: "file", path: `/${this.coordinates.path}` }),
 		);
 		this._register(
 			autorun((reader) => {
@@ -556,14 +561,14 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 	private initializeUnifiedEditor(reference: ReviewUnifiedCodeModelReference): void {
 		const labelUris = reviewMultiDiffLabelUris(reference.target.diffFile);
 		this.setHeader(
-			reference.target.original,
-			reference.target.modified,
+            this.spec.content.kind === "diffr" && !this.spec.content.result.sources.lhs ? undefined : reference.target.original,
+            this.spec.content.kind === "diffr" && !this.spec.content.result.sources.rhs ? undefined : reference.target.modified,
 			labelUris.original,
 			labelUris.modified,
 			reviewCodePeekRangeCounts(
 				reference.target.diffFile.patch,
-				this.spec.countRanges ?? this.spec.ranges,
-				this.spec.side,
+				this.spec.countRanges ?? this.coordinates.ranges,
+				this.coordinates.side,
 			),
 		);
 		this.unifiedModelReference = reference;
@@ -587,7 +592,34 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 		this.editorStore.add(editor);
 		editor.setModel(reference.model);
 		this.diffDecoration = editor.createDecorationsCollection();
-		this.diffDecoration.set(reviewUnifiedDiffDecorations(reference.rows));
+		this.diffDecoration.set([
+            ...reviewUnifiedDiffDecorations(reference.rows),
+            ...(this.spec.content.kind === "diffr" ? (reference.rows as EvidenceRow[]).flatMap(row => [
+              ...row.highlights.map(span => ({range: new Range(row.lineNumber, span.startColumn, row.lineNumber, Math.max(span.startColumn + 1, span.endColumn)), options: { description: 'Review search highlight', inlineClassName: "review-search-highlight" }})),
+              ...(row.fold ? [{range: new Range(row.lineNumber, 1, row.lineNumber, 1), options: {description: "Review evidence fold", glyphMarginClassName: row.fold.collapsed ? "codicon codicon-chevron-right" : "codicon codicon-chevron-down", glyphMarginHoverMessage: {value: row.fold.collapsed ? "Expand region" : "Collapse region"}}}] : []),
+            ]) : []),
+        ]);
+        if (this.spec.content.kind === "diffr") {
+          editor.updateOptions({glyphMargin: true});
+          this.editorStore.add(editor.onMouseDown(event => {
+            const line = event.target.position?.lineNumber;
+            const row = line ? (reference.rows as EvidenceRow[])[line - 1] : undefined;
+            if (!row?.fold || event.target.type !== MouseTargetType.GUTTER_GLYPH_MARGIN || this.spec.content.kind !== "diffr") return;
+            const result = structuredClone(this.spec.content.result);
+            const toggle = (regions: import("../common/reviewProtocol.js").RegionData[]) => {for (const region of regions) {
+              if (region.fold_state_id === row.fold!.id) region.visibility = {...region.visibility, collapsed: !row.fold!.collapsed};
+              if (region.kind === "fold") toggle(region.children);
+            }};
+            for (const source of Object.values(result.sources)) toggle(source.regions);
+            this.spec.content = {kind: "diffr", result};
+            this.clearFind();
+            this.editorStore.clear();
+            this.unifiedModelReference = undefined;
+            this.editor = undefined;
+            this.body.replaceChildren();
+            void this.initialize();
+          }));
+        }
 		this.bindFocus(editor);
 		this.trackScroll(
 			() => editor.getScrollTop(),
@@ -768,16 +800,18 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
 	}
 
 	private ranges(): Range[] {
+		if (this.spec.content.kind === "diffr") return (this.unifiedModelReference?.rows as EvidenceRow[] ?? []).flatMap(row => row.highlights.map(span => new Range(row.lineNumber, span.startColumn, row.lineNumber, Math.max(span.startColumn + 1, span.endColumn))));
+
 		if (this.unifiedModelReference) {
 			return this.unifiedModelReference.ranges.map(
 				(range) => new Range(range.startLine, 1, range.endLine, Number.MAX_SAFE_INTEGER),
 			);
 		}
-		return this.spec.ranges.map((range) => new Range(range.startLine, 1, range.endLine, Number.MAX_SAFE_INTEGER));
+		return this.coordinates.ranges.map((range) => new Range(range.startLine, 1, range.endLine, Number.MAX_SAFE_INTEGER));
 	}
 
 	private primaryRange(): Range {
-		return this.ranges()[0]!;
+		return this.ranges()[0] ?? new Range(1, 1, 1, 1);
 	}
 
 	private setHeight(height: number): void {

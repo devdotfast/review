@@ -6,7 +6,7 @@ import type { IDocumentDiff, IDocumentContextGap } from '../../editor/common/dif
 import type { ReviewDiffLens } from './reviewProtocol.js';
 
 /** Project pinned ranges onto the current diff's correspondence, never onto another revision. */
-export function lensContextGaps(diff: IDocumentDiff, originalCount: number, modifiedCount: number, ranges: ReviewDiffLens['ranges']): IDocumentContextGap[] {
+export function lensContextGaps(diff: IDocumentDiff, originalCount: number, modifiedCount: number, ranges: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges']): IDocumentContextGap[] {
   const rows = alignmentRows(diff, originalCount, modifiedCount);
   const visible = rows.map(row => ranges.some(range => {
     const line = row[range.side === 'base' ? 0 : 1];
@@ -48,9 +48,9 @@ function alignmentRows(diff: IDocumentDiff, originalCount: number, modifiedCount
 }
 
 /** A paired row folds only when none of its changed lines remain unread. */
-export function viewedContextGaps(diff: IDocumentDiff, originalCount: number, modifiedCount: number, viewed: ReviewDiffLens['ranges'], changed: ReviewDiffLens['ranges']): IDocumentContextGap[] {
+export function viewedContextGaps(diff: IDocumentDiff, originalCount: number, modifiedCount: number, viewed: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'], changed: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges']): IDocumentContextGap[] {
   const rows = alignmentRows(diff, originalCount, modifiedCount);
-  const contains = (ranges: ReviewDiffLens['ranges'], side: 0 | 1, line: number) => ranges.some(range => range.side === (side === 0 ? 'base' : 'head') && line + 1 >= range.fromLine && line + 1 <= range.toLine);
+  const contains = (ranges: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'], side: 0 | 1, line: number) => ranges.some(range => range.side === (side === 0 ? 'base' : 'head') && line + 1 >= range.fromLine && line + 1 <= range.toLine);
   const hidden = rows.map(row => row.some((line, side) => line !== null && contains(viewed, side as 0 | 1, line)) && row.every((line, side) => line === null || !contains(changed, side as 0 | 1, line) || contains(viewed, side as 0 | 1, line)));
   const gaps: IDocumentContextGap[] = [];
   let left = 1, right = 1;

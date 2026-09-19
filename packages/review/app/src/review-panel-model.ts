@@ -3,7 +3,7 @@ import type {
   ReviewDiffFileWire,
 } from "@dev.fast/review-protocol";
 
-import type { Source } from "../../src/source";
+import type { CodeEvidence as Source } from "../../src/source";
 
 export type ReviewPeekContent =
   | { kind: "source"; source: Source }

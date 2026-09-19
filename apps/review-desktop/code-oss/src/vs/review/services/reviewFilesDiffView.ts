@@ -184,7 +184,7 @@ export class ReviewFilesDiffView extends Disposable {
 	private readonly hiddenApplied = new Set<string>();
 	private pendingPath: string | undefined;
     private pendingSectionId: string | undefined;
-    private pendingSource: ReviewDiffLens["ranges"][number] | undefined;
+    private pendingSource: Extract<ReviewDiffLens["targets"][number], { kind: "ranges" }>["ranges"][number] | undefined;
     private progress: ReviewDiffProgress | undefined;
     private readonly viewedApplied = new Map<string, string>();
 	private readonly streamStatus: HTMLElement;
@@ -540,7 +540,7 @@ export class ReviewFilesDiffView extends Disposable {
             this.viewedApplied.set(key, file.state);
         }
     }
-    revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void {
+    revealSource(source: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'][number], sectionId?: string): void {
         const entry = this.input?.entries.find(entry => (!sectionId || entry.sectionId === sectionId) && (!entry.sectionId || this.progress?.sections?.find(section => section.id === entry.sectionId)?.sources.some(range => range.file === source.file && range.side === source.side && range.fromLine <= source.fromLine && range.toLine >= source.fromLine)) && source.file === (source.side === 'base' ? entry.file.previousPath ?? entry.file.path : entry.file.path));
         if (!entry) return;
         if (entry.sectionId && this.collapsedSections.delete(entry.sectionId)) this.headerFactory.refreshHeaders();

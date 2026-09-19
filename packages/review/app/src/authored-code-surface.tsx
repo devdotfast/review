@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 
+import { evidenceLocation } from "../../src/source";
 import type { PeekAnchor } from "./review-panel-model";
 
 /**
@@ -15,7 +16,7 @@ export function AuthoredCodeSurface({
   code: string;
   language?: string;
 }): ReactElement {
-  const firstLine = anchor.peek?.fromLine ?? 1;
+  const firstLine = anchor.peek ? evidenceLocation(anchor.peek).fromLine : 1;
 
   return (
     <div className="panel-code-block">

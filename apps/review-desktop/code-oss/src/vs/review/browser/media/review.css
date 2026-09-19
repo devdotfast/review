@@ -1204,3 +1204,14 @@ body
 
 .review-diff-group-toggle { display:flex; align-items:center; gap:8px; min-width:0; border:0; padding:0; color:inherit; background:transparent; cursor:pointer; text-align:left; }
 .review-diff-group-toggle:focus-visible { outline:1px solid var(--vscode-focusBorder); }
+
+/* Search evidence is distinct from inserted/deleted-line coloring. */
+.review-search-highlight {
+  background-color: var(--vscode-editor-findMatchHighlightBackground);
+  outline: 1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
+}
+
+.review-evidence-toolbar { display: flex; justify-content: flex-end; padding: 4px 8px; }
+.review-evidence-toolbar button, .review-evidence-file { color: var(--vscode-foreground); background: transparent; border: 0; cursor: pointer; padding: 4px 8px; text-align: left; }
+.review-evidence-file { display: block; width: 100%; }
+.review-evidence-file:hover, .review-evidence-toolbar button:hover { background: var(--vscode-list-hoverBackground); }

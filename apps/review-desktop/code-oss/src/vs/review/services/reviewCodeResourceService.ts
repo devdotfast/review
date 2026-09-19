@@ -1,3 +1,5 @@
+import { evidenceRows } from "../common/reviewSearchEvidence.js";
+import type { SearchResultData } from "../common/reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -88,6 +90,7 @@ export const IReviewCodeResourceService = createDecorator<IReviewCodeResourceSer
 
 export interface IReviewCodeResourceService {
 	readonly _serviceBrand: undefined;
+	acquireEvidence(result: SearchResultData, target: ReviewCodeDiffTarget): ReviewUnifiedCodeModelReference;
 	/** The unified view of a target the caller resolved, such as pinned API models. */
 	acquireUnifiedDiffForTarget(
 		path: string,
@@ -95,6 +98,7 @@ export interface IReviewCodeResourceService {
 		ranges: readonly ReviewInlineEditorRange[],
 		target: ReviewCodeDiffTarget,
 	): Promise<ReviewUnifiedCodeModelReference | undefined>;
+
 	unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined;
 	reset(): void;
 }
@@ -189,6 +193,23 @@ export class ReviewCodeResourceService extends Disposable implements IReviewCode
 			},
 		};
 	}
+
+  acquireEvidence(result: SearchResultData, target: ReviewCodeDiffTarget): ReviewUnifiedCodeModelReference {
+    const rows = evidenceRows(result);
+    const path = (result.file.rhs ?? result.file.lhs!).path;
+    const resource = URI.from({scheme: REVIEW_UNIFIED_SCHEME, path: `/${path}`, query: `evidence=${Date.now()}-${Math.random()}`});
+    const model = this.modelService.createModel(rows.map(row => row.content).join('\n'), this.languageService.createByFilepathOrFirstLine(URI.file(path)), resource);
+    const entry: ReviewUnifiedResourceEntry = {
+      model, rows, originalLineCount: result.sources.lhs?.text.split('\n').length ?? 0,
+      modifiedLineCount: result.sources.rhs?.text.split('\n').length ?? 0, references: 1,
+      info: { original: target.original, modified: target.modified, path, diffFile: target.diffFile, rows,
+        targetForRange: (startLine, endLine) => reviewUnifiedTargetForRange(path, rows, startLine, endLine) },
+      dispose: () => model.dispose(),
+    };
+    this.unifiedResources.set(resource.toString(), entry);
+    const windows = [{startLine: 1, endLine: rows.length, lineCount: rows.length, visibleLineCount: rows.length, height: rows.length * 20}];
+    return {model, target, rows, windows, ranges: [], dispose: () => {this.unifiedResources.delete(resource.toString()); model.dispose();}};
+  }
 
 	unifiedResource(resource: URI): ReviewUnifiedResourceInfo | undefined {
 		return this.unifiedResources.get(resource.toString())?.info;

@@ -97,9 +97,9 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     private progress: ReviewDiffProgress | undefined;
     private readonly progressChanged = this._register(new Emitter<void>());
     private pendingSectionId: string | undefined;
-    private pendingSource: ReviewDiffLens['ranges'][number] | undefined;
+    private pendingSource: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'][number] | undefined;
     setProgress(progress: ReviewDiffProgress): void { this.progress = progress; this.view?.setProgress(progress); this.progressChanged.fire(); }
-    revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
+    revealSource(source: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
 	private viewStateKey: string | undefined;
 	private adoptedEditors: readonly ICodeEditor[] = [];
 	private disposed = false;
@@ -170,7 +170,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 			const lens = this.spec.lens;
       const sections = this.progress?.sections;
       const selected = lens && sections?.length ? sections.flatMap(section => {
-        const matches = structural.entries.filter(entry => lensRanges({ ...lens, ranges: section.sources }, entry).length > 0);
+        const matches = structural.entries.filter(entry => lensRanges({ ...lens, targets: [{ kind: 'ranges', ranges: section.sources }] }, entry).length > 0);
         return matches.map((entry, index) => ({ ...entry, sectionId: section.id, sectionStart: index === 0, original: entry.original?.with({ fragment: section.id }), modified: entry.modified?.with({ fragment: section.id }) }));
       }) : lens ? structural.entries.filter(entry => lensRanges(lens, entry).length > 0) : structural.entries;
       const selectedPaths = new Set(selected.map(entry => entry.file.path));

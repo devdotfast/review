@@ -5,7 +5,7 @@ export function lensFiles(files: readonly ReviewDiffFileWire[], lens?: ReviewDif
   if (!lens || lens.wholeFiles) return files;
   const known = new Set(files.flatMap(file => [file.path, ...(file.previousPath ? [file.previousPath] : [])]));
   const context: ReviewDiffFileWire[] = [];
-  for (const range of lens.ranges) {
+  for (const range of lens.targets.flatMap(target => target.kind === "ranges" ? [...target.ranges] : [])) {
     if (known.has(range.file)) continue;
     known.add(range.file);
     context.push({ path: range.file, status: 'unchanged', additions: 0, deletions: 0 });

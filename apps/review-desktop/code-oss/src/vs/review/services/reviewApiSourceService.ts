@@ -1,3 +1,5 @@
+import { Emitter } from "../../base/common/event.js";
+import { evidenceCoordinates } from "../common/reviewSearchEvidence.js";
 import { lensFiles } from "../common/reviewLensFiles.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
@@ -22,7 +24,6 @@ import {
   reviewPeekLineMappings,
 } from "../common/reviewPeek.js";
 import type {
-  ReviewDiffSide,
   ReviewInlineEditorRange,
   ReviewDiffFileWire,
   ReviewInlineEditorFactory,
@@ -444,15 +445,22 @@ export class ReviewApiSourceService
       }
       return list;
     };
-    const source = (
-      file: string,
-      side: ReviewDiffSide,
-      ranges: readonly ReviewInlineEditorRange[],
-    ): ReviewInlineSource => {
+    const source = (content: import("../common/reviewProtocol.js").ReviewInlineEditorSpec["content"]): ReviewInlineSource => {
+      const {path: file, side, ranges} = evidenceCoordinates(content);
       const target = { view: view(), file, side };
       return {
         snippet: () => this.snippet(target, ranges),
-        diff: () => this.peekDiff(target, ranges, files(target.view)),
+        diff: async () => {
+          if (content.kind === "source") return content.ranges.some(range => range.side && range.side !== content.side) ? this.peekDiff(target, ranges, files(target.view)) : undefined;
+          const result = content.result;
+          const path = (result.file.rhs ?? result.file.lhs!).path;
+          return {
+            original: apiSourceUri({...target, side: "base", file: result.file.lhs?.path ?? path}),
+            modified: apiSourceUri({...target, side: "head", file: result.file.rhs?.path ?? path}),
+            diffFile: {path, previousPath: result.file.lhs?.path, status: result.sources.lhs ? result.sources.rhs ? "modified" : "deleted" : "added", additions: 0, deletions: 0},
+            mappings: [], windows: () => ({original: [], modified: []}),
+          };
+        },
       };
     };
     const diffSource: ReviewDiffViewSource = {
@@ -509,15 +517,78 @@ export class ReviewApiSourceService
         };
       },
     };
+    const explicitLens = (spec: import("../common/reviewProtocol.js").ReviewDiffViewSpec): import("../common/reviewProtocol.js").ReviewDiffViewHandle => {
+      const lifetime = new DisposableStore();
+      const errors = lifetime.add(new Emitter<string>());
+      const updates: ((progress: import("../common/reviewProtocol.js").ReviewDiffProgress) => void)[] = [];
+      const entries: {element: HTMLElement; content: import("../common/reviewProtocol.js").ReviewInlineEditorSpec["content"]}[] = [];
+      spec.container.style.overflow = "auto";
+      for (const target of spec.lens!.targets) {
+        const contents: import("../common/reviewProtocol.js").ReviewInlineEditorSpec["content"][] = target.kind === "results"
+          ? target.results.map(result => ({kind: "diffr", result}))
+          : target.ranges.map(range => ({kind: "source", path: range.file, side: range.side, ranges: [{startLine: range.fromLine, endLine: range.toLine}]}));
+        for (const content of contents) {
+          const coordinates = evidenceCoordinates(content);
+          const element = spec.container.ownerDocument.createElement("section");
+          element.tabIndex = -1;
+          element.style.position = "relative";
+          element.style.minHeight = "80px";
+          spec.container.append(element);
+          entries.push({element, content});
+          const toolbar = element.ownerDocument.createElement("div");
+          toolbar.className = "review-evidence-toolbar";
+          const viewed = element.ownerDocument.createElement("button");
+          viewed.type = "button";
+          viewed.textContent = "Mark viewed";
+          viewed.onclick = () => spec.onToggleViewed?.(coordinates.path);
+          toolbar.append(viewed);
+          element.append(toolbar);
+          const editorElement = element.ownerDocument.createElement("div");
+          editorElement.style.position = "relative";
+          element.append(editorElement);
+          if (spec.fileTreeContainer) {
+            const link = element.ownerDocument.createElement("button");
+            link.className = "review-evidence-file";
+            link.textContent = coordinates.path + (content.kind === "source" ? ` (${content.side})` : "");
+            link.onclick = () => element.scrollIntoView({block: "start"});
+            spec.fileTreeContainer.append(link);
+            lifetime.add({dispose: () => link.remove()});
+          }
+          const handle = lifetime.add(inline.create({container: editorElement, content, title: coordinates.path, heightMode: "content", active: false,
+            onDidOpen: () => {void this.open({view: view(), file: coordinates.path, side: coordinates.side}, coordinates.ranges[0]);},
+          }, source(content)));
+          editorElement.style.height = `${handle.height}px`;
+          lifetime.add(handle.onDidChangeHeight(height => editorElement.style.height = `${height}px`));
+          const update = (progress: import("../common/reviewProtocol.js").ReviewDiffProgress) => {
+            const file = progress.files.find(file => file.path === coordinates.path);
+            viewed.hidden = !file || file.total.additions + file.total.deletions === 0;
+            viewed.textContent = file?.state === "viewed" ? "Mark unviewed" : `Mark viewed · +${file?.remaining.additions ?? 0} −${file?.remaining.deletions ?? 0}`;
+          };
+          updates.push(update);
+          if (spec.progress) update(spec.progress);
+          lifetime.add(handle.onDidError(message => errors.fire(message)));
+        }
+      }
+      return {
+        focus: () => entries[0]?.element.focus(),
+        setProgress: progress => { for (const update of updates) update(progress); },
+        revealSource: range => {
+          const entry = entries.find(entry => entry.content.kind === "source" ? entry.content.path === range.file && entry.content.side === range.side : entry.content.result.file[range.side === "base" ? "lhs" : "rhs"]?.path === range.file);
+          entry?.element.scrollIntoView({block: "start"});
+        },
+        onDidError: errors.event,
+        dispose: () => {lifetime.dispose(); for (const entry of entries) entry.element.remove();},
+      };
+    };
     return {
       inlineEditors: {
         create: (spec) =>
-          inline.create(spec, source(spec.path, spec.side, spec.ranges)),
+          inline.create(spec, source(spec.content)),
         find: (spec, query) =>
-          inline.find(spec, query, source(spec.path, spec.side, spec.ranges)),
+          inline.find(spec, query, source(spec.content)),
       } satisfies ReviewInlineEditorFactory,
       diffView: {
-        create: (spec) => diff.create(spec, diffSource),
+        create: (spec) => spec.lens && !spec.lens.wholeFiles ? explicitLens(spec) : diff.create(spec, diffSource),
         files: diffSource.files,
       } satisfies ReviewDiffViewFactory,
     };

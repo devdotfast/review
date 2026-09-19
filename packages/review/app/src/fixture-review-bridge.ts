@@ -85,7 +85,11 @@ export function fixtureReviewBridge(api: FixtureReviewApi): ReviewCanvasBridge {
         create: (spec) => {
           const editor = document.createElement("div");
           editor.className = "fixture-inline-editor";
-          editor.dataset.path = spec.path;
+          editor.dataset.path =
+            spec.content.kind === "source"
+              ? spec.content.path
+              : (spec.content.result.file.rhs ?? spec.content.result.file.lhs!)
+                  .path;
           spec.container.appendChild(editor);
 
           return {

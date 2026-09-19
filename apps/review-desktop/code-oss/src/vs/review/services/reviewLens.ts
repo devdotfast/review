@@ -11,8 +11,8 @@ import { lensContextGaps, viewedContextGaps } from '../common/reviewLens.js';
 import type { ReviewDiffLens, ReviewDiffProgress } from '../common/reviewProtocol.js';
 import type { ReviewFilesEditorEntry } from './reviewFilesDiffView.js';
 
-export function lensRanges(lens: ReviewDiffLens, entry: ReviewFilesEditorEntry): ReviewDiffLens['ranges'] {
-  return lens.ranges.filter(range => range.file === (range.side === 'base' ? entry.file.previousPath ?? entry.file.path : entry.file.path));
+export function lensRanges(lens: ReviewDiffLens, entry: ReviewFilesEditorEntry): Extract<ReviewDiffLens['targets'][number], {kind: 'ranges'}>['ranges'] {
+  return lens.targets.flatMap(target => target.kind === "ranges" ? [...target.ranges] : []).filter(range => range.file === (range.side === 'base' ? entry.file.previousPath ?? entry.file.path : entry.file.path));
 }
 
 export function withLens(instantiation: IInstantiationService, entries: readonly ReviewFilesEditorEntry[], lens: ReviewDiffLens | undefined, lifetime: DisposableStore, progress: () => ReviewDiffProgress | undefined, onProgress: Event<void>): IInstantiationService {
@@ -37,7 +37,7 @@ export function withLens(instantiation: IInstantiationService, entries: readonly
             return count > 0 && range.fromLine < start + count && range.toLine >= start;
           }) ? { ...gap, collapsed: false } : gap) };
           const section = progress()?.sections?.find(section => section.id === entry.sectionId);
-          return lens && !lens.wholeFiles ? { ...diff, contextGaps: lensContextGaps(diff, original.getLineCount(), modified.getLineCount(), lensRanges(section ? { ...lens, ranges: section.sources } : lens, entry)) } : diff;
+          return lens && !lens.wholeFiles ? { ...diff, contextGaps: lensContextGaps(diff, original.getLineCount(), modified.getLineCount(), lensRanges(section ? { ...lens, targets: [{kind: "ranges", ranges: section.sources}] } : lens, entry)) } : diff;
         },
       };
     },

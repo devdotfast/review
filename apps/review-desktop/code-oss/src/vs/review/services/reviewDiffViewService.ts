@@ -218,11 +218,16 @@ class DiffViewController extends Disposable implements ReviewDiffViewHandle {
 
   private observeSession(session: StructuralDiffSession, entries: readonly ReviewFilesEditorEntry[], view: ReviewFilesDiffView, store: DisposableStore, structuralEnabled: boolean): void {
     const rendered = new Set<string>();
+    const annotationWarnings = new Set<string>();
     const renderCurrentState = () => {
       if (this.disposed) return;
       for (const entry of entries) {
         const path = entry.file.path;
         const result = entry.file.status === "unchanged" ? {} : session.getFileResult(path);
+        if (result?.annotationError && !annotationWarnings.has(path)) {
+          annotationWarnings.add(path);
+          this._onDidError.fire(`Summary unavailable for ${path}: ${result.annotationError}`);
+        }
         if (!result || rendered.has(path)) continue;
         rendered.add(path);
         if (structuralEnabled && result.hidden !== undefined) view.hideFile(path, result.hidden);

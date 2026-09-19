@@ -127,12 +127,19 @@ export async function reviewProgress(
             : emptyCoverage(),
       });
     }
-  } else
+  } else {
+    const remaining = new Set<string>();
     for await (const event of data.structuralChanges({
       reviewId: snapshot.reviewId,
       pins,
       signal,
     })) {
+      if (event.type === "start") {
+        for (const entry of event.files)
+          remaining.add((entry.file.rhs ?? entry.file.lhs)!.path);
+        if (!remaining.size) break;
+        continue;
+      }
       if (event.type === "complete" && (event.failed || event.aborted))
         throw new Error(
           event.aborted?.message ?? "Structural coverage is incomplete.",
@@ -146,6 +153,8 @@ export async function reviewProgress(
         );
       const diff = event.diff;
       const path = (event.file.rhs ?? event.file.lhs)!.path;
+      if (!remaining.delete(path))
+        throw new Error(`Unexpected structural result: ${path}`);
 
       const previousPath =
         event.file.lhs?.path !== path ? event.file.lhs?.path : undefined;
@@ -192,7 +201,10 @@ export async function reviewProgress(
             ? stored.coverage
             : emptyCoverage(),
       });
+      if (!remaining.size) break;
     }
+    if (remaining.size) throw new Error("Structural coverage is incomplete.");
+  }
 
   const diagrams = await Promise.all(
     diagramLenses(snapshot.document).map(async (lens) => {

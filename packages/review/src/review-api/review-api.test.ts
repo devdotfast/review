@@ -1123,6 +1123,21 @@ it("preserves unchanged partial file coverage across pins and rejects stale writ
   }));
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
     yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [
+        {
+          file: {
+            lhs: { path: "a.ts", oid: "base", mode: "100644" },
+            rhs: { path: "a.ts", oid: "head", mode: "100644" },
+          },
+          status: "modified",
+        },
+      ],
+    };
+    yield {
       type: "file",
       file: {
         lhs: { path: "a.ts", oid: "base", mode: "100644" },
@@ -1218,7 +1233,9 @@ it("textual coverage uses Git ranges without launching diffr", async () => {
     text: side === "head" ? "const x = 1;" : "const x=1;",
   }));
   const structural = vi.spyOn(data, "structuralChanges");
-  const response = await createReviewApi(store, data).request(`/${reviewId}/progress?mode=textual`);
+  const response = await createReviewApi(store, data).request(
+    `/${reviewId}/progress?mode=textual`,
+  );
   expect(response.status).toBe(200);
   const progress = await response.json();
   expect(coverageProgress(progress.files).total).toEqual({
@@ -1247,6 +1264,21 @@ it("resolves file lenses to whole changed files, preserves empty groups, and sha
     pins: snapshot.pins,
   }));
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [
+        {
+          file: {
+            lhs: { path: "docs/old.md", oid: "base", mode: "100644" },
+            rhs: { path: "guide/intro.md", oid: "head", mode: "100644" },
+          },
+          status: "modified",
+        },
+      ],
+    };
     yield {
       type: "file",
       file: {
@@ -1331,6 +1363,21 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
     pins: snapshot.pins,
   }));
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: "base" },
+      rhs: { type: "revision", rev: "head" },
+      files: [
+        {
+          file: {
+            lhs: { path: "src/a.ts", oid: "base", mode: "100644" },
+            rhs: { path: "src/a.ts", oid: "head", mode: "100644" },
+          },
+          status: "modified",
+        },
+      ],
+    };
     yield {
       type: "file",
       file: {
@@ -1420,4 +1467,45 @@ it("rejects ambiguous lens scopes and validates range sources during authoring",
       },
     }),
   ).rejects.toThrow("File is unavailable");
+});
+
+it("returns coverage and lenses after initial files without requesting summary events", async () => {
+  const { reviewProgress } = await import("./review-progress.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins,
+  }));
+  const file = { rhs: { path: "a.ts", oid: "head", mode: "100644" } };
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "empty_tree" },
+      rhs: { type: "revision", rev: "head" },
+      files: [{ file, status: "added" }],
+    };
+    yield {
+      type: "file",
+      file,
+      diff: {
+        type: "text",
+        rhs: { text: "added" },
+        structural_changes: { base: [], head: [[0, 1]] },
+        stats: {
+          textual: { added: 1, removed: 0 },
+          visible: { added: 0, removed: 0 },
+        },
+      },
+    };
+    throw new Error("Coverage must not await enrichment");
+  });
+  const progress = await reviewProgress(store, data, store.read(reviewId));
+  expect(progress.files[0].changed).toEqual({ base: [], head: [[0, 1]] });
+  expect(
+    progress.diagrams.find((lens) => lens.id === "automatic-uncategorized")
+      ?.sources,
+  ).toEqual([{ side: "head", file: "a.ts", fromLine: 1, toLine: 1 }]);
+  data.close();
 });

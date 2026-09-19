@@ -35,17 +35,25 @@ export class StructuralComparisons {
     } finally {
       entry.readers--;
 
-      if ((!entry.done && !entry.readers) || entry.error || entry.failed) {
+      if (
+        (!entry.done && !entry.initialReady && !entry.readers) ||
+        entry.error ||
+        entry.failed
+      ) {
         entry.abort.abort();
         this.entries.delete(key);
       }
-      // Keep at most two completed streams (each is bounded by the transport).
+      // Keep at most two idle comparisons, including background enrichment.
+      // Coverage can finish before an editor subscribes; it must not cancel summaries.
 
       const idle = [...this.entries].filter(
-        ([, value]) => value.done && !value.readers,
+        ([, value]) => (value.done || value.initialReady) && !value.readers,
       );
 
-      for (const [oldKey] of idle.slice(0, -2)) this.entries.delete(oldKey);
+      for (const [oldKey, old] of idle.slice(0, -2)) {
+        old.abort.abort();
+        this.entries.delete(oldKey);
+      }
     }
   }
 
@@ -68,6 +76,8 @@ class Comparison {
   done = false;
   error: unknown;
   failed = false;
+  initialReady = false;
+  private remaining: Set<string> | undefined;
   private readonly listeners = new Set<() => void>();
 
   constructor(input: StructuralDiffRequest) {
@@ -80,6 +90,19 @@ class Comparison {
         ...input,
         signal: this.abort.signal,
       })) {
+        if (event.type === "start") {
+          this.remaining = new Set(
+            event.files.map(
+              (entry) => (entry.file.rhs ?? entry.file.lhs)!.path,
+            ),
+          );
+          this.initialReady = this.remaining.size === 0;
+        } else if (event.type === "file") {
+          const path = (event.file.rhs ?? event.file.lhs)!.path;
+          if (!this.remaining?.delete(path))
+            throw new Error(`Unexpected structural result: ${path}`);
+          this.initialReady = this.remaining.size === 0;
+        }
         if (event.type === "complete")
           this.failed = event.failed > 0 || !!event.aborted;
         this.events.push(event);

@@ -155,7 +155,8 @@ export class DiffEditorViewModel extends Disposable implements IDiffEditorViewMo
 				const previous = this._unchangedRegions.get();
 				const regions = result.contextGaps.map(gap => {
 					const region = new SuppliedContextGap(gap);
-					const old = previous?.regions.find(r => r.originalLineNumber === gap.originalStart && r.modifiedLineNumber === gap.modifiedStart && r.lineCount === region.lineCount && r.label === gap.label);
+					// Deferred annotations change labels without changing the fold or its partial reveal.
+					const old = previous?.regions.find(r => r.originalLineNumber === gap.originalStart && r.modifiedLineNumber === gap.modifiedStart && r.lineCount === region.lineCount);
 					// The supplier's open/closed state wins; a matching old region keeps a partial reveal
 					// only while it agrees with that state.
 					const open = gap.collapsed === false;

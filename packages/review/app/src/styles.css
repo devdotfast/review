@@ -1,4 +1,12 @@
+@import "./fonts/fonts.css";
 .review-canvas-root {
+  --ghost: #343a46;
+  --well: #1a1f29;
+  --tray: #12161e;
+  --marker-tint: rgba(91, 124, 255, 0.14);
+  --marker-glow: rgba(91, 124, 255, 0.3);
+  --marker-underline: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='3' viewBox='0 0 48 3' preserveAspectRatio='none'><path d='M1 1.6 C 12 0.5, 30 2.5, 47 1.2' stroke='%235B7CFF' stroke-width='2' stroke-linecap='round' fill='none'/></svg>");
+  --board-grid: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><circle cx='1' cy='1' r='0.8' fill='%231A1F2A'/></svg>");
   --review-header-height: 35px;
   --font-serif: "Newsreader", Georgia, serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
@@ -14,16 +22,16 @@
      own. The rules bridge editorWidget.border rather than widget.border: the
      latter is null on both stock themes, so its variable is never emitted and
      the dark fallback would leak into light. */
-  --bg: var(--vscode-editor-background, #0a0b0d);
-  --bg-2: var(--vscode-editorWidget-background, #10141c);
-  --surface: var(--vscode-editor-background, #0d0f13);
-  --surface-raised: var(--vscode-editorWidget-background, #1a1f2a);
-  --control-bg: var(--vscode-input-background, #141822);
-  --ink: var(--vscode-editor-foreground, #e8eaee);
-  --ink-soft: var(--vscode-descriptionForeground, #9ba1ac);
-  --ink-faint: var(--vscode-disabledForeground, #565c66);
-  --rule: var(--vscode-panel-border, #1c1f26);
-  --rule-soft: var(--vscode-editorWidget-border, #262c37);
+  --bg: var(--vscode-editor-background, #0c0f15);
+  --bg-2: var(--vscode-editorWidget-background, #12161e);
+  --surface: var(--vscode-editor-background, #0c0f15);
+  --surface-raised: var(--vscode-editorWidget-background, #1a1f29);
+  --control-bg: var(--vscode-input-background, #1a1f29);
+  --ink: var(--vscode-editor-foreground, #eef0f4);
+  --ink-soft: var(--vscode-descriptionForeground, #9199a8);
+  --ink-faint: var(--vscode-disabledForeground, #5f6776);
+  --rule: var(--vscode-panel-border, #262c37);
+  --rule-soft: var(--vscode-editorWidget-border, #39404d);
   /* Affordances that used to be hover-only (disclosure chevrons) rest at
      reduced strength instead of hiding, so the surface still
      advertises them. Hover/focus escalates them to full opacity. */
@@ -63,56 +71,56 @@
   --vscode-list-focusAndSelectionOutline: transparent;
   --vscode-list-inactiveFocusOutline: transparent;
   --vscode-inputOption-activeBorder: transparent;
-  --accent: #4d6ef5;
-  --accent-soft: #131a33;
+  --accent: #5b7cff;
+  --accent-soft: #1a2240;
   --on-accent: #ffffff;
   --on-accent-wash: rgba(255, 255, 255, 0.22);
   --on-warning: #1a1405;
-  --rpc: #9db1ff;
-  --text-selection-bg: rgba(77, 110, 245, 0.4);
+  --rpc: #8fa6ff;
+  --text-selection-bg: rgba(91, 124, 255, 0.35);
   --text-selection-color: #ffffff;
-  --canvas-grid: #1c2029;
-  --minimap-mask: rgba(10, 11, 13, 0.78);
+  --canvas-grid: #1a1f2a;
+  --minimap-mask: rgba(12, 15, 21, 0.78);
   --minimap-node: #8796ad;
   --minimap-node-selected: transparent;
   --edge-muted: #6f7786;
   --edge-implied: #8c8880;
-  --diagram-active: #dd5a26;
-  --change-added: #18c96f;
-  --change-removed: #e85d52;
-  --change-modified: #d99a0b;
-  --diff-added: #7cf5b0;
-  --diff-added-bg: #0d1711;
-  --diff-modified: #f3cf6b;
-  --diff-modified-bg: #15130b;
-  --diff-removed: #f0897e;
-  --diff-removed-bg: #170d0c;
-  --shadow-color: rgb(0 0 0 / 35%);
-  --shadow-color-strong: rgba(0, 0, 0, 0.45);
-  --shadow-color-heavy: rgba(0, 0, 0, 0.6);
+  --diagram-active: #5b7cff;
+  --change-added: #4ed990;
+  --change-removed: #f26a55;
+  --change-modified: #f2c14e;
+  --diff-added: #4ed990;
+  --diff-added-bg: #132019;
+  --diff-modified: #f2c14e;
+  --diff-modified-bg: #1d1b12;
+  --diff-removed: #f26a55;
+  --diff-removed-bg: #211517;
+  --shadow-color: rgb(0 0 0 / 45%);
+  --shadow-color-strong: rgba(0, 0, 0, 0.55);
+  --shadow-color-heavy: rgba(0, 0, 0, 0.65);
   --backdrop: rgba(0, 0, 0, 0.56);
-  --topbar-bg: rgba(13, 15, 19, 0.94);
-  --tabbar-bg: rgba(10, 11, 13, 0.94);
-  --floating-bar-bg: rgba(13, 15, 19, 0.96);
-  --accent-glow: rgba(77, 110, 245, 0.6);
-  --accent-shadow: rgba(77, 110, 245, 0.2);
-  --accent-stripe: rgba(77, 110, 245, 0.18);
-  --accent-wash: rgba(77, 110, 245, 0.16);
-  --accent-outline: rgb(77 110 245 / 32%);
-  --link-open-wash: rgba(77, 110, 245, 0.15);
-  --rpc-wash: rgba(157, 177, 255, 0.12);
-  --warning-wash: rgba(243, 207, 107, 0.12);
-  --warning-focus: rgba(243, 207, 107, 0.52);
-  --warning-shadow: rgba(243, 207, 107, 0.16);
+  --topbar-bg: rgba(12, 15, 21, 0.94);
+  --tabbar-bg: rgba(18, 22, 30, 0.94);
+  --floating-bar-bg: rgba(12, 15, 21, 0.96);
+  --accent-glow: rgba(91, 124, 255, 0.5);
+  --accent-shadow: rgba(91, 124, 255, 0.2);
+  --accent-stripe: rgba(91, 124, 255, 0.18);
+  --accent-wash: rgba(91, 124, 255, 0.14);
+  --accent-outline: rgb(91 124 255 / 32%);
+  --link-open-wash: rgba(91, 124, 255, 0.15);
+  --rpc-wash: rgba(143, 166, 255, 0.12);
+  --warning-wash: rgba(242, 193, 78, 0.12);
+  --warning-focus: rgba(242, 193, 78, 0.52);
+  --warning-shadow: rgba(242, 193, 78, 0.16);
   --muted-shadow: rgba(86, 92, 102, 0.18);
-  --boundary-bg: rgba(16, 20, 28, 0.62);
-  --label-bg: rgba(13, 15, 19, 0.94);
-  --transparent-accent: rgb(77 110 245 / 0%);
+  --boundary-bg: rgba(18, 22, 30, 0.62);
+  --label-bg: rgba(12, 15, 21, 0.94);
+  --transparent-accent: rgb(91 124 255 / 0%);
   --inner-shadow: rgb(0 0 0 / 16%);
   --toc-inner-shadow: rgb(0 0 0 / 16%);
-  --rail-1: #f0897e;
-  --rail-2: #7c9cf5;
-  --rail-3: #7cf5b0;
+  --rail-1: #f26a55;
+  --rail-2: #5b7cff;
+  --rail-3: #4ed990;
   --rail-4: #c8a4f5;
   --kw: #f97cc0;
   --fn: #7cc5f5;
@@ -121,17 +129,17 @@
   --com: #565c66;
   --op: #9ba1ac;
   --review-home-bg: var(--bg);
-  --review-home-card-active: #11141a;
-  --review-home-rule: #1c1f26;
-  --review-home-rule-soft: #262c37;
-  --review-home-meta: #737a86;
-  --review-home-comment: #7c9cf5;
+  --review-home-card-active: #12161e;
+  --review-home-rule: #262c37;
+  --review-home-rule-soft: #39404d;
+  --review-home-meta: #9199a8;
+  --review-home-comment: #5b7cff;
   --review-home-submitted: #c8a4f5;
-  --review-home-view-toggle-bg: #202125;
-  --review-home-view-toggle-active-border: #3b3d42;
-  --review-home-view-toggle-active-bg: #303136;
+  --review-home-view-toggle-bg: #1a1f29;
+  --review-home-view-toggle-active-border: #39404d;
+  --review-home-view-toggle-active-bg: #0c0f15;
   --review-home-view-toggle-shadow: rgb(0 0 0 / 45%);
-  --review-home-view-toggle-highlight: rgb(255 255 255 / 5%);
+  --review-home-view-toggle-highlight: rgb(255 255 255 / 4%);
   --syntax-comment: #85857f;
   --syntax-string: #2f855a;
   --syntax-number: #b45309;
@@ -2054,6 +2062,13 @@ button {
 }
 
 .review-app--theme-light {
+  --ghost: #cdd1d8;
+  --well: #e9ebef;
+  --tray: #f3f4f6;
+  --marker-tint: rgba(43, 85, 230, 0.08);
+  --marker-glow: rgba(43, 85, 230, 0.22);
+  --marker-underline: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='3' viewBox='0 0 48 3' preserveAspectRatio='none'><path d='M1 1.6 C 12 0.5, 30 2.5, 47 1.2' stroke='%232B55E6' stroke-width='2' stroke-linecap='round' fill='none'/></svg>");
+  --board-grid: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><circle cx='1' cy='1' r='0.8' fill='%23E6E8EC'/></svg>");
   color-scheme: light;
   --transparent: transparent;
   /* The ten neutrals bridged on .review-canvas-root are re-declared here with
@@ -2062,15 +2077,15 @@ button {
      value and the session view would disagree with the workbench on any light
      theme whose editor background is not pure white (Solarized Light, etc.). */
   --bg: var(--vscode-editor-background, #ffffff);
-  --bg-2: var(--vscode-editorWidget-background, #f4f4f3);
+  --bg-2: var(--vscode-editorWidget-background, #f3f4f6);
   --surface: var(--vscode-editor-background, #ffffff);
   --surface-raised: var(--vscode-editorWidget-background, #ffffff);
-  --control-bg: var(--vscode-input-background, #ffffff);
-  --ink: var(--vscode-editor-foreground, #1a1a18);
-  --ink-soft: var(--vscode-descriptionForeground, #555555);
-  --ink-faint: var(--vscode-disabledForeground, #999999);
-  --rule: var(--vscode-panel-border, #e0e0de);
-  --rule-soft: var(--vscode-editorWidget-border, #cccccc);
+  --control-bg: var(--vscode-input-background, #e9ebef);
+  --ink: var(--vscode-editor-foreground, #15181e);
+  --ink-soft: var(--vscode-descriptionForeground, #5d6472);
+  --ink-faint: var(--vscode-disabledForeground, #9aa0ab);
+  --rule: var(--vscode-panel-border, #d8dbe1);
+  --rule-soft: var(--vscode-editorWidget-border, #b9bec7);
   --selection: var(--accent);
   --selection-shadow: color-mix(in srgb, var(--accent) 40%, transparent);
   --tutorial-ring: color-mix(in srgb, var(--accent) 86%, #14213d);
@@ -2107,56 +2122,56 @@ button {
   --vscode-list-focusAndSelectionOutline: transparent;
   --vscode-list-inactiveFocusOutline: transparent;
   --vscode-inputOption-activeBorder: transparent;
-  --accent: #2b4fe0;
-  --accent-soft: #f6f8ff;
+  --accent: #2b55e6;
+  --accent-soft: #eef2ff;
   --on-accent: #ffffff;
   --on-accent-wash: rgba(255, 255, 255, 0.34);
   --on-warning: #4a3514;
-  --rpc: #2b4fe0;
-  --text-selection-bg: rgba(43, 79, 224, 0.18);
+  --rpc: #2b55e6;
+  --text-selection-bg: rgba(43, 85, 230, 0.16);
   --text-selection-color: var(--ink);
-  --canvas-grid: #eeeeee;
+  --canvas-grid: #e6e8ec;
   --minimap-mask: rgba(255, 255, 255, 0.72);
-  --minimap-node: #bbbbbb;
+  --minimap-node: #b9bec7;
   --minimap-node-selected: transparent;
-  --edge-muted: #b5b5b5;
-  --edge-implied: #b5b5b5;
-  --diagram-active: #2b4fe0;
-  --change-added: #2e9e66;
-  --change-removed: #b5453b;
-  --change-modified: #c2772a;
-  --diff-added: #3f8f62;
-  --diff-added-bg: #f2f8f4;
-  --diff-modified: #b0791f;
-  --diff-modified-bg: #fbf7ee;
-  --diff-removed: #b5453b;
-  --diff-removed-bg: #fbf4f3;
-  --shadow-color: rgba(20, 20, 18, 0.05);
-  --shadow-color-strong: rgba(20, 20, 18, 0.08);
-  --shadow-color-heavy: rgba(20, 20, 18, 0.12);
-  --backdrop: rgba(20, 20, 18, 0.26);
-  --topbar-bg: #f7f7f5;
-  --tabbar-bg: #f7f7f5;
+  --edge-muted: #9aa0ab;
+  --edge-implied: #b9bec7;
+  --diagram-active: #2b55e6;
+  --change-added: #1b9a57;
+  --change-removed: #d8402c;
+  --change-modified: #c98a0b;
+  --diff-added: #1b9a57;
+  --diff-added-bg: #eef7f2;
+  --diff-modified: #c98a0b;
+  --diff-modified-bg: #fbf5e8;
+  --diff-removed: #d8402c;
+  --diff-removed-bg: #fcefed;
+  --shadow-color: rgba(21, 24, 30, 0.08);
+  --shadow-color-strong: rgba(21, 24, 30, 0.1);
+  --shadow-color-heavy: rgba(21, 24, 30, 0.14);
+  --backdrop: rgba(21, 24, 30, 0.26);
+  --topbar-bg: #ffffff;
+  --tabbar-bg: #f3f4f6;
   --floating-bar-bg: rgba(255, 255, 255, 0.96);
-  --accent-glow: rgba(43, 79, 224, 0.04);
-  --accent-shadow: rgba(43, 79, 224, 0.06);
-  --accent-stripe: rgba(43, 79, 224, 0.05);
-  --accent-wash: rgba(43, 79, 224, 0.04);
-  --accent-outline: rgba(43, 79, 224, 0.32);
-  --link-open-wash: rgba(43, 79, 224, 0.15);
-  --rpc-wash: rgba(43, 79, 224, 0.06);
-  --warning-wash: rgba(194, 119, 42, 0.08);
-  --warning-focus: rgba(194, 119, 42, 0.2);
-  --warning-shadow: rgba(194, 119, 42, 0.08);
-  --muted-shadow: rgba(20, 20, 18, 0.06);
+  --accent-glow: rgba(43, 85, 230, 0.22);
+  --accent-shadow: rgba(43, 85, 230, 0.08);
+  --accent-stripe: rgba(43, 85, 230, 0.12);
+  --accent-wash: rgba(43, 85, 230, 0.08);
+  --accent-outline: rgba(43, 85, 230, 0.32);
+  --link-open-wash: rgba(43, 85, 230, 0.12);
+  --rpc-wash: rgba(43, 85, 230, 0.08);
+  --warning-wash: rgba(201, 138, 11, 0.1);
+  --warning-focus: rgba(201, 138, 11, 0.24);
+  --warning-shadow: rgba(201, 138, 11, 0.08);
+  --muted-shadow: rgba(21, 24, 30, 0.06);
   --boundary-bg: rgba(255, 255, 255, 0.44);
   --label-bg: rgba(255, 255, 255, 0.94);
-  --transparent-accent: rgba(43, 79, 224, 0);
-  --inner-shadow: rgba(20, 20, 18, 0.04);
-  --toc-inner-shadow: rgba(20, 20, 18, 0.02);
-  --rail-1: #b5453b;
-  --rail-2: #2b4fe0;
-  --rail-3: #2e9e66;
+  --transparent-accent: rgba(43, 85, 230, 0);
+  --inner-shadow: rgba(21, 24, 30, 0.04);
+  --toc-inner-shadow: rgba(21, 24, 30, 0.02);
+  --rail-1: #d8402c;
+  --rail-2: #2b55e6;
+  --rail-3: #1b9a57;
   --rail-4: #6d43b3;
   --kw: #9c3f80;
   --fn: #2370a4;
@@ -2165,16 +2180,16 @@ button {
   --com: #767672;
   --op: #555555;
   --review-home-bg: var(--bg);
-  --review-home-card-active: #f4f4f3;
+  --review-home-card-active: #f3f4f6;
   --review-home-rule: var(--rule);
   --review-home-rule-soft: var(--rule-soft);
-  --review-home-meta: #767672;
+  --review-home-meta: #5d6472;
   --review-home-comment: var(--accent);
   --review-home-submitted: #6d43b3;
-  --review-home-view-toggle-bg: #e8e8e6;
-  --review-home-view-toggle-active-border: var(--rule-soft);
+  --review-home-view-toggle-bg: #e9ebef;
+  --review-home-view-toggle-active-border: #d8dbe1;
   --review-home-view-toggle-active-bg: #ffffff;
-  --review-home-view-toggle-shadow: rgba(20, 20, 18, 0.08);
+  --review-home-view-toggle-shadow: rgba(21, 24, 30, 0.06);
   --review-home-view-toggle-highlight: rgba(255, 255, 255, 0.8);
   --syntax-comment: #767672;
   --syntax-string: #2e9e66;
@@ -3359,6 +3374,14 @@ button {
 .review-document h1 {
   margin: 0 0 22px;
   font-size: 42px;
+}
+
+/* A heading jumped to from the contents lands this far below the scroll
+   edge: clear of the edge for scroll-synced highlighting, and the same slack
+   the contents rail leaves under the last heading. */
+.review-document h2,
+.review-document h3 {
+  scroll-margin-top: 24px;
 }
 
 .review-document h2 {
@@ -4564,7 +4587,9 @@ button {
   overflow-y: auto;
   scrollbar-color: var(--review-scrollbar-thumb) transparent;
   scrollbar-width: thin;
-  padding: var(--review-page-top) 52px 120px;
+  /* --review-toc-tail is the room the contents rail adds so the last heading
+     can scroll up to the top edge, measured by the rail itself. */
+  padding: var(--review-page-top) 52px calc(120px + var(--review-toc-tail, 0px));
 }
 
 .review-view-region--review::-webkit-scrollbar {
@@ -4626,9 +4651,9 @@ button {
     transform 140ms ease;
 }
 
-/* At the top of a wide shell the contents render as a plain rail, without
-   the floating-card chrome. Scrolling (or a narrow shell) collapses to the
-   breadcrumb pill, which opens the floating-card drawer. */
+/* A wide shell renders the contents as a plain rail beside the prose, without
+   the floating-card chrome, for the whole document. A narrow shell collapses
+   to the breadcrumb pill, which opens the floating-card drawer. */
 .review-toc--rail {
   border-color: var(--transparent);
   background: var(--transparent);
@@ -6223,7 +6248,7 @@ button.review-stack-row:disabled .review-stack-relation {
   }
 
   .review-view-region--review {
-    padding: 22px 8px 96px;
+    padding: 22px 8px calc(96px + var(--review-toc-tail, 0px));
   }
 
   .review-toc-toggle {
@@ -7987,7 +8012,6 @@ button.review-stack-row:disabled .review-stack-relation {
 .copy-for-agent-popover kbd span {
   display: inline-block;
 }
-
 
 .diff-workspace {
   display: flex;

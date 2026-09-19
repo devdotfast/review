@@ -28,6 +28,10 @@ import type {
 import { useReviewRoots } from "./review-root-context";
 import type { ReviewSectionSummary } from "./review-section-summary";
 import { useReviewUiState } from "./review-ui-state";
+import {
+  activeTargetForScroll,
+  scrollTailHeight,
+} from "./scroll-active-tracking";
 import { useBottomSheetResize } from "./side-panel-resizer";
 import { TraceDocument, extractEventText } from "./trace-document";
 import { useTutorialSection } from "./tutorial-section-context";
@@ -785,17 +789,13 @@ export function GuidedTourPanel({
         scroller.getBoundingClientRect().top +
         scroller.scrollTop;
 
-      const contentSansTail = scroller.scrollHeight - tail.offsetHeight;
       setTailHeight(
-        Math.max(
-          0,
-          Math.ceil(
-            lastTopInContent -
-              TOUR_ACTIVE_TOP_SLACK_PX +
-              scroller.clientHeight -
-              contentSansTail,
-          ),
-        ),
+        scrollTailHeight({
+          lastTargetTop: lastTopInContent,
+          slack: TOUR_ACTIVE_TOP_SLACK_PX,
+          viewportHeight: scroller.clientHeight,
+          contentHeightSansTail: scroller.scrollHeight - tail.offsetHeight,
+        }),
       );
     };
 
@@ -856,38 +856,28 @@ export function GuidedTourPanel({
   const showIntroPill =
     !hasScrolled && displayIndex === 0 && tour.stops.length > 1;
 
-  // Docusaurus's TOC rule: the first stop whose top is still below the
-  // scroller's top edge is the candidate. Once it reaches the top half of
-  // the viewport it takes the highlight; until then the previous stop keeps
-  // it. Past every stop, the last one holds. The look-ahead protects the
-  // top edge structurally — at scroll zero the candidate is stop one, no
-  // matter how short it is.
+  // The stop being read follows the shared scroll-tracking rule (see
+  // scroll-active-tracking.ts), the same one the contents rail uses.
   const syncActiveStopToScroll = () => {
     setHasScrolled(true);
     const scroller = scrollerRef.current;
-    const lastStop = tour.stops[tour.stops.length - 1];
 
-    if (!scroller || !lastStop) return;
+    if (!scroller) return;
     const scrollerRect = scroller.getBoundingClientRect();
-    const halfLine = scrollerRect.top + scrollerRect.height / 2;
-    let nextAnchor = lastStop.anchor.id;
 
-    for (let index = 0; index < tour.stops.length; index += 1) {
-      const stop = tour.stops[index]!;
-      const section = sectionRefs.current.get(stop.anchor.id);
+    const nextAnchor = activeTargetForScroll(
+      tour.stops.flatMap((stop) => {
+        const section = sectionRefs.current.get(stop.anchor.id);
 
-      if (!section) continue;
-      const top = section.getBoundingClientRect().top;
+        return section
+          ? [{ id: stop.anchor.id, top: section.getBoundingClientRect().top }]
+          : [];
+      }),
+      scrollerRect.top,
+      scrollerRect.top + scrollerRect.height / 2,
+    );
 
-      if (top < scrollerRect.top) continue;
-      nextAnchor =
-        top <= halfLine
-          ? stop.anchor.id
-          : (tour.stops[index - 1] ?? stop).anchor.id;
-      break;
-    }
-
-    if (nextAnchor === activeAnchor) return;
+    if (nextAnchor === null || nextAnchor === activeAnchor) return;
     onActiveAnchorChange(nextAnchor, { reveal: false });
   };
 

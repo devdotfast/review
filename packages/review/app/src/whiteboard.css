@@ -1,0 +1,876 @@
+/* Whiteboard restyle. Layered after styles.css: it only re-dresses surfaces,
+   the layout rules stay where they are. One board, one marker: chrome is the
+   tray, content is the board, committed things are crisp vector, anything the
+   agent is still thinking about is marker ink trailing one blue dot, and
+   erased history lingers as ghost ink. Tokens come from styles.css; the
+   whiteboard-only ones are --tray, --well, --ghost, --marker-tint,
+   --marker-glow, --marker-underline and --board-grid. */
+
+.review-app {
+  --chrome-control-height: 24px;
+  --chrome-control-radius: 6px;
+  --chrome-font-size: 12px;
+  --chrome-font-size-small: 11px;
+  --chrome-hover-bg: var(--well);
+  --chrome-border: var(--rule);
+  --wb-caps: 0.08em;
+}
+
+/* ---------------------------------------------------------------------------
+   Topbar. Views are words on the tray; the marker underlines the active one.
+   --------------------------------------------------------------------------- */
+.review-topbar {
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.review-segmented {
+  gap: 18px;
+  padding: 0;
+  border-radius: 0;
+  background: var(--transparent);
+}
+
+.review-segment {
+  position: relative;
+  gap: 6px;
+  height: var(--review-header-height);
+  padding: 0;
+  border-radius: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.review-segment:hover:not(.review-segment--active) {
+  background: var(--transparent);
+  color: var(--ink);
+}
+
+.review-segmented .review-segment:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+.review-segment--active {
+  background: var(--transparent);
+  box-shadow: none;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-segment--active::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 6px;
+  left: 0;
+  height: 3px;
+  background: var(--marker-underline) no-repeat center / 100% 100%;
+}
+
+.review-segment--active .review-segment-count {
+  color: var(--accent);
+}
+
+.review-segment-count {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.review-open-source-tree,
+.review-topbar-icon-button,
+.review-history-button {
+  border-radius: var(--chrome-control-radius);
+  color: var(--ink-soft);
+}
+
+.review-open-source-tree:hover,
+.review-topbar-icon-button:hover,
+.review-history-button:hover:not(:disabled) {
+  background: var(--well);
+  color: var(--ink);
+}
+
+.review-history-selected {
+  border: 1px solid var(--rule);
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------
+   The marker. One blue dot is the frontier; the halo breathes while the agent
+   is writing (study 01, "Frontier"). Nothing else in the chrome moves.
+   --------------------------------------------------------------------------- */
+.host-authoring-activity {
+  gap: 7px;
+  height: var(--chrome-control-height);
+  margin-inline: 4px;
+  padding: 0 10px 0 6px;
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font: 500 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+.host-authoring-activity[data-active] {
+  background: var(--marker-tint);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.host-authoring-activity-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--ink-faint);
+}
+
+.host-authoring-activity[data-active] .host-authoring-activity-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--marker-glow);
+  animation: wb-breathe 1.4s ease-in-out infinite;
+}
+
+.host-authoring-activity-inline {
+  height: auto;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-inline-start: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--marker-tint);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ink-soft);
+  white-space: normal;
+}
+
+@keyframes wb-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px var(--marker-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 6px var(--marker-glow);
+  }
+}
+
+.review-section-progress {
+  width: 2px;
+  background: var(--ghost);
+  opacity: 1;
+}
+
+.review-section-progress[data-state="in_progress"] {
+  background: var(--accent);
+  animation: wb-pulse 1.4s ease-in-out infinite alternate;
+}
+
+.review-section-progress[data-state="complete"] {
+  background: var(--change-added);
+}
+
+@keyframes wb-pulse {
+  to {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .host-authoring-activity[data-active] .host-authoring-activity-dot,
+  .review-section-progress[data-state="in_progress"] {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Home. Mono display heading, serif card titles, status as marker washes.
+   --------------------------------------------------------------------------- */
+.review-home-page-header h1 {
+  font: 600 32px/36px var(--font-mono);
+  letter-spacing: -0.02em;
+}
+
+.review-home-search {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.review-home-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-tint);
+}
+
+.review-home-view-toggle {
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--well);
+}
+
+.review-home-view-toggle button {
+  border-radius: 4px;
+}
+
+.review-home-view-toggle button.is-active {
+  border-color: var(--rule);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.review-home-workspace-header {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.review-home-workspace-header strong {
+  font-size: 13px;
+}
+
+.review-home-workspace-header > span,
+.review-home-workspace-header--group > span {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.review-home-card {
+  height: auto;
+  min-height: 128px;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.review-home-card:hover:not(:disabled) {
+  border-color: var(--rule-soft);
+}
+
+.review-home-card:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--marker-tint);
+}
+
+.review-home-card-meta,
+.review-home-updated,
+.review-home-list-row td {
+  font-family: var(--font-mono);
+}
+
+.review-home-pr {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.review-home-status {
+  min-height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--transparent);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.review-home-status--ready {
+  background: var(--diff-added-bg);
+  color: var(--change-added);
+}
+
+.review-home-status--dismissed {
+  border-color: var(--rule);
+  color: var(--ink-soft);
+}
+
+.review-home-status--in-review {
+  background: var(--marker-tint);
+  color: var(--accent);
+}
+
+.review-home-status circle {
+  fill-opacity: 0;
+  stroke-width: 1.2;
+}
+
+.review-home-setup-banner {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--tray);
+}
+
+.review-home-dismissed-toggle {
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------------------
+   Contents rail. Mono, numbered; the active entry gets the marker underline.
+   --------------------------------------------------------------------------- */
+.review-toc,
+.review-toc-toggle {
+  border-color: var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px var(--shadow-color);
+}
+
+.review-toc--rail {
+  border-color: var(--transparent);
+  background: var(--transparent);
+  box-shadow: none;
+}
+
+.review-toc-head {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: var(--wb-caps);
+}
+
+.review-toc-list {
+  gap: 6px;
+}
+
+.review-toc-link {
+  position: relative;
+  gap: 10px;
+  padding: 2px 0;
+  border-radius: 0;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.review-toc-item--h2 .review-toc-link {
+  font-weight: 400;
+}
+
+.review-toc-number {
+  min-width: 22px;
+  font-size: 11px;
+}
+
+.review-toc-item--active .review-toc-link {
+  background: var(--transparent);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.review-toc-item--active .review-toc-number {
+  color: var(--accent);
+}
+
+/* The underline is painted below the text, never in the flow: an active
+   row must keep exactly the height of an inactive one so nothing shifts. */
+.review-toc-text {
+  position: relative;
+}
+
+.review-toc-item--active .review-toc-text::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -3px;
+  left: 0;
+  height: 3px;
+  background: var(--marker-underline) no-repeat left / 100% 100%;
+  pointer-events: none;
+}
+
+.review-toc-link:hover,
+.review-toc-link:focus-visible {
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------
+   The document. Newsreader prose at 17/27, mono byline, callouts as a rule.
+   --------------------------------------------------------------------------- */
+.review-document {
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.review-document h1 {
+  font-size: 34px;
+  line-height: 40px;
+  letter-spacing: -0.005em;
+}
+
+.review-document h2 {
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 32px;
+}
+
+.review-document h3 {
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.review-doc-meta {
+  gap: 12px;
+  font-size: 12px;
+}
+
+.review-doc-meta-pr {
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.review-stack-selector > summary {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.review-stack-position-marker {
+  display: none;
+}
+
+.review-section-header {
+  gap: 12px;
+}
+
+.review-section-toggle {
+  left: -28px;
+  color: var(--ink-faint);
+  opacity: 1;
+}
+
+.review-section-meta {
+  color: var(--ink-faint);
+}
+
+.review-section--collapsed .review-section-heading h2 {
+  color: var(--ghost);
+}
+
+.review-document blockquote[data-tone] {
+  margin: 18px 0;
+  padding: 12px 16px;
+  border-left: 2px solid var(--ink-faint);
+  border-radius: 0 6px 6px 0;
+  background: var(--bg-2);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.review-document blockquote[data-tone="info"] {
+  border-left-color: var(--accent);
+  background: var(--marker-tint);
+}
+
+.review-document blockquote[data-tone="warning"] {
+  border-left-color: var(--change-modified);
+  background: var(--diff-modified-bg);
+}
+
+.review-document blockquote[data-tone="danger"] {
+  border-left-color: var(--change-removed);
+  background: var(--diff-removed-bg);
+}
+
+.review-document blockquote[data-tone="success"] {
+  border-left-color: var(--change-added);
+  background: var(--diff-added-bg);
+}
+
+.review-document code {
+  border-radius: 3px;
+  background: var(--well);
+  font-size: 0.85em;
+}
+
+/* ---------------------------------------------------------------------------
+   Figures. Hairline frame, tray header and footer, a dot grid on the board.
+   --------------------------------------------------------------------------- */
+.diagram-header,
+.sequence-diagram figcaption.diagram-header {
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.diagram-kind-badge {
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--well);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 18px;
+  letter-spacing: var(--wb-caps);
+}
+
+.diagram-header-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Header meta ("5 stops", "4 nodes") is a quiet count, not a chip: the
+   sequence figcaption used to box and uppercase its `em`. */
+.diagram-header-meta,
+.sequence-diagram > .diagram-header em,
+.sequence-diagram figcaption em {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--transparent);
+  color: var(--ink-faint);
+  font: 400 11px var(--font-mono);
+  font-style: normal;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.diagram-tour-button {
+  height: 24px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.flow-diagram {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.flow-diagram-body {
+  border-top: 0;
+}
+
+.flow-diagram-canvas {
+  background: var(--surface) var(--board-grid) repeat;
+}
+
+.flow-diagram > footer {
+  border-top: 1px solid var(--rule);
+  background: var(--tray);
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.lens-flow-node rect {
+  fill: var(--surface);
+  stroke: var(--rule-soft);
+  stroke-width: 1;
+}
+
+.lens-flow-node--added rect {
+  fill: var(--diff-added-bg);
+  stroke: var(--change-added);
+}
+
+.lens-flow-node--removed rect {
+  fill: var(--diff-removed-bg);
+  stroke: var(--change-removed);
+}
+
+.lens-flow-node--modified rect {
+  fill: var(--diff-modified-bg);
+  stroke: var(--change-modified);
+}
+
+.lens-flow-node.is-selected rect,
+.lens-flow-node:focus-visible rect {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.lens-flow-edge {
+  stroke: var(--ink-soft);
+}
+
+.lens-flow marker path {
+  fill: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------------------------
+   Diff workspace. The sidebar is the tray; washes at 8%, marker for viewed.
+   --------------------------------------------------------------------------- */
+.diff-workspace-sidebar {
+  background: var(--tray);
+  border-right: 1px solid var(--rule);
+}
+
+.diff-global-progress {
+  min-height: 52px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.diff-progress-ring circle {
+  stroke: var(--well);
+  stroke-width: 2.5;
+}
+
+.diff-progress-ring circle + circle {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+
+.diff-sidebar-heading {
+  padding: 10px 14px 6px 16px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: var(--wb-caps);
+}
+
+.diff-lens-section {
+  border-bottom: 0;
+}
+
+.diff-lens-section.is-expanded {
+  background: var(--marker-tint);
+}
+
+.diff-lens-toggle {
+  padding: 6px 12px 6px 16px;
+  font-size: 12px;
+}
+
+.diff-lens-toggle:hover {
+  background: var(--well);
+}
+
+.diff-lens-toggle.is-active {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.diff-lens-name small {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.diff-counts {
+  font-size: 11px;
+}
+
+.diff-count-added {
+  color: var(--change-added);
+}
+
+.diff-count-removed {
+  color: var(--change-removed);
+}
+
+.viewed-check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--surface);
+  font-size: 10px;
+}
+
+.viewed-check--viewed {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  opacity: 1;
+}
+
+.diff-workspace .is-viewed {
+  opacity: 0.55;
+}
+
+.diff-workspace .is-viewed .viewed-check--viewed {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+   Controls. 28px, 6px radius, one filled button per screen.
+   --------------------------------------------------------------------------- */
+.review-corner-dismiss,
+.review-home-setup-banner button,
+.review-home-prompt-copy,
+.agent-setup-card button,
+.tutorial-guide button {
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.review-home-setup-banner button {
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.review-home-setup-banner button:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+
+/* ---------------------------------------------------------------------------
+   Commits. A timeline down the left, each commit a crisp card on the board.
+   --------------------------------------------------------------------------- */
+.review-commits-range {
+  gap: 16px;
+  align-items: baseline;
+  padding-bottom: 16px;
+}
+
+.review-commits-range > div:first-child {
+  min-width: 0;
+}
+
+.review-commits-range strong {
+  flex-shrink: 0;
+  font: 600 15px/20px var(--font-mono);
+  white-space: nowrap;
+}
+
+.review-commits-range > div:first-child > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-commits-range-shas {
+  flex-shrink: 0;
+}
+
+.review-commit-date {
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: var(--wb-caps);
+  text-transform: uppercase;
+}
+
+.review-commit-card {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.review-commit-card:hover {
+  border-color: var(--rule-soft);
+}
+
+.review-commit-card--expanded {
+  border-color: var(--rule-soft);
+}
+
+.review-commit-open {
+  height: 24px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.review-commit-open:hover {
+  background: var(--well);
+}
+
+/* ---------------------------------------------------------------------------
+   Software map. The board is dotted; every box is a hairline; change state
+   is a tinted hairline, never a thick stroke. Selection is the marker.
+   --------------------------------------------------------------------------- */
+.software-map-canvas,
+.software-map-c4-canvas,
+.review-map-view .react-flow,
+.review-map-view .react-flow__renderer,
+.review-map-view .react-flow__pane,
+.software-map-c4-canvas .react-flow {
+  background-color: var(--bg) !important;
+}
+
+.review-map-view .react-flow__pane {
+  background-image: var(--board-grid) !important;
+  background-repeat: repeat !important;
+}
+
+.software-map-c4-group-shell,
+.software-map-c4-node-shell > .software-map-node,
+.software-map-node {
+  border-width: 1px !important;
+  border-color: var(--rule-soft) !important;
+  border-radius: 6px !important;
+  background: var(--surface) !important;
+}
+
+.software-map-c4-group-shell,
+.software-map-c4-group-shell--softwareSystem {
+  border-color: var(--rule) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg)) !important;
+}
+
+.software-map-c4-group-shell--added,
+.software-map-node.software-map-node--added {
+  border: 1px solid var(--change-added) !important;
+  background: var(--diff-added-bg) !important;
+}
+
+.software-map-c4-group-shell--modified,
+.software-map-node.software-map-node--modified {
+  border: 1px solid var(--change-modified) !important;
+  background: var(--diff-modified-bg) !important;
+}
+
+.software-map-c4-group-shell--removed,
+.software-map-node.software-map-node--removed {
+  border: 1px dashed var(--change-removed) !important;
+  background: var(--diff-removed-bg) !important;
+  opacity: 0.8 !important;
+}
+
+.software-map-c4-group-shell.selected,
+.software-map-node.selected,
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--added,
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--removed,
+.software-map-c4-group-shell.selected.software-map-c4-group-shell--modified,
+.software-map-node.selected.software-map-node--added,
+.software-map-node.selected.software-map-node--removed,
+.software-map-node.selected.software-map-node--modified {
+  border: 1px solid var(--accent) !important;
+  background: var(--marker-tint) !important;
+  box-shadow: 0 0 0 3px var(--marker-glow) !important;
+}
+
+.software-map-change-badge {
+  border-radius: 999px !important;
+  background: var(--well) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+}
+
+.software-map-node-meta,
+.software-map-more {
+  color: var(--ink-faint) !important;
+  font-size: 11px !important;
+  letter-spacing: var(--wb-caps) !important;
+}
+
+.software-map-c4-edge-label {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  fill: var(--ink-soft) !important;
+}

@@ -320,53 +320,34 @@
 .monaco-workbench.review-workbench {
   /* Each pill color mixes over the tab-strip background, so a theme change
      carries into the pill. */
-  --review-tab-fill: color-mix(
-    in srgb,
-    #ffffff 7%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-border: color-mix(
-    in srgb,
-    #ffffff 13%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
+  /* Whiteboard: the active tab is a board-colored pill with a hairline, the
+     same surface and rule the canvas uses, so the tab reads as a piece of the
+     board lifted onto the tray. No drop shadow in either theme. */
+  --review-tab-fill: var(--vscode-editor-background);
+  --review-tab-border: var(--vscode-panel-border);
   --review-tab-hover-fill: color-mix(
     in srgb,
     #ffffff 4%,
     var(--vscode-editorGroupHeader-tabsBackground)
   );
-  --review-tab-separator: color-mix(
-    in srgb,
-    #ffffff 16%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --review-tab-separator: var(--vscode-panel-border);
+  --review-tab-shadow: none;
+  --review-chrome-font: "Geist Mono", ui-monospace, SFMono-Regular, Menlo,
+    monospace;
 }
 
 /* The light themes use weaker mixes, so the pill stays subtle. */
 .monaco-workbench.review-workbench.vs,
 .monaco-workbench.review-workbench.hc-light {
-  --review-tab-fill: color-mix(
-    in srgb,
-    #ffffff 55%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-border: color-mix(
-    in srgb,
-    #000000 8%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
+  --review-tab-fill: var(--vscode-editor-background);
+  --review-tab-border: var(--vscode-panel-border);
   --review-tab-hover-fill: color-mix(
     in srgb,
-    #ffffff 25%,
+    #ffffff 40%,
     var(--vscode-editorGroupHeader-tabsBackground)
   );
-  --review-tab-separator: color-mix(
-    in srgb,
-    #000000 12%,
-    var(--vscode-editorGroupHeader-tabsBackground)
-  );
-  --review-tab-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --review-tab-separator: var(--vscode-panel-border);
+  --review-tab-shadow: none;
 }
 
 /* 28px pill + 6px above + 6px below = the 40px row. EditorTabsControl reports
@@ -765,7 +746,35 @@ body
    default, which keeps the standalone browser build on its mono face. Every text
    item in the topbar reads this token, so the bar shows one face throughout. */
 .review-canvas-host .review-app {
-  --chrome-font: system-ui, sans-serif;
+  --chrome-font: var(--review-chrome-font, var(--font-mono));
+}
+
+/* Whiteboard: every label on the tray is set in the same mono face as the
+   canvas chrome. The faces ship with the canvas stylesheet, whose @font-face
+   rules are hoisted out of its @scope so they apply document-wide. */
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab
+  .monaco-icon-label {
+  font-family: var(--review-chrome-font);
+  font-size: 12px;
+}
+
+body
+  .monaco-workbench.review-workbench
+  .part.editor
+  > .content
+  .editor-group-container
+  > .title
+  .tabs-container
+  > .tab.active
+  .monaco-icon-label {
+  font-weight: 600;
 }
 
 /* Multi-diff headers print a full Review path in one label. Keep the file name
@@ -858,7 +867,7 @@ body
   height: 100%;
   min-height: 0;
   background: var(--vscode-editor-background);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--review-chrome-font, system-ui, sans-serif);
 }
 
 .review-changed-files-tree {

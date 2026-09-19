@@ -20,6 +20,8 @@ import { DetailedLineRangeMapping } from "../../editor/common/diff/rangeMapping.
 import { autorun, type IObservable } from "../../base/common/observable.js";
 import type { UnchangedRegion } from "../../editor/browser/widget/diffEditor/diffEditorViewModel.js";
 import {
+  searchStructuralDiff,
+  structuralSearchHighlights,
   structuralContextGaps,
   structuralFilePath,
   structuralInitialCounts,
@@ -59,16 +61,17 @@ export async function prepareStructuralReview(
   /** Fires when a file's visible counts change: on arrival and on every fold toggle. */
   onDidChangeCounts: Event<{ path: string; counts: StructuralFileCounts }>;
 }> {
-  const unchanged = new Set(entries.filter(entry => entry.file.status === "unchanged").map(entry => entry.file.path));
+  const unchanged = new Set(entries.filter(entry => !entry.evidence && entry.file.status === "unchanged").map(entry => entry.file.path));
   const files = new Map<string, StructuralTextDiff>();
   const binary = new Set<string>();
-  /** Collapse state by `${path}:${fold_state_id}`, seeded from the wire's initial visibility. A fold-state id spans sides. */
+  /** Collapse state by editor pair and fold_state_id, seeded from the supplied visibility. A fold-state id spans sides. */
   const collapsed = new Map<string, boolean>();
   const collapseKey = (path: string, foldStateId: number) => `${path}:${foldStateId}`;
   const countsChanged = lifetime.add(new Emitter<{ path: string; counts: StructuralFileCounts }>());
   // Counts are the wire's, read once when a file arrives; folding never changes them.
   const emitCounts = (path: string) => {
-    const diff = files.get(path);
+    const entry = resolvedEntries.find(entry => !entry.evidence && entry.file.path === path);
+    const diff = entry && files.get(keyOf(entry));
     if (!diff) return;
     countsChanged.fire({ path, counts: structuralInitialCounts(diff) });
   };
@@ -85,13 +88,18 @@ export async function prepareStructuralReview(
     original: entry.original ?? URI.from({ scheme: "review-structural-empty", path: "/base/" + entry.file.path, query: entry.modified!.toString() }),
     modified: entry.modified ?? URI.from({ scheme: "review-structural-empty", path: "/head/" + entry.file.path, query: entry.original!.toString() }),
   }));
-  const pairs = new Map(resolvedEntries.map(e => [e.original!.toString() + "\n" + e.modified!.toString(), e.file.path]));
-  async function accept(event: Extract<StructuralEvent, { type: "file" }>): Promise<{ path: string; stats?: StructuralLineCounts }> {
+  const keyOf = (entry: ReviewFilesEditorEntry) => entry.original!.toString() + "\n" + entry.modified!.toString();
+  async function accept(event: Extract<StructuralEvent, { type: "file" }>, supplied?: (typeof resolvedEntries)[number]): Promise<{ path: string; stats?: StructuralLineCounts }> {
     const path = structuralFilePath(event.file);
-    const entry = resolvedEntries.find(e => e.file.path === path);
+    const entry = supplied ?? resolvedEntries.find(e => !e.evidence && e.file.path === path);
     if (!entry) throw new Error(`diffr returned an unexpected file: ${path}`);
     if (event.error) throw new Error(event.error.message);
-    const diff = event.diff!;
+    const key = keyOf(entry);
+    const payload = event.diff!;
+    const diff = payload.type === "text" ? { ...payload,
+      lhs: entry.original.scheme === "review-structural-empty" ? undefined : payload.lhs,
+      rhs: entry.modified.scheme === "review-structural-empty" ? undefined : payload.rhs,
+    } : payload;
     if (diff.type === "text") {
       const sides: [typeof entry.original, StructuralSource | undefined][] = [
         [entry.original, diff.lhs],
@@ -109,24 +117,46 @@ export async function prepareStructuralReview(
     if (lifetime.isDisposed) throw new CancellationError();
     if (diff.type === "text") {
       structuralInitialCounts(diff);
-      files.set(path, diff);
+      files.set(key, diff);
       for (const source of [diff.lhs, diff.rhs]) {
         const seed = (region: StructuralRegion) => {
-          const key = collapseKey(path, region.fold_state_id);
-          if (!collapsed.has(key)) collapsed.set(key, region.visibility?.collapsed === true);
+          const foldKey = collapseKey(key, region.fold_state_id);
+          if (!collapsed.has(foldKey)) collapsed.set(foldKey, region.visibility?.collapsed === true);
           if (region.kind === "fold") region.children.forEach(seed);
         };
         (source?.regions ?? []).forEach(seed);
       }
-    } else binary.add(path);
-    emitCounts(path);
+    } else binary.add(key);
+    if (!entry.evidence) emitCounts(path);
     return { path, stats: diff.type === "text" ? diff.stats.textual : undefined };
   }
   async function load(
     onFile: (path: string, outcome: StructuralFileOutcome) => void,
   ): Promise<void> {
+    const retained = new Map<string, StructuralFileOutcome>();
+    for (const entry of resolvedEntries.filter(entry => entry.evidence)) {
+      try {
+        const accepted = await accept({ type: "file", file: entry.evidence!.file, diff: searchStructuralDiff(entry.evidence!) }, entry);
+        if (!retained.has(accepted.path)) retained.set(accepted.path, {});
+      } catch (error) {
+        retained.set(entry.file.path, { error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    for (const [path, outcome] of retained) if (!entries.some(entry => !entry.evidence && entry.file.path === path && !unchanged.has(path))) onFile(path, outcome);
+    for (const entry of resolvedEntries.filter(entry => !entry.evidence && unchanged.has(entry.file.path))) {
+      const read = async (uri: URI): Promise<StructuralSource | undefined> => {
+        if (uri.scheme === "review-structural-empty") return undefined;
+        const reference = lifetime.add(await resolver.createModelReference(uri));
+        const text = reference.object.textEditorModel.getValue();
+        const lines = text.split("\n");
+        return { text, regions: [{ kind: "leaf", id: 0, fold_state_id: 0, alignment_id: 0, start: { line: 0, column: 0 }, end: { line: lines.length - 1, column: new TextEncoder().encode(lines.at(-1)!).length } }] };
+      };
+      const lhs = await read(entry.original), rhs = await read(entry.modified);
+      if (lhs && rhs && lhs.text !== rhs.text) throw new Error("Referenced context file changed; reload the review.");
+      files.set(keyOf(entry), { type: "text", lhs, rhs, stats: { textual: { added: 0, removed: 0 }, visible: { added: 0, removed: 0 } } });
+    }
     for (const path of unchanged) onFile(path, {});
-    if (unchanged.size === entries.length) return;
+    if (entries.every(entry => entry.evidence || unchanged.has(entry.file.path))) return;
     const abort = new AbortController();
     lifetime.add(toDisposable(() => abort.abort()));
     const response = await request(abort.signal);
@@ -146,12 +176,14 @@ export async function prepareStructuralReview(
         started = true;
       } else if (event.type === "file") {
         const path = structuralFilePath(event.file);
+        if (!entries.some(entry => !entry.evidence && entry.file.path === path && !unchanged.has(path))) return;
         seen.add(path);
         try {
-          const accepted = await accept(event);
-          onFile(accepted.path, {
-            stats: accepted.stats,
-            hidden: event.visibility?.collapsed ? event.visibility.label || "Hidden by default" : undefined,
+          const accepted = await Promise.all(resolvedEntries.filter(entry => !entry.evidence && entry.file.path === path).map(entry => accept(event, entry)));
+          onFile(path, {
+            ...retained.get(path),
+            stats: accepted[0]?.stats,
+            hidden: !retained.has(path) && event.visibility?.collapsed ? event.visibility.label || "Hidden by default" : undefined,
           });
         } catch (error) {
           if (lifetime.isDisposed) throw error;
@@ -175,7 +207,7 @@ export async function prepareStructuralReview(
       }
       await line(buffer);
       if (!complete) throw new Error("diffr stream ended before completion.");
-      for (const entry of entries) if (!seen.has(entry.file.path) && !unchanged.has(entry.file.path))
+      for (const entry of entries) if (!entry.evidence && !seen.has(entry.file.path) && !unchanged.has(entry.file.path))
         onFile(entry.file.path, { error: "diffr did not supply a result for this file." });
     } finally {
       await reader.cancel().catch(() => {});
@@ -192,15 +224,11 @@ export async function prepareStructuralReview(
         onDidChange: providerChanged.event,
         async computeDiff(original, modified, _options, token) {
           if (token.isCancellationRequested) throw new CancellationError();
-          const path = pairs.get(original.uri.with({ fragment: "" }).toString() + "\n" + modified.uri.with({ fragment: "" }).toString());
-          if (path !== undefined && unchanged.has(path)) {
-            if (original.getValue() !== modified.getValue()) throw new Error("Referenced context file changed; reload the review.");
-            return { changes: [], moves: [], identical: true, quitEarly: false };
-          }
-          if (path !== undefined && binary.has(path)) {
+          const path = original.uri.toString() + "\n" + modified.uri.toString();
+          if (binary.has(path)) {
             return { changes: [], moves: [], identical: false, quitEarly: false, changeHighlights: { original: [], modified: [] } };
           }
-          const diff = path === undefined ? undefined : files.get(path);
+          const diff = files.get(path);
           if (!diff) throw new Error("diffr did not supply a result for this file.");
           const left = (diff.lhs?.text ?? "").replace(/\r\n/g, "\n");
           const right = (diff.rhs?.text ?? "").replace(/\r\n/g, "\n");
@@ -248,8 +276,8 @@ export async function prepareStructuralReview(
             // Every collapsed region is a hidden-region band, labelled by the wire.
             contextGaps: structuralContextGaps(
               diff,
-              (id) => collapsed.get(collapseKey(path!, id)) === true,
-              (id) => collapsed.get(collapseKey(path!, id)),
+              (id) => collapsed.get(collapseKey(path, id)) === true,
+              (id) => collapsed.get(collapseKey(path, id)),
             ),
             changeHighlights: highlights,
           };
@@ -260,7 +288,7 @@ export async function prepareStructuralReview(
   const child = lifetime.add(
     instantiation.createChild(new ServiceCollection([IDiffProviderFactoryService, factory])),
   );
-  attachStructuralEditors(instantiation, resolvedEntries, files, lifetime, {
+  attachStructuralEditors(instantiation, files, lifetime, {
     get: (path, id) => collapsed.get(collapseKey(path, id)),
     set: (path, id, value) => {
       if (collapsed.get(collapseKey(path, id)) === value) return;
@@ -278,25 +306,29 @@ export async function prepareStructuralReview(
  */
 function attachStructuralEditors(
   instantiation: IInstantiationService,
-  entries: readonly ReviewFilesEditorEntry[],
   files: Map<string, StructuralTextDiff>,
   lifetime: DisposableStore,
   collapsed: CollapseState,
 ): void {
   const editors = instantiation.invokeFunction((a) => a.get(ICodeEditorService));
-  const pairs = new Map(entries.map((e) => [e.original!.toString() + "\n" + e.modified!.toString(), e.file.path]));
   function watch(editor: IDiffEditor) {
     const store = lifetime.add(new DisposableStore());
     store.add(editor.onDidDispose(() => store.dispose()));
     const widget = editor as unknown as { unchangedRegions?: IObservable<readonly UnchangedRegion[]> };
     if (!widget.unchangedRegions) return;
+    const decorations = [editor.getOriginalEditor().createDecorationsCollection(), editor.getModifiedEditor().createDecorationsCollection()];
+    store.add(toDisposable(() => decorations.forEach(decoration => decoration.clear())));
     let revealed = new Set<UnchangedRegion>();
     store.add(
       autorun((reader) => {
         const model = editor.getModel();
-        const path = model && pairs.get(model.original.uri.with({ fragment: "" }).toString() + "\n" + model.modified.uri.with({ fragment: "" }).toString());
+        const path = model && model.original.uri.toString() + "\n" + model.modified.uri.toString();
         const regions = widget.unchangedRegions!.read(reader);
-        if (!path || !files.has(path)) return;
+        if (!path || !files.has(path)) { decorations.forEach(decoration => decoration.clear()); return; }
+        const diff = files.get(path)!;
+        [diff.lhs, diff.rhs].forEach((source, side) => decorations[side].set(structuralSearchHighlights(source).map(range => ({
+          range, options: { description: "Review search highlight", inlineClassName: "review-search-highlight" },
+        }))));
         const gaps = structuralContextGaps(files.get(path)!, (id) => collapsed.get(path, id) === true, (id) => collapsed.get(path, id));
         const next = new Set<UnchangedRegion>();
         const gapOf = (region: UnchangedRegion) =>
@@ -325,7 +357,7 @@ function attachStructuralEditors(
   for (const editor of editors.listDiffEditors()) watch(editor);
 }
 
-/** Collapse state per file, keyed by fold-state id. */
+/** Collapse state per editor pair, keyed by fold-state id. */
 interface CollapseState {
   get(path: string, foldStateId: number): boolean | undefined;
   set(path: string, foldStateId: number, value: boolean): void;

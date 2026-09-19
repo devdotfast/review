@@ -1204,3 +1204,9 @@ body
 
 .review-diff-group-toggle { display:flex; align-items:center; gap:8px; min-width:0; border:0; padding:0; color:inherit; background:transparent; cursor:pointer; text-align:left; }
 .review-diff-group-toggle:focus-visible { outline:1px solid var(--vscode-focusBorder); }
+
+/* Search evidence is distinct from inserted/deleted-line coloring. */
+.review-search-highlight {
+  background-color: rgba(65, 135, 245, 0.30);
+  outline: 1px solid rgba(65, 135, 245, 0.65);
+}

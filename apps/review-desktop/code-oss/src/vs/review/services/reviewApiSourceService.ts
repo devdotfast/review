@@ -1,3 +1,4 @@
+import { displayedSources, evidenceCoordinates } from "../common/reviewSearchEvidence.js";
 import { lensFiles } from "../common/reviewLensFiles.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
@@ -22,8 +23,8 @@ import {
   reviewPeekLineMappings,
 } from "../common/reviewPeek.js";
 import type {
-  ReviewDiffSide,
   ReviewInlineEditorRange,
+  ReviewInlineEditorSpec,
   ReviewDiffFileWire,
   ReviewInlineEditorFactory,
   ReviewDiffViewFactory,
@@ -444,15 +445,22 @@ export class ReviewApiSourceService
       }
       return list;
     };
-    const source = (
-      file: string,
-      side: ReviewDiffSide,
-      ranges: readonly ReviewInlineEditorRange[],
-    ): ReviewInlineSource => {
+    const source = (content: ReviewInlineEditorSpec["content"]): ReviewInlineSource => {
+      const {path: file, side, ranges} = evidenceCoordinates(content);
       const target = { view: view(), file, side };
       return {
         snippet: () => this.snippet(target, ranges),
-        diff: () => this.peekDiff(target, ranges, files(target.view)),
+        diff: async () => {
+          if (content.kind === "source") return content.ranges.some(range => range.side && range.side !== content.side) ? this.peekDiff(target, ranges, files(target.view)) : undefined;
+          const result = content.result;
+          const path = (result.file.rhs ?? result.file.lhs!).path;
+          return {
+            original: apiSourceUri({...target, side: "base", file: result.file.lhs?.path ?? path}),
+            modified: apiSourceUri({...target, side: "head", file: result.file.rhs?.path ?? path}),
+            diffFile: {path, previousPath: result.file.lhs?.path, status: result.sources.same ? "unchanged" : result.file.lhs ? result.file.rhs ? "modified" : "deleted" : "added", additions: 0, deletions: 0},
+            mappings: [], windows: () => ({original: [], modified: []}),
+          };
+        },
       };
     };
     const diffSource: ReviewDiffViewSource = {
@@ -480,7 +488,7 @@ export class ReviewApiSourceService
               ? `commit=${encodeURIComponent(current.commit)}`
               : undefined,
           }),
-          entries: await Promise.all(
+          entries: [...await Promise.all(
             entries.map(async (file) => {
               const original =
                 file.status === "added"
@@ -505,16 +513,26 @@ export class ReviewApiSourceService
                 goToFileResource: (modified ?? original)!,
               };
             }),
-          ),
+          ), ...(lens && !lens.wholeFiles ? lens.targets.flatMap(target => target.kind === "results" ? target.results : []) : []).map((result, index) => {
+            const path = (result.file.rhs ?? result.file.lhs!).path;
+            const resource = (side: "base" | "head", file: string) => apiSourceUri({ view: current, side, file }).with({ fragment: `evidence-${index}` });
+            const original = displayedSources(result).lhs && resource("base", result.file.lhs!.path);
+            const modified = displayedSources(result).rhs && resource("head", result.file.rhs!.path);
+            return {
+              evidence: result,
+              file: { path, previousPath: result.file.lhs?.path, status: entries.find(file => file.path === path || file.previousPath === path)?.status ?? (result.sources.same ? "unchanged" as const : result.file.lhs ? result.file.rhs ? "modified" as const : "deleted" as const : "added" as const), additions: 0, deletions: 0 },
+              original, modified, goToFileResource: (modified ?? original)!,
+            };
+          })],
         };
       },
     };
     return {
       inlineEditors: {
         create: (spec) =>
-          inline.create(spec, source(spec.path, spec.side, spec.ranges)),
+          inline.create(spec, source(spec.content)),
         find: (spec, query) =>
-          inline.find(spec, query, source(spec.path, spec.side, spec.ranges)),
+          inline.find(spec, query, source(spec.content)),
       } satisfies ReviewInlineEditorFactory,
       diffView: {
         create: (spec) => diff.create(spec, diffSource),

@@ -1,5 +1,5 @@
 import type { ReviewDiffProgress } from "../common/reviewProtocol.js";
-import { lensRanges, withLens } from "./reviewLens.js";
+import { selectLensEntries, withLens } from "./reviewLens.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -97,9 +97,9 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
     private progress: ReviewDiffProgress | undefined;
     private readonly progressChanged = this._register(new Emitter<void>());
     private pendingSectionId: string | undefined;
-    private pendingSource: ReviewDiffLens['ranges'][number] | undefined;
+    private pendingSource: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'][number] | undefined;
     setProgress(progress: ReviewDiffProgress): void { this.progress = progress; this.view?.setProgress(progress); this.progressChanged.fire(); }
-    revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
+    revealSource(source: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'][number], sectionId?: string): void { this.pendingSource = source; this.pendingSectionId = sectionId; this.view?.revealSource(source, sectionId); }
 	private viewStateKey: string | undefined;
 	private adoptedEditors: readonly ICodeEditor[] = [];
 	private disposed = false;
@@ -142,7 +142,8 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 		try {
 			const data = await this.source.load(this.spec.scope, this.spec.lens);
 			const { sourceUri, entries } = data;
-			const structuralEnabled = this.instantiationService.invokeFunction(
+			const selected = selectLensEntries(entries, this.spec.lens, this.progress?.sections);
+			const structuralEnabled = selected.some(entry => entry.evidence) || this.instantiationService.invokeFunction(
 				(a) =>
 					a
 						.get(IConfigurationService)
@@ -155,29 +156,24 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 			const structural = structuralEnabled
 				? await prepareStructuralReview(
 						this.instantiationService,
-						entries,
+						selected,
 						store,
 						data.structuralDiff!,
 					)
 				: {
 						instantiation: this.instantiationService,
-						entries,
+						entries: selected,
 						enabled: false,
 						load: undefined,
 						onDidChangeCounts: undefined,
 					};
 			if (this.disposed) return;
 			const lens = this.spec.lens;
-      const sections = this.progress?.sections;
-      const selected = lens && sections?.length ? sections.flatMap(section => {
-        const matches = structural.entries.filter(entry => lensRanges({ ...lens, ranges: section.sources }, entry).length > 0);
-        return matches.map((entry, index) => ({ ...entry, sectionId: section.id, sectionStart: index === 0, original: entry.original?.with({ fragment: section.id }), modified: entry.modified?.with({ fragment: section.id }) }));
-      }) : lens ? structural.entries.filter(entry => lensRanges(lens, entry).length > 0) : structural.entries;
-      const selectedPaths = new Set(selected.map(entry => entry.file.path));
-      const instantiation = withLens(structural.instantiation, selected, lens, store, () => this.progress, this.progressChanged.event);
+      const selectedPaths = new Set(structural.entries.map(entry => entry.file.path));
+      const instantiation = withLens(structural.instantiation, structural.entries, lens, store, () => this.progress, this.progressChanged.event);
       // The input owns the text-model references its view model resolves, so
 			// this handle disposes it alongside the view.
-			const input = store.add(instantiation.createInstance(ReviewFilesEditorInput, sourceUri, selected,
+			const input = store.add(instantiation.createInstance(ReviewFilesEditorInput, sourceUri, structural.entries,
 					structural.enabled, !!lens || !!this.spec.onToggleViewed));
 			const view = store.add(
 				instantiation.createInstance(
@@ -192,7 +188,7 @@ class DiffViewHandle extends Disposable implements ReviewDiffViewHandle {
 			);
 			this.view = view;
             if (this.progress) view.setProgress(this.progress);
-			if (structural.enabled) view.startLoading(selected);
+			if (structural.enabled) view.startLoading(structural.entries);
 			store.add(view.onDidChangeActiveControl(() => this.bindActiveControl(view)));
 			// A saved whole-list offset cannot be restored into a partial streamed list.
 			await view.setInput(input, structural.enabled ? undefined : this.viewStates.get(this.viewStateKey),

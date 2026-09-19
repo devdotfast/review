@@ -1,3 +1,5 @@
+import { displayedSources } from "./reviewSearchEvidence.js";
+import type { RegionData } from "./reviewProtocol.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -41,24 +43,9 @@ export interface StructuralVisibility {
  * side sharing it. Leaves tile the file in order; a fold's range is the hull
  * of its children. Tags are `<plugin>:<name>`.
  */
-export type StructuralRegion = StructuralLeaf | StructuralFold;
-interface StructuralRegionBase {
-  id: number;
-  fold_state_id: number;
-  start: StructuralPos;
-  end: StructuralPos;
-  tags?: string[];
-  visibility?: StructuralVisibility;
-}
-export interface StructuralLeaf extends StructuralRegionBase {
-  kind: "leaf";
-  alignment_id: number;
-  changed?: StructuralSpan[];
-}
-export interface StructuralFold extends StructuralRegionBase {
-  kind: "fold";
-  children: StructuralRegion[];
-}
+export type StructuralRegion = RegionData;
+export type StructuralLeaf = Extract<RegionData, {kind: "leaf"}>;
+export type StructuralFold = Extract<RegionData, {kind: "fold"}>;
 export interface StructuralSyntaxSpan extends StructuralSpan {
   capture: string;
 }
@@ -396,4 +383,32 @@ export function structuralCountsTooltip(counts: StructuralFileCounts): string {
   const rows = [row("visible", counts.visible), row("textual", counts.textual)];
   if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
   return rows.join("\n");
+}
+
+/** Retained search trees enter the same fold/alignment renderer as streamed diffs. */
+export function searchStructuralDiff(result: import("./reviewProtocol.js").SearchResultData): StructuralTextDiff {
+  const count = (source: StructuralSource | undefined, visible: boolean) => {
+    const lines = new Set<number>();
+    const visit = (region: StructuralRegion) => {
+      if (visible && region.visibility?.collapsed) return;
+      if (region.kind === "fold") region.children.forEach(visit);
+      else for (const span of region.changed ?? []) lines.add(span.line);
+    };
+    source?.regions?.forEach(visit);
+    return lines.size;
+  };
+  const sources = displayedSources(result);
+  return { type: "text", ...sources, stats: {
+    textual: { added: count(sources.rhs, false), removed: count(sources.lhs, false) },
+    visible: { added: count(sources.rhs, true), removed: count(sources.lhs, true) },
+  } };
+}
+
+export function structuralSearchHighlights(source: StructuralSource | undefined) {
+  const lines = source?.text.replace(/\r\n/g, "\n").split("\n") ?? [];
+  return structuralLeaves(source?.regions).flatMap(leaf => (leaf.search_highlights ?? []).map(span => ({
+    startLineNumber: span.line + 1, endLineNumber: span.line + 1,
+    startColumn: utf16Column(lines[span.line], span.start_column),
+    endColumn: utf16Column(lines[span.line], span.end_column),
+  })));
 }

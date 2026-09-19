@@ -51,6 +51,7 @@ const REVIEW_FILES_DIFF_EDITOR_OPTIONS = {
 } satisfies IDiffEditorOptions;
 
 export interface ReviewFilesEditorEntry {
+    readonly evidence?: import("../common/reviewProtocol.js").SearchResultData;
     readonly sectionId?: string;
     readonly sectionStart?: boolean;
 	readonly file: ReviewDiffFileWire;
@@ -96,7 +97,8 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
 					(structural || lens)
 						? {
 								...REVIEW_FILES_DIFF_EDITOR_OPTIONS,
-                                hideOriginalLineNumbers: entry.file.status === "added",
+                                hideOriginalLineNumbers: entry.original?.scheme === "review-structural-empty" || entry.file.status === "added",
+                                ...((entry.evidence || lens) && (entry.original?.scheme === "review-structural-empty" || entry.modified?.scheme === "review-structural-empty") ? { forceInline: true } : {}),
 								hideUnchangedRegions: {
 									enabled: true,
 									minimumLineCount: 1,
@@ -184,7 +186,7 @@ export class ReviewFilesDiffView extends Disposable {
 	private readonly hiddenApplied = new Set<string>();
 	private pendingPath: string | undefined;
     private pendingSectionId: string | undefined;
-    private pendingSource: ReviewDiffLens["ranges"][number] | undefined;
+    private pendingSource: Extract<ReviewDiffLens["targets"][number], { kind: "ranges" }>["ranges"][number] | undefined;
     private progress: ReviewDiffProgress | undefined;
     private readonly viewedApplied = new Map<string, string>();
 	private readonly streamStatus: HTMLElement;
@@ -540,8 +542,8 @@ export class ReviewFilesDiffView extends Disposable {
             this.viewedApplied.set(key, file.state);
         }
     }
-    revealSource(source: ReviewDiffLens['ranges'][number], sectionId?: string): void {
-        const entry = this.input?.entries.find(entry => (!sectionId || entry.sectionId === sectionId) && (!entry.sectionId || this.progress?.sections?.find(section => section.id === entry.sectionId)?.sources.some(range => range.file === source.file && range.side === source.side && range.fromLine <= source.fromLine && range.toLine >= source.fromLine)) && source.file === (source.side === 'base' ? entry.file.previousPath ?? entry.file.path : entry.file.path));
+    revealSource(source: Extract<ReviewDiffLens['targets'][number], { kind: 'ranges' }>['ranges'][number], sectionId?: string): void {
+        const entry = this.input?.entries.find(entry => (!sectionId || entry.sectionId === sectionId) && (source.side === "base" ? entry.original?.scheme !== "review-structural-empty" : entry.modified?.scheme !== "review-structural-empty") && (!entry.sectionId || this.progress?.sections?.find(section => section.id === entry.sectionId)?.sources.some(range => range.file === source.file && range.side === source.side && range.fromLine <= source.fromLine && range.toLine >= source.fromLine)) && source.file === (source.side === 'base' ? entry.file.previousPath ?? entry.file.path : entry.file.path));
         if (!entry) return;
         if (entry.sectionId && this.collapsedSections.delete(entry.sectionId)) this.headerFactory.refreshHeaders();
         this.pendingSource = source; this.pendingSectionId = sectionId;

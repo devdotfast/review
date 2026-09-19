@@ -1,7 +1,8 @@
 import type { Block } from "../../src/review-api/document";
 import type { Source } from "../../src/source";
-import { LensCallTree } from "./lens-call-tree";
+import { FlowGraph } from "./flow-graph";
 import { ElementCounts } from "./lens-counts";
+import { LensCallTree } from "./lens-call-tree";
 import { useReviewLenses } from "./review-lenses";
 
 /** Compact diagrams are navigation: clicking evidence scrolls, never changes scope. */
@@ -16,6 +17,21 @@ export function LensDiagram({
 
   const viewed = (sources: Source[]) =>
     lenses.stats(sources).state === "viewed";
+
+  if (block.type === "flow_diagram")
+    return (
+      <FlowGraph
+        block={block}
+        direction="down"
+        onSelect={(node) => {
+          const source = node.attachments.flatMap(
+            (attachment) => attachment.sources,
+          )[0];
+
+          if (source) onReveal(source, `${block.id}:${node.key}`);
+        }}
+      />
+    );
 
   if (block.type === "sequence") {
     const actors = Object.entries(block.actors);

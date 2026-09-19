@@ -134,7 +134,20 @@ Call `review_upload({id,repositoryId,kind:"map",pins,side:"head",model})`, using
 
 Insert a `software_map` node referencing the returned resource ID. Rejected uploads save nothing: fix the reported input and retry with the same ID. After a successful upload, that ID is immutable; changed content needs a new upload ID so old review versions keep their original map.
 
-### Diff lenses
+### Flow diagrams and diff lenses
+
+Use `flow_diagram` for an authored flat graph. Nodes have local `key` values,
+`label`, optional `description` and `kind` (`process`, `decision`, or `terminal`),
+and `attachments:[{label,sources:[Source,...]}]`. Edges use `from`, `to`, optional
+`label`, and optional `style` (`solid` or `dashed`). The block takes `title`,
+optional `description`, and optional `direction` (`right` or `down`). Node keys
+must be unique and edge endpoints must exist. Cycles are allowed.
+
+Attach several pieces of code to a node when they support one concept. Use
+empty attachments for conceptual nodes. The app computes change rings from
+changed lines inside attached ranges, deduplicating overlaps. Include base
+ranges for removed lines and head ranges for added lines; do not author counts
+or colors. Selecting a node opens its code peeks.
 
 Saved source-bearing diagrams appear in the Diff sidebar. Expanding a diagram
 activates its lens; clicking a diagram element scrolls to that element's diff

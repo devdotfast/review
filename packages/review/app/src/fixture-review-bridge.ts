@@ -41,6 +41,12 @@ export function fixtureReviewBridge(api: FixtureReviewApi): ReviewCanvasBridge {
     if (route === `/${id}` && searchParams.get("full") === "true")
       return Response.json(api.snapshot);
 
+    if (route === `/${id}/progress`)
+      return Response.json({ files: [], diagrams: [] });
+
+    if (route === `/${id}/diff`)
+      return Response.json(searchParams.has("file") ? "" : []);
+
     if (route === `/${id}/commits`) return Response.json([]);
 
     if (route === `/${id}/history`)

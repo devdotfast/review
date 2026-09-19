@@ -25,6 +25,7 @@ import { createPortal } from "react-dom";
 
 import type { Step } from "../../src/review-api/document";
 import { useReviewDebugSettings } from "./debug-settings";
+import { DiagramHeader } from "./diagram-header";
 import { hasTextSelectionWithin } from "./diagram-text-selection";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
@@ -620,29 +621,6 @@ export function sequenceDiagramClassName(isTourActive: boolean): string {
   return isTourActive
     ? "sequence-diagram sequence-tour sequence-tour--active"
     : "sequence-diagram sequence-tour";
-}
-
-function DiagramHeader({
-  kind,
-  title,
-  meta,
-  action,
-}: {
-  kind: string;
-  title: string;
-  meta?: string;
-  action?: ReactNode;
-}) {
-  return (
-    <figcaption className="diagram-header">
-      <div className="diagram-header-main">
-        <span className="diagram-kind-badge">{kind}</span>
-        <span className="diagram-header-title">{title}</span>
-        {meta && <em className="diagram-header-meta">{meta}</em>}
-      </div>
-      {action}
-    </figcaption>
-  );
 }
 
 function SequenceParticipantNode({

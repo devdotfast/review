@@ -21,6 +21,7 @@ export function diagramLenses(document: Block[]): DiagramLens[] {
   return elements(document).flatMap((block): DiagramLens[] => {
     if (
       block.type !== "file_lens" &&
+      block.type !== "flow_diagram" &&
       block.type !== "software_map" &&
       block.type !== "sequence" &&
       block.type !== "call_stack_diff" &&

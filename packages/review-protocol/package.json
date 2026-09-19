@@ -22,7 +22,8 @@
   "dependencies": {
     "@dev.fast/json": "workspace:*",
     "@dev.fast/trace-protocol": "workspace:*",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "diffr": "file:../../../diffr-search"
   },
   "devDependencies": {
     "esbuild": "0.28.1",

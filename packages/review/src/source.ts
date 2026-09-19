@@ -1,3 +1,5 @@
+import { searchResultDataSchema } from "diffr/schema";
+import type { SearchResultData } from "diffr/types";
 import { z } from "zod";
 
 const label = z.string().trim().min(1);
@@ -15,6 +17,10 @@ export const sourceSchema = z
   .refine((s) => s.toLine >= s.fromLine, "Source range ends before it starts.");
 
 export type Source = z.infer<typeof sourceSchema>;
+
+/** Authored evidence preserves the supplied diff sides and presentation. */
+export const codeEvidenceSchema = z.union([sourceSchema, searchResultDataSchema]);
+export type CodeEvidence = Source | SearchResultData;
 
 export type SourceRange = Pick<Source, "file" | "fromLine" | "toLine">;
 

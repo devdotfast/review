@@ -1,3 +1,4 @@
+import type { SearchResultData } from "diffr/types";
 import { type JsonObject, type JsonValue, isJsonObject } from "@dev.fast/json";
 import {
   ReviewAgentTraceEventSchema,
@@ -123,11 +124,11 @@ export interface ReviewInlineEditorRange {
 
 export interface ReviewInlineEditorSpec {
   container: HTMLElement;
-  path: string;
   title: string;
   description?: string;
-  side: ReviewDiffSide;
-  ranges: readonly ReviewInlineEditorRange[];
+  content:
+    | { kind: "source"; path: string; side: ReviewDiffSide; ranges: readonly ReviewInlineEditorRange[] }
+    | { kind: "diffr"; result: SearchResultData };
   /** Original authored selections, before display ranges are merged. */
   countRanges?: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
@@ -150,9 +151,7 @@ export interface ReviewInlineFindResult {
 }
 
 export interface ReviewInlineFindSpec {
-  path: string;
-  side: ReviewDiffSide;
-  ranges: readonly ReviewInlineEditorRange[];
+  content: ReviewInlineEditorSpec["content"];
 }
 
 export interface ReviewInlineEditorHandle extends ReviewDisposable {
@@ -175,6 +174,10 @@ export interface ReviewInlineEditorFactory {
   ): Promise<ReviewInlineFindResult>;
 }
 
+export type ReviewDiffLensTarget =
+  | { kind: "ranges"; ranges: readonly { side: "base" | "head"; file: string; fromLine: number; toLine: number }[] }
+  | { kind: "results"; results: readonly SearchResultData[] };
+
 /** A lens is scoped to one immutable saved review version. */
 export interface ReviewDiffLens {
   /** Filter files while retaining ordinary diff context/folding within them. */
@@ -183,12 +186,7 @@ export interface ReviewDiffLens {
   title: string;
   reviewId: string;
   version: number;
-  ranges: readonly {
-    side: "base" | "head";
-    file: string;
-    fromLine: number;
-    toLine: number;
-  }[];
+  targets: readonly ReviewDiffLensTarget[];
 }
 
 /** Reader progress is supplied independently of the immutable comparison. */

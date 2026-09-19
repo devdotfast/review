@@ -93,7 +93,8 @@
     "smol-toml": "1.8.0",
     "typescript": "6.0.3",
     "zod": "4.4.3",
-    "zustand": "4.5.7"
+    "zustand": "4.5.7",
+    "diffr": "file:../../../diffr-search"
   },
   "devDependencies": {
     "@dev.fast/json": "workspace:*",

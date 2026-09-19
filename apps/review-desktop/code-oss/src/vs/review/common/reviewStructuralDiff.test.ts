@@ -10,6 +10,8 @@ import {
   collapsedRegions,
   hiddenLinesOf,
   structuralContextGaps,
+  searchStructuralDiff,
+  structuralSearchHighlights,
   bandDetail,
   structuralCountsTooltip,
   structuralInitialCounts,
@@ -324,4 +326,20 @@ test("a fold pairs through fold state, and a docstring fold only with a docstrin
   const other: StructuralRegion = { ...bodyR, id: 4, fold_state_id: 10 };
   const unpaired: StructuralTextDiff = { ...diff, rhs: text(lines(4), [other]) };
   assert.deepEqual(structuralContextGaps(unpaired, (id) => id === 9 || id === 10).map((g) => g.kind).sort(), ["inserted", "removed", "removed"]);
+});
+
+
+test("head-only search evidence retains native pseudocode bands and UTF-16 highlight positions", () => {
+  const body = fold(4, [leaf(5, 1, 3, { changed: [{ line: 1, start_column: 0, end_column: 6 }] })]);
+  body.visibility = { collapsed: true, label: "// pseudocode\nreturn cached value" };
+  const source = text(["😀match", "hidden", "return"], [leaf(1, 0, 1, { search_highlights: [{ line: 0, start_column: 4, end_column: 9 }] }), body]);
+  const diff = searchStructuralDiff({ display: "rhs", scope: { repo: "/unused", baseWorktree: { commitId: "base", path: "/unused" }, headWorktree: { commitId: "head", path: "/unused" } }, file: { rhs: { path: "x.ts", oid: "a".repeat(40), mode: "100644" } }, sources: { rhs: source } });
+  assert.ok(structuralRows(diff).every(([left]) => left === null));
+  assert.deepEqual(structuralSearchHighlights(diff.rhs), [{ startLineNumber: 1, endLineNumber: 1, startColumn: 3, endColumn: 8 }]);
+  const [band] = structuralContextGaps(diff, id => id === 4);
+  assert.equal(band.originalCount, 0);
+  assert.equal(band.modifiedCount, 2);
+  assert.equal(bandDetail(band.label), "return cached value");
+  assert.equal(structuralInitialCounts(diff).visible.added, 0);
+  assert.equal(structuralInitialCounts(diff).textual.added, 1);
 });

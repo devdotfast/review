@@ -5,11 +5,11 @@ import { lensContextGaps } from './reviewLens.js';
 import type { ReviewDiffFileWire, ReviewDiffLens } from './reviewProtocol.js';
 
 const files: ReviewDiffFileWire[] = [{ path: 'renamed.ts', previousPath: 'old.ts', status: 'renamed', additions: 2, deletions: 1 }];
-const lens: ReviewDiffLens = { id: 'lens', title: 'Context', reviewId: 'review', version: 1, ranges: [
+const lens: ReviewDiffLens = { id: 'lens', title: 'Context', reviewId: 'review', version: 1, targets: [{ kind: 'ranges', ranges: [
   { file: 'old.ts', side: 'base', fromLine: 2, toLine: 5 },
   { file: 'context.ts', side: 'base', fromLine: 10, toLine: 12 },
   { file: 'context.ts', side: 'head', fromLine: 10, toLine: 12 },
-] };
+] }] };
 
 test('diagram references add each unchanged file once, preserving rename identity', () => {
   const result = lensFiles(files, lens);
@@ -23,6 +23,6 @@ test('clearing the lens and whole-file glob lenses do not introduce context file
 });
 
 test('an identical file exposes the referenced slice with three surrounding lines', () => {
-  const gaps = lensContextGaps({ changes: [], moves: [], identical: true, quitEarly: false }, 30, 30, lens.ranges.filter(range => range.file === 'context.ts'));
+  const gaps = lensContextGaps({ changes: [], moves: [], identical: true, quitEarly: false }, 30, 30, lens.targets.flatMap(target => target.kind === 'ranges' ? target.ranges : []).filter(range => range.file === 'context.ts'));
   assert.deepEqual(gaps.map(gap => [gap.originalStart, gap.originalCount, gap.modifiedStart, gap.modifiedCount]), [[1, 6, 1, 6], [16, 15, 16, 15]]);
 });

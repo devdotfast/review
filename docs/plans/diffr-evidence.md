@@ -57,3 +57,9 @@ Implemented with Codex assistance.
 ## Approved transport additions
 
 The native ReviewDiffLens carries a per-target ADT: `{kind: "ranges", ranges: Source[]}` or `{kind: "results", results: SearchResultData[]}`, replacing its flat ranges property. ReviewInlineFindSpec uses the same content union as ReviewInlineEditorSpec so pre-mount find searches precisely the evidence that will render. Approved after the initial scaffold; no additional stored state.
+
+## Approved progress/section propagation
+
+Following review, `DiagramLens.targets` and `ReviewDiffSection.targets` carry the existing `ReviewDiffLensTarget[]` ADT alongside coordinate-only `sources`. File globs resolve to range targets on the server; authored diffr results remain result targets. This preserves mixed lenses and per-step ownership without a stored-state change. The user approved this extension and clarified that only changes to previously agreed contracts require an explicit flag.
+
+The existing authoring command request bound is 8 MiB to accommodate edits containing multiple complete results. Larger payloads still fail explicitly; results are never silently truncated. See the verification record for the actual API-to-dev-app test.

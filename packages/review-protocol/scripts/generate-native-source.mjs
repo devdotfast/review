@@ -5,6 +5,7 @@
 // statements, behind one zod/v4 import configured for the Trusted Types CSP
 // before any schema is built. bug-report.ts is deliberately not part of the
 // overlay.
+import { createRequire } from "node:module";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,6 +108,7 @@ const jsonSourceRoot =
     : sourceRoot;
 
 const MODULE_PATHS = [
+  createRequire(import.meta.url).resolve("diffr/types"),
   path.join(jsonSourceRoot, "runtime-value.ts"),
   path.join(jsonSourceRoot, "json.ts"),
   traceContractsPath,

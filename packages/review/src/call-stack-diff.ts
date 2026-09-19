@@ -1,5 +1,6 @@
 import { frameIdentity } from "./call-stack-frames";
 import type { Frame } from "./review-api/document";
+import { evidenceLocation } from "./source.js";
 
 export type CallStackSide = "base" | "head";
 
@@ -121,7 +122,7 @@ export function callStackEvidenceErrors(
 
   for (const row of rows) {
     if (row.change === "unchanged") continue;
-    const { file, fromLine, toLine } = row.frame.source;
+    const { file, fromLine, toLine } = evidenceLocation(row.frame.source);
     const side: CallStackSide = row.change === "removed" ? "base" : "head";
     const lines = changedLines(file, side);
     const relevant = row.change === "removed" ? lines?.deleted : lines?.added;

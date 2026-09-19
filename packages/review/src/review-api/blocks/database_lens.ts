@@ -1,7 +1,7 @@
 import { type JsonValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { codeEvidenceSchema, sourceSchema } from "../../source.js";
+import { codeEvidenceSchema } from "../../source.js";
 import { ReviewInputError } from "../input-error.js";
 import {
   type BlockDefinition,

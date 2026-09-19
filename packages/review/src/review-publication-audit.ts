@@ -58,6 +58,7 @@ import {
   requireVisibleSource,
   sliceSourceRange,
 } from "./source";
+import { evidenceLocation } from "./source.js";
 import { span, startSpan } from "./startup-trace";
 
 export interface ReviewPublishSourceTarget {
@@ -358,7 +359,7 @@ async function validateCallStackEvidence(input: {
     for (const row of rows) {
       if (row.change === "unchanged") continue;
       const side: CallStackSide = row.change === "removed" ? "base" : "head";
-      const file = row.frame.source.file;
+      const file = evidenceLocation(row.frame.source).file;
       const key = `${side}\0${file}`;
 
       if (!changedLines.has(key)) {

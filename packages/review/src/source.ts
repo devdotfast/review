@@ -1,5 +1,5 @@
 import { searchResultDataSchema } from "diffr/schema";
-import type { SearchResultData } from "diffr/types";
+import type { SearchResultData, RegionData } from "diffr/types";
 import { z } from "zod";
 
 const label = z.string().trim().min(1);
@@ -19,7 +19,10 @@ export const sourceSchema = z
 export type Source = z.infer<typeof sourceSchema>;
 
 /** Authored evidence preserves the supplied diff sides and presentation. */
-export const codeEvidenceSchema = z.union([sourceSchema, searchResultDataSchema]);
+export const codeEvidenceSchema = z.union([
+  sourceSchema,
+  searchResultDataSchema,
+]);
 export type CodeEvidence = Source | SearchResultData;
 
 export type SourceRange = Pick<Source, "file" | "fromLine" | "toLine">;
@@ -79,4 +82,47 @@ export function codePeekSource(props: {
     fromLine: props.fromLine,
     toLine: props.toLine,
   };
+}
+
+/** Coordinate projections are only for navigation/coverage, never display reconstruction. */
+export function evidenceSources(evidence: CodeEvidence): Source[] {
+  if (!("kind" in evidence)) return [evidence];
+  const ranges: Source[] = [];
+  for (const [key, side] of [
+    ["lhs", "base"],
+    ["rhs", "head"],
+  ] as const) {
+    const source = evidence.sources[key];
+    const file = evidence.file[key];
+    if (!source || !file) continue;
+    const walk = (regions: RegionData[]) => {
+      for (const region of regions) {
+        if (region.visibility?.collapsed) continue;
+        if (region.kind === "fold") walk(region.children);
+        else {
+          const toLine = region.end.line + Number(region.end.column > 0);
+          if (toLine > region.start.line)
+            ranges.push({
+              side,
+              file: file.path,
+              fromLine: region.start.line + 1,
+              toLine,
+            });
+        }
+      }
+    };
+    walk(source.regions);
+  }
+  return ranges;
+}
+
+/** A navigation destination; it does not replace the displayed evidence. */
+export function evidenceLocation(evidence: CodeEvidence): Source {
+  if (!("kind" in evidence)) return evidence;
+  const ranges = evidenceSources(evidence);
+  const visible = ranges.find((range) => range.side === "head") ?? ranges[0];
+  if (visible) return visible;
+  const side = evidence.file.rhs ? "head" : "base";
+  const file = evidence.file.rhs ?? evidence.file.lhs!;
+  return { side, file: file.path, fromLine: 1, toLine: 1 };
 }

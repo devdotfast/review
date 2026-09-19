@@ -49,7 +49,7 @@ export function nativeLens(
     title: lens.title,
     reviewId,
     version,
-    ranges: lens.sources,
+    targets: [{ kind: "ranges", ranges: lens.sources }],
     wholeFiles: lens.wholeFiles ?? false,
   };
 }

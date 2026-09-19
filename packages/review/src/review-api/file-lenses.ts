@@ -1,6 +1,6 @@
 import { posix } from "node:path";
 
-import type { Source } from "../source.js";
+import { evidenceSources, type Source } from "../source.js";
 import {
   type CoverageFile,
   coverageSources,
@@ -34,9 +34,11 @@ export function resolveFileLens(
   const selected = targets.flatMap((target) =>
     target.kind === "ranges"
       ? target.sources
-      : files
-          .filter((file) => matchesFileLens(target.patterns, file))
-          .flatMap((file) => fileSources.get(file.path) ?? []),
+      : target.kind === "results"
+        ? target.results.flatMap(evidenceSources)
+        : files
+            .filter((file) => matchesFileLens(target.patterns, file))
+            .flatMap((file) => fileSources.get(file.path) ?? []),
   );
   const groups = new Map<string, Source[]>();
   for (const source of selected) {

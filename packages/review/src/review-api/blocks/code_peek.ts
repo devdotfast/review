@@ -1,4 +1,4 @@
-import { codeEvidenceSchema, sourceSchema } from "../../source.js";
+import { codeEvidenceSchema } from "../../source.js";
 import { defineBlock, text } from "./definition.js";
 
 export const code_peek = {

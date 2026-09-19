@@ -1,5 +1,6 @@
 import { type CallStackEntry, isCallsAssertion } from "./authoring";
 import type { Frame } from "./review-api/document";
+import { evidenceLocation } from "./source.js";
 
 /** Legacy call stacks list anchors and `calls()` hops; the document stores
  * canonical frames. The anchor id doubles as the matching key, so a frame
@@ -27,7 +28,7 @@ export function callStackFrames(entries: readonly CallStackEntry[]): Frame[] {
 export function frameIdentity(frame: Frame): string {
   return (
     frame.key ??
-    `${frame.source.file}:${frame.source.fromLine}-${frame.source.toLine}`
+    `${evidenceLocation(frame.source).file}:${evidenceLocation(frame.source).fromLine}-${evidenceLocation(frame.source).toLine}`
   );
 }
 
@@ -36,7 +37,7 @@ export function frameName(frame: Frame): string {
     frame.label ??
     frame.key ??
     frame.id ??
-    frame.source.file.split("/").pop() ??
-    frame.source.file
+    evidenceLocation(frame.source).file.split("/").pop() ??
+    evidenceLocation(frame.source).file
   );
 }

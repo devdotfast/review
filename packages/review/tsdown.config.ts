@@ -55,6 +55,7 @@ export default defineConfig({
   },
   deps: {
     alwaysBundle: [
+      /^diffr\/(schema|types)$/,
       "@dev.fast/trace-core",
       /^@dev\.fast\/json$/,
       /^@dev\.fast\/local-vcs$/,
@@ -65,7 +66,7 @@ export default defineConfig({
     ],
     // Re-inlining core's public declaration graph exhausts the default Node heap.
     // Its only remaining declaration edge is the side-effect import handled above.
-    dts: { neverBundle: ["@dev.fast/trace-core"] },
+    dts: { neverBundle: ["@dev.fast/trace-core", /^diffr\//] },
     onlyBundle: false,
     neverBundle: ["typescript"],
   },

@@ -1,9 +1,9 @@
-import type { SearchResultData } from "diffr/types";
 import { type JsonObject, type JsonValue, isJsonObject } from "@dev.fast/json";
 import {
   ReviewAgentTraceEventSchema,
   ReviewAgentTraceSessionSchema,
 } from "@dev.fast/trace-protocol";
+import type { SearchResultData } from "diffr/types";
 import { z } from "zod";
 
 import type { ReviewApiSummary } from "./review-api-client.js";
@@ -127,7 +127,12 @@ export interface ReviewInlineEditorSpec {
   title: string;
   description?: string;
   content:
-    | { kind: "source"; path: string; side: ReviewDiffSide; ranges: readonly ReviewInlineEditorRange[] }
+    | {
+        kind: "source";
+        path: string;
+        side: ReviewDiffSide;
+        ranges: readonly ReviewInlineEditorRange[];
+      }
     | { kind: "diffr"; result: SearchResultData };
   /** Original authored selections, before display ranges are merged. */
   countRanges?: readonly ReviewInlineEditorRange[];
@@ -175,7 +180,15 @@ export interface ReviewInlineEditorFactory {
 }
 
 export type ReviewDiffLensTarget =
-  | { kind: "ranges"; ranges: readonly { side: "base" | "head"; file: string; fromLine: number; toLine: number }[] }
+  | {
+      kind: "ranges";
+      ranges: readonly {
+        side: "base" | "head";
+        file: string;
+        fromLine: number;
+        toLine: number;
+      }[];
+    }
   | { kind: "results"; results: readonly SearchResultData[] };
 
 /** A lens is scoped to one immutable saved review version. */
@@ -195,16 +208,16 @@ export interface ReviewDiffProgressFile {
   state: "unread" | "partial" | "viewed";
   remaining: { additions: number; deletions: number };
   total: { additions: number; deletions: number };
-  viewedRanges: ReviewDiffLens["ranges"];
-  changedRanges: ReviewDiffLens["ranges"];
-  unfoldRanges?: ReviewDiffLens["ranges"];
+  viewedRanges: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
+  changedRanges: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
+  unfoldRanges?: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
 }
 
 export interface ReviewDiffSection {
   files?: readonly ReviewDiffProgressFile[];
   id: string;
   label: string;
-  sources: ReviewDiffLens["ranges"];
+  sources: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
   state: "unread" | "partial" | "viewed";
   total: { additions: number; deletions: number };
   remaining: { additions: number; deletions: number };
@@ -231,7 +244,7 @@ export interface ReviewDiffViewHandle extends ReviewDisposable {
   focus(): void;
   setProgress?(progress: ReviewDiffProgress): void;
   revealSource?(
-    source: ReviewDiffLens["ranges"][number],
+    source: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"][number],
     sectionId?: string,
   ): void;
   onDidError(listener: (message: string) => void): ReviewDisposable;

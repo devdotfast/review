@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { codeEvidenceSchema, sourceSchema } from "../../source.js";
+import { codeEvidenceSchema } from "../../source.js";
 import { codeFields } from "./code.js";
 import {
   type BlockDefinition,

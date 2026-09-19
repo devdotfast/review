@@ -2480,3 +2480,80 @@ it("keeps live language identity across edits but replaces it with a checkout at
     rmSync(moved, { recursive: true, force: true });
   }
 });
+
+it("saves diffr evidence without its worktrees, reopens it, and marks it stale after repinning", async () => {
+  const text = git("show", `${pins.head}:example.ts`) + "\n";
+  const evidence = {
+    kind: "rhs",
+    scope: {
+      repo: "/does-not-exist",
+      baseWorktree: { commitId: pins.base, path: "/does-not-exist/base" },
+      headWorktree: { commitId: pins.head, path: "/does-not-exist/head" },
+    },
+    file: {
+      rhs: {
+        path: "example.ts",
+        oid: git("rev-parse", `${pins.head}:example.ts`),
+        mode: "100644",
+      },
+    },
+    sources: {
+      rhs: {
+        text,
+        regions: [
+          {
+            kind: "leaf",
+            id: 1,
+            fold_state_id: 1,
+            alignment_id: 1,
+            start: { line: 0, column: 0 },
+            end: { line: 2, column: 0 },
+            search_highlights: [{ line: 1, start_column: 0, end_column: 26 }],
+          },
+        ],
+      },
+    },
+  };
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Direct evidence", pins }),
+  );
+  await insert(reviewId, { type: "code_peek", source: evidence });
+  const saved = local.store.read(reviewId);
+  await local.store.close();
+  await local.data.close();
+  local = openLocalReviewStore(database);
+  expect(local.store.read(reviewId).document).toEqual(saved.document);
+  for (const corrupt of [
+    {
+      ...evidence,
+      scope: {
+        ...evidence.scope,
+        headWorktree: { ...evidence.scope.headWorktree, commitId: pins.base },
+      },
+    },
+    {
+      ...evidence,
+      sources: {
+        rhs: {
+          ...evidence.sources.rhs,
+          text: text.replace("value = 2", "value = 9"),
+        },
+      },
+    },
+    {
+      ...evidence,
+      file: { rhs: { ...evidence.file.rhs, oid: "0".repeat(40) } },
+    },
+  ])
+    await expect(
+      insert(reviewId, { type: "code_peek", source: corrupt }),
+    ).rejects.toThrow();
+  expect(local.store.read(reviewId).version).toBe(saved.version);
+  await local.store.execute(
+    command({ type: "repin", reviewId, pins: { ...pins, head: pins.base } }),
+  );
+  expect(local.store.read(reviewId).staleSources).toHaveLength(1);
+  expect(local.store.read(reviewId, saved.version).document).toEqual(
+    saved.document,
+  );
+});

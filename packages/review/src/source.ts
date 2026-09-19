@@ -119,6 +119,27 @@ export function evidenceSources(evidence: CodeEvidence): Source[] {
 /** A navigation destination; it does not replace the displayed evidence. */
 export function evidenceLocation(evidence: CodeEvidence): Source {
   if (!("kind" in evidence)) return evidence;
+  for (const [key, side] of [
+    ["rhs", "head"],
+    ["lhs", "base"],
+  ] as const) {
+    const file = evidence.file[key],
+      source = evidence.sources[key];
+    if (!file || !source) continue;
+    const highlight = (regions: RegionData[]): number | undefined => {
+      for (const region of regions) {
+        if (region.visibility?.collapsed) continue;
+        const line =
+          region.kind === "fold"
+            ? highlight(region.children)
+            : region.search_highlights?.[0]?.line;
+        if (line !== undefined) return line;
+      }
+    };
+    const line = highlight(source.regions);
+    if (line !== undefined)
+      return { side, file: file.path, fromLine: line + 1, toLine: line + 1 };
+  }
   const ranges = evidenceSources(evidence);
   const visible = ranges.find((range) => range.side === "head") ?? ranges[0];
   if (visible) return visible;

@@ -203,7 +203,11 @@ export class ReviewCodeResourceService extends Disposable implements IReviewCode
       model, rows, originalLineCount: result.sources.lhs?.text.split('\n').length ?? 0,
       modifiedLineCount: result.sources.rhs?.text.split('\n').length ?? 0, references: 1,
       info: { original: target.original, modified: target.modified, path, diffFile: target.diffFile, rows,
-        targetForRange: (startLine, endLine) => reviewUnifiedTargetForRange(path, rows, startLine, endLine) },
+        targetForRange: (startLine, endLine) => {
+          if (rows.slice(startLine - 1, endLine).some(row => row.fold?.collapsed)) return null;
+          const selected = reviewUnifiedTargetForRange(path, rows, startLine, endLine);
+          return selected ? {...selected, path: result.file[selected.side === "base" ? "lhs" : "rhs"]!.path} : null;
+        } },
       dispose: () => model.dispose(),
     };
     this.unifiedResources.set(resource.toString(), entry);

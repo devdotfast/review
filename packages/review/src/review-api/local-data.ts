@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { type FSWatcher, existsSync, watch } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 
 import type { JsonObject } from "@dev.fast/json";
 import {
@@ -700,6 +702,13 @@ export class LocalReviewData {
         throw new ReviewInputError(
           "Diffr evidence belongs to different comparison pins; replace it after repinning.",
         );
+      const vcs = await this.vcs(pins.repositoryId);
+      const gitDirectory = vcs && (await gitCommonDir(vcs.rootPath));
+      if (!gitDirectory)
+        throw new ReviewInputError(
+          "Pinned Git repository is unavailable.",
+          404,
+        );
       for (const [key, side] of [
         ["lhs", "base"],
         ["rhs", "head"],
@@ -707,6 +716,23 @@ export class LocalReviewData {
         const file = result.file[key],
           content = result.sources[key];
         if (!file || !content) continue;
+        const { stdout: entry } = await promisify(execFile)(
+          "git",
+          [
+            "--git-dir",
+            gitDirectory,
+            "ls-tree",
+            "-z",
+            pins[side],
+            "--",
+            `:(literal)${file.path}`,
+          ],
+          { encoding: "utf8" },
+        );
+        if (entry !== `${file.mode} blob ${file.oid}\t${file.path}\0`)
+          throw new ReviewInputError(
+            "Diffr evidence file identity differs from the pinned tree.",
+          );
         const original = await this.file(pins, side, file.path);
         if (original.text !== content.text)
           throw new ReviewInputError(

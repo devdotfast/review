@@ -614,6 +614,8 @@ class InlineEditorHandle extends Disposable implements ReviewInlineEditorHandle 
             this.spec.content = {kind: "diffr", result};
             this.clearFind();
             this.editorStore.clear();
+            this.decoration = undefined;
+            this.diffDecoration = undefined;
             this.unifiedModelReference = undefined;
             this.editor = undefined;
             this.body.replaceChildren();

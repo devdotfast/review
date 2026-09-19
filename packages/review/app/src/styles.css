@@ -6993,96 +6993,16 @@ button.review-stack-row:disabled .review-stack-relation {
   font: 600 11.5px var(--font-mono);
 }
 
-/* CallStackDiff: a unified diff over a tree. Every frame is a live link. */
-.call-stack-diff {
+/* Call trees share their rows/connectors with the diff sidebar. */
+.review-document-call-tree {
   margin: 14px 0;
   border: 1px solid var(--rule);
   border-radius: 8px;
   overflow: hidden;
   background: var(--surface);
 }
-.call-stack-hunk {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 7px 14px;
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--rule);
-  font: 12px var(--font-mono);
-  color: var(--ink-soft);
-}
-.call-stack-hunk-counts {
-  display: flex;
-  gap: 12px;
-  font: 12px var(--font-mono);
-}
-.call-stack-count-added {
-  color: var(--diff-added);
-}
-.call-stack-count-removed {
-  color: var(--diff-removed);
-}
-.call-stack-body {
-  padding: 6px 0;
-  font: 13px/2.1 var(--font-mono);
-  overflow-x: auto;
-}
-.call-stack-row {
-  display: flex;
-  align-items: baseline;
-  width: 100%;
-  padding: 0 14px;
-  border: 0;
-  background: var(--transparent);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.call-stack-row:hover .call-stack-name,
-.call-stack-row:focus-visible .call-stack-name {
-  text-decoration: underline;
-}
-.call-stack-gutter {
-  flex: 0 0 auto;
-  width: 22px;
-  user-select: none;
-}
-.call-stack-tree {
-  flex: 0 0 auto;
-  white-space: pre;
-  color: var(--ink-soft);
-  user-select: none;
-}
-.call-stack-name {
-  flex: 0 0 auto;
-  max-width: 55%;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.call-stack-asserted {
-  flex: 0 0 auto;
-  padding-left: 10px;
-  font-size: 12px;
-  color: var(--ink-soft);
-  border-bottom: 1px dashed var(--ink-soft);
-  white-space: nowrap;
-}
-.call-stack-spacer {
-  flex: 1 1 auto;
-  min-width: 16px;
-}
-.call-stack-loc {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 11px;
-  color: var(--ink-soft);
-  opacity: 0.75;
-  white-space: nowrap;
+.review-document-call-tree .review-call-tree {
+  padding-top: 6px;
 }
 
 /* Agent trace view */

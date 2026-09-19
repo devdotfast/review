@@ -1,8 +1,8 @@
 import type { Block } from "../../src/review-api/document";
 import type { Source } from "../../src/source";
+import { CallTree } from "./call-tree-view";
 import { FlowGraph } from "./flow-graph";
 import { ElementCounts } from "./lens-counts";
-import { LensCallTree } from "./lens-call-tree";
 import { useReviewLenses } from "./review-lenses";
 
 /** Compact diagrams are navigation: clicking evidence scrolls, never changes scope. */
@@ -136,7 +136,7 @@ export function LensDiagram({
   }
 
   if (block.type === "call_stack_diff")
-    return <LensCallTree block={block} onReveal={onReveal} />;
+    return <CallTree block={block} onReveal={onReveal} />;
 
   if (block.type === "database_lens")
     return (

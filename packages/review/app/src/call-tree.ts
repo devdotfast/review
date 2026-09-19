@@ -1,9 +1,12 @@
+import { frameIdentity } from "../../src/call-stack-frames";
 import type { CallStackDiffBlock } from "../../src/review-api/blocks/call_stack_diff";
 import type { Source } from "../../src/source";
 
 export interface CallTreeStop {
   id: string;
   label: string;
+  source: Source;
+  anchorId: string;
   sources: Source[];
   parentId?: string;
   callSite?: Source;
@@ -36,6 +39,8 @@ export function callTreeStops(block: CallStackDiffBlock): CallTreeStop[] {
       else
         nodes.set(id, {
           id,
+          source: frame.source,
+          anchorId: frame.id ?? frameIdentity(frame),
           label: frame.label ?? frame.source.file.split("/").pop()!,
           sources: [
             frame.source,

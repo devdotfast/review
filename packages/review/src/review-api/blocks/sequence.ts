@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { sourceSchema } from "../../source.js";
+import { codeEvidenceSchema } from "../../source.js";
 import { codeFields } from "./code.js";
 import {
   type BlockDefinition,
@@ -19,7 +19,7 @@ export const stepSchema = z
     to: label,
     label,
     style: z.enum(["call", "return", "async"]).default("call"),
-    source: sourceSchema.optional(),
+    source: codeEvidenceSchema.optional(),
     explanation: label.optional(),
     code: z.strictObject(codeFields).optional(),
   })

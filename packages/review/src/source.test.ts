@@ -7,6 +7,11 @@ import {
   sliceSourceRange,
   sourceSchema,
 } from "./source";
+import {
+  codeEvidenceSchema,
+  evidenceSources,
+  upgradeStoredEvidence,
+} from "./source.js";
 
 describe("sourceSchema", () => {
   it("accepts a pinned range and rejects one that ends before it starts", () => {
@@ -81,4 +86,51 @@ describe("requireVisibleSource", () => {
     );
     expect(() => requireVisibleSource("x", range)).not.toThrow();
   });
+});
+
+it("reads old saved diffr evidence without losing selected sides or fold state", () => {
+  const legacy = {
+    kind: "rhs",
+    scope: {
+      repo: "/gone",
+      baseWorktree: { commitId: "base", path: "/gone/base" },
+      headWorktree: { commitId: "head", path: "/gone/head" },
+    },
+    file: { rhs: { path: "a.ts", oid: "a".repeat(40), mode: "100644" } },
+    sources: {
+      rhs: {
+        text: "match\nhidden\n",
+        regions: [
+          {
+            kind: "leaf",
+            id: 1,
+            fold_state_id: 1,
+            alignment_id: 1,
+            start: { line: 0, column: 0 },
+            end: { line: 1, column: 0 },
+            search_highlights: [{ line: 0, start_column: 0, end_column: 5 }],
+          },
+          {
+            kind: "leaf",
+            id: 2,
+            fold_state_id: 2,
+            alignment_id: 2,
+            start: { line: 1, column: 0 },
+            end: { line: 2, column: 0 },
+            visibility: { collapsed: true },
+          },
+        ],
+      },
+    },
+  };
+  const evidence = codeEvidenceSchema.parse(upgradeStoredEvidence(legacy));
+  expect(evidenceSources(evidence)).toEqual([
+    { side: "head", file: "a.ts", fromLine: 1, toLine: 1 },
+  ]);
+  if (!("display" in evidence)) throw new Error("Expected search evidence");
+  expect(evidence.display).toBe("rhs");
+  expect(evidence.sources.rhs?.regions[1].visibility?.collapsed).toBe(true);
+  expect(evidence.sources.rhs?.text).toBe("match\nhidden\n");
+  expect(evidence.sources.lhs).toBeUndefined();
+  expect(legacy.kind).toBe("rhs");
 });

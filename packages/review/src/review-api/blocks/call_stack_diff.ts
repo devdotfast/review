@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { sourceSchema } from "../../source.js";
+import { codeEvidenceSchema, sourceSchema } from "../../source.js";
 import { ReviewInputError } from "../input-error.js";
 import {
   type BlockDefinition,
@@ -15,9 +15,9 @@ export const frameSchema = z.strictObject({
   key: label.optional(),
   parentKey: label.nullable().optional(),
   callSite: sourceSchema.optional(),
-  source: sourceSchema,
+  source: codeEvidenceSchema,
   contextSources: z
-    .array(sourceSchema)
+    .array(codeEvidenceSchema)
     .max(1000)
     .optional()
     .describe(

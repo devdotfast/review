@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { searchEvidenceSchema } from "../../source.js";
 import { sourceSchema } from "../../source.js";
 import { ReviewInputError } from "../input-error.js";
 import { type BlockDefinition, defineBlock, label } from "./definition.js";
@@ -7,6 +8,10 @@ import { type BlockDefinition, defineBlock, label } from "./definition.js";
 const patternsSchema = z.array(label).min(1).max(1000);
 
 export const fileLensTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("results"),
+    results: z.array(searchEvidenceSchema).min(1),
+  }),
   z.strictObject({ kind: z.literal("files"), patterns: patternsSchema }),
   z.strictObject({
     kind: z.literal("ranges"),

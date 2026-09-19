@@ -949,7 +949,7 @@ it("serves the experiment through the real desktop HTTP server and existing auth
         await fetch(url + "/commands", {
           method: "POST",
           headers,
-          body: JSON.stringify({ padding: "x".repeat(1024 * 1024) }),
+          body: JSON.stringify({ padding: "x".repeat(8 * 1024 * 1024) }),
         })
       ).status,
     ).toBe(413);

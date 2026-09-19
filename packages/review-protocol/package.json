@@ -23,7 +23,7 @@
     "@dev.fast/json": "workspace:*",
     "@dev.fast/trace-protocol": "workspace:*",
     "zod": "4.4.3",
-    "diffr": "file:../../../diffr-search"
+    "diffr": "git+ssh://git@github.com/devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717"
   },
   "devDependencies": {
     "esbuild": "0.28.1",

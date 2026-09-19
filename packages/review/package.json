@@ -94,7 +94,7 @@
     "typescript": "6.0.3",
     "zod": "4.4.3",
     "zustand": "4.5.7",
-    "diffr": "file:../../../diffr-search"
+    "diffr": "git+ssh://git@github.com/devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717"
   },
   "devDependencies": {
     "@dev.fast/json": "workspace:*",

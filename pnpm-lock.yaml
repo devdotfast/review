@@ -126,8 +126,8 @@ importers:
         specifier: 1.3.0
         version: 1.3.0
       diffr:
-        specifier: file:../../../diffr-search
-        version: file:../diffr-search
+        specifier: git+ssh://git@github.com/devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717
+        version: git+https://git@github.com:devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717
       elkjs:
         specifier: 0.11.1
         version: 0.11.1
@@ -235,8 +235,8 @@ importers:
         specifier: workspace:*
         version: link:../trace-protocol
       diffr:
-        specifier: file:../../../diffr-search
-        version: file:../diffr-search
+        specifier: git+ssh://git@github.com/devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717
+        version: git+https://git@github.com:devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -1857,8 +1857,9 @@ packages:
   diff3@0.0.3:
     resolution: {integrity: sha512-iSq8ngPOt0K53A6eVr4d5Kn6GNrM2nQZtC740pzIriHtn4pOQ2lyzEXQMBeVcWERN0ye7fhBsk9PbLLQOnUx/g==}
 
-  diffr@file:../diffr-search:
-    resolution: {directory: ../diffr-search, type: directory}
+  diffr@git+https://git@github.com:devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717:
+    resolution: {commit: 13261821ce082ca713fb4853a1d569fab30ab717, repo: git@github.com:devdotfast/diffr.git, type: git}
+    version: 0.0.0
 
   dts-resolver@3.0.0:
     resolution: {integrity: sha512-1T1f+z+4tl9XD+m+0HBgWoL/nm0bOIffyWaUuUSBlFg/86IWvfx+wjNaO/ybU0AJzG9/Mi5hBUgGV6zCmWEN7Q==}
@@ -4135,7 +4136,7 @@ snapshots:
 
   diff3@0.0.3: {}
 
-  diffr@file:../diffr-search:
+  diffr@git+https://git@github.com:devdotfast/diffr.git#13261821ce082ca713fb4853a1d569fab30ab717:
     dependencies:
       '@typesafe-ai/sdk': 0.6.0
       zod: 4.4.3

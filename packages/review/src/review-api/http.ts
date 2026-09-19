@@ -10,7 +10,6 @@ import { mountSharingHost } from "../sharing/host.js";
 import type { SharedReviewStore } from "../sharing/import.js";
 import { SharedReviewData } from "../sharing/routes.js";
 import { scopedCoverage } from "../viewed-coverage.js";
-
 import { authoringTools } from "./authoring-tools.js";
 import { documentText } from "./document-text.js";
 import { ReviewInputError, sourceSchema } from "./document.js";
@@ -765,7 +764,12 @@ export function createReviewApi(
     );
   });
   app.post("/commands", async (context) => {
-    const input = await readBoundedRequestJson(context.req.raw);
+    // Authored diffr results carry complete source and structural trees. A
+    // multi-step edit may include several; retain a finite streaming limit.
+    const input = await readBoundedRequestJson(
+      context.req.raw,
+      8 * 1024 * 1024,
+    );
     const command = sharedCommandSchema.safeParse(input);
 
     if (

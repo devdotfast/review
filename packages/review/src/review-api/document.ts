@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { markdownNodes, markdownText, parseMarkdown } from "../markdown.js";
-import { type Source, sourceSchema } from "../source.js";
+import {
+  type Source,
+  type CodeEvidence,
+  evidenceSources,
+  sourceSchema,
+} from "../source.js";
 import { fileLensTargets } from "./blocks/file_lens.js";
 import { type Block, blockSchema } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
@@ -9,7 +14,7 @@ import { ReviewInputError } from "./input-error.js";
 
 export { ReviewInputError } from "./input-error.js";
 
-export { type Source, sourceSchema };
+export { type Source, type CodeEvidence, sourceSchema };
 
 export {
   type Block,
@@ -130,10 +135,10 @@ export function resourceReferences(document: Block[]): Block[] {
  * `tolerant` skips malformed Markdown source links instead of rejecting, for
  * content that is already stored.
  */
-export function sourceReferences(
+export function evidenceReferences(
   document: Block[],
   { tolerant = false }: { tolerant?: boolean } = {},
-): { id: string; source: Source; label?: string; peek?: boolean }[] {
+): { id: string; source: CodeEvidence; label?: string; peek?: boolean }[] {
   const reject = (message: string): [] => {
     if (tolerant) return [];
     throw new ReviewInputError(message);
@@ -180,13 +185,23 @@ export function sourceReferences(
       );
 
     if (element.type === "file_lens")
-      return fileLensTargets(element).flatMap((target, index) =>
+      return fileLensTargets(element).flatMap<{
+        id: string;
+        source: CodeEvidence;
+        peek?: boolean;
+      }>((target, index) =>
         target.kind === "ranges"
           ? target.sources.map((source, range) => ({
               id: `${element.id}:target:${index}:${range}`,
               source,
             }))
-          : [],
+          : target.kind === "results"
+            ? target.results.map((source, result) => ({
+                id: `${element.id}:target:${index}:${result}`,
+                source,
+                peek: true,
+              }))
+            : [],
       );
 
     if (element.type === "call_stack_diff")
@@ -489,4 +504,16 @@ export function rewriteSourceLinks(
       markdown.slice(0, edit.start) + edit.value + markdown.slice(edit.end);
 
   return markdown;
+}
+
+export function sourceReferences(
+  document: Block[],
+  options: { tolerant?: boolean } = {},
+): { id: string; source: Source; label?: string; peek?: boolean }[] {
+  return evidenceReferences(document, options).flatMap((reference) =>
+    evidenceSources(reference.source).map((source) => ({
+      ...reference,
+      source,
+    })),
+  );
 }

@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { ReviewApiSummary } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { upgradeStoredEvidence } from "../source.js";
 import {
   type Coverage,
   coverageSchema,
@@ -18,6 +19,7 @@ import {
   ReviewInputError,
   type ReviewTarget,
   type Source,
+  type CodeEvidence,
   applyEdit,
   assignFreshIds,
   checkReferences,
@@ -26,8 +28,8 @@ import {
   elements,
   pinsSchema,
   resourceReferences,
+  evidenceReferences,
   reviewTargetSchema,
-  sourceReferences,
 } from "./document.js";
 
 const reviewId = z.string().min(1);
@@ -146,14 +148,14 @@ export interface ReviewProviders {
   validatePins(pins: Pins): Promise<void>;
   validateSource(
     pins: Pins,
-    source: Source,
+    source: CodeEvidence,
     options: { peek: boolean },
   ): Promise<void>;
   validateResource(pins: Pins, block: Block): Promise<void>;
   /** Import only: report a problem as a warning instead of rejecting. */
   validateSourceTolerant?(
     pins: Pins,
-    source: Source,
+    source: CodeEvidence,
     options: { peek: boolean },
   ): Promise<string | null>;
 }
@@ -503,7 +505,9 @@ export class ReviewStore {
     if (!row) throw new ReviewInputError("Review or version not found.", 404);
 
     // SAFETY: versions contains only snapshots validated by execute before committing.
-    const snapshot = JSON.parse(String(row.snapshot)) as Snapshot;
+    const snapshot = upgradeStoredEvidence(
+      JSON.parse(String(row.snapshot)),
+    ) as Snapshot;
     snapshot.target ??= {
       kind: "commits",
       repositoryId: snapshot.pins.repositoryId,
@@ -812,14 +816,14 @@ export class ReviewStore {
 
           if (snapshot.staleSources?.length) {
             const oldSources = new Map(
-              sourceReferences(previous!.document).map((item) => [
+              evidenceReferences(previous!.document).map((item) => [
                 item.id,
                 JSON.stringify(item.source),
               ]),
             );
 
             const newSources = new Map(
-              sourceReferences(snapshot.document).map((item) => [
+              evidenceReferences(snapshot.document).map((item) => [
                 item.id,
                 JSON.stringify(item.source),
               ]),
@@ -988,7 +992,7 @@ export class ReviewStore {
 
         const seen = new Set<string>();
 
-        for (const { source, peek } of sourceReferences(document, {
+        for (const { source, peek } of evidenceReferences(document, {
           tolerant: true,
         })) {
           const key = JSON.stringify(source);
@@ -1092,16 +1096,19 @@ export class ReviewStore {
     const warnings: string[] = [];
 
     const references = (document: Block[], tolerant = false) => {
-      const sources = new Map<string, { source: Source; peek: boolean }>();
+      const sources = new Map<
+        string,
+        { source: CodeEvidence; peek: boolean }
+      >();
       const resources = new Map<string, Block>();
 
-      const add = (source: Source, peek: boolean) => {
+      const add = (source: CodeEvidence, peek: boolean) => {
         const key = JSON.stringify(source);
         const kept = sources.get(key);
         sources.set(key, { source, peek: peek || (kept?.peek ?? false) });
       };
 
-      for (const { source, peek } of sourceReferences(document, { tolerant }))
+      for (const { source, peek } of evidenceReferences(document, { tolerant }))
         add(source, peek === true);
 
       for (const block of resourceReferences(document))
@@ -1135,7 +1142,7 @@ export class ReviewStore {
             () => {
               if (repin)
                 warnings.push(
-                  `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: source pins changed; verify that this range still supports the document.`,
+                  `${"display" in source ? `diffr:${source.file.rhs?.path ?? source.file.lhs?.path}` : `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}`}: source pins changed; verify that this range still supports the document.`,
                 );
             },
             (error) => {
@@ -1144,8 +1151,17 @@ export class ReviewStore {
                 !(error instanceof ReviewInputError)
               )
                 throw error;
+              if ("display" in source) {
+                const stale = new Set(snapshot.staleSources ?? []);
+                for (const reference of evidenceReferences(snapshot.document, {
+                  tolerant: true,
+                }))
+                  if (JSON.stringify(reference.source) === key)
+                    stale.add(reference.id);
+                snapshot.staleSources = [...stale];
+              }
               warnings.push(
-                `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`,
+                `${"display" in source ? `diffr:${source.file.rhs?.path ?? source.file.lhs?.path}` : `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}`}: ${error.message}`,
               );
             },
           ),

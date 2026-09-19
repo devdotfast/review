@@ -2480,3 +2480,104 @@ it("keeps live language identity across edits but replaces it with a checkout at
     rmSync(moved, { recursive: true, force: true });
   }
 });
+
+it("saves diffr evidence without its worktrees, reopens it, and marks it stale after repinning", async () => {
+  const text = git("show", `${pins.head}:example.ts`) + "\n";
+  const evidence = {
+    display: "rhs",
+    scope: {
+      repo: "/does-not-exist",
+      baseWorktree: { commitId: pins.base, path: "/does-not-exist/base" },
+      headWorktree: { commitId: pins.head, path: "/does-not-exist/head" },
+    },
+    file: {
+      rhs: {
+        path: "example.ts",
+        oid: git("rev-parse", `${pins.head}:example.ts`),
+        mode: "100644",
+      },
+    },
+    sources: {
+      rhs: {
+        text,
+        regions: [
+          {
+            kind: "leaf",
+            id: 1,
+            fold_state_id: 1,
+            alignment_id: 1,
+            start: { line: 0, column: 0 },
+            end: { line: 2, column: 0 },
+            search_highlights: [{ line: 1, start_column: 0, end_column: 26 }],
+          },
+        ],
+      },
+    },
+  };
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Direct evidence", pins }),
+  );
+  await insert(reviewId, { type: "code_peek", source: evidence });
+  await insert(reviewId, {
+    type: "file_lens",
+    title: "Mixed glob and result",
+    targets: [
+      { kind: "files", patterns: ["literal*.ts"] },
+      { kind: "results", results: [evidence] },
+    ],
+  });
+  await insert(reviewId, {
+    type: "sequence",
+    title: "Evidence",
+    actors: { a: "A", b: "B" },
+    steps: [{ from: "a", to: "b", label: "Inspect", source: evidence }],
+  });
+  const app = createReviewApi(local.store, local.data);
+  const progress = await (await app.request(`/${reviewId}/progress`)).json();
+  const lens = progress.diagrams.find(
+    (lens: { title: string }) => lens.title === "Mixed glob and result",
+  );
+  expect(
+    lens.targets[0].ranges.map((range: { file: string }) => range.file).sort(),
+  ).toEqual(["literal1.ts", "literal[1].ts"]);
+  expect(lens.targets[1].results).toEqual([evidence]);
+  expect(lens.targets[1].results[0].sources.lhs).toBeUndefined();
+  const saved = local.store.read(reviewId);
+  await local.store.close();
+  await local.data.close();
+  local = openLocalReviewStore(database);
+  expect(local.store.read(reviewId).document).toEqual(saved.document);
+  for (const corrupt of [
+    {
+      ...evidence,
+      scope: {
+        ...evidence.scope,
+        headWorktree: { ...evidence.scope.headWorktree, commitId: pins.base },
+      },
+    },
+    {
+      ...evidence,
+      sources: {
+        rhs: {
+          ...evidence.sources.rhs,
+          text: text.replace("value = 2", "value = 9"),
+        },
+      },
+    },
+    {
+      ...evidence,
+      file: { rhs: { ...evidence.file.rhs, oid: "0".repeat(40) } },
+    },
+  ])
+    await expect(
+      insert(reviewId, { type: "code_peek", source: corrupt }),
+    ).rejects.toThrow();
+  expect(local.store.read(reviewId).version).toBe(saved.version);
+  await local.store.execute(
+    command({ type: "repin", reviewId, pins: { ...pins, head: pins.base } }),
+  );
+  expect(local.store.read(reviewId).staleSources).toHaveLength(3);
+  expect(local.store.read(reviewId, saved.version).document).toEqual(
+    saved.document,
+  );
+});

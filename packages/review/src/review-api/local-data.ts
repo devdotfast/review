@@ -1,5 +1,8 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { type FSWatcher, existsSync, watch } from "node:fs";
 import { readFile, realpath, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 
 import type { JsonObject } from "@dev.fast/json";
 import {
@@ -23,6 +26,7 @@ import type {
   ReviewLanguageEnvironment,
   ReviewSourceEntry,
 } from "@dev.fast/review-protocol";
+import { searchResultDataSchema } from "diffr/schema";
 import { z } from "zod";
 
 import { textIncludesQuote } from "../evidence.js";
@@ -34,6 +38,7 @@ import {
   SoftwareModelValidationError,
   defineSoftwareMap,
 } from "../software-map-model.js";
+import type { CodeEvidence } from "../source.js";
 import {
   SourceRangeError,
   checkSourcePath,
@@ -50,6 +55,7 @@ import {
   elements,
   pinsSchema,
   sourceReferences,
+  evidenceReferences,
   sourceSchema,
 } from "./document.js";
 import { decodeImage } from "./image-decode.js";
@@ -438,11 +444,13 @@ export class LocalReviewData {
 
     // Live references retain their authored coordinates. Only diagnose ranges
     // that no longer exist; the author decides how to update changed source.
-    for (const reference of sourceReferences(snapshot.document, {
+    for (const reference of evidenceReferences(snapshot.document, {
       tolerant: true,
     })) {
       try {
-        await this.quote(pins, reference.source);
+        await this.validateSource(pins, reference.source, {
+          peek: reference.peek === true,
+        });
       } catch (error) {
         if (!(error instanceof ReviewInputError)) throw error;
         projected.staleSources!.push(reference.id);
@@ -678,7 +686,70 @@ export class LocalReviewData {
   }
   /** Every source reference must exist at the pins; only code peeks must also
    * show something. */
-  async validateSource(pins: Pins, source: Source, options: { peek: boolean }) {
+  async validateSource(
+    pins: Pins,
+    source: CodeEvidence,
+    options: { peek: boolean },
+  ) {
+    if ("display" in source) {
+      const parsed = searchResultDataSchema.safeParse(source);
+      if (!parsed.success) throw new ReviewInputError(parsed.error.message);
+      const result = parsed.data;
+      if (
+        result.scope.baseWorktree.commitId !== pins.base ||
+        result.scope.headWorktree.commitId !== pins.head
+      )
+        throw new ReviewInputError(
+          "Diffr evidence belongs to different comparison pins; replace it after repinning.",
+        );
+      const vcs = await this.vcs(pins.repositoryId);
+      const gitDirectory = vcs && (await gitCommonDir(vcs.rootPath));
+      if (!gitDirectory)
+        throw new ReviewInputError(
+          "Pinned Git repository is unavailable.",
+          404,
+        );
+      for (const [key, side] of [
+        ["lhs", "base"],
+        ["rhs", "head"],
+      ] as const) {
+        const file = result.file[key],
+          content = result.sources.same ?? result.sources[key];
+        if (!file || !content) continue;
+        const { stdout: entry } = await promisify(execFile)(
+          "git",
+          [
+            "--git-dir",
+            gitDirectory,
+            "ls-tree",
+            "-z",
+            pins[side],
+            "--",
+            `:(literal)${file.path}`,
+          ],
+          { encoding: "utf8" },
+        );
+        if (entry !== `${file.mode} blob ${file.oid}\t${file.path}\0`)
+          throw new ReviewInputError(
+            "Diffr evidence file identity differs from the pinned tree.",
+          );
+        const original = await this.file(pins, side, file.path);
+        if (original.text !== content.text)
+          throw new ReviewInputError(
+            "Diffr evidence text differs from the pinned source.",
+          );
+        const bytes = Buffer.from(content.text);
+        const oid = createHash(file.oid.length === 64 ? "sha256" : "sha1")
+          .update(`blob ${bytes.length}\0`)
+          .update(bytes)
+          .digest("hex");
+        if (oid !== file.oid)
+          throw new ReviewInputError(
+            "Diffr evidence blob identity differs from the pinned source.",
+          );
+      }
+      return;
+    }
     const quote = await this.quote(pins, source);
 
     if (options.peek)
@@ -688,7 +759,7 @@ export class LocalReviewData {
    * the problem becomes a warning instead of a rejection. */
   async validateSourceTolerant(
     pins: Pins,
-    source: Source,
+    source: CodeEvidence,
     options: { peek: boolean },
   ): Promise<string | null> {
     try {
@@ -697,7 +768,7 @@ export class LocalReviewData {
       return null;
     } catch (error) {
       if (error instanceof ReviewInputError)
-        return `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}: ${error.message}`;
+        return `${"display" in source ? "Diffr evidence" : `${source.side}/${source.file}#L${source.fromLine}-L${source.toLine}`}: ${error.message}`;
       throw error;
     }
   }

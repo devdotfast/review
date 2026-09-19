@@ -383,3 +383,30 @@ export function structuralCountsTooltip(counts: StructuralFileCounts): string {
   if (counts.fallback) rows.push(`line diff: ${counts.fallback.code}`);
   return rows.join("\n");
 }
+
+/** Retained search trees enter the same fold/alignment renderer as streamed diffs. */
+export function searchStructuralDiff(result: import("./reviewProtocol.js").SearchResultData): StructuralTextDiff {
+  const count = (source: StructuralSource | undefined, visible: boolean) => {
+    const lines = new Set<number>();
+    const visit = (region: StructuralRegion) => {
+      if (visible && region.visibility?.collapsed) return;
+      if (region.kind === "fold") region.children.forEach(visit);
+      else for (const span of region.changed ?? []) lines.add(span.line);
+    };
+    source?.regions?.forEach(visit);
+    return lines.size;
+  };
+  return { type: "text", ...result.sources, stats: {
+    textual: { added: count(result.sources.rhs, false), removed: count(result.sources.lhs, false) },
+    visible: { added: count(result.sources.rhs, true), removed: count(result.sources.lhs, true) },
+  } };
+}
+
+export function structuralSearchHighlights(source: StructuralSource | undefined) {
+  const lines = source?.text.replace(/\r\n/g, "\n").split("\n") ?? [];
+  return structuralLeaves(source?.regions).flatMap(leaf => (leaf.search_highlights ?? []).map(span => ({
+    startLineNumber: span.line + 1, endLineNumber: span.line + 1,
+    startColumn: utf16Column(lines[span.line], span.start_column),
+    endColumn: utf16Column(lines[span.line], span.end_column),
+  })));
+}

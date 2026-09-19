@@ -189,6 +189,7 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 			return {
 				...options,
 				...optionsOverride?.get(),
+				...(options.forceInline ? { renderSideBySide: false } : {}),
 				scrollBeyondLastLine: false,
 				hideUnchangedRegions: options.hideUnchangedRegions ?? {
 					enabled: true,

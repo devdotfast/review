@@ -39,3 +39,11 @@ The dev app reports a language-environment preparation failure on both tested re
 - Review: https://github.com/devdotfast/review/pull/369 → https://github.com/devdotfast/review/pull/370
 
 Both are draft stacks. Implementation commits separate validation/storage, rendering, live-check corrections, target propagation, dependency packaging, and request sizing.
+
+## Structural Diff renderer correction
+
+The initial integration routed explicit lenses through an inline-editor container. That preserved evidence coordinates but bypassed the established structural Diff UI; the initial E2E did not establish UI parity. This path, its bespoke toolbar/file list, and its implementation-coupled DOM test have been removed.
+
+Both retained results and ordinary range lenses now use ReviewFilesDiffView and the existing structural provider. Retained trees seed the existing alignment, fold bands, labels/pseudocode, and collapse controls. Search decorations are blue. Model-pair identity separates two same-file results/sections. Explicit side selection is preserved, with a native internal forceInline option preventing an empty counterpart pane. No public evidence DTO or stored schema changed.
+
+Validation: 133 native tests and native typechecking pass; the dev build succeeds. The new checks cover head-only pseudocode bands and UTF-16 search spans, JSON-transported section targets, and one-sided range navigation. Visual checks against the saved real search results confirmed the native file header, fold expansion, blue highlight, full-width head-only layout, mixed targets (three files), and navigation between the head-only and paired diagram sections. Pseudocode label conversion is covered by tests; the saved query's labels are unchanged-line summaries.

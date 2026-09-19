@@ -1015,6 +1015,8 @@ export interface IDiffEditorBaseOptions {
  * Configuration options for the diff editor.
  */
 export interface IDiffEditorOptions extends IEditorOptions, IDiffEditorBaseOptions {
+	/** Keep an explicitly one-sided item inline even when its multi-diff container uses split layout. @internal */
+	forceInline?: boolean;
 }
 
 /**

@@ -1207,11 +1207,6 @@ body
 
 /* Search evidence is distinct from inserted/deleted-line coloring. */
 .review-search-highlight {
-  background-color: var(--vscode-editor-findMatchHighlightBackground);
-  outline: 1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
+  background-color: rgba(65, 135, 245, 0.30);
+  outline: 1px solid rgba(65, 135, 245, 0.65);
 }
-
-.review-evidence-toolbar { display: flex; justify-content: flex-end; padding: 4px 8px; }
-.review-evidence-toolbar button, .review-evidence-file { color: var(--vscode-foreground); background: transparent; border: 0; cursor: pointer; padding: 4px 8px; text-align: left; }
-.review-evidence-file { display: block; width: 100%; }
-.review-evidence-file:hover, .review-evidence-toolbar button:hover { background: var(--vscode-list-hoverBackground); }

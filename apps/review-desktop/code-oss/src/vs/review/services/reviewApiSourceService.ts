@@ -1,4 +1,3 @@
-import { Emitter } from "../../base/common/event.js";
 import { evidenceCoordinates } from "../common/reviewSearchEvidence.js";
 import { lensFiles } from "../common/reviewLensFiles.js";
 /*---------------------------------------------------------------------------------------------
@@ -26,10 +25,6 @@ import {
 import type {
   ReviewInlineEditorRange,
   ReviewInlineEditorSpec,
-  ReviewDiffViewSpec,
-  ReviewDiffViewHandle,
-  ReviewDiffProgress,
-  ReviewDiffLensTarget,
   ReviewDiffFileWire,
   ReviewInlineEditorFactory,
   ReviewDiffViewFactory,
@@ -493,7 +488,7 @@ export class ReviewApiSourceService
               ? `commit=${encodeURIComponent(current.commit)}`
               : undefined,
           }),
-          entries: await Promise.all(
+          entries: [...await Promise.all(
             entries.map(async (file) => {
               const original =
                 file.status === "added"
@@ -518,194 +513,19 @@ export class ReviewApiSourceService
                 goToFileResource: (modified ?? original)!,
               };
             }),
-          ),
+          ), ...(lens && !lens.wholeFiles ? lens.targets.flatMap(target => target.kind === "results" ? target.results : []) : []).map((result, index) => {
+            const path = (result.file.rhs ?? result.file.lhs!).path;
+            const resource = (side: "base" | "head", file: string) => apiSourceUri({ view: current, side, file }).with({ fragment: `evidence-${index}` });
+            const original = result.sources.lhs && resource("base", result.file.lhs!.path);
+            const modified = result.sources.rhs && resource("head", result.file.rhs!.path);
+            return {
+              evidence: result,
+              file: { path, previousPath: result.file.lhs?.path, status: entries.find(file => file.path === path || file.previousPath === path)?.status ?? (result.kind === "unchanged" ? "unchanged" as const : original ? modified ? "modified" as const : "deleted" as const : "added" as const), additions: 0, deletions: 0 },
+              original, modified, goToFileResource: (modified ?? original)!,
+            };
+          })],
         };
       },
-    };
-    const explicitLens = (spec: ReviewDiffViewSpec): ReviewDiffViewHandle => {
-      const lifetime = new DisposableStore();
-      const errors = lifetime.add(new Emitter<string>());
-      const updates: ((progress: ReviewDiffProgress) => void)[] = [];
-      const entries: {
-        element: HTMLElement;
-        content: ReviewInlineEditorSpec["content"];
-        sectionId?: string;
-      }[] = [];
-      const sections = spec.progress?.sections?.length
-        ? spec.progress.sections
-        : [{ id: undefined, label: undefined, targets: spec.lens!.targets }];
-      const roots: HTMLElement[] = [];
-      spec.container.style.overflow = "auto";
-
-      const contents = (targets: readonly ReviewDiffLensTarget[]) => {
-        const output: ReviewInlineEditorSpec["content"][] = [];
-        const ranges = new Map<
-          string,
-          Extract<ReviewInlineEditorSpec["content"], { kind: "source" }>
-        >();
-        for (const target of targets) {
-          if (target.kind === "results") {
-            output.push(
-              ...target.results.map((result) => ({
-                kind: "diffr" as const,
-                result,
-              })),
-            );
-          } else
-            for (const range of target.ranges) {
-              const key = JSON.stringify([range.file, range.side]);
-              let content = ranges.get(key);
-              if (!content) {
-                content = {
-                  kind: "source",
-                  path: range.file,
-                  side: range.side,
-                  ranges: [],
-                };
-                ranges.set(key, content);
-                output.push(content);
-              }
-              content.ranges = [
-                ...content.ranges,
-                { startLine: range.fromLine, endLine: range.toLine },
-              ];
-            }
-        }
-        return output;
-      };
-
-      for (const section of sections) {
-        const root = spec.container.ownerDocument.createElement("section");
-        root.dataset.reviewEvidenceSection = section.id ?? "";
-        spec.container.append(root);
-        roots.push(root);
-        if (section.id) {
-          const heading = root.ownerDocument.createElement("div");
-          heading.className = "review-evidence-toolbar";
-          const label = root.ownerDocument.createElement("strong");
-          label.textContent = section.label ?? "";
-          heading.append(label);
-          const toggle = root.ownerDocument.createElement("button");
-          toggle.type = "button";
-          toggle.onclick = () => spec.onToggleSection?.(section.id!);
-          heading.append(toggle);
-          root.append(heading);
-          updates.push((progress) => {
-            const current = progress.sections?.find(
-              (value) => value.id === section.id,
-            );
-            toggle.textContent =
-              current?.state === "viewed"
-                ? "Mark section unviewed"
-                : "Mark section viewed";
-          });
-        }
-        for (const content of contents(section.targets)) {
-          const coordinates = evidenceCoordinates(content);
-          const element = root.ownerDocument.createElement("section");
-          element.tabIndex = -1;
-          element.style.position = "relative";
-          element.style.minHeight = "80px";
-          root.append(element);
-          entries.push({ element, content, sectionId: section.id });
-          const toolbar = element.ownerDocument.createElement("div");
-          toolbar.className = "review-evidence-toolbar";
-          const viewed = element.ownerDocument.createElement("button");
-          viewed.type = "button";
-          let progressPath = coordinates.path;
-          viewed.onclick = () => spec.onToggleViewed?.(progressPath, section.id);
-          toolbar.append(viewed);
-          element.append(toolbar);
-          const editorElement = element.ownerDocument.createElement("div");
-          editorElement.style.position = "relative";
-          element.append(editorElement);
-          if (spec.fileTreeContainer) {
-            const link = element.ownerDocument.createElement("button");
-            link.className = "review-evidence-file";
-            link.textContent = [
-              section.label,
-              coordinates.path,
-              content.kind === "source" ? `(${content.side})` : "",
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            link.onclick = () => element.scrollIntoView({ block: "start" });
-            spec.fileTreeContainer.append(link);
-            lifetime.add({ dispose: () => link.remove() });
-          }
-          const handle = lifetime.add(
-            inline.create(
-              {
-                container: editorElement,
-                content,
-                title: coordinates.path,
-                heightMode: "content",
-                active: false,
-                onDidOpen: () => {
-                  void this.open(
-                    {
-                      view: view(),
-                      file: coordinates.path,
-                      side: coordinates.side,
-                    },
-                    coordinates.ranges[0],
-                  );
-                },
-              },
-              source(content),
-            ),
-          );
-          editorElement.style.height = `${handle.height}px`;
-          lifetime.add(
-            handle.onDidChangeHeight(
-              (height) => (editorElement.style.height = `${height}px`),
-            ),
-          );
-          updates.push((progress) => {
-            const files = section.id
-              ? progress.sections?.find((value) => value.id === section.id)?.files
-              : progress.files;
-            const file = files?.find(
-              (file) =>
-                file.path === coordinates.path ||
-                file.changedRanges.some((range) => range.file === coordinates.path),
-            );
-            progressPath = file?.path ?? coordinates.path;
-            viewed.hidden =
-              !file || file.total.additions + file.total.deletions === 0;
-            viewed.textContent =
-              file?.state === "viewed"
-                ? "Mark unviewed"
-                : `Mark viewed · +${file?.remaining.additions ?? 0} −${file?.remaining.deletions ?? 0}`;
-          });
-          lifetime.add(handle.onDidError((message) => errors.fire(message)));
-        }
-      }
-      const setProgress = (progress: ReviewDiffProgress) => {
-        for (const update of updates) update(progress);
-      };
-      if (spec.progress) setProgress(spec.progress);
-      return {
-        focus: () => entries[0]?.element.focus(),
-        setProgress,
-        revealSource: (range, sectionId) => {
-          const entry = entries.find(
-            (entry) =>
-              (!sectionId || entry.sectionId === sectionId) &&
-              (entry.content.kind === "source"
-                ? entry.content.path === range.file &&
-                  entry.content.side === range.side
-                : entry.content.result.file[range.side === "base" ? "lhs" : "rhs"]
-                    ?.path === range.file),
-          );
-          entry?.element.scrollIntoView({ block: "start" });
-        },
-        onDidError: errors.event,
-        dispose: () => {
-          lifetime.dispose();
-          for (const root of roots) root.remove();
-        },
-      };
     };
     return {
       inlineEditors: {
@@ -715,7 +535,7 @@ export class ReviewApiSourceService
           inline.find(spec, query, source(spec.content)),
       } satisfies ReviewInlineEditorFactory,
       diffView: {
-        create: (spec) => spec.lens && !spec.lens.wholeFiles ? explicitLens(spec) : diff.create(spec, diffSource),
+        create: (spec) => diff.create(spec, diffSource),
         files: diffSource.files,
       } satisfies ReviewDiffViewFactory,
     };

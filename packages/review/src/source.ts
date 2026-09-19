@@ -1,3 +1,6 @@
+import type { ReviewDiffLensTarget } from "@dev.fast/review-protocol";
+import { searchResultDataSchema } from "diffr/schema";
+import type { SearchResultData, RegionData } from "diffr/types";
 import { z } from "zod";
 
 const label = z.string().trim().min(1);
@@ -15,6 +18,44 @@ export const sourceSchema = z
   .refine((s) => s.toLine >= s.fromLine, "Source range ends before it starts.");
 
 export type Source = z.infer<typeof sourceSchema>;
+
+/** Read legacy saved evidence without changing its retained trees or fold state.
+ * Old one-sided payloads stay one-sided; missing historical data is not invented. */
+export function upgradeStoredEvidence(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    const items = value.map(upgradeStoredEvidence);
+    return items.some((item, index) => item !== value[index]) ? items : value;
+  }
+  if (!value || typeof value !== "object") return value;
+  const object = value as Record<string, unknown>;
+  if (
+    typeof object.kind === "string" &&
+    ["lhs", "rhs", "combined", "unchanged"].includes(object.kind) &&
+    object.scope &&
+    object.file &&
+    object.sources
+  ) {
+    const { kind, ...evidence } = object;
+    return {
+      ...evidence,
+      display: kind === "lhs" || kind === "rhs" ? kind : "both",
+    };
+  }
+  let upgraded: Record<string, unknown> | undefined;
+  for (const [key, child] of Object.entries(object)) {
+    const next = upgradeStoredEvidence(child);
+    if (next !== child) (upgraded ??= { ...object })[key] = next;
+  }
+  return upgraded ?? value;
+}
+export const searchEvidenceSchema = z.preprocess(
+  upgradeStoredEvidence,
+  searchResultDataSchema,
+);
+
+/** Authored evidence preserves the supplied diff sides and presentation. */
+export const codeEvidenceSchema = z.union([sourceSchema, searchEvidenceSchema]);
+export type CodeEvidence = Source | SearchResultData;
 
 export type SourceRange = Pick<Source, "file" | "fromLine" | "toLine">;
 
@@ -73,4 +114,82 @@ export function codePeekSource(props: {
     fromLine: props.fromLine,
     toLine: props.toLine,
   };
+}
+
+/** Coordinate projections are only for navigation/coverage, never display reconstruction. */
+export function evidenceSources(evidence: CodeEvidence): Source[] {
+  if (!("display" in evidence)) return [evidence];
+  const ranges: Source[] = [];
+  for (const [key, side] of [
+    ["lhs", "base"],
+    ["rhs", "head"],
+  ] as const) {
+    if (evidence.display !== "both" && evidence.display !== key) continue;
+    const source = evidence.sources.same ?? evidence.sources[key];
+    const file = evidence.file[key];
+    if (!source || !file) continue;
+    const walk = (regions: RegionData[]) => {
+      for (const region of regions) {
+        if (region.visibility?.collapsed) continue;
+        if (region.kind === "fold") walk(region.children);
+        else {
+          const toLine = region.end.line + Number(region.end.column > 0);
+          if (toLine > region.start.line)
+            ranges.push({
+              side,
+              file: file.path,
+              fromLine: region.start.line + 1,
+              toLine,
+            });
+        }
+      }
+    };
+    walk(source.regions);
+  }
+  return ranges;
+}
+
+/** A navigation destination; it does not replace the displayed evidence. */
+export function evidenceLocation(evidence: CodeEvidence): Source {
+  if (!("display" in evidence)) return evidence;
+  for (const [key, side] of [
+    ["rhs", "head"],
+    ["lhs", "base"],
+  ] as const) {
+    if (evidence.display !== "both" && evidence.display !== key) continue;
+    const file = evidence.file[key],
+      source = evidence.sources.same ?? evidence.sources[key];
+    if (!file || !source) continue;
+    const highlight = (regions: RegionData[]): number | undefined => {
+      for (const region of regions) {
+        if (region.visibility?.collapsed) continue;
+        const line =
+          region.kind === "fold"
+            ? highlight(region.children)
+            : region.search_highlights?.[0]?.line;
+        if (line !== undefined) return line;
+      }
+    };
+    const line = highlight(source.regions);
+    if (line !== undefined)
+      return { side, file: file.path, fromLine: line + 1, toLine: line + 1 };
+  }
+  const ranges = evidenceSources(evidence);
+  const visible = ranges.find((range) => range.side === "head") ?? ranges[0];
+  if (visible) return visible;
+  const side =
+    evidence.display !== "lhs" && evidence.file.rhs ? "head" : "base";
+  const file = side === "head" ? evidence.file.rhs! : evidence.file.lhs!;
+  return { side, file: file.path, fromLine: 1, toLine: 1 };
+}
+
+/** Preserve display payloads; coordinate projections are a separate concern. */
+export function evidenceTargets(
+  evidence: readonly CodeEvidence[],
+): ReviewDiffLensTarget[] {
+  return evidence.map((source) =>
+    "display" in source
+      ? { kind: "results", results: [source] }
+      : { kind: "ranges", ranges: [source] },
+  );
 }

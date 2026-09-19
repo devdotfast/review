@@ -10,6 +10,8 @@ verifyDepsBeforeRun: false
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
+  # Existing diffr dependency, required by the coordinated local integration.
+  - "@typesafe-ai/sdk@0.6.0"
   # Vitest 4.1.11 requires this exact release, which is not yet seven days old.
   - obug@2.2.1
   - "@dev.fast/trace-protocol@0.5.0"

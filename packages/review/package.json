@@ -93,7 +93,8 @@
     "smol-toml": "1.8.0",
     "typescript": "6.0.3",
     "zod": "4.4.3",
-    "zustand": "4.5.7"
+    "zustand": "4.5.7",
+    "diffr": "git+ssh://git@github.com/devdotfast/diffr.git#f9419f48bfa9553e9d252483dd06719c949a1cf3"
   },
   "devDependencies": {
     "@dev.fast/json": "workspace:*",

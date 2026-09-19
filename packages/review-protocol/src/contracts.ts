@@ -3,6 +3,7 @@ import {
   ReviewAgentTraceEventSchema,
   ReviewAgentTraceSessionSchema,
 } from "@dev.fast/trace-protocol";
+import type { SearchResultData } from "diffr/types";
 import { z } from "zod";
 
 import type { ReviewApiSummary } from "./review-api-client.js";
@@ -123,11 +124,16 @@ export interface ReviewInlineEditorRange {
 
 export interface ReviewInlineEditorSpec {
   container: HTMLElement;
-  path: string;
   title: string;
   description?: string;
-  side: ReviewDiffSide;
-  ranges: readonly ReviewInlineEditorRange[];
+  content:
+    | {
+        kind: "source";
+        path: string;
+        side: ReviewDiffSide;
+        ranges: readonly ReviewInlineEditorRange[];
+      }
+    | { kind: "diffr"; result: SearchResultData };
   /** Original authored selections, before display ranges are merged. */
   countRanges?: readonly ReviewInlineEditorRange[];
   heightMode: ReviewInlineEditorHeightMode;
@@ -150,9 +156,7 @@ export interface ReviewInlineFindResult {
 }
 
 export interface ReviewInlineFindSpec {
-  path: string;
-  side: ReviewDiffSide;
-  ranges: readonly ReviewInlineEditorRange[];
+  content: ReviewInlineEditorSpec["content"];
 }
 
 export interface ReviewInlineEditorHandle extends ReviewDisposable {
@@ -175,6 +179,18 @@ export interface ReviewInlineEditorFactory {
   ): Promise<ReviewInlineFindResult>;
 }
 
+export type ReviewDiffLensTarget =
+  | {
+      kind: "ranges";
+      ranges: readonly {
+        side: "base" | "head";
+        file: string;
+        fromLine: number;
+        toLine: number;
+      }[];
+    }
+  | { kind: "results"; results: readonly SearchResultData[] };
+
 /** A lens is scoped to one immutable saved review version. */
 export interface ReviewDiffLens {
   /** Filter files while retaining ordinary diff context/folding within them. */
@@ -183,12 +199,7 @@ export interface ReviewDiffLens {
   title: string;
   reviewId: string;
   version: number;
-  ranges: readonly {
-    side: "base" | "head";
-    file: string;
-    fromLine: number;
-    toLine: number;
-  }[];
+  targets: readonly ReviewDiffLensTarget[];
 }
 
 /** Reader progress is supplied independently of the immutable comparison. */
@@ -197,16 +208,17 @@ export interface ReviewDiffProgressFile {
   state: "unread" | "partial" | "viewed";
   remaining: { additions: number; deletions: number };
   total: { additions: number; deletions: number };
-  viewedRanges: ReviewDiffLens["ranges"];
-  changedRanges: ReviewDiffLens["ranges"];
-  unfoldRanges?: ReviewDiffLens["ranges"];
+  viewedRanges: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
+  changedRanges: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
+  unfoldRanges?: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
 }
 
 export interface ReviewDiffSection {
+  targets: readonly ReviewDiffLensTarget[];
   files?: readonly ReviewDiffProgressFile[];
   id: string;
   label: string;
-  sources: ReviewDiffLens["ranges"];
+  sources: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"];
   state: "unread" | "partial" | "viewed";
   total: { additions: number; deletions: number };
   remaining: { additions: number; deletions: number };
@@ -233,7 +245,7 @@ export interface ReviewDiffViewHandle extends ReviewDisposable {
   focus(): void;
   setProgress?(progress: ReviewDiffProgress): void;
   revealSource?(
-    source: ReviewDiffLens["ranges"][number],
+    source: Extract<ReviewDiffLensTarget, { kind: "ranges" }>["ranges"][number],
     sectionId?: string,
   ): void;
   onDidError(listener: (message: string) => void): ReviewDisposable;

@@ -277,8 +277,8 @@ describe("Review CLI", () => {
   );
 
   it.each([
-    [["app", "launch"], "launched", false],
-    [["app"], "running", false],
+    [["app", "launch"], "launched", undefined],
+    [["app"], "running", undefined],
     [["app", "launch", "--focus"], "running", true],
     [["app", "--focus"], "launched", true],
   ] as const)(

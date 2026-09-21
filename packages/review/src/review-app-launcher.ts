@@ -103,7 +103,7 @@ export async function runReviewAppLaunch(
     return launchEvent("running", running.instanceId);
   }
 
-  const attempt = runtime.launchDesktop({ focus: input.focus === true });
+  const attempt = runtime.launchDesktop({ focus: input.focus });
 
   let completion: Promise<DesktopLaunchCompletion> | undefined =
     observedCompletion(attempt);
@@ -220,16 +220,11 @@ export function launchDesktopApplication(
   let command = "/usr/bin/open";
   let method = `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
 
+  let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+
   // `open` does not forward the caller's environment; --env carries the marker.
-  let args = focus
-    ? ["-b", REVIEW_DESKTOP_BUNDLE_ID]
-    : [
-        "-g",
-        "-b",
-        REVIEW_DESKTOP_BUNDLE_ID,
-        "--env",
-        `${REVIEW_DESKTOP_BACKGROUND_ENV}=1`,
-      ];
+  if (!focus)
+    args = ["-g", ...args, "--env", `${REVIEW_DESKTOP_BACKGROUND_ENV}=1`];
 
   if (directLaunch) {
     command = "/usr/bin/review-desktop";

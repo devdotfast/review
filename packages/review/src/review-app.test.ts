@@ -30,15 +30,7 @@ const runtime = {
 
 describe("native Review picker", () => {
   it("opens an explicit review through the authenticated JSON API", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) =>
-      String(url).endsWith("/health")
-        ? healthyResponse()
-        : Response.json(
-            init?.method === "POST"
-              ? { ok: true }
-              : { reviewId: "review", title: "Native" },
-          ),
-    );
+    const fetch = desktopFetch();
 
     expect(
       await runReviewAppPick(
@@ -221,15 +213,7 @@ describe("native Review picker", () => {
   });
 
   it("focuses a running Desktop after opening when asked", async () => {
-    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) =>
-      String(url).endsWith("/health")
-        ? healthyResponse()
-        : Response.json(
-            init?.method === "POST"
-              ? { ok: true }
-              : { reviewId: "review", title: "Native" },
-          ),
-    );
+    const fetch = desktopFetch();
 
     await runReviewAppPick(
       { ...input, reviewUuid: "review", focus: true },
@@ -256,15 +240,7 @@ describe("native Review picker", () => {
 
     let launched = false;
 
-    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) =>
-      String(url).endsWith("/health")
-        ? healthyResponse()
-        : Response.json(
-            init?.method === "POST"
-              ? { ok: true }
-              : { reviewId: "review", title: "Native" },
-          ),
-    );
+    const fetch = desktopFetch();
 
     await runReviewAppPick(
       { ...input, reviewUuid: "review", focus: true },
@@ -281,8 +257,24 @@ describe("native Review picker", () => {
       },
     );
     expect(launch).toHaveBeenCalledWith({ focus: true });
+    expect(fetch.mock.calls.map(([url]) => String(url))).not.toContain(
+      "http://127.0.0.1:5570/app/focus",
+    );
   });
 });
+
+/** A healthy Desktop that answers the summary read and accepts every post. */
+function desktopFetch() {
+  return vi.fn<typeof globalThis.fetch>(async (url, init) =>
+    String(url).endsWith("/health")
+      ? healthyResponse()
+      : Response.json(
+          init?.method === "POST"
+            ? { ok: true }
+            : { reviewId: "review", title: "Native" },
+        ),
+  );
+}
 
 function healthyResponse(): Response {
   return Response.json({

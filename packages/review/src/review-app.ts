@@ -56,8 +56,12 @@ export async function runReviewAppPick(
   // Only `review app launch` may recover a stale or incompatible pointer; the
   // other verbs report the diagnosis rather than start a second Desktop. A null
   // read means nothing is running, which launching does fix.
-  if (!(await runtime.readReviewDesktopDiscovery()))
-    await runtime.launch({ focus: input.focus === true });
+  let launched = false;
+
+  if (!(await runtime.readReviewDesktopDiscovery())) {
+    await runtime.launch({ focus: input.focus });
+    launched = true;
+  }
 
   const discovery = await runtime.requireHealthyReviewDesktop(
     "review app pick",
@@ -108,8 +112,11 @@ export async function runReviewAppPick(
   }
 
   await client.post(`/${encodeURIComponent(review.reviewId)}/open`, {});
-  // Opening a tab never activates the app; that is the flag's job.
-  if (input.focus) await focusReviewDesktop(discovery, runtime.fetch);
+
+  // Opening a tab never activates the app. A fresh launch with focus already
+  // came forward; a running instance has to be asked.
+  if (input.focus && !launched)
+    await focusReviewDesktop(discovery, runtime.fetch);
 
   return {
     event: "app",

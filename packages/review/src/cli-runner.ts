@@ -400,7 +400,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     const event = await runtime.runReviewAppPick({
       cwd,
       reviewUuid: options.review,
-      focus: options.focus === true,
+      focus: options.focus,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
       // not be stdout: the picker's ANSI frames would corrupt the event line.
@@ -418,22 +418,17 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
   };
 
   const launchApp = async (options: { focus?: boolean; json?: boolean }) => {
-    const event = await runtime.runReviewAppLaunch({
-      focus: options.focus === true,
-    });
+    const event = await runtime.runReviewAppLaunch({ focus: options.focus });
 
     writeAppEvent(event, options.json);
     state.exitCode = 0;
   };
 
-  const focusOption = () =>
-    new Option("--focus", "bring Review Desktop to the foreground");
-
   const app = configureJsonOutput(
     program
       .command("app")
       .description("Start Review Desktop in the background")
-      .addOption(focusOption()),
+      .option("--focus", "bring Review Desktop to the foreground"),
     "plain",
   ).action(launchApp);
 
@@ -441,7 +436,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     app
       .command("launch")
       .description("Start Review Desktop in the background")
-      .addOption(focusOption()),
+      .option("--focus", "bring Review Desktop to the foreground"),
     "plain",
   ).action(launchApp);
   configureJsonOutput(
@@ -449,7 +444,7 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       .command("pick")
       .description("Select a Review (interactive picker without --review)")
       .option("--review <uuid>", "review UUID")
-      .addOption(focusOption()),
+      .option("--focus", "bring Review Desktop to the foreground"),
     "plain",
   ).action(pickReview);
 

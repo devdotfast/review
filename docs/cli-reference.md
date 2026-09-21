@@ -67,9 +67,9 @@ $ review version --json
 
 | Command                | Purpose                                                           |
 | ---------------------- | ----------------------------------------------------------------- |
-| `review app`           | Start Review Desktop in the background. Bare `review app` aliases `app launch`. `--focus` brings it forward. |
-| `review app launch`    | Start Review Desktop in the background; `--focus` brings it forward or activates a running instance. |
-| `review app pick`      | Select a published Review and optionally choose its opened view. `--focus` brings the window forward. |
+| `review app`           | Start Review Desktop (background unless `--focus`). Bare `review app` aliases `app launch`. |
+| `review app launch`    | Start Review Desktop, or activate a running one with `--focus`.   |
+| `review app pick`      | Select a published Review and optionally choose its opened view.  |
 | `review info`          | List Reviews associated with the current checkout.                |
 | `review api`           | Call a JSON Review authoring tool; `review api tools` lists them. |
 | `review mcp`           | Serve the same authoring tools over stdio MCP.                    |

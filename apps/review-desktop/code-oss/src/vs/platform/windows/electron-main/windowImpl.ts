@@ -303,11 +303,7 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
 
 			// to reduce flicker from the default window size
 			// to maximize or fullscreen, we only show after
-			if (reviewBackgroundLaunch.suppressesFocus) {
-				this._win?.showInactive();
-			} else {
-				this._win?.show();
-			}
+			reviewBackgroundLaunch.show(this._win);
 		}
 	}
 
@@ -723,9 +719,7 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 			}
 
 			const options = instantiationService.invokeFunction(defaultBrowserWindowOptions, this.windowState, undefined, webPreferences);
-			if (reviewBackgroundLaunch.suppressesFocus) {
-				options.show = false; // shown inactive below
-			}
+			reviewBackgroundLaunch.prepare(options);
 
 			// Create the browser window
 			mark('code/willCreateCodeBrowserWindow');
@@ -734,10 +728,7 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 
 			this._id = this._win.id;
 			this.setWin(this._win, options);
-			if (reviewBackgroundLaunch.suppressesFocus) {
-				this._win.showInactive();
-				this._win.once('focus', () => reviewBackgroundLaunch.release());
-			}
+			reviewBackgroundLaunch.attach(this._win);
 
 			// Apply some state after window creation
 			this.applyState(this.windowState, hasMultipleDisplays);

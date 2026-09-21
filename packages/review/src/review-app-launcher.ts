@@ -14,7 +14,8 @@ import {
 const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
 
 /** Set to "1" on launches without --focus; Desktop then opens inactive. */
-export const REVIEW_DESKTOP_BACKGROUND_ENV = "DEV_FAST_REVIEW_DESKTOP_BACKGROUND";
+export const REVIEW_DESKTOP_BACKGROUND_ENV =
+  "DEV_FAST_REVIEW_DESKTOP_BACKGROUND";
 
 const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000;
 

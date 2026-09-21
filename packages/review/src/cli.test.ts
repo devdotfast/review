@@ -277,11 +277,13 @@ describe("Review CLI", () => {
   );
 
   it.each([
-    [["app", "launch"], "launched"],
-    [["app"], "running"],
+    [["app", "launch"], "launched", false],
+    [["app"], "running", false],
+    [["app", "launch", "--focus"], "running", true],
+    [["app", "--focus"], "launched", true],
   ] as const)(
     "supports the app launch command and bare alias: %j",
-    async (argv, state) => {
+    async (argv, state, focus) => {
       const runReviewAppLaunch = vi.fn<typeof runReviewAppLaunchActual>(
         async () => ({
           event: "app",
@@ -305,6 +307,7 @@ describe("Review CLI", () => {
           runtime: { runReviewAppLaunch },
         }),
       ).resolves.toBe(0);
+      expect(runReviewAppLaunch).toHaveBeenCalledWith({ focus });
       expect(JSON.parse(output)).toEqual({
         event: "app",
         action: "launch",
@@ -313,6 +316,29 @@ describe("Review CLI", () => {
       });
     },
   );
+
+  it("passes --focus through app pick", async () => {
+    const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
+      event: "app",
+      action: "pick",
+      reviewUuid: "review-uuid",
+      title: "Picked",
+    }));
+
+    await expect(
+      runReviewCli({
+        argv: ["app", "pick", "--review", "review-uuid", "--focus", "--json"],
+        cwd: "/outside-a-repository",
+        stdin: Readable.from([]),
+        stdout: outputStream(),
+        stderr: outputStream(),
+        runtime: { runReviewAppPick },
+      }),
+    ).resolves.toBe(0);
+    expect(runReviewAppPick).toHaveBeenCalledWith(
+      expect.objectContaining({ reviewUuid: "review-uuid", focus: true }),
+    );
+  });
 
   it.each([
     ["app launch", ["app", "launch"], "app.launch"],

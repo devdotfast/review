@@ -383,19 +383,24 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       input.stdout.write(
         event.state === "running"
           ? "Review Desktop is already running.\n"
-          : "Review Desktop is ready.\n",
+          : "Review Desktop is ready in the background. Pass --focus to bring it forward.\n",
       );
     } else {
       input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
     }
   };
 
-  const pickReview = async (options: { review?: string; json?: boolean }) => {
+  const pickReview = async (options: {
+    review?: string;
+    focus?: boolean;
+    json?: boolean;
+  }) => {
     // SAFETY: the picker reads keypresses only after checking isTTY, and only
     // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
       reviewUuid: options.review,
+      focus: options.focus === true,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
       // not be stdout: the picker's ANSI frames would corrupt the event line.
@@ -412,26 +417,39 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
     state.exitCode = 0;
   };
 
-  const launchApp = async (options: { json?: boolean }) => {
-    const event = await runtime.runReviewAppLaunch();
+  const launchApp = async (options: { focus?: boolean; json?: boolean }) => {
+    const event = await runtime.runReviewAppLaunch({
+      focus: options.focus === true,
+    });
+
     writeAppEvent(event, options.json);
     state.exitCode = 0;
   };
 
+  const focusOption = () =>
+    new Option("--focus", "bring Review Desktop to the foreground");
+
   const app = configureJsonOutput(
-    program.command("app").description("Start or activate Review Desktop"),
+    program
+      .command("app")
+      .description("Start Review Desktop in the background")
+      .addOption(focusOption()),
     "plain",
   ).action(launchApp);
 
   configureJsonOutput(
-    app.command("launch").description("Start or activate Review Desktop"),
+    app
+      .command("launch")
+      .description("Start Review Desktop in the background")
+      .addOption(focusOption()),
     "plain",
   ).action(launchApp);
   configureJsonOutput(
     app
       .command("pick")
       .description("Select a Review (interactive picker without --review)")
-      .option("--review <uuid>", "review UUID"),
+      .option("--review <uuid>", "review UUID")
+      .addOption(focusOption()),
     "plain",
   ).action(pickReview);
 

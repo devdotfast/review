@@ -25,6 +25,8 @@ interface ReviewAppRuntime {
 export interface RunReviewAppInput {
   cwd: string;
   reviewUuid?: string;
+  /** Bring Review Desktop to the foreground. Off by default. */
+  focus?: boolean;
   stdin: NodeJS.ReadStream;
   stdout: Writable;
 }
@@ -54,7 +56,8 @@ export async function runReviewAppPick(
   // Only `review app launch` may recover a stale or incompatible pointer; the
   // other verbs report the diagnosis rather than start a second Desktop. A null
   // read means nothing is running, which launching does fix.
-  if (!(await runtime.readReviewDesktopDiscovery())) await runtime.launch();
+  if (!(await runtime.readReviewDesktopDiscovery()))
+    await runtime.launch({ focus: input.focus === true });
 
   const discovery = await runtime.requireHealthyReviewDesktop(
     "review app pick",

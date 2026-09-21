@@ -67,9 +67,9 @@ $ review version --json
 
 | Command                | Purpose                                                           |
 | ---------------------- | ----------------------------------------------------------------- |
-| `review app`           | Start Review Desktop. Bare `review app` aliases `app launch`.     |
-| `review app launch`    | Start or activate Review Desktop.                                 |
-| `review app pick`      | Select a published Review and optionally choose its opened view.  |
+| `review app`           | Start Review Desktop in the background. Bare `review app` aliases `app launch`. `--focus` brings it forward. |
+| `review app launch`    | Start Review Desktop in the background; `--focus` brings it forward or activates a running instance. |
+| `review app pick`      | Select a published Review and optionally choose its opened view. `--focus` brings the window forward. |
 | `review info`          | List Reviews associated with the current checkout.                |
 | `review api`           | Call a JSON Review authoring tool; `review api tools` lists them. |
 | `review mcp`           | Serve the same authoring tools over stdio MCP.                    |
@@ -119,6 +119,7 @@ review info
 review info --all
 ```
 
+Launches stay in the background; add `--focus` to bring the window forward.
 `review app pick` opens an interactive picker when no UUID is given. `review
 info` reports titles, UUIDs, status, and whether each
 Review is in sync. It requires Review Desktop to be running. `--all` includes
@@ -411,6 +412,7 @@ and telemetry administration:
 | `TRACE_HOME_DIR`                                 | Replaces the operating-system home used to find the installed trace command and the trace repository registry under `.config/dev-trace`. The default is the operating-system home.                                             |
 | `TRACE_OPENCODE_TRACES_ROOT`                     | Selects where Review writes fresh OpenCode session exports. The default is `$DEV_REVIEW_HOME/opencode-traces`.                                                                                                                 |
 | `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT`             | Gives a launched Review Desktop instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state.                                                                    |
+| `DEV_FAST_REVIEW_DESKTOP_BACKGROUND` | Set to `1` by `review app` launches without `--focus`. Review Desktop then shows its first window without taking focus and ignores focus requests until you click it or run `review app launch --focus`. |
 | `PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL`          | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection.                                                                              |
 | `POSTHOG_KEY`                                    | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key.                                                |
 | `POSTHOG_HOST`                                   | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`.   |

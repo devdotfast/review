@@ -219,6 +219,43 @@ describe("native Review picker", () => {
     );
     expect(launch).not.toHaveBeenCalled();
   });
+
+  it("forwards focus to the launcher when no Desktop is running", async () => {
+    const launch = vi.fn<typeof runtime.launch>(async () => ({
+      event: "app",
+      action: "launch",
+      state: "running",
+      instanceId: "desktop",
+    }));
+
+    let launched = false;
+
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) =>
+      String(url).endsWith("/health")
+        ? healthyResponse()
+        : Response.json(
+            init?.method === "POST"
+              ? { ok: true }
+              : { reviewId: "review", title: "Native" },
+          ),
+    );
+
+    await runReviewAppPick(
+      { ...input, reviewUuid: "review", focus: true },
+      {
+        ...runtime,
+        launch,
+        readReviewDesktopDiscovery: async () => {
+          if (launched) return runtime.readReviewDesktopDiscovery();
+          launched = true;
+
+          return null;
+        },
+        fetch,
+      },
+    );
+    expect(launch).toHaveBeenCalledWith({ focus: true });
+  });
 });
 
 function healthyResponse(): Response {

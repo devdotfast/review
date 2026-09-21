@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   type ReviewApiClient,
@@ -8,11 +15,6 @@ import {
 import "./share-control.css";
 import { copyText } from "./copy-text";
 import { ShareIcon } from "./icons";
-import {
-  shareLinkKey,
-  useSharingAccount,
-  watchSharingAccount,
-} from "./sharing-account-store";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
 import { useTooltip } from "./use-tooltip";
 import { useTopbarPopover } from "./use-topbar-popover";
@@ -25,19 +27,29 @@ export const SharingContext = createContext<{
   cloneUrl?: string;
 } | null>(null);
 
+interface SharingAccount {
+  account: { login: string; origin: string } | null;
+  pending: boolean;
+  error?: string;
+}
+
+const POLL_WHILE_PENDING_MS = 2000;
+
+const linkKey = (reviewId: string, version: number) => `${reviewId}@${version}`;
+
 export function ShareControl() {
   const context = useContext(SharingContext);
+  const client = context?.client;
   const [open, setOpen] = useState(false);
-  const account = useSharingAccount((state) => state.account);
-  const accountError = useSharingAccount((state) => state.error);
-  const login = useSharingAccount((state) => state.login);
-  const reloadAccount = useSharingAccount((state) => state.load);
-  const links = useSharingAccount((state) => state.links);
-  const rememberLink = useSharingAccount((state) => state.rememberLink);
+  // Read once while the review is open, refreshed on focus, polled while pending.
+  const [account, setAccount] = useState<SharingAccount>();
+  const [accountError, setAccountError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [link, setLink] = useState<string>();
   const [copied, setCopied] = useState(false);
+  // Links created this session, so reopening a shared version skips the upload.
+  const links = useRef(new Map<string, string>());
 
   const frozen = useRef<{
     version: number;
@@ -49,17 +61,45 @@ export function ShareControl() {
   const popoverRef = useTopbarPopover(open, popover);
   const shared = context?.reviewId.startsWith("shared-");
   const signedIn = Boolean(account?.account);
+  const pending = Boolean(account?.pending);
 
   const label = shared
     ? `Shared${context?.sender ? ` by ${context.sender}` : " review"}`
     : "Share review";
 
   const tooltip = useTooltip(label);
-  useEffect(() => {
-    if (!context || shared) return;
 
-    return watchSharingAccount(context.client);
-  }, [context?.client, shared]);
+  const loadAccount = useCallback(async () => {
+    if (!client) return;
+
+    try {
+      setAccount(await client.read<SharingAccount>("/sharing/account"));
+      setAccountError(undefined);
+    } catch {
+      setAccountError("Could not read sign-in status.");
+    }
+  }, [client]);
+
+  useEffect(() => {
+    if (!client || shared) return;
+    const load = () => void loadAccount();
+
+    load();
+    window.addEventListener("focus", load);
+
+    return () => window.removeEventListener("focus", load);
+  }, [client, shared, loadAccount]);
+
+  useEffect(() => {
+    if (!pending) return;
+
+    const interval = setInterval(
+      () => void loadAccount(),
+      POLL_WHILE_PENDING_MS,
+    );
+
+    return () => clearInterval(interval);
+  }, [pending, loadAccount]);
   useDismissOnOutside(popover, open, setOpen);
 
   const run = async (operation: () => Promise<void>) => {
@@ -79,6 +119,12 @@ export function ShareControl() {
     }
   };
 
+  const login = async () => {
+    if (!client) return;
+    await client.post("/sharing/login", {});
+    setAccount({ account: null, pending: true });
+  };
+
   const publish = () =>
     run(async () => {
       if (!context || !frozen.current) return;
@@ -90,13 +136,13 @@ export function ShareControl() {
           { reviewId: context.reviewId, version, requestId },
         );
 
-        rememberLink(shareLinkKey(context.reviewId, version), result.url);
+        links.current.set(linkKey(context.reviewId, version), result.url);
         setLink(result.url);
       } catch (error) {
         // The host forgot a stale login; show sign-in and upload again after it.
         if (error instanceof ReviewApiError && error.status === 401) {
           frozen.current.started = false;
-          void reloadAccount();
+          void loadAccount();
         }
 
         throw error;
@@ -135,8 +181,9 @@ export function ShareControl() {
         onClick={() => {
           if (!open) {
             // A version shared earlier this session reuses its link.
-            const cached =
-              links[shareLinkKey(context.reviewId, context.version)];
+            const cached = links.current.get(
+              linkKey(context.reviewId, context.version),
+            );
 
             frozen.current = {
               version: context.version,
@@ -212,7 +259,9 @@ export function ShareControl() {
                   disabled={account.pending || busy}
                   onClick={() => void run(login)}
                 >
-                  {account.pending ? "Waiting for sign-in…" : "Sign in to share"}
+                  {account.pending
+                    ? "Waiting for sign-in…"
+                    : "Sign in to share"}
                 </button>
               </>
             )

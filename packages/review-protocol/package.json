@@ -20,6 +20,7 @@
     "typecheck": "pnpm -w exec tsc -p packages/review-protocol/tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@dev.fast/diffr": "0.1.1",
     "@dev.fast/json": "workspace:*",
     "@dev.fast/trace-protocol": "workspace:*",
     "zod": "4.4.3"

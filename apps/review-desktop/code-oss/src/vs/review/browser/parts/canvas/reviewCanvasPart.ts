@@ -260,6 +260,9 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
 		this.desktopConnection.attachControl(async (value) => {
 			const request = parseReviewVerbRequest(value);
+			if (request.name === "authoringCapabilities") {
+				return { ok: true, result: { softwareMapEnabled: this.currentSoftwareMapEnabled() } };
+			}
 			if (request.name === "openApiReview") {
 				const response = await this.verbs.dispatch(request);
 				return response.ok ? { ok: true, result: { softwareMapEnabled: this.currentSoftwareMapEnabled() } } : response;

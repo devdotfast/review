@@ -1028,10 +1028,18 @@ it("preserves unfinished section status after authoring stops and restores it fr
   const leaseId = randomUUID();
   store.activity.update(reviewId, { action: "begin", leaseId });
 
-  const started = await edit(reviewId, {
-    type: "update",
-    targetId: inserted.targetId,
-    changes: { status: "in_progress" },
+  const started = await store.execute({
+    commandId: randomUUID(),
+    leaseId,
+    operation: {
+      type: "edit",
+      reviewId,
+      edit: {
+        type: "update",
+        targetId: inserted.targetId,
+        changes: { status: "in_progress" },
+      },
+    },
   });
 
   store.activity.update(reviewId, { action: "end", leaseId });

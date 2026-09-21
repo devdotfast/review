@@ -65,18 +65,49 @@ $ review version --json
 
 ## Commands
 
-| Command                | Purpose                                                                     |
-| ---------------------- | --------------------------------------------------------------------------- |
-| `review app`           | Start Review Desktop. Bare `review app` aliases `app launch`.               |
-| `review app launch`    | Start or activate Review Desktop.                                           |
-| `review app pick`      | Select a published Review and optionally choose its opened view.            |
-| `review info`          | List Reviews associated with the current checkout.                          |
-| `review api`           | Call a JSON Review authoring tool; `review api tools` lists them.           |
-| `review mcp`           | Serve the same authoring tools over stdio MCP.                              |
-| `review map`           | Author, validate, and share experimental software maps.                     |
-| `review install`       | Install Review skills for supported coding agents.                          |
-| `review migrate apply` | Migrate supported legacy Review data.                                       |
-| `review version`       | Print the Review package version.                                           |
+| Command                | Purpose                                                           |
+| ---------------------- | ----------------------------------------------------------------- |
+| `review app`           | Start Review Desktop. Bare `review app` aliases `app launch`.     |
+| `review app launch`    | Start or activate Review Desktop.                                 |
+| `review app pick`      | Select a published Review and optionally choose its opened view.  |
+| `review info`          | List Reviews associated with the current checkout.                |
+| `review api`           | Call a JSON Review authoring tool; `review api tools` lists them. |
+| `review mcp`           | Serve the same authoring tools over stdio MCP.                    |
+| `review server start`  | Run the foreground authoring server without Desktop.              |
+| `review server status` | Check readiness of the selected headless server.                  |
+| `review map`           | Author, validate, and share experimental software maps.           |
+| `review install`       | Install Review skills for supported coding agents.                |
+| `review migrate apply` | Migrate supported legacy Review data.                             |
+| `review version`       | Print the Review package version.                                 |
+
+## Headless authoring
+
+`review server start` runs the authoring server in the foreground without a
+Desktop installation. `review server status --json` checks readiness. Stop the
+server with Ctrl-C or SIGTERM. CLI and MCP clients use the same authoring tools
+and shared `dev-review` skill as Desktop.
+
+Set `DEV_REVIEW_SERVER_DIR` for the server and clients to select a job's saved
+state, or use `review --state-dir <path> server start` and
+`review --state-dir <path> api …`. The default is
+`$DEV_REVIEW_HOME` (`~/.dev` by default), shared with Desktop. Optional map generation requires starting with
+`--software-maps`; existing map uploads remain supported.
+
+See [headless setup and a GitHub Actions example](https://github.com/devdotfast/review/blob/main/packages/review/skills/dev-review/references/headless-authoring.md).
+CI supplies the agent and a prepared checkout with explicit base/head revisions.
+Interactive mode (the default) saves each accepted edit as a version. Start with
+`--authoring-mode batch` to select scratch drafts and one atomic commit instead.
+Capabilities report the selected mode. The `dev-review` skill routes to the short
+`dev-review-batch` skill for this workflow. Draft ownership lasts until commit,
+abort or server shutdown, without model heartbeats. Uncommitted drafts are
+discarded when their server stops.
+
+For local testing, open Desktop on the same `DEV_REVIEW_HOME` and select the
+review from Home. Both hosts use `review-api.db`; edits appear live with the same
+review ID, history, and resources. The headless server may be stopped after
+authoring. For a custom `--state-dir` or `DEV_REVIEW_SERVER_DIR`, launch Desktop
+with `DEV_REVIEW_HOME` set to that directory. From this checkout, use `pnpm dev`
+to launch the matching Desktop build. `review server open` has been removed.
 
 ## Desktop and discovery
 
@@ -361,22 +392,22 @@ login, consent, and captured sessions under `$DEV_REVIEW_HOME`. See
 These variables support legacy trace configuration, isolated Desktop launches,
 and telemetry administration:
 
-| Variable | Meaning, precedence, and default |
-| --- | --- |
-| `TRACE_ENV_FILE` | Selects the legacy direct-bucket environment file. The default is `~/.config/dev-trace/env`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists. |
-| `TRACE_SETTINGS_FILE` | Selects the legacy capture settings file. The default is `~/.config/dev-trace/settings.json`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists. |
-| `TRACE_HOME_DIR` | Replaces the operating-system home used to find the installed trace command and the trace repository registry under `.config/dev-trace`. The default is the operating-system home. |
-| `TRACE_OPENCODE_TRACES_ROOT` | Selects where Review writes fresh OpenCode session exports. The default is `$DEV_REVIEW_HOME/opencode-traces`. |
-| `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT` | Gives a launched Review Desktop instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state. |
-| `PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL` | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection. |
-| `POSTHOG_KEY` | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key. |
-| `POSTHOG_HOST` | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`. |
-| `DO_NOT_TRACK` | Disables passive telemetry when set to `1` or `true`. |
-| `DNT` | Disables passive telemetry when set to `1` or `true`. |
-| `PROGRESSIVE_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
-| `DEV_FAST_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
-| `DEV_FAST_PROGRESSIVE_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
-| `DEV_FAST_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`. |
+| Variable                                         | Meaning, precedence, and default                                                                                                                                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TRACE_ENV_FILE`                                 | Selects the legacy direct-bucket environment file. The default is `~/.config/dev-trace/env`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists.  |
+| `TRACE_SETTINGS_FILE`                            | Selects the legacy capture settings file. The default is `~/.config/dev-trace/settings.json`. Setting either legacy file variable also makes `review trace setup` update the legacy files unless an S3 profile already exists. |
+| `TRACE_HOME_DIR`                                 | Replaces the operating-system home used to find the installed trace command and the trace repository registry under `.config/dev-trace`. The default is the operating-system home.                                             |
+| `TRACE_OPENCODE_TRACES_ROOT`                     | Selects where Review writes fresh OpenCode session exports. The default is `$DEV_REVIEW_HOME/opencode-traces`.                                                                                                                 |
+| `DEV_FAST_REVIEW_DESKTOP_STATE_ROOT`             | Gives a launched Review Desktop instance separate `user-data` and `extensions` directories beneath this root. Empty or unset uses the normal Desktop state.                                                                    |
+| `PROGRESSIVE_REVIEW_TELEMETRY_INTERNAL`          | `1` marks telemetry as internal and `0` marks it as external. Either value overrides the stored internal marker and workspace-checkout detection.                                                                              |
+| `POSTHOG_KEY`                                    | Legacy PostHog project key alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_KEY`, `DEV_FAST_POSTHOG_KEY`, `POSTHOG_KEY`, then the embedded key.                                                |
+| `POSTHOG_HOST`                                   | Legacy PostHog host alias. The first non-empty value wins in this order: `PROGRESSIVE_REVIEW_POSTHOG_HOST`, `DEV_FAST_POSTHOG_HOST`, then `POSTHOG_HOST`. When none is set, the host defaults to `https://us.i.posthog.com`.   |
+| `DO_NOT_TRACK`                                   | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DNT`                                            | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `PROGRESSIVE_REVIEW_TELEMETRY_DISABLED`          | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DEV_FAST_TELEMETRY_DISABLED`                    | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DEV_FAST_PROGRESSIVE_REVIEW_TELEMETRY_DISABLED` | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
+| `DEV_FAST_REVIEW_TELEMETRY_DISABLED`             | Disables passive telemetry when set to `1` or `true`.                                                                                                                                                                          |
 
 See [Telemetry and privacy](telemetry.md) for the complete telemetry controls
 and data policy.

@@ -1136,6 +1136,10 @@ const apiReviewIdSchema = z.union([
 ]);
 
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [
+  z.strictObject({
+    name: z.literal("authoringCapabilities"),
+    args: z.strictObject({}),
+  }),
   z.strictObject({ name: z.literal("joinDiscord"), args: z.strictObject({}) }),
   z.strictObject({
     name: z.literal("showReviewView"),

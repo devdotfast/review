@@ -2351,6 +2351,14 @@ button {
   margin-right: auto;
 }
 
+.review-topbar-context::before {
+  content: "";
+  flex: 0 0 1px;
+  height: 20px;
+  margin: 0 14px 0 16px;
+  background: var(--chrome-border);
+}
+
 .review-topbar-actions [popover] {
   position: fixed;
   inset: auto;

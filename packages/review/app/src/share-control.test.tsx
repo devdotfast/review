@@ -50,7 +50,10 @@ function mount(options: {
       if (path.endsWith("/login")) {
         state.signedIn = true;
 
-        return Response.json({ pending: true });
+        return Response.json({
+          pending: true,
+          url: "https://github.com/login/device",
+        });
       }
 
       if (state.holdPublish) await state.holdPublish;
@@ -143,6 +146,7 @@ it("asks a signed-out user to sign in, then uploads the version chosen before lo
   expect(publishes(harness)).toHaveLength(0);
   await harness.click("Sign in to share");
   expect(container.textContent).toContain("Waiting for GitHub…");
+  expect(container.querySelector("[role=dialog] a")).toBeNull();
   await harness.render(5);
   await vi.waitFor(
     async () => {
@@ -255,4 +259,30 @@ it("falls back to sign-in when the stored login has expired, then uploads after 
   );
   expect(publishes(harness)).toHaveLength(2);
   expect(container.textContent).not.toContain("expired");
+});
+
+it("reuses the link for a version that was already shared and uploads again for a new one", async () => {
+  const harness = mount({ signedIn: true });
+  const { container } = harness;
+
+  await harness.render(4);
+  await harness.settle();
+  await harness.click("Share review");
+  await harness.settle();
+  expect(publishes(harness)).toHaveLength(1);
+  expect(container.querySelector("input")?.value).toContain("#capability");
+  await harness.click("Share review");
+  await harness.click("Share review");
+  expect(container.textContent).not.toContain("Uploading");
+  expect(container.querySelector("input")?.value).toContain("#capability");
+  await harness.settle();
+  expect(publishes(harness)).toHaveLength(1);
+  await harness.click("Share review");
+  await harness.render(5);
+  await harness.click("Share review");
+  await harness.settle();
+  expect(publishes(harness).map((post) => post.body)).toEqual([
+    expect.objectContaining({ version: 4 }),
+    expect.objectContaining({ version: 5 }),
+  ]);
 });

@@ -9,6 +9,7 @@ import "./share-control.css";
 import { copyText } from "./copy-text";
 import { ShareIcon } from "./icons";
 import {
+  shareLinkKey,
   useSharingAccount,
   watchSharingAccount,
 } from "./sharing-account-store";
@@ -31,6 +32,8 @@ export function ShareControl() {
   const accountError = useSharingAccount((state) => state.error);
   const login = useSharingAccount((state) => state.login);
   const reloadAccount = useSharingAccount((state) => state.load);
+  const links = useSharingAccount((state) => state.links);
+  const rememberLink = useSharingAccount((state) => state.rememberLink);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [link, setLink] = useState<string>();
@@ -87,6 +90,7 @@ export function ShareControl() {
           { reviewId: context.reviewId, version, requestId },
         );
 
+        rememberLink(shareLinkKey(context.reviewId, version), result.url);
         setLink(result.url);
       } catch (error) {
         // The host forgot a stale login; show sign-in and upload again after it.
@@ -130,12 +134,16 @@ export function ShareControl() {
         aria-expanded={open}
         onClick={() => {
           if (!open) {
+            // A version shared earlier this session reuses its link.
+            const cached =
+              links[shareLinkKey(context.reviewId, context.version)];
+
             frozen.current = {
               version: context.version,
               requestId: crypto.randomUUID(),
-              started: false,
+              started: cached !== undefined,
             };
-            setLink(undefined);
+            setLink(cached);
             setError(undefined);
             setCopied(false);
           }
@@ -206,13 +214,6 @@ export function ShareControl() {
                 >
                   {account.pending ? "Waiting for GitHub…" : "Sign in to share"}
                 </button>
-                {account.pending && account.url && (
-                  <p className="review-share-status">
-                    <a href={account.url} target="_blank" rel="noreferrer">
-                      Open GitHub sign-in
-                    </a>
-                  </p>
-                )}
               </>
             )
           )}

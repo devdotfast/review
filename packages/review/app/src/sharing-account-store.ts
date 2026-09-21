@@ -15,15 +15,24 @@ interface SharingAccountState {
   /** Undefined until the first read completes. */
   account?: SharingAccount;
   error?: string;
+  /** Share links already created this session, keyed by review id and version. */
+  links: Record<string, string>;
   load: () => Promise<void>;
   login: () => Promise<void>;
+  rememberLink: (key: string, url: string) => void;
 }
+
+export const shareLinkKey = (reviewId: string, version: number) =>
+  `${reviewId}@${version}`;
 
 const POLL_WHILE_PENDING_MS = 2000;
 
 /** App-wide sign-in state for sharing; the popover reads it without a round trip. */
 export const sharingAccountStore = createStore<SharingAccountState>()(
   (set, get) => ({
+    links: {},
+    rememberLink: (key, url) =>
+      set((state) => ({ links: { ...state.links, [key]: url } })),
     load: async () => {
       const { client } = get();
 
@@ -56,7 +65,7 @@ export function watchSharingAccount(client: ReviewApiClient) {
   const store = sharingAccountStore;
 
   if (store.getState().client !== client)
-    store.setState({ client, account: undefined, error: undefined });
+    store.setState({ client, account: undefined, error: undefined, links: {} });
 
   const load = () => void store.getState().load();
 

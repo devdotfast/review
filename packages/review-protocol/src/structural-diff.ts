@@ -1,11 +1,10 @@
-import { z } from "zod";
-
 import {
   type StructuralDiffEvent,
   StructuralDiffEventSchema,
-} from "./diffr-contract.js";
+} from "@dev.fast/diffr";
+import { z } from "zod";
 
-/** Review's HTTP transport can fail independently of diffr's per-file outcomes. */
+// Review transport errors are separate from diffr file outcomes.
 const ReviewStructuralDiffErrorSchema = z.object({
   type: z.literal("error"),
   message: z.string(),
@@ -20,20 +19,11 @@ const ReviewStructuralDiffEventSchema = z.union([
   ReviewStructuralDiffErrorSchema,
 ]);
 
-/** JSON is untrusted until the complete nested Rust wire contract validates. */
-export function decodeStructuralDiffEvent(line: string): StructuralDiffEvent {
-  return parseStructuralRecord(StructuralDiffEventSchema, line);
-}
-
 export function decodeReviewStructuralDiffEvent(
   line: string,
 ): ReviewStructuralDiffEvent {
-  return parseStructuralRecord(ReviewStructuralDiffEventSchema, line);
-}
-
-function parseStructuralRecord<T>(schema: z.ZodType<T>, line: string): T {
   try {
-    return schema.parse(JSON.parse(line));
+    return ReviewStructuralDiffEventSchema.parse(JSON.parse(line));
   } catch (cause) {
     throw new Error("Malformed diffr protocol record.", { cause });
   }

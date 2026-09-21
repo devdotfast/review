@@ -1,10 +1,8 @@
+import { decodeStructuralDiffEvent } from "@dev.fast/diffr";
 import type { JsonValue } from "@dev.fast/json";
 import { expect, test } from "vitest";
 
-import {
-  decodeReviewStructuralDiffEvent,
-  decodeStructuralDiffEvent,
-} from "./structural-diff.js";
+import { decodeReviewStructuralDiffEvent } from "./structural-diff.js";
 
 const file = { rhs: { path: "a.ts", oid: "1", mode: "100644" } };
 

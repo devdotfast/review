@@ -31,9 +31,11 @@ const bundledDiffr = path.resolve(
   import.meta.dirname,
   "../../../packages/review/bin/diffr",
 );
+
 if (!process.env.REVIEW_DIFFR_BINARY && existsSync(bundledDiffr)) {
   process.env.REVIEW_DIFFR_BINARY = bundledDiffr;
 }
+
 const structuralDiffAvailable = process.env.REVIEW_DIFFR_BINARY
   ? true
   : await exec("which", ["diffr"])

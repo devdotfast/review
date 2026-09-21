@@ -35,6 +35,7 @@ export function applyBundledDiffrBinary(
 ): void {
   if (env.REVIEW_DIFFR_BINARY) return;
   const bundled = bundledDiffrBinary(packageRoot);
+
   if (existsSync(bundled)) env.REVIEW_DIFFR_BINARY = bundled;
 }
 

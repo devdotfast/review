@@ -13,7 +13,7 @@ import {
 
 const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
 
-/** Set to "1" on launches without --focus; Desktop then opens inactive. */
+/** "1" on launches without --focus; Desktop opens inactive. */
 export const REVIEW_DESKTOP_BACKGROUND_ENV =
   "DEV_FAST_REVIEW_DESKTOP_BACKGROUND";
 
@@ -43,7 +43,7 @@ interface ReviewAppLauncherRuntime {
 
 export interface RunReviewAppLaunchInput {
   timeoutMs?: number;
-  /** Bring Review Desktop to the foreground. Off by default. */
+  /** Bring Review Desktop forward. */
   focus?: boolean;
 }
 
@@ -222,7 +222,7 @@ export function launchDesktopApplication(
 
   let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
 
-  // `open` does not forward the caller's environment; --env carries the marker.
+  // open(1) drops the caller's env; --env carries the marker.
   if (!focus)
     args = ["-g", ...args, "--env", `${REVIEW_DESKTOP_BACKGROUND_ENV}=1`];
 

@@ -5,7 +5,7 @@
 
 import { FocusMode } from "../../platform/native/common/native.js";
 
-/** Set to "1" by `review app` launches without --focus. */
+/** "1" on `review app` launches without --focus. */
 export const REVIEW_DESKTOP_BACKGROUND_ENV = "DEV_FAST_REVIEW_DESKTOP_BACKGROUND";
 
 interface BackgroundWindow {
@@ -15,10 +15,8 @@ interface BackgroundWindow {
 }
 
 /**
- * A background launch shows the first window without activating the app and
- * ignores focus requests until the user focuses a window or a forced focus
- * (toast click, `review app launch --focus`) arrives. The gate releases once
- * for the process lifetime; later windows behave normally.
+ * Shows the first window inactive and swallows focus until the user focuses a
+ * window or a forced focus arrives. Releases once per process.
  */
 export class ReviewBackgroundLaunch {
 	private pending: boolean;
@@ -32,7 +30,7 @@ export class ReviewBackgroundLaunch {
 		return this.pending;
 	}
 
-	/** Keeps a window that would show at creation hidden; `attach` shows it inactive. */
+	/** Defers the initial show to `attach`, which shows the window inactive. */
 	prepare(options: { show?: boolean }): void {
 		if (!this.pending || options.show === false) return;
 		options.show = false;
@@ -45,7 +43,7 @@ export class ReviewBackgroundLaunch {
 		win.once("focus", () => this.release());
 	}
 
-	/** `show()` activates the app on macOS; a background launch must not. */
+	/** show() activates the app on macOS. */
 	show(win: BackgroundWindow | null | undefined): void {
 		if (this.pending) win?.showInactive();
 		else win?.show();

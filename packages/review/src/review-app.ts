@@ -25,7 +25,7 @@ interface ReviewAppRuntime {
 export interface RunReviewAppInput {
   cwd: string;
   reviewUuid?: string;
-  /** Bring Review Desktop to the foreground. Off by default. */
+  /** Bring Review Desktop forward. */
   focus?: boolean;
   stdin: NodeJS.ReadStream;
   stdout: Writable;
@@ -113,8 +113,7 @@ export async function runReviewAppPick(
 
   await client.post(`/${encodeURIComponent(review.reviewId)}/open`, {});
 
-  // Opening a tab never activates the app. A fresh launch with focus already
-  // came forward; a running instance has to be asked.
+  // A focused fresh launch already came forward; a running one must be asked.
   if (input.focus && !launched)
     await focusReviewDesktop(discovery, runtime.fetch);
 

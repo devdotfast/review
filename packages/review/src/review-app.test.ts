@@ -263,7 +263,7 @@ describe("native Review picker", () => {
   });
 });
 
-/** A healthy Desktop that answers the summary read and accepts every post. */
+/** Healthy Desktop: answers the summary read, accepts every post. */
 function desktopFetch() {
   return vi.fn<typeof globalThis.fetch>(async (url, init) =>
     String(url).endsWith("/health")

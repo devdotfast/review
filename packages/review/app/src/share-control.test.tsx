@@ -20,6 +20,7 @@ type Harness = ReturnType<typeof mount>;
 function mount(options: {
   signedIn: boolean;
   publishFails?: boolean;
+  publishExpired?: boolean;
   holdPublish?: Promise<void>;
 }) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -53,6 +54,16 @@ function mount(options: {
       }
 
       if (state.holdPublish) await state.holdPublish;
+
+      if (path.endsWith("/publish") && state.publishExpired) {
+        state.signedIn = false;
+        state.publishExpired = false;
+
+        return Response.json(
+          { error: "Your sign-in has expired. Sign in again to share." },
+          { status: 401 },
+        );
+      }
 
       if (path.endsWith("/publish") && state.publishFails)
         return Response.json(
@@ -217,4 +228,31 @@ it("knows the sign-in state before the popover opens and refreshes it on focus",
   await act(async () => window.dispatchEvent(new Event("focus")));
   await harness.settle();
   expect(harness.accountReads()).toBe(2);
+});
+
+it("falls back to sign-in when the stored login has expired, then uploads after re-login", async () => {
+  const harness = mount({ signedIn: true, publishExpired: true });
+  const { container } = harness;
+
+  await harness.render(4);
+  await harness.settle();
+  await harness.click("Share review");
+  await harness.settle();
+  expect(publishes(harness)).toHaveLength(1);
+  expect(container.textContent).toContain("Your sign-in has expired.");
+  expect(
+    [...container.querySelectorAll("[role=dialog] button")].map(
+      (button) => button.textContent,
+    ),
+  ).toEqual(["Sign in to share"]);
+  await harness.click("Sign in to share");
+  await vi.waitFor(
+    async () => {
+      await harness.settle();
+      expect(container.querySelector("input")?.value).toContain("#capability");
+    },
+    { timeout: 4000 },
+  );
+  expect(publishes(harness)).toHaveLength(2);
+  expect(container.textContent).not.toContain("expired");
 });

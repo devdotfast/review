@@ -30,6 +30,7 @@ export function ShareControl() {
   const account = useSharingAccount((state) => state.account);
   const accountError = useSharingAccount((state) => state.error);
   const login = useSharingAccount((state) => state.login);
+  const reloadAccount = useSharingAccount((state) => state.load);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [link, setLink] = useState<string>();
@@ -80,12 +81,22 @@ export function ShareControl() {
       if (!context || !frozen.current) return;
       const { version, requestId } = frozen.current;
 
-      const result = await context.client.post<{ url: string }>(
-        "/sharing/publish",
-        { reviewId: context.reviewId, version, requestId },
-      );
+      try {
+        const result = await context.client.post<{ url: string }>(
+          "/sharing/publish",
+          { reviewId: context.reviewId, version, requestId },
+        );
 
-      setLink(result.url);
+        setLink(result.url);
+      } catch (error) {
+        // The host forgot a stale login; show sign-in and upload again after it.
+        if (error instanceof ReviewApiError && error.status === 401) {
+          frozen.current.started = false;
+          void reloadAccount();
+        }
+
+        throw error;
+      }
     });
 
   useEffect(() => {

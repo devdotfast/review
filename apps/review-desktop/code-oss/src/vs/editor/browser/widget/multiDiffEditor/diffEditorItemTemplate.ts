@@ -217,6 +217,12 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 		}
 
 		const value = data.viewModel.documentDiffItem;
+		const labelUri = data.viewModel.modifiedLabelUri ?? data.viewModel.originalLabelUri;
+		if (labelUri) {
+			this._elements.root.dataset.reviewDiffPath = labelUri.path.replace(/^\/+/, '');
+		} else {
+			delete this._elements.root.dataset.reviewDiffPath;
+		}
 		this._sectionHeader?.setUris({ original: data.viewModel.originalUri, modified: data.viewModel.modifiedUri });
 
 		globalTransaction(tx => {
@@ -262,7 +268,7 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 	private _lastScrollTop;
 	private _isSettingScrollTop;
 
-	public render(verticalRange: OffsetRange, width: number, editorScroll: number, viewPort: OffsetRange): void {
+	public render(verticalRange: OffsetRange, width: number, editorScroll: number, viewPort: OffsetRange, stickySectionHeight = 0): void {
 		this._elements.root.style.visibility = 'visible';
 		this._elements.root.style.top = `${verticalRange.start}px`;
 		this._elements.root.style.height = `${verticalRange.length}px`;
@@ -271,7 +277,7 @@ export class DiffEditorItemTemplate extends Disposable implements IPooledObject<
 
 		// For sticky scroll
 		const maxDelta = Math.max(0, verticalRange.length - this._headerHeight - (this._sectionHeader?.height.get() ?? 0));
-		const delta = Math.max(0, Math.min(viewPort.start - verticalRange.start, maxDelta));
+		const delta = Math.max(0, Math.min(viewPort.start + stickySectionHeight - verticalRange.start - (this._sectionHeader?.height.get() ?? 0), maxDelta));
 		this._resourceHeader.element.style.transform = `translateY(${delta}px)`;
 
 		globalTransaction(tx => {

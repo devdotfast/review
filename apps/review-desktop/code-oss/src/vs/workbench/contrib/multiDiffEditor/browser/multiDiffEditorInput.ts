@@ -302,10 +302,6 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 
 		const a = recomputeInitiallyAndOnChange(updateDocuments);
 		await updateDocuments.get();
-		if (!source.isLoading.get()) {
-			await Promise.all(documentsWithPromises.get());
-			await updateDocuments.get();
-		}
 
 		const result: IMultiDiffEditorModel & IDisposable = {
 			dispose: () => { disposed = true; a.dispose(); loaded.clear(); },

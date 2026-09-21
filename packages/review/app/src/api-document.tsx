@@ -90,13 +90,14 @@ export function createDocumentLoader(client: ReviewApiClient) {
       const data: ApiDocumentData = {
         snapshot,
         headings: apiHeadingIds(snapshot.document),
-        commits: snapshot.sourceUnavailable
-          ? []
-          : await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
-              client.read<ReviewCommitSummary[]>(
-                `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
+        commits:
+          snapshot.sourceUnavailable || !snapshot.pins
+            ? []
+            : await once(`commits:${JSON.stringify(snapshot.pins)}`, () =>
+                client.read<ReviewCommitSummary[]>(
+                  `/${snapshot.reviewId}/commits?version=${snapshot.version}`,
+                ),
               ),
-            ),
         anchors: new Map(),
         images: new Map(),
         traces: new Map(),
@@ -105,9 +106,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
 
       for (const { id, source, label } of selectionReferences(
         snapshot.document,
-        {
-          tolerant: true,
-        },
+        { tolerant: true },
       )) {
         if (snapshot.staleSources?.includes(id)) continue;
         data.anchors.set(
@@ -153,7 +152,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
 
           if (node.type === "software_map") {
             const model = await once(
-              `map:${node.mapVersionId}:${JSON.stringify(snapshot.pins)}`,
+              `map:${node.mapVersionId}:${JSON.stringify(snapshot.pins ?? null)}`,
               async () => {
                 const saved = await client.read<
                   Awaited<ReturnType<LocalReviewData["map"]>>

@@ -13,6 +13,11 @@ export function apiSelectionEvent(
 	if (!source || new URLSearchParams(resource.query).has("empty")) return undefined;
 	const start = selection.getStartPosition();
 	const end = selection.getEndPosition();
+	const apiSource: NonNullable<Extract<ReviewSurfaceEvent, { event: "editorSelectionChanged" }>["apiSource"]> = {
+		reviewId: source.view.reviewId, version: source.view.version, commit: source.view.commit,
+	};
+	// A source at its own pins says so; one that inherits carries no pins key.
+	if (source.view.pins) apiSource.pins = source.view.pins;
 	return {
 		event: "editorSelectionChanged", reviewId: source.view.reviewId, anchor,
 		path: source.file, sideContext: source.side, isEmpty: selection.isEmpty(),
@@ -20,6 +25,6 @@ export function apiSelectionEvent(
 			fromLine: start.lineNumber,
 			toLine: Math.max(start.lineNumber, end.lineNumber - (end.column === 1 && end.lineNumber > start.lineNumber ? 1 : 0)),
 		},
-		apiSource: { reviewId: source.view.reviewId, version: source.view.version, commit: source.view.commit },
+		apiSource,
 	};
 }

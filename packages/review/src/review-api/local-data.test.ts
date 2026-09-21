@@ -133,6 +133,139 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it("reads, resolves and retires a reference at its own pins in another repository", async () => {
+  const other = path.join(directory, "other");
+  mkdirSync(other);
+
+  const otherGit = (...args: string[]) =>
+    execFileSync("git", args, { cwd: other, encoding: "utf8" }).trim();
+
+  otherGit("init", "-q");
+  otherGit("config", "user.name", "Review Test");
+  otherGit("config", "user.email", "review-test@example.invalid");
+  writeFileSync(
+    path.join(other, "lib.ts"),
+    "export const other = 1;\nexport const more = 2;\n",
+  );
+  otherGit("add", ".");
+  otherGit("-c", "commit.gpgsign=false", "commit", "-qm", "Other");
+  const registered = await local.data.register(other);
+
+  const own = {
+    repositoryId: registered.id,
+    head: otherGit("rev-parse", "HEAD"),
+  };
+
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Two repositories", pins }),
+  );
+
+  const peek = await insert(reviewId, {
+    type: "code_peek",
+    source: {
+      file: "lib.ts",
+      start: { side: "head", line: 1 },
+      end: { side: "head", line: 2 },
+      pins: own,
+    },
+  });
+
+  // A branch name is not a pin, even for a reference's own pins.
+  await expect(
+    insert(reviewId, {
+      type: "code_peek",
+      source: {
+        file: "lib.ts",
+        start: { side: "head", line: 1 },
+        end: { side: "head", line: 1 },
+        pins: { ...own, head: "HEAD" },
+      },
+    }),
+  ).rejects.toThrow(/resolved commit IDs/);
+
+  const app = createReviewApi(local.store, local.data);
+  const anchor = `repositoryId=${own.repositoryId}&head=${own.head}`;
+
+  expect(
+    await (
+      await app.request(`/${reviewId}/file?side=head&file=lib.ts&${anchor}`)
+    ).json(),
+  ).toMatchObject({
+    commit: own.head,
+    text: "export const other = 1;\nexport const more = 2;\n",
+  });
+  expect(
+    await (
+      await app.request(`/${reviewId}/file?side=head&file=${source.file}`)
+    ).json(),
+  ).toMatchObject({ commit: pins.head });
+  expect(
+    await (await app.request(`/${reviewId}/tree?side=head&${anchor}`)).json(),
+  ).toEqual([{ path: "lib.ts", kind: "file" }]);
+  expect(
+    (
+      await app.request(
+        `/${reviewId}/file?side=head&file=lib.ts&head=${own.head}`,
+      )
+    ).status,
+  ).toBe(400);
+
+  const quoted = await app.request(`/${reviewId}/source`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      source: {
+        side: "head",
+        file: "lib.ts",
+        fromLine: 2,
+        toLine: 2,
+        pins: own,
+      },
+    }),
+  });
+
+  expect(await quoted.json()).toMatchObject({
+    commit: own.head,
+    text: "export const more = 2;",
+  });
+
+  const progress = await (
+    await app.request(`/${reviewId}/progress?mode=textual`)
+  ).json();
+
+  expect(
+    progress.resolvedSelections[
+      JSON.stringify([
+        "lib.ts",
+        "head",
+        1,
+        "head",
+        2,
+        `${own.repositoryId}::${own.head}`,
+      ])
+    ],
+  ).toEqual([
+    // Base-less pins compare the commit with itself, so both sides resolve.
+    { file: "lib.ts", side: "base", fromLine: 1, toLine: 2 },
+    { file: "lib.ts", side: "head", fromLine: 1, toLine: 2 },
+  ]);
+  // The other repository's file is not one of this review's changed files.
+  expect(
+    progress.files.map((file: { path: string }) => file.path),
+  ).not.toContain("lib.ts");
+
+  // The reference keeps its repository registered until it is gone.
+  local.store.unregisterRepository(own.repositoryId);
+  expect(local.store.repositoryPath(own.repositoryId)).toBe(
+    realpathSync(other),
+  );
+
+  rmSync(other, { recursive: true, force: true });
+  await local.store.refreshWorktrees();
+  expect(local.store.read(reviewId).staleSources).toEqual([peek.targetId]);
+  expect(local.store.read(reviewId).sourceUnavailable).toBeUndefined();
+});
+
 it("resolves saved branch names and fork links for the requested review version", async () => {
   git("remote", "add", "origin", "https://github.com/devdotfast/review.git");
   git("remote", "add", "fork", "git@github.com:contributor/review.git");
@@ -637,8 +770,8 @@ it("reads each version of one review at its own pins", async () => {
   );
 
   await local.store.execute(command({ type: "repin", reviewId, pins: later }));
-  const first = local.store.read(reviewId, 0).pins;
-  const second = local.store.read(reviewId, 1).pins;
+  const first = local.store.read(reviewId, 0).pins!;
+  const second = local.store.read(reviewId, 1).pins!;
 
   expect([first, second]).toEqual([pins, later]);
   expect((await local.data.commits(first)).map((item) => item.commit)).toEqual([
@@ -2016,8 +2149,8 @@ it("resolves omitted commit base once and preserves explicit parent comparisons"
     base: pins.head,
     head: pins.head,
   });
-  expect(await local.data.changes(snapshot.pins)).toEqual([]);
-  expect(await local.data.file(snapshot.pins, "head", "example.ts")).toEqual(
+  expect(await local.data.changes(snapshot.pins!)).toEqual([]);
+  expect(await local.data.file(snapshot.pins!, "head", "example.ts")).toEqual(
     await local.data.file(pins, "head", "example.ts"),
   );
 
@@ -2061,13 +2194,13 @@ it("reads current working source across authored versions, commits and retargeti
   const result = await local.store.execute(request);
   const original = local.store.read(result.reviewId, 0);
   expect(
-    (await local.data.file(original.pins, "head", "example.ts")).text,
+    (await local.data.file(original.pins!, "head", "example.ts")).text,
   ).toContain("live = 1");
-  expect(await local.data.tree(original.pins, "head", "")).toContainEqual({
+  expect(await local.data.tree(original.pins!, "head", "")).toContainEqual({
     path: "untracked.ts",
     kind: "file",
   });
-  expect(await local.data.changes(original.pins)).toEqual(
+  expect(await local.data.changes(original.pins!)).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ path: "untracked.ts", status: "added" }),
     ]),
@@ -2080,12 +2213,12 @@ it("reads current working source across authored versions, commits and retargeti
   await local.store.refreshWorktrees();
   const current = local.store.read(result.reviewId);
   expect(
-    (await local.data.file(current.pins, "head", "example.ts")).text,
+    (await local.data.file(current.pins!, "head", "example.ts")).text,
   ).toContain("live = 2");
   expect(
     (
       await local.data.file(
-        local.store.read(result.reviewId, 0).pins,
+        local.store.read(result.reviewId, 0).pins!,
         "head",
         "example.ts",
       )
@@ -2099,7 +2232,7 @@ it("reads current working source across authored versions, commits and retargeti
   await new Promise((resolve) => setTimeout(resolve, 50));
   await local.store.refreshWorktrees();
   expect(
-    await local.data.changes(local.store.read(result.reviewId).pins),
+    await local.data.changes(local.store.read(result.reviewId).pins!),
   ).toEqual([]);
   await local.store.execute(
     command({
@@ -2110,7 +2243,7 @@ it("reads current working source across authored versions, commits and retargeti
   );
   expect(local.store.read(result.reviewId).target?.kind).toBe("commits");
   expect(
-    (await local.data.file(original.pins, "head", "example.ts")).text,
+    (await local.data.file(original.pins!, "head", "example.ts")).text,
   ).toContain("live = 2");
 });
 
@@ -2134,12 +2267,12 @@ it("reads symlink text and an unborn repository without following external links
 
   const snapshot = local.store.read(result.reviewId);
   expect(
-    (await local.data.file(snapshot.pins, "head", "first.ts")).text,
+    (await local.data.file(snapshot.pins!, "head", "first.ts")).text,
   ).toContain("first = 1");
   expect(
-    (await local.data.file(snapshot.pins, "head", "external.ts")).text,
+    (await local.data.file(snapshot.pins!, "head", "external.ts")).text,
   ).toBe(outside);
-  expect(await local.data.changes(snapshot.pins)).toEqual(
+  expect(await local.data.changes(snapshot.pins!)).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ path: "first.ts", status: "added" }),
     ]),
@@ -2266,7 +2399,7 @@ it("keeps multiple worktrees bound to their selected directory and survives reop
   expect(
     (
       await local.data.file(
-        local.store.read(one.reviewId).pins,
+        local.store.read(one.reviewId).pins!,
         "head",
         "example.ts",
       )
@@ -2275,7 +2408,7 @@ it("keeps multiple worktrees bound to their selected directory and survives reop
   expect(
     (
       await local.data.file(
-        local.store.read(two.reviewId).pins,
+        local.store.read(two.reviewId).pins!,
         "head",
         "example.ts",
       )
@@ -2284,7 +2417,7 @@ it("keeps multiple worktrees bound to their selected directory and survives reop
   expect(
     (
       await local.data.file(
-        local.store.read(two.reviewId, retained.version).pins,
+        local.store.read(two.reviewId, retained.version).pins!,
         "head",
         "example.ts",
       )
@@ -2311,16 +2444,16 @@ it("includes saved additions and deletions while keeping ignored and binary sour
   );
 
   const snapshot = local.store.read(result.reviewId);
-  const files = await local.data.tree(snapshot.pins, "head", "");
+  const files = await local.data.tree(snapshot.pins!, "head", "");
   expect(files).not.toContainEqual({ path: "ignored.ts", kind: "file" });
   expect(files).not.toContainEqual({ path: "example.ts", kind: "file" });
-  expect((await local.data.file(snapshot.pins, "head", "__proto__")).text).toBe(
-    "legitimate filename\n",
-  );
+  expect(
+    (await local.data.file(snapshot.pins!, "head", "__proto__")).text,
+  ).toBe("legitimate filename\n");
   await expect(
-    local.data.file(snapshot.pins, "head", "binary.dat"),
+    local.data.file(snapshot.pins!, "head", "binary.dat"),
   ).rejects.toThrow("Binary");
-  expect(await local.data.changes(snapshot.pins)).toEqual(
+  expect(await local.data.changes(snapshot.pins!)).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ path: "example.ts", status: "deleted" }),
       expect.objectContaining({ path: "binary.dat", status: "added" }),
@@ -2358,14 +2491,14 @@ it.skipIf(spawnSync("jj", ["--version"]).status !== 0)(
     expect(
       (
         await local.data.file(
-          local.store.read(result.reviewId).pins,
+          local.store.read(result.reviewId).pins!,
           "head",
           "new.ts",
         )
       ).text,
     ).toContain("unsnapshotted");
     expect(
-      await local.data.changes(local.store.read(result.reviewId).pins),
+      await local.data.changes(local.store.read(result.reviewId).pins!),
     ).toEqual([expect.objectContaining({ path: "new.ts", status: "added" })]);
     expect(jj("op", "log", "--no-graph", "--limit", "1", "-T", "id")).toBe(
       operation,
@@ -2414,7 +2547,7 @@ it("retargets a live review without losing authored content or component IDs", a
   expect(
     (
       await local.data.file(
-        local.store.read(created.reviewId, before.version).pins,
+        local.store.read(created.reviewId, before.version).pins!,
         "head",
         "example.ts",
       )
@@ -2619,12 +2752,12 @@ it("does not report clean tracked symlinks and submodules as modified", async ()
   );
 
   expect(
-    await local.data.changes(local.store.read(created.reviewId).pins),
+    await local.data.changes(local.store.read(created.reviewId).pins!),
   ).toEqual([]);
   expect(
     (
       await local.data.file(
-        local.store.read(created.reviewId).pins,
+        local.store.read(created.reviewId).pins!,
         "head",
         "tracked-link.ts",
       )
@@ -2632,7 +2765,7 @@ it("does not report clean tracked symlinks and submodules as modified", async ()
   ).toBe("example.ts");
   const snapshot = local.store.read(created.reviewId);
   await expect(
-    local.data.file(snapshot.pins, "head", "module"),
+    local.data.file(snapshot.pins!, "head", "module"),
   ).rejects.toThrow("not a regular file");
 
   const response = await createReviewApi(local.store, local.data).request(
@@ -2682,7 +2815,7 @@ it("continues capturing after watchers fail and stop emitting changes", async ()
     expect(
       (
         await local.data.file(
-          local.store.read(created.reviewId).pins,
+          local.store.read(created.reviewId).pins!,
           "head",
           "example.ts",
         )
@@ -2706,7 +2839,7 @@ it("keeps live language identity across edits but replaces it with a checkout at
 
   const saved = local.store.read(created.reviewId, created.version);
   const before = await local.data.languageEnvironment(saved, "head");
-  const retained = await local.data.file(saved.pins, "head", source.file);
+  const retained = await local.data.file(saved.pins!, "head", source.file);
   writeFileSync(path.join(repository, "identity.ts"), "const changed = true;");
   expect(await local.data.languageEnvironment(saved, "head")).toEqual(before);
   const moved = `${repository}-previous`;
@@ -2723,7 +2856,7 @@ it("keeps live language identity across edits but replaces it with a checkout at
     expect(replacement.identity).not.toBe(before.identity);
     expect(local.data.workspaces.list(created.reviewId)).toEqual([]);
     expect(
-      (await local.data.file(saved.pins, "head", source.file)).text,
+      (await local.data.file(saved.pins!, "head", source.file)).text,
     ).not.toEqual(retained.text);
   } finally {
     rmSync(moved, { recursive: true, force: true });

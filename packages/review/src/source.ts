@@ -2,6 +2,18 @@ import { z } from "zod";
 
 const label = z.string().trim().min(1);
 
+/** The repository and commits one source reference was read from. A
+ * reference without pins resolves against its document's pins; one with
+ * pins names them itself, so a document can quote several repositories or
+ * commits. `base` is only needed by references to the base side. */
+export const sourcePinsSchema = z.strictObject({
+  repositoryId: label,
+  head: label,
+  base: label.optional(),
+});
+
+export type SourcePins = z.infer<typeof sourcePinsSchema>;
+
 /** Internal coordinates for reading one revision or storing resolved coverage.
  * Authored document attachments use DiffSelection instead. */
 export const fileLineRangeSchema = z
@@ -10,8 +22,13 @@ export const fileLineRangeSchema = z
     file: label,
     fromLine: z.number().int().positive(),
     toLine: z.number().int().positive(),
+    pins: sourcePinsSchema.optional(),
   })
-  .refine((s) => s.toLine >= s.fromLine, "Source range ends before it starts.");
+  .refine((s) => s.toLine >= s.fromLine, "Source range ends before it starts.")
+  .refine(
+    (s) => s.side === "head" || !s.pins || s.pins.base !== undefined,
+    "A base-side source needs base pins.",
+  );
 
 export type FileLineRange = z.infer<typeof fileLineRangeSchema>;
 

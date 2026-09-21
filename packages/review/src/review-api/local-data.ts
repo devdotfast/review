@@ -53,7 +53,10 @@ import {
   type Pins,
   ReviewInputError,
   type ReviewTarget,
+  type SourcePins,
+  anchorPins,
   elements,
+  explicitPins,
   fileLineRangeSchema,
   pinsSchema,
   sourceReferences,
@@ -138,13 +141,14 @@ export class LocalReviewData {
   }
 
   currentEnvironmentIssues(snapshot: Snapshot) {
-    if (snapshot.target.kind !== "commits") return [];
+    if (snapshot.target?.kind !== "commits" || !snapshot.pins) return [];
+    const pins = snapshot.pins;
 
     return this.workspaces.list(snapshot.reviewId).flatMap((environment) => {
       const side =
-        environment.commit === snapshot.pins.head
+        environment.commit === pins.head
           ? "head"
-          : environment.commit === snapshot.pins.base
+          : environment.commit === pins.base
             ? "base"
             : undefined;
 
@@ -157,8 +161,10 @@ export class LocalReviewData {
   async environmentIssues(snapshot: Snapshot, retryFailed = false) {
     const issues: { side: "base" | "head"; message: string }[] = [];
 
+    if (!snapshot.pins) return issues;
+
     const sides: ("base" | "head")[] =
-      snapshot.target.kind === "commits" &&
+      snapshot.target?.kind === "commits" &&
       snapshot.pins.base !== snapshot.pins.head
         ? ["head", "base"]
         : ["head"];
@@ -198,8 +204,11 @@ export class LocalReviewData {
     side: "base" | "head",
     commit?: string,
     retryFailed = false,
+    anchor?: SourcePins,
   ): Promise<ReviewLanguageEnvironment> {
-    if (snapshot.target.kind === "commits") {
+    // A reference with its own pins borrows that repository's registered
+    // checkout, as live worktree targets do; no pinned checkout is prepared.
+    if (!anchor && snapshot.target?.kind === "commits" && snapshot.pins) {
       const pins = await this.comparison(snapshot.pins, commit);
 
       const environment = await this.workspaces.source(
@@ -220,8 +229,16 @@ export class LocalReviewData {
     }
 
     // Validate selected commits for both target kinds, but never prepare a live checkout.
-    if (commit) await this.comparison(await this.sourcePins(snapshot), commit);
-    const repositoryId = snapshot.pins.repositoryId;
+    if (commit && !anchor)
+      await this.comparison(await this.documentPins(snapshot), commit);
+
+    const repositoryId = anchor?.repositoryId ?? snapshot.pins?.repositoryId;
+
+    if (!repositoryId)
+      throw new ReviewInputError(
+        "This document has no source pins of its own.",
+        409,
+      );
 
     const unavailable: ReviewLanguageEnvironment = {
       rootPath: null,
@@ -252,11 +269,63 @@ export class LocalReviewData {
       : unavailable;
   }
 
-  /** Resolve source coordinates after selecting a local or imported snapshot. */
-  async resolveSource(snapshot: Snapshot, commit?: string) {
-    const pins = await this.comparison(await this.sourcePins(snapshot), commit);
+  /** Resolve source coordinates after selecting a local or imported snapshot.
+   * `anchor` reads at a reference's own pins instead of the document's;
+   * `commit` narrows the document comparison to one of its commits. */
+  async resolveSource(
+    snapshot: Snapshot,
+    commit?: string,
+    anchor?: SourcePins,
+  ) {
+    const pins = anchor
+      ? await this.anchorSourcePins(anchor)
+      : await this.comparison(await this.documentPins(snapshot), commit);
 
     return { snapshot, pins };
+  }
+
+  /** A document read that needs default pins; 409 when the document has none. */
+  async documentPins(snapshot: Snapshot): Promise<Pins> {
+    const pins = await this.sourcePins(snapshot);
+
+    if (!pins)
+      throw new ReviewInputError(
+        "This document has no source pins of its own.",
+        409,
+      );
+
+    return pins;
+  }
+
+  /** Pins a reference names itself, checked against the registered checkout. */
+  async anchorSourcePins(anchor: SourcePins): Promise<Pins> {
+    if (!existsSync(this.store.repositoryPath(anchor.repositoryId)))
+      throw unavailableCheckout();
+
+    return anchorPins({ pins: anchor }, undefined);
+  }
+
+  /** References whose own repository is unregistered or gone from disk. */
+  async unavailableAnchors(snapshot: Snapshot): Promise<string[]> {
+    const missing = new Set<string>();
+
+    for (const pins of explicitPins(
+      sourceReferences(snapshot.document, { tolerant: true }),
+    ))
+      try {
+        await this.anchorSourcePins(pins);
+      } catch (error) {
+        if (!(error instanceof ReviewInputError)) throw error;
+        missing.add(pins.repositoryId);
+      }
+
+    if (!missing.size) return [];
+
+    return sourceReferences(snapshot.document, { tolerant: true })
+      .filter(
+        (ref) => ref.source.pins && missing.has(ref.source.pins.repositoryId),
+      )
+      .map((ref) => ref.id);
   }
 
   // A commit's tree never changes, so one listing serves every folder expansion.
@@ -533,7 +602,7 @@ export class LocalReviewData {
       tolerant: true,
     })) {
       try {
-        await this.quote(pins, reference.source);
+        await this.quote(anchorPins(reference.source, pins), reference.source);
       } catch (error) {
         if (!(error instanceof ReviewInputError)) throw error;
         projected.staleSources!.push(reference.id);
@@ -542,10 +611,13 @@ export class LocalReviewData {
 
     return projected;
   }
-  /** Throws 404 when the checkout behind the snapshot is gone. */
-  async sourcePins(snapshot: Snapshot): Promise<Pins> {
-    if (snapshot.target.kind === "worktree")
+  /** Throws 404 when the checkout behind the snapshot is gone. Undefined
+   * for a document without default pins. */
+  async sourcePins(snapshot: Snapshot): Promise<Pins | undefined> {
+    if (snapshot.target?.kind === "worktree")
       return (await this.resolveTarget(snapshot.target)).pins;
+
+    if (!snapshot.pins) return undefined;
 
     if (!existsSync(this.store.repositoryPath(snapshot.pins.repositoryId)))
       throw unavailableCheckout();
@@ -1005,18 +1077,28 @@ export class LocalReviewData {
       head: selected.commit,
     };
   }
-  async map(pins: Pins, resourceId: string) {
-    await this.validateResource(pins, {
+  async map(documentPins: Pins | undefined, resourceId: string) {
+    await this.validateResource(documentPins, {
       type: "software_map",
       mapVersionId: resourceId,
     });
 
+    const resource = this.store.resource(resourceId);
+
     // SAFETY: map resources are normalized and validated by upload before storage.
-    const saved = JSON.parse(
-      Buffer.from(this.store.resource(resourceId).data).toString(),
-    ) as Pick<NormalizedSoftwareModel, "elements" | "relationships"> & {
+    const saved = JSON.parse(Buffer.from(resource.data).toString()) as Pick<
+      NormalizedSoftwareModel,
+      "elements" | "relationships"
+    > & {
       side: "base" | "head";
       commit: string;
+    };
+
+    // Without document pins the map is read at the commit it was built from.
+    const pins: Pins = documentPins ?? {
+      repositoryId: resource.repositoryId,
+      base: saved.commit,
+      head: saved.commit,
     };
 
     const target = await this.vcsTarget(pins.repositoryId);
@@ -1131,17 +1213,24 @@ export class LocalReviewData {
       data,
     );
   }
-  async validateResource(pins: Pins, block: Block) {
+  /** A resource must belong to the document's repository when it has one;
+   * a document without pins may use any registered repository's resources. */
+  async validateResource(pins: Pins | undefined, block: Block) {
     const reference = resourceReference(block);
 
     if (!reference) return;
     const { id, kind } = reference;
     const resource = this.store.resource(id);
 
-    if (resource.repositoryId !== pins.repositoryId || resource.kind !== kind)
+    if (
+      (pins && resource.repositoryId !== pins.repositoryId) ||
+      resource.kind !== kind
+    )
       throw new ReviewInputError(
         "Resource belongs to a different repository or component type.",
       );
+
+    if (!pins) this.store.repositoryPath(resource.repositoryId);
 
     if (block.type === "trace_quote") {
       const trace = traceSchema.parse(
@@ -1164,7 +1253,7 @@ export class LocalReviewData {
         elements: { id: string; path: string }[];
       };
 
-      if (map.commit !== pins[map.side])
+      if (pins && map.commit !== pins[map.side])
         throw new ReviewInputError(
           "Map does not match this review's source pins.",
         );
@@ -1205,6 +1294,7 @@ export function openLocalReviewStore(
     projectSource: (snapshot, pins) => data.projectSource(snapshot, pins),
     resolveTarget: (target) => data.resolveTarget(target),
     sourcePins: (snapshot) => data.sourcePins(snapshot),
+    unavailableAnchors: (snapshot) => data.unavailableAnchors(snapshot),
     validatePins: (pins) => data.validatePins(pins),
     validateSource: (pins, source, options) =>
       data.validateSource(pins, source, options),

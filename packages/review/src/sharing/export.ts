@@ -13,6 +13,7 @@ import { z } from "zod";
 import { markdownNodes, parseMarkdown } from "../markdown.js";
 import { ReviewInputError } from "../review-api/document.js";
 import {
+  anchorPins,
   checkReferences,
   documentSchema,
   elements,
@@ -55,7 +56,7 @@ export async function exportShare(input: {
     ...snapshot
   } = structuredClone(input.store.read(input.reviewId, input.version));
 
-  if (target.kind === "worktree")
+  if (target?.kind === "worktree")
     throw new ReviewInputError("Pin this review to commits before sharing it.");
 
   documentSchema.parse(snapshot.document);
@@ -84,6 +85,12 @@ export async function exportShare(input: {
   const maps: Record<string, Awaited<ReturnType<LocalReviewData["map"]>>> = {};
   const sources = sourceReferences(snapshot.document);
   const pins = snapshot.pins;
+
+  if (!pins)
+    throw new ReviewInputError(
+      "A document without source pins of its own cannot be shared.",
+      409,
+    );
 
   for (const block of elements(snapshot.document)) {
     if (block.type !== "markdown") continue;
@@ -130,9 +137,11 @@ export async function exportShare(input: {
   }
 
   for (const reference of sources)
-    await input.data.validateSource(pins, reference.source, {
-      peek: reference.peek ?? false,
-    });
+    await input.data.validateSource(
+      anchorPins(reference.source, pins),
+      reference.source,
+      { peek: reference.peek ?? false },
+    );
 
   const snapshotId = json(snapshot);
   const presentationId = json({ maps });

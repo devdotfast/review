@@ -111,10 +111,12 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
         </>
       )}
       {updatedLabel && <span>updated {updatedLabel}</span>}
-      <ReviewBranchRange
-        baseRef={review.pins.base}
-        headRef={review.pins.head}
-      />
+      {review.pins && (
+        <ReviewBranchRange
+          baseRef={review.pins.base}
+          headRef={review.pins.head}
+        />
+      )}
     </div>
   );
 }

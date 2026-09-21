@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { type FileLineRange } from "./source.js";
+import {
+  type FileLineRange,
+  type SourcePins,
+  sourcePinsSchema,
+} from "./source.js";
 import { unionIntervals } from "./viewed-coverage.js";
 
 const endpointSchema = z.strictObject({
@@ -8,17 +12,27 @@ const endpointSchema = z.strictObject({
   line: z.number().int().positive(),
 });
 
-/** Inclusive endpoints in the uncollapsed alignment, independent of diff layout. */
+/** Inclusive endpoints in the uncollapsed alignment, independent of diff layout.
+ * `pins` names the repository and commits the selection was read from; a
+ * selection without them resolves against its document's pins. */
 export const diffSelectionSchema = z
   .strictObject({
     file: z.string().trim().min(1),
     start: endpointSchema,
     end: endpointSchema,
+    pins: sourcePinsSchema.optional(),
   })
   .refine(
     (value) =>
       value.start.side !== value.end.side || value.start.line <= value.end.line,
     "Source range ends before it starts.",
+  )
+  .refine(
+    (value) =>
+      !value.pins ||
+      value.pins.base !== undefined ||
+      (value.start.side === "head" && value.end.side === "head"),
+    "A base-side endpoint needs base pins.",
   );
 
 export type DiffSelection = z.infer<typeof diffSelectionSchema>;
@@ -29,6 +43,7 @@ export type LensSource = DiffSelection;
 
 export type AlignmentRow = readonly [number | null, number | null];
 
+/** Pins-less selections keep the key they always had. */
 export function selectionKey(source: LensSource): string {
   return JSON.stringify([
     source.file,
@@ -36,16 +51,31 @@ export function selectionKey(source: LensSource): string {
     source.start.line,
     source.end.side,
     source.end.line,
+    ...(source.pins ? [sourcePinsKey(source.pins)] : []),
   ]);
+}
+
+export function sourcePinsKey(pins: SourcePins): string {
+  return `${pins.repositoryId}:${pins.base ?? ""}:${pins.head}`;
+}
+
+/** The comparison a source's pins name: head alone means head against
+ * itself. Reference coverage is grouped under this key on both sides. */
+export function comparisonKey(pins: SourcePins): string {
+  return `${pins.repositoryId}:${pins.base ?? pins.head}:${pins.head}`;
 }
 
 /** Adapt internal source links (for example software-map evidence) to a selection. */
 export function selectSource(source: FileLineRange): DiffSelection {
-  return {
+  const selection: DiffSelection = {
     file: source.file,
     start: { side: source.side, line: source.fromLine },
     end: { side: source.side, line: source.toLine },
   };
+
+  if (source.pins) selection.pins = source.pins;
+
+  return selection;
 }
 
 /** Navigation/quote anchors only; never use these as lens coverage. */
@@ -55,16 +85,18 @@ export function sourceAnchors(source: LensSource): FileLineRange[] {
       endpoint.side === side ? [endpoint.line] : [],
     );
 
-    return lines.length
-      ? [
-          {
-            file: source.file,
-            side,
-            fromLine: Math.min(...lines),
-            toLine: Math.max(...lines),
-          },
-        ]
-      : [];
+    if (!lines.length) return [];
+
+    const anchor: FileLineRange = {
+      file: source.file,
+      side,
+      fromLine: Math.min(...lines),
+      toLine: Math.max(...lines),
+    };
+
+    if (source.pins) anchor.pins = source.pins;
+
+    return [anchor];
   });
 }
 

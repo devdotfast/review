@@ -217,7 +217,7 @@ export class ReviewDrafts {
           .run(reviewId, id, this.ownerId, process.pid, "{}");
         const previous = input.reviewId ? this.host.read(reviewId) : undefined;
 
-        if (previous?.target.kind === "worktree" && !input.pins)
+        if (previous?.target?.kind === "worktree" && !input.pins)
           throw new ReviewInputError(
             "Batch authoring requires fixed commits. Supply resolved base/head pins to replace this live worktree target.",
           );

@@ -5,7 +5,8 @@ export interface ReviewApiSummary {
   reviewId: string;
   version: number;
   title: string;
-  pins: {
+  /** Absent for a document whose references all carry their own pins. */
+  pins?: {
     repositoryId: string;
     base: string;
     head: string;

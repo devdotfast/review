@@ -423,8 +423,8 @@ it("requires a pinned review before sharing saved worktree changes", async () =>
       reviewId,
       target: {
         kind: "worktree",
-        repositoryId: snapshot.pins.repositoryId,
-        base: snapshot.pins.base,
+        repositoryId: snapshot.pins!.repositoryId,
+        base: snapshot.pins!.base,
       },
     },
   });
@@ -438,6 +438,6 @@ it("requires a pinned review before sharing saved worktree changes", async () =>
   });
   const bundle = await exportShare({ ...local, reviewId, repository });
   expect(validateShareBundle(bundle).snapshot.pins.head).toBe(
-    snapshot.pins.head,
+    snapshot.pins!.head,
   );
 });

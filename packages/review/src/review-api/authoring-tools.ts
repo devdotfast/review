@@ -150,7 +150,7 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "source",
-      "Read an exact code range from the current target (or batch draft pins). An explicit version reads retained historical source.",
+      "Read an exact code range from the current target (or batch draft pins). An explicit version reads retained historical source. source.pins {repositoryId, head, base?} reads at those commits of any registered repository instead; the same pins on a stored selection or markdown block make it resolve there.",
       mode === "batch"
         ? z.strictObject({
             draftId: id,
@@ -168,21 +168,21 @@ export function authoringTools(mode: AuthoringMode = "interactive") {
     ),
     tool(
       "file",
-      "Read a complete source file from the current target; version selects retained history.",
+      "Read a complete source file from the current target; version selects retained history. repositoryId and head (and base for the base side) read at explicit pins of any registered repository instead.",
       read("file"),
       "GET",
       `${sourcePath}/file`,
     ),
     tool(
       "tree",
-      "List immediate directory entries in the target, including working files for worktree targets.",
+      "List immediate directory entries in the target, including working files for worktree targets. repositoryId and head list a registered repository at explicit pins instead.",
       read("tree"),
       "GET",
       `${sourcePath}/tree`,
     ),
     tool(
       "diff",
-      "Read changed-file summaries, or patch text when file is supplied. commit selects one commit from this review.",
+      "Read changed-file summaries, or patch text when file is supplied. commit selects one commit from this review; repositoryId, base and head compare explicit pins of a registered repository instead.",
       read("diff"),
       "GET",
       `${sourcePath}/diff`,

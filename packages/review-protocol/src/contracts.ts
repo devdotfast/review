@@ -121,6 +121,14 @@ export interface ReviewInlineEditorRange {
   side?: ReviewDiffSide;
 }
 
+/** The repository and commits a source was read from, when it names them
+ * itself instead of using the review's pins. */
+export interface ReviewSourcePins {
+  readonly repositoryId: string;
+  readonly head: string;
+  readonly base?: string;
+}
+
 export interface ReviewInlineEditorSpec {
   progress?: ReviewDiffProgress;
   container: HTMLElement;
@@ -128,6 +136,8 @@ export interface ReviewInlineEditorSpec {
   title: string;
   description?: string;
   side: ReviewDiffSide;
+  /** Read at these pins instead of the review's. */
+  pins?: ReviewSourcePins;
   ranges: readonly ReviewInlineEditorRange[];
   /** Original authored selections, before display ranges are merged. */
   countRanges?: readonly ReviewInlineEditorRange[];
@@ -153,6 +163,7 @@ export interface ReviewInlineFindResult {
 export interface ReviewInlineFindSpec {
   path: string;
   side: ReviewDiffSide;
+  pins?: ReviewSourcePins;
   ranges: readonly ReviewInlineEditorRange[];
 }
 
@@ -519,17 +530,20 @@ export interface ReviewSourceView {
   /** Cache invalidation for live files; does not select historical source. */
   readonly generation?: string;
   readonly commit?: string;
+  /** Pins a reference names itself; the server reads there instead of the
+   * review's pins, and `commit` does not apply. */
+  readonly pins?: ReviewSourcePins;
 }
 
 export function resolveReviewSourceView(snapshot: {
   reviewId: string;
   version: number;
-  pins: { worktreeRevision?: string };
+  pins?: { worktreeRevision?: string };
 }): ReviewSourceView {
   return Object.freeze({
     reviewId: snapshot.reviewId,
     version: snapshot.version,
-    generation: snapshot.pins.worktreeRevision,
+    generation: snapshot.pins?.worktreeRevision,
   });
 }
 
@@ -545,12 +559,41 @@ export function reviewSourceComparison(
     : view;
 }
 
+/** The view of one reference's own pins: the review's version, no commit
+ * narrowing, and no live-file generation since the pins are commits. */
+export function reviewSourceAnchor(
+  view: ReviewSourceView,
+  pins: ReviewSourcePins | undefined,
+): ReviewSourceView {
+  return pins
+    ? Object.freeze({ reviewId: view.reviewId, version: view.version, pins })
+    : view;
+}
+
 /** Existing HTTP parameters are an adapter, not the internal view model. */
 export function reviewSourceQuery(view: ReviewSourceView) {
   return {
     version: view.version,
     commit: view.commit,
+    repositoryId: view.pins?.repositoryId,
+    base: view.pins?.base,
+    head: view.pins?.head,
   };
+}
+
+/** Decode the pins of `reviewSourceQuery` from string parameters. */
+export function reviewSourcePinsFromQuery(
+  read: (key: string) => string | null | undefined,
+): ReviewSourcePins | undefined {
+  const repositoryId = read("repositoryId");
+  const head = read("head");
+  const base = read("base");
+
+  if (!repositoryId || !head) return undefined;
+
+  return Object.freeze(
+    base ? { repositoryId, head, base } : { repositoryId, head },
+  );
 }
 
 export interface ReviewApiSourceLocation {
@@ -1125,6 +1168,13 @@ const revealArgsSchema = z
     startLine: positiveInteger,
     endLine: positiveInteger,
     side: reviewDiffSideSchema.optional(),
+    pins: z
+      .strictObject({
+        repositoryId: requiredString,
+        head: requiredString,
+        base: requiredString.optional(),
+      })
+      .optional(),
     highlight: z.boolean().optional(),
     preserveFocus: z.boolean().optional(),
   })
@@ -1244,6 +1294,13 @@ export const ReviewApiSelectionSourceSchema = z.strictObject({
   reviewId: requiredString,
   version: z.number().int().nonnegative(),
   commit: requiredString.optional(),
+  pins: z
+    .strictObject({
+      repositoryId: requiredString,
+      head: requiredString,
+      base: requiredString.optional(),
+    })
+    .optional(),
 });
 
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [

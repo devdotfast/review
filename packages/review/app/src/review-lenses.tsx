@@ -11,7 +11,7 @@ import {
 
 import {
   type LensSource,
-  resolvedLensSources,
+  comparisonKey,
   selectionKey,
 } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
@@ -24,8 +24,15 @@ import {
   type CoverageProgress,
   coverageProgress,
   coverageSources,
+  mergeCoverageProgress,
   scopedCoverage,
 } from "../../src/viewed-coverage";
+
+/** A resolved selection, tagged with the comparison its own pins name so its
+ * changed lines are counted there and not in the document's comparison. */
+export interface ResolvedRange extends FileLineRange {
+  comparison?: string;
+}
 
 interface Lenses {
   progress: ReviewProgress | null;
@@ -37,8 +44,8 @@ interface Lenses {
   block(id: string): Block | undefined;
   select(id: string, sources?: ReviewDiffLens["ranges"]): void;
   clear(): void;
-  resolve(sources: readonly LensSource[]): FileLineRange[];
-  stats(sources?: readonly FileLineRange[]): CoverageProgress;
+  resolve(sources: readonly LensSource[]): ResolvedRange[];
+  stats(sources?: readonly ResolvedRange[]): CoverageProgress;
   mark(
     sources: readonly FileLineRange[] | undefined,
     viewed: boolean,
@@ -245,8 +252,42 @@ export function ReviewLensesProvider({
       },
       clear: () => setActiveId(undefined),
       resolve: (sources) =>
-        resolvedLensSources(sources, progress?.resolvedSelections),
-      stats: (sources) => coverageProgress(progress?.files ?? [], sources),
+        sources.flatMap((source) =>
+          (progress?.resolvedSelections[selectionKey(source)] ?? []).map(
+            (range): ResolvedRange =>
+              source.pins
+                ? { ...range, comparison: comparisonKey(source.pins) }
+                : range,
+          ),
+        ),
+      // Each selection counts against the comparison its own pins name: the
+      // document's files, or the files of a reference's own comparison.
+      stats: (sources) => {
+        if (!sources) return coverageProgress(progress?.files ?? []);
+
+        const groups = new Map<string | undefined, ResolvedRange[]>();
+
+        for (const source of sources) {
+          const key =
+            source.comparison !== undefined &&
+            progress?.referenceFiles?.[source.comparison]
+              ? source.comparison
+              : undefined;
+
+          groups.set(key, [...(groups.get(key) ?? []), source]);
+        }
+
+        return mergeCoverageProgress(
+          [...groups].map(([key, ranges]) =>
+            coverageProgress(
+              key === undefined
+                ? (progress?.files ?? [])
+                : Object.values(progress!.referenceFiles![key]!),
+              ranges,
+            ),
+          ),
+        );
+      },
       mark,
     }),
     [

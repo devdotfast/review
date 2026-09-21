@@ -725,6 +725,69 @@ describe("snapshot authoring", () => {
     expect(calls).toEqual([true, true, true, false]);
   });
 
+  it("validates a reference at its own pins, and leaves it alone when the document repins", async () => {
+    const { reviewId } = await create();
+    const own = { repositoryId: "repo-b", head: "b".repeat(40) };
+    const validated: { pins: unknown; file: string }[] = [];
+    const pinned: unknown[] = [];
+
+    providers.validateSource = async (pins, source) => {
+      validated.push({ pins, file: source.file });
+    };
+
+    providers.validatePins = async (pins) => {
+      pinned.push(pins);
+    };
+
+    await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "code_peek",
+        source: { ...selectSource(source), file: "src/other.ts", pins: own },
+      },
+    });
+    await edit(reviewId, {
+      type: "insert",
+      content: {
+        type: "markdown",
+        markdown: "[keep](review-source:head/src/store.ts#L1-L5)",
+      },
+    });
+
+    // The peek was read at its own pins (base defaults to head); the link at the document's.
+    expect(validated).toEqual([
+      { pins: { ...own, base: own.head }, file: "src/other.ts" },
+      { pins, file: source.file },
+    ]);
+    expect(pinned).toEqual([{ ...own, base: own.head }]);
+
+    validated.length = 0;
+    await store.execute(
+      request({ type: "repin", reviewId, pins: { ...pins, head: "new-head" } }),
+    );
+
+    // Repinning the document re-checks inherited references only.
+    expect(validated).toEqual([
+      { pins: { ...pins, head: "new-head" }, file: source.file },
+    ]);
+
+    // Rejected at the command boundary, before any validation runs.
+    await expect(async () =>
+      edit(reviewId, {
+        type: "insert",
+        content: {
+          type: "code_peek",
+          source: {
+            file: "src/other.ts",
+            start: { side: "base", line: 1 },
+            end: { side: "base", line: 2 },
+            pins: own,
+          },
+        },
+      }),
+    ).rejects.toThrow(/base-side endpoint needs base pins/);
+  });
+
   it("serializes edits through async validation and preserves different-field patches", async () => {
     const { reviewId } = await create();
 
@@ -1144,6 +1207,110 @@ it("persists partial coverage outside document versions and resets it for a chan
   ]);
 });
 
+it("keeps reference coverage apart by pins: one path, changed under one comparison and not another", async () => {
+  const { reviewProgress } = await import("./review-progress.js");
+  const { reviewId } = await create();
+  const data = new LocalReviewData(store);
+  const text = "first\nsecond\nthird";
+  const changed = { ...pins, base: "other-base", head: "other-head" };
+  const same = { repositoryId: pins.repositoryId, head: "other-head" };
+  vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
+    snapshot,
+    pins: snapshot.pins!,
+  }));
+  vi.spyOn(data, "structuralChanges").mockImplementation(async function* ({
+    pins: at,
+  }) {
+    const files =
+      at.base === at.head
+        ? []
+        : [
+            {
+              file: {
+                lhs: { path: "a.ts", oid: at.base, mode: "100644" },
+                rhs: { path: "a.ts", oid: at.head, mode: "100644" },
+              },
+              status: "modified" as const,
+            },
+          ];
+
+    yield {
+      type: "start",
+      version: 4,
+      lhs: { type: "revision", rev: at.base },
+      rhs: { type: "revision", rev: at.head },
+      files,
+    };
+
+    for (const file of files)
+      yield {
+        type: "file",
+        file: file.file,
+        diff: {
+          type: "text",
+          lhs: { text: text },
+          rhs: { text: text },
+          structural_changes: { base: [], head: [[0, 3]] },
+          stats: {
+            textual: { added: 3, removed: 0 },
+            visible: { added: 3, removed: 0 },
+          },
+        },
+      };
+    yield { type: "complete", succeeded: files.length, failed: 0 };
+  });
+  vi.spyOn(data, "file").mockImplementation(async (at, side, file) => ({
+    file,
+    side,
+    commit: at[side],
+    text,
+  }));
+
+  const cite = (at: typeof changed | typeof same) => ({
+    file: "a.ts",
+    start: { side: "head" as const, line: 1 },
+    end: { side: "head" as const, line: 2 },
+    pins: at,
+  });
+
+  await edit(reviewId, {
+    type: "insert",
+    content: {
+      type: "flow_diagram",
+      title: "Two pins",
+      nodes: [
+        {
+          key: "changed",
+          label: "Changed there",
+          attachments: [{ label: "a", sources: [cite(changed)] }],
+        },
+        {
+          key: "same",
+          label: "Unchanged there",
+          attachments: [{ label: "a", sources: [cite(same)] }],
+        },
+      ],
+      edges: [{ from: "changed", to: "same" }],
+    },
+  });
+
+  const progress = await reviewProgress(store, data, store.read(reviewId));
+
+  // The document's own comparison stays in `files`; each reference's
+  // comparison is its own group.
+  expect(progress.files.map((file) => file.path)).toEqual(["a.ts"]);
+  expect(Object.keys(progress.referenceFiles!).sort()).toEqual([
+    "repo:other-base:other-head",
+    "repo:other-head:other-head",
+  ]);
+  expect(
+    progress.referenceFiles!["repo:other-base:other-head"]!["a.ts"],
+  ).toMatchObject({
+    changed: { base: [], head: [[0, 3]] },
+  });
+  expect(progress.referenceFiles!["repo:other-head:other-head"]).toEqual({});
+});
+
 it("preserves unchanged partial file coverage across pins and rejects stale writes after either file side changes", async () => {
   const { createReviewApi } = await import("./http.js");
   const { reviewProgress } = await import("./review-progress.js");
@@ -1153,7 +1320,7 @@ it("preserves unchanged partial file coverage across pins and rejects stale writ
   let base = "first\nold\ncontext";
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
     yield {
@@ -1274,7 +1441,7 @@ it("textual coverage uses Git ranges without launching diffr", async () => {
   const data = new LocalReviewData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   vi.spyOn(data, "changes").mockImplementation((async (
     _pins: typeof pins,
@@ -1383,7 +1550,7 @@ it("resolves file lenses to whole changed files, preserves empty groups, and sha
   const data = new LocalReviewData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
     yield {
@@ -1491,7 +1658,7 @@ it("validates range lens evidence and scopes progress and Uncategorized to disti
   const data = new LocalReviewData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
     yield {
@@ -1628,7 +1795,7 @@ it("returns coverage and lenses after initial files without requesting summary e
   const data = new LocalReviewData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   const file = { rhs: { path: "a.ts", oid: "head", mode: "100644" } };
   vi.spyOn(data, "structuralChanges").mockImplementation(async function* () {
@@ -1675,7 +1842,7 @@ it("returns pending progress without waiting for coverage and signals completion
 
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   vi.spyOn(data, "changes").mockImplementation((async (
     _pins: typeof pins,
@@ -1725,7 +1892,7 @@ it("reports failed background coverage instead of leaving progress pending", asy
   const data = new LocalReviewData(store);
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   vi.spyOn(data, "changes").mockRejectedValue(new Error("comparison failed"));
   const api = createReviewApi(store, data);
@@ -1770,7 +1937,7 @@ it("makes a lens step usable before an unrelated file finishes counting", async 
 
   vi.spyOn(data, "resolveSource").mockImplementation(async (snapshot) => ({
     snapshot,
-    pins: snapshot.pins,
+    pins: snapshot.pins!,
   }));
   vi.spyOn(data, "changes").mockImplementation((async (
     _pins: typeof pins,

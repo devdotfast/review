@@ -105,8 +105,8 @@ export function ReviewProvider({
   const state = useMemo<ReviewStateValue>(
     () => ({
       historicalRevision: review.historicalRevision,
-      resolvedBaseRef: review.pins.base,
-      resolvedHeadRef: review.pins.head,
+      resolvedBaseRef: review.pins?.base ?? null,
+      resolvedHeadRef: review.pins?.head ?? null,
       softwareMapFocusRequest,
       submissionOutcome,
     }),

@@ -194,9 +194,15 @@ export function mountSharingPublisher(
       );
     const snapshot = store.read(input.reviewId, input.version);
 
-    if (snapshot.target.kind === "worktree")
+    if (snapshot.target?.kind === "worktree")
       throw new ReviewInputError(
         "Pin this review to commits before sharing it.",
+      );
+
+    if (!snapshot.pins)
+      throw new ReviewInputError(
+        "A document without source pins of its own cannot be shared.",
+        409,
       );
     const account = await readSharingAuth();
 

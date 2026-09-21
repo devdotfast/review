@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -26,6 +27,13 @@ import { chromium } from "playwright";
 
 const exec = promisify(execFile);
 
+const bundledDiffr = path.resolve(
+  import.meta.dirname,
+  "../../../packages/review/bin/diffr",
+);
+if (!process.env.REVIEW_DIFFR_BINARY && existsSync(bundledDiffr)) {
+  process.env.REVIEW_DIFFR_BINARY = bundledDiffr;
+}
 const structuralDiffAvailable = process.env.REVIEW_DIFFR_BINARY
   ? true
   : await exec("which", ["diffr"])
@@ -1376,9 +1384,9 @@ try {
       .first()
       .waitFor();
     assert.ok(
-      !(await page.locator(".monaco-hover:visible").first().innerText()).includes(
-        "Language information from local checkout",
-      ),
+      !(
+        await page.locator(".monaco-hover:visible").first().innerText()
+      ).includes("Language information from local checkout"),
     );
     await probe({ command: "editor.action.hideHover" });
     await clickGreet(liveLine);
@@ -1613,9 +1621,11 @@ try {
       .filter((entry) => entry !== `worktree ${liveFixture.repo}`)
       .every((entry) => entry.includes("/.git/dev-fast/reviews/")),
   );
-  assert.ok((await api(`/${live.reviewId}/workspaces`)).every((workspace) =>
-    workspace.rootPath.includes("/.git/dev-fast/reviews/"),
-  ));
+  assert.ok(
+    (await api(`/${live.reviewId}/workspaces`)).every((workspace) =>
+      workspace.rootPath.includes("/.git/dev-fast/reviews/"),
+    ),
+  );
   await assert.rejects(readFile(path.join(liveFixture.repo, ".prepare-count")));
   await record(
     "live worktree source and language services follow saved edits without preparation",

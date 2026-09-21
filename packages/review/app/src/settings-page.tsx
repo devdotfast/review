@@ -188,7 +188,7 @@ export function SettingsPage({
           <Section label="Experimental Features">
             <Row
               label="Structural Diffs"
-              description="Replace the standard diff view with syntax-aware diffs and linked folds. Requires the diffr CLI."
+              description="Replace the standard diff view with syntax-aware diffs and linked folds."
             >
               <label className="review-settings-toggle">
                 <input

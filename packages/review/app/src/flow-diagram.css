@@ -3,7 +3,7 @@
   border-radius: 8px;
   overflow: hidden;
   margin: 18px 0 4px;
-  background: var(--map-canvas);
+  background: var(--bg);
   font: 12px/1.5 var(--font-mono);
   color: var(--ink);
 }
@@ -11,7 +11,7 @@
 .flow-diagram .flow-diagram-description {
   padding: 0 16px 12px;
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font: 11px/1.6 var(--font-mono);
 }
 .flow-diagram-body {
@@ -25,7 +25,7 @@
   min-width: 0;
   overflow: auto;
   position: relative;
-  background: var(--map-canvas);
+  background: var(--bg);
 }
 .flow-diagram > footer {
   display: flex;
@@ -50,18 +50,18 @@
   margin-left: 7px;
 }
 .flow-legend-added {
-  background: var(--map-added);
+  background: var(--change-added);
 }
 .flow-legend-removed {
-  background: var(--map-removed);
+  background: var(--change-removed);
 }
 .flow-legend-modified {
-  background: var(--map-changed);
+  background: var(--change-modified);
 }
 .lens-flow-node.is-selected rect {
   stroke: var(--accent);
   stroke-width: 2.5;
-  fill: var(--map-active-fill);
+  fill: var(--marker-tint);
 }
 .lens-flow-node:focus-visible {
   outline: none;

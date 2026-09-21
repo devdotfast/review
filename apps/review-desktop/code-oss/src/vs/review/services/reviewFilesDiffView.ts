@@ -161,6 +161,10 @@ export class ReviewFilesEditorInput extends MultiDiffEditorInput {
 export class ReviewFilesDiffView extends Disposable {
 	private readonly _onDidChangeActiveControl = this._register(new Emitter<void>());
 	readonly onDidChangeActiveControl = this._onDidChangeActiveControl.event;
+	private readonly _onDidScroll = this._register(new Emitter<void>());
+	/** The list scrolled or its topmost file changed. */
+	readonly onDidScroll = this._onDidScroll.event;
+	private readonly diffContainer: HTMLElement;
 
 	private readonly root: HTMLElement;
 	private readonly splitView: SplitView<number>;
@@ -204,6 +208,7 @@ export class ReviewFilesDiffView extends Disposable {
 		this.root = append(container, $(".review-files-editor"));
 		const fileTree = append(this.fileTreeContainer ?? this.root, $(".review-files-editor-tree"));
 		const diffContainer = append(this.root, $(".review-files-editor-diffs"));
+		this.diffContainer = diffContainer;
 
 		const factory = this.reviewInstantiationService.createInstance(
 			ReviewMultiDiffUIElementFactory,
@@ -255,6 +260,7 @@ export class ReviewFilesDiffView extends Disposable {
 		this.streamStatus.setAttribute("role", "status");
 		this.streamStatus.hidden = true;
 		this._register(this.widget.onDidChangeActiveControl(() => this._onDidChangeActiveControl.fire()));
+		this._register(this.widget.onDidScroll(() => this._onDidScroll.fire()));
 		this._register(this.widget.onDidChangeActiveItem(() => this.syncFileSelectionFromWidget()));
 		this.summary = append(fileTree, $(".review-files-editor-summary"));
 		this.summary.hidden = true;
@@ -501,6 +507,32 @@ export class ReviewFilesDiffView extends Disposable {
 		this.viewModel?.items.get().find(item => sameResource(item.originalUri, entry.original) && sameResource(item.modifiedUri, entry.modified))?.collapsed.set(false, undefined);
 		this.widget.reveal(entry, { highlight: true, side: source.side === 'base' ? 'original' : 'modified', range: new Range(source.fromLine, 1, source.toLine, 1) });
 		this.pendingSource = undefined;
+	}
+
+	get viewportHeight(): number { return this.diffContainer.clientHeight; }
+
+	/**
+	 * Pixels from the reading line (the list's top edge) to the first line of
+	 * `source`, negative once scrolled past. Rendered files measure their
+	 * editor; the rest are placed by file order around the topmost file, a
+	 * million pixels per file, which keeps them sorted and on the right side.
+	 */
+	sourceOffset(source: ReviewDiffLens['ranges'][number]): number | undefined {
+		const entries = this.input?.entries ?? [];
+		const pathOf = (entry: (typeof entries)[number]) => source.side === 'base' ? entry.file.previousPath ?? entry.file.path : entry.file.path;
+		const index = entries.findIndex(entry => pathOf(entry) === source.file);
+		if (index < 0) return undefined;
+		const entry = entries[index]!;
+		const resource = source.side === 'base' ? entry.original : entry.modified;
+		const editor = resource && this.widget.tryGetCodeEditor(resource)?.editor;
+		const node = editor?.getDomNode();
+		if (editor && node) {
+			return node.getBoundingClientRect().top - this.diffContainer.getBoundingClientRect().top
+				+ editor.getTopForLineNumber(source.fromLine) - editor.getScrollTop();
+		}
+		const active = this.viewModel?.activeDiffItem.get();
+		const activeIndex = active ? entries.findIndex(e => sameResource(active.modifiedUri, e.modified) && sameResource(active.originalUri, e.original)) : 0;
+		return (index - Math.max(0, activeIndex)) * 1_000_000 + source.fromLine;
 	}
 
 	loadingFailed(message: string): void {

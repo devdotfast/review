@@ -68,6 +68,12 @@ export const reviewConfigurationDefaults = {
 	// always sticky and the reader cannot unpin it, so the button is dead chrome.
 	'workbench.editor.tabActionUnpinVisibility': false,
 	'workbench.layoutControl.enabled': false,
+	// Diffs and code peeks are Monaco editors, and Monaco takes its font from
+	// this setting rather than from CSS. Geist Mono is bundled with the canvas
+	// stylesheet (its @font-face rules are hoisted out of the canvas scope), so
+	// the editors share the chrome and code face of the whiteboard design. The
+	// tail is Monaco's own macOS default stack.
+	'editor.fontFamily': '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
 	'editor.minimap.enabled': false,
 	'diffEditor.renderIndicators': false,
 	'breadcrumbs.enabled': false,

@@ -44,7 +44,7 @@
   min-width: 0;
   padding: 12px 14px;
   border-bottom: 1px solid var(--rule);
-  background: var(--bg-2);
+  background: var(--tray);
 }
 
 .software-map-title-block {
@@ -118,7 +118,7 @@
 .software-map-icon-button:hover,
 .software-map-icon-button:focus-visible {
   background: var(--transparent);
-  color: var(--ink-soft);
+  color: var(--ink-muted);
 }
 
 .software-map-refresh-button--active {
@@ -270,7 +270,7 @@
 
 .software-map-code-inspector-empty {
   padding: 16px;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 18px;
 }
@@ -287,7 +287,7 @@
   border: 1px solid var(--rule);
   border-radius: 6px;
   background: var(--topbar-bg);
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 17px;
 }
@@ -479,7 +479,7 @@
 
 .software-map-code-hotkeys-item {
   gap: 3px;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
 }
 
 .software-map-code-hotkeys-keys {
@@ -529,7 +529,7 @@
   inset: 0 auto 0 0;
   gap: 6px;
   padding: 0 10px;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font: inherit;
   opacity: 0;
   pointer-events: none;
@@ -666,7 +666,7 @@
   border-radius: 5px;
   background: var(--surface);
   background-color: var(--surface);
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 11px;
   font-weight: 600;
   line-height: 15px;
@@ -742,7 +742,7 @@
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  border: 1px solid var(--map-line-2);
+  border: 1px solid var(--rule);
   border-radius: 12px;
   background: var(--transparent);
   box-shadow:
@@ -795,7 +795,7 @@
   gap: 8px;
   align-items: baseline;
   min-width: 0;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   letter-spacing: 0;
   pointer-events: auto;
   -webkit-user-select: text;
@@ -804,7 +804,7 @@
 
 .software-map-c4-group-title span {
   flex: 0 0 auto;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0;
@@ -814,7 +814,7 @@
 .software-map-c4-group-title strong {
   min-width: 0;
   overflow: hidden;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 14px;
   font-weight: 800;
   text-overflow: ellipsis;
@@ -827,7 +827,7 @@
 
 .software-map-c4-group-title small {
   flex: 0 0 auto;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 11px;
   font-weight: 700;
 }
@@ -889,8 +889,8 @@
   padding: 32px;
   border: 1px solid var(--rule);
   border-radius: 8px;
-  background: var(--bg-2);
-  color: var(--ink-soft);
+  background: var(--tray);
+  color: var(--ink-muted);
   text-align: center;
 }
 
@@ -978,7 +978,7 @@
   background: var(--transparent);
   box-shadow: none;
   isolation: isolate;
-  --software-map-storage-border: var(--map-card-line);
+  --software-map-storage-border: var(--rule-soft);
   --software-map-storage-detail: var(--map-storage-detail);
   --software-map-storage-fill: var(--surface);
   --software-map-storage-fill-detail: var(--map-storage-fill-detail);
@@ -1171,7 +1171,7 @@
   border-width: 0;
   border-color: var(--transparent);
   border-radius: 7px;
-  background: var(--bg-2);
+  background: var(--tray);
   width: max-content;
   max-width: 420px;
 }
@@ -1349,7 +1349,7 @@
 .software-map-node-type {
   min-width: 0;
   overflow: hidden;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0;
@@ -1373,7 +1373,7 @@
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-family: "Geist Mono", ui-monospace, monospace;
   font-size: 12px;
   font-weight: 650;
@@ -1429,14 +1429,14 @@
 
 .software-map-node h4 {
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 15px;
   line-height: 19px;
 }
 
 .software-map-node p {
   margin: 0;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 17px;
 }
@@ -1455,8 +1455,8 @@
   overflow: hidden;
   padding: 2px 6px;
   border-radius: 5px;
-  background: var(--bg-2);
-  color: var(--ink-soft);
+  background: var(--tray);
+  color: var(--ink-muted);
   font-family: "Geist Mono", ui-monospace, monospace;
   font-size: 10px;
   line-height: 15px;
@@ -1472,8 +1472,8 @@
   padding: 4px 8px;
   border: 1px solid var(--rule);
   border-radius: 999px;
-  background: var(--bg-2);
-  color: var(--ink-soft);
+  background: var(--tray);
+  color: var(--ink-muted);
   font-size: 11px;
   line-height: 16px;
 }
@@ -1507,7 +1507,7 @@
   padding: 0 12px;
   border: 0;
   border-bottom: 1px solid var(--rule);
-  background: var(--bg-2);
+  background: var(--tray);
 }
 
 .software-map-title-block {
@@ -1550,52 +1550,52 @@
 .review-map-view .react-flow,
 .review-map-view .react-flow__renderer,
 .review-map-view .react-flow__pane {
-  background: var(--map-canvas) !important;
+  background: var(--bg) !important;
 }
 
 .software-map-c4-group-shell {
   padding: 14px 16px !important;
-  border: 1px solid var(--map-line-2) !important;
-  border-radius: 12px !important;
-  background: var(--map-panel-2) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 8px !important;
+  background: var(--surface) !important;
   box-shadow: none !important;
 }
 
 .software-map-c4-group-shell--softwareSystem {
   padding: 18px 22px !important;
-  border-color: var(--map-line-1) !important;
-  border-radius: 14px !important;
-  background: var(--map-panel-1) !important;
+  border-color: var(--rule) !important;
+  border-radius: 8px !important;
+  background: var(--surface) !important;
 }
 
 .software-map-c4-group-shell:hover,
 .software-map-c4-group-shell:focus-visible {
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--transparent)) !important;
-  background: var(--map-active-fill) !important;
+  border: 1px solid var(--rule-soft) !important;
+  background: var(--marker-tint) !important;
   box-shadow: none !important;
   outline: none;
 }
 
 .software-map-c4-group-shell--added {
-  border: 1.5px solid var(--map-added) !important;
+  border: 1px solid var(--change-added) !important;
 }
 
 .software-map-c4-group-shell--removed {
-  border: 1.5px dashed var(--map-removed) !important;
+  border: 1px dashed var(--change-removed) !important;
   opacity: 0.75;
 }
 
 .software-map-c4-group-shell--modified {
-  border: 1.5px solid var(--map-changed) !important;
+  border: 1px solid var(--change-modified) !important;
 }
 
 .software-map-c4-group-shell.selected,
 .software-map-c4-group-shell.selected.software-map-c4-group-shell--added,
 .software-map-c4-group-shell.selected.software-map-c4-group-shell--removed,
 .software-map-c4-group-shell.selected.software-map-c4-group-shell--modified {
-  border: 2px solid var(--accent) !important;
-  background: var(--map-active-fill) !important;
-  box-shadow: none !important;
+  border: 1px solid var(--accent) !important;
+  background: var(--marker-tint) !important;
+  box-shadow: 0 0 0 3px var(--marker-glow) !important;
 }
 
 .software-map-c4-group-title {
@@ -1647,9 +1647,9 @@
   width: 100%;
   max-width: none;
   padding: 12px 14px !important;
-  border: 1px solid var(--map-card-line) !important;
+  border: 1px solid var(--rule-soft) !important;
   border-radius: 10px !important;
-  background: var(--map-card) !important;
+  background: var(--surface) !important;
   box-shadow: none !important;
 }
 
@@ -1671,32 +1671,32 @@
 
 .software-map-node:hover,
 .software-map-node:focus-visible {
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--transparent)) !important;
-  background: var(--map-active-fill) !important;
+  border: 1px solid var(--rule-soft) !important;
+  background: var(--marker-tint) !important;
   box-shadow: none !important;
   outline: none;
 }
 
 .software-map-node.software-map-node--added {
-  border: 1.5px solid var(--map-added) !important;
+  border: 1px solid var(--change-added) !important;
 }
 
 .software-map-node.software-map-node--removed {
-  border: 1.5px dashed var(--map-removed) !important;
+  border: 1px dashed var(--change-removed) !important;
   opacity: 0.75;
 }
 
 .software-map-node.software-map-node--modified {
-  border: 1.5px solid var(--map-changed) !important;
+  border: 1px solid var(--change-modified) !important;
 }
 
 .software-map-node.selected,
 .software-map-node.selected.software-map-node--added,
 .software-map-node.selected.software-map-node--removed,
 .software-map-node.selected.software-map-node--modified {
-  border: 2px solid var(--accent) !important;
-  background: var(--map-active-fill) !important;
-  box-shadow: none !important;
+  border: 1px solid var(--accent) !important;
+  background: var(--marker-tint) !important;
+  box-shadow: 0 0 0 3px var(--marker-glow) !important;
 }
 
 .software-map-node h4,
@@ -1707,7 +1707,7 @@
 }
 
 .software-map-node p {
-  color: var(--ink-soft) !important;
+  color: var(--ink-muted) !important;
   font-size: 12px !important;
   font-weight: 400 !important;
   line-height: 17px !important;
@@ -1723,14 +1723,14 @@
   font-weight: 400 !important;
 }
 
+/* Counts sit in the title row as plain text: the one +n −n pair, no pill. */
 .software-map-change-badge {
   gap: 6px !important;
   width: auto !important;
   min-height: 0 !important;
-  padding: 2px 8px !important;
+  padding: 0 !important;
   border: 0 !important;
-  border-radius: 999px !important;
-  background: var(--map-badge-bg) !important;
+  background: var(--transparent) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
 }
@@ -1740,17 +1740,17 @@
 }
 
 .software-map-change-badge .software-map-change-count--added {
-  color: var(--map-pos) !important;
+  color: var(--change-added) !important;
 }
 
 .software-map-change-badge .software-map-change-count--removed {
-  color: var(--map-neg) !important;
+  color: var(--change-removed) !important;
 }
 
 .software-map-c4-canvas .react-flow__edge-path,
 .software-map-c4-canvas .react-flow__edge.selected .react-flow__edge-path,
 .software-map-c4-edge--operation-active .react-flow__edge-path {
-  stroke: var(--map-edge) !important;
+  stroke: var(--ink-faint) !important;
   stroke-width: 1.5px !important;
 }
 
@@ -1763,11 +1763,11 @@
 .software-map-c4-edge-label,
 .software-map-c4-edge-label--active {
   padding: 4px 10px !important;
-  border: 1px solid var(--map-line-2) !important;
+  border: 1px solid var(--rule) !important;
   border-radius: 7px !important;
-  background: var(--map-chip) !important;
-  background-color: var(--map-chip) !important;
-  color: var(--ink-soft) !important;
+  background: var(--surface) !important;
+  background-color: var(--surface) !important;
+  color: var(--ink-muted) !important;
   font-size: 11px !important;
   font-weight: 500 !important;
 }
@@ -1782,15 +1782,15 @@
   box-sizing: border-box;
   width: 11px !important;
   height: 11px !important;
-  border: 1.5px solid var(--map-edge) !important;
+  border: 1.5px solid var(--ink-faint) !important;
   border-radius: 999px !important;
-  background: var(--map-panel-2) !important;
+  background: var(--surface) !important;
   opacity: 1;
   pointer-events: none;
 }
 
 .software-map-c4-edge-endpoint--hovered {
-  border: 2px solid var(--map-card) !important;
+  border: 2px solid var(--surface) !important;
   background: var(--accent) !important;
   opacity: 1;
 }

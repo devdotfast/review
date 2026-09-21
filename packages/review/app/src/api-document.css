@@ -1,11 +1,12 @@
-.api-document-node {
-  display: contents;
-}
-.review-document .api-document-node > .review-trace-quote-container {
+/* A node is a plain block, and so are the motion layers inside it: margins
+   collapse through both, so an animated block sits where a still one does. */
+.review-document
+  :is(.api-document-node, .review-motion-layer)
+  > .review-trace-quote-container {
   display: block;
 }
 .review-document
-  .api-document-node
+  :is(.api-document-node, .review-motion-layer)
   > :is(
     p,
     h2,

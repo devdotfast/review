@@ -256,7 +256,6 @@ import { IReviewCanvasPartsService, ReviewCanvasParts } from "./browser/parts/ca
 import { IReviewExplorerPartsService, ReviewExplorerParts } from "./browser/parts/explorer/reviewExplorerPart.js";
 import "./browser/reviewPaneCompositePartService.js";
 import "./common/reviewConfiguration.js";
-import "./common/reviewMapColors.js";
 import { IReviewVerbsService, ReviewVerbsService } from "./contrib/verbs/reviewVerbs.js";
 import { IReviewApiCatalogService, ReviewApiCatalogService } from "./services/reviewApiCatalogService.js";
 import { IReviewApiSourceService, ReviewApiSourceService } from "./services/reviewApiSourceService.js";

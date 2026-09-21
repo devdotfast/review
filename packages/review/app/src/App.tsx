@@ -20,7 +20,10 @@ import {
 } from "../../src/software-map-topology-diff";
 import { AgentSelectionProvider, useAgentSelection } from "./agent-selection";
 import { observeAgentTextSelection } from "./agent-text-selection";
-import { AuthoringActivityBadge } from "./authoring-activity";
+import {
+  AuthoringActivityBadge,
+  ReviewSurfaceLabel,
+} from "./authoring-activity";
 import { BugReportControl } from "./bug-report-dialog";
 import {
   ReviewDebugSettingsProvider,
@@ -30,7 +33,7 @@ import {
 import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
 import { useReviewSession } from "./host/review-session";
-import { DiscordIcon, SettingsSlidersIcon } from "./icons";
+import { DiscordIcon, MarkerUnderline, SettingsSlidersIcon } from "./icons";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -143,6 +146,10 @@ export interface RenderedReviewDocument {
   >;
   documentSoftwareModels: NormalizedSoftwareModel[];
   tocEntries?: import("./review-document-headings").ReviewTocEntry[];
+  /** True once the document has content and no section is still being written. */
+  authoringComplete?: boolean;
+  /** True while the document has no blocks at all, as right after creation. */
+  empty?: boolean;
 }
 
 export type ReviewDocumentAppState =
@@ -374,6 +381,25 @@ function ReviewLayoutContent({
     ),
   );
 
+  // A fresh pinned review opens on the diff: the document is still empty
+  // while the agent writes it, and the change is the thing there is to read.
+  // Decided once, when the first document arrives, and only when no view is
+  // remembered for this review. Not persisted: the reader has chosen nothing.
+  const defaultViewDecided = useRef(false);
+
+  useEffect(() => {
+    if (defaultViewDecided.current || documentState.state !== "ready") return;
+    defaultViewDecided.current = true;
+
+    if (
+      viewStateSync.initialActiveView === undefined &&
+      hasChangeRange &&
+      documentState.document.empty
+    ) {
+      setActiveView("diff");
+    }
+  }, [documentState, hasChangeRange, viewStateSync.initialActiveView]);
+
   const [diffScope, setDiffScope] = useState<ReviewCommitSummary | null>(null);
   const selectForAgent = useAgentSelection();
   useEffect(() => {
@@ -566,7 +592,17 @@ function ReviewLayoutContent({
                     }
                     onClick={() => applyReviewView(view)}
                   >
-                    <span>{reviewViewLabel(view)}</span>
+                    {view === "review" ? (
+                      <ReviewSurfaceLabel
+                        complete={
+                          documentState.state === "ready" &&
+                          documentState.document.authoringComplete === true
+                        }
+                        active={activeView === "review"}
+                      />
+                    ) : (
+                      <span>{reviewViewLabel(view)}</span>
+                    )}
                     {view === "diff" && filesTabFileCount !== null && (
                       <span className="review-segment-count">
                         {filesTabFileCount}
@@ -577,6 +613,7 @@ function ReviewLayoutContent({
                         {commits.length}
                       </span>
                     )}
+                    <MarkerUnderline />
                   </button>
                 ))}
               </div>

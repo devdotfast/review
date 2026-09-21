@@ -2537,7 +2537,7 @@ function estimateC4NodeHeight(node: SoftwareMapNodeSnapshot): number {
 }
 
 function c4EdgeColor(): string {
-  return "var(--map-edge)";
+  return "var(--ink-faint)";
 }
 
 function c4EdgeDasharray(

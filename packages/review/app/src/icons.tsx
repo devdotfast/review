@@ -170,14 +170,42 @@ export function MapPinIcon(): ReactElement {
   );
 }
 
+/**
+ * The whiteboard marker stroke, drawn under a top bar surface; whiteboard.css
+ * reveals it left to right with a clip.
+ */
+export function MarkerUnderline(): ReactElement {
+  return (
+    <svg
+      className="review-marker-underline"
+      viewBox="0 0 48 3"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <path d="M1 1.6 C 12 0.5, 30 2.5, 47 1.2" />
+    </svg>
+  );
+}
+
+/**
+ * The one disclosure glyph. A 12px stroke chevron in a 16px slot that points
+ * right when closed and rotates to point down when open; every section
+ * header, lens row, tree row, commit card and dropdown chip uses this, and the
+ * workbench restyles its codicon twisties to the same path (review.css).
+ */
 export function DisclosureChevron({
   expanded,
 }: {
   expanded: boolean;
 }): ReactElement {
   return (
-    <svg viewBox="0 0 12 12" aria-hidden="true">
-      <path d={expanded ? "M3 4.5 6 7.5 9 4.5" : "M4.5 3 7.5 6 4.5 9"} />
+    <svg
+      className="review-chevron"
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      data-open={expanded || undefined}
+    >
+      <path d="M4.25 2.5 8 6l-3.75 3.5" />
     </svg>
   );
 }

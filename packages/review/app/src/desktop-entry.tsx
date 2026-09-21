@@ -12,6 +12,7 @@ import { SettingsPage } from "./settings-page";
 import { WelcomePage } from "./welcome-page";
 
 import "./styles.css";
+import "./whiteboard.css";
 
 export { clearPersistedReviewViewState as clearReviewViewState } from "./review-view-state";
 

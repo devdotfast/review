@@ -6,7 +6,7 @@
   align-items: center;
   gap: 6px;
   margin-inline: 10px;
-  color: var(--ink-soft);
+  color: var(--ink-muted);
   font: 11px var(--font-mono);
   white-space: normal;
   overflow-wrap: anywhere;
@@ -43,7 +43,7 @@
   margin: 8px 0;
   padding: 8px 12px;
   border-inline-start: 2px solid var(--accent);
-  color: var(--ink-soft);
+  color: var(--ink-muted);
 }
 
 .review-section-progress {

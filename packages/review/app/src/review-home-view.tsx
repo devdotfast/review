@@ -28,6 +28,7 @@ import {
 
 import { fuzzyMatches, fuzzySegments } from "../../src/fuzzy-match";
 import { TARGET_LABELS } from "./agent-setup-card";
+import { DiffCount } from "./diff-count";
 import { ArchiveIcon } from "./review-corner-action";
 import { WelcomePage } from "./welcome-page";
 
@@ -924,10 +925,7 @@ function ReviewMeta({ review }: { review: ReviewApiSummary }) {
       {stats ? (
         <>
           <span>{countLabel(stats.fileCount, "file")}</span>
-          <span className="review-home-changes">
-            <span className="review-home-added">+{stats.additions}</span>
-            <span className="review-home-removed">−{stats.deletions}</span>
-          </span>
+          <DiffCount additions={stats.additions} deletions={stats.deletions} />
         </>
       ) : null}
       <span>updated {formatRelativeTime(reviewUpdatedAt(review))}</span>

@@ -57,6 +57,11 @@ export default defineConfig({
       "decode-named-character-reference": decodeNamedCharacterReferenceIndex,
     },
   },
+  // Relative asset URLs: the stylesheet is loaded by `<link>` from the workbench
+  // `out/vs/review/canvas/assets` directory, so `url(...)` references inside it
+  // (the bundled Geist Mono / Newsreader faces) must resolve against the CSS
+  // file, not the `vscode-file://vscode-app/` root.
+  base: "./",
   build: {
     copyPublicDir: false,
     emptyOutDir: true,

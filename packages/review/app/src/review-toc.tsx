@@ -8,13 +8,14 @@ import {
   scrollToReviewHeading,
 } from "./review-heading-scroll";
 import { useReviewRoots } from "./review-root-context";
+import {
+  activeTargetForScroll,
+  scrollTailHeight,
+} from "./scroll-active-tracking";
 
 interface NumberedReviewTocEntry extends ReviewTocEntry {
   number: string;
 }
-
-/** Scroll offset past which the rail collapses into the breadcrumb pill. */
-const TOC_COLLAPSE_SCROLL_TOP = 48;
 
 /**
  * Narrowest shell that fits the rail beside the prose: the 720px prose
@@ -24,8 +25,14 @@ const TOC_COLLAPSE_SCROLL_TOP = 48;
  */
 const TOC_RAIL_MIN_SHELL_WIDTH = 1360;
 
-/** How far below the scroll viewport's top edge a heading counts as reached. */
-const ACTIVE_HEADING_TOP_SLACK_PX = 24;
+/**
+ * Room to leave above the last heading once it is scrolled to the top, so
+ * the tail spacer is no larger than it needs to be. Mirrors the tour feed.
+ */
+const TAIL_TOP_SLACK_PX = 24;
+
+/** CSS custom property the scroll region reads for its tail padding. */
+const TAIL_CSS_PROPERTY = "--review-toc-tail";
 
 export function ReviewToc({
   entries,
@@ -38,12 +45,12 @@ export function ReviewToc({
   const articleRef = roots?.articleRef;
   const [active, setActive] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [isScrolled, setIsScrolled] = useState(false);
   const [isWide, setIsWide] = useState(false);
 
-  // The rail shows only at the top of a wide shell; when the shell narrows
-  // (small window or open side panel), collapse to the pill even at the top
-  // of the document.
+  // A wide shell keeps the rail beside the prose for the whole document; the
+  // rail sits outside the scroll region, so it stays put while the reader
+  // scrolls and only the active underline moves. When the shell narrows
+  // (small window or open side panel), collapse to the breadcrumb pill.
   useEffect(() => {
     const shell = shellRef?.current;
 
@@ -60,33 +67,9 @@ export function ReviewToc({
     return () => resizeObserver.disconnect();
   }, [shellRef]);
 
-  // Listen at the document level (capture) and re-query the region per event
-  // so MDX hydration/HMR swapping the scroll root can't strand the listener
-  // on a detached node.
   useEffect(() => {
-    const updateScrolled = () => {
-      const scrollRoot = scrollRegionRef?.current;
-
-      if (!scrollRoot) return;
-      setIsScrolled(scrollRoot.scrollTop > TOC_COLLAPSE_SCROLL_TOP);
-    };
-
-    updateScrolled();
-    document.addEventListener("scroll", updateScrolled, {
-      passive: true,
-      capture: true,
-    });
-
-    return () => {
-      document.removeEventListener("scroll", updateScrolled, {
-        capture: true,
-      });
-    };
-  }, [scrollRegionRef]);
-
-  useEffect(() => {
-    if (!isScrolled) setIsDrawerOpen(false);
-  }, [isScrolled]);
+    if (isWide) setIsDrawerOpen(false);
+  }, [isWide]);
 
   useEffect(() => {
     if (!isDrawerOpen) return;
@@ -97,10 +80,6 @@ export function ReviewToc({
       if (!(target instanceof Node)) return;
 
       if (target instanceof Element && target.closest(".review-toc")) return;
-
-      if (target instanceof Element && target.closest(".review-toc-toggle")) {
-        return;
-      }
 
       setIsDrawerOpen(false);
     };
@@ -131,15 +110,12 @@ export function ReviewToc({
     // this effect may never re-run after the document/scroll-root nodes are
     // replaced. Re-query on every update — and listen in capture phase at the
     // document level — so the tracking never binds to detached nodes.
-    // A section stays active until the next heading reaches the top edge of
-    // the scroll viewport, so the highlight/pill always name the section
-    // whose body is under the reader.
-    const updateActiveHeading = () => {
-      const article = articleRef?.current;
-
-      if (!article) return;
-
-      const headings = entries
+    // The highlight follows the shared scroll-tracking rule (see
+    // scroll-active-tracking.ts), the same one the tour feed uses, so a
+    // click's instant jump lands on its entry without lighting up the ones
+    // in between.
+    const visibleHeadings = (article: HTMLElement) =>
+      entries
         .flatMap((entry) => {
           const heading = article.querySelector<HTMLElement>(
             `#${cssIdentifier(entry.id)}`,
@@ -149,25 +125,66 @@ export function ReviewToc({
         })
         .filter(isVisibleHeadingForActiveTracking);
 
-      const firstHeading = headings[0];
+    const updateActiveHeading = () => {
+      const article = articleRef?.current;
 
-      if (!firstHeading) return;
+      if (!article) return;
+      const headings = visibleHeadings(article);
 
-      const activeLine = getScrollRootActiveLine(
-        getReviewScrollRoot(article, scrollRegionRef?.current ?? null),
+      const scrollRoot = getReviewScrollRoot(
+        article,
+        scrollRegionRef?.current ?? null,
       );
 
-      let nextActive = firstHeading;
+      const rootRect = scrollRoot?.getBoundingClientRect();
+      const scrollerTop = rootRect?.top ?? 0;
 
-      for (const heading of headings) {
-        if (heading.getBoundingClientRect().top <= activeLine) {
-          nextActive = heading;
-        } else {
-          break;
-        }
+      const halfLine = rootRect
+        ? rootRect.top + rootRect.height / 2
+        : window.innerHeight / 2;
+
+      const nextActive = activeTargetForScroll(
+        headings.map((heading) => ({
+          id: heading.id,
+          top: heading.getBoundingClientRect().top,
+        })),
+        scrollerTop,
+        halfLine,
+      );
+
+      if (nextActive !== null) setActive(nextActive);
+    };
+
+    // The last heading can only reach the top edge if the scroll region has
+    // room below it: the region reads this tail as extra bottom padding.
+    const updateTail = () => {
+      const article = articleRef?.current;
+      const scrollRoot = scrollRegionRef?.current;
+
+      if (!article || !scrollRoot) return;
+      const lastHeading = visibleHeadings(article).at(-1);
+
+      if (!lastHeading) return;
+
+      const currentTail = Number.parseFloat(
+        scrollRoot.style.getPropertyValue(TAIL_CSS_PROPERTY) || "0",
+      );
+
+      const lastTargetTop =
+        lastHeading.getBoundingClientRect().top -
+        scrollRoot.getBoundingClientRect().top +
+        scrollRoot.scrollTop;
+
+      const tail = scrollTailHeight({
+        lastTargetTop,
+        slack: TAIL_TOP_SLACK_PX,
+        viewportHeight: scrollRoot.clientHeight,
+        contentHeightSansTail: scrollRoot.scrollHeight - currentTail,
+      });
+
+      if (tail !== currentTail) {
+        scrollRoot.style.setProperty(TAIL_CSS_PROPERTY, `${tail}px`);
       }
-
-      setActive(nextActive.id);
     };
 
     let frame: number | null = null;
@@ -180,19 +197,47 @@ export function ReviewToc({
       });
     };
 
+    let tailFrame: number | null = null;
+
+    const scheduleTail = () => {
+      if (tailFrame !== null) return;
+      tailFrame = requestAnimationFrame(() => {
+        tailFrame = null;
+        updateTail();
+        updateActiveHeading();
+      });
+    };
+
     document.addEventListener("scroll", scheduleUpdate, {
       passive: true,
       capture: true,
     });
-    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("resize", scheduleTail);
+    updateTail();
     updateActiveHeading();
+
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleTail);
+
+    const scrollRoot = scrollRegionRef?.current;
+    const article = articleRef?.current;
+
+    if (resizeObserver && scrollRoot) resizeObserver.observe(scrollRoot);
+
+    if (resizeObserver && article) resizeObserver.observe(article);
 
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
+
+      if (tailFrame !== null) cancelAnimationFrame(tailFrame);
+      resizeObserver?.disconnect();
+      scrollRegionRef?.current?.style.removeProperty(TAIL_CSS_PROPERTY);
       document.removeEventListener("scroll", scheduleUpdate, {
         capture: true,
       });
-      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("resize", scheduleTail);
     };
   }, [articleRef, entries, scrollRegionRef]);
 
@@ -210,53 +255,41 @@ export function ReviewToc({
 
   const numberedEntries = numberReviewTocEntries(entries);
 
-  const activeEntry =
-    numberedEntries.find((entry) => entry.id === active) ?? numberedEntries[0];
-
-  const showRail = !isScrolled && isWide;
+  const showRail = isWide;
   const showList = showRail || isDrawerOpen;
 
+  // On a narrow shell the nav is the pill: a 32px square holding only the
+  // contents glyph, anchored where the pill has always sat. Opening does not
+  // summon a second card; the same box grows in place, its top-left corner
+  // pinned and the glyph still in it, until it is the contents card. The rail
+  // on a wide shell is the same nav without the button.
   return (
-    <>
+    <nav
+      id="review-toc"
+      className={
+        (showRail ? "review-toc review-toc--rail" : "review-toc") +
+        (showList ? " review-toc--open" : "")
+      }
+      aria-label="Contents"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setIsDrawerOpen(false);
+        }
+      }}
+    >
       <button
         type="button"
-        className={
-          isDrawerOpen
-            ? "review-toc-toggle review-toc-toggle--active"
-            : "review-toc-toggle"
-        }
+        className="review-toc-toggle"
         aria-label={isDrawerOpen ? "Close contents" : "Open contents"}
         aria-expanded={isDrawerOpen}
-        aria-controls="review-toc"
+        aria-controls="review-toc-body"
         hidden={showRail || undefined}
         onClick={() => setIsDrawerOpen((open) => !open)}
       >
         <ContentsIcon />
-        {activeEntry && (
-          <>
-            <span className="review-toc-toggle-number">
-              {activeEntry.number}
-            </span>
-            <strong className="review-toc-toggle-title">
-              {activeEntry.text}
-            </strong>
-          </>
-        )}
       </button>
-      <nav
-        id="review-toc"
-        className={
-          (showRail ? "review-toc review-toc--rail" : "review-toc") +
-          (showList ? " review-toc--open" : "")
-        }
-        aria-label="Contents"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            setIsDrawerOpen(false);
-          }
-        }}
-      >
+      <div id="review-toc-body" className="review-toc-body">
         <div className="review-toc-head">Contents</div>
         <ul className="review-toc-list">
           {numberedEntries.map((entry) => (
@@ -278,8 +311,8 @@ export function ReviewToc({
             </li>
           ))}
         </ul>
-      </nav>
-    </>
+      </div>
+    </nav>
   );
 }
 
@@ -311,10 +344,4 @@ function isVisibleHeadingForActiveTracking(heading: HTMLElement): boolean {
   const rect = heading.getBoundingClientRect();
 
   return rect.width !== 0 || rect.height !== 0;
-}
-
-function getScrollRootActiveLine(scrollRoot: HTMLElement | null): number {
-  if (!scrollRoot) return ACTIVE_HEADING_TOP_SLACK_PX;
-
-  return scrollRoot.getBoundingClientRect().top + ACTIVE_HEADING_TOP_SLACK_PX;
 }

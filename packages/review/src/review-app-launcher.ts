@@ -166,7 +166,7 @@ export async function runReviewAppLaunch(
   );
 }
 
-async function focusReviewDesktop(
+export async function focusReviewDesktop(
   discovery: ReviewDesktopDiscovery,
   fetch: typeof globalThis.fetch,
 ): Promise<void> {

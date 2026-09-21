@@ -9,7 +9,7 @@ import {
   readReviewDesktopDiscovery,
   requireHealthyReviewDesktop,
 } from "./desktop-discovery";
-import { runReviewAppLaunch } from "./review-app-launcher";
+import { focusReviewDesktop, runReviewAppLaunch } from "./review-app-launcher";
 import { pickReview } from "./review-app-picker";
 import { resolveReviewRoot } from "./runtime";
 
@@ -108,6 +108,8 @@ export async function runReviewAppPick(
   }
 
   await client.post(`/${encodeURIComponent(review.reviewId)}/open`, {});
+  // Opening a tab never activates the app; that is the flag's job.
+  if (input.focus) await focusReviewDesktop(discovery, runtime.fetch);
 
   return {
     event: "app",

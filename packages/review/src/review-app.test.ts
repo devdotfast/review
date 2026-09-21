@@ -220,6 +220,32 @@ describe("native Review picker", () => {
     expect(launch).not.toHaveBeenCalled();
   });
 
+  it("focuses a running Desktop after opening when asked", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url, init) =>
+      String(url).endsWith("/health")
+        ? healthyResponse()
+        : Response.json(
+            init?.method === "POST"
+              ? { ok: true }
+              : { reviewId: "review", title: "Native" },
+          ),
+    );
+
+    await runReviewAppPick(
+      { ...input, reviewUuid: "review", focus: true },
+      { ...runtime, fetch },
+    );
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://127.0.0.1:5570/health",
+      "http://127.0.0.1:5570/reviews-api/review?full=true",
+      "http://127.0.0.1:5570/reviews-api/review/open",
+      "http://127.0.0.1:5570/app/focus",
+    ]);
+    expect(
+      new Headers(fetch.mock.calls[3]?.[1]?.headers).get("x-review-token"),
+    ).toBe("secret");
+  });
+
   it("forwards focus to the launcher when no Desktop is running", async () => {
     const launch = vi.fn<typeof runtime.launch>(async () => ({
       event: "app",

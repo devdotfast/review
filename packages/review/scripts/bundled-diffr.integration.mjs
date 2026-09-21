@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -210,4 +210,72 @@ await test("Desktop staged diffr integrates with Review streams and settings", a
     );
     assert.equal(existsSync(sentinel), true);
   });
+
+  await t.test(
+    "a working host installation coexists with the Desktop bundle",
+    async (t) => {
+      const host = path.join(root, "host");
+      const traced = path.join(root, "traced-host");
+      const called = path.join(root, "host-called");
+      await Promise.all([mkdir(host), mkdir(traced)]);
+      const binary = path.join(host, "diffr");
+      await copyFile(source, binary);
+      const launcher = path.join(traced, "diffr");
+      await writeFile(
+        launcher,
+        `#!${process.execPath}
+const { appendFileSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+appendFileSync(${JSON.stringify(called)}, "called\\n");
+const result = spawnSync(${JSON.stringify(binary)}, process.argv.slice(2), { stdio: "inherit" });
+process.exit(result.status ?? 1);
+`,
+        { mode: 0o755 },
+      );
+      process.env.PATH = `${traced}${path.delimiter}${host}${path.delimiter}${savedEnv.PATH}`;
+      assert.match(
+        execFileSync("diffr", ["--version"], { encoding: "utf8" }),
+        /diffr 0\.1\.1/,
+      );
+      await rm(called);
+
+      await t.test(
+        "prefers the bundle over a working host binary",
+        async () => {
+          delete process.env.REVIEW_DIFFR_BINARY;
+          applyBundledDiffrBinary(runtime, process.env);
+          successfulFiles(await collect(repository, base, head), 3);
+          await readDiffrConfig(repository);
+          assert.equal(existsSync(called), false);
+        },
+      );
+
+      await t.test(
+        "an explicit host override runs real diffs and settings",
+        async () => {
+          process.env.REVIEW_DIFFR_BINARY = launcher;
+          applyBundledDiffrBinary(runtime, process.env);
+          successfulFiles(await collect(repository, base, head), 3);
+          assert.equal(existsSync(called), true);
+          await rm(called);
+          await readDiffrConfig(repository);
+          assert.equal(existsSync(called), true);
+          await rm(called);
+        },
+      );
+
+      await t.test(
+        "without a bundle the host binary runs real diffs and settings",
+        async () => {
+          delete process.env.REVIEW_DIFFR_BINARY;
+          applyBundledDiffrBinary(path.join(root, "unbundled"), process.env);
+          successfulFiles(await collect(repository, base, head), 3);
+          assert.equal(existsSync(called), true);
+          await rm(called);
+          await readDiffrConfig(repository);
+          assert.equal(existsSync(called), true);
+        },
+      );
+    },
+  );
 });

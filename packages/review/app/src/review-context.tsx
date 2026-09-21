@@ -1,4 +1,3 @@
-import { type ReviewDocumentVersionWire } from "@dev.fast/review-protocol";
 import {
   type ReactNode,
   createContext,
@@ -22,7 +21,6 @@ export interface SoftwareMapFocusRequest {
 
 export interface ReviewActionsValue {
   softwareMapEnabled: boolean;
-  listVersions: () => Promise<ReviewDocumentVersionWire[] | null>;
   dismissReview: () => Promise<void>;
   openSoftwareMapElement: (elementPath: string) => void;
   openTraceSession?: (input: {
@@ -89,19 +87,15 @@ export function ReviewProvider({
     setSubmissionOutcome("dismissed");
   }, [review]);
 
-  const listVersions = useCallback(() => review.listVersions(), [review]);
-
   const actions = useMemo<ReviewActionsValue>(
     () => ({
       softwareMapEnabled,
-      listVersions,
       dismissReview,
       openSoftwareMapElement,
       openTraceSession,
     }),
     [
       dismissReview,
-      listVersions,
       openSoftwareMapElement,
       openTraceSession,
       softwareMapEnabled,

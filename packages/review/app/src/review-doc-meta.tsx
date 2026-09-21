@@ -13,9 +13,10 @@ import {
 } from "react";
 
 import { DiffCount } from "./diff-count";
+import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
 import { useReviewSession } from "./host/review-session";
+import { ReviewBranchRange } from "./review-branch-range";
 import { useReviewDiffFiles } from "./review-diff-files-context";
-import { DisplayedReviewVersionContext } from "./review-history-control";
 
 interface ReviewDocumentMetaState {
   pullRequestNumber: number | null;
@@ -81,8 +82,6 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
       ? relativeTimeLabel(meta.updatedAtMs, relativeTimeNowMs)
       : null;
 
-  if (!meta?.pullRequestNumber && !diff && !updatedLabel) return null;
-
   return (
     <div className="review-doc-meta" data-review-copy-ignore>
       {meta?.pullRequestNumber != null &&
@@ -112,6 +111,10 @@ export function ReviewDocumentMetaLine(): ReactElement | null {
         </>
       )}
       {updatedLabel && <span>updated {updatedLabel}</span>}
+      <ReviewBranchRange
+        baseRef={review.pins.base}
+        headRef={review.pins.head}
+      />
     </div>
   );
 }

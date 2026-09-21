@@ -87,7 +87,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
 
   const app = new Hono().route("/reviews-api", createReviewApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
-  const requests: string[] = [];
   const ready = vi.fn<() => void>();
   const displayedVersion = vi.fn<(version: number) => void>();
 
@@ -95,8 +94,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     {},
     {
       request: async (url, init) => {
-        requests.push(new URL(url).pathname);
-
         return app.request(url, init);
       },
       ready,
@@ -261,21 +258,15 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
   expect(container.querySelector("h2")?.textContent).toContain(
     "Updated details",
   );
-  await act(async () =>
-    container
-      .querySelector<HTMLButtonElement>('button[aria-label="Version history"]')!
-      .click(),
-  );
   await act(async () => {
-    await vi.waitFor(() =>
-      expect(
-        container.querySelectorAll('[role="menuitem"]').length,
-      ).toBeGreaterThan(1),
-    );
+    canvas!.update({
+      kind: "api",
+      reviewId: review.reviewId,
+      version: inserted.version,
+      bridge,
+      setSourceView: (_selection, view) => displayedVersion(view.version),
+    });
   });
-  await act(async () =>
-    container.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click(),
-  );
   await act(async () => {
     await vi.waitFor(() =>
       expect(container.textContent).toContain("Back to latest"),
@@ -316,7 +307,6 @@ it("mounts the existing canvas and preserves a section's DOM and collapsed state
     );
   });
   expect(container.textContent).toContain("Agent working…");
-  expect(requests.some((route) => route.endsWith("/history"))).toBe(true);
 });
 
 it("keeps sequence step identities and supports explanation/code steps without invented source anchors", async () => {

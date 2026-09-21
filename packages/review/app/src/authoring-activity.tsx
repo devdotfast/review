@@ -2,7 +2,7 @@ import { createContext, useContext, useState } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import type { SectionBlock } from "../../src/review-api/blocks/section";
-import { DisplayedReviewVersionContext } from "./review-history-control";
+import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
 import { useTooltip } from "./use-tooltip";
 
 import "./authoring-activity.css";

@@ -26,6 +26,7 @@ import { retainedTrace } from "./api-trace";
 import { App } from "./App";
 import type { RenderedReviewDocument } from "./App";
 import { AuthoringActivityContext } from "./authoring-activity";
+import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
 import {
   ReviewSessionProvider,
   createReviewSession,
@@ -34,7 +35,6 @@ import {
 import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
-import { DisplayedReviewVersionContext } from "./review-history-control";
 import { ReviewLensesProvider } from "./review-lenses";
 import { SharingContext } from "./share-control";
 import { TutorialProvider } from "./tutorial-context";

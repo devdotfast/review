@@ -4,9 +4,9 @@ import { type Root, createRoot, hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DisplayedReviewVersionContext } from "./displayed-review-version-context";
 import { ReviewSessionProvider } from "./host/review-session";
 import { ReviewDocumentMetaLine } from "./review-doc-meta";
-import { DisplayedReviewVersionContext } from "./review-history-control";
 import { testReviewSession } from "./review-session-test-utils";
 
 let root: Root | null = null;

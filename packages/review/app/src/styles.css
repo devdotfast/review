@@ -2264,9 +2264,8 @@ button {
   display: flex;
   min-width: 0;
   align-items: center;
-  margin-left: 8px;
-  color: var(--ink-soft);
-  font-size: 11px;
+  color: inherit;
+  font-size: inherit;
   white-space: nowrap;
 }
 
@@ -2277,13 +2276,6 @@ button {
   gap: 3px;
   color: inherit;
   text-decoration: none;
-}
-
-.review-branch-ref--linked:hover,
-.review-branch-ref--linked:focus-visible {
-  color: var(--accent);
-  text-decoration: underline;
-  outline: none;
 }
 
 .review-branch-label {
@@ -2299,13 +2291,15 @@ button {
 }
 
 .review-branch-copy {
-  display: grid;
-  width: 20px;
+  position: relative;
+  display: inline-flex;
+  min-width: 20px;
   height: 22px;
-  flex: 0 0 20px;
-  margin: 0 2px;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
   padding: 4px;
-  place-items: center;
+  font: inherit;
   border: 0;
   border-radius: var(--chrome-control-radius);
   background: transparent;
@@ -2320,12 +2314,15 @@ button {
   outline: none;
 }
 
-.review-branch-copy svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.1;
+.review-branch-copy[data-copied] .review-branch-name {
+  visibility: hidden;
+}
+
+.review-branch-feedback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
 }
 
 .review-branch-arrow {
@@ -2641,97 +2638,6 @@ button {
 .ui-icon.ui-icon--discord {
   fill: currentColor;
   stroke: none;
-}
-
-.review-history {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.review-history-button {
-  display: grid;
-  align-items: center;
-  justify-content: center;
-  width: var(--chrome-control-height);
-  height: var(--chrome-control-height);
-  padding: 0;
-  border: 0;
-  border-radius: var(--chrome-control-radius);
-  background: var(--transparent);
-  color: var(--chrome-icon-fg);
-  cursor: pointer;
-}
-
-.review-history-button .ui-icon {
-  width: var(--chrome-icon-size);
-  height: var(--chrome-icon-size);
-}
-
-.review-history-selected {
-  display: flex;
-  gap: 4px;
-  width: auto;
-  padding: 0 8px;
-  font-family: var(--chrome-font);
-  font-size: var(--chrome-font-size);
-  white-space: nowrap;
-}
-
-.review-history-button:hover:not(:disabled),
-.review-history-button:focus-visible:not(:disabled),
-.review-history-button[aria-expanded="true"] {
-  background: var(--chrome-hover-bg);
-  color: var(--chrome-fg);
-  outline: none;
-}
-
-.review-history-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.review-history-list {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 220px;
-  max-height: 320px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 4px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  box-shadow: 0 8px 28px var(--shadow-color-strong);
-  list-style: none;
-}
-
-.review-history-list button {
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--transparent);
-  color: inherit;
-  font-family: var(--chrome-font);
-  font-size: var(--chrome-font-size);
-  text-align: left;
-  cursor: pointer;
-}
-
-.review-history-list button:hover:not(:disabled),
-.review-history-list button:focus-visible:not(:disabled) {
-  background: var(--chrome-hover-bg);
-  outline: none;
-}
-
-.review-history-list button:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 
 .review-history-banner {
@@ -4886,6 +4792,7 @@ button {
 
 .review-doc-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 14px;
   min-height: 26px;

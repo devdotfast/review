@@ -164,7 +164,9 @@ export function FlowGraph({
           const availability = requireReady
             ? lenses?.availability(sources)
             : "ready";
+
           const unavailable = availability !== "ready";
+
           const progress =
             lenses?.stats(lenses.resolve(sources)) ?? coverageProgress([]);
 

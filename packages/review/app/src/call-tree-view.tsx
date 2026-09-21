@@ -38,6 +38,7 @@ export function CallTree({
           const availability = requireReady
             ? lenses?.availability(stop.sources)
             : "ready";
+
           const unavailable = availability !== "ready";
           const stats = lenses?.stats(lenses.resolve(stop.sources));
 
@@ -202,6 +203,7 @@ function TreeConnectors({
 export function DocumentCallTree({ block }: { block: CallStackDiffBlock }) {
   const session = useReviewSession();
   const openPeek = useReviewPanel((state) => state.openPeek);
+
   return (
     <figure
       className="review-document-call-tree"
@@ -212,9 +214,11 @@ export function DocumentCallTree({ block }: { block: CallStackDiffBlock }) {
         block={block}
         onReveal={(source, sectionId, anchorId) => {
           captureUiEvent(session, "peek_opened", { via: "call_stack_frame" });
+
           const stop = callTreeStops(block).find(
             (stop) => stop.id === sectionId,
           )!;
+
           openPeek({
             kind: "peek",
             anchor: {

@@ -99,10 +99,12 @@ class Comparison {
           this.initialReady = this.remaining.size === 0;
         } else if (event.type === "file") {
           const path = (event.file.rhs ?? event.file.lhs)!.path;
+
           if (!this.remaining?.delete(path))
             throw new Error(`Unexpected structural result: ${path}`);
           this.initialReady = this.remaining.size === 0;
         }
+
         if (event.type === "complete")
           this.failed = event.failed > 0 || !!event.aborted;
         this.events.push(event);

@@ -2,7 +2,6 @@ import type { CancellationToken } from "../../base/common/cancellation.js";
 import { Disposable, DisposableStore, type IReference } from "../../base/common/lifecycle.js";
 import { URI } from "../../base/common/uri.js";
 import { Position } from "../../editor/common/core/position.js";
-import { Range } from "../../editor/common/core/range.js";
 import type { Hover, LocationLink } from "../../editor/common/languages.js";
 import type { ITextModel } from "../../editor/common/model.js";
 import { ILanguageFeaturesService } from "../../editor/common/services/languageFeatures.js";
@@ -19,9 +18,7 @@ import { IWorkspaceEditingService } from "../../workbench/services/workspaces/co
 import { reviewSourceQuery, type ReviewLanguageEnvironment } from "../common/reviewProtocol.js";
 import { sourceLocation } from "../common/reviewSourceView.js";
 import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
-import { REVIEW_UNIFIED_SCHEME } from "../common/reviewCodeResources.js";
 import { REVIEW_API_SOURCE_SCHEME } from "./reviewApiSourceService.js";
-import { IReviewCodeResourceService } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService } from "./reviewDesktopConnectionService.js";
 import { withCurrentLocalContext } from "./reviewLocalRequest.js";
 import { acquireReviewLanguageRoot } from "./reviewLocalWorkspace.js";
@@ -52,7 +49,6 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 		@IWorkspaceEditingService private readonly workspace: IWorkspaceEditingService,
 		@ITextFileService private readonly textFiles: ITextFileService,
 		@IFileService private readonly files: IFileService,
-		@IReviewCodeResourceService private readonly resources: IReviewCodeResourceService,
 		@ILogService private readonly log: ILogService,
 	) {
 		super();
@@ -80,7 +76,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			this._register(languages.definitionProvider.register(selector, { provideDefinition: (model, position, token) => this.locations(model, position, token, "definition") }));
 		}
 		// Unified hover/definition already delegate to the pinned side model.
-		for (const scheme of [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME, REVIEW_UNIFIED_SCHEME]) {
+		for (const scheme of [REVIEW_API_SOURCE_SCHEME, REVIEW_LANGUAGE_SOURCE_SCHEME]) {
 			const target = { scheme, exclusive: true };
 			this._register(languages.typeDefinitionProvider.register(target, { provideTypeDefinition: (model, position, token) => this.locations(model, position, token, "type") }));
 			this._register(languages.implementationProvider.register(target, { provideImplementation: (model, position, token) => this.locations(model, position, token, "implementation") }));
@@ -170,14 +166,6 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 
 	private async withSource<T>(model: ITextModel, position: Position, token: CancellationToken, run: (local: ITextModel, at: Position, review: ITextModel) => Promise<T>): Promise<T | undefined> {
 		if (token.isCancellationRequested || model.isDisposed()) return undefined;
-		if (model.uri.scheme === REVIEW_UNIFIED_SCHEME) {
-			const unified = this.resources.unifiedResource(model.uri);
-			const mapped = unified?.targetForRange(position.lineNumber, position.lineNumber);
-			if (!mapped) return undefined;
-			const ref = await this.models.createModelReference(mapped.side === "base" ? unified!.original : unified!.modified);
-			try { return await this.withSource(ref.object.textEditorModel, new Position(mapped.startLine, position.column), token, run); }
-			finally { ref.dispose(); }
-		}
 		if (model.uri.scheme === "file") return withCurrentLocalContext([model], token, () => this.generation, async () => run(model, position, model));
 		const epoch = this.environments.generation;
 		const source = await this.localSource(model);
@@ -228,17 +216,7 @@ export class ReviewLocalLanguageFeatures extends Disposable {
 			const results = kind === "definition" ? await getDefinitionsAtPosition(this.languages.definitionProvider, local, at, false, token)
 				: kind === "type" ? await getTypeDefinitionsAtPosition(this.languages.typeDefinitionProvider, local, at, false, token)
 				: await getImplementationsAtPosition(this.languages.implementationProvider, local, at, false, token);
-			return this.reviewLocations(pinned, results.map(result => {
-				let origin = result.originSelectionRange;
-				if (origin && model.uri.scheme === REVIEW_UNIFIED_SCHEME) {
-					const unified = this.resources.unifiedResource(model.uri);
-					const side = sourceLocation(pinned.uri).side;
-					const row = unified?.rows.find(row => (side === "base" ? row.baseLine : row.headLine) === origin!.startLineNumber);
-					origin = row && origin.startLineNumber === origin.endLineNumber
-						? new Range(row.lineNumber, origin.startColumn, row.lineNumber, origin.endColumn) : undefined;
-				}
-				return { ...result, originSelectionRange: origin };
-			}), token);
+			return this.reviewLocations(pinned, results, token);
 		});
 	}
 

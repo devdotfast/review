@@ -2,10 +2,10 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 import {
-  decodeStructuralDiffEvent,
   STRUCTURAL_DIFF_WIRE_VERSION,
   type StructuralDiffEvent,
   type StructuralProblem,
+  decodeStructuralDiffEvent,
 } from "@dev.fast/review-protocol";
 
 export type DiffComparison =
@@ -39,6 +39,7 @@ export async function* structuralDiff(
 ): AsyncGenerator<StructuralDiffEvent> {
   input.signal.throwIfAborted();
   const { base, head, kind } = input.comparison;
+
   const args = [
     "--repo",
     input.repositoryPath,
@@ -46,6 +47,7 @@ export async function* structuralDiff(
     "ndjson",
     "--stream-annotations",
   ];
+
   args.push(...(kind === "trees" ? [base, head] : [`${base}...${head}`]));
   args.push("--", ...(input.paths ?? []));
 

@@ -3,8 +3,8 @@ import { z } from "zod";
 import {
   type LensSource,
   resolveDiffSelection,
-  selectionKey,
   selectSource,
+  selectionKey,
 } from "../lens-selection.js";
 import { type FileLineRange, fileLineRangeSchema } from "../source.js";
 import { type CoverageFile, emptyCoverage } from "../viewed-coverage.js";
@@ -54,9 +54,12 @@ export async function reviewProgress(
 ): Promise<ReviewProgress> {
   const marks = store.viewedCoverage(snapshot.reviewId);
   const { pins } = await data.resolveSource(snapshot);
+
   const comparison =
     partial ?? (await data.coverage(snapshot.reviewId, pins, mode));
+
   signal.throwIfAborted();
+
   const files = comparison.files.map((file) => ({
     ...file,
     viewed:
@@ -64,30 +67,39 @@ export async function reviewProgress(
         ? marks.get(file.path)!.coverage
         : emptyCoverage(),
   }));
+
   const fileSources = new Map(comparison.fileSources);
   const alignments = new Map(comparison.alignments);
   const resolvedSelections: Record<string, FileLineRange[]> = {};
 
   const unavailableSelections: Record<string, string> = {};
   const pendingSources = new Set<string>();
+
   const resolve = async (source: LensSource): Promise<FileLineRange[]> => {
     const key = selectionKey(source);
+
     if (resolvedSelections[key]) return resolvedSelections[key];
+
     const file = files.find(
       (file) => source.file === file.path || source.file === file.previousPath,
     );
+
     let rows = file && alignments.get(file.path);
+
     // Context-only files are absent from the changed-file stream. Read both pins
     // and require equality rather than inventing correspondence for missing diffs.
     if (!file && partial) {
       pendingSources.add(key);
+
       return [];
     }
+
     if (!file) {
       const [base, head] = await Promise.all([
         data.file(pins, "base", source.file),
         data.file(pins, "head", source.file),
       ]);
+
       if (base.text !== head.text)
         throw new Error("Changed context file has no alignment.");
       rows = Array.from(
@@ -95,13 +107,17 @@ export async function reviewProgress(
         (_, line) => [line, line] as const,
       );
     }
+
     if (!rows) throw new Error("File has no text alignment.");
+
     const result = resolveDiffSelection(
       source,
       rows,
       file ?? { path: source.file },
     );
+
     resolvedSelections[key] = result;
+
     return result;
   };
 
@@ -111,9 +127,11 @@ export async function reviewProgress(
     } catch {
       unavailableSelections[selectionKey(source)] =
         "Source links need updating at these pins";
+
       return [];
     }
   };
+
   const diagrams: ReviewProgress["diagrams"] = await Promise.all(
     diagramLenses(snapshot.document).map(async (lens) => {
       const block = elements(snapshot.document).find(
@@ -124,12 +142,14 @@ export async function reviewProgress(
         if (block.type === "file_lens") {
           // Explicit ranges use the same pin validation as diagram evidence.
           await Promise.all(lens.sources.map(resolveAvailable));
+
           const resolved = resolveFileLens(
             block,
             files,
             fileSources,
             (source) => resolvedSelections[selectionKey(source)] ?? [],
           );
+
           return {
             ...lens,
             ...resolved,
@@ -143,6 +163,7 @@ export async function reviewProgress(
 
         if (block.type === "software_map" && partial)
           return { ...lens, sources: [], pending: true };
+
         if (block.type === "software_map") {
           const map = await data.map(pins, block.mapVersionId);
 
@@ -220,6 +241,7 @@ export async function reviewProgress(
           .filter((lens) => !lens.unavailable)
           .flatMap((lens) => lens.sources),
       );
+
   diagrams.push({
     id: "automatic-uncategorized",
     title: "Uncategorized changes",
@@ -253,4 +275,3 @@ export async function reviewProgress(
     unavailableSelections,
   };
 }
-

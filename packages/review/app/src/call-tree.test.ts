@@ -79,11 +79,13 @@ it("keeps supporting source ranges in the owning frame without adding call edges
     start: { side: "head" as const, line: 10 },
     end: { side: "head" as const, line: 20 },
   };
+
   const fields = {
     ...source,
     start: { side: "head" as const, line: 2 },
     end: { side: "head" as const, line: 5 },
   };
+
   const stops = callTreeStops({
     type: "call_stack_diff",
     id: "tree",
@@ -98,6 +100,7 @@ it("keeps supporting source ranges in the owning frame without adding call edges
       },
     ],
   });
+
   expect(stops).toHaveLength(1);
   expect(stops[0].sources).toEqual([source, fields]);
   expect(stops[0].parentId).toBeUndefined();

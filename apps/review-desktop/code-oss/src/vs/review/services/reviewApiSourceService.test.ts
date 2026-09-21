@@ -7,7 +7,7 @@ import type { ITextModelContentProvider } from "../../editor/common/services/res
 import { apiSourceUri, ReviewApiSourceService } from "./reviewApiSourceService.js";
 import type { ReviewDiffViewSource } from "./reviewDiffViewService.js";
 import { resolveReviewSourceView, reviewSourceComparison } from "../common/reviewProtocol.js";
-import type { ReviewInlineSource } from "./reviewInlineEditorService.js";
+import type { ReviewDiffLens } from "../common/reviewProtocol.js";
 
 const view = (version: number) => resolveReviewSourceView({ reviewId: "review-a", version, pins: {} });
 
@@ -60,55 +60,37 @@ function setup() {
 		opened,
 		registered,
 		disposed: () => disposed,
+		readModel: (uri: URI) => provider.provideTextContent(uri),
 	};
 }
 
-test("a native peek reads the pinned version through the authenticated API, not a working file", async (t) => {
-	const { service, models, disposed } = setup();
+test("a document diff retains its pinned comparison even if the review advances before loading", async (t) => {
+	const { service, readModel } = setup();
 	t.after(() => service.dispose());
 	t.mock.method(globalThis, "fetch", async (value: string, init: RequestInit) => {
 		const url = new URL(value);
 		assert.equal(new Headers(init.headers).get("x-review-token"), "secret");
 		assert.equal(url.searchParams.get("version"), "3");
-		assert.equal(url.pathname, "/reviews-api/review-a/file");
+		if (url.pathname.endsWith("/diff")) return Response.json([]);
 		assert.equal(url.searchParams.get("side"), "base");
 		assert.equal(url.searchParams.get("file"), "src/[route].ts");
 		return Response.json({ text: "old first line\nold second line" });
 	});
 	let version = 3;
-	let source!: ReviewInlineSource;
-	const canvas = service.canvas(
-		() => view(version),
-		{
-			create: (_: unknown, input: ReviewInlineSource) => {
-				source = input;
-				return {};
-			},
-		} as never,
-		{} as never,
-	);
-	canvas.inlineEditors.create({
-		path: "src/[route].ts",
-		side: "base",
-		ranges: [{ startLine: 2, endLine: 2 }],
+	let source!: ReviewDiffViewSource;
+	let lens!: ReviewDiffLens;
+	const canvas = service.canvas(() => view(version), {} as never, {
+		openComparison: () => undefined,
+		createDocument: (_: unknown, scope: ReviewDiffLens, input: ReviewDiffViewSource) => { lens = scope; source = input; return {}; },
 	} as never);
+	canvas.inlineEditors.create({ path: "src/[route].ts", side: "base", ranges: [{ startLine: 2, endLine: 2 }] } as never);
 	version = 4;
-	const snippet = await source.snippet();
-	assert.equal(models.get(snippet.target.resource.toString())?.text, "old first line\nold second line");
-	snippet.dispose();
-	assert.equal(disposed(), 1);
-	assert.notEqual(
-		apiSourceUri({
-			view: view(3),
-			file: "src/[route].ts",
-			side: "base",
-		}).toString(),
-		apiSourceUri({
-			view: view(4),
-			file: "src/[route].ts",
-			side: "base",
-		}).toString(),
-	);
+	const result = await source.load(undefined, lens);
+	assert.equal(result.entries.length, 1);
+	assert.equal(result.entries[0].file.status, "unchanged");
+	const model = await readModel(result.entries[0].original!);
+	assert.equal(model!.getLineCount(), 2);
+	assert.equal(new URLSearchParams(model!.uri.query).get("version"), "3");
 });
 
 test("diff entries keep rename paths and missing sides, even when the review advances during the read", async (t) => {
@@ -133,6 +115,7 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 		() => resolveReviewSourceView({ reviewId: "review-a", version, pins: { worktreeRevision: generation } }),
 		{} as never,
 		{
+			openComparison: () => undefined,
 			create: (_: unknown, input: ReviewDiffViewSource) => {
 				source = input;
 				return {};
@@ -155,29 +138,10 @@ test("diff entries keep rename paths and missing sides, even when the review adv
 });
 
 test("unavailable pinned files report the API error instead of falling back to disk", async (t) => {
-	const { service, disposed } = setup();
+	const { service, readModel } = setup();
 	t.after(() => service.dispose());
-	t.mock.method(globalThis, "fetch", async () =>
-		Response.json({ error: "File is unavailable at the pinned commit." }, { status: 404 }),
-	);
-	let source!: ReviewInlineSource;
-	const canvas = service.canvas(
-		() => view(0),
-		{
-			create: (_: unknown, input: ReviewInlineSource) => {
-				source = input;
-				return {};
-			},
-		} as never,
-		{} as never,
-	);
-	canvas.inlineEditors.create({
-		path: "missing.ts",
-		side: "head",
-		ranges: [{ startLine: 1, endLine: 1 }],
-	} as never);
-	await assert.rejects(source.snippet(), /unavailable at the pinned commit/);
-	assert.equal(disposed(), 0);
+	t.mock.method(globalThis, "fetch", async () => Response.json({ error: "File is unavailable at the pinned commit." }, { status: 404 }));
+	await assert.rejects(Promise.resolve(readModel(apiSourceUri({ view: view(0), side: "head", file: "missing.ts" }))), /unavailable at the pinned commit/);
 });
 
 test("tree entries retain version, side and selected commit when opening a child", async (t) => {

@@ -11,6 +11,7 @@ export type StructuralPairing<T> =
   | { lhs: T; rhs: T }
   | { lhs: T; rhs?: never }
   | { rhs: T; lhs?: never };
+
 function structuralPairingSchema<T>(
   value: z.ZodType<T>,
 ): z.ZodType<StructuralPairing<T>> {
@@ -24,6 +25,7 @@ function structuralPairingSchema<T>(
 const structuralU32 = z.number().int().min(0).max(0xffff_ffff);
 
 export const STRUCTURAL_DIFF_WIRE_VERSION = 4;
+
 export type StructuralDiffEvent =
   | {
       type: "start";
@@ -49,6 +51,7 @@ export type StructuralDiffEvent =
       failed: number;
       aborted?: StructuralProblem;
     };
+
 export const StructuralDiffEventSchema: z.ZodType<StructuralDiffEvent> = z.lazy(
   () =>
     z.union([
@@ -87,6 +90,7 @@ export const StructuralDiffEventSchema: z.ZodType<StructuralDiffEvent> = z.lazy(
 export type StructuralOutcome =
   | { diff: StructuralDiff; error?: never }
   | { error: StructuralProblem; diff?: never };
+
 export const StructuralOutcomeSchema: z.ZodType<StructuralOutcome> = z.lazy(
   () =>
     z.union([
@@ -101,6 +105,7 @@ export type StructuralSnapshot =
   | { type: "working_tree" }
   | { type: "empty_tree" }
   | { type: "path"; path: string };
+
 export const StructuralSnapshotSchema: z.ZodType<StructuralSnapshot> = z.lazy(
   () =>
     z.union([
@@ -113,6 +118,7 @@ export const StructuralSnapshotSchema: z.ZodType<StructuralSnapshot> = z.lazy(
 );
 
 export type StructuralProblem = { code: string; message: string };
+
 export const StructuralProblemSchema: z.ZodType<StructuralProblem> = z.lazy(
   () => z.object({ code: z.string(), message: z.string() }),
 );
@@ -122,6 +128,7 @@ export type StructuralFileChange = {
   status: StructuralFileStatus;
   tags?: string[];
 };
+
 export const StructuralFileChangeSchema: z.ZodType<StructuralFileChange> =
   z.lazy(() =>
     z.object({
@@ -138,6 +145,7 @@ export type StructuralFileStatus =
   | "renamed"
   | "copied"
   | "type_changed";
+
 export const StructuralFileStatusSchema: z.ZodType<StructuralFileStatus> =
   z.lazy(() =>
     z.union([
@@ -151,11 +159,13 @@ export const StructuralFileStatusSchema: z.ZodType<StructuralFileStatus> =
   );
 
 export type StructuralFileRef = { path: string; oid: string; mode: string };
+
 export const StructuralFileRefSchema: z.ZodType<StructuralFileRef> = z.lazy(
   () => z.object({ path: z.string(), oid: z.string(), mode: z.string() }),
 );
 
 export type StructuralVisibility = { collapsed?: boolean; label?: string };
+
 export const StructuralVisibilitySchema: z.ZodType<StructuralVisibility> =
   z.lazy(() =>
     z.object({
@@ -202,6 +212,7 @@ export type StructuralDiff =
       structural_changes: StructuralChanges;
     } & StructuralPairing<StructuralSource>)
   | ({ type: "binary" } & StructuralPairing<StructuralBinaryRef>);
+
 export const StructuralDiffSchema: z.ZodType<StructuralDiff> = z.lazy(() =>
   z.union([
     z
@@ -222,6 +233,7 @@ export type StructuralSource = {
   syntax?: StructuralSyntaxSpan[];
   regions?: StructuralRegion[];
 };
+
 export const StructuralSourceSchema: z.ZodType<StructuralSource> = z.lazy(() =>
   z.object({
     text: z.string(),
@@ -231,6 +243,7 @@ export const StructuralSourceSchema: z.ZodType<StructuralSource> = z.lazy(() =>
 );
 
 export type StructuralBinaryRef = { size: number };
+
 export const StructuralBinaryRefSchema: z.ZodType<StructuralBinaryRef> = z.lazy(
   () => z.object({ size: z.number().int().nonnegative() }),
 );
@@ -241,6 +254,7 @@ export type StructuralSyntaxSpan = {
   end_column: number;
   capture: string;
 };
+
 export const StructuralSyntaxSpanSchema: z.ZodType<StructuralSyntaxSpan> =
   z.lazy(() =>
     z.object({
@@ -259,6 +273,7 @@ export type StructuralRegion = {
   visibility?: StructuralVisibility;
 } & StructuralSourceRange &
   StructuralNode;
+
 export const StructuralRegionSchema: z.ZodType<StructuralRegion> = z.lazy(() =>
   z
     .object({
@@ -274,6 +289,7 @@ export const StructuralRegionSchema: z.ZodType<StructuralRegion> = z.lazy(() =>
 export type StructuralNode =
   | { kind: "leaf"; alignment_id: number; changed?: StructuralSpan[] }
   | { kind: "fold"; children: StructuralRegion[] };
+
 export const StructuralNodeSchema: z.ZodType<StructuralNode> = z.lazy(() =>
   z.union([
     z.object({
@@ -293,6 +309,7 @@ export type StructuralSpan = {
   start_column: number;
   end_column: number;
 };
+
 export const StructuralSpanSchema: z.ZodType<StructuralSpan> = z.lazy(() =>
   z.object({
     line: structuralU32,
@@ -305,12 +322,14 @@ export type StructuralSourceRange = {
   start: StructuralPos;
   end: StructuralPos;
 };
+
 export const StructuralSourceRangeSchema: z.ZodType<StructuralSourceRange> =
   z.lazy(() =>
     z.object({ start: StructuralPosSchema, end: StructuralPosSchema }),
   );
 
 export type StructuralPos = { line: number; column: number };
+
 export const StructuralPosSchema: z.ZodType<StructuralPos> = z.lazy(() =>
   z.object({
     line: structuralU32,
@@ -323,6 +342,7 @@ export type StructuralStats = {
   visible: StructuralLineCounts;
   fallback?: StructuralProblem;
 };
+
 export const StructuralStatsSchema: z.ZodType<StructuralStats> = z.lazy(() =>
   z.object({
     textual: StructuralLineCountsSchema,
@@ -332,6 +352,7 @@ export const StructuralStatsSchema: z.ZodType<StructuralStats> = z.lazy(() =>
 );
 
 export type StructuralLineCounts = { added: number; removed: number };
+
 export const StructuralLineCountsSchema: z.ZodType<StructuralLineCounts> =
   z.lazy(() =>
     z.object({

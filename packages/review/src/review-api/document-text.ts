@@ -160,6 +160,7 @@ export function documentText(
             for (const source of target.sources)
               detail(`Range: ${sourceText(source)}`);
         }
+
         break;
       case "flow_diagram":
         if (element.description) detail(element.description);

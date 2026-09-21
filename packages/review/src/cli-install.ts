@@ -28,7 +28,6 @@ import {
   disableAllTraceRepositories,
   disableTraceMachine,
   removeAgentTraceHook,
-  traceCommandExecutable,
   traceMachineStatus,
   traceScope,
   withFileLock,
@@ -874,27 +873,6 @@ export async function installReviewCommand(input: {
     return {
       shimPath,
       output: `[skip] kept the existing review command at ${shimPath}\n`,
-    };
-  }
-
-  const shimSource = await readTextIfExists(shimPath);
-
-  const fallback = shimSource
-    .split("\n")
-    .find((line) => line.startsWith("FALLBACK_CLI="));
-
-  const existingCli = traceCommandExecutable(
-    fallback?.slice("FALLBACK_CLI=".length),
-  );
-
-  if (
-    existingCli &&
-    existingCli !== input.cliPath &&
-    (await isFile(existingCli))
-  ) {
-    return {
-      shimPath,
-      output: `[skip] kept the working review command at ${shimPath}\n`,
     };
   }
 

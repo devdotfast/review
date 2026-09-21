@@ -21,10 +21,10 @@ export interface AuthoringTool {
 }
 
 export async function connectReviewApi(env = process.env) {
-  const stateDir = reviewServerStateDir(env);
-  const server = await readReviewServerDiscovery(stateDir);
+  if (env.DEV_REVIEW_SERVER_DIR?.trim()) {
+    const stateDir = reviewServerStateDir(env);
+    const server = await readReviewServerDiscovery(stateDir);
 
-  if (server || env.DEV_REVIEW_SERVER_DIR?.trim()) {
     if (!server || !(await reviewServerIsHealthy(server)))
       throw serverNotReady(stateDir);
 
@@ -38,7 +38,7 @@ export async function connectReviewApi(env = process.env) {
 
   if (!discovery)
     throw new Error(
-      "No Review server is ready. Run review server start for headless authoring, or review app launch for Desktop, then retry.",
+      "No Review Desktop server is ready. Run review app launch, or select a running headless server with --state-dir or DEV_REVIEW_SERVER_DIR, then retry.",
     );
 
   return new ReviewApiClient({

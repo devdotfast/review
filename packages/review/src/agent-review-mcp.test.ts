@@ -47,7 +47,7 @@ beforeEach(async () => {
   cliPath = path.join(homeDir, "cli.cjs");
   await writeFile(
     cliPath,
-    "console.log(JSON.stringify({args:process.argv.slice(2),home:process.env.DEV_REVIEW_HOME,build:1}));",
+    "console.log(JSON.stringify({args:process.argv.slice(2),home:process.env.DEV_REVIEW_HOME,serverDir:process.env.DEV_REVIEW_SERVER_DIR,build:1}));",
   );
 });
 
@@ -91,12 +91,19 @@ it("installs both agents without their CLIs, preserves other settings, and launc
   const { stdout } = await promisify(execFile)(
     registration.command,
     registration.args,
-    { env: { ...env, ...registration.env } },
+    {
+      env: {
+        ...env,
+        DEV_REVIEW_SERVER_DIR: path.join(homeDir, "other-headless-server"),
+        ...registration.env,
+      },
+    },
   );
 
   expect(JSON.parse(stdout)).toEqual({
     args: ["mcp"],
     home: env.DEV_REVIEW_HOME,
+    serverDir: "",
     build: 1,
   });
   expect((await install()).code).toBe(0);

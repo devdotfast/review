@@ -7,12 +7,13 @@ Install a version of `@dev.fast/review` that includes `review server`, using Nod
 ```sh
 npm install --global "@dev.fast/review@$REVIEW_VERSION"
 export DEV_REVIEW_HOME="$PWD/.review-state"
+export DEV_REVIEW_SERVER_DIR="$DEV_REVIEW_HOME"
 review server start --authoring-mode batch --json
 ```
 
 `start` stays in the foreground. Run the agent from another process, or let CI background the server and terminate it with SIGTERM when finished. `review server status --json` exits successfully only when the selected server is ready. JSON output omits the authentication token; diagnostics go to stderr.
 
-The directory defaults to `$DEV_REVIEW_HOME` (`~/.dev` when no home is configured). Select a different directory with `DEV_REVIEW_SERVER_DIR` for all processes, or `review --state-dir <path> server start`, `review --state-dir <path> api …`, and `review --state-dir <path> mcp`. `server start` and `server status` also accept a trailing `--state-dir` option. An explicitly selected directory never falls back to Desktop. Without an explicit selection, clients use discovered headless state first, then Desktop when no headless discovery exists.
+The directory defaults to `$DEV_REVIEW_HOME` (`~/.dev` when no home is configured). Select headless mode explicitly with `DEV_REVIEW_SERVER_DIR` for all processes, or `review --state-dir <path> server start`, `review --state-dir <path> api …`, and `review --state-dir <path> mcp`. `server start` and `server status` also accept a trailing `--state-dir` option. An explicitly selected directory never falls back to Desktop. Without an explicit selection, clients connect only to Desktop and ignore headless discovery files.
 
 The server binds to loopback on an available port. `--port <port>` selects a fixed port. `--software-maps` permits the skill to generate optional software maps; uploading existing maps is always supported.
 
@@ -20,7 +21,7 @@ The server binds to loopback on an available port. `--port <port>` selects a fix
 
 Install the shared skill for your harness, for example `review install codex --no-shim` or `review install claude --no-shim`. The npm installation already supplies the CLI. Agents can use `review api` directly, or a stdio MCP configuration with command `review`, arguments `["mcp"]`, and the same profile environment variables.
 
-Supply the local repository path and explicit base/head revisions. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. The entry skill routes batch authors to `dev-review-batch`, sharing the component reference.
+Supply the local repository path and explicit base/head revisions. PR discovery, fetching missing commits, and cloning belong to CI. For a PR, also supply its canonical GitHub URL as review metadata. `review_capabilities` reports `authoringMode` independently of Desktop availability. Use `dev-review-batch` for batch authoring; it shares the authoring guidance.
 
 Batch authors begin a scratch draft, investigate source using its `draftId`, write substantial content, validate and commit. Only commit creates a saved version and marks all sections complete. Existing readers see the previous committed version until then; new drafts are absent from Home. On intentional failure, abort the draft. The server retains exclusive ownership without heartbeats until commit, abort or shutdown. CI must stop it during teardown. After a killed server, abandoned scratch content is discarded safely; there is no resume or merge.
 
@@ -34,10 +35,10 @@ From this repository, in one terminal:
 pnpm review server start --authoring-mode batch
 ```
 
-Stop an already-running headless server first. In a second terminal, run your agent with this checkout's `dev-review` skill and a prompt such as:
+Stop an already-running headless server first. In the second terminal, set `export DEV_REVIEW_SERVER_DIR="${DEV_REVIEW_HOME:-$HOME/.dev}"`, then run your agent with this checkout's `dev-review-batch` skill and a prompt such as:
 
 ```text
-Use dev-review to author a review of /absolute/path/to/checkout,
+Use dev-review-batch to author a review of /absolute/path/to/checkout,
 comparing base <base-sha> with head <head-sha>. The batch server is running.
 Use pnpm review api for tools and return the committed review ID and version.
 ```

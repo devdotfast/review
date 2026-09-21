@@ -47,6 +47,16 @@ source files, source directories, build tools, and the dependency digest.
 
 Run `pnpm desktop:build` without the flag for a full compile and typecheck.
 
+### Launching without taking focus
+
+`pnpm dev:background` builds and launches the Desktop without bringing its
+window forward, the same way `review app launch` does without `--focus`. It
+sets `DEV_FAST_REVIEW_DESKTOP_BACKGROUND=1`, which `run.sh` passes through to
+the Electron process; set it yourself for a bare `pnpm desktop:run`. The
+window stays behind whatever is frontmost until you click it or run
+`review app launch --focus`. Computer-use and other screen-driven tests rely
+on this so the terminal that started the app keeps focus.
+
 To reset generated Code OSS artifacts and the local Desktop profile, run this
 from the monorepo root:
 

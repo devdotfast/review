@@ -9,7 +9,7 @@ import {
   readReviewDesktopDiscovery,
   requireHealthyReviewDesktop,
 } from "./desktop-discovery";
-import { runReviewAppLaunch } from "./review-app-launcher";
+import { focusReviewDesktop, runReviewAppLaunch } from "./review-app-launcher";
 import { pickReview } from "./review-app-picker";
 import { resolveReviewRoot } from "./runtime";
 
@@ -25,6 +25,8 @@ interface ReviewAppRuntime {
 export interface RunReviewAppInput {
   cwd: string;
   reviewUuid?: string;
+  /** Bring Review Desktop forward. */
+  focus?: boolean;
   stdin: NodeJS.ReadStream;
   stdout: Writable;
 }
@@ -54,7 +56,12 @@ export async function runReviewAppPick(
   // Only `review app launch` may recover a stale or incompatible pointer; the
   // other verbs report the diagnosis rather than start a second Desktop. A null
   // read means nothing is running, which launching does fix.
-  if (!(await runtime.readReviewDesktopDiscovery())) await runtime.launch();
+  let launched = false;
+
+  if (!(await runtime.readReviewDesktopDiscovery())) {
+    await runtime.launch({ focus: input.focus });
+    launched = true;
+  }
 
   const discovery = await runtime.requireHealthyReviewDesktop(
     "review app pick",
@@ -105,6 +112,10 @@ export async function runReviewAppPick(
   }
 
   await client.post(`/${encodeURIComponent(review.reviewId)}/open`, {});
+
+  // A focused fresh launch already came forward; a running one must be asked.
+  if (input.focus && !launched)
+    await focusReviewDesktop(discovery, runtime.fetch);
 
   return {
     event: "app",

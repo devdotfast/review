@@ -13,6 +13,10 @@ import {
 
 const REVIEW_DESKTOP_BUNDLE_ID = "dev.fast.review";
 
+/** "1" on launches without --focus; Desktop opens inactive. */
+export const REVIEW_DESKTOP_BACKGROUND_ENV =
+  "DEV_FAST_REVIEW_DESKTOP_BACKGROUND";
+
 const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000;
 
 const POLL_INTERVAL_MS = 250;
@@ -39,6 +43,8 @@ interface ReviewAppLauncherRuntime {
 
 export interface RunReviewAppLaunchInput {
   timeoutMs?: number;
+  /** Bring Review Desktop forward. */
+  focus?: boolean;
 }
 
 export interface ReviewAppLaunchEvent {
@@ -64,6 +70,7 @@ export interface LaunchDesktopApplicationInput {
   execPath?: string;
   electron?: boolean;
   env?: NodeJS.ProcessEnv;
+  focus?: boolean;
   spawn?: (
     command: string,
     args: readonly string[],
@@ -91,12 +98,12 @@ export async function runReviewAppLaunch(
   const running = await readLaunchHealthyDesktop(runtime);
 
   if (running) {
-    await runtime.focusDesktop(running);
+    if (input.focus) await runtime.focusDesktop(running);
 
     return launchEvent("running", running.instanceId);
   }
 
-  const attempt = runtime.launchDesktop();
+  const attempt = runtime.launchDesktop({ focus: input.focus });
 
   let completion: Promise<DesktopLaunchCompletion> | undefined =
     observedCompletion(attempt);
@@ -159,7 +166,7 @@ export async function runReviewAppLaunch(
   );
 }
 
-async function focusReviewDesktop(
+export async function focusReviewDesktop(
   discovery: ReviewDesktopDiscovery,
   fetch: typeof globalThis.fetch,
 ): Promise<void> {
@@ -198,6 +205,10 @@ export function launchDesktopApplication(
   const electron = input.electron ?? Boolean(process.versions.electron);
   const env = { ...(input.env ?? process.env) };
   const directLaunch = electron || platform === "linux";
+  const focus = input.focus === true;
+
+  if (focus) delete env[REVIEW_DESKTOP_BACKGROUND_ENV];
+  else env[REVIEW_DESKTOP_BACKGROUND_ENV] = "1";
 
   if (directLaunch) delete env.ELECTRON_RUN_AS_NODE;
 
@@ -208,7 +219,12 @@ export function launchDesktopApplication(
 
   let command = "/usr/bin/open";
   let method = `the macOS bundle identifier "${REVIEW_DESKTOP_BUNDLE_ID}"`;
+
   let args = ["-b", REVIEW_DESKTOP_BUNDLE_ID];
+
+  // open(1) drops the caller's env; --env carries the marker.
+  if (!focus)
+    args = ["-g", ...args, "--env", `${REVIEW_DESKTOP_BACKGROUND_ENV}=1`];
 
   if (directLaunch) {
     command = "/usr/bin/review-desktop";

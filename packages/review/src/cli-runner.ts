@@ -375,27 +375,34 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
 
   const writeAppEvent = (
     event: ReviewAppLaunchEvent | ReviewAppEvent,
-    json: boolean | undefined,
+    options: { json?: boolean; focus?: boolean },
   ) => {
-    if (json) {
+    if (options.json) {
       input.stdout.write(`${JSON.stringify(event)}\n`);
     } else if (event.action === "launch") {
       input.stdout.write(
         event.state === "running"
           ? "Review Desktop is already running.\n"
-          : "Review Desktop is ready.\n",
+          : options.focus
+            ? "Review Desktop is ready.\n"
+            : "Review Desktop is ready in the background. Pass --focus to bring it forward.\n",
       );
     } else {
       input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
     }
   };
 
-  const pickReview = async (options: { review?: string; json?: boolean }) => {
+  const pickReview = async (options: {
+    review?: string;
+    focus?: boolean;
+    json?: boolean;
+  }) => {
     // SAFETY: the picker reads keypresses only after checking isTTY, and only
     // a tty.ReadStream reports isTTY; any other stream fails that check first.
     const event = await runtime.runReviewAppPick({
       cwd,
       reviewUuid: options.review,
+      focus: options.focus,
       stdin: (input.stdin ?? process.stdin) as NodeJS.ReadStream,
       // This stream carries only the interactive picker. Under --json it must
       // not be stdout: the picker's ANSI frames would corrupt the event line.
@@ -408,30 +415,38 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       return;
     }
 
-    writeAppEvent(event, options.json);
+    writeAppEvent(event, options);
     state.exitCode = 0;
   };
 
-  const launchApp = async (options: { json?: boolean }) => {
-    const event = await runtime.runReviewAppLaunch();
-    writeAppEvent(event, options.json);
+  const launchApp = async (options: { focus?: boolean; json?: boolean }) => {
+    const event = await runtime.runReviewAppLaunch({ focus: options.focus });
+
+    writeAppEvent(event, options);
     state.exitCode = 0;
   };
 
   const app = configureJsonOutput(
-    program.command("app").description("Start or activate Review Desktop"),
+    program
+      .command("app")
+      .description("Start Review Desktop in the background")
+      .option("--focus", "bring Review Desktop to the foreground"),
     "plain",
   ).action(launchApp);
 
   configureJsonOutput(
-    app.command("launch").description("Start or activate Review Desktop"),
+    app
+      .command("launch")
+      .description("Start Review Desktop in the background")
+      .option("--focus", "bring Review Desktop to the foreground"),
     "plain",
   ).action(launchApp);
   configureJsonOutput(
     app
       .command("pick")
       .description("Select a Review (interactive picker without --review)")
-      .option("--review <uuid>", "review UUID"),
+      .option("--review <uuid>", "review UUID")
+      .option("--focus", "bring Review Desktop to the foreground"),
     "plain",
   ).action(pickReview);
 

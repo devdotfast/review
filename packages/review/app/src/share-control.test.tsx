@@ -112,10 +112,13 @@ it("asks a signed-out user to sign in, then uploads the version chosen before lo
   await harness.render(4);
   await harness.click("Share review");
   await harness.settle();
-  expect(container.textContent).toContain("Sign in to share");
-  expect(container.textContent).not.toContain("Signed in as");
+  expect(
+    [...container.querySelectorAll("[role=dialog] button")].map(
+      (button) => button.textContent,
+    ),
+  ).toEqual(["Sign in to share"]);
   expect(publishes(harness)).toHaveLength(0);
-  await harness.click("Sign in");
+  await harness.click("Sign in to share");
   expect(container.textContent).toContain("Waiting for GitHub…");
   await harness.render(5);
   await vi.waitFor(

@@ -162,21 +162,17 @@ export function ShareControl() {
           popover="manual"
           role="dialog"
           aria-label={shared ? "Shared review" : "Share review"}
-          style={{
-            width: 320,
-            padding: 16,
-            zIndex: 100,
-            background: "var(--vscode-editor-background, #202020)",
-            color: "var(--vscode-editor-foreground, white)",
-            border: "1px solid var(--vscode-widget-border, #555)",
-            borderRadius: 6,
-            boxShadow: "0 4px 16px #0006",
-          }}
+          className="review-share-popover"
         >
+          {(error || account?.error) && (
+            <p className="review-share-error" role="alert">
+              {error ?? account?.error}
+            </p>
+          )}
           {shared ? (
             <>
-              <p>{label}</p>
-              <p>
+              <p className="review-share-status">{label}</p>
+              <p className="review-share-status">
                 This is a read-only snapshot. Source files and traces are
                 available offline.
               </p>
@@ -185,26 +181,37 @@ export function ShareControl() {
             link ? (
               <>
                 <input
+                  className="review-share-link"
                   aria-label="Share link"
                   readOnly
                   value={link}
                   onFocus={(event) => event.target.select()}
-                  style={{ width: "100%" }}
                 />
-                <button onClick={() => void copy(link)}>
+                <button
+                  type="button"
+                  className="review-share-action"
+                  onClick={() => void copy(link)}
+                >
                   {copied ? "Copied" : "Copy link"}
                 </button>
               </>
             ) : error ? (
-              <button onClick={() => void publish()}>Retry</button>
+              <button
+                type="button"
+                className="review-share-action"
+                onClick={() => void publish()}
+              >
+                Retry
+              </button>
             ) : (
-              <p>Uploading…</p>
+              <p className="review-share-status">Uploading…</p>
             )
           ) : (
             account && (
               <>
-                <p>Sign in to share</p>
                 <button
+                  type="button"
+                  className="review-share-action"
                   disabled={account.pending || busy}
                   onClick={() =>
                     void run(async () => {
@@ -213,10 +220,10 @@ export function ShareControl() {
                     })
                   }
                 >
-                  {account.pending ? "Waiting for GitHub…" : "Sign in"}
+                  {account.pending ? "Waiting for GitHub…" : "Sign in to share"}
                 </button>
                 {account.pending && account.url && (
-                  <p>
+                  <p className="review-share-status">
                     <a href={account.url} target="_blank" rel="noreferrer">
                       Open GitHub sign-in
                     </a>
@@ -224,9 +231,6 @@ export function ShareControl() {
                 )}
               </>
             )
-          )}
-          {(error || account?.error) && (
-            <p role="alert">{error ?? account?.error}</p>
           )}
         </div>
       )}

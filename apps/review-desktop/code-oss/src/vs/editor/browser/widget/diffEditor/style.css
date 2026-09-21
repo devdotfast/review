@@ -84,6 +84,53 @@
 	box-shadow: inset 0 -5px 5px -7px var(--vscode-diffEditor-unchangedRegionShadow), inset 0 5px 5px -7px var(--vscode-diffEditor-unchangedRegionShadow);
 }
 
+.monaco-editor .diff-hidden-lines.empty-side .center,
+.monaco-editor .diff-hidden-lines.empty-side .top,
+.monaco-editor .diff-hidden-lines.empty-side .bottom {
+	visibility: hidden;
+}
+
+.monaco-editor .diff-hidden-lines .detail:empty {
+	display: none;
+}
+
+.monaco-editor .diff-hidden-lines .detail {
+	background: var(--vscode-diffEditor-unchangedRegionBackground);
+	color: var(--vscode-diffEditor-unchangedRegionForeground);
+	padding: 4px 0 8px 0;
+	overflow: hidden;
+}
+
+/* Match code-line tinting: the gutter stays neutral, including beside summaries. */
+.monaco-editor .diff-hidden-lines.kind-inserted .center,
+.monaco-editor .diff-hidden-lines.kind-inserted .detail {
+	background: linear-gradient(to right, var(--vscode-editorGutter-background, var(--vscode-editor-background)) var(--diff-fold-content-left), var(--vscode-diffEditor-insertedLineBackground) var(--diff-fold-content-left));
+}
+
+.monaco-editor .diff-hidden-lines.kind-removed .center,
+.monaco-editor .diff-hidden-lines.kind-removed .detail {
+	background: linear-gradient(to right, var(--vscode-editorGutter-background, var(--vscode-editor-background)) var(--diff-fold-content-left), var(--vscode-diffEditor-removedLineBackground) var(--diff-fold-content-left));
+}
+
+/* Pseudocode reads as a comment: the theme's comment colour, italic, one step smaller than code, with a thin rule. */
+.monaco-editor .diff-hidden-lines .detail pre.diff-hidden-lines-detail {
+	margin: 0;
+	padding-left: 10px;
+	border-left: 2px solid;
+	border-left-color: inherit;
+	font-family: var(--monaco-monospace-font);
+	font-style: italic;
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-right: 16px;
+}
+
+.monaco-editor .diff-hidden-lines .detail pre.diff-hidden-lines-detail {
+	border-left-color: color-mix(in srgb, currentColor 50%, transparent);
+}
+
+
 .monaco-editor .diff-hidden-lines .center span.codicon {
 	vertical-align: middle;
 }
@@ -217,6 +264,7 @@
 	opacity: 1;
 }
 
+.monaco-editor .inline-original-margin-view-zone,
 .monaco-editor .inline-deleted-margin-view-zone {
 	text-align: right;
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { activitySchema } from "./activity.js";
-import { sourceSchema } from "./document.js";
+import { fileLineRangeSchema } from "./document.js";
 import { uploadSchema } from "./local-data.js";
 import { inspectQuerySchema, readQuerySchemas } from "./read-schemas.js";
 import { commandSchema } from "./store.js";
@@ -131,7 +131,13 @@ export function authoringTools() {
     tool(
       "source",
       "Read an exact code range from the current target. An explicit version reads retained historical source.",
-      z.strictObject({ ...review, version, source: sourceSchema }),
+      z.strictObject({
+        ...review,
+        version,
+        commit: z.string().min(1).optional(),
+        source: fileLineRangeSchema,
+      }),
+
       "POST",
       "/:reviewId/source",
     ),

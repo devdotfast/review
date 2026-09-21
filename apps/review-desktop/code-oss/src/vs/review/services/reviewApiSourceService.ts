@@ -1,3 +1,6 @@
+import { orderReviewDiffFiles } from "../common/reviewChangedFilesModel.js";
+import { lensFiles } from "../common/reviewLensFiles.js";
+import { StructuralDiffClient } from "./reviewStructuralDiffClient.js";
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) dev.fast. All rights reserved.
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
@@ -12,9 +15,9 @@ import { ITextModelService } from "../../editor/common/services/resolverService.
 import { IFileService, type IFileStat } from "../../platform/files/common/files.js";
 import { createDecorator } from "../../platform/instantiation/common/instantiation.js";
 import { IEditorService } from "../../workbench/services/editor/common/editorService.js";
-import { reviewPeekWindows, reviewPeekDiffWindows, reviewPeekLineMappings } from "../common/reviewPeek.js";
 import type {
-	ReviewDiffSide,
+	ReviewInlineFindSpec,
+	ReviewDiffLens,
 	ReviewInlineEditorRange,
 	ReviewDiffFileWire,
 	ReviewInlineEditorFactory,
@@ -23,17 +26,37 @@ import type {
 	ReviewApiSourceLocation,
 } from "../common/reviewProtocol.js";
 import { resolveReviewSourceView, reviewSourceComparison, reviewSourceQuery, type ReviewSourceView } from "../common/reviewProtocol.js";
-import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { REVIEW_LANGUAGE_SOURCE_SCHEME } from "../common/reviewReadonlySource.js";
+import { apiSourceUri, sourceLocation, sourceTreeUri, sourceTreeSelection, REVIEW_API_TREE_SCHEME, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 import { IReviewCanvasEditorTabsService } from "./reviewCanvasEditorTabsService.js";
-import type { ReviewCodeModelReference, ReviewCodeDiffTarget } from "./reviewCodeResourceService.js";
 import { IReviewDesktopConnectionService, reviewResponseError } from "./reviewDesktopConnectionService.js";
 import type { ReviewDiffViewService, ReviewDiffViewSource } from "./reviewDiffViewService.js";
-import type { ReviewInlineEditorService, ReviewInlineSource } from "./reviewInlineEditorService.js";
+import type { ReviewEmbeddedEditors } from "./reviewEmbeddedEditors.js";
 
 export { apiSourceUri, REVIEW_API_SOURCE_SCHEME } from "../common/reviewSourceView.js";
 
 export type ApiSourceTarget = ReviewApiSourceLocation;
+
+/** Recover the immutable source identity even when no legacy session is active. */
+export function apiSourceTarget(resource: URI): ApiSourceTarget | undefined {
+	if (resource.scheme !== REVIEW_API_SOURCE_SCHEME) return undefined;
+	const query = new URLSearchParams(resource.query);
+	const version = Number(query.get("version"));
+	const side = query.get("side");
+	if (
+		!resource.authority ||
+		!query.has("version") ||
+		!Number.isInteger(version) ||
+		version < 0 ||
+		(side !== "base" && side !== "head")
+	)
+		return undefined;
+	return {
+		view: { reviewId: resource.authority, version, commit: query.get("commit") ?? undefined, generation: query.get("generation") ?? undefined },
+		side,
+		file: resource.path.slice(1),
+	};
+}
 
 export const IReviewApiSourceService = createDecorator<IReviewApiSourceService>("reviewApiSourceService");
 export interface IReviewApiSourceService {
@@ -43,11 +66,12 @@ export interface IReviewApiSourceService {
 	openDiff(view: ReviewSourceView, path: string): Promise<void>;
 	canvas(
 		view: () => ReviewSourceView,
-		inline: ReviewInlineEditorService,
+		inline: ReviewEmbeddedEditors,
 		diff: ReviewDiffViewService,
 	): {
 		inlineEditors: ReviewInlineEditorFactory;
 		diffView: ReviewDiffViewFactory;
+		openStructuralComparison(): void;
 	};
 }
 
@@ -57,7 +81,7 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 
 	constructor(
 		@IReviewDesktopConnectionService private readonly session: IReviewDesktopConnectionService,
-		@ITextModelService private readonly models: ITextModelService,
+		@ITextModelService models: ITextModelService,
 		@IModelService modelService: IModelService,
 		@ILanguageService languages: ILanguageService,
 		@IEditorService private readonly editors: IEditorService,
@@ -201,56 +225,8 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 		}));
 	}
 
-	private async snippet(
-		target: ApiSourceTarget,
-		ranges: readonly ReviewInlineEditorRange[],
-	): Promise<ReviewCodeModelReference> {
-		const resource = await this.sourceResource(target);
-		const reference = await this.models.createModelReference(resource);
-		try {
-			const model = reference.object.textEditorModel;
-			return {
-				model,
-				target: { resource },
-				windows: reviewPeekWindows(model.getLineCount(), ranges, "content"),
-				dispose: () => reference.dispose(),
-			};
-		} catch (error) {
-			reference.dispose();
-			throw error;
-		}
-	}
-
-	private async peekDiff(
-		target: ApiSourceTarget,
-		ranges: readonly ReviewInlineEditorRange[],
-		files: Promise<readonly ReviewDiffFileWire[]>,
-	): Promise<ReviewCodeDiffTarget | undefined> {
-		const file = (await files).find(
-			(file) => (target.side === "base" ? (file.previousPath ?? file.path) : file.path) === target.file,
-		);
-		if (!file) return undefined;
-		// Mappings come from the patch, as in the session path; the editors own the models.
-		const patch =
-			file.patch ??
-			(await this.read<string>(target.view.reviewId, "/diff", {
-				...reviewSourceQuery(target.view),
-				file: file.path,
-			}));
-		const mappings = reviewPeekLineMappings(patch);
-		return {
-			original: await this.sourceResource(
-				{ ...target, side: "base", file: file.previousPath ?? file.path },
-				file.status === "added",
-			),
-			modified: await this.sourceResource({ ...target, side: "head", file: file.path }, file.status === "deleted"),
-			diffFile: file,
-			mappings,
-			windows: (leftCount, rightCount) => reviewPeekDiffWindows(leftCount, rightCount, ranges, target.side, mappings),
-		};
-	}
-
-	canvas(view: () => ReviewSourceView, inline: ReviewInlineEditorService, diff: ReviewDiffViewService) {
+	canvas(view: () => ReviewSourceView, inline: ReviewEmbeddedEditors, diff: ReviewDiffViewService) {
+		const comparisonGeneration = diff.comparisonGeneration;
 		const lists = new Map<string, Promise<readonly ReviewDiffFileWire[]>>();
 		const files = (current: ReviewSourceView) => {
 			const key = JSON.stringify(reviewSourceQuery(current));
@@ -262,17 +238,21 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 			}
 			return list;
 		};
-		const source = (file: string, side: ReviewDiffSide, ranges: readonly ReviewInlineEditorRange[]): ReviewInlineSource => {
-			const target = { view: view(), file, side };
-			return { snippet: () => this.snippet(target, ranges), diff: () => this.peekDiff(target, ranges, files(target.view)) };
-		};
-		const diffSource: ReviewDiffViewSource = {
-			files: scope => files(reviewSourceComparison(view(), scope?.commit)),
-			load: async scope => {
+		const openComparison = (current: ReviewSourceView) => diff.openComparison(
+			JSON.stringify(reviewSourceQuery(current)), new StructuralDiffClient(this.session, current), comparisonGeneration,
+		);
+		const makeSource = (getView: () => ReviewSourceView): ReviewDiffViewSource => ({
+			files: scope => files(reviewSourceComparison(getView(), scope?.commit)),
+			load: async (scope, lens) => {
+				if (lens && (scope || lens.reviewId !== getView().reviewId)) throw new Error("A lens must use its review comparison.");
 				// Capture the comparison once; live checkout bytes may change during the load.
-				const current = reviewSourceComparison(view(), scope?.commit);
-				const entries = await files(current);
+				const current = reviewSourceComparison(getView(), scope?.commit);
+				const comparisonFiles = await files(current);
+				const entries = lens ? lensFiles(comparisonFiles, lens).filter(file => lens.ranges.some(range =>
+					range.file === (range.side === "base" ? file.previousPath ?? file.path : file.path))) : orderReviewDiffFiles(comparisonFiles);
+
 				return {
+					session: openComparison(current),
 					sourceUri: URI.from({ scheme: "review-api-diff", authority: current.reviewId, path: `/${current.version}/${current.generation ?? ""}`, query: current.commit ? `commit=${encodeURIComponent(current.commit)}` : undefined }),
 					entries: await Promise.all(entries.map(async file => {
 						const original = file.status === "added" ? undefined : await this.sourceResource({ view: current, side: "base", file: file.previousPath ?? file.path });
@@ -281,11 +261,22 @@ export class ReviewApiSourceService extends Disposable implements IReviewApiSour
 					})),
 				};
 			},
+		});
+		const diffSource = makeSource(view);
+		const documentScope = (spec: ReviewInlineFindSpec) => {
+			const current = reviewSourceComparison(view());
+			const lens: ReviewDiffLens = {
+				id: "document:" + JSON.stringify([spec.path, spec.ranges]), title: spec.path,
+				reviewId: current.reviewId, version: current.version,
+				ranges: spec.ranges.map(range => ({ file: spec.path, side: range.side ?? spec.side, fromLine: range.startLine, toLine: range.endLine })),
+			};
+			return { lens, source: makeSource(() => current) };
 		};
 		return {
+			openStructuralComparison: () => diff.structuralRenderingEnabled ? openComparison(reviewSourceComparison(view())) : undefined,
 			inlineEditors: {
-				create: (spec) => inline.create(spec, source(spec.path, spec.side, spec.ranges)),
-				find: (spec, query) => inline.find(spec, query, source(spec.path, spec.side, spec.ranges)),
+				create: (spec) => { const { lens, source } = documentScope(spec); return diff.createDocument(spec, lens, source); },
+				find: async (spec, query) => { const { lens, source } = documentScope(spec); return { matchCount: (await diff.findDocument(lens, source, query)).length }; },
 			} satisfies ReviewInlineEditorFactory,
 			diffView: {
 				create: (spec) => diff.create(spec, diffSource),

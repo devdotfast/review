@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { projectInlineSourceAlignment, projectSplitSourceAlignment } from "../../../../../common/diff/sourceLineAlignment.js";
 import { $, addDisposableListener } from '../../../../../../base/browser/dom.js';
 import { ArrayQueue } from '../../../../../../base/common/arrays.js';
 import { RunOnceScheduler } from '../../../../../../base/common/async.js';
@@ -19,7 +20,7 @@ import { DiffEditorViewModel, DiffMapping } from '../../diffEditorViewModel.js';
 import { DiffEditorWidget } from '../../diffEditorWidget.js';
 import { InlineDiffDeletedCodeMargin } from './inlineDiffDeletedCodeMargin.js';
 import { LineSource, RenderOptions, renderLines } from './renderLines.js';
-import { IObservableViewZone, animatedObservable, joinCombine } from '../../utils.js';
+import { IObservableViewZone, animatedObservable, bandZoneHeightPx, joinCombine } from '../../utils.js';
 import { EditorOption } from '../../../../../common/config/editorOptions.js';
 import { LineRange } from '../../../../../common/core/ranges/lineRange.js';
 import { Position } from '../../../../../common/core/position.js';
@@ -81,6 +82,8 @@ export class DiffEditorViewZones extends Disposable {
 
 		this._register(this._editors.original.onDidChangeViewZones((_args) => { if (!this._canIgnoreViewZoneUpdateEvent()) { updateImmediately.schedule(); } }));
 		this._register(this._editors.modified.onDidChangeViewZones((_args) => { if (!this._canIgnoreViewZoneUpdateEvent()) { updateImmediately.schedule(); } }));
+		this._register(this._editors.original.onDidChangeHiddenAreas(() => updateImmediately.schedule()));
+		this._register(this._editors.modified.onDidChangeHiddenAreas(() => updateImmediately.schedule()));
 		this._register(this._editors.original.onDidChangeConfiguration((args) => {
 			if (args.hasChanged(EditorOption.wrappingInfo) || args.hasChanged(EditorOption.lineHeight)) { updateImmediately.schedule(); }
 		}));
@@ -100,6 +103,43 @@ export class DiffEditorViewZones extends Disposable {
 			state.read(reader);
 			const renderSideBySide = this._options.renderSideBySide.read(reader);
 			const innerHunkAlignment = renderSideBySide;
+			if (diff.sourceLineAlignment && !renderSideBySide) {
+				const originalView = this._editors.original._getViewModel()!.coordinatesConverter;
+				const modifiedView = this._editors.modified._getViewModel()!.coordinatesConverter;
+				const originalHeight = this._editors.original.getOption(EditorOption.lineHeight);
+				const modifiedHeight = this._editors.modified.getOption(EditorOption.lineHeight);
+				return projectInlineSourceAlignment(diff.sourceLineAlignment,
+					l => originalView.getModelLineViewLineCount(l + 1) * originalHeight,
+					r => modifiedView.getModelLineViewLineCount(r + 1) * modifiedHeight,
+					new Set(diff.changeHighlights?.originalLines?.map(l => l - 1) ?? diff.mappings.flatMap(m => m.lineRangeMapping.original.mapToLineArray(l => l - 1))),
+					new Set(diff.changeHighlights?.modifiedLines?.map(l => l - 1) ?? diff.mappings.flatMap(m => m.lineRangeMapping.modified.mapToLineArray(l => l - 1))),
+				).map(s => {
+					const originalRange = new LineRange(s.leftStart + 1, s.leftEnd + 1);
+					const modifiedRange = new LineRange(s.rightStart + 1, s.rightEnd + 1);
+					return {
+						originalRange, modifiedRange, originalHeightInPx: s.leftHeight, modifiedHeightInPx: s.rightHeight,
+						diff: new DetailedLineRangeMapping(originalRange, modifiedRange, undefined)
+					};
+				});
+			}
+			if (diff.sourceLineAlignment) {
+				const regions = diffModel.unchangedRegions.read(reader);
+				const compactMode = this._options.compactMode.read(reader);
+				const bandLineHeight = this._editors.modified.getOption(EditorOption.lineHeight);
+				// A one-sided band is a zone on its own side only. Its height counts as the height of its first hidden line,
+				// so the row that starts the fold gets a filler of exactly that height on the other side.
+				const originalBands = new Map<number, number>(), modifiedBands = new Map<number, number>();
+				regions.forEach((region, index) => {
+					if (region.owner === 'both') { return; }
+					const height = bandZoneHeightPx(regions, index, compactMode, bandLineHeight, reader);
+					if (height === undefined) { return; }
+					const [bands, first] = region.owner === 'base'
+						? [originalBands, region.getHiddenOriginalRange(reader).startLineNumber]
+						: [modifiedBands, region.getHiddenModifiedRange(reader).startLineNumber];
+					bands.set(first, (bands.get(first) ?? 0) + height);
+				});
+				return computeSplitSourceAlignment(this._editors.original, this._editors.modified, diff.sourceLineAlignment, this._origViewZonesToIgnore, this._modViewZonesToIgnore, originalBands, modifiedBands);
+			}
 			return computeRangeAlignment(
 				this._editors.original,
 				this._editors.modified,
@@ -184,7 +224,7 @@ export class DiffEditorViewZones extends Disposable {
 							if (i > originalModel.getLineCount()) {
 								return { orig: origViewZones, mod: modViewZones };
 							}
-							deletedCodeLineBreaksComputer?.addRequest(i, null);
+							if (this._editors.original._getViewModel()!.coordinatesConverter.getModelLineViewLineCount(i) > 0) deletedCodeLineBreaksComputer?.addRequest(i, null);
 						}
 					}
 				}
@@ -201,13 +241,16 @@ export class DiffEditorViewZones extends Disposable {
 			const mightContainRTL = this._editors.original.getModel()?.mightContainRTL() ?? false;
 			const renderOptions = RenderOptions.fromEditor(this._editors.modified);
 
+			const changeHighlights = this._diffModel.read(reader)?.diff.read(reader)?.changeHighlights;
 			for (const a of alignmentsVal) {
 				if (a.diff && !renderSideBySide && (!this._options.useTrueInlineDiffRendering.read(reader) || !allowsTrueInlineDiffRendering(a.diff))) {
-					if (!a.originalRange.isEmpty) {
+					if (!a.originalRange.isEmpty && a.originalRange.mapToLineArray(l => this._editors.original._getViewModel()!.coordinatesConverter.getModelLineViewLineCount(l)).some(height => height > 0)) {
 						originalModelTokenizationCompleted.read(reader); // Update view-zones once tokenization completes
 
 						const deletedCodeDomNode = document.createElement('div');
-						deletedCodeDomNode.classList.add('view-lines', 'line-delete', 'line-delete-selectable', 'monaco-mouse-cursor-text');
+						deletedCodeDomNode.classList.add('view-lines', 'line-delete-selectable', 'monaco-mouse-cursor-text');
+						// Every injected old-code row needs version tint, even when its tokens survive on the head.
+						deletedCodeDomNode.classList.add('line-delete');
 						const originalModel = this._editors.original.getModel()!;
 						// `a.originalRange` can be out of bound when the diff has not been updated yet.
 						// In this case, we do an early return.
@@ -215,27 +258,39 @@ export class DiffEditorViewZones extends Disposable {
 						if (a.originalRange.endLineNumberExclusive - 1 > originalModel.getLineCount()) {
 							return { orig: origViewZones, mod: modViewZones };
 						}
+						const visibleOriginalLines = a.originalRange.mapToLineArray(l => l).filter(l => this._editors.original._getViewModel()!.coordinatesConverter.getModelLineViewLineCount(l) > 0);
 						const source = new LineSource(
-							a.originalRange.mapToLineArray(l => originalModel.tokenization.getLineTokens(l)),
-							a.originalRange.mapToLineArray(_ => lineBreakData[lineBreakDataIdx++]),
+							visibleOriginalLines.map(l => originalModel.tokenization.getLineTokens(l)),
+							visibleOriginalLines.map(_ => lineBreakData[lineBreakDataIdx++]),
 							mightContainNonBasicASCII,
 							mightContainRTL,
 						);
 						const decorations: InlineDecoration[] = [];
-						for (const i of a.diff.innerChanges || []) {
-							decorations.push(new InlineDecoration(
-								i.originalRange.delta(-(a.diff.original.startLineNumber - 1)),
-								diffDeleteDecoration.className!,
-								InlineDecorationType.Regular
-							));
+						if (changeHighlights) {
+							// Source lines can be hidden by folds. Map paint into the compact
+							// deleted-code buffer rather than treating it as contiguous source.
+							const visibleRows = new Map(visibleOriginalLines.map((line, i) => [line, i + 1]));
+							for (const highlight of changeHighlights.original) {
+								for (let line = highlight.startLineNumber; line <= highlight.endLineNumber; line++) {
+									const row = visibleRows.get(line);
+									if (row === undefined) continue;
+									const start = line === highlight.startLineNumber ? highlight.startColumn : 1;
+									const end = line === highlight.endLineNumber ? highlight.endColumn : originalModel.getLineMaxColumn(line);
+									if (end > start) decorations.push(new InlineDecoration(new Range(row, start, row, end), diffDeleteDecoration.className!, InlineDecorationType.Regular));
+								}
+							}
+						} else {
+							for (const i of a.diff.innerChanges || []) {
+								decorations.push(new InlineDecoration(i.originalRange.delta(-(a.diff.original.startLineNumber - 1)), diffDeleteDecoration.className!, InlineDecorationType.Regular));
+							}
 						}
-						const result = renderLines(source, renderOptions, decorations, deletedCodeDomNode);
+						const result = renderLines(source, renderOptions, decorations, deletedCodeDomNode, false, changeHighlights !== undefined);
 
 						const marginDomNode = document.createElement('div');
-						marginDomNode.className = 'inline-deleted-margin-view-zone';
+						marginDomNode.className = changeHighlights ? 'inline-original-margin-view-zone' : 'inline-deleted-margin-view-zone';
 						applyFontInfo(marginDomNode, renderOptions.fontInfo);
 
-						if (this._options.renderIndicators.read(reader)) {
+						if (!changeHighlights && this._options.renderIndicators.read(reader)) {
 							for (let i = 0; i < result.heightInLines; i++) {
 								const marginElement = document.createElement('div');
 								marginElement.className = `delete-sign ${ThemeIcon.asClassName(diffRemoveIcon)}`;
@@ -244,6 +299,20 @@ export class DiffEditorViewZones extends Disposable {
 							}
 						}
 
+						// Pure base-side code lives in an inline view zone, not the modified model's gutter.
+						// Keep the expanded fold's control attached to that rendered code.
+						for (const region of this._diffModel.read(reader)?.unchangedRegions.read(reader) ?? []) {
+							if (!region.modifiedUnchangedRange.isEmpty || !region.shouldHideControls(reader)) continue;
+							const row = visibleOriginalLines.indexOf(region.originalLineNumber);
+							if (row < 0) continue;
+							const button = document.createElement('button');
+							button.className = 'inline-fold-control ' + ThemeIcon.asClassName(Codicon.fold);
+							button.title = 'Collapse region';
+							button.setAttribute('aria-label', 'Collapse region');
+							button.style.cssText = `position:absolute;right:0;top:${result.viewLineCounts.slice(0, row).reduce((a, b) => a + b, 0) * modLineHeight}px;height:${modLineHeight}px;border:0;background:transparent;color:inherit;cursor:pointer;z-index:20`;
+							alignmentViewZonesDisposables.add(addDisposableListener(button, 'click', e => { e.preventDefault(); e.stopPropagation(); region.collapseAll(undefined); }));
+							marginDomNode.appendChild(button);
+						}
 						let zoneId: string | undefined = undefined;
 						alignmentViewZonesDisposables.add(
 							new InlineDiffDeletedCodeMargin(
@@ -257,6 +326,7 @@ export class DiffEditorViewZones extends Disposable {
 								this._editors.original.getModel()!,
 								this._contextMenuService,
 								this._clipboardService,
+								visibleOriginalLines,
 							)
 						);
 
@@ -265,7 +335,7 @@ export class DiffEditorViewZones extends Disposable {
 							// Account for wrapped lines in the (collapsed) original editor (which doesn't wrap lines).
 							if (count > 1) {
 								origViewZones.push({
-									afterLineNumber: a.originalRange.startLineNumber + i,
+									afterLineNumber: visibleOriginalLines[i],
 									domNode: createFakeLinesDiv(),
 									heightInPx: (count - 1) * modLineHeight,
 									showInHiddenAreas: true,
@@ -287,7 +357,7 @@ export class DiffEditorViewZones extends Disposable {
 					}
 
 					const marginDomNode = document.createElement('div');
-					marginDomNode.className = 'gutter-delete';
+					marginDomNode.className = changeHighlights ? '' : 'gutter-delete';
 
 					origViewZones.push({
 						afterLineNumber: a.originalRange.endLineNumberExclusive - 1,
@@ -612,13 +682,14 @@ function getAdditionalLineHeights(editor: CodeEditorWidget, viewZonesToIgnore: R
 	const viewZoneHeights: { lineNumber: number; heightInPx: number }[] = [];
 	const wrappingZoneHeights: { lineNumber: number; heightInPx: number }[] = [];
 
-	const hasWrapping = editor.getOption(EditorOption.wrappingInfo).wrappingColumn !== -1;
 	const coordinatesConverter = editor._getViewModel()!.coordinatesConverter;
 	const editorLineHeight = editor.getOption(EditorOption.lineHeight);
-	if (hasWrapping) {
+	{
+		// Folded lines contribute no height, even when wrapping is disabled.
+		// Inline alignment must subtract them before sizing the opposite gutter.
 		for (let i = 1; i <= editor.getModel()!.getLineCount(); i++) {
 			const lineCount = coordinatesConverter.getModelLineViewLineCount(i);
-			if (lineCount > 1) {
+			if (lineCount !== 1) {
 				wrappingZoneHeights.push({ lineNumber: i, heightInPx: editorLineHeight * (lineCount - 1) });
 			}
 		}
@@ -656,4 +727,19 @@ export function allowsTrueInlineDiffRendering(mapping: DetailedLineRangeMapping)
 
 export function rangeIsSingleLine(range: Range): boolean {
 	return range.startLineNumber === range.endLineNumber;
+}
+
+/** Project existing correspondence through folding and wrapping, without rematching. */
+/** `originalBands` and `modifiedBands` are band heights by the band's first hidden line, one-based, on the side that shows it. */
+function computeSplitSourceAlignment(original: CodeEditorWidget, modified: CodeEditorWidget, rows: readonly (readonly [number | null, number | null])[], originalZonesToIgnore: ReadonlySet<string>, modifiedZonesToIgnore: ReadonlySet<string>, originalBands: ReadonlyMap<number, number>, modifiedBands: ReadonlyMap<number, number>): ILineRangeAlignment[] {
+	const leftView = original._getViewModel()!.coordinatesConverter;
+	const rightView = modified._getViewModel()!.coordinatesConverter;
+	const leftHeight = original.getOption(EditorOption.lineHeight);
+	const rightHeight = modified.getOption(EditorOption.lineHeight);
+	const leftExtra = new Map(getAdditionalLineHeights(original, originalZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
+	const rightExtra = new Map(getAdditionalLineHeights(modified, modifiedZonesToIgnore).map(info => [info.lineNumber, info.heightInPx]));
+	return projectSplitSourceAlignment(rows,
+		l => (leftView.getModelLineViewLineCount(l + 1) === 0 ? 0 : leftHeight + (leftExtra.get(l + 1) ?? 0)) + (originalBands.get(l + 1) ?? 0),
+		r => (rightView.getModelLineViewLineCount(r + 1) === 0 ? 0 : rightHeight + (rightExtra.get(r + 1) ?? 0)) + (modifiedBands.get(r + 1) ?? 0),
+	).filter(s => s.leftHeight !== s.rightHeight).map(s => ({ originalRange: new LineRange(s.leftStart + 1, s.leftEnd + 1), modifiedRange: new LineRange(s.rightStart + 1, s.rightEnd + 1), originalHeightInPx: s.leftHeight, modifiedHeightInPx: s.rightHeight, diff: undefined }));
 }

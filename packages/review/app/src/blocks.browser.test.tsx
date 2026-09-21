@@ -13,12 +13,14 @@ import {
   FIXTURE_TRACE_EVENT_ID,
   FIXTURE_TRACE_ID,
 } from "../../src/fixtures/blocks/ids";
+import { selectionKey } from "../../src/lens-selection";
 import {
   assignFreshIds,
   documentSchema,
   elements,
 } from "../../src/review-api/document";
 import { mapInputSchema } from "../../src/review-api/map-input";
+import type { ReviewProgress } from "../../src/review-api/review-progress";
 import type { Snapshot } from "../../src/review-api/store";
 import { defineSoftwareMap } from "../../src/software-map-model";
 import tutorialDocument from "../../tutorial/document.json";
@@ -84,6 +86,25 @@ const savedMap = parseJsonText(
   }),
 );
 
+// The fixture compares the single status line in order.ts on both sides.
+const fixtureProgress: ReviewProgress = {
+  files: [],
+  diagrams: [],
+  resolvedSelections: Object.fromEntries(
+    (["base", "head"] as const).map((side) => [
+      selectionKey({
+        file: "order.ts",
+        start: { side, line: 1 },
+        end: { side, line: 1 },
+      }),
+      [
+        { file: "order.ts", side: "base", fromLine: 1, toLine: 1 },
+        { file: "order.ts", side: "head", fromLine: 1, toLine: 1 },
+      ],
+    ]),
+  ),
+};
+
 const text = (container: HTMLElement) => container.textContent ?? "";
 
 const has = (container: HTMLElement, selector: string) =>
@@ -94,7 +115,10 @@ const has = (container: HTMLElement, selector: string) =>
  * exists for every block, so these look inside it: real content, and for the
  * diagrams a finished layout.
  */
-const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
+const rendered: Record<
+  Exclude<Kind, "call_stack_diff">,
+  (container: HTMLElement) => boolean
+> = {
   markdown: (c) =>
     c.querySelector("h1")?.textContent === "Order status" &&
     has(c, "a[href*='review-source:']"),
@@ -112,11 +136,6 @@ const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
     has(c, "[data-review-anchor-id='step-1']") &&
     has(c, "[data-review-anchor-id='step-2']") &&
     text(c).includes("set status"),
-  // The base and head frames share a key, so the diff shows one row for both.
-  call_stack_diff: (c) =>
-    has(c, ".call-stack-diff[data-review-call-stack='ready']") &&
-    has(c, ".call-stack-row[data-review-anchor-id='frame-2']") &&
-    text(c).includes("status = queued"),
   database_lens: (c) =>
     has(c, ".database-lens select") &&
     text(c).includes("Queue an order") &&
@@ -127,6 +146,11 @@ const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
   trace_quote: (c) =>
     has(c, ".review-trace-quote") && text(c).includes("queue the order"),
   // The map has drawn its system and is neither refreshing nor failed.
+  file_lens: (c) => !text(c).includes("Test file bucket"),
+  flow_diagram: (c) =>
+    has(c, ".flow-node") &&
+    text(c).includes("Queue order") &&
+    !text(c).includes("Laying out"),
   software_map: (c) =>
     has(c, ".software-map-canvas") &&
     text(c).includes("Order service") &&
@@ -184,6 +208,7 @@ async function mountFixture(
 
   const bridge = fixtureReviewBridge({
     snapshot,
+    progress: fixtureProgress,
     resources:
       resources.trace === null
         ? { [FIXTURE_IMAGE_ID]: image }
@@ -331,7 +356,7 @@ describe("block components", () => {
     );
   });
 
-  it.each(Object.keys(blockComponents) as Kind[])(
+  it.each(Object.keys(rendered) as (keyof typeof rendered)[])(
     "renders the %s fixtures with their content and a finished layout",
     async (kind) => {
       const { container, snapshot } = await mountFixture(kind);
@@ -340,9 +365,11 @@ describe("block components", () => {
       expect(text(container)).not.toContain("Layout failed");
       expect(container.querySelector("[data-block-error]")).toBeNull();
 
-      // Every block in the fixture, nested ones included, mounts a node with content.
+      // Every visible block, nested ones included, mounts a node with content.
       const empty = elements(snapshot.document)
-        .filter((element) => element.type !== "step")
+        .filter(
+          (element) => element.type !== "step" && element.type !== "file_lens",
+        )
         .map((element) => element.id)
         .filter((id) => {
           const node = container.querySelector(`[data-review-node-id="${id}"]`);
@@ -353,6 +380,26 @@ describe("block components", () => {
       expect(empty).toEqual([]);
     },
   );
+
+  it("opens the selected call-tree frame's code", async () => {
+    const { container } = await mountFixture("call_stack_diff");
+
+    const tree = await settled(() =>
+      container.querySelector('nav[aria-label="Call tree"]'),
+    );
+
+    expect(tree).not.toBeNull();
+    const frames = tree!.querySelectorAll("button");
+    expect([...frames].map((frame) => frame.textContent)).toEqual([
+      "status = queued",
+    ]);
+    await act(async () => frames[0]!.click());
+    expect(
+      await settled(() =>
+        container.querySelector('.fixture-inline-editor[data-path="order.ts"]'),
+      ),
+    ).not.toBeNull();
+  });
 
   it("renders a trace quote whose trace fails to load as a placeholder, not an error", async () => {
     const { container } = await mountFixture("trace_quote", { trace: null });
@@ -463,4 +510,33 @@ describe("tutorial guide placement", () => {
     expect(guide.top).toBeGreaterThanOrEqual(host.top);
     expect(guide.bottom).toBeLessThanOrEqual(host.bottom);
   });
+});
+
+it("opens a flow node in a full-screen tour with all its code attachments", async () => {
+  const { container } = await mountFixture("flow_diagram");
+  await settled(() => container.querySelector(".flow-node"));
+  await act(async () =>
+    container
+      .querySelector(".flow-node")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  );
+  expect(
+    await settled(
+      () =>
+        container.querySelectorAll(".diagram-tour-panel .fixture-inline-editor")
+          .length === 2,
+    ),
+  ).toBe(true);
+  expect(container.querySelector(".diagram-tour-panel")?.textContent).toContain(
+    "Validation",
+  );
+  expect(
+    container.querySelector('[role="dialog"][aria-modal="true"]'),
+  ).not.toBeNull();
+  expect(container.querySelector(".flow-diagram aside")).toBeNull();
+  await act(async () =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })),
+  );
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(container.querySelector(".flow-node")).not.toBeNull();
 });

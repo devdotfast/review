@@ -1,14 +1,20 @@
 import { z } from "zod";
 
+import {
+  type LensSource,
+  selectSource,
+  sourceAnchors,
+} from "../lens-selection.js";
 import { markdownNodes, markdownText, parseMarkdown } from "../markdown.js";
-import { type Source, sourceSchema } from "../source.js";
+import { type FileLineRange, fileLineRangeSchema } from "../source.js";
+import { fileLensTargets } from "./blocks/file_lens.js";
 import { type Block, blockSchema } from "./blocks/index.js";
 import { type Step, stepSchema } from "./blocks/sequence.js";
 import { ReviewInputError } from "./input-error.js";
 
 export { ReviewInputError } from "./input-error.js";
 
-export { type Source, sourceSchema };
+export { type FileLineRange, fileLineRangeSchema };
 
 export {
   type Block,
@@ -129,16 +135,26 @@ export function resourceReferences(document: Block[]): Block[] {
  * `tolerant` skips malformed Markdown source links instead of rejecting, for
  * content that is already stored.
  */
-export function sourceReferences(
+function documentReferences(
   document: Block[],
   { tolerant = false }: { tolerant?: boolean } = {},
-): { id: string; source: Source; label?: string; peek?: boolean }[] {
+): {
+  id: string;
+  source: LensSource;
+  label?: string;
+  peek?: boolean;
+}[] {
   const reject = (message: string): [] => {
     if (tolerant) return [];
     throw new ReviewInputError(message);
   };
 
-  return elements(document).flatMap((element) => {
+  return elements(document).flatMap<{
+    id: string;
+    source: LensSource;
+    label?: string;
+    peek?: boolean;
+  }>((element) => {
     if (element.type === "markdown")
       return [...markdownNodes(parseMarkdown(element.markdown))].flatMap(
         (node) => {
@@ -162,7 +178,7 @@ export function sourceReferences(
             return reject("Invalid URL encoding in source link.");
           }
 
-          const source = sourceSchema.safeParse({
+          const source = fileLineRangeSchema.safeParse({
             side: match[1]!.toLowerCase(),
             file,
             fromLine: Number(match[3]),
@@ -174,16 +190,55 @@ export function sourceReferences(
             throw source.error;
           }
 
-          return [{ id: `${element.id}:${node.url}`, source: source.data }];
+          return [
+            {
+              id: `${element.id}:${node.url}`,
+              source: selectSource(source.data),
+            },
+          ];
         },
       );
 
+    if (element.type === "file_lens")
+      return fileLensTargets(element).flatMap((target, index) =>
+        target.kind === "ranges"
+          ? target.sources.map((source, range) => ({
+              id: `${element.id}:target:${index}:${range}`,
+              source,
+            }))
+          : [],
+      );
+
+    if (element.type === "flow_diagram")
+      return element.nodes.flatMap((node) =>
+        node.attachments.flatMap((attachment, index) =>
+          attachment.sources.map((source, sourceIndex) => ({
+            id: `${element.id}:${node.key}:${index}:${sourceIndex}`,
+            source,
+            label: attachment.label,
+            peek: true,
+          })),
+        ),
+      );
+
     if (element.type === "call_stack_diff")
-      return [...element.base, ...element.head].map((frame) => ({
-        ...frame,
-        id: frame.id!,
-        peek: true,
-      }));
+      return [...element.base, ...element.head].flatMap((frame) => [
+        { ...frame, id: frame.id!, peek: true },
+        ...(frame.contextSources ?? []).map((source, index) => ({
+          id: `${frame.id}:context:${index}`,
+          source,
+        })),
+        ...(frame.callSite
+          ? [
+              {
+                id: `${frame.id}:call-site`,
+                source: frame.callSite,
+                label: frame.label,
+                peek: true,
+              },
+            ]
+          : []),
+      ]);
 
     if (element.type === "database_lens")
       return element.useCases.flatMap((useCase) =>
@@ -209,6 +264,21 @@ export function sourceReferences(
 
     return [];
   });
+}
+
+/** All authored attachments, including code peeks, select the aligned diff. */
+export const selectionReferences = documentReferences;
+
+export const lensSourceReferences = selectionReferences;
+
+/** Per-side read coordinates for endpoint validation and retained source quotes. */
+export function sourceReferences(
+  document: Block[],
+  options: { tolerant?: boolean } = {},
+) {
+  return selectionReferences(document, options).flatMap((ref) =>
+    sourceAnchors(ref.source).map((source) => ({ ...ref, source })),
+  );
 }
 
 export const documentSchema = z.array(blockSchema);
@@ -255,6 +325,8 @@ export function elements(document: Element[]): Element[] {
 }
 
 const structural = new Set([
+  "nodes",
+  "edges",
   "id",
   "type",
   "children",

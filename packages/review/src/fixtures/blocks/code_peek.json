@@ -3,10 +3,15 @@
     "id": "block-1",
     "type": "code_peek",
     "source": {
-      "side": "head",
       "file": "order.ts",
-      "fromLine": 1,
-      "toLine": 1
+      "start": {
+        "side": "head",
+        "line": 1
+      },
+      "end": {
+        "side": "head",
+        "line": 1
+      }
     },
     "caption": "Queued"
   }

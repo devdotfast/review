@@ -141,10 +141,9 @@ export async function createShareFixture(root: string, github = false) {
     {
       type: "code_peek",
       source: {
-        side: "head",
         file: sourceFile,
-        fromLine: 1,
-        toLine: sourceLines,
+        start: { side: "head", line: 1 },
+        end: { side: "head", line: sourceLines },
       },
     },
     {
@@ -158,19 +157,17 @@ export async function createShareFixture(root: string, github = false) {
     {
       type: "code_peek",
       source: {
-        side: "head",
         file: github ? sourceFile : "new.ts",
-        fromLine: 1,
-        toLine: 1,
+        start: { side: "head", line: 1 },
+        end: { side: "head", line: 1 },
       },
     },
     {
       type: "code_peek",
       source: {
-        side: "base",
         file: github ? sourceFile : "removed.ts",
-        fromLine: 1,
-        toLine: 1,
+        start: { side: "base", line: 1 },
+        end: { side: "base", line: 1 },
       },
     },
   ];

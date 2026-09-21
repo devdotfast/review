@@ -15,7 +15,7 @@ export function AuthoredCodeSurface({
   code: string;
   language?: string;
 }): ReactElement {
-  const firstLine = anchor.peek?.fromLine ?? 1;
+  const firstLine = anchor.peek?.start.line ?? 1;
 
   return (
     <div className="panel-code-block">

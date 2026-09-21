@@ -6,7 +6,7 @@
 import { encodeBase64 } from "../../../base/common/buffer.js";
 import { Emitter, Event } from "../../../base/common/event.js";
 import { Disposable, DisposableStore } from "../../../base/common/lifecycle.js";
-import { type ICodeEditor } from "../../../editor/browser/editorBrowser.js";
+import { type ICodeEditor, type IDiffEditor } from "../../../editor/browser/editorBrowser.js";
 import { ICodeEditorService } from "../../../editor/browser/services/codeEditorService.js";
 import { createDecorator } from "../../../platform/instantiation/common/instantiation.js";
 import { IOpenerService } from "../../../platform/opener/common/opener.js";
@@ -20,9 +20,10 @@ import {
 	type ReviewView,
 } from "../../common/reviewProtocol.js";
 import { IReviewApiCatalogService } from "../../services/reviewApiCatalogService.js";
-import { REVIEW_API_SOURCE_SCHEME } from "../../services/reviewApiSourceService.js";
 import { IReviewCanvasEditorTabsService } from "../../services/reviewCanvasEditorTabsService.js";
-import { IReviewCodeResourceService } from "../../services/reviewCodeResourceService.js";
+import { apiSourceTarget } from "../../services/reviewApiSourceService.js";
+import { selectedMonacoDiff } from "./reviewDiffSelection.js";
+import { apiSelectionEvent } from "./reviewApiSelection.js";
 
 export const IReviewVerbsService = createDecorator<IReviewVerbsService>("reviewVerbsService");
 
@@ -45,8 +46,6 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 
 	constructor(
 		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
-		@IReviewCodeResourceService
-		private readonly codeResources: IReviewCodeResourceService,
 		@IReviewCanvasEditorTabsService
 		private readonly tabsService: IReviewCanvasEditorTabsService,
 		@IHostService private readonly hostService: IHostService,
@@ -56,6 +55,8 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 	) {
 		super();
 		for (const editor of this.codeEditorService.listCodeEditors()) this.trackSelection(editor);
+		for (const diff of this.codeEditorService.listDiffEditors()) this.trackDiffSelection(diff);
+		this._register(this.codeEditorService.onDiffEditorAdd(diff => this.trackDiffSelection(diff)));
 		this._register(this.codeEditorService.onCodeEditorAdd((editor) => this.trackSelection(editor)));
 		this._register(
 			this.codeEditorService.onCodeEditorRemove((editor) => {
@@ -63,6 +64,16 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 				this.selectionEditors.delete(editor.getId());
 			}),
 		);
+	}
+
+	private trackDiffSelection(diff: IDiffEditor): void {
+		const subscription = diff.onDidUpdateDiff(() => {
+			this.emitSelection(diff.getOriginalEditor());
+			this.emitSelection(diff.getModifiedEditor());
+		});
+		const disposed = diff.onDidDispose(() => { subscription.dispose(); disposed.dispose(); });
+		this._register(subscription);
+		this._register(disposed);
 	}
 
 	private trackSelection(editor: ICodeEditor): void {
@@ -79,10 +90,6 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 		const model = editor.getModel();
 		const selection = editor.getSelection();
 		if (!model || !selection) return;
-		const unified = this.codeResources.unifiedResource(model.uri);
-		const apiSide =
-			model.uri.scheme === REVIEW_API_SOURCE_SCHEME ? new URLSearchParams(model.uri.query).get("side") : null;
-		if (!unified && apiSide !== "base" && apiSide !== "head") return;
 		const start = selection.getStartPosition();
 		const end = selection.getEndPosition();
 		const fromLine = start.lineNumber;
@@ -90,43 +97,22 @@ export class ReviewVerbsService extends Disposable implements IReviewVerbsServic
 		const rect = editor.getDomNode()?.getBoundingClientRect();
 		const position = editor.getScrolledVisiblePosition(selection.getPosition());
 		const anchor = rect && position ? { x: rect.left + position.left, y: rect.top + position.top } : undefined;
-		if (unified) {
-			const rows = unified.rows.slice(fromLine - 1, toLine);
-			if (!rows.length) return;
-			const previous = unified.rows.slice(0, fromLine - 1);
-			const source = unified.targetForRange(fromLine, toLine);
-			this._onDidEmitSurfaceEvent.fire({
-				event: "editorSelectionChanged",
-				reviewId: (unified?.modified ?? model.uri).authority,
-				anchor,
-				path: unified.path,
-				sideContext: source?.side ?? "head",
-				isEmpty: selection.isEmpty(),
-				range: {
-					fromLine: source?.startLine ?? fromLine,
-					toLine: source?.endLine ?? toLine,
-				},
-				selectedDiff: {
-					oldPath: unified.diffFile.status === "added" ? "" : (unified.diffFile.previousPath ?? unified.path),
-					newPath: unified.diffFile.status === "deleted" ? "" : unified.path,
-					oldStart:
-						previous.filter((row) => row.kind !== "added").length + (rows.some((row) => row.kind !== "added") ? 1 : 0),
-					newStart:
-						previous.filter((row) => row.kind !== "deleted").length +
-						(rows.some((row) => row.kind !== "deleted") ? 1 : 0),
-					rows: rows.map((row) => ({ kind: row.kind, text: row.content })),
-				},
-			});
-		} else if (apiSide === "base" || apiSide === "head") {
-			this._onDidEmitSurfaceEvent.fire({
-				event: "editorSelectionChanged",
-				reviewId: model.uri.authority,
-				anchor,
-				path: model.uri.path.slice(1),
-				sideContext: apiSide,
-				isEmpty: selection.isEmpty(),
-				range: { fromLine, toLine },
-			});
+		const apiSelection = apiSelectionEvent(model.uri, selection, anchor);
+		if (apiSelection) {
+			const diff = this.codeEditorService.listDiffEditors().find(diff => diff.getOriginalEditor() === editor || diff.getModifiedEditor() === editor);
+			const models = diff?.getModel();
+			const changes = diff?.getLineChanges();
+			if (models && changes && !selection.isEmpty()) {
+				const oldSource = apiSourceTarget(models.original.uri);
+				const newSource = apiSourceTarget(models.modified.uri);
+				if (oldSource && newSource) apiSelection.selectedDiff = selectedMonacoDiff(
+					models.original, models.modified, changes, apiSelection.sideContext, fromLine, toLine,
+					new URLSearchParams(models.original.uri.query).has("empty") ? "" : oldSource.file,
+					new URLSearchParams(models.modified.uri.query).has("empty") ? "" : newSource.file,
+				);
+			}
+			this._onDidEmitSurfaceEvent.fire(apiSelection);
+			return;
 		}
 	}
 

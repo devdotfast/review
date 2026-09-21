@@ -28,6 +28,8 @@ export interface IMultiDiffSourceResolver {
 }
 
 export interface IResolvedMultiDiffSource {
+	/** More resources are still being discovered by a streaming source. */
+	readonly isLoading?: IValueWithChangeEvent<boolean>;
 	readonly resources: IValueWithChangeEvent<readonly MultiDiffEditorItem[]>;
 	readonly contextKeys?: Record<string, ContextKeyValue>;
 }

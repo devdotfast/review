@@ -1,10 +1,11 @@
+import { type DiffSelection, sourceAnchor } from "../lens-selection";
 import type {
   ReviewComponentNode,
   ReviewElementProps,
   ReviewNode,
 } from "../review-document-data";
 
-interface Source {
+interface FileLineRange {
   side: "base" | "head";
   file: string;
   fromLine: number;
@@ -14,7 +15,7 @@ interface Source {
 type ElementNode = Extract<ReviewNode, { type: "element" }>;
 
 /** The link form `sourceReferences` in review-api/document.ts accepts. */
-export function sourceLink(source: Source): string {
+export function sourceLink(source: FileLineRange): string {
   const file = source.file.split("/").map(encodeURIComponent).join("/");
 
   return `review-source:${source.side}/${file}#L${source.fromLine}-L${source.toLine}`;
@@ -441,27 +442,28 @@ function inlineComponent(
 
   // SAFETY: reviewDocumentDataSchema validated the component props against
   // reviewComponentDataSchemas when the sealed document was parsed.
-  const anchor = (node.props as { anchor?: { title?: string; peek?: Source } })
-    .anchor;
+  const anchor = (
+    node.props as { anchor?: { title?: string; peek?: DiffSelection } }
+  ).anchor;
 
   const text = inlines(node.children, state);
 
   if (node.name === "AnchorLink")
     return anchor?.peek
-      ? `[${text || anchor.title || ""}](${sourceLink(anchor.peek)})`
+      ? `[${text || anchor.title || ""}](${sourceLink(sourceAnchor(anchor.peek))})`
       : text || anchor?.title || "";
 
   if (node.name === "CodePeek" && anchor?.peek) {
     const peek = anchor.peek;
 
     const label =
-      anchor.title || `${peek.file}:${peek.fromLine}-${peek.toLine}`;
+      anchor.title || `${peek.file}:${peek.start.line}-${peek.end.line}`;
 
     state?.warnings?.push(
       `CodePeek inside prose became a source link (${label})`,
     );
 
-    return `[${label}](${sourceLink(peek)})`;
+    return `[${label}](${sourceLink(sourceAnchor(peek))})`;
   }
 
   state?.warnings?.push(

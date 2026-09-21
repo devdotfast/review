@@ -1,10 +1,16 @@
 import { expect, it } from "vitest";
 
+import { selectSource } from "../lens-selection.js";
 import { documentText } from "./document-text.js";
 import { documentSchema } from "./document.js";
 import type { Snapshot } from "./store.js";
 
-const source = { side: "head", file: "src/save.ts", fromLine: 10, toLine: 20 };
+const source = {
+  side: "head" as const,
+  file: "src/save.ts",
+  fromLine: 10,
+  toLine: 20,
+};
 
 const snapshot: Snapshot = {
   reviewId: "review-1",
@@ -69,7 +75,12 @@ const snapshot: Snapshot = {
         },
       ],
     },
-    { id: "peek-8", type: "code_peek", source, caption: "The save function" },
+    {
+      id: "peek-8",
+      type: "code_peek",
+      source: selectSource(source),
+      caption: "The save function",
+    },
     {
       id: "stack-9",
       type: "call_stack_diff",
@@ -77,7 +88,7 @@ const snapshot: Snapshot = {
       base: [],
       head: [
         {
-          source,
+          source: selectSource(source),
           label: "New caller",
           via: { kind: "queue", reason: "Background work" },
         },
@@ -118,7 +129,7 @@ const snapshot: Snapshot = {
               collection: "reviews",
               actor: "server",
               label: "Store snapshot",
-              source,
+              source: selectSource(source),
             },
           ],
         },

@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { selectSource } from "../../src/lens-selection";
 import { createReviewApi } from "../../src/review-api/http";
 import { ReviewInputError } from "../../src/review-api/input-error";
 import { LocalReviewData } from "../../src/review-api/local-data";
@@ -32,6 +33,8 @@ const command = <Operation,>(operation: Operation) =>
   store.execute({ commandId: randomUUID(), operation });
 
 beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
   directory = mkdtempSync(path.join(tmpdir(), "review-api-canvas-"));
   store = new ReviewStore(path.join(directory, "review.db"), {
     validatePins: async () => {},
@@ -59,6 +62,8 @@ afterEach(async () => {
   canvas = undefined;
   await store.close();
   document.body.innerHTML = "";
+  localStorage.clear();
+  sessionStorage.clear();
   vi.unstubAllGlobals();
   rmSync(directory, { recursive: true, force: true });
 });
@@ -525,12 +530,30 @@ it("renders a code peek block on its pinned side without fetching source text", 
       type: "insert",
       content: {
         type: "code_peek",
-        source: { side: "base", file: "src/old.ts", fromLine: 7, toLine: 9 },
+        source: selectSource({
+          side: "base",
+          file: "src/old.ts",
+          fromLine: 7,
+          toLine: 9,
+        }),
       },
     },
   });
 
-  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  const app = new Hono();
+  app.get("/reviews-api/:id/progress", (c) =>
+    c.json({
+      files: [],
+      diagrams: [],
+      resolvedSelections: {
+        [JSON.stringify(["src/old.ts", "base", 7, "base", 9])]: [
+          { file: "src/old.ts", side: "base", fromLine: 7, toLine: 9 },
+          { file: "src/old.ts", side: "head", fromLine: 12, toLine: 14 },
+        ],
+      },
+    }),
+  );
+  app.route("/reviews-api", createReviewApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
   const requested: string[] = [];
   const created: ReviewInlineEditorSpec[] = [];
@@ -590,7 +613,10 @@ it("renders a code peek block on its pinned side without fetching source text", 
   expect(created[0]).toMatchObject({
     path: "src/old.ts",
     side: "base",
-    ranges: [{ startLine: 7, endLine: 9 }],
+    ranges: [
+      { side: "base", startLine: 7, endLine: 9 },
+      { side: "head", startLine: 12, endLine: 14 },
+    ],
   });
   expect(requested.filter((url) => url.includes("/source"))).toEqual([]);
 });
@@ -614,9 +640,15 @@ it("copies prose and code from the displayed historical JSON review", async () =
   });
   const data = new LocalReviewData(store);
   vi.spyOn(data, "commits").mockResolvedValue([]);
+  vi.spyOn(data, "sourcePins").mockImplementation(
+    async (snapshot) => snapshot.pins,
+  );
+  vi.spyOn(data, "comparison").mockImplementation(async (pins, commit) =>
+    commit ? { ...pins, base: "selected-parent", head: commit } : pins,
+  );
   vi.spyOn(data, "quote").mockImplementation(async (sourcePins, source) => {
     expect(source).toEqual({
-      side: "head",
+      side: sourcePins.head === "selected-commit" ? "base" : "head",
       file: "example.ts",
       fromLine: 2,
       toLine: 2,
@@ -624,8 +656,16 @@ it("copies prose and code from the displayed historical JSON review", async () =
 
     return {
       ...source,
-      commit: sourcePins.head,
-      text: sourcePins.head === "head" ? "historical source" : "latest source",
+      commit:
+        sourcePins.head === "selected-commit"
+          ? "selected-parent"
+          : sourcePins.head,
+      text:
+        sourcePins.head === "selected-commit"
+          ? "selected parent code"
+          : sourcePins.head === "head"
+            ? "historical source"
+            : "latest source",
     };
   });
   const app = new Hono().route("/reviews-api", createReviewApi(store, data));
@@ -714,6 +754,24 @@ it("copies prose and code from the displayed historical JSON review", async () =
     expect(code).toContain("example.ts:2-2 (head)");
     expect(code).not.toContain("latest source");
     expect(code).not.toContain("new-head");
+    await act(async () => {
+      for (const listener of listeners)
+        listener({
+          ...selected,
+          sideContext: "base",
+          apiSource: {
+            reviewId: review.reviewId,
+            version: inserted.version,
+            commit: "selected-commit",
+          },
+        });
+    });
+    const scopedCode = await copy();
+    expect(scopedCode).toContain("selected parent code");
+    expect(scopedCode).toContain("base: example.ts:2-2 (selected-parent)");
+    expect(scopedCode).toContain("Selected commit: selected-commit");
+    expect(scopedCode).not.toContain("historical source");
+
     await act(async () => {
       for (const listener of listeners)
         listener({

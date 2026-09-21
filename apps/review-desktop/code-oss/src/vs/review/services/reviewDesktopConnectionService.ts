@@ -16,6 +16,8 @@ type ReviewDesktopConnection,
 import { consumeReviewEventStream } from "../common/reviewEventStream.js";
 import {
 type JsonValue,
+	type ReviewDiffrConfig,
+	parseReviewDiffrConfig,
 parseReviewCliInstallApplyResponse,
 parseReviewCliInstallStatus,
 parseReviewDesktopVerbFrame,
@@ -48,6 +50,8 @@ export interface IReviewDesktopConnectionService {
 	readonly onDidChangeConnection: Event<void>;
 	initialize(): Promise<void>;
 	getConnection(): Promise<ReviewServerConnection>;
+	readDiffrConfig(): Promise<ReviewDiffrConfig>;
+	setDiffrConfigValue(key: string, value: JsonValue): Promise<ReviewDiffrConfig>;
 	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
 	prepareTutorial(): Promise<void>;
 	openTutorial(): Promise<ReviewTutorialOpenResponse>;
@@ -149,6 +153,31 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 	 * than a workbench setting because the reaper runs inside the review server.
 	 * `null` means never reap.
 	 */
+	async readDiffrConfig(): Promise<ReviewDiffrConfig> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/diffr-config`, {
+			headers: this.authHeaders(),
+			signal: AbortSignal.timeout(30_000),
+		});
+		await this.requireOk(response, "diffr configuration");
+		return parseReviewDiffrConfig(await response.json());
+	}
+
+	async setDiffrConfigValue(key: string, value: JsonValue): Promise<ReviewDiffrConfig> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/diffr-config`, {
+			method: "PUT",
+			headers: {
+				...this.authHeaders(),
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ key, value }),
+			signal: AbortSignal.timeout(30_000),
+		});
+		await this.requireOk(response, "diffr configuration");
+		return parseReviewDiffrConfig(await response.json());
+	}
+
 	async getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }> {
 		await this.initialize();
 		const response = await fetch(`${this.serverUrl}/tutorial/status`, {

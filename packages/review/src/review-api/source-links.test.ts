@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 
+import { selectSource } from "../lens-selection.js";
 import { sourceReferences } from "./document.js";
 
 const sources = (markdown: string) =>
@@ -54,7 +55,7 @@ const range = {
 
 it("marks every source that renders as a peek, but not prose links", () => {
   const references = sourceReferences([
-    { type: "code_peek", id: "peek-1", source: range },
+    { type: "code_peek", id: "peek-1", source: selectSource(range) },
     {
       type: "markdown",
       id: "n-2",
@@ -73,7 +74,7 @@ it("marks every source that renders as a peek, but not prose links", () => {
           to: "s",
           label: "save",
           style: "call",
-          source: range,
+          source: selectSource(range),
         },
         {
           type: "step",
@@ -91,7 +92,14 @@ it("marks every source that renders as a peek, but not prose links", () => {
       id: "stack-6",
       title: "Save path",
       base: [],
-      head: [{ id: "frame-7", key: "save", label: "save", source: range }],
+      head: [
+        {
+          id: "frame-7",
+          key: "save",
+          label: "save",
+          source: selectSource(range),
+        },
+      ],
     },
     {
       type: "database_lens",
@@ -122,7 +130,7 @@ it("marks every source that renders as a peek, but not prose links", () => {
               collection: "saves",
               actor: "s",
               label: "insert",
-              source: range,
+              source: selectSource(range),
             },
           ],
         },

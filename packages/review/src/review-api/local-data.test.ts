@@ -21,6 +21,7 @@ import { Hono } from "hono";
 import sharp from "sharp";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { selectSource } from "../lens-selection";
 import { createGlobalReviewServer } from "../server/desktop-server.js";
 import type { Pins } from "./document.js";
 import { createReviewApi } from "./http.js";
@@ -310,10 +311,11 @@ it("lists the full repository path and hydrates diff counts from pinned commits"
     command({ type: "create", title: "Home metadata", pins }),
   );
   const app = createReviewApi(local.store, local.data);
-  const first = await (await app.request("/")).json();
+  const first = await (await app.request("/?mode=textual")).json();
   expect(first[0].repositoryPath).toBe(realpathSync(repository));
-  await local.data.populateCatalogStats();
-  const ready = await (await app.request("/")).json();
+  expect(first[0].diffStats).toBeNull();
+  await local.data.coverage(first[0].reviewId, pins, "textual");
+  const ready = await (await app.request("/?mode=textual")).json();
   expect(ready[0].diffStats).toEqual({
     fileCount: 3,
     additions: 4,
@@ -323,8 +325,8 @@ it("lists the full repository path and hydrates diff counts from pinned commits"
   await local.store.execute(
     command({ type: "attention", reviewId: ready[0].reviewId, action: "view" }),
   );
-  await local.data.populateCatalogStats();
-  expect(local.store.list()[0]?.diffStats).toEqual(ready[0].diffStats);
+  await local.data.coverage(first[0].reviewId, pins, "textual");
+  expect(local.store.list("textual")[0]?.diffStats).toEqual(ready[0].diffStats);
 });
 
 it("uses a managed pinned worktree for language services without changing local edits", async () => {
@@ -519,6 +521,23 @@ it("lists the version's commits and reads a selected commit's diff against its p
   ]);
   const selected = `version=0&commit=${firstHead}`;
 
+  for (const side of ["base", "head"] as const) {
+    const response = await app.request(`${route}/source`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 0,
+        commit: firstHead,
+        source: { side, file: "example.ts", fromLine: 1, toLine: 1 },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).text).toContain(
+      side === "base" ? "value = 1" : "value = 2",
+    );
+  }
+
   const file = await (
     await app.request(`${route}/file?${selected}&side=head&file=example.ts`)
   ).json();
@@ -596,7 +615,7 @@ it("serves a historical version's file at the pins that version was saved with",
     command({ type: "create", title: "Snapshot", pins }),
   );
 
-  await insert(reviewId, { type: "code_peek", source });
+  await insert(reviewId, { type: "code_peek", source: selectSource(source) });
   writeFileSync(
     path.join(repository, source.file),
     "export const value = 3;\n",
@@ -699,7 +718,10 @@ it("reads pinned Git objects, rejects invalid evidence before saving, and retain
     command({ type: "create", title: "Pinned", pins }),
   );
 
-  await insert(review.reviewId, { type: "code_peek", source });
+  await insert(review.reviewId, {
+    type: "code_peek",
+    source: selectSource(source),
+  });
   expect(await local.data.quote(pins, source)).toMatchObject({
     commit: pins.head,
     text: "export const value = 2;\nexport const saved = true;",
@@ -716,7 +738,7 @@ it("reads pinned Git objects, rejects invalid evidence before saving, and retain
   await expect(
     insert(review.reviewId, {
       type: "code_peek",
-      source: { ...source, toLine: 4 },
+      source: selectSource({ ...source, toLine: 4 }),
     }),
   ).rejects.toThrow(/exceeds/);
   await expect(local.data.file(pins, "head", "../outside.ts")).rejects.toThrow(
@@ -1794,6 +1816,61 @@ it("copies code from historical pins after a repin, never from working-tree cont
   expect((await latest.json()).text).toContain("    export const value = 1;");
 });
 
+it("copies a diff selection from its pinned version and selected commit, and rejects another review", async () => {
+  const { reviewId } = await local.store.execute(
+    command({ type: "create", title: "Code", pins }),
+  );
+
+  await local.store.execute(
+    command({ type: "repin", reviewId, pins: { ...pins, head: pins.base } }),
+  );
+  const app = createReviewApi(local.store, local.data);
+
+  const selection = {
+    target: {
+      kind: "code",
+      path: source.file,
+      side: "base",
+      startLine: 1,
+      endLine: 1,
+    },
+    title: "Selected parent",
+    apiSource: { reviewId, version: 0, commit: pins.head },
+  };
+
+  const copy = (payload: typeof selection) =>
+    app.request(`/${reviewId}/copy-context`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+  const response = await copy(selection);
+  expect(response.status).toBe(200);
+  const { text } = await response.json();
+  expect(text).toContain("Version: 0");
+  expect(text).toContain(`Selected commit: ${pins.head}`);
+  expect(text).toContain(`base: example.ts:1-1 (${pins.base})`);
+  expect(text).toContain("export const value = 1;");
+  expect(text).not.toContain("export const value = 2;");
+  expect(
+    (
+      await copy({
+        ...selection,
+        apiSource: { ...selection.apiSource, reviewId: "another-review" },
+      })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await copy({
+        ...selection,
+        apiSource: { ...selection.apiSource, version: 999 },
+      })
+    ).status,
+  ).toBe(404);
+});
+
 it("copies selected diff rows with rename paths without resolving an unavailable source", async () => {
   const { reviewId } = await local.store.execute(
     command({ type: "create", title: "Rename", pins }),
@@ -2043,7 +2120,12 @@ it("keeps authored coordinates fixed as live source changes and warns only on un
 
   await insert(result.reviewId, {
     type: "code_peek",
-    source: { file: "range.ts", fromLine: 2, toLine: 2 },
+    source: selectSource({
+      side: "head",
+      file: "range.ts",
+      fromLine: 2,
+      toLine: 2,
+    }),
   });
   const saved = local.store.read(result.reviewId);
   writeFileSync(
@@ -2053,11 +2135,11 @@ it("keeps authored coordinates fixed as live source changes and warns only on un
   await new Promise((resolve) => setTimeout(resolve, 50));
   await local.store.refreshWorktrees();
   expect(local.store.read(result.reviewId).document[0]).toMatchObject({
-    source: { fromLine: 2, toLine: 2 },
+    source: { start: { line: 2 }, end: { line: 2 } },
   });
   expect(
     local.store.read(result.reviewId, saved.version).document[0],
-  ).toMatchObject({ source: { fromLine: 2, toLine: 2 } });
+  ).toMatchObject({ source: { start: { line: 2 }, end: { line: 2 } } });
   writeFileSync(path.join(repository, "range.ts"), "const first = 99;\n");
   await vi.waitFor(async () => {
     await local.store.refreshWorktrees();
@@ -2255,7 +2337,12 @@ it("retargets a live review without losing authored content or component IDs", a
 
   await insert(created.reviewId, {
     type: "code_peek",
-    source: { file: "example.ts", fromLine: 1, toLine: 1 },
+    source: selectSource({
+      side: "head",
+      file: "example.ts",
+      fromLine: 1,
+      toLine: 1,
+    }),
   });
   const before = local.store.read(created.reviewId);
 
@@ -2345,7 +2432,12 @@ it.each(["repin", "set_target"] as const)(
 
     await insert(created.reviewId, {
       type: "code_peek",
-      source: { file: "recover.ts", fromLine: 2, toLine: 2 },
+      source: selectSource({
+        side: "head",
+        file: "recover.ts",
+        fromLine: 2,
+        toLine: 2,
+      }),
     });
     writeFileSync(path.join(repository, "recover.ts"), "const first = 99;\n");
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -2363,7 +2455,12 @@ it.each(["repin", "set_target"] as const)(
     await expect(
       insert(created.reviewId, {
         type: "code_peek",
-        source: { file: "recover.ts", fromLine: 99, toLine: 99 },
+        source: selectSource({
+          side: "head",
+          file: "recover.ts",
+          fromLine: 99,
+          toLine: 99,
+        }),
       }),
     ).rejects.toThrow("exceeds the pinned file");
     writeFileSync(path.join(repository, "recover.ts"), original);
@@ -2371,7 +2468,7 @@ it.each(["repin", "set_target"] as const)(
     await local.store.refreshWorktrees();
     expect(local.store.read(created.reviewId).staleSources).toEqual([]);
     expect(local.store.read(created.reviewId).document[0]).toMatchObject({
-      source: { fromLine: 2, toLine: 2 },
+      source: { start: { line: 2 }, end: { line: 2 } },
     });
     expect(
       local.store.read(created.reviewId, renamed.version).staleSources,

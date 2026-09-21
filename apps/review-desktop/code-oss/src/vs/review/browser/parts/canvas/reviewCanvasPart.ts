@@ -3,8 +3,6 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { resolveReviewSourceView, type ReviewSourceView, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
-
 import { $, addDisposableListener, getWindow, type Dimension } from "../../../../base/browser/dom.js";
 import type { IHoverOptions, IHoverWidget } from "../../../../base/browser/ui/hover/hover.js";
 import { HoverPosition } from "../../../../base/browser/ui/hover/hoverWidget.js";
@@ -42,8 +40,10 @@ import { IWorkbenchLayoutService, Parts } from "../../../../workbench/services/l
 import {
 	REVIEW_KEYMAP_SETTING,
 	REVIEW_SOFTWARE_MAP_SETTING,
+	REVIEW_STRUCTURAL_DIFF_SETTING,
 	REVIEW_TELEMETRY_SETTING,
 } from "../../../common/reviewConfigurationDefaults.js";
+import { resolveReviewSourceView, type ReviewSourceView, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
 import type {
 	ReviewCanvasBridge,
 	ReviewCanvasContent,
@@ -79,7 +79,7 @@ import {
 	ReviewEmbeddedEditorSelection,
 	reviewEmbeddedSelectionFromOptions,
 } from "../../../services/reviewEmbeddedNavigation.js";
-import { ReviewInlineEditorService } from "../../../services/reviewInlineEditorService.js";
+import { ReviewEmbeddedEditors } from "../../../services/reviewEmbeddedEditors.js";
 import { IReviewTelemetryService } from "../../../services/reviewTelemetryService.js";
 
 import "../../media/review.css";
@@ -148,7 +148,7 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	private readyInput: ReviewCanvasEditorInput | undefined;
 	private assetsPromise: Promise<ReviewCanvasAssetsModule> | null = null;
 	private readonly modelSubscription = this._register(new MutableDisposable());
-	private readonly inlineEditors: ReviewInlineEditorService;
+	private readonly inlineEditors: ReviewEmbeddedEditors;
 	private readonly diffViews: ReviewDiffViewService;
 
 	constructor(
@@ -181,13 +181,18 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		@IEditorProgressService editorProgressService: IEditorProgressService,
 	) {
 		super(ReviewCanvasEditorPane.ID, group, telemetryService, reviewThemeService, storageService);
-		this.inlineEditors = this._register(reviewInstantiationService.createInstance(ReviewInlineEditorService));
+		this.inlineEditors = this._register(reviewInstantiationService.createInstance(ReviewEmbeddedEditors));
 		this.refreshProgress = this._register(new LongRunningOperation(editorProgressService));
 		this.diffViews = this._register(
 			reviewInstantiationService.createInstance(ReviewDiffViewService, this.inlineEditors),
 		);
 		this._register(
 			verbs.onDidEmitSurfaceEvent((event) => {
+				if (
+					event.event === "editorSelectionChanged" &&
+					event.reviewId !== this.apiContent?.reviewId
+				)
+					return;
 				this.surfaceEvents.fire(event);
 			}),
 		);
@@ -213,9 +218,17 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		this._register(desktopConnection.onDidFail((error) => void this.renderFailure(error)));
 		this._register(
 			configurationService.onDidChangeConfiguration((event) => {
-				if (!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING)) return;
+				if (
+					!event.affectsConfiguration(REVIEW_SOFTWARE_MAP_SETTING) &&
+					!event.affectsConfiguration(REVIEW_STRUCTURAL_DIFF_SETTING)
+				)
+					return;
 				if (this.apiContent) {
-					this.apiContent = { ...this.apiContent, softwareMapEnabled: this.currentSoftwareMapEnabled() };
+					this.apiContent = {
+						...this.apiContent,
+						structuralDiffEnabled: this.currentStructuralDiffEnabled(),
+						softwareMapEnabled: this.currentSoftwareMapEnabled(),
+					};
 					this.canvas.value?.update(this.apiContent);
 					return;
 				}
@@ -244,7 +257,6 @@ export class ReviewCanvasEditorPane extends EditorPane {
 		const overflowWidgets = $(".review-overflow-widgets.monaco-editor");
 		this.layoutService.getContainer(getWindow(parent)).appendChild(overflowWidgets);
 		this._register(toDisposable(() => overflowWidgets.remove()));
-		this.inlineEditors.setOverflowWidgetsDomNode(overflowWidgets);
 		this.diffViews.setOverflowWidgetsDomNode(overflowWidgets);
 		this.desktopConnection.attachControl(async (value) => {
 			const request = parseReviewVerbRequest(value);
@@ -358,9 +370,14 @@ export class ReviewCanvasEditorPane extends EditorPane {
 						},
 						kind: "api",
 						reviewId,
+						structuralDiffEnabled: this.currentStructuralDiffEnabled(),
 						softwareMapEnabled: this.currentSoftwareMapEnabled(),
 						setTitle: (title) => input.setApiTitle(title),
-						setSourceView: (selection, next) => { sourceSelection = selection; sourceView = next; },
+						setSourceView: (selection, next) => {
+							sourceSelection = selection;
+							sourceView = next;
+							source.openStructuralComparison();
+						},
 						openSource: (source, range) => this.apiSource.open(source, range),
 						bridge: {
 							...source,
@@ -510,7 +527,8 @@ export class ReviewCanvasEditorPane extends EditorPane {
 	}
 
 	override async clearInput(): Promise<void> {
-		this.apiContent = undefined;
+		// Keep apiContent with the mounted canvas so resuming it preserves its review identity.
+		// render() replaces both when another input is shown.
 		this.refreshProgress.stop();
 		await super.clearInput();
 	}
@@ -692,12 +710,39 @@ export class ReviewCanvasEditorPane extends EditorPane {
 				await this.configurationService.updateValue(REVIEW_SOFTWARE_MAP_SETTING, enabled, ConfigurationTarget.USER);
 				return this.currentSoftwareMapEnabled();
 			},
+			structuralDiffEnabled: this.currentStructuralDiffEnabled(),
+			setStructuralDiffEnabled: async (enabled) => {
+				await this.configurationService.updateValue(
+					REVIEW_STRUCTURAL_DIFF_SETTING,
+					enabled,
+					ConfigurationTarget.USER,
+				);
+				return this.currentStructuralDiffEnabled();
+			},
+			diffrConfig: {
+				read: () => this.desktopConnection.readDiffrConfig(),
+				set: (key, value) => {
+					this.reviewTelemetryService.capture("setting_changed", {
+						setting: "diffr_config",
+						enabled: true,
+					});
+					return this.desktopConnection.setDiffrConfigValue(key, value);
+				},
+			},
 			manageExtensions: () => void this.commandService.executeCommand("review.manageExtensions"),
 		};
 	}
 
 	private currentKeymap(): ReviewKeymapChoice {
 		return this.configurationService.getValue<ReviewKeymapChoice>(REVIEW_KEYMAP_SETTING) ?? "none";
+	}
+
+	private currentStructuralDiffEnabled(): boolean {
+		return (
+			this.configurationService.getValue<boolean>(
+				REVIEW_STRUCTURAL_DIFF_SETTING,
+			) === true
+		);
 	}
 
 	private currentSoftwareMapEnabled(): boolean {

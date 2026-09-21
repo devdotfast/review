@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import type { PeekableAnchorRef } from "./authoring";
+import { selectSource } from "./lens-selection.js";
 import { sequenceBlockFromProps } from "./sequence-steps";
 
 const anchor = (id: string): PeekableAnchorRef => ({
   __kind: "db-anchor-ref",
   id,
   title: `Anchor ${id}`,
-  peek: { side: "head", file: `src/${id}.ts`, fromLine: 1, toLine: 3 },
+  peek: selectSource({
+    side: "head",
+    file: `src/${id}.ts`,
+    fromLine: 1,
+    toLine: 3,
+  }),
 });
 
 const actor = (id: string, label: string) =>
@@ -55,12 +61,12 @@ describe("sequenceBlockFromProps", () => {
         to: "inline-web-d1",
         label: "write user",
         style: "call",
-        source: {
+        source: selectSource({
           side: "head",
           file: "src/authUserWrite.ts",
           fromLine: 1,
           toLine: 3,
-        },
+        }),
       },
       {
         id: "authUserWrite--sequence-use-2",
@@ -69,12 +75,12 @@ describe("sequenceBlockFromProps", () => {
         to: "inline-settings-page",
         label: "read organization",
         style: "call",
-        source: {
+        source: selectSource({
           side: "head",
           file: "src/authUserWrite.ts",
           fromLine: 1,
           toLine: 3,
-        },
+        }),
       },
       {
         id: "sequence-sign-in-flow-message-3",

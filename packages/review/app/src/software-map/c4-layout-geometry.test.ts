@@ -122,7 +122,7 @@ describe("SoftwareMap C4 layout geometry", () => {
 
   it("keeps selected implied edges dashed and unlabelled", async () => {
     const nodes: SoftwareMapNodeSnapshot[] = [
-      { id: "source", label: "Source", type: "container" },
+      { id: "source", label: "FileLineRange", type: "container" },
       { id: "target", label: "Target", type: "container" },
     ];
 

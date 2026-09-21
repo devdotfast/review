@@ -1,4 +1,4 @@
-import { type JsonValue, isJsonObject } from "@dev.fast/json";
+import { type JsonObject, type JsonValue, isJsonObject } from "@dev.fast/json";
 import {
   ReviewAgentTraceEventSchema,
   ReviewAgentTraceSessionSchema,
@@ -122,6 +122,7 @@ export interface ReviewInlineEditorRange {
 }
 
 export interface ReviewInlineEditorSpec {
+  progress?: ReviewDiffProgress;
   container: HTMLElement;
   path: string;
   title: string;
@@ -156,6 +157,7 @@ export interface ReviewInlineFindSpec {
 }
 
 export interface ReviewInlineEditorHandle extends ReviewDisposable {
+  setProgress?(progress: ReviewDiffProgress): void;
   readonly height: number;
   setActive(active: boolean): void;
   setCollapsed(collapsed: boolean): void;
@@ -175,14 +177,90 @@ export interface ReviewInlineEditorFactory {
   ): Promise<ReviewInlineFindResult>;
 }
 
+/** A lens is scoped to one immutable saved review version. */
+export interface ReviewDiffLens {
+  /** Filter files while retaining ordinary diff context/folding within them. */
+  wholeFiles?: boolean;
+  id: string;
+  title: string;
+  reviewId: string;
+  version: number;
+  ranges: readonly {
+    side: "base" | "head";
+    file: string;
+    fromLine: number;
+    toLine: number;
+  }[];
+}
+
+/** Reader progress is supplied independently of the immutable comparison. */
+export interface ReviewDiffProgressFile {
+  path: string;
+  state: "unread" | "partial" | "viewed";
+  remaining: { additions: number; deletions: number };
+  total: { additions: number; deletions: number };
+  viewedRanges: ReviewDiffLens["ranges"];
+  changedRanges: ReviewDiffLens["ranges"];
+  unfoldRanges?: ReviewDiffLens["ranges"];
+}
+
+export interface ReviewDiffSection {
+  files?: readonly ReviewDiffProgressFile[];
+  id: string;
+  label: string;
+  sources: ReviewDiffLens["ranges"];
+  state: "unread" | "partial" | "viewed";
+  total: { additions: number; deletions: number };
+  remaining: { additions: number; deletions: number };
+}
+
+export interface ReviewDiffProgress {
+  sections?: readonly ReviewDiffSection[];
+  files: readonly ReviewDiffProgressFile[];
+  /** Only present while applying a new viewed action, to reset affected fold overrides. */
+  changedPaths?: readonly string[];
+}
+
 export interface ReviewDiffViewSpec {
+  /** Embed the same diff renderer in the review document. */
+  document?: {
+    heightMode: ReviewInlineEditorHeightMode;
+    onDidChangeHeight(height: number): void;
+    onDidFocus?: () => void;
+    onDidOpen?: () => void;
+  };
   container: HTMLElement;
+  fileTreeContainer?: HTMLElement;
+  progress?: ReviewDiffProgress;
+  onToggleViewed?: (path: string, sectionId?: string) => void;
+  onToggleSection?: (id: string) => void;
+  lens?: ReviewDiffLens;
   scope?: ReviewCommitScope;
 }
 
 export interface ReviewDiffViewHandle extends ReviewDisposable {
   focus(): void;
+  setProgress?(progress: ReviewDiffProgress): void;
+  revealSource?(
+    source: ReviewDiffLens["ranges"][number],
+    sectionId?: string,
+  ): void;
   onDidError(listener: (message: string) => void): ReviewDisposable;
+  /** Fires when the diff scrolls or its topmost file changes. */
+  onDidScroll?(
+    listener: (viewport: ReviewDiffViewport) => void,
+  ): ReviewDisposable;
+  /**
+   * Where `source` sits relative to the diff's reading line (its top edge),
+   * in pixels; negative once it has scrolled past. Exact for files that are
+   * rendered, ordered by file for the rest. Undefined when the file is not in
+   * this diff.
+   */
+  sourceOffset?(source: ReviewDiffLens["ranges"][number]): number | undefined;
+}
+
+export interface ReviewDiffViewport {
+  height: number;
 }
 
 /**
@@ -349,6 +427,35 @@ export const DEFAULT_DISMISSED_RETENTION_DAYS = 30;
  * setter resolves with the value that actually landed, so a row re-renders from
  * the authoritative result instead of an optimistic one.
  */
+/**
+ * diffr's configuration as its CLI reports it: `schema` is the JSON Schema
+ * from `diffr config schema`, whose properties carry `description` and
+ * `default`; `values` is the resolved configuration from `diffr config show`.
+ */
+export interface ReviewDiffrConfig {
+  schema: JsonObject;
+  values: JsonObject;
+}
+
+export function parseReviewDiffrConfig(value: JsonValue): ReviewDiffrConfig {
+  if (
+    !isJsonObject(value) ||
+    !isJsonObject(value.schema) ||
+    !isJsonObject(value.values)
+  ) {
+    throw new Error("diffr configuration response is malformed.");
+  }
+
+  return { schema: value.schema, values: value.values };
+}
+
+export interface ReviewDiffrConfigActions {
+  read(): Promise<ReviewDiffrConfig>;
+  // Writes one dotted key with `diffr config set` and resolves with the fresh
+  // configuration, so the form re-renders from what actually landed.
+  set(key: string, value: JsonValue): Promise<ReviewDiffrConfig>;
+}
+
 export interface ReviewCanvasSettingsContent {
   // Backed by the `review.telemetry.enabled` workbench setting, which the
   // review server and the CLI both read.
@@ -365,6 +472,13 @@ export interface ReviewCanvasSettingsContent {
   // in the server preferences file. `null` turns reaping off.
   softwareMapEnabled: boolean;
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
+  structuralDiffEnabled: boolean;
+  setStructuralDiffEnabled(enabled: boolean): Promise<boolean>;
+  // diffr's own configuration, read and written through its CLI on the host
+  // so the diffr TUI and Review edit one file. Reads run lazily: the page asks
+  // when the Structural diff section renders, and a missing executable
+  // surfaces as the read's error rather than breaking the whole page.
+  diffrConfig: ReviewDiffrConfigActions;
   manageExtensions(): void;
   // Agent installs are managed here too, so they stay reachable once Home
   // has reviews and no longer shows the Welcome rail. Absent when the
@@ -441,6 +555,7 @@ export type ReviewCanvasContent =
       kind: "api";
       tutorial?: ReviewCanvasTutorialBridge;
       setTutorial?(enabled: boolean): void;
+      structuralDiffEnabled?: boolean;
       softwareMapEnabled?: boolean;
       reviewId: string;
       version?: number;
@@ -865,7 +980,7 @@ export type ReviewCliInstallApplyResponse = z.infer<
 export const ReviewDiffFileSchema = z.strictObject({
   path: requiredString,
   previousPath: requiredString.optional(),
-  status: z.enum(["added", "modified", "deleted", "renamed"]),
+  status: z.enum(["added", "modified", "deleted", "renamed", "unchanged"]),
   additions: nonNegativeInteger,
   deletions: nonNegativeInteger,
   patch: requiredString.optional(),
@@ -1111,10 +1226,17 @@ export const ReviewSelectedDiffSchema = z.strictObject({
   ),
 });
 
+export const ReviewApiSelectionSourceSchema = z.strictObject({
+  reviewId: requiredString,
+  version: z.number().int().nonnegative(),
+  commit: requiredString.optional(),
+});
+
 export const ReviewSurfaceEventSchema = z.discriminatedUnion("event", [
   z.strictObject({
     event: z.literal("editorSelectionChanged"),
     reviewId: requiredString,
+    apiSource: ReviewApiSelectionSourceSchema.optional(),
     anchor: z.object({ x: z.number(), y: z.number() }).optional(),
     path: requiredString,
     range: ReviewRangeSchema,

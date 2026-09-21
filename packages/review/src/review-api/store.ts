@@ -5,13 +5,20 @@ import { isDeepStrictEqual } from "node:util";
 import type { ReviewApiSummary } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
+import { migrateDiffSelections } from "../diff-selection-migration.js";
+import {
+  type Coverage,
+  coverageSchema,
+  emptyCoverage,
+  updateCoverage,
+} from "../viewed-coverage.js";
 import { ReviewActivity } from "./activity.js";
 import {
   type Block,
+  type FileLineRange,
   type Pins,
   ReviewInputError,
   type ReviewTarget,
-  type Source,
   applyEdit,
   assignFreshIds,
   checkReferences,
@@ -142,14 +149,14 @@ export interface ReviewProviders {
   validatePins(pins: Pins): Promise<void>;
   validateSource(
     pins: Pins,
-    source: Source,
+    source: FileLineRange,
     options: { peek: boolean },
   ): Promise<void>;
   validateResource(pins: Pins, block: Block): Promise<void>;
   /** Import only: report a problem as a warning instead of rejecting. */
   validateSourceTolerant?(
     pins: Pins,
-    source: Source,
+    source: FileLineRange,
     options: { peek: boolean },
   ): Promise<string | null>;
 }
@@ -298,6 +305,13 @@ export class ReviewStore {
       .exec(`CREATE TABLE IF NOT EXISTS repositories(id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, repository_id TEXT NOT NULL REFERENCES repositories(id),
         kind TEXT NOT NULL, mime_type TEXT NOT NULL, data BLOB NOT NULL);`);
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS review_coverage(review_id TEXT REFERENCES reviews(id), file TEXT, fingerprint TEXT NOT NULL, coverage TEXT NOT NULL, PRIMARY KEY(review_id,file));",
+    );
+    this.db.exec("DROP TABLE IF EXISTS review_viewed");
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS comparison_stats(identity TEXT PRIMARY KEY, stats TEXT NOT NULL)",
+    );
     // Import progress lives apart from the editable snapshots: restoring an
     // older version or deleting the review must not look like an unfinished
     // import to the next sweep.
@@ -313,6 +327,62 @@ export class ReviewStore {
         .some((column) => String(column.name) === "map_revision")
     )
       this.db.exec("ALTER TABLE legacy_imports ADD COLUMN map_revision TEXT");
+  }
+  /** Reader progress never creates a document version or authoring event. */
+  viewedCoverage(
+    reviewId: string,
+  ): Map<string, { fingerprint: string; coverage: Coverage }> {
+    this.assertExists(reviewId);
+
+    return new Map(
+      this.db
+        .prepare(
+          "SELECT file,fingerprint,coverage FROM review_coverage WHERE review_id=?",
+        )
+        .all(reviewId)
+        .map((row) => [
+          String(row.file),
+          {
+            fingerprint: String(row.fingerprint),
+            coverage: coverageSchema.parse(JSON.parse(String(row.coverage))),
+          },
+        ]),
+    );
+  }
+  updateViewedCoverage(
+    reviewId: string,
+    files: { path: string; fingerprint: string; scope: Coverage }[],
+    viewed: boolean,
+  ): void {
+    this.assertExists(reviewId);
+    this.db.exec("BEGIN IMMEDIATE");
+
+    try {
+      const current = this.viewedCoverage(reviewId);
+
+      for (const file of files) {
+        const previous = current.get(file.path);
+
+        const coverage = updateCoverage(
+          previous?.fingerprint === file.fingerprint
+            ? previous.coverage
+            : emptyCoverage(),
+          file.scope,
+          viewed,
+        );
+
+        this.db
+          .prepare(
+            "INSERT OR REPLACE INTO review_coverage(review_id,file,fingerprint,coverage) VALUES(?,?,?,?)",
+          )
+          .run(reviewId, file.path, file.fingerprint, JSON.stringify(coverage));
+      }
+
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
   /** The last legacy revisions imported for a review, kept after deletion. */
   legacyImport(reviewId: string): LegacyImportProgress | null {
@@ -446,6 +516,9 @@ export class ReviewStore {
 
     // SAFETY: versions contains only snapshots validated by execute before committing.
     const snapshot = JSON.parse(String(row.snapshot)) as Snapshot;
+    // SAFETY: stored blocks were validated on write; migration only replaces
+    // retired attachment representations with their canonical equivalent.
+    snapshot.document = migrateDiffSelections(snapshot.document) as Block[];
     snapshot.target ??= {
       kind: "commits",
       repositoryId: snapshot.pins.repositoryId,
@@ -458,14 +531,17 @@ export class ReviewStore {
 
     return snapshot;
   }
-  private readonly diffStats = new Map<
-    string,
-    NonNullable<ReviewApiSummary["diffStats"]>
-  >();
-
-  setDiffStats(pins: Pins, stats: NonNullable<ReviewApiSummary["diffStats"]>) {
+  setDiffStats(
+    pins: Pins,
+    stats: NonNullable<ReviewApiSummary["diffStats"]>,
+    mode: "structural" | "textual" = "structural",
+  ) {
     if (this.closing) return;
-    this.diffStats.set(JSON.stringify(pins), stats);
+    this.db
+      .prepare(
+        "INSERT OR REPLACE INTO comparison_stats(identity, stats) VALUES (?, ?)",
+      )
+      .run(JSON.stringify([pins, mode]), JSON.stringify(stats));
 
     for (const listener of this.catalogListeners) {
       try {
@@ -486,9 +562,22 @@ export class ReviewStore {
       .map((row) => String(row.id));
   }
 
-  list(): ReviewApiSummary[] {
+  list(mode: "structural" | "textual" = "structural"): ReviewApiSummary[] {
     // One query, and the document never leaves SQLite: every catalog watcher
     // re-lists on every command.
+    const stats = new Map(
+      this.db
+        .prepare("SELECT identity, stats FROM comparison_stats")
+        .all()
+        .map((row) => [
+          String(row.identity),
+          // SAFETY: comparison_stats is written only from the validated diff-stats contract.
+          JSON.parse(String(row.stats)) as NonNullable<
+            ReviewApiSummary["diffStats"]
+          >,
+        ]),
+    );
+
     return this.db
       .prepare(
         `SELECT json_remove(versions.snapshot,'$.document') AS summary,
@@ -528,7 +617,7 @@ export class ReviewStore {
           repositoryPath: row.repository_path
             ? String(row.repository_path)
             : undefined,
-          diffStats: this.diffStats.get(JSON.stringify(summary.pins)) ?? null,
+          diffStats: stats.get(JSON.stringify([summary.pins, mode])) ?? null,
           repositoryName: row.repository_name
             ? String(row.repository_name)
             : summary.pins.repositoryId,
@@ -619,7 +708,11 @@ export class ReviewStore {
         };
 
         this.commitCommand(command.commandId, request, result, () => {
-          for (const table of ["review_attention", "versions"])
+          for (const table of [
+            "review_coverage",
+            "review_attention",
+            "versions",
+          ])
             this.db
               .prepare(`DELETE FROM ${table} WHERE review_id=?`)
               .run(op.reviewId);
@@ -916,7 +1009,9 @@ export class ReviewStore {
       const warnings: string[] = [];
 
       for (const input of inputs) {
-        const document = structuredClone(documentSchema.parse(input.document));
+        const document = structuredClone(
+          documentSchema.parse(migrateDiffSelections(input.document)),
+        );
 
         for (const block of document)
           assignFreshIds(block, (prefix) => `${prefix}-${++nextId}`);
@@ -1029,10 +1124,14 @@ export class ReviewStore {
     const warnings: string[] = [];
 
     const references = (document: Block[], tolerant = false) => {
-      const sources = new Map<string, { source: Source; peek: boolean }>();
+      const sources = new Map<
+        string,
+        { source: FileLineRange; peek: boolean }
+      >();
+
       const resources = new Map<string, Block>();
 
-      const add = (source: Source, peek: boolean) => {
+      const add = (source: FileLineRange, peek: boolean) => {
         const key = JSON.stringify(source);
         const kept = sources.get(key);
         sources.set(key, { source, peek: peek || (kept?.peek ?? false) });

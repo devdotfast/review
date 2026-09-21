@@ -110,7 +110,7 @@
         },
         {
           "type": "text",
-          "value": " — the desktop-facing flow has not been run end to end."
+          "value": " \u2014 the desktop-facing flow has not been run end to end."
         }
       ]
     },
@@ -194,7 +194,7 @@
                 },
                 {
                   "type": "text",
-                  "value": " — the CLI-side type and its "
+                  "value": " \u2014 the CLI-side type and its "
                 },
                 {
                   "type": "element",
@@ -270,7 +270,7 @@
                 },
                 {
                   "type": "text",
-                  "value": " — the zod wire contracts, mirrored in both "
+                  "value": " \u2014 the zod wire contracts, mirrored in both "
                 },
                 {
                   "type": "element",
@@ -350,7 +350,7 @@
                 },
                 {
                   "type": "text",
-                  "value": " — the map handing each harness its "
+                  "value": " \u2014 the map handing each harness its "
                 },
                 {
                   "type": "element",
@@ -462,7 +462,7 @@
             },
             {
               "type": "text",
-              "value": " — not to the review checkout that made the request."
+              "value": " \u2014 not to the review checkout that made the request."
             }
           ]
         },
@@ -526,10 +526,15 @@
                 "label": "GET /project, then GET /session/:id in each worktree until one answers",
                 "style": "call",
                 "source": {
-                  "side": "head",
                   "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                  "fromLine": 373,
-                  "toLine": 401
+                  "start": {
+                    "side": "head",
+                    "line": 373
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 401
+                  }
                 }
               },
               {
@@ -540,10 +545,15 @@
                 "label": "POST /session/:id/fork, scoped to the source session's own directory",
                 "style": "call",
                 "source": {
-                  "side": "head",
                   "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                  "fromLine": 538,
-                  "toLine": 558
+                  "start": {
+                    "side": "head",
+                    "line": 538
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 558
+                  }
                 }
               },
               {
@@ -554,10 +564,15 @@
                 "label": "opencode attach <url> --session <id> --dir <source directory>",
                 "style": "call",
                 "source": {
-                  "side": "head",
                   "file": "packages/progressive-review/src/native-agent/opencode.ts",
-                  "fromLine": 67,
-                  "toLine": 121
+                  "start": {
+                    "side": "head",
+                    "line": 67
+                  },
+                  "end": {
+                    "side": "head",
+                    "line": 121
+                  }
                 }
               }
             ]
@@ -586,7 +601,7 @@
             },
             {
               "type": "text",
-              "value": ", not the review's pinned checkout — different from the other three harnesses."
+              "value": ", not the review's pinned checkout \u2014 different from the other three harnesses."
             }
           ]
         },
@@ -827,7 +842,7 @@
               "children": [
                 {
                   "type": "text",
-                  "value": "The desktop flow end to end — asking a question through a real "
+                  "value": "The desktop flow end to end \u2014 asking a question through a real "
                 },
                 {
                   "type": "element",
@@ -1015,7 +1030,7 @@
               "children": [
                 {
                   "type": "text",
-                  "value": "OpenCode is server-first — Review should drive it through "
+                  "value": "OpenCode is server-first \u2014 Review should drive it through "
                 },
                 {
                   "type": "element",
@@ -1134,7 +1149,7 @@
                 },
                 {
                   "type": "text",
-                  "value": " session's directory, not the review's pinned checkout — accepted as a real behavior difference rather than something to paper over."
+                  "value": " session's directory, not the review's pinned checkout \u2014 accepted as a real behavior difference rather than something to paper over."
                 }
               ]
             },

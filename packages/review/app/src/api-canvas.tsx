@@ -15,11 +15,11 @@ import {
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import { ReviewApiClient, ReviewApiError } from "../../src/review-api/client";
+import { elements } from "../../src/review-api/document";
 import type { Snapshot } from "../../src/review-api/store";
 import {
   ApiDocument,
   type ApiDocumentData,
-  RevealAfterFirstPaint,
   createDocumentLoader,
 } from "./api-document";
 import { retainedTrace } from "./api-trace";
@@ -35,6 +35,7 @@ import { ReviewDocumentBoundary } from "./review-document-boundary";
 import { reportReviewDocumentRenderError } from "./review-document-error-report";
 import type { ReviewFindHost } from "./review-find";
 import { DisplayedReviewVersionContext } from "./review-history-control";
+import { ReviewLensesProvider } from "./review-lenses";
 import { SharingContext } from "./share-control";
 import { TutorialProvider } from "./tutorial-context";
 
@@ -80,6 +81,7 @@ export function ApiCanvas({
   );
 
   const [version, setVersion] = useState(content.version);
+  const [coverageRevision, setCoverageRevision] = useState(0);
   const [activity, setActivity] = useState<ActivitySnapshot | "unknown">();
   useEffect(() => setVersion(content.version), [content.version]);
   const [data, setData] = useState<ApiDocumentData>();
@@ -135,16 +137,19 @@ export function ApiCanvas({
         } catch (cause) {
           if (!abort.signal.aborted) setError(message(cause));
         }
-
-        return;
       }
 
       let shownVersion: string | undefined;
-      await client.follow<Snapshot & { activity: ActivitySnapshot }>(
+      await client.follow<
+        Snapshot & { activity: ActivitySnapshot; coverageRevision?: number }
+      >(
         content.reviewId,
         abort.signal,
         async (snapshot) => {
           setActivity(snapshot.activity);
+          setCoverageRevision(snapshot.coverageRevision ?? 0);
+
+          if (version !== undefined) return;
 
           if (
             shownVersion ===
@@ -195,7 +200,7 @@ export function ApiCanvas({
       inlineEditors: { ...content.bridge.inlineEditors },
       diffView: { ...content.bridge.diffView },
     }),
-    [content.bridge, sourceVersion],
+    [content.bridge, sourceVersion, content.structuralDiffEnabled],
   );
 
   const baseSession = useMemo(() => {
@@ -315,15 +320,20 @@ export function ApiCanvas({
     <SharingContext.Provider value={sharing}>
       <ReviewSessionProvider session={session}>
         <DocumentData.Provider value={data}>
-          <TutorialProvider tutorial={content.tutorial}>
-            {error && <p role="status">{error}</p>}
-            <AuthoringActivityContext.Provider
-              value={version === undefined ? activity : undefined}
-            >
-              <DisplayedReviewVersionContext.Provider
-                value={data.snapshot.version}
+          <ReviewLensesProvider
+            client={client}
+            snapshot={data.snapshot}
+            coverageRevision={coverageRevision}
+            structuralDiffEnabled={content.structuralDiffEnabled}
+          >
+            <TutorialProvider tutorial={content.tutorial}>
+              {error && <p role="status">{error}</p>}
+              <AuthoringActivityContext.Provider
+                value={version === undefined ? activity : undefined}
               >
-                <RevealAfterFirstPaint>
+                <DisplayedReviewVersionContext.Provider
+                  value={data.snapshot.version}
+                >
                   <MapEnabled.Provider
                     value={content.softwareMapEnabled === true}
                   >
@@ -333,10 +343,10 @@ export function ApiCanvas({
                       softwareMapEnabled={content.softwareMapEnabled === true}
                     />
                   </MapEnabled.Provider>
-                </RevealAfterFirstPaint>
-              </DisplayedReviewVersionContext.Provider>
-            </AuthoringActivityContext.Provider>
-          </TutorialProvider>
+                </DisplayedReviewVersionContext.Provider>
+              </AuthoringActivityContext.Provider>
+            </TutorialProvider>
+          </ReviewLensesProvider>
         </DocumentData.Provider>
       </ReviewSessionProvider>
     </SharingContext.Provider>
@@ -363,6 +373,14 @@ const CanvasDocument = memo(function CanvasDocument({
     anchors: data.anchors,
     render: DocumentBody,
     tocEntries: data.headings.entries,
+    empty: snapshot.document.length === 0,
+    authoringComplete:
+      snapshot.document.length > 0 &&
+      elements(snapshot.document).every(
+        (node) =>
+          node.type !== "section" ||
+          (node.status !== "pending" && node.status !== "in_progress"),
+      ),
   };
 
   return (

@@ -76,6 +76,9 @@ describe("native Review Protocol source generation", () => {
     await mkdir(sourceRoot, { recursive: true });
 
     for (const name of [
+      "diffr-contract.ts",
+      "structural-diff.ts",
+      "source-alignment.ts",
       "contracts.ts",
       "code-peek-diff.ts",
       "review-api-client.ts",
@@ -159,6 +162,9 @@ describe("native Review Protocol source generation", () => {
     temporaryDirectories.push(directory);
     const sourceRoot = path.join(directory, "src");
     await mkdir(sourceRoot, { recursive: true });
+    await writeFile(path.join(sourceRoot, "diffr-contract.ts"), "");
+    await writeFile(path.join(sourceRoot, "structural-diff.ts"), "");
+    await writeFile(path.join(sourceRoot, "source-alignment.ts"), "");
     await writeFile(path.join(sourceRoot, "runtime-value.ts"), "");
     await writeFile(path.join(sourceRoot, "json.ts"), "");
     await writeFile(path.join(sourceRoot, "trace-contracts.ts"), "");

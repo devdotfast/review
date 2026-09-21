@@ -14,10 +14,6 @@ import {
   snapshotReviewTree,
 } from "./fixtures/legacy-reviews/legacy-review-fixture";
 import {
-  readReviewDocumentBundle,
-  reviewDocumentBundleData,
-} from "./review-bundle";
-import {
   findReview,
   listReviews,
   materializeReviewRevision,
@@ -128,10 +124,6 @@ describe.each(fixtures)("legacy fixture $name", (fixture) => {
     expect(documentRevision).not.toBe(originalRecord.presentedDocumentRevision);
     const documentDir = path.join(home, "document");
     await materializeReviewRevision(dir, documentRevision, documentDir);
-    const documentBundle = await readReviewDocumentBundle(documentDir, "/");
-    expect(documentBundle && reviewDocumentBundleData(documentBundle)).toEqual(
-      await readLegacyReviewGolden(fixture.name, "document"),
-    );
     let actualMap = null;
     let expectedMap = null;
 

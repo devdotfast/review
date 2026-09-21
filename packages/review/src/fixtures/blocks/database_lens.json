@@ -3,7 +3,9 @@
     "id": "block-1",
     "type": "database_lens",
     "title": "Orders",
-    "actors": { "service": "Order service" },
+    "actors": {
+      "service": "Order service"
+    },
     "stores": {
       "orders": {
         "label": "Orders DB",
@@ -13,8 +15,15 @@
             "label": "orders",
             "key": "id",
             "fields": {
-              "id": { "label": "id", "dataType": "text", "primaryKey": true },
-              "status": { "label": "status", "dataType": "text" }
+              "id": {
+                "label": "id",
+                "dataType": "text",
+                "primaryKey": true
+              },
+              "status": {
+                "label": "status",
+                "dataType": "text"
+              }
             }
           }
         }
@@ -34,10 +43,15 @@
             "actor": "service",
             "label": "write queued",
             "source": {
-              "side": "head",
               "file": "order.ts",
-              "fromLine": 1,
-              "toLine": 1
+              "start": {
+                "side": "head",
+                "line": 1
+              },
+              "end": {
+                "side": "head",
+                "line": 1
+              }
             }
           }
         ]

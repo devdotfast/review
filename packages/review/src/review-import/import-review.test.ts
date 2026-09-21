@@ -5,6 +5,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
+import { selectSource } from "../lens-selection";
 import type { Block } from "../review-api/document";
 import { openLocalReviewStore } from "../review-api/local-data";
 import { importLegacyReview, isMapSection } from "./import-review";
@@ -341,12 +342,12 @@ describe("importLegacyReview", () => {
               __kind: "db-anchor-ref",
               id: "gone",
               title: "Gone",
-              peek: {
+              peek: selectSource({
                 side: "head",
                 file: "missing.ts",
                 fromLine: 1,
                 toLine: 2,
-              },
+              }),
             },
           },
           children: [text("a vanished file")],

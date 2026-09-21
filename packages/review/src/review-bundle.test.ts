@@ -92,10 +92,9 @@ describe("review document bundle", () => {
 
     expect(bundle).not.toBeNull();
     expect(reviewDocumentBundleData(bundle!).anchors.a?.peek).toEqual({
-      side: "head",
       file: "src/a.ts",
-      fromLine: 1,
-      toLine: 2,
+      start: { side: "head", line: 1 },
+      end: { side: "head", line: 2 },
     });
     expect(
       await readFile(path.join(bundleDir, "review-document.json"), "utf8"),

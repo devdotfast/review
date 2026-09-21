@@ -1,7 +1,8 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 
 import type { ActivitySnapshot } from "../../src/review-api/activity";
 import type { SectionBlock } from "../../src/review-api/blocks/section";
+import { DisplayedReviewVersionContext } from "./review-history-control";
 import { useTooltip } from "./use-tooltip";
 
 import "./authoring-activity.css";
@@ -55,6 +56,50 @@ export function AuthoringActivityBadge({ targetId }: { targetId?: string }) {
             ? `${activity.workingCount} agents working…`
             : "Agent working…")
         : "Activity unknown"}
+    </span>
+  );
+}
+
+/**
+ * The word "Review" in the top bar's surface tabs. While an agent is writing,
+ * marker ink sweeps through the word; when the document becomes ready (agent
+ * gone, every section complete) while the reader is on another surface, an
+ * unread dot sits just past the word until they visit the tab, and it comes
+ * back only when a later version arrives while they are elsewhere again. A
+ * document that is already ready when this mounts counts as read. Neither
+ * state changes the tab's layout box.
+ */
+export function ReviewSurfaceLabel({
+  complete,
+  active,
+}: {
+  complete: boolean;
+  active: boolean;
+}) {
+  const activity = useContext(AuthoringActivityContext);
+  const version = useContext(DisplayedReviewVersionContext) ?? null;
+
+  const live =
+    activity !== undefined &&
+    activity !== "unknown" &&
+    activity.workingCount > 0;
+
+  const ready = complete && !live;
+
+  const [readVersion, setReadVersion] = useState<number | null>(() =>
+    active || ready ? version : null,
+  );
+
+  if (active && readVersion !== version) setReadVersion(version);
+  const unread = !active && ready && readVersion !== version;
+
+  return (
+    <span
+      className="review-segment-word"
+      data-working={(live && !complete) || undefined}
+    >
+      Review
+      {unread && <span className="review-segment-unread" aria-hidden="true" />}
     </span>
   );
 }

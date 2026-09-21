@@ -6,13 +6,20 @@ import { type ReactNode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { selectSource, sourceAnchors } from "../../src/lens-selection";
 import { CodePeek, CodePeekCard, CodePeekGroup } from "./CodePeek";
 import {
   type ReviewSession,
   ReviewSessionProvider,
 } from "./host/review-session";
-import { ReviewDiffFilesProvider } from "./review-diff-files-context";
+import type { ReviewLensView } from "./review-lenses";
 import { testReviewSession } from "./review-session-test-utils";
+
+const testLenses: ReviewLensView = {
+  progress: null,
+  error: null,
+  resolve: (selections) => selections.flatMap(sourceAnchors),
+};
 
 let root: ReturnType<typeof createRoot> | undefined;
 
@@ -48,6 +55,7 @@ describe("CodePeek native editor", () => {
     await act(async () => {
       renderWithSession(
         <CodePeekGroup
+          lenses={testLenses}
           peeks={[
             {
               file: "src/current.ts",
@@ -122,6 +130,7 @@ describe("CodePeek native editor", () => {
           fromLine={20}
           toLine={24}
           graph="head"
+          lenses={testLenses}
         />,
       );
     });
@@ -156,8 +165,11 @@ describe("CodePeek native editor", () => {
     await act(async () =>
       renderWithSession(
         <>
-          <CodePeekCard source={input} />
-          <CodePeekCard source={secondInput} />
+          <CodePeekCard source={selectSource(input)} lenses={testLenses} />
+          <CodePeekCard
+            source={selectSource(secondInput)}
+            lenses={testLenses}
+          />
         </>,
       ),
     );
@@ -217,7 +229,13 @@ describe("CodePeek native editor", () => {
     root = createRoot(container);
 
     await act(async () =>
-      renderWithSession(<CodePeekCard source={input} heightMode="content" />),
+      renderWithSession(
+        <CodePeekCard
+          source={selectSource(input)}
+          heightMode="content"
+          lenses={testLenses}
+        />,
+      ),
     );
 
     await vi.waitFor(() => {
@@ -243,7 +261,11 @@ describe("CodePeek native editor", () => {
         toLine: index + 1,
       } as const;
 
-      await act(async () => renderWithSession(<CodePeekCard source={input} />));
+      await act(async () =>
+        renderWithSession(
+          <CodePeekCard source={selectSource(input)} lenses={testLenses} />,
+        ),
+      );
       await vi.waitFor(() => expect(created).toHaveLength(index + 1));
     }
 
@@ -272,11 +294,19 @@ describe("CodePeek native editor", () => {
     document.body.append(container);
     root = createRoot(container);
 
-    await act(async () => renderWithSession(<CodePeekCard source={input} />));
+    await act(async () =>
+      renderWithSession(
+        <CodePeekCard source={selectSource(input)} lenses={testLenses} />,
+      ),
+    );
     await vi.waitFor(() => expect(created).toHaveLength(1));
 
     session = createTestSession("next-session");
-    await act(async () => renderWithSession(<CodePeekCard source={input} />));
+    await act(async () =>
+      renderWithSession(
+        <CodePeekCard source={selectSource(input)} lenses={testLenses} />,
+      ),
+    );
 
     await vi.waitFor(() => {
       expect(disposed).toHaveLength(1);
@@ -292,7 +322,13 @@ describe("CodePeek native editor", () => {
     await act(async () => {
       renderWithSession(
         <CodePeekCard
-          source={{ side: "base", file: "src/old.ts", fromLine: 7, toLine: 9 }}
+          lenses={testLenses}
+          source={selectSource({
+            side: "base",
+            file: "src/old.ts",
+            fromLine: 7,
+            toLine: 9,
+          })}
         />,
       );
     });

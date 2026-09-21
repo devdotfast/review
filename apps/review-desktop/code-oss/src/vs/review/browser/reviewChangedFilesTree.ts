@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { buildTree, type ChangedFileElement, type ChangedTreeElement } from "../common/reviewChangedFilesModel.js";
+
 import { $, append } from "../../base/browser/dom.js";
 import type { IListVirtualDelegate } from "../../base/browser/ui/list/list.js";
 import { RenderIndentGuides } from "../../base/browser/ui/tree/abstractTree.js";
@@ -23,7 +25,7 @@ import { localize } from "../../nls.js";
 import { IInstantiationService } from "../../platform/instantiation/common/instantiation.js";
 import { WorkbenchCompressibleObjectTree } from "../../platform/list/browser/listService.js";
 import { registerColor } from "../../platform/theme/common/colorRegistry.js";
-import type { ReviewDiffFileWire } from "../common/reviewProtocol.js";
+import type { ReviewDiffFileWire, ReviewDiffProgressFile, StructuralLineCounts } from "../common/reviewProtocol.js";
 
 registerColor(
   "gitDecoration.addedResourceForeground",
@@ -68,41 +70,11 @@ registerColor(
 
 const CHANGED_FILE_ROW_HEIGHT = 22;
 
-interface ChangedFileElement {
-  readonly kind: "file";
-  readonly file: ReviewDiffFileWire;
-  readonly name: string;
-}
-
-interface ChangedFolderElement {
-  readonly kind: "folder";
-  readonly name: string;
-  readonly path: string;
-  readonly children: ChangedTreeElement[];
-}
-
-type ChangedTreeElement = ChangedFileElement | ChangedFolderElement;
-
-interface MutableFolder {
-  readonly name: string;
-  readonly path: string;
-  readonly folders: Map<string, MutableFolder>;
-  readonly files: ChangedFileElement[];
-}
-
 interface ChangedFilesTreeTemplate {
   readonly row: HTMLElement;
   readonly icon: HTMLElement;
   readonly label: HTMLElement;
-}
-
-/** Returns changed files in the same folder-first order that the tree shows. */
-export function orderReviewDiffFiles(
-  files: readonly ReviewDiffFileWire[],
-): readonly ReviewDiffFileWire[] {
-  const ordered: ReviewDiffFileWire[] = [];
-  collectFiles(buildTree(files), ordered);
-  return ordered;
+	readonly counts: HTMLElement;
 }
 
 class ChangedFilesTreeDelegate
@@ -128,12 +100,15 @@ class ChangedFilesTreeRenderer
   static readonly TEMPLATE_ID = "review.changedFiles.entry";
   readonly templateId = ChangedFilesTreeRenderer.TEMPLATE_ID;
 
+	constructor(private readonly counts: Map<string, StructuralLineCounts>, private readonly progress: Map<string, ReviewDiffProgressFile>, private readonly viewed: Set<string>, private readonly states: Map<string, { status: "loading" | "error"; message?: string }>) { }
+
   renderTemplate(container: HTMLElement): ChangedFilesTreeTemplate {
     const row = append(container, $(".review-changed-files-row"));
     const icon = append(row, $("span.review-changed-files-icon"));
     icon.setAttribute("aria-hidden", "true");
     const label = append(row, $("span.review-changed-files-label"));
-    return { row, icon, label };
+		const counts = append(row, $("span.review-tree-counts"));
+		return { row, icon, label, counts };
   }
 
   renderElement(
@@ -162,10 +137,31 @@ class ChangedFilesTreeRenderer
     const isFile = element.kind === "file";
 
     template.row.classList.toggle("review-changed-files-folder", !isFile);
+		template.row.classList.toggle("review-file-viewed", isFile && this.viewed.has(element.file.path));
     template.icon.hidden = !isFile;
     template.icon.className = isFile
       ? `review-changed-files-icon review-changed-files-icon-${element.file.status} ${ThemeIcon.asClassName(fileStatusIcon(element.file.status))}`
       : "review-changed-files-icon";
+		template.counts.hidden = !isFile;
+		template.counts.replaceChildren();
+		template.counts.removeAttribute("title");
+		if (isFile) {
+			const progress = this.progress.get(element.file.path);
+			const compact = (n: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n).toLowerCase();
+			const additions = progress?.remaining.additions ?? this.counts.get(element.file.path)?.added;
+			const deletions = progress?.remaining.deletions ?? this.counts.get(element.file.path)?.removed;
+			if (element.file.status === 'unchanged') template.counts.textContent = 'Unchanged';
+			else if (progress?.state === 'viewed') template.counts.textContent = '✓';
+			else if (additions !== undefined && deletions !== undefined) {
+				const added = append(template.counts, $('span.review-tree-added')); added.textContent = `+${compact(additions)}`;
+				const removed = append(template.counts, $('span.review-tree-removed')); removed.textContent = `−${compact(deletions)}`;
+			}
+			template.counts.title = additions === undefined ? "Waiting for structural coverage" : element.file.status === "unchanged" ? "Referenced context; no changed lines" : `Remaining +${additions} −${deletions} · Total +${progress?.total.additions ?? this.counts.get(element.file.path)?.added} −${progress?.total.deletions ?? this.counts.get(element.file.path)?.removed}`;
+		}
+		const state = isFile ? this.states.get(element.file.path) : undefined;
+		if (state) template.icon.className = `review-changed-files-icon codicon codicon-${state.status === "loading" ? "loading codicon-modifier-spin" : "error"}`;
+		template.row.title = state?.message ?? (state?.status === "loading" ? "Loading diff…" : "");
+		template.row.setAttribute("aria-busy", String(state?.status === "loading"));
     template.label.textContent = isFile
       ? element.name
       : elements.map((item) => item.name).join("/");
@@ -186,7 +182,40 @@ export class ReviewChangedFilesTree extends Disposable {
   >;
   private readonly fileElements = new Map<string, ChangedFileElement>();
   private files: readonly ReviewDiffFileWire[] = [];
+	private readonly states = new Map<string, { status: "loading" | "error"; message?: string }>();
   private activePath: string | undefined;
+	private readonly viewed = new Set<string>();
+	private readonly counts = new Map<string, StructuralLineCounts>();
+	setCounts(path: string, counts: StructuralLineCounts): void {
+		const previous = this.counts.get(path);
+		this.counts.set(path, counts);
+		if (previous?.added !== counts.added || previous?.removed !== counts.removed) this.refreshFile(path);
+	}
+	private readonly progress = new Map<string, ReviewDiffProgressFile>();
+	setProgressFiles(files: readonly ReviewDiffProgressFile[]): void {
+		const previous = new Map(this.progress);
+		this.progress.clear();
+		this.viewed.clear();
+		for (const file of files) {
+			this.progress.set(file.path, file);
+			if (file.state === "viewed") this.viewed.add(file.path);
+		}
+		for (const path of new Set([...previous.keys(), ...this.progress.keys()])) {
+			const before = previous.get(path), after = this.progress.get(path);
+			if (before?.state !== after?.state ||
+				before?.remaining.additions !== after?.remaining.additions ||
+				before?.remaining.deletions !== after?.remaining.deletions ||
+				before?.total.additions !== after?.total.additions ||
+				before?.total.deletions !== after?.total.deletions) this.refreshFile(path);
+		}
+	}
+
+	private refreshFile(path: string): void {
+		// The parameterless rerender only remeasures dynamic heights; these rows
+		// have fixed heights. Target the model node to refresh its rendered data.
+		const element = this.fileElements.get(path);
+		if (element) this.tree.rerender(element);
+	}
   private syncingActiveFile = false;
 
   constructor(
@@ -199,7 +228,7 @@ export class ReviewChangedFilesTree extends Disposable {
       container,
       $(".review-changed-files-tree"),
     );
-    const renderer = new ChangedFilesTreeRenderer();
+		const renderer = new ChangedFilesTreeRenderer(this.counts, this.progress, this.viewed, this.states);
     this.tree = this._register(
       instantiationService.createInstance(
         WorkbenchCompressibleObjectTree<ChangedTreeElement, void>,
@@ -254,9 +283,17 @@ export class ReviewChangedFilesTree extends Disposable {
     this.refresh(selectedPath);
   }
 
-  setActiveFile(path: string | undefined): void {
+	setFileState(path: string, status: "loading" | "error" | undefined, message?: string): void {
+		if (status) this.states.set(path, { status, message });
+		else this.states.delete(path);
+		const element = this.fileElements.get(path);
+		if (element) this.tree.rerender(element);
+	}
+
+	setActiveFile(path: string | undefined, reveal = true): void {
+		if (!reveal && this.activePath === path) return;
     this.activePath = path;
-    this.syncSelection(path);
+		this.syncSelection(path, reveal);
   }
 
   layout(height: number, width: number): void {
@@ -271,13 +308,13 @@ export class ReviewChangedFilesTree extends Disposable {
     this.syncSelection(this.activePath ?? selectedPath);
   }
 
-  private syncSelection(path: string | undefined): void {
+	private syncSelection(path: string | undefined, reveal = true): void {
     const element = path ? this.fileElements.get(path) : undefined;
     this.syncingActiveFile = true;
     try {
       this.tree.setSelection(element ? [element] : []);
       this.tree.setFocus(element ? [element] : []);
-      if (element) this.tree.reveal(element);
+			if (element && reveal) this.tree.reveal(element);
     } finally {
       this.syncingActiveFile = false;
     }
@@ -285,59 +322,11 @@ export class ReviewChangedFilesTree extends Disposable {
 }
 
 function fileStatusIcon(status: ReviewDiffFileWire["status"]): ThemeIcon {
+	if (status === "unchanged") return Codicon.file;
   if (status === "added") return Codicon.diffAdded;
   if (status === "deleted") return Codicon.diffRemoved;
   if (status === "renamed") return Codicon.diffRenamed;
   return Codicon.diffModified;
-}
-
-function buildTree(
-  files: readonly ReviewDiffFileWire[],
-): ChangedTreeElement[] {
-  const root: MutableFolder = {
-    name: "",
-    path: "",
-    folders: new Map(),
-    files: [],
-  };
-
-  for (const file of files) {
-    const segments = file.path.split("/").filter(Boolean);
-    const name = segments.pop() ?? file.path;
-    let folder = root;
-    for (const segment of segments) {
-      const path = folder.path ? `${folder.path}/${segment}` : segment;
-      let child = folder.folders.get(segment);
-      if (!child) {
-        child = {
-          name: segment,
-          path,
-          folders: new Map(),
-          files: [],
-        };
-        folder.folders.set(segment, child);
-      }
-      folder = child;
-    }
-    folder.files.push({ kind: "file", file, name });
-  }
-
-  return folderChildren(root);
-}
-
-function folderChildren(folder: MutableFolder): ChangedTreeElement[] {
-  const folders = [...folder.folders.values()]
-    .map((child): ChangedFolderElement => ({
-      kind: "folder",
-      name: child.name,
-      path: child.path,
-      children: folderChildren(child),
-    }))
-    .sort((left, right) => left.name.localeCompare(right.name));
-  const files = [...folder.files].sort((left, right) =>
-    left.name.localeCompare(right.name),
-  );
-  return [...folders, ...files];
 }
 
 function toTreeElements(
@@ -368,15 +357,3 @@ function collectFileElements(
   }
 }
 
-function collectFiles(
-  elements: readonly ChangedTreeElement[],
-  target: ReviewDiffFileWire[],
-): void {
-  for (const element of elements) {
-    if (element.kind === "file") {
-      target.push(element.file);
-    } else {
-      collectFiles(element.children, target);
-    }
-  }
-}

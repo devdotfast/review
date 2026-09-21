@@ -256,7 +256,6 @@ import { IReviewCanvasPartsService, ReviewCanvasParts } from "./browser/parts/ca
 import { IReviewExplorerPartsService, ReviewExplorerParts } from "./browser/parts/explorer/reviewExplorerPart.js";
 import "./browser/reviewPaneCompositePartService.js";
 import "./common/reviewConfiguration.js";
-import "./common/reviewMapColors.js";
 import { IReviewVerbsService, ReviewVerbsService } from "./contrib/verbs/reviewVerbs.js";
 import { IReviewApiCatalogService, ReviewApiCatalogService } from "./services/reviewApiCatalogService.js";
 import { IReviewApiSourceService, ReviewApiSourceService } from "./services/reviewApiSourceService.js";
@@ -264,7 +263,6 @@ import {
 	IReviewCanvasEditorTabsService,
 	ReviewCanvasEditorTabsService,
 } from "./services/reviewCanvasEditorTabsService.js";
-import { IReviewCodeResourceService, ReviewCodeResourceService } from "./services/reviewCodeResourceService.js";
 import {
 	IReviewDesktopConnectionService,
 	ReviewDesktopConnectionService,
@@ -278,7 +276,6 @@ registerSingleton(IReviewTelemetryService, ReviewTelemetryService, Instantiation
 
 registerSingleton(IReviewCanvasEditorTabsService, ReviewCanvasEditorTabsService, InstantiationType.Delayed);
 
-registerSingleton(IReviewCodeResourceService, ReviewCodeResourceService, InstantiationType.Delayed);
 registerSingleton(IReviewApiSourceService, ReviewApiSourceService, InstantiationType.Delayed);
 registerSingleton(IReviewApiCatalogService, ReviewApiCatalogService, InstantiationType.Delayed);
 registerSingleton(IReviewVerbsService, ReviewVerbsService, InstantiationType.Delayed);

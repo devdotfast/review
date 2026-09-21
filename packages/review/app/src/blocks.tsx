@@ -9,11 +9,12 @@ import { MarkdownContent } from "./agent-markdown";
 import type { ApiDocumentData } from "./api-document";
 import { SectionAuthoringProgress } from "./authoring-activity";
 import { blockSectionSummary } from "./block-document-derivations";
-import { CallStackDiff } from "./call-stack-diff";
+import { DocumentCallTree } from "./call-tree-view";
 import { RenderedCodeBlock } from "./code-block";
 import { CodePeekCard } from "./CodePeek";
 import { DatabaseLens } from "./database-lens";
 import { SequenceDiagram } from "./diagrams";
+import { FlowDiagram } from "./flow-diagram";
 import { AnchorLink, ReviewSection } from "./review-components";
 import { ReviewDocumentTitle } from "./review-document-surface";
 import { SoftwareMap } from "./software-map/SoftwareMap";
@@ -45,7 +46,9 @@ type BlockByType = { [K in BlockType]: Extract<StoredBlock, { type: K }> };
 export interface BlockProps<K extends BlockType> {
   node: BlockByType[K];
   data: ApiDocumentData;
-  children(nodes: Block[]): ReactNode;
+  /** Renders nested blocks; `awaiting` keeps a slot open at the end for the
+   * block the agent has yet to write. */
+  children(nodes: Block[], awaiting?: boolean): ReactNode;
 }
 
 export type BlockComponent<K extends BlockType> = (
@@ -114,7 +117,10 @@ function SectionBlock({ node, data, children }: BlockProps<"section">) {
         <SectionAuthoringProgress targetId={node.id} status={node.status} />
       }
     >
-      {children(node.children)}
+      {children(
+        node.children,
+        node.status === "pending" || node.status === "in_progress",
+      )}
     </ReviewSection>
   );
 }
@@ -144,7 +150,7 @@ function SequenceBlock({ node }: BlockProps<"sequence">) {
 }
 
 function CallStackDiffBlock({ node }: BlockProps<"call_stack_diff">) {
-  return <CallStackDiff title={node.title} base={node.base} head={node.head} />;
+  return <DocumentCallTree block={node} />;
 }
 
 function DatabaseLensBlock({ node }: BlockProps<"database_lens">) {
@@ -240,6 +246,10 @@ export const blockComponents = {
   database_lens: DatabaseLensBlock,
   image: ImageBlock,
   trace_quote: TraceQuoteBlock,
+  file_lens: () => null,
+  flow_diagram: ({ node, data }) => (
+    <FlowDiagram node={node} snapshot={data.snapshot} />
+  ),
   software_map: SoftwareMapBlock,
   section: SectionBlock,
   callout: CalloutBlock,
@@ -250,7 +260,7 @@ export function renderBlock<K extends BlockType>(
   type: K,
   node: BlockByType[K],
   data: ApiDocumentData,
-  children: (nodes: Block[]) => ReactNode,
+  children: BlockProps<K>["children"],
 ): ReactNode {
   // SAFETY: blockComponents satisfies Components, so its entry for K is that kind's component.
   const Component = blockComponents[type] as BlockComponent<K>;

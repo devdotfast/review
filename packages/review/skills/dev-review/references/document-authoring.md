@@ -73,7 +73,7 @@ For example, call `review_edit` with:
 }
 ```
 
-Use this example only when it fits the change. A step takes exactly one of `explanation`, illustrative `code:{language,text}`, or a verified `source:{side,file,fromLine,toLine}`. A `source` must cover visible code; a whitespace-only range is rejected. Read the tool schema for the other components.
+Use this example only when it fits the change. A step takes exactly one of `explanation`, illustrative `code:{language,text}`, or a verified `source:{file,start:{side,line},end:{side,line}}`. A `source` must cover visible code; a whitespace-only range is rejected. Read the tool schema for the other components.
 
 The result contains the saved version and `targetId`. Read that target to get its step IDs. To change one step, use a field patch:
 
@@ -95,7 +95,7 @@ Use an actual returned ID, not the illustrative `step-2`. Patches preserve omitt
 
 Read exact source with `review_source({reviewId,version?,source:{side,file,fromLine,toLine}})`; `review_file` reads a whole file. Paths are repository-relative and refer to committed base/head content, not the working copy.
 
-A `code_peek` contains its source range directly. For a prose link, use `[save logic](review-source:head/src/save.ts#L10-L24)` (or `base`). A single line uses `#L10`; URL-encode spaces and reserved characters in the repository-relative path. The host validates the range before saving (a prose link may point at blank lines), and the link opens the existing native side peek at that version's pins. Reference-style Markdown links work too. Ordinary web links still open externally.
+A `code_peek` contains a `source` in the same `DiffSelection` endpoint format as lens attachments. It displays the selected interval of the aligned diff. For a prose link, use `[save logic](review-source:head/src/save.ts#L10-L24)` (or `base`). A single line uses `#L10`; URL-encode spaces and reserved characters in the repository-relative path. The host validates the range before saving (a prose link may point at blank lines), and the link opens the existing native side peek at that version's pins. Reference-style Markdown links work too. Ordinary web links still open externally.
 
 Upload retained resources with `review_upload`. Set `kind` to `"image"` with `base64`, `"trace"` with `trace:{label,events:[{id,role,text}]}`, or `"map"` with `pins`, `side` and `model`. A trace quote references the returned resource ID, an event ID and an exact excerpt. Use only supplied evidence; do not invent a transcript or provenance.
 
@@ -116,7 +116,12 @@ Call `review_upload({id,repositoryId,kind:"map",pins,side:"head",model})`, using
         "db": {}
       },
       "relationships": [
-        { "kind": "semantic", "from": "api", "to": "db", "label": "Stores data" }
+        {
+          "kind": "semantic",
+          "from": "api",
+          "to": "db",
+          "label": "Stores data"
+        }
       ]
     }
   },
@@ -133,3 +138,92 @@ Call `review_upload({id,repositoryId,kind:"map",pins,side:"head",model})`, using
 - A map element's code ranges go in `codeElements` with `sourceRanges:[{file,fromLine,toLine}]`. Files are repository-relative; line numbers are positive, inclusive, ordered and checked at `pins[side]`.
 
 Insert a `software_map` node referencing the returned resource ID. Rejected uploads save nothing: fix the reported input and retry with the same ID. After a successful upload, that ID is immutable; changed content needs a new upload ID so old review versions keep their original map.
+
+### Flow diagrams and diff lenses
+
+Use `flow_diagram` for an authored flat graph. Nodes have local `key` values,
+`label`, optional `description` and `kind` (`process`, `decision`, or `terminal`),
+and `attachments:[{label,sources:[DiffSelection,...]}]`. Edges use `from`, `to`, optional
+`label`, and optional `style` (`solid` or `dashed`). The block takes `title`,
+optional `description`, and optional `direction` (`right` or `down`). Node keys
+must be unique and edge endpoints must exist. Cycles are allowed.
+
+Attach several pieces of code to a node when they support one concept. Use
+empty attachments for conceptual nodes. The app computes change rings from
+changed lines inside attached diff selections, deduplicating overlaps. A selection
+covers the interval between its endpoint rows in the existing alignment,
+including both sides and any one-sided rows inside. Do not author counterpart
+ranges, counts, or colors. Selecting a node opens its code peeks.
+
+Saved source-bearing diagrams appear in the Diff sidebar. Expanding a diagram
+activates its lens; clicking a diagram element scrolls to that element's diff
+section. Collapsing the lens restores the full comparison. These are pinned
+ranges, not symbol matching across revisions. Viewed state is shared code
+coverage across overlapping files, sections and diagrams; marking code viewed
+does not create authored document versions.
+
+### File lenses
+
+Use `file_lens` for named groups containing whole changed files, pinned ranges, or both:
+
+```json
+{
+  "type": "file_lens",
+  "title": "Parser and tests",
+  "targets": [
+    { "kind": "files", "patterns": ["**/*.test.ts"] },
+    {
+      "kind": "ranges",
+      "sources": [
+        {
+          "file": "src/parser.ts",
+          "start": { "side": "head", "line": 40 },
+          "end": { "side": "head", "line": 85 }
+        }
+      ]
+    }
+  ]
+}
+```
+
+File patterns match only changed files, including either path of a rename. Diff
+selections identify endpoints using one-based lines at the review's base or head
+pins and can reference unchanged files. The inclusive interval in the uncollapsed
+alignment covers both additions and removals inside. All targets are unioned; overlaps never double-count changed lines.
+Whole-file targets subsume narrower targets for the same file.
+
+Counts and viewed actions apply only to selected changed lines. Range lenses
+show surrounding context and fold code outside the selection; that context does
+not add coverage. File lenses appear only in the Diff sidebar and activate
+without expanding a diagram. Empty lenses remain visible, disabled, with zero
+files. Existing `patterns` lenses remain supported as whole-file selections;
+new lenses should use `targets`, never both fields.
+
+The automatic **Uncategorized changes** lens selects exactly the changed ranges
+not covered by valid authored lenses. Its count, filter and viewed actions all
+use those residual ranges. Viewed state does not affect membership. Do not
+author a duplicate catch-all lens.
+
+### Diff-row selections
+
+All code peeks and lens attachments (`source` on a code peek, call frame, sequence step or database operation,
+and items in flow attachments, frame `contextSources`, or file-lens range `sources`)
+use this single endpoint format:
+
+```json
+{
+  "file": "src/parser.ts",
+  "start": { "side": "base", "line": 38 },
+  "end": { "side": "head", "line": 85 }
+}
+```
+
+Each endpoint names one row in the already-computed alignment using either side's
+one-based line number. The interval is inclusive and independent of split/unified
+layout or fold state. Endpoints must exist and appear in alignment order, even if
+the starting line number is greater than the ending line number. A selection may
+start on a deletion-only row and end on an insertion-only row. Use the same side
+at both endpoints for a function or ordinary code range. Multiple attachments
+select disjoint intervals. Surrounding display context is not included in counts,
+coverage, or viewed actions. There is no source-range shorthand or paired-coordinate
+endpoint form for document attachments. Low-level source quoting APIs still read one revision; they are not document authoring inputs.

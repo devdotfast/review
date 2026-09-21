@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { jsonString } from "@dev.fast/json";
 import {
   type JsonObject,
   type JsonValue,
@@ -39,6 +40,7 @@ import type { ReviewStore } from "../review-api/store.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
 import type { SharedReviewStore } from "../sharing/import.js";
+import { readDiffrConfig, setDiffrConfigValue } from "./diffr-config";
 import {
   GlobalReviewDesktopVerbRelay,
   type ReviewDesktopVerbRelay,
@@ -257,6 +259,22 @@ export function createGlobalReviewServer(
     await withReviewLock(TUTORIAL_LIFECYCLE_LOCK_KEY, deleteTutorialLocked);
 
     return globalJson(200, { ok: true });
+  });
+  app.get("/diffr-config", async () =>
+    globalJson(200, await readDiffrConfig()),
+  );
+  app.put("/diffr-config", async (context) => {
+    const body = await readBoundedRequestJson(context.req.raw);
+
+    const key = isJsonObject(body) ? jsonString(body.key) : undefined;
+
+    const value = isJsonObject(body) ? body.value : undefined;
+
+    if (key === undefined || value === undefined) {
+      throw new ReviewServerError("key and value are required.", 400);
+    }
+
+    return globalJson(200, await setDiffrConfigValue(key, value));
   });
   app.get("/install/status", async () =>
     globalJson(

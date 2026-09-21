@@ -1,7 +1,7 @@
 [
   {
     "type": "markdown",
-    "markdown": "# OpenCode on AgentServer\n\nStacked on #83. This adds `\"opencode\"` as a fourth native agent harness (alongside Claude Code, Codex, and Pi), backed by a new [`OpencodeAgentServer`](review-source:head/packages/progressive-review/src/native-agent/opencode.ts#L50-L66) that owns one `opencode serve` process and talks to it over HTTP + SSE. Author flagged the PR title `[needs testing]` — the desktop-facing flow has not been run end to end.\n"
+    "markdown": "# OpenCode on AgentServer\n\nStacked on #83. This adds `\"opencode\"` as a fourth native agent harness (alongside Claude Code, Codex, and Pi), backed by a new [`OpencodeAgentServer`](review-source:head/packages/progressive-review/src/native-agent/opencode.ts#L50-L66) that owns one `opencode serve` process and talks to it over HTTP + SSE. Author flagged the PR title `[needs testing]` \u2014 the desktop-facing flow has not been run end to end.\n"
   },
   {
     "type": "section",
@@ -9,7 +9,7 @@
     "children": [
       {
         "type": "markdown",
-        "markdown": "## Interface change\n\nThe harness identity is a closed string union threaded through both the CLI package and the wire protocol. This PR widens it in three places that must move together:\n\n- [`ReviewAgentHarness`](review-source:head/packages/progressive-review/src/authoring-session.ts#L1-L1) — the CLI-side type and its `isReviewAgentHarness` guard.\n- [`AuthoringAgentSessionSchema`](review-source:head/packages/review-protocol/src/contracts.ts#L1223-L1226) and `ReviewCommentAgentSessionSchema` — the zod wire contracts, mirrored in both `packages/review-protocol` and the vendored `code-oss` copy.\n- [`desktop-server`'s harness table](review-source:head/packages/progressive-review/src/server/desktop-server.ts#L283-L284) — the map handing each harness its `AgentServer`.\n\nEverywhere else (thread label, tutorial authoring, review-source fork) just adds an `\"opencode\"` case to an existing per-harness switch.\n"
+        "markdown": "## Interface change\n\nThe harness identity is a closed string union threaded through both the CLI package and the wire protocol. This PR widens it in three places that must move together:\n\n- [`ReviewAgentHarness`](review-source:head/packages/progressive-review/src/authoring-session.ts#L1-L1) \u2014 the CLI-side type and its `isReviewAgentHarness` guard.\n- [`AuthoringAgentSessionSchema`](review-source:head/packages/review-protocol/src/contracts.ts#L1223-L1226) and `ReviewCommentAgentSessionSchema` \u2014 the zod wire contracts, mirrored in both `packages/review-protocol` and the vendored `code-oss` copy.\n- [`desktop-server`'s harness table](review-source:head/packages/progressive-review/src/server/desktop-server.ts#L283-L284) \u2014 the map handing each harness its `AgentServer`.\n\nEverywhere else (thread label, tutorial authoring, review-source fork) just adds an `\"opencode\"` case to an existing per-harness switch.\n"
       }
     ]
   },
@@ -19,7 +19,7 @@
     "children": [
       {
         "type": "markdown",
-        "markdown": "## Why OpenCode needed its own shape\n\nClaude Code, Codex, and Pi are each observed through hooks or an app-server already running in the review's own checkout. OpenCode is different: it is server-first, so Review starts and owns a private `opencode serve` process, and every session it creates belongs to a **project keyed by directory** — not to the review checkout that made the request.\n\nThe first version forked and attached using the review's own checkout directory, which put the fork in the wrong project and the server answered `404`. The fix, in the last commit, looks the source session up by ID first (scanning every project OpenCode knows about) and then forks, prompts, and attaches inside *that* session's own directory:\n"
+        "markdown": "## Why OpenCode needed its own shape\n\nClaude Code, Codex, and Pi are each observed through hooks or an app-server already running in the review's own checkout. OpenCode is different: it is server-first, so Review starts and owns a private `opencode serve` process, and every session it creates belongs to a **project keyed by directory** \u2014 not to the review checkout that made the request.\n\nThe first version forked and attached using the review's own checkout directory, which put the fork in the wrong project and the server answered `404`. The fix, in the last commit, looks the source session up by ID first (scanning every project OpenCode knows about) and then forks, prompts, and attaches inside *that* session's own directory:\n"
       },
       {
         "type": "sequence",
@@ -36,10 +36,15 @@
             "label": "GET /project, then GET /session/:id in each worktree until one answers",
             "style": "call",
             "source": {
-              "side": "head",
               "file": "packages/progressive-review/src/native-agent/opencode.ts",
-              "fromLine": 373,
-              "toLine": 401
+              "start": {
+                "side": "head",
+                "line": 373
+              },
+              "end": {
+                "side": "head",
+                "line": 401
+              }
             }
           },
           {
@@ -49,10 +54,15 @@
             "label": "POST /session/:id/fork, scoped to the source session's own directory",
             "style": "call",
             "source": {
-              "side": "head",
               "file": "packages/progressive-review/src/native-agent/opencode.ts",
-              "fromLine": 538,
-              "toLine": 558
+              "start": {
+                "side": "head",
+                "line": 538
+              },
+              "end": {
+                "side": "head",
+                "line": 558
+              }
             }
           },
           {
@@ -62,17 +72,22 @@
             "label": "opencode attach <url> --session <id> --dir <source directory>",
             "style": "call",
             "source": {
-              "side": "head",
               "file": "packages/progressive-review/src/native-agent/opencode.ts",
-              "fromLine": 67,
-              "toLine": 121
+              "start": {
+                "side": "head",
+                "line": 67
+              },
+              "end": {
+                "side": "head",
+                "line": 121
+              }
             }
           }
         ]
       },
       {
         "type": "markdown",
-        "markdown": "One consequence called out in the PR: an OpenCode question session runs in the **source worktree**, not the review's pinned checkout — different from the other three harnesses.\n\nThe second fix addresses a separate problem: [`createOpencodeSession`](review-source:head/packages/progressive-review/src/native-agent/opencode.ts#L571-L611) originally waited on the synchronous message endpoint, so a model turn longer than the request timeout aborted before the assistant replied. It now submits with `prompt_async` and polls `GET /session/:id/message` once a second (10-minute cap, cancellable), failing fast if the assistant message itself carries an error.\n"
+        "markdown": "One consequence called out in the PR: an OpenCode question session runs in the **source worktree**, not the review's pinned checkout \u2014 different from the other three harnesses.\n\nThe second fix addresses a separate problem: [`createOpencodeSession`](review-source:head/packages/progressive-review/src/native-agent/opencode.ts#L571-L611) originally waited on the synchronous message endpoint, so a model turn longer than the request timeout aborted before the assistant replied. It now submits with `prompt_async` and polls `GET /session/:id/message` once a second (10-minute cap, cancellable), failing fast if the assistant message itself carries an error.\n"
       }
     ]
   },
@@ -82,7 +97,7 @@
     "children": [
       {
         "type": "markdown",
-        "markdown": "## Testing\n\n[`opencode.test.ts`](review-source:head/packages/progressive-review/src/native-agent/opencode.test.ts#L1-L40) runs `OpencodeAgentServer` and `projectOpencodeMessages` against a fake `opencode serve` (a real Node HTTP server), covering session create/fork scoped by directory, message-id deduplication, and the `/global/event` SSE reconnect path. That's the part that can be unit-tested.\n\n**Not covered by tests, and explicitly called out by the author as unverified:**\n\n- The desktop flow end to end — asking a question through a real `opencode serve` 1\\.1.53 process from Review Desktop.\n- The basic-auth username (`opencode`) `opencode attach` is expected to send back with `OPENCODE_SERVER_PASSWORD`.\n- A TUI attaching to a session that is already mid-turn (`opencode attach` joining a running `prompt_async`).\n"
+        "markdown": "## Testing\n\n[`opencode.test.ts`](review-source:head/packages/progressive-review/src/native-agent/opencode.test.ts#L1-L40) runs `OpencodeAgentServer` and `projectOpencodeMessages` against a fake `opencode serve` (a real Node HTTP server), covering session create/fork scoped by directory, message-id deduplication, and the `/global/event` SSE reconnect path. That's the part that can be unit-tested.\n\n**Not covered by tests, and explicitly called out by the author as unverified:**\n\n- The desktop flow end to end \u2014 asking a question through a real `opencode serve` 1\\.1.53 process from Review Desktop.\n- The basic-auth username (`opencode`) `opencode attach` is expected to send back with `OPENCODE_SERVER_PASSWORD`.\n- A TUI attaching to a session that is already mid-turn (`opencode attach` joining a running `prompt_async`).\n"
       }
     ]
   },
@@ -92,7 +107,7 @@
     "children": [
       {
         "type": "markdown",
-        "markdown": "## Decision log\n\n**From the PR description:**\n\n- OpenCode is server-first — Review should drive it through `opencode serve`'s HTTP API rather than simulating a server from hooks, matching how the TUI itself works.\n- This is the OpenCode port of an existing Codex-shaped design (#48); the non-agent-layer parts of #48 (identification tool, install/setup UI, docs) are out of scope here and rebase separately.\n\n**Made during implementation:**\n\n- Session lookup by ID scans every project OpenCode reports, since Review has no other way to know which project a given session belongs to.\n- Forking, prompting, and the TUI's `--dir` all use the *source* session's directory, not the review's pinned checkout — accepted as a real behavior difference rather than something to paper over.\n- `createOpencodeSession`'s title is now supplied by the caller, no longer hardcoded.\n"
+        "markdown": "## Decision log\n\n**From the PR description:**\n\n- OpenCode is server-first \u2014 Review should drive it through `opencode serve`'s HTTP API rather than simulating a server from hooks, matching how the TUI itself works.\n- This is the OpenCode port of an existing Codex-shaped design (#48); the non-agent-layer parts of #48 (identification tool, install/setup UI, docs) are out of scope here and rebase separately.\n\n**Made during implementation:**\n\n- Session lookup by ID scans every project OpenCode reports, since Review has no other way to know which project a given session belongs to.\n- Forking, prompting, and the TUI's `--dir` all use the *source* session's directory, not the review's pinned checkout \u2014 accepted as a real behavior difference rather than something to paper over.\n- `createOpencodeSession`'s title is now supplied by the caller, no longer hardcoded.\n"
       }
     ]
   }

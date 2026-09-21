@@ -1,12 +1,14 @@
 import type { JsonValue, ReviewCanvasBridge } from "@dev.fast/review-protocol";
 import { act } from "react";
 
+import type { ReviewProgress } from "../../src/review-api/review-progress";
 import type { Snapshot } from "../../src/review-api/store";
 import { testReviewBridge } from "./review-session-test-utils";
 
 /** The subset of the review API a pinned-version canvas reads while mounting. */
 export interface FixtureReviewApi {
   snapshot: Snapshot;
+  progress?: ReviewProgress;
   /** Resource id to its JSON body, or to bytes with a content type. */
   resources?: Record<string, JsonValue | FixtureBytes>;
   maps?: Record<string, JsonValue>;
@@ -40,6 +42,19 @@ export function fixtureReviewBridge(api: FixtureReviewApi): ReviewCanvasBridge {
 
     if (route === `/${id}` && searchParams.get("full") === "true")
       return Response.json(api.snapshot);
+
+    if (route === `/${id}/progress`)
+      return Response.json(
+        api.progress ??
+          ({
+            files: [],
+            diagrams: [],
+            resolvedSelections: {},
+          } satisfies ReviewProgress),
+      );
+
+    if (route === `/${id}/diff`)
+      return Response.json(searchParams.has("file") ? "" : []);
 
     if (route === `/${id}/commits`) return Response.json([]);
 

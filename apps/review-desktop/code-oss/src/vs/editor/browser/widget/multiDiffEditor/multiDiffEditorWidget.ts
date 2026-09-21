@@ -14,7 +14,7 @@ import { IContextKeyService } from '../../../../platform/contextkey/common/conte
 import { Range } from '../../../common/core/range.js';
 import { IDiffEditorOptions } from '../../../common/config/editorOptions.js';
 import { IDiffEditor } from '../../../common/editorCommon.js';
-import { ICodeEditor } from '../../editorBrowser.js';
+import type { ICodeEditor } from '../../editorBrowser.js';
 import { DiffEditorWidget } from '../diffEditor/diffEditorWidget.js';
 import './colors.js';
 import { DiffEditorItemTemplate } from './diffEditorItemTemplate.js';
@@ -104,10 +104,6 @@ export class MultiDiffEditorWidget extends Disposable {
 	public toggleRenderSideBySide(): void {
 		this._renderSideBySide.set(!(this._renderSideBySide.get() ?? true), undefined);
 	}
-
-	private readonly _activeUnifiedControl = derived(this, reader => this._widgetImpl.read(reader).activeUnifiedControl.read(reader));
-	public getActiveUnifiedControl(): ICodeEditor | undefined { return this._activeUnifiedControl.get(); }
-	public readonly onDidChangeActiveUnifiedControl = Event.fromObservableLight(this._activeUnifiedControl);
 
 	private readonly _activeControl = derived(this, (reader) => this._widgetImpl.read(reader).activeControl.read(reader));
 	private readonly _scrollTop = derived(this, (reader) => this._widgetImpl.read(reader).scrollTop.read(reader));

@@ -5,10 +5,12 @@ import type {
 } from "@dev.fast/review-protocol";
 import { useMemo, useRef } from "react";
 
+import { type DiffSelection, sourceAnchor } from "../../src/lens-selection";
 import type { ReviewComponentProps } from "../../src/review-document-data";
-import { type Source, codePeekSource } from "../../src/source";
+import { type FileLineRange, codePeekSource } from "../../src/source";
+import { DocumentCodeView } from "./DocumentCodeView";
 import { useReviewSession } from "./host/review-session";
-import { InlineCodeEditor } from "./InlineCodeEditor";
+import { type ReviewLensView, useReviewLenses } from "./review-lenses";
 
 /** The software-map inspector's peek input: a range on one diff side. */
 export interface CodePeekProps {
@@ -16,6 +18,7 @@ export interface CodePeekProps {
   fromLine: number;
   toLine: number;
   graph?: "head" | "base";
+  lenses?: ReviewLensView;
 }
 
 export interface CodePeekSubject {
@@ -30,7 +33,13 @@ export interface CodePeekSubject {
 export function CodePeek(props: CodePeekProps) {
   const source = useMemo(() => codePeekSource(props), [props]);
 
-  return <CodePeekCard source={source} heightMode="content" />;
+  return (
+    <FileSnippetCard
+      source={source}
+      heightMode="content"
+      lenses={props.lenses}
+    />
+  );
 }
 
 interface GroupedCodePeek {
@@ -48,9 +57,11 @@ interface AuthoredCodePeekRange extends ReviewInlineEditorRange {
 export function CodePeekGroup({
   peeks,
   collapsed = false,
+  lenses,
 }: {
-  peeks: readonly Source[];
+  peeks: readonly FileLineRange[];
   collapsed?: boolean;
+  lenses?: ReviewLensView;
 }) {
   const session = useReviewSession();
 
@@ -67,7 +78,7 @@ export function CodePeekGroup({
             className="code-peek"
             data-code-rendering="inline-editor"
           >
-            <InlineCodeEditor
+            <DocumentCodeView
               path={group.file}
               title={group.file}
               side={group.side}
@@ -76,6 +87,7 @@ export function CodePeekGroup({
               countRanges={group.countRanges}
               active={false}
               collapsed={collapsed}
+              lenses={lenses}
               onOpen={() =>
                 session.surface.revealAnchor(
                   group.file,
@@ -98,16 +110,84 @@ export function ReviewCodePeek({ anchor }: ReviewComponentProps<"CodePeek">) {
   return <CodePeekCard source={anchor.peek} />;
 }
 
+/** A document peek is an interval of the same alignment used by diff lenses. */
 export function CodePeekCard({
   source,
   active = false,
   heightMode = "capped",
   onNativeFocus,
+  lenses: lensesOverride,
 }: {
-  source: Source;
+  source: DiffSelection;
   active?: boolean;
   heightMode?: ReviewInlineEditorHeightMode;
   onNativeFocus?: () => void;
+  lenses?: ReviewLensView;
+}) {
+  const session = useReviewSession();
+  const contextLenses = useReviewLenses();
+  const lenses = lensesOverride ?? contextLenses;
+  const resolved = lenses?.resolve([source]) ?? [];
+  const anchor = sourceAnchor(source);
+
+  const ranges = resolved.map((range) => ({
+    side: range.side,
+    startLine: range.fromLine,
+    endLine: range.toLine,
+  }));
+
+  if (!ranges.length)
+    return (
+      <section className="code-peek" role="status">
+        {lenses?.progress || lenses?.error
+          ? "Diff selection unavailable"
+          : "Loading diff selection…"}
+      </section>
+    );
+
+  return (
+    <section className="code-peek" data-code-rendering="inline-editor">
+      <DocumentCodeView
+        path={source.file}
+        title={
+          source.start.side === source.end.side
+            ? codePeekRangeTitle(
+                source.file,
+                source.start.line,
+                source.end.line,
+              )
+            : source.file
+        }
+        side={anchor.side}
+        ranges={ranges}
+        countRanges={ranges}
+        heightMode={heightMode}
+        active={active}
+        onFocus={onNativeFocus}
+        onOpen={() =>
+          session.surface.revealAnchor(
+            anchor.file,
+            { fromLine: anchor.fromLine, toLine: anchor.toLine },
+            anchor.side,
+          )
+        }
+      />
+    </section>
+  );
+}
+
+function FileSnippetCard({
+  source,
+  active = false,
+  heightMode = "capped",
+  onNativeFocus,
+  lenses,
+}: {
+  source: FileLineRange;
+  active?: boolean;
+  heightMode?: ReviewInlineEditorHeightMode;
+  onNativeFocus?: () => void;
+  lenses?: ReviewLensView;
 }) {
   const session = useReviewSession();
 
@@ -118,13 +198,14 @@ export function CodePeekCard({
 
   return (
     <section className="code-peek" data-code-rendering="inline-editor">
-      <InlineCodeEditor
+      <DocumentCodeView
         path={subject.file}
         title={subject.title}
         side={source.side}
         ranges={[{ startLine: subject.line, endLine: subject.endLine }]}
         heightMode={heightMode}
         active={active}
+        lenses={lenses}
         onFocus={() => onNativeFocusRef.current?.()}
         onOpen={() =>
           session.surface.revealAnchor(
@@ -138,7 +219,7 @@ export function CodePeekCard({
   );
 }
 
-export function codePeekSubject(source: Source): CodePeekSubject {
+export function codePeekSubject(source: FileLineRange): CodePeekSubject {
   return {
     title: codePeekRangeTitle(source.file, source.fromLine, source.toLine),
     file: source.file,
@@ -159,7 +240,7 @@ function codePeekRangeTitle(
   return `${file}:${range}`;
 }
 
-function groupedCodePeeks(peeks: readonly Source[]): GroupedCodePeek[] {
+function groupedCodePeeks(peeks: readonly FileLineRange[]): GroupedCodePeek[] {
   const groups = new Map<
     string,
     Omit<GroupedCodePeek, "ranges"> & {

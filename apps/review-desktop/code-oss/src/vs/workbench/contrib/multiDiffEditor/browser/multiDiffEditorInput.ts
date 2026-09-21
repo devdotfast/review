@@ -105,7 +105,9 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 			this._register(model);
 			const vm = new MultiDiffEditorViewModel(model, this._instantiationService);
 			this._register(vm);
-			await raceTimeout(vm.waitForDiffOr1s(), 1000);
+			// A streaming owner must receive the view model before it can publish files.
+			const source = await this._resolvedSource.getPromise();
+			if (!source.isLoading.get()) await raceTimeout(vm.waitForDiffOr1s(), 1000);
 			return vm;
 		});
 		this._resolvedSource = new ObservableLazyPromise(async () => {
@@ -114,6 +116,7 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 				: await this._multiDiffSourceResolverService.resolve(this.multiDiffSource);
 			return {
 				source,
+				isLoading: source?.isLoading ? observableFromValueWithChangeEvent(this, source.isLoading) : constObservable(false),
 				resources: source ? observableFromValueWithChangeEvent(this, source.resources) : constObservable([]),
 			};
 		});
@@ -261,19 +264,47 @@ export class MultiDiffEditorInput extends EditorInput implements ILanguageSuppor
 
 		const documents = observableValue<readonly RefCounted<IDocumentDiffItem>[] | 'loading'>('documents', 'loading');
 
-		const updateDocuments = derived(async reader => {
-			/** @description Update documents */
-			const docsPromises = documentsWithPromises.read(reader);
-			const docs = await Promise.all(docsPromises);
-			const newDocuments = docs.filter(isDefined);
-			documents.set(newDocuments, undefined);
+		const loaded = new Map<string, RefCounted<IDocumentDiffItem> | undefined>();
+		const observed = new Map<string, Promise<RefCounted<IDocumentDiffItemWithMultiDiffEditorItem> | undefined>>();
+		const revision = observableValue('loaded documents', 0);
+		let disposed = false;
+		const updateDocuments = derived(reader => {
+			revision.read(reader);
+			const loading = source.isLoading.read(reader);
+			const resources = source.resources.read(reader);
+			const promises = documentsWithPromises.read(reader);
+			const entries = resources.map((resource, index) => ({
+				key: JSON.stringify([resource.modifiedUri?.toString(), resource.originalUri?.toString()]),
+				promise: promises[index],
+			}));
+			for (const { key, promise } of entries) {
+				if (!promise || observed.get(key) === promise) continue;
+				observed.set(key, promise);
+				loaded.delete(key);
+				void promise.then(document => {
+					if (disposed) return;
+					if (observed.get(key) !== promise) return;
+					loaded.set(key, document);
+					revision.set(revision.get() + 1, undefined);
+				});
+			}
+			const current = new Set(entries.map(entry => entry.key));
+			for (const key of loaded.keys()) {
+				if (!current.has(key)) loaded.delete(key);
+			}
+			for (const key of observed.keys()) {
+				if (!current.has(key)) observed.delete(key);
+			}
+			const ready = entries.map(entry => loaded.get(entry.key)).filter(isDefined);
+			const pending = loading || entries.some(entry => !loaded.has(entry.key));
+			documents.set(ready.length === 0 && pending ? 'loading' : ready, undefined);
 		});
 
 		const a = recomputeInitiallyAndOnChange(updateDocuments);
 		await updateDocuments.get();
 
 		const result: IMultiDiffEditorModel & IDisposable = {
-			dispose: () => a.dispose(),
+			dispose: () => { disposed = true; a.dispose(); loaded.clear(); },
 			documents: new ValueWithChangeEventFromObservable(documents),
 			contextKeys: source.source?.contextKeys,
 		};

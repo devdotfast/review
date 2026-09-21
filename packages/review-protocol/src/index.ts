@@ -1,3 +1,7 @@
+export * from "./diffr-contract.js";
+
+export * from "./structural-diff.js";
+
 import type { JsonValue } from "@dev.fast/json";
 import { z } from "zod";
 
@@ -215,3 +219,5 @@ function formatIssuePath(path: PropertyKey[]): string {
 
   return output;
 }
+
+export { structuralRows } from "./source-alignment.js";

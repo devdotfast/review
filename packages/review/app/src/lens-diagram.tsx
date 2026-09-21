@@ -1,7 +1,7 @@
 import { type LensSource, sourceAnchor } from "../../src/lens-selection";
 import type { Block } from "../../src/review-api/document";
 import type { FileLineRange } from "../../src/source";
-import { LensCallTree } from "./lens-call-tree";
+import { CallTree } from "./call-tree-view";
 import { FlowGraph } from "./flow-graph";
 import { ElementCounts } from "./lens-counts";
 import { useReviewLenses } from "./review-lenses";
@@ -168,7 +168,15 @@ export function LensDiagram({
   }
 
   if (block.type === "call_stack_diff")
-    return <LensCallTree block={block} onReveal={onReveal} />;
+    return (
+      <CallTree
+        requireReady
+        block={block}
+        onReveal={(source, sectionId) =>
+          onReveal(sourceAnchor(source), sectionId)
+        }
+      />
+    );
 
   if (block.type === "database_lens")
     return (

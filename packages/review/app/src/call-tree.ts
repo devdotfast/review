@@ -1,9 +1,13 @@
+import { frameIdentity } from "../../src/call-stack-frames";
+import { type DiffSelection } from "../../src/lens-selection";
+import { type LensSource } from "../../src/lens-selection";
 import type { CallStackDiffBlock } from "../../src/review-api/blocks/call_stack_diff";
-import { type LensSource, type DiffSelection } from "../../src/lens-selection";
 
 export interface CallTreeStop {
   id: string;
   label: string;
+  source: DiffSelection;
+  anchorId: string;
   sources: LensSource[];
   parentId?: string;
   callSite?: DiffSelection;
@@ -36,6 +40,8 @@ export function callTreeStops(block: CallStackDiffBlock): CallTreeStop[] {
       else
         nodes.set(id, {
           id,
+          source: frame.source,
+          anchorId: frame.id ?? frameIdentity(frame),
           label: frame.label ?? frame.source.file.split("/").pop()!,
           sources: [
             frame.source,

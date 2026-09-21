@@ -4,6 +4,7 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
 import { AgentSelectionSchema, selectionMarkdown } from "../agent-selection.js";
+import { resolveReviewBranchLinks } from "../review-branch-links.js";
 import { resolveReviewStackLayers } from "../review-stack.js";
 import { readBoundedRequestJson } from "../server/hono-http.js";
 import { HttpJsonError } from "../server/http-json.js";
@@ -832,6 +833,37 @@ export function createReviewApi(
         "",
       ].join("\n"),
     });
+  });
+
+  app.get("/:id/branch-links", async (context) => {
+    const query = readQuerySchemas.get.parse(context.req.query());
+    const id = context.req.param("id");
+    const snapshot = readReview(id, query.version);
+
+    const baseRef =
+      snapshot.origin?.baseRef ?? snapshot.target.base ?? snapshot.pins.base;
+
+    const headRef =
+      snapshot.origin?.branch ??
+      (snapshot.target.kind === "commits" ? snapshot.target.head : "HEAD");
+
+    if (isShared(id))
+      return context.json({
+        ok: true,
+        baseRef,
+        headRef,
+        baseUrl: null,
+        headUrl: null,
+      });
+
+    const links = await resolveReviewBranchLinks({
+      rootPath: store.repositoryPath(snapshot.pins.repositoryId),
+      baseRef,
+      headRef,
+      pullRequestUrl: snapshot.origin?.pullRequestUrl,
+    });
+
+    return context.json({ ok: true, baseRef, headRef, ...links });
   });
 
   app.get("/:id/stack", async (context) => {

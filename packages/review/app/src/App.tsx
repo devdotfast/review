@@ -34,6 +34,7 @@ import { DiffLayoutControl } from "./diff-layout-control";
 import { ReviewDiffView } from "./DiffView";
 import { useReviewSession } from "./host/review-session";
 import { DiscordIcon, MarkerUnderline, SettingsSlidersIcon } from "./icons";
+import { ReviewBranchRange } from "./review-branch-range";
 import { ReviewPanelHost } from "./review-components";
 import {
   ReviewProvider,
@@ -617,6 +618,10 @@ function ReviewLayoutContent({
                   </button>
                 ))}
               </div>
+              <ReviewBranchRange
+                baseRef={range.baseRef}
+                headRef={range.headRef}
+              />
             </div>
             <div className="review-topbar-actions">
               <div className="review-topbar-context">

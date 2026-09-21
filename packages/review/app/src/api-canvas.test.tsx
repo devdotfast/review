@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { selectSource } from "../../src/lens-selection";
 import { createReviewApi } from "../../src/review-api/http";
 import { ReviewInputError } from "../../src/review-api/input-error";
 import { LocalReviewData } from "../../src/review-api/local-data";
@@ -529,12 +530,30 @@ it("renders a code peek block on its pinned side without fetching source text", 
       type: "insert",
       content: {
         type: "code_peek",
-        source: { side: "base", file: "src/old.ts", fromLine: 7, toLine: 9 },
+        source: selectSource({
+          side: "base",
+          file: "src/old.ts",
+          fromLine: 7,
+          toLine: 9,
+        }),
       },
     },
   });
 
-  const app = new Hono().route("/reviews-api", createReviewApi(store));
+  const app = new Hono();
+  app.get("/reviews-api/:id/progress", (c) =>
+    c.json({
+      files: [],
+      diagrams: [],
+      resolvedSelections: {
+        [JSON.stringify(["src/old.ts", "base", 7, "base", 9])]: [
+          { file: "src/old.ts", side: "base", fromLine: 7, toLine: 9 },
+          { file: "src/old.ts", side: "head", fromLine: 12, toLine: 14 },
+        ],
+      },
+    }),
+  );
+  app.route("/reviews-api", createReviewApi(store));
   app.get("/reviews-api/:id/commits", (context) => context.json([]));
   const requested: string[] = [];
   const created: ReviewInlineEditorSpec[] = [];
@@ -594,7 +613,10 @@ it("renders a code peek block on its pinned side without fetching source text", 
   expect(created[0]).toMatchObject({
     path: "src/old.ts",
     side: "base",
-    ranges: [{ startLine: 7, endLine: 9 }],
+    ranges: [
+      { side: "base", startLine: 7, endLine: 9 },
+      { side: "head", startLine: 12, endLine: 14 },
+    ],
   });
   expect(requested.filter((url) => url.includes("/source"))).toEqual([]);
 });

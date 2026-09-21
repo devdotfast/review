@@ -13,12 +13,14 @@ import {
   FIXTURE_TRACE_EVENT_ID,
   FIXTURE_TRACE_ID,
 } from "../../src/fixtures/blocks/ids";
+import { selectionKey } from "../../src/lens-selection";
 import {
   assignFreshIds,
   documentSchema,
   elements,
 } from "../../src/review-api/document";
 import { mapInputSchema } from "../../src/review-api/map-input";
+import type { ReviewProgress } from "../../src/review-api/review-progress";
 import type { Snapshot } from "../../src/review-api/store";
 import { defineSoftwareMap } from "../../src/software-map-model";
 import tutorialDocument from "../../tutorial/document.json";
@@ -84,6 +86,25 @@ const savedMap = parseJsonText(
   }),
 );
 
+// The fixture compares the single status line in order.ts on both sides.
+const fixtureProgress: ReviewProgress = {
+  files: [],
+  diagrams: [],
+  resolvedSelections: Object.fromEntries(
+    (["base", "head"] as const).map((side) => [
+      selectionKey({
+        file: "order.ts",
+        start: { side, line: 1 },
+        end: { side, line: 1 },
+      }),
+      [
+        { file: "order.ts", side: "base", fromLine: 1, toLine: 1 },
+        { file: "order.ts", side: "head", fromLine: 1, toLine: 1 },
+      ],
+    ]),
+  ),
+};
+
 const text = (container: HTMLElement) => container.textContent ?? "";
 
 const has = (container: HTMLElement, selector: string) =>
@@ -127,6 +148,7 @@ const rendered: Record<Kind, (container: HTMLElement) => boolean> = {
   trace_quote: (c) =>
     has(c, ".review-trace-quote") && text(c).includes("queue the order"),
   // The map has drawn its system and is neither refreshing nor failed.
+  file_lens: (c) => !text(c).includes("Test file bucket"),
   software_map: (c) =>
     has(c, ".software-map-canvas") &&
     text(c).includes("Order service") &&
@@ -184,6 +206,7 @@ async function mountFixture(
 
   const bridge = fixtureReviewBridge({
     snapshot,
+    progress: fixtureProgress,
     resources:
       resources.trace === null
         ? { [FIXTURE_IMAGE_ID]: image }
@@ -340,9 +363,11 @@ describe("block components", () => {
       expect(text(container)).not.toContain("Layout failed");
       expect(container.querySelector("[data-block-error]")).toBeNull();
 
-      // Every block in the fixture, nested ones included, mounts a node with content.
+      // Every visible block, nested ones included, mounts a node with content.
       const empty = elements(snapshot.document)
-        .filter((element) => element.type !== "step")
+        .filter(
+          (element) => element.type !== "step" && element.type !== "file_lens",
+        )
         .map((element) => element.id)
         .filter((id) => {
           const node = container.querySelector(`[data-review-node-id="${id}"]`);

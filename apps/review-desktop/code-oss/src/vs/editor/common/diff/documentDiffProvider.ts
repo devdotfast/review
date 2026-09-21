@@ -3,6 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import type { IObservable } from "../../../base/common/observable.js";
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { IRange } from '../core/range.js';
 import { Event } from '../../../base/common/event.js';
@@ -66,6 +67,9 @@ export interface IDocumentContextGap {
 	readonly originalCount: number;
 	readonly modifiedCount: number;
 	readonly label?: string;
+	/** Presentation updates do not invalidate the diff or its fold state. */
+	readonly labelObservable?: IObservable<string | undefined>;
+	readonly foldStateId?: number;
 	/** Where the fold control originates; independent of the enclosed code's change status. */
 	readonly owner?: 'base' | 'head' | 'both';
 	/** Actual changes in the hidden ranges, used only for presentation. */

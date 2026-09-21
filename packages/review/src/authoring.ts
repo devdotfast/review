@@ -1,3 +1,8 @@
+import {
+  type DiffSelection,
+  diffSelectionSchema,
+  selectSource,
+} from "./lens-selection";
 import { tutorialAuthoringConversationSchema } from "./tutorial-conversation";
 
 export {
@@ -21,7 +26,7 @@ import {
   type SoftwareDataStoreFieldSchema,
   type SoftwareDataStoreKind,
 } from "./software-map-model";
-import { type Source, codePeekSource, sourceSchema } from "./source";
+import { codePeekSource } from "./source";
 
 export { codePeekSource };
 
@@ -173,14 +178,14 @@ export const anchorRefSchema = z.strictObject({
   id: nonEmptyStringSchema,
   title: nonEmptyStringSchema,
   detail: optionalNonEmptyStringSchema,
-  peek: sourceSchema.optional(),
+  peek: diffSelectionSchema.optional(),
   softwareMapPath: optionalNonEmptyStringSchema,
 });
 
 export type AnchorRef = z.infer<typeof anchorRefSchema>;
 
 export const peekableAnchorRefSchema = anchorRefSchema.extend({
-  peek: sourceSchema,
+  peek: diffSelectionSchema,
 });
 
 export type PeekableAnchorRef = z.infer<typeof peekableAnchorRefSchema>;
@@ -225,7 +230,7 @@ export function isPeekableAnchorRef(
 }
 
 export type AnchorRefFor<T extends AnchorInputMap[string]> = AnchorRef &
-  (T extends { peek: CodePeekProps } ? { peek: Source } : unknown);
+  (T extends { peek: CodePeekProps } ? { peek: DiffSelection } : unknown);
 
 export const reviewCodePeekPropsSchema = z.strictObject({
   anchor: peekableAnchorRefSchema,
@@ -535,7 +540,7 @@ export const callStackDiffPropsSchema = z
     value.head.forEach((entry, index) => {
       const anchor = callStackEntryAnchor(entry);
 
-      if (anchor.peek.side === "base") {
+      if (anchor.peek.start.side === "base") {
         context.addIssue({
           code: "custom",
           path: ["head", index],
@@ -546,7 +551,7 @@ export const callStackDiffPropsSchema = z
     value.base.forEach((entry, index) => {
       const anchor = callStackEntryAnchor(entry);
 
-      if (anchor.peek.side !== "base" && !headIds.has(anchor.id)) {
+      if (anchor.peek.start.side !== "base" && !headIds.has(anchor.id)) {
         context.addIssue({
           code: "custom",
           path: ["base", index],
@@ -1049,11 +1054,11 @@ function defineAnchors<T extends AnchorInputMap>(
         [id, "softwareMapPath"],
         reportMissingSoftwareMap,
       );
-      let peek: Source | undefined;
+      let peek: DiffSelection | undefined;
 
       if (anchor.peek) {
         const props = validateCodePeekProps(anchor.peek);
-        peek = codePeekSource(props);
+        peek = selectSource(codePeekSource(props));
         const validateCodePeek = environment.validateCodePeek;
 
         if (validateCodePeek) {

@@ -2,7 +2,6 @@ import { type ReactElement, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { CodePeekCard } from "./CodePeek";
 import { a as ReviewMdxLink } from "./review-components";
 import {
   reviewSessionElement,
@@ -82,47 +81,5 @@ describe("review app links", () => {
     expect(html).toContain('href="#summary"');
     expect(html).not.toContain("target=");
     expect(html).not.toContain("rel=");
-  });
-});
-
-describe("review app CodePeek rendering", () => {
-  it("leaves resolved CodePeek identity and stats to the native editor header", () => {
-    const input = {
-      side: "base",
-      file: "src/example.ts",
-      fromLine: 1,
-      toLine: 3,
-    } as const;
-
-    const html = renderWithTestSession(
-      createElement(CodePeekCard, { source: input }),
-    );
-
-    expect(html).toContain('data-code-rendering="inline-editor"');
-    expect(html).not.toContain("code-peek-card");
-    expect(html).not.toContain("ReviewWorkbench");
-    expect(html).not.toContain("src/old.ts:12–14");
-    expect(html).not.toContain("src/old.ts → src/new.ts");
-    expect(html).not.toContain("diff counts");
-    expect(html).not.toContain("SECRET_SNAPSHOT_SOURCE");
-  });
-
-  it("renders a no-diff CodePeek without a duplicate React header", () => {
-    const input = {
-      side: "head",
-      file: "src/unchanged.ts",
-      fromLine: 8,
-      toLine: 8,
-    } as const;
-
-    const html = renderWithTestSession(
-      createElement(CodePeekCard, { source: input }),
-    );
-
-    expect(html).toContain('data-review-inline-editor="src/unchanged.ts"');
-    expect(html).not.toContain("code-peek-card");
-    expect(html).not.toContain("src/unchanged.ts:8");
-    expect(html).not.toContain("Open in editor");
-    expect(html).not.toContain("diff counts");
   });
 });

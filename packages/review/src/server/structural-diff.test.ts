@@ -23,10 +23,15 @@ async function executable(script: string) {
 }
 const START = {
   type: "start",
-  version: 3,
+  version: 4,
   lhs: { type: "revision", rev: "base" },
   rhs: { type: "revision", rev: "head" },
-  files: [],
+  files: [
+    {
+      file: { rhs: { path: "a.ts", oid: "2", mode: "100644" } },
+      status: "added",
+    },
+  ],
 };
 const FILE = { rhs: { path: "a.ts", oid: "2", mode: "100644" } };
 const BINARY = {
@@ -72,6 +77,7 @@ test.each(["trees", "merge-base"] as const)(
       root,
       "--format",
       "ndjson",
+      "--stream-annotations",
       ...(kind === "trees" ? ["base", "head"] : ["base...head"]),
       "--",
       "space name.ts",
@@ -195,6 +201,50 @@ test("rendering and coverage share a stream; cancelling one reader preserves the
     }
 
     expect(await readFile(path.join(root, "runs"), "utf8")).toBe("xx");
+  } finally {
+    cache.close();
+  }
+});
+
+test("annotation failure is data, preserves files, and explains exit 2", async () => {
+  const annotation = {
+    type: "annotations",
+    file: FILE,
+    annotations: [],
+    error: { code: "enrichment_failed", message: "offline" },
+  };
+  const root = await executable(
+    `${emit(START)} ${emit(BINARY)} ${emit(annotation)} ${emit(COMPLETE)} process.exitCode = 2;`,
+  );
+  expect(await collect(request(root))).toEqual([
+    START,
+    BINARY,
+    annotation,
+    COMPLETE,
+  ]);
+});
+
+test("coverage can detach after initial files while summaries continue for later readers", async () => {
+  const { StructuralComparisons } = await import("./structural-comparisons.js");
+  const annotation = {
+    type: "annotations",
+    file: FILE,
+    annotations: [{ region_id: 1, label: "summary" }],
+  };
+  const root = await executable(`
+    require('node:fs').appendFileSync('runs', 'x');
+    ${emit(START)} ${emit(BINARY)}
+    const timer = setInterval(() => { if(require('node:fs').existsSync('continue')) { clearInterval(timer); ${emit(annotation)} ${emit(COMPLETE)} } }, 10);
+  `);
+  const cache = new StructuralComparisons();
+  try {
+    for await (const event of cache.stream(request(root)))
+      if (event.type === "file") break;
+    await writeFile(path.join(root, "continue"), "");
+    const events = [];
+    for await (const event of cache.stream(request(root))) events.push(event);
+    expect(events).toEqual([START, BINARY, annotation, COMPLETE]);
+    expect(await readFile(path.join(root, "runs"), "utf8")).toBe("x");
   } finally {
     cache.close();
   }

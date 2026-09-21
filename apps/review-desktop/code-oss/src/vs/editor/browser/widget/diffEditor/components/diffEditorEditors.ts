@@ -123,7 +123,11 @@ export class DiffEditorEditors extends Disposable {
 
 		this._register(editor.onDidContentSizeChange(e => {
 			const width = this.original.getContentWidth() + this.modified.getContentWidth() + OverviewRulerFeature.ENTIRE_DIFF_OVERVIEW_WIDTH;
-			const height = Math.max(this.modified.getContentHeight(), this.original.getContentHeight());
+			// Inline deleted code is rendered into the modified editor. The hidden
+			// original editor may retain an empty-model line or alignment zones.
+			const height = this._options.renderSideBySide.get()
+				? Math.max(this.modified.getContentHeight(), this.original.getContentHeight())
+				: this.modified.getContentHeight();
 
 			this._onDidContentSizeChange.fire({
 				contentHeight: height,

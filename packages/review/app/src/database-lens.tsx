@@ -10,12 +10,12 @@ import {
 import { createPortal } from "react-dom";
 
 import type { DatabaseLensBlockProps } from "../../src/database-lens-block";
+import { type DiffSelection } from "../../src/lens-selection";
 import type {
   DatabaseField,
   DatabaseOperation,
   DatabaseStore,
 } from "../../src/review-api/document";
-import type { Source } from "../../src/source";
 import { DiagramTourOverlay, useDiagramTourShell } from "./diagram-tour";
 import { useReviewSession } from "./host/review-session";
 import type { GuidedTour, PeekAnchor } from "./review-panel-model";
@@ -67,7 +67,7 @@ export interface ParsedOperation {
   target: LensTarget;
   label: string;
   detail?: string;
-  source: Source;
+  source: DiffSelection;
 }
 
 export interface ParsedUseCase {

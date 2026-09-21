@@ -471,7 +471,7 @@ class CollapsedCodeOverlayWidget extends ViewZoneOverlayWidget {
 			/** @description update labels */
 
 			const children: HTMLElement[] = [];
-			const label = _unchangedRegion.label;
+			const label = _unchangedRegion.readLabel(reader);
 			const detailText = bandDetailText(label);
 			const contentLeft = observableCodeEditor(this._editor).layoutInfoContentLeft.read(reader);
 			this._nodes.root.style.setProperty('--diff-fold-content-left', `${contentLeft}px`);

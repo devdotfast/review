@@ -11,13 +11,13 @@ import {
   useState,
 } from "react";
 
+import { type DiffSelection } from "../../src/lens-selection";
 import type { ReviewApiClient } from "../../src/review-api/client";
 import {
   type Block,
-  type Source,
   elements,
   resourceReferences,
-  sourceReferences,
+  selectionReferences,
 } from "../../src/review-api/document";
 import type { LocalReviewData } from "../../src/review-api/local-data";
 import type { Snapshot } from "../../src/review-api/store";
@@ -108,16 +108,19 @@ export function createDocumentLoader(client: ReviewApiClient) {
         maps: new Map(),
       };
 
-      for (const { id, source, label } of sourceReferences(snapshot.document, {
-        tolerant: true,
-      })) {
+      for (const { id, source, label } of selectionReferences(
+        snapshot.document,
+        {
+          tolerant: true,
+        },
+      )) {
         if (snapshot.staleSources?.includes(id)) continue;
         data.anchors.set(
           id,
           sourceAnchor(
             id,
             source,
-            label ?? `${source.file}:${source.fromLine}`,
+            label ?? `${source.file}:${source.start.line}`,
           ),
         );
       }
@@ -195,7 +198,7 @@ export function createDocumentLoader(client: ReviewApiClient) {
 
 export function sourceAnchor(
   id: string,
-  source: Source,
+  source: DiffSelection,
   title: string,
 ): DocumentPeekableAnchor {
   return { __kind: "db-anchor-ref", id, title, peek: source };
@@ -300,6 +303,8 @@ export const DocumentNode = memo(function DocumentNode({
       />
     ));
 
+  if (node.type === "file_lens") return null;
+
   if (
     node.type === "software_map" &&
     (!softwareMapEnabled || data.snapshot.origin?.tutorial)
@@ -308,7 +313,7 @@ export const DocumentNode = memo(function DocumentNode({
 
   const stale =
     node.type !== "section" &&
-    sourceReferences([node], { tolerant: true }).some((reference) =>
+    selectionReferences([node], { tolerant: true }).some((reference) =>
       data.snapshot.staleSources?.includes(reference.id),
     );
 

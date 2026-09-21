@@ -562,6 +562,7 @@ export function bandHeightPx(label: string | undefined, lineHeight: number): num
 /** What sizing a hidden-region band needs to know about its region. */
 export interface IBandRegion {
 	readonly label: string | undefined;
+	readLabel?(reader: IReader | undefined): string | undefined;
 	shouldHideControls(reader: IReader | undefined): boolean;
 }
 
@@ -574,5 +575,5 @@ export function bandZoneHeightPx(regions: readonly IBandRegion[], index: number,
 	const region = regions[index];
 	if (region.shouldHideControls(reader)) { return undefined; }
 	if (compactMode) { return index === 0 || index === regions.length - 1 ? undefined : 12; }
-	return bandHeightPx(region.label, lineHeight);
+	return bandHeightPx(region.readLabel ? region.readLabel(reader) : region.label, lineHeight);
 }

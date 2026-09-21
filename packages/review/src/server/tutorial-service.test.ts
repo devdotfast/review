@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import { selectSource } from "../lens-selection";
 import {
   elements,
   resourceReferences,
@@ -117,7 +118,12 @@ it("rejects invalid shipped source references before saving a document", async (
   const authored = JSON.parse(await readFile(file, "utf8"));
   authored.document.push({
     type: "code_peek",
-    source: { side: "head", file: "missing.ts", fromLine: 1, toLine: 2 },
+    source: selectSource({
+      side: "head",
+      file: "missing.ts",
+      fromLine: 1,
+      toLine: 2,
+    }),
   });
   await writeFile(file, JSON.stringify(authored));
   await expect(service.prepare()).rejects.toThrow(

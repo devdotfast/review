@@ -3,10 +3,10 @@ import type {
   ReviewDiffFileWire,
 } from "@dev.fast/review-protocol";
 
-import type { Source } from "../../src/source";
+import { type DiffSelection } from "../../src/lens-selection";
 
 export type ReviewPeekContent =
-  | { kind: "source"; source: Source }
+  | { kind: "source"; source: DiffSelection }
   | { kind: "inline-code"; language?: string; text: string }
   | { kind: "explanation"; text?: string }
   | {
@@ -24,7 +24,7 @@ export interface PeekAnchor {
   id: string;
   title: string;
   detail?: string;
-  peek?: Source;
+  peek?: DiffSelection;
   softwareMapPath?: string;
 }
 

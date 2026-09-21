@@ -1,13 +1,12 @@
-import {
-  type Element,
-  ReviewInputError,
-  type Source,
-  elements,
-} from "./document.js";
+import { type LensSource } from "../lens-selection.js";
+import { fileLensTargets } from "./blocks/file_lens.js";
+import { type Element, ReviewInputError, elements } from "./document.js";
 import type { Snapshot } from "./store.js";
 
-const sourceText = (source: Source) =>
-  `${source.side}/${source.file}:${source.fromLine}-${source.toLine}`;
+const sourceText = (source: LensSource) =>
+  source.start.side === source.end.side
+    ? `${source.start.side}/${source.file}:${source.start.line}-${source.end.line}`
+    : `${source.file} diff rows ${source.start.side}:${source.start.line}–${source.end.side}:${source.end.line}`;
 
 /** A reading view of saved content, not another document format to maintain. */
 export function documentText(
@@ -152,6 +151,15 @@ export function documentText(
       case "trace_quote":
         detail(`${element.traceId}, event ${element.eventId}`);
         detail(element.text);
+        break;
+      case "file_lens":
+        for (const target of fileLensTargets(element)) {
+          if (target.kind === "files")
+            detail(`Files: ${target.patterns.join(", ")}`);
+          else
+            for (const source of target.sources)
+              detail(`Range: ${sourceText(source)}`);
+        }
         break;
       case "software_map":
         detail(

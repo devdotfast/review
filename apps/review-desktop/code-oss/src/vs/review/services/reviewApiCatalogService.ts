@@ -3,6 +3,8 @@
  *  Licensed under the MIT License. See LICENSE in the repository root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import { IConfigurationService } from "../../platform/configuration/common/configuration.js";
+import { REVIEW_STRUCTURAL_DIFF_SETTING } from "../common/reviewConfigurationDefaults.js";
 import { Emitter, type Event } from "../../base/common/event.js";
 import { Disposable, toDisposable } from "../../base/common/lifecycle.js";
 import { generateUuid } from "../../base/common/uuid.js";
@@ -35,27 +37,44 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 	loaded = false;
 	private client?: ReviewApiClient;
 	private started?: Promise<void>;
+	private connectionAbort?: AbortController;
 
 	constructor(
 		@IReviewDesktopConnectionService private readonly session: IReviewDesktopConnectionService,
 		@ILogService private readonly log: ILogService,
+		@IConfigurationService private readonly configuration: IConfigurationService,
 	) {
 		super();
+		this._register(configuration.onDidChangeConfiguration(event => {
+			if (!event.affectsConfiguration(REVIEW_STRUCTURAL_DIFF_SETTING) || !this.started) return;
+			this.connectionAbort?.abort();
+			this.started = undefined;
+			this.reviews = this.reviews.map(review => ({ ...review, diffStats: null }));
+			this.changed.fire();
+			void this.initialize().catch(error => this.log.warn("[Review] Catalog mode change failed:", error));
+		}));
 	}
 
 	initialize(): Promise<void> {
 		// A failed first list must not stick: Home and the next command retry it.
-		return (this.started ??= this.connect().catch((error) => {
-			this.started = undefined;
-			throw error;
-		}));
+		if (!this.started) {
+			const pending = this.connect().catch((error) => {
+				if (this.started === pending) this.started = undefined;
+				throw error;
+			});
+			this.started = pending;
+		}
+		return this.started;
 	}
 
 	private async connect(): Promise<void> {
-		const client = new ReviewApiClient(await this.session.getConnection());
 		const abort = new AbortController();
+		this.connectionAbort = abort;
+		const mode = this.configuration.getValue<boolean>(REVIEW_STRUCTURAL_DIFF_SETTING) === false ? "textual" : "structural";
+		const client = new ReviewApiClient(await this.session.getConnection());
 		this._register(toDisposable(() => abort.abort()));
 		const accept = (reviews: ReviewApiSummary[]) => {
+			if (abort.signal.aborted) return;
 			const previous = this.reviews;
 			this.reviews = reviews;
 			this.loaded = true;
@@ -67,10 +86,11 @@ export class ReviewApiCatalogService extends Disposable implements IReviewApiCat
 		};
 		// Surface a failed first list instead of reporting an empty catalog:
 		// tab restoration would otherwise drop every persisted API tab.
-		accept(await client.read<ReviewApiSummary[]>("", abort.signal));
+		accept(await client.read<ReviewApiSummary[]>(`?mode=${mode}`, abort.signal));
 		this.client = client;
 		void client.follow<ReviewApiSummary[]>(null, abort.signal, accept, (error) =>
 			this.log.warn("[Review] API review list disconnected:", error),
+			mode,
 		);
 	}
 

@@ -39,7 +39,10 @@ export interface ReviewSourceEntry {
   kind: "file" | "directory";
 }
 
-type Subscription = { reviewId: string | null };
+type Subscription = {
+  mode?: "structural" | "textual";
+  reviewId: string | null;
+};
 
 type Request = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -154,6 +157,7 @@ export class ReviewApiClient {
     signal: AbortSignal,
     accept: (snapshot: T) => void | Promise<void>,
     disconnected: (cause: unknown) => void,
+    mode?: "structural" | "textual",
   ) {
     if (signal.aborted) return;
     let connections = liveConnections.get(this.request);
@@ -174,7 +178,7 @@ export class ReviewApiClient {
     }
 
     return live.add(
-      { reviewId },
+      { reviewId, ...(mode ? { mode } : {}) },
       signal,
       // SAFETY: this listener requests the review whose snapshot type is T.
       (value) => accept(value as T),

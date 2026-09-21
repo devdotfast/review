@@ -1,7 +1,7 @@
 import { type JsonValue, jsonValueSchema } from "@dev.fast/review-protocol";
 import { z } from "zod";
 
-import { sourceSchema } from "../../source.js";
+import { lensSourceSchema } from "../../lens-selection.js";
 import { ReviewInputError } from "../input-error.js";
 import {
   type BlockDefinition,
@@ -69,7 +69,7 @@ export const operationSchema = z.strictObject({
   actor: label,
   label,
   detail: label.optional(),
-  source: sourceSchema,
+  source: lensSourceSchema,
 });
 
 // The legacy MDX audit rejected these empty forms after a lens with

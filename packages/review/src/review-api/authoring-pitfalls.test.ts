@@ -16,6 +16,7 @@ import {
   FIXTURE_TRACE_ID,
   readBlockFixtures,
 } from "../fixtures/blocks/fixtures.js";
+import { selectSource } from "../lens-selection.js";
 import { type Pins, elements } from "./document.js";
 import { createReviewApi } from "./http.js";
 import { openLocalReviewStore } from "./local-data.js";
@@ -155,7 +156,7 @@ const operation = {
   field: "id",
   actor: "app",
   label: "Insert",
-  source: head("src/store.ts", 1, 2),
+  source: selectSource(head("src/store.ts", 1, 2)),
 };
 
 describe("lens rules the mount used to be the only guard for", () => {
@@ -284,8 +285,8 @@ describe("diagram rules", () => {
           type: "call_stack_diff",
           title: "Save",
           base: [
-            { key: "save", source: baseSource },
-            { key: "save", source: baseSource },
+            { key: "save", source: selectSource(baseSource) },
+            { key: "save", source: selectSource(baseSource) },
           ],
           head: [],
         }),
@@ -300,16 +301,16 @@ describe("diagram rules", () => {
     const result = await insert({
       type: "call_stack_diff",
       title: "Two paths in the head snapshot",
-      base: [{ source: baseSource }],
-      head: [{ source: headSource }],
+      base: [{ source: selectSource(baseSource) }],
+      head: [{ source: selectSource(headSource) }],
     });
 
     expect(result.status).toBe(200);
     expect(local.store.read(reviewId).document).toContainEqual(
       expect.objectContaining({
         type: "call_stack_diff",
-        base: [expect.objectContaining({ source: baseSource })],
-        head: [expect.objectContaining({ source: headSource })],
+        base: [expect.objectContaining({ source: selectSource(baseSource) })],
+        head: [expect.objectContaining({ source: selectSource(headSource) })],
       }),
     );
   });
@@ -322,7 +323,7 @@ describe("source rules in every peek position", () => {
     const message = "src/blank.ts:2-3 contains only whitespace";
 
     await expectRejected(
-      () => insert({ type: "code_peek", source: blank }),
+      () => insert({ type: "code_peek", source: selectSource(blank) }),
       message,
     );
     await expectRejected(
@@ -331,7 +332,14 @@ describe("source rules in every peek position", () => {
           type: "sequence",
           title: "Save",
           actors: { app: "App" },
-          steps: [{ from: "app", to: "app", label: "Write", source: blank }],
+          steps: [
+            {
+              from: "app",
+              to: "app",
+              label: "Write",
+              source: selectSource(blank),
+            },
+          ],
         }),
       message,
     );
@@ -341,7 +349,7 @@ describe("source rules in every peek position", () => {
           type: "call_stack_diff",
           title: "Save",
           base: [],
-          head: [{ source: blank }],
+          head: [{ source: selectSource(blank) }],
         }),
       message,
     );
@@ -350,7 +358,10 @@ describe("source rules in every peek position", () => {
         insert({
           ...lensBase,
           useCases: [
-            { label: "x", operations: [{ ...operation, source: blank }] },
+            {
+              label: "x",
+              operations: [{ ...operation, source: selectSource(blank) }],
+            },
           ],
         }),
       message,
@@ -368,24 +379,44 @@ describe("source rules in every peek position", () => {
 
   it("rejects bad paths and ranges", async () => {
     await expectRejected(
-      () => insert({ type: "code_peek", source: head("../etc/passwd", 1) }),
+      () =>
+        insert({
+          type: "code_peek",
+          source: selectSource(head("../etc/passwd", 1)),
+        }),
       "Source file must be a repository-relative path.",
     );
     await expectRejected(
-      () => insert({ type: "code_peek", source: head("src/store.ts", 1, 99) }),
+      () =>
+        insert({
+          type: "code_peek",
+          source: selectSource(head("src/store.ts", 1, 99)),
+        }),
       /exceeds the pinned file/,
     );
     await expectRejected(
-      () => insert({ type: "code_peek", source: head("src/store.ts", 3, 1) }),
+      () =>
+        insert({
+          type: "code_peek",
+          source: selectSource(head("src/store.ts", 3, 1)),
+        }),
       "Source range ends before it starts.",
     );
     await expectRejected(
-      () => insert({ type: "code_peek", source: head("src/missing.ts", 1) }),
+      () =>
+        insert({
+          type: "code_peek",
+          source: selectSource(head("src/missing.ts", 1)),
+        }),
       "File is unavailable at the pinned commit.",
       404,
     );
     await expectRejected(
-      () => insert({ type: "code_peek", source: head("assets/logo.png", 1) }),
+      () =>
+        insert({
+          type: "code_peek",
+          source: selectSource(head("assets/logo.png", 1)),
+        }),
       "Binary files cannot be used as code references.",
     );
   });

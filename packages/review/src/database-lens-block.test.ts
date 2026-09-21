@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { StoreRefData, TargetRef } from "./authoring";
 import { databaseLensBlockFromLegacy } from "./database-lens-block";
+import { selectSource } from "./lens-selection";
 import { checkReferences } from "./review-api/document";
 
 const target = (
@@ -71,7 +72,12 @@ describe("databaseLensBlockFromLegacy", () => {
       __kind: "db-anchor-ref" as const,
       id: "current",
       title: "Current row",
-      peek: { side: "head" as const, file: "src/x.ts", fromLine: 1, toLine: 2 },
+      peek: selectSource({
+        side: "head" as const,
+        file: "src/x.ts",
+        fromLine: 1,
+        toLine: 2,
+      }),
     };
 
     const actor = { __kind: "db-actor-ref" as const, id: "api", label: "API" };
@@ -123,12 +129,12 @@ describe("databaseLensBlockFromLegacy", () => {
                   id: "insertOrder",
                   title: "Insert order",
                   detail: "Writes the row",
-                  peek: {
+                  peek: selectSource({
                     side: "head",
                     file: "src/orders.ts",
                     fromLine: 3,
                     toLine: 9,
-                  },
+                  }),
                 },
               },
             },
@@ -145,12 +151,12 @@ describe("databaseLensBlockFromLegacy", () => {
                   __kind: "db-anchor-ref",
                   id: "readCity",
                   title: "Read city",
-                  peek: {
+                  peek: selectSource({
                     side: "head",
                     file: "src/users.ts",
                     fromLine: 1,
                     toLine: 2,
-                  },
+                  }),
                 },
               },
             },
@@ -236,10 +242,9 @@ describe("databaseLensBlockFromLegacy", () => {
             label: "insert order",
             detail: "Writes the row",
             source: {
-              side: "head",
               file: "src/orders.ts",
-              fromLine: 3,
-              toLine: 9,
+              start: { side: "head", line: 3 },
+              end: { side: "head", line: 9 },
             },
           },
           {
@@ -251,10 +256,9 @@ describe("databaseLensBlockFromLegacy", () => {
             actor: "worker",
             label: "read city",
             source: {
-              side: "head",
               file: "src/users.ts",
-              fromLine: 1,
-              toLine: 2,
+              start: { side: "head", line: 1 },
+              end: { side: "head", line: 2 },
             },
           },
         ],

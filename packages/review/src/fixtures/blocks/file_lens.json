@@ -1,0 +1,8 @@
+[
+  {
+    "type": "file_lens",
+    "id": "files-1",
+    "title": "Test file bucket",
+    "patterns": ["**/*.test.ts", "docs/**"]
+  }
+]

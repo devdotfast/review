@@ -49,6 +49,7 @@ import {
   useReviewFindRegistration,
 } from "./review-find";
 import { ReviewHistoryControl } from "./review-history-control";
+import { useReviewLenses } from "./review-lenses";
 import {
   ReviewPanelProvider,
   useReviewPanel,
@@ -411,6 +412,14 @@ function ReviewLayoutContent({
     ...(softwareMapEnabled ? (["map"] as const) : []),
     ...(hasTraceSessions ? (["trace"] as const) : []),
   ];
+
+  const lenses = useReviewLenses();
+  useEffect(() => {
+    if (lenses?.active) {
+      setDiffScope(null);
+      setActiveView("diff");
+    }
+  }, [lenses?.active]);
 
   const reviewViewsRef = useRef(reviewViews);
   reviewViewsRef.current = reviewViews;

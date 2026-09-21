@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import { selectSource } from "../lens-selection";
 import { ReviewInputError } from "../review-api/document.js";
 import { createReviewApi } from "../review-api/http.js";
 import { openLocalReviewStore } from "../review-api/local-data.js";
@@ -81,11 +82,21 @@ async function fixture() {
   for (const content of [
     {
       type: "code_peek",
-      source: { side: "head", file: "main.ts", fromLine: 1, toLine: 1 },
+      source: selectSource({
+        side: "head",
+        file: "main.ts",
+        fromLine: 1,
+        toLine: 1,
+      }),
     },
     {
       type: "code_peek",
-      source: { side: "head", file: "new.ts", fromLine: 1, toLine: 1 },
+      source: selectSource({
+        side: "head",
+        file: "new.ts",
+        fromLine: 1,
+        toLine: 1,
+      }),
     },
     {
       type: "trace_quote",

@@ -28,12 +28,18 @@ const client = new ReviewApiClient(
 );
 
 afterEach(async () => {
-  for (const { reviewId } of store.list())
-    await store.execute({
-      commandId: randomUUID(),
-      operation: { type: "delete", reviewId },
-    });
+  // The scratchpad cannot be deleted; every review can.
+  for (const { reviewId, kind } of store.list())
+    if (kind !== "scratchpad")
+      await store.execute({
+        commandId: randomUUID(),
+        operation: { type: "delete", reviewId },
+      });
 });
+
+/** Catalog entries that are reviews: listing also makes the scratchpad. */
+const reviewsOnly = (entries: { kind?: string }[]) =>
+  entries.filter((entry) => entry.kind !== "scratchpad");
 
 it("uses host-advertised tools to edit, retry, reject invalid content and inspect saved IDs", async () => {
   const tools = await client.read<AuthoringTool[]>("/authoring");
@@ -207,7 +213,7 @@ it("serves MCP framing without stdout diagnostics and returns host errors as too
       arguments: {},
     });
 
-    expect(JSON.parse(next.result.content[0].text)).toEqual([]);
+    expect(reviewsOnly(JSON.parse(next.result.content[0].text))).toEqual([]);
 
     const created = await store.execute({
       commandId: randomUUID(),
@@ -351,7 +357,9 @@ it("binds existing content through the host-advertised PR tool", async () => {
     },
   );
   expect(store.read(created.reviewId).document).toEqual(authored);
-  expect(store.list()[0]?.origin).toEqual({
+  expect(
+    store.list().find((review) => review.reviewId === created.reviewId)?.origin,
+  ).toEqual({
     pullRequestNumber: 310,
     pullRequestUrl: "https://github.com/devdotfast/review/pull/310",
   });

@@ -5,6 +5,8 @@ export interface ReviewApiSummary {
   reviewId: string;
   version: number;
   title: string;
+  /** Absent for a review. The one scratchpad has no pins or lifecycle. */
+  kind?: "scratchpad";
   /** Absent for a document whose references all carry their own pins. */
   pins?: {
     repositoryId: string;

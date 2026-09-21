@@ -29,6 +29,7 @@ import {
 } from "./review-progress.js";
 import {
   type ReviewStore,
+  SCRATCHPAD_ID,
   type Snapshot,
   commandSchema,
   inspectSnapshot,
@@ -91,7 +92,20 @@ export function createReviewApi(
     operation: z.object({ reviewId: z.string().optional() }),
   });
 
+  // The host that can show the scratchpad keeps it: Desktop, interactively.
+  // Batch authoring and headless servers never make one.
+  const ensureScratchpad = async (id?: string) => {
+    if (
+      authoringMode === "interactive" &&
+      open &&
+      (!id || id === SCRATCHPAD_ID)
+    )
+      await store.ensureScratchpad();
+  };
+
   const sharedGuard: MiddlewareHandler = async (context, next) => {
+    await ensureScratchpad(context.req.param("id"));
+
     const id = context.req.param("id");
 
     if (!id || !isShared(id)) return next();
@@ -134,9 +148,13 @@ export function createReviewApi(
     return [...store.list(mode), ...(shared?.list() ?? [])];
   };
 
-  app.get("/", (context) =>
-    context.json(catalog(coverageModeSchema.parse(context.req.query("mode")))),
-  );
+  app.get("/", async (context) => {
+    await ensureScratchpad();
+
+    return context.json(
+      catalog(coverageModeSchema.parse(context.req.query("mode"))),
+    );
+  });
   app.get("/authoring", (context) =>
     context.json(authoringTools(authoringMode)),
   );
@@ -305,7 +323,7 @@ export function createReviewApi(
 
     return context.json(store.activity.update(id, input));
   });
-  app.get("/watch", (context) => {
+  app.get("/watch", async (context) => {
     const query = context.req.query("subscriptions");
 
     if (query !== undefined) {
@@ -398,6 +416,8 @@ export function createReviewApi(
         () => {},
       );
     }
+
+    await ensureScratchpad();
 
     return watch(
       () => catalog(coverageModeSchema.parse(context.req.query("mode"))),
@@ -1011,6 +1031,9 @@ export function createReviewApi(
         409,
       );
     const command = sharedCommandSchema.safeParse(input);
+
+    if (command.success)
+      await ensureScratchpad(command.data.operation.reviewId);
 
     if (
       command.success &&

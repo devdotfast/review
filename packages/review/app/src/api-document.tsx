@@ -215,9 +215,13 @@ export function ApiDocument({
     [data.snapshot.document],
   );
 
+  // The scratchpad is a napkin, not a titled document: no heading, no
+  // updated-ago line, just the blocks.
+  const scratchpad = data.snapshot.kind === "scratchpad";
+
   return (
     <>
-      {!hasTitle && (
+      {!hasTitle && !scratchpad && (
         <ReviewDocumentTitle>{data.snapshot.title}</ReviewDocumentTitle>
       )}
       {(data.snapshot.target?.kind === "worktree" ||

@@ -1190,9 +1190,13 @@ const revealArgsSchema = z
 
 export const REVIEW_DISCORD_URL = "https://discord.gg/wYvd2cpMQg";
 
+/** The one scratchpad's fixed review id. */
+export const SCRATCHPAD_REVIEW_ID = "scratchpad";
+
 const apiReviewIdSchema = z.union([
   z.uuid(),
   z.string().regex(/^shared-[a-f0-9]{64}$/),
+  z.literal(SCRATCHPAD_REVIEW_ID),
 ]);
 
 export const ReviewVerbRequestSchema = z.discriminatedUnion("name", [

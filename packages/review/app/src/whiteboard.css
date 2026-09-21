@@ -523,6 +523,14 @@
   line-height: 32px;
 }
 
+/* The scratchpad has no title above its blocks, so its opening heading sits
+   at the page's top padding instead of carrying a section's headroom. */
+.review-document[data-kind="scratchpad"]
+  > .api-document-node:first-child
+  :is(h1, h2, h3):first-child {
+  margin-top: 0;
+}
+
 .review-document h3 {
   font-size: 20px;
   font-weight: 500;

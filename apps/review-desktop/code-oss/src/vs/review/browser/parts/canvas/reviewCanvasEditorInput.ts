@@ -15,7 +15,7 @@ import {
 import { EditorInput } from "../../../../workbench/common/editor/editorInput.js";
 import { IEditorGroupsService } from "../../../../workbench/services/editor/common/editorGroupsService.js";
 
-import type { ReviewSourceSelection } from "../../../common/reviewProtocol.js";
+import { SCRATCHPAD_REVIEW_ID, type ReviewSourceSelection } from "../../../common/reviewProtocol.js";
 import { sourceSelectionIdentity } from "../../../common/reviewSourceView.js";
 
 export type ReviewCanvasEditorTarget =
@@ -104,6 +104,7 @@ export class ReviewCanvasEditorInput extends EditorInput {
 	override getIcon(): ThemeIcon | undefined {
 		if (this.target.kind === "home") return Codicon.home;
 		if (this.target.kind === "api-source") return Codicon.repo;
+		if (this.target.kind === "api" && this.target.reviewId === SCRATCHPAD_REVIEW_ID) return Codicon.edit;
 		return undefined;
 	}
 

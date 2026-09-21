@@ -16,7 +16,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { installFile, runInstall } from "./install";
 
-const REQUIRED_SKILLS = ["dev-review", "dev-review-batch"] as const;
+const REQUIRED_SKILLS = [
+  "dev-review",
+  "dev-review-batch",
+  "scratchpad",
+] as const;
 
 const ALL_SKILLS = [...REQUIRED_SKILLS, "trace-archaeology"] as const;
 

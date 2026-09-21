@@ -46,6 +46,7 @@ import { IInstantiationService } from '../../instantiation/common/instantiation.
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { errorHandler } from '../../../base/common/errors.js';
 import { FocusMode } from '../../native/common/native.js';
+import { reviewBackgroundLaunch } from '../../../review/electron-main/reviewBackgroundLaunch.js';
 import { Color } from '../../../base/common/color.js';
 
 export interface IWindowCreationOptions {
@@ -302,7 +303,11 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
 
 			// to reduce flicker from the default window size
 			// to maximize or fullscreen, we only show after
-			this._win?.show();
+			if (reviewBackgroundLaunch.suppressesFocus) {
+				this._win?.showInactive();
+			} else {
+				this._win?.show();
+			}
 		}
 	}
 
@@ -343,7 +348,12 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
 	}
 
 	focus(options?: { mode: FocusMode }): void {
-		switch (options?.mode ?? FocusMode.Transfer) {
+		const mode = options?.mode ?? FocusMode.Transfer;
+		if (!reviewBackgroundLaunch.allowsFocus(mode)) {
+			return;
+		}
+
+		switch (mode) {
 			case FocusMode.Transfer:
 				this.doFocusWindow();
 				break;
@@ -713,6 +723,9 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 			}
 
 			const options = instantiationService.invokeFunction(defaultBrowserWindowOptions, this.windowState, undefined, webPreferences);
+			if (reviewBackgroundLaunch.suppressesFocus) {
+				options.show = false; // shown inactive below
+			}
 
 			// Create the browser window
 			mark('code/willCreateCodeBrowserWindow');
@@ -721,6 +734,10 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 
 			this._id = this._win.id;
 			this.setWin(this._win, options);
+			if (reviewBackgroundLaunch.suppressesFocus) {
+				this._win.showInactive();
+				this._win.once('focus', () => reviewBackgroundLaunch.release());
+			}
 
 			// Apply some state after window creation
 			this.applyState(this.windowState, hasMultipleDisplays);

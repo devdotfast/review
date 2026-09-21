@@ -8,6 +8,10 @@ import {
 import "./share-control.css";
 import { copyText } from "./copy-text";
 import { ShareIcon } from "./icons";
+import {
+  useSharingAccount,
+  watchSharingAccount,
+} from "./sharing-account-store";
 import { useDismissOnOutside } from "./use-dismiss-on-outside";
 import { useTooltip } from "./use-tooltip";
 import { useTopbarPopover } from "./use-topbar-popover";
@@ -20,17 +24,12 @@ export const SharingContext = createContext<{
   cloneUrl?: string;
 } | null>(null);
 
-type Account = {
-  account: { login: string; origin: string } | null;
-  pending: boolean;
-  url?: string;
-  error?: string;
-};
-
 export function ShareControl() {
   const context = useContext(SharingContext);
   const [open, setOpen] = useState(false);
-  const [account, setAccount] = useState<Account>();
+  const account = useSharingAccount((state) => state.account);
+  const accountError = useSharingAccount((state) => state.error);
+  const login = useSharingAccount((state) => state.login);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [link, setLink] = useState<string>();
@@ -53,30 +52,10 @@ export function ShareControl() {
 
   const tooltip = useTooltip(label);
   useEffect(() => {
-    if (!open || !context || shared || signedIn) return;
-    let cancelled = false;
+    if (!context || shared) return;
 
-    const load = () =>
-      context.client
-        .read<Account>("/sharing/account")
-        .then((value) => {
-          if (!cancelled) setAccount(value);
-        })
-        .catch(() => {
-          if (!cancelled) setError("Could not read sign-in status.");
-        });
-
-    void load();
-
-    const interval = setInterval(() => {
-      void load();
-    }, 2000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [open, context?.client, shared, signedIn]);
+    return watchSharingAccount(context.client);
+  }, [context?.client, shared]);
   useDismissOnOutside(popover, open, setOpen);
 
   const run = async (operation: () => Promise<void>) => {
@@ -145,7 +124,6 @@ export function ShareControl() {
               requestId: crypto.randomUUID(),
               started: false,
             };
-            setAccount(undefined);
             setLink(undefined);
             setError(undefined);
             setCopied(false);
@@ -164,9 +142,9 @@ export function ShareControl() {
           aria-label={shared ? "Shared review" : "Share review"}
           className="review-share-popover"
         >
-          {(error || account?.error) && (
+          {(error || accountError || account?.error) && (
             <p className="review-share-error" role="alert">
-              {error ?? account?.error}
+              {error ?? accountError ?? account?.error}
             </p>
           )}
           {shared ? (
@@ -213,12 +191,7 @@ export function ShareControl() {
                   type="button"
                   className="review-share-action"
                   disabled={account.pending || busy}
-                  onClick={() =>
-                    void run(async () => {
-                      await context.client.post("/sharing/login", {});
-                      setAccount({ account: null, pending: true });
-                    })
-                  }
+                  onClick={() => void run(login)}
                 >
                   {account.pending ? "Waiting for GitHub…" : "Sign in to share"}
                 </button>

@@ -25,6 +25,7 @@ function mount(options: {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const state = { ...options };
   const posts: Array<{ path: string; body: unknown }> = [];
+  let accountReads = 0;
 
   const client = new ReviewApiClient(
     { serverUrl: "http://localhost", token: "local" },
@@ -34,13 +35,16 @@ function mount(options: {
       if (init?.method === "POST")
         posts.push({ path, body: JSON.parse(String(init.body)) });
 
-      if (path.endsWith("/account"))
+      if (path.endsWith("/account")) {
+        accountReads += 1;
+
         return Response.json({
           account: state.signedIn
             ? { login: "author", origin: "https://app.dev.fast" }
             : null,
           pending: false,
         });
+      }
 
       if (path.endsWith("/login")) {
         state.signedIn = true;
@@ -99,7 +103,15 @@ function mount(options: {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
-  return { container, posts, state, render, click, settle };
+  return {
+    container,
+    posts,
+    state,
+    render,
+    click,
+    settle,
+    accountReads: () => accountReads,
+  };
 }
 
 const publishes = (harness: Harness) =>
@@ -186,4 +198,23 @@ it("shows the uploading state until the upload resolves", async () => {
   await harness.settle();
   expect(container.querySelector("input")?.value).toContain("#capability");
   expect(container.textContent).not.toContain("Uploading");
+});
+
+it("knows the sign-in state before the popover opens and refreshes it on focus", async () => {
+  const harness = mount({ signedIn: true });
+  const { container } = harness;
+
+  await harness.render(1);
+  await harness.settle();
+  expect(harness.accountReads()).toBe(1);
+  await harness.click("Share review");
+  expect(publishes(harness)).toHaveLength(1);
+  await harness.settle();
+  await harness.click("Share review");
+  await harness.click("Share review");
+  expect(harness.accountReads()).toBe(1);
+  expect(container.querySelector("input")?.value).toContain("#capability");
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await harness.settle();
+  expect(harness.accountReads()).toBe(2);
 });

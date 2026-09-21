@@ -17,6 +17,8 @@ import { consumeReviewEventStream } from "../common/reviewEventStream.js";
 import {
 type JsonValue,
 	type ReviewDiffrConfig,
+	type ReviewDiffrSummarizerInput,
+	isJsonObject,
 	parseReviewDiffrConfig,
 parseReviewCliInstallApplyResponse,
 parseReviewCliInstallStatus,
@@ -51,6 +53,8 @@ export interface IReviewDesktopConnectionService {
 	initialize(): Promise<void>;
 	getConnection(): Promise<ReviewServerConnection>;
 	readDiffrConfig(): Promise<ReviewDiffrConfig>;
+	saveDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<ReviewDiffrConfig>;
+	testDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<string>;
 	setDiffrConfigValue(key: string, value: JsonValue): Promise<ReviewDiffrConfig>;
 	getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }>;
 	prepareTutorial(): Promise<void>;
@@ -176,6 +180,32 @@ export class ReviewDesktopConnectionService extends Disposable implements IRevie
 		});
 		await this.requireOk(response, "diffr configuration");
 		return parseReviewDiffrConfig(await response.json());
+	}
+
+	async saveDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<ReviewDiffrConfig> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/diffr-config/summarizer`, {
+			method: "PUT",
+			headers: { ...this.authHeaders(), "content-type": "application/json" },
+			body: JSON.stringify(input),
+			signal: AbortSignal.timeout(120_000),
+		});
+		await this.requireOk(response, "summary settings");
+		return parseReviewDiffrConfig(await response.json());
+	}
+
+	async testDiffrSummarizer(input: ReviewDiffrSummarizerInput): Promise<string> {
+		await this.initialize();
+		const response = await fetch(`${this.serverUrl}/diffr-config/summarizer/test`, {
+			method: "POST",
+			headers: { ...this.authHeaders(), "content-type": "application/json" },
+			body: JSON.stringify(input),
+			signal: AbortSignal.timeout(95_000),
+		});
+		await this.requireOk(response, "summary test");
+		const result: unknown = await response.json();
+		if (!isJsonObject(result) || typeof result.summary !== "string") throw new Error("Malformed summary test response.");
+		return result.summary;
 	}
 
 	async getTutorialStatus(): Promise<{ version: 1; reviewUuid: string | null }> {

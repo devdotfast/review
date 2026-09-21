@@ -8359,3 +8359,25 @@ button.review-stack-row:disabled .review-stack-relation {
 .diff-cabinets-resizer.is-resizing::before {
   background: var(--ink-faint);
 }
+
+.review-settings-diffr summary {
+  cursor: pointer;
+  padding-block: 8px;
+}
+
+.review-settings-summary-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.review-settings-summary-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.review-settings-summary-result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

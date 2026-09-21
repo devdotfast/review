@@ -17,6 +17,7 @@ import {
   isJsonObject,
   isObjectValue,
   parseReviewCliInstallApplyRequest,
+  reviewDiffrSummarizerInputSchema,
 } from "@dev.fast/review-protocol";
 import { writePrivateJsonAtomic } from "@dev.fast/trace-core";
 import { type Context, Hono } from "hono";
@@ -40,7 +41,12 @@ import type { ReviewStore } from "../review-api/store.js";
 import { reviewDesktopDiscoveryPath } from "../review-home-paths";
 import { ReviewTelemetry } from "../review-telemetry";
 import type { SharedReviewStore } from "../sharing/import.js";
-import { readDiffrConfig, setDiffrConfigValue } from "./diffr-config";
+import {
+  readDiffrConfig,
+  saveDiffrSummarizer,
+  setDiffrConfigValue,
+  testDiffrSummarizer,
+} from "./diffr-config";
 import {
   GlobalReviewDesktopVerbRelay,
   type ReviewDesktopVerbRelay,
@@ -291,6 +297,32 @@ export function createGlobalReviewServer(
     }
 
     return globalJson(200, await setDiffrConfigValue(key, value));
+  });
+  app.put("/diffr-config/summarizer", async (context) => {
+    const input = reviewDiffrSummarizerInputSchema.safeParse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    if (!input.success)
+      throw new ReviewServerError("Invalid summary settings.", 400);
+
+    return globalJson(200, await saveDiffrSummarizer(input.data));
+  });
+  app.post("/diffr-config/summarizer/test", async (context) => {
+    const input = reviewDiffrSummarizerInputSchema.safeParse(
+      await readBoundedRequestJson(context.req.raw),
+    );
+
+    if (!input.success)
+      throw new ReviewServerError("Invalid summary settings.", 400);
+
+    return globalJson(200, {
+      summary: await testDiffrSummarizer(
+        input.data,
+        undefined,
+        context.req.raw.signal,
+      ),
+    });
   });
   app.get("/install/status", async () =>
     globalJson(

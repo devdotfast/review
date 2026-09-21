@@ -427,33 +427,45 @@ export const DEFAULT_DISMISSED_RETENTION_DAYS = 30;
  * setter resolves with the value that actually landed, so a row re-renders from
  * the authoritative result instead of an optimistic one.
  */
-/**
- * diffr's configuration as its CLI reports it: `schema` is the JSON Schema
- * from `diffr config schema`, whose properties carry `description` and
- * `default`; `values` is the resolved configuration from `diffr config show`.
- */
 export interface ReviewDiffrConfig {
-  schema: JsonObject;
   values: JsonObject;
+  credentialSource: "config" | "environment" | "missing";
+  changed?: boolean;
+  error?: string;
 }
 
-export function parseReviewDiffrConfig(value: JsonValue): ReviewDiffrConfig {
-  if (
-    !isJsonObject(value) ||
-    !isJsonObject(value.schema) ||
-    !isJsonObject(value.values)
-  ) {
-    throw new Error("diffr configuration response is malformed.");
-  }
+export const reviewDiffrSummarizerInputSchema = z.object({
+  enabled: z.boolean(),
+  model: z.string().trim().min(1),
+  tests: z.boolean(),
+  apiKey: z.string().optional(),
+});
 
-  return { schema: value.schema, values: value.values };
+export type ReviewDiffrSummarizerInput = z.infer<
+  typeof reviewDiffrSummarizerInputSchema
+>;
+
+const reviewDiffrConfigSchema = z.object({
+  values: z.custom<JsonObject>(isJsonObject),
+  credentialSource: z.enum(["config", "environment", "missing"]),
+  changed: z.boolean().optional(),
+  error: z.string().optional(),
+});
+
+export function parseReviewDiffrConfig(value: JsonValue): ReviewDiffrConfig {
+  const result = reviewDiffrConfigSchema.safeParse(value);
+
+  if (!result.success)
+    throw new Error("diffr configuration response is malformed.");
+
+  return result.data;
 }
 
 export interface ReviewDiffrConfigActions {
   read(): Promise<ReviewDiffrConfig>;
-  // Writes one dotted key with `diffr config set` and resolves with the fresh
-  // configuration, so the form re-renders from what actually landed.
   set(key: string, value: JsonValue): Promise<ReviewDiffrConfig>;
+  saveSummarizer(input: ReviewDiffrSummarizerInput): Promise<ReviewDiffrConfig>;
+  testSummarizer(input: ReviewDiffrSummarizerInput): Promise<string>;
 }
 
 export interface ReviewCanvasSettingsContent {
@@ -474,11 +486,9 @@ export interface ReviewCanvasSettingsContent {
   setSoftwareMapEnabled(enabled: boolean): Promise<boolean>;
   structuralDiffEnabled: boolean;
   setStructuralDiffEnabled(enabled: boolean): Promise<boolean>;
-  // diffr's own configuration, read and written through its CLI on the host
-  // so the diffr TUI and Review edit one file. Reads run lazily: the page asks
-  // when the Structural diff section renders, and a missing executable
-  // surfaces as the read's error rather than breaking the whole page.
+  // Shared CLI configuration, read when its disclosure opens.
   diffrConfig: ReviewDiffrConfigActions;
+  reloadWindow(): Promise<void>;
   manageExtensions(): void;
   // Agent installs are managed here too, so they stay reachable once Home
   // has reviews and no longer shows the Welcome rail. Absent when the

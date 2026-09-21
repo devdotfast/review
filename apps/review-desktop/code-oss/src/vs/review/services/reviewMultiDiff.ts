@@ -28,6 +28,7 @@ export interface ReviewMultiDiffHeaderEntry {
 	readonly note?: string;
 	/** Hover text for the counts: visible, structural and textual rows. */
 	readonly countsTitle?: string;
+	readonly sectionId?: string;
 	readonly section?: ReviewDiffSection;
 	readonly sectionCollapsed?: boolean;
 	readonly onToggleSectionCollapsed?: () => void;
@@ -63,13 +64,20 @@ export class ReviewMultiDiffUIElementFactory
     private readonly instantiationService: IInstantiationService,
   ) {}
 
-	createResourceSectionHeader(element: HTMLElement) {
+	getResourceSectionId(uris: Parameters<IResourceHeaderMetadata["setUris"]>[0]): string | undefined {
+		// Lens entries encode their section identity in both source URI fragments.
+		return uris?.modified?.fragment || uris?.original?.fragment || undefined;
+	}
+
+	createResourceSectionHeader(element: HTMLElement, sticky = false) {
 		const height = observableValue<number>(this, 0);
 		const bodyHidden = observableValue(this, false);
 		let uris: Parameters<IResourceHeaderMetadata['setUris']>[0];
 		const refresh = () => {
 			const entry = uris && this.entries().find(entry => sameResource(entry.original, uris!.original) && sameResource(entry.modified, uris!.modified));
-			const section = entry?.section;
+			const section = sticky && entry?.sectionId
+				? this.entries().find(candidate => candidate.sectionId === entry.sectionId && candidate.section)?.section
+				: entry?.section;
 			bodyHidden.set(entry?.sectionCollapsed ?? false, undefined);
 			element.replaceChildren(); element.className = 'review-diff-group'; element.hidden = !section;
 			height.set(section ? 48 : 0, undefined);

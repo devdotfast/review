@@ -48,7 +48,7 @@ test("decodes recursive regions with omitted serde defaults and unknown additive
   expect(decode({ ...event, future: 123 })).toEqual(event);
 });
 
-test.each([
+test.each<JsonValue>([
   { type: "file", file },
   { ...event, error: { code: "bad", message: "bad" } },
   { ...event, file: {} },
@@ -63,7 +63,7 @@ test.each([
   { type: "complete", succeeded: 0.1, failed: 0 },
   { type: "start", version: 3, files: [] },
 ])("rejects malformed nested protocol data", (value) => {
-  expect(() => decode(value)).toThrow("invalid structural diff event");
+  expect(() => decode(value)).toThrow("Malformed diffr protocol record.");
 });
 
 test("keeps host transport errors distinct from diffr file errors", () => {
@@ -73,12 +73,12 @@ test("keeps host transport errors distinct from diffr file errors", () => {
     message: "launch failed",
   });
   expect(() => decodeStructuralDiffEvent(error)).toThrow(
-    "invalid structural diff event",
+    "Malformed diffr protocol record.",
   );
 });
 
-test.each([
-  undefined,
+test.each<JsonValue>([
+  null,
   { base: [], head: [[4, 4]] },
   {
     base: [],

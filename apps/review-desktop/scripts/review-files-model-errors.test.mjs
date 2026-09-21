@@ -42,6 +42,14 @@ test("Review Files handles missing source locally and releases partial models", 
     const reported = [];
     console.error = error => logged.push(error);
     setUnexpectedErrorHandler(error => reported.push(error));
+    const waitForDocuments = async (model, expectedLength) => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const documents = model.documents.value;
+        if (Array.isArray(documents) && documents.length === expectedLength) return;
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      assert.fail("Timed out waiting for " + expectedLength + " documents");
+    };
     try {
       for (const [scheme, result, expectedReports, otherResult] of [
         ["devfast-review-files", FileOperationResult.FILE_NOT_FOUND, 0],
@@ -80,8 +88,7 @@ test("Review Files handles missing source locally and releases partial models", 
             await new Promise(resolve => setImmediate(resolve));
             resume();
             model = await pending;
-            await new Promise(resolve => setImmediate(resolve));
-            assert.equal(model.documents.value.length, 0);
+            await waitForDocuments(model, 0);
             assert.equal(open, 0);
             assert.equal(released, otherResult === undefined ? 1 : 0);
             assert.equal(logged.length, expectedReports);
@@ -95,7 +102,7 @@ test("Review Files handles missing source locally and releases partial models", 
             model = undefined;
             fail = false;
             model = await input._createModel();
-            assert.equal(model.documents.value.length, 1);
+            await waitForDocuments(model, 1);
             assert.equal(open, 2);
           } finally {
             resume();

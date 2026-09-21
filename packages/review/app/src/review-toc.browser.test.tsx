@@ -96,7 +96,7 @@ describe("ReviewToc", () => {
     });
     expect(tocLabels()).toEqual(["Interface change", "Scheduling sequence"]);
     expect(
-      document.querySelector(".review-toc-toggle-number")?.textContent?.trim(),
+      document.querySelector(".review-toc-number")?.textContent?.trim(),
     ).toBe("1");
     expect(
       document.querySelector(".review-toc-toggle")?.textContent,

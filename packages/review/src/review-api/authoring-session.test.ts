@@ -209,7 +209,11 @@ it("rejects a slow edit after its lease expires and a new author takes over", as
           type: "insert",
           content: {
             type: "code_peek",
-            source: { side: "head", file: "a.ts", fromLine: 1, toLine: 1 },
+            source: {
+              file: "a.ts",
+              start: { side: "head", line: 1 },
+              end: { side: "head", line: 1 },
+            },
           },
         },
       },
@@ -256,7 +260,11 @@ it("rejects a stale one-off edit when another connection commits during validati
         type: "insert",
         content: {
           type: "code_peek",
-          source: { side: "head", file: "a.ts", fromLine: 1, toLine: 1 },
+          source: {
+            file: "a.ts",
+            start: { side: "head", line: 1 },
+            end: { side: "head", line: 1 },
+          },
         },
       },
     }),

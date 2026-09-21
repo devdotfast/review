@@ -423,10 +423,9 @@ it("authors through CLI and MCP without Desktop and retains source, unfinished s
           content: {
             type: "code_peek",
             source: {
-              side: "head",
               file: "missing.ts",
-              fromLine: 1,
-              toLine: 1,
+              start: { side: "head", line: 1 },
+              end: { side: "head", line: 1 },
             },
           },
         },

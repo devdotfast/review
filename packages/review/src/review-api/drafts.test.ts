@@ -240,7 +240,11 @@ it("retains an invalid draft for correction while validating pins, references, s
     document: [
       {
         type: "code_peek",
-        source: { side: "head", file: "missing.ts", fromLine: 1, toLine: 1 },
+        source: {
+          file: "missing.ts",
+          start: { side: "head", line: 1 },
+          end: { side: "head", line: 1 },
+        },
       },
     ],
   });

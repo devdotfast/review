@@ -212,7 +212,7 @@ export function ShareControl() {
                   disabled={account.pending || busy}
                   onClick={() => void run(login)}
                 >
-                  {account.pending ? "Waiting for GitHub…" : "Sign in to share"}
+                  {account.pending ? "Waiting for sign-in…" : "Sign in to share"}
                 </button>
               </>
             )

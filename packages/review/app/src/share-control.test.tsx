@@ -145,7 +145,7 @@ it("asks a signed-out user to sign in, then uploads the version chosen before lo
   ).toEqual(["Sign in to share"]);
   expect(publishes(harness)).toHaveLength(0);
   await harness.click("Sign in to share");
-  expect(container.textContent).toContain("Waiting for GitHub…");
+  expect(container.textContent).toContain("Waiting for sign-in…");
   expect(container.querySelector("[role=dialog] a")).toBeNull();
   await harness.render(5);
   await vi.waitFor(

@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { createInterface } from "node:readline";
 
 import {
@@ -23,9 +25,22 @@ export function diffrExecutable(): string {
   return process.env.REVIEW_DIFFR_BINARY || "diffr";
 }
 
+export function bundledDiffrBinary(packageRoot: string): string {
+  return path.join(packageRoot, "bin", "diffr");
+}
+
+export function applyBundledDiffrBinary(
+  packageRoot: string,
+  env: NodeJS.ProcessEnv,
+): void {
+  if (env.REVIEW_DIFFR_BINARY) return;
+  const bundled = bundledDiffrBinary(packageRoot);
+  if (existsSync(bundled)) env.REVIEW_DIFFR_BINARY = bundled;
+}
+
 export function diffrMissingError(): Error {
   return new Error(
-    "Cannot find diffr. Install it on the Review host PATH or set REVIEW_DIFFR_BINARY to its executable, then restart Review.",
+    `Cannot find diffr at ${diffrExecutable()}. Review Desktop bundles it at bin/diffr under its runtime; in a checkout, run \`pnpm --filter @dev.fast/review ensure:diffr\` or set REVIEW_DIFFR_BINARY, then restart Review.`,
   );
 }
 

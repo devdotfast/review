@@ -11,6 +11,7 @@ import { ReviewTelemetry } from "../review-telemetry";
 import { SharedReviewStore } from "../sharing/import.js";
 import { listenForDesktopHostShutdown } from "./desktop-host-shutdown";
 import { createGlobalReviewServer } from "./desktop-server";
+import { applyBundledDiffrBinary } from "./structural-diff";
 
 export async function runDesktopHost(
   env: NodeJS.ProcessEnv = process.env,
@@ -25,6 +26,7 @@ export async function runDesktopHost(
 
   const packageRoot = findReviewPackageRoot(import.meta.url);
   const toolingRoot = env.DEV_FAST_REVIEW_TOOLING_ROOT || packageRoot;
+  applyBundledDiffrBinary(packageRoot, env);
   const telemetryEnv = { ...env };
   delete telemetryEnv.DEV_FAST_REVIEW_TELEMETRY_DISABLED;
   const telemetry = ReviewTelemetry.fromEnv(telemetryEnv);

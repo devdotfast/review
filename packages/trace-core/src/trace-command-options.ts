@@ -2,8 +2,7 @@ import type { Writable } from "node:stream";
 
 import type { Command } from "commander";
 
-import type { TraceHookOwner } from "./agent-trace-hooks";
-import type { CliInputStream, CliJsonOutput } from "./cli-output";
+import type { CliInputStream } from "./cli-output";
 import type {
   runTraceDisable,
   runTraceEnable,
@@ -49,7 +48,7 @@ export interface TracePullCommandInput {
   stderr: Writable;
 }
 
-/** The trace subset of a CLI runtime; both CLIs satisfy it structurally. */
+/** The trace subset of a CLI runtime; implemented by the Review runtime. */
 export interface TraceCommandRuntime {
   runTraceStatus: typeof runTraceStatus;
   runTraceEnable: typeof runTraceEnable;
@@ -73,11 +72,6 @@ export interface TraceCommandRuntime {
 
 export interface RegisterTraceCommandsOptions {
   runtime: TraceCommandRuntime;
-  cliName: TraceHookOwner;
-  /** "review" adds `--review <uuid>`; "repository" makes `--commit` required on list. */
-  reads: "review" | "repository";
-  /** Adds `--storage <mode>` to the read commands. */
-  storageOverride: boolean;
   traceCommand: TraceCommand;
   scope: TraceScope;
   cwd: string;
@@ -91,14 +85,8 @@ export interface RegisterTraceCommandsOptions {
   /** Receives every action's exit code. */
   setExitCode: (code: number) => void;
   /**
-   * The command `allow` names on its last line, such as `dev-traces check`.
+   * The command `allow` names on its last line, such as `review trace status`.
    * `<prefix> status` when absent.
    */
   verifyCommand?: string;
-  /**
-   * Installs the CLI itself, and reports the command the harness hooks call.
-   * Only a CLI that ships its own command file supplies this; `install` then
-   * names that command file too.
-   */
-  installMachine?: (output: CliJsonOutput) => Promise<TraceCommand>;
 }

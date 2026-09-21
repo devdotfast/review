@@ -55,11 +55,7 @@ export function registerTraceHookCommands(
   configureOutput(
     trace
       .command("hook <event>", { hidden: true })
-      .description(
-        settings.cliName === "review"
-          ? "Handle agent session lifecycle hooks"
-          : `Handle ${settings.cliName} agent session lifecycle hooks`,
-      )
+      .description("Handle agent session lifecycle hooks")
       .option("--session <id>", "Agent session ID"),
   ).action(
     async (

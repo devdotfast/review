@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import type { RegisterTraceCommandsOptions } from "./trace-command-options";
 import { addTraceStorageOption } from "./trace-command-storage-option";
 
-/** Registers trace reads for the selected audience; never resolves Review state. */
+/** Registers Review trace reads; never resolves Review state. */
 export function registerTraceReadCommands(
   trace: Command,
   settings: RegisterTraceCommandsOptions,
@@ -11,30 +11,22 @@ export function registerTraceReadCommands(
   const { runtime, cwd, configureJsonOutput } = settings;
 
   const withStorage = <T extends Command>(command: T): T =>
-    addTraceStorageOption(command, settings.storageOverride);
+    addTraceStorageOption(command);
 
   const listOptions = (command: Command): Command =>
-    settings.reads === "review"
-      ? command
-          .option("--review <uuid>", "review UUID")
-          .option("--commit <sha>", "commit or revision")
-      : command.requiredOption("--commit <sha>", "commit or revision");
+    command
+      .option("--review <uuid>", "review UUID")
+      .option("--commit <sha>", "commit or revision");
 
   const pullOptions = (command: Command): Command =>
-    settings.reads === "review"
-      ? command.option("--review <uuid>", "pull sessions for one Review")
-      : command;
+    command.option("--review <uuid>", "pull sessions for one Review");
 
   configureJsonOutput(
     withStorage(
       listOptions(
         trace
           .command("list")
-          .description(
-            settings.reads === "review"
-              ? "List agent sessions for a Review or commit"
-              : "List agent sessions for one commit",
-          ),
+          .description("List agent sessions for a Review or commit"),
       ),
     ),
   ).action(

@@ -177,11 +177,7 @@ describe("the OpenCode configuration base", () => {
     const xdg = path.join(homeDir, "xdg");
     const env: NodeJS.ProcessEnv = { XDG_CONFIG_HOME: xdg };
 
-    const result = await installOpenCodeTraceExtension(
-      homeDir,
-      "dev-traces",
-      env,
-    );
+    const result = await installOpenCodeTraceExtension(homeDir, "review", env);
 
     const expected = path.join(xdg, "opencode", "plugins", "review-trace.ts");
     expect(result.path).toBe(expected);
@@ -195,11 +191,9 @@ describe("the OpenCode configuration base", () => {
     );
     expect(agentTraceHookPath("opencode", homeDir, env)).toBe(expected);
     expect((await describeTraceHookOwners(homeDir, env)).opencode).toBe(
-      "dev-traces",
+      "review",
     );
-    expect(
-      await removeAgentTraceHook("opencode", homeDir, "dev-traces", env),
-    ).toBe(true);
+    expect(await removeAgentTraceHook("opencode", homeDir, env)).toBe(true);
     expect(existsSync(expected)).toBe(false);
   });
 
@@ -229,8 +223,8 @@ describe("hook ownership", () => {
       );
     }
 
-    expect(traceHookCommandOwner("dev-traces trace hook SessionEnd")).toBe(
-      "dev-traces",
+    expect(traceHookCommandOwner("review trace hook SessionEnd")).toBe(
+      "review",
     );
 
     for (const command of [
@@ -247,7 +241,7 @@ describe("hook ownership", () => {
     }
   });
 
-  it("replaces owned commands in place and removes only the selected owner", async () => {
+  it("replaces owned commands in place and removes Review hooks", async () => {
     const home = await makeTempHome();
     expect(await describeTraceHookOwners(home)).toEqual({
       claude: null,
@@ -263,18 +257,17 @@ describe("hook ownership", () => {
       installOpenCodeTraceExtension,
     ]) {
       await install(home);
-      const shim = "/it's a path/dev-traces";
+      const shim = "/it's a path/review";
       const result = await install(home, shim);
       expect(result.modified).toBe(true);
       expect((await install(home, shim)).modified).toBe(false);
-      expect(await removeAgentTraceHook(result.agent, home)).toBe(false);
     }
 
     expect(await describeTraceHookOwners(home)).toEqual({
-      claude: "dev-traces",
-      codex: "dev-traces",
-      pi: "dev-traces",
-      opencode: "dev-traces",
+      claude: "review",
+      codex: "review",
+      pi: "review",
+      opencode: "review",
     });
 
     const claude = JSON.parse(
@@ -286,7 +279,7 @@ describe("hook ownership", () => {
     expect(codex.match(/\[\[hooks.SessionStart\]\]/g)).toHaveLength(1);
 
     for (const agent of ["claude", "codex", "pi", "opencode"] as const) {
-      expect(await removeAgentTraceHook(agent, home, "dev-traces")).toBe(true);
+      expect(await removeAgentTraceHook(agent, home)).toBe(true);
     }
 
     expect(await readFile(path.join(home, ".codex/config.toml"), "utf8")).toBe(
@@ -297,23 +290,6 @@ describe("hook ownership", () => {
       codex: null,
       pi: null,
       opencode: null,
-    });
-  });
-
-  it("switches both CLI owners back to Review without duplicate lifecycle entries", async () => {
-    const home = await makeTempHome();
-
-    for (const install of [installClaudeTraceHook, installCodexTraceHook]) {
-      await install(home, "dev-traces");
-      expect((await install(home)).modified).toBe(true);
-      expect((await install(home)).modified).toBe(false);
-    }
-
-    expect(await describeTraceHookOwners(home)).toEqual({
-      claude: "review",
-      codex: "review",
-      opencode: null,
-      pi: null,
     });
   });
 
@@ -330,8 +306,8 @@ describe("hook ownership", () => {
     config.hooks.SessionStart[0].hooks.push(foreign);
     config.hooks.SessionStart[0].matcher = "keep";
     await writeFile(result.path, JSON.stringify(config));
-    await installClaudeTraceHook(home, "dev-traces");
-    await removeAgentTraceHook("claude", home, "dev-traces");
+    await installClaudeTraceHook(home, "review");
+    await removeAgentTraceHook("claude", home);
     const remaining = JSON.parse(await readFile(result.path, "utf8"));
     expect(remaining.hooks.SessionStart).toEqual([
       { matcher: "keep", hooks: [foreign] },
@@ -352,15 +328,13 @@ describe("hook ownership", () => {
       await writeFile(file, original);
       expect(await removeAgentTraceHook("codex", home)).toBe(false);
       expect(await readFile(file, "utf8")).toBe(original);
-      await installCodexTraceHook(home, "dev-traces");
-      expect(await removeAgentTraceHook("codex", home, "dev-traces")).toBe(
-        true,
-      );
+      await installCodexTraceHook(home, "review");
+      expect(await removeAgentTraceHook("codex", home)).toBe(true);
       expect(await readFile(file, "utf8")).toBe(original);
     }
   });
 
-  it("preserves foreign Codex hooks and unrelated command lines across ownership changes", async () => {
+  it("preserves foreign Codex hooks and unrelated command lines when changing the Review executable", async () => {
     const home = await makeTempHome();
     await mkdir(path.join(home, ".codex"));
 
@@ -378,10 +352,9 @@ command = "review trace hook SessionStart"
     await writeFile(file, foreign);
     await installCodexTraceHook(home);
     expect((await describeTraceHookOwners(home)).codex).toBe("review");
-    await installCodexTraceHook(home, "/it's a path/dev-traces");
+    await installCodexTraceHook(home, "/it's a path/review");
     expect(await readFile(file, "utf8")).toContain(foreign.trimEnd());
-    expect(await removeAgentTraceHook("codex", home)).toBe(false);
-    expect(await removeAgentTraceHook("codex", home, "dev-traces")).toBe(true);
+    expect(await removeAgentTraceHook("codex", home)).toBe(true);
     expect((await readFile(file, "utf8")).trimEnd()).toBe(foreign.trimEnd());
   });
 
@@ -426,57 +399,44 @@ command = "review trace hook SessionStart"
   }
 });
 
-describe("hook coexistence", () => {
-  const installers = [
-    installClaudeTraceHook,
-    installCodexTraceHook,
-    installPiTraceExtension,
-    installOpenCodeTraceExtension,
-  ];
+describe("Desktop and npm Review coexistence", () => {
+  it.each(["desktop", "npm"])(
+    "keeps the first working %s install across harness refreshes",
+    async (first) => {
+      const home = await makeTempHome();
+      const desktop = path.join(home, ".local/bin/review");
+      const npm = path.join(home, "npm/bin/review");
 
-  it("Review takes ownership from standalone and standalone preserves Review", async () => {
-    const home = await makeTempHome();
-    const reviewShim = path.join(home, ".local", "bin", "review");
-    const tracesShim = path.join(home, ".local", "bin", "dev-traces");
-    await mkdir(path.dirname(reviewShim), { recursive: true });
-    await writeFile(reviewShim, "#!/bin/sh\n");
-    await writeFile(tracesShim, "#!/bin/sh\n");
+      for (const command of [desktop, npm]) {
+        await mkdir(path.dirname(command), { recursive: true });
+        await writeFile(command, "#!/bin/sh\n", { mode: 0o755 });
+      }
 
-    for (const install of installers) {
-      await install(home, tracesShim);
-      expect((await install(home, reviewShim)).modified).toBe(true);
-    }
+      const initial = first === "desktop" ? desktop : npm;
+      const later = first === "desktop" ? npm : desktop;
 
-    for (const install of installers) {
-      expect(await install(home, tracesShim)).toMatchObject({
-        modified: false,
-        kept: "review",
-      });
-      // The owner still rewrites its own hook.
-      expect((await install(home, reviewShim)).modified).toBe(false);
-    }
+      for (const install of [
+        installClaudeTraceHook,
+        installCodexTraceHook,
+        installPiTraceExtension,
+        installOpenCodeTraceExtension,
+      ]) {
+        const hook = await install(home, initial);
+        const before = await readFile(hook.path, "utf8");
+        expect((await install(home, later)).modified).toBe(false);
+        expect(await readFile(hook.path, "utf8")).toBe(before);
+      }
 
-    expect(await describeTraceHookOwners(home)).toEqual({
-      claude: "review",
-      codex: "review",
-      pi: "review",
-      opencode: "review",
-    });
+      await rm(initial);
 
-    // A hook whose command file is gone is replaced.
-    await rm(reviewShim);
-
-    for (const install of installers) {
-      const replaced = await install(home, tracesShim);
-      expect(replaced.modified).toBe(true);
-      expect(replaced.kept).toBeUndefined();
-    }
-
-    expect(await describeTraceHookOwners(home)).toEqual({
-      claude: "dev-traces",
-      codex: "dev-traces",
-      pi: "dev-traces",
-      opencode: "dev-traces",
-    });
-  });
+      for (const install of [
+        installClaudeTraceHook,
+        installCodexTraceHook,
+        installPiTraceExtension,
+        installOpenCodeTraceExtension,
+      ]) {
+        expect((await install(home, later)).modified).toBe(true);
+      }
+    },
+  );
 });

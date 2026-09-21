@@ -5,17 +5,15 @@ import { jsonArray, jsonString, parseJsonText } from "@dev.fast/json";
 import { gitAt } from "@dev.fast/local-vcs";
 import { z } from "zod";
 
-import {
-  type TraceHookOwner,
-  traceGitHookCommandOwner,
-} from "./agent-trace-hooks";
 import { writeFileAtomicAsync } from "./atomic-write";
 import {
   type TraceCommand,
   type TraceScope,
+  keepTraceExecutable,
   renderTraceCommand,
   resolveTraceCommand,
   shellQuote,
+  traceCommandExecutable,
   traceHomeDir,
 } from "./trace-command";
 
@@ -95,13 +93,23 @@ export async function enableTraceRepository(input: {
 
   const homeDir = input.scope.homeDir;
 
-  const reviewCommand = renderTraceCommand(
+  let reviewCommand = renderTraceCommand(
     resolveTraceCommand({
       explicit: input.reviewCommand,
       env: input.scope.env,
       homeDir,
     }),
   );
+
+  if (
+    alreadyManaged &&
+    oldState?.command &&
+    keepTraceExecutable(
+      traceCommandExecutable(oldState.command),
+      traceCommandExecutable(reviewCommand) ?? "",
+    )
+  )
+    reviewCommand = oldState.command;
 
   const state: RepositoryHookState = {
     version: 1,
@@ -252,26 +260,25 @@ export async function traceRepositoryStatus(
   return status;
 }
 
-/**
- * Disables the Git hooks of every registered repository, returning the roots
- * it disabled. With an owner, a repository whose hooks call the other CLI
- * keeps them and its root is returned under `kept`. A state file without a
- * command came from an older `review`, so only a `review` owner disables it.
- */
+/** Disables registered hooks, preserving other live executables when scoped. */
 export async function disableAllTraceRepositories(
   scope: TraceScope,
-  options: { owner?: TraceHookOwner } = {},
+  expectedCommand?: string,
 ): Promise<{ disabled: string[]; kept: string[] }> {
   const registry = await readRegistry(scope.homeDir);
   const disabled: string[] = [];
   const kept: string[] = [];
 
   for (const root of registry) {
-    if (options.owner) {
+    if (expectedCommand !== undefined) {
       const status = await traceRepositoryStatus(root).catch(() => null);
-      const owner = traceGitHookCommandOwner(status?.command) ?? "review";
 
-      if (owner !== options.owner) {
+      if (
+        keepTraceExecutable(
+          traceCommandExecutable(status?.command),
+          expectedCommand,
+        )
+      ) {
         kept.push(root);
         continue;
       }

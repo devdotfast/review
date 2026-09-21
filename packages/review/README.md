@@ -1,7 +1,10 @@
 # dev.fast Review
 
-dev.fast Review is a JSON review canvas hosted by Review Desktop. The server
-owns review discovery, session state, and presentation. Legacy reviews
+The `@dev.fast/review` package provides the `review` CLI for headless review
+authoring, sharing, and agent trace capture. It requires Node 24.
+`review server` and `review trace` run without installing or starting Desktop.
+Review Desktop displays the review canvas; its server owns review discovery,
+session state, and presentation. Legacy reviews
 published with the removed MDX toolchain have a durable UUID directory under
 `${DEV_REVIEW_HOME:-~/.dev}/reviews/<uuid>/` and are imported into the JSON
 store when Home lists them or when they are opened.

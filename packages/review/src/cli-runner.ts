@@ -375,15 +375,17 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
 
   const writeAppEvent = (
     event: ReviewAppLaunchEvent | ReviewAppEvent,
-    json: boolean | undefined,
+    options: { json?: boolean; focus?: boolean },
   ) => {
-    if (json) {
+    if (options.json) {
       input.stdout.write(`${JSON.stringify(event)}\n`);
     } else if (event.action === "launch") {
       input.stdout.write(
         event.state === "running"
           ? "Review Desktop is already running.\n"
-          : "Review Desktop is ready in the background. Pass --focus to bring it forward.\n",
+          : options.focus
+            ? "Review Desktop is ready.\n"
+            : "Review Desktop is ready in the background. Pass --focus to bring it forward.\n",
       );
     } else {
       input.stdout.write(`Review Desktop is showing "${event.title}".\n`);
@@ -413,14 +415,14 @@ export async function runReviewCli(input: ReviewCliInput): Promise<number> {
       return;
     }
 
-    writeAppEvent(event, options.json);
+    writeAppEvent(event, options);
     state.exitCode = 0;
   };
 
   const launchApp = async (options: { focus?: boolean; json?: boolean }) => {
     const event = await runtime.runReviewAppLaunch({ focus: options.focus });
 
-    writeAppEvent(event, options.json);
+    writeAppEvent(event, options);
     state.exitCode = 0;
   };
 

@@ -317,6 +317,42 @@ describe("Review CLI", () => {
     },
   );
 
+  it.each([
+    [
+      [],
+      "Review Desktop is ready in the background. Pass --focus to bring it forward.",
+    ],
+    [["--focus"], "Review Desktop is ready."],
+  ] as const)(
+    "describes a fresh launch according to the flag: %j",
+    async (flags, line) => {
+      const runReviewAppLaunch = vi.fn<typeof runReviewAppLaunchActual>(
+        async () => ({
+          event: "app",
+          action: "launch",
+          state: "launched",
+          instanceId: "desktop-1",
+        }),
+      );
+
+      const stdout = outputStream();
+      let output = "";
+      stdout.on("data", (chunk) => (output += String(chunk)));
+
+      await expect(
+        runReviewCli({
+          argv: ["app", "launch", ...flags],
+          cwd: "/outside-a-repository",
+          stdin: Readable.from([]),
+          stdout,
+          stderr: outputStream(),
+          runtime: { runReviewAppLaunch },
+        }),
+      ).resolves.toBe(0);
+      expect(output).toBe(`${line}\n`);
+    },
+  );
+
   it("passes --focus through app pick", async () => {
     const runReviewAppPick = vi.fn<typeof runReviewAppActual>(async () => ({
       event: "app",
